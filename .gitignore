@@ -1,0 +1,58 @@
+
+---
+
+## Нормальный `.gitignore` для твоего проекта
+
+И тоже с пояснением по строкам.
+
+```gitignore
+# Кэш Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Виртуальные окружения
+.venv/
+venv/
+env/
+
+# Служебные файлы Jupyter / Colab
+.ipynb_checkpoints/
+
+# Секреты и env-файлы
+.env
+.env.*
+*.secret
+
+# Файлы с credential-данными
+client_secret*.json
+service_account*.json
+oauth*.json
+credentials*.json
+
+# Служебные файлы системы и редакторов
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Логи и временные файлы
+*.log
+tmp/
+temp/
+*.tmp
+
+# Сгенерированные медиа и результаты
+*.wav
+*.mp3
+*.m4a
+*.flac
+*.mp4
+*.mkv
+output/
+outputs/
+exports/
+transcripts/
+manifests/
+manifest*.json
