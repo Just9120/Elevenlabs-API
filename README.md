@@ -1,83 +1,83 @@
-# Transcription Workflow
+# Workflow транскрибации в Google Docs
 
-Colab-based workflow for transcribing long audio and video files into Google Docs.
+Colab-based workflow для транскрибации длинных аудио- и видеофайлов в Google Docs.
 
-## What this project does
+## Что делает проект
 
-This project is designed for quality-first transcription of long Russian-language lectures, webinars, meetings, and study recordings.
+Этот проект предназначен для quality-first транскрибации длинных русскоязычных лекций, вебинаров, созвонов и учебных записей.
 
-Main workflow:
-- source selection from local upload or Google Drive
-- audio extraction from video when needed
-- transcription through ElevenLabs as the primary provider
-- OpenAI as fallback provider
-- output directly to Google Docs
-- manifest protection against duplicate paid runs
-- import of existing transcripts into manifest without re-transcription
+Основной сценарий работы:
+- выбор источника из локальной загрузки или Google Drive;
+- извлечение аудио из видео при необходимости;
+- транскрибация через ElevenLabs как основной провайдер;
+- fallback через OpenAI при необходимости;
+- сохранение результата напрямую в Google Docs;
+- защита от повторной траты кредитов через manifest;
+- импорт уже существующих транскриптов в manifest без повторной транскрибации.
 
-## Current provider strategy
+## Основная стратегия провайдеров
 
-- Primary: `ElevenLabs / scribe_v2`
+- Основной провайдер: `ElevenLabs / scribe_v2`
 - Fallback: `OpenAI / gpt-4o-transcribe`
-- For speaker-separated meeting transcription: `OpenAI / gpt-4o-transcribe-diarize`
+- Для созвонов с разделением по спикерам: `OpenAI / gpt-4o-transcribe-diarize`
 
-## Current status
+## Текущий статус
 
-Current main candidate version is based on the improved OpenAI fallback workflow with:
-- provider dropdown
-- Russian / Auto-detect language mode
-- speaker split option
-- smart split for OpenAI size limits
-- overlap-aware merge
-- silence-aware split
-- no crash when `OPENAI_API_KEY` is missing unless OpenAI is actually selected
+Текущая основная кандидатная версия основана на workflow с:
+- выбором провайдера;
+- режимами языка `Русский / Автоопределение`;
+- опцией разделения по спикерам;
+- smart split для ограничений OpenAI по размеру файла;
+- overlap-aware merge;
+- silence-aware split;
+- защитой от падения при отсутствии `OPENAI_API_KEY`, если OpenAI не выбран.
 
-Important:
-- ElevenLabs path is the main production path
-- OpenAI fallback is implemented, but not all branches are fully validated by real end-to-end tests yet
-- OpenAI diarization with chunking has known limitations on long recordings
+Важно:
+- основной production-путь сейчас — ElevenLabs;
+- OpenAI fallback добавлен архитектурно, но не все ветки ещё подтверждены полными реальными end-to-end прогонами;
+- для OpenAI diarization + chunking есть известные ограничения.
 
-## Key features
+## Основные возможности
 
-- Google Colab-based workflow
-- Google Drive source support
-- Google Docs output only
-- output folder picker
-- multiple source modes
-- conflict modes
-- chunked insert to Google Docs
-- manifest with status tracking
-- import existing transcripts / backfill
-- optional keyterms
-- optional speaker split
+- работа из Google Colab;
+- поддержка Google Drive как источника;
+- сохранение результата только в Google Docs;
+- выбор output folder;
+- несколько source modes;
+- conflict modes;
+- chunked insert в Google Docs;
+- manifest со статусами обработки;
+- import existing / backfill;
+- поддержка keyterms;
+- optional speaker split.
 
-## Source modes
+## Поддерживаемые режимы источника
 
-Supported source modes:
-- local computer: single file
-- local computer: multiple files
-- Google Drive: single file
-- Google Drive: folder
+Поддерживаются 4 режима:
+- компьютер: один файл;
+- компьютер: несколько файлов;
+- Google Drive: один файл;
+- Google Drive: папка.
 
-## Output
+## Формат результата
 
-Output target:
-- Google Docs only
+Итоговый результат сохраняется:
+- только в Google Docs.
 
-Not used as final output:
-- local transcript files
-- JSON transcript exports
+Не используется как финальный результат:
+- локальные transcript-файлы;
+- JSON-экспорты транскриптов.
 
-## Secrets
+## Секреты
 
-Secrets should not be stored in code.
+Секреты не должны храниться в коде.
 
-Use Google Colab Secrets / userdata for:
+Для работы используются Google Colab Secrets / userdata:
 - `ELEVENLABS_API_KEY`
-- `OPENAI_API_KEY` (optional, only needed for OpenAI fallback)
-- other Google-related credentials if applicable
+- `OPENAI_API_KEY` — опционально, нужен только для OpenAI fallback
+- другие Google-related credentials при необходимости
 
-Example pattern:
+Пример получения секретов:
 
 ```python
 from google.colab import userdata
