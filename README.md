@@ -84,3 +84,18 @@ from google.colab import userdata
 
 ELEVENLABS_API_KEY = userdata.get("ELEVENLABS_API_KEY")
 OPENAI_API_KEY = userdata.get("OPENAI_API_KEY")
+```
+
+## Документация
+
+Дополнительная документация по проекту вынесена в папку `docs/`:
+
+- `docs/PROJECT_OVERVIEW.md` — обзор проекта и его роли;
+- `docs/ARCHITECTURE.md` — архитектурная схема и ключевые принципы;
+- `docs/SETUP_AND_SECRETS.md` — настройка и безопасная работа с секретами;
+- `docs/RUNBOOK.md` — практический runbook по запуску и эксплуатации;
+- `docs/KNOWN_LIMITATIONS.md` — честный список текущих ограничений и риск-зон.
+
+## Ближайший зрелый шаг
+
+Следующий важный шаг для репозитория — добавить канонический `.py` файл как основной кодовый артефакт для review и PR workflow. `.ipynb` при необходимости можно держать как Colab shell, но не как единственный source of truth.
