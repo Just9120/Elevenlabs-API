@@ -20,7 +20,7 @@ Notebook outputs can leak sensitive values, request payload details, or provider
 Security baseline in this PR:
 - provider HTTP errors are logged with **safe diagnostics only**;
 - raw response bodies are **not** printed to Colab output;
-- only provider name, status code, endpoint without query parameters, and selected safe JSON fields are logged (`detail`, `message`, `error`, `code`, `type`).
+- only provider name, status code, endpoint without query parameters, and selected safe scalar JSON fields are logged (`detail`, `message`, `code`, `type`, `error.message`, `error.type`, `error.code`).
 
 ## Generated media and transcripts
 
