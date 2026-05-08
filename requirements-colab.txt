@@ -1,0 +1,9 @@
+# Minimal dependencies for Google Colab runtime workflow
+# Install in Colab when running as .py script:
+# !pip install -r requirements-colab.txt
+
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib
+requests
+ipywidgets

@@ -1220,6 +1220,46 @@ def build_transcription_form_data(options: TranscriptionRuntimeOptions) -> list[
     return data
 
 
+
+
+def log_safe_http_error(provider: str, response: requests.Response):
+    parsed_url = urlparse(response.url or "")
+    safe_endpoint = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}" if parsed_url.scheme and parsed_url.netloc else (response.url or "")
+
+    print(f"HTTP ошибка провайдера {provider}:")
+    print(f"  status_code: {response.status_code}")
+    print(f"  endpoint: {safe_endpoint}")
+
+    try:
+        payload = response.json()
+    except ValueError:
+        print("  safe_error_fields: <non-json response body omitted>")
+        return
+
+    if not isinstance(payload, dict):
+        print("  safe_error_fields: <no safe scalar error fields present>")
+        return
+
+    scalar_types = (str, int, float, bool)
+    extracted = {}
+
+    for key in ("detail", "message", "code", "type"):
+        value = payload.get(key)
+        if isinstance(value, scalar_types):
+            extracted[key] = value
+
+    nested_error = payload.get("error")
+    if isinstance(nested_error, dict):
+        for key in ("message", "type", "code"):
+            value = nested_error.get(key)
+            if isinstance(value, scalar_types):
+                extracted[f"error.{key}"] = value
+
+    if extracted:
+        print(f"  safe_error_fields: {json.dumps(extracted, ensure_ascii=False)}")
+    else:
+        print("  safe_error_fields: <no safe scalar error fields present>")
+
 def build_openai_prompt_from_keyterms(options: TranscriptionRuntimeOptions) -> Optional[str]:
     if options.separate_speakers:
         return None
@@ -1268,8 +1308,7 @@ def transcribe_fileobj(
         ) from e
 
     except requests.HTTPError:
-        print("Ошибка ElevenLabs:")
-        print(resp.text)
+        log_safe_http_error("ElevenLabs", resp)
         raise
 
     except requests.exceptions.RequestException as e:
@@ -1716,8 +1755,7 @@ def transcribe_openai_fileobj(
         )
         resp.raise_for_status()
     except requests.HTTPError:
-        print("Ошибка OpenAI STT:")
-        print(resp.text)
+        log_safe_http_error("OpenAI STT", resp)
         raise
     except requests.exceptions.RequestException as e:
         raise RuntimeError(f"Ошибка запроса к OpenAI STT: {e}") from e
