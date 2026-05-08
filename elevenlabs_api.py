@@ -47,8 +47,10 @@ def get_colab_secret_or_none(name: str) -> Optional[str]:
 # =========================
 # 1) НАСТРОЙКИ
 # =========================
+ELEVENLABS_API_KEY = get_colab_secret_or_none("ELEVENLABS_API_KEY")
 ELEVEN_API_KEY = get_colab_secret_or_none("ELEVEN_API_KEY")
 OPENAI_API_KEY = get_colab_secret_or_none("OPENAI_API_KEY")
+ELEVENLABS_EFFECTIVE_API_KEY = ELEVENLABS_API_KEY or ELEVEN_API_KEY
 
 MODEL_ID = "scribe_v2"
 OPENAI_DEFAULT_MODEL = "gpt-4o-transcribe"
@@ -225,8 +227,8 @@ class RunExecutionContext:
 
 
 def ensure_provider_api_key(options: TranscriptionRuntimeOptions):
-    if options.provider == "elevenlabs" and not ELEVEN_API_KEY:
-        raise ValueError("Секрет ELEVEN_API_KEY не найден в Colab Secrets.")
+    if options.provider == "elevenlabs" and not ELEVENLABS_EFFECTIVE_API_KEY:
+        raise ValueError("Секрет ELEVENLABS_API_KEY не найден в Colab Secrets (legacy fallback: ELEVEN_API_KEY).")
     if options.provider == "openai" and not OPENAI_API_KEY:
         raise ValueError("Секрет OPENAI_API_KEY не найден в Colab Secrets.")
 
@@ -1240,7 +1242,7 @@ def transcribe_fileobj(
     url = "https://api.elevenlabs.io/v1/speech-to-text"
 
     headers = {
-        "xi-api-key": ELEVEN_API_KEY,
+        "xi-api-key": ELEVENLABS_EFFECTIVE_API_KEY,
         "Accept": "application/json",
         "Connection": "close",
     }
