@@ -73,6 +73,8 @@ OPENAI_API_KEY = userdata.get("OPENAI_API_KEY")
 - модель работы с секретами;
 - known limitations и текущие риск-зоны.
 
-## Ближайший зрелый шаг
+## Текущее состояние репозитория
 
-Следующий важный шаг для репозитория — добавить канонический `.py` файл как основной кодовый артефакт для review и PR workflow. `.ipynb` при необходимости можно держать как Colab shell, но не как единственный source of truth.
+Канонический кодовый артефакт уже присутствует в репозитории: `elevenlabs_api.py`.
+
+Google Colab остаётся основным способом запуска workflow; файл `elevenlabs_api.py` используется как текущий source of truth для review и PR workflow.
