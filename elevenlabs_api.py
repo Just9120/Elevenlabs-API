@@ -1220,6 +1220,29 @@ def build_transcription_form_data(options: TranscriptionRuntimeOptions) -> list[
     return data
 
 
+
+
+def log_safe_http_error(provider: str, response: requests.Response):
+    parsed_url = urlparse(response.url or "")
+    safe_endpoint = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}" if parsed_url.scheme and parsed_url.netloc else (response.url or "")
+
+    print(f"HTTP ошибка провайдера {provider}:")
+    print(f"  status_code: {response.status_code}")
+    print(f"  endpoint: {safe_endpoint}")
+
+    try:
+        payload = response.json()
+    except ValueError:
+        print("  error_payload: <non-json response body omitted>")
+        return
+
+    safe_keys = ("detail", "message", "error", "code", "type")
+    extracted = {key: payload.get(key) for key in safe_keys if isinstance(payload, dict) and payload.get(key) is not None}
+    if extracted:
+        print(f"  safe_error_fields: {json.dumps(extracted, ensure_ascii=False)}")
+    else:
+        print("  safe_error_fields: <not present>")
+
 def build_openai_prompt_from_keyterms(options: TranscriptionRuntimeOptions) -> Optional[str]:
     if options.separate_speakers:
         return None
@@ -1268,8 +1291,7 @@ def transcribe_fileobj(
         ) from e
 
     except requests.HTTPError:
-        print("Ошибка ElevenLabs:")
-        print(resp.text)
+        log_safe_http_error("ElevenLabs", resp)
         raise
 
     except requests.exceptions.RequestException as e:
@@ -1716,8 +1738,7 @@ def transcribe_openai_fileobj(
         )
         resp.raise_for_status()
     except requests.HTTPError:
-        print("Ошибка OpenAI STT:")
-        print(resp.text)
+        log_safe_http_error("OpenAI STT", resp)
         raise
     except requests.exceptions.RequestException as e:
         raise RuntimeError(f"Ошибка запроса к OpenAI STT: {e}") from e

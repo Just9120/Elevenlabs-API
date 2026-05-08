@@ -1,0 +1,4 @@
+# Development tooling for local checks
+-r requirements-colab.txt
+
+pytest
