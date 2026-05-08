@@ -1233,15 +1233,32 @@ def log_safe_http_error(provider: str, response: requests.Response):
     try:
         payload = response.json()
     except ValueError:
-        print("  error_payload: <non-json response body omitted>")
+        print("  safe_error_fields: <non-json response body omitted>")
         return
 
-    safe_keys = ("detail", "message", "error", "code", "type")
-    extracted = {key: payload.get(key) for key in safe_keys if isinstance(payload, dict) and payload.get(key) is not None}
+    if not isinstance(payload, dict):
+        print("  safe_error_fields: <no safe scalar error fields present>")
+        return
+
+    scalar_types = (str, int, float, bool)
+    extracted = {}
+
+    for key in ("detail", "message", "code", "type"):
+        value = payload.get(key)
+        if isinstance(value, scalar_types):
+            extracted[key] = value
+
+    nested_error = payload.get("error")
+    if isinstance(nested_error, dict):
+        for key in ("message", "type", "code"):
+            value = nested_error.get(key)
+            if isinstance(value, scalar_types):
+                extracted[f"error.{key}"] = value
+
     if extracted:
         print(f"  safe_error_fields: {json.dumps(extracted, ensure_ascii=False)}")
     else:
-        print("  safe_error_fields: <not present>")
+        print("  safe_error_fields: <no safe scalar error fields present>")
 
 def build_openai_prompt_from_keyterms(options: TranscriptionRuntimeOptions) -> Optional[str]:
     if options.separate_speakers:

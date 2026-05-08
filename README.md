@@ -66,6 +66,7 @@ OPENAI_API_KEY = userdata.get("OPENAI_API_KEY")
 
 - **Google Colab остаётся основным и поддерживаемым способом запуска**.
 - Текущий workflow используется в практике **более месяца без критических user-reported проблем**.
+- Эта практическая стабильность **не равна формальной E2E-валидации каждого отдельного сценария**; для этого используется отдельная validation matrix.
 - `ElevenLabs / scribe_v2` остаётся основным provider path.
 - `OpenAI` сейчас используется как **manual fallback / alternative provider path**.
 - **Automatic fallback не реализован**: для него нужен отдельный дизайн billing-safety, retry-политики и контроль повторных списаний.
