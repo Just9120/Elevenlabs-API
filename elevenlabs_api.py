@@ -68,6 +68,8 @@ OPENAI_UPLOAD_LIMIT_BYTES = 25 * 1024 * 1024
 OPENAI_SEGMENT_TARGET_BYTES = 20 * 1024 * 1024
 OPENAI_PREP_AUDIO_BITRATE = "96k"
 OPENAI_PREP_AUDIO_CHANNELS = 1
+PROJECT_TEMP_PREFIX = "elevenlabs_api_"
+PROJECT_TEMP_CLEANUP_TTL_HOURS = 24
 
 MANIFEST_FOLDER_NAME = "_transcription_state"
 MANIFEST_FILE_NAME = "elevenlabs_transcription_manifest.json"
@@ -121,6 +123,48 @@ SHORTCUT_MIME = "application/vnd.google-apps.shortcut"
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def create_project_temp_file(suffix: str = "") -> str:
+    tmp = tempfile.NamedTemporaryFile(
+        delete=False,
+        prefix=PROJECT_TEMP_PREFIX,
+        suffix=suffix
+    )
+    tmp_path = tmp.name
+    tmp.close()
+    return tmp_path
+
+
+def cleanup_stale_project_temp_files(ttl_hours: int = PROJECT_TEMP_CLEANUP_TTL_HOURS):
+    tmp_dir = Path(tempfile.gettempdir())
+    cutoff_ts = time.time() - max(1, ttl_hours) * 3600
+    removed = 0
+    skipped = 0
+
+    for path in tmp_dir.glob(f"{PROJECT_TEMP_PREFIX}*"):
+        try:
+            if path.stat().st_mtime >= cutoff_ts:
+                skipped += 1
+                continue
+
+            if path.is_dir():
+                for nested in sorted(path.rglob("*"), reverse=True):
+                    if nested.is_file() or nested.is_symlink():
+                        nested.unlink(missing_ok=True)
+                    elif nested.is_dir():
+                        nested.rmdir()
+                path.rmdir()
+            else:
+                path.unlink(missing_ok=True)
+            removed += 1
+        except FileNotFoundError:
+            continue
+        except Exception:
+            skipped += 1
+            continue
+
+    print(f"Cleanup stale temp: removed={removed}, skipped={skipped}, ttl_h={ttl_hours}")
 
 
 def parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:
@@ -1168,9 +1212,7 @@ def should_convert_to_m4a(input_path: str, original_filename: str) -> bool:
 def convert_media_to_m4a(input_path: str, original_filename: str) -> tuple[str, str]:
     ensure_ffmpeg_available()
 
-    output_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".m4a")
-    output_path = output_tmp.name
-    output_tmp.close()
+    output_path = create_project_temp_file(suffix=".m4a")
 
     cmd = [
         "ffmpeg",
@@ -1540,9 +1582,7 @@ def choose_openai_split_duration(input_path: str, start_seconds: float, target_d
 def create_openai_audio_chunk(prepared_path: str, start_seconds: float, part_duration: float) -> str:
     ensure_ffmpeg_available()
 
-    output_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".m4a")
-    output_path = output_tmp.name
-    output_tmp.close()
+    output_path = create_project_temp_file(suffix=".m4a")
 
     cmd = [
         "ffmpeg",
@@ -1586,9 +1626,7 @@ def print_openai_diarize_split_warning():
 def convert_media_to_openai_m4a(input_path: str, original_filename: str) -> tuple[str, str]:
     ensure_ffmpeg_available()
 
-    output_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".m4a")
-    output_path = output_tmp.name
-    output_tmp.close()
+    output_path = create_project_temp_file(suffix=".m4a")
 
     cmd = [
         "ffmpeg",
@@ -1857,10 +1895,9 @@ def transcribe_media_path(
 
 def save_uploaded_bytes_to_temp(filename: str, file_bytes: bytes) -> str:
     suffix = Path(filename).suffix or ""
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
-    tmp.write(file_bytes)
-    tmp_path = tmp.name
-    tmp.close()
+    tmp_path = create_project_temp_file(suffix=suffix)
+    with open(tmp_path, "wb") as tmp:
+        tmp.write(file_bytes)
     return tmp_path
 
 
@@ -1957,9 +1994,7 @@ def upsert_transcript_document(
 
 def download_drive_file_to_temp(file_id: str, filename: str) -> str:
     suffix = Path(filename).suffix or ""
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
-    tmp_path = tmp.name
-    tmp.close()
+    tmp_path = create_project_temp_file(suffix=suffix)
 
     request = drive_service.files().get_media(
         fileId=file_id,
@@ -3674,6 +3709,8 @@ def on_start_clicked(_):
         reset_progress()
 
         try:
+            cleanup_stale_project_temp_files()
+
             if not folder_picker_state["selected_id"]:
                 raise ValueError("Сначала выбери папку назначения в блоке выше и нажми 'Выбрать текущую папку'.")
 

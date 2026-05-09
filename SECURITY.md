@@ -31,6 +31,11 @@ Do not commit:
 - manifest exports from private runs,
 - notebook `.ipynb` outputs containing user data.
 
+Runtime hygiene:
+- startup cleanup removes only stale temp artifacts with project prefix `elevenlabs_api_`;
+- cleanup is TTL-based (default 24h) and best-effort;
+- generic `/tmp` files and arbitrary user media are not targeted.
+
 ## Supported operating model
 
 The current manifest model is intended for **single-user / single-runtime Colab usage**. Parallel notebooks/tabs are not officially supported and may create state races.
