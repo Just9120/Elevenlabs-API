@@ -13,6 +13,7 @@ Important: observed operational usage is **not** equivalent to formal E2E valida
 | Scenario | Initial status | Notes |
 |---|---|---|
 | General Colab workflow | Observed in user practice | Used in practice for over one month without critical user-reported issues. |
+| Startup stale temp cleanup (`elevenlabs_api_*`, TTL-based) | TBD / needs runtime validation | Static inspection done; needs reproducible runtime cleanup check. |
 | ElevenLabs + local single audio | TBD / needs E2E validation | Main path; requires explicit reproducible validation record. |
 | ElevenLabs + local multiple files | TBD / needs E2E validation | Batch mode needs explicit E2E run logs. |
 | ElevenLabs + Google Drive file | TBD / needs E2E validation | Supported mode; needs scenario-level validation evidence. |
