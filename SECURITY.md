@@ -56,3 +56,12 @@ Recommendations:
 - use trusted refs only (default `main` or a reviewed commit SHA);
 - prefer pinning `GITHUB_REF` to a commit SHA for reproducible runs;
 - never commit notebook outputs or secrets from launcher/runtime sessions.
+
+## CI credentials policy
+
+The lightweight GitHub Actions CI is intentionally secretless:
+- it must not require real ElevenLabs, OpenAI, or Google credentials;
+- it must not perform real provider/API transcription calls;
+- no CI-specific secrets are required for baseline hygiene checks.
+
+If future workflows add integration/E2E checks, keep them isolated and explicitly gated before introducing any credentials.

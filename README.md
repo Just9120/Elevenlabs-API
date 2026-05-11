@@ -109,3 +109,20 @@ Google Colab остаётся основным способом запуска w
 - подтягивает канонический `elevenlabs_api.py` из того же GitHub ref и запускает его в текущем runtime.
 
 Если нужна фиксированная версия, замените `GITHUB_REF` на конкретный commit SHA в первой code-ячейке launcher-ноутбука.
+
+## Lightweight GitHub Actions CI
+
+Repository includes a lightweight GitHub Actions CI workflow for pull requests and pushes to `main`.
+
+Scope:
+- static repository hygiene checks only;
+- notebook JSON and clean-output checks;
+- launcher notebook thinness guard;
+- conservative static guards for raw provider `resp.text` logging and broad `/tmp` cleanup patterns;
+- optional `pytest` run when tests exist.
+
+Non-goals:
+- no real Colab transcription runs;
+- no ElevenLabs/OpenAI/Google API calls;
+- no provider or Google credentials required;
+- no deployment/CD configuration.
