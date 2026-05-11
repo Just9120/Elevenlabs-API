@@ -2,6 +2,7 @@
 
 Legend:
 - **Observed in user practice** = overall Colab workflow used in real runs (over one month) without critical user-reported issues.
+- **Smoke-tested by user** = user confirmed at least one real run worked, but full scenario-level E2E coverage is not yet documented.
 - **Formally validated** = validated with explicit reproducible checks.
 - **TBD / needs E2E validation** = expected path but requires dedicated end-to-end run.
 - **Experimental** = available but still under exploratory use.
@@ -13,7 +14,8 @@ Important: observed operational usage is **not** equivalent to formal E2E valida
 | Scenario | Initial status | Notes |
 |---|---|---|
 | General Colab workflow | Observed in user practice | Used in practice for over one month without critical user-reported issues. |
-| GitHub Colab launcher notebook | TBD / needs smoke validation | Thin launcher that fetches and executes canonical elevenlabs_api.py from configured GitHub ref. |
+| GitHub Colab launcher notebook | Smoke-tested by user | Thin launcher that fetches and executes canonical elevenlabs_api.py from configured GitHub ref. |
+| Transcription through GitHub Colab launcher | Smoke-tested by user | User confirmed a successful transcription run; scenario details not yet broken down by source mode, media type, duration, and provider. |
 | GitHub Actions lightweight CI | TBD / needs first run validation | Static repository hygiene checks only; no real STT or Google API calls. |
 | Startup stale temp cleanup (`elevenlabs_api_*`, TTL-based) | TBD / needs runtime validation | Static inspection done; needs reproducible runtime cleanup check. |
 | ElevenLabs + local single audio | TBD / needs E2E validation | Main path; requires explicit reproducible validation record. |
