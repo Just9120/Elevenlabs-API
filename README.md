@@ -96,3 +96,16 @@ OPENAI_API_KEY = userdata.get("OPENAI_API_KEY")
 Канонический кодовый артефакт уже присутствует в репозитории: `elevenlabs_api.py`.
 
 Google Colab остаётся основным способом запуска workflow; файл `elevenlabs_api.py` используется как текущий source of truth для review и PR workflow.
+
+
+## Запуск через Google Colab GitHub picker
+
+Чтобы открыть workflow через **Google Colab → Open notebook → GitHub**, используйте launcher-ноутбук:
+- `notebooks/elevenlabs_api_colab.ipynb`
+
+Как это работает:
+- launcher по умолчанию использует `GITHUB_REF = "main"`;
+- подтягивает `requirements-colab.txt` и устанавливает зависимости в runtime Colab;
+- подтягивает канонический `elevenlabs_api.py` из того же GitHub ref и запускает его в текущем runtime.
+
+Если нужна фиксированная версия, замените `GITHUB_REF` на конкретный commit SHA в первой code-ячейке launcher-ноутбука.
