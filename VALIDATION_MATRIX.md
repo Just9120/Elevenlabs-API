@@ -14,6 +14,7 @@ Important: observed operational usage is **not** equivalent to formal E2E valida
 |---|---|---|
 | General Colab workflow | Observed in user practice | Used in practice for over one month without critical user-reported issues. |
 | GitHub Colab launcher notebook | TBD / needs smoke validation | Thin launcher that fetches and executes canonical elevenlabs_api.py from configured GitHub ref. |
+| GitHub Actions lightweight CI | TBD / needs first run validation | Static repository hygiene checks only; no real STT or Google API calls. |
 | Startup stale temp cleanup (`elevenlabs_api_*`, TTL-based) | TBD / needs runtime validation | Static inspection done; needs reproducible runtime cleanup check. |
 | ElevenLabs + local single audio | TBD / needs E2E validation | Main path; requires explicit reproducible validation record. |
 | ElevenLabs + local multiple files | TBD / needs E2E validation | Batch mode needs explicit E2E run logs. |
