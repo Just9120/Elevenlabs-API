@@ -46,3 +46,13 @@ If secret leakage is suspected:
 1. Revoke/rotate affected keys immediately.
 2. Remove exposed artifacts from history if possible.
 3. Re-run impacted jobs only after credential rotation.
+
+
+## GitHub Colab launcher safety
+
+`notebooks/elevenlabs_api_colab.ipynb` downloads executable code (`elevenlabs_api.py`) from the configured GitHub ref and executes it in Colab runtime.
+
+Recommendations:
+- use trusted refs only (default `main` or a reviewed commit SHA);
+- prefer pinning `GITHUB_REF` to a commit SHA for reproducible runs;
+- never commit notebook outputs or secrets from launcher/runtime sessions.
