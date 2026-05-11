@@ -6,6 +6,9 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   checks:
     runs-on: ubuntu-latest
@@ -30,7 +33,7 @@ jobs:
 
       - name: Run pytest (if tests exist)
         run: |
-          if [ -d tests ] || find . -maxdepth 2 -type f \( -name 'test_*.py' -o -name '*_test.py' \) | grep -q .; then
+          if find . -maxdepth 3 -type f \( -name 'test_*.py' -o -name '*_test.py' \) | grep -q .; then
             pytest
           else
             echo "No tests discovered; skipping pytest."
