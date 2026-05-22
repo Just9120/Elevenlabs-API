@@ -74,6 +74,7 @@ OPENAI_API_KEY = userdata.get("OPENAI_API_KEY")
 - Изменения для длинных ElevenLabs-файлов должны быть **консервативными и evidence-driven**; до введения client-side split нужны реальные E2E-валидации.
 - Manifest сейчас рассчитан на **single-user / single-runtime Colab**; параллельные запуски из двух вкладок Colab официально не поддерживаются.
 - Для provider HTTP ошибок используется **safe logging**: без печати raw response body в notebook output.
+- Перед запуском транскрибации в Colab выводится **read-only preflight summary** (provider/model/API key presence/source mode/conflict/manifest/keyterms/risk notes) без вызовов STT API и без мутации manifest.
 - На старте запуска выполняется **best-effort cleanup** устаревших временных файлов workflow в системной temp-директории:
   - только для артефактов с project-owned префиксом `elevenlabs_api_`;
   - только при возрасте старше TTL (по умолчанию 24 часа);

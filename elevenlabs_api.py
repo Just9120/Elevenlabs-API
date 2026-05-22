@@ -3681,6 +3681,46 @@ def build_run_execution_context(output_folder_id: str, output_folder_path: str, 
     )
 
 
+
+
+def get_source_mode_label(mode: str) -> str:
+    mapping = {
+        "local_file": "Компьютер: 1 файл",
+        "local_multi": "Компьютер: несколько файлов",
+        "drive_file": "Google Drive: 1 файл",
+        "drive_folder": "Google Drive: папка",
+    }
+    return mapping.get(mode, mode)
+
+
+def print_preflight_summary(run_ctx: RunExecutionContext, source_mode: str):
+    options = run_ctx.options
+    print("=== Preflight summary (read-only) ===")
+    print(f"✅ Провайдер: {options.provider_label}")
+    print(f"✅ Модель: {options.provider_model_label}")
+
+    elevenlabs_status = "found" if ELEVENLABS_EFFECTIVE_API_KEY else "missing"
+    openai_status = "found" if OPENAI_API_KEY else "missing"
+    print(f"🔐 ELEVENLABS_API_KEY: {elevenlabs_status}")
+    print(f"🔐 OPENAI_API_KEY: {openai_status}")
+
+    print(f"🌐 Язык: {options.language_label}")
+    print(f"🗣️ Разделение по спикерам: {'включено' if options.separate_speakers else 'выключено'}")
+    print(f"🎞️ Извлечение аудио из видео: {'включено' if options.extract_audio_from_video_enabled else 'выключено'}")
+    print(f"📥 Источник: {get_source_mode_label(source_mode)}")
+    if run_ctx.output_folder_path:
+        print(f"📁 Папка назначения: {run_ctx.output_folder_path}")
+    print(f"⚔️ Режим конфликтов: {next(label for label, value in CONFLICT_MODE_OPTIONS if value == run_ctx.conflict_mode)}")
+    print(f"🧾 Manifest ignore: {'включён' if run_ctx.ignore_manifest else 'выключен'}")
+    print(f"🏷️ Keyterms: {len(options.keyterms)}")
+
+    if options.provider == "openai" and options.separate_speakers:
+        print("⚠️ OpenAI diarization + chunking: high risk (спикеры могут сбрасываться между частями)")
+
+    print("⚠️ OpenAI — manual fallback / alternative path; automatic fallback не используется.")
+    print("⚠️ CI/static checks не заменяют runtime/E2E validation.")
+    print("⚠️ Параллельные Colab notebooks/tabs не поддерживаются.")
+    print("=== End preflight ===\n")
 def print_success_summary(successes: list[dict]):
     if not successes:
         return
@@ -3725,25 +3765,8 @@ def on_start_clicked(_):
                 options=collect_runtime_options_from_ui(),
             )
 
-            print(f"Папка назначения: {run_ctx.output_folder_path}")
-            print(f"Folder ID: {run_ctx.output_folder_id}")
-            print(f"Поведение при совпадении: {next(label for label, value in CONFLICT_MODE_OPTIONS if value == run_ctx.conflict_mode)}")
-            print(f"Manifest: {'включён' if not run_ctx.ignore_manifest else 'выключен'}")
-            print(f"Провайдер: {run_ctx.options.provider_label}")
-            print(f"Модель: {run_ctx.options.provider_model_label}")
-            print(f"Язык: {run_ctx.options.language_label}")
-            print(f"Разделение по спикерам: {'включено' if run_ctx.options.separate_speakers else 'выключено'}")
-            if run_ctx.options.provider == "openai":
-                print("OpenAI audio profile: mono M4A 96 kbps")
-                print("Smart split: включён только если после перекодирования файл > 25 MB")
-                print("Split strategy: pause-aware + overlap-aware merge")
-                if run_ctx.options.separate_speakers:
-                    print("Внимание: при smart split в diarize-режиме нумерация спикеров может сбрасываться между частями")
-
-            if run_ctx.options.keyterms:
-                print(f"Keyterms: {len(run_ctx.options.keyterms)} шт.")
-
             mode = mode_widget.value
+            print_preflight_summary(run_ctx=run_ctx, source_mode=mode)
             successes, errors, skipped = [], [], []
 
             if mode == "local_file":
