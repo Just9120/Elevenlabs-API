@@ -3693,34 +3693,83 @@ def get_source_mode_label(mode: str) -> str:
     return mapping.get(mode, mode)
 
 
-def print_preflight_summary(run_ctx: RunExecutionContext, source_mode: str):
+def build_preflight_summary(run_ctx: RunExecutionContext, source_mode: str) -> dict:
     options = run_ctx.options
-    print("=== Preflight summary (read-only) ===")
-    print(f"✅ Провайдер: {options.provider_label}")
-    print(f"✅ Модель: {options.provider_model_label}")
+    selected_key_name = "OPENAI_API_KEY" if options.provider == "openai" else "ELEVENLABS_API_KEY"
+    selected_key_found = bool(OPENAI_API_KEY) if options.provider == "openai" else bool(ELEVENLABS_EFFECTIVE_API_KEY)
+    optional_key_name = "ELEVENLABS_API_KEY" if options.provider == "openai" else "OPENAI_API_KEY"
+    optional_key_found = bool(ELEVENLABS_EFFECTIVE_API_KEY) if options.provider == "openai" else bool(OPENAI_API_KEY)
 
-    elevenlabs_status = "found" if ELEVENLABS_EFFECTIVE_API_KEY else "missing"
-    openai_status = "found" if OPENAI_API_KEY else "missing"
-    print(f"🔐 ELEVENLABS_API_KEY: {elevenlabs_status}")
-    print(f"🔐 OPENAI_API_KEY: {openai_status}")
+    conflict_mode_label = next(label for label, value in CONFLICT_MODE_OPTIONS if value == run_ctx.conflict_mode)
 
-    print(f"🌐 Язык: {options.language_label}")
-    print(f"🗣️ Разделение по спикерам: {'включено' if options.separate_speakers else 'выключено'}")
-    print(f"🎞️ Извлечение аудио из видео: {'включено' if options.extract_audio_from_video_enabled else 'выключено'}")
-    print(f"📥 Источник: {get_source_mode_label(source_mode)}")
-    if run_ctx.output_folder_path:
-        print(f"📁 Папка назначения: {run_ctx.output_folder_path}")
-    print(f"⚔️ Режим конфликтов: {next(label for label, value in CONFLICT_MODE_OPTIONS if value == run_ctx.conflict_mode)}")
-    print(f"🧾 Manifest ignore: {'включён' if run_ctx.ignore_manifest else 'выключен'}")
-    print(f"🏷️ Keyterms: {len(options.keyterms)}")
-
+    warnings = []
     if options.provider == "openai" and options.separate_speakers:
-        print("⚠️ OpenAI diarization + chunking: high risk (спикеры могут сбрасываться между частями)")
+        warnings.append("OpenAI diarization + chunking: high risk (спикеры могут сбрасываться между частями)")
+    warnings.extend([
+        "OpenAI — manual fallback / alternative path; automatic fallback не используется.",
+        "CI/static checks не заменяют runtime/E2E validation.",
+        "Параллельные Colab notebooks/tabs не поддерживаются.",
+    ])
 
-    print("⚠️ OpenAI — manual fallback / alternative path; automatic fallback не используется.")
-    print("⚠️ CI/static checks не заменяют runtime/E2E validation.")
-    print("⚠️ Параллельные Colab notebooks/tabs не поддерживаются.")
+    return {
+        "provider": {
+            "id": options.provider,
+            "label": options.provider_label,
+            "model_label": options.provider_model_label,
+        },
+        "api_keys": [
+            {"name": selected_key_name, "required": True, "found": selected_key_found},
+            {"name": optional_key_name, "required": False, "found": optional_key_found},
+        ],
+        "runtime": {
+            "language_label": options.language_label,
+            "separate_speakers": options.separate_speakers,
+            "extract_audio_from_video_enabled": options.extract_audio_from_video_enabled,
+            "keyterms_count": len(options.keyterms),
+        },
+        "source": {
+            "mode": source_mode,
+            "mode_label": get_source_mode_label(source_mode),
+        },
+        "output": {
+            "folder_path": run_ctx.output_folder_path,
+            "conflict_mode": run_ctx.conflict_mode,
+            "conflict_mode_label": conflict_mode_label,
+        },
+        "manifest": {
+            "ignore_manifest": run_ctx.ignore_manifest,
+        },
+        "warnings": warnings,
+    }
+
+
+def render_colab_preflight_summary(summary: dict):
+    print("=== Preflight summary (read-only) ===")
+    print(f"✅ Провайдер: {summary['provider']['label']}")
+    print(f"✅ Модель: {summary['provider']['model_label']}")
+
+    for key_info in summary["api_keys"]:
+        requirement = "required" if key_info["required"] else "optional"
+        status = "found" if key_info["found"] else "missing"
+        print(f"🔐 {key_info['name']} ({requirement}): {status}")
+
+    print(f"🌐 Язык: {summary['runtime']['language_label']}")
+    print(f"🗣️ Разделение по спикерам: {'включено' if summary['runtime']['separate_speakers'] else 'выключено'}")
+    print(f"🎞️ Извлечение аудио из видео: {'включено' if summary['runtime']['extract_audio_from_video_enabled'] else 'выключено'}")
+    print(f"📥 Источник: {summary['source']['mode_label']}")
+    if summary["output"]["folder_path"]:
+        print(f"📁 Папка назначения: {summary['output']['folder_path']}")
+    print(f"⚔️ Режим конфликтов: {summary['output']['conflict_mode_label']}")
+    print(f"🧾 Manifest ignore: {'включён' if summary['manifest']['ignore_manifest'] else 'выключен'}")
+    print(f"🏷️ Keyterms: {summary['runtime']['keyterms_count']}")
+
+    for warning in summary["warnings"]:
+        print(f"⚠️ {warning}")
     print("=== End preflight ===\n")
+
+
+def print_preflight_summary(run_ctx: RunExecutionContext, source_mode: str):
+    render_colab_preflight_summary(build_preflight_summary(run_ctx=run_ctx, source_mode=source_mode))
 def print_success_summary(successes: list[dict]):
     if not successes:
         return
