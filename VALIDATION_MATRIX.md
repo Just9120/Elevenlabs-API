@@ -19,6 +19,7 @@ Important: observed operational usage is **not** equivalent to formal E2E valida
 | Transcription through GitHub Colab launcher | Smoke-tested by user | User confirmed a successful transcription run; scenario details not yet broken down by source mode, media type, duration, and provider. |
 | GitHub Actions lightweight CI | CI first-run validated | First observed GitHub Actions CI run completed successfully for static repository hygiene checks; no real Colab, STT, Google API, ElevenLabs, or OpenAI calls. |
 | Startup stale temp cleanup (`elevenlabs_api_*`, TTL-based) | TBD / needs runtime validation | Static inspection done; needs reproducible runtime cleanup check. |
+| Colab preflight summary | TBD / needs runtime validation | Read-only UX summary before provider transcription; should not call providers or mutate manifest. |
 | ElevenLabs + local single audio | TBD / needs E2E validation | Main path; requires explicit reproducible validation record. |
 | ElevenLabs + local multiple files | TBD / needs E2E validation | Batch mode needs explicit E2E run logs. |
 | ElevenLabs + Google Drive file | TBD / needs E2E validation | Supported mode; needs scenario-level validation evidence. |
