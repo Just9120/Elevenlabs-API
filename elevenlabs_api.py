@@ -96,10 +96,13 @@ class RunTimer:
 def print_timing_summary(timer: Optional[RunTimer]):
     if not timer:
         return
+
+    analysis = build_timing_analysis(timer)
     print("\n=== Timing summary (local) ===")
     ordered = [
         "startup_cleanup",
         "runtime_context_build",
+        "local_upload_wait",
         "source_processing_total",
         "source_resolve",
         "source_collect",
@@ -113,10 +116,96 @@ def print_timing_summary(timer: Optional[RunTimer]):
         "run_total",
     ]
     for label in ordered:
-        line = timer.format_line(label)
+        line = format_timing_line(timer=timer, label=label, run_total=analysis.get("run_total"))
         if line:
             print(line)
+    known_measured_total = analysis.get("known_measured_total")
+    if known_measured_total is not None:
+        print(f"- known_measured_total: {known_measured_total:.2f}s")
+    approx_unaccounted_run_time = analysis.get("approx_unaccounted_run_time")
+    if approx_unaccounted_run_time is not None:
+        run_total = analysis.get("run_total")
+        if run_total and run_total > 0:
+            pct = (approx_unaccounted_run_time / run_total) * 100.0
+            print(f"- approx_unaccounted_run_time: {approx_unaccounted_run_time:.2f}s ({pct:.1f}% of run_total)")
+        else:
+            print(f"- approx_unaccounted_run_time: {approx_unaccounted_run_time:.2f}s")
+
+    hints = analysis.get("bottleneck_hints") or []
+    if hints:
+        print("Bottleneck hints:")
+        for hint in hints:
+            print(f"- {hint}")
     print("=== End timing summary ===")
+
+
+def format_timing_line(timer: RunTimer, label: str, run_total: Optional[float]) -> Optional[str]:
+    elapsed = timer.totals.get(label)
+    if elapsed is None:
+        return None
+    count = timer._counts.get(label, 0)
+    suffix = f" ({count}x)" if count > 1 else ""
+    pct = ""
+    if run_total and run_total > 0:
+        pct = f" ({(elapsed / run_total) * 100.0:.1f}% of run_total)"
+    return f"- {label}: {elapsed:.2f}s{pct}{suffix}"
+
+
+def build_timing_analysis(timer: Optional[RunTimer]) -> dict:
+    if not timer:
+        return {}
+
+    totals = dict(timer.totals)
+    run_total = totals.get("run_total")
+    source_processing_total = totals.get("source_processing_total")
+
+    top_level_labels = [
+        "startup_cleanup",
+        "runtime_context_build",
+        "source_collect",
+        "source_processing_total",
+    ]
+    known_measured_total = sum(totals.get(label, 0.0) for label in top_level_labels)
+    approx_unaccounted_run_time = None
+    if run_total is not None:
+        approx_unaccounted_run_time = max(0.0, run_total - known_measured_total)
+
+    dominant_phase = None
+    if totals:
+        dominant_phase = max(totals.items(), key=lambda item: item[1])[0]
+
+    hints = []
+    provider_total = totals.get("provider_transcription")
+    if source_processing_total and source_processing_total > 0 and provider_total is not None:
+        provider_ratio = provider_total / source_processing_total
+        if provider_ratio >= 0.80:
+            hints.append(
+                "Provider transcription dominated source processing; Python/Colab code optimization is unlikely to significantly reduce this part."
+            )
+    docs_total = totals.get("docs_output")
+    if run_total and run_total > 0 and docs_total is not None and (docs_total / run_total) >= 0.25:
+        hints.append(
+            "Google Docs output is a significant part of the run; consider Docs batching/chunk strategy analysis."
+        )
+    manifest_total = totals.get("manifest_write")
+    if run_total and run_total > 0 and manifest_total is not None and (manifest_total / run_total) >= 0.10:
+        hints.append(
+            "Manifest writes are noticeable; consider manifest I/O analysis."
+        )
+    if run_total and run_total > 0 and approx_unaccounted_run_time is not None:
+        if (approx_unaccounted_run_time / run_total) >= 0.25:
+            hints.append(
+                "A significant portion of run_total is not covered by named timers; source acquisition, user upload wait, or UI/runtime wait may need more instrumentation."
+            )
+
+    return {
+        "run_total": run_total,
+        "source_processing_total": source_processing_total,
+        "known_measured_total": known_measured_total,
+        "approx_unaccounted_run_time": approx_unaccounted_run_time,
+        "dominant_phase": dominant_phase,
+        "bottleneck_hints": hints,
+    }
 
 # =========================
 # 1) НАСТРОЙКИ
@@ -3923,7 +4012,8 @@ def on_start_clicked(_):
 
             if mode == "local_file":
                 print("Выбери один файл с компьютера...")
-                uploaded = files.upload()
+                with timer.measure("local_upload_wait"):
+                    uploaded = files.upload()
                 if len(uploaded) != 1:
                     raise ValueError("Нужно выбрать ровно один файл.")
                 warn_about_large_local_uploads(uploaded)
@@ -3938,7 +4028,8 @@ def on_start_clicked(_):
 
             elif mode == "local_multi":
                 print("Выбери несколько файлов с компьютера...")
-                uploaded = files.upload()
+                with timer.measure("local_upload_wait"):
+                    uploaded = files.upload()
                 if len(uploaded) < 1:
                     raise ValueError("Нужно выбрать хотя бы один файл.")
                 warn_about_large_local_uploads(uploaded)
