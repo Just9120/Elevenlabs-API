@@ -79,6 +79,7 @@ OPENAI_API_KEY = userdata.get("OPENAI_API_KEY")
   - только для артефактов с project-owned префиксом `elevenlabs_api_`;
   - только при возрасте старше TTL (по умолчанию 24 часа);
   - без удаления произвольных пользовательских `/tmp`-файлов и generic media.
+- После каждого запуска в Colab выводится **локальная timing summary** по основным фазам (cleanup/context/source/provider/docs/manifest/per-file/run total) для диагностики узких мест без изменения provider/runtime поведения.
 
 ## Документация
 
