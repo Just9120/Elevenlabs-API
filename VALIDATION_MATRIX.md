@@ -19,10 +19,10 @@ Important: observed operational usage is **not** equivalent to formal E2E valida
 | Transcription through GitHub Colab launcher | Smoke-tested by user | User confirmed a successful transcription run; scenario details not yet broken down by source mode, media type, duration, and provider. |
 | GitHub Actions lightweight CI | CI first-run validated | First observed GitHub Actions CI run completed successfully for static repository hygiene checks; no real Colab, STT, Google API, ElevenLabs, or OpenAI calls. |
 | Startup stale temp cleanup (`elevenlabs_api_*`, TTL-based) | TBD / needs runtime validation | Static inspection done; needs reproducible runtime cleanup check. |
-| Colab preflight summary | TBD / needs runtime validation | Read-only UX summary before provider transcription; should not call providers or mutate manifest. |
+| Colab preflight summary | Smoke-tested by user | User observed the read-only preflight summary in Colab before a successful run; it displayed provider/model, required/optional API key presence, source mode, output, manifest, keyterms, and risk notes without printing secret values. |
 | ElevenLabs + local single audio | TBD / needs E2E validation | Main path; requires explicit reproducible validation record. |
 | ElevenLabs + local multiple files | TBD / needs E2E validation | Batch mode needs explicit E2E run logs. |
-| ElevenLabs + Google Drive file | TBD / needs E2E validation | Supported mode; needs scenario-level validation evidence. |
+| ElevenLabs + Google Drive file | Smoke-tested by user | User completed one successful Google Drive single-file `.flac` transcription through ElevenLabs / scribe_v2 with Google Docs output; duration and broader scenario coverage are not yet documented. |
 | ElevenLabs + Google Drive folder | TBD / needs E2E validation | Supported mode; needs scenario-level validation evidence. |
 | ElevenLabs + 1 hour audio | TBD / needs E2E validation | Needs documented repeatable E2E check. |
 | ElevenLabs + 3 hour audio | TBD / needs E2E validation | Conservative changes only; validate on real files. |
