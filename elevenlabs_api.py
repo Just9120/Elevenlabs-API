@@ -20,6 +20,7 @@ import logging
 import tempfile
 import subprocess
 import time
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -43,6 +44,79 @@ def get_colab_secret_or_none(name: str) -> Optional[str]:
         return userdata.get(name)
     except Exception:
         return None
+
+
+class RunTimer:
+    def __init__(self):
+        self._started: dict[str, float] = {}
+        self.totals: dict[str, float] = {}
+        self._counts: dict[str, int] = {}
+
+    def start(self, label: str):
+        try:
+            self._started[label] = time.perf_counter()
+        except Exception:
+            return
+
+    def stop(self, label: str):
+        try:
+            started = self._started.pop(label, None)
+            if started is None:
+                return
+            elapsed = time.perf_counter() - started
+            self.totals[label] = self.totals.get(label, 0.0) + max(0.0, elapsed)
+            self._counts[label] = self._counts.get(label, 0) + 1
+        except Exception:
+            return
+
+    @contextmanager
+    def measure(self, label: str):
+        self.start(label)
+        try:
+            yield
+        finally:
+            self.stop(label)
+
+    def add_duration(self, label: str, elapsed: float):
+        try:
+            self.totals[label] = self.totals.get(label, 0.0) + max(0.0, elapsed)
+            self._counts[label] = self._counts.get(label, 0) + 1
+        except Exception:
+            return
+
+    def format_line(self, label: str) -> Optional[str]:
+        elapsed = self.totals.get(label)
+        if elapsed is None:
+            return None
+        count = self._counts.get(label, 0)
+        suffix = f" ({count}x)" if count > 1 else ""
+        return f"- {label}: {elapsed:.2f}s{suffix}"
+
+
+def print_timing_summary(timer: Optional[RunTimer]):
+    if not timer:
+        return
+    print("\n=== Timing summary (local) ===")
+    ordered = [
+        "startup_cleanup",
+        "runtime_context_build",
+        "source_processing_total",
+        "source_resolve",
+        "source_collect",
+        "drive_download",
+        "media_prepare",
+        "provider_transcription",
+        "postprocess_merge",
+        "docs_output",
+        "manifest_write",
+        "per_file_total",
+        "run_total",
+    ]
+    for label in ordered:
+        line = timer.format_line(label)
+        if line:
+            print(line)
+    print("=== End timing summary ===")
 
 # =========================
 # 1) НАСТРОЙКИ
@@ -1840,14 +1914,17 @@ def transcribe_media_path_openai(
     input_path: str,
     original_filename: str,
     options: TranscriptionRuntimeOptions,
+    timer: Optional[RunTimer] = None,
 ) -> str:
     cleanup_paths = []
 
     try:
-        prepared_path, prepared_name = convert_media_to_openai_m4a(input_path, original_filename)
+        with timer.measure("media_prepare") if timer else nullcontext():
+            prepared_path, prepared_name = convert_media_to_openai_m4a(input_path, original_filename)
         cleanup_paths.append(prepared_path)
 
-        parts, part_cleanup_paths = split_openai_audio_if_needed(prepared_path, prepared_name)
+        with timer.measure("postprocess_merge") if timer else nullcontext():
+            parts, part_cleanup_paths = split_openai_audio_if_needed(prepared_path, prepared_name)
         cleanup_paths.extend(part_cleanup_paths)
 
         if len(parts) > 1:
@@ -1879,12 +1956,14 @@ def transcribe_media_path(
     input_path: str,
     original_filename: str,
     options: TranscriptionRuntimeOptions,
+    timer: Optional[RunTimer] = None,
 ) -> str:
     if options.provider == "openai":
         return transcribe_media_path_openai(
             input_path=input_path,
             original_filename=original_filename,
             options=options,
+            timer=timer,
         )
     return transcribe_media_path_elevenlabs(
         input_path=input_path,
@@ -2332,7 +2411,8 @@ def report_progress_for_file(progress_callback, file_index: int, total_files: in
 def process_local_uploaded(
     uploaded: dict,
     run_ctx: RunExecutionContext,
-    progress_callback=None
+    progress_callback=None,
+    timer: Optional[RunTimer] = None,
 ) -> tuple[list, list, list]:
     successes, errors, skipped = [], [], []
 
@@ -2340,6 +2420,7 @@ def process_local_uploaded(
     total = len(uploaded_items)
 
     for idx, (filename, file_bytes) in enumerate(uploaded_items, start=1):
+        file_started = time.perf_counter()
         report_progress_for_file(progress_callback, idx, total, 0, f"Подготовка: {filename}")
 
         temp_input_path = None
@@ -2366,48 +2447,56 @@ def process_local_uploaded(
 
             print(f"\nОбрабатываю: {filename}")
             temp_input_path = save_uploaded_bytes_to_temp(filename, file_bytes)
-            mark_manifest_in_progress(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, source_meta)
+            with timer.measure("manifest_write") if timer else nullcontext():
+                mark_manifest_in_progress(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, source_meta)
             report_progress_for_file(progress_callback, idx, total, 1, f"Транскрибация: {filename}")
 
-            transcript = transcribe_media_path(
-                input_path=temp_input_path,
-                original_filename=filename,
-                options=run_ctx.options
-            )
+            with timer.measure("provider_transcription") if timer else nullcontext():
+                transcript = transcribe_media_path(
+                    input_path=temp_input_path,
+                    original_filename=filename,
+                    options=run_ctx.options,
+                    timer=timer,
+                )
 
             report_progress_for_file(progress_callback, idx, total, 3, f"Запись в Google Docs: {filename}")
-            result = upsert_transcript_document(
-                base_name=base_name,
-                transcript_text=transcript,
-                output_folder_id=run_ctx.output_folder_id,
-                docs_index=run_ctx.docs_index,
-                conflict_mode=run_ctx.conflict_mode
-            )
+            with timer.measure("docs_output") if timer else nullcontext():
+                result = upsert_transcript_document(
+                    base_name=base_name,
+                    transcript_text=transcript,
+                    output_folder_id=run_ctx.output_folder_id,
+                    docs_index=run_ctx.docs_index,
+                    conflict_mode=run_ctx.conflict_mode
+                )
 
             if result["status"] == "skipped":
                 print(f"Пропуск: {filename} -> {result['reason']}")
                 skipped.append({"source": filename, "reason": result["reason"]})
             else:
-                mark_manifest_done(
-                    run_ctx.manifest,
-                    source_signature,
-                    run_ctx.settings_signature,
-                    filename,
-                    result["doc_name"],
-                    result["link"],
-                    source_meta,
-                )
+                with timer.measure("manifest_write") if timer else nullcontext():
+                    mark_manifest_done(
+                        run_ctx.manifest,
+                        source_signature,
+                        run_ctx.settings_signature,
+                        filename,
+                        result["doc_name"],
+                        result["link"],
+                        source_meta,
+                    )
                 print(f"Готово: {result['link']}")
                 append_success(successes, filename, result)
 
         except Exception as e:
-            mark_manifest_failed(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, str(e), source_meta)
+            with timer.measure("manifest_write") if timer else nullcontext():
+                mark_manifest_failed(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, str(e), source_meta)
             print(f"Ошибка: {filename} -> {e}")
             errors.append({"source": filename, "error": str(e)})
 
         finally:
             if temp_input_path and os.path.exists(temp_input_path):
                 os.remove(temp_input_path)
+            if timer:
+                timer.add_duration("per_file_total", time.perf_counter() - file_started)
             report_progress_for_file(progress_callback, idx, total, PROGRESS_STAGES_PER_FILE, f"Готово: {filename}")
 
     return successes, errors, skipped
@@ -2416,10 +2505,13 @@ def process_local_uploaded(
 def process_drive_file_input(
     source_input: str,
     run_ctx: RunExecutionContext,
-    progress_callback=None
+    progress_callback=None,
+    timer: Optional[RunTimer] = None,
 ) -> tuple[list, list, list]:
     successes, errors, skipped = [], [], []
-    resolved = resolve_drive_source_input(source_input)
+    run_file_started = time.perf_counter()
+    with timer.measure("source_resolve") if timer else nullcontext():
+        resolved = resolve_drive_source_input(source_input)
 
     report_progress_for_file(progress_callback, 1, 1, 0, "Подготовка файла")
 
@@ -2451,17 +2543,21 @@ def process_drive_file_input(
                     return successes, errors, skipped
 
             print(f"\nОбрабатываю: {filename}")
-            mark_manifest_in_progress(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, source_meta)
+            with timer.measure("manifest_write") if timer else nullcontext():
+                mark_manifest_in_progress(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, source_meta)
             report_progress_for_file(progress_callback, 1, 1, 1, f"Транскрибация: {filename}")
 
-            transcript = transcribe_media_path(
+            with timer.measure("provider_transcription") if timer else nullcontext():
+                transcript = transcribe_media_path(
                 input_path=file_path,
                 original_filename=filename,
-                options=run_ctx.options
-            )
+                options=run_ctx.options,
+                timer=timer,
+                )
 
             report_progress_for_file(progress_callback, 1, 1, 3, f"Запись в Google Docs: {filename}")
-            result = upsert_transcript_document(
+            with timer.measure("docs_output") if timer else nullcontext():
+                result = upsert_transcript_document(
                 base_name=base_name,
                 transcript_text=transcript,
                 output_folder_id=run_ctx.output_folder_id,
@@ -2478,11 +2574,14 @@ def process_drive_file_input(
                 append_success(successes, file_path, result)
 
         except Exception as e:
-            mark_manifest_failed(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, str(e), source_meta)
+            with timer.measure("manifest_write") if timer else nullcontext():
+                mark_manifest_failed(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, str(e), source_meta)
             print(f"Ошибка: {file_path} -> {e}")
             errors.append({"source": file_path, "error": str(e)})
 
         finally:
+            if timer:
+                timer.add_duration("per_file_total", time.perf_counter() - run_file_started)
             report_progress_for_file(progress_callback, 1, 1, PROGRESS_STAGES_PER_FILE, "Готово")
 
         return successes, errors, skipped
@@ -3796,9 +3895,12 @@ def on_start_clicked(_):
         start_button.disabled = True
         check_source_button.disabled = True
         reset_progress()
+        timer = RunTimer()
+        timer.start("run_total")
 
         try:
-            cleanup_stale_project_temp_files()
+            with timer.measure("startup_cleanup"):
+                cleanup_stale_project_temp_files()
 
             if not folder_picker_state["selected_id"]:
                 raise ValueError("Сначала выбери папку назначения в блоке выше и нажми 'Выбрать текущую папку'.")
@@ -3806,13 +3908,14 @@ def on_start_clicked(_):
             output_folder_id = folder_picker_state["selected_id"]
             output_folder_path = folder_picker_state["selected_path"]
             conflict_mode = conflict_mode_widget.value
-            run_ctx = build_run_execution_context(
-                output_folder_id=output_folder_id,
-                output_folder_path=output_folder_path,
-                conflict_mode=conflict_mode,
-                use_manifest=use_manifest_widget.value,
-                options=collect_runtime_options_from_ui(),
-            )
+            with timer.measure("runtime_context_build"):
+                run_ctx = build_run_execution_context(
+                    output_folder_id=output_folder_id,
+                    output_folder_path=output_folder_path,
+                    conflict_mode=conflict_mode,
+                    use_manifest=use_manifest_widget.value,
+                    options=collect_runtime_options_from_ui(),
+                )
 
             mode = mode_widget.value
             print_preflight_summary(run_ctx=run_ctx, source_mode=mode)
@@ -3825,11 +3928,13 @@ def on_start_clicked(_):
                     raise ValueError("Нужно выбрать ровно один файл.")
                 warn_about_large_local_uploads(uploaded)
 
-                successes, errors, skipped = process_local_uploaded(
-                    uploaded=uploaded,
-                    run_ctx=run_ctx,
-                    progress_callback=set_progress
-                )
+                with timer.measure("source_processing_total"):
+                    successes, errors, skipped = process_local_uploaded(
+                        uploaded=uploaded,
+                        run_ctx=run_ctx,
+                        progress_callback=set_progress,
+                        timer=timer,
+                    )
 
             elif mode == "local_multi":
                 print("Выбери несколько файлов с компьютера...")
@@ -3838,46 +3943,52 @@ def on_start_clicked(_):
                     raise ValueError("Нужно выбрать хотя бы один файл.")
                 warn_about_large_local_uploads(uploaded)
 
-                successes, errors, skipped = process_local_uploaded(
+                with timer.measure("source_processing_total"):
+                    successes, errors, skipped = process_local_uploaded(
                     uploaded=uploaded,
                     run_ctx=run_ctx,
-                    progress_callback=set_progress
-                )
+                    progress_callback=set_progress,
+                    timer=timer,
+                    )
 
             elif mode == "drive_file":
                 source_input = get_source_input_value()
                 if not source_input:
                     raise ValueError("Укажи путь / ссылку или выбери файл в Google Drive.")
 
-                successes, errors, skipped = process_drive_file_input(
-                    source_input=source_input,
-                    run_ctx=run_ctx,
-                    progress_callback=set_progress
-                )
+                with timer.measure("source_processing_total"):
+                    successes, errors, skipped = process_drive_file_input(
+                        source_input=source_input,
+                        run_ctx=run_ctx,
+                        progress_callback=set_progress,
+                        timer=timer,
+                    )
 
             elif mode == "drive_folder":
                 source_input = get_source_input_value()
                 if not source_input:
                     raise ValueError("Укажи путь / ссылку или выбери папку в Google Drive.")
 
-                preview_info = inspect_source_input(
-                    mode=mode,
-                    source_input=source_input,
-                    recursive=recursive_widget.value,
-                    output_folder_id=run_ctx.output_folder_id,
-                    conflict_mode=run_ctx.conflict_mode
-                )
+                with timer.measure("source_collect"):
+                    preview_info = inspect_source_input(
+                        mode=mode,
+                        source_input=source_input,
+                        recursive=recursive_widget.value,
+                        output_folder_id=run_ctx.output_folder_id,
+                        conflict_mode=run_ctx.conflict_mode
+                    )
                 print(f"Найдено файлов перед запуском: {preview_info['count']}")
                 print(f"Совпадений в папке назначения: {preview_info['conflict_count']}")
                 if preview_info["conflict_count"]:
                     print(conflict_mode_result_hint(run_ctx.conflict_mode))
 
-                successes, errors, skipped = process_drive_folder_input(
-                    source_input=source_input,
-                    recursive=recursive_widget.value,
-                    run_ctx=run_ctx,
-                    progress_callback=set_progress
-                )
+                with timer.measure("source_processing_total"):
+                    successes, errors, skipped = process_drive_folder_input(
+                        source_input=source_input,
+                        recursive=recursive_widget.value,
+                        run_ctx=run_ctx,
+                        progress_callback=set_progress
+                    )
 
             print("\n====================")
             print("ИТОГ")
@@ -3902,6 +4013,8 @@ def on_start_clicked(_):
             print(f"Ошибка: {e}")
 
         finally:
+            timer.stop("run_total")
+            print_timing_summary(timer)
             start_button.disabled = False
             check_source_button.disabled = False
             if progress_bar.layout.visibility == "visible" and progress_bar.value < progress_bar.max:
