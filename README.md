@@ -91,6 +91,7 @@ OPENAI_API_KEY = userdata.get("OPENAI_API_KEY")
 
 Основной документ по проекту:
 - `TECHNICAL_SPECIFICATION.md`
+- `docs/VOICEOPS_RUNTIME_VALIDATION_CHECKLIST.md` (runtime migration/analytics validation runbook for later execution)
 
 Именно там собраны:
 - описание цели проекта;
