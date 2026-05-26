@@ -20,6 +20,7 @@ import logging
 import tempfile
 import subprocess
 import time
+import uuid
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
@@ -162,6 +163,7 @@ def build_timing_analysis(timer: Optional[RunTimer]) -> dict:
     top_level_labels = [
         "startup_cleanup",
         "runtime_context_build",
+        "local_upload_wait",
         "source_collect",
         "source_processing_total",
     ]
@@ -191,6 +193,11 @@ def build_timing_analysis(timer: Optional[RunTimer]) -> dict:
     if run_total and run_total > 0 and manifest_total is not None and (manifest_total / run_total) >= 0.10:
         hints.append(
             "Manifest writes are noticeable; consider manifest I/O analysis."
+        )
+    local_upload_wait_total = totals.get("local_upload_wait")
+    if run_total and run_total > 0 and local_upload_wait_total is not None and (local_upload_wait_total / run_total) >= 0.25:
+        hints.append(
+            "Local upload wait is a significant part of the run; using Google Drive file/folder mode may reduce browser upload overhead."
         )
     if run_total and run_total > 0 and approx_unaccounted_run_time is not None:
         if (approx_unaccounted_run_time / run_total) >= 0.25:
@@ -234,14 +241,25 @@ OPENAI_PREP_AUDIO_CHANNELS = 1
 PROJECT_TEMP_PREFIX = "elevenlabs_api_"
 PROJECT_TEMP_CLEANUP_TTL_HOURS = 24
 
-MANIFEST_FOLDER_NAME = "_transcription_state"
+STATE_FOLDER_NAME = "VoiceOps Workspace"
+LEGACY_STATE_FOLDER_NAME = "_transcription_state"
+MANIFEST_FOLDER_NAME = "manifest"
+ANALYTICS_FOLDER_NAME = "analytics"
 MANIFEST_FILE_NAME = "elevenlabs_transcription_manifest.json"
+ANALYTICS_FILE_NAME = "elevenlabs_transcription_runs.jsonl"
 MANIFEST_IN_PROGRESS_TTL_HOURS = 6
 
 MANIFEST_CACHE = {
-    "folder_id": None,
+    "state_folder_id": None,
+    "manifest_folder_id": None,
     "file_id": None,
     "data": None,
+}
+
+ANALYTICS_CACHE = {
+    "state_folder_id": None,
+    "analytics_folder_id": None,
+    "file_id": None,
 }
 
 AUDIO_EXTENSIONS = {
@@ -523,32 +541,72 @@ def get_or_create_folder_in_parent(parent_id: str, folder_name: str) -> dict:
     return create_folder_in_parent(parent_id, folder_name)
 
 
-def get_or_create_manifest_file() -> tuple[str, str]:
-    if MANIFEST_CACHE["folder_id"] and MANIFEST_CACHE["file_id"]:
-        return MANIFEST_CACHE["folder_id"], MANIFEST_CACHE["file_id"]
-
-    folder = get_or_create_folder_in_parent("root", MANIFEST_FOLDER_NAME)
-    folder_id = folder["id"]
-
-    safe_name = escape_drive_query_value(MANIFEST_FILE_NAME)
+def find_file_in_folder(folder_id: str, file_name: str) -> Optional[dict]:
+    safe_name = escape_drive_query_value(file_name)
     query = (
         f"'{folder_id}' in parents and "
         f"name = '{safe_name}' and "
         f"trashed = false"
     )
-
     result = drive_service.files().list(
         q=query,
         spaces="drive",
-        fields="files(id, name)",
-        pageSize=1,
+        fields="files(id, name, parents)",
+        pageSize=2,
         supportsAllDrives=True,
         includeItemsFromAllDrives=True,
     ).execute()
-
     files_found = result.get("files", [])
-    if files_found:
-        file_id = files_found[0]["id"]
+    return files_found[0] if files_found else None
+
+
+def get_or_create_state_folders() -> tuple[str, str]:
+    if MANIFEST_CACHE["state_folder_id"] and MANIFEST_CACHE["manifest_folder_id"]:
+        return MANIFEST_CACHE["state_folder_id"], MANIFEST_CACHE["manifest_folder_id"]
+    state_folder = get_or_create_folder_in_parent("root", STATE_FOLDER_NAME)
+    manifest_folder = get_or_create_folder_in_parent(state_folder["id"], MANIFEST_FOLDER_NAME)
+    MANIFEST_CACHE["state_folder_id"] = state_folder["id"]
+    MANIFEST_CACHE["manifest_folder_id"] = manifest_folder["id"]
+    return state_folder["id"], manifest_folder["id"]
+
+
+def get_or_create_manifest_file() -> tuple[str, str]:
+    if MANIFEST_CACHE["manifest_folder_id"] and MANIFEST_CACHE["file_id"]:
+        return MANIFEST_CACHE["manifest_folder_id"], MANIFEST_CACHE["file_id"]
+
+    state_folder_id, manifest_folder_id = get_or_create_state_folders()
+    selected_file = find_file_in_folder(manifest_folder_id, MANIFEST_FILE_NAME)
+    legacy_file_in_manifest = None
+    legacy_file_in_root = None
+    legacy_state_folder = find_file_in_folder("root", LEGACY_STATE_FOLDER_NAME)
+    if legacy_state_folder:
+        legacy_manifest_folder = find_file_in_folder(legacy_state_folder["id"], MANIFEST_FOLDER_NAME)
+        if legacy_manifest_folder:
+            legacy_file_in_manifest = find_file_in_folder(legacy_manifest_folder["id"], MANIFEST_FILE_NAME)
+        legacy_file_in_root = find_file_in_folder(legacy_state_folder["id"], MANIFEST_FILE_NAME)
+
+    if selected_file:
+        file_id = selected_file["id"]
+        if legacy_file_in_manifest or legacy_file_in_root:
+            print("Manifest warning: legacy manifest file also exists in _transcription_state; review manually.")
+    elif legacy_file_in_manifest:
+        moved = drive_service.files().update(
+            fileId=legacy_file_in_manifest["id"],
+            addParents=manifest_folder_id,
+            removeParents=legacy_manifest_folder["id"],
+            fields="id, parents",
+            supportsAllDrives=True
+        ).execute()
+        file_id = moved["id"]
+    elif legacy_file_in_root:
+        moved = drive_service.files().update(
+            fileId=legacy_file_in_root["id"],
+            addParents=manifest_folder_id,
+            removeParents=legacy_state_folder["id"],
+            fields="id, parents",
+            supportsAllDrives=True
+        ).execute()
+        file_id = moved["id"]
     else:
         media = MediaInMemoryUpload(
             json.dumps(make_manifest_default(), ensure_ascii=False, indent=2).encode("utf-8"),
@@ -556,20 +614,17 @@ def get_or_create_manifest_file() -> tuple[str, str]:
             resumable=False
         )
         created = drive_service.files().create(
-            body={
-                "name": MANIFEST_FILE_NAME,
-                "parents": [folder_id],
-                "mimeType": "application/json"
-            },
+            body={"name": MANIFEST_FILE_NAME, "parents": [manifest_folder_id], "mimeType": "application/json"},
             media_body=media,
             fields="id, name",
             supportsAllDrives=True
         ).execute()
         file_id = created["id"]
 
-    MANIFEST_CACHE["folder_id"] = folder_id
+    MANIFEST_CACHE["state_folder_id"] = state_folder_id
+    MANIFEST_CACHE["manifest_folder_id"] = manifest_folder_id
     MANIFEST_CACHE["file_id"] = file_id
-    return folder_id, file_id
+    return manifest_folder_id, file_id
 
 
 def load_manifest(force_reload: bool = False) -> dict:
@@ -633,6 +688,51 @@ def save_manifest(manifest: dict):
         supportsAllDrives=True
     ).execute()
     MANIFEST_CACHE["data"] = merged_manifest
+
+
+def get_or_create_analytics_file() -> tuple[str, str]:
+    if ANALYTICS_CACHE["analytics_folder_id"] and ANALYTICS_CACHE["file_id"]:
+        return ANALYTICS_CACHE["analytics_folder_id"], ANALYTICS_CACHE["file_id"]
+
+    state_folder = get_or_create_folder_in_parent("root", STATE_FOLDER_NAME)
+    analytics_folder = get_or_create_folder_in_parent(state_folder["id"], ANALYTICS_FOLDER_NAME)
+    existing = find_file_in_folder(analytics_folder["id"], ANALYTICS_FILE_NAME)
+    if existing:
+        file_id = existing["id"]
+    else:
+        media = MediaInMemoryUpload(b"", mimetype="text/plain", resumable=False)
+        created = drive_service.files().create(
+            body={"name": ANALYTICS_FILE_NAME, "parents": [analytics_folder["id"]], "mimeType": "text/plain"},
+            media_body=media,
+            fields="id, name",
+            supportsAllDrives=True
+        ).execute()
+        file_id = created["id"]
+
+    ANALYTICS_CACHE["state_folder_id"] = state_folder["id"]
+    ANALYTICS_CACHE["analytics_folder_id"] = analytics_folder["id"]
+    ANALYTICS_CACHE["file_id"] = file_id
+    return analytics_folder["id"], file_id
+
+
+def append_analytics_record(record: dict):
+    _, file_id = get_or_create_analytics_file()
+    request = drive_service.files().get_media(fileId=file_id, supportsAllDrives=True)
+    bio = io.BytesIO()
+    downloader = MediaIoBaseDownload(bio, request)
+    done = False
+    while not done:
+        _, done = downloader.next_chunk()
+
+    current = bio.getvalue().decode("utf-8", errors="ignore")
+    line = json.dumps(record, ensure_ascii=False)
+    updated_content = f"{current.rstrip()}\n{line}\n" if current.strip() else f"{line}\n"
+    media = MediaInMemoryUpload(updated_content.encode("utf-8"), mimetype="text/plain", resumable=False)
+    drive_service.files().update(
+        fileId=file_id,
+        media_body=media,
+        supportsAllDrives=True
+    ).execute()
 
 
 def get_manifest_entry(manifest: dict, source_signature: str) -> Optional[dict]:
@@ -3978,6 +4078,58 @@ def print_success_summary(successes: list[dict]):
         print(line)
 
 
+def resolve_run_status(success_count: int, error_count: int) -> str:
+    if success_count > 0 and error_count == 0:
+        return "success"
+    if success_count > 0 and error_count > 0:
+        return "partial_success"
+    if success_count == 0 and error_count > 0:
+        return "failed"
+    return "no_files_processed"
+
+
+def build_run_analytics_record(
+    run_id: str,
+    timer: RunTimer,
+    source_mode: str,
+    run_ctx: Optional[RunExecutionContext],
+    successes: list[dict],
+    errors: list[dict],
+    skipped: list[dict],
+) -> dict:
+    extension_summary = {}
+    for item in successes + errors + skipped:
+        source_name = str(item.get("source") or item.get("source_name") or "").strip()
+        ext = Path(source_name).suffix.lower()
+        if ext:
+            extension_summary[ext] = extension_summary.get(ext, 0) + 1
+    return {
+        "schema_version": 1,
+        "event_type": "run_summary",
+        "run_id": run_id,
+        "created_at": utc_now_iso(),
+        "source_mode": source_mode,
+        "provider": run_ctx.options.provider if run_ctx else None,
+        "provider_model": run_ctx.options.provider_model_id if run_ctx else None,
+        "language_mode": run_ctx.options.language_mode if run_ctx else None,
+        "language_label": run_ctx.options.language_label if run_ctx else None,
+        "separate_speakers": run_ctx.options.separate_speakers if run_ctx else None,
+        "extract_audio_from_video_enabled": run_ctx.options.extract_audio_from_video_enabled if run_ctx else None,
+        "keyterms_count": len(run_ctx.options.keyterms) if run_ctx else None,
+        "conflict_mode": run_ctx.conflict_mode if run_ctx else None,
+        "ignore_manifest": run_ctx.ignore_manifest if run_ctx else None,
+        "status": resolve_run_status(len(successes), len(errors)),
+        "success_count": len(successes),
+        "error_count": len(errors),
+        "skipped_count": len(skipped),
+        "file_count": len(successes) + len(errors) + len(skipped),
+        "file_extensions": extension_summary,
+        "timing_totals": dict(timer.totals),
+        "timing_counts": dict(timer._counts),
+        "timing_analysis": build_timing_analysis(timer),
+    }
+
+
 def on_start_clicked(_):
     with output_widget:
         clear_output()
@@ -3986,6 +4138,9 @@ def on_start_clicked(_):
         reset_progress()
         timer = RunTimer()
         timer.start("run_total")
+        run_ctx: Optional[RunExecutionContext] = None
+        mode = mode_widget.value
+        successes, errors, skipped = [], [], []
 
         try:
             with timer.measure("startup_cleanup"):
@@ -4006,9 +4161,7 @@ def on_start_clicked(_):
                     options=collect_runtime_options_from_ui(),
                 )
 
-            mode = mode_widget.value
             print_preflight_summary(run_ctx=run_ctx, source_mode=mode)
-            successes, errors, skipped = [], [], []
 
             if mode == "local_file":
                 print("Выбери один файл с компьютера...")
@@ -4106,6 +4259,23 @@ def on_start_clicked(_):
         finally:
             timer.stop("run_total")
             print_timing_summary(timer)
+            if run_ctx is not None:
+                try:
+                    run_id = str(uuid.uuid4())
+                    analytics_record = build_run_analytics_record(
+                        run_id=run_id,
+                        timer=timer,
+                        source_mode=mode,
+                        run_ctx=run_ctx,
+                        successes=successes,
+                        errors=errors,
+                        skipped=skipped,
+                    )
+                    json.dumps(analytics_record, ensure_ascii=False)
+                    append_analytics_record(analytics_record)
+                    print("Analytics log updated: VoiceOps Workspace/analytics/elevenlabs_transcription_runs.jsonl")
+                except Exception:
+                    print("Analytics log warning: failed to update analytics file (non-fatal).")
             start_button.disabled = False
             check_source_button.disabled = False
             if progress_bar.layout.visibility == "visible" and progress_bar.value < progress_bar.max:

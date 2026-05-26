@@ -20,6 +20,8 @@ Important: observed operational usage is **not** equivalent to formal E2E valida
 | GitHub Actions lightweight CI | CI first-run validated | First observed GitHub Actions CI run completed successfully for static repository hygiene checks; no real Colab, STT, Google API, ElevenLabs, or OpenAI calls. |
 | Startup stale temp cleanup (`elevenlabs_api_*`, TTL-based) | TBD / needs runtime validation | Static inspection done; needs reproducible runtime cleanup check. |
 | Performance timing summary | Smoke-tested by user | User observed local timing output after a successful Colab run; enhanced bottleneck analytics still need runtime validation. |
+| Drive state folder substructure | TBD / needs runtime validation | State artifacts are organized under VoiceOps Workspace/manifest and VoiceOps Workspace/analytics with backward-compatible manifest migration. |
+| Persistent performance analytics log | TBD / needs runtime validation | Best-effort JSONL analytics stored under VoiceOps Workspace/analytics; diagnostic only and should not contain secrets or transcript text. |
 | Colab preflight summary | Smoke-tested by user | User observed the read-only preflight summary in Colab before a successful run; it displayed provider/model, required/optional API key presence, source mode, output, manifest, keyterms, and risk notes without printing secret values. |
 | ElevenLabs + local single audio | TBD / needs E2E validation | Main path; requires explicit reproducible validation record. |
 | ElevenLabs + local multiple files | TBD / needs E2E validation | Batch mode needs explicit E2E run logs. |
