@@ -30,6 +30,9 @@ Do not commit:
 - generated transcripts,
 - manifest exports from private runs,
 - notebook `.ipynb` outputs containing user data.
+- runtime analytics logs from Drive (`VoiceOps Workspace/analytics/elevenlabs_transcription_runs.jsonl`).
+
+Analytics logs are runtime diagnostic artifacts. They must not store secrets, transcript text, raw provider response bodies, or Google Docs contents.
 
 Runtime hygiene:
 - startup cleanup removes only stale temp artifacts with project prefix `elevenlabs_api_`;
