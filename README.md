@@ -136,4 +136,4 @@ Non-goals:
 - no provider or Google credentials required;
 - no deployment/CD configuration.
 
-- Google Docs/Drive write and update requests now use conservative retry with exponential backoff for transient Google API failures (429/500/502/503/504). STT provider calls are unchanged.
+- Google Drive write/update requests use conservative retry with exponential backoff for transient Google API failures (429/500/502/503/504). Google Docs text insertion retry is intentionally narrower because `insertText` is not fully idempotent. STT provider calls are unchanged.

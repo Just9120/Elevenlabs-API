@@ -45,6 +45,7 @@ logging.getLogger("google_auth_httplib2").setLevel(logging.ERROR)
 
 
 GOOGLE_RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+GOOGLE_DOCS_INSERT_RETRYABLE_STATUS_CODES = {429}
 
 
 def is_retryable_google_http_error(error: Exception) -> bool:
@@ -54,7 +55,15 @@ def is_retryable_google_http_error(error: Exception) -> bool:
     return status in GOOGLE_RETRYABLE_STATUS_CODES
 
 
-def execute_google_request_with_retry(request, operation_label: str, max_attempts: int = 4, base_delay_seconds: float = 1.0):
+def execute_google_request_with_retry(
+    request,
+    operation_label: str,
+    max_attempts: int = 4,
+    base_delay_seconds: float = 1.0,
+    retryable_status_codes=None,
+):
+    if retryable_status_codes is None:
+        retryable_status_codes = GOOGLE_RETRYABLE_STATUS_CODES
     last_error = None
     for attempt in range(1, max_attempts + 1):
         try:
@@ -62,7 +71,7 @@ def execute_google_request_with_retry(request, operation_label: str, max_attempt
         except HttpError as error:
             last_error = error
             status = getattr(getattr(error, "resp", None), "status", "unknown")
-            if status not in GOOGLE_RETRYABLE_STATUS_CODES or attempt >= max_attempts:
+            if status not in retryable_status_codes or attempt >= max_attempts:
                 raise
             delay_seconds = base_delay_seconds * (2 ** (attempt - 1)) + random.uniform(0.0, 0.3)
             print(
@@ -1367,11 +1376,15 @@ def write_title_and_text_to_doc(document_id: str, title: str, transcript_text: s
         }
     ])
 
+    # Docs insertText is not fully idempotent. Retrying ambiguous 5xx can duplicate
+    # text if server applied the insert but client saw an error; keep retries narrow.
     execute_google_request_with_retry(
         docs_service.documents().batchUpdate(
             documentId=document_id,
             body={"requests": requests_payload}
-        ), operation_label="docs_batch_update"
+        ),
+        operation_label="docs_batch_update",
+        retryable_status_codes=GOOGLE_DOCS_INSERT_RETRYABLE_STATUS_CODES,
     )
 
     insert_index = 1 + docs_text_len(prefix)
@@ -1394,7 +1407,9 @@ def write_title_and_text_to_doc(document_id: str, title: str, transcript_text: s
                         }
                     ]
                 }
-            ), operation_label="docs_batch_update"
+            ),
+            operation_label="docs_batch_update",
+            retryable_status_codes=GOOGLE_DOCS_INSERT_RETRYABLE_STATUS_CODES,
         )
 
         insert_index += docs_text_len(chunk)

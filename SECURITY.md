@@ -69,4 +69,4 @@ The lightweight GitHub Actions CI is intentionally secretless:
 
 If future workflows add integration/E2E checks, keep them isolated and explicitly gated before introducing any credentials.
 
-- Retry logging for Google API transient failures is intentionally minimal and must not include request/response bodies, tokens, or secrets.
+- Retry logging for Google API transient failures is intentionally minimal and must not include request/response bodies, transcript text, tokens, or secrets.
