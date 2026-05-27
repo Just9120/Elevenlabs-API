@@ -135,3 +135,5 @@ Non-goals:
 - no ElevenLabs/OpenAI/Google API calls;
 - no provider or Google credentials required;
 - no deployment/CD configuration.
+
+- Google Drive write/update requests use conservative retry with exponential backoff for transient Google API failures (429/500/502/503/504). Google Docs text insertion retry is intentionally narrower because `insertText` is not fully idempotent. STT provider calls are unchanged.

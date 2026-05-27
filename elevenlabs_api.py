@@ -14,6 +14,7 @@ import io
 import os
 import re
 import json
+import random
 import hashlib
 import mimetypes
 import logging
@@ -35,9 +36,51 @@ from IPython.display import display, clear_output
 from google.colab import auth, files, userdata, drive as colab_drive
 import google.auth
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseDownload, MediaInMemoryUpload
 
 logging.getLogger("google_auth_httplib2").setLevel(logging.ERROR)
+
+
+
+
+GOOGLE_RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+GOOGLE_DOCS_INSERT_RETRYABLE_STATUS_CODES = {429}
+
+
+def is_retryable_google_http_error(error: Exception) -> bool:
+    if not isinstance(error, HttpError):
+        return False
+    status = getattr(getattr(error, "resp", None), "status", None)
+    return status in GOOGLE_RETRYABLE_STATUS_CODES
+
+
+def execute_google_request_with_retry(
+    request,
+    operation_label: str,
+    max_attempts: int = 4,
+    base_delay_seconds: float = 1.0,
+    retryable_status_codes=None,
+):
+    if retryable_status_codes is None:
+        retryable_status_codes = GOOGLE_RETRYABLE_STATUS_CODES
+    last_error = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return request.execute()
+        except HttpError as error:
+            last_error = error
+            status = getattr(getattr(error, "resp", None), "status", "unknown")
+            if status not in retryable_status_codes or attempt >= max_attempts:
+                raise
+            delay_seconds = base_delay_seconds * (2 ** (attempt - 1)) + random.uniform(0.0, 0.3)
+            print(
+                f"Google API retry: {operation_label} failed with {status}; "
+                f"retrying in {delay_seconds:.1f}s (attempt {attempt + 1}/{max_attempts})."
+            )
+            time.sleep(delay_seconds)
+    if last_error is not None:
+        raise last_error
 
 
 def get_colab_secret_or_none(name: str) -> Optional[str]:
@@ -590,22 +633,28 @@ def get_or_create_manifest_file() -> tuple[str, str]:
         if legacy_file_in_manifest or legacy_file_in_root:
             print("Manifest warning: legacy manifest file also exists in _transcription_state; review manually.")
     elif legacy_file_in_manifest:
-        moved = drive_service.files().update(
-            fileId=legacy_file_in_manifest["id"],
-            addParents=manifest_folder_id,
-            removeParents=legacy_manifest_folder["id"],
-            fields="id, parents",
-            supportsAllDrives=True
-        ).execute()
+        moved = execute_google_request_with_retry(
+            drive_service.files().update(
+                fileId=legacy_file_in_manifest["id"],
+                addParents=manifest_folder_id,
+                removeParents=legacy_manifest_folder["id"],
+                fields="id, parents",
+                supportsAllDrives=True
+            ),
+            operation_label="drive_file_update"
+        )
         file_id = moved["id"]
     elif legacy_file_in_root:
-        moved = drive_service.files().update(
-            fileId=legacy_file_in_root["id"],
-            addParents=manifest_folder_id,
-            removeParents=legacy_state_folder["id"],
-            fields="id, parents",
-            supportsAllDrives=True
-        ).execute()
+        moved = execute_google_request_with_retry(
+            drive_service.files().update(
+                fileId=legacy_file_in_root["id"],
+                addParents=manifest_folder_id,
+                removeParents=legacy_state_folder["id"],
+                fields="id, parents",
+                supportsAllDrives=True
+            ),
+            operation_label="drive_file_update"
+        )
         file_id = moved["id"]
     else:
         media = MediaInMemoryUpload(
@@ -613,12 +662,15 @@ def get_or_create_manifest_file() -> tuple[str, str]:
             mimetype="application/json",
             resumable=False
         )
-        created = drive_service.files().create(
-            body={"name": MANIFEST_FILE_NAME, "parents": [manifest_folder_id], "mimeType": "application/json"},
-            media_body=media,
-            fields="id, name",
-            supportsAllDrives=True
-        ).execute()
+        created = execute_google_request_with_retry(
+            drive_service.files().create(
+                body={"name": MANIFEST_FILE_NAME, "parents": [manifest_folder_id], "mimeType": "application/json"},
+                media_body=media,
+                fields="id, name",
+                supportsAllDrives=True
+            ),
+            operation_label="drive_file_create"
+        )
         file_id = created["id"]
 
     MANIFEST_CACHE["state_folder_id"] = state_folder_id
@@ -682,11 +734,14 @@ def save_manifest(manifest: dict):
         mimetype="application/json",
         resumable=False
     )
-    drive_service.files().update(
-        fileId=file_id,
-        media_body=media,
-        supportsAllDrives=True
-    ).execute()
+    execute_google_request_with_retry(
+        drive_service.files().update(
+            fileId=file_id,
+            media_body=media,
+            supportsAllDrives=True
+        ),
+        operation_label="drive_file_update"
+    )
     MANIFEST_CACHE["data"] = merged_manifest
 
 
@@ -701,12 +756,15 @@ def get_or_create_analytics_file() -> tuple[str, str]:
         file_id = existing["id"]
     else:
         media = MediaInMemoryUpload(b"", mimetype="text/plain", resumable=False)
-        created = drive_service.files().create(
-            body={"name": ANALYTICS_FILE_NAME, "parents": [analytics_folder["id"]], "mimeType": "text/plain"},
-            media_body=media,
-            fields="id, name",
-            supportsAllDrives=True
-        ).execute()
+        created = execute_google_request_with_retry(
+            drive_service.files().create(
+                body={"name": ANALYTICS_FILE_NAME, "parents": [analytics_folder["id"]], "mimeType": "text/plain"},
+                media_body=media,
+                fields="id, name",
+                supportsAllDrives=True
+            ),
+            operation_label="drive_file_create"
+        )
         file_id = created["id"]
 
     ANALYTICS_CACHE["state_folder_id"] = state_folder["id"]
@@ -728,11 +786,14 @@ def append_analytics_record(record: dict):
     line = json.dumps(record, ensure_ascii=False)
     updated_content = f"{current.rstrip()}\n{line}\n" if current.strip() else f"{line}\n"
     media = MediaInMemoryUpload(updated_content.encode("utf-8"), mimetype="text/plain", resumable=False)
-    drive_service.files().update(
-        fileId=file_id,
-        media_body=media,
-        supportsAllDrives=True
-    ).execute()
+    execute_google_request_with_retry(
+        drive_service.files().update(
+            fileId=file_id,
+            media_body=media,
+            supportsAllDrives=True
+        ),
+        operation_label="drive_file_update"
+    )
 
 
 def get_manifest_entry(manifest: dict, source_signature: str) -> Optional[dict]:
@@ -1208,20 +1269,26 @@ def create_google_doc(title: str, folder_id: str) -> dict:
         "mimeType": DOC_MIME,
         "parents": [folder_id],
     }
-    return drive_service.files().create(
-        body=file_metadata,
-        fields="id, name, webViewLink, modifiedTime",
-        supportsAllDrives=True
-    ).execute()
+    return execute_google_request_with_retry(
+        drive_service.files().create(
+            body=file_metadata,
+            fields="id, name, webViewLink, modifiedTime",
+            supportsAllDrives=True
+        ),
+        operation_label="drive_file_create"
+    )
 
 
 def rename_drive_file(file_id: str, new_name: str) -> dict:
-    return drive_service.files().update(
-        fileId=file_id,
-        body={"name": new_name},
-        fields="id, name, webViewLink, modifiedTime",
-        supportsAllDrives=True
-    ).execute()
+    return execute_google_request_with_retry(
+        drive_service.files().update(
+            fileId=file_id,
+            body={"name": new_name},
+            fields="id, name, webViewLink, modifiedTime",
+            supportsAllDrives=True
+        ),
+        operation_label="drive_file_update"
+    )
 
 
 def chunk_text_for_docs(text: str, max_chars: int = DOC_INSERT_CHUNK_SIZE) -> list[str]:
@@ -1309,10 +1376,16 @@ def write_title_and_text_to_doc(document_id: str, title: str, transcript_text: s
         }
     ])
 
-    docs_service.documents().batchUpdate(
-        documentId=document_id,
-        body={"requests": requests_payload}
-    ).execute()
+    # Docs insertText is not fully idempotent. Retrying ambiguous 5xx can duplicate
+    # text if server applied the insert but client saw an error; keep retries narrow.
+    execute_google_request_with_retry(
+        docs_service.documents().batchUpdate(
+            documentId=document_id,
+            body={"requests": requests_payload}
+        ),
+        operation_label="docs_batch_update",
+        retryable_status_codes=GOOGLE_DOCS_INSERT_RETRYABLE_STATUS_CODES,
+    )
 
     insert_index = 1 + docs_text_len(prefix)
     chunks = chunk_text_for_docs(transcript_text, DOC_INSERT_CHUNK_SIZE)
@@ -1321,19 +1394,23 @@ def write_title_and_text_to_doc(document_id: str, title: str, transcript_text: s
         if not chunk:
             continue
 
-        docs_service.documents().batchUpdate(
-            documentId=document_id,
-            body={
-                "requests": [
-                    {
-                        "insertText": {
-                            "location": {"index": insert_index},
-                            "text": chunk
+        execute_google_request_with_retry(
+            docs_service.documents().batchUpdate(
+                documentId=document_id,
+                body={
+                    "requests": [
+                        {
+                            "insertText": {
+                                "location": {"index": insert_index},
+                                "text": chunk
+                            }
                         }
-                    }
-                ]
-            }
-        ).execute()
+                    ]
+                }
+            ),
+            operation_label="docs_batch_update",
+            retryable_status_codes=GOOGLE_DOCS_INSERT_RETRYABLE_STATUS_CODES,
+        )
 
         insert_index += docs_text_len(chunk)
 
