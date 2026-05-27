@@ -40,3 +40,4 @@ Important: observed operational usage is **not** equivalent to formal E2E valida
 | OpenAI diarization | Experimental | Speaker-aware output requires more validation. |
 | OpenAI diarization + chunking | High risk | Known risks in speaker segmentation consistency. |
 | Parallel notebooks / two Colab tabs | Not supported | Manifest model is single-user/single-runtime. |
+| Google Docs/Drive transient write retry | TBD / needs runtime validation | Conservative retry for transient Google API write/update failures; does not retry STT provider calls. |

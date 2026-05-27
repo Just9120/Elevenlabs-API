@@ -135,3 +135,5 @@ Non-goals:
 - no ElevenLabs/OpenAI/Google API calls;
 - no provider or Google credentials required;
 - no deployment/CD configuration.
+
+- Google Docs/Drive write and update requests now use conservative retry with exponential backoff for transient Google API failures (429/500/502/503/504). STT provider calls are unchanged.
