@@ -74,7 +74,7 @@ OPENAI_API_KEY = userdata.get("OPENAI_API_KEY")
 - `ElevenLabs / scribe_v2` остаётся основным provider path.
 - `OpenAI` сейчас используется как **manual fallback / alternative provider path**.
 - **Automatic fallback не реализован**: для него нужен отдельный дизайн billing-safety, retry-политики и контроль повторных списаний.
-- `OpenAI diarization` и особенно `OpenAI diarization + chunking` считаются **experimental / high risk** сценариями.
+- `OpenAI diarization` и особенно `OpenAI diarization + chunking` считаются **experimental / high risk** сценариями; preflight summary дополнительно предупреждает, что speaker labels могут быть inconsistent across chunks, потому что текущий merge text-based, а не speaker-aware.
 - Изменения для длинных ElevenLabs-файлов должны быть **консервативными и evidence-driven**; до введения client-side split нужны реальные E2E-валидации.
 - Manifest сейчас рассчитан на **single-user / single-runtime Colab**; параллельные запуски из двух вкладок Colab официально не поддерживаются.
 - Для provider HTTP ошибок используется **safe logging**: без печати raw response body в notebook output.
