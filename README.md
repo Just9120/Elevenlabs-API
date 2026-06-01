@@ -128,7 +128,7 @@ Scope:
 - notebook JSON and clean-output checks;
 - launcher notebook thinness guard;
 - conservative static guards for raw provider `resp.text` logging and broad `/tmp` cleanup patterns;
-- optional `pytest` run when tests exist.
+- `pytest` run when tests exist.
 
 Non-goals:
 - no real Colab transcription runs;
