@@ -1291,6 +1291,77 @@ def rename_drive_file(file_id: str, new_name: str) -> dict:
     )
 
 
+def format_transcript_metadata_value(value) -> str:
+    if value is None:
+        return "unknown"
+    normalized = re.sub(r"\s+", " ", str(value)).strip()
+    return normalized or "unknown"
+
+
+def build_transcript_metadata_lines(
+    source_name: str,
+    source_mode: str,
+    provider: str,
+    provider_model: str,
+    language: str,
+    speakers_enabled: bool,
+    created_at: str,
+) -> list[str]:
+    return [
+        f"Source file: {format_transcript_metadata_value(source_name)}",
+        f"Source mode: {format_transcript_metadata_value(source_mode)}",
+        f"Provider: {format_transcript_metadata_value(provider)}",
+        f"Model: {format_transcript_metadata_value(provider_model)}",
+        f"Language: {format_transcript_metadata_value(language)}",
+        f"Speakers: {'yes' if speakers_enabled else 'no'}",
+        f"Created at: {format_transcript_metadata_value(created_at)}",
+    ]
+
+
+def segment_plain_transcript_for_docs(transcript_text: str, target_chars: int = 1800) -> str:
+    text = transcript_text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not text:
+        return ""
+
+    if "\n\n" in text or re.search(r"(?m)^\s*Спикер\s+\d+:", text):
+        return text
+
+    single_line = re.sub(r"[ \t]*\n[ \t]*", " ", text)
+    if len(single_line) <= target_chars:
+        return single_line
+
+    sentences = re.split(r"(?<=[.!?…])\s+", single_line)
+    paragraphs = []
+    current = ""
+
+    for sentence in sentences:
+        if not sentence:
+            continue
+        if not current:
+            current = sentence
+            continue
+        if len(current) + 1 + len(sentence) <= target_chars:
+            current = f"{current} {sentence}"
+        else:
+            paragraphs.append(current)
+            current = sentence
+
+    if current:
+        paragraphs.append(current)
+
+    return "\n\n".join(paragraphs)
+
+
+def build_structured_transcript_document_text(
+    document_title: str,
+    transcript_text: str,
+    metadata_lines: list[str],
+) -> str:
+    body = segment_plain_transcript_for_docs(transcript_text)
+    metadata = "\n".join(metadata_lines)
+    return f"{document_title}\n\nTranscript metadata\n{metadata}\n\nTranscript\n\n{body}"
+
+
 def chunk_text_for_docs(text: str, max_chars: int = DOC_INSERT_CHUNK_SIZE) -> list[str]:
     text = text.replace("\r\n", "\n").replace("\r", "\n")
 
@@ -1341,6 +1412,7 @@ def get_document_end_index(document_id: str) -> int:
 
 def write_title_and_text_to_doc(document_id: str, title: str, transcript_text: str, clear_first: bool = False):
     prefix = f"{title}\n\n"
+    document_text = transcript_text if transcript_text.startswith(prefix) else f"{prefix}{transcript_text}"
     requests_payload = []
 
     if clear_first:
@@ -1388,7 +1460,8 @@ def write_title_and_text_to_doc(document_id: str, title: str, transcript_text: s
     )
 
     insert_index = 1 + docs_text_len(prefix)
-    chunks = chunk_text_for_docs(transcript_text, DOC_INSERT_CHUNK_SIZE)
+    body_text = document_text[len(prefix):]
+    chunks = chunk_text_for_docs(body_text, DOC_INSERT_CHUNK_SIZE)
 
     for chunk in chunks:
         if not chunk:
@@ -2255,9 +2328,31 @@ def upsert_transcript_document(
     transcript_text: str,
     output_folder_id: str,
     docs_index: dict[str, list[dict]],
-    conflict_mode: str
+    conflict_mode: str,
+    source_name: str,
+    source_mode: str,
+    options: TranscriptionRuntimeOptions,
 ) -> dict:
     existing = get_single_existing_doc_match(base_name, docs_index)
+
+    def structured_text_for_doc(doc_title: str) -> str:
+        language = options.language_label
+        if options.language_code:
+            language = f"{language} ({options.language_code})"
+        metadata_lines = build_transcript_metadata_lines(
+            source_name=source_name,
+            source_mode=get_source_mode_label(source_mode),
+            provider=options.provider_label,
+            provider_model=options.provider_model_label,
+            language=language,
+            speakers_enabled=options.separate_speakers,
+            created_at=utc_now_iso(),
+        )
+        return build_structured_transcript_document_text(
+            document_title=doc_title,
+            transcript_text=transcript_text,
+            metadata_lines=metadata_lines,
+        )
 
     if not existing:
         doc_name = get_unique_name(output_folder_id, base_name, DOC_MIME)
@@ -2265,7 +2360,7 @@ def upsert_transcript_document(
         write_title_and_text_to_doc(
             document_id=doc["id"],
             title=doc_name,
-            transcript_text=transcript_text,
+            transcript_text=structured_text_for_doc(doc_name),
             clear_first=False
         )
         add_doc_record_to_index(doc, docs_index)
@@ -2288,7 +2383,7 @@ def upsert_transcript_document(
         write_title_and_text_to_doc(
             document_id=existing["id"],
             title=existing["name"],
-            transcript_text=transcript_text,
+            transcript_text=structured_text_for_doc(existing["name"]),
             clear_first=True
         )
         return {
@@ -2305,7 +2400,7 @@ def upsert_transcript_document(
         write_title_and_text_to_doc(
             document_id=doc["id"],
             title=doc["name"],
-            transcript_text=transcript_text,
+            transcript_text=structured_text_for_doc(doc["name"]),
             clear_first=False
         )
         add_doc_record_to_index(doc, docs_index)
@@ -2323,7 +2418,7 @@ def upsert_transcript_document(
         write_title_and_text_to_doc(
             document_id=doc["id"],
             title=doc["name"],
-            transcript_text=transcript_text,
+            transcript_text=structured_text_for_doc(doc["name"]),
             clear_first=False
         )
         add_doc_record_to_index(doc, docs_index)
@@ -2677,6 +2772,7 @@ def report_progress_for_file(progress_callback, file_index: int, total_files: in
 def process_local_uploaded(
     uploaded: dict,
     run_ctx: RunExecutionContext,
+    source_mode: str,
     progress_callback=None,
     timer: Optional[RunTimer] = None,
 ) -> tuple[list, list, list]:
@@ -2732,7 +2828,10 @@ def process_local_uploaded(
                     transcript_text=transcript,
                     output_folder_id=run_ctx.output_folder_id,
                     docs_index=run_ctx.docs_index,
-                    conflict_mode=run_ctx.conflict_mode
+                    conflict_mode=run_ctx.conflict_mode,
+                    source_name=filename,
+                    source_mode=source_mode,
+                    options=run_ctx.options
                 )
 
             if result["status"] == "skipped":
@@ -2828,7 +2927,10 @@ def process_drive_file_input(
                 transcript_text=transcript,
                 output_folder_id=run_ctx.output_folder_id,
                 docs_index=run_ctx.docs_index,
-                conflict_mode=run_ctx.conflict_mode
+                conflict_mode=run_ctx.conflict_mode,
+                source_name=filename,
+                source_mode="drive_file",
+                options=run_ctx.options
             )
 
             if result["status"] == "skipped":
@@ -2901,7 +3003,10 @@ def process_drive_file_input(
             transcript_text=transcript,
             output_folder_id=run_ctx.output_folder_id,
             docs_index=run_ctx.docs_index,
-            conflict_mode=run_ctx.conflict_mode
+            conflict_mode=run_ctx.conflict_mode,
+            source_name=filename,
+            source_mode="drive_file",
+            options=run_ctx.options
         )
 
         if result["status"] == "skipped":
@@ -2981,7 +3086,10 @@ def process_drive_folder_input(
                     transcript_text=transcript,
                     output_folder_id=run_ctx.output_folder_id,
                     docs_index=run_ctx.docs_index,
-                    conflict_mode=run_ctx.conflict_mode
+                    conflict_mode=run_ctx.conflict_mode,
+                    source_name=filename,
+                    source_mode="drive_folder",
+                    options=run_ctx.options
                 )
 
                 if result["status"] == "skipped":
@@ -3059,7 +3167,10 @@ def process_drive_folder_input(
                 transcript_text=transcript,
                 output_folder_id=run_ctx.output_folder_id,
                 docs_index=run_ctx.docs_index,
-                conflict_mode=run_ctx.conflict_mode
+                conflict_mode=run_ctx.conflict_mode,
+                source_name=display_name,
+                source_mode="drive_folder",
+                options=run_ctx.options
             )
 
             if result["status"] == "skipped":
@@ -4270,6 +4381,7 @@ def on_start_clicked(_):
                         run_ctx=run_ctx,
                         progress_callback=set_progress,
                         timer=timer,
+                        source_mode=mode,
                     )
 
             elif mode == "local_multi":
@@ -4286,6 +4398,7 @@ def on_start_clicked(_):
                     run_ctx=run_ctx,
                     progress_callback=set_progress,
                     timer=timer,
+                    source_mode=mode,
                     )
 
             elif mode == "drive_file":

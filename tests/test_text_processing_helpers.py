@@ -17,7 +17,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CANONICAL_SOURCE = ROOT / "elevenlabs_api.py"
 HELPER_NAMES = {
+    "build_transcript_metadata_lines",
+    "build_structured_transcript_document_text",
     "chunk_text_for_docs",
+    "format_transcript_metadata_value",
+    "segment_plain_transcript_for_docs",
     "normalize_text_for_overlap_match",
     "trim_duplicate_prefix_by_token_overlap",
     "merge_transcript_parts_with_overlap",
@@ -65,12 +69,90 @@ def load_text_helpers() -> dict[str, object]:
 
 
 HELPERS = load_text_helpers()
+build_transcript_metadata_lines = HELPERS["build_transcript_metadata_lines"]
+build_structured_transcript_document_text = HELPERS["build_structured_transcript_document_text"]
 chunk_text_for_docs = HELPERS["chunk_text_for_docs"]
+format_transcript_metadata_value = HELPERS["format_transcript_metadata_value"]
+segment_plain_transcript_for_docs = HELPERS["segment_plain_transcript_for_docs"]
 trim_duplicate_prefix_by_token_overlap = HELPERS["trim_duplicate_prefix_by_token_overlap"]
 merge_transcript_parts_with_overlap = HELPERS["merge_transcript_parts_with_overlap"]
 get_openai_diarize_chunking_preflight_warning = HELPERS[
     "get_openai_diarize_chunking_preflight_warning"
 ]
+
+
+def test_format_transcript_metadata_value_normalizes_blank_values() -> None:
+    assert format_transcript_metadata_value(None) == "unknown"
+    assert format_transcript_metadata_value("  alpha\n beta  ") == "alpha beta"
+
+
+def test_build_transcript_metadata_lines_uses_stable_labels() -> None:
+    lines = build_transcript_metadata_lines(
+        source_name="lecture.mp3",
+        source_mode="Google Drive: 1 файл",
+        provider="ElevenLabs",
+        provider_model="scribe_v2",
+        language="Русский (ru)",
+        speakers_enabled=True,
+        created_at="2026-06-01T00:00:00+00:00",
+    )
+
+    assert lines == [
+        "Source file: lecture.mp3",
+        "Source mode: Google Drive: 1 файл",
+        "Provider: ElevenLabs",
+        "Model: scribe_v2",
+        "Language: Русский (ru)",
+        "Speakers: yes",
+        "Created at: 2026-06-01T00:00:00+00:00",
+    ]
+
+
+def test_segment_plain_transcript_for_docs_splits_long_single_block_without_losing_text() -> None:
+    text = "First sentence. Second sentence. Third sentence. Fourth sentence."
+
+    segmented = segment_plain_transcript_for_docs(text, target_chars=25)
+
+    assert segmented == "First sentence.\n\nSecond sentence.\n\nThird sentence.\n\nFourth sentence."
+    assert segmented.replace("\n\n", " ") == text
+
+
+def test_segment_plain_transcript_for_docs_preserves_speaker_labeled_blocks() -> None:
+    text = "Спикер 1:\nПривет.\nСпикер 2:\nЗдравствуйте."
+
+    assert segment_plain_transcript_for_docs(text, target_chars=10) == text
+
+
+def test_build_structured_transcript_document_text_has_llm_readable_sections() -> None:
+    metadata = [
+        "Source file: call.flac",
+        "Source mode: Google Drive: 1 файл",
+        "Provider: OpenAI",
+        "Model: gpt-4o-transcribe",
+        "Language: Автоопределение",
+        "Speakers: no",
+        "Created at: 2026-06-01T00:00:00+00:00",
+    ]
+
+    document_text = build_structured_transcript_document_text(
+        document_title="call",
+        transcript_text="Hello world.",
+        metadata_lines=metadata,
+    )
+
+    assert document_text == (
+        "call\n\n"
+        "Transcript metadata\n"
+        "Source file: call.flac\n"
+        "Source mode: Google Drive: 1 файл\n"
+        "Provider: OpenAI\n"
+        "Model: gpt-4o-transcribe\n"
+        "Language: Автоопределение\n"
+        "Speakers: no\n"
+        "Created at: 2026-06-01T00:00:00+00:00\n\n"
+        "Transcript\n\n"
+        "Hello world."
+    )
 
 
 def test_openai_diarize_chunking_preflight_warning_is_limited_to_risky_configuration() -> None:
