@@ -32,7 +32,7 @@ Do not commit:
 - notebook `.ipynb` outputs containing user data.
 - runtime analytics logs from Drive (`VoiceOps Workspace/analytics/elevenlabs_transcription_runs.jsonl`).
 
-Analytics logs are runtime diagnostic artifacts. They must not store secrets, transcript text, raw provider response bodies, or Google Docs contents.
+Analytics logs are runtime diagnostic artifacts. They must not store secrets, transcript text, raw provider response bodies, or Google Docs contents. Structured Google Docs output must be produced from transcript text and runtime metadata already available in memory; it must not create mirrored Markdown artifacts or perform extra provider/LLM/Docs readback calls for formatting.
 
 Runtime hygiene:
 - startup cleanup removes only stale temp artifacts with project prefix `elevenlabs_api_`;

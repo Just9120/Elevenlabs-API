@@ -32,6 +32,7 @@ Important: observed operational usage is **not** equivalent to formal E2E valida
 | ElevenLabs + 5 hour audio | TBD / needs E2E validation | Evidence-driven before introducing client-side split. |
 | Video to audio extraction to ElevenLabs | TBD / needs E2E validation | Existing flow; requires explicit E2E confirmation. |
 | Google Docs chunked insert | TBD / needs E2E validation | Core output path; needs explicit scenario validation. |
+| Structured Google Docs transcript output | Unit-tested / needs E2E validation | Pure text builder is covered by tests; real Google Docs creation/update still needs runtime validation. |
 | Manifest skip on repeated run | TBD / needs E2E validation | Prevents duplicate billing/transcription; verify with controlled rerun. |
 | Manifest after failed run | TBD / needs E2E validation | Verify recovery behavior with controlled failed run. |
 | Import existing / backfill | TBD / needs E2E validation | Feature exists; requires explicit E2E script. |

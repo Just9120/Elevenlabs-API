@@ -45,7 +45,9 @@ Drive runtime state artifacts are organized under:
 Финальный результат сохраняется:
 - только в Google Docs.
 
-Локальные transcript-файлы и JSON-экспорты не считаются основным конечным артефактом.
+Новые Google Docs создаются с компактной LLM-readable структурой: title, transcript metadata, heading `Transcript`, then transcript body. Metadata is built from already available runtime state (source/provider/model/language/speaker setting/timestamp) and does not require extra readback, LLM, or provider calls.
+
+Локальные transcript-файлы, Markdown-зеркала и JSON-экспорты не считаются основным конечным артефактом.
 
 ## Секреты
 
