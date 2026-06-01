@@ -47,6 +47,8 @@ Drive runtime state artifacts are organized under:
 
 Новые Google Docs создаются с компактной LLM-readable структурой: title, transcript metadata, heading `Transcript`, then transcript body. Metadata is built from already available runtime state (source/provider/model/language/speaker setting/timestamp) and does not require extra readback, LLM, or provider calls.
 
+Для старых Google Docs есть отдельная user-triggered проверка/стандартизация в режимах источника Google Drive. По умолчанию она работает как dry-run: сопоставляет выбранные source-файлы с уже существующими Google Docs в выбранной output-папке, показывает `missing_google_doc` / `ambiguous` / `already_structured` / `would_standardize`, не вызывает STT/API/LLM, не создаёт новые документы и не меняет manifest. При явном отключении dry-run она перезаписывает только найденный старый Google Doc, добавляя структуру PR #19 с `Provider/Model/Language: unknown` и `Speakers: unknown`.
+
 Локальные transcript-файлы, Markdown-зеркала и JSON-экспорты не считаются основным конечным артефактом.
 
 ## Секреты

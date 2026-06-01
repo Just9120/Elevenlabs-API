@@ -19,8 +19,12 @@ CANONICAL_SOURCE = ROOT / "elevenlabs_api.py"
 HELPER_NAMES = {
     "build_transcript_metadata_lines",
     "build_structured_transcript_document_text",
+    "build_backfilled_transcript_document_text",
     "chunk_text_for_docs",
+    "extract_unstructured_transcript_body_for_backfill",
     "format_transcript_metadata_value",
+    "is_structured_transcript_document_text",
+    "normalize_doc_plain_text",
     "segment_plain_transcript_for_docs",
     "normalize_text_for_overlap_match",
     "trim_duplicate_prefix_by_token_overlap",
@@ -42,7 +46,12 @@ def load_text_helpers() -> dict[str, object]:
     for node in module.body:
         if isinstance(node, ast.Assign):
             for target in node.targets:
-                if isinstance(target, ast.Name) and target.id == "DOC_INSERT_CHUNK_SIZE":
+                if isinstance(target, ast.Name) and target.id in {
+                    "DOC_INSERT_CHUNK_SIZE",
+                    "STRUCTURED_TRANSCRIPT_METADATA_LABEL",
+                    "STRUCTURED_TRANSCRIPT_BODY_LABEL",
+                    "STRUCTURED_TRANSCRIPT_REQUIRED_METADATA_PREFIXES",
+                }:
                     selected_nodes.append(node)
                     break
         elif isinstance(node, ast.FunctionDef) and node.name in HELPER_NAMES:
@@ -71,8 +80,12 @@ def load_text_helpers() -> dict[str, object]:
 HELPERS = load_text_helpers()
 build_transcript_metadata_lines = HELPERS["build_transcript_metadata_lines"]
 build_structured_transcript_document_text = HELPERS["build_structured_transcript_document_text"]
+build_backfilled_transcript_document_text = HELPERS["build_backfilled_transcript_document_text"]
 chunk_text_for_docs = HELPERS["chunk_text_for_docs"]
+extract_unstructured_transcript_body_for_backfill = HELPERS["extract_unstructured_transcript_body_for_backfill"]
 format_transcript_metadata_value = HELPERS["format_transcript_metadata_value"]
+is_structured_transcript_document_text = HELPERS["is_structured_transcript_document_text"]
+normalize_doc_plain_text = HELPERS["normalize_doc_plain_text"]
 segment_plain_transcript_for_docs = HELPERS["segment_plain_transcript_for_docs"]
 trim_duplicate_prefix_by_token_overlap = HELPERS["trim_duplicate_prefix_by_token_overlap"]
 merge_transcript_parts_with_overlap = HELPERS["merge_transcript_parts_with_overlap"]
@@ -84,6 +97,20 @@ get_openai_diarize_chunking_preflight_warning = HELPERS[
 def test_format_transcript_metadata_value_normalizes_blank_values() -> None:
     assert format_transcript_metadata_value(None) == "unknown"
     assert format_transcript_metadata_value("  alpha\n beta  ") == "alpha beta"
+
+
+def test_build_transcript_metadata_lines_supports_unknown_speakers_for_backfill() -> None:
+    lines = build_transcript_metadata_lines(
+        source_name="legacy.mp3",
+        source_mode="Google Drive: папка",
+        provider="unknown",
+        provider_model="unknown",
+        language="unknown",
+        speakers_enabled=None,
+        created_at="2026-06-01T00:00:00+00:00",
+    )
+
+    assert "Speakers: unknown" in lines
 
 
 def test_build_transcript_metadata_lines_uses_stable_labels() -> None:
@@ -265,3 +292,55 @@ def test_merge_transcript_parts_with_overlap_ignores_blank_parts() -> None:
     assert merge_transcript_parts_with_overlap(["  ", "first", "", "second  "]) == (
         "first\n\nsecond"
     )
+
+
+def test_is_structured_transcript_document_text_requires_pr19_sections() -> None:
+    structured = build_structured_transcript_document_text(
+        document_title="call",
+        transcript_text="Hello world.",
+        metadata_lines=build_transcript_metadata_lines(
+            source_name="call.flac",
+            source_mode="Google Drive: 1 файл",
+            provider="unknown",
+            provider_model="unknown",
+            language="unknown",
+            speakers_enabled=None,
+            created_at="2026-06-01T00:00:00+00:00",
+        ),
+    )
+
+    assert is_structured_transcript_document_text(structured)
+    assert not is_structured_transcript_document_text("call\n\nHello world.")
+    assert not is_structured_transcript_document_text("Transcript metadata\nTranscript\nHello world.")
+
+
+def test_extract_unstructured_transcript_body_for_backfill_drops_duplicate_title() -> None:
+    text = "Legacy Call\n\nFirst line.\nSecond line."
+
+    assert extract_unstructured_transcript_body_for_backfill(text, "Legacy Call") == "First line.\nSecond line."
+    assert extract_unstructured_transcript_body_for_backfill("First line.", "Legacy Call") == "First line."
+
+
+def test_build_backfilled_transcript_document_text_uses_unknown_metadata_without_llm_fields() -> None:
+    document_text = build_backfilled_transcript_document_text(
+        document_title="Legacy Call",
+        source_name="Legacy Call.mp3",
+        source_mode="Google Drive: папка",
+        existing_document_text="Legacy Call\n\nHello world.",
+        created_at="2026-06-01T00:00:00+00:00",
+    )
+
+    assert document_text == (
+        "Legacy Call\n\n"
+        "Transcript metadata\n"
+        "Source file: Legacy Call.mp3\n"
+        "Source mode: Google Drive: папка\n"
+        "Provider: unknown\n"
+        "Model: unknown\n"
+        "Language: unknown\n"
+        "Speakers: unknown\n"
+        "Created at: 2026-06-01T00:00:00+00:00\n\n"
+        "Transcript\n\n"
+        "Hello world."
+    )
+    assert is_structured_transcript_document_text(document_text)

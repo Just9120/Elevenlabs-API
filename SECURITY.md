@@ -32,7 +32,7 @@ Do not commit:
 - notebook `.ipynb` outputs containing user data.
 - runtime analytics logs from Drive (`VoiceOps Workspace/analytics/elevenlabs_transcription_runs.jsonl`).
 
-Analytics logs are runtime diagnostic artifacts. They must not store secrets, transcript text, raw provider response bodies, or Google Docs contents. Structured Google Docs output must be produced from transcript text and runtime metadata already available in memory; it must not create mirrored Markdown artifacts or perform extra provider/LLM/Docs readback calls for formatting.
+Analytics logs are runtime diagnostic artifacts. They must not store secrets, transcript text, raw provider response bodies, or Google Docs contents. Structured Google Docs output must be produced from transcript text and runtime metadata already available in memory; it must not create mirrored Markdown artifacts or perform extra provider/LLM/Docs readback calls for formatting. The legacy Google Docs standardization tool is a separate user-triggered Drive/Docs-only flow: it may read and rewrite the matched existing Google Doc, but it must not call STT providers, LLM APIs, create new Docs, create Markdown/mirrored folders, or mutate manifest entries.
 
 Runtime hygiene:
 - startup cleanup removes only stale temp artifacts with project prefix `elevenlabs_api_`;

@@ -1066,6 +1066,77 @@ def import_existing_transcripts_by_name(
     save_manifest(manifest)
     return imported, skipped, ambiguous
 
+
+def check_or_standardize_existing_google_docs(
+    mode: str,
+    source_input: str,
+    recursive: bool,
+    output_folder_id: str,
+    dry_run: bool = True,
+) -> dict:
+    exact_index, stripped_index = build_import_doc_indexes(output_folder_id)
+    candidates = collect_import_candidates(mode, source_input, recursive)
+    source_mode_label = get_source_mode_label(mode)
+    report = {
+        "dry_run": dry_run,
+        "scanned": len(candidates),
+        "missing_google_doc": [],
+        "ambiguous": [],
+        "already_structured": [],
+        "would_standardize": [],
+        "standardized": [],
+        "errors": [],
+    }
+
+    for item in candidates:
+        doc, match_method, reason = find_import_doc_match(item["base_name"], exact_index, stripped_index)
+        if not doc:
+            target = "ambiguous" if match_method == "ambiguous" else "missing_google_doc"
+            report[target].append({
+                "source": item["source_name"],
+                "reason": reason,
+            })
+            continue
+
+        try:
+            existing_text = extract_google_doc_plain_text(doc["id"])
+            result_item = {
+                "source": item["source_name"],
+                "doc_name": doc["name"],
+                "link": doc.get("webViewLink", ""),
+                "match_method": match_method,
+            }
+            if is_structured_transcript_document_text(existing_text):
+                report["already_structured"].append(result_item)
+                continue
+
+            if dry_run:
+                report["would_standardize"].append(result_item)
+                continue
+
+            structured_text = build_backfilled_transcript_document_text(
+                document_title=doc["name"],
+                source_name=item["source_name"],
+                source_mode=source_mode_label,
+                existing_document_text=existing_text,
+                created_at=utc_now_iso(),
+            )
+            write_title_and_text_to_doc(
+                document_id=doc["id"],
+                title=doc["name"],
+                transcript_text=structured_text,
+                clear_first=True,
+            )
+            report["standardized"].append(result_item)
+        except Exception as exc:
+            report["errors"].append({
+                "source": item["source_name"],
+                "doc_name": doc.get("name", ""),
+                "reason": str(exc),
+            })
+
+    return report
+
 # =========================
 # 4) ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # =========================
@@ -1304,16 +1375,21 @@ def build_transcript_metadata_lines(
     provider: str,
     provider_model: str,
     language: str,
-    speakers_enabled: bool,
+    speakers_enabled: bool | None,
     created_at: str,
 ) -> list[str]:
+    if speakers_enabled is None:
+        speakers_value = "unknown"
+    else:
+        speakers_value = "yes" if speakers_enabled else "no"
+
     return [
         f"Source file: {format_transcript_metadata_value(source_name)}",
         f"Source mode: {format_transcript_metadata_value(source_mode)}",
         f"Provider: {format_transcript_metadata_value(provider)}",
         f"Model: {format_transcript_metadata_value(provider_model)}",
         f"Language: {format_transcript_metadata_value(language)}",
-        f"Speakers: {'yes' if speakers_enabled else 'no'}",
+        f"Speakers: {speakers_value}",
         f"Created at: {format_transcript_metadata_value(created_at)}",
     ]
 
@@ -1361,6 +1437,102 @@ def build_structured_transcript_document_text(
     metadata = "\n".join(metadata_lines)
     return f"{document_title}\n\nTranscript metadata\n{metadata}\n\nTranscript\n\n{body}"
 
+
+
+STRUCTURED_TRANSCRIPT_METADATA_LABEL = "Transcript metadata"
+STRUCTURED_TRANSCRIPT_BODY_LABEL = "Transcript"
+STRUCTURED_TRANSCRIPT_REQUIRED_METADATA_PREFIXES = (
+    "Source file:",
+    "Source mode:",
+    "Provider:",
+    "Model:",
+    "Language:",
+    "Speakers:",
+    "Created at:",
+)
+
+
+def normalize_doc_plain_text(text: str) -> str:
+    return text.replace("\r\n", "\n").replace("\r", "\n").strip()
+
+
+def extract_google_doc_plain_text(document_id: str) -> str:
+    doc = execute_google_request_with_retry(
+        docs_service.documents().get(documentId=document_id),
+        operation_label="docs_get",
+    )
+    parts = []
+    for element in doc.get("body", {}).get("content", []):
+        paragraph = element.get("paragraph")
+        if not paragraph:
+            continue
+        for run in paragraph.get("elements", []):
+            text_run = run.get("textRun")
+            if text_run:
+                parts.append(text_run.get("content", ""))
+    return normalize_doc_plain_text("".join(parts))
+
+
+def is_structured_transcript_document_text(text: str) -> bool:
+    normalized = normalize_doc_plain_text(text)
+    if not normalized:
+        return False
+
+    lines = [line.strip() for line in normalized.split("\n")]
+    try:
+        metadata_index = lines.index(STRUCTURED_TRANSCRIPT_METADATA_LABEL)
+        transcript_index = lines.index(STRUCTURED_TRANSCRIPT_BODY_LABEL, metadata_index + 1)
+    except ValueError:
+        return False
+
+    if metadata_index < 1 or transcript_index <= metadata_index + 1:
+        return False
+
+    metadata_lines = [line for line in lines[metadata_index + 1:transcript_index] if line]
+    return all(
+        any(line.startswith(prefix) for line in metadata_lines)
+        for prefix in STRUCTURED_TRANSCRIPT_REQUIRED_METADATA_PREFIXES
+    )
+
+
+def extract_unstructured_transcript_body_for_backfill(document_text: str, document_title: str) -> str:
+    text = normalize_doc_plain_text(document_text)
+    if not text:
+        return ""
+
+    lines = text.split("\n")
+    title_key = re.sub(r"\s+", " ", document_title).strip().casefold()
+    first_line_key = re.sub(r"\s+", " ", lines[0]).strip().casefold() if lines else ""
+    if first_line_key and first_line_key == title_key:
+        return normalize_doc_plain_text("\n".join(lines[1:]))
+    return text
+
+
+def build_backfilled_transcript_document_text(
+    document_title: str,
+    source_name: str,
+    source_mode: str,
+    existing_document_text: str,
+    created_at: str,
+) -> str:
+    transcript_body = extract_unstructured_transcript_body_for_backfill(
+        existing_document_text,
+        document_title,
+    )
+    metadata_lines = build_transcript_metadata_lines(
+        source_name=source_name,
+        source_mode=source_mode,
+        provider="unknown",
+        provider_model="unknown",
+        language="unknown",
+        speakers_enabled=None,
+        created_at=created_at,
+    )
+    return build_structured_transcript_document_text(
+        document_title=document_title,
+        transcript_text=transcript_body,
+        metadata_lines=metadata_lines,
+    )
 
 def chunk_text_for_docs(text: str, max_chars: int = DOC_INSERT_CHUNK_SIZE) -> list[str]:
     text = text.replace("\r\n", "\n").replace("\r", "\n")
@@ -3881,6 +4053,26 @@ import_help_widget = widgets.HTML(
     "</div>"
 )
 
+standardize_existing_docs_dry_run_widget = widgets.Checkbox(
+    value=True,
+    description="Только проверить, не изменять документы",
+    indent=False,
+    layout=widgets.Layout(width="420px")
+)
+
+standardize_existing_docs_button = widgets.Button(
+    description="Проверить / стандартизировать старые Google Docs",
+    icon="check-square-o",
+    layout=widgets.Layout(width="420px")
+)
+
+standardize_existing_docs_help_widget = widgets.HTML(
+    "<div style='margin-top:6px; color:#5f6368;'>"
+    "Без STT/API транскрибации. Проверяет существующие Google Docs и при отключенном dry-run "
+    "добавляет стандартную структуру PR #19."
+    "</div>"
+)
+
 start_button = widgets.Button(
     description="Запустить",
     button_style="primary",
@@ -3890,6 +4082,7 @@ start_button = widgets.Button(
 help_widget = widgets.HTML()
 check_output_widget = widgets.Output()
 import_output_widget = widgets.Output()
+standardize_existing_docs_output_widget = widgets.Output()
 output_widget = widgets.Output()
 
 progress_bar = widgets.IntProgress(
@@ -3914,6 +4107,9 @@ def refresh_ui(*args):
 
     import_existing_button.layout.display = "" if is_drive_mode else "none"
     import_help_widget.layout.display = "" if is_drive_mode else "none"
+    standardize_existing_docs_button.layout.display = "" if is_drive_mode else "none"
+    standardize_existing_docs_dry_run_widget.layout.display = "" if is_drive_mode else "none"
+    standardize_existing_docs_help_widget.layout.display = "" if is_drive_mode else "none"
 
     if mode == "local_file":
         recursive_widget.layout.display = "none"
@@ -4131,6 +4327,72 @@ def on_import_existing_clicked(_):
 
         except Exception as e:
             print(f"Ошибка импорта: {e}")
+
+
+def print_standardize_existing_docs_report(report: dict):
+    print("====================")
+    print("ПРОВЕРКА / СТАНДАРТИЗАЦИЯ СТАРЫХ GOOGLE DOCS")
+    print("====================")
+    print(f"Режим: {'dry-run (без изменений)' if report['dry_run'] else 'apply (изменяет совпавшие старые Google Docs)'}")
+    print("Без STT/API транскрибации, без LLM, без создания новых Google Docs, без изменений manifest.")
+    print(f"Проверено источников: {report['scanned']}")
+    print(f"Нет Google Doc: {len(report['missing_google_doc'])}")
+    print(f"Неоднозначно: {len(report['ambiguous'])}")
+    print(f"Уже структурированы: {len(report['already_structured'])}")
+    print(f"Будут стандартизированы: {len(report['would_standardize'])}")
+    print(f"Стандартизированы: {len(report['standardized'])}")
+    print(f"Ошибки: {len(report['errors'])}")
+
+    details = [
+        ("would_standardize", "Будут стандартизированы"),
+        ("standardized", "Стандартизированы"),
+        ("already_structured", "Уже структурированы"),
+        ("missing_google_doc", "Нет Google Doc"),
+        ("ambiguous", "Неоднозначно"),
+        ("errors", "Ошибки"),
+    ]
+    for key, title in details:
+        items = report[key]
+        if not items:
+            continue
+        print(f"\n{title} (первые {min(20, len(items))}):")
+        for item in items[:20]:
+            doc_part = f" -> {item['doc_name']}" if item.get("doc_name") else ""
+            method_part = f" [{item['match_method']}]" if item.get("match_method") else ""
+            link_part = f": {item['link']}" if item.get("link") else ""
+            reason_part = f" — {item['reason']}" if item.get("reason") else ""
+            print(f"- {item.get('source', '')}{doc_part}{method_part}{reason_part}{link_part}")
+        if len(items) > 20:
+            print(f"... ещё {len(items) - 20}")
+
+
+def on_standardize_existing_docs_clicked(_):
+    with standardize_existing_docs_output_widget:
+        clear_output()
+
+        try:
+            if not folder_picker_state["selected_id"]:
+                raise ValueError("Сначала выбери папку назначения в блоке выше и нажми 'Выбрать текущую папку'.")
+
+            mode = mode_widget.value
+            if mode not in {"drive_file", "drive_folder"}:
+                raise ValueError("Проверка старых Google Docs доступна только для режимов Google Drive.")
+
+            source_input = get_source_input_value()
+            if not source_input:
+                raise ValueError("Укажи путь / ссылку или выбери источник в Google Drive.")
+
+            report = check_or_standardize_existing_google_docs(
+                mode=mode,
+                source_input=source_input,
+                recursive=recursive_widget.value,
+                output_folder_id=folder_picker_state["selected_id"],
+                dry_run=standardize_existing_docs_dry_run_widget.value,
+            )
+            print_standardize_existing_docs_report(report)
+
+        except Exception as e:
+            print(f"Ошибка проверки / стандартизации Google Docs: {e}")
 
 
 def collect_runtime_options_from_ui() -> TranscriptionRuntimeOptions:
@@ -4489,6 +4751,7 @@ def on_start_clicked(_):
 
 check_source_button.on_click(on_check_source_clicked)
 import_existing_button.on_click(on_import_existing_clicked)
+standardize_existing_docs_button.on_click(on_standardize_existing_docs_clicked)
 start_button.on_click(on_start_clicked)
 
 advanced_box = widgets.VBox([
@@ -4519,6 +4782,10 @@ display(widgets.VBox([
     import_existing_button,
     import_help_widget,
     import_output_widget,
+    standardize_existing_docs_dry_run_widget,
+    standardize_existing_docs_button,
+    standardize_existing_docs_help_widget,
+    standardize_existing_docs_output_widget,
     advanced_accordion,
     start_button,
     progress_bar,
