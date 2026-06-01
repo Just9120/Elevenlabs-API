@@ -35,7 +35,7 @@ Important: observed operational usage is **not** equivalent to formal E2E valida
 | Structured Google Docs transcript output | Unit-tested / needs E2E validation | Pure text builder is covered by tests; real Google Docs creation/update still needs runtime validation. |
 | Manifest skip on repeated run | TBD / needs E2E validation | Prevents duplicate billing/transcription; verify with controlled rerun. |
 | Manifest after failed run | TBD / needs E2E validation | Verify recovery behavior with controlled failed run. |
-| Import existing / backfill | TBD / needs E2E validation | Feature exists; requires explicit E2E script. |
+| Import existing / backfill | Unit-tested / needs E2E validation | Existing manifest import remains unchanged. Legacy Google Docs standardization has pure helper coverage for PR #19 detection/body conversion and still requires Colab Drive/Docs E2E validation before broad use. |
 | OpenAI manual fallback path | Experimental | Manual/alternative provider, not automatic fallback. |
 | OpenAI >25MB chunking | Experimental | Implemented path requires broader E2E coverage. |
 | OpenAI diarization | Experimental | Speaker-aware output requires more validation. |
