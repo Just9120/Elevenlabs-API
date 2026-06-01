@@ -38,6 +38,6 @@ Important: observed operational usage is **not** equivalent to formal E2E valida
 | OpenAI manual fallback path | Experimental | Manual/alternative provider, not automatic fallback. |
 | OpenAI >25MB chunking | Experimental | Implemented path requires broader E2E coverage. |
 | OpenAI diarization | Experimental | Speaker-aware output requires more validation. |
-| OpenAI diarization + chunking | High risk | Known risks in speaker segmentation consistency. |
+| OpenAI diarization + chunking | High risk | Known risks in speaker segmentation consistency; preflight now warns that speaker labels may be inconsistent across chunks and that merge is text-based, not speaker-aware. |
 | Parallel notebooks / two Colab tabs | Not supported | Manifest model is single-user/single-runtime. |
 | Google Docs/Drive transient write retry | TBD / needs runtime validation | Conservative retry for transient Google Drive write/update failures; Google Docs text insertion retry is intentionally narrower because insertText is not fully idempotent; does not retry STT provider calls. |

@@ -21,6 +21,7 @@ HELPER_NAMES = {
     "normalize_text_for_overlap_match",
     "trim_duplicate_prefix_by_token_overlap",
     "merge_transcript_parts_with_overlap",
+    "get_openai_diarize_chunking_preflight_warning",
 }
 
 
@@ -67,6 +68,32 @@ HELPERS = load_text_helpers()
 chunk_text_for_docs = HELPERS["chunk_text_for_docs"]
 trim_duplicate_prefix_by_token_overlap = HELPERS["trim_duplicate_prefix_by_token_overlap"]
 merge_transcript_parts_with_overlap = HELPERS["merge_transcript_parts_with_overlap"]
+get_openai_diarize_chunking_preflight_warning = HELPERS[
+    "get_openai_diarize_chunking_preflight_warning"
+]
+
+
+def test_openai_diarize_chunking_preflight_warning_is_limited_to_risky_configuration() -> None:
+    warning = get_openai_diarize_chunking_preflight_warning(
+        provider="openai",
+        separate_speakers=True,
+        source_mode="drive_file",
+    )
+
+    assert warning is not None
+    assert "experimental/high-risk" in warning
+    assert "speaker labels may be inconsistent across chunks" in warning
+    assert "text-based, not speaker-aware" in warning
+    assert get_openai_diarize_chunking_preflight_warning("elevenlabs", True, "drive_file") is None
+    assert get_openai_diarize_chunking_preflight_warning("openai", False, "drive_file") is None
+    assert get_openai_diarize_chunking_preflight_warning("openai", True, "unknown") is None
+
+
+def test_openai_diarize_chunking_preflight_warning_covers_supported_source_modes() -> None:
+    source_modes = ["local_file", "local_multi", "drive_file", "drive_folder"]
+
+    for source_mode in source_modes:
+        assert get_openai_diarize_chunking_preflight_warning("openai", True, source_mode)
 
 
 def test_chunk_text_for_docs_returns_empty_chunk_for_empty_text() -> None:

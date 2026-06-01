@@ -4058,6 +4058,17 @@ def get_source_mode_label(mode: str) -> str:
     return mapping.get(mode, mode)
 
 
+def get_openai_diarize_chunking_preflight_warning(provider: str, separate_speakers: bool, source_mode: str):
+    source_modes_that_may_chunk = {"local_file", "local_multi", "drive_file", "drive_folder"}
+    if provider != "openai" or not separate_speakers or source_mode not in source_modes_that_may_chunk:
+        return None
+
+    return (
+        "OpenAI diarization + possible chunking is experimental/high-risk: "
+        "speaker labels may be inconsistent across chunks, and the current merge is text-based, not speaker-aware."
+    )
+
+
 def build_preflight_summary(run_ctx: RunExecutionContext, source_mode: str) -> dict:
     options = run_ctx.options
     selected_key_name = "OPENAI_API_KEY" if options.provider == "openai" else "ELEVENLABS_API_KEY"
@@ -4068,8 +4079,13 @@ def build_preflight_summary(run_ctx: RunExecutionContext, source_mode: str) -> d
     conflict_mode_label = next(label for label, value in CONFLICT_MODE_OPTIONS if value == run_ctx.conflict_mode)
 
     warnings = []
-    if options.provider == "openai" and options.separate_speakers:
-        warnings.append("OpenAI diarization + chunking: high risk (спикеры могут сбрасываться между частями)")
+    openai_diarize_chunking_warning = get_openai_diarize_chunking_preflight_warning(
+        provider=options.provider,
+        separate_speakers=options.separate_speakers,
+        source_mode=source_mode,
+    )
+    if openai_diarize_chunking_warning:
+        warnings.append(openai_diarize_chunking_warning)
     warnings.extend([
         "OpenAI — manual fallback / alternative path; automatic fallback не используется.",
         "CI/static checks не заменяют runtime/E2E validation.",
