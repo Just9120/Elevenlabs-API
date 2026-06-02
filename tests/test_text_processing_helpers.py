@@ -46,6 +46,9 @@ HELPER_NAMES = {
     "get_manifest_entry",
     "classify_existing_google_doc_transcript_standard",
     "build_existing_google_doc_link",
+    "extract_google_doc_id_from_url",
+    "is_existing_google_doc_registry_entry",
+    "find_manifest_entries_referencing_google_doc",
     "build_existing_google_doc_manifest_entry",
     "existing_google_doc_manifest_entry_needs_update",
     "upsert_existing_google_doc_manifest_entry",
@@ -158,6 +161,8 @@ standardize_existing_google_docs_in_folder = HELPERS["standardize_existing_googl
 build_existing_google_doc_manifest_signature = HELPERS["build_existing_google_doc_manifest_signature"]
 classify_existing_google_doc_transcript_standard = HELPERS["classify_existing_google_doc_transcript_standard"]
 register_existing_google_docs_in_manifest = HELPERS["register_existing_google_docs_in_manifest"]
+extract_google_doc_id_from_url = HELPERS["extract_google_doc_id_from_url"]
+find_manifest_entries_referencing_google_doc = HELPERS["find_manifest_entries_referencing_google_doc"]
 load_manifest_read_only = HELPERS["load_manifest_read_only"]
 ORIGINAL_LOAD_MANIFEST_READ_ONLY = load_manifest_read_only
 should_skip_by_manifest = HELPERS["should_skip_by_manifest"]
@@ -800,6 +805,244 @@ def test_classify_existing_google_doc_transcript_standard_current_outdated_unstr
     assert classify_existing_google_doc_transcript_standard(build_legacy_standard_document()) == "outdated_standard"
     assert classify_existing_google_doc_transcript_standard("Meeting notes without transcript headings") == "unstructured"
 
+
+
+def test_extract_google_doc_id_from_url_parses_google_docs_links() -> None:
+    assert extract_google_doc_id_from_url("https://docs.google.com/document/d/doc-123/edit") == "doc-123"
+    assert extract_google_doc_id_from_url("https://docs.google.com/document/d/doc-123/edit?usp=drivesdk") == "doc-123"
+    assert extract_google_doc_id_from_url("") == ""
+    assert extract_google_doc_id_from_url("not a google doc url") == ""
+    assert extract_google_doc_id_from_url("https://example.com/document/d/doc-123/edit") == ""
+
+
+def test_find_manifest_entries_referencing_google_doc_finds_source_entries_by_doc_link() -> None:
+    manifest = {
+        "version": 1,
+        "entries": {
+            "source-a": {
+                "status": "done",
+                "source_name": "Lecture.mp3",
+                "doc_name": "Lecture",
+                "doc_link": "https://docs.google.com/document/d/doc-123/edit?usp=drivesdk",
+            },
+            "source-b": {
+                "status": "done",
+                "source_name": "Other.mp3",
+                "doc_link": "https://docs.google.com/document/d/doc-999/edit",
+            },
+        },
+    }
+
+    matches = find_manifest_entries_referencing_google_doc(manifest, "doc-123")
+
+    assert len(matches) == 1
+    assert matches[0]["source_signature"] == "source-a"
+    assert matches[0]["source_linked_manifest_match_type"] == "doc_id_from_doc_link"
+
+
+def test_find_manifest_entries_referencing_google_doc_finds_source_entries_by_explicit_doc_id() -> None:
+    manifest = {
+        "version": 1,
+        "entries": {
+            "source-a": {
+                "status": "done",
+                "source_name": "Lecture.mp3",
+                "doc_id": "doc-123",
+            },
+        },
+    }
+
+    matches = find_manifest_entries_referencing_google_doc(manifest, "doc-123")
+
+    assert len(matches) == 1
+    assert matches[0]["source_linked_manifest_match_type"] == "doc_id"
+
+
+def test_find_manifest_entries_referencing_google_doc_excludes_doc_registry_entries() -> None:
+    signature = build_existing_google_doc_manifest_signature("doc-123")
+    manifest = {
+        "version": 1,
+        "entries": {
+            signature: {
+                "source_signature": signature,
+                "source_type": "existing_google_doc",
+                "status": "doc_registered",
+                "doc_id": "doc-123",
+                "doc_link": "https://docs.google.com/document/d/doc-123/edit",
+                "source_meta": {"registration_mode": "existing_google_doc_manifest_registration"},
+            },
+            "source-a": {
+                "status": "doc_registered",
+                "doc_id": "doc-123",
+            },
+            "source-b": {
+                "status": "done",
+                "source_meta": {"registration_mode": "existing_google_doc_manifest_registration"},
+                "doc_id": "doc-123",
+            },
+        },
+    }
+
+    assert find_manifest_entries_referencing_google_doc(manifest, "doc-123") == []
+
+
+def test_manifest_registration_dry_run_reports_source_linked_manifest_match_without_already_registered() -> None:
+    manifest = {
+        "version": 1,
+        "entries": {
+            "old-source": {
+                "status": "done",
+                "source_name": "Lecture.mp3",
+                "doc_name": "Lecture",
+                "doc_link": "https://docs.google.com/document/d/doc-123/edit",
+            },
+        },
+    }
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": "doc-123", "name": "Lecture", "mimeType": DOC_MIME, "webViewLink": "https://docs.google.com/document/d/doc-123/edit"},
+    ]
+    HELPERS["extract_google_doc_plain_text"] = lambda document_id: build_current_standard_document(title="Lecture")
+    HELPERS["load_manifest_read_only"] = lambda: manifest
+
+    report = register_existing_google_docs_in_manifest("folder-root", dry_run=True)
+
+    assert len(report["would_register"]) == 1
+    assert report["already_registered"] == []
+    assert report["source_linked_manifest_matches"] == 1
+    assert len(report["docs_with_source_linked_manifest_matches"]) == 1
+    assert len(report["would_register_with_source_linked_match"]) == 1
+    assert report["would_register_without_source_linked_match"] == []
+    result_item = report["would_register"][0]
+    assert result_item["source_linked_manifest_match_count"] == 1
+    assert result_item["source_linked_manifest_statuses"] == ["done"]
+    assert result_item["source_linked_manifest_doc_names"] == ["Lecture"]
+    assert result_item["source_linked_manifest_match_type"] == "doc_id_from_doc_link"
+
+
+def test_manifest_registration_dry_run_reports_no_source_linked_manifest_match() -> None:
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": "doc-123", "name": "Lecture", "mimeType": DOC_MIME},
+    ]
+    HELPERS["extract_google_doc_plain_text"] = lambda document_id: build_current_standard_document(title="Lecture")
+    HELPERS["load_manifest_read_only"] = lambda: {"version": 1, "entries": {}}
+
+    report = register_existing_google_docs_in_manifest("folder-root", dry_run=True)
+
+    assert len(report["would_register"]) == 1
+    assert report["source_linked_manifest_matches"] == 0
+    assert report["docs_with_source_linked_manifest_matches"] == []
+    assert report["would_register_with_source_linked_match"] == []
+    assert len(report["would_register_without_source_linked_match"]) == 1
+
+
+def test_manifest_registration_already_registered_is_only_existing_google_doc_registry_entry() -> None:
+    source_manifest = {
+        "version": 1,
+        "entries": {
+            "old-source": {
+                "status": "done",
+                "source_name": "Lecture.mp3",
+                "doc_link": "https://docs.google.com/document/d/doc-123/edit",
+            },
+        },
+    }
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": "doc-123", "name": "Lecture", "mimeType": DOC_MIME},
+    ]
+    HELPERS["extract_google_doc_plain_text"] = lambda document_id: build_current_standard_document(title="Lecture")
+    HELPERS["load_manifest_read_only"] = lambda: source_manifest
+
+    source_only = register_existing_google_docs_in_manifest("folder-root", dry_run=True)
+
+    assert len(source_only["would_register"]) == 1
+    assert source_only["already_registered"] == []
+
+    signature = build_existing_google_doc_manifest_signature("doc-123")
+    registry_manifest = {"version": 1, "entries": dict(source_manifest["entries"])}
+    registry_manifest["entries"][signature] = {
+        "source_signature": signature,
+        "source_type": "existing_google_doc",
+        "status": "doc_registered",
+        "standard": "transcript_doc_v1.2",
+        "doc_id": "doc-123",
+        "doc_name": "Lecture",
+        "doc_link": "https://docs.google.com/document/d/doc-123/edit",
+        "doc_path": "Lecture",
+        "doc_mime_type": DOC_MIME,
+        "structured_status": "current_standard",
+        "source_name": "Lecture",
+        "note": "",
+        "updated_at": "2026-06-01T00:00:00+00:00",
+        "source_meta": {
+            "folder_id": "folder-root",
+            "folder_path": "",
+            "recursive_scan": False,
+            "registration_mode": "existing_google_doc_manifest_registration",
+        },
+    }
+    HELPERS["load_manifest_read_only"] = lambda: registry_manifest
+
+    registered = register_existing_google_docs_in_manifest("folder-root", dry_run=True)
+
+    assert [item["doc_id"] for item in registered["already_registered"]] == ["doc-123"]
+    assert registered["source_linked_manifest_matches"] == 1
+    assert len(registered["already_registered_with_source_linked_match"]) == 1
+
+
+def test_manifest_registration_apply_creates_registry_entry_and_preserves_source_linked_entry() -> None:
+    saved = []
+    manifest = {
+        "version": 1,
+        "entries": {
+            "old-source": {
+                "status": "done",
+                "source_name": "Lecture.mp3",
+                "doc_name": "Lecture",
+                "doc_link": "https://docs.google.com/document/d/doc-123/edit",
+            },
+        },
+    }
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": "doc-123", "name": "Lecture", "mimeType": DOC_MIME, "webViewLink": "https://docs.google.com/document/d/doc-123/edit"},
+    ]
+    HELPERS["extract_google_doc_plain_text"] = lambda document_id: build_current_standard_document(title="Lecture")
+    HELPERS["load_manifest"] = lambda: manifest
+    HELPERS["save_manifest"] = lambda incoming: saved.append(json.loads(json.dumps(incoming)))
+
+    report = register_existing_google_docs_in_manifest("folder-root", dry_run=False)
+
+    assert [item["doc_id"] for item in report["registered"]] == ["doc-123"]
+    assert report["source_linked_manifest_matches"] == 1
+    signature = build_existing_google_doc_manifest_signature("doc-123")
+    assert set(manifest["entries"]) == {"old-source", signature}
+    assert manifest["entries"]["old-source"]["status"] == "done"
+    assert manifest["entries"][signature]["source_type"] == "existing_google_doc"
+    assert manifest["entries"][signature]["status"] == "doc_registered"
+    assert len([entry for entry in manifest["entries"].values() if entry.get("source_type") == "existing_google_doc"]) == 1
+    assert saved
+
+
+def test_manifest_registration_dry_run_does_not_call_manifest_write_docs_or_provider_helpers() -> None:
+    calls = []
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": "doc-123", "name": "Lecture", "mimeType": DOC_MIME},
+    ]
+    HELPERS["extract_google_doc_plain_text"] = lambda document_id: build_current_standard_document(title="Lecture")
+    HELPERS["load_manifest_read_only"] = lambda: {"version": 1, "entries": {}}
+    HELPERS["get_or_create_manifest_file"] = lambda: calls.append("get_or_create_manifest_file")
+    HELPERS["save_manifest"] = lambda manifest: calls.append("save_manifest")
+    HELPERS["write_title_and_text_to_doc"] = lambda **kwargs: calls.append("write_title_and_text_to_doc")
+    for name in [
+        "transcribe_fileobj",
+        "transcribe_openai_fileobj",
+        "transcribe_media_path",
+        "create_google_doc",
+    ]:
+        HELPERS[name] = lambda *args, _name=name, **kwargs: calls.append(_name)
+
+    register_existing_google_docs_in_manifest("folder-root", dry_run=True)
+
+    assert calls == []
 
 def test_manifest_registration_dry_run_scans_classifies_and_does_not_save_or_mutate_docs() -> None:
     calls = []

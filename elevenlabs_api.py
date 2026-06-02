@@ -1285,6 +1285,52 @@ def build_existing_google_doc_link(doc_id: str) -> str:
     return f"https://docs.google.com/document/d/{doc_id}/edit"
 
 
+def extract_google_doc_id_from_url(url: str) -> str:
+    if not isinstance(url, str) or not url:
+        return ""
+
+    match = re.search(r"https?://docs\.google\.com/document/d/([^/?#]+)", url)
+    return match.group(1) if match else ""
+
+
+def is_existing_google_doc_registry_entry(entry: dict) -> bool:
+    if not isinstance(entry, dict):
+        return False
+
+    source_meta = entry.get("source_meta") or {}
+    return (
+        entry.get("source_type") == "existing_google_doc"
+        or entry.get("status") == EXISTING_GOOGLE_DOC_MANIFEST_STATUS
+        or source_meta.get("registration_mode") == EXISTING_GOOGLE_DOC_REGISTRATION_MODE
+    )
+
+
+def find_manifest_entries_referencing_google_doc(manifest: dict, doc_id: str, doc_name: str = "") -> list[dict]:
+    if not doc_id:
+        return []
+
+    matches = []
+    for source_signature, entry in (manifest.get("entries") or {}).items():
+        if not isinstance(entry, dict) or is_existing_google_doc_registry_entry(entry):
+            continue
+
+        match_type = ""
+        if entry.get("doc_id") == doc_id:
+            match_type = "doc_id"
+        elif extract_google_doc_id_from_url(entry.get("doc_link", "")) == doc_id:
+            match_type = "doc_id_from_doc_link"
+
+        if not match_type:
+            continue
+
+        match = dict(entry)
+        match["source_signature"] = entry.get("source_signature") or source_signature
+        match["source_linked_manifest_match_type"] = match_type
+        matches.append(match)
+
+    return matches
+
+
 def build_existing_google_doc_manifest_entry(
     doc: dict,
     source_signature: str,
@@ -1382,6 +1428,12 @@ def register_existing_google_docs_in_manifest(
         "registered": [],
         "would_update": [],
         "updated": [],
+        "source_linked_manifest_matches": 0,
+        "docs_with_source_linked_manifest_matches": [],
+        "would_register_with_source_linked_match": [],
+        "would_register_without_source_linked_match": [],
+        "would_update_with_source_linked_match": [],
+        "already_registered_with_source_linked_match": [],
         "current_standard": 0,
         "outdated_standard": 0,
         "unstructured": 0,
@@ -1398,12 +1450,40 @@ def register_existing_google_docs_in_manifest(
     changed = False
     for doc in docs:
         source_signature = build_existing_google_doc_manifest_signature(doc["id"])
+        source_linked_matches = find_manifest_entries_referencing_google_doc(
+            manifest,
+            doc["id"],
+            doc.get("display_name", doc.get("name", "")),
+        )
+        source_linked_match_count = len(source_linked_matches)
+        source_linked_statuses = sorted({
+            str(entry.get("status", ""))
+            for entry in source_linked_matches
+            if entry.get("status")
+        })
+        source_linked_doc_names = sorted({
+            str(entry.get("doc_name") or entry.get("source_name") or "")
+            for entry in source_linked_matches
+            if entry.get("doc_name") or entry.get("source_name")
+        })
+        source_linked_match_types = sorted({
+            str(entry.get("source_linked_manifest_match_type", ""))
+            for entry in source_linked_matches
+            if entry.get("source_linked_manifest_match_type")
+        })
         base_item = {
             "doc_id": doc["id"],
             "doc_name": doc.get("display_name", doc.get("name", "")),
             "link": doc.get("webViewLink") or build_existing_google_doc_link(doc["id"]),
             "source_signature": source_signature,
+            "source_linked_manifest_match_count": source_linked_match_count,
+            "source_linked_manifest_statuses": source_linked_statuses,
+            "source_linked_manifest_doc_names": source_linked_doc_names,
+            "source_linked_manifest_match_type": ",".join(source_linked_match_types),
         }
+        if source_linked_match_count:
+            report["source_linked_manifest_matches"] += source_linked_match_count
+            report["docs_with_source_linked_manifest_matches"].append(base_item)
         structured_status = EXISTING_GOOGLE_DOC_STRUCTURED_UNREADABLE
         try:
             existing_text = extract_google_doc_plain_text(doc["id"])
@@ -1440,15 +1520,23 @@ def register_existing_google_docs_in_manifest(
             if existing_google_doc_manifest_entry_needs_update(existing_entry, desired_entry):
                 if dry_run:
                     report["would_update"].append(result_item)
+                    if source_linked_match_count:
+                        report["would_update_with_source_linked_match"].append(result_item)
                 else:
                     upsert_existing_google_doc_manifest_entry(manifest, source_signature, desired_entry)
                     report["updated"].append(result_item)
                     changed = True
             else:
                 report["already_registered"].append(result_item)
+                if source_linked_match_count:
+                    report["already_registered_with_source_linked_match"].append(result_item)
         else:
             if dry_run:
                 report["would_register"].append(result_item)
+                if source_linked_match_count:
+                    report["would_register_with_source_linked_match"].append(result_item)
+                else:
+                    report["would_register_without_source_linked_match"].append(result_item)
             else:
                 upsert_existing_google_doc_manifest_entry(manifest, source_signature, desired_entry)
                 report["registered"].append(result_item)
@@ -4924,9 +5012,17 @@ def print_register_existing_docs_manifest_report(report: dict):
     print(f"Skipped non-Google-Docs: {report['skipped_non_google_docs']}")
     print(f"Already registered: {len(report['already_registered'])}")
     print(f"Would register: {len(report['would_register'])}")
+    print(f"  - with existing source-linked manifest match: {len(report.get('would_register_with_source_linked_match', []))}")
+    print(f"  - without source-linked manifest match: {len(report.get('would_register_without_source_linked_match', []))}")
     print(f"Registered: {len(report['registered'])}")
     print(f"Would update: {len(report['would_update'])}")
     print(f"Updated: {len(report['updated'])}")
+    print(f"Existing source-linked manifest matches: {report.get('source_linked_manifest_matches', 0)}")
+    print(f"Docs with source-linked manifest matches: {len(report.get('docs_with_source_linked_manifest_matches', []))}")
+    print(
+        "Source-linked manifest matches are older/normal transcription entries that reference the same Google Doc. "
+        "They are not the same as existing_google_doc registry entries, so these docs may still appear under Would register."
+    )
     print(f"Current standard: {report['current_standard']}")
     print(f"Outdated standard: {report['outdated_standard']}")
     print(f"Unstructured: {report['unstructured']}")
@@ -4952,7 +5048,9 @@ def print_register_existing_docs_manifest_report(report: dict):
             link_part = f": {item['link']}" if item.get("link") else ""
             status_part = f" [{item['structured_status']}]" if item.get("structured_status") else ""
             reason_part = f" — {item['reason']}" if item.get("reason") else ""
-            print(f"- {item.get('doc_name', '')}{status_part}{reason_part}{link_part}")
+            source_linked_count = item.get("source_linked_manifest_match_count", 0)
+            source_linked_part = f" [source-linked manifest: {source_linked_count}]" if source_linked_count else ""
+            print(f"- {item.get('doc_name', '')}{status_part}{source_linked_part}{reason_part}{link_part}")
         if len(items) > 20:
             print(f"... ещё {len(items) - 20}")
 
