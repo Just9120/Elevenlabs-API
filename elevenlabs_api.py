@@ -1142,43 +1142,88 @@ DOCS_ONLY_STANDARDIZATION_SOURCE_FILE = "not available"
 DOCS_ONLY_STANDARDIZATION_SOURCE_MODE = "existing_google_doc_standardization"
 
 
+DOCS_ONLY_STANDARDIZATION_DEFAULT_MAX_FOLDERS_SCANNED = 500
+DOCS_ONLY_STANDARDIZATION_DEFAULT_MAX_GOOGLE_DOCS_SCANNED = 5000
+DOCS_ONLY_STANDARDIZATION_NESTED_FOLDER_HINT = (
+    "В выбранной папке верхнего уровня Google Docs не найдены. "
+    "Найдены вложенные папки. Включите 'Обходить вложенные папки с транскрибациями' "
+    "или выберите конкретную подпапку."
+)
+
+
 def collect_existing_google_docs_for_standardization(
     folder_id: str,
     recursive: bool = False,
     prefix: str = "",
-) -> tuple[list[dict], int]:
-    """Collect only Google Docs from an output/transcripts folder for docs-only standardization."""
+    visited_folder_ids: set[str] | None = None,
+    max_folders_scanned: int = DOCS_ONLY_STANDARDIZATION_DEFAULT_MAX_FOLDERS_SCANNED,
+    max_google_docs_scanned: int = DOCS_ONLY_STANDARDIZATION_DEFAULT_MAX_GOOGLE_DOCS_SCANNED,
+) -> tuple[list[dict], dict]:
+    """Collect Google Docs from an output folder and return scan counters/guardrail errors."""
 
-    docs = []
-    skipped_non_google_docs = 0
+    docs: list[dict] = []
+    scan = {
+        "folders_seen": 0,
+        "folders_scanned": 0,
+        "skipped_non_google_docs": 0,
+        "errors": [],
+        "stopped_early": False,
+    }
+    visited = visited_folder_ids if visited_folder_ids is not None else set()
 
-    for item in list_drive_folder_children(folder_id):
-        item_id = item["id"]
-        item_name = item["name"]
-        item_mime = item.get("mimeType", "")
-        display_name = f"{prefix}/{item_name}" if prefix else item_name
+    def stop_with_error(message: str) -> None:
+        if message not in scan["errors"]:
+            scan["errors"].append(message)
+        scan["stopped_early"] = True
 
-        if item_mime == FOLDER_MIME:
-            if recursive:
-                nested_docs, nested_skipped = collect_existing_google_docs_for_standardization(
-                    item_id,
-                    recursive=True,
-                    prefix=display_name,
+    def walk(current_folder_id: str, current_prefix: str) -> None:
+        if scan["stopped_early"]:
+            return
+        if current_folder_id in visited:
+            return
+        if scan["folders_scanned"] >= max_folders_scanned:
+            stop_with_error(
+                f"Достигнут лимит сканирования папок ({max_folders_scanned}). "
+                "Остановлено для защиты от циклов или слишком больших деревьев."
+            )
+            return
+
+        visited.add(current_folder_id)
+        scan["folders_scanned"] += 1
+
+        for item in list_drive_folder_children(current_folder_id):
+            if scan["stopped_early"]:
+                break
+
+            item_id = item["id"]
+            item_name = item["name"]
+            item_mime = item.get("mimeType", "")
+            display_name = f"{current_prefix}/{item_name}" if current_prefix else item_name
+
+            if item_mime == FOLDER_MIME:
+                scan["folders_seen"] += 1
+                if recursive:
+                    walk(item_id, display_name)
+                continue
+
+            if item_mime != DOC_MIME:
+                scan["skipped_non_google_docs"] += 1
+                continue
+
+            if len(docs) >= max_google_docs_scanned:
+                stop_with_error(
+                    f"Достигнут лимит сканирования Google Docs ({max_google_docs_scanned}). "
+                    "Остановлено для защиты от слишком больших папок."
                 )
-                docs.extend(nested_docs)
-                skipped_non_google_docs += nested_skipped
-            continue
+                break
 
-        if item_mime != DOC_MIME:
-            skipped_non_google_docs += 1
-            continue
+            doc = dict(item)
+            doc["display_name"] = display_name
+            docs.append(doc)
 
-        doc = dict(item)
-        doc["display_name"] = display_name
-        docs.append(doc)
-
+    walk(folder_id, prefix)
     docs.sort(key=lambda doc: doc.get("display_name", doc.get("name", "")).casefold())
-    return docs, skipped_non_google_docs
+    return docs, scan
 
 
 def build_docs_only_standardized_transcript_document_text(
@@ -1201,22 +1246,34 @@ def standardize_existing_google_docs_in_folder(
     output_folder_id: str,
     recursive: bool = False,
     dry_run: bool = True,
+    max_folders_scanned: int = DOCS_ONLY_STANDARDIZATION_DEFAULT_MAX_FOLDERS_SCANNED,
+    max_google_docs_scanned: int = DOCS_ONLY_STANDARDIZATION_DEFAULT_MAX_GOOGLE_DOCS_SCANNED,
 ) -> dict:
     """Standardize existing Google Docs in place without retranscription or manifest changes."""
 
-    docs, skipped_non_google_docs = collect_existing_google_docs_for_standardization(
+    docs, scan = collect_existing_google_docs_for_standardization(
         output_folder_id,
         recursive=recursive,
+        max_folders_scanned=max_folders_scanned,
+        max_google_docs_scanned=max_google_docs_scanned,
     )
     report = {
         "dry_run": dry_run,
+        "recursive": recursive,
         "google_docs_scanned": len(docs),
-        "skipped_non_google_docs": skipped_non_google_docs,
+        "folders_seen": scan["folders_seen"],
+        "skipped_non_google_docs": scan["skipped_non_google_docs"],
         "already_structured": [],
         "would_standardize": [],
         "standardized": [],
-        "errors": [],
+        "errors": [
+            {"doc_name": "Сканирование папки", "link": "", "reason": reason}
+            for reason in scan["errors"]
+        ],
+        "hint": "",
     }
+    if not recursive and report["folders_seen"] > 0 and report["google_docs_scanned"] == 0:
+        report["hint"] = DOCS_ONLY_STANDARDIZATION_NESTED_FOLDER_HINT
 
     for doc in docs:
         result_item = {
@@ -3766,7 +3823,7 @@ picker_filter_text.observe(lambda change: apply_folder_filter(), names="value")
 
 refresh_folder_picker()
 
-folder_picker_ui = widgets.VBox([
+folder_picker_core_widgets = [
     widgets.HTML("<h3>Папка назначения для Google Docs</h3>"),
     picker_current_path_html,
     picker_filter_text,
@@ -3776,7 +3833,7 @@ folder_picker_ui = widgets.VBox([
     widgets.HBox([picker_select_button, picker_reset_button]),
     picker_selected_html,
     picker_output,
-])
+]
 
 
 # =========================
@@ -4191,9 +4248,10 @@ standardize_existing_docs_button = widgets.Button(
 
 standardize_existing_docs_help_widget = widgets.HTML(
     "<div style='margin-top:6px; color:#5f6368;'>"
-    "Используйте этот режим для уже готовых транскрибаций в Google Docs. "
-    "Исходные аудио/видео записи не нужны. Повторная транскрибация не выполняется. "
-    "Dry-run включен по умолчанию; apply переписывает тот же Google Doc на месте."
+    "Используйте этот режим для уже готовых транскрибаций в выбранной папке назначения Google Docs. "
+    "Исходные аудио/видео записи не нужны; режим источника и поле пути/ссылки не используются. "
+    "Повторная транскрибация не выполняется. Dry-run включен по умолчанию; "
+    "apply переписывает тот же Google Doc на месте."
     "</div>"
 )
 
@@ -4208,6 +4266,26 @@ check_output_widget = widgets.Output()
 import_output_widget = widgets.Output()
 standardize_existing_docs_output_widget = widgets.Output()
 output_widget = widgets.Output()
+
+standardize_existing_docs_section_widget = widgets.VBox([
+    widgets.HTML(
+        "<div style='margin-top:14px; padding:12px; border:1px solid #dadce0; border-radius:8px; background:#f8f9fa;'>"
+        "<h4 style='margin:0 0 8px 0;'>Стандартизация существующих Google Docs</h4>"
+        "<div style='color:#3c4043;'>"
+        "Сканируется <b>выбранная папка назначения для Google Docs</b> выше. "
+        "Источник аудио/видео, режим источника и поле пути/ссылки игнорируются; "
+        "повторная транскрибация не выполняется и новые Google Docs не создаются."
+        "</div>"
+        "</div>"
+    ),
+    standardize_existing_docs_dry_run_widget,
+    standardize_existing_docs_recursive_widget,
+    standardize_existing_docs_button,
+    standardize_existing_docs_help_widget,
+    standardize_existing_docs_output_widget,
+])
+
+folder_picker_ui = widgets.VBox(folder_picker_core_widgets + [standardize_existing_docs_section_widget])
 
 progress_bar = widgets.IntProgress(
     value=0,
@@ -4231,10 +4309,6 @@ def refresh_ui(*args):
 
     import_existing_button.layout.display = "" if is_drive_mode else "none"
     import_help_widget.layout.display = "" if is_drive_mode else "none"
-    standardize_existing_docs_button.layout.display = ""
-    standardize_existing_docs_dry_run_widget.layout.display = ""
-    standardize_existing_docs_recursive_widget.layout.display = ""
-    standardize_existing_docs_help_widget.layout.display = ""
 
     if mode == "local_file":
         recursive_widget.layout.display = "none"
@@ -4461,11 +4535,14 @@ def print_standardize_existing_docs_report(report: dict):
     print(f"Режим: {'dry-run (без изменений)' if report['dry_run'] else 'apply (переписывает те же Google Docs на месте)'}")
     print("Без STT/API транскрибации, без LLM, без создания новых Google Docs, без изменений manifest.")
     print(f"Google Docs scanned: {report['google_docs_scanned']}")
+    print(f"Folders seen: {report.get('folders_seen', 0)}")
+    print(f"Skipped non-Google-Docs: {report['skipped_non_google_docs']}")
     print(f"Already structured: {len(report['already_structured'])}")
     print(f"Would standardize: {len(report['would_standardize'])}")
     print(f"Standardized: {len(report['standardized'])}")
-    print(f"Skipped non-Google-Docs: {report['skipped_non_google_docs']}")
     print(f"Errors: {len(report['errors'])}")
+    if report.get("hint"):
+        print(f"\nПодсказка: {report['hint']}")
 
     details = [
         ("would_standardize", "Будут стандартизированы"),
@@ -4487,6 +4564,7 @@ def print_standardize_existing_docs_report(report: dict):
 
 
 def on_standardize_existing_docs_clicked(_):
+    standardize_existing_docs_button.disabled = True
     with standardize_existing_docs_output_widget:
         clear_output()
 
@@ -4503,6 +4581,8 @@ def on_standardize_existing_docs_clicked(_):
 
         except Exception as e:
             print(f"Ошибка проверки / стандартизации Google Docs: {e}")
+        finally:
+            standardize_existing_docs_button.disabled = False
 
 
 def collect_runtime_options_from_ui() -> TranscriptionRuntimeOptions:
@@ -4892,11 +4972,6 @@ display(widgets.VBox([
     import_existing_button,
     import_help_widget,
     import_output_widget,
-    standardize_existing_docs_dry_run_widget,
-    standardize_existing_docs_recursive_widget,
-    standardize_existing_docs_button,
-    standardize_existing_docs_help_widget,
-    standardize_existing_docs_output_widget,
     advanced_accordion,
     start_button,
     progress_bar,
