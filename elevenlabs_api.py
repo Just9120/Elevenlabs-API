@@ -688,11 +688,23 @@ def get_or_create_manifest_file() -> tuple[str, str]:
     return manifest_folder_id, file_id
 
 
-def load_manifest(force_reload: bool = False) -> dict:
-    if MANIFEST_CACHE["data"] is not None and not force_reload:
-        return MANIFEST_CACHE["data"]
+def normalize_manifest_data(raw: str) -> dict:
+    raw = (raw or "").strip()
+    if not raw:
+        return make_manifest_default()
 
-    _, file_id = get_or_create_manifest_file()
+    try:
+        manifest = json.loads(raw)
+    except json.JSONDecodeError:
+        return make_manifest_default()
+
+    if not isinstance(manifest, dict) or "entries" not in manifest:
+        return make_manifest_default()
+
+    return manifest
+
+
+def read_manifest_file_by_id(file_id: str) -> dict:
     request = drive_service.files().get_media(fileId=file_id, supportsAllDrives=True)
     bio = io.BytesIO()
     downloader = MediaIoBaseDownload(bio, request)
@@ -700,18 +712,52 @@ def load_manifest(force_reload: bool = False) -> dict:
     while not done:
         _, done = downloader.next_chunk()
 
-    raw = bio.getvalue().decode("utf-8", errors="ignore").strip()
-    if not raw:
-        manifest = make_manifest_default()
-    else:
-        try:
-            manifest = json.loads(raw)
-        except json.JSONDecodeError:
-            manifest = make_manifest_default()
+    raw = bio.getvalue().decode("utf-8", errors="ignore")
+    return normalize_manifest_data(raw)
 
-    if not isinstance(manifest, dict) or "entries" not in manifest:
-        manifest = make_manifest_default()
 
+def load_manifest_read_only(force_reload: bool = False) -> dict:
+    """Read the current manifest if it exists, without creating or migrating Drive files."""
+
+    if MANIFEST_CACHE["data"] is not None and not force_reload:
+        return MANIFEST_CACHE["data"]
+
+    file_id = MANIFEST_CACHE.get("file_id")
+    manifest_folder_id = MANIFEST_CACHE.get("manifest_folder_id")
+    state_folder_id = MANIFEST_CACHE.get("state_folder_id")
+
+    if not file_id:
+        if not manifest_folder_id:
+            if not state_folder_id:
+                state_folder = find_file_in_folder("root", STATE_FOLDER_NAME)
+                if not state_folder:
+                    return make_manifest_default()
+                state_folder_id = state_folder["id"]
+
+            manifest_folder = find_file_in_folder(state_folder_id, MANIFEST_FOLDER_NAME)
+            if not manifest_folder:
+                return make_manifest_default()
+            manifest_folder_id = manifest_folder["id"]
+
+        selected_file = find_file_in_folder(manifest_folder_id, MANIFEST_FILE_NAME)
+        if not selected_file:
+            return make_manifest_default()
+        file_id = selected_file["id"]
+
+    manifest = read_manifest_file_by_id(file_id)
+    MANIFEST_CACHE["state_folder_id"] = state_folder_id
+    MANIFEST_CACHE["manifest_folder_id"] = manifest_folder_id
+    MANIFEST_CACHE["file_id"] = file_id
+    MANIFEST_CACHE["data"] = manifest
+    return manifest
+
+
+def load_manifest(force_reload: bool = False) -> dict:
+    if MANIFEST_CACHE["data"] is not None and not force_reload:
+        return MANIFEST_CACHE["data"]
+
+    _, file_id = get_or_create_manifest_file()
+    manifest = read_manifest_file_by_id(file_id)
     MANIFEST_CACHE["data"] = manifest
     return manifest
 
@@ -1323,7 +1369,7 @@ def register_existing_google_docs_in_manifest(
         max_folders_scanned=max_folders,
         max_google_docs_scanned=max_docs,
     )
-    manifest = load_manifest()
+    manifest = load_manifest_read_only() if dry_run else load_manifest()
     report = {
         "dry_run": dry_run,
         "recursive": recursive,

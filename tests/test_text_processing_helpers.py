@@ -37,6 +37,9 @@ HELPER_NAMES = {
     "build_docs_only_standardized_transcript_document_text",
     "standardize_existing_google_docs_in_folder",
     "json_sha256",
+    "load_manifest_read_only",
+    "normalize_manifest_data",
+    "make_manifest_default",
     "should_skip_by_manifest",
     "parse_iso_datetime",
     "build_existing_google_doc_manifest_signature",
@@ -76,6 +79,10 @@ def load_text_helpers() -> dict[str, object]:
                     "DOCS_ONLY_STANDARDIZATION_DEFAULT_MAX_FOLDERS_SCANNED",
                     "DOCS_ONLY_STANDARDIZATION_DEFAULT_MAX_GOOGLE_DOCS_SCANNED",
                     "DOCS_ONLY_STANDARDIZATION_NESTED_FOLDER_HINT",
+                    "MANIFEST_CACHE",
+                    "MANIFEST_FILE_NAME",
+                    "MANIFEST_FOLDER_NAME",
+                    "STATE_FOLDER_NAME",
                     "EXISTING_GOOGLE_DOC_MANIFEST_NOTICE",
                     "EXISTING_GOOGLE_DOC_REGISTRATION_MODE",
                     "EXISTING_GOOGLE_DOC_MANIFEST_STATUS",
@@ -112,6 +119,9 @@ def load_text_helpers() -> dict[str, object]:
         "OPENAI_MERGE_MIN_OVERLAP_TOKENS": 3,
         "MANIFEST_IN_PROGRESS_TTL_HOURS": 12,
         "list_drive_folder_children": lambda _folder_id: [],
+        "find_file_in_folder": lambda _folder_id, _file_name: None,
+        "read_manifest_file_by_id": lambda _file_id: {"version": 1, "entries": {}},
+        "get_or_create_manifest_file": lambda: (_ for _ in ()).throw(AssertionError("get_or_create_manifest_file called")),
         "extract_google_doc_plain_text": lambda _document_id: "",
         "write_title_and_text_to_doc": lambda **_kwargs: None,
         "load_manifest": lambda: {"version": 1, "entries": {}},
@@ -148,6 +158,8 @@ standardize_existing_google_docs_in_folder = HELPERS["standardize_existing_googl
 build_existing_google_doc_manifest_signature = HELPERS["build_existing_google_doc_manifest_signature"]
 classify_existing_google_doc_transcript_standard = HELPERS["classify_existing_google_doc_transcript_standard"]
 register_existing_google_docs_in_manifest = HELPERS["register_existing_google_docs_in_manifest"]
+load_manifest_read_only = HELPERS["load_manifest_read_only"]
+ORIGINAL_LOAD_MANIFEST_READ_ONLY = load_manifest_read_only
 should_skip_by_manifest = HELPERS["should_skip_by_manifest"]
 DOC_MIME = HELPERS["DOC_MIME"]
 FOLDER_MIME = HELPERS["FOLDER_MIME"]
@@ -860,11 +872,13 @@ def test_manifest_registration_apply_twice_does_not_duplicate_and_detects_alread
     ]
     HELPERS["extract_google_doc_plain_text"] = lambda document_id: build_current_standard_document(title="Call")
     HELPERS["load_manifest"] = lambda: manifest
+    HELPERS["load_manifest_read_only"] = lambda: manifest
     HELPERS["save_manifest"] = lambda incoming: saved.append(json.loads(json.dumps(incoming)))
 
     first = register_existing_google_docs_in_manifest("folder-root", dry_run=False)
     second = register_existing_google_docs_in_manifest("folder-root", dry_run=False)
     dry_run = register_existing_google_docs_in_manifest("folder-root", dry_run=True)
+    HELPERS["load_manifest_read_only"] = ORIGINAL_LOAD_MANIFEST_READ_ONLY
 
     assert len(manifest["entries"]) == 1
     assert len(first["registered"]) == 1
@@ -963,3 +977,109 @@ def test_normal_transcription_manifest_skip_behavior_remains_unchanged() -> None
     assert should_skip_by_manifest(manifest, "imported", "settings-b")[0] is True
     assert should_skip_by_manifest(manifest, "fresh", "settings-b")[0] is True
     assert should_skip_by_manifest(manifest, "stale", "settings-b")[0] is False
+
+
+def reset_manifest_cache_for_test() -> None:
+    HELPERS["load_manifest_read_only"] = ORIGINAL_LOAD_MANIFEST_READ_ONLY
+    HELPERS["MANIFEST_CACHE"].update({
+        "state_folder_id": None,
+        "manifest_folder_id": None,
+        "file_id": None,
+        "data": None,
+    })
+
+
+def test_manifest_registration_dry_run_read_only_loader_does_not_create_or_save_when_manifest_missing() -> None:
+    reset_manifest_cache_for_test()
+    calls = []
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": "doc-new", "name": "New", "mimeType": DOC_MIME},
+    ]
+    HELPERS["extract_google_doc_plain_text"] = lambda document_id: build_current_standard_document(title="New")
+    HELPERS["find_file_in_folder"] = lambda folder_id, file_name: calls.append(("find", folder_id, file_name)) or None
+    HELPERS["get_or_create_manifest_file"] = lambda: calls.append(("get_or_create",))
+    HELPERS["load_manifest"] = lambda: calls.append(("load_manifest",)) or {"version": 1, "entries": {}}
+    HELPERS["save_manifest"] = lambda manifest: calls.append(("save_manifest",))
+
+    report = register_existing_google_docs_in_manifest("folder-root", dry_run=True)
+
+    assert [item["doc_id"] for item in report["would_register"]] == ["doc-new"]
+    assert ("get_or_create",) not in calls
+    assert ("load_manifest",) not in calls
+    assert ("save_manifest",) not in calls
+    assert calls == [("find", "root", "VoiceOps Workspace")]
+
+
+def test_manifest_registration_dry_run_reads_existing_manifest_without_creation() -> None:
+    reset_manifest_cache_for_test()
+    calls = []
+    signature = build_existing_google_doc_manifest_signature("doc-1")
+    existing_entry = {
+        "source_signature": signature,
+        "source_type": "existing_google_doc",
+        "status": "doc_registered",
+        "standard": "transcript_doc_v1.2",
+        "doc_id": "doc-1",
+        "doc_name": "Call",
+        "doc_link": "https://docs/doc-1",
+        "doc_path": "Call",
+        "doc_mime_type": DOC_MIME,
+        "structured_status": "current_standard",
+        "source_name": "Call",
+        "note": "",
+        "updated_at": "2026-06-01T00:00:00+00:00",
+        "source_meta": {
+            "folder_id": "folder-root",
+            "folder_path": "",
+            "recursive_scan": False,
+            "registration_mode": "existing_google_doc_manifest_registration",
+        },
+    }
+    existing_manifest = {"version": 1, "entries": {signature: existing_entry}}
+
+    def find_file(folder_id, file_name):
+        calls.append(("find", folder_id, file_name))
+        found = {
+            ("root", "VoiceOps Workspace"): {"id": "state-id", "name": "VoiceOps Workspace"},
+            ("state-id", "manifest"): {"id": "manifest-folder-id", "name": "manifest"},
+            ("manifest-folder-id", "elevenlabs_transcription_manifest.json"): {
+                "id": "manifest-file-id",
+                "name": "elevenlabs_transcription_manifest.json",
+            },
+        }
+        return found.get((folder_id, file_name))
+
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": "doc-1", "name": "Call", "mimeType": DOC_MIME, "webViewLink": "https://docs/doc-1"},
+    ]
+    HELPERS["extract_google_doc_plain_text"] = lambda document_id: build_current_standard_document(title="Call")
+    HELPERS["find_file_in_folder"] = find_file
+    HELPERS["read_manifest_file_by_id"] = lambda file_id: calls.append(("read", file_id)) or existing_manifest
+    HELPERS["get_or_create_manifest_file"] = lambda: calls.append(("get_or_create",))
+    HELPERS["save_manifest"] = lambda manifest: calls.append(("save_manifest",))
+
+    report = register_existing_google_docs_in_manifest("folder-root", dry_run=True)
+
+    assert [item["doc_id"] for item in report["already_registered"]] == ["doc-1"]
+    assert ("read", "manifest-file-id") in calls
+    assert ("get_or_create",) not in calls
+    assert ("save_manifest",) not in calls
+
+
+def test_manifest_registration_apply_uses_existing_load_and_save_behavior() -> None:
+    reset_manifest_cache_for_test()
+    calls = []
+    manifest = {"version": 1, "entries": {}}
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": "doc-apply", "name": "Apply", "mimeType": DOC_MIME},
+    ]
+    HELPERS["extract_google_doc_plain_text"] = lambda document_id: build_current_standard_document(title="Apply")
+    HELPERS["load_manifest"] = lambda: calls.append(("load_manifest",)) or manifest
+    HELPERS["load_manifest_read_only"] = lambda: calls.append(("load_manifest_read_only",)) or manifest
+    HELPERS["save_manifest"] = lambda incoming: calls.append(("save_manifest", json.loads(json.dumps(incoming))))
+
+    report = register_existing_google_docs_in_manifest("folder-root", dry_run=False)
+
+    assert [item["doc_id"] for item in report["registered"]] == ["doc-apply"]
+    assert [call[0] for call in calls] == ["load_manifest", "save_manifest"]
+    assert "load_manifest_read_only" not in [call[0] for call in calls]
