@@ -1231,7 +1231,7 @@ def build_docs_only_standardized_transcript_document_text(
     existing_document_text: str,
     created_at: str,
 ) -> str:
-    """Build PR #19 structure from an existing Google Doc without source-recording metadata."""
+    """Build current structured transcript text from an existing Google Doc."""
 
     return build_backfilled_transcript_document_text(
         document_title=document_title,
@@ -1557,8 +1557,6 @@ def build_transcript_metadata_lines(
         speakers_value = "yes" if speakers_enabled else "no"
 
     return [
-        f"Source file: {format_transcript_metadata_value(source_name)}",
-        f"Source mode: {format_transcript_metadata_value(source_mode)}",
         f"Provider: {format_transcript_metadata_value(provider)}",
         f"Model: {format_transcript_metadata_value(provider_model)}",
         f"Language: {format_transcript_metadata_value(language)}",
@@ -1615,13 +1613,15 @@ def build_structured_transcript_document_text(
 STRUCTURED_TRANSCRIPT_METADATA_LABEL = "Transcript metadata"
 STRUCTURED_TRANSCRIPT_BODY_LABEL = "Transcript"
 STRUCTURED_TRANSCRIPT_REQUIRED_METADATA_PREFIXES = (
-    "Source file:",
-    "Source mode:",
     "Provider:",
     "Model:",
     "Language:",
     "Speakers:",
     "Created at:",
+)
+STRUCTURED_TRANSCRIPT_LEGACY_METADATA_PREFIXES = (
+    "Source file:",
+    "Source mode:",
 )
 
 
@@ -1662,9 +1662,19 @@ def is_structured_transcript_document_text(text: str) -> bool:
         return False
 
     metadata_lines = [line for line in lines[metadata_index + 1:transcript_index] if line]
+    if len(metadata_lines) != len(STRUCTURED_TRANSCRIPT_REQUIRED_METADATA_PREFIXES):
+        return False
+
+    for line in metadata_lines:
+        if any(line.startswith(prefix) for prefix in STRUCTURED_TRANSCRIPT_LEGACY_METADATA_PREFIXES):
+            return False
+
     return all(
-        any(line.startswith(prefix) for line in metadata_lines)
-        for prefix in STRUCTURED_TRANSCRIPT_REQUIRED_METADATA_PREFIXES
+        line.startswith(prefix)
+        for line, prefix in zip(
+            metadata_lines,
+            STRUCTURED_TRANSCRIPT_REQUIRED_METADATA_PREFIXES,
+        )
     )
 
 
@@ -1674,6 +1684,17 @@ def extract_unstructured_transcript_body_for_backfill(document_text: str, docume
         return ""
 
     lines = text.split("\n")
+    stripped_lines = [line.strip() for line in lines]
+    try:
+        metadata_index = stripped_lines.index(STRUCTURED_TRANSCRIPT_METADATA_LABEL)
+        transcript_index = stripped_lines.index(STRUCTURED_TRANSCRIPT_BODY_LABEL, metadata_index + 1)
+    except ValueError:
+        metadata_index = -1
+        transcript_index = -1
+
+    if metadata_index >= 1 and transcript_index > metadata_index:
+        return normalize_doc_plain_text("\n".join(lines[transcript_index + 1:]))
+
     title_key = re.sub(r"\s+", " ", document_title).strip().casefold()
     first_line_key = re.sub(r"\s+", " ", lines[0]).strip().casefold() if lines else ""
     if first_line_key and first_line_key == title_key:

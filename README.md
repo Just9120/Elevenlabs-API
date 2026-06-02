@@ -45,7 +45,26 @@ Drive runtime state artifacts are organized under:
 Финальный результат сохраняется:
 - только в Google Docs.
 
-Новые Google Docs создаются с компактной LLM-readable структурой: title, transcript metadata, heading `Transcript`, then transcript body. Metadata is built from already available runtime state (source/provider/model/language/speaker setting/timestamp) and does not require extra readback, LLM, or provider calls. New transcriptions remain structured by default; there is no extra setting that makes users choose whether new Docs are structured.
+Новые Google Docs создаются с компактной LLM-readable структурой v1.2: title, transcript metadata, heading `Transcript`, then transcript body. Metadata is built from already available runtime state (provider/model/language/speaker setting/timestamp) and does not require extra readback, LLM, or provider calls. New transcriptions remain structured by default; there is no extra setting that makes users choose whether new Docs are structured.
+
+Current transcript document standard v1.2:
+
+```text
+Document title
+
+Transcript metadata
+Provider: <ElevenLabs | OpenAI | unknown>
+Model: <model id | unknown>
+Language: <Русский | Автоопределение | unknown>
+Speakers: <yes | no | unknown>
+Created at: <ISO timestamp>
+
+Transcript
+
+<transcript body>
+```
+
+Source filename and source mode are intentionally not included in the visible Google Doc metadata block. The document is optimized for downstream text analysis in tools such as LLMs and NotebookLM, where provider/model/language/speaker/timestamp context is useful and source-routing details add little value.
 
 ### Existing transcript standardization
 
@@ -60,9 +79,10 @@ Primary recommended flow for existing transcripts is docs-only standardization:
 - PDFs, audio/video files, folders as targets, and all non-Google-Docs files are ignored; folders are counted separately as `folders_seen`;
 - enable recursive scan when transcripts live inside nested folders/modules under the selected destination folder;
 - dry-run is the default and reports `google_docs_scanned`, `folders_seen`, `skipped_non_google_docs`, `already_structured`, `would_standardize`, `standardized`, and `errors`;
-- apply mode is explicit and rewrites the same existing Google Doc in place with PR #19 structure.
+- apply mode is explicit and rewrites the same existing Google Doc in place with the current v1.2 structure;
+- old-standard structured docs that still include `Source file:` / `Source mode:` are treated as outdated and appear in dry-run as `would_standardize`, not `already_structured`.
 
-Metadata for docs-only standardization is intentionally conservative: `Source file: not available`, `Source mode: existing_google_doc_standardization`, and `Provider` / `Model` / `Language` / `Speakers` are `unknown`.
+Metadata for docs-only standardization is intentionally conservative: `Provider` / `Model` / `Language` / `Speakers` are `unknown`, `Created at` is the current timestamp, and no source filename or source mode is embedded in the visible metadata block.
 
 The older source-matching standardization/import flow remains an optional advanced/legacy path for cases where someone specifically wants source-to-doc matching. It is not required for normal existing transcript standardization. Runtime E2E validation in Colab/Drive remains required before broad use of docs-only apply mode.
 
