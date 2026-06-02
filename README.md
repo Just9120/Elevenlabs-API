@@ -45,9 +45,24 @@ Drive runtime state artifacts are organized under:
 Финальный результат сохраняется:
 - только в Google Docs.
 
-Новые Google Docs создаются с компактной LLM-readable структурой: title, transcript metadata, heading `Transcript`, then transcript body. Metadata is built from already available runtime state (source/provider/model/language/speaker setting/timestamp) and does not require extra readback, LLM, or provider calls.
+Новые Google Docs создаются с компактной LLM-readable структурой: title, transcript metadata, heading `Transcript`, then transcript body. Metadata is built from already available runtime state (source/provider/model/language/speaker setting/timestamp) and does not require extra readback, LLM, or provider calls. New transcriptions remain structured by default; there is no extra setting that makes users choose whether new Docs are structured.
 
-Для старых Google Docs есть отдельная user-triggered проверка/стандартизация в режимах источника Google Drive. По умолчанию она работает как dry-run: сопоставляет выбранные source-файлы с уже существующими Google Docs в выбранной output-папке, показывает `missing_google_doc` / `ambiguous` / `already_structured` / `would_standardize`, не вызывает STT/API/LLM, не создаёт новые документы и не меняет manifest. При явном отключении dry-run она перезаписывает только найденный старый Google Doc, добавляя структуру PR #19 с `Provider/Model/Language: unknown` и `Speakers: unknown`.
+### Existing transcript standardization
+
+Primary recommended flow for existing transcripts is docs-only standardization:
+- it works directly on already completed Google Docs in the selected output/transcripts folder;
+- source audio/video recordings are not needed;
+- no retranscription happens;
+- no ElevenLabs, OpenAI, STT, diarization, or LLM APIs are called;
+- no new Google Docs, Markdown, JSON, mirrored folders, or export artifacts are created;
+- manifest is not read for decisions and is not mutated;
+- PDFs, audio/video files, folders as targets, and all non-Google-Docs files are ignored;
+- dry-run is the default and reports `google_docs_scanned`, `already_structured`, `would_standardize`, `standardized`, `skipped_non_google_docs`, and `errors`;
+- apply mode is explicit and rewrites the same existing Google Doc in place with PR #19 structure.
+
+Metadata for docs-only standardization is intentionally conservative: `Source file: not available`, `Source mode: existing_google_doc_standardization`, and `Provider` / `Model` / `Language` / `Speakers` are `unknown`.
+
+The older source-matching standardization/import flow remains an optional advanced/legacy path for cases where someone specifically wants source-to-doc matching. It is not required for normal existing transcript standardization.
 
 Локальные transcript-файлы, Markdown-зеркала и JSON-экспорты не считаются основным конечным артефактом.
 

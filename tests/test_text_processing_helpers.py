@@ -30,6 +30,9 @@ HELPER_NAMES = {
     "trim_duplicate_prefix_by_token_overlap",
     "merge_transcript_parts_with_overlap",
     "get_openai_diarize_chunking_preflight_warning",
+    "collect_existing_google_docs_for_standardization",
+    "build_docs_only_standardized_transcript_document_text",
+    "standardize_existing_google_docs_in_folder",
 }
 
 
@@ -51,6 +54,10 @@ def load_text_helpers() -> dict[str, object]:
                     "STRUCTURED_TRANSCRIPT_METADATA_LABEL",
                     "STRUCTURED_TRANSCRIPT_BODY_LABEL",
                     "STRUCTURED_TRANSCRIPT_REQUIRED_METADATA_PREFIXES",
+                    "FOLDER_MIME",
+                    "DOC_MIME",
+                    "DOCS_ONLY_STANDARDIZATION_SOURCE_FILE",
+                    "DOCS_ONLY_STANDARDIZATION_SOURCE_MODE",
                 }:
                     selected_nodes.append(node)
                     break
@@ -72,6 +79,10 @@ def load_text_helpers() -> dict[str, object]:
         # from the Colab runtime configuration surface.
         "OPENAI_MERGE_MAX_OVERLAP_TOKENS": 12,
         "OPENAI_MERGE_MIN_OVERLAP_TOKENS": 3,
+        "list_drive_folder_children": lambda _folder_id: [],
+        "extract_google_doc_plain_text": lambda _document_id: "",
+        "write_title_and_text_to_doc": lambda **_kwargs: None,
+        "utc_now_iso": lambda: "2026-06-01T00:00:00+00:00",
     }
     exec(compile(helper_module, str(CANONICAL_SOURCE), "exec"), namespace)
     return namespace
@@ -92,6 +103,15 @@ merge_transcript_parts_with_overlap = HELPERS["merge_transcript_parts_with_overl
 get_openai_diarize_chunking_preflight_warning = HELPERS[
     "get_openai_diarize_chunking_preflight_warning"
 ]
+collect_existing_google_docs_for_standardization = HELPERS[
+    "collect_existing_google_docs_for_standardization"
+]
+build_docs_only_standardized_transcript_document_text = HELPERS[
+    "build_docs_only_standardized_transcript_document_text"
+]
+standardize_existing_google_docs_in_folder = HELPERS["standardize_existing_google_docs_in_folder"]
+DOC_MIME = HELPERS["DOC_MIME"]
+FOLDER_MIME = HELPERS["FOLDER_MIME"]
 
 
 def test_format_transcript_metadata_value_normalizes_blank_values() -> None:
@@ -344,3 +364,169 @@ def test_build_backfilled_transcript_document_text_uses_unknown_metadata_without
         "Hello world."
     )
     assert is_structured_transcript_document_text(document_text)
+
+
+def test_docs_only_scan_indexes_google_docs() -> None:
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": "doc-1", "name": "Call", "mimeType": DOC_MIME, "webViewLink": "https://docs/1"},
+    ]
+
+    docs, skipped = collect_existing_google_docs_for_standardization("root", recursive=False)
+
+    assert skipped == 0
+    assert docs == [
+        {
+            "id": "doc-1",
+            "name": "Call",
+            "mimeType": DOC_MIME,
+            "webViewLink": "https://docs/1",
+            "display_name": "Call",
+        }
+    ]
+
+
+def test_recursive_docs_scan_finds_nested_google_docs() -> None:
+    children = {
+        "root": [{"id": "folder-1", "name": "Nested", "mimeType": FOLDER_MIME}],
+        "folder-1": [{"id": "doc-1", "name": "Nested Call", "mimeType": DOC_MIME}],
+    }
+    HELPERS["list_drive_folder_children"] = lambda folder_id: children[folder_id]
+
+    docs, skipped = collect_existing_google_docs_for_standardization("root", recursive=True)
+
+    assert skipped == 0
+    assert [(doc["id"], doc["display_name"]) for doc in docs] == [("doc-1", "Nested/Nested Call")]
+
+
+def test_docs_only_scan_ignores_pdfs_audio_video_and_other_files() -> None:
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": "doc-1", "name": "Call", "mimeType": DOC_MIME},
+        {"id": "pdf-1", "name": "Call.pdf", "mimeType": "application/pdf"},
+        {"id": "aud-1", "name": "Call.mp3", "mimeType": "audio/mpeg"},
+        {"id": "vid-1", "name": "Call.mp4", "mimeType": "video/mp4"},
+        {"id": "txt-1", "name": "Call.txt", "mimeType": "text/plain"},
+    ]
+
+    docs, skipped = collect_existing_google_docs_for_standardization("root", recursive=False)
+
+    assert [doc["id"] for doc in docs] == ["doc-1"]
+    assert skipped == 4
+
+
+def test_docs_only_already_structured_docs_are_skipped() -> None:
+    structured = build_structured_transcript_document_text(
+        document_title="Call",
+        transcript_text="Hello world.",
+        metadata_lines=build_transcript_metadata_lines(
+            source_name="call.mp3",
+            source_mode="Google Drive: 1 файл",
+            provider="unknown",
+            provider_model="unknown",
+            language="unknown",
+            speakers_enabled=None,
+            created_at="2026-06-01T00:00:00+00:00",
+        ),
+    )
+    writes = []
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": "doc-1", "name": "Call", "mimeType": DOC_MIME},
+    ]
+    HELPERS["extract_google_doc_plain_text"] = lambda document_id: structured
+    HELPERS["write_title_and_text_to_doc"] = lambda **kwargs: writes.append(kwargs)
+
+    report = standardize_existing_google_docs_in_folder("root", dry_run=False)
+
+    assert report["google_docs_scanned"] == 1
+    assert len(report["already_structured"]) == 1
+    assert report["standardized"] == []
+    assert writes == []
+
+
+def test_docs_only_dry_run_counts_would_standardize_without_writing() -> None:
+    writes = []
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": "doc-1", "name": "Call", "mimeType": DOC_MIME},
+    ]
+    HELPERS["extract_google_doc_plain_text"] = lambda document_id: "Call\n\nHello world."
+    HELPERS["write_title_and_text_to_doc"] = lambda **kwargs: writes.append(kwargs)
+
+    report = standardize_existing_google_docs_in_folder("root", dry_run=True)
+
+    assert report["would_standardize"] == [{"doc_name": "Call", "link": ""}]
+    assert report["standardized"] == []
+    assert writes == []
+
+
+def test_docs_only_apply_rewrites_only_not_yet_structured_google_docs() -> None:
+    structured = build_structured_transcript_document_text(
+        document_title="Done",
+        transcript_text="Already done.",
+        metadata_lines=build_transcript_metadata_lines(
+            source_name="not available",
+            source_mode="existing_google_doc_standardization",
+            provider="unknown",
+            provider_model="unknown",
+            language="unknown",
+            speakers_enabled=None,
+            created_at="2026-06-01T00:00:00+00:00",
+        ),
+    )
+    texts = {"doc-1": "Todo\n\nHello world.", "doc-2": structured}
+    writes = []
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": "doc-1", "name": "Todo", "mimeType": DOC_MIME},
+        {"id": "doc-2", "name": "Done", "mimeType": DOC_MIME},
+        {"id": "pdf-1", "name": "Ignored.pdf", "mimeType": "application/pdf"},
+    ]
+    HELPERS["extract_google_doc_plain_text"] = lambda document_id: texts[document_id]
+    HELPERS["write_title_and_text_to_doc"] = lambda **kwargs: writes.append(kwargs)
+
+    report = standardize_existing_google_docs_in_folder("root", dry_run=False)
+
+    assert report["google_docs_scanned"] == 2
+    assert report["skipped_non_google_docs"] == 1
+    assert [item["doc_name"] for item in report["standardized"]] == ["Todo"]
+    assert [item["doc_name"] for item in report["already_structured"]] == ["Done"]
+    assert len(writes) == 1
+    assert writes[0]["document_id"] == "doc-1"
+    assert writes[0]["title"] == "Todo"
+    assert writes[0]["clear_first"] is True
+    assert "Hello world." in writes[0]["transcript_text"]
+
+
+def test_docs_only_metadata_is_honest_and_conservative() -> None:
+    document_text = build_docs_only_standardized_transcript_document_text(
+        document_title="Existing Doc",
+        existing_document_text="Existing Doc\n\nHello world.",
+        created_at="2026-06-01T00:00:00+00:00",
+    )
+
+    assert "Source file: not available" in document_text
+    assert "Source mode: existing_google_doc_standardization" in document_text
+    assert "Provider: unknown" in document_text
+    assert "Model: unknown" in document_text
+    assert "Language: unknown" in document_text
+    assert "Speakers: unknown" in document_text
+
+
+def test_docs_only_flow_does_not_call_provider_create_doc_or_manifest_helpers() -> None:
+    forbidden_calls = []
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": "doc-1", "name": "Call", "mimeType": DOC_MIME},
+    ]
+    HELPERS["extract_google_doc_plain_text"] = lambda document_id: "Call\n\nHello world."
+    HELPERS["write_title_and_text_to_doc"] = lambda **kwargs: None
+    for name in [
+        "transcribe_fileobj",
+        "transcribe_openai_fileobj",
+        "transcribe_media_path",
+        "create_google_doc",
+        "save_manifest",
+        "mark_manifest_done",
+        "mark_manifest_failed",
+    ]:
+        HELPERS[name] = lambda *args, _name=name, **kwargs: forbidden_calls.append(_name)
+
+    standardize_existing_google_docs_in_folder("root", dry_run=False)
+
+    assert forbidden_calls == []
