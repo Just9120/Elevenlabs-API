@@ -541,6 +541,15 @@ def build_drive_source_signature(file_id: str, filename: str, modified_time: Opt
     })
 
 
+def build_existing_google_doc_manifest_signature(doc_id: str) -> str:
+    """Build a stable manifest key for an already existing Google Doc transcript."""
+
+    return json_sha256({
+        "source_type": "existing_google_doc",
+        "doc_id": doc_id,
+    })
+
+
 def build_local_path_source_signature(file_path: str, filename: Optional[str] = None) -> str:
     file_hash = compute_sha256_for_file(file_path)
     return json_sha256({
@@ -1226,6 +1235,185 @@ def collect_existing_google_docs_for_standardization(
     return docs, scan
 
 
+def build_existing_google_doc_link(doc_id: str) -> str:
+    return f"https://docs.google.com/document/d/{doc_id}/edit"
+
+
+def build_existing_google_doc_manifest_entry(
+    doc: dict,
+    source_signature: str,
+    structured_status: str,
+    output_folder_id: str,
+    output_folder_path: str = "",
+    recursive: bool = False,
+    updated_at: Optional[str] = None,
+) -> dict:
+    doc_name = doc.get("name", "")
+    display_name = doc.get("display_name") or doc_name
+    doc_path = f"{output_folder_path.rstrip('/')}/{display_name}" if output_folder_path else display_name
+    return {
+        "source_signature": source_signature,
+        "source_type": "existing_google_doc",
+        "status": EXISTING_GOOGLE_DOC_MANIFEST_STATUS,
+        "standard": EXISTING_GOOGLE_DOC_MANIFEST_STANDARD,
+        "doc_id": doc.get("id", ""),
+        "doc_name": doc_name,
+        "doc_link": doc.get("webViewLink") or build_existing_google_doc_link(doc.get("id", "")),
+        "doc_path": doc_path,
+        "doc_mime_type": doc.get("mimeType", DOC_MIME),
+        "structured_status": structured_status,
+        "source_name": doc_name,
+        "note": "",
+        "updated_at": updated_at or utc_now_iso(),
+        "source_meta": {
+            "folder_id": output_folder_id,
+            "folder_path": output_folder_path,
+            "recursive_scan": bool(recursive),
+            "registration_mode": EXISTING_GOOGLE_DOC_REGISTRATION_MODE,
+        },
+    }
+
+
+def existing_google_doc_manifest_entry_needs_update(existing_entry: Optional[dict], desired_entry: dict) -> bool:
+    if not existing_entry:
+        return False
+
+    compared_fields = (
+        "source_signature",
+        "source_type",
+        "status",
+        "standard",
+        "doc_id",
+        "doc_name",
+        "doc_link",
+        "doc_path",
+        "doc_mime_type",
+        "structured_status",
+        "source_name",
+        "note",
+        "source_meta",
+    )
+    return any(existing_entry.get(field) != desired_entry.get(field) for field in compared_fields)
+
+
+def upsert_existing_google_doc_manifest_entry(manifest: dict, source_signature: str, desired_entry: dict) -> None:
+    existing_entry = get_manifest_entry(manifest, source_signature) or {}
+    updated_entry = dict(existing_entry)
+    updated_entry.update(desired_entry)
+    manifest.setdefault("entries", {})[source_signature] = updated_entry
+
+
+def register_existing_google_docs_in_manifest(
+    output_folder_id: str,
+    output_folder_path: str = "",
+    recursive: bool = False,
+    dry_run: bool = True,
+    max_folders: int = DOCS_ONLY_STANDARDIZATION_DEFAULT_MAX_FOLDERS_SCANNED,
+    max_docs: int = DOCS_ONLY_STANDARDIZATION_DEFAULT_MAX_GOOGLE_DOCS_SCANNED,
+) -> dict:
+    """Register already existing Google Docs transcripts in the manifest only.
+
+    This flow reads Google Docs plain text for classification, but never rewrites Docs,
+    creates Docs, calls STT/provider/LLM APIs, or stores transcript text in the manifest/report.
+    """
+
+    docs, scan = collect_existing_google_docs_for_standardization(
+        output_folder_id,
+        recursive=recursive,
+        max_folders_scanned=max_folders,
+        max_google_docs_scanned=max_docs,
+    )
+    manifest = load_manifest()
+    report = {
+        "dry_run": dry_run,
+        "recursive": recursive,
+        "notice": EXISTING_GOOGLE_DOC_MANIFEST_NOTICE,
+        "google_docs_scanned": len(docs),
+        "folders_seen": scan["folders_seen"],
+        "skipped_non_google_docs": scan["skipped_non_google_docs"],
+        "already_registered": [],
+        "would_register": [],
+        "registered": [],
+        "would_update": [],
+        "updated": [],
+        "current_standard": 0,
+        "outdated_standard": 0,
+        "unstructured": 0,
+        "unreadable": 0,
+        "errors": [
+            {"doc_name": "Сканирование папки", "link": "", "reason": reason}
+            for reason in scan["errors"]
+        ],
+        "hint": "",
+    }
+    if not recursive and report["folders_seen"] > 0 and report["google_docs_scanned"] == 0:
+        report["hint"] = DOCS_ONLY_STANDARDIZATION_NESTED_FOLDER_HINT
+
+    changed = False
+    for doc in docs:
+        source_signature = build_existing_google_doc_manifest_signature(doc["id"])
+        base_item = {
+            "doc_id": doc["id"],
+            "doc_name": doc.get("display_name", doc.get("name", "")),
+            "link": doc.get("webViewLink") or build_existing_google_doc_link(doc["id"]),
+            "source_signature": source_signature,
+        }
+        structured_status = EXISTING_GOOGLE_DOC_STRUCTURED_UNREADABLE
+        try:
+            existing_text = extract_google_doc_plain_text(doc["id"])
+            structured_status = classify_existing_google_doc_transcript_standard(existing_text)
+        except Exception as exc:
+            report["errors"].append({
+                **base_item,
+                "reason": str(exc),
+            })
+
+        if structured_status not in {
+            EXISTING_GOOGLE_DOC_STRUCTURED_CURRENT,
+            EXISTING_GOOGLE_DOC_STRUCTURED_OUTDATED,
+            EXISTING_GOOGLE_DOC_STRUCTURED_UNSTRUCTURED,
+            EXISTING_GOOGLE_DOC_STRUCTURED_UNREADABLE,
+        }:
+            structured_status = EXISTING_GOOGLE_DOC_STRUCTURED_UNSTRUCTURED
+        report[structured_status] += 1
+
+        desired_entry = build_existing_google_doc_manifest_entry(
+            doc=doc,
+            source_signature=source_signature,
+            structured_status=structured_status,
+            output_folder_id=output_folder_id,
+            output_folder_path=output_folder_path,
+            recursive=recursive,
+        )
+        result_item = {
+            **base_item,
+            "structured_status": structured_status,
+        }
+        existing_entry = get_manifest_entry(manifest, source_signature)
+        if existing_entry:
+            if existing_google_doc_manifest_entry_needs_update(existing_entry, desired_entry):
+                if dry_run:
+                    report["would_update"].append(result_item)
+                else:
+                    upsert_existing_google_doc_manifest_entry(manifest, source_signature, desired_entry)
+                    report["updated"].append(result_item)
+                    changed = True
+            else:
+                report["already_registered"].append(result_item)
+        else:
+            if dry_run:
+                report["would_register"].append(result_item)
+            else:
+                upsert_existing_google_doc_manifest_entry(manifest, source_signature, desired_entry)
+                report["registered"].append(result_item)
+                changed = True
+
+    if changed and not dry_run:
+        save_manifest(manifest)
+
+    return report
+
+
 def build_docs_only_standardized_transcript_document_text(
     document_title: str,
     existing_document_text: str,
@@ -1624,6 +1812,15 @@ STRUCTURED_TRANSCRIPT_LEGACY_METADATA_PREFIXES = (
     "Source mode:",
 )
 
+EXISTING_GOOGLE_DOC_STRUCTURED_CURRENT = "current_standard"
+EXISTING_GOOGLE_DOC_STRUCTURED_OUTDATED = "outdated_standard"
+EXISTING_GOOGLE_DOC_STRUCTURED_UNSTRUCTURED = "unstructured"
+EXISTING_GOOGLE_DOC_STRUCTURED_UNREADABLE = "unreadable"
+EXISTING_GOOGLE_DOC_MANIFEST_STANDARD = "transcript_doc_v1.2"
+EXISTING_GOOGLE_DOC_MANIFEST_STATUS = "doc_registered"
+EXISTING_GOOGLE_DOC_REGISTRATION_MODE = "existing_google_doc_manifest_registration"
+EXISTING_GOOGLE_DOC_MANIFEST_NOTICE = "Manifest registration does not change Google Docs content."
+
 
 def normalize_doc_plain_text(text: str) -> str:
     return text.replace("\r\n", "\n").replace("\r", "\n").strip()
@@ -1676,6 +1873,35 @@ def is_structured_transcript_document_text(text: str) -> bool:
             STRUCTURED_TRANSCRIPT_REQUIRED_METADATA_PREFIXES,
         )
     )
+
+
+def classify_existing_google_doc_transcript_standard(document_text: str) -> str:
+    """Classify an existing Google Doc transcript without mutating its contents."""
+
+    if is_structured_transcript_document_text(document_text):
+        return EXISTING_GOOGLE_DOC_STRUCTURED_CURRENT
+
+    normalized = normalize_doc_plain_text(document_text)
+    if not normalized:
+        return EXISTING_GOOGLE_DOC_STRUCTURED_UNSTRUCTURED
+
+    lines = [line.strip() for line in normalized.split("\n")]
+    try:
+        metadata_index = lines.index(STRUCTURED_TRANSCRIPT_METADATA_LABEL)
+        transcript_index = lines.index(STRUCTURED_TRANSCRIPT_BODY_LABEL, metadata_index + 1)
+    except ValueError:
+        return EXISTING_GOOGLE_DOC_STRUCTURED_UNSTRUCTURED
+
+    if metadata_index >= 1 and transcript_index > metadata_index + 1:
+        metadata_lines = [line for line in lines[metadata_index + 1:transcript_index] if line]
+        known_prefixes = (
+            *STRUCTURED_TRANSCRIPT_REQUIRED_METADATA_PREFIXES,
+            *STRUCTURED_TRANSCRIPT_LEGACY_METADATA_PREFIXES,
+        )
+        if any(line.startswith(prefix) for line in metadata_lines for prefix in known_prefixes):
+            return EXISTING_GOOGLE_DOC_STRUCTURED_OUTDATED
+
+    return EXISTING_GOOGLE_DOC_STRUCTURED_UNSTRUCTURED
 
 
 def extract_unstructured_transcript_body_for_backfill(document_text: str, document_title: str) -> str:
@@ -2824,7 +3050,7 @@ def list_drive_folder_children(parent_id: str) -> list[dict]:
         result = drive_service.files().list(
             q=f"'{parent_id}' in parents and trashed = false",
             spaces="drive",
-            fields="nextPageToken, files(id, name, mimeType, shortcutDetails, modifiedTime, size)",
+            fields="nextPageToken, files(id, name, mimeType, webViewLink, shortcutDetails, modifiedTime, size)",
             orderBy="name_natural",
             pageSize=1000,
             pageToken=page_token,
@@ -4267,6 +4493,27 @@ standardize_existing_docs_button = widgets.Button(
     layout=widgets.Layout(width="420px")
 )
 
+register_existing_docs_manifest_dry_run_widget = widgets.Checkbox(
+    value=True,
+    description="Только проверить manifest, не изменять",
+    indent=False,
+    layout=widgets.Layout(width="420px")
+)
+
+register_existing_docs_manifest_button = widgets.Button(
+    description="Проверить / зарегистрировать существующие Google Docs в manifest",
+    icon="database",
+    layout=widgets.Layout(width="560px")
+)
+
+register_existing_docs_manifest_help_widget = widgets.HTML(
+    "<div style='margin-top:6px; color:#5f6368;'>"
+    "Сканирует выбранную папку назначения Google Docs; исходные аудио/видео игнорируются. "
+    "Повторная транскрибация не выполняется, содержимое Google Docs не меняется. "
+    "Dry-run включен по умолчанию; apply записывает/обновляет только entries в manifest."
+    "</div>"
+)
+
 standardize_existing_docs_help_widget = widgets.HTML(
     "<div style='margin-top:6px; color:#5f6368;'>"
     "Используйте этот режим для уже готовых транскрибаций в выбранной папке назначения Google Docs. "
@@ -4286,6 +4533,7 @@ help_widget = widgets.HTML()
 check_output_widget = widgets.Output()
 import_output_widget = widgets.Output()
 standardize_existing_docs_output_widget = widgets.Output()
+register_existing_docs_manifest_output_widget = widgets.Output()
 output_widget = widgets.Output()
 
 standardize_existing_docs_section_widget = widgets.VBox([
@@ -4304,6 +4552,18 @@ standardize_existing_docs_section_widget = widgets.VBox([
     standardize_existing_docs_button,
     standardize_existing_docs_help_widget,
     standardize_existing_docs_output_widget,
+    widgets.HTML(
+        "<hr style='border:none; border-top:1px solid #dadce0; margin:12px 0;'>"
+        "<h4 style='margin:0 0 8px 0;'>Регистрация существующих Google Docs в manifest</h4>"
+        "<div style='color:#3c4043;'>"
+        "Отдельный docs-only flow: сканирует ту же <b>выбранную папку назначения</b>, "
+        "классифицирует найденные Google Docs и при apply меняет только manifest."
+        "</div>"
+    ),
+    register_existing_docs_manifest_dry_run_widget,
+    register_existing_docs_manifest_button,
+    register_existing_docs_manifest_help_widget,
+    register_existing_docs_manifest_output_widget,
 ])
 
 folder_picker_ui = widgets.VBox(folder_picker_core_widgets + [standardize_existing_docs_section_widget])
@@ -4604,6 +4864,74 @@ def on_standardize_existing_docs_clicked(_):
             print(f"Ошибка проверки / стандартизации Google Docs: {e}")
         finally:
             standardize_existing_docs_button.disabled = False
+
+
+def print_register_existing_docs_manifest_report(report: dict):
+    print("====================")
+    print("РЕГИСТРАЦИЯ СУЩЕСТВУЮЩИХ GOOGLE DOCS В MANIFEST")
+    print("====================")
+    print(f"Режим: {'dry-run (manifest без изменений)' if report['dry_run'] else 'apply (записывает/обновляет только manifest)'}")
+    print(report.get("notice") or EXISTING_GOOGLE_DOC_MANIFEST_NOTICE)
+    print("Без STT/API транскрибации, без LLM, без создания Google Docs, без изменений содержимого Google Docs.")
+    print(f"Google Docs scanned: {report['google_docs_scanned']}")
+    print(f"Folders seen: {report.get('folders_seen', 0)}")
+    print(f"Skipped non-Google-Docs: {report['skipped_non_google_docs']}")
+    print(f"Already registered: {len(report['already_registered'])}")
+    print(f"Would register: {len(report['would_register'])}")
+    print(f"Registered: {len(report['registered'])}")
+    print(f"Would update: {len(report['would_update'])}")
+    print(f"Updated: {len(report['updated'])}")
+    print(f"Current standard: {report['current_standard']}")
+    print(f"Outdated standard: {report['outdated_standard']}")
+    print(f"Unstructured: {report['unstructured']}")
+    print(f"Unreadable: {report['unreadable']}")
+    print(f"Errors: {len(report['errors'])}")
+    if report.get("hint"):
+        print(f"\nПодсказка: {report['hint']}")
+
+    details = [
+        ("would_register", "Будут зарегистрированы"),
+        ("would_update", "Будут обновлены"),
+        ("already_registered", "Уже зарегистрированы"),
+        ("registered", "Зарегистрированы"),
+        ("updated", "Обновлены"),
+        ("errors", "Ошибки"),
+    ]
+    for key, title in details:
+        items = report[key]
+        if not items:
+            continue
+        print(f"\n{title} (первые {min(20, len(items))}):")
+        for item in items[:20]:
+            link_part = f": {item['link']}" if item.get("link") else ""
+            status_part = f" [{item['structured_status']}]" if item.get("structured_status") else ""
+            reason_part = f" — {item['reason']}" if item.get("reason") else ""
+            print(f"- {item.get('doc_name', '')}{status_part}{reason_part}{link_part}")
+        if len(items) > 20:
+            print(f"... ещё {len(items) - 20}")
+
+
+def on_register_existing_docs_manifest_clicked(_):
+    register_existing_docs_manifest_button.disabled = True
+    with register_existing_docs_manifest_output_widget:
+        clear_output()
+
+        try:
+            if not folder_picker_state["selected_id"]:
+                raise ValueError("Сначала выбери папку назначения в блоке выше и нажми 'Выбрать текущую папку'.")
+
+            report = register_existing_google_docs_in_manifest(
+                output_folder_id=folder_picker_state["selected_id"],
+                output_folder_path=folder_picker_state.get("selected_path", ""),
+                recursive=standardize_existing_docs_recursive_widget.value,
+                dry_run=register_existing_docs_manifest_dry_run_widget.value,
+            )
+            print_register_existing_docs_manifest_report(report)
+
+        except Exception as e:
+            print(f"Ошибка проверки / регистрации Google Docs в manifest: {e}")
+        finally:
+            register_existing_docs_manifest_button.disabled = False
 
 
 def collect_runtime_options_from_ui() -> TranscriptionRuntimeOptions:
@@ -4963,6 +5291,7 @@ def on_start_clicked(_):
 check_source_button.on_click(on_check_source_clicked)
 import_existing_button.on_click(on_import_existing_clicked)
 standardize_existing_docs_button.on_click(on_standardize_existing_docs_clicked)
+register_existing_docs_manifest_button.on_click(on_register_existing_docs_manifest_clicked)
 start_button.on_click(on_start_clicked)
 
 advanced_box = widgets.VBox([

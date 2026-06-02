@@ -10,7 +10,10 @@ from the source file.
 from __future__ import annotations
 
 import ast
+import hashlib
+import json
 import re
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -33,6 +36,17 @@ HELPER_NAMES = {
     "collect_existing_google_docs_for_standardization",
     "build_docs_only_standardized_transcript_document_text",
     "standardize_existing_google_docs_in_folder",
+    "json_sha256",
+    "should_skip_by_manifest",
+    "parse_iso_datetime",
+    "build_existing_google_doc_manifest_signature",
+    "get_manifest_entry",
+    "classify_existing_google_doc_transcript_standard",
+    "build_existing_google_doc_link",
+    "build_existing_google_doc_manifest_entry",
+    "existing_google_doc_manifest_entry_needs_update",
+    "upsert_existing_google_doc_manifest_entry",
+    "register_existing_google_docs_in_manifest",
 }
 
 
@@ -62,6 +76,14 @@ def load_text_helpers() -> dict[str, object]:
                     "DOCS_ONLY_STANDARDIZATION_DEFAULT_MAX_FOLDERS_SCANNED",
                     "DOCS_ONLY_STANDARDIZATION_DEFAULT_MAX_GOOGLE_DOCS_SCANNED",
                     "DOCS_ONLY_STANDARDIZATION_NESTED_FOLDER_HINT",
+                    "EXISTING_GOOGLE_DOC_MANIFEST_NOTICE",
+                    "EXISTING_GOOGLE_DOC_REGISTRATION_MODE",
+                    "EXISTING_GOOGLE_DOC_MANIFEST_STATUS",
+                    "EXISTING_GOOGLE_DOC_MANIFEST_STANDARD",
+                    "EXISTING_GOOGLE_DOC_STRUCTURED_UNREADABLE",
+                    "EXISTING_GOOGLE_DOC_STRUCTURED_UNSTRUCTURED",
+                    "EXISTING_GOOGLE_DOC_STRUCTURED_OUTDATED",
+                    "EXISTING_GOOGLE_DOC_STRUCTURED_CURRENT",
                 }:
                     selected_nodes.append(node)
                     break
@@ -77,15 +99,23 @@ def load_text_helpers() -> dict[str, object]:
     ast.fix_missing_locations(helper_module)
 
     namespace: dict[str, object] = {
+        "hashlib": hashlib,
+        "json": json,
+        "datetime": datetime,
+        "timedelta": timedelta,
+        "timezone": timezone,
         "re": re,
         # These globals are runtime tuning knobs used by the overlap helper.
         # They are injected here so the pure function can be tested in isolation
         # from the Colab runtime configuration surface.
         "OPENAI_MERGE_MAX_OVERLAP_TOKENS": 12,
         "OPENAI_MERGE_MIN_OVERLAP_TOKENS": 3,
+        "MANIFEST_IN_PROGRESS_TTL_HOURS": 12,
         "list_drive_folder_children": lambda _folder_id: [],
         "extract_google_doc_plain_text": lambda _document_id: "",
         "write_title_and_text_to_doc": lambda **_kwargs: None,
+        "load_manifest": lambda: {"version": 1, "entries": {}},
+        "save_manifest": lambda _manifest: None,
         "utc_now_iso": lambda: "2026-06-01T00:00:00+00:00",
     }
     exec(compile(helper_module, str(CANONICAL_SOURCE), "exec"), namespace)
@@ -114,6 +144,11 @@ build_docs_only_standardized_transcript_document_text = HELPERS[
     "build_docs_only_standardized_transcript_document_text"
 ]
 standardize_existing_google_docs_in_folder = HELPERS["standardize_existing_google_docs_in_folder"]
+
+build_existing_google_doc_manifest_signature = HELPERS["build_existing_google_doc_manifest_signature"]
+classify_existing_google_doc_transcript_standard = HELPERS["classify_existing_google_doc_transcript_standard"]
+register_existing_google_docs_in_manifest = HELPERS["register_existing_google_docs_in_manifest"]
+should_skip_by_manifest = HELPERS["should_skip_by_manifest"]
 DOC_MIME = HELPERS["DOC_MIME"]
 FOLDER_MIME = HELPERS["FOLDER_MIME"]
 
@@ -720,3 +755,211 @@ def test_docs_only_flow_does_not_call_provider_create_doc_or_manifest_helpers() 
     standardize_existing_google_docs_in_folder("root", dry_run=False)
 
     assert forbidden_calls == []
+
+
+def build_current_standard_document(title: str = "Call", body: str = "Hello world.") -> str:
+    return build_structured_transcript_document_text(
+        document_title=title,
+        transcript_text=body,
+        metadata_lines=build_transcript_metadata_lines(
+            source_name="ignored.mp3",
+            source_mode="Google Drive: 1 файл",
+            provider="unknown",
+            provider_model="unknown",
+            language="unknown",
+            speakers_enabled=None,
+            created_at="2026-06-01T00:00:00+00:00",
+        ),
+    )
+
+
+def test_existing_google_doc_manifest_signature_is_stable_doc_id_based_and_name_independent() -> None:
+    first = build_existing_google_doc_manifest_signature("doc-1")
+    second = build_existing_google_doc_manifest_signature("doc-1")
+    other = build_existing_google_doc_manifest_signature("doc-2")
+
+    assert first == second
+    assert first != other
+    assert first == HELPERS["json_sha256"]({"source_type": "existing_google_doc", "doc_id": "doc-1"})
+
+
+def test_classify_existing_google_doc_transcript_standard_current_outdated_unstructured() -> None:
+    assert classify_existing_google_doc_transcript_standard(build_current_standard_document()) == "current_standard"
+    assert classify_existing_google_doc_transcript_standard(build_legacy_standard_document()) == "outdated_standard"
+    assert classify_existing_google_doc_transcript_standard("Meeting notes without transcript headings") == "unstructured"
+
+
+def test_manifest_registration_dry_run_scans_classifies_and_does_not_save_or_mutate_docs() -> None:
+    calls = []
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": "doc-1", "name": "Current", "mimeType": DOC_MIME, "webViewLink": "https://docs/doc-1"},
+        {"id": "pdf-1", "name": "Ignored.pdf", "mimeType": "application/pdf"},
+    ]
+    HELPERS["extract_google_doc_plain_text"] = lambda document_id: build_current_standard_document()
+    HELPERS["load_manifest"] = lambda: {"version": 1, "entries": {}}
+    HELPERS["save_manifest"] = lambda manifest: calls.append("save_manifest")
+    HELPERS["write_title_and_text_to_doc"] = lambda **kwargs: calls.append("write_title_and_text_to_doc")
+    for name in [
+        "transcribe_fileobj",
+        "transcribe_openai_fileobj",
+        "transcribe_media_path",
+        "create_google_doc",
+    ]:
+        HELPERS[name] = lambda *args, _name=name, **kwargs: calls.append(_name)
+
+    report = register_existing_google_docs_in_manifest(
+        "folder-root", output_folder_path="MyDrive/Transcripts", dry_run=True
+    )
+
+    assert report["google_docs_scanned"] == 1
+    assert report["skipped_non_google_docs"] == 1
+    assert report["current_standard"] == 1
+    assert [item["doc_id"] for item in report["would_register"]] == ["doc-1"]
+    assert report["registered"] == []
+    assert calls == []
+    assert report["notice"] == "Manifest registration does not change Google Docs content."
+
+
+def test_manifest_registration_apply_writes_existing_google_doc_manifest_entry_without_docs_mutation() -> None:
+    saved = []
+    writes = []
+    manifest = {"version": 1, "entries": {}}
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": "doc-1", "name": "Call", "mimeType": DOC_MIME, "webViewLink": "https://docs/doc-1"},
+    ]
+    HELPERS["extract_google_doc_plain_text"] = lambda document_id: build_current_standard_document(title="Call")
+    HELPERS["load_manifest"] = lambda: manifest
+    HELPERS["save_manifest"] = lambda incoming: saved.append(json.loads(json.dumps(incoming)))
+    HELPERS["write_title_and_text_to_doc"] = lambda **kwargs: writes.append(kwargs)
+
+    report = register_existing_google_docs_in_manifest(
+        "folder-root", output_folder_path="MyDrive/Transcripts", dry_run=False
+    )
+
+    assert [item["doc_id"] for item in report["registered"]] == ["doc-1"]
+    assert saved
+    assert writes == []
+    signature = build_existing_google_doc_manifest_signature("doc-1")
+    entry = saved[-1]["entries"][signature]
+    assert entry["source_signature"] == signature
+    assert entry["source_type"] == "existing_google_doc"
+    assert entry["status"] == "doc_registered"
+    assert entry["doc_id"] == "doc-1"
+    assert entry["doc_name"] == "Call"
+    assert entry["doc_link"] == "https://docs/doc-1"
+    assert entry["doc_path"] == "MyDrive/Transcripts/Call"
+    assert entry["structured_status"] == "current_standard"
+    assert entry["source_meta"]["registration_mode"] == "existing_google_doc_manifest_registration"
+
+
+def test_manifest_registration_apply_twice_does_not_duplicate_and_detects_already_registered() -> None:
+    saved = []
+    manifest = {"version": 1, "entries": {}}
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": "doc-1", "name": "Call", "mimeType": DOC_MIME, "webViewLink": "https://docs/doc-1"},
+    ]
+    HELPERS["extract_google_doc_plain_text"] = lambda document_id: build_current_standard_document(title="Call")
+    HELPERS["load_manifest"] = lambda: manifest
+    HELPERS["save_manifest"] = lambda incoming: saved.append(json.loads(json.dumps(incoming)))
+
+    first = register_existing_google_docs_in_manifest("folder-root", dry_run=False)
+    second = register_existing_google_docs_in_manifest("folder-root", dry_run=False)
+    dry_run = register_existing_google_docs_in_manifest("folder-root", dry_run=True)
+
+    assert len(manifest["entries"]) == 1
+    assert len(first["registered"]) == 1
+    assert second["registered"] == []
+    assert [item["doc_id"] for item in second["already_registered"]] == ["doc-1"]
+    assert [item["doc_id"] for item in dry_run["already_registered"]] == ["doc-1"]
+
+
+def test_manifest_registration_records_outdated_current_and_unstructured_status_without_changing_content() -> None:
+    original_texts = {
+        "doc-old": build_legacy_standard_document(title="Old"),
+        "doc-current": build_current_standard_document(title="Current"),
+        "doc-plain": "Plain notes only",
+    }
+    texts = dict(original_texts)
+    manifest = {"version": 1, "entries": {}}
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": "doc-old", "name": "Old", "mimeType": DOC_MIME},
+        {"id": "doc-current", "name": "Current", "mimeType": DOC_MIME},
+        {"id": "doc-plain", "name": "Plain", "mimeType": DOC_MIME},
+    ]
+    HELPERS["extract_google_doc_plain_text"] = lambda document_id: texts[document_id]
+    HELPERS["load_manifest"] = lambda: manifest
+    HELPERS["save_manifest"] = lambda incoming: None
+    HELPERS["write_title_and_text_to_doc"] = lambda **kwargs: texts.__setitem__(kwargs["document_id"], kwargs["transcript_text"])
+
+    report = register_existing_google_docs_in_manifest("folder-root", dry_run=False)
+
+    statuses = {entry["doc_id"]: entry["structured_status"] for entry in manifest["entries"].values()}
+    assert statuses == {
+        "doc-current": "current_standard",
+        "doc-old": "outdated_standard",
+        "doc-plain": "unstructured",
+    }
+    assert report["current_standard"] == 1
+    assert report["outdated_standard"] == 1
+    assert report["unstructured"] == 1
+    assert texts == original_texts
+
+
+def test_manifest_registration_recursive_scan_uses_visited_folders_and_reports_limits() -> None:
+    calls = []
+    children = {
+        "root": [
+            {"id": "folder-a", "name": "A", "mimeType": FOLDER_MIME},
+            {"id": "folder-a", "name": "A Shortcut", "mimeType": FOLDER_MIME},
+        ],
+        "folder-a": [
+            {"id": "root", "name": "Back", "mimeType": FOLDER_MIME},
+            {"id": "doc-1", "name": "Nested", "mimeType": DOC_MIME},
+        ],
+    }
+
+    def list_children(folder_id):
+        calls.append(folder_id)
+        return children[folder_id]
+
+    HELPERS["list_drive_folder_children"] = list_children
+    HELPERS["extract_google_doc_plain_text"] = lambda document_id: build_current_standard_document()
+    HELPERS["load_manifest"] = lambda: {"version": 1, "entries": {}}
+
+    report = register_existing_google_docs_in_manifest("root", recursive=True, dry_run=True)
+    assert calls == ["root", "folder-a"]
+    assert report["folders_seen"] == 3
+    assert [item["doc_name"] for item in report["would_register"]] == ["A/Nested"]
+
+    HELPERS["list_drive_folder_children"] = lambda folder_id: children[folder_id]
+    limited = register_existing_google_docs_in_manifest("root", recursive=True, dry_run=True, max_folders=1)
+    assert limited["errors"]
+    assert "лимит сканирования папок" in limited["errors"][0]["reason"]
+
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": "doc-1", "name": "One", "mimeType": DOC_MIME},
+        {"id": "doc-2", "name": "Two", "mimeType": DOC_MIME},
+    ]
+    doc_limited = register_existing_google_docs_in_manifest("root", dry_run=True, max_docs=1)
+    assert doc_limited["google_docs_scanned"] == 1
+    assert "лимит сканирования Google Docs" in doc_limited["errors"][0]["reason"]
+
+
+def test_normal_transcription_manifest_skip_behavior_remains_unchanged() -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    old = (datetime.now(timezone.utc) - timedelta(hours=13)).isoformat()
+    manifest = {
+        "version": 1,
+        "entries": {
+            "done": {"status": "done", "settings_signature": "settings-a"},
+            "imported": {"status": "imported_done", "settings_signature": "other"},
+            "fresh": {"status": "in_progress", "started_at": now},
+            "stale": {"status": "in_progress", "started_at": old},
+        },
+    }
+
+    assert should_skip_by_manifest(manifest, "done", "settings-a")[0] is True
+    assert should_skip_by_manifest(manifest, "done", "settings-b")[0] is False
+    assert should_skip_by_manifest(manifest, "imported", "settings-b")[0] is True
+    assert should_skip_by_manifest(manifest, "fresh", "settings-b")[0] is True
+    assert should_skip_by_manifest(manifest, "stale", "settings-b")[0] is False

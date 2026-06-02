@@ -84,6 +84,46 @@ Primary recommended flow for existing transcripts is docs-only standardization:
 
 Metadata for docs-only standardization is intentionally conservative: `Provider` / `Model` / `Language` / `Speakers` are `unknown`, `Created at` is the current timestamp, and no source filename or source mode is embedded in the visible metadata block.
 
+### Existing Google Docs manifest registration
+
+A separate docs-only button can register already existing Google Docs transcripts in `VoiceOps Workspace/manifest/elevenlabs_transcription_manifest.json` without requiring source audio/video files. This mode:
+
+- scans the selected destination/output Google Docs folder (and optionally nested folders when recursive scan is enabled);
+- ignores source audio/video input, source mode, and source path/link;
+- does not retranscribe and does not call ElevenLabs, OpenAI, STT, diarization, or LLM APIs;
+- does not create Google Docs and does not change Google Docs document contents;
+- defaults to dry-run (`Только проверить manifest, не изменять`);
+- in apply mode writes or updates manifest entries only;
+- keys entries by a stable hash of `{ "source_type": "existing_google_doc", "doc_id": "<google_doc_id>" }`, so later document renames do not create a different primary manifest key.
+
+The flow classifies each readable Google Doc as `current_standard`, `outdated_standard`, or `unstructured`; unreadable Docs are reported as `unreadable`. The manifest stays at `version: 1` and adds human-readable entry fields for existing Docs, for example:
+
+```json
+{
+  "source_signature": "<sha256>",
+  "source_type": "existing_google_doc",
+  "status": "doc_registered",
+  "standard": "transcript_doc_v1.2",
+  "doc_id": "<google_doc_id>",
+  "doc_name": "Existing transcript",
+  "doc_link": "https://docs.google.com/document/d/<google_doc_id>/edit",
+  "doc_path": "MyDrive/Transcripts/Existing transcript",
+  "doc_mime_type": "application/vnd.google-apps.document",
+  "structured_status": "current_standard",
+  "source_name": "Existing transcript",
+  "note": "",
+  "updated_at": "<ISO timestamp>",
+  "source_meta": {
+    "folder_id": "<selected_output_folder_id>",
+    "folder_path": "MyDrive/Transcripts",
+    "recursive_scan": false,
+    "registration_mode": "existing_google_doc_manifest_registration"
+  }
+}
+```
+
+This registration flow is intentionally separate from docs-only standardization: standardization rewrites Docs in explicit apply mode; manifest registration writes only manifest entries and never mutates document text.
+
 The older source-matching standardization/import flow remains an optional advanced/legacy path for cases where someone specifically wants source-to-doc matching. It is not required for normal existing transcript standardization. Runtime E2E validation in Colab/Drive remains required before broad use of docs-only apply mode.
 
 Локальные transcript-файлы, Markdown-зеркала и JSON-экспорты не считаются основным конечным артефактом.
