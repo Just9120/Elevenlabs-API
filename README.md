@@ -124,6 +124,8 @@ The flow classifies each readable Google Doc as `current_standard`, `outdated_st
 
 This registration flow is intentionally separate from docs-only standardization: standardization rewrites Docs in explicit apply mode; manifest registration writes only manifest entries and never mutates document text.
 
+Doc registry entries created by this flow are also intentionally separate from older source-based transcription manifest entries. A Google Doc may already be referenced by a normal source audio/video/file transcription entry through `doc_id` or `doc_link`, but still appear as `would_register` because it does not yet have the new `source_type: existing_google_doc` / `status: doc_registered` registry entry keyed by Google Doc ID. To make that reconciliation clear, dry-run/apply reports source-linked manifest matches separately; those matches are informational only and are not counted as `already_registered`. Apply mode writes or updates only the doc registry entry and does not modify, merge, delete, or rewrite existing source-based entries.
+
 The older source-matching standardization/import flow remains an optional advanced/legacy path for cases where someone specifically wants source-to-doc matching. It is not required for normal existing transcript standardization. Runtime E2E validation in Colab/Drive remains required before broad use of docs-only apply mode.
 
 Локальные transcript-файлы, Markdown-зеркала и JSON-экспорты не считаются основным конечным артефактом.
