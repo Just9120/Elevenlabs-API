@@ -54,6 +54,7 @@ def load_text_helpers() -> dict[str, object]:
                     "STRUCTURED_TRANSCRIPT_METADATA_LABEL",
                     "STRUCTURED_TRANSCRIPT_BODY_LABEL",
                     "STRUCTURED_TRANSCRIPT_REQUIRED_METADATA_PREFIXES",
+                    "STRUCTURED_TRANSCRIPT_LEGACY_METADATA_PREFIXES",
                     "FOLDER_MIME",
                     "DOC_MIME",
                     "DOCS_ONLY_STANDARDIZATION_SOURCE_FILE",
@@ -117,6 +118,22 @@ DOC_MIME = HELPERS["DOC_MIME"]
 FOLDER_MIME = HELPERS["FOLDER_MIME"]
 
 
+def build_legacy_standard_document(title: str = "Call", body: str = "Hello world.") -> str:
+    return (
+        f"{title}\n\n"
+        "Transcript metadata\n"
+        "Source file: not available\n"
+        "Source mode: existing_google_doc_standardization\n"
+        "Provider: unknown\n"
+        "Model: unknown\n"
+        "Language: unknown\n"
+        "Speakers: unknown\n"
+        "Created at: 2026-06-02T10:26:40.369268+00:00\n\n"
+        "Transcript\n\n"
+        f"{body}"
+    )
+
+
 def test_format_transcript_metadata_value_normalizes_blank_values() -> None:
     assert format_transcript_metadata_value(None) == "unknown"
     assert format_transcript_metadata_value("  alpha\n beta  ") == "alpha beta"
@@ -147,9 +164,9 @@ def test_build_transcript_metadata_lines_uses_stable_labels() -> None:
         created_at="2026-06-01T00:00:00+00:00",
     )
 
+    assert "Source file: lecture.mp3" not in lines
+    assert "Source mode: Google Drive: 1 файл" not in lines
     assert lines == [
-        "Source file: lecture.mp3",
-        "Source mode: Google Drive: 1 файл",
         "Provider: ElevenLabs",
         "Model: scribe_v2",
         "Language: Русский (ru)",
@@ -175,8 +192,6 @@ def test_segment_plain_transcript_for_docs_preserves_speaker_labeled_blocks() ->
 
 def test_build_structured_transcript_document_text_has_llm_readable_sections() -> None:
     metadata = [
-        "Source file: call.flac",
-        "Source mode: Google Drive: 1 файл",
         "Provider: OpenAI",
         "Model: gpt-4o-transcribe",
         "Language: Автоопределение",
@@ -193,8 +208,6 @@ def test_build_structured_transcript_document_text_has_llm_readable_sections() -
     assert document_text == (
         "call\n\n"
         "Transcript metadata\n"
-        "Source file: call.flac\n"
-        "Source mode: Google Drive: 1 файл\n"
         "Provider: OpenAI\n"
         "Model: gpt-4o-transcribe\n"
         "Language: Автоопределение\n"
@@ -203,6 +216,8 @@ def test_build_structured_transcript_document_text_has_llm_readable_sections() -
         "Transcript\n\n"
         "Hello world."
     )
+    assert "Source file:" not in document_text
+    assert "Source mode:" not in document_text
 
 
 def test_openai_diarize_chunking_preflight_warning_is_limited_to_risky_configuration() -> None:
@@ -337,6 +352,43 @@ def test_is_structured_transcript_document_text_requires_pr19_sections() -> None
     assert not is_structured_transcript_document_text("Transcript metadata\nTranscript\nHello world.")
 
 
+
+def test_is_structured_transcript_document_text_rejects_legacy_metadata_standard() -> None:
+    legacy = build_legacy_standard_document()
+
+    assert not is_structured_transcript_document_text(legacy)
+
+
+def test_is_structured_transcript_document_text_requires_exact_v12_metadata_block() -> None:
+    valid_metadata = [
+        "Provider: unknown",
+        "Model: unknown",
+        "Language: unknown",
+        "Speakers: unknown",
+        "Created at: 2026-06-01T00:00:00+00:00",
+    ]
+
+    def build_with(metadata_lines: list[str]) -> str:
+        return build_structured_transcript_document_text(
+            document_title="Call",
+            transcript_text="Hello world.",
+            metadata_lines=metadata_lines,
+        )
+
+    assert is_structured_transcript_document_text(build_with(valid_metadata))
+
+    invalid_cases = [
+        valid_metadata[:-1],
+        [valid_metadata[1], valid_metadata[0], *valid_metadata[2:]],
+        [*valid_metadata, valid_metadata[-1]],
+        [*valid_metadata, "Duration: unknown"],
+        ["Source file: call.mp3", *valid_metadata],
+        ["Source mode: Google Drive: 1 файл", *valid_metadata],
+    ]
+    for metadata_lines in invalid_cases:
+        assert not is_structured_transcript_document_text(build_with(metadata_lines))
+
+
 def test_extract_unstructured_transcript_body_for_backfill_drops_duplicate_title() -> None:
     text = "Legacy Call\n\nFirst line.\nSecond line."
 
@@ -356,8 +408,6 @@ def test_build_backfilled_transcript_document_text_uses_unknown_metadata_without
     assert document_text == (
         "Legacy Call\n\n"
         "Transcript metadata\n"
-        "Source file: Legacy Call.mp3\n"
-        "Source mode: Google Drive: папка\n"
         "Provider: unknown\n"
         "Model: unknown\n"
         "Language: unknown\n"
@@ -544,6 +594,59 @@ def test_docs_only_dry_run_counts_would_standardize_without_writing() -> None:
     assert writes == []
 
 
+
+def test_docs_only_dry_run_counts_old_standard_as_would_standardize() -> None:
+    writes = []
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": "doc-1", "name": "Call", "mimeType": DOC_MIME},
+    ]
+    HELPERS["extract_google_doc_plain_text"] = lambda document_id: build_legacy_standard_document()
+    HELPERS["write_title_and_text_to_doc"] = lambda **kwargs: writes.append(kwargs)
+
+    report = standardize_existing_google_docs_in_folder("root", dry_run=True)
+
+    assert report["would_standardize"] == [{"doc_name": "Call", "link": ""}]
+    assert report["already_structured"] == []
+    assert report["standardized"] == []
+    assert writes == []
+
+
+def test_docs_only_apply_rewrites_old_standard_to_v12_and_preserves_body() -> None:
+    title = "Бонусный урок. Личные финансы для помогающего практика"
+    body = (
+        "Сегодня поговорим о личных финансах помогающего практика.\n\n"
+        "Важно сохранять опору, не переписывать смысл и не терять исходные слова."
+    )
+    legacy = build_legacy_standard_document(title=title, body=body)
+    writes = []
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": "doc-1", "name": title, "mimeType": DOC_MIME},
+    ]
+    HELPERS["extract_google_doc_plain_text"] = lambda document_id: legacy
+    HELPERS["write_title_and_text_to_doc"] = lambda **kwargs: writes.append(kwargs)
+
+    report = standardize_existing_google_docs_in_folder("root", dry_run=False)
+
+    assert [item["doc_name"] for item in report["standardized"]] == [title]
+    assert report["already_structured"] == []
+    assert len(writes) == 1
+    rewritten_text = writes[0]["transcript_text"]
+    assert "Source file:" not in rewritten_text
+    assert "Source mode:" not in rewritten_text
+    assert "Provider: unknown" in rewritten_text
+    assert "Model: unknown" in rewritten_text
+    assert "Language: unknown" in rewritten_text
+    assert "Speakers: unknown" in rewritten_text
+    assert "Created at: 2026-06-01T00:00:00+00:00" in rewritten_text
+    assert body in rewritten_text
+    assert is_structured_transcript_document_text(rewritten_text)
+
+    HELPERS["extract_google_doc_plain_text"] = lambda document_id: rewritten_text
+    subsequent_dry_run = standardize_existing_google_docs_in_folder("root", dry_run=True)
+    assert subsequent_dry_run["would_standardize"] == []
+    assert [item["doc_name"] for item in subsequent_dry_run["already_structured"]] == [title]
+
+
 def test_docs_only_apply_rewrites_only_not_yet_structured_google_docs() -> None:
     structured = build_structured_transcript_document_text(
         document_title="Done",
@@ -588,8 +691,8 @@ def test_docs_only_metadata_is_honest_and_conservative() -> None:
         created_at="2026-06-01T00:00:00+00:00",
     )
 
-    assert "Source file: not available" in document_text
-    assert "Source mode: existing_google_doc_standardization" in document_text
+    assert "Source file:" not in document_text
+    assert "Source mode:" not in document_text
     assert "Provider: unknown" in document_text
     assert "Model: unknown" in document_text
     assert "Language: unknown" in document_text
