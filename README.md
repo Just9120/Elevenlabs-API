@@ -50,19 +50,21 @@ Drive runtime state artifacts are organized under:
 ### Existing transcript standardization
 
 Primary recommended flow for existing transcripts is docs-only standardization:
-- it works directly on already completed Google Docs in the selected output/transcripts folder;
-- source audio/video recordings are not needed;
+- it works directly on already completed Google Docs in the selected destination/output Google Docs folder;
+- the docs-only controls are tied to the destination folder picker, not the source/input section;
+- source audio/video recordings, source mode, and source path/link are not needed and are ignored;
 - no retranscription happens;
 - no ElevenLabs, OpenAI, STT, diarization, or LLM APIs are called;
 - no new Google Docs, Markdown, JSON, mirrored folders, or export artifacts are created;
 - manifest is not read for decisions and is not mutated;
-- PDFs, audio/video files, folders as targets, and all non-Google-Docs files are ignored;
-- dry-run is the default and reports `google_docs_scanned`, `already_structured`, `would_standardize`, `standardized`, `skipped_non_google_docs`, and `errors`;
+- PDFs, audio/video files, folders as targets, and all non-Google-Docs files are ignored; folders are counted separately as `folders_seen`;
+- enable recursive scan when transcripts live inside nested folders/modules under the selected destination folder;
+- dry-run is the default and reports `google_docs_scanned`, `folders_seen`, `skipped_non_google_docs`, `already_structured`, `would_standardize`, `standardized`, and `errors`;
 - apply mode is explicit and rewrites the same existing Google Doc in place with PR #19 structure.
 
 Metadata for docs-only standardization is intentionally conservative: `Source file: not available`, `Source mode: existing_google_doc_standardization`, and `Provider` / `Model` / `Language` / `Speakers` are `unknown`.
 
-The older source-matching standardization/import flow remains an optional advanced/legacy path for cases where someone specifically wants source-to-doc matching. It is not required for normal existing transcript standardization.
+The older source-matching standardization/import flow remains an optional advanced/legacy path for cases where someone specifically wants source-to-doc matching. It is not required for normal existing transcript standardization. Runtime E2E validation in Colab/Drive remains required before broad use of docs-only apply mode.
 
 Локальные transcript-файлы, Markdown-зеркала и JSON-экспорты не считаются основным конечным артефактом.
 

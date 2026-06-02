@@ -58,6 +58,9 @@ def load_text_helpers() -> dict[str, object]:
                     "DOC_MIME",
                     "DOCS_ONLY_STANDARDIZATION_SOURCE_FILE",
                     "DOCS_ONLY_STANDARDIZATION_SOURCE_MODE",
+                    "DOCS_ONLY_STANDARDIZATION_DEFAULT_MAX_FOLDERS_SCANNED",
+                    "DOCS_ONLY_STANDARDIZATION_DEFAULT_MAX_GOOGLE_DOCS_SCANNED",
+                    "DOCS_ONLY_STANDARDIZATION_NESTED_FOLDER_HINT",
                 }:
                     selected_nodes.append(node)
                     break
@@ -371,9 +374,9 @@ def test_docs_only_scan_indexes_google_docs() -> None:
         {"id": "doc-1", "name": "Call", "mimeType": DOC_MIME, "webViewLink": "https://docs/1"},
     ]
 
-    docs, skipped = collect_existing_google_docs_for_standardization("root", recursive=False)
+    docs, scan = collect_existing_google_docs_for_standardization("root", recursive=False)
 
-    assert skipped == 0
+    assert scan["skipped_non_google_docs"] == 0
     assert docs == [
         {
             "id": "doc-1",
@@ -392,9 +395,9 @@ def test_recursive_docs_scan_finds_nested_google_docs() -> None:
     }
     HELPERS["list_drive_folder_children"] = lambda folder_id: children[folder_id]
 
-    docs, skipped = collect_existing_google_docs_for_standardization("root", recursive=True)
+    docs, scan = collect_existing_google_docs_for_standardization("root", recursive=True)
 
-    assert skipped == 0
+    assert scan["skipped_non_google_docs"] == 0
     assert [(doc["id"], doc["display_name"]) for doc in docs] == [("doc-1", "Nested/Nested Call")]
 
 
@@ -407,11 +410,95 @@ def test_docs_only_scan_ignores_pdfs_audio_video_and_other_files() -> None:
         {"id": "txt-1", "name": "Call.txt", "mimeType": "text/plain"},
     ]
 
-    docs, skipped = collect_existing_google_docs_for_standardization("root", recursive=False)
+    docs, scan = collect_existing_google_docs_for_standardization("root", recursive=False)
 
     assert [doc["id"] for doc in docs] == ["doc-1"]
-    assert skipped == 4
+    assert scan["skipped_non_google_docs"] == 4
 
+
+
+def test_docs_only_scan_counts_nested_folders_when_not_recursive() -> None:
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": "folder-1", "name": "Nested", "mimeType": FOLDER_MIME},
+        {"id": "doc-1", "name": "Top Call", "mimeType": DOC_MIME},
+    ]
+
+    docs, scan = collect_existing_google_docs_for_standardization("root", recursive=False)
+
+    assert [doc["id"] for doc in docs] == ["doc-1"]
+    assert scan["folders_seen"] == 1
+    assert scan["skipped_non_google_docs"] == 0
+
+
+def test_docs_only_top_level_only_nested_folders_exposes_hint() -> None:
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": "folder-1", "name": "Module 1", "mimeType": FOLDER_MIME},
+        {"id": "folder-2", "name": "Module 2", "mimeType": FOLDER_MIME},
+    ]
+
+    report = standardize_existing_google_docs_in_folder("root", recursive=False, dry_run=True)
+
+    assert report["google_docs_scanned"] == 0
+    assert report["folders_seen"] == 2
+    assert report["skipped_non_google_docs"] == 0
+    assert "В выбранной папке верхнего уровня Google Docs не найдены" in report["hint"]
+
+
+def test_recursive_docs_scan_uses_visited_folder_ids() -> None:
+    calls = []
+    children = {
+        "root": [
+            {"id": "folder-a", "name": "A", "mimeType": FOLDER_MIME},
+            {"id": "folder-a", "name": "A Shortcut", "mimeType": FOLDER_MIME},
+        ],
+        "folder-a": [
+            {"id": "root", "name": "Back To Root", "mimeType": FOLDER_MIME},
+            {"id": "doc-1", "name": "Nested Call", "mimeType": DOC_MIME},
+        ],
+    }
+
+    def list_children(folder_id):
+        calls.append(folder_id)
+        return children[folder_id]
+
+    HELPERS["list_drive_folder_children"] = list_children
+
+    docs, scan = collect_existing_google_docs_for_standardization("root", recursive=True)
+
+    assert calls == ["root", "folder-a"]
+    assert scan["folders_seen"] == 3
+    assert [(doc["id"], doc["display_name"]) for doc in docs] == [("doc-1", "A/Nested Call")]
+
+
+def test_recursive_docs_scan_stops_when_folder_limit_exceeded() -> None:
+    children = {
+        "root": [{"id": "folder-a", "name": "A", "mimeType": FOLDER_MIME}],
+        "folder-a": [{"id": "doc-1", "name": "Nested Call", "mimeType": DOC_MIME}],
+    }
+    HELPERS["list_drive_folder_children"] = lambda folder_id: children[folder_id]
+
+    report = standardize_existing_google_docs_in_folder(
+        "root", recursive=True, dry_run=True, max_folders_scanned=1
+    )
+
+    assert report["google_docs_scanned"] == 0
+    assert report["errors"]
+    assert "лимит сканирования папок" in report["errors"][0]["reason"]
+
+
+def test_docs_only_scan_stops_when_doc_limit_exceeded() -> None:
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": "doc-1", "name": "Call 1", "mimeType": DOC_MIME},
+        {"id": "doc-2", "name": "Call 2", "mimeType": DOC_MIME},
+    ]
+
+    report = standardize_existing_google_docs_in_folder(
+        "root", recursive=False, dry_run=True, max_google_docs_scanned=1
+    )
+
+    assert report["google_docs_scanned"] == 1
+    assert report["errors"]
+    assert "лимит сканирования Google Docs" in report["errors"][0]["reason"]
 
 def test_docs_only_already_structured_docs_are_skipped() -> None:
     structured = build_structured_transcript_document_text(
