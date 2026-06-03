@@ -81,6 +81,13 @@ HELPER_NAMES = {
     "mark_manifest_failed",
     "merge_manifest_data",
     "save_manifest",
+    "summarize_manifest_catalog_for_report",
+    "comparable_manifest_v2_document_for_report",
+    "build_standardize_existing_docs_report_text",
+    "print_standardize_existing_docs_report",
+    "yes_no",
+    "build_standardize_manifest_v2_report_text",
+    "print_standardize_manifest_v2_report",
 }
 
 
@@ -191,6 +198,11 @@ build_docs_only_standardized_transcript_document_text = HELPERS[
     "build_docs_only_standardized_transcript_document_text"
 ]
 standardize_existing_google_docs_in_folder = HELPERS["standardize_existing_google_docs_in_folder"]
+
+build_standardize_existing_docs_report_text = HELPERS["build_standardize_existing_docs_report_text"]
+print_standardize_existing_docs_report = HELPERS["print_standardize_existing_docs_report"]
+build_standardize_manifest_v2_report_text = HELPERS["build_standardize_manifest_v2_report_text"]
+print_standardize_manifest_v2_report = HELPERS["print_standardize_manifest_v2_report"]
 
 build_existing_google_doc_manifest_signature = HELPERS["build_existing_google_doc_manifest_signature"]
 classify_existing_google_doc_transcript_standard = HELPERS["classify_existing_google_doc_transcript_standard"]
@@ -687,7 +699,7 @@ def test_docs_only_dry_run_counts_would_standardize_without_writing() -> None:
 
     report = standardize_existing_google_docs_in_folder("root", dry_run=True)
 
-    assert report["would_standardize"] == [{"doc_name": "Call", "link": ""}]
+    assert report["would_standardize"] == [{"doc_name": "Call", "link": "", "structured_status": "unstructured"}]
     assert report["standardized"] == []
     assert writes == []
 
@@ -703,7 +715,7 @@ def test_docs_only_dry_run_counts_old_standard_as_would_standardize() -> None:
 
     report = standardize_existing_google_docs_in_folder("root", dry_run=True)
 
-    assert report["would_standardize"] == [{"doc_name": "Call", "link": ""}]
+    assert report["would_standardize"] == [{"doc_name": "Call", "link": "", "structured_status": "outdated"}]
     assert report["already_structured"] == []
     assert report["standardized"] == []
     assert writes == []
@@ -1864,3 +1876,173 @@ def test_manifest_registration_v2_document_already_registered_same_identity_and_
 
     assert [item["doc_id"] for item in report["already_registered"]] == ["doc-v2"]
     assert report["would_update"] == []
+
+
+def test_manifest_report_separates_selected_scan_from_global_totals() -> None:
+    manifest = make_manifest_v2_default(updated_at="2026-05-01T00:00:00+00:00")
+    for index in range(81):
+        doc_id = f"existing-{index}"
+        manifest["documents"][doc_id] = make_registered_v2_document(
+            doc_id=doc_id,
+            doc_name=f"Existing {index}",
+            status="unstructured",
+        )
+    HELPERS["refresh_manifest_v2_summary"](manifest)
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": f"selected-{index}", "name": f"Selected {index}", "mimeType": DOC_MIME, "webViewLink": f"https://docs.google.com/document/d/selected-{index}/edit"}
+        for index in range(5)
+    ]
+    HELPERS["extract_google_doc_plain_text"] = lambda document_id: build_current_standard_document(title=document_id)
+    HELPERS["load_manifest_read_only"] = lambda: manifest
+
+    report = standardize_manifest_to_v2_for_existing_google_docs("folder-root", dry_run=True)
+    text = build_standardize_manifest_v2_report_text(report)
+
+    assert report["selected_google_docs_scanned"] == 5
+    assert report["manifest_before"]["documents_total"] == 81
+    assert report["manifest_after"]["documents_total"] == 86
+    assert report["selected_would_add_documents"] == 5
+    assert "Selected folder scan" in text
+    assert "Manifest after preview" in text
+    assert "entire Drive" not in text
+    assert "Google Docs scanned in selected folder: 5" in text
+
+
+def test_manifest_report_v2_no_material_changes_says_up_to_date() -> None:
+    manifest = make_manifest_v2_default(updated_at="2026-05-01T00:00:00+00:00")
+    manifest["documents"]["doc-v2"] = make_registered_v2_document(checked_at="2026-05-01T00:00:00+00:00")
+    HELPERS["refresh_manifest_v2_summary"](manifest)
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": "doc-v2", "name": "Doc V2", "mimeType": DOC_MIME, "webViewLink": "https://docs.google.com/document/d/doc-v2/edit"},
+    ]
+    HELPERS["extract_google_doc_plain_text"] = lambda document_id: build_current_standard_document(title="Doc V2")
+    HELPERS["load_manifest_read_only"] = lambda: manifest
+
+    report = standardize_manifest_to_v2_for_existing_google_docs("folder-root", dry_run=True)
+    text = build_standardize_manifest_v2_report_text(report)
+
+    assert report["manifest_v2_up_to_date"] is True
+    assert report["would_write_manifest_v2"] is False
+    assert "Manifest up to date: yes" in text
+    assert "no material write needed" in text
+    assert "would migrate" not in text.lower()
+
+
+def test_manifest_report_v2_selected_adds_records_in_global_manifest() -> None:
+    manifest = make_manifest_v2_default(updated_at="2026-05-01T00:00:00+00:00")
+    HELPERS["refresh_manifest_v2_summary"](manifest)
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": "new-doc", "name": "New Doc", "mimeType": DOC_MIME, "webViewLink": "https://docs.google.com/document/d/new-doc/edit"},
+    ]
+    HELPERS["extract_google_doc_plain_text"] = lambda document_id: build_current_standard_document(title="New Doc")
+    HELPERS["load_manifest_read_only"] = lambda: manifest
+
+    report = standardize_manifest_to_v2_for_existing_google_docs("folder-root", dry_run=True)
+    text = build_standardize_manifest_v2_report_text(report)
+
+    assert report["would_refresh_manifest_v2"] is True
+    assert report["would_write_manifest_v2"] is True
+    assert report["would_backup_manifest"] is False
+    assert "add/refresh selected-folder records in the global manifest" in text
+
+
+def test_manifest_report_v1_migration_mentions_backup_and_apply_creates_backup() -> None:
+    backups = []
+    writes = []
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": "doc-a", "name": "Doc A", "mimeType": DOC_MIME, "webViewLink": "https://docs.google.com/document/d/doc-a/edit"},
+    ]
+    HELPERS["extract_google_doc_plain_text"] = lambda document_id: "plain"
+    HELPERS["load_manifest_read_only"] = lambda: {"version": 1, "entries": {}}
+
+    dry = standardize_manifest_to_v2_for_existing_google_docs("folder-root", dry_run=True)
+    dry_text = build_standardize_manifest_v2_report_text(dry)
+
+    assert "v1 will be migrated to v2" in dry_text
+    assert dry["would_backup_manifest"] is True
+
+    HELPERS["load_manifest"] = lambda: {"version": 1, "entries": {}}
+    HELPERS["create_manifest_backup"] = lambda manifest, timestamp: backups.append((manifest, timestamp)) or {"name": "backup.json"}
+    HELPERS["write_active_manifest_v2"] = lambda manifest: writes.append(manifest)
+
+    applied = standardize_manifest_to_v2_for_existing_google_docs("folder-root", dry_run=False)
+
+    assert applied["backup_created"] is True
+    assert backups
+    assert writes and writes[0]["version"] == 2
+
+
+def test_docs_standardization_report_groups_dry_run_sections_and_safety() -> None:
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": "old", "name": "Old", "mimeType": DOC_MIME, "webViewLink": "https://docs.google.com/document/d/old/edit"},
+    ]
+    HELPERS["extract_google_doc_plain_text"] = lambda document_id: build_legacy_standard_document(title="Old")
+    HELPERS["write_title_and_text_to_doc"] = lambda **kwargs: (_ for _ in ()).throw(AssertionError("dry-run wrote a doc"))
+
+    report = standardize_existing_google_docs_in_folder("folder-root", dry_run=True)
+    text = build_standardize_existing_docs_report_text(report)
+
+    assert "Selected folder scan" in text
+    assert "Current standard status" in text
+    assert "Apply impact" in text
+    assert "Dry-run: no documents changed" in text
+    assert "Would call STT/LLM/provider APIs: 0" in text
+    assert "Would create new Google Docs: 0" in text
+    assert "Would change manifest: 0" in text
+
+
+def test_docs_standardization_apply_report_states_in_place_no_external_mutation() -> None:
+    writes = []
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": "plain", "name": "Plain", "mimeType": DOC_MIME, "webViewLink": "https://docs.google.com/document/d/plain/edit"},
+    ]
+    HELPERS["extract_google_doc_plain_text"] = lambda document_id: "Plain\n\nBody"
+    HELPERS["write_title_and_text_to_doc"] = lambda **kwargs: writes.append(kwargs)
+
+    report = standardize_existing_google_docs_in_folder("folder-root", dry_run=False)
+    text = build_standardize_existing_docs_report_text(report)
+
+    assert writes and writes[0]["document_id"] == "plain"
+    assert "Apply: rewrites only the same selected Google Docs in place" in text
+    assert "Would create new Google Docs: 0" in text
+    assert "Would call STT/LLM/provider APIs: 0" in text
+    assert "Would change manifest: 0" in text
+
+
+def test_docs_standardization_report_first_20_includes_status_labels() -> None:
+    docs = [
+        {"id": "current", "name": "Current", "mimeType": DOC_MIME, "webViewLink": "https://docs.google.com/document/d/current/edit"},
+        {"id": "outdated", "name": "Outdated", "mimeType": DOC_MIME, "webViewLink": "https://docs.google.com/document/d/outdated/edit"},
+        {"id": "unstructured", "name": "Unstructured", "mimeType": DOC_MIME, "webViewLink": "https://docs.google.com/document/d/unstructured/edit"},
+        {"id": "unreadable", "name": "Unreadable", "mimeType": DOC_MIME, "webViewLink": "https://docs.google.com/document/d/unreadable/edit"},
+    ]
+    HELPERS["list_drive_folder_children"] = lambda folder_id: docs
+
+    def extract(document_id: str) -> str:
+        if document_id == "current":
+            return build_current_standard_document(title="Current")
+        if document_id == "outdated":
+            return build_legacy_standard_document(title="Outdated")
+        if document_id == "unreadable":
+            raise RuntimeError("cannot read")
+        return "Unstructured\n\nBody"
+
+    HELPERS["extract_google_doc_plain_text"] = extract
+    report = standardize_existing_google_docs_in_folder("folder-root", dry_run=True)
+    text = build_standardize_existing_docs_report_text(report)
+
+    assert "[current]" in text
+    assert "[outdated]" in text
+    assert "[unstructured]" in text
+    assert "[unreadable/error]" in text
+
+
+def test_ui_help_text_distinguishes_manifest_and_docs_standardization() -> None:
+    source = CANONICAL_SOURCE.read_text(encoding="utf-8")
+
+    assert source.count("Проверить / обновить manifest") == 1
+    assert source.count("Проверить / стандартизировать существующие Google Docs") == 1
+    assert "Обновляет глобальный manifest v2 по выбранной папке. Google Docs не меняет." in source
+    assert "Меняет содержимое выбранных Google Docs только в apply-режиме. Не вызывает STT/LLM/provider API." in source
+    assert "Manifest — глобальный каталог" in source
+    assert "переписывает содержимое Google Docs на месте" in source

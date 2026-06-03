@@ -84,6 +84,13 @@ Primary recommended flow for existing transcripts is docs-only standardization:
 
 Metadata for docs-only standardization is intentionally conservative: `Provider` / `Model` / `Language` / `Speakers` are `unknown`, `Created at` is the current timestamp, and no source filename or source mode is embedded in the visible metadata block.
 
+Report semantics for docs-only standardization:
+
+- **Selected folder scan** means only the selected destination/output folder (and optional nested folders) was scanned for existing Google Docs. It is not a source audio/video scan.
+- **Current standard status** groups selected Google Docs as already current, outdated, unstructured, or unreadable/error.
+- **Apply impact** is the subset of those selected Google Docs that would be rewritten in place. It always reports zero new Google Docs, zero provider/STT/LLM calls, and zero manifest mutation.
+- Dry-run remains read-only. Apply mode changes only the content of selected existing Google Docs that need standardization; it does not retranscribe, semantically segment, or create replacement Docs.
+
 ### Unified manifest v2 maintenance
 
 The UI has a single **Manifest** action near the selected destination/output Google Docs folder: `Проверить / обновить manifest`. Its dry-run checkbox (`Только проверить manifest, не изменять`) is enabled by default. This one button maintains `VoiceOps Workspace/manifest/elevenlabs_transcription_manifest.json` in v2 format without requiring source audio/video files.
@@ -100,6 +107,14 @@ This manifest flow:
 - keeps dry-run read-only: no manifest folder creation, backup creation, active manifest write, Google Docs mutation, or provider calls.
 
 The flow classifies each readable Google Doc as `current`, `outdated`, or `unstructured` for `standard_check`; unreadable Docs are reported as `unreadable`. If the active manifest is v1, dry-run reports that v1 would be migrated to v2, while apply backs up the active manifest and writes v2. If the active manifest is already v2, dry-run reports `current_manifest_version: 2` and `target_manifest_version: 2`; when only volatile `checked_at` timestamps would change, it reports the manifest as up to date instead of implying a new migration or material write.
+
+Report semantics for manifest maintenance:
+
+- **Selected folder scan** is only the selected destination/output Google Docs folder scan. It does not mean the whole Drive was scanned.
+- **Manifest before** and **Manifest after preview** are global manifest catalog totals. They may be larger than the selected scan because the manifest is a global catalog for the workspace.
+- **Changes from selected folder** shows what the selected folder would add or refresh in that same global manifest. Selecting another folder adds/refreshes records; it does not remove old records from other folders.
+- Dry-run preview may show larger global `Documents total` after preview while still showing a much smaller selected-folder scan count; that is expected and does not imply that the selected folder contains every manifest document.
+- Manifest reports never print transcript text and the manifest flow never changes Google Docs content or calls provider/STT/LLM APIs.
 
 The older source-matching standardization/import flow remains an optional advanced/legacy path for cases where someone specifically wants source-to-doc matching. It is not required for normal existing transcript standardization. Runtime E2E validation in Colab/Drive remains required before broad use of docs-only apply mode.
 
