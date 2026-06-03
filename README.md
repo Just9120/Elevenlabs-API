@@ -269,9 +269,13 @@ Non-goals of CI:
 
 Runtime confidence is tracked conservatively in `VALIDATION_MATRIX.md`. Unit tests and smoke observations must not be described as formal E2E validation unless a reproducible E2E run has actually been performed.
 
-## Additional docs
+## Documentation
 
-- `TECHNICAL_SPECIFICATION.md`
-- `SECURITY.md`
-- `VALIDATION_MATRIX.md`
-- `docs/VOICEOPS_RUNTIME_VALIDATION_CHECKLIST.md`
+- [`docs/project-spec.md`](docs/project-spec.md) — current project source of truth.
+- [`docs/delivery-plan.md`](docs/delivery-plan.md) — operational delivery state and next steps.
+- [`docs/ai-coding-workflow.md`](docs/ai-coding-workflow.md) — repo-local AI coding workflow entry point.
+- [`docs/ci-cd-rules.md`](docs/ci-cd-rules.md) — CI-only governance boundaries; CD/deploy is not adopted.
+- [`SECURITY.md`](SECURITY.md) — security and safety guidance.
+- [`VALIDATION_MATRIX.md`](VALIDATION_MATRIX.md) — conservative validation evidence and gaps.
+- [`docs/VOICEOPS_RUNTIME_VALIDATION_CHECKLIST.md`](docs/VOICEOPS_RUNTIME_VALIDATION_CHECKLIST.md) — manual runtime validation checklist.
+- [`TECHNICAL_SPECIFICATION.md`](TECHNICAL_SPECIFICATION.md) — legacy technical specification reference.

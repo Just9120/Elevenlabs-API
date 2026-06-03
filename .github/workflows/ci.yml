@@ -5,9 +5,14 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   checks:
@@ -31,10 +36,8 @@ jobs:
       - name: Run lightweight CI checks
         run: python scripts/ci_checks.py
 
-      - name: Run pytest (if tests exist)
-        run: |
-          if find . -maxdepth 3 -type f \( -name 'test_*.py' -o -name '*_test.py' \) | grep -q .; then
-            pytest
-          else
-            echo "No tests discovered; skipping pytest."
-          fi
+      - name: Run pytest
+        run: pytest -q
+
+      - name: Mark CI success
+        run: echo "CI_OK"
