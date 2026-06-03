@@ -13,6 +13,7 @@ import ast
 import hashlib
 import json
 import re
+from typing import Optional
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -37,9 +38,13 @@ HELPER_NAMES = {
     "build_docs_only_standardized_transcript_document_text",
     "standardize_existing_google_docs_in_folder",
     "json_sha256",
+    "read_manifest_file_raw_by_id",
+    "read_manifest_file_by_id",
     "load_manifest_read_only",
     "normalize_manifest_data",
     "make_manifest_default",
+    "make_manifest_v2_default",
+    "is_manifest_v2",
     "should_skip_by_manifest",
     "parse_iso_datetime",
     "build_existing_google_doc_manifest_signature",
@@ -47,12 +52,29 @@ HELPER_NAMES = {
     "classify_existing_google_doc_transcript_standard",
     "build_existing_google_doc_link",
     "extract_google_doc_id_from_url",
+    "build_transcript_standard_check",
+    "standard_check_from_structured_status",
+    "build_manifest_v2_document_entry",
+    "normalize_manifest_source_entry",
+    "put_manifest_source_entry",
+    "link_manifest_v2_source_to_document",
+    "refresh_manifest_v2_summary",
+    "build_manifest_v2_from_existing_manifest_and_docs",
+    "create_manifest_backup",
+    "write_active_manifest_v2",
+    "standardize_manifest_to_v2_for_existing_google_docs",
     "is_existing_google_doc_registry_entry",
     "find_manifest_entries_referencing_google_doc",
     "build_existing_google_doc_manifest_entry",
     "existing_google_doc_manifest_entry_needs_update",
     "upsert_existing_google_doc_manifest_entry",
     "register_existing_google_docs_in_manifest",
+    "set_manifest_entry",
+    "mark_manifest_in_progress",
+    "mark_manifest_done",
+    "mark_manifest_failed",
+    "merge_manifest_data",
+    "save_manifest",
 }
 
 
@@ -94,6 +116,11 @@ def load_text_helpers() -> dict[str, object]:
                     "EXISTING_GOOGLE_DOC_STRUCTURED_UNSTRUCTURED",
                     "EXISTING_GOOGLE_DOC_STRUCTURED_OUTDATED",
                     "EXISTING_GOOGLE_DOC_STRUCTURED_CURRENT",
+                    "TRANSCRIPT_STANDARD_CHECKER_VERSION",
+                    "TRANSCRIPT_STANDARD_TARGET",
+                    "MANIFEST_BACKUP_FOLDER_NAME",
+                    "MANIFEST_V2_TARGET_VERSION",
+                    "MANIFEST_V2_SCHEMA",
                 }:
                     selected_nodes.append(node)
                     break
@@ -115,6 +142,7 @@ def load_text_helpers() -> dict[str, object]:
         "timedelta": timedelta,
         "timezone": timezone,
         "re": re,
+        "Optional": Optional,
         # These globals are runtime tuning knobs used by the overlap helper.
         # They are injected here so the pure function can be tested in isolation
         # from the Colab runtime configuration surface.
@@ -166,6 +194,16 @@ find_manifest_entries_referencing_google_doc = HELPERS["find_manifest_entries_re
 load_manifest_read_only = HELPERS["load_manifest_read_only"]
 ORIGINAL_LOAD_MANIFEST_READ_ONLY = load_manifest_read_only
 should_skip_by_manifest = HELPERS["should_skip_by_manifest"]
+
+make_manifest_v2_default = HELPERS["make_manifest_v2_default"]
+build_transcript_standard_check = HELPERS["build_transcript_standard_check"]
+build_manifest_v2_from_existing_manifest_and_docs = HELPERS["build_manifest_v2_from_existing_manifest_and_docs"]
+standardize_manifest_to_v2_for_existing_google_docs = HELPERS["standardize_manifest_to_v2_for_existing_google_docs"]
+mark_manifest_in_progress = HELPERS["mark_manifest_in_progress"]
+mark_manifest_done = HELPERS["mark_manifest_done"]
+mark_manifest_failed = HELPERS["mark_manifest_failed"]
+get_manifest_entry = HELPERS["get_manifest_entry"]
+save_manifest = HELPERS["save_manifest"]
 DOC_MIME = HELPERS["DOC_MIME"]
 FOLDER_MIME = HELPERS["FOLDER_MIME"]
 
@@ -1326,3 +1364,291 @@ def test_manifest_registration_apply_uses_existing_load_and_save_behavior() -> N
     assert [item["doc_id"] for item in report["registered"]] == ["doc-apply"]
     assert [call[0] for call in calls] == ["load_manifest", "save_manifest"]
     assert "load_manifest_read_only" not in [call[0] for call in calls]
+
+
+def test_manifest_v2_default_schema_has_decoupled_summary_standard_check() -> None:
+    manifest = make_manifest_v2_default(updated_at="2026-06-01T00:00:00+00:00")
+
+    assert manifest["version"] == 2
+    assert manifest["schema"] == "voiceops_manifest_v2"
+    assert manifest["documents"] == {}
+    assert manifest["sources"] == {}
+    assert manifest["summary"]["standard_check"]["target_standard"] == "transcript_doc_v1.2"
+    assert "transcript_standard" not in manifest
+    assert "structured_status" not in manifest
+
+
+def test_build_transcript_standard_check_current_legacy_unstructured_and_unreadable() -> None:
+    checked_at = "2026-06-01T00:00:00+00:00"
+
+    current = build_transcript_standard_check(build_current_standard_document(), checked_at)
+    legacy = build_transcript_standard_check(build_legacy_standard_document(), checked_at)
+    plain = build_transcript_standard_check("Just plain notes", checked_at)
+    unreadable = build_transcript_standard_check("", checked_at, unreadable=True)
+    future = build_transcript_standard_check(build_current_standard_document(), checked_at, target_standard="transcript_doc_v1.3")
+    manifest = make_manifest_v2_default(updated_at=checked_at)
+
+    assert current["status"] == "current"
+    assert current["detected_standard"] == "transcript_doc_v1.2"
+    assert legacy["status"] == "outdated"
+    assert legacy["detected_standard"] == "legacy_v1"
+    assert plain["status"] == "unstructured"
+    assert unreadable["status"] == "unreadable"
+    assert future["target_standard"] == "transcript_doc_v1.3"
+    assert manifest["version"] == 2
+
+
+def test_v1_to_v2_migration_separates_documents_sources_links_and_omits_text() -> None:
+    checked_at = "2026-06-01T00:00:00+00:00"
+    registry_sig = build_existing_google_doc_manifest_signature("doc-a")
+    manifest_v1 = {
+        "version": 1,
+        "entries": {
+            registry_sig: {
+                "source_signature": registry_sig,
+                "source_type": "existing_google_doc",
+                "status": "doc_registered",
+                "doc_id": "doc-a",
+                "doc_name": "Doc A",
+                "doc_link": "https://docs.google.com/document/d/doc-a/edit",
+                "structured_status": "current_standard",
+                "transcript_text": "SHOULD_NOT_BE_COPIED_TO_DOCUMENT",
+                "source_meta": {"folder_id": "old-folder", "folder_path": "Old"},
+            },
+            "source-by-link": {
+                "source_signature": "source-by-link",
+                "source_type": "drive",
+                "source_name": "Audio A",
+                "settings_signature": "settings",
+                "status": "done",
+                "doc_name": "Doc A",
+                "doc_link": "https://docs.google.com/document/d/doc-a/edit",
+                "source_meta": {"file_id": "file-a"},
+                "transcript_text": "SHOULD_NOT_BE_COPIED_TO_SOURCE",
+            },
+            "source-by-id": {
+                "source_signature": "source-by-id",
+                "source_type": "drive",
+                "source_name": "Audio B",
+                "status": "done",
+                "doc_id": "doc-b",
+            },
+            "orphan": {
+                "source_signature": "orphan",
+                "source_type": "local_path",
+                "source_name": "No match",
+                "status": "done",
+            },
+        },
+    }
+    docs = [
+        {"id": "doc-a", "name": "Doc A", "mimeType": DOC_MIME, "display_name": "Doc A"},
+        {"id": "doc-b", "name": "Doc B", "mimeType": DOC_MIME, "display_name": "Doc B"},
+    ]
+    checks = {
+        "doc-a": build_transcript_standard_check(build_current_standard_document("Doc A"), checked_at),
+        "doc-b": build_transcript_standard_check("plain", checked_at),
+    }
+
+    manifest_v2, counters = build_manifest_v2_from_existing_manifest_and_docs(
+        manifest_v1, docs, checks, "folder-root", "MyDrive/Psych", False, checked_at
+    )
+
+    assert manifest_v2["version"] == 2
+    assert manifest_v2["schema"] == "voiceops_manifest_v2"
+    assert "entries" not in manifest_v2
+    assert set(manifest_v2["documents"]) == {"doc-a", "doc-b"}
+    assert set(manifest_v2["sources"]) == {"source-by-link", "source-by-id", "orphan"}
+    assert manifest_v2["sources"]["source-by-link"]["doc_id"] == "doc-a"
+    assert manifest_v2["sources"]["source-by-id"]["doc_id"] == "doc-b"
+    assert manifest_v2["sources"]["orphan"]["doc_id"] == ""
+    assert "source-by-link" in manifest_v2["documents"]["doc-a"]["source_signatures"]
+    assert "source-by-id" in manifest_v2["documents"]["doc-b"]["source_signatures"]
+    assert counters == {"source_entries_migrated": 3, "doc_registry_entries_migrated": 1}
+    serialized = json.dumps(manifest_v2)
+    assert "SHOULD_NOT_BE_COPIED" not in serialized
+
+
+def test_existing_v2_rebuild_is_idempotent_preserves_sources_and_updates_standard_check() -> None:
+    checked_at = "2026-06-01T00:00:00+00:00"
+    v2 = make_manifest_v2_default(updated_at="old")
+    v2["documents"]["doc-a"] = {
+        "doc_id": "doc-a",
+        "doc_name": "Doc A",
+        "doc_link": "https://docs.google.com/document/d/doc-a/edit",
+        "doc_path": "Doc A",
+        "doc_mime_type": DOC_MIME,
+        "document_type": "google_doc_transcript",
+        "registration_status": "registered",
+        "source_signatures": ["source-a"],
+        "standard_check": {"target_standard": "transcript_doc_v1.2", "detected_standard": "unknown", "status": "unstructured", "checked_at": "old", "checker_version": "transcript_standard_checker_v1"},
+        "updated_at": "old",
+        "source_meta": {},
+    }
+    v2["sources"]["source-a"] = {"source_signature": "source-a", "source_type": "drive", "source_name": "Audio", "status": "done", "doc_id": "doc-a", "doc_link": "https://docs.google.com/document/d/doc-a/edit", "source_meta": {}, "updated_at": "old"}
+    HELPERS["refresh_manifest_v2_summary"](v2)
+
+    rebuilt, counters = build_manifest_v2_from_existing_manifest_and_docs(
+        v2,
+        [{"id": "doc-a", "name": "Doc A", "mimeType": DOC_MIME}],
+        {"doc-a": build_transcript_standard_check(build_current_standard_document("Doc A"), checked_at)},
+        "folder-root",
+        "",
+        False,
+        checked_at,
+    )
+
+    assert counters == {"source_entries_migrated": 0, "doc_registry_entries_migrated": 0}
+    assert list(rebuilt["documents"]) == ["doc-a"]
+    assert list(rebuilt["sources"]) == ["source-a"]
+    assert rebuilt["documents"]["doc-a"]["standard_check"]["status"] == "current"
+    assert rebuilt["sources"]["source-a"]["doc_id"] == "doc-a"
+
+
+def test_manifest_v2_compatibility_helpers_update_sources_and_skip_logic() -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    old = (datetime.now(timezone.utc) - timedelta(hours=13)).isoformat()
+    manifest = make_manifest_v2_default(updated_at=now)
+    manifest["sources"].update({
+        "done": {"source_signature": "done", "status": "done", "settings_signature": "settings-a"},
+        "imported": {"source_signature": "imported", "status": "imported_done"},
+        "fresh": {"source_signature": "fresh", "status": "in_progress", "started_at": now},
+        "stale": {"source_signature": "stale", "status": "in_progress", "started_at": old},
+    })
+    manifest["documents"]["doc-1"] = {
+        "doc_id": "doc-1",
+        "doc_name": "Doc",
+        "doc_link": "https://docs.google.com/document/d/doc-1/edit",
+        "doc_path": "Doc",
+        "doc_mime_type": DOC_MIME,
+        "document_type": "google_doc_transcript",
+        "registration_status": "registered",
+        "source_signatures": [],
+        "standard_check": build_transcript_standard_check("plain", now),
+        "updated_at": now,
+        "source_meta": {},
+    }
+    saved = []
+    HELPERS["save_manifest"] = lambda incoming: saved.append(json.loads(json.dumps(incoming)))
+
+    assert get_manifest_entry(manifest, "done")["status"] == "done"
+    assert should_skip_by_manifest({"version": 1, "entries": {"v1": {"status": "done", "settings_signature": "x"}}}, "v1", "x")[0] is True
+    assert should_skip_by_manifest(manifest, "done", "settings-a")[0] is True
+    assert should_skip_by_manifest(manifest, "done", "settings-b")[0] is False
+    assert should_skip_by_manifest(manifest, "imported", "settings-b")[0] is True
+    assert should_skip_by_manifest(manifest, "fresh", "settings-b")[0] is True
+    assert should_skip_by_manifest(manifest, "stale", "settings-b")[0] is False
+
+    mark_manifest_in_progress(manifest, "new", "settings", "New Source")
+    mark_manifest_done(manifest, "new", "settings", "New Source", "Doc", "https://docs.google.com/document/d/doc-1/edit")
+    mark_manifest_failed(manifest, "failed", "settings", "Failed Source", "boom")
+
+    assert manifest["sources"]["new"]["status"] == "done"
+    assert manifest["sources"]["new"]["doc_id"] == "doc-1"
+    assert "new" in manifest["documents"]["doc-1"]["source_signatures"]
+    assert manifest["sources"]["failed"]["status"] == "failed"
+    assert saved
+
+
+def test_save_manifest_v2_merge_does_not_reintroduce_entries() -> None:
+    calls = []
+    latest = make_manifest_v2_default(updated_at="old")
+    latest["documents"]["doc-old"] = {"doc_id": "doc-old", "standard_check": build_transcript_standard_check("plain", "old"), "source_signatures": []}
+    incoming = make_manifest_v2_default(updated_at="new")
+    incoming["sources"]["source-new"] = {"source_signature": "source-new", "status": "done", "doc_id": ""}
+
+    HELPERS["get_or_create_manifest_file"] = lambda: ("manifest-folder", "manifest-file")
+    HELPERS["load_manifest"] = lambda force_reload=False: latest
+    class DummyMedia:
+        def __init__(self, *args, **kwargs):
+            pass
+    class DummyUpdate:
+        def update(self, **kwargs):
+            calls.append(("update", kwargs))
+            return object()
+    class DummyDrive:
+        def files(self):
+            return DummyUpdate()
+    HELPERS["MediaInMemoryUpload"] = DummyMedia
+    HELPERS["drive_service"] = DummyDrive()
+    HELPERS["execute_google_request_with_retry"] = lambda request, operation_label: calls.append(("execute", operation_label))
+
+    save_manifest(incoming)
+
+    merged = HELPERS["MANIFEST_CACHE"]["data"]
+    assert merged["version"] == 2
+    assert "entries" not in merged
+    assert "doc-old" in merged["documents"]
+    assert "source-new" in merged["sources"]
+    assert ("execute", "drive_file_update") in calls
+
+
+def test_manifest_v2_migration_flow_dry_run_is_read_only_and_apply_backs_up_and_writes() -> None:
+    calls = []
+    manifest_v1 = {
+        "version": 1,
+        "entries": {
+            "source-a": {"source_signature": "source-a", "source_type": "drive", "status": "done", "doc_link": "https://docs.google.com/document/d/doc-a/edit"},
+            "orphan": {"source_signature": "orphan", "source_type": "drive", "status": "done"},
+        },
+    }
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": "doc-a", "name": "Doc A", "mimeType": DOC_MIME, "webViewLink": "https://docs.google.com/document/d/doc-a/edit"},
+    ]
+    HELPERS["extract_google_doc_plain_text"] = lambda document_id: build_current_standard_document("Doc A")
+    HELPERS["load_manifest_read_only"] = lambda: calls.append(("load_read_only",)) or manifest_v1
+    HELPERS["load_manifest"] = lambda: calls.append(("load",)) or manifest_v1
+    HELPERS["save_manifest"] = lambda manifest: calls.append(("save",))
+    HELPERS["get_or_create_manifest_file"] = lambda: calls.append(("get_or_create",)) or ("folder", "file")
+    HELPERS["create_manifest_backup"] = lambda manifest, timestamp: calls.append(("backup", json.loads(json.dumps(manifest)))) or {"file_id": "backup"}
+    HELPERS["write_active_manifest_v2"] = lambda manifest: calls.append(("write_v2", json.loads(json.dumps(manifest))))
+
+    dry = standardize_manifest_to_v2_for_existing_google_docs("folder-root", dry_run=True)
+
+    assert dry["dry_run"] is True
+    assert dry["google_docs_scanned"] == 1
+    assert dry["documents_total"] == 1
+    assert dry["sources_total"] == 2
+    assert dry["orphan_sources"] == 1
+    assert ("load_read_only",) in calls
+    assert not any(call[0] in {"save", "get_or_create", "backup", "write_v2"} for call in calls)
+
+    calls.clear()
+    applied = standardize_manifest_to_v2_for_existing_google_docs("folder-root", dry_run=False)
+
+    assert applied["backup_created"] is True
+    assert applied["manifest_v2_written"] is True
+    assert calls[0][0] == "load"
+    assert calls[1][0] == "backup"
+    assert calls[2][0] == "write_v2"
+    written = calls[2][1]
+    assert written["version"] == 2
+    assert written["schema"] == "voiceops_manifest_v2"
+    assert written["sources"]["source-a"]["doc_id"] == "doc-a"
+    assert written["sources"]["orphan"]["doc_id"] == ""
+
+    calls.clear()
+    HELPERS["load_manifest_read_only"] = lambda: calls.append(("load_read_only",)) or written
+    second = standardize_manifest_to_v2_for_existing_google_docs("folder-root", dry_run=True)
+    assert second["source_entries_migrated"] == 0
+    assert second["doc_registry_entries_migrated"] == 0
+    assert second["documents_total"] == 1
+    assert second["sources_total"] == 2
+
+
+def test_manifest_v2_migration_flow_does_not_call_docs_or_provider_mutators() -> None:
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": "doc-a", "name": "Doc A", "mimeType": DOC_MIME},
+    ]
+    HELPERS["extract_google_doc_plain_text"] = lambda document_id: "plain"
+    HELPERS["load_manifest_read_only"] = lambda: {"version": 1, "entries": {}}
+    HELPERS["write_title_and_text_to_doc"] = lambda **kwargs: (_ for _ in ()).throw(AssertionError("write_title_and_text_to_doc called"))
+    HELPERS["create_google_doc"] = lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("create_google_doc called"))
+    HELPERS["transcribe_fileobj"] = lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("provider called"))
+    HELPERS["save_manifest"] = lambda manifest: (_ for _ in ()).throw(AssertionError("save_manifest called"))
+    HELPERS["create_manifest_backup"] = lambda manifest, timestamp: (_ for _ in ()).throw(AssertionError("backup called"))
+
+    report = standardize_manifest_to_v2_for_existing_google_docs("folder-root", dry_run=True)
+
+    assert report["standard_check"]["unstructured"] == 1
+    assert report["manifest_v2_written"] is False
