@@ -60,6 +60,8 @@ HELPER_NAMES = {
     "link_manifest_v2_source_to_document",
     "refresh_manifest_v2_summary",
     "build_manifest_v2_from_existing_manifest_and_docs",
+    "comparable_manifest_v2_for_material_change",
+    "manifest_v2_material_changes_needed",
     "create_manifest_backup",
     "write_active_manifest_v2",
     "standardize_manifest_to_v2_for_existing_google_docs",
@@ -203,6 +205,8 @@ make_manifest_v2_default = HELPERS["make_manifest_v2_default"]
 build_transcript_standard_check = HELPERS["build_transcript_standard_check"]
 build_manifest_v2_from_existing_manifest_and_docs = HELPERS["build_manifest_v2_from_existing_manifest_and_docs"]
 standardize_manifest_to_v2_for_existing_google_docs = HELPERS["standardize_manifest_to_v2_for_existing_google_docs"]
+comparable_manifest_v2_for_material_change = HELPERS["comparable_manifest_v2_for_material_change"]
+manifest_v2_material_changes_needed = HELPERS["manifest_v2_material_changes_needed"]
 mark_manifest_in_progress = HELPERS["mark_manifest_in_progress"]
 mark_manifest_done = HELPERS["mark_manifest_done"]
 mark_manifest_failed = HELPERS["mark_manifest_failed"]
@@ -1610,6 +1614,12 @@ def test_manifest_v2_migration_flow_dry_run_is_read_only_and_apply_backs_up_and_
     dry = standardize_manifest_to_v2_for_existing_google_docs("folder-root", dry_run=True)
 
     assert dry["dry_run"] is True
+    assert dry["current_manifest_version"] == 1
+    assert dry["target_manifest_version"] == 2
+    assert dry["would_backup_manifest"] is True
+    assert dry["would_write_manifest_v2"] is True
+    assert dry["manifest_v2_written"] is False
+    assert "Manifest will be migrated to v2." in dry["notice"]
     assert dry["google_docs_scanned"] == 1
     assert dry["documents_total"] == 1
     assert dry["sources_total"] == 2
@@ -1634,11 +1644,94 @@ def test_manifest_v2_migration_flow_dry_run_is_read_only_and_apply_backs_up_and_
     calls.clear()
     HELPERS["load_manifest_read_only"] = lambda: calls.append(("load_read_only",)) or written
     second = standardize_manifest_to_v2_for_existing_google_docs("folder-root", dry_run=True)
+    assert second["current_manifest_version"] == 2
+    assert second["target_manifest_version"] == 2
     assert second["source_entries_migrated"] == 0
     assert second["doc_registry_entries_migrated"] == 0
     assert second["documents_total"] == 1
     assert second["sources_total"] == 2
+    assert second["would_backup_manifest"] is False
+    assert second["would_refresh_manifest_v2"] is False
+    assert second["would_write_manifest_v2"] is False
+    assert second["manifest_v2_up_to_date"] is True
+    assert "Manifest is already v2" in second["notice"]
+    assert "entries" not in second["manifest_v2_preview"]
 
+
+
+def test_manifest_v2_dry_run_checked_at_only_change_is_up_to_date() -> None:
+    manifest = make_manifest_v2_default(updated_at="2026-05-01T00:00:00+00:00")
+    manifest["documents"]["doc-v2"] = make_registered_v2_document(checked_at="2026-05-01T00:00:00+00:00")
+    HELPERS["refresh_manifest_v2_summary"](manifest)
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": "doc-v2", "name": "Doc V2", "mimeType": DOC_MIME, "webViewLink": "https://docs.google.com/document/d/doc-v2/edit"},
+    ]
+    HELPERS["extract_google_doc_plain_text"] = lambda document_id: build_current_standard_document(title="Doc V2")
+    HELPERS["load_manifest_read_only"] = lambda: manifest
+
+    report = standardize_manifest_to_v2_for_existing_google_docs("folder-root", dry_run=True)
+
+    assert report["current_manifest_version"] == 2
+    assert report["target_manifest_version"] == 2
+    assert report["would_backup_manifest"] is False
+    assert report["backup_created"] is False
+    assert report["would_refresh_manifest_v2"] is False
+    assert report["would_write_manifest_v2"] is False
+    assert report["manifest_v2_written"] is False
+    assert report["manifest_v2_up_to_date"] is True
+    assert "migration" not in report["notice"].lower()
+    assert "entries" not in report["manifest_v2_preview"]
+
+
+def test_manifest_v2_apply_refreshes_material_changes_without_mixed_entries_or_backup() -> None:
+    calls = []
+    manifest = make_manifest_v2_default(updated_at="2026-05-01T00:00:00+00:00")
+    manifest["documents"]["doc-v2"] = make_registered_v2_document(doc_name="Old Name", doc_path="Old Name")
+    manifest["entries"] = {"legacy": {"status": "done"}}
+    HELPERS["refresh_manifest_v2_summary"](manifest)
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": "doc-v2", "name": "Doc V2", "mimeType": DOC_MIME, "webViewLink": "https://docs.google.com/document/d/doc-v2/edit"},
+    ]
+    HELPERS["extract_google_doc_plain_text"] = lambda document_id: build_current_standard_document(title="Doc V2")
+    HELPERS["load_manifest"] = lambda: calls.append(("load",)) or manifest
+    HELPERS["create_manifest_backup"] = lambda manifest, timestamp: (_ for _ in ()).throw(AssertionError("backup should not be created for v2 refresh"))
+    HELPERS["write_active_manifest_v2"] = lambda incoming: calls.append(("write_v2", json.loads(json.dumps(incoming))))
+    HELPERS["write_title_and_text_to_doc"] = lambda **kwargs: (_ for _ in ()).throw(AssertionError("Google Docs mutation called"))
+    HELPERS["create_google_doc"] = lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("create_google_doc called"))
+    HELPERS["transcribe_fileobj"] = lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("provider called"))
+
+    report = standardize_manifest_to_v2_for_existing_google_docs("folder-root", dry_run=False)
+
+    assert report["current_manifest_version"] == 2
+    assert report["backup_created"] is False
+    assert report["manifest_v2_written"] is True
+    written = calls[-1][1]
+    assert written["documents"]["doc-v2"]["doc_name"] == "Doc V2"
+    assert written["documents"]["doc-v2"]["standard_check"]["status"] == "current"
+    assert "entries" not in written
+
+
+def test_manifest_ui_exposes_single_unified_manifest_action() -> None:
+    source = CANONICAL_SOURCE.read_text(encoding="utf-8")
+
+    assert "Проверить / зарегистрировать существующие Google Docs в manifest" not in source
+    assert "Регистрация существующих Google Docs в manifest" not in source
+    assert source.count("Проверить / обновить manifest") == 1
+    assert source.count("Только проверить manifest, не изменять") == 1
+    assert "Manifest" in source
+    assert "standardize_manifest_to_v2_for_existing_google_docs" in source
+    assert "register_existing_docs_manifest_button.on_click" not in source
+
+
+def test_unified_manifest_handler_uses_v2_standardization_flow() -> None:
+    source = CANONICAL_SOURCE.read_text(encoding="utf-8")
+    handler_match = re.search(r"def on_standardize_manifest_v2_clicked\(_\):(?P<body>.*?)(?:\ndef |\nclass |\Z)", source, re.S)
+    assert handler_match is not None
+    body = handler_match.group("body")
+
+    assert "standardize_manifest_to_v2_for_existing_google_docs" in body
+    assert "register_existing_google_docs_in_manifest" not in body
+    assert "standardize_manifest_v2_dry_run_widget.value" in body
 
 def test_manifest_v2_migration_flow_does_not_call_docs_or_provider_mutators() -> None:
     HELPERS["list_drive_folder_children"] = lambda folder_id: [

@@ -84,52 +84,26 @@ Primary recommended flow for existing transcripts is docs-only standardization:
 
 Metadata for docs-only standardization is intentionally conservative: `Provider` / `Model` / `Language` / `Speakers` are `unknown`, `Created at` is the current timestamp, and no source filename or source mode is embedded in the visible metadata block.
 
-### Existing Google Docs manifest registration
+### Unified manifest v2 maintenance
 
-A separate docs-only button can register already existing Google Docs transcripts in `VoiceOps Workspace/manifest/elevenlabs_transcription_manifest.json` without requiring source audio/video files. This mode:
+The UI has a single **Manifest** action near the selected destination/output Google Docs folder: `Проверить / обновить manifest`. Its dry-run checkbox (`Только проверить manifest, не изменять`) is enabled by default. This one button maintains `VoiceOps Workspace/manifest/elevenlabs_transcription_manifest.json` in v2 format without requiring source audio/video files.
+
+This manifest flow:
 
 - scans the selected destination/output Google Docs folder (and optionally nested folders when recursive scan is enabled);
-- ignores source audio/video input, source mode, and source path/link;
-- does not retranscribe and does not call ElevenLabs, OpenAI, STT, diarization, or LLM APIs;
-- does not create Google Docs and does not change Google Docs document contents;
-- defaults to dry-run (`Только проверить manifest, не изменять`);
-- in apply mode writes or updates manifest metadata only;
-- before manifest v2 migration, keys v1 entries by a stable hash of `{ "source_type": "existing_google_doc", "doc_id": "<google_doc_id>" }`, so later document renames do not create a different primary manifest key;
-- after manifest v2 migration, writes/updates `documents[doc_id]` and refreshes its `standard_check` observation instead of recreating mixed v1 `entries`.
+- keeps `documents` and `sources` separated in manifest v2 instead of recreating mixed top-level v1 `entries`;
+- migrates an active v1 manifest to v2 in apply mode after creating a timestamped backup of the prior active manifest;
+- refreshes an already-v2 manifest by updating the v2 catalog and `standard_check` observations when material metadata/status changes exist;
+- treats `standard_check` as a replaceable observation (`target_standard`, `detected_standard`, `status`, `checked_at`, checker version), not as a permanent schema field;
+- never stores transcript text or Google Docs body content in the manifest;
+- never changes Google Docs content, creates Google Docs, retranscribes, or calls ElevenLabs, OpenAI, STT, diarization, provider, or LLM APIs;
+- keeps dry-run read-only: no manifest folder creation, backup creation, active manifest write, Google Docs mutation, or provider calls.
 
-The flow classifies each readable Google Doc as `current_standard`, `outdated_standard`, or `unstructured`; unreadable Docs are reported as `unreadable`. Before manifest v2 migration, legacy v1 manifests receive human-readable entries for existing Docs, for example:
-
-```json
-{
-  "source_signature": "<sha256>",
-  "source_type": "existing_google_doc",
-  "status": "doc_registered",
-  "standard": "transcript_doc_v1.2",
-  "doc_id": "<google_doc_id>",
-  "doc_name": "Existing transcript",
-  "doc_link": "https://docs.google.com/document/d/<google_doc_id>/edit",
-  "doc_path": "MyDrive/Transcripts/Existing transcript",
-  "doc_mime_type": "application/vnd.google-apps.document",
-  "structured_status": "current_standard",
-  "source_name": "Existing transcript",
-  "note": "",
-  "updated_at": "<ISO timestamp>",
-  "source_meta": {
-    "folder_id": "<selected_output_folder_id>",
-    "folder_path": "MyDrive/Transcripts",
-    "recursive_scan": false,
-    "registration_mode": "existing_google_doc_manifest_registration"
-  }
-}
-```
-
-This registration flow is intentionally separate from docs-only standardization: standardization rewrites Docs in explicit apply mode; manifest registration writes only manifest entries and never mutates document text.
-
-Doc registry entries created by this flow are also intentionally separate from older source-based transcription manifest entries. A Google Doc may already be referenced by a normal source audio/video/file transcription entry through `doc_id` or `doc_link`, but still appear as `would_register` because it does not yet have the new `source_type: existing_google_doc` / `status: doc_registered` registry entry keyed by Google Doc ID. To make that reconciliation clear, dry-run/apply reports source-linked manifest matches separately; those matches are informational only and are not counted as `already_registered`. Apply mode writes or updates only the doc registry entry and does not modify, merge, delete, or rewrite existing source-based entries.
+The flow classifies each readable Google Doc as `current`, `outdated`, or `unstructured` for `standard_check`; unreadable Docs are reported as `unreadable`. If the active manifest is v1, dry-run reports that v1 would be migrated to v2, while apply backs up the active manifest and writes v2. If the active manifest is already v2, dry-run reports `current_manifest_version: 2` and `target_manifest_version: 2`; when only volatile `checked_at` timestamps would change, it reports the manifest as up to date instead of implying a new migration or material write.
 
 The older source-matching standardization/import flow remains an optional advanced/legacy path for cases where someone specifically wants source-to-doc matching. It is not required for normal existing transcript standardization. Runtime E2E validation in Colab/Drive remains required before broad use of docs-only apply mode.
 
-### Manifest v2 schema and standardization
+### Manifest v2 schema and maintenance
 
 Manifest v2 standardizes the active manifest file into a clean catalog while keeping the same active filename: `VoiceOps Workspace/manifest/elevenlabs_transcription_manifest.json`. The manifest schema version is independent from the transcript document standard version: changing a future transcript standard from `transcript_doc_v1.2` to `transcript_doc_v1.3` should update only `documents[doc_id].standard_check` and `summary.standard_check`, not require another manifest schema migration.
 
@@ -194,7 +168,7 @@ A simplified v2 manifest looks like:
 
 `standard_check` is intentionally a versioned, replaceable observation, not a permanent top-level manifest schema field. Manifest v2 must not use top-level document fields such as `transcript_standard` or `structured_status`, and it must not store transcript body text. The migration may read Google Docs only to classify structure (`current`, `outdated`, `unstructured`, or `unreadable`) and then stores only classification metadata.
 
-The UI subsection **Стандартизация manifest** scans the selected destination/output Google Docs folder and builds manifest v2. Dry-run (`Только проверить manifest v2, не изменять`) is enabled by default and is read-only: it does not create folders, create backups, write the active manifest, mutate Google Docs, create Google Docs, or call STT/LLM/provider APIs. Apply mode creates `VoiceOps Workspace/manifest/archive` if needed, writes a timestamped backup named `elevenlabs_transcription_manifest.backup.<timestamp>.json` containing the exact prior active manifest JSON, and then replaces the active manifest file with v2. Google Docs content is never changed by manifest migration.
+The unified UI subsection **Manifest** scans the selected destination/output Google Docs folder and maintains manifest v2. Dry-run (`Только проверить manifest, не изменять`) is enabled by default and is read-only: it does not create folders, create backups, write the active manifest, mutate Google Docs, create Google Docs, or call STT/LLM/provider APIs. When apply migrates v1 to v2, it creates `VoiceOps Workspace/manifest/archive` if needed, writes a timestamped backup named `elevenlabs_transcription_manifest.backup.<timestamp>.json` containing the exact prior active manifest JSON, and then replaces the active manifest file with v2. When apply refreshes an already-v2 manifest, it writes v2 only for material catalog or `standard_check` changes and does not reintroduce top-level v1 `entries`. Google Docs content is never changed by manifest maintenance.
 
 Локальные transcript-файлы, Markdown-зеркала и JSON-экспорты не считаются основным конечным артефактом.
 
