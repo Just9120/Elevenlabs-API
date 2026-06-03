@@ -66,6 +66,10 @@ HELPER_NAMES = {
     "is_existing_google_doc_registry_entry",
     "find_manifest_entries_referencing_google_doc",
     "build_existing_google_doc_manifest_entry",
+    "build_existing_google_doc_manifest_document_entry",
+    "existing_google_doc_manifest_document_needs_update",
+    "comparable_standard_check_observation",
+    "comparable_manifest_source_meta",
     "existing_google_doc_manifest_entry_needs_update",
     "upsert_existing_google_doc_manifest_entry",
     "register_existing_google_docs_in_manifest",
@@ -1652,3 +1656,118 @@ def test_manifest_v2_migration_flow_does_not_call_docs_or_provider_mutators() ->
 
     assert report["standard_check"]["unstructured"] == 1
     assert report["manifest_v2_written"] is False
+
+
+def make_registered_v2_document(
+    doc_id: str = "doc-v2",
+    doc_name: str = "Doc V2",
+    doc_path: str = "Doc V2",
+    status: str = "current",
+    checked_at: str = "2026-05-01T00:00:00+00:00",
+) -> dict:
+    detected = "transcript_doc_v1.2" if status == "current" else ("legacy_v1" if status == "outdated" else "unknown")
+    return {
+        "doc_id": doc_id,
+        "doc_name": doc_name,
+        "doc_link": f"https://docs.google.com/document/d/{doc_id}/edit",
+        "doc_path": doc_path,
+        "doc_mime_type": DOC_MIME,
+        "document_type": "google_doc_transcript",
+        "registration_status": "registered",
+        "source_signatures": [],
+        "standard_check": {
+            "target_standard": "transcript_doc_v1.2",
+            "detected_standard": detected,
+            "status": status,
+            "checked_at": checked_at,
+            "checker_version": "transcript_standard_checker_v1",
+        },
+        "updated_at": checked_at,
+        "source_meta": {
+            "folder_id": "folder-root",
+            "folder_path": "",
+            "recursive_scan": False,
+            "registration_mode": "manifest_v2_migration",
+        },
+    }
+
+
+def test_manifest_registration_v2_document_already_registered_ignores_checked_at_only_change() -> None:
+    manifest = make_manifest_v2_default(updated_at="2026-05-01T00:00:00+00:00")
+    manifest["documents"]["doc-v2"] = make_registered_v2_document(checked_at="2026-05-01T00:00:00+00:00")
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": "doc-v2", "name": "Doc V2", "mimeType": DOC_MIME, "webViewLink": "https://docs.google.com/document/d/doc-v2/edit"},
+    ]
+    HELPERS["extract_google_doc_plain_text"] = lambda document_id: build_current_standard_document(title="Doc V2")
+    HELPERS["load_manifest_read_only"] = lambda: manifest
+
+    report = register_existing_google_docs_in_manifest("folder-root", dry_run=True)
+
+    assert [item["doc_id"] for item in report["already_registered"]] == ["doc-v2"]
+    assert report["would_update"] == []
+    assert "entries" not in manifest
+
+
+def test_manifest_registration_v2_document_changed_doc_name_or_path_reports_would_update() -> None:
+    manifest = make_manifest_v2_default(updated_at="2026-05-01T00:00:00+00:00")
+    manifest["documents"]["doc-v2"] = make_registered_v2_document(doc_name="Old Name", doc_path="Old Name")
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": "doc-v2", "name": "Doc V2", "mimeType": DOC_MIME, "webViewLink": "https://docs.google.com/document/d/doc-v2/edit"},
+    ]
+    HELPERS["extract_google_doc_plain_text"] = lambda document_id: build_current_standard_document(title="Doc V2")
+    HELPERS["load_manifest_read_only"] = lambda: manifest
+
+    report = register_existing_google_docs_in_manifest("folder-root", dry_run=True)
+
+    assert [item["doc_id"] for item in report["would_update"]] == ["doc-v2"]
+    assert report["already_registered"] == []
+
+
+def test_manifest_registration_v2_document_changed_standard_status_reports_would_update() -> None:
+    manifest = make_manifest_v2_default(updated_at="2026-05-01T00:00:00+00:00")
+    manifest["documents"]["doc-v2"] = make_registered_v2_document(status="unstructured")
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": "doc-v2", "name": "Doc V2", "mimeType": DOC_MIME, "webViewLink": "https://docs.google.com/document/d/doc-v2/edit"},
+    ]
+    HELPERS["extract_google_doc_plain_text"] = lambda document_id: build_current_standard_document(title="Doc V2")
+    HELPERS["load_manifest_read_only"] = lambda: manifest
+
+    report = register_existing_google_docs_in_manifest("folder-root", dry_run=True)
+
+    assert [item["doc_id"] for item in report["would_update"]] == ["doc-v2"]
+    assert report["already_registered"] == []
+
+
+def test_manifest_registration_v2_apply_updates_documents_without_recreating_entries() -> None:
+    calls = []
+    manifest = make_manifest_v2_default(updated_at="2026-05-01T00:00:00+00:00")
+    manifest["documents"]["doc-v2"] = make_registered_v2_document(doc_name="Old Name", doc_path="Old Name")
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": "doc-v2", "name": "Doc V2", "mimeType": DOC_MIME, "webViewLink": "https://docs.google.com/document/d/doc-v2/edit"},
+    ]
+    HELPERS["extract_google_doc_plain_text"] = lambda document_id: build_current_standard_document(title="Doc V2")
+    HELPERS["load_manifest"] = lambda: manifest
+    HELPERS["save_manifest"] = lambda incoming: calls.append(json.loads(json.dumps(incoming)))
+
+    report = register_existing_google_docs_in_manifest("folder-root", dry_run=False)
+
+    assert [item["doc_id"] for item in report["updated"]] == ["doc-v2"]
+    assert manifest["documents"]["doc-v2"]["doc_name"] == "Doc V2"
+    assert manifest["documents"]["doc-v2"]["standard_check"]["status"] == "current"
+    assert "entries" not in manifest
+    assert calls and "entries" not in calls[0]
+
+
+def test_manifest_registration_v2_document_already_registered_same_identity_and_status() -> None:
+    manifest = make_manifest_v2_default(updated_at="2026-06-01T00:00:00+00:00")
+    manifest["documents"]["doc-v2"] = make_registered_v2_document(checked_at="2026-06-01T00:00:00+00:00")
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": "doc-v2", "name": "Doc V2", "mimeType": DOC_MIME, "webViewLink": "https://docs.google.com/document/d/doc-v2/edit"},
+    ]
+    HELPERS["extract_google_doc_plain_text"] = lambda document_id: build_current_standard_document(title="Doc V2")
+    HELPERS["load_manifest_read_only"] = lambda: manifest
+
+    report = register_existing_google_docs_in_manifest("folder-root", dry_run=True)
+
+    assert [item["doc_id"] for item in report["already_registered"]] == ["doc-v2"]
+    assert report["would_update"] == []

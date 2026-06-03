@@ -1807,6 +1807,69 @@ def build_existing_google_doc_manifest_entry(
     }
 
 
+
+def build_existing_google_doc_manifest_document_entry(
+    doc: dict,
+    structured_status: str,
+    output_folder_id: str,
+    output_folder_path: str = "",
+    recursive: bool = False,
+    updated_at: Optional[str] = None,
+    existing_doc: Optional[dict] = None,
+) -> dict:
+    updated_at = updated_at or utc_now_iso()
+    existing_source_meta = (existing_doc or {}).get("source_meta") or {}
+    registration_mode = existing_source_meta.get("registration_mode", EXISTING_GOOGLE_DOC_REGISTRATION_MODE)
+    return build_manifest_v2_document_entry(
+        doc=doc,
+        standard_check=standard_check_from_structured_status(structured_status, updated_at),
+        output_folder_id=output_folder_id,
+        output_folder_path=output_folder_path,
+        recursive=recursive,
+        updated_at=updated_at,
+        source_signatures=(existing_doc or {}).get("source_signatures") or [],
+        registration_mode=registration_mode,
+    )
+
+
+def comparable_standard_check_observation(standard_check: Optional[dict]) -> dict:
+    standard_check = standard_check or {}
+    return {
+        "target_standard": standard_check.get("target_standard", ""),
+        "detected_standard": standard_check.get("detected_standard", ""),
+        "status": standard_check.get("status", ""),
+        "checker_version": standard_check.get("checker_version", ""),
+    }
+
+
+def comparable_manifest_source_meta(source_meta: Optional[dict]) -> dict:
+    return {
+        key: value for key, value in (source_meta or {}).items()
+        if key != "checked_at"
+    }
+
+
+def existing_google_doc_manifest_document_needs_update(existing_doc: Optional[dict], desired_doc: dict) -> bool:
+    if not existing_doc:
+        return False
+
+    compared_fields = (
+        "doc_id",
+        "doc_name",
+        "doc_link",
+        "doc_path",
+        "doc_mime_type",
+        "document_type",
+        "registration_status",
+    )
+    if any(existing_doc.get(field) != desired_doc.get(field) for field in compared_fields):
+        return True
+
+    if comparable_manifest_source_meta(existing_doc.get("source_meta")) != comparable_manifest_source_meta(desired_doc.get("source_meta")):
+        return True
+
+    return comparable_standard_check_observation(existing_doc.get("standard_check")) != comparable_standard_check_observation(desired_doc.get("standard_check"))
+
 def existing_google_doc_manifest_entry_needs_update(existing_entry: Optional[dict], desired_entry: dict) -> bool:
     if not existing_entry:
         return False
@@ -1835,28 +1898,35 @@ def upsert_existing_google_doc_manifest_entry(manifest: dict, source_signature: 
         if not doc_id:
             return
         existing_doc = (manifest.get("documents") or {}).get(doc_id) or {}
-        standard_check = desired_entry.get("standard_check") or standard_check_from_structured_status(
-            desired_entry.get("structured_status", EXISTING_GOOGLE_DOC_STRUCTURED_UNSTRUCTURED),
-            desired_entry.get("updated_at") or utc_now_iso(),
-        )
-        doc_entry = build_manifest_v2_document_entry(
-            {
-                **existing_doc,
-                "id": doc_id,
-                "name": desired_entry.get("doc_name", existing_doc.get("doc_name", "")),
-                "display_name": desired_entry.get("doc_path", existing_doc.get("doc_path", "")),
-                "webViewLink": desired_entry.get("doc_link", existing_doc.get("doc_link", "")),
-                "mimeType": desired_entry.get("doc_mime_type", existing_doc.get("doc_mime_type", DOC_MIME)),
-                "source_meta": desired_entry.get("source_meta", existing_doc.get("source_meta", {})),
-            },
-            standard_check=standard_check,
-            output_folder_id=(desired_entry.get("source_meta") or {}).get("folder_id", ""),
-            output_folder_path=(desired_entry.get("source_meta") or {}).get("folder_path", ""),
-            recursive=(desired_entry.get("source_meta") or {}).get("recursive_scan", False),
-            updated_at=desired_entry.get("updated_at") or utc_now_iso(),
-            source_signatures=existing_doc.get("source_signatures") or [],
-            registration_mode=(desired_entry.get("source_meta") or {}).get("registration_mode", EXISTING_GOOGLE_DOC_REGISTRATION_MODE),
-        )
+        if desired_entry.get("document_type") == "google_doc_transcript" or "standard_check" in desired_entry:
+            doc_entry = dict(existing_doc)
+            doc_entry.update(desired_entry)
+            doc_entry["source_signatures"] = sorted(set(
+                (existing_doc.get("source_signatures") or []) + (desired_entry.get("source_signatures") or [])
+            ))
+        else:
+            standard_check = desired_entry.get("standard_check") or standard_check_from_structured_status(
+                desired_entry.get("structured_status", EXISTING_GOOGLE_DOC_STRUCTURED_UNSTRUCTURED),
+                desired_entry.get("updated_at") or utc_now_iso(),
+            )
+            doc_entry = build_manifest_v2_document_entry(
+                {
+                    **existing_doc,
+                    "id": doc_id,
+                    "name": desired_entry.get("doc_name", existing_doc.get("doc_name", "")),
+                    "display_name": desired_entry.get("doc_path", existing_doc.get("doc_path", "")),
+                    "webViewLink": desired_entry.get("doc_link", existing_doc.get("doc_link", "")),
+                    "mimeType": desired_entry.get("doc_mime_type", existing_doc.get("doc_mime_type", DOC_MIME)),
+                    "source_meta": desired_entry.get("source_meta", existing_doc.get("source_meta", {})),
+                },
+                standard_check=standard_check,
+                output_folder_id=(desired_entry.get("source_meta") or {}).get("folder_id", ""),
+                output_folder_path=(desired_entry.get("source_meta") or {}).get("folder_path", ""),
+                recursive=(desired_entry.get("source_meta") or {}).get("recursive_scan", False),
+                updated_at=desired_entry.get("updated_at") or utc_now_iso(),
+                source_signatures=existing_doc.get("source_signatures") or [],
+                registration_mode=(desired_entry.get("source_meta") or {}).get("registration_mode", EXISTING_GOOGLE_DOC_REGISTRATION_MODE),
+            )
         manifest.setdefault("documents", {})[doc_id] = doc_entry
         refresh_manifest_v2_summary(manifest)
         return
@@ -1975,6 +2045,7 @@ def register_existing_google_docs_in_manifest(
             structured_status = EXISTING_GOOGLE_DOC_STRUCTURED_UNSTRUCTURED
         report[structured_status] += 1
 
+        existing_entry = (manifest.get("documents") or {}).get(doc["id"]) if is_manifest_v2(manifest) else get_manifest_entry(manifest, source_signature)
         desired_entry = build_existing_google_doc_manifest_entry(
             doc=doc,
             source_signature=source_signature,
@@ -1983,19 +2054,36 @@ def register_existing_google_docs_in_manifest(
             output_folder_path=output_folder_path,
             recursive=recursive,
         )
+        desired_manifest_record = (
+            build_existing_google_doc_manifest_document_entry(
+                doc=doc,
+                structured_status=structured_status,
+                output_folder_id=output_folder_id,
+                output_folder_path=output_folder_path,
+                recursive=recursive,
+                updated_at=desired_entry["updated_at"],
+                existing_doc=existing_entry,
+            )
+            if is_manifest_v2(manifest)
+            else desired_entry
+        )
         result_item = {
             **base_item,
             "structured_status": structured_status,
         }
-        existing_entry = (manifest.get("documents") or {}).get(doc["id"]) if is_manifest_v2(manifest) else get_manifest_entry(manifest, source_signature)
         if existing_entry:
-            if existing_google_doc_manifest_entry_needs_update(existing_entry, desired_entry):
+            needs_update = (
+                existing_google_doc_manifest_document_needs_update(existing_entry, desired_manifest_record)
+                if is_manifest_v2(manifest)
+                else existing_google_doc_manifest_entry_needs_update(existing_entry, desired_manifest_record)
+            )
+            if needs_update:
                 if dry_run:
                     report["would_update"].append(result_item)
                     if source_linked_match_count:
                         report["would_update_with_source_linked_match"].append(result_item)
                 else:
-                    upsert_existing_google_doc_manifest_entry(manifest, source_signature, desired_entry)
+                    upsert_existing_google_doc_manifest_entry(manifest, source_signature, desired_manifest_record)
                     report["updated"].append(result_item)
                     changed = True
             else:
@@ -2010,7 +2098,7 @@ def register_existing_google_docs_in_manifest(
                 else:
                     report["would_register_without_source_linked_match"].append(result_item)
             else:
-                upsert_existing_google_doc_manifest_entry(manifest, source_signature, desired_entry)
+                upsert_existing_google_doc_manifest_entry(manifest, source_signature, desired_manifest_record)
                 report["registered"].append(result_item)
                 changed = True
 
