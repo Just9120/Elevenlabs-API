@@ -291,6 +291,11 @@ ANALYTICS_FOLDER_NAME = "analytics"
 MANIFEST_FILE_NAME = "elevenlabs_transcription_manifest.json"
 ANALYTICS_FILE_NAME = "elevenlabs_transcription_runs.jsonl"
 MANIFEST_IN_PROGRESS_TTL_HOURS = 6
+MANIFEST_V2_SCHEMA = "voiceops_manifest_v2"
+MANIFEST_V2_TARGET_VERSION = 2
+MANIFEST_BACKUP_FOLDER_NAME = "archive"
+TRANSCRIPT_STANDARD_TARGET = "transcript_doc_v1.2"
+TRANSCRIPT_STANDARD_CHECKER_VERSION = "transcript_standard_checker_v1"
 
 MANIFEST_CACHE = {
     "state_folder_id": None,
@@ -405,6 +410,38 @@ def make_manifest_default() -> dict:
         "version": 1,
         "entries": {}
     }
+
+
+def make_manifest_v2_default(updated_at: Optional[str] = None) -> dict:
+    return {
+        "version": MANIFEST_V2_TARGET_VERSION,
+        "schema": MANIFEST_V2_SCHEMA,
+        "updated_at": updated_at or utc_now_iso(),
+        "documents": {},
+        "sources": {},
+        "summary": {
+            "documents_total": 0,
+            "sources_total": 0,
+            "documents_with_sources": 0,
+            "documents_without_sources": 0,
+            "orphan_sources": 0,
+            "standard_check": {
+                "target_standard": TRANSCRIPT_STANDARD_TARGET,
+                "current": 0,
+                "outdated": 0,
+                "unstructured": 0,
+                "unreadable": 0,
+            },
+        },
+    }
+
+
+def is_manifest_v2(manifest: Optional[dict]) -> bool:
+    return (
+        isinstance(manifest, dict)
+        and manifest.get("version") == MANIFEST_V2_TARGET_VERSION
+        and manifest.get("schema") == MANIFEST_V2_SCHEMA
+    )
 
 
 def json_sha256(data) -> str:
@@ -698,13 +735,22 @@ def normalize_manifest_data(raw: str) -> dict:
     except json.JSONDecodeError:
         return make_manifest_default()
 
-    if not isinstance(manifest, dict) or "entries" not in manifest:
+    if not isinstance(manifest, dict):
+        return make_manifest_default()
+
+    if is_manifest_v2(manifest):
+        manifest.setdefault("documents", {})
+        manifest.setdefault("sources", {})
+        manifest.setdefault("summary", make_manifest_v2_default().get("summary", {}))
+        return manifest
+
+    if "entries" not in manifest:
         return make_manifest_default()
 
     return manifest
 
 
-def read_manifest_file_by_id(file_id: str) -> dict:
+def read_manifest_file_raw_by_id(file_id: str) -> str:
     request = drive_service.files().get_media(fileId=file_id, supportsAllDrives=True)
     bio = io.BytesIO()
     downloader = MediaIoBaseDownload(bio, request)
@@ -712,8 +758,11 @@ def read_manifest_file_by_id(file_id: str) -> dict:
     while not done:
         _, done = downloader.next_chunk()
 
-    raw = bio.getvalue().decode("utf-8", errors="ignore")
-    return normalize_manifest_data(raw)
+    return bio.getvalue().decode("utf-8", errors="ignore")
+
+
+def read_manifest_file_by_id(file_id: str) -> dict:
+    return normalize_manifest_data(read_manifest_file_raw_by_id(file_id))
 
 
 def load_manifest_read_only(force_reload: bool = False) -> dict:
@@ -763,6 +812,26 @@ def load_manifest(force_reload: bool = False) -> dict:
 
 
 def merge_manifest_data(latest_manifest: Optional[dict], incoming_manifest: Optional[dict]) -> dict:
+    if is_manifest_v2(latest_manifest) or is_manifest_v2(incoming_manifest):
+        base = make_manifest_v2_default()
+        for source in (latest_manifest, incoming_manifest):
+            if not isinstance(source, dict):
+                continue
+            if is_manifest_v2(source):
+                base.update({
+                    k: v for k, v in source.items()
+                    if k not in {"entries", "documents", "sources", "summary"}
+                })
+                base.setdefault("documents", {}).update(source.get("documents") or {})
+                base.setdefault("sources", {}).update(source.get("sources") or {})
+            else:
+                for source_signature, entry in (source.get("entries") or {}).items():
+                    base.setdefault("sources", {})[source_signature] = normalize_manifest_source_entry(
+                        source_signature, entry, updated_at=entry.get("updated_at")
+                    )
+        refresh_manifest_v2_summary(base)
+        return base
+
     merged = make_manifest_default()
 
     if isinstance(latest_manifest, dict):
@@ -852,7 +921,36 @@ def append_analytics_record(record: dict):
 
 
 def get_manifest_entry(manifest: dict, source_signature: str) -> Optional[dict]:
+    if is_manifest_v2(manifest):
+        return (manifest.get("sources") or {}).get(source_signature)
     return (manifest.get("entries") or {}).get(source_signature)
+
+
+def normalize_manifest_source_entry(source_signature: str, entry: Optional[dict], updated_at: Optional[str] = None) -> dict:
+    entry = {k: v for k, v in dict(entry or {}).items() if k not in {"transcript_text", "document_text", "text", "body"}}
+    doc_id = entry.get("doc_id") or extract_google_doc_id_from_url(entry.get("doc_link", ""))
+    return {
+        **entry,
+        "source_signature": entry.get("source_signature") or source_signature,
+        "source_type": entry.get("source_type") or (entry.get("source_meta") or {}).get("type") or "unknown",
+        "source_name": entry.get("source_name", ""),
+        "settings_signature": entry.get("settings_signature", ""),
+        "status": entry.get("status", ""),
+        "doc_id": doc_id or "",
+        "doc_name": entry.get("doc_name", ""),
+        "doc_link": entry.get("doc_link", ""),
+        "source_meta": entry.get("source_meta") or {},
+        "updated_at": updated_at or entry.get("updated_at") or utc_now_iso(),
+    }
+
+
+def put_manifest_source_entry(manifest: dict, source_signature: str, entry: dict) -> None:
+    if is_manifest_v2(manifest):
+        manifest.setdefault("sources", {})[source_signature] = entry
+        link_manifest_v2_source_to_document(manifest, source_signature)
+        refresh_manifest_v2_summary(manifest)
+    else:
+        manifest.setdefault("entries", {})[source_signature] = entry
 
 
 def set_manifest_entry(
@@ -866,7 +964,7 @@ def set_manifest_entry(
     note: str = "",
     source_meta: Optional[dict] = None,
 ):
-    manifest.setdefault("entries", {})[source_signature] = {
+    entry = {
         "source_signature": source_signature,
         "settings_signature": settings_signature,
         "status": status,
@@ -877,6 +975,9 @@ def set_manifest_entry(
         "updated_at": utc_now_iso(),
         "source_meta": source_meta or {},
     }
+    if is_manifest_v2(manifest):
+        entry = normalize_manifest_source_entry(source_signature, entry)
+    put_manifest_source_entry(manifest, source_signature, entry)
 
 
 def mark_manifest_in_progress(manifest: dict, source_signature: str, settings_signature: str, source_name: str, source_meta: Optional[dict] = None):
@@ -890,7 +991,9 @@ def mark_manifest_in_progress(manifest: dict, source_signature: str, settings_si
         "started_at": utc_now_iso(),
         "updated_at": utc_now_iso(),
     })
-    manifest.setdefault("entries", {})[source_signature] = entry
+    if is_manifest_v2(manifest):
+        entry = normalize_manifest_source_entry(source_signature, entry)
+    put_manifest_source_entry(manifest, source_signature, entry)
     save_manifest(manifest)
 
 
@@ -903,11 +1006,14 @@ def mark_manifest_done(manifest: dict, source_signature: str, settings_signature
         "source_name": source_name,
         "doc_name": doc_name,
         "doc_link": doc_link,
+        "doc_id": entry.get("doc_id") or extract_google_doc_id_from_url(doc_link),
         "source_meta": source_meta or entry.get("source_meta", {}),
         "finished_at": utc_now_iso(),
         "updated_at": utc_now_iso(),
     })
-    manifest.setdefault("entries", {})[source_signature] = entry
+    if is_manifest_v2(manifest):
+        entry = normalize_manifest_source_entry(source_signature, entry)
+    put_manifest_source_entry(manifest, source_signature, entry)
     save_manifest(manifest)
 
 
@@ -922,9 +1028,10 @@ def mark_manifest_failed(manifest: dict, source_signature: str, settings_signatu
         "source_meta": source_meta or entry.get("source_meta", {}),
         "updated_at": utc_now_iso(),
     })
-    manifest.setdefault("entries", {})[source_signature] = entry
+    if is_manifest_v2(manifest):
+        entry = normalize_manifest_source_entry(source_signature, entry)
+    put_manifest_source_entry(manifest, source_signature, entry)
     save_manifest(manifest)
-
 
 def should_skip_by_manifest(manifest: dict, source_signature: str, settings_signature: str) -> tuple[bool, str]:
     entry = get_manifest_entry(manifest, source_signature)
@@ -1293,6 +1400,339 @@ def extract_google_doc_id_from_url(url: str) -> str:
     return match.group(1) if match else ""
 
 
+def build_transcript_standard_check(
+    document_text: str,
+    checked_at: str,
+    target_standard: str = TRANSCRIPT_STANDARD_TARGET,
+    unreadable: bool = False,
+) -> dict:
+    if unreadable:
+        detected_standard = "unknown"
+        status = "unreadable"
+    elif is_structured_transcript_document_text(document_text):
+        detected_standard = target_standard
+        status = "current"
+    else:
+        classified = classify_existing_google_doc_transcript_standard(document_text)
+        if classified == EXISTING_GOOGLE_DOC_STRUCTURED_OUTDATED:
+            detected_standard = "legacy_v1"
+            status = "outdated"
+        else:
+            detected_standard = "unknown"
+            status = "unstructured"
+
+    return {
+        "target_standard": target_standard,
+        "detected_standard": detected_standard,
+        "status": status,
+        "checked_at": checked_at,
+        "checker_version": TRANSCRIPT_STANDARD_CHECKER_VERSION,
+    }
+
+
+def standard_check_from_structured_status(structured_status: str, checked_at: str) -> dict:
+    mapping = {
+        EXISTING_GOOGLE_DOC_STRUCTURED_CURRENT: (TRANSCRIPT_STANDARD_TARGET, "current"),
+        EXISTING_GOOGLE_DOC_STRUCTURED_OUTDATED: ("legacy_v1", "outdated"),
+        EXISTING_GOOGLE_DOC_STRUCTURED_UNSTRUCTURED: ("unknown", "unstructured"),
+        EXISTING_GOOGLE_DOC_STRUCTURED_UNREADABLE: ("unknown", "unreadable"),
+    }
+    detected, status = mapping.get(structured_status, ("unknown", "unstructured"))
+    return {
+        "target_standard": TRANSCRIPT_STANDARD_TARGET,
+        "detected_standard": detected,
+        "status": status,
+        "checked_at": checked_at,
+        "checker_version": TRANSCRIPT_STANDARD_CHECKER_VERSION,
+    }
+
+
+def build_manifest_v2_document_entry(
+    doc: dict,
+    standard_check: dict,
+    output_folder_id: str,
+    output_folder_path: str = "",
+    recursive: bool = False,
+    updated_at: Optional[str] = None,
+    source_signatures: Optional[list[str]] = None,
+    registration_mode: str = "manifest_v2_migration",
+) -> dict:
+    doc_name = doc.get("name") or doc.get("doc_name") or ""
+    display_name = doc.get("display_name") or doc.get("doc_path") or doc_name
+    doc_id = doc.get("id") or doc.get("doc_id") or ""
+    doc_path = f"{output_folder_path.rstrip('/')}/{display_name}" if output_folder_path and not str(display_name).startswith(output_folder_path.rstrip('/') + "/") else display_name
+    return {
+        "doc_id": doc_id,
+        "doc_name": doc_name,
+        "doc_link": doc.get("webViewLink") or doc.get("doc_link") or build_existing_google_doc_link(doc_id),
+        "doc_path": doc_path,
+        "doc_mime_type": doc.get("mimeType") or doc.get("doc_mime_type") or DOC_MIME,
+        "document_type": "google_doc_transcript",
+        "registration_status": "registered",
+        "source_signatures": sorted(set(source_signatures or [])),
+        "standard_check": standard_check,
+        "updated_at": updated_at or utc_now_iso(),
+        "source_meta": {
+            **(doc.get("source_meta") or {}),
+            "folder_id": output_folder_id,
+            "folder_path": output_folder_path,
+            "recursive_scan": bool(recursive),
+            "registration_mode": registration_mode,
+        },
+    }
+
+
+def link_manifest_v2_source_to_document(manifest: dict, source_signature: str) -> None:
+    if not is_manifest_v2(manifest):
+        return
+    source = (manifest.get("sources") or {}).get(source_signature)
+    if not isinstance(source, dict):
+        return
+    doc_id = source.get("doc_id") or extract_google_doc_id_from_url(source.get("doc_link", ""))
+    if not doc_id or doc_id not in (manifest.get("documents") or {}):
+        source["doc_id"] = "" if not doc_id else doc_id
+        return
+    source["doc_id"] = doc_id
+    doc = manifest["documents"][doc_id]
+    signatures = set(doc.get("source_signatures") or [])
+    signatures.add(source_signature)
+    doc["source_signatures"] = sorted(signatures)
+    if source.get("doc_name") and not doc.get("doc_name"):
+        doc["doc_name"] = source["doc_name"]
+    if source.get("doc_link") and not doc.get("doc_link"):
+        doc["doc_link"] = source["doc_link"]
+
+
+def refresh_manifest_v2_summary(manifest: dict) -> dict:
+    documents = manifest.setdefault("documents", {})
+    sources = manifest.setdefault("sources", {})
+    linked_doc_ids = {
+        source.get("doc_id") for source in sources.values()
+        if isinstance(source, dict) and source.get("doc_id") in documents
+    }
+    for doc in documents.values():
+        if isinstance(doc, dict):
+            doc["source_signatures"] = sorted(set(doc.get("source_signatures") or []))
+    standard_summary = {
+        "target_standard": TRANSCRIPT_STANDARD_TARGET,
+        "current": 0,
+        "outdated": 0,
+        "unstructured": 0,
+        "unreadable": 0,
+    }
+    for doc in documents.values():
+        status = ((doc or {}).get("standard_check") or {}).get("status")
+        if status in standard_summary:
+            standard_summary[status] += 1
+    summary = {
+        "documents_total": len(documents),
+        "sources_total": len(sources),
+        "documents_with_sources": len(linked_doc_ids),
+        "documents_without_sources": max(0, len(documents) - len(linked_doc_ids)),
+        "orphan_sources": sum(
+            1 for source in sources.values()
+            if not isinstance(source, dict) or not source.get("doc_id") or source.get("doc_id") not in documents
+        ),
+        "standard_check": standard_summary,
+    }
+    manifest["summary"] = summary
+    manifest["version"] = MANIFEST_V2_TARGET_VERSION
+    manifest["schema"] = MANIFEST_V2_SCHEMA
+    return summary
+
+
+def build_manifest_v2_from_existing_manifest_and_docs(
+    existing_manifest: Optional[dict],
+    scanned_docs: list[dict],
+    standard_checks_by_doc_id: dict[str, dict],
+    output_folder_id: str,
+    output_folder_path: str = "",
+    recursive: bool = False,
+    updated_at: Optional[str] = None,
+) -> tuple[dict, dict]:
+    updated_at = updated_at or utc_now_iso()
+    v2 = make_manifest_v2_default(updated_at=updated_at)
+    counters = {"source_entries_migrated": 0, "doc_registry_entries_migrated": 0}
+
+    if is_manifest_v2(existing_manifest):
+        for doc_id, doc in (existing_manifest.get("documents") or {}).items():
+            v2["documents"][doc_id] = dict(doc)
+        for source_signature, source in (existing_manifest.get("sources") or {}).items():
+            v2["sources"][source_signature] = normalize_manifest_source_entry(source_signature, source, updated_at=source.get("updated_at"))
+
+    elif isinstance(existing_manifest, dict):
+        for source_signature, entry in (existing_manifest.get("entries") or {}).items():
+            if not isinstance(entry, dict):
+                continue
+            if is_existing_google_doc_registry_entry(entry) and (entry.get("doc_id") or extract_google_doc_id_from_url(entry.get("doc_link", ""))):
+                doc_id = entry.get("doc_id") or extract_google_doc_id_from_url(entry.get("doc_link", ""))
+                standard_check = entry.get("standard_check") or standard_check_from_structured_status(
+                    entry.get("structured_status", EXISTING_GOOGLE_DOC_STRUCTURED_UNSTRUCTURED),
+                    entry.get("updated_at") or updated_at,
+                )
+                v2["documents"][doc_id] = build_manifest_v2_document_entry(
+                    {**entry, "id": doc_id, "name": entry.get("doc_name") or entry.get("source_name") or ""},
+                    standard_check=standard_check,
+                    output_folder_id=(entry.get("source_meta") or {}).get("folder_id", output_folder_id),
+                    output_folder_path=(entry.get("source_meta") or {}).get("folder_path", output_folder_path),
+                    recursive=(entry.get("source_meta") or {}).get("recursive_scan", recursive),
+                    updated_at=entry.get("updated_at") or updated_at,
+                    registration_mode=(entry.get("source_meta") or {}).get("registration_mode", "existing_google_doc_manifest_registration"),
+                )
+                counters["doc_registry_entries_migrated"] += 1
+            else:
+                source = normalize_manifest_source_entry(source_signature, entry, updated_at=entry.get("updated_at") or updated_at)
+                v2["sources"][source_signature] = source
+                counters["source_entries_migrated"] += 1
+
+    for doc in scanned_docs:
+        doc_id = doc.get("id") or doc.get("doc_id") or ""
+        if not doc_id:
+            continue
+        prior_signatures = (v2.get("documents", {}).get(doc_id) or {}).get("source_signatures") or []
+        v2["documents"][doc_id] = build_manifest_v2_document_entry(
+            doc,
+            standard_check=standard_checks_by_doc_id.get(doc_id) or standard_check_from_structured_status(
+                EXISTING_GOOGLE_DOC_STRUCTURED_UNREADABLE, updated_at
+            ),
+            output_folder_id=output_folder_id,
+            output_folder_path=output_folder_path,
+            recursive=recursive,
+            updated_at=updated_at,
+            source_signatures=prior_signatures,
+            registration_mode="manifest_v2_migration",
+        )
+
+    for source_signature in list(v2.get("sources", {}).keys()):
+        link_manifest_v2_source_to_document(v2, source_signature)
+    refresh_manifest_v2_summary(v2)
+    return v2, counters
+
+
+def create_manifest_backup(manifest: dict, timestamp: str) -> dict:
+    _, active_file_id = get_or_create_manifest_file()
+    state_folder_id, manifest_folder_id = get_or_create_state_folders()
+    archive_folder = get_or_create_folder_in_parent(manifest_folder_id, MANIFEST_BACKUP_FOLDER_NAME)
+    backup_name = f"elevenlabs_transcription_manifest.backup.{timestamp}.json"
+    raw_manifest = read_manifest_file_raw_by_id(active_file_id)
+    if not raw_manifest.strip():
+        raw_manifest = json.dumps(manifest, ensure_ascii=False, indent=2)
+    media = MediaInMemoryUpload(
+        raw_manifest.encode("utf-8"),
+        mimetype="application/json",
+        resumable=False,
+    )
+    created = execute_google_request_with_retry(
+        drive_service.files().create(
+            body={"name": backup_name, "parents": [archive_folder["id"]], "mimeType": "application/json"},
+            media_body=media,
+            fields="id, name",
+            supportsAllDrives=True,
+        ),
+        operation_label="drive_file_create",
+    )
+    return {"folder_id": archive_folder["id"], "file_id": created.get("id"), "name": backup_name}
+
+
+def write_active_manifest_v2(manifest_v2: dict) -> None:
+    _, file_id = get_or_create_manifest_file()
+    media = MediaInMemoryUpload(
+        json.dumps(manifest_v2, ensure_ascii=False, indent=2).encode("utf-8"),
+        mimetype="application/json",
+        resumable=False,
+    )
+    execute_google_request_with_retry(
+        drive_service.files().update(
+            fileId=file_id,
+            media_body=media,
+            supportsAllDrives=True,
+        ),
+        operation_label="drive_file_update",
+    )
+    MANIFEST_CACHE["data"] = manifest_v2
+
+
+def standardize_manifest_to_v2_for_existing_google_docs(
+    output_folder_id: str,
+    output_folder_path: str = "",
+    recursive: bool = False,
+    dry_run: bool = True,
+    max_folders: int = DOCS_ONLY_STANDARDIZATION_DEFAULT_MAX_FOLDERS_SCANNED,
+    max_docs: int = DOCS_ONLY_STANDARDIZATION_DEFAULT_MAX_GOOGLE_DOCS_SCANNED,
+) -> dict:
+    docs, scan = collect_existing_google_docs_for_standardization(
+        output_folder_id,
+        recursive=recursive,
+        max_folders_scanned=max_folders,
+        max_google_docs_scanned=max_docs,
+    )
+    manifest = load_manifest_read_only() if dry_run else load_manifest()
+    checked_at = utc_now_iso()
+    standard_checks_by_doc_id = {}
+    errors = [
+        {"doc_name": "Сканирование папки", "link": "", "reason": reason}
+        for reason in scan["errors"]
+    ]
+
+    for doc in docs:
+        try:
+            text = extract_google_doc_plain_text(doc["id"])
+            standard_checks_by_doc_id[doc["id"]] = build_transcript_standard_check(text, checked_at)
+        except Exception as exc:
+            errors.append({
+                "doc_name": doc.get("display_name", doc.get("name", "")),
+                "link": doc.get("webViewLink") or build_existing_google_doc_link(doc.get("id", "")),
+                "reason": str(exc),
+            })
+            standard_checks_by_doc_id[doc["id"]] = build_transcript_standard_check("", checked_at, unreadable=True)
+
+    manifest_v2, counters = build_manifest_v2_from_existing_manifest_and_docs(
+        manifest, docs, standard_checks_by_doc_id, output_folder_id, output_folder_path, recursive, checked_at
+    )
+    summary = manifest_v2["summary"]
+    backup_created = False
+    manifest_v2_written = False
+    backup_info = None
+
+    if not dry_run:
+        backup_info = create_manifest_backup(manifest, checked_at.replace(":", "-").replace("+", "Z"))
+        backup_created = True
+        write_active_manifest_v2(manifest_v2)
+        manifest_v2_written = True
+
+    report = {
+        "current_manifest_version": manifest.get("version", 1) if isinstance(manifest, dict) else 1,
+        "target_manifest_version": MANIFEST_V2_TARGET_VERSION,
+        "dry_run": dry_run,
+        "recursive": recursive,
+        "google_docs_scanned": len(docs),
+        "folders_seen": scan["folders_seen"],
+        "skipped_non_google_docs": scan["skipped_non_google_docs"],
+        "documents_total": summary["documents_total"],
+        "sources_total": summary["sources_total"],
+        "documents_with_sources": summary["documents_with_sources"],
+        "documents_without_sources": summary["documents_without_sources"],
+        "source_entries_migrated": counters["source_entries_migrated"],
+        "doc_registry_entries_migrated": counters["doc_registry_entries_migrated"],
+        "orphan_sources": summary["orphan_sources"],
+        "standard_check": summary["standard_check"],
+        "would_backup_manifest": bool(dry_run),
+        "backup_created": backup_created,
+        "backup": backup_info,
+        "would_write_manifest_v2": bool(dry_run),
+        "manifest_v2_written": manifest_v2_written,
+        "manifest_v2_preview": manifest_v2,
+        "errors": errors,
+        "notice": (
+            "Manifest v2 is a schema migration only: old source-based entries move to v2.sources, "
+            "Google Docs are represented in v2.documents, links are preserved by doc_id/doc_link, "
+            "and transcript document standard state is stored only as replaceable standard_check observations. "
+            "Google Docs content is unchanged and provider/STT/LLM APIs are not called."
+        ),
+    }
+    return report
+
+
 def is_existing_google_doc_registry_entry(entry: dict) -> bool:
     if not isinstance(entry, dict):
         return False
@@ -1310,7 +1750,8 @@ def find_manifest_entries_referencing_google_doc(manifest: dict, doc_id: str, do
         return []
 
     matches = []
-    for source_signature, entry in (manifest.get("entries") or {}).items():
+    source_entries = (manifest.get("sources") or {}) if is_manifest_v2(manifest) else (manifest.get("entries") or {})
+    for source_signature, entry in source_entries.items():
         if not isinstance(entry, dict) or is_existing_google_doc_registry_entry(entry):
             continue
 
@@ -1366,6 +1807,69 @@ def build_existing_google_doc_manifest_entry(
     }
 
 
+
+def build_existing_google_doc_manifest_document_entry(
+    doc: dict,
+    structured_status: str,
+    output_folder_id: str,
+    output_folder_path: str = "",
+    recursive: bool = False,
+    updated_at: Optional[str] = None,
+    existing_doc: Optional[dict] = None,
+) -> dict:
+    updated_at = updated_at or utc_now_iso()
+    existing_source_meta = (existing_doc or {}).get("source_meta") or {}
+    registration_mode = existing_source_meta.get("registration_mode", EXISTING_GOOGLE_DOC_REGISTRATION_MODE)
+    return build_manifest_v2_document_entry(
+        doc=doc,
+        standard_check=standard_check_from_structured_status(structured_status, updated_at),
+        output_folder_id=output_folder_id,
+        output_folder_path=output_folder_path,
+        recursive=recursive,
+        updated_at=updated_at,
+        source_signatures=(existing_doc or {}).get("source_signatures") or [],
+        registration_mode=registration_mode,
+    )
+
+
+def comparable_standard_check_observation(standard_check: Optional[dict]) -> dict:
+    standard_check = standard_check or {}
+    return {
+        "target_standard": standard_check.get("target_standard", ""),
+        "detected_standard": standard_check.get("detected_standard", ""),
+        "status": standard_check.get("status", ""),
+        "checker_version": standard_check.get("checker_version", ""),
+    }
+
+
+def comparable_manifest_source_meta(source_meta: Optional[dict]) -> dict:
+    return {
+        key: value for key, value in (source_meta or {}).items()
+        if key != "checked_at"
+    }
+
+
+def existing_google_doc_manifest_document_needs_update(existing_doc: Optional[dict], desired_doc: dict) -> bool:
+    if not existing_doc:
+        return False
+
+    compared_fields = (
+        "doc_id",
+        "doc_name",
+        "doc_link",
+        "doc_path",
+        "doc_mime_type",
+        "document_type",
+        "registration_status",
+    )
+    if any(existing_doc.get(field) != desired_doc.get(field) for field in compared_fields):
+        return True
+
+    if comparable_manifest_source_meta(existing_doc.get("source_meta")) != comparable_manifest_source_meta(desired_doc.get("source_meta")):
+        return True
+
+    return comparable_standard_check_observation(existing_doc.get("standard_check")) != comparable_standard_check_observation(desired_doc.get("standard_check"))
+
 def existing_google_doc_manifest_entry_needs_update(existing_entry: Optional[dict], desired_entry: dict) -> bool:
     if not existing_entry:
         return False
@@ -1389,6 +1893,44 @@ def existing_google_doc_manifest_entry_needs_update(existing_entry: Optional[dic
 
 
 def upsert_existing_google_doc_manifest_entry(manifest: dict, source_signature: str, desired_entry: dict) -> None:
+    if is_manifest_v2(manifest):
+        doc_id = desired_entry.get("doc_id") or extract_google_doc_id_from_url(desired_entry.get("doc_link", ""))
+        if not doc_id:
+            return
+        existing_doc = (manifest.get("documents") or {}).get(doc_id) or {}
+        if desired_entry.get("document_type") == "google_doc_transcript" or "standard_check" in desired_entry:
+            doc_entry = dict(existing_doc)
+            doc_entry.update(desired_entry)
+            doc_entry["source_signatures"] = sorted(set(
+                (existing_doc.get("source_signatures") or []) + (desired_entry.get("source_signatures") or [])
+            ))
+        else:
+            standard_check = desired_entry.get("standard_check") or standard_check_from_structured_status(
+                desired_entry.get("structured_status", EXISTING_GOOGLE_DOC_STRUCTURED_UNSTRUCTURED),
+                desired_entry.get("updated_at") or utc_now_iso(),
+            )
+            doc_entry = build_manifest_v2_document_entry(
+                {
+                    **existing_doc,
+                    "id": doc_id,
+                    "name": desired_entry.get("doc_name", existing_doc.get("doc_name", "")),
+                    "display_name": desired_entry.get("doc_path", existing_doc.get("doc_path", "")),
+                    "webViewLink": desired_entry.get("doc_link", existing_doc.get("doc_link", "")),
+                    "mimeType": desired_entry.get("doc_mime_type", existing_doc.get("doc_mime_type", DOC_MIME)),
+                    "source_meta": desired_entry.get("source_meta", existing_doc.get("source_meta", {})),
+                },
+                standard_check=standard_check,
+                output_folder_id=(desired_entry.get("source_meta") or {}).get("folder_id", ""),
+                output_folder_path=(desired_entry.get("source_meta") or {}).get("folder_path", ""),
+                recursive=(desired_entry.get("source_meta") or {}).get("recursive_scan", False),
+                updated_at=desired_entry.get("updated_at") or utc_now_iso(),
+                source_signatures=existing_doc.get("source_signatures") or [],
+                registration_mode=(desired_entry.get("source_meta") or {}).get("registration_mode", EXISTING_GOOGLE_DOC_REGISTRATION_MODE),
+            )
+        manifest.setdefault("documents", {})[doc_id] = doc_entry
+        refresh_manifest_v2_summary(manifest)
+        return
+
     existing_entry = get_manifest_entry(manifest, source_signature) or {}
     updated_entry = dict(existing_entry)
     updated_entry.update(desired_entry)
@@ -1503,6 +2045,7 @@ def register_existing_google_docs_in_manifest(
             structured_status = EXISTING_GOOGLE_DOC_STRUCTURED_UNSTRUCTURED
         report[structured_status] += 1
 
+        existing_entry = (manifest.get("documents") or {}).get(doc["id"]) if is_manifest_v2(manifest) else get_manifest_entry(manifest, source_signature)
         desired_entry = build_existing_google_doc_manifest_entry(
             doc=doc,
             source_signature=source_signature,
@@ -1511,19 +2054,36 @@ def register_existing_google_docs_in_manifest(
             output_folder_path=output_folder_path,
             recursive=recursive,
         )
+        desired_manifest_record = (
+            build_existing_google_doc_manifest_document_entry(
+                doc=doc,
+                structured_status=structured_status,
+                output_folder_id=output_folder_id,
+                output_folder_path=output_folder_path,
+                recursive=recursive,
+                updated_at=desired_entry["updated_at"],
+                existing_doc=existing_entry,
+            )
+            if is_manifest_v2(manifest)
+            else desired_entry
+        )
         result_item = {
             **base_item,
             "structured_status": structured_status,
         }
-        existing_entry = get_manifest_entry(manifest, source_signature)
         if existing_entry:
-            if existing_google_doc_manifest_entry_needs_update(existing_entry, desired_entry):
+            needs_update = (
+                existing_google_doc_manifest_document_needs_update(existing_entry, desired_manifest_record)
+                if is_manifest_v2(manifest)
+                else existing_google_doc_manifest_entry_needs_update(existing_entry, desired_manifest_record)
+            )
+            if needs_update:
                 if dry_run:
                     report["would_update"].append(result_item)
                     if source_linked_match_count:
                         report["would_update_with_source_linked_match"].append(result_item)
                 else:
-                    upsert_existing_google_doc_manifest_entry(manifest, source_signature, desired_entry)
+                    upsert_existing_google_doc_manifest_entry(manifest, source_signature, desired_manifest_record)
                     report["updated"].append(result_item)
                     changed = True
             else:
@@ -1538,7 +2098,7 @@ def register_existing_google_docs_in_manifest(
                 else:
                     report["would_register_without_source_linked_match"].append(result_item)
             else:
-                upsert_existing_google_doc_manifest_entry(manifest, source_signature, desired_entry)
+                upsert_existing_google_doc_manifest_entry(manifest, source_signature, desired_manifest_record)
                 report["registered"].append(result_item)
                 changed = True
 
@@ -4644,7 +5204,30 @@ register_existing_docs_manifest_help_widget = widgets.HTML(
     "<div style='margin-top:6px; color:#5f6368;'>"
     "Сканирует выбранную папку назначения Google Docs; исходные аудио/видео игнорируются. "
     "Повторная транскрибация не выполняется, содержимое Google Docs не меняется. "
-    "Dry-run включен по умолчанию; apply записывает/обновляет только entries в manifest."
+    "Dry-run включен по умолчанию; apply записывает/обновляет manifest с учётом активной версии схемы."
+    "</div>"
+)
+
+standardize_manifest_v2_dry_run_widget = widgets.Checkbox(
+    value=True,
+    description="Только проверить manifest v2, не изменять",
+    indent=False,
+    layout=widgets.Layout(width="460px")
+)
+
+standardize_manifest_v2_button = widgets.Button(
+    description="Проверить / мигрировать manifest к v2",
+    icon="sitemap",
+    layout=widgets.Layout(width="420px")
+)
+
+standardize_manifest_v2_help_widget = widgets.HTML(
+    "<div style='margin-top:6px; color:#5f6368;'>"
+    "Сканирует выбранную destination/output папку Google Docs и строит чистый manifest v2, "
+    "где Google Docs лежат в documents, а источники — в sources. Версия схемы manifest "
+    "независима от версии стандарта документа транскрипта; standard_check — заменяемое наблюдение. "
+    "Dry-run read-only; apply создаёт backup старого manifest и записывает активный v2. "
+    "Содержимое Google Docs не меняется, STT/LLM/provider API не вызываются."
     "</div>"
 )
 
@@ -4668,6 +5251,7 @@ check_output_widget = widgets.Output()
 import_output_widget = widgets.Output()
 standardize_existing_docs_output_widget = widgets.Output()
 register_existing_docs_manifest_output_widget = widgets.Output()
+standardize_manifest_v2_output_widget = widgets.Output()
 output_widget = widgets.Output()
 
 standardize_existing_docs_section_widget = widgets.VBox([
@@ -4698,6 +5282,18 @@ standardize_existing_docs_section_widget = widgets.VBox([
     register_existing_docs_manifest_button,
     register_existing_docs_manifest_help_widget,
     register_existing_docs_manifest_output_widget,
+    widgets.HTML(
+        "<hr style='border:none; border-top:1px solid #dadce0; margin:12px 0;'>"
+        "<h4 style='margin:0 0 8px 0;'>Стандартизация manifest</h4>"
+        "<div style='color:#3c4043;'>"
+        "Схема manifest v2 разделяет документы Google Docs и записи источников, "
+        "не меняя содержимое документов."
+        "</div>"
+    ),
+    standardize_manifest_v2_dry_run_widget,
+    standardize_manifest_v2_button,
+    standardize_manifest_v2_help_widget,
+    standardize_manifest_v2_output_widget,
 ])
 
 folder_picker_ui = widgets.VBox(folder_picker_core_widgets + [standardize_existing_docs_section_widget])
@@ -5078,6 +5674,63 @@ def on_register_existing_docs_manifest_clicked(_):
             register_existing_docs_manifest_button.disabled = False
 
 
+def print_standardize_manifest_v2_report(report: dict):
+    print("====================")
+    print("СТАНДАРТИЗАЦИЯ MANIFEST К V2")
+    print("====================")
+    print(report.get("notice", ""))
+    print("Manifest v2 is a schema migration only; old source-based entries are moved into v2.sources and are not lost.")
+    print("Google Docs are represented under v2.documents; source/document links are preserved when doc_id/doc_link allows it.")
+    print("Transcript document standard state is stored as standard_check observation; future standard changes should update standard_check, not require manifest schema migration.")
+    print("Google Docs content is unchanged; STT/LLM/provider APIs are not called.")
+    print(f"current_manifest_version: {report.get('current_manifest_version')}")
+    print(f"target_manifest_version: {report.get('target_manifest_version')}")
+    print(f"dry_run: {report.get('dry_run')}")
+    print(f"google_docs_scanned: {report.get('google_docs_scanned')}")
+    print(f"folders_seen: {report.get('folders_seen')}")
+    print(f"skipped_non_google_docs: {report.get('skipped_non_google_docs')}")
+    print(f"documents_total: {report.get('documents_total')}")
+    print(f"sources_total: {report.get('sources_total')}")
+    print(f"documents_with_sources: {report.get('documents_with_sources')}")
+    print(f"documents_without_sources: {report.get('documents_without_sources')}")
+    print(f"source_entries_migrated: {report.get('source_entries_migrated')}")
+    print(f"doc_registry_entries_migrated: {report.get('doc_registry_entries_migrated')}")
+    print(f"orphan_sources: {report.get('orphan_sources')}")
+    standard_check = report.get("standard_check") or {}
+    print(f"standard_check.target_standard: {standard_check.get('target_standard')}")
+    print(f"standard_check.current: {standard_check.get('current')}")
+    print(f"standard_check.outdated: {standard_check.get('outdated')}")
+    print(f"standard_check.unstructured: {standard_check.get('unstructured')}")
+    print(f"standard_check.unreadable: {standard_check.get('unreadable')}")
+    print(f"would_backup_manifest: {report.get('would_backup_manifest')}")
+    print(f"backup_created: {report.get('backup_created')}")
+    print(f"would_write_manifest_v2: {report.get('would_write_manifest_v2')}")
+    print(f"manifest_v2_written: {report.get('manifest_v2_written')}")
+    print(f"errors: {len(report.get('errors') or [])}")
+    for item in (report.get("errors") or [])[:20]:
+        print(f"- {item.get('doc_name', '')}: {item.get('reason', '')}")
+
+
+def on_standardize_manifest_v2_clicked(_):
+    standardize_manifest_v2_button.disabled = True
+    with standardize_manifest_v2_output_widget:
+        clear_output()
+        try:
+            if not folder_picker_state["selected_id"]:
+                raise ValueError("Сначала выбери папку назначения в блоке выше и нажми 'Выбрать текущую папку'.")
+            report = standardize_manifest_to_v2_for_existing_google_docs(
+                output_folder_id=folder_picker_state["selected_id"],
+                output_folder_path=folder_picker_state.get("selected_path", ""),
+                recursive=standardize_existing_docs_recursive_widget.value,
+                dry_run=standardize_manifest_v2_dry_run_widget.value,
+            )
+            print_standardize_manifest_v2_report(report)
+        except Exception as e:
+            print(f"Ошибка проверки / миграции manifest к v2: {e}")
+        finally:
+            standardize_manifest_v2_button.disabled = False
+
+
 def collect_runtime_options_from_ui() -> TranscriptionRuntimeOptions:
     return TranscriptionRuntimeOptions(
         provider=provider_widget.value,
@@ -5436,6 +6089,7 @@ check_source_button.on_click(on_check_source_clicked)
 import_existing_button.on_click(on_import_existing_clicked)
 standardize_existing_docs_button.on_click(on_standardize_existing_docs_clicked)
 register_existing_docs_manifest_button.on_click(on_register_existing_docs_manifest_clicked)
+standardize_manifest_v2_button.on_click(on_standardize_manifest_v2_clicked)
 start_button.on_click(on_start_clicked)
 
 advanced_box = widgets.VBox([
