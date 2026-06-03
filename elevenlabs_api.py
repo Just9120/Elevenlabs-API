@@ -1609,6 +1609,35 @@ def build_manifest_v2_from_existing_manifest_and_docs(
     return v2, counters
 
 
+def comparable_manifest_v2_for_material_change(manifest: dict) -> dict:
+    """Return manifest v2 data with volatile observation timestamps removed."""
+
+    if not isinstance(manifest, dict):
+        return {}
+
+    comparable = json.loads(json.dumps(manifest, ensure_ascii=False))
+    comparable.pop("updated_at", None)
+    comparable.pop("entries", None)
+
+    for doc in (comparable.get("documents") or {}).values():
+        if not isinstance(doc, dict):
+            continue
+        doc.pop("updated_at", None)
+        standard_check = doc.get("standard_check")
+        if isinstance(standard_check, dict):
+            standard_check.pop("checked_at", None)
+
+    return comparable
+
+
+def manifest_v2_material_changes_needed(current_manifest: dict, target_manifest_v2: dict) -> bool:
+    if not is_manifest_v2(current_manifest):
+        return True
+    if isinstance(current_manifest, dict) and "entries" in current_manifest:
+        return True
+    return comparable_manifest_v2_for_material_change(current_manifest) != comparable_manifest_v2_for_material_change(target_manifest_v2)
+
+
 def create_manifest_backup(manifest: dict, timestamp: str) -> dict:
     _, active_file_id = get_or_create_manifest_file()
     state_folder_id, manifest_folder_id = get_or_create_state_folders()
@@ -1690,18 +1719,28 @@ def standardize_manifest_to_v2_for_existing_google_docs(
         manifest, docs, standard_checks_by_doc_id, output_folder_id, output_folder_path, recursive, checked_at
     )
     summary = manifest_v2["summary"]
+    current_manifest_version = manifest.get("version", 1) if isinstance(manifest, dict) else 1
+    needs_migration = current_manifest_version != MANIFEST_V2_TARGET_VERSION
+    material_changes_needed = manifest_v2_material_changes_needed(manifest, manifest_v2)
     backup_created = False
     manifest_v2_written = False
     backup_info = None
 
-    if not dry_run:
-        backup_info = create_manifest_backup(manifest, checked_at.replace(":", "-").replace("+", "Z"))
-        backup_created = True
+    if not dry_run and material_changes_needed:
+        if needs_migration:
+            backup_info = create_manifest_backup(manifest, checked_at.replace(":", "-").replace("+", "Z"))
+            backup_created = True
         write_active_manifest_v2(manifest_v2)
         manifest_v2_written = True
 
+    action_notice = (
+        "Manifest will be migrated to v2."
+        if needs_migration
+        else "Manifest is already v2; this action refreshes the v2 catalog and standard_check observations."
+    )
+
     report = {
-        "current_manifest_version": manifest.get("version", 1) if isinstance(manifest, dict) else 1,
+        "current_manifest_version": current_manifest_version,
         "target_manifest_version": MANIFEST_V2_TARGET_VERSION,
         "dry_run": dry_run,
         "recursive": recursive,
@@ -1716,16 +1755,18 @@ def standardize_manifest_to_v2_for_existing_google_docs(
         "doc_registry_entries_migrated": counters["doc_registry_entries_migrated"],
         "orphan_sources": summary["orphan_sources"],
         "standard_check": summary["standard_check"],
-        "would_backup_manifest": bool(dry_run),
+        "would_backup_manifest": bool(dry_run and needs_migration and material_changes_needed),
         "backup_created": backup_created,
         "backup": backup_info,
-        "would_write_manifest_v2": bool(dry_run),
+        "would_refresh_manifest_v2": bool(dry_run and not needs_migration and material_changes_needed),
+        "manifest_v2_up_to_date": bool(not material_changes_needed),
+        "would_write_manifest_v2": bool(dry_run and material_changes_needed),
         "manifest_v2_written": manifest_v2_written,
         "manifest_v2_preview": manifest_v2,
         "errors": errors,
         "notice": (
-            "Manifest v2 is a schema migration only: old source-based entries move to v2.sources, "
-            "Google Docs are represented in v2.documents, links are preserved by doc_id/doc_link, "
+            f"{action_notice} "
+            "Google Docs are represented in v2.documents, source records stay in v2.sources, "
             "and transcript document standard state is stored only as replaceable standard_check observations. "
             "Google Docs content is unchanged and provider/STT/LLM APIs are not called."
         ),
@@ -5187,46 +5228,24 @@ standardize_existing_docs_button = widgets.Button(
     layout=widgets.Layout(width="420px")
 )
 
-register_existing_docs_manifest_dry_run_widget = widgets.Checkbox(
-    value=True,
-    description="Только проверить manifest, не изменять",
-    indent=False,
-    layout=widgets.Layout(width="420px")
-)
-
-register_existing_docs_manifest_button = widgets.Button(
-    description="Проверить / зарегистрировать существующие Google Docs в manifest",
-    icon="database",
-    layout=widgets.Layout(width="560px")
-)
-
-register_existing_docs_manifest_help_widget = widgets.HTML(
-    "<div style='margin-top:6px; color:#5f6368;'>"
-    "Сканирует выбранную папку назначения Google Docs; исходные аудио/видео игнорируются. "
-    "Повторная транскрибация не выполняется, содержимое Google Docs не меняется. "
-    "Dry-run включен по умолчанию; apply записывает/обновляет manifest с учётом активной версии схемы."
-    "</div>"
-)
-
 standardize_manifest_v2_dry_run_widget = widgets.Checkbox(
     value=True,
-    description="Только проверить manifest v2, не изменять",
+    description="Только проверить manifest, не изменять",
     indent=False,
     layout=widgets.Layout(width="460px")
 )
 
 standardize_manifest_v2_button = widgets.Button(
-    description="Проверить / мигрировать manifest к v2",
+    description="Проверить / обновить manifest",
     icon="sitemap",
     layout=widgets.Layout(width="420px")
 )
 
 standardize_manifest_v2_help_widget = widgets.HTML(
     "<div style='margin-top:6px; color:#5f6368;'>"
-    "Сканирует выбранную destination/output папку Google Docs и строит чистый manifest v2, "
-    "где Google Docs лежат в documents, а источники — в sources. Версия схемы manifest "
-    "независима от версии стандарта документа транскрипта; standard_check — заменяемое наблюдение. "
-    "Dry-run read-only; apply создаёт backup старого manifest и записывает активный v2. "
+    "Сканирует выбранную папку назначения Google Docs и поддерживает manifest в v2-формате. "
+    "Если manifest ещё v1, apply создаёт backup и мигрирует к v2. "
+    "Если manifest уже v2, apply обновляет каталог documents/sources и standard_check. "
     "Содержимое Google Docs не меняется, STT/LLM/provider API не вызываются."
     "</div>"
 )
@@ -5250,7 +5269,6 @@ help_widget = widgets.HTML()
 check_output_widget = widgets.Output()
 import_output_widget = widgets.Output()
 standardize_existing_docs_output_widget = widgets.Output()
-register_existing_docs_manifest_output_widget = widgets.Output()
 standardize_manifest_v2_output_widget = widgets.Output()
 output_widget = widgets.Output()
 
@@ -5272,22 +5290,10 @@ standardize_existing_docs_section_widget = widgets.VBox([
     standardize_existing_docs_output_widget,
     widgets.HTML(
         "<hr style='border:none; border-top:1px solid #dadce0; margin:12px 0;'>"
-        "<h4 style='margin:0 0 8px 0;'>Регистрация существующих Google Docs в manifest</h4>"
+        "<h4 style='margin:0 0 8px 0;'>Manifest</h4>"
         "<div style='color:#3c4043;'>"
-        "Отдельный docs-only flow: сканирует ту же <b>выбранную папку назначения</b>, "
-        "классифицирует найденные Google Docs и при apply меняет только manifest."
-        "</div>"
-    ),
-    register_existing_docs_manifest_dry_run_widget,
-    register_existing_docs_manifest_button,
-    register_existing_docs_manifest_help_widget,
-    register_existing_docs_manifest_output_widget,
-    widgets.HTML(
-        "<hr style='border:none; border-top:1px solid #dadce0; margin:12px 0;'>"
-        "<h4 style='margin:0 0 8px 0;'>Стандартизация manifest</h4>"
-        "<div style='color:#3c4043;'>"
-        "Схема manifest v2 разделяет документы Google Docs и записи источников, "
-        "не меняя содержимое документов."
+        "Один v2-aware flow сканирует ту же <b>выбранную папку назначения</b>, "
+        "поддерживает разделённые documents/sources и не меняет содержимое документов."
         "</div>"
     ),
     standardize_manifest_v2_dry_run_widget,
@@ -5651,36 +5657,17 @@ def print_register_existing_docs_manifest_report(report: dict):
             print(f"... ещё {len(items) - 20}")
 
 
-def on_register_existing_docs_manifest_clicked(_):
-    register_existing_docs_manifest_button.disabled = True
-    with register_existing_docs_manifest_output_widget:
-        clear_output()
-
-        try:
-            if not folder_picker_state["selected_id"]:
-                raise ValueError("Сначала выбери папку назначения в блоке выше и нажми 'Выбрать текущую папку'.")
-
-            report = register_existing_google_docs_in_manifest(
-                output_folder_id=folder_picker_state["selected_id"],
-                output_folder_path=folder_picker_state.get("selected_path", ""),
-                recursive=standardize_existing_docs_recursive_widget.value,
-                dry_run=register_existing_docs_manifest_dry_run_widget.value,
-            )
-            print_register_existing_docs_manifest_report(report)
-
-        except Exception as e:
-            print(f"Ошибка проверки / регистрации Google Docs в manifest: {e}")
-        finally:
-            register_existing_docs_manifest_button.disabled = False
-
-
 def print_standardize_manifest_v2_report(report: dict):
     print("====================")
-    print("СТАНДАРТИЗАЦИЯ MANIFEST К V2")
+    print("MANIFEST")
     print("====================")
     print(report.get("notice", ""))
-    print("Manifest v2 is a schema migration only; old source-based entries are moved into v2.sources and are not lost.")
-    print("Google Docs are represented under v2.documents; source/document links are preserved when doc_id/doc_link allows it.")
+    current_version = report.get("current_manifest_version")
+    if current_version != report.get("target_manifest_version"):
+        print("Manifest will be migrated to v2.")
+    else:
+        print("Manifest is already v2; this action refreshes the v2 catalog and standard_check observations.")
+    print("Google Docs are represented under v2.documents; source records stay under v2.sources.")
     print("Transcript document standard state is stored as standard_check observation; future standard changes should update standard_check, not require manifest schema migration.")
     print("Google Docs content is unchanged; STT/LLM/provider APIs are not called.")
     print(f"current_manifest_version: {report.get('current_manifest_version')}")
@@ -5704,6 +5691,8 @@ def print_standardize_manifest_v2_report(report: dict):
     print(f"standard_check.unreadable: {standard_check.get('unreadable')}")
     print(f"would_backup_manifest: {report.get('would_backup_manifest')}")
     print(f"backup_created: {report.get('backup_created')}")
+    print(f"would_refresh_manifest_v2: {report.get('would_refresh_manifest_v2')}")
+    print(f"manifest_v2_up_to_date: {report.get('manifest_v2_up_to_date')}")
     print(f"would_write_manifest_v2: {report.get('would_write_manifest_v2')}")
     print(f"manifest_v2_written: {report.get('manifest_v2_written')}")
     print(f"errors: {len(report.get('errors') or [])}")
@@ -5726,7 +5715,7 @@ def on_standardize_manifest_v2_clicked(_):
             )
             print_standardize_manifest_v2_report(report)
         except Exception as e:
-            print(f"Ошибка проверки / миграции manifest к v2: {e}")
+            print(f"Ошибка проверки / обновления manifest: {e}")
         finally:
             standardize_manifest_v2_button.disabled = False
 
@@ -6088,7 +6077,6 @@ def on_start_clicked(_):
 check_source_button.on_click(on_check_source_clicked)
 import_existing_button.on_click(on_import_existing_clicked)
 standardize_existing_docs_button.on_click(on_standardize_existing_docs_clicked)
-register_existing_docs_manifest_button.on_click(on_register_existing_docs_manifest_clicked)
 standardize_manifest_v2_button.on_click(on_standardize_manifest_v2_clicked)
 start_button.on_click(on_start_clicked)
 
