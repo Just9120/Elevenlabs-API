@@ -128,7 +128,7 @@ Behavior:
 - apply mode is explicit and rewrites selected Google Docs in place;
 - recommended operational practice: apply on small folders first, review the result, then proceed to larger folders.
 
-Docs-only metadata is intentionally conservative: `Provider`, `Model`, `Language`, and `Speakers` may be `unknown`; `Created at` is the standardization timestamp; source filename/mode are not added to visible metadata.
+Existing Google Docs backfill, including refresh of already-current-shaped old backfill Docs that still contain `unknown` defaults or full-ISO visible timestamps, uses temporary known defaults for historical transcript Docs produced through ElevenLabs: `Provider: ElevenLabs`, `Model: scribe_v2`, `Language: Русский`, and `Speakers: unknown`. Speakers are not inferred automatically. `Created at` is preserved from existing visible transcript metadata when present, otherwise it falls back to Google Drive `createdTime`, and otherwise becomes `unknown`; it must not mean the standardization time. The visible backfill timestamp format is `YYYY-MM-DD HH:MM UTC`, while internal manifest/check/report timestamps may remain full ISO. Source filename/mode are not added to visible metadata, and no new visible metadata fields such as `Standardized at` are added.
 
 ## Manifest v2
 

@@ -81,6 +81,8 @@ The following are not part of the current repository scope:
 
 - Use manifest skip behavior to avoid repeated source processing where manifest state indicates a source has already been processed with matching settings.
 - Provide docs-only standardization for existing Google Docs that scans a selected destination/output folder, optionally recurses into nested transcript folders, ignores source audio/video input, does not retranscribe, does not call STT/provider/LLM APIs, does not create new Google Docs, does not mutate manifest, defaults to dry-run, and rewrites selected Google Docs in place only in explicit apply mode.
+- Existing Google Docs backfill, including refresh of already-current-shaped old backfill Docs that still contain old `unknown` defaults or non-visible timestamp formatting, uses temporary known defaults for historical transcript Docs: `Provider: ElevenLabs`, `Model: scribe_v2`, `Language: Русский`, and `Speakers: unknown`. Speakers are not inferred automatically.
+- Existing Google Docs backfill preserves visible `Created at` from existing transcript metadata first, falls back to Google Drive `createdTime`, and otherwise uses `unknown`; `Created at` must not mean standardization time. Visible backfill timestamps use `YYYY-MM-DD HH:MM UTC`, while internal manifest/check timestamps may remain full ISO. No new visible metadata fields are added.
 - Maintain manifest v2 as a global workspace catalog with separate `documents`, `sources`, and `summary` sections.
 
 ## 7. Business rules
