@@ -1,7 +1,7 @@
 # Project Specification
 
 Status: Initial synchronized project spec.
-Source basis: current README, SECURITY, VALIDATION_MATRIX, current code behavior, and accepted PR state through manifest v2 / docs-only standardization work.
+Source basis: current README, SECURITY, VALIDATION_MATRIX, current code behavior, and accepted PR state through manifest / docs-only standardization work.
 
 ## 1. Product goal
 
@@ -20,7 +20,7 @@ Current supported scope is limited to the repository's Colab + Google Drive/Docs
 - Google Docs output as the primary transcript artifact.
 - Structured Google Docs transcript standard v1.2.
 - Existing Google Docs docs-only standardization.
-- Manifest v2 maintenance.
+- Manifest maintenance.
 - Runtime analytics JSONL as diagnostics.
 - CI-only GitHub Actions validation.
 
@@ -51,7 +51,7 @@ The following are not part of the current repository scope:
 - Transcribe one Google Drive file.
 - Transcribe a Google Drive folder.
 - Standardize existing Google Docs transcripts.
-- Update/refresh manifest v2.
+- Update/refresh manifest.
 - Runtime smoke-check after changes.
 
 ## 6. Functional requirements
@@ -83,7 +83,7 @@ The following are not part of the current repository scope:
 - Provide docs-only standardization for existing Google Docs that scans a selected destination/output folder, optionally recurses into nested transcript folders, ignores source audio/video input, does not retranscribe, does not call STT/provider/LLM APIs, does not create new Google Docs, does not mutate manifest, defaults to dry-run, and rewrites selected Google Docs in place only in explicit apply mode.
 - Existing Google Docs backfill, including refresh of already-current-shaped old backfill Docs that still contain old `unknown` defaults or non-visible timestamp formatting, uses temporary known defaults for historical transcript Docs: `Provider: ElevenLabs`, `Model: scribe_v2`, `Language: Русский`, and `Speakers: unknown`. Speakers are not inferred automatically.
 - Existing Google Docs backfill preserves visible `Created at` from existing transcript metadata first, falls back to Google Drive `createdTime`, and otherwise uses `unknown`; `Created at` must not mean standardization time. Visible backfill timestamps use `YYYY-MM-DD HH:MM UTC`, while internal manifest/check timestamps may remain full ISO. No new visible metadata fields are added.
-- Maintain manifest v2 as a global workspace catalog with separate `documents`, `sources`, and `summary` sections. Successful transcription completion must immediately mark `v2.sources` done, upsert the matching `v2.documents` record, link `source_signatures`, and refresh summary totals. Manifest maintenance is a reconciliation/refresh action, not the normal way new transcription Docs enter the document catalog.
+- Maintain manifest as a global workspace catalog with separate `documents`, `sources`, and `summary` sections. Successful transcription completion must immediately mark `sources` done, upsert the matching `documents` record, link `source_signatures`, and refresh summary totals. Manifest maintenance is a reconciliation/refresh action, not the normal way new transcription Docs enter the document catalog.
 
 ## 7. Business rules
 
@@ -100,10 +100,11 @@ The following are not part of the current repository scope:
 - The system of record for transcript content is Google Docs.
 - Operational metadata is stored in Google Drive manifest JSON at `VoiceOps Workspace/manifest/elevenlabs_transcription_manifest.json`.
 - Runtime diagnostics are stored as Google Drive analytics JSONL at `VoiceOps Workspace/analytics/elevenlabs_transcription_runs.jsonl`.
-- Manifest v2 separates `documents`, `sources`, and `summary`.
-- Manifest v2 documents are keyed by Google Doc ID.
-- Manifest v2 sources are keyed by `source_signature`.
-- Manifest v2 runtime source/document sync stores document metadata and standard status only; it must not store transcript body text or Google Docs body content.
+- Manifest separates `documents`, `sources`, and `summary` in the current internal schema.
+- Manifest documents are keyed by Google Doc ID.
+- Manifest sources are keyed by `source_signature`.
+- Manifest runtime source/document sync stores document metadata and standard status only; it must not store transcript body text or Google Docs body content.
+- User-facing UI/report/docs wording refers to this as manifest; internal schema version 2 remains a technical implementation detail.
 - `standard_check` is a replaceable observation, not the transcript body.
 - Manifest schema version is independent from transcript document standard version.
 - Manifest must not store transcript body text or Google Docs body content.
@@ -172,7 +173,7 @@ Current practical readiness means:
 - CI is green.
 - Structured Docs output is covered by tests.
 - Docs-only standardization dry-run/apply is validated cautiously on small folders before broad use.
-- Manifest v2 is runtime smoke-checked.
+- Manifest is runtime smoke-checked.
 - Further provider paths require scenario-specific E2E validation before stronger claims.
 
 ## 16. Open questions
