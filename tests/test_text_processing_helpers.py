@@ -31,6 +31,9 @@ HELPER_NAMES = {
     "resolve_existing_google_doc_created_at",
     "extract_existing_transcript_created_at",
     "format_visible_transcript_timestamp",
+    "existing_google_doc_backfill_metadata_needs_refresh",
+    "extract_structured_transcript_metadata_values",
+    "is_visible_transcript_timestamp",
     "is_structured_transcript_document_text",
     "normalize_doc_plain_text",
     "segment_plain_transcript_for_docs",
@@ -193,6 +196,7 @@ chunk_text_for_docs = HELPERS["chunk_text_for_docs"]
 extract_unstructured_transcript_body_for_backfill = HELPERS["extract_unstructured_transcript_body_for_backfill"]
 format_transcript_metadata_value = HELPERS["format_transcript_metadata_value"]
 format_visible_transcript_timestamp = HELPERS["format_visible_transcript_timestamp"]
+existing_google_doc_backfill_metadata_needs_refresh = HELPERS["existing_google_doc_backfill_metadata_needs_refresh"]
 extract_existing_transcript_created_at = HELPERS["extract_existing_transcript_created_at"]
 resolve_existing_google_doc_created_at = HELPERS["resolve_existing_google_doc_created_at"]
 get_existing_google_doc_created_at_source = HELPERS["get_existing_google_doc_created_at_source"]
@@ -305,7 +309,17 @@ def test_resolve_existing_google_doc_created_at_priority_and_no_now_fallback() -
         existing,
         {"createdTime": "2026-06-03T11:46:04Z"},
     ) == "2026-06-02 10:26 UTC"
+    assert resolve_existing_google_doc_created_at(
+        existing,
+        {"createdTime": "2026-06-03T11:46:04Z"},
+        prefer_drive_created_time_for_metadata_refresh=True,
+    ) == "2026-06-03 11:46 UTC"
     assert get_existing_google_doc_created_at_source(existing, {"createdTime": "2026-06-03T11:46:04Z"}) == "existing_metadata"
+    assert get_existing_google_doc_created_at_source(
+        existing,
+        {"createdTime": "2026-06-03T11:46:04Z"},
+        prefer_drive_created_time_for_metadata_refresh=True,
+    ) == "drive_createdTime"
     assert resolve_existing_google_doc_created_at("Call\n\nBody", {"createdTime": "2026-06-03T11:46:04Z"}) == "2026-06-03 11:46 UTC"
     assert get_existing_google_doc_created_at_source("Call\n\nBody", {"createdTime": "2026-06-03T11:46:04Z"}) == "drive_createdTime"
     assert resolve_existing_google_doc_created_at("Call\n\nBody", {}) == "unknown"
@@ -734,11 +748,11 @@ def test_docs_only_already_structured_docs_are_skipped() -> None:
         metadata_lines=build_transcript_metadata_lines(
             source_name="call.mp3",
             source_mode="Google Drive: 1 файл",
-            provider="unknown",
-            provider_model="unknown",
-            language="unknown",
+            provider="ElevenLabs",
+            provider_model="scribe_v2",
+            language="Русский",
             speakers_enabled=None,
-            created_at="2026-06-01T00:00:00+00:00",
+            created_at="2026-06-01 00:00 UTC",
         ),
     )
     writes = []
@@ -843,11 +857,11 @@ def test_docs_only_apply_rewrites_only_not_yet_structured_google_docs() -> None:
         metadata_lines=build_transcript_metadata_lines(
             source_name="not available",
             source_mode="existing_google_doc_standardization",
-            provider="unknown",
-            provider_model="unknown",
-            language="unknown",
+            provider="ElevenLabs",
+            provider_model="scribe_v2",
+            language="Русский",
             speakers_enabled=None,
-            created_at="2026-06-01T00:00:00+00:00",
+            created_at="2026-06-01 00:00 UTC",
         ),
     )
     texts = {"doc-1": "Todo\n\nHello world.", "doc-2": structured}
@@ -912,7 +926,114 @@ def test_docs_only_flow_does_not_call_provider_create_doc_or_manifest_helpers() 
     assert forbidden_calls == []
 
 
-def build_current_standard_document(title: str = "Call", body: str = "Hello world.") -> str:
+def test_current_shaped_old_backfill_metadata_needs_refresh() -> None:
+    document_text = build_old_backfill_current_standard_document(title="Old Backfill", body="Original body.")
+
+    assert is_structured_transcript_document_text(document_text)
+    assert existing_google_doc_backfill_metadata_needs_refresh(document_text)
+
+
+def test_docs_only_dry_run_refreshes_current_shaped_old_backfill_without_writing() -> None:
+    writes = []
+    document_text = build_old_backfill_current_standard_document(title="Old Backfill", body="Original body.")
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": "doc-1", "name": "Old Backfill", "mimeType": DOC_MIME, "createdTime": "2026-06-03T11:46:04Z"},
+    ]
+    HELPERS["extract_google_doc_plain_text"] = lambda document_id: document_text
+    HELPERS["write_title_and_text_to_doc"] = lambda **kwargs: writes.append(kwargs)
+
+    report = standardize_existing_google_docs_in_folder("root", dry_run=True)
+
+    assert report["would_standardize"] == [{
+        "doc_name": "Old Backfill",
+        "link": "",
+        "structured_status": "current_metadata_refresh",
+        "created_at_source": "drive_createdTime",
+        "metadata_defaults_source": "temporary_existing_docs_backfill_defaults",
+    }]
+    assert report["already_structured"] == []
+    assert writes == []
+
+
+def test_docs_only_apply_refreshes_current_shaped_old_backfill_and_prefers_drive_created_time() -> None:
+    body = "First line.\n\nSecond line stays exactly the same."
+    document_text = build_old_backfill_current_standard_document(title="Old Backfill", body=body)
+    writes = []
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {
+            "id": "doc-1",
+            "name": "Old Backfill",
+            "mimeType": DOC_MIME,
+            "createdTime": "2026-06-03T11:46:04Z",
+        },
+    ]
+    HELPERS["extract_google_doc_plain_text"] = lambda document_id: document_text
+    HELPERS["write_title_and_text_to_doc"] = lambda **kwargs: writes.append(kwargs)
+
+    report = standardize_existing_google_docs_in_folder("root", dry_run=False)
+
+    assert [item["structured_status"] for item in report["standardized"]] == ["current_metadata_refresh"]
+    assert len(writes) == 1
+    rewritten_text = writes[0]["transcript_text"]
+    assert "Provider: ElevenLabs" in rewritten_text
+    assert "Model: scribe_v2" in rewritten_text
+    assert "Language: Русский" in rewritten_text
+    assert "Speakers: unknown" in rewritten_text
+    assert "Created at: 2026-06-03 11:46 UTC" in rewritten_text
+    assert "Created at: 2026-06-01 00:00 UTC" not in rewritten_text
+    assert "Source file:" not in rewritten_text
+    assert "Source mode:" not in rewritten_text
+    assert "Standardized at:" not in rewritten_text
+    assert body in rewritten_text
+    assert is_structured_transcript_document_text(rewritten_text)
+
+
+def test_current_shaped_correct_backfill_and_openai_docs_are_already_current() -> None:
+    correct_backfill = build_structured_transcript_document_text(
+        document_title="Correct Backfill",
+        transcript_text="Backfill body.",
+        metadata_lines=build_transcript_metadata_lines(
+            source_name="ignored",
+            source_mode="ignored",
+            provider="ElevenLabs",
+            provider_model="scribe_v2",
+            language="Русский",
+            speakers_enabled=None,
+            created_at="2026-06-03 11:46 UTC",
+        ),
+    )
+    openai_doc = build_structured_transcript_document_text(
+        document_title="OpenAI Doc",
+        transcript_text="OpenAI body.",
+        metadata_lines=build_transcript_metadata_lines(
+            source_name="ignored",
+            source_mode="ignored",
+            provider="OpenAI",
+            provider_model="gpt-4o-transcribe",
+            language="Автоопределение",
+            speakers_enabled=False,
+            created_at="2026-06-03T11:46:04Z",
+        ),
+    )
+    texts = {"doc-1": correct_backfill, "doc-2": openai_doc}
+    writes = []
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": "doc-1", "name": "Correct Backfill", "mimeType": DOC_MIME},
+        {"id": "doc-2", "name": "OpenAI Doc", "mimeType": DOC_MIME},
+    ]
+    HELPERS["extract_google_doc_plain_text"] = lambda document_id: texts[document_id]
+    HELPERS["write_title_and_text_to_doc"] = lambda **kwargs: writes.append(kwargs)
+
+    report = standardize_existing_google_docs_in_folder("root", dry_run=False)
+
+    assert not existing_google_doc_backfill_metadata_needs_refresh(correct_backfill)
+    assert not existing_google_doc_backfill_metadata_needs_refresh(openai_doc)
+    assert report["would_standardize"] == []
+    assert report["standardized"] == []
+    assert [item["doc_name"] for item in report["already_structured"]] == ["Correct Backfill", "OpenAI Doc"]
+    assert writes == []
+
+def build_old_backfill_current_standard_document(title: str = "Call", body: str = "Hello world.") -> str:
     return build_structured_transcript_document_text(
         document_title=title,
         transcript_text=body,
@@ -924,6 +1045,22 @@ def build_current_standard_document(title: str = "Call", body: str = "Hello worl
             language="unknown",
             speakers_enabled=None,
             created_at="2026-06-01T00:00:00+00:00",
+        ),
+    )
+
+
+def build_current_standard_document(title: str = "Call", body: str = "Hello world.") -> str:
+    return build_structured_transcript_document_text(
+        document_title=title,
+        transcript_text=body,
+        metadata_lines=build_transcript_metadata_lines(
+            source_name="ignored.mp3",
+            source_mode="Google Drive: 1 файл",
+            provider="ElevenLabs",
+            provider_model="scribe_v2",
+            language="Русский",
+            speakers_enabled=None,
+            created_at="2026-06-01 00:00 UTC",
         ),
     )
 

@@ -1269,10 +1269,17 @@ def check_or_standardize_existing_google_docs(
                 "match_method": match_method,
             }
             if is_structured_transcript_document_text(existing_text):
-                report["already_structured"].append(result_item)
-                continue
+                if not existing_google_doc_backfill_metadata_needs_refresh(existing_text):
+                    report["already_structured"].append(result_item)
+                    continue
+                result_item["structured_status"] = "current_metadata_refresh"
 
-            result_item["created_at_source"] = get_existing_google_doc_created_at_source(existing_text, doc)
+            metadata_refresh_needed = existing_google_doc_backfill_metadata_needs_refresh(existing_text)
+            result_item["created_at_source"] = get_existing_google_doc_created_at_source(
+                existing_text,
+                doc,
+                prefer_drive_created_time_for_metadata_refresh=metadata_refresh_needed,
+            )
             result_item["metadata_defaults_source"] = EXISTING_DOCS_BACKFILL_METADATA_DEFAULTS_SOURCE
             if dry_run:
                 report["would_standardize"].append(result_item)
@@ -1283,7 +1290,11 @@ def check_or_standardize_existing_google_docs(
                 source_name=item["source_name"],
                 source_mode=source_mode_label,
                 existing_document_text=existing_text,
-                created_at=resolve_existing_google_doc_created_at(existing_text, doc),
+                created_at=resolve_existing_google_doc_created_at(
+                    existing_text,
+                    doc,
+                    prefer_drive_created_time_for_metadata_refresh=metadata_refresh_needed,
+                ),
             )
             write_title_and_text_to_doc(
                 document_id=doc["id"],
@@ -2316,19 +2327,27 @@ def standardize_existing_google_docs_in_folder(
             existing_text = extract_google_doc_plain_text(doc["id"])
             structured_status = classify_existing_google_doc_transcript_standard(existing_text)
             if structured_status == EXISTING_GOOGLE_DOC_STRUCTURED_CURRENT:
-                result_item["structured_status"] = "current"
-                report["current_standard"] += 1
-                report["already_structured"].append(result_item)
-                continue
+                if not existing_google_doc_backfill_metadata_needs_refresh(existing_text):
+                    result_item["structured_status"] = "current"
+                    report["current_standard"] += 1
+                    report["already_structured"].append(result_item)
+                    continue
+                result_item["structured_status"] = "current_metadata_refresh"
+                report["outdated_standard"] += 1
 
-            if structured_status == EXISTING_GOOGLE_DOC_STRUCTURED_OUTDATED:
+            elif structured_status == EXISTING_GOOGLE_DOC_STRUCTURED_OUTDATED:
                 result_item["structured_status"] = "outdated"
                 report["outdated_standard"] += 1
             else:
                 result_item["structured_status"] = "unstructured"
                 report["unstructured"] += 1
 
-            result_item["created_at_source"] = get_existing_google_doc_created_at_source(existing_text, doc)
+            metadata_refresh_needed = existing_google_doc_backfill_metadata_needs_refresh(existing_text)
+            result_item["created_at_source"] = get_existing_google_doc_created_at_source(
+                existing_text,
+                doc,
+                prefer_drive_created_time_for_metadata_refresh=metadata_refresh_needed,
+            )
             result_item["metadata_defaults_source"] = EXISTING_DOCS_BACKFILL_METADATA_DEFAULTS_SOURCE
 
             if dry_run:
@@ -2338,7 +2357,11 @@ def standardize_existing_google_docs_in_folder(
             structured_text = build_docs_only_standardized_transcript_document_text(
                 document_title=doc["name"],
                 existing_document_text=existing_text,
-                created_at=resolve_existing_google_doc_created_at(existing_text, doc),
+                created_at=resolve_existing_google_doc_created_at(
+                    existing_text,
+                    doc,
+                    prefer_drive_created_time_for_metadata_refresh=metadata_refresh_needed,
+                ),
             )
             write_title_and_text_to_doc(
                 document_id=doc["id"],
@@ -2736,24 +2759,102 @@ def extract_existing_transcript_created_at(document_text: str) -> str:
     return ""
 
 
-def get_existing_google_doc_created_at_source(existing_document_text: str, doc_metadata: dict) -> str:
-    if extract_existing_transcript_created_at(existing_document_text):
+def get_existing_google_doc_created_at_source(
+    existing_document_text: str,
+    doc_metadata: dict,
+    prefer_drive_created_time_for_metadata_refresh: bool = False,
+) -> str:
+    existing_created_at = extract_existing_transcript_created_at(existing_document_text)
+    has_drive_created_time = format_transcript_metadata_value((doc_metadata or {}).get("createdTime")) != "unknown"
+
+    if existing_created_at and is_visible_transcript_timestamp(existing_created_at):
         return "existing_metadata"
-    if format_transcript_metadata_value((doc_metadata or {}).get("createdTime")) != "unknown":
+    if prefer_drive_created_time_for_metadata_refresh and has_drive_created_time:
+        return "drive_createdTime"
+    if existing_created_at:
+        return "existing_metadata"
+    if has_drive_created_time:
         return "drive_createdTime"
     return "unknown"
 
 
-def resolve_existing_google_doc_created_at(existing_document_text: str, doc_metadata: dict) -> str:
+def is_visible_transcript_timestamp(value: str) -> bool:
+    normalized = re.sub(r"\s+", " ", str(value or "")).strip()
+    return bool(re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC", normalized))
+
+
+def resolve_existing_google_doc_created_at(
+    existing_document_text: str,
+    doc_metadata: dict,
+    prefer_drive_created_time_for_metadata_refresh: bool = False,
+) -> str:
     existing_created_at = extract_existing_transcript_created_at(existing_document_text)
+    drive_created_time = (doc_metadata or {}).get("createdTime", "")
+    has_drive_created_time = format_transcript_metadata_value(drive_created_time) != "unknown"
+
+    if existing_created_at and is_visible_transcript_timestamp(existing_created_at):
+        return format_visible_transcript_timestamp(existing_created_at)
+
+    if prefer_drive_created_time_for_metadata_refresh and has_drive_created_time:
+        return format_visible_transcript_timestamp(drive_created_time)
+
     if existing_created_at:
         return format_visible_transcript_timestamp(existing_created_at)
 
-    drive_created_time = (doc_metadata or {}).get("createdTime", "")
-    if format_transcript_metadata_value(drive_created_time) != "unknown":
+    if has_drive_created_time:
         return format_visible_transcript_timestamp(drive_created_time)
 
     return "unknown"
+
+
+def extract_structured_transcript_metadata_values(document_text: str) -> dict[str, str]:
+    normalized = normalize_doc_plain_text(document_text or "")
+    if not normalized:
+        return {}
+
+    lines = [line.strip() for line in normalized.split("\n")]
+    try:
+        metadata_index = lines.index(STRUCTURED_TRANSCRIPT_METADATA_LABEL)
+        transcript_index = lines.index(STRUCTURED_TRANSCRIPT_BODY_LABEL, metadata_index + 1)
+    except ValueError:
+        return {}
+
+    if metadata_index < 1 or transcript_index <= metadata_index + 1:
+        return {}
+
+    values = {}
+    for line in lines[metadata_index + 1:transcript_index]:
+        for prefix in STRUCTURED_TRANSCRIPT_REQUIRED_METADATA_PREFIXES:
+            if line.startswith(prefix):
+                values[prefix[:-1]] = line.removeprefix(prefix).strip()
+                break
+    return values
+
+
+def existing_google_doc_backfill_metadata_needs_refresh(document_text: str) -> bool:
+    if not is_structured_transcript_document_text(document_text):
+        return False
+
+    metadata = extract_structured_transcript_metadata_values(document_text)
+    provider = metadata.get("Provider", "")
+    model = metadata.get("Model", "")
+    language = metadata.get("Language", "")
+    created_at = metadata.get("Created at", "")
+
+    allowed_backfill_values = (
+        provider in {"unknown", EXISTING_DOCS_BACKFILL_PROVIDER}
+        and model in {"unknown", EXISTING_DOCS_BACKFILL_PROVIDER_MODEL}
+        and language in {"unknown", EXISTING_DOCS_BACKFILL_LANGUAGE}
+    )
+    if not allowed_backfill_values:
+        return False
+
+    return (
+        provider == "unknown"
+        or model == "unknown"
+        or language == "unknown"
+        or not is_visible_transcript_timestamp(created_at)
+    )
 
 
 def extract_google_doc_plain_text(document_id: str) -> str:
