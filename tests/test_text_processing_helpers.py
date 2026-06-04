@@ -64,6 +64,8 @@ HELPER_NAMES = {
     "build_manifest_v2_document_entry",
     "normalize_manifest_source_entry",
     "put_manifest_source_entry",
+    "with_output_folder_context",
+    "upsert_manifest_v2_document_for_completed_source",
     "link_manifest_v2_source_to_document",
     "refresh_manifest_v2_summary",
     "build_manifest_v2_from_existing_manifest_and_docs",
@@ -1787,6 +1789,120 @@ def test_manifest_v2_compatibility_helpers_update_sources_and_skip_logic() -> No
     assert saved
 
 
+def test_mark_manifest_done_v2_upserts_document_and_summary_immediately() -> None:
+    manifest = make_manifest_v2_default(updated_at="2026-06-01T00:00:00+00:00")
+    saved = []
+    HELPERS["save_manifest"] = lambda incoming: saved.append(json.loads(json.dumps(incoming)))
+
+    mark_manifest_done(
+        manifest,
+        "source-new",
+        "settings",
+        "Audio.mp3",
+        "Transcript Doc",
+        "https://docs.google.com/document/d/doc-new/edit",
+        {"type": "drive", "output_folder_id": "folder-root", "output_folder_path": "MyDrive/Calls"},
+    )
+
+    source = manifest["sources"]["source-new"]
+    document = manifest["documents"]["doc-new"]
+    assert source["status"] == "done"
+    assert source["doc_id"] == "doc-new"
+    assert document["doc_id"] == "doc-new"
+    assert document["doc_name"] == "Transcript Doc"
+    assert document["doc_link"] == "https://docs.google.com/document/d/doc-new/edit"
+    assert "source-new" in document["source_signatures"]
+    assert document["standard_check"]["status"] == "current"
+    assert document["source_meta"]["folder_id"] == "folder-root"
+    assert document["source_meta"]["folder_path"] == "MyDrive/Calls"
+    assert document["source_meta"]["registration_mode"] == "transcription_completion"
+    assert manifest["summary"]["documents_total"] == 1
+    assert manifest["summary"]["sources_total"] == 1
+    assert manifest["summary"]["documents_with_sources"] == 1
+    assert manifest["summary"]["orphan_sources"] == 0
+    assert saved
+
+
+def test_mark_manifest_done_v2_preserves_existing_document_source_signatures() -> None:
+    manifest = make_manifest_v2_default(updated_at="2026-06-01T00:00:00+00:00")
+    manifest["documents"]["doc-keep"] = make_registered_v2_document(doc_id="doc-keep", doc_name="Doc Keep")
+    manifest["documents"]["doc-keep"]["source_signatures"] = ["source-existing"]
+    HELPERS["refresh_manifest_v2_summary"](manifest)
+    HELPERS["save_manifest"] = lambda incoming: None
+
+    mark_manifest_done(manifest, "source-new", "settings", "Audio", "Doc Keep", "https://docs.google.com/document/d/doc-keep/edit")
+
+    assert manifest["documents"]["doc-keep"]["source_signatures"] == ["source-existing", "source-new"]
+
+
+def test_mark_manifest_done_v1_does_not_create_documents_catalog() -> None:
+    manifest = {"version": 1, "entries": {}}
+    saved = []
+    HELPERS["save_manifest"] = lambda incoming: saved.append(json.loads(json.dumps(incoming)))
+
+    mark_manifest_done(manifest, "source-v1", "settings", "Audio", "Doc", "https://docs.google.com/document/d/doc-v1/edit")
+
+    assert manifest["entries"]["source-v1"]["status"] == "done"
+    assert "documents" not in manifest
+    assert saved
+
+
+def test_mark_manifest_done_without_doc_link_saves_source_without_document() -> None:
+    manifest = make_manifest_v2_default(updated_at="2026-06-01T00:00:00+00:00")
+    HELPERS["save_manifest"] = lambda incoming: None
+
+    mark_manifest_done(manifest, "source-no-doc", "settings", "Audio", "", "")
+
+    assert manifest["sources"]["source-no-doc"]["status"] == "done"
+    assert manifest["sources"]["source-no-doc"]["doc_id"] == ""
+    assert manifest["documents"] == {}
+    assert manifest["summary"]["sources_total"] == 1
+    assert manifest["summary"]["orphan_sources"] == 1
+
+
+def test_manifest_maintenance_does_not_count_transcription_created_document_as_add() -> None:
+    manifest = make_manifest_v2_default(updated_at="2026-06-01T00:00:00+00:00")
+    HELPERS["save_manifest"] = lambda incoming: None
+    mark_manifest_done(
+        manifest,
+        "source-a",
+        "settings",
+        "Audio",
+        "Doc A",
+        "https://docs.google.com/document/d/doc-a/edit",
+        {"type": "drive", "output_folder_id": "folder-root", "output_folder_path": ""},
+    )
+    HELPERS["list_drive_folder_children"] = lambda folder_id: [
+        {"id": "doc-a", "name": "Doc A", "mimeType": DOC_MIME, "webViewLink": "https://docs.google.com/document/d/doc-a/edit"},
+    ]
+    HELPERS["extract_google_doc_plain_text"] = lambda document_id: build_current_standard_document(title="Doc A")
+    HELPERS["load_manifest_read_only"] = lambda: manifest
+
+    report = standardize_manifest_to_v2_for_existing_google_docs("folder-root", dry_run=True)
+
+    assert report["selected_would_add_documents"] == 0
+
+
+def test_completed_source_document_entry_does_not_store_transcript_text() -> None:
+    manifest = make_manifest_v2_default(updated_at="2026-06-01T00:00:00+00:00")
+    HELPERS["save_manifest"] = lambda incoming: None
+
+    mark_manifest_done(
+        manifest,
+        "source-text",
+        "settings",
+        "Audio",
+        "Doc",
+        "https://docs.google.com/document/d/doc-text/edit",
+        {"type": "drive", "transcript_text": "SHOULD_NOT_STORE", "document_text": "SHOULD_NOT_STORE"},
+    )
+
+    document_json = json.dumps(manifest["documents"]["doc-text"], ensure_ascii=False)
+    assert "SHOULD_NOT_STORE" not in document_json
+    assert "transcript_text" not in document_json
+    assert "document_text" not in document_json
+
+
 def test_save_manifest_v2_merge_does_not_reintroduce_entries() -> None:
     calls = []
     latest = make_manifest_v2_default(updated_at="old")
@@ -2119,10 +2235,56 @@ def test_manifest_report_separates_selected_scan_from_global_totals() -> None:
     assert report["manifest_before"]["documents_total"] == 81
     assert report["manifest_after"]["documents_total"] == 86
     assert report["selected_would_add_documents"] == 5
-    assert "Selected folder scan" in text
-    assert "Manifest after preview" in text
+    assert "Скан выбранной папки" in text
+    assert "Манифест после применения" in text
     assert "entire Drive" not in text
-    assert "Google Docs scanned in selected folder: 5" in text
+    assert "Google Docs в выбранной папке: 5" in text
+
+
+def test_manifest_report_text_is_localized_to_russian() -> None:
+    report = {
+        "dry_run": False,
+        "current_manifest_version": 2,
+        "target_manifest_version": 2,
+        "selected_google_docs_scanned": 1,
+        "selected_folders_seen": 0,
+        "selected_skipped_non_google_docs": 0,
+        "manifest_before": {"version": 2},
+        "manifest_after": {"version": 2},
+        "standard_check": {"target_standard": "transcript_doc_v1.2", "current": 1, "outdated": 0, "unstructured": 0, "unreadable": 0},
+        "manifest_v2_up_to_date": True,
+        "errors": [],
+    }
+
+    text = build_standardize_manifest_v2_report_text(report)
+
+    for expected in ("МАНИФЕСТ", "Скан выбранной папки", "Манифест до изменений", "Изменения по выбранной папке", "Манифест после применения", "Безопасность"):
+        assert expected in text
+    for old_label in ("Selected folder scan", "Manifest before", "Changes from selected folder", "Safety"):
+        assert old_label not in text
+
+
+def test_docs_standardization_report_text_is_localized_to_russian() -> None:
+    report = {
+        "dry_run": True,
+        "google_docs_scanned": 1,
+        "folders_seen": 0,
+        "skipped_non_google_docs": 0,
+        "current_standard": 1,
+        "outdated_standard": 0,
+        "unstructured": 0,
+        "unreadable": 0,
+        "already_structured": [{"doc_name": "Doc", "structured_status": "current", "link": "https://docs.google.com/document/d/doc/edit"}],
+        "would_standardize": [],
+        "errors": [],
+    }
+
+    text = build_standardize_existing_docs_report_text(report)
+
+    for expected in ("СТАНДАРТИЗАЦИЯ GOOGLE DOCS", "Скан выбранной папки", "Текущий статус стандарта", "Влияние apply", "Безопасность"):
+        assert expected in text
+    for old_label in ("Current standard status", "Apply impact", "First 20 documents"):
+        assert old_label not in text
 
 
 def test_manifest_report_v2_no_material_changes_says_up_to_date() -> None:
@@ -2140,8 +2302,8 @@ def test_manifest_report_v2_no_material_changes_says_up_to_date() -> None:
 
     assert report["manifest_v2_up_to_date"] is True
     assert report["would_write_manifest_v2"] is False
-    assert "Manifest up to date: yes" in text
-    assert "no material write needed" in text
+    assert "Manifest актуален: да" in text
+    assert "Manifest уже актуален, запись не требуется" in text
     assert "would migrate" not in text.lower()
 
 
@@ -2160,7 +2322,7 @@ def test_manifest_report_v2_selected_adds_records_in_global_manifest() -> None:
     assert report["would_refresh_manifest_v2"] is True
     assert report["would_write_manifest_v2"] is True
     assert report["would_backup_manifest"] is False
-    assert "add/refresh selected-folder records in the global manifest" in text
+    assert "Будут добавлены/обновлены записи выбранной папки в глобальном manifest" in text
 
 
 def test_manifest_report_v1_migration_mentions_backup_and_apply_creates_backup() -> None:
@@ -2175,7 +2337,7 @@ def test_manifest_report_v1_migration_mentions_backup_and_apply_creates_backup()
     dry = standardize_manifest_to_v2_for_existing_google_docs("folder-root", dry_run=True)
     dry_text = build_standardize_manifest_v2_report_text(dry)
 
-    assert "v1 will be migrated to v2" in dry_text
+    assert "Manifest v1 будет мигрирован в v2" in dry_text
     assert dry["would_backup_manifest"] is True
 
     HELPERS["load_manifest"] = lambda: {"version": 1, "entries": {}}
@@ -2199,13 +2361,13 @@ def test_docs_standardization_report_groups_dry_run_sections_and_safety() -> Non
     report = standardize_existing_google_docs_in_folder("folder-root", dry_run=True)
     text = build_standardize_existing_docs_report_text(report)
 
-    assert "Selected folder scan" in text
-    assert "Current standard status" in text
-    assert "Apply impact" in text
-    assert "Dry-run: no documents changed" in text
-    assert "Would call STT/LLM/provider APIs: 0" in text
-    assert "Would create new Google Docs: 0" in text
-    assert "Would change manifest: 0" in text
+    assert "Скан выбранной папки" in text
+    assert "Текущий статус стандарта" in text
+    assert "Влияние apply" in text
+    assert "Dry-run: документы не изменяются" in text
+    assert "Будет вызвано STT/LLM/provider API: 0" in text
+    assert "Будет создано новых Google Docs: 0" in text
+    assert "Будет изменён manifest: 0" in text
 
 
 def test_docs_standardization_apply_report_states_in_place_no_external_mutation() -> None:
@@ -2220,10 +2382,10 @@ def test_docs_standardization_apply_report_states_in_place_no_external_mutation(
     text = build_standardize_existing_docs_report_text(report)
 
     assert writes and writes[0]["document_id"] == "plain"
-    assert "Apply: rewrites only the same selected Google Docs in place" in text
-    assert "Would create new Google Docs: 0" in text
-    assert "Would call STT/LLM/provider APIs: 0" in text
-    assert "Would change manifest: 0" in text
+    assert "Apply: переписывает только выбранные Google Docs на месте" in text
+    assert "Будет создано новых Google Docs: 0" in text
+    assert "Будет вызвано STT/LLM/provider API: 0" in text
+    assert "Будет изменён manifest: 0" in text
 
 
 def test_docs_standardization_report_first_20_includes_status_labels() -> None:
@@ -2259,7 +2421,9 @@ def test_ui_help_text_distinguishes_manifest_and_docs_standardization() -> None:
 
     assert source.count("Проверить / обновить manifest") == 1
     assert source.count("Проверить / стандартизировать существующие Google Docs") == 1
-    assert "Обновляет глобальный manifest v2 по выбранной папке. Google Docs не меняет." in source
-    assert "Меняет содержимое выбранных Google Docs только в apply-режиме. Не вызывает STT/LLM/provider API." in source
+    assert "Manifest — глобальный каталог. Если выбрать другую папку" in source
+    assert "Старые записи из других папок не удаляются" in source
+    assert "Стандартизация Google Docs в apply-режиме переписывает выбранные документы на месте" in source
+    assert "Сначала запускайте dry-run на маленькой подпапке" in source
     assert "Manifest — глобальный каталог" in source
-    assert "переписывает содержимое Google Docs на месте" in source
+    assert "переписывает выбранные документы на месте" in source

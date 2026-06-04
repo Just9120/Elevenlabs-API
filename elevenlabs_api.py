@@ -927,7 +927,9 @@ def get_manifest_entry(manifest: dict, source_signature: str) -> Optional[dict]:
 
 
 def normalize_manifest_source_entry(source_signature: str, entry: Optional[dict], updated_at: Optional[str] = None) -> dict:
-    entry = {k: v for k, v in dict(entry or {}).items() if k not in {"transcript_text", "document_text", "text", "body"}}
+    sensitive_text_keys = {"transcript_text", "document_text", "text", "body"}
+    entry = {k: v for k, v in dict(entry or {}).items() if k not in sensitive_text_keys}
+    source_meta = {k: v for k, v in dict(entry.get("source_meta") or {}).items() if k not in sensitive_text_keys}
     doc_id = entry.get("doc_id") or extract_google_doc_id_from_url(entry.get("doc_link", ""))
     return {
         **entry,
@@ -939,7 +941,7 @@ def normalize_manifest_source_entry(source_signature: str, entry: Optional[dict]
         "doc_id": doc_id or "",
         "doc_name": entry.get("doc_name", ""),
         "doc_link": entry.get("doc_link", ""),
-        "source_meta": entry.get("source_meta") or {},
+        "source_meta": source_meta,
         "updated_at": updated_at or entry.get("updated_at") or utc_now_iso(),
     }
 
@@ -951,6 +953,19 @@ def put_manifest_source_entry(manifest: dict, source_signature: str, entry: dict
         refresh_manifest_v2_summary(manifest)
     else:
         manifest.setdefault("entries", {})[source_signature] = entry
+
+
+def with_output_folder_context(source_meta: Optional[dict], run_ctx) -> dict:
+    enriched = dict(source_meta or {})
+    if run_ctx is None:
+        return enriched
+    if run_ctx.output_folder_id:
+        enriched.setdefault("output_folder_id", run_ctx.output_folder_id)
+        enriched.setdefault("folder_id", run_ctx.output_folder_id)
+    if run_ctx.output_folder_path:
+        enriched.setdefault("output_folder_path", run_ctx.output_folder_path)
+        enriched.setdefault("folder_path", run_ctx.output_folder_path)
+    return enriched
 
 
 def set_manifest_entry(
@@ -999,6 +1014,7 @@ def mark_manifest_in_progress(manifest: dict, source_signature: str, settings_si
 
 def mark_manifest_done(manifest: dict, source_signature: str, settings_signature: str, source_name: str, doc_name: str, doc_link: str, source_meta: Optional[dict] = None):
     entry = get_manifest_entry(manifest, source_signature) or {}
+    updated_at = utc_now_iso()
     entry.update({
         "source_signature": source_signature,
         "settings_signature": settings_signature,
@@ -1008,12 +1024,22 @@ def mark_manifest_done(manifest: dict, source_signature: str, settings_signature
         "doc_link": doc_link,
         "doc_id": entry.get("doc_id") or extract_google_doc_id_from_url(doc_link),
         "source_meta": source_meta or entry.get("source_meta", {}),
-        "finished_at": utc_now_iso(),
-        "updated_at": utc_now_iso(),
+        "finished_at": updated_at,
+        "updated_at": updated_at,
     })
     if is_manifest_v2(manifest):
-        entry = normalize_manifest_source_entry(source_signature, entry)
+        entry = normalize_manifest_source_entry(source_signature, entry, updated_at=updated_at)
     put_manifest_source_entry(manifest, source_signature, entry)
+    if is_manifest_v2(manifest) and (entry.get("doc_id") or entry.get("doc_link")):
+        source_entry_meta = entry.get("source_meta") or {}
+        upsert_manifest_v2_document_for_completed_source(
+            manifest,
+            source_signature,
+            entry,
+            output_folder_id=source_entry_meta.get("output_folder_id") or source_entry_meta.get("folder_id") or "",
+            output_folder_path=source_entry_meta.get("output_folder_path") or source_entry_meta.get("folder_path") or "",
+            updated_at=updated_at,
+        )
     save_manifest(manifest)
 
 
@@ -1498,6 +1524,80 @@ def build_manifest_v2_document_entry(
             "registration_mode": registration_mode,
         },
     }
+
+
+def upsert_manifest_v2_document_for_completed_source(
+    manifest: dict,
+    source_signature: str,
+    source_entry: dict,
+    output_folder_id: str = "",
+    output_folder_path: str = "",
+    updated_at: Optional[str] = None,
+) -> bool:
+    if not is_manifest_v2(manifest):
+        return False
+
+    source_entry = normalize_manifest_source_entry(source_signature, source_entry, updated_at=updated_at)
+    doc_id = source_entry.get("doc_id") or extract_google_doc_id_from_url(source_entry.get("doc_link", ""))
+    if not doc_id:
+        return False
+
+    updated_at = updated_at or source_entry.get("updated_at") or utc_now_iso()
+    documents = manifest.setdefault("documents", {})
+    existing_document = documents.get(doc_id) if isinstance(documents.get(doc_id), dict) else {}
+    existing_signatures = set((existing_document or {}).get("source_signatures") or [])
+    existing_signatures.add(source_signature)
+
+    source_meta = dict((existing_document or {}).get("source_meta") or {})
+    source_entry_meta = dict(source_entry.get("source_meta") or {})
+    source_meta.update(source_entry_meta)
+    folder_id = source_meta.get("output_folder_id") or source_meta.get("folder_id") or output_folder_id
+    folder_path = source_meta.get("output_folder_path") or source_meta.get("folder_path") or output_folder_path
+
+    doc = {
+        "id": doc_id,
+        "name": source_entry.get("doc_name") or (existing_document or {}).get("doc_name") or "",
+        "doc_name": source_entry.get("doc_name") or (existing_document or {}).get("doc_name") or "",
+        "doc_link": source_entry.get("doc_link") or (existing_document or {}).get("doc_link") or build_existing_google_doc_link(doc_id),
+        "webViewLink": source_entry.get("doc_link") or (existing_document or {}).get("doc_link") or build_existing_google_doc_link(doc_id),
+        "doc_path": (existing_document or {}).get("doc_path") or source_entry.get("doc_name") or "",
+        "doc_mime_type": DOC_MIME,
+        "mimeType": DOC_MIME,
+        "source_meta": source_meta,
+    }
+    standard_check = standard_check_from_structured_status(
+        EXISTING_GOOGLE_DOC_STRUCTURED_CURRENT,
+        updated_at,
+    )
+    desired_document = build_manifest_v2_document_entry(
+        doc=doc,
+        standard_check=standard_check,
+        output_folder_id=folder_id,
+        output_folder_path=folder_path,
+        recursive=bool(source_meta.get("recursive_scan", False)),
+        updated_at=updated_at,
+        source_signatures=sorted(existing_signatures),
+        registration_mode="transcription_completion",
+    )
+    if (existing_document or {}).get("doc_path") and not source_entry.get("doc_name"):
+        desired_document["doc_path"] = existing_document["doc_path"]
+
+    before = comparable_manifest_v2_document_for_report(existing_document)
+    after = comparable_manifest_v2_document_for_report(desired_document)
+    materially_changed = before != after
+    if not materially_changed and existing_document:
+        desired_document["updated_at"] = existing_document.get("updated_at", desired_document.get("updated_at"))
+        existing_standard_check = existing_document.get("standard_check") if isinstance(existing_document, dict) else None
+        if isinstance(existing_standard_check, dict) and isinstance(desired_document.get("standard_check"), dict):
+            desired_document["standard_check"]["checked_at"] = existing_standard_check.get(
+                "checked_at",
+                desired_document["standard_check"].get("checked_at"),
+            )
+    documents[doc_id] = desired_document
+    manifest.setdefault("sources", {})[source_signature] = source_entry
+    link_manifest_v2_source_to_document(manifest, source_signature)
+    refresh_manifest_v2_summary(manifest)
+    return materially_changed
 
 
 def link_manifest_v2_source_to_document(manifest: dict, source_signature: str) -> None:
@@ -4410,7 +4510,7 @@ def process_local_uploaded(
 
         temp_input_path = None
         source_signature = build_uploaded_source_signature(filename, file_bytes)
-        source_meta = {"type": "uploaded_bytes"}
+        source_meta = with_output_folder_context({"type": "uploaded_bytes"}, run_ctx)
 
         try:
             if not is_supported_filename(filename):
@@ -4510,7 +4610,7 @@ def process_drive_file_input(
         file_path = resolved["path"]
         filename = resolved["name"]
         source_signature = build_local_path_source_signature(file_path, filename)
-        source_meta = {"type": "local_path", "path": file_path}
+        source_meta = with_output_folder_context({"type": "local_path", "path": file_path}, run_ctx)
 
         if not is_supported_filename(filename):
             raise ValueError(f"Неподдерживаемое расширение: {Path(file_path).suffix}")
@@ -4582,12 +4682,12 @@ def process_drive_file_input(
 
     filename = resolved["name"]
     source_signature = build_drive_source_signature(resolved["id"], filename, resolved.get("modifiedTime"), resolved.get("size"))
-    source_meta = {
+    source_meta = with_output_folder_context({
         "type": "drive",
         "file_id": resolved["id"],
         "modifiedTime": resolved.get("modifiedTime", ""),
         "size": str(resolved.get("size", "")),
-    }
+    }, run_ctx)
 
     if not is_supported_filename(filename):
         raise ValueError(f"Неподдерживаемое расширение: {Path(filename).suffix}")
@@ -4676,7 +4776,7 @@ def process_drive_folder_input(
         for idx, file_path in enumerate(file_list, start=1):
             filename = os.path.basename(file_path)
             source_signature = build_local_path_source_signature(file_path, filename)
-            source_meta = {"type": "local_path", "path": file_path}
+            source_meta = with_output_folder_context({"type": "local_path", "path": file_path}, run_ctx)
             report_progress_for_file(progress_callback, idx, len(file_list), 0, f"Подготовка: {filename}")
 
             print(f"\n[{idx}/{len(file_list)}] {filename}")
@@ -4748,12 +4848,12 @@ def process_drive_folder_input(
         filename = item["name"]
         display_name = item["display_name"]
         source_signature = build_drive_source_signature(item["id"], filename, item.get("modifiedTime"), item.get("size"))
-        source_meta = {
+        source_meta = with_output_folder_context({
             "type": "drive",
             "file_id": item["id"],
             "modifiedTime": item.get("modifiedTime", ""),
             "size": str(item.get("size", "")),
-        }
+        }, run_ctx)
 
         report_progress_for_file(progress_callback, idx, len(folder_files), 0, f"Подготовка: {display_name}")
 
@@ -5547,7 +5647,7 @@ standardize_manifest_v2_help_widget = widgets.HTML(
 
 standardize_existing_docs_help_widget = widgets.HTML(
     "<div style='margin-top:6px; color:#5f6368;'>"
-    "Эта кнопка в apply-режиме переписывает содержимое Google Docs на месте. "
+    "Стандартизация Google Docs в apply-режиме переписывает выбранные документы на месте. "
     "Сначала запускайте dry-run на маленькой подпапке. "
     "Исходные аудио/видео записи не нужны; режим источника и поле пути/ссылки не используются; повторная транскрибация не выполняется."
     "</div>"
@@ -5571,7 +5671,8 @@ standardize_existing_docs_section_widget = widgets.VBox([
         "<div style='margin-top:14px; padding:12px; border:1px solid #dadce0; border-radius:8px; background:#f8f9fa;'>"
         "<h4 style='margin:0 0 8px 0;'>Стандартизация существующих Google Docs</h4>"
         "<div style='color:#3c4043;'>"
-        "Меняет содержимое выбранных Google Docs только в apply-режиме. Не вызывает STT/LLM/provider API. "
+        "Стандартизация Google Docs в apply-режиме переписывает выбранные документы на месте. "
+        "Сначала запускайте dry-run на маленькой подпапке. Не вызывает STT/LLM/provider API. "
         "Сканируется <b>выбранная папка назначения для Google Docs</b> выше; новые Google Docs не создаются."
         "</div>"
         "</div>"
@@ -5585,7 +5686,8 @@ standardize_existing_docs_section_widget = widgets.VBox([
         "<hr style='border:none; border-top:1px solid #dadce0; margin:12px 0;'>"
         "<h4 style='margin:0 0 8px 0;'>Manifest</h4>"
         "<div style='color:#3c4043;'>"
-        "Обновляет глобальный manifest v2 по выбранной папке. Google Docs не меняет. "
+        "Manifest — глобальный каталог. Если выбрать другую папку, её документы будут добавлены/обновлены в том же manifest. "
+        "Старые записи из других папок не удаляются. Google Docs не меняет. "
         "Поддерживает разделённые documents/sources и standard_check."
         "</div>"
     ),
@@ -5839,36 +5941,37 @@ def on_import_existing_clicked(_):
 
 
 def build_standardize_existing_docs_report_text(report: dict) -> str:
+    mode_label = "проверка без изменений" if report.get("dry_run") else "применение"
     lines = [
         "====================",
-        "GOOGLE DOCS STANDARDIZATION",
+        "СТАНДАРТИЗАЦИЯ GOOGLE DOCS",
         "====================",
-        f"Mode: {'dry-run' if report.get('dry_run') else 'apply'}",
-        "Action: standardize existing Google Docs content",
-        "Selected folder scan:",
-        f"  Google Docs scanned in selected folder: {report.get('google_docs_scanned', 0)}",
-        f"  Folders seen: {report.get('folders_seen', 0)}",
-        f"  Skipped non-Google-Docs: {report.get('skipped_non_google_docs', 0)}",
-        "  Source audio/video input ignored: yes",
-        "  Selected destination/output folder is scanned: yes",
-        "Current standard status:",
-        f"  Already current standard: {report.get('current_standard', len(report.get('already_structured') or []))}",
-        f"  Outdated standard: {report.get('outdated_standard', 0)}",
-        f"  Unstructured: {report.get('unstructured', 0)}",
-        f"  Unreadable/errors: {report.get('unreadable', len(report.get('errors') or []))}",
-        "Apply impact:",
-        f"  Would standardize documents: {len(report.get('would_standardize') or []) if report.get('dry_run') else len(report.get('standardized') or [])}",
-        f"  Would leave unchanged: {len(report.get('already_structured') or [])}",
-        "  Would create new Google Docs: 0",
-        "  Would call STT/LLM/provider APIs: 0",
-        "  Would change manifest: 0",
-        "Safety:",
-        "  Dry-run: no documents changed",
-        "  Apply: rewrites only the same selected Google Docs in place",
-        "  Transcript body wording is preserved",
-        "  Semantic segmentation is not performed",
-        "  No retranscription: yes",
-        "  No manifest mutation: yes",
+        f"Режим: {mode_label}",
+        "Действие: стандартизация существующих Google Docs",
+        "Скан выбранной папки:",
+        f"  Google Docs в выбранной папке: {report.get('google_docs_scanned', 0)}",
+        f"  Папок найдено: {report.get('folders_seen', 0)}",
+        f"  Пропущено не-Google Docs: {report.get('skipped_non_google_docs', 0)}",
+        "  Входные аудио/видео игнорируются: да",
+        "  Сканируется выбранная папка назначения/вывода: да",
+        "Текущий статус стандарта:",
+        f"  Уже актуальный стандарт: {report.get('current_standard', len(report.get('already_structured') or []))}",
+        f"  Устаревший стандарт: {report.get('outdated_standard', 0)}",
+        f"  Без структуры: {report.get('unstructured', 0)}",
+        f"  Недоступные/ошибки: {report.get('unreadable', len(report.get('errors') or []))}",
+        "Влияние apply:",
+        f"  Будет стандартизировано документов: {len(report.get('would_standardize') or []) if report.get('dry_run') else len(report.get('standardized') or [])}",
+        f"  Останется без изменений: {len(report.get('already_structured') or [])}",
+        "  Будет создано новых Google Docs: 0",
+        "  Будет вызвано STT/LLM/provider API: 0",
+        "  Будет изменён manifest: 0",
+        "Безопасность:",
+        "  Dry-run: документы не изменяются.",
+        "  Apply: переписывает только выбранные Google Docs на месте.",
+        "  Текст транскрибации сохраняется.",
+        "  Семантическая сегментация не выполняется.",
+        "  Повторная транскрибация не выполняется: да",
+        "  Manifest не изменяется: да",
     ]
     if report.get("hint"):
         lines.extend(["", f"Подсказка: {report['hint']}"])
@@ -5877,7 +5980,7 @@ def build_standardize_existing_docs_report_text(report: dict) -> str:
     for key in ("would_standardize", "standardized", "already_structured", "errors"):
         first_20.extend(report.get(key) or [])
     if first_20:
-        lines.extend(["", "First 20 documents that would be standardized:"])
+        lines.extend(["", "Первые 20 документов для стандартизации:"])
         for item in first_20[:20]:
             link_part = f": {item['link']}" if item.get("link") else ""
             status = item.get("structured_status") or ("unreadable/error" if item.get("reason") else "current")
@@ -5886,7 +5989,6 @@ def build_standardize_existing_docs_report_text(report: dict) -> str:
         if len(first_20) > 20:
             lines.append(f"... ещё {len(first_20) - 20}")
     return "\n".join(lines)
-
 
 def print_standardize_existing_docs_report(report: dict):
     print(build_standardize_existing_docs_report_text(report))
@@ -5970,7 +6072,7 @@ def print_register_existing_docs_manifest_report(report: dict):
 
 
 def yes_no(value: bool) -> str:
-    return "yes" if value else "no"
+    return "да" if value else "нет"
 
 
 def build_standardize_manifest_v2_report_text(report: dict) -> str:
@@ -5980,61 +6082,65 @@ def build_standardize_manifest_v2_report_text(report: dict) -> str:
     dry_run = bool(report.get("dry_run"))
     current_version = report.get("current_manifest_version")
     target_version = report.get("target_manifest_version")
+    mode_label = "проверка без изменений" if dry_run else "применение"
+    after_title = "Манифест после применения, предварительный просмотр:" if dry_run else "Манифест после применения:"
+    standard_title = "Проверка стандарта после применения, предварительный просмотр:" if dry_run else "Проверка стандарта после применения:"
     lines = [
         "====================",
-        "MANIFEST",
+        "МАНИФЕСТ",
         "====================",
-        f"Mode: {'dry-run' if dry_run else 'apply'}",
-        f"Action: {report.get('action_label') or 'refresh manifest v2 catalog'}",
-        "Selected folder scan:",
-        f"  Google Docs scanned in selected folder: {report.get('selected_google_docs_scanned', report.get('google_docs_scanned', 0))}",
-        f"  Folders seen in selected scan: {report.get('selected_folders_seen', report.get('folders_seen', 0))}",
-        f"  Skipped non-Google-Docs in selected scan: {report.get('selected_skipped_non_google_docs', report.get('skipped_non_google_docs', 0))}",
-        "Manifest before:",
-        f"  Version: {before.get('version', current_version)}",
-        f"  Documents total: {before.get('documents_total', 0)}",
-        f"  Sources total: {before.get('sources_total', 0)}",
-        f"  Documents with sources: {before.get('documents_with_sources', 0)}",
-        f"  Documents without sources: {before.get('documents_without_sources', 0)}",
-        f"  Orphan sources: {before.get('orphan_sources', 0)}",
-        "Changes from selected folder:",
-        f"  Would add documents: {report.get('selected_would_add_documents', 0)}",
-        f"  Would refresh documents: {report.get('selected_would_refresh_documents', 0)}",
-        f"  Unchanged selected documents: {report.get('selected_unchanged_documents', 0)}",
-        f"  Would remove documents: {report.get('selected_would_remove_documents', 0)}",
-        "  Note: selecting a different folder adds/refreshes records in the same global manifest. It does not remove previously registered documents.",
-        "Manifest after preview:",
-        f"  Version: {after.get('version', target_version)}",
-        f"  Documents total: {after.get('documents_total', report.get('documents_total', 0))}",
-        f"  Sources total: {after.get('sources_total', report.get('sources_total', 0))}",
-        f"  Documents with sources: {after.get('documents_with_sources', report.get('documents_with_sources', 0))}",
-        f"  Documents without sources: {after.get('documents_without_sources', report.get('documents_without_sources', 0))}",
-        f"  Orphan sources: {after.get('orphan_sources', report.get('orphan_sources', 0))}",
-        "Standard check after preview:",
-        f"  Target standard: {standard_check.get('target_standard')}",
-        f"  Current: {standard_check.get('current')}",
-        f"  Outdated: {standard_check.get('outdated')}",
-        f"  Unstructured: {standard_check.get('unstructured')}",
-        f"  Unreadable: {standard_check.get('unreadable')}",
-        "Safety:",
-        "  Google Docs content changed: no",
-        "  STT/LLM/provider APIs called: no",
-        f"  Backup would be created: {yes_no(bool(report.get('would_backup_manifest')))}",
-        f"  Manifest would be written: {yes_no(bool(report.get('would_write_manifest_v2') or report.get('manifest_v2_written')))}",
-        f"  Manifest up to date: {yes_no(bool(report.get('manifest_v2_up_to_date')))}",
-        f"  Errors: {len(report.get('errors') or [])}",
+        f"Режим: {mode_label}",
+        "Действие: Обновление каталога manifest v2",
+        "Скан выбранной папки:",
+        f"  Google Docs в выбранной папке: {report.get('selected_google_docs_scanned', report.get('google_docs_scanned', 0))}",
+        f"  Папок найдено при скане: {report.get('selected_folders_seen', report.get('folders_seen', 0))}",
+        f"  Пропущено не-Google Docs: {report.get('selected_skipped_non_google_docs', report.get('skipped_non_google_docs', 0))}",
+        "Манифест до изменений:",
+        f"  Версия: {before.get('version', current_version)}",
+        f"  Документов всего: {before.get('documents_total', 0)}",
+        f"  Источников всего: {before.get('sources_total', 0)}",
+        f"  Документов со связанными источниками: {before.get('documents_with_sources', 0)}",
+        f"  Документов без источников: {before.get('documents_without_sources', 0)}",
+        f"  Источников без связанного документа: {before.get('orphan_sources', 0)}",
+        "Изменения по выбранной папке:",
+        f"  Будет добавлено документов: {report.get('selected_would_add_documents', 0)}",
+        f"  Будет обновлено документов: {report.get('selected_would_refresh_documents', 0)}",
+        f"  Документов без изменений: {report.get('selected_unchanged_documents', 0)}",
+        f"  Будет удалено документов: {report.get('selected_would_remove_documents', 0)}",
+        "  Примечание: выбор другой папки добавляет/обновляет записи в том же глобальном manifest. Ранее зарегистрированные документы не удаляются.",
+        after_title,
+        f"  Версия: {after.get('version', target_version)}",
+        f"  Документов всего: {after.get('documents_total', report.get('documents_total', 0))}",
+        f"  Источников всего: {after.get('sources_total', report.get('sources_total', 0))}",
+        f"  Документов со связанными источниками: {after.get('documents_with_sources', report.get('documents_with_sources', 0))}",
+        f"  Документов без источников: {after.get('documents_without_sources', report.get('documents_without_sources', 0))}",
+        f"  Источников без связанного документа: {after.get('orphan_sources', report.get('orphan_sources', 0))}",
+        standard_title,
+        f"  Целевой стандарт: {standard_check.get('target_standard')}",
+        f"  Актуальные: {standard_check.get('current')}",
+        f"  Устаревшие: {standard_check.get('outdated')}",
+        f"  Без структуры: {standard_check.get('unstructured')}",
+        f"  Недоступные/ошибки: {standard_check.get('unreadable')}",
+        "Безопасность:",
+        "  Содержимое Google Docs изменено: нет",
+        "  STT/LLM/provider API вызваны: нет",
+        f"  Backup будет создан: {yes_no(bool(report.get('would_backup_manifest')))}",
+        f"  Manifest будет записан: {yes_no(bool(report.get('would_write_manifest_v2') or report.get('manifest_v2_written')))}",
+        f"  Manifest актуален: {yes_no(bool(report.get('manifest_v2_up_to_date')))}",
+        f"  Ошибок: {len(report.get('errors') or [])}",
     ]
     if current_version != target_version:
-        lines.append("Manifest v1 will be migrated to v2; apply creates a backup before writing v2.")
+        lines.append("Manifest v1 будет мигрирован в v2.")
     elif report.get("manifest_v2_up_to_date"):
-        lines.append("Manifest is up to date; no material write needed.")
+        lines.append("Manifest уже актуален, запись не требуется.")
     elif report.get("would_refresh_manifest_v2") or report.get("manifest_v2_written"):
-        lines.append("This will add/refresh selected-folder records in the global manifest.")
+        lines.append("Будут добавлены/обновлены записи выбранной папки в глобальном manifest.")
+    else:
+        lines.append("Manifest уже v2; выполняется обновление каталога и наблюдений standard_check.")
 
     for item in (report.get("errors") or [])[:20]:
         lines.append(f"- {item.get('doc_name', '')}: {item.get('reason', '')}")
     return "\n".join(lines)
-
 
 def print_standardize_manifest_v2_report(report: dict):
     print(build_standardize_manifest_v2_report_text(report))
