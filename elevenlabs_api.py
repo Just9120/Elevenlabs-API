@@ -1272,6 +1272,8 @@ def check_or_standardize_existing_google_docs(
                 report["already_structured"].append(result_item)
                 continue
 
+            result_item["created_at_source"] = get_existing_google_doc_created_at_source(existing_text, doc)
+            result_item["metadata_defaults_source"] = EXISTING_DOCS_BACKFILL_METADATA_DEFAULTS_SOURCE
             if dry_run:
                 report["would_standardize"].append(result_item)
                 continue
@@ -1281,7 +1283,7 @@ def check_or_standardize_existing_google_docs(
                 source_name=item["source_name"],
                 source_mode=source_mode_label,
                 existing_document_text=existing_text,
-                created_at=utc_now_iso(),
+                created_at=resolve_existing_google_doc_created_at(existing_text, doc),
             )
             write_title_and_text_to_doc(
                 document_id=doc["id"],
@@ -1302,6 +1304,11 @@ def check_or_standardize_existing_google_docs(
 
 DOCS_ONLY_STANDARDIZATION_SOURCE_FILE = "not available"
 DOCS_ONLY_STANDARDIZATION_SOURCE_MODE = "existing_google_doc_standardization"
+EXISTING_DOCS_BACKFILL_PROVIDER = "ElevenLabs"
+EXISTING_DOCS_BACKFILL_PROVIDER_MODEL = "scribe_v2"
+EXISTING_DOCS_BACKFILL_LANGUAGE = "Русский"
+EXISTING_DOCS_BACKFILL_SPEAKERS_ENABLED = None
+EXISTING_DOCS_BACKFILL_METADATA_DEFAULTS_SOURCE = "temporary_existing_docs_backfill_defaults"
 
 
 DOCS_ONLY_STANDARDIZATION_DEFAULT_MAX_FOLDERS_SCANNED = 500
@@ -2321,6 +2328,9 @@ def standardize_existing_google_docs_in_folder(
                 result_item["structured_status"] = "unstructured"
                 report["unstructured"] += 1
 
+            result_item["created_at_source"] = get_existing_google_doc_created_at_source(existing_text, doc)
+            result_item["metadata_defaults_source"] = EXISTING_DOCS_BACKFILL_METADATA_DEFAULTS_SOURCE
+
             if dry_run:
                 report["would_standardize"].append(result_item)
                 continue
@@ -2328,7 +2338,7 @@ def standardize_existing_google_docs_in_folder(
             structured_text = build_docs_only_standardized_transcript_document_text(
                 document_title=doc["name"],
                 existing_document_text=existing_text,
-                created_at=utc_now_iso(),
+                created_at=resolve_existing_google_doc_created_at(existing_text, doc),
             )
             write_title_and_text_to_doc(
                 document_id=doc["id"],
@@ -2424,7 +2434,7 @@ def docs_text_len(text: str) -> int:
 def get_drive_item_metadata(file_id: str) -> dict:
     meta = drive_service.files().get(
         fileId=file_id,
-        fields="id, name, mimeType, webViewLink, shortcutDetails, modifiedTime, size",
+        fields="id, name, mimeType, webViewLink, shortcutDetails, createdTime, modifiedTime, size",
         supportsAllDrives=True
     ).execute()
 
@@ -2434,7 +2444,7 @@ def get_drive_item_metadata(file_id: str) -> dict:
             raise RuntimeError("Не удалось разрешить shortcut Google Drive.")
         meta = drive_service.files().get(
             fileId=target_id,
-            fields="id, name, mimeType, webViewLink, shortcutDetails, modifiedTime, size",
+            fields="id, name, mimeType, webViewLink, shortcutDetails, createdTime, modifiedTime, size",
             supportsAllDrives=True
         ).execute()
 
@@ -2489,7 +2499,7 @@ def build_existing_docs_index(folder_id: str) -> dict[str, list[dict]]:
                 f"trashed = false"
             ),
             spaces="drive",
-            fields="nextPageToken, files(id, name, webViewLink, modifiedTime)",
+            fields="nextPageToken, files(id, name, webViewLink, createdTime, modifiedTime)",
             pageSize=1000,
             pageToken=page_token,
             supportsAllDrives=True,
@@ -2577,6 +2587,34 @@ def format_transcript_metadata_value(value) -> str:
         return "unknown"
     normalized = re.sub(r"\s+", " ", str(value)).strip()
     return normalized or "unknown"
+
+
+def format_visible_transcript_timestamp(value: str) -> str:
+    """Format transcript-visible timestamps as minute-level UTC values."""
+
+    if value is None:
+        return "unknown"
+
+    normalized = re.sub(r"\s+", " ", str(value)).strip()
+    if not normalized:
+        return "unknown"
+
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC", normalized):
+        return normalized
+
+    parse_value = normalized
+    if parse_value.endswith("Z"):
+        parse_value = f"{parse_value[:-1]}+00:00"
+
+    try:
+        parsed = datetime.fromisoformat(parse_value)
+    except ValueError:
+        return normalized
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    parsed_utc = parsed.astimezone(timezone.utc)
+    return parsed_utc.strftime("%Y-%m-%d %H:%M UTC")
 
 
 def build_transcript_metadata_lines(
@@ -2673,6 +2711,49 @@ EXISTING_GOOGLE_DOC_MANIFEST_NOTICE = "Manifest registration does not change Goo
 
 def normalize_doc_plain_text(text: str) -> str:
     return text.replace("\r\n", "\n").replace("\r", "\n").strip()
+
+
+def extract_existing_transcript_created_at(document_text: str) -> str:
+    """Extract visible Created at metadata from a structured transcript header only."""
+
+    normalized = normalize_doc_plain_text(document_text or "")
+    if not normalized:
+        return ""
+
+    lines = [line.strip() for line in normalized.split("\n")]
+    try:
+        metadata_index = lines.index(STRUCTURED_TRANSCRIPT_METADATA_LABEL)
+        transcript_index = lines.index(STRUCTURED_TRANSCRIPT_BODY_LABEL, metadata_index + 1)
+    except ValueError:
+        return ""
+
+    if metadata_index < 1 or transcript_index <= metadata_index + 1:
+        return ""
+
+    for line in lines[metadata_index + 1:transcript_index]:
+        if line.startswith("Created at:"):
+            return line.removeprefix("Created at:").strip()
+    return ""
+
+
+def get_existing_google_doc_created_at_source(existing_document_text: str, doc_metadata: dict) -> str:
+    if extract_existing_transcript_created_at(existing_document_text):
+        return "existing_metadata"
+    if format_transcript_metadata_value((doc_metadata or {}).get("createdTime")) != "unknown":
+        return "drive_createdTime"
+    return "unknown"
+
+
+def resolve_existing_google_doc_created_at(existing_document_text: str, doc_metadata: dict) -> str:
+    existing_created_at = extract_existing_transcript_created_at(existing_document_text)
+    if existing_created_at:
+        return format_visible_transcript_timestamp(existing_created_at)
+
+    drive_created_time = (doc_metadata or {}).get("createdTime", "")
+    if format_transcript_metadata_value(drive_created_time) != "unknown":
+        return format_visible_transcript_timestamp(drive_created_time)
+
+    return "unknown"
 
 
 def extract_google_doc_plain_text(document_id: str) -> str:
@@ -2791,11 +2872,11 @@ def build_backfilled_transcript_document_text(
     metadata_lines = build_transcript_metadata_lines(
         source_name=source_name,
         source_mode=source_mode,
-        provider="unknown",
-        provider_model="unknown",
-        language="unknown",
-        speakers_enabled=None,
-        created_at=created_at,
+        provider=EXISTING_DOCS_BACKFILL_PROVIDER,
+        provider_model=EXISTING_DOCS_BACKFILL_PROVIDER_MODEL,
+        language=EXISTING_DOCS_BACKFILL_LANGUAGE,
+        speakers_enabled=EXISTING_DOCS_BACKFILL_SPEAKERS_ENABLED,
+        created_at=format_visible_transcript_timestamp(created_at),
     )
     return build_structured_transcript_document_text(
         document_title=document_title,
@@ -3899,7 +3980,7 @@ def list_drive_folder_children(parent_id: str) -> list[dict]:
         result = drive_service.files().list(
             q=f"'{parent_id}' in parents and trashed = false",
             spaces="drive",
-            fields="nextPageToken, files(id, name, mimeType, webViewLink, shortcutDetails, modifiedTime, size)",
+            fields="nextPageToken, files(id, name, mimeType, webViewLink, shortcutDetails, createdTime, modifiedTime, size)",
             orderBy="name_natural",
             pageSize=1000,
             pageToken=page_token,
@@ -4969,7 +5050,7 @@ def list_source_children(parent_id: str, include_files: bool) -> list[dict]:
         result = drive_service.files().list(
             q=f"'{parent_id}' in parents and trashed = false",
             spaces="drive",
-            fields="nextPageToken, files(id, name, mimeType, webViewLink, shortcutDetails, modifiedTime, size)",
+            fields="nextPageToken, files(id, name, mimeType, webViewLink, shortcutDetails, createdTime, modifiedTime, size)",
             orderBy="folder,name_natural",
             pageSize=1000,
             pageToken=page_token,

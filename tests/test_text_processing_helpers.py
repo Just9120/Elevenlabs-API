@@ -27,6 +27,10 @@ HELPER_NAMES = {
     "chunk_text_for_docs",
     "extract_unstructured_transcript_body_for_backfill",
     "format_transcript_metadata_value",
+    "get_existing_google_doc_created_at_source",
+    "resolve_existing_google_doc_created_at",
+    "extract_existing_transcript_created_at",
+    "format_visible_transcript_timestamp",
     "is_structured_transcript_document_text",
     "normalize_doc_plain_text",
     "segment_plain_transcript_for_docs",
@@ -117,6 +121,11 @@ def load_text_helpers() -> dict[str, object]:
                     "DOCS_ONLY_STANDARDIZATION_DEFAULT_MAX_FOLDERS_SCANNED",
                     "DOCS_ONLY_STANDARDIZATION_DEFAULT_MAX_GOOGLE_DOCS_SCANNED",
                     "DOCS_ONLY_STANDARDIZATION_NESTED_FOLDER_HINT",
+                    "EXISTING_DOCS_BACKFILL_METADATA_DEFAULTS_SOURCE",
+                    "EXISTING_DOCS_BACKFILL_SPEAKERS_ENABLED",
+                    "EXISTING_DOCS_BACKFILL_LANGUAGE",
+                    "EXISTING_DOCS_BACKFILL_PROVIDER_MODEL",
+                    "EXISTING_DOCS_BACKFILL_PROVIDER",
                     "MANIFEST_CACHE",
                     "MANIFEST_FILE_NAME",
                     "MANIFEST_FOLDER_NAME",
@@ -183,6 +192,10 @@ build_backfilled_transcript_document_text = HELPERS["build_backfilled_transcript
 chunk_text_for_docs = HELPERS["chunk_text_for_docs"]
 extract_unstructured_transcript_body_for_backfill = HELPERS["extract_unstructured_transcript_body_for_backfill"]
 format_transcript_metadata_value = HELPERS["format_transcript_metadata_value"]
+format_visible_transcript_timestamp = HELPERS["format_visible_transcript_timestamp"]
+extract_existing_transcript_created_at = HELPERS["extract_existing_transcript_created_at"]
+resolve_existing_google_doc_created_at = HELPERS["resolve_existing_google_doc_created_at"]
+get_existing_google_doc_created_at_source = HELPERS["get_existing_google_doc_created_at_source"]
 is_structured_transcript_document_text = HELPERS["is_structured_transcript_document_text"]
 normalize_doc_plain_text = HELPERS["normalize_doc_plain_text"]
 segment_plain_transcript_for_docs = HELPERS["segment_plain_transcript_for_docs"]
@@ -247,6 +260,57 @@ def build_legacy_standard_document(title: str = "Call", body: str = "Hello world
 def test_format_transcript_metadata_value_normalizes_blank_values() -> None:
     assert format_transcript_metadata_value(None) == "unknown"
     assert format_transcript_metadata_value("  alpha\n beta  ") == "alpha beta"
+
+
+def test_format_visible_transcript_timestamp_handles_iso_and_visible_values() -> None:
+    assert format_visible_transcript_timestamp("2026-06-03T11:46:04.472894+00:00") == "2026-06-03 11:46 UTC"
+    assert format_visible_transcript_timestamp("2026-06-03T11:46:04Z") == "2026-06-03 11:46 UTC"
+    assert format_visible_transcript_timestamp("2026-06-03T14:46:04+03:00") == "2026-06-03 11:46 UTC"
+    assert format_visible_transcript_timestamp("2026-06-03 11:46 UTC") == "2026-06-03 11:46 UTC"
+    assert format_visible_transcript_timestamp("") == "unknown"
+    assert format_visible_transcript_timestamp("  not a timestamp  ") == "not a timestamp"
+
+
+def test_extract_existing_transcript_created_at_reads_current_and_legacy_metadata_only() -> None:
+    current = build_structured_transcript_document_text(
+        document_title="Call",
+        transcript_text="Body",
+        metadata_lines=build_transcript_metadata_lines(
+            source_name="ignored",
+            source_mode="ignored",
+            provider="ElevenLabs",
+            provider_model="scribe_v2",
+            language="Русский",
+            speakers_enabled=None,
+            created_at="2026-06-03 11:46 UTC",
+        ),
+    )
+    legacy = build_legacy_standard_document()
+
+    assert extract_existing_transcript_created_at(current) == "2026-06-03 11:46 UTC"
+    assert extract_existing_transcript_created_at(legacy) == "2026-06-02T10:26:40.369268+00:00"
+    assert extract_existing_transcript_created_at("Call\n\nTranscript metadata\nProvider: ElevenLabs\n\nTranscript\n\nBody") == ""
+    assert extract_existing_transcript_created_at("Call\n\nCreated at: 2026-06-03T11:46:04Z\nBody") == ""
+    assert extract_existing_transcript_created_at(
+        "Call\n\nTranscript metadata\nProvider: ElevenLabs\nModel: scribe_v2\nLanguage: Русский\n"
+        "Speakers: unknown\nCreated at: 2026-06-01T00:00:00+00:00\n\nTranscript\n\n"
+        "Created at: 2099-01-01T00:00:00+00:00"
+    ) == "2026-06-01T00:00:00+00:00"
+
+
+def test_resolve_existing_google_doc_created_at_priority_and_no_now_fallback() -> None:
+    existing = build_legacy_standard_document()
+
+    assert resolve_existing_google_doc_created_at(
+        existing,
+        {"createdTime": "2026-06-03T11:46:04Z"},
+    ) == "2026-06-02 10:26 UTC"
+    assert get_existing_google_doc_created_at_source(existing, {"createdTime": "2026-06-03T11:46:04Z"}) == "existing_metadata"
+    assert resolve_existing_google_doc_created_at("Call\n\nBody", {"createdTime": "2026-06-03T11:46:04Z"}) == "2026-06-03 11:46 UTC"
+    assert get_existing_google_doc_created_at_source("Call\n\nBody", {"createdTime": "2026-06-03T11:46:04Z"}) == "drive_createdTime"
+    assert resolve_existing_google_doc_created_at("Call\n\nBody", {}) == "unknown"
+    assert get_existing_google_doc_created_at_source("Call\n\nBody", {}) == "unknown"
+    assert resolve_existing_google_doc_created_at("Call\n\nBody", {}) != HELPERS["utc_now_iso"]()
 
 
 def test_build_transcript_metadata_lines_supports_unknown_speakers_for_backfill() -> None:
@@ -506,7 +570,7 @@ def test_extract_unstructured_transcript_body_for_backfill_drops_duplicate_title
     assert extract_unstructured_transcript_body_for_backfill("First line.", "Legacy Call") == "First line."
 
 
-def test_build_backfilled_transcript_document_text_uses_unknown_metadata_without_llm_fields() -> None:
+def test_build_backfilled_transcript_document_text_uses_temporary_existing_docs_defaults() -> None:
     document_text = build_backfilled_transcript_document_text(
         document_title="Legacy Call",
         source_name="Legacy Call.mp3",
@@ -518,14 +582,17 @@ def test_build_backfilled_transcript_document_text_uses_unknown_metadata_without
     assert document_text == (
         "Legacy Call\n\n"
         "Transcript metadata\n"
-        "Provider: unknown\n"
-        "Model: unknown\n"
-        "Language: unknown\n"
+        "Provider: ElevenLabs\n"
+        "Model: scribe_v2\n"
+        "Language: Русский\n"
         "Speakers: unknown\n"
-        "Created at: 2026-06-01T00:00:00+00:00\n\n"
+        "Created at: 2026-06-01 00:00 UTC\n\n"
         "Transcript\n\n"
         "Hello world."
     )
+    assert "Source file:" not in document_text
+    assert "Source mode:" not in document_text
+    assert "Standardized at:" not in document_text
     assert is_structured_transcript_document_text(document_text)
 
 
@@ -699,7 +766,13 @@ def test_docs_only_dry_run_counts_would_standardize_without_writing() -> None:
 
     report = standardize_existing_google_docs_in_folder("root", dry_run=True)
 
-    assert report["would_standardize"] == [{"doc_name": "Call", "link": "", "structured_status": "unstructured"}]
+    assert report["would_standardize"] == [{
+        "doc_name": "Call",
+        "link": "",
+        "structured_status": "unstructured",
+        "created_at_source": "unknown",
+        "metadata_defaults_source": "temporary_existing_docs_backfill_defaults",
+    }]
     assert report["standardized"] == []
     assert writes == []
 
@@ -715,7 +788,13 @@ def test_docs_only_dry_run_counts_old_standard_as_would_standardize() -> None:
 
     report = standardize_existing_google_docs_in_folder("root", dry_run=True)
 
-    assert report["would_standardize"] == [{"doc_name": "Call", "link": "", "structured_status": "outdated"}]
+    assert report["would_standardize"] == [{
+        "doc_name": "Call",
+        "link": "",
+        "structured_status": "outdated",
+        "created_at_source": "existing_metadata",
+        "metadata_defaults_source": "temporary_existing_docs_backfill_defaults",
+    }]
     assert report["already_structured"] == []
     assert report["standardized"] == []
     assert writes == []
@@ -743,11 +822,11 @@ def test_docs_only_apply_rewrites_old_standard_to_v12_and_preserves_body() -> No
     rewritten_text = writes[0]["transcript_text"]
     assert "Source file:" not in rewritten_text
     assert "Source mode:" not in rewritten_text
-    assert "Provider: unknown" in rewritten_text
-    assert "Model: unknown" in rewritten_text
-    assert "Language: unknown" in rewritten_text
+    assert "Provider: ElevenLabs" in rewritten_text
+    assert "Model: scribe_v2" in rewritten_text
+    assert "Language: Русский" in rewritten_text
     assert "Speakers: unknown" in rewritten_text
-    assert "Created at: 2026-06-01T00:00:00+00:00" in rewritten_text
+    assert "Created at: 2026-06-02 10:26 UTC" in rewritten_text
     assert body in rewritten_text
     assert is_structured_transcript_document_text(rewritten_text)
 
@@ -803,10 +882,11 @@ def test_docs_only_metadata_is_honest_and_conservative() -> None:
 
     assert "Source file:" not in document_text
     assert "Source mode:" not in document_text
-    assert "Provider: unknown" in document_text
-    assert "Model: unknown" in document_text
-    assert "Language: unknown" in document_text
+    assert "Provider: ElevenLabs" in document_text
+    assert "Model: scribe_v2" in document_text
+    assert "Language: Русский" in document_text
     assert "Speakers: unknown" in document_text
+    assert "Created at: 2026-06-01 00:00 UTC" in document_text
 
 
 def test_docs_only_flow_does_not_call_provider_create_doc_or_manifest_helpers() -> None:
