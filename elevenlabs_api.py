@@ -1930,9 +1930,9 @@ def standardize_manifest_to_v2_for_existing_google_docs(
         manifest_v2_written = True
 
     action_notice = (
-        "Manifest will be migrated to v2."
+        "Старый формат manifest будет обновлён до актуального."
         if needs_migration
-        else "Manifest is already v2; this action refreshes the v2 catalog and standard_check observations."
+        else "Manifest уже в актуальном формате; выполняется обновление каталога и наблюдений standard_check."
     )
 
     report = {
@@ -1940,7 +1940,7 @@ def standardize_manifest_to_v2_for_existing_google_docs(
         "target_manifest_version": MANIFEST_V2_TARGET_VERSION,
         "dry_run": dry_run,
         "recursive": recursive,
-        "action_label": "refresh manifest v2 catalog",
+        "action_label": "refresh manifest catalog",
         "google_docs_scanned": len(docs),
         "folders_seen": scan["folders_seen"],
         "skipped_non_google_docs": scan["skipped_non_google_docs"],
@@ -1975,11 +1975,10 @@ def standardize_manifest_to_v2_for_existing_google_docs(
         "errors": errors,
         "notice": (
             f"{action_notice} "
-            "This will add/refresh selected-folder records in the global manifest when material changes are needed. "
-            "Selecting a different folder adds/refreshes records in the same global manifest and does not remove previously registered documents. "
-            "Google Docs are represented in v2.documents, source records stay in v2.sources, "
-            "and transcript document standard state is stored only as replaceable standard_check observations. "
-            "Google Docs content is unchanged and provider/STT/LLM APIs are not called."
+            "Кнопка добавляет/обновляет записи выбранной папки в глобальном manifest, когда нужны изменения. "
+            "Выбор другой папки добавляет/обновляет записи в том же глобальном manifest и не удаляет ранее зарегистрированные документы. "
+            "Состояние стандарта transcript document хранится только как заменяемые наблюдения standard_check. "
+            "Содержимое Google Docs не меняется, provider/STT/LLM API не вызываются."
         ),
     }
     return report
@@ -6076,67 +6075,110 @@ def yes_no(value: bool) -> str:
 
 
 def build_standardize_manifest_v2_report_text(report: dict) -> str:
-    before = report.get("manifest_before") or {}
     after = report.get("manifest_after") or {}
     standard_check = report.get("standard_check") or {}
     dry_run = bool(report.get("dry_run"))
     current_version = report.get("current_manifest_version")
     target_version = report.get("target_manifest_version")
-    mode_label = "проверка без изменений" if dry_run else "применение"
-    after_title = "Манифест после применения, предварительный просмотр:" if dry_run else "Манифест после применения:"
-    standard_title = "Проверка стандарта после применения, предварительный просмотр:" if dry_run else "Проверка стандарта после применения:"
-    lines = [
-        "====================",
-        "МАНИФЕСТ",
-        "====================",
-        f"Режим: {mode_label}",
-        "Действие: Обновление каталога manifest v2",
-        "Скан выбранной папки:",
-        f"  Google Docs в выбранной папке: {report.get('selected_google_docs_scanned', report.get('google_docs_scanned', 0))}",
-        f"  Папок найдено при скане: {report.get('selected_folders_seen', report.get('folders_seen', 0))}",
-        f"  Пропущено не-Google Docs: {report.get('selected_skipped_non_google_docs', report.get('skipped_non_google_docs', 0))}",
-        "Манифест до изменений:",
-        f"  Версия: {before.get('version', current_version)}",
-        f"  Документов всего: {before.get('documents_total', 0)}",
-        f"  Источников всего: {before.get('sources_total', 0)}",
-        f"  Документов со связанными источниками: {before.get('documents_with_sources', 0)}",
-        f"  Документов без источников: {before.get('documents_without_sources', 0)}",
-        f"  Источников без связанного документа: {before.get('orphan_sources', 0)}",
-        "Изменения по выбранной папке:",
-        f"  Будет добавлено документов: {report.get('selected_would_add_documents', 0)}",
-        f"  Будет обновлено документов: {report.get('selected_would_refresh_documents', 0)}",
-        f"  Документов без изменений: {report.get('selected_unchanged_documents', 0)}",
-        f"  Будет удалено документов: {report.get('selected_would_remove_documents', 0)}",
-        "  Примечание: выбор другой папки добавляет/обновляет записи в том же глобальном manifest. Ранее зарегистрированные документы не удаляются.",
-        after_title,
-        f"  Версия: {after.get('version', target_version)}",
-        f"  Документов всего: {after.get('documents_total', report.get('documents_total', 0))}",
-        f"  Источников всего: {after.get('sources_total', report.get('sources_total', 0))}",
-        f"  Документов со связанными источниками: {after.get('documents_with_sources', report.get('documents_with_sources', 0))}",
-        f"  Документов без источников: {after.get('documents_without_sources', report.get('documents_without_sources', 0))}",
-        f"  Источников без связанного документа: {after.get('orphan_sources', report.get('orphan_sources', 0))}",
-        standard_title,
-        f"  Целевой стандарт: {standard_check.get('target_standard')}",
-        f"  Актуальные: {standard_check.get('current')}",
-        f"  Устаревшие: {standard_check.get('outdated')}",
-        f"  Без структуры: {standard_check.get('unstructured')}",
-        f"  Недоступные/ошибки: {standard_check.get('unreadable')}",
-        "Безопасность:",
-        "  Содержимое Google Docs изменено: нет",
-        "  STT/LLM/provider API вызваны: нет",
-        f"  Backup будет создан: {yes_no(bool(report.get('would_backup_manifest')))}",
-        f"  Manifest будет записан: {yes_no(bool(report.get('would_write_manifest_v2') or report.get('manifest_v2_written')))}",
-        f"  Manifest актуален: {yes_no(bool(report.get('manifest_v2_up_to_date')))}",
-        f"  Ошибок: {len(report.get('errors') or [])}",
-    ]
-    if current_version != target_version:
-        lines.append("Manifest v1 будет мигрирован в v2.")
-    elif report.get("manifest_v2_up_to_date"):
-        lines.append("Manifest уже актуален, запись не требуется.")
-    elif report.get("would_refresh_manifest_v2") or report.get("manifest_v2_written"):
-        lines.append("Будут добавлены/обновлены записи выбранной папки в глобальном manifest.")
+    errors_count = len(report.get("errors") or [])
+    write_required = bool(report.get("would_write_manifest_v2") or report.get("manifest_v2_written"))
+    write_done = bool(report.get("manifest_v2_written"))
+    backup_needed_or_done = bool(report.get("would_backup_manifest") or report.get("backup_created"))
+    selected_add = int(report.get("selected_would_add_documents", 0) or 0)
+    selected_refresh = int(report.get("selected_would_refresh_documents", 0) or 0)
+    selected_unchanged = int(report.get("selected_unchanged_documents", 0) or 0)
+    selected_remove = int(report.get("selected_would_remove_documents", 0) or 0)
+    selected_changes_exist = any((selected_add, selected_refresh, selected_remove))
+
+    if report.get("manifest_v2_up_to_date") and not selected_changes_exist:
+        result = "выбранная папка уже актуальна, изменений не требуется."
+    elif dry_run and selected_changes_exist:
+        result = "есть изменения, которые будут записаны в manifest при apply."
+    elif not dry_run and write_done:
+        result = "изменения выбранной папки применены к manifest."
+    elif not dry_run and not write_required:
+        result = "выбранная папка уже актуальна, запись не требовалась."
     else:
-        lines.append("Manifest уже v2; выполняется обновление каталога и наблюдений standard_check.")
+        result = "выбранная папка уже актуальна, изменений не требуется."
+
+    mode_label = "проверка без изменений" if dry_run else "применение"
+    add_label = "Будет добавлено" if dry_run else "Добавлено"
+    refresh_label = "Будет обновлено" if dry_run else "Обновлено"
+    remove_label = "Будет удалено" if dry_run else "Удалено"
+    if current_version is None or target_version is None:
+        technical_format = "неизвестно"
+    elif current_version != target_version:
+        technical_format = "будет обновлён"
+    else:
+        technical_format = "актуальный"
+
+    lines = [
+        "==============================",
+        "МАНИФЕСТ — ВЫБРАННАЯ ПАПКА",
+        "==============================",
+        "",
+        "Итог:",
+        f"- {result}",
+        "",
+        "Режим:",
+        f"- {mode_label}",
+        "",
+        "Действие:",
+        "- обновление каталога manifest по выбранной папке",
+        "",
+        "Скан выбранной папки:",
+        f"- Google Docs в выбранной папке: {report.get('selected_google_docs_scanned', report.get('google_docs_scanned', 0))}",
+        f"- Папок найдено при скане: {report.get('selected_folders_seen', report.get('folders_seen', 0))}",
+        f"- Пропущено не-Google Docs: {report.get('selected_skipped_non_google_docs', report.get('skipped_non_google_docs', 0))}",
+        "",
+        "Изменения по выбранной папке:",
+        f"- {add_label} документов: {selected_add}",
+        f"- {refresh_label} документов: {selected_refresh}",
+        f"- Документов без изменений: {selected_unchanged}",
+        f"- {remove_label} документов: {selected_remove}",
+        "",
+        "Запись manifest:",
+        f"- Требуется запись: {yes_no(write_required)}",
+        f"- Выполнена запись: {yes_no(write_done)}",
+        f"- Manifest актуален: {yes_no(bool(report.get('manifest_v2_up_to_date')))}",
+        f"- Ошибок: {errors_count}",
+        "",
+        "================================",
+        "ГЛОБАЛЬНЫЙ MANIFEST — СПРАВОЧНО",
+        "================================",
+        "",
+        "Эти справочные числа относятся ко всему глобальному manifest, а не только к выбранной папке.",
+        f"- Технический формат: {technical_format}",
+        "",
+        f"- Документов всего: {after.get('documents_total', report.get('documents_total', 0))}",
+        f"- Источников всего: {after.get('sources_total', report.get('sources_total', 0))}",
+        f"- Документов со связанными источниками: {after.get('documents_with_sources', report.get('documents_with_sources', 0))}",
+        f"- Документов без источников: {after.get('documents_without_sources', report.get('documents_without_sources', 0))}",
+        f"- Источников без связанного документа: {after.get('orphan_sources', report.get('orphan_sources', 0))}",
+        "",
+        "Проверка стандарта по глобальному каталогу:",
+        f"- Целевой стандарт: {standard_check.get('target_standard')}",
+        f"- Актуальные: {standard_check.get('current')}",
+        f"- Устаревшие: {standard_check.get('outdated')}",
+        f"- Без структуры: {standard_check.get('unstructured')}",
+        f"- Недоступные/ошибки: {standard_check.get('unreadable')}",
+        "",
+        "============",
+        "БЕЗОПАСНОСТЬ",
+        "============",
+        "",
+        "- Содержимое Google Docs изменено: нет",
+        "- STT/LLM/provider API вызваны: нет",
+        f"- Backup создан / будет создан: {yes_no(backup_needed_or_done)}",
+        f"- Manifest записан / будет записан: {yes_no(write_required)}",
+        "- Старые записи из других папок не удаляются: да",
+        "",
+        "Manifest — глобальный каталог. Эта кнопка добавляет/обновляет записи выбранной папки в общем manifest, но не удаляет документы из других папок.",
+    ]
+    if report.get("manifest_v2_up_to_date"):
+        lines.append("Manifest уже актуален, запись не требуется.")
+    elif current_version != target_version:
+        lines.append("Старый формат manifest будет обновлён до актуального.")
 
     for item in (report.get("errors") or [])[:20]:
         lines.append(f"- {item.get('doc_name', '')}: {item.get('reason', '')}")

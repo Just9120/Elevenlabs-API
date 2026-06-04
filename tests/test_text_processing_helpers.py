@@ -1964,7 +1964,7 @@ def test_manifest_v2_migration_flow_dry_run_is_read_only_and_apply_backs_up_and_
     assert dry["would_backup_manifest"] is True
     assert dry["would_write_manifest_v2"] is True
     assert dry["manifest_v2_written"] is False
-    assert "Manifest will be migrated to v2." in dry["notice"]
+    assert "Старый формат manifest будет обновлён до актуального." in dry["notice"]
     assert dry["google_docs_scanned"] == 1
     assert dry["documents_total"] == 1
     assert dry["sources_total"] == 2
@@ -1999,7 +1999,7 @@ def test_manifest_v2_migration_flow_dry_run_is_read_only_and_apply_backs_up_and_
     assert second["would_refresh_manifest_v2"] is False
     assert second["would_write_manifest_v2"] is False
     assert second["manifest_v2_up_to_date"] is True
-    assert "Manifest is already v2" in second["notice"]
+    assert "Manifest уже в актуальном формате" in second["notice"]
     assert "entries" not in second["manifest_v2_preview"]
 
 
@@ -2024,7 +2024,7 @@ def test_manifest_v2_dry_run_checked_at_only_change_is_up_to_date() -> None:
     assert report["would_write_manifest_v2"] is False
     assert report["manifest_v2_written"] is False
     assert report["manifest_v2_up_to_date"] is True
-    assert "migration" not in report["notice"].lower()
+    assert "мигр" not in report["notice"].lower()
     assert "entries" not in report["manifest_v2_preview"]
 
 
@@ -2235,10 +2235,14 @@ def test_manifest_report_separates_selected_scan_from_global_totals() -> None:
     assert report["manifest_before"]["documents_total"] == 81
     assert report["manifest_after"]["documents_total"] == 86
     assert report["selected_would_add_documents"] == 5
-    assert "Скан выбранной папки" in text
-    assert "Манифест после применения" in text
+    assert "МАНИФЕСТ — ВЫБРАННАЯ ПАПКА" in text
+    assert "ГЛОБАЛЬНЫЙ MANIFEST — СПРАВОЧНО" in text
+    assert "Проверка стандарта по глобальному каталогу" in text
+    assert "Манифест после применения" not in text
     assert "entire Drive" not in text
     assert "Google Docs в выбранной папке: 5" in text
+    assert "Будет добавлено документов: 5" in text
+    assert "Документов всего: 86" in text
 
 
 def test_manifest_report_text_is_localized_to_russian() -> None:
@@ -2258,9 +2262,24 @@ def test_manifest_report_text_is_localized_to_russian() -> None:
 
     text = build_standardize_manifest_v2_report_text(report)
 
-    for expected in ("МАНИФЕСТ", "Скан выбранной папки", "Манифест до изменений", "Изменения по выбранной папке", "Манифест после применения", "Безопасность"):
+    for expected in (
+        "МАНИФЕСТ — ВЫБРАННАЯ ПАПКА",
+        "ГЛОБАЛЬНЫЙ MANIFEST — СПРАВОЧНО",
+        "БЕЗОПАСНОСТЬ",
+        "Скан выбранной папки",
+        "Изменения по выбранной папке",
+        "Проверка стандарта по глобальному каталогу",
+    ):
         assert expected in text
-    for old_label in ("Selected folder scan", "Manifest before", "Changes from selected folder", "Safety"):
+    for old_label in (
+        "Selected folder scan",
+        "Manifest before",
+        "Changes from selected folder",
+        "Safety",
+        "Манифест до изменений",
+        "Манифест после применения",
+        "Проверка стандарта после применения",
+    ):
         assert old_label not in text
 
 
@@ -2302,8 +2321,12 @@ def test_manifest_report_v2_no_material_changes_says_up_to_date() -> None:
 
     assert report["manifest_v2_up_to_date"] is True
     assert report["would_write_manifest_v2"] is False
+    assert "выбранная папка уже актуальна" in text
+    assert "Требуется запись: нет" in text
     assert "Manifest актуален: да" in text
     assert "Manifest уже актуален, запись не требуется" in text
+    for forbidden in ("manifest v2", "Manifest v2", "v2 catalog", "будет мигрирован в v2", "уже v2"):
+        assert forbidden not in text
     assert "would migrate" not in text.lower()
 
 
@@ -2322,7 +2345,11 @@ def test_manifest_report_v2_selected_adds_records_in_global_manifest() -> None:
     assert report["would_refresh_manifest_v2"] is True
     assert report["would_write_manifest_v2"] is True
     assert report["would_backup_manifest"] is False
-    assert "Будут добавлены/обновлены записи выбранной папки в глобальном manifest" in text
+    assert "есть изменения" in text
+    assert "Требуется запись: да" in text
+    assert "Документов всего:" in text
+    assert "Содержимое Google Docs изменено: нет" in text
+    assert "STT/LLM/provider API вызваны: нет" in text
 
 
 def test_manifest_report_v1_migration_mentions_backup_and_apply_creates_backup() -> None:
@@ -2337,7 +2364,9 @@ def test_manifest_report_v1_migration_mentions_backup_and_apply_creates_backup()
     dry = standardize_manifest_to_v2_for_existing_google_docs("folder-root", dry_run=True)
     dry_text = build_standardize_manifest_v2_report_text(dry)
 
-    assert "Manifest v1 будет мигрирован в v2" in dry_text
+    assert "Старый формат manifest будет обновлён до актуального" in dry_text
+    assert "manifest v2" not in dry_text
+    assert "уже v2" not in dry_text
     assert dry["would_backup_manifest"] is True
 
     HELPERS["load_manifest"] = lambda: {"version": 1, "entries": {}}
