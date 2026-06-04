@@ -83,7 +83,7 @@ The following are not part of the current repository scope:
 - Provide docs-only standardization for existing Google Docs that scans a selected destination/output folder, optionally recurses into nested transcript folders, ignores source audio/video input, does not retranscribe, does not call STT/provider/LLM APIs, does not create new Google Docs, does not mutate manifest, defaults to dry-run, and rewrites selected Google Docs in place only in explicit apply mode.
 - Existing Google Docs backfill, including refresh of already-current-shaped old backfill Docs that still contain old `unknown` defaults or non-visible timestamp formatting, uses temporary known defaults for historical transcript Docs: `Provider: ElevenLabs`, `Model: scribe_v2`, `Language: Русский`, and `Speakers: unknown`. Speakers are not inferred automatically.
 - Existing Google Docs backfill preserves visible `Created at` from existing transcript metadata first, falls back to Google Drive `createdTime`, and otherwise uses `unknown`; `Created at` must not mean standardization time. Visible backfill timestamps use `YYYY-MM-DD HH:MM UTC`, while internal manifest/check timestamps may remain full ISO. No new visible metadata fields are added.
-- Maintain manifest v2 as a global workspace catalog with separate `documents`, `sources`, and `summary` sections.
+- Maintain manifest v2 as a global workspace catalog with separate `documents`, `sources`, and `summary` sections. Successful transcription completion must immediately mark `v2.sources` done, upsert the matching `v2.documents` record, link `source_signatures`, and refresh summary totals. Manifest maintenance is a reconciliation/refresh action, not the normal way new transcription Docs enter the document catalog.
 
 ## 7. Business rules
 
@@ -91,7 +91,7 @@ The following are not part of the current repository scope:
 - Dry-run is the default for docs-only standardization and manifest maintenance.
 - Apply mode must be explicit.
 - Existing Docs standardization rewrites selected Google Docs in place only.
-- Manifest maintenance updates manifest only and does not mutate Google Docs.
+- Manifest maintenance updates manifest only and does not mutate Google Docs. It must not be required to repair every normal successful transcription before the document catalog sees the new Google Doc.
 - Strict standard detection is required: old structured Docs with visible `Source file` / `Source mode` metadata are outdated, not current.
 
 ## 8. Data and state model
@@ -103,6 +103,7 @@ The following are not part of the current repository scope:
 - Manifest v2 separates `documents`, `sources`, and `summary`.
 - Manifest v2 documents are keyed by Google Doc ID.
 - Manifest v2 sources are keyed by `source_signature`.
+- Manifest v2 runtime source/document sync stores document metadata and standard status only; it must not store transcript body text or Google Docs body content.
 - `standard_check` is a replaceable observation, not the transcript body.
 - Manifest schema version is independent from transcript document standard version.
 - Manifest must not store transcript body text or Google Docs body content.
@@ -153,7 +154,7 @@ The following are not part of the current repository scope:
 - Colab preflight summary must show operational configuration without secret values.
 - Analytics JSONL provides runtime diagnostics.
 - Provider HTTP error logging must be safe and must not include raw provider response bodies.
-- Standardization and manifest reports should make scan scope, status, apply impact, previews, and safety boundaries clear.
+- Standardization and manifest reports should make scan scope, status, apply impact, previews, and safety boundaries clear. User-visible Colab report labels are localized to Russian; internal manifest schema keys, JSON keys, report dict keys, function names, and tests remain English.
 
 ## 14. Testing and validation requirements
 
