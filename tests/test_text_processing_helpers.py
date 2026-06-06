@@ -100,6 +100,7 @@ HELPER_NAMES = {
     "is_supported_filename",
     "validate_drive_multi_selected_items",
     "summarize_drive_multi_selection",
+    "get_drive_source_double_click_action",
 }
 
 
@@ -254,6 +255,7 @@ DOC_MIME = HELPERS["DOC_MIME"]
 FOLDER_MIME = HELPERS["FOLDER_MIME"]
 validate_drive_multi_selected_items = HELPERS["validate_drive_multi_selected_items"]
 summarize_drive_multi_selection = HELPERS["summarize_drive_multi_selection"]
+get_drive_source_double_click_action = HELPERS["get_drive_source_double_click_action"]
 
 
 def test_validate_drive_multi_selected_items_preserves_order_and_normalizes() -> None:
@@ -301,6 +303,19 @@ def test_summarize_drive_multi_selection_is_compact_and_limits_names() -> None:
     assert "- file-9.mp3" in summary
     assert "file-10.mp3" not in summary
     assert "... ещё 2" in summary
+
+
+def test_drive_source_double_click_action_mapping_is_conservative() -> None:
+    assert get_drive_source_double_click_action("drive_file", True) == "open"
+    assert get_drive_source_double_click_action("drive_file", False) == "select"
+    assert get_drive_source_double_click_action("drive_folder", True) == "open"
+    assert get_drive_source_double_click_action("drive_folder", False) == "none"
+    assert get_drive_source_double_click_action("drive_multi", True) == "none"
+    assert get_drive_source_double_click_action("drive_multi", False) == "none"
+    assert get_drive_source_double_click_action("local_file", True) == "none"
+    assert get_drive_source_double_click_action("local_file", False) == "none"
+    assert get_drive_source_double_click_action("local_multi", True) == "none"
+    assert get_drive_source_double_click_action("local_multi", False) == "none"
 
 
 def test_source_input_ui_uses_picker_only_internal_drive_value() -> None:

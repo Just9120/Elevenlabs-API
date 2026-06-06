@@ -31,9 +31,9 @@ from urllib.parse import urlparse, parse_qs
 
 import requests
 import ipywidgets as widgets
-from IPython.display import display, clear_output
+from IPython.display import display, clear_output, Javascript
 
-from google.colab import auth, files, userdata, drive as colab_drive
+from google.colab import auth, files, userdata, drive as colab_drive, output as colab_output
 import google.auth
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -5403,6 +5403,21 @@ def build_source_item_label(item: dict) -> str:
     return f"🎵 {item['name']}"
 
 
+def get_drive_source_double_click_action(mode: str, is_folder: bool) -> str:
+    """Return the conservative source picker action for a double-click.
+
+    Actions are intentionally limited to existing picker operations:
+    ``open`` opens a folder through the normal open handler, ``select`` selects
+    one supported file through the normal select handler, and ``none`` leaves the
+    button-based workflow as the only path.
+    """
+    if mode == "drive_file":
+        return "open" if is_folder else "select"
+    if mode == "drive_folder":
+        return "open" if is_folder else "none"
+    return "none"
+
+
 def validate_drive_multi_selected_items(items: list[dict]) -> list[dict]:
     if not items:
         raise ValueError("Выбери один или несколько файлов через Google Drive picker.")
@@ -5483,9 +5498,11 @@ source_selected_html = widgets.HTML()
 source_picker_output = widgets.Output()
 source_picker_help_html = widgets.HTML(
     "<div style='margin-top:6px; color:#5f6368;'>"
-    "Google Drive источники выбираются через picker. Для одного файла выбери файл в списке. "
-    "Для нескольких файлов отметь файлы в текущей папке. "
-    "Для папки открой нужную папку и нажми «Выбрать текущую папку»."
+    "Google Drive источники выбираются через picker. Кнопки остаются основным и надёжным способом выбора. "
+    "Где поддерживается браузером, двойной клик — только удобное дополнение: "
+    "в режиме одного файла он открывает папку или выбирает поддерживаемый файл, "
+    "в режиме папки он открывает папку для навигации. "
+    "Google Drive: несколько файлов остаётся кнопочным режимом для безопасности — двойной клик не выбирает и не запускает частичный набор."
     "</div>"
 )
 
@@ -5726,11 +5743,82 @@ def on_source_reset_clicked(_):
     refresh_source_picker()
 
 
+def on_source_item_double_clicked(selected_id: Optional[str] = None):
+    mode = mode_widget.value
+    if mode not in {"drive_file", "drive_folder", "drive_multi"}:
+        return
+
+    if selected_id and selected_id in source_picker_state["item_map"]:
+        source_items_select.value = selected_id
+
+    selected_id = source_items_select.value
+    if not selected_id or selected_id not in source_picker_state["item_map"]:
+        return
+
+    item = source_picker_state["item_map"][selected_id]
+    is_folder = item.get("mimeType") == FOLDER_MIME
+    action = get_drive_source_double_click_action(mode, is_folder)
+
+    if action == "open":
+        on_source_open_clicked(None)
+    elif action == "select":
+        on_source_select_clicked(None)
+
+
+def install_drive_source_double_click_js():
+    display(Javascript(r'''
+    (() => {
+      const STATE_KEY = '__elevenlabsDriveSourcePickerDoubleClick';
+      const ROOT_CLASS = 'elevenlabs-drive-source-picker';
+      const SINGLE_CLASS = 'elevenlabs-drive-source-select';
+      const BOUND_ATTR = 'data-elevenlabs-drive-source-dblclick-bound';
+      const CALLBACK_NAME = 'elevenlabs.sourcePickerDoubleClick';
+
+      const state = window[STATE_KEY] || {};
+      if (state.observer) {
+        state.observer.disconnect();
+      }
+
+      function isVisible(element) {
+        return Boolean(element && (element.offsetWidth || element.offsetHeight || element.getClientRects().length));
+      }
+
+      function invokePython(selectedId) {
+        if (!window.google || !google.colab || !google.colab.kernel) {
+          return;
+        }
+        google.colab.kernel.invokeFunction(CALLBACK_NAME, [selectedId || null], {});
+      }
+
+      function bindSingleSelects() {
+        document.querySelectorAll(`.${ROOT_CLASS} .${SINGLE_CLASS} select`).forEach((selectElement) => {
+          if (selectElement.getAttribute(BOUND_ATTR) === '1') {
+            return;
+          }
+          selectElement.setAttribute(BOUND_ATTR, '1');
+          selectElement.addEventListener('dblclick', () => {
+            if (!isVisible(selectElement)) {
+              return;
+            }
+            invokePython(selectElement.value);
+          });
+        });
+      }
+
+      bindSingleSelects();
+      state.observer = new MutationObserver(bindSingleSelects);
+      state.observer.observe(document.body, {childList: true, subtree: true});
+      window[STATE_KEY] = state;
+    })();
+    '''))
+
+
 source_open_button.on_click(on_source_open_clicked)
 source_up_button.on_click(on_source_up_clicked)
 source_select_button.on_click(on_source_select_clicked)
 source_reset_button.on_click(on_source_reset_clicked)
 source_filter_text.observe(lambda change: apply_source_filter(), names="value")
+colab_output.register_callback("elevenlabs.sourcePickerDoubleClick", on_source_item_double_clicked)
 
 source_picker_ui = widgets.VBox([
     source_picker_help_html,
@@ -5742,6 +5830,9 @@ source_picker_ui = widgets.VBox([
     source_selected_html,
     source_picker_output,
 ])
+source_picker_ui.add_class("elevenlabs-drive-source-picker")
+source_items_select.add_class("elevenlabs-drive-source-select")
+source_items_select_multi.add_class("elevenlabs-drive-source-select-multi")
 
 # =========================
 # 6) WIDGETS UI (SOURCE + ADVANCED)
@@ -6875,7 +6966,7 @@ advanced_box = widgets.VBox([
 advanced_accordion = widgets.Accordion(children=[advanced_box])
 advanced_accordion.set_title(0, "Дополнительные настройки")
 
-display(widgets.VBox([
+main_ui = widgets.VBox([
     folder_picker_ui,
     widgets.HTML("<hr>"),
     mode_widget,
@@ -6893,4 +6984,7 @@ display(widgets.VBox([
     progress_bar,
     progress_label,
     output_widget
-]))
+])
+
+display(main_ui)
+install_drive_source_double_click_js()
