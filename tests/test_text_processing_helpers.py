@@ -325,6 +325,39 @@ def test_get_source_input_value_guards_against_stale_drive_mode_selection() -> N
     assert expected in source
 
 
+def test_conflict_mode_widget_defaults_to_safe_skip() -> None:
+    source = CANONICAL_SOURCE.read_text(encoding="utf-8")
+
+    conflict_options = re.search(r"CONFLICT_MODE_OPTIONS = \[([\s\S]*?)\n\]", source)
+    assert conflict_options is not None
+    for mode in ['"skip"', '"update"', '"archive_recreate"', '"copy_suffix"']:
+        assert mode in conflict_options.group(1)
+
+    conflict_widget = re.search(r"conflict_mode_widget = widgets\.Dropdown\(([\s\S]*?)\n\)", source)
+    assert conflict_widget is not None
+    assert 'options=CONFLICT_MODE_OPTIONS' in conflict_widget.group(1)
+    assert 'value="skip"' in conflict_widget.group(1)
+    assert 'value="update"' not in conflict_widget.group(1)
+
+
+def test_drive_source_selected_html_uses_dark_theme_readable_colors() -> None:
+    source = CANONICAL_SOURCE.read_text(encoding="utf-8")
+
+    selected_source_block = re.search(
+        r'source_selected_html\.value = f?"""([\s\S]*?<b>Выбран источник:</b>[\s\S]*?</div>)',
+        source,
+    )
+    assert selected_source_block is not None
+    selected_html = selected_source_block.group(1)
+
+    assert "background:#eef6ff;" in selected_html
+    assert "color:#202124;" in selected_html
+    assert '<code style="' in selected_html
+    assert "color:#202124;" in selected_html.split("<code", 1)[1].split(">", 1)[0]
+    assert "white-space:pre-wrap;" in selected_html.split("<code", 1)[1].split(">", 1)[0]
+    assert "format_drive_multi_summary_html" in source
+
+
 def test_docs_do_not_describe_drive_multi_as_unavailable() -> None:
     docs_text = "\n".join(
         path.read_text(encoding="utf-8")

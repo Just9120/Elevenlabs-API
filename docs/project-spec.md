@@ -108,7 +108,7 @@ The following are not part of the current repository scope:
 - Allow provider selection for the supported ElevenLabs and OpenAI paths.
 - Support optional speaker split where the selected provider path supports it.
 - Support optional keyterms where the selected provider path supports them.
-- Support conflict mode for existing Google Docs outputs.
+- Support conflict mode for existing Google Docs outputs. The default mode is safe skip (`skip`); update, archive/recreate, and copy-with-suffix remain explicit user selections.
 - Produce structured Google Docs output according to transcript document standard v1.2:
 
   ```text
