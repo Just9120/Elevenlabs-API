@@ -31,7 +31,7 @@ from urllib.parse import urlparse, parse_qs
 
 import requests
 import ipywidgets as widgets
-from IPython.display import display, clear_output
+from IPython.display import display, clear_output, Javascript
 
 from google.colab import auth, files, userdata, drive as colab_drive
 import google.auth
@@ -5402,6 +5402,22 @@ def build_source_item_label(item: dict) -> str:
     return f"🎵 {item['name']}"
 
 
+def get_drive_source_double_click_action(mode: str, is_folder: bool) -> str:
+    """Return the safe picker action for a double-clicked Drive item.
+
+    Actions are intentionally conservative: multi-file mode remains button-based
+    to avoid processing an accidental partial selection, while folder mode only
+    uses double-click for navigation and keeps selecting the current folder
+    explicit.
+    """
+
+    if is_folder and mode in {"drive_file", "drive_folder"}:
+        return "open"
+    if not is_folder and mode == "drive_file":
+        return "select"
+    return "none"
+
+
 def validate_drive_multi_selected_items(items: list[dict]) -> list[dict]:
     if not items:
         raise ValueError("Выбери один или несколько файлов через Google Drive picker.")
@@ -5480,10 +5496,19 @@ source_select_button = widgets.Button(description="Выбрать", button_style
 source_reset_button = widgets.Button(description="Сбросить выбор", icon="times")
 source_selected_html = widgets.HTML()
 source_picker_output = widgets.Output()
+source_double_click_event = widgets.Text(
+    value="",
+    description="",
+    layout=widgets.Layout(display="none"),
+)
+source_items_select.add_class("drive-source-single-select")
+source_items_select_multi.add_class("drive-source-multi-select")
+source_double_click_event.add_class("drive-source-dblclick-trigger")
 source_picker_help_html = widgets.HTML(
     "<div style='margin-top:6px; color:#5f6368;'>"
     "Google Drive источники выбираются через picker. Для одного файла выбери файл в списке. "
-    "Для нескольких файлов отметь файлы в текущей папке. "
+    "Папки, а в режиме одного файла и файлы, можно открыть/выбрать двойным кликом, если это поддерживается Colab/ipwidgets. "
+    "Для нескольких файлов отметь файлы в текущей папке и нажми «Выбрать файлы» — этот режим остаётся кнопочным для безопасности. "
     "Для папки открой нужную папку и нажми «Выбрать текущую папку»."
     "</div>"
 )
@@ -5709,6 +5734,34 @@ def on_source_select_clicked(_):
     refresh_source_picker()
 
 
+def on_source_double_click(change):
+    if not change.get("new"):
+        return
+
+    try:
+        event = json.loads(change["new"])
+    except Exception:
+        return
+
+    item_id = str(event.get("item_id") or "").strip()
+    if not item_id or item_id not in source_picker_state["item_map"]:
+        return
+
+    mode = mode_widget.value
+    item = source_picker_state["item_map"][item_id]
+    action = get_drive_source_double_click_action(mode, item.get("mimeType") == FOLDER_MIME)
+    if action == "none":
+        return
+
+    if source_items_select.value != item_id:
+        source_items_select.value = item_id
+
+    if action == "open":
+        on_source_open_clicked(None)
+    elif action == "select":
+        on_source_select_clicked(None)
+
+
 def on_source_reset_clicked(_):
     source_picker_state["selected_input"] = ""
     source_picker_state["selected_label"] = ""
@@ -5726,6 +5779,7 @@ source_open_button.on_click(on_source_open_clicked)
 source_up_button.on_click(on_source_up_clicked)
 source_select_button.on_click(on_source_select_clicked)
 source_reset_button.on_click(on_source_reset_clicked)
+source_double_click_event.observe(on_source_double_click, names="value")
 source_filter_text.observe(lambda change: apply_source_filter(), names="value")
 
 source_picker_ui = widgets.VBox([
@@ -5734,6 +5788,7 @@ source_picker_ui = widgets.VBox([
     source_filter_text,
     source_items_select,
     source_items_select_multi,
+    source_double_click_event,
     widgets.HBox([source_open_button, source_up_button, source_select_button, source_reset_button]),
     source_selected_html,
     source_picker_output,
@@ -6890,3 +6945,93 @@ display(widgets.VBox([
     progress_label,
     output_widget
 ]))
+
+# ipywidgets does not expose a native Select double-click event to Python.
+# This DOM hook is intentionally small and class-based (not generated-ID-based),
+# and it is idempotent across repeated Colab cell executions.  It forwards only
+# double-clicks from the single-select Drive source list to a hidden Text widget;
+# Python then reuses the existing open/select button handlers.
+display(Javascript(r"""
+(() => {
+  const SINGLE_SELECT_CLASS = 'drive-source-single-select';
+  const TRIGGER_CLASS = 'drive-source-dblclick-trigger';
+
+  if (!window.__voiceOpsDriveSourceDblClickBound) {
+    window.__voiceOpsDriveSourceDblClickBound = new WeakSet();
+  }
+
+  function setNativeValue(element, value) {
+    const descriptor = Object.getOwnPropertyDescriptor(element.constructor.prototype, 'value');
+    if (descriptor && descriptor.set) {
+      descriptor.set.call(element, value);
+    } else {
+      element.value = value;
+    }
+  }
+
+  function triggerInputFrom(root) {
+    if (!root) {
+      return null;
+    }
+    return root.querySelector(`.${TRIGGER_CLASS} input`) ||
+      (root.matches(`.${TRIGGER_CLASS}`) && root.matches('input') ? root : null);
+  }
+
+  function findTriggerInput(anchor) {
+    let node = anchor;
+    while (node && node !== document.body) {
+      const input = triggerInputFrom(node);
+      if (input) {
+        return input;
+      }
+      node = node.parentElement;
+    }
+
+    // Repeated Colab executions can leave older picker DOM in the notebook.
+    // As a fallback, prefer the latest trigger rather than a stale first match.
+    const triggerInputs = document.querySelectorAll(`.${TRIGGER_CLASS} input`);
+    return triggerInputs.length ? triggerInputs[triggerInputs.length - 1] : null;
+  }
+
+  function notifyPython(itemId, anchor) {
+    const triggerInput = findTriggerInput(anchor);
+    if (!triggerInput || !itemId) {
+      return;
+    }
+
+    const payload = JSON.stringify({
+      item_id: itemId,
+      nonce: `${Date.now()}-${Math.random()}`
+    });
+    setNativeValue(triggerInput, payload);
+    triggerInput.dispatchEvent(new Event('input', {bubbles: true}));
+    triggerInput.dispatchEvent(new Event('change', {bubbles: true}));
+  }
+
+  function bindSingleSelect(root) {
+    const select = root.querySelector('select');
+    if (!select || window.__voiceOpsDriveSourceDblClickBound.has(select)) {
+      return;
+    }
+
+    window.__voiceOpsDriveSourceDblClickBound.add(select);
+    select.addEventListener('dblclick', () => {
+      notifyPython(select.value, root);
+    });
+  }
+
+  function bindAll() {
+    document.querySelectorAll(`.${SINGLE_SELECT_CLASS}`).forEach(bindSingleSelect);
+  }
+
+  bindAll();
+
+  if (!window.__voiceOpsDriveSourceDblClickObserver) {
+    window.__voiceOpsDriveSourceDblClickObserver = new MutationObserver(bindAll);
+    window.__voiceOpsDriveSourceDblClickObserver.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+  }
+})();
+"""))

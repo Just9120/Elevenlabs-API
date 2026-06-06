@@ -98,6 +98,7 @@ HELPER_NAMES = {
     "build_standardize_manifest_v2_report_text",
     "print_standardize_manifest_v2_report",
     "is_supported_filename",
+    "get_drive_source_double_click_action",
     "validate_drive_multi_selected_items",
     "summarize_drive_multi_selection",
 }
@@ -252,8 +253,19 @@ get_manifest_entry = HELPERS["get_manifest_entry"]
 save_manifest = HELPERS["save_manifest"]
 DOC_MIME = HELPERS["DOC_MIME"]
 FOLDER_MIME = HELPERS["FOLDER_MIME"]
+get_drive_source_double_click_action = HELPERS["get_drive_source_double_click_action"]
 validate_drive_multi_selected_items = HELPERS["validate_drive_multi_selected_items"]
 summarize_drive_multi_selection = HELPERS["summarize_drive_multi_selection"]
+
+
+def test_get_drive_source_double_click_action_is_conservative() -> None:
+    assert get_drive_source_double_click_action("drive_file", True) == "open"
+    assert get_drive_source_double_click_action("drive_file", False) == "select"
+    assert get_drive_source_double_click_action("drive_folder", True) == "open"
+    assert get_drive_source_double_click_action("drive_folder", False) == "none"
+    assert get_drive_source_double_click_action("drive_multi", True) == "none"
+    assert get_drive_source_double_click_action("drive_multi", False) == "none"
+    assert get_drive_source_double_click_action("local_file", False) == "none"
 
 
 def test_validate_drive_multi_selected_items_preserves_order_and_normalizes() -> None:
