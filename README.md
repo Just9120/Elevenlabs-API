@@ -58,10 +58,12 @@ OpenAI fallback добавлен архитектурно, но не все ве
 - Google Drive: single file;
 - Google Drive: folder.
 
+В нормальном Colab UX Google Drive source выбирается через встроенный Drive picker / folder scrolling UI: для режима single file нужно выбрать один поддерживаемый файл в списке, а для режима folder — открыть нужную папку и нажать `Выбрать текущую папку`. Ручной ввод Google Drive path/link не является обычным пользовательским workflow; низкоуровневые helpers для legacy/compatibility могут сохраняться внутри кода. Local computer upload modes остаются без изменений.
+
 Source folder и destination/output folder — разные понятия:
 
 - **Source folder** содержит audio/video/source files. Он используется только transcription workflows. Recursive source scan применяется только к этому folder concept.
-- **Destination/output folder** содержит Google Docs transcript outputs. Он используется для записи новых Docs, docs-only standardization и Manifest maintenance. Для docs-only actions source input игнорируется.
+- **Destination/output folder** содержит Google Docs transcript outputs. Он используется для записи новых Docs, docs-only standardization и Manifest maintenance. Для docs-only actions source input игнорируется. Папка назначения одна на запуск: все результаты текущего запуска сохраняются в выбранную destination/output folder.
 
 Финальный transcription result сохраняется только в Google Docs. Локальные transcript-файлы, Markdown-зеркала и JSON-экспорты не являются основным конечным артефактом.
 

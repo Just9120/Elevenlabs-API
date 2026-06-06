@@ -5202,6 +5202,11 @@ refresh_folder_picker()
 
 folder_picker_core_widgets = [
     widgets.HTML("<h3>Папка назначения для Google Docs</h3>"),
+    widgets.HTML(
+        "<div style='margin:6px 0 10px 0; color:#5f6368;'>"
+        "Папка назначения одна на запуск. Все результаты текущего запуска будут сохранены в выбранную папку."
+        "</div>"
+    ),
     picker_current_path_html,
     picker_filter_text,
     picker_folders_select,
@@ -5297,8 +5302,8 @@ def build_source_item_label(item: dict) -> str:
 
 
 source_input_mode_widget = widgets.ToggleButtons(
-    options=[("Путь / ссылка", "manual"), ("Выбрать в Drive", "picker")],
-    value="manual",
+    options=[("Выбрать в Drive", "picker")],
+    value="picker",
     description="Ввод источника:",
     style={"description_width": "initial"},
     layout=widgets.Layout(width="520px")
@@ -5325,7 +5330,8 @@ source_selected_html = widgets.HTML()
 source_picker_output = widgets.Output()
 source_picker_help_html = widgets.HTML(
     "<div style='margin-top:6px; color:#5f6368;'>"
-    "Можно либо вставить путь / ссылку вручную, либо выбрать источник прямо в Google Drive."
+    "Google Drive источники выбираются через picker. Для файла выбери файл в списке. "
+    "Для папки открой нужную папку и нажми «Выбрать текущую папку»."
     "</div>"
 )
 
@@ -5712,11 +5718,10 @@ progress_label = widgets.HTML("")
 def refresh_ui(*args):
     mode = mode_widget.value
     is_drive_mode = mode in {"drive_file", "drive_folder"}
-    using_picker = is_drive_mode and source_input_mode_widget.value == "picker"
 
-    source_input_mode_widget.layout.display = "" if is_drive_mode else "none"
-    source_picker_ui.layout.display = "" if using_picker else "none"
-    path_widget.layout.display = "" if (is_drive_mode and not using_picker) else "none"
+    source_input_mode_widget.layout.display = "none"
+    source_picker_ui.layout.display = "" if is_drive_mode else "none"
+    path_widget.layout.display = "none"
 
     import_existing_button.layout.display = "" if is_drive_mode else "none"
     import_help_widget.layout.display = "" if is_drive_mode else "none"
@@ -5742,16 +5747,17 @@ def refresh_ui(*args):
     elif mode == "drive_file":
         recursive_widget.layout.display = "none"
         check_source_button.layout.display = ""
-        path_widget.placeholder = "MyDrive/Лекции/Тема 1.flac или ссылка на файл Google Drive"
+        path_widget.placeholder = "Служебное поле: заполняется выбором файла в Google Drive picker"
         help_widget.value = (
-            "<b>Режим:</b> укажи <b>путь</b> / <b>ссылку</b> или выбери <b>файл</b> прямо в Google Drive."
+            "<b>Режим:</b> выбери <b>один файл</b> через Google Drive picker."
         )
     elif mode == "drive_folder":
         recursive_widget.layout.display = ""
         check_source_button.layout.display = ""
-        path_widget.placeholder = "MyDrive/Лекции или ссылка на папку Google Drive"
+        path_widget.placeholder = "Служебное поле: заполняется выбором папки в Google Drive picker"
         help_widget.value = (
-            "<b>Режим:</b> укажи <b>путь</b> / <b>ссылку</b> или выбери <b>папку</b> прямо в Google Drive."
+            "<b>Режим:</b> открой нужную папку в Google Drive picker и нажми "
+            "<b>Выбрать текущую папку</b>."
         )
 
     if use_keyterms_widget.value:
@@ -5807,6 +5813,8 @@ source_input_mode_widget.observe(refresh_ui, names="value")
 
 
 def get_source_input_value() -> str:
+    if mode_widget.value in {"drive_file", "drive_folder"}:
+        return source_picker_state["selected_input"].strip()
     if source_input_mode_widget.value == "picker":
         return source_picker_state["selected_input"].strip()
     return path_widget.value.strip()
@@ -5824,7 +5832,7 @@ def on_check_source_clicked(_):
 
             source_input = get_source_input_value()
             if not source_input:
-                raise ValueError("Укажи путь / ссылку или выбери источник в Google Drive.")
+                raise ValueError("Выбери источник через Google Drive picker.")
 
             output_folder_id = folder_picker_state["selected_id"]
             info = inspect_source_input(
@@ -5902,7 +5910,7 @@ def on_import_existing_clicked(_):
 
             source_input = get_source_input_value()
             if not source_input:
-                raise ValueError("Укажи путь / ссылку или выбери источник в Google Drive.")
+                raise ValueError("Выбери источник через Google Drive picker.")
 
             manifest = load_manifest()
             imported, skipped_items, ambiguous_items = import_existing_transcripts_by_name(
@@ -6479,7 +6487,7 @@ def on_start_clicked(_):
             elif mode == "drive_file":
                 source_input = get_source_input_value()
                 if not source_input:
-                    raise ValueError("Укажи путь / ссылку или выбери файл в Google Drive.")
+                    raise ValueError("Выбери источник через Google Drive picker.")
 
                 with timer.measure("source_processing_total"):
                     successes, errors, skipped = process_drive_file_input(
@@ -6492,7 +6500,7 @@ def on_start_clicked(_):
             elif mode == "drive_folder":
                 source_input = get_source_input_value()
                 if not source_input:
-                    raise ValueError("Укажи путь / ссылку или выбери папку в Google Drive.")
+                    raise ValueError("Выбери источник через Google Drive picker.")
 
                 with timer.measure("source_collect"):
                     preview_info = inspect_source_input(

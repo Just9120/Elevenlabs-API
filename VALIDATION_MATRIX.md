@@ -31,6 +31,7 @@ Important: observed operational usage is **not** equivalent to formal E2E valida
 | ElevenLabs + local single audio | TBD / needs E2E validation | Main path; requires explicit reproducible validation record. |
 | ElevenLabs + local multiple files | TBD / needs E2E validation | Batch mode needs explicit E2E run logs. |
 | ElevenLabs + Google Drive file | Smoke-tested by user | User completed one successful Google Drive single-file `.flac` transcription through ElevenLabs / scribe_v2 with Google Docs output; duration and broader scenario coverage are not yet documented. |
+| Google Drive picker-only source UX | UI/docs updated / needs Colab runtime validation | Normal Google Drive single-file and folder source selection now uses the Drive picker/folder scrolling UI; manual Google Drive path/link entry is not presented as the normal UX. No `drive_multi` mode is added. |
 | ElevenLabs + Google Drive folder | TBD / needs E2E validation | Supported mode; needs scenario-level validation evidence. |
 | ElevenLabs + 1 hour audio | TBD / needs E2E validation | Needs documented repeatable E2E check. |
 | ElevenLabs + 3 hour audio | TBD / needs E2E validation | Conservative changes only; validate on real files. |

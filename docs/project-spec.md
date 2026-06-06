@@ -56,8 +56,9 @@ The following are not part of the current repository scope:
 
 ## 6. Functional requirements
 
-- Allow source selection across local single file, local multiple files, Google Drive single file, and Google Drive folder modes.
-- Allow destination/output Google Docs folder selection.
+- Allow source selection across local single file, local multiple files, Google Drive single file, and Google Drive folder modes. In the normal runtime UX, Google Drive single-file and folder sources are selected through the Drive picker / folder scrolling UI, not through manual Google Drive path/link entry.
+- Do not add Google Drive multi-file source mode (`drive_multi`) yet; local multiple-files upload remains the only current multi-file source mode.
+- Allow destination/output Google Docs folder selection. One destination/output folder is used per run, and all outputs from that run are saved into the selected folder.
 - Allow provider selection for the supported ElevenLabs and OpenAI paths.
 - Support optional speaker split where the selected provider path supports it.
 - Support optional keyterms where the selected provider path supports them.
