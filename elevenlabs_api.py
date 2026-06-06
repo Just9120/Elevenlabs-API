@@ -31,7 +31,7 @@ from urllib.parse import urlparse, parse_qs
 
 import requests
 import ipywidgets as widgets
-from IPython.display import display, clear_output
+from IPython.display import display, clear_output, Javascript
 
 from google.colab import auth, files, userdata, drive as colab_drive
 import google.auth
@@ -2495,6 +2495,16 @@ def escape_drive_query_value(value: str) -> str:
 
 def is_supported_filename(filename: str) -> bool:
     return Path(filename).suffix.lower() in SUPPORTED_EXTENSIONS
+
+
+def get_drive_source_double_click_action(mode: str, is_folder: bool) -> str:
+    """Return the conservative Drive picker action for a double-click."""
+
+    if mode == "drive_file":
+        return "open" if is_folder else "select"
+    if mode == "drive_folder":
+        return "open" if is_folder else "none"
+    return "none"
 
 
 def is_video_filename(filename: str) -> bool:
@@ -5463,12 +5473,19 @@ source_items_select = widgets.Select(
     description="Источник:",
     layout=widgets.Layout(width="900px")
 )
+source_items_select.add_class("elevenlabs-drive-source-select")
 source_items_select_multi = widgets.SelectMultiple(
     options=[],
     rows=12,
     description="Источники:",
     layout=widgets.Layout(width="900px")
 )
+source_double_click_bridge = widgets.Text(
+    value="",
+    description="",
+    layout=widgets.Layout(width="1px", height="1px", visibility="hidden")
+)
+source_double_click_bridge.add_class("elevenlabs-drive-source-dblclick-bridge")
 source_filter_text = widgets.Text(
     value="",
     placeholder="Фильтр файлов и папок в текущей директории",
@@ -5483,9 +5500,10 @@ source_selected_html = widgets.HTML()
 source_picker_output = widgets.Output()
 source_picker_help_html = widgets.HTML(
     "<div style='margin-top:6px; color:#5f6368;'>"
-    "Google Drive источники выбираются через picker. Для одного файла выбери файл в списке. "
-    "Для нескольких файлов отметь файлы в текущей папке. "
-    "Для папки открой нужную папку и нажми «Выбрать текущую папку»."
+    "Google Drive источники выбираются через picker. Для одного файла можно открыть папку "
+    "или выбрать поддерживаемый файл двойным кликом; кнопки остаются запасным вариантом. "
+    "Для нескольких файлов отметь файлы в текущей папке и нажми кнопку выбора. "
+    "Для папки двойной клик открывает подпапку, а выбор текущей папки остаётся через кнопку «Выбрать текущую папку»."
     "</div>"
 )
 
@@ -5713,6 +5731,29 @@ def on_source_select_clicked(_):
     refresh_source_picker()
 
 
+def on_source_double_click(change):
+    payload = (change.get("new") or "").strip()
+    if not payload:
+        return
+
+    selected_id = payload.split("|", 1)[0]
+    item = source_picker_state["item_map"].get(selected_id)
+    if not item:
+        return
+
+    if mode_widget.value in {"drive_file", "drive_folder"}:
+        source_items_select.value = selected_id
+
+    action = get_drive_source_double_click_action(
+        mode_widget.value,
+        item.get("mimeType") == FOLDER_MIME,
+    )
+    if action == "open":
+        on_source_open_clicked(None)
+    elif action == "select":
+        on_source_select_clicked(None)
+
+
 def on_source_reset_clicked(_):
     source_picker_state["selected_input"] = ""
     source_picker_state["selected_label"] = ""
@@ -5730,6 +5771,7 @@ source_open_button.on_click(on_source_open_clicked)
 source_up_button.on_click(on_source_up_clicked)
 source_select_button.on_click(on_source_select_clicked)
 source_reset_button.on_click(on_source_reset_clicked)
+source_double_click_bridge.observe(on_source_double_click, names="value")
 source_filter_text.observe(lambda change: apply_source_filter(), names="value")
 
 source_picker_ui = widgets.VBox([
@@ -5738,6 +5780,7 @@ source_picker_ui = widgets.VBox([
     source_filter_text,
     source_items_select,
     source_items_select_multi,
+    source_double_click_bridge,
     widgets.HBox([source_open_button, source_up_button, source_select_button, source_reset_button]),
     source_selected_html,
     source_picker_output,
@@ -6874,6 +6917,62 @@ advanced_box = widgets.VBox([
 
 advanced_accordion = widgets.Accordion(children=[advanced_box])
 advanced_accordion.set_title(0, "Дополнительные настройки")
+
+display(Javascript(r"""
+(function () {
+  if (window.__elevenlabsDriveSourceDblclickInstalled) {
+    return;
+  }
+  window.__elevenlabsDriveSourceDblclickInstalled = true;
+
+  function findBridge(start) {
+    var scopes = [];
+    var output = start && start.closest && start.closest(".output, .cell, body");
+    if (output) {
+      scopes.push(output);
+    }
+    scopes.push(document);
+
+    for (var i = 0; i < scopes.length; i += 1) {
+      var bridges = scopes[i].querySelectorAll(".elevenlabs-drive-source-dblclick-bridge input");
+      if (bridges.length) {
+        return bridges[bridges.length - 1];
+      }
+    }
+    return null;
+  }
+
+  function setNativeValue(input, value) {
+    var descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
+    if (descriptor && descriptor.set) {
+      descriptor.set.call(input, value);
+    } else {
+      input.value = value;
+    }
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  document.addEventListener("dblclick", function (event) {
+    var selectRoot = event.target.closest && event.target.closest(".elevenlabs-drive-source-select");
+    if (!selectRoot) {
+      return;
+    }
+
+    var select = selectRoot.querySelector("select");
+    if (!select || !select.value) {
+      return;
+    }
+
+    var bridge = findBridge(selectRoot);
+    if (!bridge) {
+      return;
+    }
+
+    setNativeValue(bridge, select.value + "|" + Date.now());
+  }, true);
+}());
+"""))
 
 display(widgets.VBox([
     folder_picker_ui,
