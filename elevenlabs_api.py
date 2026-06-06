@@ -4752,6 +4752,105 @@ def process_drive_file_input(
     return successes, errors, skipped
 
 
+def process_drive_multi_input(
+    selected_items: list[dict],
+    run_ctx: RunExecutionContext,
+    progress_callback=None,
+    timer: Optional[RunTimer] = None,
+) -> tuple[list, list, list]:
+    successes, errors, skipped = [], [], []
+    selected_files = validate_drive_multi_selected_items(selected_items)
+
+    if not selected_files:
+        raise ValueError("Выбери один или несколько файлов через Google Drive picker.")
+
+    print(f"\nВыбрано файлов: {len(selected_files)}")
+
+    for idx, item in enumerate(selected_files, start=1):
+        tmp_path = None
+        file_started = time.perf_counter()
+        filename = item["name"]
+        display_name = item.get("display_name") or filename
+        source_signature = build_drive_source_signature(item["id"], filename, item.get("modifiedTime"), item.get("size"))
+        source_meta = with_output_folder_context({
+            "type": "drive",
+            "selection_mode": "drive_multi",
+            "file_id": item["id"],
+            "modifiedTime": item.get("modifiedTime", ""),
+            "size": str(item.get("size", "")),
+        }, run_ctx)
+
+        report_progress_for_file(progress_callback, idx, len(selected_files), 0, f"Подготовка: {display_name}")
+
+        print(f"\n[{idx}/{len(selected_files)}] {display_name}")
+        try:
+            base_name = os.path.splitext(filename)[0]
+
+            if conflict_mode_needs_existing_match_before_transcription(run_ctx.conflict_mode) and get_single_existing_doc_match(base_name, run_ctx.docs_index):
+                print(f"Пропуск: {display_name} -> документ уже существует")
+                skipped.append({"source": display_name, "reason": "Документ уже существует"})
+                continue
+
+            if not run_ctx.ignore_manifest:
+                should_skip, reason = should_skip_by_manifest(run_ctx.manifest, source_signature, run_ctx.settings_signature)
+                if should_skip:
+                    print(f"Пропуск: {display_name} -> {reason}")
+                    skipped.append({"source": display_name, "reason": reason})
+                    continue
+
+            with timer.measure("manifest_write") if timer else nullcontext():
+                mark_manifest_in_progress(run_ctx.manifest, source_signature, run_ctx.settings_signature, display_name, source_meta)
+            report_progress_for_file(progress_callback, idx, len(selected_files), 1, f"Скачивание из Google Drive: {display_name}")
+            with timer.measure("drive_download") if timer else nullcontext():
+                tmp_path = download_drive_file_to_temp(item["id"], filename)
+            report_progress_for_file(progress_callback, idx, len(selected_files), 2, f"Транскрибация: {display_name}")
+
+            with timer.measure("provider_transcription") if timer else nullcontext():
+                transcript = transcribe_media_path(
+                    input_path=tmp_path,
+                    original_filename=filename,
+                    options=run_ctx.options,
+                    timer=timer,
+                )
+
+            report_progress_for_file(progress_callback, idx, len(selected_files), 3, f"Запись в Google Docs: {display_name}")
+            with timer.measure("docs_output") if timer else nullcontext():
+                result = upsert_transcript_document(
+                    base_name=base_name,
+                    transcript_text=transcript,
+                    output_folder_id=run_ctx.output_folder_id,
+                    docs_index=run_ctx.docs_index,
+                    conflict_mode=run_ctx.conflict_mode,
+                    source_name=display_name,
+                    source_mode="drive_multi",
+                    options=run_ctx.options,
+                )
+
+            if result["status"] == "skipped":
+                print(f"Пропуск: {display_name} -> {result['reason']}")
+                skipped.append({"source": display_name, "reason": result["reason"]})
+            else:
+                with timer.measure("manifest_write") if timer else nullcontext():
+                    mark_manifest_done(run_ctx.manifest, source_signature, run_ctx.settings_signature, display_name, result["doc_name"], result["link"], source_meta)
+                print(f"Готово: {result['link']}")
+                append_success(successes, display_name, result)
+
+        except Exception as e:
+            with timer.measure("manifest_write") if timer else nullcontext():
+                mark_manifest_failed(run_ctx.manifest, source_signature, run_ctx.settings_signature, display_name, str(e), source_meta)
+            print(f"Ошибка: {display_name} -> {e}")
+            errors.append({"source": display_name, "error": str(e)})
+
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                os.remove(tmp_path)
+            if timer:
+                timer.add_duration("per_file_total", time.perf_counter() - file_started)
+            report_progress_for_file(progress_callback, idx, len(selected_files), PROGRESS_STAGES_PER_FILE, f"Готово: {display_name}")
+
+    return successes, errors, skipped
+
+
 def process_drive_folder_input(
     source_input: str,
     recursive: bool,
@@ -5234,6 +5333,8 @@ source_picker_state = {
     "all_items": [],
     "selected_input": "",
     "selected_label": "",
+    "selected_items": [],
+    "selected_mode": "",
 }
 
 
@@ -5301,6 +5402,59 @@ def build_source_item_label(item: dict) -> str:
     return f"🎵 {item['name']}"
 
 
+def validate_drive_multi_selected_items(items: list[dict]) -> list[dict]:
+    if not items:
+        raise ValueError("Выбери один или несколько файлов через Google Drive picker.")
+
+    normalized_items = []
+    for item in items:
+        name = str(item.get("name") or "").strip()
+        if not name:
+            raise ValueError("В выбранном файле Google Drive не найдено имя.")
+        if item.get("mimeType") == FOLDER_MIME:
+            raise ValueError(f"Папку нельзя выбрать как источник транскрибации: {name}")
+        if not is_supported_filename(name):
+            raise ValueError(f"Неподдерживаемое расширение у файла: {name}")
+
+        item_id = str(item.get("id") or "").strip()
+        if not item_id:
+            raise ValueError(f"В выбранном файле Google Drive не найден ID: {name}")
+
+        normalized_items.append({
+            "id": item_id,
+            "name": name,
+            "mimeType": item.get("mimeType", ""),
+            "webViewLink": item.get("webViewLink", ""),
+            "modifiedTime": item.get("modifiedTime", ""),
+            "size": item.get("size", ""),
+            "display_name": item.get("display_name") or name,
+        })
+
+    return normalized_items
+
+
+def summarize_drive_multi_selection(items: list[dict], limit: int = 10) -> str:
+    normalized_items = validate_drive_multi_selected_items(items)
+    safe_limit = max(0, int(limit))
+    lines = [f"Выбрано файлов: {len(normalized_items)}"]
+    for item in normalized_items[:safe_limit]:
+        lines.append(f"- {item.get('display_name') or item['name']}")
+    remaining = len(normalized_items) - safe_limit
+    if remaining > 0:
+        lines.append(f"... ещё {remaining}")
+    return "\n".join(lines)
+
+
+def get_selected_drive_multi_items() -> list[dict]:
+    if source_picker_state.get("selected_mode") != "drive_multi":
+        raise ValueError("Выбери один или несколько файлов через Google Drive picker.")
+    return validate_drive_multi_selected_items(source_picker_state.get("selected_items") or [])
+
+
+def format_drive_multi_summary_html(items: list[dict], limit: int = 10) -> str:
+    return "<br>".join(summarize_drive_multi_selection(items, limit=limit).splitlines())
+
+
 source_input_mode_widget = widgets.ToggleButtons(
     options=[("Выбрать в Drive", "picker")],
     value="picker",
@@ -5314,6 +5468,12 @@ source_items_select = widgets.Select(
     options=[],
     rows=12,
     description="Источник:",
+    layout=widgets.Layout(width="900px")
+)
+source_items_select_multi = widgets.SelectMultiple(
+    options=[],
+    rows=12,
+    description="Источники:",
     layout=widgets.Layout(width="900px")
 )
 source_filter_text = widgets.Text(
@@ -5330,7 +5490,8 @@ source_selected_html = widgets.HTML()
 source_picker_output = widgets.Output()
 source_picker_help_html = widgets.HTML(
     "<div style='margin-top:6px; color:#5f6368;'>"
-    "Google Drive источники выбираются через picker. Для файла выбери файл в списке. "
+    "Google Drive источники выбираются через picker. Для одного файла выбери файл в списке. "
+    "Для нескольких файлов отметь файлы в текущей папке. "
     "Для папки открой нужную папку и нажми «Выбрать текущую папку»."
     "</div>"
 )
@@ -5345,13 +5506,20 @@ def apply_source_filter():
     else:
         items = all_items
 
+    options = [(build_source_item_label(item), item["id"]) for item in items]
     source_picker_state["item_map"] = {item["id"]: item for item in items}
-    source_items_select.options = [(build_source_item_label(item), item["id"]) for item in items]
+    source_items_select.options = options
     source_items_select.value = items[0]["id"] if items else None
+    source_items_select_multi.options = options
+    selected_multi_values = tuple(
+        item_id for item_id in source_items_select_multi.value
+        if item_id in source_picker_state["item_map"]
+    )
+    source_items_select_multi.value = selected_multi_values
 
 
 def refresh_source_picker():
-    include_files = mode_widget.value == "drive_file"
+    include_files = mode_widget.value in {"drive_file", "drive_multi"}
     current_id = get_current_source_folder_id()
     current_path = get_current_source_folder_path()
     source_picker_state["all_items"] = list_source_children(current_id, include_files=include_files)
@@ -5369,6 +5537,9 @@ def refresh_source_picker():
     """
 
     if source_picker_state["selected_input"]:
+        selected_details = source_picker_state["selected_input"]
+        if source_picker_state.get("selected_mode") == "drive_multi":
+            selected_details = format_drive_multi_summary_html(source_picker_state.get("selected_items") or [])
         source_selected_html.value = f"""
         <div style="
             margin-top:8px;
@@ -5377,7 +5548,7 @@ def refresh_source_picker():
             border-radius:8px;
             background:#eef6ff;">
             <b>Выбран источник:</b> {source_picker_state['selected_label']}<br>
-            <code>{source_picker_state['selected_input']}</code>
+            <code>{selected_details}</code>
         </div>
         """
     else:
@@ -5393,14 +5564,55 @@ def refresh_source_picker():
         """
 
     if mode_widget.value == "drive_file":
+        source_items_select.layout.display = ""
+        source_items_select_multi.layout.display = "none"
         source_select_button.description = "Выбрать файл"
         source_select_button.icon = "file"
+    elif mode_widget.value == "drive_multi":
+        source_items_select.layout.display = "none"
+        source_items_select_multi.layout.display = ""
+        source_select_button.description = "Выбрать файлы"
+        source_select_button.icon = "files-o"
     else:
+        source_items_select.layout.display = ""
+        source_items_select_multi.layout.display = "none"
         source_select_button.description = "Выбрать текущую папку"
         source_select_button.icon = "folder-open"
 
 
 def on_source_open_clicked(_):
+    mode = mode_widget.value
+
+    if mode == "drive_multi":
+        selected_ids = list(source_items_select_multi.value or [])
+        if not selected_ids:
+            with source_picker_output:
+                clear_output()
+                print("Выбери одну папку для открытия или файлы для транскрибации.")
+            return
+
+        selected_items = [source_picker_state["item_map"][item_id] for item_id in selected_ids if item_id in source_picker_state["item_map"]]
+        selected_folders = [item for item in selected_items if item.get("mimeType") == FOLDER_MIME]
+        selected_files = [item for item in selected_items if item.get("mimeType") != FOLDER_MIME]
+
+        if len(selected_folders) == 1 and not selected_files:
+            item = selected_folders[0]
+            selected_id = item["id"]
+            source_picker_state["id_stack"].append(selected_id)
+            source_picker_state["name_stack"].append(item["name"])
+            source_filter_text.value = ""
+            source_items_select_multi.value = ()
+            with source_picker_output:
+                clear_output()
+                print(f"Открыта папка: {get_current_source_folder_path()}")
+            refresh_source_picker()
+            return
+
+        with source_picker_output:
+            clear_output()
+            print("Для открытия выбери одну папку. Для транскрибации выбери только файлы.")
+        return
+
     selected_id = source_items_select.value
     if not selected_id:
         with source_picker_output:
@@ -5442,9 +5654,10 @@ def on_source_up_clicked(_):
 
 def on_source_select_clicked(_):
     mode = mode_widget.value
-    if mode not in {"drive_file", "drive_folder"}:
+    if mode not in {"drive_file", "drive_multi", "drive_folder"}:
         return
 
+    selected_items = []
     if mode == "drive_file":
         selected_id = source_items_select.value
         if not selected_id:
@@ -5462,6 +5675,25 @@ def on_source_select_clicked(_):
 
         input_value = item.get("webViewLink") or build_drive_item_url(item["id"], False)
         label = item["name"]
+    elif mode == "drive_multi":
+        selected_ids = list(source_items_select_multi.value or [])
+        if not selected_ids:
+            with source_picker_output:
+                clear_output()
+                print("Выбери один или несколько файлов источника.")
+            return
+
+        selected_items = [source_picker_state["item_map"][item_id] for item_id in selected_ids if item_id in source_picker_state["item_map"]]
+        try:
+            selected_items = validate_drive_multi_selected_items(selected_items)
+        except Exception as e:
+            with source_picker_output:
+                clear_output()
+                print(e)
+            return
+
+        input_value = f"selected_drive_files:{len(selected_items)}"
+        label = f"Выбрано файлов: {len(selected_items)}"
     else:
         current_id = get_current_source_folder_id()
         current_path = get_current_source_folder_path()
@@ -5470,12 +5702,17 @@ def on_source_select_clicked(_):
 
     source_picker_state["selected_input"] = input_value
     source_picker_state["selected_label"] = label
+    source_picker_state["selected_items"] = selected_items
+    source_picker_state["selected_mode"] = mode
     path_widget.value = input_value
 
     with source_picker_output:
         clear_output()
         print("Источник выбран:")
-        print(label)
+        if mode == "drive_multi":
+            print(summarize_drive_multi_selection(selected_items))
+        else:
+            print(label)
 
     refresh_source_picker()
 
@@ -5483,7 +5720,10 @@ def on_source_select_clicked(_):
 def on_source_reset_clicked(_):
     source_picker_state["selected_input"] = ""
     source_picker_state["selected_label"] = ""
+    source_picker_state["selected_items"] = []
+    source_picker_state["selected_mode"] = ""
     path_widget.value = ""
+    source_items_select_multi.value = ()
     with source_picker_output:
         clear_output()
         print("Выбор источника сброшен.")
@@ -5501,6 +5741,7 @@ source_picker_ui = widgets.VBox([
     source_current_path_html,
     source_filter_text,
     source_items_select,
+    source_items_select_multi,
     widgets.HBox([source_open_button, source_up_button, source_select_button, source_reset_button]),
     source_selected_html,
     source_picker_output,
@@ -5514,6 +5755,7 @@ mode_widget = widgets.Dropdown(
         ("Компьютер: 1 файл", "local_file"),
         ("Компьютер: несколько файлов", "local_multi"),
         ("Google Drive: 1 файл", "drive_file"),
+        ("Google Drive: несколько файлов", "drive_multi"),
         ("Google Drive: папка", "drive_folder"),
     ],
     value="local_file",
@@ -5717,14 +5959,15 @@ progress_label = widgets.HTML("")
 
 def refresh_ui(*args):
     mode = mode_widget.value
-    is_drive_mode = mode in {"drive_file", "drive_folder"}
+    is_drive_mode = mode in {"drive_file", "drive_multi", "drive_folder"}
 
     source_input_mode_widget.layout.display = "none"
     source_picker_ui.layout.display = "" if is_drive_mode else "none"
     path_widget.layout.display = "none"
 
-    import_existing_button.layout.display = "" if is_drive_mode else "none"
-    import_help_widget.layout.display = "" if is_drive_mode else "none"
+    import_available = mode in {"drive_file", "drive_folder"}
+    import_existing_button.layout.display = "" if import_available else "none"
+    import_help_widget.layout.display = "" if import_available else "none"
 
     if mode == "local_file":
         recursive_widget.layout.display = "none"
@@ -5742,7 +5985,7 @@ def refresh_ui(*args):
             "<b>Режим:</b> после нажатия <b>Запустить</b> откроется выбор <b>нескольких файлов с компьютера</b>.<br>"
             "<span style='color:#8a6d3b;'>Для крупных файлов, особенно сотни МБ и выше, "
             "рекомендуется заранее загрузить их на Google Drive и использовать режим "
-            "<b>Google Drive: папка</b>.</span>"
+            "<b>Google Drive: несколько файлов</b> или <b>Google Drive: папка</b>.</span>"
         )
     elif mode == "drive_file":
         recursive_widget.layout.display = "none"
@@ -5750,6 +5993,14 @@ def refresh_ui(*args):
         path_widget.placeholder = "Служебное поле: заполняется выбором файла в Google Drive picker"
         help_widget.value = (
             "<b>Режим:</b> выбери <b>один файл</b> через Google Drive picker."
+        )
+    elif mode == "drive_multi":
+        recursive_widget.layout.display = "none"
+        check_source_button.layout.display = ""
+        path_widget.placeholder = "Служебное поле: selected_drive_files:N после выбора файлов в Google Drive picker"
+        help_widget.value = (
+            "<b>Режим:</b> выбери <b>несколько файлов</b> в текущей папке Google Drive picker. "
+            "Папки можно открывать, но нельзя выбирать как источники транскрибации."
         )
     elif mode == "drive_folder":
         recursive_widget.layout.display = ""
@@ -5813,7 +6064,7 @@ source_input_mode_widget.observe(refresh_ui, names="value")
 
 
 def get_source_input_value() -> str:
-    if mode_widget.value in {"drive_file", "drive_folder"}:
+    if mode_widget.value in {"drive_file", "drive_multi", "drive_folder"}:
         return source_picker_state["selected_input"].strip()
     if source_input_mode_widget.value == "picker":
         return source_picker_state["selected_input"].strip()
@@ -5826,7 +6077,7 @@ def on_check_source_clicked(_):
 
         try:
             mode = mode_widget.value
-            if mode not in {"drive_file", "drive_folder"}:
+            if mode not in {"drive_file", "drive_multi", "drive_folder"}:
                 print("Проверка источника нужна только для режимов Google Drive.")
                 return
 
@@ -5835,6 +6086,26 @@ def on_check_source_clicked(_):
                 raise ValueError("Выбери источник через Google Drive picker.")
 
             output_folder_id = folder_picker_state["selected_id"]
+
+            if mode == "drive_multi":
+                selected_items = get_selected_drive_multi_items()
+                docs_index = build_existing_docs_index(output_folder_id) if output_folder_id else {}
+                conflict_count = count_conflict_hits_for_items(selected_items, docs_index) if output_folder_id else 0
+
+                print("====================")
+                print("ПРОВЕРКА ИСТОЧНИКА")
+                print("====================")
+                print("Тип источника: выбранные файлы Google Drive")
+                print(summarize_drive_multi_selection(selected_items))
+                if output_folder_id:
+                    print(f"Совпадений в папке назначения: {conflict_count}")
+                    if conflict_count:
+                        print(conflict_mode_result_hint(conflict_mode_widget.value))
+                    print(f"Manifest: {'включён' if use_manifest_widget.value else 'выключен'}")
+                else:
+                    print("Папка назначения ещё не выбрана, совпадения не проверялись.")
+                return
+
             info = inspect_source_input(
                 mode=mode,
                 source_input=source_input,
@@ -5906,7 +6177,7 @@ def on_import_existing_clicked(_):
 
             mode = mode_widget.value
             if mode not in {"drive_file", "drive_folder"}:
-                raise ValueError("Импорт готовых транскриптов доступен только для режимов Google Drive.")
+                raise ValueError("Импорт готовых транскриптов доступен только для режимов Google Drive: 1 файл / папка.")
 
             source_input = get_source_input_value()
             if not source_input:
@@ -6247,13 +6518,14 @@ def get_source_mode_label(mode: str) -> str:
         "local_file": "Компьютер: 1 файл",
         "local_multi": "Компьютер: несколько файлов",
         "drive_file": "Google Drive: 1 файл",
+        "drive_multi": "Google Drive: несколько файлов",
         "drive_folder": "Google Drive: папка",
     }
     return mapping.get(mode, mode)
 
 
 def get_openai_diarize_chunking_preflight_warning(provider: str, separate_speakers: bool, source_mode: str):
-    source_modes_that_may_chunk = {"local_file", "local_multi", "drive_file", "drive_folder"}
+    source_modes_that_may_chunk = {"local_file", "local_multi", "drive_file", "drive_multi", "drive_folder"}
     if provider != "openai" or not separate_speakers or source_mode not in source_modes_that_may_chunk:
         return None
 
@@ -6492,6 +6764,20 @@ def on_start_clicked(_):
                 with timer.measure("source_processing_total"):
                     successes, errors, skipped = process_drive_file_input(
                         source_input=source_input,
+                        run_ctx=run_ctx,
+                        progress_callback=set_progress,
+                        timer=timer,
+                    )
+
+            elif mode == "drive_multi":
+                selected_items = get_selected_drive_multi_items()
+                if not selected_items:
+                    raise ValueError("Выбери один или несколько файлов через Google Drive picker.")
+
+                print(summarize_drive_multi_selection(selected_items))
+                with timer.measure("source_processing_total"):
+                    successes, errors, skipped = process_drive_multi_input(
+                        selected_items=selected_items,
                         run_ctx=run_ctx,
                         progress_callback=set_progress,
                         timer=timer,
