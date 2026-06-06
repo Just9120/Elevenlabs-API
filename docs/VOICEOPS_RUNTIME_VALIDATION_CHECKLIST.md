@@ -91,6 +91,19 @@ Only **after** successful runtime validation execution:
 
 Do **not** update those statuses now.
 
+## RUNTIME-01 — Colab smoke-check after Drive UX changes
+
+This compact checklist tracks the manual Colab smoke-check needed after PR #38 and PR #41. It is planning guidance only; completing this documentation update does **not** claim runtime validation passed.
+
+- Start a fresh Colab runtime from the latest `main` branch.
+- Validate `Google Drive: 1 файл` single-file selection using the reliable picker button path.
+- Validate optional double-click folder navigation in `drive_file`.
+- Validate optional double-click file selection in `drive_file`.
+- Validate `Google Drive: несколько файлов` processes exactly the selected supported files and remains explicit/button-based.
+- Repeat a controlled run and confirm manifest skip after repeat run.
+- Validate `Google Drive: папка` with a small folder run.
+- Confirm Colab logs and manifest do not include secrets, transcript body, provider raw responses, or Google Docs body content.
+
 ## Troubleshooting
 
 - If both old and new manifest files exist, do not auto-delete either one; inspect manually first.

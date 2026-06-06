@@ -1,6 +1,6 @@
 # Delivery Plan
 
-Status: Post-PR #30–36 synchronized delivery plan; PR #37 is docs-only cleanup inventory.
+Status: Post-PR #38/#41 synchronized delivery plan; Drive UX docs reflect safe conflict default and conservative picker double-click behavior, with Colab runtime smoke-check still pending.
 
 ## Progress dashboard
 
@@ -21,26 +21,30 @@ Status: Post-PR #30–36 synchronized delivery plan; PR #37 is docs-only cleanup
 - ✅ PR #34 — Google Drive picker-only source UX — Done
 - ✅ PR #35 — Google Drive multi-file source mode — Done
 - ✅ PR #36 — Legacy source-selection UI remnants cleanup — Done
-- 👉 CLEANUP-01 — Document cleanup inventory and legacy boundaries — Current
-- 📋 RUNTIME-01 — Colab smoke-check after PR #34–36 — Planned
+- ✅ CLEANUP-01 — Document cleanup inventory and legacy boundaries — Done in PR #37
+- ✅ PR #38 — Drive source selected-card dark-theme readability and safe conflict default — Done
+- ✅ PR #41 — Conservative optional Drive picker double-click UX — Done
+- 👉 RUNTIME-01 — Colab smoke-check after Drive UX changes — Current recommended next item
 - 📋 DOCS-STD-01 — Apply docs-only standardization to small selected folders — Planned
 - ⛔ CD-01 — CD/deploy adoption — Blocked/not applicable: no VPS/server deploy target
 
 ## Current position
 
 - Current repository mode: Colab runtime + Google Drive/Docs + CI only.
-- Last completed phase: source-selection UX cleanup and Google Drive multi-file support.
-- Current focus: document cleanup inventory and safe legacy boundaries before any legacy-code deletion work.
-- Next recommended item: runtime smoke-check in Colab for:
+- Last completed phase: post-picker Drive UX hardening: PR #38 fixed selected-card readability in Colab dark theme and changed the conflict mode default from `update` to safe `skip`; PR #41 added conservative optional double-click behavior for supported Drive picker modes.
+- Cleanup inventory and legacy boundaries were documented in PR #37 and are no longer the current active item.
+- Current recommended next item: RUNTIME-01 — manual Colab smoke-check after Drive UX changes. Validate these scenarios without claiming E2E success until evidence is recorded:
   - `Google Drive: 1 файл`
+  - double-click folder navigation in `drive_file`
+  - double-click file selection in `drive_file`
   - `Google Drive: несколько файлов`
-  - `Google Drive: папка`
   - manifest skip after repeat run
+  - `Google Drive: папка`
 - CD/deploy remains blocked/not applicable; keep CI-only governance.
 
 ## Cleanup inventory / legacy boundaries
 
-This inventory is a cleanup guardrail for future PRs. It documents what is active, what is compatibility, what is legacy/import-only, and what must not be deleted without a separate decision. It does not authorize runtime-code removal in PR #37.
+This inventory is a cleanup guardrail for future PRs. It documents what is active, what is compatibility, what is legacy/import-only, and what must not be deleted without a separate decision. It does not authorize runtime-code removal.
 
 ### A. Active runtime flows
 
@@ -78,7 +82,8 @@ Rule: keep these for now. Do not broaden them. Do not present them as the primar
 
 - Users see “manifest”, not “manifest v2”.
 - Internal schema/version wording may remain technical.
-- Users see Google Drive picker-only source selection.
+- Users see Google Drive picker-first source selection.
+- Picker buttons remain the reliable primary selection path; optional double-click is convenience behavior only where supported.
 - Manual Drive path/link entry is not the normal UX.
 
 ### E. Do-not-delete-without-decision list
@@ -146,6 +151,8 @@ Summary/results:
 - PR #34 moved Google Drive source selection to picker-only UX.
 - PR #35 added Google Drive multi-file source mode.
 - PR #36 cleaned up legacy source-selection UI remnants.
+- PR #38 fixed Drive source selected-card readability in Colab dark theme and changed the conflict mode default to safe `skip`.
+- PR #41 added conservative optional double-click behavior: `drive_file` supports folder double-click navigation and file double-click selection, `drive_folder` supports folder double-click navigation only, and `drive_multi` remains explicit/button-based for safety.
 - README, SECURITY, and VALIDATION_MATRIX were refreshed before PR #30 to describe Docs standardization and manifest behavior.
 
 ### Checkpoint E — AI workflow and CI-only governance
@@ -172,14 +179,24 @@ Status: 📋 Planned.
 
 Planned items:
 
-- RUNTIME-01 — Colab smoke-check after PR #34–36 for Drive single-file, Drive multi-file, Drive folder, and repeat-run manifest skip.
+- RUNTIME-01 — Colab smoke-check after Drive UX changes for Drive single-file, optional `drive_file` double-click folder navigation, optional `drive_file` double-click file selection, Drive multi-file, repeat-run manifest skip, and Drive folder.
 - DOCS-STD-01 — standardize one small selected folder in apply mode after dry-run.
 - DOCS-STD-02 — expand standardization gradually.
 - VALIDATION-01 — update validation matrix with observed runtime evidence.
 
+Compact RUNTIME-01 checklist:
+
+- Start a fresh Colab runtime from the latest `main` branch.
+- Validate Drive single-file selection for `Google Drive: 1 файл` using the reliable button path.
+- Validate optional double-click behavior: folder navigation in `drive_file` and file selection in `drive_file`.
+- Validate `Google Drive: несколько файлов` processes exactly the selected supported files and remains explicit/button-based.
+- Repeat a controlled run and confirm manifest skip prevents duplicate source processing.
+- Validate `Google Drive: папка` with a small folder run.
+- Confirm logs/manifest do not include secrets, transcript body, provider raw responses, or Google Docs body content.
+
 ### Checkpoint G — Cleanup inventory and safe boundaries
 
-Status: 👉 Current / In PR #37.
+Status: ✅ Done in PR #37.
 
 Work item:
 
