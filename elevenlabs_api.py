@@ -5455,14 +5455,6 @@ def format_drive_multi_summary_html(items: list[dict], limit: int = 10) -> str:
     return "<br>".join(summarize_drive_multi_selection(items, limit=limit).splitlines())
 
 
-source_input_mode_widget = widgets.ToggleButtons(
-    options=[("Выбрать в Drive", "picker")],
-    value="picker",
-    description="Ввод источника:",
-    style={"description_width": "initial"},
-    layout=widgets.Layout(width="520px")
-)
-
 source_current_path_html = widgets.HTML()
 source_items_select = widgets.Select(
     options=[],
@@ -5765,8 +5757,8 @@ mode_widget = widgets.Dropdown(
 
 path_widget = widgets.Text(
     value="",
-    description="Путь / ссылка:",
-    placeholder="MyDrive/... или https://drive.google.com/...",
+    description="Служебный источник:",
+    placeholder="Служебное поле: заполняется автоматически через Google Drive picker",
     layout=widgets.Layout(width="1000px")
 )
 
@@ -5847,7 +5839,9 @@ import_existing_button = widgets.Button(
 
 import_help_widget = widgets.HTML(
     "<div style='margin-top:6px; color:#5f6368;'>"
-    "Без вызова API транскрибации. Только добавляет уже существующие совпадения file ↔ Google Doc в manifest."
+    "Legacy/import helper: без вызова API транскрибации добавляет уже существующие совпадения "
+    "file ↔ Google Doc в manifest. Обычное обслуживание manifest выполняется отдельной "
+    "кнопкой manifest maintenance."
     "</div>"
 )
 
@@ -5961,7 +5955,6 @@ def refresh_ui(*args):
     mode = mode_widget.value
     is_drive_mode = mode in {"drive_file", "drive_multi", "drive_folder"}
 
-    source_input_mode_widget.layout.display = "none"
     source_picker_ui.layout.display = "" if is_drive_mode else "none"
     path_widget.layout.display = "none"
 
@@ -6060,7 +6053,6 @@ def reset_progress():
 refresh_ui()
 mode_widget.observe(refresh_ui, names="value")
 use_keyterms_widget.observe(refresh_ui, names="value")
-source_input_mode_widget.observe(refresh_ui, names="value")
 
 
 def get_source_input_value() -> str:
@@ -6069,9 +6061,7 @@ def get_source_input_value() -> str:
         if source_picker_state.get("selected_mode") != current_mode:
             return ""
         return source_picker_state["selected_input"].strip()
-    if source_input_mode_widget.value == "picker":
-        return source_picker_state["selected_input"].strip()
-    return path_widget.value.strip()
+    return ""
 
 
 def on_check_source_clicked(_):
@@ -6170,6 +6160,8 @@ def on_check_source_clicked(_):
             print(f"Ошибка проверки: {e}")
 
 
+# Legacy/import helper for matching already-created transcripts by source name.
+# Normal manifest maintenance is handled by the dedicated manifest maintenance action; keep this flow narrow.
 def on_import_existing_clicked(_):
     with import_output_widget:
         clear_output()
@@ -6883,7 +6875,6 @@ display(widgets.VBox([
     folder_picker_ui,
     widgets.HTML("<hr>"),
     mode_widget,
-    source_input_mode_widget,
     path_widget,
     source_picker_ui,
     recursive_widget,

@@ -53,11 +53,11 @@ OpenAI fallback добавлен архитектурно, но не все ве
 
 Поддерживаемые source modes:
 
-- computer: single file;
-- computer: multiple files;
-- Google Drive: single file (`Google Drive: 1 файл`);
-- Google Drive: multiple specific files (`Google Drive: несколько файлов`);
-- Google Drive: folder (`Google Drive: папка`).
+- `Компьютер: 1 файл`;
+- `Компьютер: несколько файлов`;
+- `Google Drive: 1 файл`;
+- `Google Drive: несколько файлов`;
+- `Google Drive: папка`.
 
 В нормальном Colab UX Google Drive source выбирается только через встроенный Drive picker / folder scrolling UI. Ручной ввод Google Drive path/link не является обычным пользовательским workflow; низкоуровневые helpers для legacy/compatibility могут сохраняться внутри кода. Local computer upload modes остаются без изменений.
 

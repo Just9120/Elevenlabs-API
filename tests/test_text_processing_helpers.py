@@ -303,13 +303,41 @@ def test_summarize_drive_multi_selection_is_compact_and_limits_names() -> None:
     assert "... ещё 2" in summary
 
 
+def test_source_input_ui_uses_picker_only_internal_drive_value() -> None:
+    source = CANONICAL_SOURCE.read_text(encoding="utf-8")
+
+    assert "source_input_mode_widget" not in source
+    assert "Путь / ссылка" not in source
+    assert 'description="Служебный источник:"' in source
+
+
 def test_get_source_input_value_guards_against_stale_drive_mode_selection() -> None:
     source = CANONICAL_SOURCE.read_text(encoding="utf-8")
 
-    assert 'current_mode = mode_widget.value' in source
-    assert 'if current_mode in {"drive_file", "drive_multi", "drive_folder"}:' in source
-    assert 'if source_picker_state.get("selected_mode") != current_mode:' in source
-    assert 'return ""' in source
+    expected = '''def get_source_input_value() -> str:
+    current_mode = mode_widget.value
+    if current_mode in {"drive_file", "drive_multi", "drive_folder"}:
+        if source_picker_state.get("selected_mode") != current_mode:
+            return ""
+        return source_picker_state["selected_input"].strip()
+    return ""
+'''
+    assert expected in source
+
+
+def test_docs_do_not_describe_drive_multi_as_unavailable() -> None:
+    docs_text = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in [Path("README.md"), Path("docs/project-spec.md"), Path("VALIDATION_MATRIX.md")]
+    )
+
+    stale_phrases = [
+        "drive_multi not added",
+        "drive_multi не добав",
+        "drive_multi planned",
+        "drive_multi план",
+    ]
+    assert not any(phrase.casefold() in docs_text.casefold() for phrase in stale_phrases)
 
 
 def build_legacy_standard_document(title: str = "Call", body: str = "Hello world.") -> str:
