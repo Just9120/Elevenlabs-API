@@ -1,7 +1,7 @@
 # Project Specification
 
-Status: Post-PR #30–36 synchronized project spec; PR #37 documents cleanup boundaries only.
-Source basis: current README, SECURITY, VALIDATION_MATRIX, current code behavior, accepted PR state through PR #36, and the PR #37 cleanup inventory.
+Status: Post-PR #38/#41 synchronized project spec; cleanup boundaries remain documented and Drive picker/conflict behavior reflects the current accepted PR state.
+Source basis: current README, SECURITY, VALIDATION_MATRIX, current code behavior, accepted PR state through PR #41, and the PR #37 cleanup inventory.
 
 ## 1. Product goal
 
@@ -102,8 +102,9 @@ The following are not part of the current repository scope:
 
 ## 7. Functional requirements
 
-- Allow source selection across `Компьютер: 1 файл`, `Компьютер: несколько файлов`, `Google Drive: 1 файл`, `Google Drive: несколько файлов` (`drive_multi`), and `Google Drive: папка`. In the normal runtime UX, Google Drive sources are selected through the Drive picker / folder scrolling UI, not through manual Google Drive path/link entry.
-- Google Drive multi-file selection (`drive_multi`) is picker-only: it processes exactly the selected supported files in the current picker folder, does not recurse, does not process folders, and writes all selected files for one run into one selected destination/output folder.
+- Allow source selection across `Компьютер: 1 файл`, `Компьютер: несколько файлов`, `Google Drive: 1 файл`, `Google Drive: несколько файлов` (`drive_multi`), and `Google Drive: папка`. In the normal runtime UX, Google Drive sources are picker-first and selected through the Drive picker / folder scrolling UI, not through manual Google Drive path/link entry.
+- Drive picker buttons remain the reliable primary selection path. Optional double-click is only a convenience where supported: in `drive_file`, folder double-click opens the folder and file double-click selects the file; in `drive_folder`, folder double-click opens the folder only.
+- Google Drive multi-file selection (`drive_multi`) remains explicit/button-based for safety: it processes exactly the selected supported files in the current picker folder, does not recurse, does not process folders, and writes all selected files for one run into one selected destination/output folder.
 - Allow destination/output Google Docs folder selection. One destination/output folder is used per run, and all outputs from that run are saved into the selected folder.
 - Allow provider selection for the supported ElevenLabs and OpenAI paths.
 - Support optional speaker split where the selected provider path supports it.
