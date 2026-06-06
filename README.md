@@ -55,10 +55,17 @@ OpenAI fallback добавлен архитектурно, но не все ве
 
 - computer: single file;
 - computer: multiple files;
-- Google Drive: single file;
-- Google Drive: folder.
+- Google Drive: single file (`Google Drive: 1 файл`);
+- Google Drive: multiple specific files (`Google Drive: несколько файлов`);
+- Google Drive: folder (`Google Drive: папка`).
 
-В нормальном Colab UX Google Drive source выбирается через встроенный Drive picker / folder scrolling UI: для режима single file нужно выбрать один поддерживаемый файл в списке, а для режима folder — открыть нужную папку и нажать `Выбрать текущую папку`. Ручной ввод Google Drive path/link не является обычным пользовательским workflow; низкоуровневые helpers для legacy/compatibility могут сохраняться внутри кода. Local computer upload modes остаются без изменений.
+В нормальном Colab UX Google Drive source выбирается только через встроенный Drive picker / folder scrolling UI. Ручной ввод Google Drive path/link не является обычным пользовательским workflow; низкоуровневые helpers для legacy/compatibility могут сохраняться внутри кода. Local computer upload modes остаются без изменений.
+
+Google Drive source modes:
+
+- `Google Drive: 1 файл` — выбрать один поддерживаемый Drive file в picker.
+- `Google Drive: несколько файлов` — выбрать конкретные поддерживаемые files в текущей папке Drive picker. Этот режим обрабатывает ровно выбранные files, не обходит вложенные папки, не обрабатывает folders и не запускает folder scan. Все выбранные files одного run сохраняются в одну выбранную destination/output folder, с одним общим набором settings; manifest skip применяется отдельно к каждому выбранному file.
+- `Google Drive: папка` — открыть нужную папку в picker и обработать все поддерживаемые files в выбранной folder; optional recursive scan включается отдельной настройкой.
 
 Source folder и destination/output folder — разные понятия:
 

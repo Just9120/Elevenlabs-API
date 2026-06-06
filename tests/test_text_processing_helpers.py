@@ -97,6 +97,9 @@ HELPER_NAMES = {
     "yes_no",
     "build_standardize_manifest_v2_report_text",
     "print_standardize_manifest_v2_report",
+    "is_supported_filename",
+    "validate_drive_multi_selected_items",
+    "summarize_drive_multi_selection",
 }
 
 
@@ -148,6 +151,9 @@ def load_text_helpers() -> dict[str, object]:
                     "MANIFEST_BACKUP_FOLDER_NAME",
                     "MANIFEST_V2_TARGET_VERSION",
                     "MANIFEST_V2_SCHEMA",
+                    "AUDIO_EXTENSIONS",
+                    "VIDEO_EXTENSIONS",
+                    "SUPPORTED_EXTENSIONS",
                 }:
                     selected_nodes.append(node)
                     break
@@ -170,6 +176,7 @@ def load_text_helpers() -> dict[str, object]:
         "timezone": timezone,
         "re": re,
         "Optional": Optional,
+        "Path": Path,
         # These globals are runtime tuning knobs used by the overlap helper.
         # They are injected here so the pure function can be tested in isolation
         # from the Colab runtime configuration surface.
@@ -245,6 +252,64 @@ get_manifest_entry = HELPERS["get_manifest_entry"]
 save_manifest = HELPERS["save_manifest"]
 DOC_MIME = HELPERS["DOC_MIME"]
 FOLDER_MIME = HELPERS["FOLDER_MIME"]
+validate_drive_multi_selected_items = HELPERS["validate_drive_multi_selected_items"]
+summarize_drive_multi_selection = HELPERS["summarize_drive_multi_selection"]
+
+
+def test_validate_drive_multi_selected_items_preserves_order_and_normalizes() -> None:
+    items = [
+        {
+            "id": "file-1",
+            "name": "Lecture.mp3",
+            "mimeType": "audio/mpeg",
+            "webViewLink": "https://drive/file-1",
+            "modifiedTime": "2026-06-01T00:00:00Z",
+            "size": "123",
+        },
+        {"id": "file-2", "name": "Demo.MP4", "mimeType": "video/mp4", "display_name": "Folder/Demo.MP4"},
+    ]
+
+    normalized = validate_drive_multi_selected_items(items)
+
+    assert [item["id"] for item in normalized] == ["file-1", "file-2"]
+    assert normalized[0]["display_name"] == "Lecture.mp3"
+    assert normalized[1]["display_name"] == "Folder/Demo.MP4"
+    assert normalized[0]["size"] == "123"
+
+
+def test_validate_drive_multi_selected_items_rejects_empty_folders_and_unsupported() -> None:
+    for items, expected in [
+        ([], "Выбери один или несколько файлов"),
+        ([{"id": "folder-1", "name": "Nested", "mimeType": FOLDER_MIME}], "Папку нельзя выбрать"),
+        ([{"id": "txt-1", "name": "notes.txt", "mimeType": "text/plain"}], "Неподдерживаемое расширение"),
+    ]:
+        try:
+            validate_drive_multi_selected_items(items)
+        except ValueError as error:
+            assert expected in str(error)
+        else:
+            raise AssertionError("Expected ValueError")
+
+
+def test_summarize_drive_multi_selection_is_compact_and_limits_names() -> None:
+    items = [{"id": str(idx), "name": f"file-{idx}.mp3", "mimeType": "audio/mpeg"} for idx in range(12)]
+
+    summary = summarize_drive_multi_selection(items, limit=10)
+
+    assert summary.startswith("Выбрано файлов: 12")
+    assert "- file-0.mp3" in summary
+    assert "- file-9.mp3" in summary
+    assert "file-10.mp3" not in summary
+    assert "... ещё 2" in summary
+
+
+def test_get_source_input_value_guards_against_stale_drive_mode_selection() -> None:
+    source = CANONICAL_SOURCE.read_text(encoding="utf-8")
+
+    assert 'current_mode = mode_widget.value' in source
+    assert 'if current_mode in {"drive_file", "drive_multi", "drive_folder"}:' in source
+    assert 'if source_picker_state.get("selected_mode") != current_mode:' in source
+    assert 'return ""' in source
 
 
 def build_legacy_standard_document(title: str = "Call", body: str = "Hello world.") -> str:
