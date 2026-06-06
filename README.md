@@ -74,6 +74,8 @@ Source folder и destination/output folder — разные понятия:
 
 Финальный transcription result сохраняется только в Google Docs. Локальные transcript-файлы, Markdown-зеркала и JSON-экспорты не являются основным конечным артефактом.
 
+Conflict handling for existing transcript Docs defaults to `Пропустить` (`skip`) so repeated runs and manifest-protected sources are skipped unless the user explicitly chooses update, archive/recreate, or copy-with-suffix behavior.
+
 ### 2. Existing Google Docs standardization
 
 UI label: `Проверить / стандартизировать существующие Google Docs`.
