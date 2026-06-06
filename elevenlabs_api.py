@@ -6064,7 +6064,10 @@ source_input_mode_widget.observe(refresh_ui, names="value")
 
 
 def get_source_input_value() -> str:
-    if mode_widget.value in {"drive_file", "drive_multi", "drive_folder"}:
+    current_mode = mode_widget.value
+    if current_mode in {"drive_file", "drive_multi", "drive_folder"}:
+        if source_picker_state.get("selected_mode") != current_mode:
+            return ""
         return source_picker_state["selected_input"].strip()
     if source_input_mode_widget.value == "picker":
         return source_picker_state["selected_input"].strip()

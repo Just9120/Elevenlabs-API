@@ -303,6 +303,15 @@ def test_summarize_drive_multi_selection_is_compact_and_limits_names() -> None:
     assert "... ещё 2" in summary
 
 
+def test_get_source_input_value_guards_against_stale_drive_mode_selection() -> None:
+    source = CANONICAL_SOURCE.read_text(encoding="utf-8")
+
+    assert 'current_mode = mode_widget.value' in source
+    assert 'if current_mode in {"drive_file", "drive_multi", "drive_folder"}:' in source
+    assert 'if source_picker_state.get("selected_mode") != current_mode:' in source
+    assert 'return ""' in source
+
+
 def build_legacy_standard_document(title: str = "Call", body: str = "Hello world.") -> str:
     return (
         f"{title}\n\n"

@@ -13,7 +13,7 @@ Current supported scope is limited to the repository's Colab + Google Drive/Docs
 
 - Google Colab launcher workflow.
 - Local single file and local multiple files source modes.
-- Google Drive single file and Google Drive folder source modes.
+- Google Drive single file, Google Drive multiple specific files, and Google Drive folder source modes.
 - Audio extraction from video when enabled.
 - ElevenLabs main provider path.
 - OpenAI manual fallback / alternative provider path.
@@ -49,6 +49,7 @@ The following are not part of the current repository scope:
 - Transcribe one local file.
 - Transcribe multiple local files.
 - Transcribe one Google Drive file.
+- Transcribe selected specific Google Drive files.
 - Transcribe a Google Drive folder.
 - Standardize existing Google Docs transcripts.
 - Update/refresh manifest.
@@ -56,8 +57,8 @@ The following are not part of the current repository scope:
 
 ## 6. Functional requirements
 
-- Allow source selection across local single file, local multiple files, Google Drive single file, and Google Drive folder modes. In the normal runtime UX, Google Drive single-file and folder sources are selected through the Drive picker / folder scrolling UI, not through manual Google Drive path/link entry.
-- Do not add Google Drive multi-file source mode (`drive_multi`) yet; local multiple-files upload remains the only current multi-file source mode.
+- Allow source selection across local single file, local multiple files, Google Drive single file, Google Drive multiple specific files (`drive_multi`), and Google Drive folder modes. In the normal runtime UX, Google Drive sources are selected through the Drive picker / folder scrolling UI, not through manual Google Drive path/link entry.
+- Google Drive multi-file selection is picker-based: it processes exactly the selected supported files in the current picker folder, does not recurse, does not process folders, and writes all selected files for one run into one selected destination/output folder.
 - Allow destination/output Google Docs folder selection. One destination/output folder is used per run, and all outputs from that run are saved into the selected folder.
 - Allow provider selection for the supported ElevenLabs and OpenAI paths.
 - Support optional speaker split where the selected provider path supports it.
