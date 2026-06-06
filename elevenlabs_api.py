@@ -5168,6 +5168,7 @@ def refresh_folder_picker():
         border:1px solid #ddd;
         border-radius:8px;
         background:#f8f9fa;
+        color:#202124;
         font-family:monospace;">
         <b>Текущая папка:</b> {current_path}
     </div>
@@ -5180,9 +5181,10 @@ def refresh_folder_picker():
             padding:10px;
             border:1px solid #cce5ff;
             border-radius:8px;
-            background:#eef6ff;">
+            background:#eef6ff;
+            color:#202124;">
             <b>Выбрана папка назначения:</b> {folder_picker_state["selected_path"]}<br>
-            <b>Folder ID:</b> <code>{folder_picker_state["selected_id"]}</code>
+            <b>Folder ID:</b> <code style="color:#202124;">{folder_picker_state["selected_id"]}</code>
         </div>
         """
     else:
@@ -5549,6 +5551,7 @@ def refresh_source_picker():
         border:1px solid #ddd;
         border-radius:8px;
         background:#f8f9fa;
+        color:#202124;
         font-family:monospace;">
         <b>Текущая папка источника:</b> {current_path}
     </div>
@@ -5573,7 +5576,10 @@ def refresh_source_picker():
                 padding:2px 4px;
                 border-radius:4px;
                 background:#f1f3f4;
-                color:#202124;">{selected_details}</code>
+                color:#202124;
+                white-space:pre-wrap;
+                line-height:1.4;
+                overflow-wrap:anywhere;">{selected_details}</code>
         </div>
         """
     else:

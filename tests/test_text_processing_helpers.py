@@ -338,6 +338,23 @@ def test_conflict_mode_defaults_to_skip() -> None:
     assert stale_default not in source
 
 
+def test_picker_current_path_cards_keep_readable_dark_theme_styles() -> None:
+    source = CANONICAL_SOURCE.read_text(encoding="utf-8")
+
+    picker_current_path_start = source.index('picker_current_path_html.value = f"""')
+    picker_selected_start = source.index('    if folder_picker_state["selected_id"]:', picker_current_path_start)
+    picker_current_path_html = source[picker_current_path_start:picker_selected_start]
+
+    source_current_path_start = source.index('source_current_path_html.value = f"""')
+    source_selected_start = source.index('    if source_picker_state["selected_input"]:', source_current_path_start)
+    source_current_path_html = source[source_current_path_start:source_selected_start]
+
+    for html in [picker_current_path_html, source_current_path_html]:
+        assert "background:#f8f9fa;" in html
+        assert "color:#202124;" in html
+        assert "font-family:monospace;" in html
+
+
 def test_source_selected_html_keeps_readable_dark_theme_styles() -> None:
     source = CANONICAL_SOURCE.read_text(encoding="utf-8")
 
@@ -347,11 +364,16 @@ def test_source_selected_html_keeps_readable_dark_theme_styles() -> None:
     selected_html = source[selected_html_start:unselected_html_start]
     unselected_html = source[unselected_html_start:picker_mode_start]
 
+    assert "background:#eef6ff;" in selected_html
     assert "color:#202124;" in selected_html
+    assert "background:#fff8e1;" in unselected_html
     assert "color:#202124;" in unselected_html
     assert '<code style="' in selected_html
     assert "background:#f1f3f4;" in selected_html
-    assert 'color:#202124;">{selected_details}</code>' in selected_html
+    assert "color:#202124;" in selected_html
+    assert "white-space:pre-wrap;" in selected_html
+    assert "line-height:1.4;" in selected_html
+    assert 'overflow-wrap:anywhere;">{selected_details}</code>' in selected_html
 
 
 def test_get_source_input_value_guards_against_stale_drive_mode_selection() -> None:
