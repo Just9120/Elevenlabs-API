@@ -1732,6 +1732,7 @@ Codex должен соблюдать правила:
 - обновлять `project-spec.md`, если меняется scope проекта;
 - перед PR запускать релевантные проверки или объяснять, почему это невозможно;
 - не менять CI/CD, deploy scripts, production operations или GitHub Actions вразрез с `/docs/ci-cd-rules.md`, если файл есть.
+- перед удалением cleanup/legacy кода проверять `docs/delivery-plan.md` cleanup inventory, классифицировать цель как active / compatibility / legacy-import-only, и если цель относится к compatibility или legacy-import-only, требовать явный scope PR и тесты; migration/recovery code нельзя удалять opportunistically.
 
 ## 18. Reusable Codex prompt block
 
@@ -1776,6 +1777,7 @@ Rules:
 - Do not mark an item as Done unless acceptance criteria are satisfied.
 - If the item is only partially done, keep it unchecked and document remaining work.
 - Avoid unrelated refactoring.
+- Before deleting cleanup/legacy code, check `docs/delivery-plan.md` cleanup inventory; classify the target as active, compatibility, or legacy/import-only; if compatibility or legacy/import-only, require explicit PR scope and tests; do not remove migration or recovery code opportunistically.
 - Do not add external dependencies unless explicitly required and justified.
 - Run relevant validation before opening PR, or explain why validation could not be run.
 

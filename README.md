@@ -100,7 +100,7 @@ Provider: <ElevenLabs | OpenAI | unknown>
 Model: <model id | unknown>
 Language: <Русский | Автоопределение | unknown>
 Speakers: <yes | no | unknown>
-Created at: <ISO timestamp>
+Created at: <runtime-created timestamp | YYYY-MM-DD HH:MM UTC | unknown>
 
 Transcript
 
@@ -246,11 +246,11 @@ They likely do not have the expected `Transcript metadata` block and `Transcript
 
 ### “Why do I have archive manifest files?”
 
-When apply migrates an active v1 manifest to v2, it creates a timestamped backup in `VoiceOps Workspace/manifest/archive` before replacing the active manifest.
+When apply migrates an old manifest to the current manifest format, it creates a timestamped backup in `VoiceOps Workspace/manifest/archive` before replacing the active manifest.
 
 ### “Can I delete archive backups?”
 
-Deletion is manual and not required. Keep at least the latest backups until successful runtime validation confirms that the migrated v2 manifest works for your workspace.
+Deletion is manual and not required. Keep at least the latest backups until successful runtime validation confirms that the migrated current-format manifest works for your workspace.
 
 ### “Does Manifest change Google Docs?”
 
