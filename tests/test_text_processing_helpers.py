@@ -354,6 +354,13 @@ def test_picker_current_path_cards_keep_readable_dark_theme_styles() -> None:
         assert "color:#202124;" in html
         assert "font-family:monospace;" in html
 
+    assert """background:#f8f9fa;
+        color:#202124;
+        font-family:monospace;""" in picker_current_path_html
+    assert """background:#f8f9fa;
+        color:#202124;
+        font-family:monospace;""" in source_current_path_html
+
 
 def test_source_selected_html_keeps_readable_dark_theme_styles() -> None:
     source = CANONICAL_SOURCE.read_text(encoding="utf-8")
