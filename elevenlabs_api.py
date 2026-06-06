@@ -5192,7 +5192,8 @@ def refresh_folder_picker():
             padding:10px;
             border:1px solid #ffeeba;
             border-radius:8px;
-            background:#fff8e1;">
+            background:#fff8e1;
+            color:#202124;">
             <b>Папка назначения ещё не выбрана.</b>
         </div>
         """
@@ -5563,9 +5564,16 @@ def refresh_source_picker():
             padding:10px;
             border:1px solid #cce5ff;
             border-radius:8px;
-            background:#eef6ff;">
+            background:#eef6ff;
+            color:#202124;">
             <b>Выбран источник:</b> {source_picker_state['selected_label']}<br>
-            <code>{selected_details}</code>
+            <code style="
+                display:inline-block;
+                margin-top:4px;
+                padding:2px 4px;
+                border-radius:4px;
+                background:#f1f3f4;
+                color:#202124;">{selected_details}</code>
         </div>
         """
     else:
@@ -5575,7 +5583,8 @@ def refresh_source_picker():
             padding:10px;
             border:1px solid #ffeeba;
             border-radius:8px;
-            background:#fff8e1;">
+            background:#fff8e1;
+            color:#202124;">
             <b>Источник ещё не выбран через picker.</b>
         </div>
         """
@@ -5857,7 +5866,7 @@ speaker_split_widget = widgets.Checkbox(
 
 conflict_mode_widget = widgets.Dropdown(
     options=CONFLICT_MODE_OPTIONS,
-    value="update",
+    value="skip",
     description="Если документ уже существует:",
     layout=widgets.Layout(width="800px")
 )

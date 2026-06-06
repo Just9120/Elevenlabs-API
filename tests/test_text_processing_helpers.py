@@ -323,6 +323,37 @@ def test_source_input_ui_uses_picker_only_internal_drive_value() -> None:
     assert 'description="Служебный источник:"' in source
 
 
+def test_conflict_mode_defaults_to_skip() -> None:
+    source = CANONICAL_SOURCE.read_text(encoding="utf-8")
+
+    expected = '''conflict_mode_widget = widgets.Dropdown(
+    options=CONFLICT_MODE_OPTIONS,
+    value="skip",
+'''
+    stale_default = """conflict_mode_widget = widgets.Dropdown(
+    options=CONFLICT_MODE_OPTIONS,
+    value="update",
+"""
+    assert expected in source
+    assert stale_default not in source
+
+
+def test_source_selected_html_keeps_readable_dark_theme_styles() -> None:
+    source = CANONICAL_SOURCE.read_text(encoding="utf-8")
+
+    selected_html_start = source.index('source_selected_html.value = f"""')
+    unselected_html_start = source.index('source_selected_html.value = """', selected_html_start)
+    picker_mode_start = source.index('    if mode_widget.value == "drive_file":', unselected_html_start)
+    selected_html = source[selected_html_start:unselected_html_start]
+    unselected_html = source[unselected_html_start:picker_mode_start]
+
+    assert "color:#202124;" in selected_html
+    assert "color:#202124;" in unselected_html
+    assert '<code style="' in selected_html
+    assert "background:#f1f3f4;" in selected_html
+    assert 'color:#202124;">{selected_details}</code>' in selected_html
+
+
 def test_get_source_input_value_guards_against_stale_drive_mode_selection() -> None:
     source = CANONICAL_SOURCE.read_text(encoding="utf-8")
 
