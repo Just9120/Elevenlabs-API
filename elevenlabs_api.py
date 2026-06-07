@@ -5478,6 +5478,8 @@ def get_drive_source_double_click_action(mode: str, is_folder: bool) -> str:
         return "open" if is_folder else "select"
     if mode == "drive_folder":
         return "open" if is_folder else "none"
+    if mode == "drive_multi":
+        return "open" if is_folder else "none"
     return "none"
 
 
@@ -5565,7 +5567,8 @@ source_picker_help_html = widgets.HTML(
     "Где поддерживается браузером, двойной клик — только удобное дополнение: "
     "в режиме одного файла он открывает папку или выбирает поддерживаемый файл, "
     "в режиме папки он открывает папку для навигации. "
-    "Google Drive: несколько файлов остаётся кнопочным режимом для безопасности — двойной клик не выбирает и не запускает частичный набор."
+    "В режиме Google Drive: несколько файлов двойной клик может открыть папку для навигации, "
+    "но выбор файлов и запуск набора остаются явными через кнопку «Выбрать файлы» для безопасности."
     "</div>"
 )
 
@@ -5811,6 +5814,19 @@ def on_source_item_double_clicked(selected_id: Optional[str] = None):
     if mode not in {"drive_file", "drive_folder", "drive_multi"}:
         return
 
+    if mode == "drive_multi":
+        if not selected_id or selected_id not in source_picker_state["item_map"]:
+            return
+
+        item = source_picker_state["item_map"][selected_id]
+        is_folder = item.get("mimeType") == FOLDER_MIME
+        action = get_drive_source_double_click_action(mode, is_folder)
+
+        if action == "open":
+            source_items_select_multi.value = (selected_id,)
+            on_source_open_clicked(None)
+        return
+
     if selected_id and selected_id in source_picker_state["item_map"]:
         source_items_select.value = selected_id
 
@@ -5834,6 +5850,7 @@ def install_drive_source_double_click_js():
       const STATE_KEY = '__elevenlabsDriveSourcePickerDoubleClick';
       const ROOT_CLASS = 'elevenlabs-drive-source-picker';
       const SINGLE_CLASS = 'elevenlabs-drive-source-select';
+      const MULTI_CLASS = 'elevenlabs-drive-source-select-multi';
       const BOUND_ATTR = 'data-elevenlabs-drive-source-dblclick-bound';
       const CALLBACK_NAME = 'elevenlabs.sourcePickerDoubleClick';
 
@@ -5853,23 +5870,30 @@ def install_drive_source_double_click_js():
         google.colab.kernel.invokeFunction(CALLBACK_NAME, [selectedId || null], {});
       }
 
-      function bindSingleSelects() {
-        document.querySelectorAll(`.${ROOT_CLASS} .${SINGLE_CLASS} select`).forEach((selectElement) => {
-          if (selectElement.getAttribute(BOUND_ATTR) === '1') {
-            return;
-          }
-          selectElement.setAttribute(BOUND_ATTR, '1');
-          selectElement.addEventListener('dblclick', () => {
-            if (!isVisible(selectElement)) {
+      function getDoubleClickedValue(event, selectElement) {
+        const option = event.target && event.target.closest ? event.target.closest('option') : null;
+        return (option && option.value) || selectElement.value;
+      }
+
+      function bindSourceSelects() {
+        [SINGLE_CLASS, MULTI_CLASS].forEach((selectClass) => {
+          document.querySelectorAll(`.${ROOT_CLASS} .${selectClass} select`).forEach((selectElement) => {
+            if (selectElement.getAttribute(BOUND_ATTR) === '1') {
               return;
             }
-            invokePython(selectElement.value);
+            selectElement.setAttribute(BOUND_ATTR, '1');
+            selectElement.addEventListener('dblclick', (event) => {
+              if (!isVisible(selectElement)) {
+                return;
+              }
+              invokePython(getDoubleClickedValue(event, selectElement));
+            });
           });
         });
       }
 
-      bindSingleSelects();
-      state.observer = new MutationObserver(bindSingleSelects);
+      bindSourceSelects();
+      state.observer = new MutationObserver(bindSourceSelects);
       state.observer.observe(document.body, {childList: true, subtree: true});
       window[STATE_KEY] = state;
     })();

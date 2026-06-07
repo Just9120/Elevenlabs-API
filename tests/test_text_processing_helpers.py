@@ -310,13 +310,36 @@ def test_drive_source_double_click_action_mapping_is_conservative() -> None:
     assert get_drive_source_double_click_action("drive_file", False) == "select"
     assert get_drive_source_double_click_action("drive_folder", True) == "open"
     assert get_drive_source_double_click_action("drive_folder", False) == "none"
-    assert get_drive_source_double_click_action("drive_multi", True) == "none"
+    assert get_drive_source_double_click_action("drive_multi", True) == "open"
     assert get_drive_source_double_click_action("drive_multi", False) == "none"
     assert get_drive_source_double_click_action("local_file", True) == "none"
     assert get_drive_source_double_click_action("local_file", False) == "none"
     assert get_drive_source_double_click_action("local_multi", True) == "none"
     assert get_drive_source_double_click_action("local_multi", False) == "none"
 
+
+
+def test_drive_multi_source_double_click_navigation_is_folder_only() -> None:
+    source = CANONICAL_SOURCE.read_text(encoding="utf-8")
+
+    assert "elevenlabs-drive-source-select-multi" in source
+    assert "const MULTI_CLASS = 'elevenlabs-drive-source-select-multi';" in source
+    assert "[SINGLE_CLASS, MULTI_CLASS].forEach" in source
+
+    double_click_callback = source.split("def on_source_item_double_clicked", 1)[1].split(
+        "def install_drive_source_double_click_js",
+        1,
+    )[0]
+    drive_multi_block = double_click_callback.split('if mode == "drive_multi":', 1)[1].split(
+        'if selected_id and selected_id in source_picker_state["item_map"]:',
+        1,
+    )[0]
+
+    assert 'source_items_select_multi.value = (selected_id,)' in drive_multi_block
+    assert "on_source_open_clicked(None)" in drive_multi_block
+    assert "on_source_select_clicked(None)" not in drive_multi_block
+    assert "В режиме Google Drive: несколько файлов двойной клик может открыть папку" in source
+    assert "выбор файлов и запуск набора остаются явными через кнопку «Выбрать файлы»" in source
 
 def test_destination_folder_double_click_navigation_is_conservative() -> None:
     source = CANONICAL_SOURCE.read_text(encoding="utf-8")
