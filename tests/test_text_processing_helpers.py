@@ -318,6 +318,24 @@ def test_drive_source_double_click_action_mapping_is_conservative() -> None:
     assert get_drive_source_double_click_action("local_multi", False) == "none"
 
 
+def test_destination_folder_double_click_navigation_is_conservative() -> None:
+    source = CANONICAL_SOURCE.read_text(encoding="utf-8")
+
+    assert "elevenlabs.destinationFolderDoubleClick" in source
+    assert "elevenlabs-destination-folder-picker" in source
+    assert "elevenlabs-destination-folder-select" in source
+    assert "data-elevenlabs-destination-folder-dblclick-bound" in source
+    double_click_callback = source.split("def on_picker_folder_double_clicked", 1)[1].split(
+        "def install_destination_folder_double_click_js",
+        1,
+    )[0]
+
+    assert "on_picker_open_clicked(None)" in double_click_callback
+    assert "on_picker_select_clicked(None)" not in double_click_callback
+    assert "двойной клик по папке в списке может открыть" in source
+    assert "Выбор папки назначения остаётся явным" in source
+
+
 def test_source_input_ui_uses_picker_only_internal_drive_value() -> None:
     source = CANONICAL_SOURCE.read_text(encoding="utf-8")
 

@@ -5291,12 +5291,72 @@ def on_picker_reset_clicked(_):
     refresh_folder_picker()
 
 
+def on_picker_folder_double_clicked(selected_id: Optional[str] = None):
+    if selected_id and selected_id in folder_picker_state["children_map"]:
+        picker_folders_select.value = selected_id
+
+    selected_id = picker_folders_select.value
+    if not selected_id or selected_id not in folder_picker_state["children_map"]:
+        return
+
+    on_picker_open_clicked(None)
+
+
+def install_destination_folder_double_click_js():
+    display(Javascript(r'''
+    (() => {
+      const STATE_KEY = '__elevenlabsDestinationFolderPickerDoubleClick';
+      const ROOT_CLASS = 'elevenlabs-destination-folder-picker';
+      const SELECT_CLASS = 'elevenlabs-destination-folder-select';
+      const BOUND_ATTR = 'data-elevenlabs-destination-folder-dblclick-bound';
+      const CALLBACK_NAME = 'elevenlabs.destinationFolderDoubleClick';
+
+      const state = window[STATE_KEY] || {};
+      if (state.observer) {
+        state.observer.disconnect();
+      }
+
+      function isVisible(element) {
+        return Boolean(element && (element.offsetWidth || element.offsetHeight || element.getClientRects().length));
+      }
+
+      function invokePython(selectedId) {
+        if (!window.google || !google.colab || !google.colab.kernel) {
+          return;
+        }
+        google.colab.kernel.invokeFunction(CALLBACK_NAME, [selectedId || null], {});
+      }
+
+      function bindFolderSelects() {
+        document.querySelectorAll(`.${ROOT_CLASS} .${SELECT_CLASS} select`).forEach((selectElement) => {
+          if (selectElement.getAttribute(BOUND_ATTR) === '1') {
+            return;
+          }
+          selectElement.setAttribute(BOUND_ATTR, '1');
+          selectElement.addEventListener('dblclick', () => {
+            if (!isVisible(selectElement)) {
+              return;
+            }
+            invokePython(selectElement.value);
+          });
+        });
+      }
+
+      bindFolderSelects();
+      state.observer = new MutationObserver(bindFolderSelects);
+      state.observer.observe(document.body, {childList: true, subtree: true});
+      window[STATE_KEY] = state;
+    })();
+    '''))
+
+
 picker_open_button.on_click(on_picker_open_clicked)
 picker_up_button.on_click(on_picker_up_clicked)
 picker_create_button.on_click(on_picker_create_clicked)
 picker_select_button.on_click(on_picker_select_clicked)
 picker_reset_button.on_click(on_picker_reset_clicked)
 picker_filter_text.observe(lambda change: apply_folder_filter(), names="value")
+colab_output.register_callback("elevenlabs.destinationFolderDoubleClick", on_picker_folder_double_clicked)
 
 refresh_folder_picker()
 
@@ -5304,7 +5364,10 @@ folder_picker_core_widgets = [
     widgets.HTML("<h3>Папка назначения для Google Docs</h3>"),
     widgets.HTML(
         "<div style='margin:6px 0 10px 0; color:#5f6368;'>"
-        "Папка назначения одна на запуск. Все результаты текущего запуска будут сохранены в выбранную папку."
+        "Папка назначения одна на запуск. Все результаты текущего запуска будут сохранены в выбранную папку. "
+        "Кнопки остаются основным и надёжным способом навигации и выбора. "
+        "Где поддерживается браузером, двойной клик по папке в списке может открыть её как кнопка <b>Открыть выбранную</b>. "
+        "Выбор папки назначения остаётся явным: для него всё равно нажми <b>Выбрать текущую папку</b>."
         "</div>"
     ),
     picker_current_path_html,
@@ -6034,6 +6097,8 @@ standardize_existing_docs_section_widget = widgets.VBox([
 ])
 
 folder_picker_ui = widgets.VBox(folder_picker_core_widgets + [standardize_existing_docs_section_widget])
+folder_picker_ui.add_class("elevenlabs-destination-folder-picker")
+picker_folders_select.add_class("elevenlabs-destination-folder-select")
 
 progress_bar = widgets.IntProgress(
     value=0,
@@ -6988,3 +7053,4 @@ main_ui = widgets.VBox([
 
 display(main_ui)
 install_drive_source_double_click_js()
+install_destination_folder_double_click_js()
