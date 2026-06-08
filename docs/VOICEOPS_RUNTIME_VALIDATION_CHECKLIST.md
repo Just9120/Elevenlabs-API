@@ -96,6 +96,7 @@ Do **not** update those statuses now.
 This compact checklist tracks the manual Colab smoke-check needed after PR #38 and PR #41. It is planning guidance only; completing this documentation update does **not** claim runtime validation passed.
 
 - Start a fresh Colab runtime from the latest `main` branch.
+- Capture the compact `Startup timing summary` printed after UI render, including the measured startup phase timings; use it only as diagnostic evidence and do not claim a startup performance improvement from this measurement-only output.
 - Validate `Google Drive: 1 файл` single-file selection using the reliable picker button path.
 - Validate optional double-click folder navigation in `drive_file`.
 - Validate optional double-click file selection in `drive_file`.
