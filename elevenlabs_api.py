@@ -21,6 +21,14 @@ import logging
 import tempfile
 import subprocess
 import time
+
+# Startup timing starts after Colab has already run the top-level package install
+# line and after Python can import/use ``time``.  The pip install cell startup
+# cost and the stdlib imports above are therefore not measurable precisely from
+# inside this exported Python file; they are intentionally called out in the
+# printed startup summary instead of being estimated.
+_STARTUP_TOTAL_STARTED = time.perf_counter()
+
 import uuid
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
@@ -38,6 +46,8 @@ import google.auth
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseDownload, MediaInMemoryUpload
+
+_STARTUP_IMPORTS_OR_BOOTSTRAP_FINISHED = time.perf_counter()
 
 logging.getLogger("google_auth_httplib2").setLevel(logging.ERROR)
 
@@ -137,6 +147,67 @@ class RunTimer:
         return f"- {label}: {elapsed:.2f}s{suffix}"
 
 
+STARTUP_TIMER = RunTimer()
+STARTUP_TIMER.add_duration(
+    "startup_imports_or_bootstrap",
+    _STARTUP_IMPORTS_OR_BOOTSTRAP_FINISHED - _STARTUP_TOTAL_STARTED,
+)
+
+STARTUP_TIMING_PHASES = [
+    "startup_imports_or_bootstrap",
+    "startup_secret_load",
+    "startup_google_auth",
+    "startup_google_client_build",
+    "startup_temp_cleanup",
+    "startup_destination_folder_refresh",
+    "startup_ui_render",
+    "startup_js_hooks",
+]
+
+STARTUP_TIMING_VARIABILITY_NOTE = (
+    "Note: Colab cold start, package installation, auth popup time, and Google API latency may vary."
+)
+STARTUP_BOOTSTRAP_LIMITATION_NOTE = (
+    "Note: top-level pip install and the earliest Python imports happen before this in-Python timer can "
+    "start, so startup_imports_or_bootstrap excludes that unmeasured setup."
+)
+
+
+def build_startup_timing_summary(timer: Optional[RunTimer]) -> str:
+    """Return a compact, safe startup timing summary for console output only.
+
+    The summary intentionally contains only phase labels and durations.  It must
+    not include Colab secret values, Drive paths, transcript text, provider
+    responses, or Google Docs body content.
+    """
+    lines = ["\n=== Startup timing summary (local) ==="]
+    if not timer:
+        lines.append("- startup_total: unavailable")
+    else:
+        total = timer.totals.get("startup_total")
+        if total is None:
+            total = max(0.0, time.perf_counter() - _STARTUP_TOTAL_STARTED)
+        lines.append(f"- startup_total: {total:.2f}s")
+        for label in STARTUP_TIMING_PHASES:
+            line = timer.format_line(label)
+            if line:
+                lines.append(line)
+            elif label == "startup_temp_cleanup":
+                lines.append("- startup_temp_cleanup: not run during UI startup")
+            else:
+                lines.append(f"- {label}: not measured")
+    lines.append(STARTUP_TIMING_VARIABILITY_NOTE)
+    lines.append(STARTUP_BOOTSTRAP_LIMITATION_NOTE)
+    lines.append("=== End startup timing summary ===")
+    return "\n".join(lines)
+
+
+def print_startup_timing_summary(timer: Optional[RunTimer]):
+    if timer and "startup_total" not in timer.totals:
+        timer.add_duration("startup_total", time.perf_counter() - _STARTUP_TOTAL_STARTED)
+    print(build_startup_timing_summary(timer))
+
+
 def print_timing_summary(timer: Optional[RunTimer]):
     if not timer:
         return
@@ -145,6 +216,7 @@ def print_timing_summary(timer: Optional[RunTimer]):
     print("\n=== Timing summary (local) ===")
     ordered = [
         "startup_cleanup",
+        "startup_temp_cleanup",
         "runtime_context_build",
         "local_upload_wait",
         "source_processing_total",
@@ -260,9 +332,10 @@ def build_timing_analysis(timer: Optional[RunTimer]) -> dict:
 # =========================
 # 1) НАСТРОЙКИ
 # =========================
-ELEVENLABS_API_KEY = get_colab_secret_or_none("ELEVENLABS_API_KEY")
-ELEVEN_API_KEY = get_colab_secret_or_none("ELEVEN_API_KEY")
-OPENAI_API_KEY = get_colab_secret_or_none("OPENAI_API_KEY")
+with STARTUP_TIMER.measure("startup_secret_load"):
+    ELEVENLABS_API_KEY = get_colab_secret_or_none("ELEVENLABS_API_KEY")
+    ELEVEN_API_KEY = get_colab_secret_or_none("ELEVEN_API_KEY")
+    OPENAI_API_KEY = get_colab_secret_or_none("OPENAI_API_KEY")
 ELEVENLABS_EFFECTIVE_API_KEY = ELEVENLABS_API_KEY or ELEVEN_API_KEY
 
 MODEL_ID = "scribe_v2"
@@ -330,15 +403,17 @@ CONFLICT_MODE_OPTIONS = [
 # =========================
 # 2) GOOGLE AUTH
 # =========================
-auth.authenticate_user()
+with STARTUP_TIMER.measure("startup_google_auth"):
+    auth.authenticate_user()
 
-creds, _ = google.auth.default(scopes=[
-    "https://www.googleapis.com/auth/drive",
-    "https://www.googleapis.com/auth/documents",
-])
+with STARTUP_TIMER.measure("startup_google_client_build"):
+    creds, _ = google.auth.default(scopes=[
+        "https://www.googleapis.com/auth/drive",
+        "https://www.googleapis.com/auth/documents",
+    ])
 
-drive_service = build("drive", "v3", credentials=creds)
-docs_service = build("docs", "v1", credentials=creds)
+    drive_service = build("drive", "v3", credentials=creds)
+    docs_service = build("docs", "v1", credentials=creds)
 
 DRIVE_MOUNTED = False
 
@@ -5358,7 +5433,8 @@ picker_reset_button.on_click(on_picker_reset_clicked)
 picker_filter_text.observe(lambda change: apply_folder_filter(), names="value")
 colab_output.register_callback("elevenlabs.destinationFolderDoubleClick", on_picker_folder_double_clicked)
 
-refresh_folder_picker()
+with STARTUP_TIMER.measure("startup_destination_folder_refresh"):
+    refresh_folder_picker()
 
 folder_picker_core_widgets = [
     widgets.HTML("<h3>Папка назначения для Google Docs</h3>"),
@@ -6315,7 +6391,8 @@ def reset_progress():
     progress_label.value = ""
 
 
-refresh_ui()
+with STARTUP_TIMER.measure("startup_ui_render"):
+    refresh_ui()
 mode_widget.observe(refresh_ui, names="value")
 use_keyterms_widget.observe(refresh_ui, names="value")
 
@@ -6963,7 +7040,8 @@ def on_start_clicked(_):
 
         try:
             with timer.measure("startup_cleanup"):
-                cleanup_stale_project_temp_files()
+                with timer.measure("startup_temp_cleanup"):
+                    cleanup_stale_project_temp_files()
 
             if not folder_picker_state["selected_id"]:
                 raise ValueError("Сначала выбери папку назначения в блоке выше и нажми 'Выбрать текущую папку'.")
@@ -7136,26 +7214,31 @@ advanced_box = widgets.VBox([
 advanced_accordion = widgets.Accordion(children=[advanced_box])
 advanced_accordion.set_title(0, "Дополнительные настройки")
 
-main_ui = widgets.VBox([
-    folder_picker_ui,
-    widgets.HTML("<hr>"),
-    mode_widget,
-    path_widget,
-    source_picker_ui,
-    recursive_widget,
-    help_widget,
-    check_source_button,
-    check_output_widget,
-    import_existing_button,
-    import_help_widget,
-    import_output_widget,
-    advanced_accordion,
-    start_button,
-    progress_bar,
-    progress_label,
-    output_widget
-])
+with STARTUP_TIMER.measure("startup_ui_render"):
+    main_ui = widgets.VBox([
+        folder_picker_ui,
+        widgets.HTML("<hr>"),
+        mode_widget,
+        path_widget,
+        source_picker_ui,
+        recursive_widget,
+        help_widget,
+        check_source_button,
+        check_output_widget,
+        import_existing_button,
+        import_help_widget,
+        import_output_widget,
+        advanced_accordion,
+        start_button,
+        progress_bar,
+        progress_label,
+        output_widget
+    ])
 
-display(main_ui)
-install_drive_source_double_click_js()
-install_destination_folder_double_click_js()
+    display(main_ui)
+
+with STARTUP_TIMER.measure("startup_js_hooks"):
+    install_drive_source_double_click_js()
+    install_destination_folder_double_click_js()
+
+print_startup_timing_summary(STARTUP_TIMER)

@@ -13,6 +13,8 @@ import ast
 import hashlib
 import json
 import re
+import time
+from contextlib import contextmanager
 from typing import Optional
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -21,6 +23,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CANONICAL_SOURCE = ROOT / "elevenlabs_api.py"
 HELPER_NAMES = {
+    "build_startup_timing_summary",
+    "build_timing_analysis",
     "build_transcript_metadata_lines",
     "build_structured_transcript_document_text",
     "build_backfilled_transcript_document_text",
@@ -101,6 +105,7 @@ HELPER_NAMES = {
     "validate_drive_multi_selected_items",
     "summarize_drive_multi_selection",
     "get_drive_source_double_click_action",
+    "format_timing_line",
 }
 
 
@@ -155,9 +160,14 @@ def load_text_helpers() -> dict[str, object]:
                     "AUDIO_EXTENSIONS",
                     "VIDEO_EXTENSIONS",
                     "SUPPORTED_EXTENSIONS",
+                    "STARTUP_TIMING_PHASES",
+                    "STARTUP_TIMING_VARIABILITY_NOTE",
+                    "STARTUP_BOOTSTRAP_LIMITATION_NOTE",
                 }:
                     selected_nodes.append(node)
                     break
+        elif isinstance(node, ast.ClassDef) and node.name == "RunTimer":
+            selected_nodes.append(node)
         elif isinstance(node, ast.FunctionDef) and node.name in HELPER_NAMES:
             selected_nodes.append(node)
 
@@ -176,8 +186,11 @@ def load_text_helpers() -> dict[str, object]:
         "timedelta": timedelta,
         "timezone": timezone,
         "re": re,
+        "time": time,
+        "contextmanager": contextmanager,
         "Optional": Optional,
         "Path": Path,
+        "_STARTUP_TOTAL_STARTED": time.perf_counter(),
         # These globals are runtime tuning knobs used by the overlap helper.
         # They are injected here so the pure function can be tested in isolation
         # from the Colab runtime configuration surface.
@@ -256,6 +269,78 @@ FOLDER_MIME = HELPERS["FOLDER_MIME"]
 validate_drive_multi_selected_items = HELPERS["validate_drive_multi_selected_items"]
 summarize_drive_multi_selection = HELPERS["summarize_drive_multi_selection"]
 get_drive_source_double_click_action = HELPERS["get_drive_source_double_click_action"]
+RunTimer = HELPERS["RunTimer"]
+build_startup_timing_summary = HELPERS["build_startup_timing_summary"]
+build_timing_analysis = HELPERS["build_timing_analysis"]
+format_timing_line = HELPERS["format_timing_line"]
+
+
+def test_startup_timing_summary_formats_expected_phase_names() -> None:
+    timer = RunTimer()
+    timer.add_duration("startup_total", 3.25)
+    timer.add_duration("startup_imports_or_bootstrap", 0.10)
+    timer.add_duration("startup_secret_load", 0.20)
+    timer.add_duration("startup_google_auth", 1.50)
+    timer.add_duration("startup_google_client_build", 0.40)
+    timer.add_duration("startup_destination_folder_refresh", 0.60)
+    timer.add_duration("startup_ui_render", 0.30)
+    timer.add_duration("startup_js_hooks", 0.15)
+
+    summary = build_startup_timing_summary(timer)
+
+    assert "=== Startup timing summary (local) ===" in summary
+    assert "- startup_total: 3.25s" in summary
+    for label in [
+        "startup_imports_or_bootstrap",
+        "startup_secret_load",
+        "startup_google_auth",
+        "startup_google_client_build",
+        "startup_temp_cleanup",
+        "startup_destination_folder_refresh",
+        "startup_ui_render",
+        "startup_js_hooks",
+    ]:
+        assert label in summary
+    assert "not run during UI startup" in summary
+    assert "Colab cold start" in summary
+    assert "top-level pip install" in summary
+
+
+def test_startup_timing_summary_does_not_include_secret_like_values() -> None:
+    timer = RunTimer()
+    timer.add_duration("startup_total", 1.0)
+    timer.add_duration("startup_secret_load", 0.01)
+    secret_like_values = [
+        "sk-test-secret-value",
+        "ELEVENLABS_API_KEY_VALUE",
+        "/content/drive/MyDrive/private/path",
+        "raw provider response body",
+        "Google Docs body content",
+    ]
+
+    summary = build_startup_timing_summary(timer)
+
+    assert "startup_secret_load" in summary
+    for value in secret_like_values:
+        assert value not in summary
+
+
+def test_existing_run_timing_summary_helpers_still_work() -> None:
+    timer = RunTimer()
+    timer.add_duration("runtime_context_build", 1.0)
+    timer.add_duration("source_collect", 2.0)
+    timer.add_duration("source_processing_total", 5.0)
+    timer.add_duration("provider_transcription", 4.5)
+    timer.add_duration("run_total", 10.0)
+
+    analysis = build_timing_analysis(timer)
+    line = format_timing_line(timer, "provider_transcription", analysis["run_total"])
+
+    assert analysis["run_total"] == 10.0
+    assert analysis["known_measured_total"] == 8.0
+    assert analysis["approx_unaccounted_run_time"] == 2.0
+    assert line == "- provider_transcription: 4.50s (45.0% of run_total)"
+    assert any("Provider transcription dominated" in hint for hint in analysis["bottleneck_hints"])
 
 
 def test_validate_drive_multi_selected_items_preserves_order_and_normalizes() -> None:
