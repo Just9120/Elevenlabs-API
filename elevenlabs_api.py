@@ -5816,7 +5816,10 @@ def on_source_item_double_clicked(selected_id: Optional[str] = None):
 
     if mode == "drive_multi":
         if not selected_id or selected_id not in source_picker_state["item_map"]:
-            return
+            selected_ids = list(source_items_select_multi.value or [])
+            if len(selected_ids) != 1 or selected_ids[0] not in source_picker_state["item_map"]:
+                return
+            selected_id = selected_ids[0]
 
         item = source_picker_state["item_map"][selected_id]
         is_folder = item.get("mimeType") == FOLDER_MIME
@@ -5870,9 +5873,88 @@ def install_drive_source_double_click_js():
         google.colab.kernel.invokeFunction(CALLBACK_NAME, [selectedId || null], {});
       }
 
-      function getDoubleClickedValue(event, selectElement) {
+      function getCandidateValue(event, selectElement, preferMouseDownOption = false) {
         const option = event.target && event.target.closest ? event.target.closest('option') : null;
-        return (option && option.value) || selectElement.value;
+        if (option && option.value) {
+          return option.value;
+        }
+        if (preferMouseDownOption && selectElement.__elevenlabsMouseDownOptionValue) {
+          return selectElement.__elevenlabsMouseDownOptionValue;
+        }
+        if (selectElement.value) {
+          return selectElement.value;
+        }
+        if (selectElement.selectedOptions && selectElement.selectedOptions.length === 1) {
+          return selectElement.selectedOptions[0].value;
+        }
+        return null;
+      }
+
+      function bindSingleSelect(selectElement) {
+        selectElement.addEventListener('dblclick', (event) => {
+          if (!isVisible(selectElement)) {
+            return;
+          }
+          invokePython(getCandidateValue(event, selectElement));
+        });
+      }
+
+      function bindMultiSelect(selectElement) {
+        const DOUBLE_CLICK_THRESHOLD_MS = 700;
+
+        function rememberMouseDownOption(event) {
+          if (!isVisible(selectElement)) {
+            return;
+          }
+          const option = event.target && event.target.closest ? event.target.closest('option') : null;
+          if (!option || !option.value) {
+            return;
+          }
+          selectElement.__elevenlabsMouseDownOptionValue = option.value;
+          window.setTimeout(() => {
+            if (selectElement.__elevenlabsMouseDownOptionValue === option.value) {
+              selectElement.__elevenlabsMouseDownOptionValue = null;
+            }
+          }, DOUBLE_CLICK_THRESHOLD_MS);
+        }
+
+        function rememberClickOrInvoke(event) {
+          if (!isVisible(selectElement)) {
+            return;
+          }
+          const candidateValue = getCandidateValue(event, selectElement, true);
+          if (!candidateValue) {
+            return;
+          }
+
+          const now = Date.now();
+          if (
+            selectElement.__elevenlabsLastMultiClickValue === candidateValue &&
+            now - (selectElement.__elevenlabsLastMultiClickAt || 0) <= DOUBLE_CLICK_THRESHOLD_MS
+          ) {
+            selectElement.__elevenlabsLastMultiForwardAt = now;
+            invokePython(candidateValue);
+          }
+          selectElement.__elevenlabsLastMultiClickValue = candidateValue;
+          selectElement.__elevenlabsLastMultiClickAt = now;
+        }
+
+        selectElement.addEventListener('mousedown', (event) => {
+          rememberMouseDownOption(event);
+        });
+        selectElement.addEventListener('click', (event) => {
+          rememberClickOrInvoke(event);
+        });
+        selectElement.addEventListener('dblclick', (event) => {
+          if (!isVisible(selectElement)) {
+            return;
+          }
+          const now = Date.now();
+          if (now - (selectElement.__elevenlabsLastMultiForwardAt || 0) < 250) {
+            return;
+          }
+          invokePython(getCandidateValue(event, selectElement));
+        });
       }
 
       function bindSourceSelects() {
@@ -5882,12 +5964,11 @@ def install_drive_source_double_click_js():
               return;
             }
             selectElement.setAttribute(BOUND_ATTR, '1');
-            selectElement.addEventListener('dblclick', (event) => {
-              if (!isVisible(selectElement)) {
-                return;
-              }
-              invokePython(getDoubleClickedValue(event, selectElement));
-            });
+            if (selectClass === MULTI_CLASS) {
+              bindMultiSelect(selectElement);
+            } else {
+              bindSingleSelect(selectElement);
+            }
           });
         });
       }

@@ -325,6 +325,13 @@ def test_drive_multi_source_double_click_navigation_is_folder_only() -> None:
     assert "elevenlabs-drive-source-select-multi" in source
     assert "const MULTI_CLASS = 'elevenlabs-drive-source-select-multi';" in source
     assert "[SINGLE_CLASS, MULTI_CLASS].forEach" in source
+    assert "bindMultiSelect(selectElement)" in source
+    assert "DOUBLE_CLICK_THRESHOLD_MS" in source
+    assert "addEventListener('dblclick'" in source
+    assert "addEventListener('click'" in source
+    assert "addEventListener('mousedown'" in source
+    assert "__elevenlabsLastMultiClickValue" in source
+    assert "event.target.closest('option')" in source
 
     double_click_callback = source.split("def on_source_item_double_clicked", 1)[1].split(
         "def install_drive_source_double_click_js",
@@ -335,11 +342,41 @@ def test_drive_multi_source_double_click_navigation_is_folder_only() -> None:
         1,
     )[0]
 
+    assert 'selected_ids = list(source_items_select_multi.value or [])' in drive_multi_block
+    assert 'len(selected_ids) != 1' in drive_multi_block
     assert 'source_items_select_multi.value = (selected_id,)' in drive_multi_block
     assert "on_source_open_clicked(None)" in drive_multi_block
     assert "on_source_select_clicked(None)" not in drive_multi_block
     assert "В режиме Google Drive: несколько файлов двойной клик может открыть папку" in source
     assert "выбор файлов и запуск набора остаются явными через кнопку «Выбрать файлы»" in source
+
+
+def test_drive_multi_file_double_click_cannot_finalize_batch() -> None:
+    source = CANONICAL_SOURCE.read_text(encoding="utf-8")
+    double_click_callback = source.split("def on_source_item_double_clicked", 1)[1].split(
+        "def install_drive_source_double_click_js",
+        1,
+    )[0]
+    drive_multi_block = double_click_callback.split('if mode == "drive_multi":', 1)[1].split(
+        'if selected_id and selected_id in source_picker_state["item_map"]:',
+        1,
+    )[0]
+
+    assert 'action = get_drive_source_double_click_action(mode, is_folder)' in drive_multi_block
+    assert 'if action == "open":' in drive_multi_block
+    assert 'elif action == "select":' not in drive_multi_block
+    assert "on_source_select_clicked(None)" not in drive_multi_block
+
+    action_helper = source.split("def get_drive_source_double_click_action", 1)[1].split(
+        "def validate_drive_multi_selected_items",
+        1,
+    )[0]
+    drive_multi_action_block = action_helper.split('if mode == "drive_multi":', 1)[1].split(
+        'return "none"',
+        1,
+    )[0]
+    assert 'return "open" if is_folder else "none"' in drive_multi_action_block
+
 
 def test_destination_folder_double_click_navigation_is_conservative() -> None:
     source = CANONICAL_SOURCE.read_text(encoding="utf-8")
