@@ -649,13 +649,31 @@ def parse_speaker_mapping(raw_mapping: str, active_speaker_names: list[str]) -> 
     return {"mapping": mapping, "errors": errors}
 
 
+def get_active_project_speaker_roster_snapshot(project: dict) -> list[dict]:
+    speakers = project.get("speakers") or {}
+    snapshot = []
+    for speaker_id, speaker in speakers.items():
+        if not isinstance(speaker, dict) or not speaker.get("active", True):
+            continue
+        display_name = re.sub(r"\s+", " ", str(speaker.get("display_name") or "")).strip()
+        if not display_name:
+            continue
+        snapshot.append({"id": str(speaker.get("id") or speaker_id), "display_name": display_name})
+    return sorted(snapshot, key=lambda item: (item["display_name"].casefold(), item["id"]))
+
+
+def speaker_mapping_text_fingerprint(raw_mapping: str) -> str:
+    return json_sha256({"mapping_text": str(raw_mapping or "")})
+
+
+def active_project_speaker_roster_fingerprint(project: dict) -> str:
+    return json_sha256({"active_speakers": get_active_project_speaker_roster_snapshot(project)})
+
+
 def build_speaker_rename_plan(document_text: str, project: dict, raw_mapping: str) -> dict:
     summary = summarize_speaker_turns(document_text)
-    active_names = [
-        speaker["display_name"]
-        for speaker in (project.get("speakers") or {}).values()
-        if speaker.get("active", True) and speaker.get("display_name")
-    ]
+    active_speakers = get_active_project_speaker_roster_snapshot(project)
+    active_names = [speaker["display_name"] for speaker in active_speakers]
     parsed = parse_speaker_mapping(raw_mapping, active_names)
     counts = summary["counts"]
     replacements = {}
@@ -669,6 +687,9 @@ def build_speaker_rename_plan(document_text: str, project: dict, raw_mapping: st
     return {
         "project_id": project.get("id", ""),
         "project_name": project.get("name", ""),
+        "mapping_text_hash": speaker_mapping_text_fingerprint(raw_mapping),
+        "active_speaker_roster_hash": active_project_speaker_roster_fingerprint(project),
+        "active_speaker_roster": active_speakers,
         "counts": counts,
         "samples": summary["samples"],
         "mapping": parsed["mapping"],
@@ -7584,6 +7605,15 @@ speaker_help = widgets.HTML(
     "Применение явно перезаписывает Google Doc plain text и меняет только labels в начале реплик."
 )
 
+SPEAKER_RENAME_STALE_PLAN_MESSAGE = (
+    "Отказ: проект, список спикеров или mapping изменились после предпросмотра. "
+    "Нажми «Предпросмотр замены» ещё раз."
+)
+
+
+def clear_speaker_rename_plan():
+    speaker_project_state["plan"] = None
+
 
 def refresh_speaker_project_dropdowns():
     roster = normalize_speaker_project_data(speaker_project_state.get("roster"))
@@ -7638,6 +7668,7 @@ def print_speaker_samples(summary: dict):
 
 def on_speaker_project_changed(change):
     if change.get("name") == "value":
+        clear_speaker_rename_plan()
         refresh_speaker_project_dropdowns()
 
 
@@ -7651,6 +7682,7 @@ def on_create_speaker_project(_):
             refresh_speaker_project_dropdowns()
             created_id = next(reversed(saved["projects"]))
             speaker_project_dropdown.value = created_id
+            clear_speaker_rename_plan()
             print(f"Проект создан: {saved['projects'][created_id]['name']}")
         except Exception as error:
             print(f"Ошибка проекта: {error}")
@@ -7662,6 +7694,7 @@ def on_rename_speaker_project(_):
             roster = rename_speaker_project(load_speaker_projects(force_reload=True), speaker_project_dropdown.value, speaker_project_name_input.value)
             speaker_project_state["roster"] = save_speaker_projects(roster)
             refresh_speaker_project_dropdowns()
+            clear_speaker_rename_plan()
             print("Проект переименован.")
         except Exception as error:
             print(f"Ошибка проекта: {error}")
@@ -7673,6 +7706,7 @@ def on_archive_speaker_project(_):
             roster = archive_speaker_project(load_speaker_projects(force_reload=True), speaker_project_dropdown.value, True)
             speaker_project_state["roster"] = save_speaker_projects(roster)
             refresh_speaker_project_dropdowns()
+            clear_speaker_rename_plan()
             print("Проект архивирован/скрыт.")
         except Exception as error:
             print(f"Ошибка проекта: {error}")
@@ -7684,6 +7718,7 @@ def on_add_project_speaker(_):
             roster = add_project_speaker(load_speaker_projects(force_reload=True), speaker_project_dropdown.value, speaker_name_input.value)
             speaker_project_state["roster"] = save_speaker_projects(roster)
             refresh_speaker_project_dropdowns()
+            clear_speaker_rename_plan()
             print("Спикер добавлен.")
         except Exception as error:
             print(f"Ошибка спикера: {error}")
@@ -7695,6 +7730,7 @@ def on_rename_project_speaker(_):
             roster = rename_project_speaker(load_speaker_projects(force_reload=True), speaker_project_dropdown.value, speaker_dropdown.value, speaker_name_input.value)
             speaker_project_state["roster"] = save_speaker_projects(roster)
             refresh_speaker_project_dropdowns()
+            clear_speaker_rename_plan()
             print("Спикер переименован.")
         except Exception as error:
             print(f"Ошибка спикера: {error}")
@@ -7706,6 +7742,7 @@ def on_deactivate_project_speaker(_):
             roster = deactivate_project_speaker(load_speaker_projects(force_reload=True), speaker_project_dropdown.value, speaker_dropdown.value, False)
             speaker_project_state["roster"] = save_speaker_projects(roster)
             refresh_speaker_project_dropdowns()
+            clear_speaker_rename_plan()
             print("Спикер скрыт/деактивирован.")
         except Exception as error:
             print(f"Ошибка спикера: {error}")
@@ -7794,6 +7831,15 @@ def on_apply_speaker_rename_clicked(_):
             if plan.get("doc_id") != speaker_project_state.get("doc_id") or plan.get("doc_hash") != speaker_project_state.get("doc_hash"):
                 print("Отказ: preview/plan не соответствует текущему загруженному документу.")
                 return
+            current_project = selected_speaker_project()
+            if (
+                plan.get("project_id") != speaker_project_dropdown.value
+                or plan.get("project_id") != current_project.get("id")
+                or plan.get("mapping_text_hash") != speaker_mapping_text_fingerprint(speaker_mapping_text.value)
+                or plan.get("active_speaker_roster_hash") != active_project_speaker_roster_fingerprint(current_project)
+            ):
+                print(SPEAKER_RENAME_STALE_PLAN_MESSAGE)
+                return
             print("ВНИМАНИЕ: применение перезаписывает Google Doc как plain text через Docs API; форматирование документа может быть потеряно. Текст реплик сохраняется, меняются только labels в начале реплик.")
             renamed_text, apply_result = apply_speaker_label_renames_to_plain_text(speaker_project_state["doc_text"], plan["mapping"])
             if not apply_result["changed"]:
@@ -7815,6 +7861,7 @@ def on_apply_speaker_rename_clicked(_):
 
 
 speaker_project_dropdown.observe(on_speaker_project_changed, names="value")
+speaker_mapping_text.observe(lambda change: clear_speaker_rename_plan() if change.get("name") == "value" else None, names="value")
 speaker_create_project_button.on_click(on_create_speaker_project)
 speaker_rename_project_button.on_click(on_rename_speaker_project)
 speaker_archive_project_button.on_click(on_archive_speaker_project)

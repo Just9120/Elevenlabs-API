@@ -37,6 +37,9 @@ HELPER_NAMES = {
     "extract_meaningful_speaker_samples",
     "summarize_speaker_turns",
     "parse_speaker_mapping",
+    "get_active_project_speaker_roster_snapshot",
+    "speaker_mapping_text_fingerprint",
+    "active_project_speaker_roster_fingerprint",
     "build_speaker_rename_plan",
     "apply_speaker_label_renames_to_plain_text",
     "build_startup_timing_summary",
@@ -303,6 +306,9 @@ detect_speakers_metadata_value = HELPERS["detect_speakers_metadata_value"]
 detect_speaker_turns = HELPERS["detect_speaker_turns"]
 extract_meaningful_speaker_samples = HELPERS["extract_meaningful_speaker_samples"]
 parse_speaker_mapping = HELPERS["parse_speaker_mapping"]
+get_active_project_speaker_roster_snapshot = HELPERS["get_active_project_speaker_roster_snapshot"]
+speaker_mapping_text_fingerprint = HELPERS["speaker_mapping_text_fingerprint"]
+active_project_speaker_roster_fingerprint = HELPERS["active_project_speaker_roster_fingerprint"]
 build_speaker_rename_plan = HELPERS["build_speaker_rename_plan"]
 apply_speaker_label_renames_to_plain_text = HELPERS["apply_speaker_label_renames_to_plain_text"]
 
@@ -2885,3 +2891,73 @@ def test_parse_google_doc_url_or_id_supports_url_and_raw_id() -> None:
     assert parse_google_doc_url_or_id("https://docs.google.com/document/d/abc_123-XYZ45678901234567890/edit") == "abc_123-XYZ45678901234567890"
     assert parse_google_doc_url_or_id("abc_123-XYZ45678901234567890") == "abc_123-XYZ45678901234567890"
     assert parse_google_doc_url_or_id("not a doc") == ""
+
+
+def test_speaker_rename_plan_fingerprints_mapping_and_active_roster() -> None:
+    project = {
+        "id": "project-a",
+        "name": "Project",
+        "speakers": {
+            "speaker-a": {"id": "speaker-a", "display_name": "Андрей", "active": True},
+            "speaker-b": {"id": "speaker-b", "display_name": "Мария", "active": True},
+            "speaker-c": {"id": "speaker-c", "display_name": "Hidden", "active": False},
+        },
+    }
+    text = "Speaker 1: hello there\nSpeaker 2: second line"
+    plan = build_speaker_rename_plan(text, project, "Speaker 1=Андрей")
+
+    assert plan["project_id"] == "project-a"
+    assert plan["mapping_text_hash"] == speaker_mapping_text_fingerprint("Speaker 1=Андрей")
+    assert plan["mapping_text_hash"] != speaker_mapping_text_fingerprint("Speaker 1=Мария")
+    assert plan["active_speaker_roster_hash"] == active_project_speaker_roster_fingerprint(project)
+    assert plan["active_speaker_roster"] == [
+        {"id": "speaker-a", "display_name": "Андрей"},
+        {"id": "speaker-b", "display_name": "Мария"},
+    ]
+
+    changed_project = json.loads(json.dumps(project))
+    changed_project["speakers"]["speaker-a"]["display_name"] = "Андрей Иванов"
+    assert plan["active_speaker_roster_hash"] != active_project_speaker_roster_fingerprint(changed_project)
+
+
+def test_speaker_rename_apply_refuses_stale_preview_plan_context() -> None:
+    source = CANONICAL_SOURCE.read_text(encoding="utf-8")
+    apply_block = source.split("def on_apply_speaker_rename_clicked", 1)[1].split(
+        "def on_start_clicked" if "def on_start_clicked" in source.split("def on_apply_speaker_rename_clicked", 1)[1] else "speaker_project_dropdown.observe",
+        1,
+    )[0]
+
+    assert "SPEAKER_RENAME_STALE_PLAN_MESSAGE" in source
+    assert "Отказ: проект, список спикеров или mapping изменились после предпросмотра" in source
+    assert 'plan.get("doc_id") != speaker_project_state.get("doc_id")' in apply_block
+    assert 'plan.get("doc_hash") != speaker_project_state.get("doc_hash")' in apply_block
+    assert 'plan.get("project_id") != speaker_project_dropdown.value' in apply_block
+    assert 'plan.get("project_id") != current_project.get("id")' in apply_block
+    assert 'plan.get("mapping_text_hash") != speaker_mapping_text_fingerprint(speaker_mapping_text.value)' in apply_block
+    assert 'plan.get("active_speaker_roster_hash") != active_project_speaker_roster_fingerprint(current_project)' in apply_block
+    assert "print(SPEAKER_RENAME_STALE_PLAN_MESSAGE)" in apply_block
+
+
+def test_speaker_rename_plan_is_cleared_when_relevant_ui_state_changes() -> None:
+    source = CANONICAL_SOURCE.read_text(encoding="utf-8")
+
+    assert "def clear_speaker_rename_plan():" in source
+    assert 'speaker_project_state["plan"] = None' in source
+    assert "speaker_mapping_text.observe" in source
+    assert "clear_speaker_rename_plan() if change.get(\"name\") == \"value\"" in source
+
+    project_changed_block = source.split("def on_speaker_project_changed", 1)[1].split("def on_create_speaker_project", 1)[0]
+    assert "clear_speaker_rename_plan()" in project_changed_block
+
+    for start, end in [
+        ("def on_rename_speaker_project", "def on_archive_speaker_project"),
+        ("def on_archive_speaker_project", "def on_add_project_speaker"),
+        ("def on_add_project_speaker", "def on_rename_project_speaker"),
+        ("def on_rename_project_speaker", "def on_deactivate_project_speaker"),
+        ("def on_deactivate_project_speaker", "def on_find_speakers_clicked"),
+    ]:
+        block = source.split(start, 1)[1].split(end, 1)[0]
+        assert "clear_speaker_rename_plan()" in block
+
+    find_block = source.split("def on_find_speakers_clicked", 1)[1].split("def on_preview_speaker_rename_clicked", 1)[0]
+    assert '"plan": None' in find_block
