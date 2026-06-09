@@ -230,3 +230,13 @@ Current practical readiness means:
 - Whether to formalize E2E runtime checklists.
 - Whether OpenAI diarization path should become supported or remain experimental.
 - Whether CD/deploy will ever be relevant; currently no.
+
+## 13. Optional speaker projects for diarized Google Docs
+
+- This workflow is optional post-processing only, available after a Google Doc already exists and diarized transcript labels such as `Speaker 1:` are present.
+- It does not run during transcription and does not change transcription/provider behavior, conflict handling, Drive picker behavior, Docs output creation, manifest skip logic, or startup timing instrumentation.
+- The operator manually maps detected `Speaker N` labels to project speaker display names after reviewing sample phrases. This is not voice identification and does not use voice samples, voiceprints, embeddings, biometric matching, STT calls, LLM calls, or provider APIs.
+- Speaker projects are stored separately from the manifest at `VoiceOps Workspace/projects/speaker_projects.json`. The roster stores project id/name/archived and speaker id/display_name/active, with aliases reserved for schema compatibility; transcript body text, preview samples, provider responses, and Google Docs body content must not be persisted there.
+- The Google Doc gate reads visible transcript metadata and plain text: `Speakers: no` blocks the workflow, `Speakers: yes` allows it when labels are present, and unknown metadata can proceed only with a warning if speaker labels are detected.
+- Apply is explicit and changes only speaker-turn labels at line/paragraph starts. Unmapped labels remain unchanged and transcript body wording remains unchanged. The current MVP rewrites the Google Doc as plain text through the Docs API, so Colab UI warns that formatting can be lost before applying.
+- Google Docs apply requires manual Colab validation because pytest covers pure parsing/planning helpers only and cannot validate live Docs mutation.

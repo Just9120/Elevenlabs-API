@@ -363,6 +363,8 @@ MANIFEST_FOLDER_NAME = "manifest"
 ANALYTICS_FOLDER_NAME = "analytics"
 MANIFEST_FILE_NAME = "elevenlabs_transcription_manifest.json"
 ANALYTICS_FILE_NAME = "elevenlabs_transcription_runs.jsonl"
+SPEAKER_PROJECTS_FOLDER_NAME = "projects"
+SPEAKER_PROJECTS_FILE_NAME = "speaker_projects.json"
 MANIFEST_IN_PROGRESS_TTL_HOURS = 6
 MANIFEST_V2_SCHEMA = "voiceops_manifest_v2"
 MANIFEST_V2_TARGET_VERSION = 2
@@ -381,6 +383,13 @@ ANALYTICS_CACHE = {
     "state_folder_id": None,
     "analytics_folder_id": None,
     "file_id": None,
+}
+
+SPEAKER_PROJECTS_CACHE = {
+    "state_folder_id": None,
+    "projects_folder_id": None,
+    "file_id": None,
+    "data": None,
 }
 
 AUDIO_EXTENSIONS = {
@@ -428,6 +437,266 @@ SHORTCUT_MIME = "application/vnd.google-apps.shortcut"
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
+
+
+
+def normalize_speaker_project_data(data: Optional[dict], updated_at: Optional[str] = None) -> dict:
+    """Return safe speaker project roster data without transcript/sample content."""
+    normalized = {
+        "version": 1,
+        "updated_at": str((data or {}).get("updated_at") or updated_at or utc_now_iso()),
+        "projects": {},
+    }
+    if not isinstance(data, dict):
+        return normalized
+
+    projects = data.get("projects") or {}
+    if not isinstance(projects, dict):
+        return normalized
+
+    for project_id, project in projects.items():
+        if not isinstance(project, dict):
+            continue
+        safe_project_id = str(project.get("id") or project_id or "").strip()
+        if not safe_project_id:
+            continue
+        speakers = {}
+        raw_speakers = project.get("speakers") or {}
+        if isinstance(raw_speakers, dict):
+            for speaker_id, speaker in raw_speakers.items():
+                if not isinstance(speaker, dict):
+                    continue
+                safe_speaker_id = str(speaker.get("id") or speaker_id or "").strip()
+                display_name = re.sub(r"\s+", " ", str(speaker.get("display_name") or "")).strip()
+                if not safe_speaker_id or not display_name:
+                    continue
+                aliases = speaker.get("aliases") or []
+                speakers[safe_speaker_id] = {
+                    "id": safe_speaker_id,
+                    "display_name": display_name,
+                    "active": bool(speaker.get("active", True)),
+                    "aliases": [str(alias).strip() for alias in aliases if str(alias).strip()] if isinstance(aliases, list) else [],
+                }
+        normalized["projects"][safe_project_id] = {
+            "id": safe_project_id,
+            "name": re.sub(r"\s+", " ", str(project.get("name") or "Без названия")).strip(),
+            "archived": bool(project.get("archived", False)),
+            "speakers": speakers,
+        }
+    return normalized
+
+
+def create_speaker_project(data: Optional[dict], name: str, project_id: Optional[str] = None, updated_at: Optional[str] = None) -> dict:
+    roster = normalize_speaker_project_data(data, updated_at=updated_at)
+    clean_name = re.sub(r"\s+", " ", str(name or "")).strip()
+    if not clean_name:
+        raise ValueError("Project name is required.")
+    new_id = str(project_id or f"project_{uuid.uuid4().hex[:12]}")
+    roster["projects"][new_id] = {"id": new_id, "name": clean_name, "archived": False, "speakers": {}}
+    roster["updated_at"] = updated_at or utc_now_iso()
+    return roster
+
+
+def rename_speaker_project(data: Optional[dict], project_id: str, name: str, updated_at: Optional[str] = None) -> dict:
+    roster = normalize_speaker_project_data(data, updated_at=updated_at)
+    clean_name = re.sub(r"\s+", " ", str(name or "")).strip()
+    if not clean_name:
+        raise ValueError("Project name is required.")
+    if project_id not in roster["projects"]:
+        raise ValueError("Project not found.")
+    roster["projects"][project_id]["name"] = clean_name
+    roster["updated_at"] = updated_at or utc_now_iso()
+    return roster
+
+
+def archive_speaker_project(data: Optional[dict], project_id: str, archived: bool = True, updated_at: Optional[str] = None) -> dict:
+    roster = normalize_speaker_project_data(data, updated_at=updated_at)
+    if project_id not in roster["projects"]:
+        raise ValueError("Project not found.")
+    roster["projects"][project_id]["archived"] = bool(archived)
+    roster["updated_at"] = updated_at or utc_now_iso()
+    return roster
+
+
+def add_project_speaker(data: Optional[dict], project_id: str, display_name: str, speaker_id: Optional[str] = None, updated_at: Optional[str] = None) -> dict:
+    roster = normalize_speaker_project_data(data, updated_at=updated_at)
+    clean_name = re.sub(r"\s+", " ", str(display_name or "")).strip()
+    if not clean_name:
+        raise ValueError("Speaker display name is required.")
+    if project_id not in roster["projects"]:
+        raise ValueError("Project not found.")
+    new_id = str(speaker_id or f"speaker_{uuid.uuid4().hex[:12]}")
+    roster["projects"][project_id].setdefault("speakers", {})[new_id] = {
+        "id": new_id,
+        "display_name": clean_name,
+        "active": True,
+        "aliases": [],
+    }
+    roster["updated_at"] = updated_at or utc_now_iso()
+    return roster
+
+
+def rename_project_speaker(data: Optional[dict], project_id: str, speaker_id: str, display_name: str, updated_at: Optional[str] = None) -> dict:
+    roster = normalize_speaker_project_data(data, updated_at=updated_at)
+    clean_name = re.sub(r"\s+", " ", str(display_name or "")).strip()
+    if not clean_name:
+        raise ValueError("Speaker display name is required.")
+    speakers = roster["projects"].get(project_id, {}).get("speakers", {})
+    if speaker_id not in speakers:
+        raise ValueError("Speaker not found.")
+    speakers[speaker_id]["display_name"] = clean_name
+    roster["updated_at"] = updated_at or utc_now_iso()
+    return roster
+
+
+def deactivate_project_speaker(data: Optional[dict], project_id: str, speaker_id: str, active: bool = False, updated_at: Optional[str] = None) -> dict:
+    roster = normalize_speaker_project_data(data, updated_at=updated_at)
+    speakers = roster["projects"].get(project_id, {}).get("speakers", {})
+    if speaker_id not in speakers:
+        raise ValueError("Speaker not found.")
+    speakers[speaker_id]["active"] = bool(active)
+    roster["updated_at"] = updated_at or utc_now_iso()
+    return roster
+
+
+def parse_google_doc_url_or_id(value: str) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    match = re.search(r"https?://docs\.google\.com/document/d/([^/?#]+)", raw)
+    if match:
+        return match.group(1)
+    if re.fullmatch(r"[A-Za-z0-9_-]{20,}", raw):
+        return raw
+    return ""
+
+
+def detect_speakers_metadata_value(document_text: str) -> str:
+    metadata = extract_structured_transcript_metadata_values(document_text)
+    value = re.sub(r"\s+", " ", str(metadata.get("Speakers") or "")).strip().casefold()
+    if value in {"yes", "true", "да"}:
+        return "yes"
+    if value in {"no", "false", "нет"}:
+        return "no"
+    return "unknown"
+
+
+SPEAKER_TURN_LABEL_RE = re.compile(r"(?m)^(?P<label>Speaker\s+(?P<number>\d+))(?P<sep>:\s*)(?P<utterance>.*)$")
+
+
+def detect_speaker_turns(document_text: str) -> list[dict]:
+    text = normalize_doc_plain_text(document_text)
+    turns = []
+    matches = list(SPEAKER_TURN_LABEL_RE.finditer(text))
+    for index, match in enumerate(matches):
+        utterance_start = match.end("utterance") - len(match.group("utterance"))
+        utterance_end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        utterance = text[utterance_start:utterance_end].strip()
+        turns.append({
+            "label": re.sub(r"\s+", " ", match.group("label")).strip(),
+            "number": int(match.group("number")),
+            "start": match.start("label"),
+            "end": match.end("label"),
+            "utterance": utterance,
+        })
+    return turns
+
+
+def extract_meaningful_speaker_samples(turns: list[dict], max_samples: int = 3, max_chars: int = 300, min_chars: int = 12) -> dict:
+    samples: dict[str, list[str]] = {}
+    for turn in turns:
+        label = turn.get("label", "")
+        utterance = re.sub(r"\s+", " ", str(turn.get("utterance") or "")).strip()
+        if not label or len(utterance) < min_chars:
+            continue
+        if len(samples.get(label, [])) >= max_samples:
+            continue
+        if len(utterance) > max_chars:
+            utterance = utterance[: max_chars - 1].rstrip() + "…"
+        samples.setdefault(label, []).append(utterance)
+    return samples
+
+
+def summarize_speaker_turns(document_text: str) -> dict:
+    turns = detect_speaker_turns(document_text)
+    counts: dict[str, int] = {}
+    for turn in turns:
+        counts[turn["label"]] = counts.get(turn["label"], 0) + 1
+    return {"turns": turns, "counts": counts, "samples": extract_meaningful_speaker_samples(turns)}
+
+
+def parse_speaker_mapping(raw_mapping: str, active_speaker_names: list[str]) -> dict:
+    allowed = {str(name).strip(): str(name).strip() for name in active_speaker_names if str(name).strip()}
+    mapping = {}
+    errors = []
+    for line_no, line in enumerate(str(raw_mapping or "").splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if "=" not in stripped:
+            errors.append(f"Line {line_no}: expected Speaker N=Name.")
+            continue
+        label, name = [part.strip() for part in stripped.split("=", 1)]
+        if not re.fullmatch(r"Speaker\s+\d+", label):
+            errors.append(f"Line {line_no}: invalid speaker label.")
+            continue
+        if not name:
+            continue
+        if name not in allowed:
+            errors.append(f"Line {line_no}: speaker '{name}' is not active in the selected project.")
+            continue
+        mapping[re.sub(r"\s+", " ", label)] = allowed[name]
+    return {"mapping": mapping, "errors": errors}
+
+
+def build_speaker_rename_plan(document_text: str, project: dict, raw_mapping: str) -> dict:
+    summary = summarize_speaker_turns(document_text)
+    active_names = [
+        speaker["display_name"]
+        for speaker in (project.get("speakers") or {}).values()
+        if speaker.get("active", True) and speaker.get("display_name")
+    ]
+    parsed = parse_speaker_mapping(raw_mapping, active_names)
+    counts = summary["counts"]
+    replacements = {}
+    unmapped = []
+    for label in sorted(counts, key=lambda item: int(re.search(r"\d+", item).group(0))):
+        target = parsed["mapping"].get(label)
+        if target:
+            replacements[label] = {"target": target, "count": counts[label]}
+        else:
+            unmapped.append(label)
+    return {
+        "project_id": project.get("id", ""),
+        "project_name": project.get("name", ""),
+        "counts": counts,
+        "samples": summary["samples"],
+        "mapping": parsed["mapping"],
+        "errors": parsed["errors"],
+        "replacements": replacements,
+        "unmapped": unmapped,
+        "has_valid_mapping": bool(replacements),
+    }
+
+
+def apply_speaker_label_renames_to_plain_text(document_text: str, mapping: dict[str, str]) -> tuple[str, dict]:
+    normalized_mapping = {
+        re.sub(r"\s+", " ", str(label)).strip(): str(target).strip()
+        for label, target in (mapping or {}).items()
+        if str(label).strip() and str(target).strip()
+    }
+    counts = {label: 0 for label in normalized_mapping}
+
+    def replace_label(match: re.Match) -> str:
+        label = re.sub(r"\s+", " ", match.group("label")).strip()
+        target = normalized_mapping.get(label)
+        if not target:
+            return match.group(0)
+        counts[label] = counts.get(label, 0) + 1
+        return f"{target}{match.group('sep')}{match.group('utterance')}"
+
+    renamed = SPEAKER_TURN_LABEL_RE.sub(replace_label, normalize_doc_plain_text(document_text))
+    return renamed, {"counts": counts, "changed": any(counts.values())}
 
 def create_project_temp_file(suffix: str = "") -> str:
     tmp = tempfile.NamedTemporaryFile(
@@ -995,6 +1264,83 @@ def append_analytics_record(record: dict):
     )
 
 
+
+
+def get_or_create_speaker_projects_file() -> tuple[str, str]:
+    if SPEAKER_PROJECTS_CACHE["projects_folder_id"] and SPEAKER_PROJECTS_CACHE["file_id"]:
+        return SPEAKER_PROJECTS_CACHE["projects_folder_id"], SPEAKER_PROJECTS_CACHE["file_id"]
+
+    state_folder = get_or_create_folder_in_parent("root", STATE_FOLDER_NAME)
+    projects_folder = get_or_create_folder_in_parent(state_folder["id"], SPEAKER_PROJECTS_FOLDER_NAME)
+    existing = find_file_in_folder(projects_folder["id"], SPEAKER_PROJECTS_FILE_NAME)
+    if existing:
+        file_id = existing["id"]
+    else:
+        initial = normalize_speaker_project_data({})
+        media = MediaInMemoryUpload(
+            json.dumps(initial, ensure_ascii=False, indent=2).encode("utf-8"),
+            mimetype="application/json",
+            resumable=False,
+        )
+        created = execute_google_request_with_retry(
+            drive_service.files().create(
+                body={"name": SPEAKER_PROJECTS_FILE_NAME, "parents": [projects_folder["id"]], "mimeType": "application/json"},
+                media_body=media,
+                fields="id, name",
+                supportsAllDrives=True,
+            ),
+            operation_label="drive_file_create",
+        )
+        file_id = created["id"]
+
+    SPEAKER_PROJECTS_CACHE["state_folder_id"] = state_folder["id"]
+    SPEAKER_PROJECTS_CACHE["projects_folder_id"] = projects_folder["id"]
+    SPEAKER_PROJECTS_CACHE["file_id"] = file_id
+    return projects_folder["id"], file_id
+
+
+def load_speaker_projects(force_reload: bool = False) -> dict:
+    if SPEAKER_PROJECTS_CACHE.get("data") is not None and not force_reload:
+        return normalize_speaker_project_data(SPEAKER_PROJECTS_CACHE["data"])
+    _, file_id = get_or_create_speaker_projects_file()
+    request = drive_service.files().get_media(fileId=file_id, supportsAllDrives=True)
+    bio = io.BytesIO()
+    downloader = MediaIoBaseDownload(bio, request)
+    done = False
+    while not done:
+        _, done = downloader.next_chunk()
+    try:
+        raw = json.loads(bio.getvalue().decode("utf-8", errors="ignore") or "{}")
+    except json.JSONDecodeError:
+        raw = {}
+    roster = normalize_speaker_project_data(raw)
+    SPEAKER_PROJECTS_CACHE["data"] = roster
+    return roster
+
+
+def save_speaker_projects(roster: dict) -> dict:
+    _, file_id = get_or_create_speaker_projects_file()
+    safe_roster = normalize_speaker_project_data(roster)
+    media = MediaInMemoryUpload(
+        json.dumps(safe_roster, ensure_ascii=False, indent=2).encode("utf-8"),
+        mimetype="application/json",
+        resumable=False,
+    )
+    execute_google_request_with_retry(
+        drive_service.files().update(fileId=file_id, media_body=media, supportsAllDrives=True),
+        operation_label="drive_file_update",
+    )
+    SPEAKER_PROJECTS_CACHE["data"] = safe_roster
+    return safe_roster
+
+
+def get_google_doc_title(document_id: str) -> str:
+    metadata = execute_google_request_with_retry(
+        drive_service.files().get(fileId=document_id, fields="id, name", supportsAllDrives=True),
+        operation_label="drive_file_get",
+    )
+    return metadata.get("name") or "Google Doc"
+
 def get_manifest_entry(manifest: dict, source_signature: str) -> Optional[dict]:
     if is_manifest_v2(manifest):
         return (manifest.get("sources") or {}).get(source_signature)
@@ -1512,11 +1858,7 @@ def build_existing_google_doc_link(doc_id: str) -> str:
 
 
 def extract_google_doc_id_from_url(url: str) -> str:
-    if not isinstance(url, str) or not url:
-        return ""
-
-    match = re.search(r"https?://docs\.google\.com/document/d/([^/?#]+)", url)
-    return match.group(1) if match else ""
+    return parse_google_doc_url_or_id(url)
 
 
 def build_transcript_standard_check(
@@ -7194,6 +7536,306 @@ def on_start_clicked(_):
             if progress_bar.layout.visibility == "visible" and progress_bar.value < progress_bar.max:
                 progress_bar.bar_style = "warning"
 
+
+# Optional post-transcription speaker project workflow for already diarized Google Docs.
+speaker_project_state = {
+    "roster": normalize_speaker_project_data({}),
+    "doc_id": "",
+    "doc_title": "",
+    "doc_text": "",
+    "doc_hash": "",
+    "metadata_status": "unknown",
+    "summary": None,
+    "plan": None,
+}
+
+speaker_doc_input = widgets.Text(
+    value="",
+    description="Google Doc:",
+    placeholder="URL или ID Google Doc с Speaker 1:",
+    layout=widgets.Layout(width="95%"),
+)
+speaker_find_button = widgets.Button(description="Найти спикеров", button_style="info")
+speaker_project_name_input = widgets.Text(value="", description="Проект:", placeholder="Название проекта")
+speaker_create_project_button = widgets.Button(description="Создать проект")
+speaker_project_dropdown = widgets.Dropdown(options=[], description="Выбрать:")
+speaker_rename_project_button = widgets.Button(description="Переименовать")
+speaker_archive_project_button = widgets.Button(description="Архивировать", button_style="warning")
+speaker_name_input = widgets.Text(value="", description="Спикер:", placeholder="Имя спикера")
+speaker_add_button = widgets.Button(description="Добавить спикера")
+speaker_dropdown = widgets.Dropdown(options=[], description="Спикер:")
+speaker_rename_button = widgets.Button(description="Переименовать")
+speaker_deactivate_button = widgets.Button(description="Скрыть", button_style="warning")
+speaker_mapping_text = widgets.Textarea(
+    value="",
+    description="Маппинг:",
+    placeholder="Speaker 1=Андрей\nSpeaker 2=Мария",
+    layout=widgets.Layout(width="95%", height="110px"),
+)
+speaker_preview_button = widgets.Button(description="Предпросмотр замены", button_style="info")
+speaker_apply_button = widgets.Button(description="Применить изменения к Google Doc", button_style="danger")
+speaker_output = widgets.Output()
+
+speaker_help = widgets.HTML(
+    "<b>Проекты и спикеры / Переименовать спикеров в Google Doc</b><br>"
+    "Опциональная пост-обработка уже созданного diarized Google Doc. "
+    "Это ручное сопоставление Speaker N с именами проекта, не voice identification; "
+    "не используются голосовые образцы, voiceprints, embeddings, STT/LLM/provider API. "
+    "Применение явно перезаписывает Google Doc plain text и меняет только labels в начале реплик."
+)
+
+
+def refresh_speaker_project_dropdowns():
+    roster = normalize_speaker_project_data(speaker_project_state.get("roster"))
+    active_projects = [
+        (project["name"], project_id)
+        for project_id, project in sorted(roster["projects"].items(), key=lambda item: item[1]["name"].casefold())
+        if not project.get("archived")
+    ]
+    current_project = speaker_project_dropdown.value
+    speaker_project_dropdown.options = active_projects
+    if current_project in [value for _, value in active_projects]:
+        speaker_project_dropdown.value = current_project
+    elif active_projects:
+        speaker_project_dropdown.value = active_projects[0][1]
+    else:
+        speaker_project_dropdown.value = None
+
+    project = roster["projects"].get(speaker_project_dropdown.value or "", {})
+    active_speakers = [
+        (speaker["display_name"], speaker_id)
+        for speaker_id, speaker in sorted((project.get("speakers") or {}).items(), key=lambda item: item[1]["display_name"].casefold())
+        if speaker.get("active", True)
+    ]
+    current_speaker = speaker_dropdown.value
+    speaker_dropdown.options = active_speakers
+    if current_speaker in [value for _, value in active_speakers]:
+        speaker_dropdown.value = current_speaker
+    elif active_speakers:
+        speaker_dropdown.value = active_speakers[0][1]
+    else:
+        speaker_dropdown.value = None
+
+
+def load_speaker_projects_into_ui(force_reload: bool = False):
+    speaker_project_state["roster"] = load_speaker_projects(force_reload=force_reload)
+    refresh_speaker_project_dropdowns()
+
+
+def selected_speaker_project() -> dict:
+    roster = normalize_speaker_project_data(speaker_project_state.get("roster"))
+    return roster["projects"].get(speaker_project_dropdown.value or "", {})
+
+
+def print_speaker_samples(summary: dict):
+    counts = summary.get("counts") or {}
+    samples = summary.get("samples") or {}
+    for label in sorted(counts, key=lambda item: int(re.search(r"\d+", item).group(0))):
+        print(f"- {label}: {counts[label]} реплик")
+        for sample in samples.get(label, []):
+            print(f"  • {sample}")
+
+
+def on_speaker_project_changed(change):
+    if change.get("name") == "value":
+        refresh_speaker_project_dropdowns()
+
+
+def on_create_speaker_project(_):
+    with speaker_output:
+        try:
+            roster = load_speaker_projects(force_reload=True)
+            roster = create_speaker_project(roster, speaker_project_name_input.value)
+            saved = save_speaker_projects(roster)
+            speaker_project_state["roster"] = saved
+            refresh_speaker_project_dropdowns()
+            created_id = next(reversed(saved["projects"]))
+            speaker_project_dropdown.value = created_id
+            print(f"Проект создан: {saved['projects'][created_id]['name']}")
+        except Exception as error:
+            print(f"Ошибка проекта: {error}")
+
+
+def on_rename_speaker_project(_):
+    with speaker_output:
+        try:
+            roster = rename_speaker_project(load_speaker_projects(force_reload=True), speaker_project_dropdown.value, speaker_project_name_input.value)
+            speaker_project_state["roster"] = save_speaker_projects(roster)
+            refresh_speaker_project_dropdowns()
+            print("Проект переименован.")
+        except Exception as error:
+            print(f"Ошибка проекта: {error}")
+
+
+def on_archive_speaker_project(_):
+    with speaker_output:
+        try:
+            roster = archive_speaker_project(load_speaker_projects(force_reload=True), speaker_project_dropdown.value, True)
+            speaker_project_state["roster"] = save_speaker_projects(roster)
+            refresh_speaker_project_dropdowns()
+            print("Проект архивирован/скрыт.")
+        except Exception as error:
+            print(f"Ошибка проекта: {error}")
+
+
+def on_add_project_speaker(_):
+    with speaker_output:
+        try:
+            roster = add_project_speaker(load_speaker_projects(force_reload=True), speaker_project_dropdown.value, speaker_name_input.value)
+            speaker_project_state["roster"] = save_speaker_projects(roster)
+            refresh_speaker_project_dropdowns()
+            print("Спикер добавлен.")
+        except Exception as error:
+            print(f"Ошибка спикера: {error}")
+
+
+def on_rename_project_speaker(_):
+    with speaker_output:
+        try:
+            roster = rename_project_speaker(load_speaker_projects(force_reload=True), speaker_project_dropdown.value, speaker_dropdown.value, speaker_name_input.value)
+            speaker_project_state["roster"] = save_speaker_projects(roster)
+            refresh_speaker_project_dropdowns()
+            print("Спикер переименован.")
+        except Exception as error:
+            print(f"Ошибка спикера: {error}")
+
+
+def on_deactivate_project_speaker(_):
+    with speaker_output:
+        try:
+            roster = deactivate_project_speaker(load_speaker_projects(force_reload=True), speaker_project_dropdown.value, speaker_dropdown.value, False)
+            speaker_project_state["roster"] = save_speaker_projects(roster)
+            refresh_speaker_project_dropdowns()
+            print("Спикер скрыт/деактивирован.")
+        except Exception as error:
+            print(f"Ошибка спикера: {error}")
+
+
+def on_find_speakers_clicked(_):
+    with speaker_output:
+        clear_output()
+        speaker_project_state.update({"doc_id": "", "doc_title": "", "doc_text": "", "doc_hash": "", "summary": None, "plan": None})
+        doc_id = parse_google_doc_url_or_id(speaker_doc_input.value)
+        if not doc_id:
+            print("Укажи корректный URL или ID Google Doc.")
+            return
+        text = extract_google_doc_plain_text(doc_id)
+        metadata_status = detect_speakers_metadata_value(text)
+        summary = summarize_speaker_turns(text)
+        if metadata_status == "no":
+            print("В этом документе не включено разделение по спикерам. Переименование спикеров недоступно.")
+            return
+        if not summary["counts"]:
+            print("Speaker labels в начале реплик не найдены. Применение недоступно.")
+            return
+        if metadata_status == "unknown":
+            print("Не удалось подтвердить metadata Speakers: yes, но найдены speaker labels. Проверь документ перед применением.")
+        title = get_google_doc_title(doc_id)
+        speaker_project_state.update({
+            "doc_id": doc_id,
+            "doc_title": title,
+            "doc_text": text,
+            "doc_hash": json_sha256({"doc_id": doc_id, "text_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest()}),
+            "metadata_status": metadata_status,
+            "summary": summary,
+            "plan": None,
+        })
+        load_speaker_projects_into_ui(force_reload=True)
+        print(f"Документ загружен: {title}")
+        print_speaker_samples(summary)
+        print("Теперь можно создать/выбрать проект и добавить спикеров, затем заполнить маппинг.")
+
+
+def on_preview_speaker_rename_clicked(_):
+    with speaker_output:
+        try:
+            if not speaker_project_state.get("doc_id") or not speaker_project_state.get("summary"):
+                print("Сначала нажми «Найти спикеров» для diarized Google Doc.")
+                return
+            project = selected_speaker_project()
+            if not project:
+                print("Сначала выбери или создай проект.")
+                return
+            plan = build_speaker_rename_plan(speaker_project_state["doc_text"], project, speaker_mapping_text.value)
+            plan["doc_id"] = speaker_project_state["doc_id"]
+            plan["doc_hash"] = speaker_project_state["doc_hash"]
+            speaker_project_state["plan"] = plan
+            print(f"Предпросмотр для проекта: {plan['project_name']}")
+            if plan["errors"]:
+                print("Ошибки mapping:")
+                for error in plan["errors"]:
+                    print(f"- {error}")
+            for label, item in plan["replacements"].items():
+                print(f"- {label} -> {item['target']}: {item['count']} реплик")
+            for label in plan["unmapped"]:
+                print(f"- {label} — останется как {label}")
+            if not plan["has_valid_mapping"]:
+                print("Нет валидных замен; применение недоступно.")
+        except Exception as error:
+            print(f"Ошибка предпросмотра: {error}")
+
+
+def on_apply_speaker_rename_clicked(_):
+    with speaker_output:
+        try:
+            plan = speaker_project_state.get("plan") or {}
+            if not speaker_project_state.get("doc_id") or not speaker_project_state.get("summary"):
+                print("Отказ: Google Doc не загружен через «Найти спикеров».")
+                return
+            if not (speaker_project_state.get("summary") or {}).get("counts"):
+                print("Отказ: speaker labels не обнаружены.")
+                return
+            if not selected_speaker_project():
+                print("Отказ: проект не выбран.")
+                return
+            if not plan.get("has_valid_mapping"):
+                print("Отказ: сначала построить preview с минимум одной валидной заменой.")
+                return
+            if plan.get("doc_id") != speaker_project_state.get("doc_id") or plan.get("doc_hash") != speaker_project_state.get("doc_hash"):
+                print("Отказ: preview/plan не соответствует текущему загруженному документу.")
+                return
+            print("ВНИМАНИЕ: применение перезаписывает Google Doc как plain text через Docs API; форматирование документа может быть потеряно. Текст реплик сохраняется, меняются только labels в начале реплик.")
+            renamed_text, apply_result = apply_speaker_label_renames_to_plain_text(speaker_project_state["doc_text"], plan["mapping"])
+            if not apply_result["changed"]:
+                print("Отказ: по текущему плану нет замен.")
+                return
+            write_title_and_text_to_doc(
+                document_id=speaker_project_state["doc_id"],
+                title=speaker_project_state["doc_title"],
+                transcript_text=renamed_text,
+                clear_first=True,
+            )
+            speaker_project_state["doc_text"] = renamed_text
+            speaker_project_state["doc_hash"] = json_sha256({"doc_id": speaker_project_state["doc_id"], "text_sha256": hashlib.sha256(renamed_text.encode("utf-8")).hexdigest()})
+            speaker_project_state["summary"] = summarize_speaker_turns(renamed_text)
+            speaker_project_state["plan"] = None
+            print("Изменения применены к Google Doc. Unmapped speakers оставлены без изменений.")
+        except Exception as error:
+            print(f"Ошибка применения: {error}")
+
+
+speaker_project_dropdown.observe(on_speaker_project_changed, names="value")
+speaker_create_project_button.on_click(on_create_speaker_project)
+speaker_rename_project_button.on_click(on_rename_speaker_project)
+speaker_archive_project_button.on_click(on_archive_speaker_project)
+speaker_add_button.on_click(on_add_project_speaker)
+speaker_rename_button.on_click(on_rename_project_speaker)
+speaker_deactivate_button.on_click(on_deactivate_project_speaker)
+speaker_find_button.on_click(on_find_speakers_clicked)
+speaker_preview_button.on_click(on_preview_speaker_rename_clicked)
+speaker_apply_button.on_click(on_apply_speaker_rename_clicked)
+
+speaker_project_ui = widgets.VBox([
+    speaker_help,
+    speaker_doc_input,
+    speaker_find_button,
+    widgets.HBox([speaker_project_name_input, speaker_create_project_button, speaker_project_dropdown, speaker_rename_project_button, speaker_archive_project_button]),
+    widgets.HBox([speaker_name_input, speaker_add_button, speaker_dropdown, speaker_rename_button, speaker_deactivate_button]),
+    speaker_mapping_text,
+    widgets.HBox([speaker_preview_button, speaker_apply_button]),
+    speaker_output,
+])
+
 check_source_button.on_click(on_check_source_clicked)
 import_existing_button.on_click(on_import_existing_clicked)
 standardize_existing_docs_button.on_click(on_standardize_existing_docs_clicked)
@@ -7229,6 +7871,8 @@ with STARTUP_TIMER.measure("startup_ui_render"):
         import_help_widget,
         import_output_widget,
         advanced_accordion,
+        widgets.HTML("<hr>"),
+        speaker_project_ui,
         start_button,
         progress_bar,
         progress_label,

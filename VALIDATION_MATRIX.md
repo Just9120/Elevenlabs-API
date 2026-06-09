@@ -57,3 +57,18 @@ Important: observed operational usage is **not** equivalent to formal E2E valida
 | OpenAI diarization + chunking | High risk | Known risks in speaker segmentation consistency; preflight now warns that speaker labels may be inconsistent across chunks and that merge is text-based, not speaker-aware. |
 | Parallel notebooks / two Colab tabs | Not supported | Manifest model is single-user/single-runtime. |
 | Google Docs/Drive transient write retry | TBD / needs runtime validation | Conservative retry for transient Google Drive write/update failures; Google Docs text insertion retry is intentionally narrower because insertText is not fully idempotent; does not retry STT provider calls. |
+
+## Optional speaker project rename workflow
+
+| Area | Validation | Status |
+| --- | --- | --- |
+| Optional scope | Workflow is a separate post-transcription UI for existing diarized Google Docs and is not part of source selection, transcription, provider calls, Docs creation, manifest skip, or startup timing. | Unit/source review |
+| Diarization gate | `Speakers: no` blocks with Russian guidance; `Speakers: yes` allows detected labels; unknown metadata allows preview only with a warning when labels are present. | `pytest -q` pure tests |
+| Speaker detection | Detects `Speaker 1:`, `Speaker 2:`, `Speaker 10:` only at turn-boundary line starts and ignores inline mentions such as `как сказал Speaker 1`. | `pytest -q` pure tests |
+| Samples | Shows counts and up to three meaningful first samples per detected label, skipping very short utterances and truncating long samples without persistence. | `pytest -q` pure tests + manual Colab UI check |
+| Projects/roster | Stores project/speaker rosters separately at `VoiceOps Workspace/projects/speaker_projects.json`; archive/deactivate hides instead of hard delete. | `pytest -q` pure tests + manual Colab UI check |
+| Mapping/preview | Active project speakers are accepted mapping targets; unmapped labels remain unchanged; preview shows per-label replacement counts. | `pytest -q` pure tests |
+| Apply safety | Apply is explicit, refuses stale/no-plan/no-project/no-label cases, does not call provider/STT/LLM APIs, and renames only turn-boundary labels. | `pytest -q` pure tests + manual Google Docs validation required |
+| Formatting caveat | MVP apply rewrites Google Doc plain text and warns in the Colab UI before applying that formatting can be lost. | Manual Colab UI check required |
+
+Manual validation still required before claiming live E2E success: open a diarized Google Doc, confirm samples, create/select a project and speaker roster, preview mapping counts, apply to a copy, and verify only speaker labels changed.

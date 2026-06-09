@@ -14,6 +14,7 @@ import hashlib
 import json
 import re
 import time
+import uuid
 from contextlib import contextmanager
 from typing import Optional
 from datetime import datetime, timedelta, timezone
@@ -23,6 +24,21 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CANONICAL_SOURCE = ROOT / "elevenlabs_api.py"
 HELPER_NAMES = {
+    "normalize_speaker_project_data",
+    "create_speaker_project",
+    "rename_speaker_project",
+    "archive_speaker_project",
+    "add_project_speaker",
+    "rename_project_speaker",
+    "deactivate_project_speaker",
+    "parse_google_doc_url_or_id",
+    "detect_speakers_metadata_value",
+    "detect_speaker_turns",
+    "extract_meaningful_speaker_samples",
+    "summarize_speaker_turns",
+    "parse_speaker_mapping",
+    "build_speaker_rename_plan",
+    "apply_speaker_label_renames_to_plain_text",
     "build_startup_timing_summary",
     "build_timing_analysis",
     "build_transcript_metadata_lines",
@@ -163,6 +179,7 @@ def load_text_helpers() -> dict[str, object]:
                     "STARTUP_TIMING_PHASES",
                     "STARTUP_TIMING_VARIABILITY_NOTE",
                     "STARTUP_BOOTSTRAP_LIMITATION_NOTE",
+                    "SPEAKER_TURN_LABEL_RE",
                 }:
                     selected_nodes.append(node)
                     break
@@ -187,6 +204,7 @@ def load_text_helpers() -> dict[str, object]:
         "timezone": timezone,
         "re": re,
         "time": time,
+        "uuid": uuid,
         "contextmanager": contextmanager,
         "Optional": Optional,
         "Path": Path,
@@ -273,6 +291,20 @@ RunTimer = HELPERS["RunTimer"]
 build_startup_timing_summary = HELPERS["build_startup_timing_summary"]
 build_timing_analysis = HELPERS["build_timing_analysis"]
 format_timing_line = HELPERS["format_timing_line"]
+normalize_speaker_project_data = HELPERS["normalize_speaker_project_data"]
+create_speaker_project = HELPERS["create_speaker_project"]
+rename_speaker_project = HELPERS["rename_speaker_project"]
+archive_speaker_project = HELPERS["archive_speaker_project"]
+add_project_speaker = HELPERS["add_project_speaker"]
+rename_project_speaker = HELPERS["rename_project_speaker"]
+deactivate_project_speaker = HELPERS["deactivate_project_speaker"]
+parse_google_doc_url_or_id = HELPERS["parse_google_doc_url_or_id"]
+detect_speakers_metadata_value = HELPERS["detect_speakers_metadata_value"]
+detect_speaker_turns = HELPERS["detect_speaker_turns"]
+extract_meaningful_speaker_samples = HELPERS["extract_meaningful_speaker_samples"]
+parse_speaker_mapping = HELPERS["parse_speaker_mapping"]
+build_speaker_rename_plan = HELPERS["build_speaker_rename_plan"]
+apply_speaker_label_renames_to_plain_text = HELPERS["apply_speaker_label_renames_to_plain_text"]
 
 
 def test_startup_timing_summary_formats_expected_phase_names() -> None:
@@ -2760,3 +2792,96 @@ def test_ui_help_text_distinguishes_manifest_and_docs_standardization() -> None:
     assert "Сначала запускайте dry-run на маленькой подпапке" in source
     assert "Manifest — глобальный каталог" in source
     assert "переписывает выбранные документы на месте" in source
+
+
+def test_speaker_project_create_rename_archive_and_normalize_omits_text() -> None:
+    roster = create_speaker_project({}, "  Интервью  ", project_id="project-a", updated_at="2026-06-01T00:00:00+00:00")
+    assert roster["projects"]["project-a"]["name"] == "Интервью"
+    assert roster["projects"]["project-a"]["archived"] is False
+
+    roster = rename_speaker_project(roster, "project-a", "Интервью 2", updated_at="2026-06-01T00:01:00+00:00")
+    assert roster["projects"]["project-a"]["name"] == "Интервью 2"
+
+    roster = archive_speaker_project(roster, "project-a", True, updated_at="2026-06-01T00:02:00+00:00")
+    assert roster["projects"]["project-a"]["archived"] is True
+
+    noisy = {"version": 1, "projects": {"project-a": {**roster["projects"]["project-a"], "transcript_text": "do not keep"}}}
+    normalized = normalize_speaker_project_data(noisy)
+    assert "transcript_text" not in normalized["projects"]["project-a"]
+
+
+def test_project_speaker_add_rename_deactivate() -> None:
+    roster = create_speaker_project({}, "Project", project_id="project-a")
+    roster = add_project_speaker(roster, "project-a", " Андрей ", speaker_id="speaker-a")
+    assert roster["projects"]["project-a"]["speakers"]["speaker-a"]["display_name"] == "Андрей"
+    assert roster["projects"]["project-a"]["speakers"]["speaker-a"]["active"] is True
+
+    roster = rename_project_speaker(roster, "project-a", "speaker-a", "Андрей Иванов")
+    assert roster["projects"]["project-a"]["speakers"]["speaker-a"]["display_name"] == "Андрей Иванов"
+
+    roster = deactivate_project_speaker(roster, "project-a", "speaker-a")
+    assert roster["projects"]["project-a"]["speakers"]["speaker-a"]["active"] is False
+
+
+def test_speaker_metadata_gating_yes_no_unknown() -> None:
+    yes_doc = build_structured_transcript_document_text("Doc", "Speaker 1: hello", build_transcript_metadata_lines("a.mp3", "drive", "elevenlabs", "scribe_v2", "auto", True, "2026-06-01 00:00 UTC"))
+    no_doc = build_structured_transcript_document_text("Doc", "Speaker 1: hello", build_transcript_metadata_lines("a.mp3", "drive", "elevenlabs", "scribe_v2", "auto", False, "2026-06-01 00:00 UTC"))
+    unknown_doc = "Doc\n\nSpeaker 1: hello"
+
+    assert detect_speakers_metadata_value(yes_doc) == "yes"
+    assert detect_speakers_metadata_value(no_doc) == "no"
+    assert detect_speakers_metadata_value(unknown_doc) == "unknown"
+
+
+def test_detects_speaker_n_labels_only_at_turn_boundaries() -> None:
+    text = "Speaker 1: first\nкак сказал Speaker 2 вчера\nSpeaker 10: tenth\n  Speaker 3: indented should not count"
+    turns = detect_speaker_turns(text)
+    assert [turn["label"] for turn in turns] == ["Speaker 1", "Speaker 10"]
+    assert all("как сказал" not in turn["label"] for turn in turns)
+
+
+def test_speaker_sample_extraction_skips_short_and_truncates() -> None:
+    long_text = "x" * 350
+    turns = detect_speaker_turns(f"Speaker 1: ok\nSpeaker 1: meaningful phrase here\nSpeaker 1: {long_text}\nSpeaker 2: also meaningful")
+    samples = extract_meaningful_speaker_samples(turns, max_samples=3, max_chars=300, min_chars=12)
+
+    assert samples["Speaker 1"][0] == "meaningful phrase here"
+    assert len(samples["Speaker 1"][1]) == 300
+    assert samples["Speaker 1"][1].endswith("…")
+    assert samples["Speaker 2"] == ["also meaningful"]
+
+
+def test_mapping_validation_and_plan_unmapped_speakers_remain_unchanged() -> None:
+    project = {
+        "id": "project-a",
+        "name": "Project",
+        "speakers": {
+            "speaker-a": {"id": "speaker-a", "display_name": "Андрей", "active": True},
+            "speaker-b": {"id": "speaker-b", "display_name": "Мария", "active": False},
+        },
+    }
+    text = "Speaker 1: hello there\nSpeaker 2: stays unchanged"
+    parsed = parse_speaker_mapping("Speaker 1=Андрей\nSpeaker 2=Мария\nbad", ["Андрей"])
+    assert parsed["mapping"] == {"Speaker 1": "Андрей"}
+    assert len(parsed["errors"]) == 2
+
+    plan = build_speaker_rename_plan(text, project, "Speaker 1=Андрей")
+    assert plan["replacements"] == {"Speaker 1": {"target": "Андрей", "count": 1}}
+    assert plan["unmapped"] == ["Speaker 2"]
+
+
+def test_apply_renames_only_turn_boundaries_and_preserves_body_text() -> None:
+    original = "Speaker 1: hello Speaker 1 inside body\nкак сказал Speaker 1 yesterday\nSpeaker 2: body remains"
+    renamed, result = apply_speaker_label_renames_to_plain_text(original, {"Speaker 1": "Андрей"})
+
+    assert result["counts"] == {"Speaker 1": 1}
+    assert renamed.startswith("Андрей: hello Speaker 1 inside body")
+    assert "как сказал Speaker 1 yesterday" in renamed
+    assert "Speaker 2: body remains" in renamed
+    assert renamed.replace("Андрей:", "Speaker 1:") == original
+
+
+def test_parse_google_doc_url_or_id_supports_url_and_raw_id() -> None:
+    assert parse_google_doc_url_or_id("https://docs.google.com/document/d/abc_123-XYZ45678901234567890/edit") == "abc_123-XYZ45678901234567890"
+    assert parse_google_doc_url_or_id("abc_123-XYZ45678901234567890") == "abc_123-XYZ45678901234567890"
+    assert parse_google_doc_url_or_id("not a doc") == ""
