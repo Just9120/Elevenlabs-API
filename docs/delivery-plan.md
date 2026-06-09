@@ -210,3 +210,15 @@ Acceptance criteria:
 - Validation matrix captures cleanup-inventory validation conservatively.
 - Future coding workflow warns against opportunistic deletion of migration/recovery code.
 - No runtime code, manifest schema, transcript standard, Google Docs behavior, provider/STT/LLM behavior, deploy/CD, DB/cache/queue/vector store, or CI governance change is introduced.
+
+### Checkpoint G — Optional speaker projects for diarized Google Docs
+
+Status: ✅ Implemented for pure helpers and Colab UI; live Google Docs apply requires manual Colab validation.
+
+Summary/results:
+
+- Added an optional section for `Проекты и спикеры / Переименовать спикеров в Google Doc` after a diarized Google Doc already exists.
+- The workflow detects `Speaker N:` labels at turn boundaries, shows first meaningful samples, lets the user create/select projects and active speakers, accepts a manual mapping, previews replacement counts, and requires an explicit apply.
+- Speaker projects are stored separately from the manifest in `VoiceOps Workspace/projects/speaker_projects.json` and do not store transcript body text, samples, provider responses, or Google Docs body content.
+- This is manual speaker naming, not voice identification: no voice samples, voiceprints, embeddings, biometric matching, provider/STT calls, or LLM calls are used.
+- The MVP apply path rewrites the Google Doc as plain text and warns the user before applying; manual Colab validation on a copy is required to confirm live Docs behavior and formatting expectations.
