@@ -1,74 +1,76 @@
-# VALIDATION_MATRIX
+# Validation matrix
 
-Legend:
-- **Observed in user practice** = overall Colab workflow used in real runs (over one month) without critical user-reported issues.
-- **Smoke-tested by user** = user confirmed at least one real run worked, but full scenario-level E2E coverage is not yet documented.
-- **Formally validated** = validated with explicit reproducible checks.
-- **TBD / needs E2E validation** = expected path but requires dedicated end-to-end run.
-- **Experimental** = available but still under exploratory use.
-- **High risk** = known quality/reliability caveats.
-- **Not supported** = outside current operating model.
-- **CI first-run validated** = at least one GitHub Actions CI workflow run completed successfully for lightweight static checks; this is not runtime or E2E validation.
+## Легенда
 
-Important: observed operational usage is **not** equivalent to formal E2E validation for every specific mode below.
+Этот файл — validation truth table для проекта. Он фиксирует, что реально покрыто CI/unit/static tests, а что требует ручной runtime validation в Google Colab/Google Drive/Google Docs.
 
-| Scenario | Initial status | Notes |
-|---|---|---|
-| General Colab workflow | Observed in user practice | Used in practice for over one month without critical user-reported issues. |
-| GitHub Colab launcher notebook | Smoke-tested by user | Thin launcher that fetches and executes canonical elevenlabs_api.py from configured GitHub ref. |
-| Transcription through GitHub Colab launcher | Smoke-tested by user | User confirmed a successful transcription run; scenario details not yet broken down by source mode, media type, duration, and provider. |
-| GitHub Actions lightweight CI | CI first-run validated | First observed GitHub Actions CI run completed successfully for static repository hygiene checks; no real Colab, STT, Google API, ElevenLabs, or OpenAI calls. |
-| Project specification source of truth | Documentation-added / needs ongoing review | `docs/project-spec.md` is the synchronized project source of truth and now reflects post-PR #38/#41 Drive picker and safe conflict-default behavior while preserving PR #37 cleanup boundaries. |
-| Delivery plan source of truth | Documentation-added / needs ongoing review | `docs/delivery-plan.md` is the synchronized operational delivery plan and now marks PR #38/#41 complete, cleanup inventory complete, and RUNTIME-01 as the current recommended Colab smoke-check. |
-| Cleanup inventory / legacy boundaries | Docs-only / CI validated | Delivery-plan and project-spec documentation classify active runtime flows, compatibility/internal migration code, legacy/import-only helpers, user-facing wording policy, and do-not-delete-without-decision items. This is a docs-only guardrail and does not validate runtime behavior. |
-| AI Coding Workflow skeleton | Documentation skeleton / needs full synchronization | `docs/ai-coding-workflow.md` was added only as a repo-local entry point; the full universal workflow text is not synchronized in this repo. |
-| CI-only governance | Unit-tested / GitHub Actions validated by CI | `docs/ci-cd-rules.md` documents CI-only governance, and the GitHub Actions workflow runs `scripts/ci_checks.py`, `pytest -q`, and `CI_OK` without runtime secrets, provider calls, Google Drive/Docs access, or deploy steps. |
-| CD/deploy governance | Not adopted / out of scope | CD/deploy remains out of scope: no VPS/server target, no SSH/DEPLOY secrets, no Docker deploy, and no CD validation is claimed. |
-| Startup stale temp cleanup (`elevenlabs_api_*`, TTL-based) | TBD / needs runtime validation | Static inspection done; needs reproducible runtime cleanup check. |
-| Performance timing summary | Smoke-tested by user | User observed local timing output after a successful Colab run; enhanced bottleneck analytics still need runtime validation. |
-| Drive state folder substructure | Smoke-tested by user | User provided generated analytics evidence from VoiceOps Workspace/analytics after a successful Colab run; broader legacy migration edge cases still need runtime coverage. |
-| Persistent performance analytics log | Smoke-tested by user | User provided a generated JSONL run_summary from VoiceOps Workspace/analytics for one successful drive_file / ElevenLabs / scribe_v2 run; record included timing totals/analysis and no API keys, transcript text, raw provider responses, or Google Docs contents were observed in the provided record. Repeated append behavior and broader scenarios still need coverage. |
-| Colab preflight summary | Smoke-tested by user | User observed the read-only preflight summary in Colab before a successful run; it displayed provider/model, required/optional API key presence, source mode, output, manifest, keyterms, and risk notes without printing secret values. |
-| ElevenLabs + local single audio | TBD / needs E2E validation | Main path; requires explicit reproducible validation record. |
-| ElevenLabs + local multiple files | TBD / needs E2E validation | Batch mode needs explicit E2E run logs. |
-| ElevenLabs + Google Drive file | Smoke-tested by user | User completed one successful Google Drive single-file `.flac` transcription through ElevenLabs / scribe_v2 with Google Docs output; duration and broader scenario coverage are not yet documented. |
-| Google Drive picker-only source UX | UI/docs updated / needs Colab runtime validation | Normal Google Drive single-file, multi-file, and folder source selection now uses the Drive picker/folder scrolling UI; manual Google Drive path/link entry is not presented as the normal UX. Buttons remain the reliable primary picker path. |
-| Drive source card dark-theme readability and safe conflict default | Unit/static-tested / needs Colab runtime validation | PR #38 fixed Drive source selected-card/readability behavior for Colab dark theme and changed conflict handling default from `update` to safe `skip`; real Colab browser/runtime confirmation is still pending. |
-| Conservative Drive picker double-click UX | Unit/static-tested / needs manual Colab validation | PR #41 added optional double-click convenience: `drive_file` folder double-click opens and file double-click selects, `drive_folder` folder double-click opens only, and `drive_multi` remains explicit/button-based for safety. Browser double-click behavior still needs manual Colab validation. |
-| Google Drive multi-file source selection | Unit-tested / needs Colab runtime validation | `drive_multi` picker selection validates selected files, rejects folders/unsupported extensions, summarizes selected filenames, remains button-based for safety, and processes exactly selected files without recursion/folder processing. Real Colab picker/runtime validation is still needed. |
-| ElevenLabs + Google Drive folder | TBD / needs E2E validation | Supported mode; needs scenario-level validation evidence. |
-| ElevenLabs + 1 hour audio | TBD / needs E2E validation | Needs documented repeatable E2E check. |
-| ElevenLabs + 3 hour audio | TBD / needs E2E validation | Conservative changes only; validate on real files. |
-| ElevenLabs + 5 hour audio | TBD / needs E2E validation | Evidence-driven before introducing client-side split. |
-| Video to audio extraction to ElevenLabs | TBD / needs E2E validation | Existing flow; requires explicit E2E confirmation. |
-| Google Docs chunked insert | TBD / needs E2E validation | Core output path; needs explicit scenario validation. |
-| Structured Google Docs transcript output | Unit-tested / needs E2E validation | Pure text builder covers the simplified v1.2 metadata block without visible source filename/source mode; real Google Docs creation/update still needs runtime validation. |
-| Docs-only existing Google Docs standardization | Unit-tested / needs E2E validation | Destination/output folder-based UI grouping, folder counting, nested-folder hint, visited-folder guard, scan limits, MIME filtering, dry-run/apply branching, strict current-standard detection, old-standard migration, conservative metadata, report separation for selected-folder scan/current status/apply impact, dry-run clarity, and no provider/create-doc/manifest helper calls are unit-tested; real Colab Drive/Docs runtime rewrite still needs E2E validation. |
-| Existing Docs backfill metadata and Created-at preservation | Unit-tested / needs runtime validation | Unit tests cover refresh of already-current-shaped old backfill Docs, temporary ElevenLabs/scribe_v2/Russian/unknown-speakers metadata defaults, visible `Created at` formatting as `YYYY-MM-DD HH:MM UTC`, preservation priority from existing metadata to Drive `createdTime` to `unknown`, no standardization-time fallback, no visible source/standardized-at fields, current v1.2 strict detection, and transcript body preservation; real Google Docs runtime metadata fetch/rewrite still needs validation. |
-| Unified manifest maintenance | Unit-tested / needs E2E validation | Single destination/output folder-based UI action is unit-tested to expose only `Проверить / обновить manifest` and to call the current-format maintenance helper. Coverage includes dry-run read-only behavior, selected-folder result versus global manifest reference statistics, old-format update reporting, backup on v1 apply, current-format refresh without mixed top-level legacy `entries`, checked_at-only no-op reporting, separated `documents`/`sources`, replaceable `standard_check` observations, source/document linking by `doc_id`/`doc_link`, orphan source preservation, no Google Docs mutation/create-doc calls, no provider/LLM calls, recursive scan guardrails, and compatibility with current-format source skip behavior (`done` + same settings, `imported_done`, fresh/stale `in_progress`). Manifest maintenance is documented as reconciliation/refresh; successful transcription completion now immediately syncs `sources` and `documents`, so maintenance should not be the normal catalog entry path for new transcription Docs. Real Colab Drive backup/write behavior still needs E2E validation. Manifest report separates selected-folder result from global manifest reference statistics. User-facing manifest wording hides schema version; internal schema remains unchanged. |
-| Runtime manifest source/document sync | Unit-tested / needs E2E validation | `mark_manifest_done` on a current-format manifest now upserts `documents[doc_id]`, preserves existing `source_signatures`, links the completed source, marks `standard_check.status=current`, refreshes summary totals, avoids v1 auto-migration, tolerates missing doc links without errors, and does not store transcript or Google Docs body text. Real successful transcription runtime behavior still needs E2E validation. |
-| UX/report clarity for manifest and docs-only standardization | Unit-tested / needs E2E validation | User-visible manifest and docs-only standardization report labels are localized to Russian and tested to exclude older English section labels while keeping internal manifest schema keys, JSON keys, report dict keys, and code identifiers in English. Reports distinguish selected-folder scan counters from global manifest totals, dry-run preview/write status, no Docs mutation in manifest flow, no provider calls, and docs-only apply impact; Colab runtime readability still needs E2E validation. |
-| Manifest skip on repeated run | Unit-tested / needs E2E validation | Current-format `sources` preserve processing state used for repeated-run skip behavior; verify duplicate-billing prevention with a controlled runtime rerun before claiming E2E validation. |
-| Manifest after failed run | TBD / needs E2E validation | Recovery behavior after interrupted/failed runtime processing still needs a controlled failed-run validation record. |
-| Legacy import/backfill helpers | Unit-tested / needs E2E validation | Legacy source-matching helpers are not the primary current UI flow. Current user-facing Docs maintenance is covered by docs-only standardization and unified manifest maintenance rows above. |
-| OpenAI manual fallback path | Experimental | Manual/alternative provider, not automatic fallback. |
-| OpenAI >25MB chunking | Experimental | Implemented path requires broader E2E coverage. |
-| OpenAI diarization | Experimental | Speaker-aware output requires more validation. |
-| OpenAI diarization + chunking | High risk | Known risks in speaker segmentation consistency; preflight now warns that speaker labels may be inconsistent across chunks and that merge is text-based, not speaker-aware. |
-| Parallel notebooks / two Colab tabs | Not supported | Manifest model is single-user/single-runtime. |
-| Google Docs/Drive transient write retry | TBD / needs runtime validation | Conservative retry for transient Google Drive write/update failures; Google Docs text insertion retry is intentionally narrower because insertText is not fully idempotent; does not retry STT provider calls. |
+Статусы должны оставаться консервативными:
 
-## Optional speaker project rename workflow
+- **CI validated** — проверено локальными/CI командами, без live Colab/Drive/Docs доказательств.
+- **Unit/static-tested** — покрыто тестами или source/static checks, но не доказывает runtime browser/API behavior.
+- **Needs runtime validation** — требуется ручная проверка в Colab/Drive/Docs.
+- **Experimental** — путь существует, но не имеет достаточной E2E уверенности.
+- **High risk** — известные риски требуют отдельного плана валидации.
+- **Not supported** — сценарий не является поддерживаемым.
 
-| Area | Validation | Status |
+Docs-only CI не доказывает provider/STT/LLM или Google Docs E2E success. Не повышайте статус без фактических evidence notes.
+
+## Матрица
+
+| Область | Статус | Evidence / notes |
 | --- | --- | --- |
-| Optional scope | Workflow is a separate post-transcription UI for existing diarized Google Docs and is not part of source selection, transcription, provider calls, Docs creation, manifest skip, or startup timing. | Unit/source review |
-| Diarization gate | `Speakers: no` blocks with Russian guidance; `Speakers: yes` allows detected labels; unknown metadata allows preview only with a warning when labels are present. | `pytest -q` pure tests |
-| Speaker detection | Detects `Speaker 1:`, `Speaker 2:`, `Speaker 10:` only at turn-boundary line starts and ignores inline mentions such as `как сказал Speaker 1`. | `pytest -q` pure tests |
-| Samples | Shows counts and up to three meaningful first samples per detected label, skipping very short utterances and truncating long samples without persistence. | `pytest -q` pure tests + manual Colab UI check |
-| Projects/roster | Stores project/speaker rosters separately at `VoiceOps Workspace/projects/speaker_projects.json`; archive/deactivate hides instead of hard delete. | `pytest -q` pure tests + manual Colab UI check |
-| Mapping/preview | Active project speakers are accepted mapping targets; unmapped labels remain unchanged; preview shows per-label replacement counts. | `pytest -q` pure tests |
-| Apply safety | Apply is explicit, refuses no-plan/no-project/no-label cases, refuses stale preview plans when the document, selected project, mapping text, or active project speaker roster changed, does not call provider/STT/LLM APIs, and renames only turn-boundary labels. | `pytest -q` pure/static tests + manual Google Docs validation required |
-| Formatting caveat | MVP apply rewrites Google Doc plain text and warns in the Colab UI before applying that formatting can be lost. | Manual Colab UI check required |
+| Thin Colab launcher | CI validated | `scripts/ci_checks.py` проверяет, что launcher notebook остается тонким, без embedded canonical workflow markers и без committed outputs. |
+| Notebook hygiene | CI validated | Проверяется валидность `.ipynb`, отсутствие outputs и `execution_count`. |
+| Raw provider body logging guard | CI validated | CI guard запрещает очевидные patterns печати/logging `resp.text` / `response.text`. |
+| Temporary cleanup safety | CI validated | CI guard запрещает broad `/tmp` cleanup patterns. |
+| README / docs source synchronization | Docs-only / CI validated | README, `docs/project-spec.md`, `docs/delivery-plan.md` и эта матрица синхронизированы как документация. Это не меняет runtime behavior и не доказывает E2E. |
+| Project specification source of truth | Docs-only / needs ongoing review | `docs/project-spec.md` отражает current main after PR #47, включая optional speaker project rename workflow. Требует поддержки при изменении scope. |
+| Source folder vs destination/output folder wording | Unit/static-tested historically / needs runtime validation | Документы и UI wording разделяют папку источника и папку результата. Реальная Colab UX проверка остается частью RUNTIME-01. |
+| Drive source card/readability fixes | Unit/static-tested / needs Colab runtime validation | Drive picker UX fixes находятся в main, но visual/browser confirmation в реальном Colab все еще нужна. |
+| Conflict default safe skip / `Пропустить` | Unit/static-tested / needs runtime validation | Default conflict behavior задокументирован как safe skip. Повторный live run должен подтвердить отсутствие повторного provider/STT call. |
+| Drive picker buttons as primary path | Unit/static-tested / needs Colab runtime validation | Buttons считаются reliable primary path. Требуется ручная проверка в Colab browser. |
+| Drive picker double-click: source/destination | Unit/static-tested / needs manual Colab validation | Double-click является convenience для supported contexts; не должен быть единственным path. Реальное browser behavior требует проверки. |
+| `drive_multi` double-click fallback | Unit/static-tested / needs manual Colab validation | `drive_multi` остается explicit/button-based for safety и должен иметь fallback, если double-click ненадежен. Проверить в Colab browser. |
+| Google Drive multi-file source selection | Unit-tested / needs Colab runtime validation | Должен обрабатывать только выбранные files, не folders, не recursion/folder scan. Нужна runtime проверка. |
+| Google Drive folder source mode | Unit/static-tested / needs Colab runtime validation | Folder source processing и optional recursive scan требуют live Drive validation. |
+| Local computer upload modes | Existing behavior / needs smoke validation | Локальные single/multi upload modes не менялись в docs cleanup; smoke-check полезен перед release claim. |
+| Google Docs transcript creation | Unit/static-tested helpers / needs E2E validation | Создание реального Google Doc из transcription run требует RUNTIME-01. |
+| `transcript_doc_v1.2` current standard detection | Unit-tested | Tests cover strict current/outdated/unstructured detection behavior for helper logic. Runtime Docs parsing still needs live validation when claims change. |
+| Docs-only existing Google Docs standardization | Unit-tested / needs E2E validation | Dry-run/apply branching, reports and no-provider boundaries covered by tests; real Drive/Docs rewrite needs manual validation. |
+| Existing Docs backfill metadata and Created-at preservation | Unit-tested / needs runtime validation | Helper behavior covered; real Google Docs metadata fetch/rewrite requires runtime validation. |
+| Unified manifest maintenance | Unit-tested / needs E2E validation | Dry-run/apply reports, current-format refresh, no Docs body persistence and no provider calls covered by tests; real Drive backup/write behavior needs validation. |
+| Runtime manifest source/document sync | Unit-tested / needs E2E validation | `mark_manifest_done` behavior is tested at helper level; successful live transcription sync requires RUNTIME-01. |
+| Manifest skip on repeated run | Unit-tested / needs E2E validation | Current-format `sources` support skip logic. Duplicate-billing prevention must be validated with controlled rerun. |
+| Manifest after failed/interrupted run | TBD / needs E2E validation | Recovery after failed runtime processing still needs a controlled validation record. |
+| No transcript body in `manifest`/analytics | Unit/static-tested guardrails / needs ongoing review | Safety requirement is documented and partially guarded. New analytics/manifest fields require review. |
+| No Google Docs body content in `manifest`/analytics | Unit/static-tested guardrails / needs ongoing review | Docs-only flows must not persist Docs body content. Continue reviewing future changes. |
+| No provider/STT/LLM calls in docs-only workflows | Unit/static-tested | Tests/source checks cover key docs-only boundaries. Runtime observation should verify no unexpected calls during manual validation. |
+| Analytics JSONL | Unit/static-tested / needs runtime validation | Run-level analytics and safety constraints exist; live artifact shape should be checked in runtime validation. |
+| Startup timing summary | Unit/static-tested / needs runtime collection | Instrumentation exists for startup diagnostics. PERF-RUNTIME-01 must collect real Colab timing before performance claims. |
+| OpenAI manual fallback path | Experimental | Manual/alternative provider path, not automatic fallback. Requires separate E2E validation. |
+| OpenAI >25MB chunking | Experimental | Implemented path requires broader E2E coverage. |
+| OpenAI diarization | Experimental | Speaker-aware output requires runtime validation before reliability claims. |
+| OpenAI diarization + chunking | High risk | Known risk: inconsistent `Speaker N labels` across chunks. Needs dedicated validation plan. |
+| Optional speaker project workflow | Unit/static-tested / manual Colab Docs validation required | Pure helper/UI guardrails are tested: gate logic, label detection, mapping/preview and stale-plan refusal. Live workflow must be tested on a copied diarized Google Doc before E2E success is claimed. |
+| Speaker project storage | Unit/static-tested / manual UI validation required | Roster path is `VoiceOps Workspace/projects/speaker_projects.json`; no voice samples, voiceprints, embeddings or biometric data should be stored. Validate real Drive write/read manually. |
+| Speaker project samples | Unit-tested / manual UI validation required | Samples are UI-only aids and should not persist in `manifest`/analytics. Confirm in Colab UI and artifacts. |
+| Speaker project apply behavior | Unit/static-tested / manual Google Docs validation required | Apply is explicit, changes turn-boundary labels only, refuses stale preview context and leaves unmapped labels unchanged. Must be tested on copied Docs first. |
+| Speaker project apply formatting caveat | Needs manual validation | Current MVP apply rewrites Google Doc as plain text. Formatting impact must be manually checked on a copy; do not claim formatting preservation. |
+| Speaker projects are not voice identification | Safety requirement / ongoing review | Workflow relies on user manual mapping from text context. It must not use voice samples, voiceprints, embeddings or biometric matching. |
+| Google Docs/Drive transient write retry | TBD / needs runtime validation | Conservative retry behavior needs live failure/retry validation; Docs text insertion retry should remain narrow due to idempotency risk. |
+| Parallel notebooks / two Colab tabs | Not supported | Manifest model is single-user/single-runtime. Do not claim concurrent safety. |
+| GitHub Actions CI | Must be checked per PR | Before merge, confirm CI status in GitHub. Local commands are necessary but not identical to hosted CI. |
 
-Manual validation still required before claiming live E2E success: open a diarized Google Doc, confirm samples, create/select a project and speaker roster, preview mapping counts, apply to a copy, and verify only speaker labels changed.
+## Runtime validation backlog
+
+### RUNTIME-01
+
+Source picker / manifest skip / Google Docs output smoke-check in real Colab.
+
+### SPEAKER-RUNTIME-01
+
+Speaker projects workflow on a copied diarized Google Doc, including preview, explicit apply and formatting caveat review.
+
+### PERF-RUNTIME-01
+
+Collect startup timing summary from a clean Colab runtime and record notes without claiming transcription success solely from timing data.

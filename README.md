@@ -1,300 +1,163 @@
-# Workflow транскрибации в Google Docs
+# Elevenlabs-API: транскрибация в Google Docs
 
-Colab-based workflow для quality-first транскрибации длинных аудио- и видеофайлов в Google Docs с защитой от повторной траты кредитов через manifest.
+## Что делает проект
 
-## Overview
+Этот репозиторий содержит Google Colab workflow для транскрибации аудио- и видеофайлов в Google Docs. Основной сценарий: выбрать файл или папку, выполнить транскрибацию через выбранный provider path, сохранить результат как Google Docs transcript и зафиксировать состояние в `manifest`, чтобы повторный запуск безопасно пропускал уже обработанные источники.
 
-Проект — это не просто API-обёртка, а целостный workflow:
+Проект также поддерживает docs-only workflow для стандартизации уже существующих Google Docs, обслуживания `manifest`, сбора diagnostics/analytics и опционального post-processing workflow для переименования `Speaker N labels` в diarized-документах.
 
-- выбрать источник аудио/видео;
-- при необходимости извлечь аудио из видео;
-- выполнить транскрибацию через выбранного provider path;
-- объединить результат;
-- записать финальный transcript сразу в Google Docs;
-- сохранить операционное состояние в manifest, чтобы повторные запуски могли пропускать уже обработанные source-файлы.
-
-Основные runtime-артефакты в Google Drive:
+Основные артефакты в Google Drive:
 
 - `VoiceOps Workspace/manifest/elevenlabs_transcription_manifest.json`
 - `VoiceOps Workspace/analytics/elevenlabs_transcription_runs.jsonl`
+- `VoiceOps Workspace/projects/speaker_projects.json` — отдельный roster для проектов спикеров.
 
-Провайдерная стратегия:
+Поддерживаемые provider paths:
 
-- основной provider path: `ElevenLabs / scribe_v2`;
-- manual fallback / alternative provider path: `OpenAI / gpt-4o-transcribe`;
-- speaker-aware experimental path: `OpenAI / gpt-4o-transcribe-diarize`.
+- `ElevenLabs / scribe_v2` — основной путь;
+- `OpenAI / gpt-4o-transcribe` — ручной альтернативный путь;
+- `OpenAI / gpt-4o-transcribe-diarize` — speaker-aware путь, требующий отдельной валидации, особенно при chunking.
 
-OpenAI fallback добавлен архитектурно, но не все ветки подтверждены полными E2E-прогонами. `OpenAI diarization + chunking` остаётся high-risk из-за возможной inconsistency speaker labels across chunks.
+## Быстрый старт в Google Colab
 
-## Quick start in Colab
-
-Основной поддерживаемый способ запуска — Google Colab launcher:
+Основная точка входа — тонкий launcher notebook:
 
 - `notebooks/elevenlabs_api_colab.ipynb`
 
-Как открыть:
+Как запустить:
 
-1. В Google Colab выберите **Open notebook → GitHub**.
-2. Укажите репозиторий и откройте `notebooks/elevenlabs_api_colab.ipynb`.
-3. По умолчанию launcher использует `GITHUB_REF = "main"`.
-4. Если нужна фиксированная версия, замените `GITHUB_REF` на конкретный commit SHA в первой code-ячейке launcher-ноутбука.
-5. Добавьте секреты через Google Colab Secrets / `userdata`:
-   - `ELEVENLABS_API_KEY` — нужен для ElevenLabs;
-   - `OPENAI_API_KEY` — опционально, только для OpenAI paths.
-6. Запустите ячейки launcher-ноутбука: он установит `requirements-colab.txt`, подтянет `elevenlabs_api.py` из выбранного GitHub ref и выполнит workflow в текущем runtime.
+1. Откройте Google Colab.
+2. Выберите **Open notebook → GitHub**.
+3. Укажите репозиторий `Just9120/Elevenlabs-API` и откройте `notebooks/elevenlabs_api_colab.ipynb`.
+4. По умолчанию launcher использует `GITHUB_REF = "main"`.
+5. Если нужна фиксированная версия, замените `GITHUB_REF` на конкретный commit SHA в первой code-ячейке.
+6. Запустите ячейки notebook. Launcher установит зависимости из `requirements-colab.txt`, загрузит `elevenlabs_api.py` из выбранного GitHub ref и выполнит workflow в текущем Colab runtime.
 
-Перед transcription run Colab выводит read-only preflight summary: provider/model, наличие нужных API keys без печати значений, source mode, output destination, manifest status, keyterms и risk notes.
+Перед запуском транскрибации Colab показывает read-only preflight summary: выбранный provider/model, наличие нужных секретов без вывода значений, source mode, папку результата, состояние `manifest`, keyterms и risk notes.
 
-## Main workflows
+## Секреты и API-ключи
 
-### 1. Transcription workflow
+Секреты добавляются через Google Colab Secrets / `userdata`:
 
-Используется, когда нужно создать новый Google Docs transcript из audio/video source.
+- `ELEVENLABS_API_KEY` — нужен для `ElevenLabs / scribe_v2`;
+- `OPENAI_API_KEY` — нужен только для OpenAI paths.
 
-Поддерживаемые source modes:
+Значения ключей не должны попадать в logs, `manifest`, analytics или Google Docs. Docs-only workflows не вызывают provider/STT/LLM API и не требуют транскрибационных provider calls.
 
-- `Компьютер: 1 файл`;
-- `Компьютер: несколько файлов`;
-- `Google Drive: 1 файл`;
-- `Google Drive: несколько файлов`;
-- `Google Drive: папка`.
+## Основные сценарии
 
-В нормальном Colab UX Google Drive source выбирается через встроенный Drive picker / folder scrolling UI. Picker buttons остаются надежным основным способом выбора; optional double-click является только удобством там, где он поддержан. Ручной ввод Google Drive path/link не является обычным пользовательским workflow; низкоуровневые helpers для legacy/compatibility могут сохраняться внутри кода. Local computer upload modes остаются без изменений.
+### Транскрибация
 
-Google Drive source modes:
+Транскрибация создает новый Google Docs transcript из audio/video source. Workflow выбирает источник, при необходимости извлекает аудио из видео, отправляет данные выбранному provider path, собирает результат, создает Google Doc и обновляет `manifest`.
 
-- `Google Drive: 1 файл` — выбрать один поддерживаемый Drive file в picker; optional double-click can open folders and select a file, while buttons remain the primary reliable path.
-- `Google Drive: несколько файлов` — выбрать конкретные поддерживаемые files в текущей папке Drive picker. Этот режим остается explicit/button-based for safety, обрабатывает ровно выбранные files, не обходит вложенные папки, не обрабатывает folders и не запускает folder scan. Все выбранные files одного run сохраняются в одну выбранную destination/output folder, с одним общим набором settings; manifest skip применяется отдельно к каждому выбранному file.
-- `Google Drive: папка` — открыть нужную папку в picker и обработать все поддерживаемые files в выбранной folder; optional double-click can open folders only, and optional recursive scan включается отдельной настройкой.
+Если `manifest` показывает, что источник уже был успешно обработан с совместимыми настройками, безопасное поведение по умолчанию — `Пропустить`. Это защищает от повторной траты provider credits. Перезапись или повторная обработка не должны быть неявным default.
 
-Source folder и destination/output folder — разные понятия:
+### Стандартизация существующих Google Docs
 
-- **Source folder** содержит audio/video/source files. Он используется только transcription workflows. Recursive source scan применяется только к этому folder concept.
-- **Destination/output folder** содержит Google Docs transcript outputs. Он используется для записи новых Docs, docs-only standardization и Manifest maintenance. Для docs-only actions source input игнорируется. Папка назначения одна на запуск: все результаты текущего запуска сохраняются в выбранную destination/output folder.
+Docs-only standardization приводит уже существующие Google Docs transcript к текущему `transcript_doc_v1.2` без provider/STT/LLM calls. Сценарий работает с папкой результата, а не с папкой источника.
 
-Финальный transcription result сохраняется только в Google Docs. Локальные transcript-файлы, Markdown-зеркала и JSON-экспорты не являются основным конечным артефактом.
+Dry-run должен использоваться первым: он показывает, какие документы уже соответствуют стандарту, какие устарели, а какие не распознаны. Apply меняет только выбранные Google Docs и требует обычной осторожности при работе с реальными документами.
 
-Conflict handling for existing transcript Docs defaults to `Пропустить` (`skip`) so repeated runs and manifest-protected sources are skipped unless the user explicitly chooses update, archive/recreate, or copy-with-suffix behavior.
+### Обслуживание manifest
 
-### 2. Existing Google Docs standardization
+Manifest maintenance — это docs-only workflow для проверки и обновления связей между Google Docs transcript и записями `manifest`. Он не создает транскрипты, не вызывает provider/STT/LLM API и не хранит тело transcript или содержимое Google Docs.
 
-UI label: `Проверить / стандартизировать существующие Google Docs`.
+Сценарий нужен для reconciliation/refresh, а не как основной способ регистрации новых транскриптов: успешная транскрибация сама синхронизирует `sources` и `documents`.
 
-Этот workflow приводит уже существующие Google Docs transcripts к текущему document standard без retranscription. Он работает по выбранному destination/output folder, а не по source folder.
+### Проекты и спикеры после diarized-транскрибации
 
-### 3. Manifest maintenance
+Опциональный workflow проектов спикеров доступен только после того, как Google Doc уже существует. Он предназначен для diarized-документов с `Speaker N labels` вроде `Speaker 1:` и `Speaker 2:`.
 
-UI label: `Проверить / обновить manifest`.
+Как это работает:
 
-Этот workflow обслуживает глобальный workspace catalog `VoiceOps Workspace/manifest/elevenlabs_transcription_manifest.json`. Он сканирует выбранный destination/output folder, но manifest остаётся глобальным, а не per-folder. После успешной обычной транскрибации manifest сразу синхронизирует запись `sources` с соответствующей записью `documents`; maintenance нужен для последующей сверки/refresh, а не как основной способ появления новых transcription Docs в каталоге.
+- пользователь выбирает существующий diarized Google Docs transcript;
+- workflow показывает найденные `Speaker N labels`, counts и короткие sample phrases;
+- пользователь вручную сопоставляет `Speaker N` со спикерами проекта;
+- roster хранится отдельно в `VoiceOps Workspace/projects/speaker_projects.json`;
+- apply выполняется только по явному действию пользователя;
+- unmapped labels остаются без изменений.
 
-## Google Docs transcript standard
+Важные ограничения:
 
-Current transcript document standard: `transcript_doc_v1.2`.
+- это post-processing, а не часть транскрибации;
+- workflow не вызывает provider/STT/LLM API;
+- это не voice identification;
+- не используются voice samples, voiceprints, embeddings или biometric matching;
+- sample phrases показываются для ручной ориентации пользователя и не должны сохраняться в `manifest` или analytics;
+- текущий MVP apply переписывает Google Doc как plain text, поэтому первую runtime validation нужно выполнять только на копиях документов.
 
-Новые Google Docs создаются с компактной LLM-readable структурой: document title, metadata block, heading `Transcript`, then body.
+## Источники файлов
 
-```text
-Document title
+Google Drive picker buttons — надежный основной способ выбора. Double-click поддерживается только как удобство там, где Colab/browser ведет себя ожидаемо; он не должен считаться единственным надежным path.
 
-Transcript metadata
-Provider: <ElevenLabs | OpenAI | unknown>
-Model: <model id | unknown>
-Language: <Русский | Автоопределение | unknown>
-Speakers: <yes | no | unknown>
-Created at: <runtime-created timestamp | YYYY-MM-DD HH:MM UTC | unknown>
+### Компьютер: 1 файл
 
-Transcript
+Загрузка одного локального audio/video file из компьютера в текущий Colab runtime. Подходит для одиночной транскрибации без Drive source selection.
 
-<body>
-```
+### Компьютер: несколько файлов
 
-Important details:
+Загрузка нескольких локальных audio/video files. Каждый файл обрабатывается отдельно, а `manifest` skip применяется отдельно к каждому source.
 
-- `Source file` and `Source mode` are intentionally **not visible** in Google Doc metadata.
-- Old structured docs that still include `Source file` / `Source mode` in visible metadata are outdated, not current.
-- Detection is strict: old-standard docs appear as “would standardize” during dry-run.
-- Body wording is preserved when a Doc is standardized.
-- No semantic segmentation, summarization, rewriting, or LLM enrichment is performed.
-- Metadata is built from already available runtime state for new transcription Docs and does not require extra readback, LLM, or provider calls.
+### Google Drive: 1 файл
 
-## Existing Google Docs standardization
+Выбор одного поддерживаемого Drive file через picker. Buttons остаются primary path; double-click может открывать папки и выбирать файл только как convenience.
 
-UI label: `Проверить / стандартизировать существующие Google Docs`.
+### Google Drive: несколько файлов
 
-Use this for already completed transcript Docs that should be normalized to `transcript_doc_v1.2`.
+Выбор нескольких конкретных файлов в текущей папке Drive picker. Этот режим explicit/button-based for safety: он обрабатывает только выбранные files, не сканирует папки, не обходит вложенные папки и не обрабатывает folders. Если double-click в `drive_multi` недоступен или ненадежен, используется button fallback.
 
-Behavior:
+### Google Drive: папка
 
-- scans the selected **destination/output folder**;
-- optionally scans nested transcript folders when recursive scan is enabled;
-- ignores source audio/video input, source mode, source path and source link;
-- does not retranscribe;
-- does not call ElevenLabs, OpenAI, STT, diarization, provider, or LLM APIs;
-- does not create new Google Docs;
-- does not create Markdown/JSON/mirrored folders/export artifacts;
-- does not read manifest for decisions and does not mutate manifest;
-- ignores PDFs, audio/video files and other non-Google-Docs files;
-- defaults to dry-run;
-- apply mode is explicit and rewrites selected Google Docs in place;
-- user-visible Colab report labels are localized to Russian while internal report dict keys and manifest JSON keys remain English;
-- recommended operational practice: apply on small folders first, review the result, then proceed to larger folders.
+Выбор папки Google Drive и обработка поддерживаемых файлов внутри нее. Recursive scan должен включаться отдельной настройкой и относится только к папке источника.
 
-Existing Google Docs backfill, including refresh of already-current-shaped old backfill Docs that still contain `unknown` defaults or full-ISO visible timestamps, uses temporary known defaults for historical transcript Docs produced through ElevenLabs: `Provider: ElevenLabs`, `Model: scribe_v2`, `Language: Русский`, and `Speakers: unknown`. Speakers are not inferred automatically. `Created at` is preserved from existing visible transcript metadata when present, otherwise it falls back to Google Drive `createdTime`, and otherwise becomes `unknown`; it must not mean the standardization time. The visible backfill timestamp format is `YYYY-MM-DD HH:MM UTC`, while internal manifest/check/report timestamps may remain full ISO. Source filename/mode are not added to visible metadata, and no new visible metadata fields such as `Standardized at` are added.
+## Папка источника vs папка результата
 
-## Manifest
+**Папка источника** содержит audio/video/source files. Она используется в transcription workflows и может участвовать в recursive source scan.
 
-UI label: `Проверить / обновить manifest`.
+**Папка результата** содержит Google Docs transcript outputs. Она используется для создания новых Docs, docs-only standardization и manifest maintenance.
 
-Manifest is a **global workspace catalog**, not a per-folder report. The unified Manifest action scans the selected destination/output folder and adds or refreshes records in the same global manifest. Selecting another folder later adds/refreshes records for that folder; it does not remove older records from other folders.
+Не смешивайте эти понятия: выбор source folder не означает выбор output folder, а обслуживание существующих Google Docs работает с папкой результата.
 
-Successful transcription completion updates manifest immediately: `sources[source_signature]` is marked `done`, `documents[doc_id]` is upserted, `document.source_signatures` is linked, and summary totals are refreshed without storing transcript body text. Manifest maintenance is therefore a reconciliation/refresh action for selected-folder observations, not the normal path by which newly created transcription Google Docs enter the document catalog.
+## Google Docs transcript standard v1.2
 
-Manifest maintenance:
+`transcript_doc_v1.2` — текущий стандарт структуры Google Docs transcript. Он нужен, чтобы документы можно было проверять, обслуживать и связывать с `manifest` предсказуемым способом.
 
-- scans the selected destination/output folder;
-- optionally scans nested transcript folders when recursive scan is enabled;
-- does not change Google Docs content;
-- does not create Google Docs;
-- does not call ElevenLabs, OpenAI, STT, diarization, provider, or LLM APIs;
-- dry-run is read-only: no folder creation, backup creation, active manifest write, Docs mutation or provider calls;
-- apply updates manifest only;
-- if the active manifest uses the old format, apply creates a timestamped backup and updates it to the current format;
-- if the active manifest is already in the current format, apply refreshes `documents`, `sources` and `standard_check` only when material changes exist;
-- checked-at-only differences should not be treated as material changes;
-- manifest must not store transcript body text or Google Docs body content;
-- user-visible Colab manifest reports are localized to Russian while manifest schema keys, JSON keys, internal report dict keys, and code identifiers remain English.
+README дает только практический обзор. Детальные правила стандарта, migration layer, business rules и ограничения описаны в `docs/project-spec.md`.
 
-Internal schema (technical detail):
+## Manifest и защита от повторной обработки
 
-Internally, the manifest uses schema version 2, but the UI refers to it simply as manifest.
+`manifest` хранит операционное состояние обработки источников и документов. Ключевые технические идентификаторы включают `source_signature`, `doc_id`, `doc_link`, `sources` и `documents`.
 
-Conceptual schema:
+Safety rule: `manifest` не должен хранить тело transcript, sample phrases или содержимое Google Docs. Он используется для skip protection, статусов, связей и диагностики.
 
-Top-level:
+При конфликте или повторном запуске безопасный default — `Пропустить`. Это особенно важно для provider paths, где повторная обработка может повторно потратить credits.
 
-- `version`
-- `schema`
-- `updated_at`
-- `documents`
-- `sources`
-- `summary`
+## Analytics и startup timing
 
-`documents`:
+Analytics хранится в JSONL-артефакте `VoiceOps Workspace/analytics/elevenlabs_transcription_runs.jsonl`. Она предназначена для операционной диагностики: run metadata, статусы, ошибки, timing и startup timing summary.
 
-- keyed by Google Doc ID;
-- stores `doc_id`, `doc_name`, `doc_link`, `doc_path`, `doc_mime_type`;
-- stores `source_signatures`;
-- stores `standard_check`.
+Analytics не должна содержать тело transcript, содержимое Google Docs, provider response body, секреты или API keys.
 
-`sources`:
+Startup timing instrumentation помогает понять, сколько времени занимает подготовка Colab runtime, установка зависимостей, импорт workflow и инициализация UI. Это diagnostic signal, а не доказательство успешной транскрибации.
 
-- keyed by `source_signature`;
-- stores source processing state;
-- preserves skip behavior for repeated transcription runs, including already-processed sources.
+## Безопасность и ограничения
 
-`standard_check`:
+- Не хранить transcript body в `manifest` или analytics.
+- Не хранить Google Docs body content в `manifest` или analytics.
+- Не логировать secrets, API keys или raw provider response body.
+- Docs-only workflows не должны вызывать provider/STT/LLM APIs.
+- OpenAI diarization + chunking остается risk area из-за возможной inconsistency `Speaker N labels` across chunks.
+- Проекты спикеров — это ручное переименование labels, не voice identification и не biometric matching.
+- Текущий speaker apply переписывает Google Doc как plain text; используйте копии для первой проверки.
+- Manifest model рассчитан на single-user/single-runtime usage; параллельные Colab tabs не являются поддерживаемым сценарием.
 
-- `target_standard`
-- `detected_standard`
-- `status`
-- `checked_at`
-- `checker_version`
+## Что пока требует runtime validation
 
-Manifest schema version is independent from transcript document standard version. For example, moving from `transcript_doc_v1.2` to a future `transcript_doc_v1.3` should update `standard_check` observations, not require a manifest format change by itself.
+Не следует заявлять live E2E успех без отдельной проверки в Google Colab/Google Drive/Google Docs. Консервативно требуют runtime validation:
 
-## Report semantics
-
-### Manifest report
-
-- **МАНИФЕСТ — ВЫБРАННАЯ ПАПКА** = what happened to the current selected destination/output folder.
-- **Скан выбранной папки** and **Изменения по выбранной папке** are selected-folder-only counters.
-- **ГЛОБАЛЬНЫЙ MANIFEST — СПРАВОЧНО** = reference statistics for the whole global manifest, not only the selected folder.
-- **Проверка стандарта по глобальному каталогу** makes scope explicit so global unstructured/error counts are not confused with the selected-folder result.
-- **БЕЗОПАСНОСТЬ** confirms no Google Docs content changes, no provider/STT/LLM calls, and whether manifest/backup writes are needed.
-
-### Docs standardization report
-
-- **Скан выбранной папки** = selected Google Docs only, optionally including nested folders when recursive scan is enabled.
-- **Текущий статус стандарта** = `current`, `outdated`, `unstructured`, or `unreadable`.
-- **Влияние apply** = documents that would be rewritten in place.
-- **Безопасность** = no provider calls, no new Docs, no manifest mutation.
-
-## Safety model
-
-- Secrets must come from Google Colab Secrets / `userdata`; never commit API keys.
-- Reports and analytics must not print transcript body text, Google Docs body content, raw provider responses, or secret values.
-- Manifest must not store transcript body text or Google Docs body content.
-- Docs-only standardization reads Google Docs and rewrites them only in explicit apply mode.
-- Manifest maintenance may read Docs to classify `standard_check`, but stores only document/source metadata and classification status.
-- Provider/STT/LLM APIs are not called by docs-only standardization or manifest maintenance.
-- Manifest is designed for single-user / single-runtime Colab usage. Parallel runs from two Colab tabs are not supported.
-- Google Drive write/update requests use conservative retry for transient Google API failures. Google Docs text insertion retry is intentionally narrower because `insertText` is not fully idempotent. STT provider calls are unchanged.
-- Runtime analytics JSONL in Google Drive are diagnostic only and must not include secrets, transcript text, raw provider responses, or Google Docs contents.
-
-## Troubleshooting
-
-### “I selected a folder with 5 Docs but manifest says 86 documents”
-
-That is expected when the global manifest already contains records from other folders. **Скан выбранной папки** is the 5 Docs in the folder you selected. **ГЛОБАЛЬНЫЙ MANIFEST — СПРАВОЧНО** is the whole manifest reference catalog, so it can show 86 total documents. Successful transcription-created Docs should already enter `documents` immediately; if maintenance still proposes additions, they are reconciliation/backfill candidates rather than the normal runtime catalog path.
-
-### “Why are old structured docs shown as Would standardize?”
-
-Current detection is strict for `transcript_doc_v1.2`. Old structured Docs with outdated visible metadata such as `Source file` / `Source mode` are not considered current and are reported as `would_standardize` in dry-run.
-
-### “Why are most docs unstructured?”
-
-They likely do not have the expected `Transcript metadata` block and `Transcript` structure. They can still be readable Google Docs, but they are not current structured transcript Docs.
-
-### “Why do I have archive manifest files?”
-
-When apply migrates an old manifest to the current manifest format, it creates a timestamped backup in `VoiceOps Workspace/manifest/archive` before replacing the active manifest.
-
-### “Can I delete archive backups?”
-
-Deletion is manual and not required. Keep at least the latest backups until successful runtime validation confirms that the migrated current-format manifest works for your workspace.
-
-### “Does Manifest change Google Docs?”
-
-No. `Проверить / обновить manifest` updates manifest only in apply mode and never changes Google Docs content.
-
-### “Does docs-only standardization call ElevenLabs/OpenAI?”
-
-No. `Проверить / стандартизировать существующие Google Docs` reads selected Google Docs and, only in apply mode, rewrites those Docs in place. It does not call ElevenLabs, OpenAI, STT, diarization, provider, or LLM APIs.
-
-## Developer validation
-
-Local repository checks:
-
-```bash
-python scripts/ci_checks.py
-pytest -q
-```
-
-GitHub Actions CI is intentionally lightweight:
-
-- static repository hygiene checks;
-- notebook JSON and clean-output checks;
-- launcher notebook thinness guard;
-- conservative static guards for raw provider `resp.text` logging and broad `/tmp` cleanup patterns;
-- `pytest` when tests exist.
-
-Non-goals of CI:
-
-- no real Colab transcription runs;
-- no ElevenLabs/OpenAI/Google API calls;
-- no provider or Google credentials required;
-- no deployment/CD.
-
-Runtime confidence is tracked conservatively in `VALIDATION_MATRIX.md`. Unit tests and smoke observations must not be described as formal E2E validation unless a reproducible E2E run has actually been performed.
-
-## Documentation
-
-- [`docs/project-spec.md`](docs/project-spec.md) — current project source of truth.
-- [`docs/delivery-plan.md`](docs/delivery-plan.md) — operational delivery state and next steps.
-- [`docs/ai-coding-workflow.md`](docs/ai-coding-workflow.md) — repo-local AI coding workflow entry point.
-- [`docs/ci-cd-rules.md`](docs/ci-cd-rules.md) — CI-only governance boundaries; CD/deploy is not adopted.
-- [`SECURITY.md`](SECURITY.md) — security and safety guidance.
-- [`VALIDATION_MATRIX.md`](VALIDATION_MATRIX.md) — conservative validation evidence and gaps.
-- [`docs/VOICEOPS_RUNTIME_VALIDATION_CHECKLIST.md`](docs/VOICEOPS_RUNTIME_VALIDATION_CHECKLIST.md) — manual runtime validation checklist.
-- [`TECHNICAL_SPECIFICATION.md`](TECHNICAL_SPECIFICATION.md) — legacy technical specification reference.
+- smoke-check source picker / `manifest` skip / Google Docs output;
+- Drive picker double-click behavior и `drive_multi` fallback в реальном браузере Colab;
+- speaker projects workflow на копии diarized Google Doc;
+- plain-text apply caveat для speaker rename;
+- startup timing summary collection;
+- provider-specific OpenAI paths, особенно diarization + chunking.
