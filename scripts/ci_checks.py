@@ -11,7 +11,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 NOTEBOOK_PATH = ROOT / "notebooks" / "elevenlabs_api_colab.ipynb"
+REALTIME_NOTEBOOK_PATH = ROOT / "notebooks" / "elevenlabs_realtime_colab.ipynb"
 CANONICAL_PY = ROOT / "elevenlabs_api.py"
+REALTIME_PY = ROOT / "elevenlabs_realtime.py"
 
 
 class CheckError(RuntimeError):
@@ -90,6 +92,62 @@ def check_launcher_notebook() -> None:
     print("[ci-checks] Launcher notebook thinness checks passed.")
 
 
+
+def check_realtime_launcher_notebook() -> None:
+    if not REALTIME_NOTEBOOK_PATH.exists():
+        fail("Required realtime launcher notebook missing: notebooks/elevenlabs_realtime_colab.ipynb")
+
+    nb = json.loads(REALTIME_NOTEBOOK_PATH.read_text(encoding="utf-8"))
+    source_text = "\n".join(
+        "".join(cell.get("source", [])) for cell in nb.get("cells", []) if cell.get("cell_type") == "code"
+    )
+
+    size = REALTIME_NOTEBOOK_PATH.stat().st_size
+    if size > 20_000:
+        fail(
+            "Realtime launcher notebook is unexpectedly large; expected a thin launcher "
+            f"but got {size} bytes (>20000)."
+        )
+
+    required_markers = [
+        "GITHUB_REF",
+        "raw.githubusercontent.com",
+        "urllib.request.urlretrieve",
+        "elevenlabs_realtime.py",
+        "exec(compile",
+    ]
+    for marker in required_markers:
+        if marker not in source_text:
+            fail(f"Realtime launcher notebook missing expected thin-launcher marker: {marker}")
+
+    disallowed_markers = [
+        "elevenlabs_api.py",
+        "build(\"drive\", \"v3\"",
+        "manifest",
+        "speaker_projects",
+    ]
+    for marker in disallowed_markers:
+        if marker in source_text:
+            fail(f"Realtime launcher notebook appears to include batch/runtime marker: {marker}")
+
+    print("[ci-checks] Realtime launcher notebook thinness checks passed.")
+
+
+def check_realtime_runtime_boundaries() -> None:
+    if not REALTIME_PY.exists():
+        fail("Required realtime runtime missing: elevenlabs_realtime.py")
+    text = REALTIME_PY.read_text(encoding="utf-8")
+    disallowed_patterns = [
+        r"import\s+elevenlabs_api",
+        r"from\s+elevenlabs_api\s+import",
+        r"build\(\s*['\"]drive['\"]\s*,\s*['\"]v3['\"]",
+        r"build\(\s*['\"]docs['\"]\s*,\s*['\"]v1['\"]",
+    ]
+    for pattern in disallowed_patterns:
+        if re.search(pattern, text):
+            fail(f"Realtime runtime boundary violation detected: {pattern}")
+    print("[ci-checks] Realtime runtime boundary checks passed.")
+
 def check_no_raw_provider_body_logging() -> None:
     text = CANONICAL_PY.read_text(encoding="utf-8")
     disallowed_patterns = [
@@ -139,6 +197,8 @@ def main() -> int:
     try:
         check_notebooks()
         check_launcher_notebook()
+        check_realtime_launcher_notebook()
+        check_realtime_runtime_boundaries()
         check_no_raw_provider_body_logging()
         check_temp_cleanup_patterns()
         check_pytest_if_tests_exist()

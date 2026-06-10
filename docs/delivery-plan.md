@@ -4,7 +4,7 @@
 
 Документ фиксирует текущий operational plan после merge PR #47. Он не является историческим журналом всех PR; для validation evidence используется `VALIDATION_MATRIX.md`, а для требований — `docs/project-spec.md`.
 
-Текущая фаза: документация синхронизирована вокруг текущего main, а следующий обязательный шаг — runtime validation в Google Colab/Drive/Docs без завышения статусов.
+Текущая фаза: batch Colab remains the working/fallback channel, while `LIVE-COLAB-01` starts a separate experimental realtime Colab contour. Runtime validation in Google Colab/Drive/Docs and realtime browser/provider validation must not be overstated.
 
 ## Готово к текущему checkpoint
 
@@ -53,6 +53,28 @@
 - [x] MVP caveat сохранен: apply переписывает Google Doc как plain text и требует проверки на копиях.
 
 ## Следующий runtime checkpoint
+
+### LIVE-COLAB-01: Realtime Colab prototype
+
+Цель: create the first experimental realtime Colab prototype for live browser audio capture + ElevenLabs realtime STT. This is separate from the batch workflow and must not save to Google Docs, mutate `manifest`, or integrate speaker projects.
+
+Implementation checklist:
+
+- [x] Create realtime notebook `notebooks/elevenlabs_realtime_colab.ipynb`.
+- [x] Create standalone realtime runtime file `elevenlabs_realtime.py`.
+- [ ] Token creation works in live Colab with `ELEVENLABS_API_KEY` from Colab Secrets.
+- [ ] Mic mode starts in a real browser/Colab session.
+- [ ] Display audio mode detects an audio track or shows the required clear Russian error.
+- [ ] Display + mic mode mixes both streams and warns about echo/double audio.
+- [ ] WebSocket opens against ElevenLabs realtime endpoint.
+- [ ] Partial transcript appears.
+- [ ] Committed transcript appears.
+- [ ] Stop releases tracks and closes WebSocket.
+- [ ] No API key in JS; browser receives only single-use realtime token.
+- [ ] No `manifest` or Google Docs mutations.
+
+Static/local validation can check notebook hygiene, URL helpers, error mapping and token response parsing. Live/browser/provider rows remain pending manual Colab runtime validation; do not claim E2E success until this checklist is completed.
+
 
 ### RUNTIME-01: source picker / manifest skip / docs output smoke-check
 

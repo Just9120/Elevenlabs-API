@@ -47,6 +47,14 @@ Docs-only CI не доказывает provider/STT/LLM или Google Docs E2E s
 | No provider/STT/LLM calls in docs-only workflows | Unit/static-tested | Tests/source checks cover key docs-only boundaries. Runtime observation should verify no unexpected calls during manual validation. |
 | Analytics JSONL | Unit/static-tested / needs runtime validation | Run-level analytics and safety constraints exist; live artifact shape should be checked in runtime validation. |
 | Startup timing summary | Unit/static-tested / needs runtime collection | Instrumentation exists for startup diagnostics. PERF-RUNTIME-01 must collect real Colab timing before performance claims. |
+| Realtime Colab prototype | Experimental / Unit/static-tested / needs manual Colab runtime validation | `Realtime Colab prototype` / `LIVE-COLAB-01` adds separate runtime/notebook docs and static tests. Live/browser/provider behavior is not E2E validated yet. |
+| Realtime microphone capture | Needs manual Colab runtime validation | Browser `getUserMedia({ audio: true })` requires real Colab/browser permissions and a real input device. |
+| Realtime tab/screen audio capture | Needs manual Colab runtime validation | Browser `getDisplayMedia({ video: true, audio: true })` may not return audio tracks for every browser/window/system source; UI must show the clear Russian no-audio-track error when needed. |
+| Realtime tab/screen audio + microphone mixing | Needs manual Colab runtime validation | Web Audio API mixing exists in prototype, but echo/double-audio behavior and browser permissions require manual validation. |
+| Realtime virtual input/system-audio route | Needs manual Colab runtime validation | Treated as microphone/input-device selection. Desktop app audio may require OS-level routing/virtual audio/loopback; browser system-wide capture is not guaranteed. |
+| ElevenLabs realtime WebSocket | Needs manual Colab runtime validation | URL builder/static checks cover endpoint/model/audio format shape; actual `session_started`, partial transcript and committed transcript require live provider validation. |
+| Realtime single-use token safety | Unit/static-tested / needs live token validation | Helper validates response shape without provider calls; browser HTML does not embed `ELEVENLABS_API_KEY`. Live token creation with Colab Secrets remains pending. |
+| Realtime Colab cold-start limitation | Experimental / needs runtime timing | Prototype is optimized as a thin launcher, but Colab cold start may not meet a 20–30 second live-start requirement unless pre-warmed. Measure before making performance claims. |
 | OpenAI manual fallback path | Experimental | Manual/alternative provider path, not automatic fallback. Requires separate E2E validation. |
 | OpenAI >25MB chunking | Experimental | Implemented path requires broader E2E coverage. |
 | OpenAI diarization | Experimental | Speaker-aware output requires runtime validation before reliability claims. |
@@ -74,3 +82,6 @@ Speaker projects workflow on a copied diarized Google Doc, including preview, ex
 ### PERF-RUNTIME-01
 
 Collect startup timing summary from a clean Colab runtime and record notes without claiming transcription success solely from timing data.
+### LIVE-COLAB-01
+
+Manual Colab runtime validation for the experimental realtime contour: token creation, microphone capture, display audio track handling, display+mic mixing, WebSocket open/session_started, partial transcript, committed transcript, Stop cleanup, no API key in JS, and no Google Docs/manifest mutation.

@@ -34,7 +34,8 @@
 - docs-only manifest maintenance для reconciliation/refresh;
 - analytics JSONL и startup timing instrumentation;
 - optional speaker project rename workflow для существующих diarized Google Docs;
-- unit/static validation для helper logic и UI guardrails.
+- unit/static validation для helper logic и UI guardrails;
+- experimental `Realtime Colab prototype` / `LIVE-COLAB-01` as a separate runtime validation contour for live browser audio capture + ElevenLabs realtime STT.
 
 ## 4. Активные runtime flows
 
@@ -93,6 +94,44 @@ Flow:
 
 Этот flow не является частью транскрибации, не вызывает provider/STT/LLM APIs и не выполняет voice identification.
 
+
+### 4.5 Realtime Colab prototype (LIVE-COLAB-01)
+
+`LIVE-COLAB-01` is an experimental separate runtime contour. It is not a replacement for the current batch Google Colab workflow; batch mode remains the current production/fallback channel. The goal is runtime validation of live browser audio capture plus ElevenLabs realtime Scribe transcription before any later PWA/backend architecture work.
+
+Prototype files:
+
+- `elevenlabs_realtime.py` — standalone runtime; it must not import `elevenlabs_api.py`;
+- `notebooks/elevenlabs_realtime_colab.ipynb` — thin launcher;
+- `docs/realtime-colab.md` — focused operating notes and caveats.
+
+Runtime behavior:
+
+1. Python reads `ELEVENLABS_API_KEY` from Colab Secrets / `userdata` or environment without printing it.
+2. Python creates a realtime single-use token through `POST https://api.elevenlabs.io/v1/single-use-token/realtime_scribe`.
+3. Browser JavaScript receives only the temporary single-use token and opens `wss://api.elevenlabs.io/v1/speech-to-text/realtime` with `model_id=scribe_v2_realtime` and `audio_format=pcm_16000`.
+4. Browser captures audio, converts to 16kHz mono PCM where feasible, and sends base64 `input_audio_chunk` messages.
+5. UI displays partial transcript separately from committed transcript and supports Start/Stop.
+6. Stop must close WebSocket and release all media tracks.
+
+Supported audio capture modes for validation:
+
+- microphone via `navigator.mediaDevices.getUserMedia({ audio: true })`;
+- browser tab/screen audio via `navigator.mediaDevices.getDisplayMedia({ video: true, audio: true })`, with a clear Russian error when no audio track is returned;
+- browser tab/screen audio + microphone mixed through Web Audio API, with warning about echo/double audio;
+- virtual input/system audio route treated as a microphone/input-device selection mode. Desktop app audio may require OS-level routing, virtual audio device or loopback; browser capture must not be described as guaranteed system-wide audio capture.
+
+Safety boundaries:
+
+- do not expose the main `ELEVENLABS_API_KEY` to browser JavaScript;
+- do not log the main API key or single-use token;
+- do not save transcripts to Google Docs in this PR;
+- do not call Google Docs/Drive APIs from LIVE-COLAB-01;
+- do not read or write `manifest` and do not change manifest schema;
+- do not integrate speaker projects;
+- do not store transcript text, audio chunks, API keys, provider raw responses or browser audio data in `manifest`/analytics;
+- do not claim live E2E success until manually validated in Colab.
+
 ## 5. Compatibility / migration layer
 
 Compatibility layer может существовать для чтения старых manifest shapes, old standard Docs и legacy metadata. Его задача — сохранить возможность безопасного чтения/обновления существующих артефактов без изменения runtime behavior и без потери skip protection.
@@ -123,7 +162,9 @@ Compatibility layer может существовать для чтения ст
 - использование voice samples, voiceprints или embeddings для speaker projects;
 - автоматическое определение реальных имен людей по голосу;
 - гарантия formatting preservation при текущем speaker rename apply;
-- заявление live E2E success для flows, которые прошли только unit/static validation.
+- заявление live E2E success для flows, которые прошли только unit/static validation;
+- Telegram/PWA/backend code for realtime; future PWA/backend architecture is a later step after Colab realtime validation;
+- Google Docs save, manifest mutation or speaker project integration from `LIVE-COLAB-01`.
 
 ## 8. Пользовательские роли
 
