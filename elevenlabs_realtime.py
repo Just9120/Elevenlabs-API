@@ -19,7 +19,9 @@ import html
 import importlib.util
 import json
 import os
+import threading
 import uuid
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -35,6 +37,9 @@ ELEVENLABS_API_KEY_NOT_FOUND_MESSAGE = (
     "ElevenLabs API key not found. Add ELEVEN_API_KEY to Colab Secrets, "
     "or use ELEVENLABS_API_KEY as a compatibility alias."
 )
+
+_REALTIME_PROXY_SERVERS: list[ThreadingHTTPServer] = []
+
 
 KNOWN_ERROR_MESSAGES_RU = {
     "auth": "Ошибка авторизации ElevenLabs realtime. Проверьте API key и срок действия single-use token.",
@@ -576,6 +581,183 @@ def build_realtime_colab_html(token: str) -> str:
     return build_realtime_colab_iframe_html(token)
 
 
+def build_realtime_frontend_config(token: str) -> dict[str, Any]:
+    """Build browser config for a standalone page without the main API key."""
+
+    return {
+        "wsUrl": build_realtime_websocket_url(token),
+        "modelId": REALTIME_MODEL_ID,
+        "audioFormat": REALTIME_AUDIO_FORMAT,
+        "commitStrategy": REALTIME_COMMIT_STRATEGY,
+        "messages": KNOWN_ERROR_MESSAGES_RU,
+        "bridge": "LIVE-COLAB-PROXY-01",
+    }
+
+
+def build_realtime_frontend_javascript(token: str, root_id: str) -> str:
+    """Return frontend JavaScript that is portable outside Colab output cells."""
+
+    # The LIVE-COLAB-PROXY-01 page runs as a normal document. It intentionally
+    # reuses the same browser realtime logic as the output-cell prototype, while
+    # the launcher/proxy remains replaceable infrastructure for a future PWA.
+    return build_realtime_colab_javascript(token, root_id)
+
+
+def build_realtime_frontend_html(token: str) -> str:
+    """Return a standalone realtime browser page for Colab proxy/new-tab use."""
+
+    root_id = create_realtime_colab_root_id()
+    shell = build_realtime_colab_html_shell(root_id)
+    shell = shell.replace(
+        "LIVE-COLAB-01: realtime transcription prototype",
+        "LIVE-COLAB-PROXY-01: realtime frontend bridge",
+    )
+    shell = shell.replace(
+        "Экспериментальный Colab-прототип: без Google Docs save, без manifest, без speaker projects. Main API key остаётся Python-side; browser получает только single-use realtime token.",
+        "Экспериментальный standalone bridge через Colab proxy/new tab: no Google Docs save, no manifest, no speaker projects. Browser receives only a single-use realtime token; Colab launcher/proxy is replaceable infrastructure for a future PWA.",
+    )
+    shell = shell.replace(
+        "Статус: iframe HTML loaded; JS not attached yet",
+        "Статус: page loaded",
+    )
+    javascript = build_realtime_frontend_javascript(token, root_id)
+    return f"""<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LIVE-COLAB-PROXY-01 realtime frontend bridge</title>
+</head>
+<body style="margin:0;padding:16px;background:#f8fafc;">
+{shell}
+<script>
+{javascript}
+</script>
+</body>
+</html>
+"""
+
+
+class _RealtimeFrontendRequestHandler(BaseHTTPRequestHandler):
+    """Serve the standalone realtime page from the Colab runtime only."""
+
+    server_version = "ElevenLabsRealtimeColabProxy/0.1"
+
+    def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 - stdlib signature
+        return
+
+    def _send_bytes(self, body: bytes, *, content_type: str, status: int = 200) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self) -> None:  # noqa: N802 - stdlib handler method
+        if self.path in ("/", "/index.html"):
+            body = self.server.frontend_html.encode("utf-8")  # type: ignore[attr-defined]
+            self._send_bytes(body, content_type="text/html; charset=utf-8")
+            return
+        if self.path == "/healthz":
+            self._send_bytes(b"ok", content_type="text/plain; charset=utf-8")
+            return
+        self._send_bytes(b"not found", content_type="text/plain; charset=utf-8", status=404)
+
+
+def start_realtime_frontend_server(
+    token: str, *, host: str = "127.0.0.1", port: int = 0
+) -> tuple[ThreadingHTTPServer, str]:
+    """Start a lightweight local HTTP server for the standalone browser page."""
+
+    frontend_html = build_realtime_frontend_html(token)
+    server = ThreadingHTTPServer((host, port), _RealtimeFrontendRequestHandler)
+    server.frontend_html = frontend_html  # type: ignore[attr-defined]
+    thread = threading.Thread(target=server.serve_forever, name="elevenlabs-realtime-proxy", daemon=True)
+    thread.start()
+    _REALTIME_PROXY_SERVERS.append(server)
+    actual_host, actual_port = server.server_address[:2]
+    return server, f"http://{actual_host}:{actual_port}/"
+
+
+def get_colab_proxy_url(port: int) -> str | None:
+    """Return the standard Colab proxy URL for a local runtime port when available."""
+
+    if (
+        importlib.util.find_spec("google") is None
+        or importlib.util.find_spec("google.colab") is None
+        or importlib.util.find_spec("google.colab.output") is None
+    ):
+        return None
+    from google.colab import output as colab_output
+
+    try:
+        proxy_url = colab_output.eval_js(f"google.colab.kernel.proxyPort({int(port)})")
+    except Exception:
+        return None
+    if isinstance(proxy_url, str) and proxy_url.strip():
+        return proxy_url.strip()
+    return None
+
+
+def build_realtime_proxy_launch_html(
+    public_url: str, local_url: str, *, used_colab_proxy: bool
+) -> str:
+    """Build the Colab output containing the new-tab bridge link and warnings."""
+
+    escaped_public_url = html.escape(public_url, quote=True)
+    escaped_local_url = html.escape(local_url, quote=True)
+    proxy_note = "Colab proxy URL is active." if used_colab_proxy else (
+        "Не удалось получить Colab proxy URL автоматически. Если ссылка localhost не открывается из браузера, "
+        "перезапустите в Google Colab runtime и проверьте доступность google.colab.kernel.proxyPort(port)."
+    )
+    return f"""
+<div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;line-height:1.45;max-width:900px;border:1px solid #d8dee9;border-radius:14px;padding:16px;margin:8px 0;background:#fff;color:#17202a;">
+  <h2 style="margin:0 0 8px;">LIVE-COLAB-PROXY-01 realtime frontend bridge</h2>
+  <p style="margin:0 0 12px;">Experimental bridge: Colab launches a local Python HTTP server and exposes a standalone browser page in a new tab.</p>
+  <p style="margin:0 0 12px;"><a href="{escaped_public_url}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:10px 14px;border-radius:10px;background:#2563eb;color:#fff;text-decoration:none;font-weight:700;">Open realtime frontend in a new tab</a></p>
+  <ul style="margin:0 0 12px 20px;padding:0;">
+    <li>No Google Docs save.</li>
+    <li>No manifest reads/writes and no manifest schema changes.</li>
+    <li>No speaker projects integration.</li>
+    <li>Browser receives only a single-use realtime token, never the main API key.</li>
+    <li>Do not claim realtime E2E success until manual Colab/browser/provider validation passes.</li>
+  </ul>
+  <p style="margin:0;color:#4b5563;">{html.escape(proxy_note)} Local runtime URL: <code>{escaped_local_url}</code></p>
+</div>
+"""
+
+
+def launch_realtime_colab_proxy() -> None:
+    """Launch LIVE-COLAB-PROXY-01 as a standalone page through Colab proxy."""
+
+    if (
+        importlib.util.find_spec("IPython") is None
+        or importlib.util.find_spec("IPython.display") is None
+    ):
+        raise RealtimeTokenError("IPython.display is required to render the Colab proxy link.")
+    from IPython.display import HTML, display
+
+    api_key = get_elevenlabs_api_key()
+    token = create_realtime_single_use_token(api_key)
+    server, local_url = start_realtime_frontend_server(token)
+    port = int(server.server_address[1])
+    proxy_url = get_colab_proxy_url(port)
+    public_url = proxy_url or local_url
+    display(
+        HTML(
+            build_realtime_proxy_launch_html(
+                public_url, local_url, used_colab_proxy=proxy_url is not None
+            )
+        )
+    )
+
+
+def launch_realtime_standalone_page() -> None:
+    """Compatibility alias for the LIVE-COLAB-PROXY-01 launcher."""
+
+    launch_realtime_colab_proxy()
+
 def launch_realtime_colab() -> None:
     """Create a realtime token and render the Colab browser UI."""
 
@@ -592,4 +774,4 @@ def launch_realtime_colab() -> None:
 
 
 if __name__ == "__main__":
-    launch_realtime_colab()
+    launch_realtime_colab_proxy()

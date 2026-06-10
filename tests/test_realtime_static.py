@@ -11,6 +11,7 @@ import re
 import sys
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+from urllib.request import urlopen
 
 import pytest
 
@@ -308,13 +309,15 @@ def test_generated_shell_and_javascript_still_include_realtime_controls() -> Non
     assert "downloadBtn.addEventListener('click'" in js
 
 
-def test_launch_path_displays_iframe_html_without_separate_javascript() -> None:
+def test_launch_path_displays_proxy_link_without_separate_javascript_display() -> None:
     source = (ROOT / "elevenlabs_realtime.py").read_text(encoding="utf-8")
 
+    assert "def launch_realtime_colab_proxy()" in source
     assert "from IPython.display import HTML, display" in source
     assert "from IPython.display import HTML, Javascript, display" not in source
-    assert "display(HTML(build_realtime_colab_iframe_html(token)))" in source
+    assert "build_realtime_proxy_launch_html(" in source
     assert "display(Javascript(" not in source
+    assert "if __name__ == \"__main__\":\n    launch_realtime_colab_proxy()" in source
 
 
 def test_generated_html_shell_uses_compact_diagnostics_ui() -> None:
@@ -333,6 +336,74 @@ def test_generated_html_shell_uses_compact_diagnostics_ui() -> None:
     assert "Ready. Manual Colab/browser/provider runtime validation" not in html
 
 
+def test_proxy_frontend_config_contains_only_single_use_realtime_websocket_url() -> None:
+    config = realtime.build_realtime_frontend_config("temporary-token")
+
+    assert config["wsUrl"].startswith("wss://api.elevenlabs.io/v1/speech-to-text/realtime?")
+    assert "temporary-token" in config["wsUrl"]
+    assert config["modelId"] == realtime.REALTIME_MODEL_ID
+    assert config["audioFormat"] == realtime.REALTIME_AUDIO_FORMAT
+    assert config["commitStrategy"] == realtime.REALTIME_COMMIT_STRATEGY
+    serialized = json.dumps(config, ensure_ascii=False)
+    for forbidden in ["ELEVEN_API_KEY", "ELEVENLABS_API_KEY", "preferred-key", "compatibility-key", "main-api-key"]:
+        assert forbidden not in serialized
+
+
+def test_proxy_standalone_frontend_includes_controls_status_and_realtime_js() -> None:
+    page = realtime.build_realtime_frontend_html("temporary-token")
+
+    assert "LIVE-COLAB-PROXY-01: realtime frontend bridge" in page
+    assert "Статус: page loaded" in page
+    assert "setStatus('idle')" in page
+    assert "setStatus('starting')" in page
+    assert "setStatus('websocket_open')" in page
+    assert "setStatus('session_started')" in page
+    assert 'data-el="start">Start</button>' in page
+    assert 'data-el="stop" disabled>Stop</button>' in page
+    assert "Microphone" in page
+    assert "Browser tab / screen audio" in page
+    assert "Browser tab / screen audio + microphone" in page
+    assert "Virtual input / system audio device" in page
+    assert "navigator.mediaDevices.getUserMedia" in page
+    assert "navigator.mediaDevices.getDisplayMedia" in page
+    assert "new WebSocket(CONFIG.wsUrl)" in page
+    assert "message_type: 'input_audio_chunk'" in page
+    assert "audio_base_64: payload" in page
+    for forbidden in ["ELEVEN_API_KEY", "ELEVENLABS_API_KEY", "preferred-key", "compatibility-key", "main-api-key"]:
+        assert forbidden not in page
+
+
+def test_proxy_server_serves_standalone_frontend_without_provider_calls() -> None:
+    server, local_url = realtime.start_realtime_frontend_server("temporary-token")
+    try:
+        with urlopen(local_url, timeout=5) as response:
+            body = response.read().decode("utf-8")
+        assert response.status == 200
+        assert "LIVE-COLAB-PROXY-01: realtime frontend bridge" in body
+        assert "temporary-token" in body
+        assert "ELEVEN_API_KEY" not in body
+        assert "ELEVENLABS_API_KEY" not in body
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_proxy_launch_html_contains_required_link_label_and_warnings() -> None:
+    launch_html = realtime.build_realtime_proxy_launch_html(
+        "https://colab.example/proxy/123/",
+        "http://127.0.0.1:123/",
+        used_colab_proxy=True,
+    )
+
+    assert "Open realtime frontend in a new tab" in launch_html
+    assert "Experimental bridge" in launch_html
+    assert "No Google Docs save" in launch_html
+    assert "No manifest reads/writes" in launch_html
+    assert "No speaker projects integration" in launch_html
+    assert "single-use realtime token" in launch_html
+    assert "https://colab.example/proxy/123/" in launch_html
+
+
 def test_error_message_mapping_has_russian_known_cases() -> None:
     cases = [
         "auth_error",
@@ -347,6 +418,37 @@ def test_error_message_mapping_has_russian_known_cases() -> None:
         assert message
         assert any("а" <= char.lower() <= "я" or char == "ё" for char in message)
     assert "WebSocket" in realtime.realtime_error_message_ru("unknown")
+
+
+def test_realtime_proxy_source_has_no_google_docs_drive_manifest_or_speaker_calls() -> None:
+    source = (ROOT / "elevenlabs_realtime.py").read_text(encoding="utf-8")
+
+    disallowed_patterns = [
+        r"build\(\s*['\"]drive['\"]",
+        r"build\(\s*['\"]docs['\"]",
+        r"manifest\s*=",
+        r"open\([^)]*manifest",
+        r"speaker_projects\.json",
+        r"telegram",
+    ]
+    for pattern in disallowed_patterns:
+        assert re.search(pattern, source, flags=re.IGNORECASE) is None
+
+
+def test_proxy_page_does_not_introduce_google_docs_drive_manifest_or_speaker_calls() -> None:
+    page = realtime.build_realtime_frontend_html("temporary-token")
+
+    for forbidden in [
+        "google.docs",
+        "google.drive",
+        "build('docs'",
+        'build("docs"',
+        "build('drive'",
+        'build("drive"',
+        "speaker_projects.json",
+        "telegram",
+    ]:
+        assert forbidden.lower() not in page.lower()
 
 
 def test_docs_mention_realtime_experimental_caveats() -> None:

@@ -4,12 +4,31 @@
 
 ## Current status
 
-- `LIVE-COLAB-01` is implemented in `main` after PR #49.
+- `LIVE-COLAB-01` is implemented in `main` after PR #49, but output-cell UI execution is blocked in the tested Colab runtime.
+- Tested output-cell attempts that did not attach active JavaScript: inline `<script>` inside `display(HTML(...))`, separate `IPython.display.Javascript(...)`, and sandboxed `iframe srcdoc`.
+- `LIVE-COLAB-PROXY-01` is the next experimental bridge: Colab acts as a Python launcher/local HTTP server and opens a standalone browser page through a Colab proxy/new tab.
 - The contour is experimental.
 - Static CI checks cover notebook hygiene, helper behavior and safety guardrails.
-- The Colab launcher renders the browser app in a sandboxed `iframe srcdoc` because Colab output cells may block or isolate direct output-cell JavaScript execution.
-- Manual end-to-end Colab runtime validation is still pending.
+- Manual end-to-end Colab runtime validation is still pending for the proxy standalone page.
 - Success must be proven by runtime checks in a real browser/Colab session, not by static tests alone.
+
+
+## LIVE-COLAB-PROXY-01 standalone proxy bridge
+
+`LIVE-COLAB-PROXY-01` avoids active JavaScript inside notebook output cells. The notebook still stays thin: it downloads `elevenlabs_realtime.py`, Python reads `ELEVEN_API_KEY` first and `ELEVENLABS_API_KEY` only as a compatibility alias, creates one ElevenLabs `realtime_scribe` single-use token, starts a lightweight localhost HTTP server in the Colab runtime, and displays a link labeled `Open realtime frontend in a new tab`.
+
+The standalone page is served from the Colab runtime and should be opened through the Colab proxy URL when `google.colab.kernel.proxyPort(port)` is available. If the proxy helper is unavailable, the launcher shows a Russian fallback instruction instead of claiming success. The browser page runs as a normal document in a separate tab/window and requests microphone/display permissions there.
+
+Portability rule: the frontend builder is intentionally separable from the Colab launcher/proxy. A future PWA should be able to reuse the realtime browser logic and replace only the token source, hosting URL, and deployment shell. The proxy bridge does **not** make the existing batch Colab workflow depend on realtime code, and it does **not** make Colab depend on future PWA/backend code.
+
+Bridge safety warnings shown by the launcher:
+
+- experimental bridge only;
+- no Google Docs save;
+- no manifest reads/writes and no manifest schema change;
+- no speaker projects integration;
+- browser receives only a single-use realtime token, never the main API key;
+- do not claim realtime E2E success until manual runtime validation passes.
 
 ## What this prototype validates
 
@@ -82,9 +101,14 @@ Copy this checklist into the runtime report and mark each item as pass/fail/not 
 - [ ] Confirm the notebook fetches `elevenlabs_realtime.py` from `main` or the selected `GITHUB_REF`.
 - [ ] Confirm preferred `ELEVEN_API_KEY` loads from Colab Secrets without printing the value. If the preferred secret is unavailable, confirm `ELEVENLABS_API_KEY` works only as a compatibility alias.
 - [ ] Confirm a single-use token is created.
+- [ ] Confirm the launcher displays `Open realtime frontend in a new tab`.
+- [ ] Confirm the link uses a Colab proxy URL when `google.colab.kernel.proxyPort(port)` is available.
+- [ ] Confirm the standalone page opens in a new tab and shows `Статус: page loaded`, then `Статус: idle` after JavaScript boot.
 - [ ] Confirm the realtime UI renders.
 - [ ] Confirm microphone mode starts.
-- [ ] Confirm WebSocket opens.
+- [ ] Confirm Start changes status to `starting`.
+- [ ] Confirm WebSocket opens and status changes to `websocket_open`.
+- [ ] Confirm ElevenLabs session start events show `session_started` where applicable.
 - [ ] Confirm partial transcript appears.
 - [ ] Confirm committed transcript appears.
 - [ ] Confirm Stop closes WebSocket and releases media tracks.

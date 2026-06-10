@@ -48,7 +48,9 @@ Docs-only CI не доказывает provider/STT/LLM или Google Docs E2E s
 | Analytics JSONL | Unit/static-tested / needs runtime validation | Run-level analytics and safety constraints exist; live artifact shape should be checked in runtime validation. |
 | Startup timing summary | Unit/static-tested / needs runtime collection | Instrumentation exists for startup diagnostics. PERF-RUNTIME-01 must collect real Colab timing before performance claims. |
 | LIVE-COLAB-01 implementation/static checks | Done / Unit/static-tested | PR #49 merged the standalone realtime runtime, launcher notebook, focused docs and static checks. This status does not prove live browser/provider behavior. |
-| LIVE-COLAB-01 manual Colab runtime validation | Pending | Run the realtime notebook in a fresh Colab runtime and collect a runtime report before any realtime E2E success claim. |
+| LIVE-COLAB-01 output-cell realtime UI | Blocked by JS execution | Tested Colab runtime did not attach active JS for inline `display(HTML(...))` script, separate `IPython.display.Javascript(...)`, or `iframe srcdoc`; keep documented as blocked unless a later runtime proves otherwise. |
+| LIVE-COLAB-PROXY-01 standalone proxy page | Pending runtime validation | Static checks cover the local HTTP server/page builder, proxy-link output, source controls, media capture/WebSocket JS, and single-use token exposure only. Manual Colab proxy/new-tab validation is still required. |
+| LIVE-COLAB-01 manual Colab runtime validation | Pending | Run the realtime notebook in a fresh Colab runtime and collect a runtime report before any realtime E2E success claim. Use the `LIVE-COLAB-PROXY-01` bridge as the next active validation path. |
 | Realtime microphone capture | Pending runtime validation | Browser `getUserMedia({ audio: true })` requires real Colab/browser permissions and a real input device. |
 | Realtime tab/screen audio capture | Pending runtime validation | Browser `getDisplayMedia({ video: true, audio: true })` may not return audio tracks for every browser/window/system source; UI must show the clear Russian no-audio-track error when needed. |
 | Realtime tab/screen audio + microphone mixing | Pending runtime validation | Web Audio API mixing exists in prototype, but echo/double-audio behavior and browser permissions require manual validation. |
@@ -84,6 +86,10 @@ Speaker projects workflow on a copied diarized Google Doc, including preview, ex
 ### PERF-RUNTIME-01
 
 Collect startup timing summary from a clean Colab runtime and record notes without claiming transcription success solely from timing data.
+### LIVE-COLAB-PROXY-01
+
+Manual Colab runtime validation for the proxy standalone bridge: token creation, local HTTP server start, Colab proxy link labeled `Open realtime frontend in a new tab`, standalone page status transitions (`page loaded` → `idle` → `starting` → `websocket_open` / `session_started` where applicable), microphone capture, display audio track handling, display+mic mixing, virtual input route, partial transcript, committed transcript, Stop cleanup, no API key in JS, and no Google Docs/manifest/speaker-project mutation.
+
 ### LIVE-COLAB-01
 
-Manual Colab runtime validation for the experimental realtime contour: token creation, microphone capture, display audio track handling, display+mic mixing, WebSocket open/session_started, partial transcript, committed transcript, Stop cleanup, no API key in JS, and no Google Docs/manifest mutation.
+Output-cell UI is currently blocked by JS execution in the tested Colab runtime. Keep evidence conservative unless a later manual runtime report proves otherwise.
