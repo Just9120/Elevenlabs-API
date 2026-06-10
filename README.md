@@ -40,13 +40,14 @@
 
 `LIVE-COLAB-01` is now present in `main` as an experimental standalone realtime Colab notebook for live browser audio capture + ElevenLabs realtime STT validation. It is implemented and covered by static CI checks, but manual Colab runtime validation is still pending, so do not treat it as proven realtime E2E success yet.
 
-Use `docs/realtime-colab.md` for the detailed manual validation checklist and audio-source limitations. The existing batch Colab workflow remains the stable/fallback tool for transcription. `LIVE-COLAB-01` has no Google Docs save and no manifest integration.
+Use `docs/realtime-colab.md` for the detailed manual validation checklist and audio-source limitations. The existing batch Colab workflow remains the stable/fallback tool for transcription. `LIVE-COLAB-01` has no Google Docs save and no manifest integration. It uses the preferred project secret `ELEVEN_API_KEY` and accepts `ELEVENLABS_API_KEY` only as a compatibility alias.
 
 ## Секреты и API-ключи
 
 Секреты добавляются через Google Colab Secrets / `userdata`:
 
-- `ELEVENLABS_API_KEY` — нужен для `ElevenLabs / scribe_v2`;
+- `ELEVEN_API_KEY` — preferred project secret for ElevenLabs (`ElevenLabs / scribe_v2` and `LIVE-COLAB-01` realtime token creation);
+- `ELEVENLABS_API_KEY` — compatibility alias for ElevenLabs realtime/batch startup if the preferred project secret is unavailable;
 - `OPENAI_API_KEY` — нужен только для OpenAI paths.
 
 Значения ключей не должны попадать в logs, `manifest`, analytics или Google Docs. Docs-only workflows не вызывают provider/STT/LLM API и не требуют транскрибационных provider calls.

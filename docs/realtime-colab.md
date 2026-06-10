@@ -37,7 +37,7 @@ This runtime contour is intended to validate:
 
 ## Safety model
 
-- The main `ELEVENLABS_API_KEY` is read only Python-side from Colab Secrets / `userdata` or the environment.
+- The main ElevenLabs API key is read only Python-side from Colab Secrets / `userdata` or the environment. Use `ELEVEN_API_KEY` as the preferred project secret; `ELEVENLABS_API_KEY` is accepted only as a compatibility alias.
 - Python creates a single-use realtime Scribe token with `POST https://api.elevenlabs.io/v1/single-use-token/realtime_scribe`.
 - Browser JavaScript receives only the temporary single-use token embedded in the realtime WebSocket URL, which uses `commit_strategy=vad` for this MVP.
 - The prototype must not log the main API key or the single-use token.
@@ -79,7 +79,7 @@ Copy this checklist into the runtime report and mark each item as pass/fail/not 
 
 - [ ] Open `notebooks/elevenlabs_realtime_colab.ipynb` from `main`.
 - [ ] Confirm the notebook fetches `elevenlabs_realtime.py` from `main` or the selected `GITHUB_REF`.
-- [ ] Confirm `ELEVENLABS_API_KEY` loads from Colab Secrets without printing the value.
+- [ ] Confirm preferred `ELEVEN_API_KEY` loads from Colab Secrets without printing the value. If the preferred secret is unavailable, confirm `ELEVENLABS_API_KEY` works only as a compatibility alias.
 - [ ] Confirm a single-use token is created.
 - [ ] Confirm the realtime UI renders.
 - [ ] Confirm microphone mode starts.

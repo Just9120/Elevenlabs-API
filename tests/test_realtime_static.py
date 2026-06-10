@@ -44,6 +44,73 @@ def test_realtime_notebook_is_thin_launcher_without_outputs() -> None:
         assert cell.get("execution_count") is None
 
 
+
+def test_get_elevenlabs_api_key_prefers_project_secret_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(realtime, "_get_colab_userdata", lambda: None)
+    monkeypatch.setenv("ELEVEN_API_KEY", " preferred-key ")
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "fallback-key")
+
+    assert realtime.get_elevenlabs_api_key() == "preferred-key"
+
+
+def test_get_elevenlabs_api_key_attempts_compatibility_alias_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(realtime, "_get_colab_userdata", lambda: None)
+    monkeypatch.delenv("ELEVEN_API_KEY", raising=False)
+    monkeypatch.setenv("ELEVENLABS_API_KEY", " alias-key ")
+
+    assert realtime.get_elevenlabs_api_key() == "alias-key"
+
+
+def test_get_elevenlabs_api_key_falls_back_after_missing_colab_secret(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = []
+
+    class SecretNotFoundError(Exception):
+        pass
+
+    class UserData:
+        @staticmethod
+        def get(name: str) -> str:
+            calls.append(name)
+            if name == "ELEVEN_API_KEY":
+                raise SecretNotFoundError("missing preferred secret")
+            if name == "ELEVENLABS_API_KEY":
+                return " compatibility-key "
+            raise SecretNotFoundError("unexpected secret")
+
+    monkeypatch.setattr(realtime, "_get_colab_userdata", lambda: UserData())
+    monkeypatch.delenv("ELEVEN_API_KEY", raising=False)
+    monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
+
+    assert realtime.get_elevenlabs_api_key() == "compatibility-key"
+    assert calls == ["ELEVEN_API_KEY", "ELEVENLABS_API_KEY"]
+
+
+def test_get_elevenlabs_api_key_raises_generic_message_after_supported_names_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class SecretNotFoundError(Exception):
+        pass
+
+    class UserData:
+        @staticmethod
+        def get(name: str) -> str:
+            raise SecretNotFoundError(f"{name} missing")
+
+    monkeypatch.setattr(realtime, "_get_colab_userdata", lambda: UserData())
+    monkeypatch.delenv("ELEVEN_API_KEY", raising=False)
+    monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
+
+    with pytest.raises(realtime.RealtimeTokenError) as exc_info:
+        realtime.get_elevenlabs_api_key()
+
+    assert str(exc_info.value) == realtime.ELEVENLABS_API_KEY_NOT_FOUND_MESSAGE
+    assert "missing preferred secret" not in str(exc_info.value)
+
+
 def test_extract_realtime_token_validates_response_shape() -> None:
     assert realtime.extract_realtime_token({"token": " abc "}) == "abc"
     assert realtime.extract_realtime_token({"single_use_token": "tok"}) == "tok"
@@ -93,10 +160,13 @@ def test_websocket_url_builder_requires_token_and_model_id() -> None:
     assert query["commit_strategy"] == ["vad"]
 
 
-def test_generated_html_does_not_embed_main_api_key_or_env_name() -> None:
+def test_generated_html_does_not_embed_main_api_key_values_or_secret_names() -> None:
     html = realtime.build_realtime_colab_html("temporary-token")
     assert "temporary-token" in html
+    assert "ELEVEN_API_KEY" not in html
     assert "ELEVENLABS_API_KEY" not in html
+    assert "preferred-key" not in html
+    assert "compatibility-key" not in html
     assert "main-api-key" not in html
     assert "message_type" in html
     assert "audio_base_64" in html

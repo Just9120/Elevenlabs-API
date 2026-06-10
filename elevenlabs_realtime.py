@@ -28,6 +28,11 @@ REALTIME_WS_ENDPOINT = "wss://api.elevenlabs.io/v1/speech-to-text/realtime"
 REALTIME_MODEL_ID = "scribe_v2_realtime"
 REALTIME_AUDIO_FORMAT = "pcm_16000"
 REALTIME_COMMIT_STRATEGY = "vad"
+ELEVENLABS_API_KEY_NAMES = ("ELEVEN_API_KEY", "ELEVENLABS_API_KEY")
+ELEVENLABS_API_KEY_NOT_FOUND_MESSAGE = (
+    "ElevenLabs API key not found. Add ELEVEN_API_KEY to Colab Secrets, "
+    "or use ELEVENLABS_API_KEY as a compatibility alias."
+)
 
 KNOWN_ERROR_MESSAGES_RU = {
     "auth": "Ошибка авторизации ElevenLabs realtime. Проверьте API key и срок действия single-use token.",
@@ -65,25 +70,37 @@ class RealtimeTokenError(RuntimeError):
     """Raised when a realtime single-use token cannot be obtained safely."""
 
 
+def _get_colab_userdata() -> Any | None:
+    """Return Colab userdata when available, otherwise None."""
+
+    if (
+        importlib.util.find_spec("google") is None
+        or importlib.util.find_spec("google.colab") is None
+    ):
+        return None
+    from google.colab import userdata
+
+    return userdata
+
+
 def get_elevenlabs_api_key() -> str:
     """Load the ElevenLabs API key from Colab Secrets/userdata or environment."""
 
-    key = ""
-    if (
-        importlib.util.find_spec("google") is not None
-        and importlib.util.find_spec("google.colab") is not None
-    ):
-        from google.colab import userdata
+    userdata = _get_colab_userdata()
+    for name in ELEVENLABS_API_KEY_NAMES:
+        if userdata is not None:
+            try:
+                key = (userdata.get(name) or "").strip()
+            except Exception:
+                key = ""
+            if key:
+                return key
 
-        key = (userdata.get("ELEVENLABS_API_KEY") or "").strip()
-    if not key:
-        key = os.environ.get("ELEVENLABS_API_KEY", "").strip()
-    if not key:
-        raise RealtimeTokenError(
-            "ELEVENLABS_API_KEY не найден. Добавьте ключ в Colab Secrets "
-            "или переменную окружения ELEVENLABS_API_KEY."
-        )
-    return key
+        key = os.environ.get(name, "").strip()
+        if key:
+            return key
+
+    raise RealtimeTokenError(ELEVENLABS_API_KEY_NOT_FOUND_MESSAGE)
 
 
 def extract_realtime_token(payload: dict[str, Any]) -> str:
@@ -107,7 +124,7 @@ def create_realtime_single_use_token(
     """Create a single-use realtime Scribe token without exposing the main API key."""
 
     if not isinstance(api_key, str) or not api_key.strip():
-        raise RealtimeTokenError("ELEVENLABS_API_KEY is empty.")
+        raise RealtimeTokenError("ElevenLabs API key is empty.")
     post_fn = post or _urllib_post_json
     response = post_fn(
         REALTIME_TOKEN_URL,
