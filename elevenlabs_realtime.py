@@ -23,7 +23,7 @@ import threading
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable
-from urllib.parse import urlencode
+from urllib.parse import urlparse, urlencode
 from urllib.request import Request, urlopen
 
 
@@ -595,18 +595,49 @@ def build_realtime_frontend_config(token: str) -> dict[str, Any]:
 
 
 def build_realtime_frontend_javascript(token: str, root_id: str) -> str:
-    """Return frontend JavaScript that is portable outside Colab output cells."""
+    """Return external frontend JavaScript for the standalone Colab proxy page."""
 
-    # The LIVE-COLAB-PROXY-01 page runs as a normal document. It intentionally
-    # reuses the same browser realtime logic as the output-cell prototype, while
-    # the launcher/proxy remains replaceable infrastructure for a future PWA.
-    return build_realtime_colab_javascript(token, root_id)
+    # The token argument is intentionally not embedded in this executable asset.
+    # LIVE-COLAB-PROXY-01 serves browser configuration through /config.json so
+    # the standalone HTML can avoid inline script execution under Colab proxy CSPs.
+    del token
+    root_id = _validate_realtime_colab_root_id(root_id)
+    javascript = build_realtime_colab_javascript("runtime-config-loaded-from-json", root_id)
+    javascript = javascript.replace("(() => {", "(async () => {", 1)
+    config_start = javascript.index("  const CONFIG = ")
+    config_end = javascript.index(";\n", config_start) + 2
+    config_loader = f'''  async function loadRealtimeConfig() {{
+    const response = await fetch('/config.json', {{cache: 'no-store'}});
+    if (!response.ok) {{
+      throw new Error('HTTP ' + response.status + ' while loading /config.json');
+    }}
+    return response.json();
+  }}
+  function markConfigLoadError(err) {{
+    const root = document.getElementById('{root_id}');
+    const statusEl = root ? root.querySelector('[data-el="status"]') : null;
+    const message = err && err.message ? err.message : String(err);
+    if (statusEl) {{
+      statusEl.textContent = 'Статус: ошибка загрузки config.json — ' + message;
+      statusEl.dataset.jsReadyMarker = 'config-error';
+    }}
+    console.error('LIVE-COLAB-PROXY-01 config load failed:', err);
+  }}
+  let CONFIG;
+  try {{
+    CONFIG = await loadRealtimeConfig();
+  }} catch (err) {{
+    markConfigLoadError(err);
+    return;
+  }}
+'''
+    return javascript[:config_start] + config_loader + javascript[config_end:]
 
 
-def build_realtime_frontend_html(token: str) -> str:
+def build_realtime_frontend_html(token: str, root_id: str | None = None) -> str:
     """Return a standalone realtime browser page for Colab proxy/new-tab use."""
 
-    root_id = create_realtime_colab_root_id()
+    root_id = _validate_realtime_colab_root_id(root_id or create_realtime_colab_root_id())
     shell = build_realtime_colab_html_shell(root_id)
     shell = shell.replace(
         "LIVE-COLAB-01: realtime transcription prototype",
@@ -620,7 +651,7 @@ def build_realtime_frontend_html(token: str) -> str:
         "Статус: iframe HTML loaded; JS not attached yet",
         "Статус: page loaded",
     )
-    javascript = build_realtime_frontend_javascript(token, root_id)
+    del token
     return f"""<!doctype html>
 <html lang="ru">
 <head>
@@ -630,9 +661,7 @@ def build_realtime_frontend_html(token: str) -> str:
 </head>
 <body style="margin:0;padding:16px;background:#f8fafc;">
 {shell}
-<script>
-{javascript}
-</script>
+<script src="/realtime.js" defer></script>
 </body>
 </html>
 """
@@ -655,11 +684,20 @@ class _RealtimeFrontendRequestHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self) -> None:  # noqa: N802 - stdlib handler method
-        if self.path in ("/", "/index.html"):
+        path = urlparse(self.path).path
+        if path in ("/", "/index.html"):
             body = self.server.frontend_html.encode("utf-8")  # type: ignore[attr-defined]
             self._send_bytes(body, content_type="text/html; charset=utf-8")
             return
-        if self.path == "/healthz":
+        if path == "/realtime.js":
+            body = self.server.frontend_javascript.encode("utf-8")  # type: ignore[attr-defined]
+            self._send_bytes(body, content_type="application/javascript; charset=utf-8")
+            return
+        if path == "/config.json":
+            body = json.dumps(self.server.frontend_config, ensure_ascii=False).encode("utf-8")  # type: ignore[attr-defined]
+            self._send_bytes(body, content_type="application/json; charset=utf-8")
+            return
+        if path == "/healthz":
             self._send_bytes(b"ok", content_type="text/plain; charset=utf-8")
             return
         self._send_bytes(b"not found", content_type="text/plain; charset=utf-8", status=404)
@@ -670,9 +708,14 @@ def start_realtime_frontend_server(
 ) -> tuple[ThreadingHTTPServer, str]:
     """Start a lightweight local HTTP server for the standalone browser page."""
 
-    frontend_html = build_realtime_frontend_html(token)
+    root_id = create_realtime_colab_root_id()
+    frontend_html = build_realtime_frontend_html(token, root_id=root_id)
+    frontend_javascript = build_realtime_frontend_javascript(token, root_id)
+    frontend_config = build_realtime_frontend_config(token)
     server = ThreadingHTTPServer((host, port), _RealtimeFrontendRequestHandler)
     server.frontend_html = frontend_html  # type: ignore[attr-defined]
+    server.frontend_javascript = frontend_javascript  # type: ignore[attr-defined]
+    server.frontend_config = frontend_config  # type: ignore[attr-defined]
     thread = threading.Thread(target=server.serve_forever, name="elevenlabs-realtime-proxy", daemon=True)
     thread.start()
     _REALTIME_PROXY_SERVERS.append(server)

@@ -336,7 +336,9 @@ def test_generated_html_shell_uses_compact_diagnostics_ui() -> None:
     assert "Ready. Manual Colab/browser/provider runtime validation" not in html
 
 
-def test_proxy_frontend_config_contains_only_single_use_realtime_websocket_url() -> None:
+def test_proxy_frontend_config_contains_only_single_use_realtime_websocket_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ELEVEN_API_KEY", "preferred-key")
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "compatibility-key")
     config = realtime.build_realtime_frontend_config("temporary-token")
 
     assert config["wsUrl"].startswith("wss://api.elevenlabs.io/v1/speech-to-text/realtime?")
@@ -349,40 +351,69 @@ def test_proxy_frontend_config_contains_only_single_use_realtime_websocket_url()
         assert forbidden not in serialized
 
 
-def test_proxy_standalone_frontend_includes_controls_status_and_realtime_js() -> None:
+def test_proxy_standalone_frontend_includes_controls_status_and_external_realtime_js() -> None:
     page = realtime.build_realtime_frontend_html("temporary-token")
+    js = realtime.build_realtime_frontend_javascript("temporary-token", realtime.create_realtime_colab_root_id())
 
     assert "LIVE-COLAB-PROXY-01: realtime frontend bridge" in page
     assert "Статус: page loaded" in page
-    assert "setStatus('idle')" in page
-    assert "setStatus('starting')" in page
-    assert "setStatus('websocket_open')" in page
-    assert "setStatus('session_started')" in page
+    assert '<script src="/realtime.js" defer></script>' in page
+    assert "<script>" not in page
+    assert not re.search(r"<script(?![^>]*\bsrc=)[^>]*>.*?</script>", page, flags=re.DOTALL | re.IGNORECASE)
+    assert "temporary-token" not in page
+    assert "fetch('/config.json'" in js
+    assert "setStatus('idle')" in js
+    assert "setStatus('starting')" in js
+    assert "setStatus('websocket_open')" in js
+    assert "setStatus('session_started')" in js
     assert 'data-el="start">Start</button>' in page
     assert 'data-el="stop" disabled>Stop</button>' in page
     assert "Microphone" in page
     assert "Browser tab / screen audio" in page
     assert "Browser tab / screen audio + microphone" in page
     assert "Virtual input / system audio device" in page
-    assert "navigator.mediaDevices.getUserMedia" in page
-    assert "navigator.mediaDevices.getDisplayMedia" in page
-    assert "new WebSocket(CONFIG.wsUrl)" in page
-    assert "message_type: 'input_audio_chunk'" in page
-    assert "audio_base_64: payload" in page
-    for forbidden in ["ELEVEN_API_KEY", "ELEVENLABS_API_KEY", "preferred-key", "compatibility-key", "main-api-key"]:
+    assert "navigator.mediaDevices.getUserMedia" in js
+    assert "navigator.mediaDevices.getDisplayMedia" in js
+    assert "new WebSocket(CONFIG.wsUrl)" in js
+    assert "message_type: 'input_audio_chunk'" in js
+    assert "audio_base_64: payload" in js
+    for forbidden in ["ELEVEN_API_KEY", "ELEVENLABS_API_KEY", "preferred-key", "compatibility-key", "main-api-key", "temporary-token"]:
         assert forbidden not in page
+        assert forbidden not in js
 
 
-def test_proxy_server_serves_standalone_frontend_without_provider_calls() -> None:
+def test_proxy_server_serves_standalone_frontend_assets_without_provider_calls() -> None:
     server, local_url = realtime.start_realtime_frontend_server("temporary-token")
     try:
         with urlopen(local_url, timeout=5) as response:
             body = response.read().decode("utf-8")
+            content_type = response.headers.get("Content-Type")
         assert response.status == 200
+        assert content_type == "text/html; charset=utf-8"
         assert "LIVE-COLAB-PROXY-01: realtime frontend bridge" in body
-        assert "temporary-token" in body
-        assert "ELEVEN_API_KEY" not in body
-        assert "ELEVENLABS_API_KEY" not in body
+        assert '<script src="/realtime.js" defer></script>' in body
+        assert "temporary-token" not in body
+
+        with urlopen(local_url + "realtime.js", timeout=5) as response:
+            js = response.read().decode("utf-8")
+            js_content_type = response.headers.get("Content-Type")
+        assert response.status == 200
+        assert js_content_type == "application/javascript; charset=utf-8"
+        assert "fetch('/config.json'" in js
+        assert "setStatus('idle')" in js
+        assert "temporary-token" not in js
+
+        with urlopen(local_url + "config.json", timeout=5) as response:
+            config = json.loads(response.read().decode("utf-8"))
+            config_content_type = response.headers.get("Content-Type")
+        assert response.status == 200
+        assert config_content_type == "application/json; charset=utf-8"
+        assert config["bridge"] == "LIVE-COLAB-PROXY-01"
+        assert "temporary-token" in config["wsUrl"]
+
+        combined = body + js + json.dumps(config, ensure_ascii=False)
+        assert "ELEVEN_API_KEY" not in combined
+        assert "ELEVENLABS_API_KEY" not in combined
     finally:
         server.shutdown()
         server.server_close()
@@ -435,8 +466,11 @@ def test_realtime_proxy_source_has_no_google_docs_drive_manifest_or_speaker_call
         assert re.search(pattern, source, flags=re.IGNORECASE) is None
 
 
-def test_proxy_page_does_not_introduce_google_docs_drive_manifest_or_speaker_calls() -> None:
+def test_proxy_page_assets_do_not_introduce_google_docs_drive_manifest_or_speaker_calls() -> None:
     page = realtime.build_realtime_frontend_html("temporary-token")
+    js = realtime.build_realtime_frontend_javascript("temporary-token", realtime.create_realtime_colab_root_id())
+    config = json.dumps(realtime.build_realtime_frontend_config("temporary-token"), ensure_ascii=False)
+    assets = page + js + config
 
     for forbidden in [
         "google.docs",
@@ -448,7 +482,7 @@ def test_proxy_page_does_not_introduce_google_docs_drive_manifest_or_speaker_cal
         "speaker_projects.json",
         "telegram",
     ]:
-        assert forbidden.lower() not in page.lower()
+        assert forbidden.lower() not in assets.lower()
 
 
 def test_docs_mention_realtime_experimental_caveats() -> None:
