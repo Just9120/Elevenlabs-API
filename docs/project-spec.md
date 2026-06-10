@@ -2,7 +2,7 @@
 
 ## 1. Статус документа
 
-Этот документ — основной Russian-first source of truth для текущего состояния проекта `Just9120/Elevenlabs-API` после merge PR #47. Он синхронизирует продуктовый scope, runtime flows, docs-only workflows, safety boundaries и validation requirements.
+Этот документ — основной Russian-first source of truth для текущего состояния проекта `Just9120/Elevenlabs-API` после merge PR #49. Он синхронизирует продуктовый scope, runtime flows, docs-only workflows, safety boundaries и validation requirements.
 
 Документ описывает ожидаемое поведение проекта, но сам по себе не доказывает runtime/E2E validation. Все статусы валидации должны сверяться с `VALIDATION_MATRIX.md` и фактическими CI/runtime записями.
 
@@ -97,15 +97,17 @@ Flow:
 
 ### 4.5 Realtime Colab prototype (LIVE-COLAB-01)
 
-`LIVE-COLAB-01` is an experimental separate runtime contour. It is not a replacement for the current batch Google Colab workflow; batch mode remains the current production/fallback channel. The goal is runtime validation of live browser audio capture plus ElevenLabs realtime Scribe transcription before any later PWA/backend architecture work.
+`LIVE-COLAB-01` is an experimental separate runtime contour implemented in `main` after PR #49. It is not part of the stable batch flow yet and is not a replacement for the current batch Google Colab workflow; batch mode remains the current stable/fallback channel. The goal is runtime validation of live browser audio capture plus ElevenLabs realtime Scribe transcription before any later PWA/backend architecture work.
+
+Future PWA/backend work must be based on lessons from actual runtime validation, not assumed browser/provider behavior. Browser-based system/desktop audio capture is constrained and may require OS-level routing, virtual input devices or loopback.
 
 Prototype files:
 
 - `elevenlabs_realtime.py` — standalone runtime; it must not import `elevenlabs_api.py`;
 - `notebooks/elevenlabs_realtime_colab.ipynb` — thin launcher;
-- `docs/realtime-colab.md` — focused operating notes and caveats.
+- `docs/realtime-colab.md` — focused runtime validation guide and caveats.
 
-Runtime behavior:
+Runtime behavior to validate manually:
 
 1. Python reads `ELEVENLABS_API_KEY` from Colab Secrets / `userdata` or environment without printing it.
 2. Python creates a realtime single-use token through `POST https://api.elevenlabs.io/v1/single-use-token/realtime_scribe`.
@@ -125,8 +127,8 @@ Safety boundaries:
 
 - do not expose the main `ELEVENLABS_API_KEY` to browser JavaScript;
 - do not log the main API key or single-use token;
-- do not save transcripts to Google Docs in this PR;
-- do not call Google Docs/Drive APIs from LIVE-COLAB-01;
+- do not save transcripts to Google Docs in `LIVE-COLAB-01`;
+- do not call Google Docs/Drive APIs from `LIVE-COLAB-01`;
 - do not read or write `manifest` and do not change manifest schema;
 - do not integrate speaker projects;
 - do not store transcript text, audio chunks, API keys, provider raw responses or browser audio data in `manifest`/analytics;
