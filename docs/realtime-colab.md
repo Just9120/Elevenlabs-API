@@ -1,19 +1,39 @@
 # Realtime Colab prototype (LIVE-COLAB-01)
 
-`LIVE-COLAB-01` is an experimental realtime transcription contour for Colab runtime validation. It is separate from the current batch Google Colab workflow and is not a replacement for `elevenlabs_api.py` or `notebooks/elevenlabs_api_colab.ipynb`.
+`LIVE-COLAB-01` — experimental realtime transcription contour for Colab runtime validation. It is separate from the current batch Google Colab workflow and is not a replacement for `elevenlabs_api.py` or `notebooks/elevenlabs_api_colab.ipynb`. The stable/fallback channel remains the batch Colab workflow.
 
-## Scope
+## Current status
 
-The prototype adds:
+- `LIVE-COLAB-01` is implemented in `main` after PR #49.
+- The contour is experimental.
+- Static CI checks cover notebook hygiene, helper behavior and safety guardrails.
+- Manual end-to-end Colab runtime validation is still pending.
+- Success must be proven by runtime checks in a real browser/Colab session, not by static tests alone.
 
-- `elevenlabs_realtime.py` — standalone lightweight Colab runtime;
-- `notebooks/elevenlabs_realtime_colab.ipynb` — thin GitHub launcher;
-- browser audio capture modes for microphone, display/tab audio, display/tab audio + microphone mixing, and virtual input devices;
-- ElevenLabs realtime WebSocket STT with `scribe_v2_realtime`;
-- separate partial and committed transcript display;
-- copy/download convenience for the in-browser committed transcript buffer.
+## What this prototype validates
 
-This first contour intentionally does **not** save to Google Docs, does **not** read or write `manifest`, and does **not** integrate speaker projects.
+This runtime contour is intended to validate:
+
+- ElevenLabs single-use realtime token flow;
+- browser microphone capture;
+- browser tab/screen audio capture when browser/Colab returns an audio track;
+- browser tab/screen audio + microphone mixing;
+- virtual input device path for desktop-app/system audio routed through the OS;
+- partial transcript display;
+- committed transcript display;
+- Stop/release behavior for WebSocket and media tracks.
+
+## What this prototype does not do yet
+
+`LIVE-COLAB-01` intentionally does **not** include:
+
+- Google Docs save;
+- manifest integration or manifest schema changes;
+- speaker projects integration;
+- batch transcription changes;
+- PWA, backend or Telegram integration;
+- guaranteed system-wide audio capture;
+- production-grade `AudioWorklet` implementation.
 
 ## Safety model
 
@@ -23,26 +43,83 @@ This first contour intentionally does **not** save to Google Docs, does **not** 
 - The prototype must not log the main API key or the single-use token.
 - Transcript text, audio chunks, API keys, provider raw responses and browser audio data must not be stored in `manifest` or analytics.
 
-## Audio capture modes and constraints
+## Audio source modes
 
-1. **Microphone** — uses `navigator.mediaDevices.getUserMedia({ audio: true })` and browser permission prompts.
-2. **Browser tab / screen audio** — uses `navigator.mediaDevices.getDisplayMedia({ video: true, audio: true })`. Browser support varies; if no audio track is returned, the UI shows the Russian error required by the delivery scope.
-3. **Browser tab / screen audio + microphone** — captures display audio and microphone audio, mixes them with Web Audio API, and warns about echo/double audio.
-4. **Virtual input / system audio device** — treated as a microphone/input-device route. Desktop app audio usually requires OS-level routing, virtual audio device, loopback or similar setup. Browser capture does not guarantee direct system-wide desktop audio access.
+### Microphone
 
-The MVP uses browser-side PCM conversion to 16kHz mono and sends documented `message_type="input_audio_chunk"` messages with `audio_base_64` PCM payloads and `sample_rate=16000`. If a deprecated browser API is used for prototype simplicity, it is documented as prototype-only and should be replaced with AudioWorklet in a future PWA/backend-grade implementation.
+- Uses browser microphone/input-device capture through `getUserMedia`.
+- This is the best first validation path because it has the fewest moving parts.
+- It may capture only the local user and may not capture remote speakers played through headphones.
 
-## Manual runtime validation still required
+### Browser tab / screen audio
 
-Local tests and CI only verify static/pure behavior. Live/browser/provider behavior requires manual Colab runtime validation before any E2E success claim:
+- Uses browser display/tab capture through `getDisplayMedia`.
+- Requires browser support and browser-specific permission UI.
+- The user may need to choose a browser tab and explicitly enable tab audio sharing.
+- If no audio track is provided, the UI should show the Russian no-audio-track error.
+- Do not assume every window, screen or shared source provides audio.
 
-- token creation works with Colab Secrets;
-- microphone mode starts and streams audio;
-- display audio mode either receives an audio track or shows the clear Russian no-audio-track error;
-- display + microphone mode mixes both sources;
-- WebSocket opens and reports `session_started`;
-- partial transcript appears;
-- committed transcript appears;
-- Stop closes WebSocket and releases all tracks;
-- no API key is exposed in browser JavaScript;
-- no Google Docs, Drive or `manifest` mutation occurs.
+### Browser tab / screen audio + microphone
+
+- Captures display/tab audio and microphone audio, then mixes them into one stream in the browser.
+- Useful for meetings where remote speakers are in a browser tab and the local user speaks through a microphone.
+- Watch for echo/double audio when the microphone also hears speakers from the same tab or device output.
+
+### Virtual input / system audio device
+
+- For desktop apps, browser capture may not directly access app/system audio.
+- The expected path is OS-level audio routing, loopback or a virtual audio device.
+- The browser sees that routed source as an input device, similar to a microphone.
+- This is the expected validation path for desktop Zoom/Teams/Telegram/WhatsApp-like apps.
+- Browser-based capture must not be described as reliable system-wide desktop audio capture.
+
+## Manual runtime validation checklist
+
+Copy this checklist into the runtime report and mark each item as pass/fail/not tested:
+
+- [ ] Open `notebooks/elevenlabs_realtime_colab.ipynb` from `main`.
+- [ ] Confirm the notebook fetches `elevenlabs_realtime.py` from `main` or the selected `GITHUB_REF`.
+- [ ] Confirm `ELEVENLABS_API_KEY` loads from Colab Secrets without printing the value.
+- [ ] Confirm a single-use token is created.
+- [ ] Confirm the realtime UI renders.
+- [ ] Confirm microphone mode starts.
+- [ ] Confirm WebSocket opens.
+- [ ] Confirm partial transcript appears.
+- [ ] Confirm committed transcript appears.
+- [ ] Confirm Stop closes WebSocket and releases media tracks.
+- [ ] Confirm tab/screen audio mode either works or shows the expected Russian no-audio-track error.
+- [ ] Confirm display+mic mode starts and mixes, or document the failure.
+- [ ] Confirm virtual input mode can see the virtual/loopback device, if available.
+- [ ] Confirm the main API key is not visible in browser JS, notebook output, diagnostics or logs.
+- [ ] Confirm no transcript/audio/secrets are written to `manifest` or analytics.
+
+## Troubleshooting
+
+| Symptom | Likely cause | What to check |
+| --- | --- | --- |
+| Browser `mediaDevices` unavailable | Unsupported/insecure browser context or Colab/browser limitation | Use a supported browser and a normal Colab page; retry after reload. |
+| Microphone permission denied | Browser or OS permission blocked | Re-enable microphone permission in browser/OS settings and restart capture. |
+| Device labels hidden | Browser hides labels until permission is granted | Grant microphone permission once, then refresh device list. |
+| No audio track from display/tab capture | Browser did not provide shared audio | Select a browser tab and enable tab audio sharing if the browser offers it; otherwise record the expected Russian no-audio-track error. |
+| WebSocket auth/token error | Missing/invalid API key, token creation failure or token not accepted | Check Colab Secrets and token creation cell without printing secrets/tokens. |
+| Token expired or already used | Single-use token was reused or delayed too long | Create a fresh token and start a new session. |
+| No committed transcript | VAD/session did not commit speech or provider did not return committed events | Speak clearly, wait for VAD commit, then stop; record whether partial transcript appeared. |
+| Echo/double audio in display+mic mode | Microphone hears speaker output in addition to display audio | Use headphones, lower speaker volume or validate sources separately. |
+| Desktop app audio not captured | Browser cannot directly capture that app/system output | Route desktop audio through loopback/virtual input and select it as an input device. |
+| Stop does not release capture indicator | Media tracks or display capture were not fully stopped | Press Stop again, close browser sharing UI if needed and record browser/OS details. |
+
+## Runtime report template
+
+Do not paste API keys, single-use tokens, raw transcript body or private audio content.
+
+```text
+Browser/OS:
+Colab runtime:
+Source mode:
+WebSocket opened: yes/no
+Partial transcript: yes/no
+Committed transcript: yes/no
+Stop released tracks: yes/no
+Error shown:
+Notes:
+```

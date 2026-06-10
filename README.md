@@ -38,30 +38,9 @@
 
 ## Realtime Colab prototype
 
-`LIVE-COLAB-01` — experimental realtime Colab prototype for runtime validation of live browser audio capture + ElevenLabs realtime STT. It is separate from the current batch transcription mode and is not a replacement for `notebooks/elevenlabs_api_colab.ipynb` or `elevenlabs_api.py`; Colab batch mode remains the working/fallback channel.
+`LIVE-COLAB-01` is now present in `main` as an experimental standalone realtime Colab notebook for live browser audio capture + ElevenLabs realtime STT validation. It is implemented and covered by static CI checks, but manual Colab runtime validation is still pending, so do not treat it as proven realtime E2E success yet.
 
-Launcher and runtime:
-
-- `notebooks/elevenlabs_realtime_colab.ipynb` — thin launcher for the realtime prototype;
-- `elevenlabs_realtime.py` — standalone realtime runtime that does not import the batch runtime.
-
-Supported source modes for manual validation:
-
-- microphone;
-- browser tab/screen audio when the browser returns an audio track;
-- browser tab/screen audio + microphone mixed in the browser;
-- virtual input device / loopback route for desktop app audio.
-
-Current limitations:
-
-- experimental only; live/browser/provider behavior needs manual Colab runtime validation before any E2E success claim;
-- no Google Docs save yet;
-- no manifest reads/writes or schema changes;
-- no speaker projects integration;
-- no guarantee of system-wide audio capture from desktop apps because browsers may require tab audio sharing or OS-level virtual audio/loopback devices;
-- Colab cold start may not meet a 20–30 second live-start requirement unless the runtime is pre-warmed.
-
-Main `ELEVENLABS_API_KEY` remains Python-side only. Browser JavaScript receives only a temporary single-use realtime token created by Python.
+Use `docs/realtime-colab.md` for the detailed manual validation checklist and audio-source limitations. The existing batch Colab workflow remains the stable/fallback tool for transcription. `LIVE-COLAB-01` has no Google Docs save and no manifest integration.
 
 ## Секреты и API-ключи
 

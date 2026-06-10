@@ -2,9 +2,9 @@
 
 ## Статус
 
-Документ фиксирует текущий operational plan после merge PR #47. Он не является историческим журналом всех PR; для validation evidence используется `VALIDATION_MATRIX.md`, а для требований — `docs/project-spec.md`.
+Документ фиксирует текущий operational plan после merge PR #49. Он не является историческим журналом всех PR; для validation evidence используется `VALIDATION_MATRIX.md`, а для требований — `docs/project-spec.md`.
 
-Текущая фаза: batch Colab remains the working/fallback channel, while `LIVE-COLAB-01` starts a separate experimental realtime Colab contour. Runtime validation in Google Colab/Drive/Docs and realtime browser/provider validation must not be overstated.
+Текущая фаза: batch Colab remains the working/fallback channel, while `LIVE-COLAB-01` is a separate experimental realtime Colab contour with manual runtime validation pending. Runtime validation in Google Colab/Drive/Docs and realtime browser/provider validation must not be overstated.
 
 ## Готово к текущему checkpoint
 
@@ -56,22 +56,38 @@
 
 ### LIVE-COLAB-01: Realtime Colab prototype
 
-Цель: create the first experimental realtime Colab prototype for live browser audio capture + ElevenLabs realtime STT. This is separate from the batch workflow and must not save to Google Docs, mutate `manifest`, or integrate speaker projects.
+Цель: validate the first experimental realtime Colab prototype for live browser audio capture + ElevenLabs realtime STT. This is separate from the batch workflow and must not save to Google Docs, mutate `manifest`, or integrate speaker projects.
 
-Implementation checklist:
+Implementation status:
 
-- [x] Create realtime notebook `notebooks/elevenlabs_realtime_colab.ipynb`.
-- [x] Create standalone realtime runtime file `elevenlabs_realtime.py`.
+- [x] Create realtime notebook `notebooks/elevenlabs_realtime_colab.ipynb` — merged in PR #49.
+- [x] Create standalone realtime runtime file `elevenlabs_realtime.py` — merged in PR #49.
+- [x] Static/local checks for notebook hygiene, helper behavior and safety guardrails passed for the implementation PR.
+- [ ] Manual Colab runtime validation remains the next active task.
+
+Manual runtime checklist:
+
 - [ ] Token creation works in live Colab with `ELEVENLABS_API_KEY` from Colab Secrets.
 - [ ] Mic mode starts in a real browser/Colab session.
 - [ ] Display audio mode detects an audio track or shows the required clear Russian error.
 - [ ] Display + mic mode mixes both streams and warns about echo/double audio.
+- [ ] Virtual input/loopback device route is visible and usable if available.
 - [ ] WebSocket opens against ElevenLabs realtime endpoint.
 - [ ] Partial transcript appears.
 - [ ] Committed transcript appears.
 - [ ] Stop releases tracks and closes WebSocket.
 - [ ] No API key in JS; browser receives only single-use realtime token.
 - [ ] No `manifest` or Google Docs mutations.
+
+Next steps:
+
+1. Run the realtime notebook in a fresh Colab runtime.
+2. Validate microphone mode first.
+3. Validate browser tab/screen audio and record whether an audio track is available.
+4. Validate display+mic mixing and note echo/double-audio behavior.
+5. Validate virtual input/loopback route if such a device is available.
+6. Collect a runtime report using `docs/realtime-colab.md`.
+7. Only after runtime results are reviewed, decide whether Google Docs save belongs in a separate `LIVE-COLAB-02` scope.
 
 Static/local validation can check notebook hygiene, URL helpers, error mapping and token response parsing. Live/browser/provider rows remain pending manual Colab runtime validation; do not claim E2E success until this checklist is completed.
 
