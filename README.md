@@ -40,7 +40,7 @@
 
 `LIVE-COLAB-01` is now present in `main` as an experimental standalone realtime Colab notebook for live browser audio capture + ElevenLabs realtime STT validation. It is implemented and covered by static CI checks, but manual Colab runtime validation is still pending, so do not treat it as proven realtime E2E success yet.
 
-Use `docs/realtime-colab.md` for the detailed manual validation checklist and audio-source limitations. The existing batch Colab workflow remains the stable/fallback tool for transcription. `LIVE-COLAB-01` has no Google Docs save and no manifest integration. It uses the preferred project secret `ELEVEN_API_KEY` and accepts `ELEVENLABS_API_KEY` only as a compatibility alias.
+Use `docs/realtime-colab.md` for the detailed manual validation checklist and audio-source limitations. The Colab prototype now renders the frontend inside a sandboxed `iframe srcdoc` to avoid relying on executable JavaScript in the outer Colab output cell. The existing batch Colab workflow remains the stable/fallback tool for transcription. `LIVE-COLAB-01` has no Google Docs save and no manifest integration. It uses the preferred project secret `ELEVEN_API_KEY` and accepts `ELEVENLABS_API_KEY` only as a compatibility alias.
 
 ## Секреты и API-ключи
 

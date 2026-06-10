@@ -7,6 +7,7 @@
 - `LIVE-COLAB-01` is implemented in `main` after PR #49.
 - The contour is experimental.
 - Static CI checks cover notebook hygiene, helper behavior and safety guardrails.
+- The Colab launcher renders the browser app in a sandboxed `iframe srcdoc` because Colab output cells may block or isolate direct output-cell JavaScript execution.
 - Manual end-to-end Colab runtime validation is still pending.
 - Success must be proven by runtime checks in a real browser/Colab session, not by static tests alone.
 
