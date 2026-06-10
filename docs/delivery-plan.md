@@ -67,7 +67,7 @@ Implementation status:
 
 Manual runtime checklist:
 
-- [ ] Token creation works in live Colab with `ELEVENLABS_API_KEY` from Colab Secrets.
+- [ ] Token creation works in live Colab with preferred `ELEVEN_API_KEY` from Colab Secrets, with `ELEVENLABS_API_KEY` accepted only as a compatibility alias.
 - [ ] Mic mode starts in a real browser/Colab session.
 - [ ] Display audio mode detects an audio track or shows the required clear Russian error.
 - [ ] Display + mic mode mixes both streams and warns about echo/double audio.
