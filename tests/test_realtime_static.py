@@ -78,6 +78,8 @@ def test_websocket_url_builder_requires_token_and_model_id() -> None:
         realtime.build_realtime_websocket_url("")
     with pytest.raises(ValueError):
         realtime.build_realtime_websocket_url("tok", model_id="")
+    with pytest.raises(ValueError):
+        realtime.build_realtime_websocket_url("tok", commit_strategy="")
 
     url = realtime.build_realtime_websocket_url("tok 123")
     parsed = urlparse(url)
@@ -88,6 +90,7 @@ def test_websocket_url_builder_requires_token_and_model_id() -> None:
     assert query["model_id"] == ["scribe_v2_realtime"]
     assert query["token"] == ["tok 123"]
     assert query["audio_format"] == ["pcm_16000"]
+    assert query["commit_strategy"] == ["vad"]
 
 
 def test_generated_html_does_not_embed_main_api_key_or_env_name() -> None:
@@ -95,7 +98,12 @@ def test_generated_html_does_not_embed_main_api_key_or_env_name() -> None:
     assert "temporary-token" in html
     assert "ELEVENLABS_API_KEY" not in html
     assert "main-api-key" not in html
+    assert "message_type" in html
+    assert "audio_base_64" in html
     assert "input_audio_chunk" in html
+    assert "input_audio_chunk: payload" not in html
+    assert '"input_audio_chunk": payload' not in html
+    assert "commit: true" not in html
     assert "getUserMedia" in html
     assert "getDisplayMedia" in html
 

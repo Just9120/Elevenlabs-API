@@ -109,8 +109,8 @@ Runtime behavior:
 
 1. Python reads `ELEVENLABS_API_KEY` from Colab Secrets / `userdata` or environment without printing it.
 2. Python creates a realtime single-use token through `POST https://api.elevenlabs.io/v1/single-use-token/realtime_scribe`.
-3. Browser JavaScript receives only the temporary single-use token and opens `wss://api.elevenlabs.io/v1/speech-to-text/realtime` with `model_id=scribe_v2_realtime` and `audio_format=pcm_16000`.
-4. Browser captures audio, converts to 16kHz mono PCM where feasible, and sends base64 `input_audio_chunk` messages.
+3. Browser JavaScript receives only the temporary single-use token and opens `wss://api.elevenlabs.io/v1/speech-to-text/realtime` with `model_id=scribe_v2_realtime`, `audio_format=pcm_16000` and `commit_strategy=vad`.
+4. Browser captures audio, converts to 16kHz mono PCM where feasible, and sends documented `message_type="input_audio_chunk"` messages with `audio_base_64` PCM payloads and `sample_rate=16000`.
 5. UI displays partial transcript separately from committed transcript and supports Start/Stop.
 6. Stop must close WebSocket and release all media tracks.
 

@@ -19,7 +19,7 @@ This first contour intentionally does **not** save to Google Docs, does **not** 
 
 - The main `ELEVENLABS_API_KEY` is read only Python-side from Colab Secrets / `userdata` or the environment.
 - Python creates a single-use realtime Scribe token with `POST https://api.elevenlabs.io/v1/single-use-token/realtime_scribe`.
-- Browser JavaScript receives only the temporary single-use token embedded in the realtime WebSocket URL.
+- Browser JavaScript receives only the temporary single-use token embedded in the realtime WebSocket URL, which uses `commit_strategy=vad` for this MVP.
 - The prototype must not log the main API key or the single-use token.
 - Transcript text, audio chunks, API keys, provider raw responses and browser audio data must not be stored in `manifest` or analytics.
 
@@ -30,7 +30,7 @@ This first contour intentionally does **not** save to Google Docs, does **not** 
 3. **Browser tab / screen audio + microphone** — captures display audio and microphone audio, mixes them with Web Audio API, and warns about echo/double audio.
 4. **Virtual input / system audio device** — treated as a microphone/input-device route. Desktop app audio usually requires OS-level routing, virtual audio device, loopback or similar setup. Browser capture does not guarantee direct system-wide desktop audio access.
 
-The MVP uses browser-side PCM conversion to 16kHz mono and sends `input_audio_chunk` messages with base64 PCM audio. If a deprecated browser API is used for prototype simplicity, it is documented as prototype-only and should be replaced with AudioWorklet in a future PWA/backend-grade implementation.
+The MVP uses browser-side PCM conversion to 16kHz mono and sends documented `message_type="input_audio_chunk"` messages with `audio_base_64` PCM payloads and `sample_rate=16000`. If a deprecated browser API is used for prototype simplicity, it is documented as prototype-only and should be replaced with AudioWorklet in a future PWA/backend-grade implementation.
 
 ## Manual runtime validation still required
 

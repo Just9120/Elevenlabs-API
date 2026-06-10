@@ -27,6 +27,7 @@ REALTIME_TOKEN_URL = "https://api.elevenlabs.io/v1/single-use-token/realtime_scr
 REALTIME_WS_ENDPOINT = "wss://api.elevenlabs.io/v1/speech-to-text/realtime"
 REALTIME_MODEL_ID = "scribe_v2_realtime"
 REALTIME_AUDIO_FORMAT = "pcm_16000"
+REALTIME_COMMIT_STRATEGY = "vad"
 
 KNOWN_ERROR_MESSAGES_RU = {
     "auth": "Ошибка авторизации ElevenLabs realtime. Проверьте API key и срок действия single-use token.",
@@ -125,6 +126,7 @@ def build_realtime_websocket_url(
     *,
     model_id: str = REALTIME_MODEL_ID,
     audio_format: str = REALTIME_AUDIO_FORMAT,
+    commit_strategy: str = REALTIME_COMMIT_STRATEGY,
 ) -> str:
     """Build the ElevenLabs realtime WebSocket URL used by browser JavaScript."""
 
@@ -132,11 +134,14 @@ def build_realtime_websocket_url(
         raise ValueError("token is required")
     if not isinstance(model_id, str) or not model_id.strip():
         raise ValueError("model_id is required")
+    if not isinstance(commit_strategy, str) or not commit_strategy.strip():
+        raise ValueError("commit_strategy is required")
     query = urlencode(
         {
             "model_id": model_id.strip(),
             "token": token.strip(),
             "audio_format": audio_format,
+            "commit_strategy": commit_strategy.strip(),
         }
     )
     return f"{REALTIME_WS_ENDPOINT}?{query}"
@@ -161,6 +166,7 @@ def build_realtime_colab_html(token: str) -> str:
             "wsUrl": ws_url,
             "modelId": REALTIME_MODEL_ID,
             "audioFormat": REALTIME_AUDIO_FORMAT,
+            "commitStrategy": REALTIME_COMMIT_STRATEGY,
             "messages": KNOWN_ERROR_MESSAGES_RU,
         },
         ensure_ascii=False,
@@ -368,7 +374,7 @@ def build_realtime_colab_html(token: str) -> str:
       if (!audioContext) audioContext = new AudioContext();
       await audioContext.resume();
       ws = new WebSocket(CONFIG.wsUrl);
-      ws.onopen = () => {{ setStatus('websocket_open'); log('WebSocket opened; using ' + CONFIG.modelId + ' / ' + CONFIG.audioFormat); }};
+      ws.onopen = () => {{ setStatus('websocket_open'); log('WebSocket opened; using ' + CONFIG.modelId + ' / ' + CONFIG.audioFormat + ' / commit_strategy=' + CONFIG.commitStrategy); }};
       ws.onerror = () => {{ log('WebSocket error. Проверьте сеть, token и ElevenLabs realtime access.'); }};
       ws.onclose = (event) => {{ log('WebSocket closed: code=' + event.code + ', reason=' + (event.reason || '')); setStatus('closed'); stop(false); }};
       ws.onmessage = (event) => {{
@@ -384,7 +390,11 @@ def build_realtime_colab_html(token: str) -> str:
         const mono = event.inputBuffer.getChannelData(0);
         const pcm16k = downsampleMono(mono, audioContext.sampleRate, 16000);
         const payload = floatTo16BitPcmBase64(pcm16k);
-        ws.send(JSON.stringify({{input_audio_chunk: payload}}));
+        ws.send(JSON.stringify({{
+          message_type: 'input_audio_chunk',
+          audio_base_64: payload,
+          sample_rate: 16000
+        }}));
       }};
       source.connect(processor);
       processor.connect(audioContext.destination);
