@@ -6,6 +6,7 @@ These tests intentionally avoid browser APIs and ElevenLabs provider calls.
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -178,14 +179,57 @@ def test_generated_html_does_not_embed_main_api_key_values_or_secret_names() -> 
     assert "getDisplayMedia" in html
 
 
+def test_generated_html_uses_current_render_root_for_colab_binding() -> None:
+    first_html = realtime.build_realtime_colab_html("temporary-token")
+    second_html = realtime.build_realtime_colab_html("temporary-token")
+
+    assert "document.getElementById('el-realtime-root')" not in first_html
+    assert 'id="el-realtime-root"' not in first_html
+    assert 'data-el-realtime-root' in first_html
+    assert "const RENDER_ROOT_ID = 'el-realtime-root-" in first_html
+    assert "const root = document.getElementById(RENDER_ROOT_ID)" in first_html
+    assert "root.querySelector" in first_html
+    assert first_html != second_html
+
+
+def test_generated_html_avoids_duplicate_fixed_element_ids() -> None:
+    html = realtime.build_realtime_colab_html("temporary-token")
+    ids = re.findall(r'id="([^"]+)"', html)
+
+    assert len(ids) == len(set(ids))
+    assert all(element_id.startswith("el-realtime-root-") for element_id in ids)
+
+
+def test_generated_html_includes_js_ready_status_transition_marker() -> None:
+    html = realtime.build_realtime_colab_html("temporary-token")
+
+    assert "Статус: HTML loaded; JS not attached yet" in html
+    assert "function markJsReady()" in html
+    assert "root.dataset.jsReady = 'true'" in html
+    assert "statusEl.dataset.jsReadyMarker = 'attached'" in html
+    assert "setStatus('idle')" in html
+
+
+def test_generated_html_still_includes_realtime_controls() -> None:
+    html = realtime.build_realtime_colab_html("temporary-token")
+
+    assert 'data-el="start">Start</button>' in html
+    assert 'data-el="stop" disabled>Stop</button>' in html
+    assert 'data-el="copy">Copy transcript</button>' in html
+    assert 'data-el="download">Download .txt</button>' in html
+    assert "startBtn.addEventListener('click', start)" in html
+    assert "stopBtn.addEventListener('click', () => stop())" in html
+    assert "copyBtn.addEventListener('click'" in html
+    assert "downloadBtn.addEventListener('click'" in html
+
+
 def test_generated_html_uses_compact_diagnostics_ui() -> None:
     html = realtime.build_realtime_colab_html("temporary-token")
     assert "LIVE-COLAB-01: realtime transcription prototype" in html
     assert "Источник аудио" in html
-    assert "Статус: idle" in html
     assert "<summary>Диагностика</summary>" in html
     assert "Диагностика появится после запуска realtime-сессии." in html
-    assert '<pre id="el-diagnostics" hidden></pre>' in html
+    assert '<pre data-el="diagnostics" hidden></pre>' in html
     assert "diagWrapEl.open = true" in html
     assert "background:#111" not in html
     assert "min-height:80px" not in html
