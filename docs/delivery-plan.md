@@ -4,7 +4,7 @@
 
 Документ фиксирует текущий operational plan после merge PR #49. Он не является историческим журналом всех PR; для validation evidence используется `VALIDATION_MATRIX.md`, а для требований — `docs/project-spec.md`.
 
-Текущая фаза: batch Colab remains the working/fallback channel, while `LIVE-COLAB-01` is a separate experimental realtime Colab contour with manual runtime validation pending. Runtime validation in Google Colab/Drive/Docs and realtime browser/provider validation must not be overstated.
+Текущая фаза: batch Colab remains the working/fallback channel, while realtime work is a separate experimental contour. `LIVE-COLAB-01` output-cell UI is blocked in the tested Colab runtime, and `LIVE-COLAB-PROXY-01` is the next bridge validation step using a standalone page via Colab proxy/new tab. Runtime validation in Google Colab/Drive/Docs and realtime browser/provider validation must not be overstated.
 
 ## Готово к текущему checkpoint
 
@@ -54,6 +54,28 @@
 
 ## Следующий runtime checkpoint
 
+### LIVE-COLAB-PROXY-01: standalone realtime frontend bridge
+
+Цель: validate the next realtime bridge by using Colab only as a Python launcher/local HTTP server and opening a standalone browser page through the Colab proxy/new tab. This is closer to future PWA architecture because frontend logic is not coupled to notebook output-cell JavaScript, but it remains separate from the batch Colab workflow and does not depend on future PWA/backend code.
+
+Implementation status:
+
+- [x] Add proxy/new-tab launcher path in `elevenlabs_realtime.py`.
+- [x] Serve a standalone realtime browser page from a lightweight local HTTP server.
+- [x] Keep browser exposure limited to a single-use realtime token or generated realtime WebSocket URL.
+- [x] Document output-cell UI attempts as blocked in tested Colab runtime.
+- [ ] Manual Colab proxy/new-tab runtime validation remains the next active task.
+
+Manual runtime checklist:
+
+- [ ] Launcher creates a single-use token using preferred `ELEVEN_API_KEY`, with `ELEVENLABS_API_KEY` only as compatibility alias.
+- [ ] Launcher starts the local HTTP server and displays `Open realtime frontend in a new tab`.
+- [ ] Link uses a Colab proxy URL when available, or shows the Russian fallback instruction when unavailable.
+- [ ] Standalone page opens in a normal browser tab/window and shows `Статус: page loaded`, then `Статус: idle`.
+- [ ] Start changes status to `starting`; WebSocket open changes status to `websocket_open`; ElevenLabs session events show `session_started` where applicable.
+- [ ] Microphone, display audio, display+mic, and virtual input/system audio-device modes behave as documented.
+- [ ] No Google Docs save, no `manifest` mutation, no speaker projects integration, and no main API key exposure.
+
 ### LIVE-COLAB-01: Realtime Colab prototype
 
 Цель: validate the first experimental realtime Colab prototype for live browser audio capture + ElevenLabs realtime STT. This is separate from the batch workflow and must not save to Google Docs, mutate `manifest`, or integrate speaker projects.
@@ -63,7 +85,7 @@ Implementation status:
 - [x] Create realtime notebook `notebooks/elevenlabs_realtime_colab.ipynb` — merged in PR #49.
 - [x] Create standalone realtime runtime file `elevenlabs_realtime.py` — merged in PR #49.
 - [x] Static/local checks for notebook hygiene, helper behavior and safety guardrails passed for the implementation PR.
-- [ ] Manual Colab runtime validation remains the next active task.
+- [ ] Output-cell UI validation is blocked in the tested Colab runtime; do not continue treating output-cell JavaScript as the active validation path.
 
 Manual runtime checklist:
 
@@ -81,13 +103,14 @@ Manual runtime checklist:
 
 Next steps:
 
-1. Run the realtime notebook in a fresh Colab runtime.
-2. Validate microphone mode first.
-3. Validate browser tab/screen audio and record whether an audio track is available.
-4. Validate display+mic mixing and note echo/double-audio behavior.
-5. Validate virtual input/loopback route if such a device is available.
-6. Collect a runtime report using `docs/realtime-colab.md`.
-7. Only after runtime results are reviewed, decide whether Google Docs save belongs in a separate `LIVE-COLAB-02` scope.
+1. Use `LIVE-COLAB-PROXY-01` as the next bridge validation path.
+2. Run the realtime notebook in a fresh Colab runtime.
+3. Validate microphone mode first.
+4. Validate browser tab/screen audio and record whether an audio track is available.
+5. Validate display+mic mixing and note echo/double-audio behavior.
+6. Validate virtual input/loopback route if such a device is available.
+7. Collect a runtime report using `docs/realtime-colab.md`.
+8. Only after runtime results are reviewed, decide whether Google Docs save belongs in a separate future scope.
 
 Static/local validation can check notebook hygiene, URL helpers, error mapping and token response parsing. Live/browser/provider rows remain pending manual Colab runtime validation; do not claim E2E success until this checklist is completed.
 

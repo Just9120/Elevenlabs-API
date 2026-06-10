@@ -35,7 +35,7 @@
 - analytics JSONL и startup timing instrumentation;
 - optional speaker project rename workflow для существующих diarized Google Docs;
 - unit/static validation для helper logic и UI guardrails;
-- experimental `Realtime Colab prototype` / `LIVE-COLAB-01` as a separate runtime validation contour for live browser audio capture + ElevenLabs realtime STT.
+- experimental `Realtime Colab prototype` / `LIVE-COLAB-01` and `LIVE-COLAB-PROXY-01` as a separate runtime validation contour for live browser audio capture + ElevenLabs realtime STT.
 
 ## 4. Активные runtime flows
 
@@ -97,13 +97,15 @@ Flow:
 
 ### 4.5 Realtime Colab prototype (LIVE-COLAB-01)
 
-`LIVE-COLAB-01` is an experimental separate runtime contour implemented in `main` after PR #49. It is not part of the stable batch flow yet and is not a replacement for the current batch Google Colab workflow; batch mode remains the current stable/fallback channel. The goal is runtime validation of live browser audio capture plus ElevenLabs realtime Scribe transcription before any later PWA/backend architecture work.
+`LIVE-COLAB-01` is an experimental separate runtime contour implemented in `main` after PR #49. It is not part of the stable batch flow yet and is not a replacement for the current batch Google Colab workflow; batch mode remains fully working, independent and the current stable/fallback channel. The output-cell UI path is blocked in the tested Colab runtime because active JavaScript did not attach for inline `display(HTML(...))`, separate `IPython.display.Javascript(...)`, or `iframe srcdoc` attempts.
+
+`LIVE-COLAB-PROXY-01` is the active bridge experiment: Colab creates the single-use realtime token, starts a lightweight local HTTP server, and exposes a standalone realtime frontend page through a Colab proxy/new tab. This contour treats the Colab launcher/proxy as replaceable infrastructure. Future PWA/backend work is a parallel future contour, not a replacement for batch Colab and not a dependency of this Colab experiment.
 
 Future PWA/backend work must be based on lessons from actual runtime validation, not assumed browser/provider behavior. Browser-based system/desktop audio capture is constrained and may require OS-level routing, virtual input devices or loopback.
 
 Prototype files:
 
-- `elevenlabs_realtime.py` — standalone runtime; it must not import `elevenlabs_api.py`;
+- `elevenlabs_realtime.py` — standalone runtime and proxy page server; it must not import or mutate `elevenlabs_api.py`;
 - `notebooks/elevenlabs_realtime_colab.ipynb` — thin launcher;
 - `docs/realtime-colab.md` — focused runtime validation guide and caveats.
 
@@ -111,10 +113,11 @@ Runtime behavior to validate manually:
 
 1. Python reads the ElevenLabs API key from Colab Secrets / `userdata` or environment without printing it, trying preferred `ELEVEN_API_KEY` first and `ELEVENLABS_API_KEY` only as a compatibility alias.
 2. Python creates a realtime single-use token through `POST https://api.elevenlabs.io/v1/single-use-token/realtime_scribe`.
-3. Browser JavaScript receives only the temporary single-use token and opens `wss://api.elevenlabs.io/v1/speech-to-text/realtime` with `model_id=scribe_v2_realtime`, `audio_format=pcm_16000` and `commit_strategy=vad`.
+3. Browser JavaScript receives only the temporary single-use token or generated realtime WebSocket URL and opens `wss://api.elevenlabs.io/v1/speech-to-text/realtime` with `model_id=scribe_v2_realtime`, `audio_format=pcm_16000` and `commit_strategy=vad`.
 4. Browser captures audio, converts to 16kHz mono PCM where feasible, and sends documented `message_type="input_audio_chunk"` messages with `audio_base_64` PCM payloads and `sample_rate=16000`.
-5. UI displays partial transcript separately from committed transcript and supports Start/Stop.
-6. Stop must close WebSocket and release all media tracks.
+5. The proxy standalone page displays `Статус: page loaded`, then `Статус: idle` after JavaScript boot; Start uses `starting`, WebSocket open uses `websocket_open`, and ElevenLabs session events use `session_started` where applicable.
+6. UI displays partial transcript separately from committed transcript and supports Start/Stop.
+7. Stop must close WebSocket and release all media tracks.
 
 Supported audio capture modes for validation:
 
@@ -165,8 +168,9 @@ Compatibility layer может существовать для чтения ст
 - автоматическое определение реальных имен людей по голосу;
 - гарантия formatting preservation при текущем speaker rename apply;
 - заявление live E2E success для flows, которые прошли только unit/static validation;
-- Telegram/PWA/backend code for realtime; future PWA/backend architecture is a later step after Colab realtime validation;
-- Google Docs save, manifest mutation or speaker project integration from `LIVE-COLAB-01`.
+- Telegram integration;
+- PWA/backend code for realtime in the current Colab bridge; future PWA/backend architecture is a parallel future contour after Colab realtime validation and must not replace or break the batch Colab workflow;
+- Google Docs save, manifest mutation or speaker project integration from `LIVE-COLAB-01` or `LIVE-COLAB-PROXY-01`.
 
 ## 8. Пользовательские роли
 
