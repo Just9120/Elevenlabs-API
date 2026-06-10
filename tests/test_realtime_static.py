@@ -178,6 +178,20 @@ def test_generated_html_does_not_embed_main_api_key_values_or_secret_names() -> 
     assert "getDisplayMedia" in html
 
 
+def test_generated_html_uses_compact_diagnostics_ui() -> None:
+    html = realtime.build_realtime_colab_html("temporary-token")
+    assert "LIVE-COLAB-01: realtime transcription prototype" in html
+    assert "Источник аудио" in html
+    assert "Статус: idle" in html
+    assert "<summary>Диагностика</summary>" in html
+    assert "Диагностика появится после запуска realtime-сессии." in html
+    assert '<pre id="el-diagnostics" hidden></pre>' in html
+    assert "diagWrapEl.open = true" in html
+    assert "background:#111" not in html
+    assert "min-height:80px" not in html
+    assert "Ready. Manual Colab/browser/provider runtime validation" not in html
+
+
 def test_error_message_mapping_has_russian_known_cases() -> None:
     cases = [
         "auth_error",

@@ -190,32 +190,59 @@ def build_realtime_colab_html(token: str) -> str:
     )
 
     return f"""
-<div id="el-realtime-root" style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;line-height:1.4;max-width:960px;border:1px solid #ddd;border-radius:12px;padding:16px;margin:8px 0;background:#fff;">
-  <h2 style="margin:0 0 8px;">LIVE-COLAB-01: ElevenLabs realtime transcription prototype</h2>
-  <p style="margin:0 0 12px;color:#555;">Экспериментальный Colab prototype: без Google Docs save, без manifest, без speaker projects. Main API key остается Python-side; browser получает только single-use realtime token.</p>
-  <label for="el-source-mode"><strong>Audio source mode</strong></label>
-  <select id="el-source-mode" style="display:block;margin:6px 0 10px;padding:6px;min-width:360px;">
-    <option value="mic">Microphone</option>
-    <option value="display">Browser tab / screen audio</option>
-    <option value="display_mic">Browser tab / screen audio + microphone</option>
-    <option value="virtual">Virtual input / system audio device</option>
-  </select>
-  <label for="el-input-device"><strong>Microphone / virtual input device</strong></label>
-  <select id="el-input-device" style="display:block;margin:6px 0 10px;padding:6px;min-width:360px;">
-    <option value="">Default browser input</option>
-  </select>
-  <div style="display:flex;gap:8px;align-items:center;margin:8px 0 12px;">
-    <button id="el-start" style="padding:8px 14px;">Start</button>
-    <button id="el-stop" style="padding:8px 14px;" disabled>Stop</button>
-    <button id="el-copy" style="padding:8px 14px;">Copy transcript</button>
-    <button id="el-download" style="padding:8px 14px;">Download .txt</button>
+<div id="el-realtime-root" style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;line-height:1.45;max-width:960px;border:1px solid #d8dee9;border-radius:14px;padding:18px;margin:8px 0;background:#fff;color:#17202a;box-shadow:0 1px 3px rgba(15,23,42,0.06);">
+  <style>
+    #el-realtime-root .el-title {{ margin:0 0 6px;color:#111827;font-size:22px;line-height:1.25;font-weight:700; }}
+    #el-realtime-root .el-subtitle {{ margin:0;color:#4b5563;max-width:860px; }}
+    #el-realtime-root .el-panel {{ border:1px solid #e5e7eb;border-radius:12px;padding:12px;margin:14px 0;background:#fafafa; }}
+    #el-realtime-root .el-field {{ margin:0 0 12px; }}
+    #el-realtime-root .el-label {{ display:block;margin:0 0 6px;color:#1f2937;font-weight:700; }}
+    #el-realtime-root select {{ display:block;width:min(100%,420px);padding:7px 9px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#111827; }}
+    #el-realtime-root .el-controls {{ display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:4px; }}
+    #el-realtime-root button {{ padding:8px 14px;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc;color:#111827;cursor:pointer; }}
+    #el-realtime-root button:disabled {{ color:#94a3b8;cursor:not-allowed;background:#f1f5f9; }}
+    #el-realtime-root #el-status {{ padding:9px 11px;background:#eef6ff;border:1px solid #bfdbfe;border-radius:10px;margin:12px 0 8px;color:#1e3a8a;font-weight:700; }}
+    #el-realtime-root #el-diagnostics-wrap {{ margin:8px 0 16px;border:1px solid #e5e7eb;border-radius:10px;background:#f9fafb; }}
+    #el-realtime-root #el-diagnostics-wrap summary {{ padding:8px 10px;cursor:pointer;font-weight:700;color:#374151; }}
+    #el-realtime-root .el-diagnostics-placeholder {{ padding:0 10px 10px;color:#6b7280;font-size:13px; }}
+    #el-realtime-root #el-diagnostics {{ white-space:pre-wrap;background:#263238;color:#eef2f7;border-radius:8px;padding:9px 10px;margin:0 10px 10px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.45;max-height:160px;overflow:auto; }}
+    #el-realtime-root .el-section-title {{ margin:14px 0 6px;color:#111827;font-size:16px; }}
+  </style>
+  <h2 class="el-title">LIVE-COLAB-01: realtime transcription prototype</h2>
+  <p class="el-subtitle">Экспериментальный Colab-прототип: без Google Docs save, без manifest, без speaker projects. Main API key остаётся Python-side; browser получает только single-use realtime token.</p>
+  <div class="el-panel" aria-label="Realtime controls">
+    <div class="el-field">
+      <label class="el-label" for="el-source-mode">Источник аудио</label>
+      <select id="el-source-mode">
+        <option value="mic">Microphone</option>
+        <option value="display">Browser tab / screen audio</option>
+        <option value="display_mic">Browser tab / screen audio + microphone</option>
+        <option value="virtual">Virtual input / system audio device</option>
+      </select>
+    </div>
+    <div class="el-field">
+      <label class="el-label" for="el-input-device">Microphone / virtual input device</label>
+      <select id="el-input-device">
+        <option value="">Default browser input</option>
+      </select>
+    </div>
+    <div class="el-controls">
+      <button id="el-start">Start</button>
+      <button id="el-stop" disabled>Stop</button>
+      <button id="el-copy">Copy transcript</button>
+      <button id="el-download">Download .txt</button>
+    </div>
   </div>
-  <div id="el-status" style="padding:8px;background:#f5f5f5;border-radius:8px;margin:8px 0;">Status: idle</div>
-  <div id="el-diagnostics" style="white-space:pre-wrap;background:#111;color:#eee;border-radius:8px;padding:10px;min-height:80px;margin:8px 0;font-family:ui-monospace,Menlo,monospace;font-size:12px;"></div>
-  <h3>Partial transcript</h3>
-  <div id="el-partial" style="min-height:48px;border:1px dashed #aaa;border-radius:8px;padding:10px;background:#fcfcff;"></div>
-  <h3>Committed transcript</h3>
-  <pre id="el-committed" style="white-space:pre-wrap;min-height:160px;border:1px solid #ccc;border-radius:8px;padding:10px;background:#fbfbfb;"></pre>
+  <div id="el-status">Статус: idle</div>
+  <details id="el-diagnostics-wrap">
+    <summary>Диагностика</summary>
+    <div id="el-diagnostics-placeholder" class="el-diagnostics-placeholder">Диагностика появится после запуска realtime-сессии.</div>
+    <pre id="el-diagnostics" hidden></pre>
+  </details>
+  <h3 class="el-section-title">Partial transcript</h3>
+  <div id="el-partial" style="min-height:56px;border:1px dashed #a7b3c4;border-radius:10px;padding:12px;background:#fcfcff;"></div>
+  <h3 class="el-section-title">Committed transcript</h3>
+  <pre id="el-committed" style="white-space:pre-wrap;min-height:180px;border:1px solid #cbd5e1;border-radius:10px;padding:12px;background:#fbfbfb;"></pre>
 </div>
 <script>
 (() => {{
@@ -228,6 +255,8 @@ def build_realtime_colab_html(token: str) -> str:
   const copyBtn = root.querySelector('#el-copy');
   const downloadBtn = root.querySelector('#el-download');
   const statusEl = root.querySelector('#el-status');
+  const diagWrapEl = root.querySelector('#el-diagnostics-wrap');
+  const diagPlaceholderEl = root.querySelector('#el-diagnostics-placeholder');
   const diagEl = root.querySelector('#el-diagnostics');
   const partialEl = root.querySelector('#el-partial');
   const committedEl = root.querySelector('#el-committed');
@@ -240,9 +269,12 @@ def build_realtime_colab_html(token: str) -> str:
   let finalTranscript = '';
   let isRunning = false;
 
-  function setStatus(text) {{ statusEl.textContent = 'Status: ' + text; }}
+  function setStatus(text) {{ statusEl.textContent = 'Статус: ' + text; }}
   function log(text) {{
     const line = '[' + new Date().toLocaleTimeString() + '] ' + text;
+    diagPlaceholderEl.hidden = true;
+    diagEl.hidden = false;
+    diagWrapEl.open = true;
     diagEl.textContent = (diagEl.textContent ? diagEl.textContent + '\n' : '') + line;
   }}
   function knownErrorMessage(value) {{
@@ -452,9 +484,8 @@ def build_realtime_colab_html(token: str) -> str:
     a.click();
     URL.revokeObjectURL(url);
   }});
-  populateInputDevices().catch(() => log('Input device list is unavailable before browser permission. Default input can still be used.'));
-  setStatus('ready');
-  log('Ready. Manual Colab/browser/provider runtime validation is still required before claiming E2E success.');
+  populateInputDevices().catch(() => {{ /* Device labels may be unavailable before browser permission. */ }});
+  setStatus('idle');
 }})();
 </script>
 """
