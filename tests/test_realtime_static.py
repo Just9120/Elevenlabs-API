@@ -5,6 +5,7 @@ These tests intentionally avoid browser APIs and ElevenLabs provider calls.
 
 from __future__ import annotations
 
+import html
 import json
 import re
 import sys
@@ -200,6 +201,60 @@ def test_generated_javascript_contains_realtime_payload_without_main_api_key_val
     assert "getDisplayMedia" in js
 
 
+def _iframe_srcdoc_from_outer_html(outer_html: str) -> str:
+    match = re.search(r'srcdoc="([^"]+)"', outer_html, flags=re.DOTALL)
+    assert match is not None
+    return html.unescape(match.group(1))
+
+
+def test_generated_outer_colab_html_contains_srcdoc_iframe_without_outer_script() -> None:
+    outer_html = realtime.build_realtime_colab_iframe_html("temporary-token")
+    srcdoc = _iframe_srcdoc_from_outer_html(outer_html)
+
+    assert "<iframe" in outer_html
+    assert "srcdoc=" in outer_html
+    assert "<script" not in outer_html.lower()
+    assert "</script" not in outer_html.lower()
+    assert "&lt;script&gt;" in outer_html
+    assert "<script>" in srcdoc
+
+
+def test_generated_iframe_has_media_permissions_and_sandbox_flags() -> None:
+    outer_html = realtime.build_realtime_colab_iframe_html("temporary-token")
+
+    assert 'allow="microphone; display-capture; clipboard-write"' in outer_html
+    assert 'sandbox="allow-scripts allow-same-origin allow-downloads"' in outer_html
+
+
+def test_generated_iframe_srcdoc_contains_readiness_marker_and_listeners() -> None:
+    srcdoc = realtime.build_realtime_colab_iframe_srcdoc("temporary-token")
+
+    assert "Статус: iframe HTML loaded; JS not attached yet" in srcdoc
+    assert "function markJsReady()" in srcdoc
+    assert "setStatus('idle')" in srcdoc
+    assert "startBtn.addEventListener('click', start)" in srcdoc
+    assert "stopBtn.addEventListener('click', () => stop())" in srcdoc
+    assert "copyBtn.addEventListener('click'" in srcdoc
+    assert "downloadBtn.addEventListener('click'" in srcdoc
+
+
+def test_generated_iframe_output_exposes_only_single_use_realtime_token() -> None:
+    outer_html = realtime.build_realtime_colab_iframe_html("temporary-token")
+    srcdoc = _iframe_srcdoc_from_outer_html(outer_html)
+
+    assert "temporary-token" in outer_html
+    assert "temporary-token" in srcdoc
+    for forbidden in [
+        "ELEVEN_API_KEY",
+        "ELEVENLABS_API_KEY",
+        "preferred-key",
+        "compatibility-key",
+        "main-api-key",
+    ]:
+        assert forbidden not in outer_html
+        assert forbidden not in srcdoc
+
+
 def test_generated_shell_and_javascript_use_current_render_root_for_colab_binding() -> None:
     first_root_id = realtime.create_realtime_colab_root_id()
     second_root_id = realtime.create_realtime_colab_root_id()
@@ -231,7 +286,7 @@ def test_generated_shell_and_javascript_include_js_ready_status_transition_marke
     html = realtime.build_realtime_colab_html_shell(root_id)
     js = realtime.build_realtime_colab_javascript("temporary-token", root_id)
 
-    assert "Статус: HTML loaded; JS not attached yet" in html
+    assert "Статус: iframe HTML loaded; JS not attached yet" in html
     assert "function markJsReady()" in js
     assert "root.dataset.jsReady = 'true'" in js
     assert "statusEl.dataset.jsReadyMarker = 'attached'" in js
@@ -253,12 +308,13 @@ def test_generated_shell_and_javascript_still_include_realtime_controls() -> Non
     assert "downloadBtn.addEventListener('click'" in js
 
 
-def test_launch_path_displays_html_and_javascript_separately() -> None:
+def test_launch_path_displays_iframe_html_without_separate_javascript() -> None:
     source = (ROOT / "elevenlabs_realtime.py").read_text(encoding="utf-8")
 
-    assert "from IPython.display import HTML, Javascript, display" in source
-    assert "display(HTML(build_realtime_colab_html_shell(root_id)))" in source
-    assert "display(Javascript(build_realtime_colab_javascript(token, root_id)))" in source
+    assert "from IPython.display import HTML, display" in source
+    assert "from IPython.display import HTML, Javascript, display" not in source
+    assert "display(HTML(build_realtime_colab_iframe_html(token)))" in source
+    assert "display(Javascript(" not in source
 
 
 def test_generated_html_shell_uses_compact_diagnostics_ui() -> None:

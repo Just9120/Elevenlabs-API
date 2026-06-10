@@ -15,6 +15,7 @@ Prototype boundaries:
 
 from __future__ import annotations
 
+import html
 import importlib.util
 import json
 import os
@@ -243,7 +244,7 @@ def build_realtime_colab_html_shell(root_id: str) -> str:
       <button data-el="download">Download .txt</button>
     </div>
   </div>
-  <div data-el="status" data-js-ready-marker="pending">Статус: HTML loaded; JS not attached yet</div>
+  <div data-el="status" data-js-ready-marker="pending">Статус: iframe HTML loaded; JS not attached yet</div>
   <details data-el="diagnostics-wrap">
     <summary>Диагностика</summary>
     <div data-el="diagnostics-placeholder" class="el-diagnostics-placeholder">Диагностика появится после запуска realtime-сессии.</div>
@@ -530,11 +531,49 @@ def build_realtime_colab_javascript(token: str, root_id: str) -> str:
 """
 
 
-def build_realtime_colab_html(token: str) -> str:
-    """Return a static HTML shell for compatibility; execute JS separately."""
+def build_realtime_colab_iframe_srcdoc(token: str, root_id: str | None = None) -> str:
+    """Return the complete realtime app document executed inside a Colab iframe."""
 
-    build_realtime_websocket_url(token)
-    return build_realtime_colab_html_shell(create_realtime_colab_root_id())
+    root_id = _validate_realtime_colab_root_id(root_id or create_realtime_colab_root_id())
+    shell = build_realtime_colab_html_shell(root_id)
+    javascript = build_realtime_colab_javascript(token, root_id)
+    return f"""<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LIVE-COLAB-01 realtime transcription prototype</title>
+</head>
+<body style="margin:0;padding:0;background:#fff;">
+{shell}
+<script>
+{javascript}
+</script>
+</body>
+</html>
+"""
+
+
+def build_realtime_colab_iframe_html(token: str) -> str:
+    """Return outer Colab HTML containing only a sandboxed srcdoc iframe."""
+
+    srcdoc = build_realtime_colab_iframe_srcdoc(token)
+    escaped_srcdoc = html.escape(srcdoc, quote=True)
+    return f'''
+<iframe
+  title="LIVE-COLAB-01 realtime transcription prototype"
+  srcdoc="{escaped_srcdoc}"
+  allow="microphone; display-capture; clipboard-write"
+  sandbox="allow-scripts allow-same-origin allow-downloads"
+  style="width:100%;min-height:760px;border:0;border-radius:14px;display:block;"
+></iframe>
+'''
+
+
+def build_realtime_colab_html(token: str) -> str:
+    """Return the iframe-based Colab HTML launcher for the realtime app."""
+
+    return build_realtime_colab_iframe_html(token)
 
 
 def launch_realtime_colab() -> None:
@@ -545,13 +584,11 @@ def launch_realtime_colab() -> None:
         or importlib.util.find_spec("IPython.display") is None
     ):
         raise RealtimeTokenError("IPython.display is required to render the Colab realtime UI.")
-    from IPython.display import HTML, Javascript, display
+    from IPython.display import HTML, display
 
     api_key = get_elevenlabs_api_key()
     token = create_realtime_single_use_token(api_key)
-    root_id = create_realtime_colab_root_id()
-    display(HTML(build_realtime_colab_html_shell(root_id)))
-    display(Javascript(build_realtime_colab_javascript(token, root_id)))
+    display(HTML(build_realtime_colab_iframe_html(token)))
 
 
 if __name__ == "__main__":
