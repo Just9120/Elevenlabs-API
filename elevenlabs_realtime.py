@@ -18,6 +18,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import uuid
 from typing import Any, Callable
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -178,6 +179,7 @@ def build_realtime_colab_html(token: str) -> str:
     """Return the self-contained browser UI HTML for the Colab output cell."""
 
     ws_url = build_realtime_websocket_url(token)
+    root_id = f"el-realtime-root-{uuid.uuid4().hex}"
     config_json = json.dumps(
         {
             "wsUrl": ws_url,
@@ -190,30 +192,30 @@ def build_realtime_colab_html(token: str) -> str:
     )
 
     return f"""
-<div id="el-realtime-root" style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;line-height:1.45;max-width:960px;border:1px solid #d8dee9;border-radius:14px;padding:18px;margin:8px 0;background:#fff;color:#17202a;box-shadow:0 1px 3px rgba(15,23,42,0.06);">
+<div id="{root_id}" data-el-realtime-root style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;line-height:1.45;max-width:960px;border:1px solid #d8dee9;border-radius:14px;padding:18px;margin:8px 0;background:#fff;color:#17202a;box-shadow:0 1px 3px rgba(15,23,42,0.06);">
   <style>
-    #el-realtime-root .el-title {{ margin:0 0 6px;color:#111827;font-size:22px;line-height:1.25;font-weight:700; }}
-    #el-realtime-root .el-subtitle {{ margin:0;color:#4b5563;max-width:860px; }}
-    #el-realtime-root .el-panel {{ border:1px solid #e5e7eb;border-radius:12px;padding:12px;margin:14px 0;background:#fafafa; }}
-    #el-realtime-root .el-field {{ margin:0 0 12px; }}
-    #el-realtime-root .el-label {{ display:block;margin:0 0 6px;color:#1f2937;font-weight:700; }}
-    #el-realtime-root select {{ display:block;width:min(100%,420px);padding:7px 9px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#111827; }}
-    #el-realtime-root .el-controls {{ display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:4px; }}
-    #el-realtime-root button {{ padding:8px 14px;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc;color:#111827;cursor:pointer; }}
-    #el-realtime-root button:disabled {{ color:#94a3b8;cursor:not-allowed;background:#f1f5f9; }}
-    #el-realtime-root #el-status {{ padding:9px 11px;background:#eef6ff;border:1px solid #bfdbfe;border-radius:10px;margin:12px 0 8px;color:#1e3a8a;font-weight:700; }}
-    #el-realtime-root #el-diagnostics-wrap {{ margin:8px 0 16px;border:1px solid #e5e7eb;border-radius:10px;background:#f9fafb; }}
-    #el-realtime-root #el-diagnostics-wrap summary {{ padding:8px 10px;cursor:pointer;font-weight:700;color:#374151; }}
-    #el-realtime-root .el-diagnostics-placeholder {{ padding:0 10px 10px;color:#6b7280;font-size:13px; }}
-    #el-realtime-root #el-diagnostics {{ white-space:pre-wrap;background:#263238;color:#eef2f7;border-radius:8px;padding:9px 10px;margin:0 10px 10px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.45;max-height:160px;overflow:auto; }}
-    #el-realtime-root .el-section-title {{ margin:14px 0 6px;color:#111827;font-size:16px; }}
+    #{root_id} .el-title {{ margin:0 0 6px;color:#111827;font-size:22px;line-height:1.25;font-weight:700; }}
+    #{root_id} .el-subtitle {{ margin:0;color:#4b5563;max-width:860px; }}
+    #{root_id} .el-panel {{ border:1px solid #e5e7eb;border-radius:12px;padding:12px;margin:14px 0;background:#fafafa; }}
+    #{root_id} .el-field {{ margin:0 0 12px; }}
+    #{root_id} .el-label {{ display:block;margin:0 0 6px;color:#1f2937;font-weight:700; }}
+    #{root_id} select {{ display:block;width:min(100%,420px);padding:7px 9px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#111827; }}
+    #{root_id} .el-controls {{ display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:4px; }}
+    #{root_id} button {{ padding:8px 14px;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc;color:#111827;cursor:pointer; }}
+    #{root_id} button:disabled {{ color:#94a3b8;cursor:not-allowed;background:#f1f5f9; }}
+    #{root_id} [data-el="status"] {{ padding:9px 11px;background:#eef6ff;border:1px solid #bfdbfe;border-radius:10px;margin:12px 0 8px;color:#1e3a8a;font-weight:700; }}
+    #{root_id} [data-el="diagnostics-wrap"] {{ margin:8px 0 16px;border:1px solid #e5e7eb;border-radius:10px;background:#f9fafb; }}
+    #{root_id} [data-el="diagnostics-wrap"] summary {{ padding:8px 10px;cursor:pointer;font-weight:700;color:#374151; }}
+    #{root_id} .el-diagnostics-placeholder {{ padding:0 10px 10px;color:#6b7280;font-size:13px; }}
+    #{root_id} [data-el="diagnostics"] {{ white-space:pre-wrap;background:#263238;color:#eef2f7;border-radius:8px;padding:9px 10px;margin:0 10px 10px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.45;max-height:160px;overflow:auto; }}
+    #{root_id} .el-section-title {{ margin:14px 0 6px;color:#111827;font-size:16px; }}
   </style>
   <h2 class="el-title">LIVE-COLAB-01: realtime transcription prototype</h2>
   <p class="el-subtitle">Экспериментальный Colab-прототип: без Google Docs save, без manifest, без speaker projects. Main API key остаётся Python-side; browser получает только single-use realtime token.</p>
   <div class="el-panel" aria-label="Realtime controls">
     <div class="el-field">
-      <label class="el-label" for="el-source-mode">Источник аудио</label>
-      <select id="el-source-mode">
+      <label class="el-label" for="{root_id}-source-mode">Источник аудио</label>
+      <select id="{root_id}-source-mode" data-el="source-mode">
         <option value="mic">Microphone</option>
         <option value="display">Browser tab / screen audio</option>
         <option value="display_mic">Browser tab / screen audio + microphone</option>
@@ -221,45 +223,51 @@ def build_realtime_colab_html(token: str) -> str:
       </select>
     </div>
     <div class="el-field">
-      <label class="el-label" for="el-input-device">Microphone / virtual input device</label>
-      <select id="el-input-device">
+      <label class="el-label" for="{root_id}-input-device">Microphone / virtual input device</label>
+      <select id="{root_id}-input-device" data-el="input-device">
         <option value="">Default browser input</option>
       </select>
     </div>
     <div class="el-controls">
-      <button id="el-start">Start</button>
-      <button id="el-stop" disabled>Stop</button>
-      <button id="el-copy">Copy transcript</button>
-      <button id="el-download">Download .txt</button>
+      <button data-el="start">Start</button>
+      <button data-el="stop" disabled>Stop</button>
+      <button data-el="copy">Copy transcript</button>
+      <button data-el="download">Download .txt</button>
     </div>
   </div>
-  <div id="el-status">Статус: idle</div>
-  <details id="el-diagnostics-wrap">
+  <div data-el="status" data-js-ready-marker="pending">Статус: HTML loaded; JS not attached yet</div>
+  <details data-el="diagnostics-wrap">
     <summary>Диагностика</summary>
-    <div id="el-diagnostics-placeholder" class="el-diagnostics-placeholder">Диагностика появится после запуска realtime-сессии.</div>
-    <pre id="el-diagnostics" hidden></pre>
+    <div data-el="diagnostics-placeholder" class="el-diagnostics-placeholder">Диагностика появится после запуска realtime-сессии.</div>
+    <pre data-el="diagnostics" hidden></pre>
   </details>
   <h3 class="el-section-title">Partial transcript</h3>
-  <div id="el-partial" style="min-height:56px;border:1px dashed #a7b3c4;border-radius:10px;padding:12px;background:#fcfcff;"></div>
+  <div data-el="partial" style="min-height:56px;border:1px dashed #a7b3c4;border-radius:10px;padding:12px;background:#fcfcff;"></div>
   <h3 class="el-section-title">Committed transcript</h3>
-  <pre id="el-committed" style="white-space:pre-wrap;min-height:180px;border:1px solid #cbd5e1;border-radius:10px;padding:12px;background:#fbfbfb;"></pre>
+  <pre data-el="committed" style="white-space:pre-wrap;min-height:180px;border:1px solid #cbd5e1;border-radius:10px;padding:12px;background:#fbfbfb;"></pre>
 </div>
 <script>
 (() => {{
   const CONFIG = {config_json};
-  const root = document.getElementById('el-realtime-root');
-  const modeEl = root.querySelector('#el-source-mode');
-  const inputDeviceEl = root.querySelector('#el-input-device');
-  const startBtn = root.querySelector('#el-start');
-  const stopBtn = root.querySelector('#el-stop');
-  const copyBtn = root.querySelector('#el-copy');
-  const downloadBtn = root.querySelector('#el-download');
-  const statusEl = root.querySelector('#el-status');
-  const diagWrapEl = root.querySelector('#el-diagnostics-wrap');
-  const diagPlaceholderEl = root.querySelector('#el-diagnostics-placeholder');
-  const diagEl = root.querySelector('#el-diagnostics');
-  const partialEl = root.querySelector('#el-partial');
-  const committedEl = root.querySelector('#el-committed');
+  const RENDER_ROOT_ID = '{root_id}';
+  const root = document.getElementById(RENDER_ROOT_ID);
+  if (!root) {{
+    console.error('LIVE-COLAB-01 root not found for current render:', RENDER_ROOT_ID);
+    return;
+  }}
+  const byEl = (name) => root.querySelector(`[data-el="${{name}}"]`);
+  const modeEl = byEl('source-mode');
+  const inputDeviceEl = byEl('input-device');
+  const startBtn = byEl('start');
+  const stopBtn = byEl('stop');
+  const copyBtn = byEl('copy');
+  const downloadBtn = byEl('download');
+  const statusEl = byEl('status');
+  const diagWrapEl = byEl('diagnostics-wrap');
+  const diagPlaceholderEl = byEl('diagnostics-placeholder');
+  const diagEl = byEl('diagnostics');
+  const partialEl = byEl('partial');
+  const committedEl = byEl('committed');
 
   let ws = null;
   let audioContext = null;
@@ -270,6 +278,11 @@ def build_realtime_colab_html(token: str) -> str:
   let isRunning = false;
 
   function setStatus(text) {{ statusEl.textContent = 'Статус: ' + text; }}
+  function markJsReady() {{
+    root.dataset.jsReady = 'true';
+    statusEl.dataset.jsReadyMarker = 'attached';
+    setStatus('idle');
+  }}
   function log(text) {{
     const line = '[' + new Date().toLocaleTimeString() + '] ' + text;
     diagPlaceholderEl.hidden = true;
@@ -484,8 +497,8 @@ def build_realtime_colab_html(token: str) -> str:
     a.click();
     URL.revokeObjectURL(url);
   }});
+  markJsReady();
   populateInputDevices().catch(() => {{ /* Device labels may be unavailable before browser permission. */ }});
-  setStatus('idle');
 }})();
 </script>
 """
