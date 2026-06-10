@@ -175,21 +175,29 @@ def realtime_error_message_ru(code_or_event: Any) -> str:
     return "WebSocket realtime transcription error. Проверьте соединение, источник аудио и попробуйте снова."
 
 
-def build_realtime_colab_html(token: str) -> str:
-    """Return the self-contained browser UI HTML for the Colab output cell."""
+def create_realtime_colab_root_id() -> str:
+    """Return a unique DOM root id for one Colab realtime UI render."""
 
-    ws_url = build_realtime_websocket_url(token)
-    root_id = f"el-realtime-root-{uuid.uuid4().hex}"
-    config_json = json.dumps(
-        {
-            "wsUrl": ws_url,
-            "modelId": REALTIME_MODEL_ID,
-            "audioFormat": REALTIME_AUDIO_FORMAT,
-            "commitStrategy": REALTIME_COMMIT_STRATEGY,
-            "messages": KNOWN_ERROR_MESSAGES_RU,
-        },
-        ensure_ascii=False,
-    )
+    return f"el-realtime-root-{uuid.uuid4().hex}"
+
+
+def _validate_realtime_colab_root_id(root_id: str) -> str:
+    """Validate a generated DOM root id before embedding it in HTML/JS."""
+
+    if not isinstance(root_id, str) or not root_id.strip():
+        raise ValueError("root_id is required")
+    root_id = root_id.strip()
+    if not root_id.startswith("el-realtime-root-"):
+        raise ValueError("root_id must be an el-realtime-root-* id")
+    if not all(char.isalnum() or char == "-" for char in root_id):
+        raise ValueError("root_id contains unsupported characters")
+    return root_id
+
+
+def build_realtime_colab_html_shell(root_id: str) -> str:
+    """Return the static DOM/CSS shell for the Colab output cell."""
+
+    root_id = _validate_realtime_colab_root_id(root_id)
 
     return f"""
 <div id="{root_id}" data-el-realtime-root style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;line-height:1.45;max-width:960px;border:1px solid #d8dee9;border-radius:14px;padding:18px;margin:8px 0;background:#fff;color:#17202a;box-shadow:0 1px 3px rgba(15,23,42,0.06);">
@@ -246,7 +254,26 @@ def build_realtime_colab_html(token: str) -> str:
   <h3 class="el-section-title">Committed transcript</h3>
   <pre data-el="committed" style="white-space:pre-wrap;min-height:180px;border:1px solid #cbd5e1;border-radius:10px;padding:12px;background:#fbfbfb;"></pre>
 </div>
-<script>
+"""
+
+
+def build_realtime_colab_javascript(token: str, root_id: str) -> str:
+    """Return executable JavaScript for the current Colab realtime UI render."""
+
+    ws_url = build_realtime_websocket_url(token)
+    root_id = _validate_realtime_colab_root_id(root_id)
+    config_json = json.dumps(
+        {
+            "wsUrl": ws_url,
+            "modelId": REALTIME_MODEL_ID,
+            "audioFormat": REALTIME_AUDIO_FORMAT,
+            "commitStrategy": REALTIME_COMMIT_STRATEGY,
+            "messages": KNOWN_ERROR_MESSAGES_RU,
+        },
+        ensure_ascii=False,
+    )
+
+    return f"""
 (() => {{
   const CONFIG = {config_json};
   const RENDER_ROOT_ID = '{root_id}';
@@ -500,8 +527,14 @@ def build_realtime_colab_html(token: str) -> str:
   markJsReady();
   populateInputDevices().catch(() => {{ /* Device labels may be unavailable before browser permission. */ }});
 }})();
-</script>
 """
+
+
+def build_realtime_colab_html(token: str) -> str:
+    """Return a static HTML shell for compatibility; execute JS separately."""
+
+    build_realtime_websocket_url(token)
+    return build_realtime_colab_html_shell(create_realtime_colab_root_id())
 
 
 def launch_realtime_colab() -> None:
@@ -512,11 +545,13 @@ def launch_realtime_colab() -> None:
         or importlib.util.find_spec("IPython.display") is None
     ):
         raise RealtimeTokenError("IPython.display is required to render the Colab realtime UI.")
-    from IPython.display import HTML, display
+    from IPython.display import HTML, Javascript, display
 
     api_key = get_elevenlabs_api_key()
     token = create_realtime_single_use_token(api_key)
-    display(HTML(build_realtime_colab_html(token)))
+    root_id = create_realtime_colab_root_id()
+    display(HTML(build_realtime_colab_html_shell(root_id)))
+    display(Javascript(build_realtime_colab_javascript(token, root_id)))
 
 
 if __name__ == "__main__":

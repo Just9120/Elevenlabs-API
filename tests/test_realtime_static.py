@@ -161,76 +161,117 @@ def test_websocket_url_builder_requires_token_and_model_id() -> None:
     assert query["commit_strategy"] == ["vad"]
 
 
-def test_generated_html_does_not_embed_main_api_key_values_or_secret_names() -> None:
-    html = realtime.build_realtime_colab_html("temporary-token")
-    assert "temporary-token" in html
+def test_generated_html_shell_does_not_embed_executable_script_or_secrets() -> None:
+    root_id = realtime.create_realtime_colab_root_id()
+    html = realtime.build_realtime_colab_html_shell(root_id)
+
+    assert "temporary-token" not in html
+    assert "<script" not in html.lower()
+    assert "</script" not in html.lower()
     assert "ELEVEN_API_KEY" not in html
     assert "ELEVENLABS_API_KEY" not in html
     assert "preferred-key" not in html
     assert "compatibility-key" not in html
     assert "main-api-key" not in html
-    assert "message_type" in html
-    assert "audio_base_64" in html
-    assert "input_audio_chunk" in html
-    assert "input_audio_chunk: payload" not in html
-    assert '"input_audio_chunk": payload' not in html
-    assert "commit: true" not in html
-    assert "getUserMedia" in html
-    assert "getDisplayMedia" in html
+    assert "message_type" not in html
+    assert "audio_base_64" not in html
+    assert "input_audio_chunk" not in html
+    assert "getUserMedia" not in html
+    assert "getDisplayMedia" not in html
 
 
-def test_generated_html_uses_current_render_root_for_colab_binding() -> None:
-    first_html = realtime.build_realtime_colab_html("temporary-token")
-    second_html = realtime.build_realtime_colab_html("temporary-token")
+def test_generated_javascript_contains_realtime_payload_without_main_api_key_values() -> None:
+    root_id = realtime.create_realtime_colab_root_id()
+    js = realtime.build_realtime_colab_javascript("temporary-token", root_id)
 
-    assert "document.getElementById('el-realtime-root')" not in first_html
+    assert "temporary-token" in js
+    assert "ELEVEN_API_KEY" not in js
+    assert "ELEVENLABS_API_KEY" not in js
+    assert "preferred-key" not in js
+    assert "compatibility-key" not in js
+    assert "main-api-key" not in js
+    assert "message_type" in js
+    assert "audio_base_64" in js
+    assert "input_audio_chunk" in js
+    assert "input_audio_chunk: payload" not in js
+    assert '"input_audio_chunk": payload' not in js
+    assert "commit: true" not in js
+    assert "getUserMedia" in js
+    assert "getDisplayMedia" in js
+
+
+def test_generated_shell_and_javascript_use_current_render_root_for_colab_binding() -> None:
+    first_root_id = realtime.create_realtime_colab_root_id()
+    second_root_id = realtime.create_realtime_colab_root_id()
+    first_html = realtime.build_realtime_colab_html_shell(first_root_id)
+    second_html = realtime.build_realtime_colab_html_shell(second_root_id)
+    first_js = realtime.build_realtime_colab_javascript("temporary-token", first_root_id)
+
+    assert "document.getElementById('el-realtime-root')" not in first_js
     assert 'id="el-realtime-root"' not in first_html
     assert 'data-el-realtime-root' in first_html
-    assert "const RENDER_ROOT_ID = 'el-realtime-root-" in first_html
-    assert "const root = document.getElementById(RENDER_ROOT_ID)" in first_html
-    assert "root.querySelector" in first_html
+    assert f'id="{first_root_id}"' in first_html
+    assert f"const RENDER_ROOT_ID = '{first_root_id}'" in first_js
+    assert "const root = document.getElementById(RENDER_ROOT_ID)" in first_js
+    assert "root.querySelector" in first_js
     assert first_html != second_html
 
 
-def test_generated_html_avoids_duplicate_fixed_element_ids() -> None:
-    html = realtime.build_realtime_colab_html("temporary-token")
+def test_generated_html_shell_avoids_duplicate_fixed_element_ids() -> None:
+    root_id = realtime.create_realtime_colab_root_id()
+    html = realtime.build_realtime_colab_html_shell(root_id)
     ids = re.findall(r'id="([^"]+)"', html)
 
     assert len(ids) == len(set(ids))
     assert all(element_id.startswith("el-realtime-root-") for element_id in ids)
 
 
-def test_generated_html_includes_js_ready_status_transition_marker() -> None:
-    html = realtime.build_realtime_colab_html("temporary-token")
+def test_generated_shell_and_javascript_include_js_ready_status_transition_marker() -> None:
+    root_id = realtime.create_realtime_colab_root_id()
+    html = realtime.build_realtime_colab_html_shell(root_id)
+    js = realtime.build_realtime_colab_javascript("temporary-token", root_id)
 
     assert "Статус: HTML loaded; JS not attached yet" in html
-    assert "function markJsReady()" in html
-    assert "root.dataset.jsReady = 'true'" in html
-    assert "statusEl.dataset.jsReadyMarker = 'attached'" in html
-    assert "setStatus('idle')" in html
+    assert "function markJsReady()" in js
+    assert "root.dataset.jsReady = 'true'" in js
+    assert "statusEl.dataset.jsReadyMarker = 'attached'" in js
+    assert "setStatus('idle')" in js
 
 
-def test_generated_html_still_includes_realtime_controls() -> None:
-    html = realtime.build_realtime_colab_html("temporary-token")
+def test_generated_shell_and_javascript_still_include_realtime_controls() -> None:
+    root_id = realtime.create_realtime_colab_root_id()
+    html = realtime.build_realtime_colab_html_shell(root_id)
+    js = realtime.build_realtime_colab_javascript("temporary-token", root_id)
 
     assert 'data-el="start">Start</button>' in html
     assert 'data-el="stop" disabled>Stop</button>' in html
     assert 'data-el="copy">Copy transcript</button>' in html
     assert 'data-el="download">Download .txt</button>' in html
-    assert "startBtn.addEventListener('click', start)" in html
-    assert "stopBtn.addEventListener('click', () => stop())" in html
-    assert "copyBtn.addEventListener('click'" in html
-    assert "downloadBtn.addEventListener('click'" in html
+    assert "startBtn.addEventListener('click', start)" in js
+    assert "stopBtn.addEventListener('click', () => stop())" in js
+    assert "copyBtn.addEventListener('click'" in js
+    assert "downloadBtn.addEventListener('click'" in js
 
 
-def test_generated_html_uses_compact_diagnostics_ui() -> None:
-    html = realtime.build_realtime_colab_html("temporary-token")
+def test_launch_path_displays_html_and_javascript_separately() -> None:
+    source = (ROOT / "elevenlabs_realtime.py").read_text(encoding="utf-8")
+
+    assert "from IPython.display import HTML, Javascript, display" in source
+    assert "display(HTML(build_realtime_colab_html_shell(root_id)))" in source
+    assert "display(Javascript(build_realtime_colab_javascript(token, root_id)))" in source
+
+
+def test_generated_html_shell_uses_compact_diagnostics_ui() -> None:
+    root_id = realtime.create_realtime_colab_root_id()
+    html = realtime.build_realtime_colab_html_shell(root_id)
+    js = realtime.build_realtime_colab_javascript("temporary-token", root_id)
+
     assert "LIVE-COLAB-01: realtime transcription prototype" in html
     assert "Источник аудио" in html
     assert "<summary>Диагностика</summary>" in html
     assert "Диагностика появится после запуска realtime-сессии." in html
     assert '<pre data-el="diagnostics" hidden></pre>' in html
-    assert "diagWrapEl.open = true" in html
+    assert "diagWrapEl.open = true" in js
     assert "background:#111" not in html
     assert "min-height:80px" not in html
     assert "Ready. Manual Colab/browser/provider runtime validation" not in html
