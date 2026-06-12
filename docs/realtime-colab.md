@@ -4,11 +4,11 @@
 
 ## Current status
 
-- `LIVE-COLAB-01` is implemented in `main` after PR #49, but output-cell UI execution is blocked in the tested Colab runtime.
+- `LIVE-COLAB-01` is present in `main`, but output-cell UI execution is blocked in the tested Colab runtime.
 - Tested output-cell attempts that did not attach active JavaScript: inline `<script>` inside `display(HTML(...))`, separate `IPython.display.Javascript(...)`, and sandboxed `iframe srcdoc`.
 - `LIVE-COLAB-PROXY-01` is the next experimental bridge: Colab acts as a Python launcher/local HTTP server and opens a standalone browser page through a Colab proxy/new tab.
 - The contour is experimental.
-- Static CI checks cover notebook hygiene, helper behavior and safety guardrails.
+- Static CI checks cover notebook hygiene, helper behavior, generated `/realtime.js` syntax, and safety guardrails; manual Colab proxy/new-tab runtime validation remains pending.
 - Manual end-to-end Colab runtime validation is still pending for the proxy standalone page.
 - Success must be proven by runtime checks in a real browser/Colab session, not by static tests alone.
 

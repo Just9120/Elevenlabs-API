@@ -2,7 +2,7 @@
 
 ## 1. Статус документа
 
-Этот документ — основной Russian-first source of truth для текущего состояния проекта `Just9120/Elevenlabs-API` после merge PR #49. Он синхронизирует продуктовый scope, runtime flows, docs-only workflows, safety boundaries и validation requirements.
+Этот документ — основной Russian-first source of truth для текущего состояния проекта `Just9120/Elevenlabs-API`. Он синхронизирует продуктовый scope, runtime flows, docs-only workflows, safety boundaries и validation requirements.
 
 Документ описывает ожидаемое поведение проекта, но сам по себе не доказывает runtime/E2E validation. Все статусы валидации должны сверяться с `VALIDATION_MATRIX.md` и фактическими CI/runtime записями.
 
@@ -97,7 +97,7 @@ Flow:
 
 ### 4.5 Realtime Colab prototype (LIVE-COLAB-01)
 
-`LIVE-COLAB-01` is an experimental separate runtime contour implemented in `main` after PR #49. It is not part of the stable batch flow yet and is not a replacement for the current batch Google Colab workflow; batch mode remains fully working, independent and the current stable/fallback channel. The output-cell UI path is blocked in the tested Colab runtime because active JavaScript did not attach for inline `display(HTML(...))`, separate `IPython.display.Javascript(...)`, or `iframe srcdoc` attempts.
+`LIVE-COLAB-01` is an experimental separate runtime contour present in `main`. It is not part of the stable batch flow yet and is not a replacement for the current batch Google Colab workflow; batch mode remains fully working, independent and the current stable/fallback channel. The output-cell UI path is blocked in the tested Colab runtime because active JavaScript did not attach for inline `display(HTML(...))`, separate `IPython.display.Javascript(...)`, or `iframe srcdoc` attempts.
 
 `LIVE-COLAB-PROXY-01` is the active bridge experiment: Colab creates the single-use realtime token, starts a lightweight local HTTP server, and exposes a standalone realtime frontend page through a Colab proxy/new tab. This contour treats the Colab launcher/proxy as replaceable infrastructure. Future PWA/backend work is a parallel future contour, not a replacement for batch Colab and not a dependency of this Colab experiment.
 
