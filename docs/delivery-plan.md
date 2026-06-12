@@ -4,7 +4,7 @@
 
 Документ фиксирует текущий operational plan. Он не является историческим журналом всех PR; для validation evidence используется `VALIDATION_MATRIX.md`, для требований — `docs/project-spec.md`, а для focused coding-agent routing — `AGENTS.md`.
 
-Текущая фаза: batch Colab remains the working/fallback channel, while realtime work is a separate experimental contour. `LIVE-COLAB-01` output-cell UI is blocked in the tested Colab runtime, and `LIVE-COLAB-PROXY-01` is the next bridge validation step using a standalone page via Colab proxy/new tab. Runtime validation in Google Colab/Drive/Docs and realtime browser/provider validation must not be overstated.
+Текущая фаза: batch Colab remains the working/fallback channel, while realtime work is a separate experimental contour. `LIVE-COLAB-01` output-cell UI is blocked in the tested Colab runtime, and `LIVE-COLAB-PROXY-01` is the next bridge validation step using a standalone page via Colab proxy/new tab. Generated `/realtime.js` syntax has static/generated-JS validation, but runtime validation in Google Colab/Drive/Docs and realtime browser/provider validation must not be overstated.
 
 ## Готово к текущему checkpoint
 
@@ -63,6 +63,7 @@ Implementation status:
 - [x] Add proxy/new-tab launcher path in `elevenlabs_realtime.py`.
 - [x] Serve a standalone realtime browser page from a lightweight local HTTP server.
 - [x] Keep browser exposure limited to a single-use realtime token or generated realtime WebSocket URL.
+- [x] Static/generated-JS validation covers generated `/realtime.js` syntax.
 - [x] Document output-cell UI attempts as blocked in tested Colab runtime.
 - [ ] Manual Colab proxy/new-tab runtime validation remains the next active task.
 
@@ -82,9 +83,9 @@ Manual runtime checklist:
 
 Implementation status:
 
-- [x] Create realtime notebook `notebooks/elevenlabs_realtime_colab.ipynb` — merged in PR #49.
-- [x] Create standalone realtime runtime file `elevenlabs_realtime.py` — merged in PR #49.
-- [x] Static/local checks for notebook hygiene, helper behavior and safety guardrails passed for the implementation PR.
+- [x] Create realtime notebook `notebooks/elevenlabs_realtime_colab.ipynb`.
+- [x] Create standalone realtime runtime file `elevenlabs_realtime.py`.
+- [x] Static/local checks for notebook hygiene, helper behavior and safety guardrails passed for the implementation.
 - [ ] Output-cell UI validation is blocked in the tested Colab runtime; do not continue treating output-cell JavaScript as the active validation path.
 
 Manual runtime checklist:
