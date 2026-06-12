@@ -18,6 +18,15 @@
 - `OpenAI / gpt-4o-transcribe` — ручной альтернативный путь;
 - `OpenAI / gpt-4o-transcribe-diarize` — speaker-aware путь, требующий отдельной валидации, особенно при chunking.
 
+
+## Repository navigation
+
+- `AGENTS.md` — lightweight routing guide for focused coding-agent tasks.
+- `docs/project-spec.md` — active product/project source of truth for scope, behavior, safety boundaries, and acceptance criteria.
+- `docs/delivery-plan.md` — current operational delivery state, active checkpoint, blockers, and validation notes.
+- `docs/ai-coding-workflow.md` — broader AI-assisted workflow contract for reasoning-model task prep, implementation PRs, and read-only review/checks.
+- `docs/ci-cd-rules.md` — CI/CD and deployment safety boundaries; use it only for CI/CD, deploy, operations, secrets, rollback, or stateful-service tasks.
+
 ## Быстрый старт в Google Colab
 
 Основная точка входа — тонкий launcher notebook:

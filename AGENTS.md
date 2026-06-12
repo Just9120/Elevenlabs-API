@@ -239,12 +239,12 @@ Prefer small, focused, reviewable changes.
 Use existing project commands where available.
 
 ```text
-Install:
-Lint:
-Typecheck:
-Test:
-Build:
-Run:
+Install: not standardized; inspect requirements files for the target environment.
+Lightweight CI checks: python scripts/ci_checks.py
+Test: pytest -q
+Whitespace/diff check: git diff --check
+Build: not applicable for the current Colab/script workflow.
+Run: launch notebooks/elevenlabs_api_colab.ipynb in Google Colab for runtime validation.
 ```
 
 If commands are unknown, inspect package/config files and use the smallest relevant checks.
