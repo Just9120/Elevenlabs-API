@@ -1,354 +1,296 @@
-# CI/CD Rules — универсальные правила для проектов
+# CI/CD Rules
 
-## 1. Назначение
+## Purpose
 
-Документ задаёт единые правила для подготовки CI и CD в проектах.
+This document defines CI/CD boundaries for repositories that use GitHub Actions, deploy automation, Docker, server/VPS deploy, runtime secrets, or stateful services.
 
-Документ также фиксирует границу между initial server bootstrap, Deploy Keys, стандартным CD и отдельными maintenance/migration задачами для stateful services.
+It is a safety and responsibility contract, not a detailed implementation recipe.
 
-Он используется как базовый стандарт, по которому ChatGPT для каждого конкретного проекта должен подготовить:
-
-- проверки и настройки GitHub;
-- команды для VPS, если нужен CD;
-- промт для Codex;
-- post-check;
-- риски;
-- rollback-план.
-
-Документ задаёт контур, границы и обязательные правила. Детали реализации уточняются отдельно для каждого проекта.
+Project-specific implementation may evolve, but it must preserve the boundaries below.
 
 ---
 
-## 2. Общий принцип
+## Core principle
 
-CI подключается сразу при заведении или первичной настройке проекта.
+CI verifies the project.
 
-CD подключается позже — когда проект готов к первому deploy или smoke test на VPS.
+CD delivers the project.
 
-CI отвечает за проверку качества и собираемости проекта.
+CI must not deploy.
 
-CD отвечает за безопасную доставку рабочей версии на VPS.
-
-CI не должен выполнять deploy.
-
-CD не должен делать cleanup, hardening, переносы, destructive-действия и изменения за пределами целевого сервиса.
-
-Initial server bootstrap может использовать repository Deploy Key для доступа VPS к GitHub repository. После первичной настройки стандартный CD должен работать по правилам этого документа.
-
-Deploy Key и `DEPLOY_*` Repository Secrets не являются одним и тем же:
-
-```text
-Deploy Key = доступ VPS → GitHub repository
-DEPLOY_* Repository Secrets = доступ GitHub Actions → VPS
-```
+CD must not perform cleanup, hardening, destructive operations, uncontrolled migrations, backup/restore, or stateful service maintenance unless this is an explicit separate maintenance task.
 
 ---
 
-## 3. CI standard
+## Scope
 
-Базовый CI-flow:
+This document applies when a task touches:
 
-```text
-pull_request / push в main
-→ GitHub Actions
-→ install dependencies
-→ lint / typecheck / tests / build
-→ CI_OK
-```
+- GitHub Actions;
+- CI workflows;
+- CD workflows;
+- deploy scripts;
+- server/VPS deploy;
+- Docker or Docker Compose deploy;
+- runtime `.env`;
+- Repository Secrets;
+- post-checks;
+- rollback;
+- databases, Redis, queues, vector databases, object/file storage, volumes, or other stateful services.
 
-CI workflow должен:
-
-- запускаться на `pull_request`;
-- запускаться на `push` в `main`;
-- иметь `workflow_dispatch`;
-- использовать минимальные `permissions`;
-- иметь `concurrency` guard;
-- использовать lockfile, если он есть;
-- использовать существующие команды проекта;
-- не использовать production secrets;
-- не подключаться к production VPS;
-- не выполнять deploy;
-- завершаться `CI_OK` при успехе.
-
-Если в проекте нет тестов, CI всё равно должен выполнять минимально доступные проверки: install, lint, typecheck, build или их эквиваленты.
-
-Codex не должен внедрять тяжёлую инфраструктуру тестирования без отдельной задачи.
+For ordinary product/code tasks, do not read or apply this document unless CI/CD, deployment, operations, runtime environment, or stateful infrastructure is affected.
 
 ---
 
-## 4. CD standard
+## Required project inputs
 
-Базовый CD-flow:
+Before preparing or changing CI/CD, determine the relevant values from the repository or safe diagnostics.
 
-```text
-push/merge в main
-→ GitHub Actions
-→ проверки/тесты
-→ SSH на VPS
-→ переход в APP_DIR
-→ получение актуального кода из GitHub
-→ safe .env.example → .env sync
-→ check unresolved runtime secrets
-→ build/up целевого Docker Compose service
-→ post-check
-→ DEPLOY_OK or safe failure
-```
+Do not invent unknown values.
 
-CD workflow должен:
+Minimum CI inputs:
 
-- запускаться на `push/merge` в `main`;
-- иметь `workflow_dispatch`;
-- использовать минимальные `permissions`;
-- иметь `concurrency` guard;
-- проверять наличие `DEPLOY_*` secrets;
-- подключаться к VPS по SSH;
-- проверять `APP_DIR` и наличие git repo;
-- проверять `origin remote`;
-- получать код из GitHub по SSH;
-- отказываться от deploy при tracked local changes;
-- обновлять код безопасным fast-forward способом;
-- выполнять safe env sync до docker build/up;
-- проверять runtime `.env` на unresolved `__REQUIRED_SECRET__` после safe env sync и до build/up;
-- деплоить только `COMPOSE_SERVICE`;
-- выполнять post-check;
-- не завершаться `DEPLOY_OK`, если post-check не пройден;
-- завершаться `DEPLOY_OK` только при успехе.
-
----
-
-Post-check / rollback policy:
-
-- если post-check не пройден, CD не должен помечать deploy как `DEPLOY_OK`;
-- workflow может выполнить автоматический rollback только если в проекте явно реализована и задокументирована безопасная rollback strategy;
-- если безопасный rollback не реализован, CD должен fail loudly и сообщить о failed post-check без blind cleanup, destructive commands или изменений stateful services;
-- rollback не должен нарушать запреты на `docker compose down`, `git reset --hard`, prune, удаление volumes, cleanup или изменение stateful services.
-
-## 5. Входные данные по проекту
-
-Для подготовки CI/CD по конкретному проекту должны быть определены:
-
-- GitHub repository;
+- repository;
 - production branch;
-- стек проекта;
-- package manager;
-- доступные install/lint/typecheck/test/build команды;
-- наличие lockfile;
-- наличие `.env.example`;
-- наличие существующих GitHub Actions workflow.
+- stack and package manager;
+- install command;
+- lint command, if available;
+- typecheck command, if available;
+- test command, if available;
+- build command, if available;
+- lockfile presence;
+- existing workflows.
 
-Для CD дополнительно:
+Additional CD inputs:
 
-- `APP_DIR` на VPS;
-- `EXPECTED_REMOTE`;
-- `EXPECTED_BRANCH`;
-- `COMPOSE_SERVICE`;
-- compose-файл, если он нестандартный;
-- наличие `.env` на VPS;
-- health endpoint или fallback post-check;
-- текущая модель доступа VPS → GitHub;
-- используется ли repository Deploy Key для доступа VPS к GitHub;
-- текущие GitHub Repository Secrets;
-- наличие stateful services: database, Redis, queues, vector DB, object/file storage, volumes;
-- есть ли миграции, backup/restore или reindex expectations.
+- target environment;
+- deploy branch;
+- deploy directory, for example `APP_DIR`;
+- expected remote, for example `EXPECTED_REMOTE`;
+- expected branch, for example `EXPECTED_BRANCH`;
+- target service, for example `COMPOSE_SERVICE`;
+- deploy command/model;
+- runtime env model;
+- health check or post-check;
+- secrets required by the workflow, usually `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, `DEPLOY_KNOWN_HOSTS`;
+- stateful services and volumes;
+- rollback expectation, if any.
 
-Если часть данных неизвестна, ChatGPT должен дать команды для безопасной проверки, а не придумывать значения.
-
----
-
-## 6. GitHub rules
-
-Для CI:
-
-- production secrets не использовать;
-- deploy не выполнять;
-- workflow должен быть безопасным для `pull_request`.
-
-Для CD используются Repository Secrets:
-
-- `DEPLOY_HOST`;
-- `DEPLOY_USER`;
-- `DEPLOY_SSH_KEY`;
-- `DEPLOY_KNOWN_HOSTS`.
-
-Секреты не должны попадать в код, логи или промты для Codex как значения.
+If values are unknown, ask for them or provide safe read-only diagnostic commands.
 
 ---
 
-## 7. VPS/CD rules
+## CI boundaries
 
-VPS получает код из GitHub по SSH.
+CI should:
 
-Требования:
+- run on `pull_request`;
+- run on `push` to the production branch, usually `main`;
+- support `workflow_dispatch`;
+- use minimal `permissions`;
+- use a `concurrency` guard;
+- use existing project commands;
+- use lockfiles when present;
+- install dependencies reproducibly where possible;
+- run available checks;
+- avoid production secrets;
+- avoid production infrastructure;
+- not deploy;
+- clearly report success, for example with `CI_OK`.
 
-- remote должен быть SSH;
-- HTTPS/PAT для CD не использовать;
-- `APP_DIR` не менять;
-- текущие пути проектов на VPS сохранять;
-- `.env` остаётся на VPS;
-- `.env.example` считается схемой runtime-переменных;
-- существующие значения `.env` не менять;
-- значения `.env` не печатать;
-- новые secret-like переменные добавлять в `.env.example` как `__REQUIRED_SECRET__`;
-- после safe `.env.example` → `.env` sync CD обязан проверить runtime `.env` на unresolved `__REQUIRED_SECRET__`;
-- если в runtime `.env` остался `__REQUIRED_SECRET__`, deploy блокируется до `docker build`, `docker compose up` или restart текущего сервиса;
-- проверка не должна печатать значения `.env` в логи;
-- при unresolved secret workflow должен вывести generic error, например `Missing required runtime secrets`, и завершиться с non-zero exit code.
+If the project has no tests, CI may run the smallest available useful checks.
 
-Docker Compose policy:
+Do not introduce heavy testing infrastructure as part of a CI setup unless explicitly requested.
 
-- build только `COMPOSE_SERVICE`;
-- up/recreate только `COMPOSE_SERVICE`;
-- dependency/stateful services не пересоздавать;
-- базы данных, Redis, vector DB, queues и volumes не трогать.
-
-Stateful services policy:
-
-- базы данных, vector DB, Redis, queues, object/file storage и Docker volumes считаются stateful services;
-- стандартный CD не должен пересоздавать, очищать, переносить или переинициализировать stateful services;
-- migration, backup, restore, vector reindex, volume migration и stateful service maintenance не входят в стандартный CD;
-- любые изменения stateful services выполняются только отдельной delivery / maintenance задачей с явным scope, rollback-планом и validation;
-- если deploy требует миграции БД или reindex, стандартный CD должен быть расширен только в рамках отдельного согласованного item, а не по умолчанию.
+Do not add auto-fix commits, direct pushes to the production branch, or self-modifying workflow behavior unless explicitly requested and reviewed as a separate automation policy.
 
 ---
 
-## 8. Запрещённые действия
+## CD boundaries
 
-В стандартном CI запрещены:
+CD should:
 
-- SSH на production VPS;
-- deploy-команды;
-- использование production `.env`;
-- изменение production database;
-- изменение инфраструктуры;
-- auto-fix с commit/push в `main`.
+- run only on intended production delivery events or `workflow_dispatch`;
+- use minimal `permissions`;
+- use a `concurrency` guard;
+- use Repository Secrets without printing values;
+- explicitly verify target directory, branch, remote, and service identity before deploy;
+- fail safely when required inputs are missing;
+- refuse deploy when local tracked changes make update unsafe;
+- update code safely, preferably by fast-forward when using git-based deploy;
+- preserve existing runtime secrets;
+- block deploy when required runtime secrets are unresolved;
+- deploy only the intended application service;
+- run a post-check;
+- report success, for example `DEPLOY_OK`, only after post-check passes.
 
-В стандартном CD запрещены:
+CD implementation details may differ by project. The safety boundaries above must remain intact.
 
-- `docker compose down`;
-- `docker system prune -a`;
-- `docker volume prune`;
-- `docker image prune -a`;
+For git-based server/VPS deploy, the expected repository access model must be explicit.
+
+Prefer SSH-based repository access on the target server when that is the established project model. Do not introduce HTTPS/PAT-based deploy access unless explicitly requested.
+
+Initial server bootstrap, SSH/server hardening, deploy-user setup, firewall changes, directory migration, and production cleanup are not standard CD.
+
+They require a separate explicit setup, maintenance, or migration task with scope, validation, and rollback expectations.
+
+Do not hide bootstrap or hardening inside an ordinary CD workflow change.
+
+---
+
+## Secrets and `.env`
+
+Secrets must not be committed, printed, logged, copied into prompts, copied into generated bundles, exposed in examples, or written into tests.
+
+`.env.example`, `.env.sample`, or `.env.template` may describe required runtime variables.
+
+Runtime `.env` values must be preserved.
+
+If `.env.example` is used as a runtime schema, CD should safely add missing keys to runtime `.env` without overwriting existing values.
+
+After safe `.env.example` to runtime `.env` sync, deploy scripts must check runtime `.env` for unresolved required placeholders and block deployment with a non-zero exit code before `docker build`, `docker compose up`, restart, migration, or any action that touches the target service.
+
+Use placeholders such as `__REQUIRED_SECRET__` only as schema markers, not as real values.
+
+Do not print or validate runtime secrets with unsafe commands such as `cat .env`, `docker compose config`, or any command that can expose resolved secret values.
+
+---
+
+## Stateful services
+
+Stateful services include:
+
+- databases;
+- Redis;
+- queues;
+- vector databases;
+- object/file storage;
+- persistent volumes;
+- any service that owns data that cannot be casually recreated.
+
+Standard CD must not:
+
+- delete or recreate stateful services;
+- remove volumes;
+- run destructive migrations;
+- run backup/restore;
+- reindex vector databases;
+- move persistent data;
+- perform cleanup that can affect state.
+
+Any stateful service work must be a separate explicit maintenance or migration task with scope, validation, and rollback expectations.
+
+---
+
+## Forbidden by default
+
+Do not add these to standard CI/CD unless an explicit separate maintenance task justifies them:
+
+- deploy from CI;
+- production SSH from CI;
+- printing secret values;
+- destructive file deletion;
+- broad cleanup;
+- `rm -rf` cleanup against broad or variable paths;
 - `git reset --hard`;
 - `git clean -fdx`;
-- `rm -rf`;
-- `chmod -R`;
-- `chown -R`;
-- `docker compose config`;
-- `cat .env`;
-- cleanup;
-- hardening;
-- перенос директорий;
-- изменение volumes/stateful services;
-- destructive database migrations;
-- database backup/restore;
-- vector DB reindex;
-- volume migration.
-
-Любые destructive/maintenance-действия выполняются только отдельными задачами.
+- destructive Docker prune/down operations such as `docker compose down`, `docker system prune -a`, `docker volume prune`, or `docker image prune -a`;
+- deleting or recreating volumes;
+- printing or validating secrets by unsafe commands such as `cat .env`;
+- using `docker compose config` when it can expose resolved secrets;
+- changing ownership or permissions recursively with broad `chmod -R` or `chown -R`;
+- uncontrolled database migrations;
+- backup/restore;
+- vector reindex;
+- moving production directories;
+- changing production `.env` values;
+- CI auto-fix commits;
+- direct pushes to the production branch from automation;
+- workflow self-modification without explicit request and review.
 
 ---
 
-## 9. Что должен подготовить ChatGPT по каждому проекту
+## Rollback boundary
 
-После анализа конкретного проекта ChatGPT должен выдать:
+Automatic rollback is allowed only when the project has an explicit, safe, documented rollback strategy.
 
-1. Что проверить/создать в GitHub.
-2. Что проверить на VPS.
-3. Команды для безопасной диагностики.
-4. Промт для Codex.
-5. Ожидаемые CI/CD workflow changes.
-6. Команды post-check.
-7. Риски и ограничения.
-8. Rollback-план.
+If rollback is not clearly safe, CD should fail loudly after failed post-check and avoid destructive recovery attempts.
 
-ChatGPT не должен придумывать неизвестные значения. Если данных не хватает, он должен дать команды для проверки.
+Rollback must not violate stateful service boundaries.
+
+Rollback must not delete or recreate persistent data unless the maintenance task explicitly scopes that action and includes validation and recovery expectations.
 
 ---
 
-## 10. Что должен сделать Codex
+## Deploy Key vs Repository Secrets
 
-Для CI Codex должен:
+Do not confuse:
 
-- создать или обновить CI workflow;
-- использовать существующие команды проекта;
-- не добавлять production secrets;
-- не добавлять deploy;
-- не менять архитектуру проекта;
-- обеспечить `CI_OK`.
+```text
+Deploy Key = target server access to the GitHub repository
+DEPLOY_* Repository Secrets = GitHub Actions access to the target server
+```
 
-Для CD Codex должен:
-
-- создать или обновить CD workflow;
-- явно задать `APP_DIR / EXPECTED_REMOTE / EXPECTED_BRANCH / COMPOSE_SERVICE`;
-- добавить safe env sync, если его нет;
-- встроить env sync до docker build/up;
-- убрать опасные команды;
-- сохранить текущие VPS paths;
-- не добавлять secrets в код;
-- не трогать volumes;
-- не выполнять migrations, backup/restore, vector reindex или volume maintenance без отдельной задачи;
-- не делать cleanup/hardening;
-- обеспечить `DEPLOY_OK`.
+Use the model that matches the project. Do not invent access details.
 
 ---
 
-## 11. Definition of Done
+## Environment and branch identity
 
-CI считается готовым, если:
+CD must verify that it is deploying the intended repository, branch, directory, and service before changing runtime state.
 
-- workflow запускается на `pull_request`;
-- workflow запускается на `push` в `main`;
-- доступен `workflow_dispatch`;
-- есть минимальные `permissions`;
-- есть `concurrency` guard;
-- зависимости устанавливаются воспроизводимо;
-- выполняются доступные проверки проекта;
-- deploy не выполняется;
-- production secrets не используются;
-- успешный workflow завершается `CI_OK`.
+Recommended checks for git-based deploy:
 
-CD считается готовым, если:
+- current directory matches expected deploy directory;
+- configured remote matches expected repository;
+- current branch matches expected deploy branch;
+- working tree has no unsafe local tracked changes;
+- target service name matches configured service;
+- required runtime files exist;
+- required runtime placeholders are resolved.
 
-- push/merge в `main` запускает deploy на VPS;
-- `workflow_dispatch` доступен;
-- GitHub Actions подключается к VPS через `DEPLOY_*` secrets;
-- VPS получает код из GitHub по SSH;
-- `APP_DIR / EXPECTED_REMOTE / EXPECTED_BRANCH / COMPOSE_SERVICE` явно заданы;
-- `.env.example` безопасно синхронизируется в `.env`;
-- существующие значения `.env` не перезаписываются;
-- deploy блокируется при новых незаполненных секретах;
-- деплоится только `COMPOSE_SERVICE`;
-- stateful services и volumes не трогаются;
-- Deploy Key, если используется для VPS → GitHub, не смешивается с `DEPLOY_*` secrets для GitHub Actions → VPS;
-- migrations, backup/restore, vector reindex и volume maintenance не выполняются как часть стандартного CD;
-- destructive-команды отсутствуют;
-- есть post-check;
-- runtime `.env` проверяется на unresolved `__REQUIRED_SECRET__` после safe env sync и до build/up;
-- failed post-check не может завершиться `DEPLOY_OK`;
-- automatic rollback выполняется только при явно описанной safe rollback strategy;
-- успешный workflow завершается `DEPLOY_OK`.
+If any identity check fails, deployment must stop before build/restart/up.
 
 ---
 
-## 12. За рамками задачи
+## Codex task boundary
 
-Отдельными задачами выполняются:
+For CI/CD tasks, Codex may create or update workflow files and supporting scripts only within the requested scope.
 
-- увеличение test coverage;
-- внедрение новых линтеров;
-- e2e-тесты;
-- security scanning;
-- dependency audit policy;
-- preview environments;
-- SSH hardening;
-- переход с root на deploy-user;
-- per-repo read-only GitHub Deploy Keys;
-- firewall/sshd hardening;
-- перенос директорий проектов;
-- cleanup старых файлов/snapshots/audits;
-- реорганизация volumes/stateful services;
-- database migrations;
-- backup / restore procedures;
-- vector index rebuild / reindex;
-- volume migration;
-- stateful service maintenance;
+Codex must not:
+
+- add real secrets;
+- change unrelated application behavior;
+- change architecture;
+- touch stateful services;
+- add migrations or backup/restore;
+- perform cleanup/hardening;
+- expand CI/CD beyond the requested task;
+- introduce a new deploy access model without explicit request;
+- convert local/dev Docker usage into production deployment semantics unless explicitly scoped.
+
+---
+
+## Done means
+
+CI is done when:
+
+- it runs on `pull_request`;
+- it runs on `push` to the production branch;
+- `workflow_dispatch` is available;
+- minimal `permissions` and a `concurrency` guard are present;
+- it uses existing project checks;
+- it avoids deploy and production secrets;
+- it passes with a clear success marker such as `CI_OK` or reports clear missing project prerequisites.
+
+CD is done when:
+
+- it deploys only the intended target service;
+- target directory, expected remote, expected branch, and service identity are explicit;
+- required secrets and runtime env are handled safely;
+- unresolved required runtime secrets block deploy before build/up/restart;
+- stateful services and volumes are not touched;
+- post-check is present;
+- failed post-check cannot produce a success marker such as `DEPLOY_OK`;
+- success is reported only after validation;
+- rollback behavior is explicit or safely absent.
