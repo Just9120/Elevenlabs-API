@@ -8,6 +8,8 @@ from __future__ import annotations
 import html
 import json
 import re
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -380,6 +382,47 @@ def test_proxy_standalone_frontend_includes_controls_status_and_external_realtim
     for forbidden in ["ELEVEN_API_KEY", "ELEVENLABS_API_KEY", "preferred-key", "compatibility-key", "main-api-key", "temporary-token"]:
         assert forbidden not in page
         assert forbidden not in js
+
+
+def test_generated_proxy_realtime_javascript_passes_node_syntax_check(tmp_path: Path) -> None:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not available for generated JavaScript syntax validation")
+
+    js = realtime.build_realtime_frontend_javascript(
+        "temporary-token",
+        realtime.create_realtime_colab_root_id(),
+    )
+    js_path = tmp_path / "realtime.js"
+    js_path.write_text(js, encoding="utf-8")
+
+    result = subprocess.run(
+        [node, "--check", str(js_path)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_proxy_frontend_javascript_uses_deterministic_config_loader() -> None:
+    source = (ROOT / "elevenlabs_realtime.py").read_text(encoding="utf-8")
+    function_source = source[
+        source.index("def build_realtime_frontend_javascript") : source.index(
+            "def build_realtime_frontend_html"
+        )
+    ]
+    js = realtime.build_realtime_frontend_javascript(
+        "temporary-token",
+        realtime.create_realtime_colab_root_id(),
+    )
+
+    assert "fetch('/config.json', {cache: 'no-store'})" in js
+    assert "_build_realtime_app_javascript" in function_source
+    assert ".index(" not in function_source
+    assert "javascript[:" not in function_source
+    assert "runtime-config-loaded-from-json" not in function_source
 
 
 def test_proxy_server_serves_standalone_frontend_assets_without_provider_calls() -> None:
