@@ -2,7 +2,7 @@
 
 ## Статус
 
-Документ фиксирует текущий operational plan после merge PR #49. Он не является историческим журналом всех PR; для validation evidence используется `VALIDATION_MATRIX.md`, а для требований — `docs/project-spec.md`.
+Документ фиксирует текущий operational plan. Он не является историческим журналом всех PR; для validation evidence используется `VALIDATION_MATRIX.md`, для требований — `docs/project-spec.md`, а для focused coding-agent routing — `AGENTS.md`.
 
 Текущая фаза: batch Colab remains the working/fallback channel, while realtime work is a separate experimental contour. `LIVE-COLAB-01` output-cell UI is blocked in the tested Colab runtime, and `LIVE-COLAB-PROXY-01` is the next bridge validation step using a standalone page via Colab proxy/new tab. Runtime validation in Google Colab/Drive/Docs and realtime browser/provider validation must not be overstated.
 
