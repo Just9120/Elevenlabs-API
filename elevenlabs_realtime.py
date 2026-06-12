@@ -263,25 +263,15 @@ def build_realtime_colab_html_shell(root_id: str) -> str:
 """
 
 
-def build_realtime_colab_javascript(token: str, root_id: str) -> str:
-    """Return executable JavaScript for the current Colab realtime UI render."""
+def _build_realtime_app_javascript(root_id: str, config_setup_js: str, *, async_boot: bool = False) -> str:
+    """Return shared realtime frontend JavaScript with deterministic config setup."""
 
-    ws_url = build_realtime_websocket_url(token)
     root_id = _validate_realtime_colab_root_id(root_id)
-    config_json = json.dumps(
-        {
-            "wsUrl": ws_url,
-            "modelId": REALTIME_MODEL_ID,
-            "audioFormat": REALTIME_AUDIO_FORMAT,
-            "commitStrategy": REALTIME_COMMIT_STRATEGY,
-            "messages": KNOWN_ERROR_MESSAGES_RU,
-        },
-        ensure_ascii=False,
-    )
+    iife_head = "async ()" if async_boot else "()"
 
     return f"""
-(() => {{
-  const CONFIG = {config_json};
+({iife_head} => {{
+{config_setup_js}
   const RENDER_ROOT_ID = '{root_id}';
   const root = document.getElementById(RENDER_ROOT_ID);
   if (!root) {{
@@ -321,7 +311,7 @@ def build_realtime_colab_javascript(token: str, root_id: str) -> str:
     diagPlaceholderEl.hidden = true;
     diagEl.hidden = false;
     diagWrapEl.open = true;
-    diagEl.textContent = (diagEl.textContent ? diagEl.textContent + '\n' : '') + line;
+    diagEl.textContent = (diagEl.textContent ? diagEl.textContent + '\\n' : '') + line;
   }}
   function knownErrorMessage(value) {{
     const lower = String(value || '').toLowerCase();
@@ -349,7 +339,7 @@ def build_realtime_colab_javascript(token: str, root_id: str) -> str:
   }}
   function appendCommitted(text) {{
     if (!text) return;
-    finalTranscript += (finalTranscript && !finalTranscript.endsWith('\n') ? '\n' : '') + text;
+    finalTranscript += (finalTranscript && !finalTranscript.endsWith('\\n') ? '\\n' : '') + text;
     committedEl.textContent = finalTranscript;
   }}
   function pickTranscriptText(data) {{
@@ -536,6 +526,22 @@ def build_realtime_colab_javascript(token: str, root_id: str) -> str:
 """
 
 
+def build_realtime_colab_javascript(token: str, root_id: str) -> str:
+    """Return executable JavaScript for the current Colab realtime UI render."""
+
+    config_json = json.dumps(
+        {
+            "wsUrl": build_realtime_websocket_url(token),
+            "modelId": REALTIME_MODEL_ID,
+            "audioFormat": REALTIME_AUDIO_FORMAT,
+            "commitStrategy": REALTIME_COMMIT_STRATEGY,
+            "messages": KNOWN_ERROR_MESSAGES_RU,
+        },
+        ensure_ascii=False,
+    )
+    return _build_realtime_app_javascript(root_id, f"  const CONFIG = {config_json};")
+
+
 def build_realtime_colab_iframe_srcdoc(token: str, root_id: str | None = None) -> str:
     """Return the complete realtime app document executed inside a Colab iframe."""
 
@@ -602,11 +608,7 @@ def build_realtime_frontend_javascript(token: str, root_id: str) -> str:
     # the standalone HTML can avoid inline script execution under Colab proxy CSPs.
     del token
     root_id = _validate_realtime_colab_root_id(root_id)
-    javascript = build_realtime_colab_javascript("runtime-config-loaded-from-json", root_id)
-    javascript = javascript.replace("(() => {", "(async () => {", 1)
-    config_start = javascript.index("  const CONFIG = ")
-    config_end = javascript.index(";\n", config_start) + 2
-    config_loader = f'''  async function loadRealtimeConfig() {{
+    config_setup_js = f'''  async function loadRealtimeConfig() {{
     const response = await fetch('/config.json', {{cache: 'no-store'}});
     if (!response.ok) {{
       throw new Error('HTTP ' + response.status + ' while loading /config.json');
@@ -629,9 +631,8 @@ def build_realtime_frontend_javascript(token: str, root_id: str) -> str:
   }} catch (err) {{
     markConfigLoadError(err);
     return;
-  }}
-'''
-    return javascript[:config_start] + config_loader + javascript[config_end:]
+  }}'''
+    return _build_realtime_app_javascript(root_id, config_setup_js, async_boot=True)
 
 
 def build_realtime_frontend_html(token: str, root_id: str | None = None) -> str:
