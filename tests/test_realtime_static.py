@@ -505,10 +505,12 @@ def test_realtime_attempt_scoped_permission_cancellation_guards() -> None:
     assert "let currentAttempt = null" in js
     assert "let attemptGeneration = 0" in js
     assert "function createAttempt()" in js
-    assert "function isCurrentAttempt(attempt)" in js
-    assert "function assertCurrentAttempt(attempt)" in js
+    assert "function ownsCurrentUi(attempt)" in js
+    assert "function isAttemptActive(attempt)" in js
+    assert "function assertAttemptActive(attempt)" in js
+    assert "cancelled: false" in js
     assert "const attempt = createAttempt(); currentAttempt = attempt;" in js
-    assert "await attempt.audioContext.resume(); assertCurrentAttempt(attempt);" in js
+    assert "await attempt.audioContext.resume(); assertAttemptActive(attempt);" in js
     assert "attachWebSocket(attempt)" in js
 
 
@@ -517,8 +519,8 @@ def test_realtime_stop_during_pending_display_permission_stops_stale_stream_befo
 
     assert "async function getDisplayAudioStream(attempt)" in js
     assert "navigator.mediaDevices.getDisplayMedia" in js
-    assert "if (!isCurrentAttempt(attempt)) { stopStream(stream); throw new Error('STALE_ATTEMPT'); }" in js
-    assert "assertCurrentAttempt(attempt);" in js
+    assert "if (!isAttemptActive(attempt)) { stopStream(stream); throw new Error('STALE_ATTEMPT'); }" in js
+    assert "assertAttemptActive(attempt);" in js
 
 
 def test_realtime_stop_during_pending_microphone_permission_stops_stale_stream_before_websocket() -> None:
@@ -526,14 +528,16 @@ def test_realtime_stop_during_pending_microphone_permission_stops_stale_stream_b
 
     assert "async function getInputAudioStream(attempt)" in js
     assert "navigator.mediaDevices.getUserMedia(microphoneConstraints())" in js
-    assert "if (!isCurrentAttempt(attempt)) { stopStream(stream); throw new Error('STALE_ATTEMPT'); }" in js
+    assert "if (!isAttemptActive(attempt)) { stopStream(stream); throw new Error('STALE_ATTEMPT'); }" in js
 
 
 def test_realtime_mixed_source_stale_acquisition_cleanup_and_source_reset() -> None:
     js = realtime.build_realtime_frontend_javascript("temporary-token", realtime.create_realtime_colab_root_id())
 
-    assert "if (hasDisplayAudio()) streams.push(await getDisplayAudioStream(attempt));" in js
-    assert "if (hasInputAudio()) streams.push(await getInputAudioStream(attempt));" in js
+    assert "function registerCapturedStream(stream)" in js
+    assert "attempt.mediaStreams.push(stream); streams.push(stream); return stream;" in js
+    assert "if (hasDisplayAudio()) registerCapturedStream(await getDisplayAudioStream(attempt));" in js
+    assert "if (hasInputAudio()) registerCapturedStream(await getInputAudioStream(attempt));" in js
     assert "catch (err) { stopStreams(streams); throw err; }" in js
     assert "function resetUiAfterAttempt()" in js
     assert "setSourceControlsDisabled(false); updateSourceUi();" in js
@@ -553,9 +557,9 @@ def test_realtime_stale_old_attempt_cannot_affect_newer_attempt_or_callbacks() -
     js = realtime.build_realtime_frontend_javascript("temporary-token", realtime.create_realtime_colab_root_id())
 
     assert "currentAttempt && currentAttempt.id === attempt.id" in js
-    assert "if (!isCurrentAttempt(attempt)) return; setStatus(STATUS.websocketOpen)" in js
-    assert "if (!isCurrentAttempt(attempt)) return; const expected = attempt.userStopRequested" in js
-    assert "if (!isCurrentAttempt(attempt)) return; try { handleRealtimeEvent" in js
+    assert "if (!isAttemptActive(attempt)) return; setStatus(STATUS.websocketOpen)" in js
+    assert "if (!ownsCurrentUi(attempt)) return; if (!isAttemptActive(attempt) && !attempt.userStopRequested) return; const expected = attempt.userStopRequested" in js
+    assert "if (!isAttemptActive(attempt)) return; try { handleRealtimeEvent" in js
 
 
 def test_realtime_expected_stop_and_unexpected_close_remain_distinguishable() -> None:
@@ -574,6 +578,38 @@ def test_realtime_partial_text_clears_after_cancellation_failure_and_stop() -> N
     assert "partialEl.textContent = ''; setSourceControlsDisabled(false); updateSourceUi();" in js
     assert "isRunning = true; setSourceControlsDisabled(true); updateSourceUi(); partialEl.textContent = ''; setStatus(STATUS.starting);" in js
     assert "if (!attempt) { isRunning = false; partialEl.textContent = '';" in js
+
+
+def test_realtime_stop_marks_attempt_cancelled_before_cleanup() -> None:
+    js = realtime.build_realtime_frontend_javascript("temporary-token", realtime.create_realtime_colab_root_id())
+
+    assert "attempt.userStopRequested = true;\n    attempt.cancelled = true;\n    cleanupAttempt(attempt" in js
+    assert js.index("attempt.userStopRequested = true;\n    attempt.cancelled = true;\n    cleanupAttempt(attempt") < js.index("finalStatus: STATUS.stopped")
+
+
+def test_realtime_active_predicate_invalidates_cancelled_or_cleaned_attempts() -> None:
+    js = realtime.build_realtime_frontend_javascript("temporary-token", realtime.create_realtime_colab_root_id())
+
+    assert "function isAttemptActive(attempt) { return ownsCurrentUi(attempt) && !attempt.cancelled && !attempt.cleanupDone; }" in js
+    assert "function assertAttemptActive(attempt) { if (!isAttemptActive(attempt)) throw new Error('STALE_ATTEMPT'); }" in js
+
+
+def test_realtime_each_stream_registered_before_next_capture_await() -> None:
+    js = realtime.build_realtime_frontend_javascript("temporary-token", realtime.create_realtime_colab_root_id())
+
+    display_capture = "registerCapturedStream(await getDisplayAudioStream(attempt));"
+    input_capture = "registerCapturedStream(await getInputAudioStream(attempt));"
+    assert "attempt.mediaStreams.push(stream); streams.push(stream); return stream;" in js
+    assert js.index(display_capture) < js.index(input_capture)
+
+
+def test_realtime_stop_between_display_and_microphone_prevents_websocket_creation() -> None:
+    js = realtime.build_realtime_frontend_javascript("temporary-token", realtime.create_realtime_colab_root_id())
+
+    assert "if (!isAttemptActive(attempt)) { stopStream(stream); throw new Error('STALE_ATTEMPT'); }" in js
+    assert "assertAttemptActive(attempt);" in js
+    assert js.index("await populateInputDevices(attempt)") < js.index("attachWebSocket(attempt)")
+    assert js.index("assertAttemptActive(attempt);\n    attempt.websocketCreated = true;") < js.index("attempt.ws = new WebSocket(CONFIG.wsUrl)")
 
 def test_generated_proxy_realtime_javascript_passes_node_syntax_check(tmp_path: Path) -> None:
     node = shutil.which("node")

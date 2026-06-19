@@ -369,14 +369,15 @@ def _build_realtime_app_javascript(root_id: str, config_setup_js: str, *, async_
   }}
 
   // frontend state/session lifecycle
-  function createAttempt() {{ return {{id: ++attemptGeneration, ws: null, audioContext: null, processor: null, sourceNodes: [], mediaStreams: [], cleanupDone: false, userStopRequested: false, websocketCreated: false}}; }}
-  function isCurrentAttempt(attempt) {{ return currentAttempt && currentAttempt.id === attempt.id; }}
-  function assertCurrentAttempt(attempt) {{ if (!isCurrentAttempt(attempt)) throw new Error('STALE_ATTEMPT'); }}
+  function createAttempt() {{ return {{id: ++attemptGeneration, ws: null, audioContext: null, processor: null, sourceNodes: [], mediaStreams: [], cleanupDone: false, cancelled: false, userStopRequested: false, websocketCreated: false}}; }}
+  function ownsCurrentUi(attempt) {{ return currentAttempt && currentAttempt.id === attempt.id; }}
+  function isAttemptActive(attempt) {{ return ownsCurrentUi(attempt) && !attempt.cancelled && !attempt.cleanupDone; }}
+  function assertAttemptActive(attempt) {{ if (!isAttemptActive(attempt)) throw new Error('STALE_ATTEMPT'); }}
   function stopStream(stream) {{ if (stream) stream.getTracks().forEach(track => track.stop()); }}
   function stopStreams(streams) {{ streams.forEach(stopStream); }}
   function resetUiAfterAttempt() {{ isRunning = false; partialEl.textContent = ''; setSourceControlsDisabled(false); updateSourceUi(); }}
   function cleanupAttempt(attempt, {{closeSocket = false, finalStatus = null, logMessage = null}} = {{}}) {{
-    const current = isCurrentAttempt(attempt);
+    const current = ownsCurrentUi(attempt);
     const shouldCloseSocket = closeSocket && attempt.ws && (attempt.ws.readyState === WebSocket.OPEN || attempt.ws.readyState === WebSocket.CONNECTING);
     if (closeSocket) attempt.userStopRequested = true;
     if (attempt.cleanupDone) {{ if (shouldCloseSocket) attempt.ws.close(1000, 'Остановлено пользователем'); if (current && finalStatus) setStatus(finalStatus); return; }}
@@ -423,7 +424,7 @@ def _build_realtime_app_javascript(root_id: str, config_setup_js: str, *, async_
     if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
     const current = inputDeviceEl.value;
     const devices = await navigator.mediaDevices.enumerateDevices();
-    if (attempt) assertCurrentAttempt(attempt);
+    if (attempt) assertAttemptActive(attempt);
     const audioInputs = devices.filter(device => device.kind === 'audioinput');
     inputDeviceEl.innerHTML = '<option value="off">Выключено</option><option value="">Устройство по умолчанию</option>';
     audioInputs.forEach((device, index) => {{
@@ -436,23 +437,23 @@ def _build_realtime_app_javascript(root_id: str, config_setup_js: str, *, async_
   function microphoneConstraints() {{ return inputDeviceEl.value ? {{audio: {{deviceId: {{exact: inputDeviceEl.value}}}}}} : {{audio: true}}; }}
   async function getDisplayAudioStream(attempt) {{
     const stream = await navigator.mediaDevices.getDisplayMedia({{video: true, audio: true}});
-    if (!isCurrentAttempt(attempt)) {{ stopStream(stream); throw new Error('STALE_ATTEMPT'); }}
+    if (!isAttemptActive(attempt)) {{ stopStream(stream); throw new Error('STALE_ATTEMPT'); }}
     if (stream.getAudioTracks().length === 0) {{ stopStream(stream); throw new Error('Браузер не передал аудиодорожку для выбранной вкладки/экрана. Попробуйте вкладку с включённой передачей звука или другой источник.'); }}
     return stream;
   }}
   async function getInputAudioStream(attempt) {{
     const stream = await navigator.mediaDevices.getUserMedia(microphoneConstraints());
-    if (!isCurrentAttempt(attempt)) {{ stopStream(stream); throw new Error('STALE_ATTEMPT'); }}
+    if (!isAttemptActive(attempt)) {{ stopStream(stream); throw new Error('STALE_ATTEMPT'); }}
     return stream;
   }}
   async function buildCaptureStream(attempt) {{
     const streams = [];
+    function registerCapturedStream(stream) {{ assertAttemptActive(attempt); attempt.mediaStreams.push(stream); streams.push(stream); return stream; }}
     try {{
-      if (hasDisplayAudio()) streams.push(await getDisplayAudioStream(attempt));
-      if (hasInputAudio()) streams.push(await getInputAudioStream(attempt));
-      attempt.mediaStreams.push(...streams);
+      if (hasDisplayAudio()) registerCapturedStream(await getDisplayAudioStream(attempt));
+      if (hasInputAudio()) registerCapturedStream(await getInputAudioStream(attempt));
       await populateInputDevices(attempt).catch((err) => {{ if (String(err && err.message) !== 'STALE_ATTEMPT') log('Не удалось обновить список аудиоустройств после разрешения браузера.'); }});
-      assertCurrentAttempt(attempt);
+      assertAttemptActive(attempt);
       if (streams.length === 1) return streams[0];
       if (streams.length > 1) {{
         const ctx = new AudioContext(); attempt.audioContext = ctx; const destination = ctx.createMediaStreamDestination();
@@ -467,13 +468,13 @@ def _build_realtime_app_javascript(root_id: str, config_setup_js: str, *, async_
 
   // WebSocket send/receive lifecycle
   function attachWebSocket(attempt) {{
-    assertCurrentAttempt(attempt);
+    assertAttemptActive(attempt);
     attempt.websocketCreated = true;
     attempt.ws = new WebSocket(CONFIG.wsUrl);
-    attempt.ws.onopen = () => {{ if (!isCurrentAttempt(attempt)) return; setStatus(STATUS.websocketOpen); log('WebSocket открыт; используется ' + CONFIG.modelId + ' / ' + CONFIG.audioFormat + ' / commit_strategy=' + CONFIG.commitStrategy); }};
-    attempt.ws.onerror = () => {{ if (!isCurrentAttempt(attempt)) return; log('Ошибка WebSocket. Проверьте сеть, одноразовый токен realtime и доступ к ElevenLabs realtime.'); }};
-    attempt.ws.onclose = (event) => {{ if (!isCurrentAttempt(attempt)) return; const expected = attempt.userStopRequested; log((expected ? 'WebSocket закрыт после команды пользователя: ' : 'Неожиданное закрытие WebSocket: ') + 'code=' + event.code + ', reason=' + (event.reason || '')); cleanupAttempt(attempt, {{finalStatus: expected ? STATUS.stopped : STATUS.closed, logMessage: expected ? null : 'Соединение закрыто не по команде пользователя; медиадорожки освобождены.'}}); }};
-    attempt.ws.onmessage = (event) => {{ if (!isCurrentAttempt(attempt)) return; try {{ handleRealtimeEvent(JSON.parse(event.data)); }} catch (err) {{ log('Получено не-JSON сообщение realtime; оно пропущено.'); }} }};
+    attempt.ws.onopen = () => {{ if (!isAttemptActive(attempt)) return; setStatus(STATUS.websocketOpen); log('WebSocket открыт; используется ' + CONFIG.modelId + ' / ' + CONFIG.audioFormat + ' / commit_strategy=' + CONFIG.commitStrategy); }};
+    attempt.ws.onerror = () => {{ if (!isAttemptActive(attempt)) return; log('Ошибка WebSocket. Проверьте сеть, одноразовый токен realtime и доступ к ElevenLabs realtime.'); }};
+    attempt.ws.onclose = (event) => {{ if (!ownsCurrentUi(attempt)) return; if (!isAttemptActive(attempt) && !attempt.userStopRequested) return; const expected = attempt.userStopRequested; log((expected ? 'WebSocket закрыт после команды пользователя: ' : 'Неожиданное закрытие WebSocket: ') + 'code=' + event.code + ', reason=' + (event.reason || '')); cleanupAttempt(attempt, {{finalStatus: expected ? STATUS.stopped : STATUS.closed, logMessage: expected ? null : 'Соединение закрыто не по команде пользователя; медиадорожки освобождены.'}}); }};
+    attempt.ws.onmessage = (event) => {{ if (!isAttemptActive(attempt)) return; try {{ handleRealtimeEvent(JSON.parse(event.data)); }} catch (err) {{ log('Получено не-JSON сообщение realtime; оно пропущено.'); }} }};
   }}
 
   async function start() {{
@@ -482,17 +483,17 @@ def _build_realtime_app_javascript(root_id: str, config_setup_js: str, *, async_
     isRunning = true; setSourceControlsDisabled(true); updateSourceUi(); partialEl.textContent = ''; setStatus(STATUS.starting);
     try {{
       if (!navigator.mediaDevices) throw new Error('MediaDevices API недоступен в этом окружении браузера.');
-      const stream = await buildCaptureStream(attempt); assertCurrentAttempt(attempt);
+      const stream = await buildCaptureStream(attempt); assertAttemptActive(attempt);
       if (!attempt.audioContext) attempt.audioContext = new AudioContext();
-      await attempt.audioContext.resume(); assertCurrentAttempt(attempt);
+      await attempt.audioContext.resume(); assertAttemptActive(attempt);
       attachWebSocket(attempt);
       const source = attempt.audioContext.createMediaStreamSource(stream); attempt.sourceNodes.push(source);
       attempt.processor = attempt.audioContext.createScriptProcessor(4096, 1, 1);
-      attempt.processor.onaudioprocess = (event) => {{ if (!isCurrentAttempt(attempt) || !attempt.ws || attempt.ws.readyState !== WebSocket.OPEN) return; const mono = event.inputBuffer.getChannelData(0); const pcm16k = downsampleMono(mono, attempt.audioContext.sampleRate, 16000); const payload = floatTo16BitPcmBase64(pcm16k); attempt.ws.send(JSON.stringify({{message_type: 'input_audio_chunk', audio_base_64: payload, sample_rate: 16000}})); }};
+      attempt.processor.onaudioprocess = (event) => {{ if (!isAttemptActive(attempt) || !attempt.ws || attempt.ws.readyState !== WebSocket.OPEN) return; const mono = event.inputBuffer.getChannelData(0); const pcm16k = downsampleMono(mono, attempt.audioContext.sampleRate, 16000); const payload = floatTo16BitPcmBase64(pcm16k); attempt.ws.send(JSON.stringify({{message_type: 'input_audio_chunk', audio_base_64: payload, sample_rate: 16000}})); }};
       source.connect(attempt.processor); attempt.processor.connect(attempt.audioContext.destination);
       log('Захват аудио запущен. Для аудио вкладки / экрана требуется поддержка браузера и выбранная передача звука.');
     }} catch (err) {{
-      if (!isCurrentAttempt(attempt)) {{ cleanupAttempt(attempt); return; }}
+      if (!ownsCurrentUi(attempt)) {{ cleanupAttempt(attempt); return; }}
       if (String(err && err.message) === 'STALE_ATTEMPT') {{ cleanupAttempt(attempt); return; }}
       const message = isPermissionCancellation(err) ? 'Разрешение на захват аудио отменено или отклонено в браузере. Выберите источник и нажмите «Начать» для повторной попытки.' : (err && err.message ? err.message : String(err));
       log(message);
@@ -503,6 +504,7 @@ def _build_realtime_app_javascript(root_id: str, config_setup_js: str, *, async_
     const attempt = currentAttempt;
     if (!attempt) {{ isRunning = false; partialEl.textContent = ''; setSourceControlsDisabled(false); updateSourceUi(); setStatus(STATUS.stopped); return; }}
     attempt.userStopRequested = true;
+    attempt.cancelled = true;
     cleanupAttempt(attempt, {{closeSocket, finalStatus: STATUS.stopped, logMessage: closeSocket ? 'Остановлено: медиадорожки освобождены; закрытие WebSocket запрошено.' : null}});
   }}
   startBtn.addEventListener('click', start);
