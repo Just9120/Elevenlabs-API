@@ -65,17 +65,18 @@ Implementation status:
 - [x] Keep browser exposure limited to a single-use realtime token or generated realtime WebSocket URL.
 - [x] Static/generated-JS validation covers generated `/realtime.js` syntax.
 - [x] Document output-cell UI attempts as blocked in tested Colab runtime.
-- [ ] Manual Colab proxy/new-tab runtime validation remains the next active task.
+- [x] One manual Colab proxy/new-tab run confirmed page boot, display+microphone capture, WebSocket open, ElevenLabs `session_started`, partial transcript, committed transcript, user Stop, media track release and WebSocket close.
+- [ ] Microphone-only, display-only, virtual-input/loopback, device refresh behavior, and all-browser coverage remain pending; do not claim full realtime E2E validation.
 
 Manual runtime checklist:
 
 - [ ] Launcher creates a single-use token using preferred `ELEVEN_API_KEY`, with `ELEVENLABS_API_KEY` only as compatibility alias.
-- [ ] Launcher starts the local HTTP server and displays `Open realtime frontend in a new tab`.
+- [ ] Launcher starts the local HTTP server and displays `Открыть realtime-страницу в новой вкладке`.
 - [ ] Link uses a Colab proxy URL when available, or shows the Russian fallback instruction when unavailable.
-- [ ] Standalone page opens in a normal browser tab/window and shows `Статус: page loaded`, then `Статус: idle`.
-- [ ] Start changes status to `starting`; WebSocket open changes status to `websocket_open`; ElevenLabs session events show `session_started` where applicable.
-- [ ] Microphone, display audio, display+mic, and virtual input/system audio-device modes behave as documented.
-- [ ] No Google Docs save, no `manifest` mutation, no speaker projects integration, and no main API key exposure.
+- [ ] Standalone page opens in a normal browser tab/window and shows `Статус: страница загружена`, then `Статус: Готово`.
+- [ ] Start changes status to `Статус: Запуск…`; WebSocket open changes status to `Статус: Соединение установлено`; ElevenLabs session events show `Статус: Сессия распознавания запущена` where applicable, with `session_started` in diagnostics.
+- [ ] Independent `Аудио вкладки / экрана` and `Микрофон / аудиовход` controls behave as documented for microphone-only, display-only, display+input mixing, and virtual/loopback devices selected as audio inputs.
+- [ ] Без сохранения в Google Docs, без мутаций `manifest`, без интеграции speaker projects и без раскрытия основного API key.
 
 ### LIVE-COLAB-01: Realtime Colab prototype
 
