@@ -6,16 +6,16 @@
 
 - `LIVE-COLAB-01` is present in `main`, but output-cell UI execution is blocked in the tested Colab runtime.
 - Tested output-cell attempts that did not attach active JavaScript: inline `<script>` inside `display(HTML(...))`, separate `IPython.display.Javascript(...)`, and sandboxed `iframe srcdoc`.
-- `LIVE-COLAB-PROXY-01` is the experimental bridge where Colab acts as a Python launcher/local HTTP server and opens a standalone browser page through a Colab proxy/new tab.
+- `LIVE-COLAB-PROXY-01` is the experimental bridge where Colab acts as a Python launcher/local HTTP server and opens a separate realtime browser page through a Colab proxy/new tab.
 - The contour is experimental.
 - Static CI checks cover notebook hygiene, helper behavior, generated `/realtime.js` syntax, and safety guardrails.
-- One manual Colab/browser run has confirmed the display+microphone path only: page boot, WebSocket open, ElevenLabs `session_started`, partial transcript, committed transcript, user Stop, media track release and WebSocket close.
+- One manual Colab/browser run has confirmed the display+microphone path only: page boot, WebSocket open, ElevenLabs `session_started`, partial transcript, committed transcript, user Stop, media-track release and WebSocket close.
 - Microphone-only, display-only, virtual-input/loopback, device refresh behavior and all-browser coverage remain pending; do not claim full realtime E2E validation.
 
 
 ## LIVE-COLAB-PROXY-01 standalone proxy bridge
 
-`LIVE-COLAB-PROXY-01` avoids active JavaScript inside notebook output cells. The notebook still stays thin: it downloads `elevenlabs_realtime.py`, Python reads `ELEVEN_API_KEY` first and `ELEVENLABS_API_KEY` only as a compatibility alias, creates one ElevenLabs `realtime_scribe` single-use token, starts a lightweight localhost HTTP server in the Colab runtime, and displays a link labeled `Открыть realtime-страницу в новой вкладке`.
+`LIVE-COLAB-PROXY-01` avoids active JavaScript inside notebook output cells. The notebook still stays thin: it downloads `elevenlabs_realtime.py`, Python reads `ELEVEN_API_KEY` first and `ELEVENLABS_API_KEY` only as a compatibility alias, creates one ElevenLabs `realtime_scribe` one-time realtime token, starts a lightweight localhost HTTP server in the Colab runtime, and displays a link labeled `Открыть realtime-страницу в новой вкладке`.
 
 The standalone page is served from the Colab runtime and should be opened through the Colab proxy URL when `google.colab.kernel.proxyPort(port)` is available. If the proxy helper is unavailable, the launcher shows a Russian fallback instruction instead of claiming success. The browser page runs as a normal document in a separate tab/window and requests microphone/display permissions there.
 
@@ -26,22 +26,22 @@ Bridge safety warnings shown by the launcher:
 - experimental bridge only;
 - no Google Docs save;
 - no manifest reads/writes and no manifest schema change;
-- no speaker projects integration;
-- browser receives only a single-use realtime token, never the main API key;
+- no speaker-project integration;
+- browser receives only a one-time realtime token, never the main API key;
 - do not claim realtime E2E success until manual runtime validation passes.
 
 ## What this prototype validates
 
 This runtime contour is intended to validate:
 
-- ElevenLabs single-use realtime token flow;
+- ElevenLabs one-time realtime token flow;
 - browser microphone capture;
 - browser tab/screen audio capture when browser/Colab returns an audio track;
 - browser tab/screen audio + microphone mixing;
 - virtual input device path for desktop-app/system audio routed through the OS;
 - partial transcript display;
-- committed transcript display;
-- Stop/release behavior for WebSocket and media tracks.
+- committed transcript display as browser-only `realtime_live_transcript_v1` structured DOM segments;
+- Stop/release behavior for WebSocket and медиадорожки.
 
 ## What this prototype does not do yet
 
@@ -49,7 +49,7 @@ This runtime contour is intended to validate:
 
 - Google Docs save;
 - manifest integration or manifest schema changes;
-- speaker projects integration;
+- speaker-project integration;
 - batch transcription changes;
 - PWA, backend or Telegram integration;
 - guaranteed system-wide audio capture;
@@ -59,8 +59,8 @@ This runtime contour is intended to validate:
 
 - The main ElevenLabs API key is read only Python-side from Colab Secrets / `userdata` or the environment. Use `ELEVEN_API_KEY` as the preferred project secret; `ELEVENLABS_API_KEY` is accepted only as a compatibility alias.
 - Python creates a single-use realtime Scribe token with `POST https://api.elevenlabs.io/v1/single-use-token/realtime_scribe`.
-- Browser JavaScript receives only the temporary single-use token embedded in the realtime WebSocket URL, which uses `commit_strategy=vad` for this MVP.
-- The prototype must not log the main API key or the single-use token.
+- Browser JavaScript receives only the temporary one-time realtime token embedded in the realtime WebSocket URL, which uses `commit_strategy=vad` for this MVP.
+- The prototype must not log the main API key or the one-time realtime token.
 - Transcript text, audio chunks, API keys, provider raw responses and browser audio data must not be stored in `manifest` or analytics.
 
 ## Audio source controls
@@ -90,11 +90,23 @@ The standalone realtime page now separates capture decisions into two independen
 - Tab/screen audio on + microphone/input off: captures only browser tab/screen audio.
 - Tab/screen audio on + microphone/input enabled: mixes both streams through the existing Web Audio path and warns that the microphone may recapture tab audio; headphones are recommended.
 
+
+## Live transcript presentation
+
+The browser page uses `realtime_live_transcript_v1` for live presentation only. This is not Google Docs standardization, does not create Google Docs, and does not read or mutate `manifest`.
+
+- `Предварительный текст` remains temporary partial text.
+- Provider VAD (`commit_strategy=vad`) determines when partial text becomes committed; there is no local “seven lines” or line-count threshold.
+- Each provider committed event becomes one ordered committed segment rendered with safe text-only DOM insertion. The browser does not rewrite text with AI/LLM logic.
+- `Скопировать текст` and `Скачать .txt` use the internal plain-text transcript in the same committed-event order.
+- Clearing confirmed text removes only committed browser DOM/state and keeps preliminary text, diagnostics, active capture and WebSocket state untouched.
+- Explicit user Stop keeps visible `Статус: Остановлено`; WebSocket close code/reason remains diagnostics-only. Unexpected close can show `Статус: Соединение закрыто`.
+
 ## Manual evidence and remaining validation gaps
 
-A real manual Colab/browser run has confirmed one source combination only: standalone page boot, display+microphone capture, WebSocket open, ElevenLabs `session_started`, partial transcript, committed transcript, user Stop, media track release and WebSocket close. This is partial runtime evidence for display+microphone only and must not be described as full realtime E2E validation.
+A real manual Colab/browser run has confirmed one source combination only: standalone page boot, display+microphone capture, WebSocket open, ElevenLabs `session_started`, partial transcript, committed transcript, user Stop, media-track release and WebSocket close. This is partial runtime evidence for display+microphone only and must not be described as full realtime E2E validation.
 
-Still pending: microphone-only, display-only, virtual-input/loopback, device refresh behavior, and all-browser coverage. Do not record transcript content, API keys, tokens, private audio, browser identity or other sensitive runtime data.
+Still pending: microphone-only, display-only, virtual-input/loopback, device refresh behavior, the refreshed-device UX, structured `realtime_live_transcript_v1` presentation, and all-browser coverage. Do not record transcript content, API keys, tokens, private audio, browser identity or other sensitive runtime data.
 
 ## Manual runtime validation checklist
 
@@ -113,7 +125,7 @@ Copy this checklist into the runtime report and mark each item as pass/fail/not 
 - [ ] Confirm WebSocket opens and status changes to `Статус: Соединение установлено`.
 - [ ] Confirm ElevenLabs session start events show `Статус: Сессия распознавания запущена` where applicable, with `session_started` preserved in diagnostics.
 - [ ] Confirm partial transcript appears.
-- [ ] Confirm committed transcript appears.
+- [ ] Confirm committed transcript appears as ordered `realtime_live_transcript_v1` segments, with copy/download preserving committed text order.
 - [ ] Confirm Stop closes WebSocket and releases media tracks.
 - [ ] Confirm display-only capture either works or shows the expected Russian no-audio-track error.
 - [ ] Confirm display+input mixed mode starts and mixes, or document the failure.

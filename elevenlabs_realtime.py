@@ -42,19 +42,19 @@ _REALTIME_PROXY_SERVERS: list[ThreadingHTTPServer] = []
 
 
 KNOWN_ERROR_MESSAGES_RU = {
-    "auth": "Ошибка авторизации ElevenLabs realtime. Проверьте API key и срок действия single-use token.",
-    "authentication": "Ошибка авторизации ElevenLabs realtime. Проверьте API key и срок действия single-use token.",
-    "unauthorized": "Ошибка авторизации ElevenLabs realtime. Проверьте API key и срок действия single-use token.",
-    "quota": "Квота ElevenLabs исчерпана или недоступна для realtime transcription.",
-    "quota_exceeded": "Квота ElevenLabs исчерпана или недоступна для realtime transcription.",
+    "auth": "Ошибка авторизации ElevenLabs realtime. Проверьте основной ключ API и срок действия одноразового токена realtime.",
+    "authentication": "Ошибка авторизации ElevenLabs realtime. Проверьте основной ключ API и срок действия одноразового токена realtime.",
+    "unauthorized": "Ошибка авторизации ElevenLabs realtime. Проверьте основной ключ API и срок действия одноразового токена realtime.",
+    "quota": "Квота ElevenLabs исчерпана или недоступна для realtime-распознавания.",
+    "quota_exceeded": "Квота ElevenLabs исчерпана или недоступна для realtime-распознавания.",
     "rate_limit": "Превышен лимит запросов ElevenLabs realtime. Подождите и попробуйте снова.",
     "rate_limited": "Превышен лимит запросов ElevenLabs realtime. Подождите и попробуйте снова.",
-    "queue_overflow": "Очередь realtime audio переполнена. Остановите запись и попробуйте снова с меньшей нагрузкой.",
-    "session_time_limit": "Достигнут лимит длительности realtime session. Остановите запись и начните новую session.",
-    "session_time_limit_exceeded": "Достигнут лимит длительности realtime session. Остановите запись и начните новую session.",
-    "chunk_size": "Некорректный размер audio chunk. Остановите запись и попробуйте снова.",
-    "input_audio_chunk": "Ошибка входного audio chunk. Остановите запись и попробуйте снова.",
-    "invalid_audio": "Некорректный audio input. Проверьте источник звука и попробуйте снова.",
+    "queue_overflow": "Очередь realtime-аудио переполнена. Остановите запись и попробуйте снова с меньшей нагрузкой.",
+    "session_time_limit": "Достигнут лимит длительности realtime-сессии. Остановите запись и начните новую сессию.",
+    "session_time_limit_exceeded": "Достигнут лимит длительности realtime-сессии. Остановите запись и начните новую сессию.",
+    "chunk_size": "Некорректный размер аудиофрагмента. Остановите запись и попробуйте снова.",
+    "input_audio_chunk": "Ошибка входного аудиофрагмента. Остановите запись и попробуйте снова.",
+    "invalid_audio": "Некорректный аудиовход. Проверьте источник звука и попробуйте снова.",
 }
 
 
@@ -178,7 +178,7 @@ def realtime_error_message_ru(code_or_event: Any) -> str:
     for key, message in KNOWN_ERROR_MESSAGES_RU.items():
         if key in text:
             return message
-    return "WebSocket realtime transcription error. Проверьте соединение, источник аудио и попробуйте снова."
+    return "Ошибка WebSocket realtime-распознавания. Проверьте соединение, источник аудио и попробуйте снова."
 
 
 def create_realtime_colab_root_id() -> str:
@@ -225,10 +225,16 @@ def build_realtime_colab_html_shell(root_id: str) -> str:
     #{root_id} .el-diagnostics-placeholder {{ padding:0 10px 10px;color:#6b7280;font-size:13px; }}
     #{root_id} [data-el="diagnostics"] {{ white-space:pre-wrap;background:#263238;color:#eef2f7;border-radius:8px;padding:9px 10px;margin:0 10px 10px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.45;max-height:160px;overflow:auto; }}
     #{root_id} .el-section-title {{ margin:14px 0 6px;color:#111827;font-size:16px; }}
-    #{root_id} [data-el="committed"] {{ white-space:pre-wrap;font-size:17px;line-height:1.6;overflow-wrap:anywhere;word-break:break-word;min-height:180px;max-height:360px;overflow:auto;border:1px solid #cbd5e1;border-radius:10px;padding:12px;background:#fbfbfb; }}
+    #{root_id} .el-session-header {{ border:1px solid #dbeafe;border-radius:12px 12px 0 0;padding:10px 12px;background:#eff6ff;color:#1e3a8a; }}
+    #{root_id} .el-live-title {{ font-weight:800;color:#111827; }}
+    #{root_id} .el-source-summary, #{root_id} .el-format-id {{ margin-top:3px;font-size:13px;color:#475569; }}
+    #{root_id} [data-el="committed"] {{ min-height:180px;max-height:360px;overflow:auto;border:1px solid #cbd5e1;border-top:0;border-radius:0 0 12px 12px;padding:12px;background:#fbfbfb; }}
+    #{root_id} .el-committed-empty {{ margin:0;color:#64748b;font-style:italic; }}
+    #{root_id} .el-committed-segment {{ margin:0 0 10px;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;background:#fff;font-size:17px;line-height:1.65;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word; }}
+    #{root_id} .el-committed-segment:last-child {{ margin-bottom:0; }}
   </style>
   <h2 class="el-title">LIVE-COLAB-01: прототип realtime-распознавания</h2>
-  <p class="el-subtitle">Экспериментальный Colab-прототип: без сохранения в Google Docs, без manifest, без speaker projects. Основной API key остаётся на стороне Python; браузер получает только single-use realtime token.</p>
+  <p class="el-subtitle">Экспериментальный Colab-прототип: без сохранения в Google Docs, без manifest, без проектов спикеров. Основной ключ API остаётся на стороне Python; браузер получает только одноразовый токен realtime.</p>
   <div class="el-panel" aria-label="Элементы управления realtime-распознаванием">
     <div class="el-field">
       <label class="el-label" for="{root_id}-display-audio">Аудио вкладки / экрана</label>
@@ -266,7 +272,8 @@ def build_realtime_colab_html_shell(root_id: str) -> str:
   <h3 class="el-section-title">Предварительный текст</h3>
   <div data-el="partial" style="min-height:56px;border:1px dashed #a7b3c4;border-radius:10px;padding:12px;background:#fcfcff;"></div>
   <h3 class="el-section-title">Подтверждённый текст</h3>
-  <pre data-el="committed"></pre>
+  <div class="el-session-header" data-el="session-header"><div class="el-live-title">Живой подтверждённый текст</div><div class="el-source-summary" data-el="source-summary">Источник: не выбран</div><div class="el-format-id">Формат: realtime_live_transcript_v1</div></div>
+  <div data-el="committed" data-schema="realtime_live_transcript_v1" aria-live="polite"></div>
 </div>
 """
 
@@ -303,6 +310,7 @@ def _build_realtime_app_javascript(root_id: str, config_setup_js: str, *, async_
   const diagEl = byEl('diagnostics');
   const partialEl = byEl('partial');
   const committedEl = byEl('committed');
+  const sourceSummaryEl = byEl('source-summary');
 
   let ws = null;
   let audioContext = null;
@@ -310,6 +318,7 @@ def _build_realtime_app_javascript(root_id: str, config_setup_js: str, *, async_
   let sourceNodes = [];
   let mediaStreams = [];
   let finalTranscript = '';
+  let committedSegmentCount = 0;
   let isRunning = false;
   let cleanupDone = true;
   let userStopRequested = false;
@@ -319,15 +328,40 @@ def _build_realtime_app_javascript(root_id: str, config_setup_js: str, *, async_
   function hasDisplayAudio() {{ return displayAudioEl.value === 'on'; }}
   function hasInputAudio() {{ return inputDeviceEl.value !== 'off'; }}
   function updateTranscriptButtons() {{ const hasText = finalTranscript.length > 0; copyBtn.disabled = !hasText; downloadBtn.disabled = !hasText; clearBtn.disabled = !hasText; }}
+  function selectedSourceSummary() {{
+    if (hasDisplayAudio() && hasInputAudio()) return 'Аудио вкладки / экрана + микрофон / аудиовход';
+    if (hasDisplayAudio()) return 'Только аудио вкладки / экрана';
+    if (hasInputAudio()) return 'Только микрофон / аудиовход';
+    return 'Источник не выбран';
+  }}
+  function updateSourceSummary() {{ if (sourceSummaryEl) sourceSummaryEl.textContent = 'Источник: ' + selectedSourceSummary(); }}
+  function renderCommittedEmptyState() {{
+    committedEl.replaceChildren();
+    const empty = document.createElement('p');
+    empty.className = 'el-committed-empty';
+    empty.textContent = 'Пока нет подтверждённых фрагментов. Текст появится после события commit от провайдера.';
+    committedEl.appendChild(empty);
+  }}
+  function appendCommittedSegment(text) {{
+    const segment = document.createElement('p');
+    segment.className = 'el-committed-segment';
+    segment.dataset.segmentIndex = String(committedSegmentCount + 1);
+    segment.textContent = text;
+    if (committedSegmentCount === 0) committedEl.replaceChildren();
+    committedEl.appendChild(segment);
+    committedSegmentCount += 1;
+  }}
+  function clearCommittedSegments() {{ finalTranscript = ''; committedSegmentCount = 0; renderCommittedEmptyState(); updateTranscriptButtons(); }}
   function updateSourceUi() {{
     const anySource = hasDisplayAudio() || hasInputAudio();
     startBtn.disabled = isRunning || !anySource;
     stopBtn.disabled = !isRunning;
     sourceRequiredEl.hidden = anySource;
     mixWarningEl.hidden = !(hasDisplayAudio() && hasInputAudio() && !isRunning);
+    updateSourceSummary();
   }}
   function setSourceControlsDisabled(disabled) {{ displayAudioEl.disabled = disabled; inputDeviceEl.disabled = disabled; refreshDevicesBtn.disabled = disabled; }}
-  function markJsReady() {{ root.dataset.jsReady = 'true'; statusEl.dataset.jsReadyMarker = 'attached'; setStatus(STATUS.ready); updateSourceUi(); updateTranscriptButtons(); }}
+  function markJsReady() {{ root.dataset.jsReady = 'true'; statusEl.dataset.jsReadyMarker = 'attached'; setStatus(STATUS.ready); renderCommittedEmptyState(); updateSourceUi(); updateTranscriptButtons(); }}
   function log(text) {{
     const line = '[' + new Date().toLocaleTimeString() + '] ' + text;
     diagPlaceholderEl.hidden = true; diagEl.hidden = false; diagWrapEl.open = true;
@@ -352,7 +386,7 @@ def _build_realtime_app_javascript(root_id: str, config_setup_js: str, *, async_
     updateSourceUi();
   }}
   function microphoneConstraints() {{ return inputDeviceEl.value ? {{audio: {{deviceId: {{exact: inputDeviceEl.value}}}}}} : {{audio: true}}; }}
-  function appendCommitted(text) {{ if (!text) return; finalTranscript += (finalTranscript && !finalTranscript.endsWith('\\n') ? '\\n' : '') + text; committedEl.textContent = finalTranscript; updateTranscriptButtons(); }}
+  function appendCommitted(text) {{ if (!text) return; finalTranscript += (finalTranscript && !finalTranscript.endsWith('\\n') ? '\\n' : '') + text; appendCommittedSegment(text); updateTranscriptButtons(); }}
   function pickTranscriptText(data) {{ return data.text || data.transcript || data.partial_transcript || data.committed_transcript || data.final_transcript || data.message || ''; }}
   function handleRealtimeEvent(data) {{
     const eventType = String(data.type || data.event || data.message_type || data.status || '').toLowerCase();
@@ -378,14 +412,19 @@ def _build_realtime_app_javascript(root_id: str, config_setup_js: str, *, async_
   }}
   async function getDisplayAudioStream() {{
     const stream = await navigator.mediaDevices.getDisplayMedia({{video: true, audio: true}});
-    if (stream.getAudioTracks().length === 0) {{ stream.getTracks().forEach(track => track.stop()); throw new Error('Браузер не передал audio track для выбранной вкладки/экрана. Попробуйте вкладку с включенным "share audio" или другой источник.'); }}
+    if (stream.getAudioTracks().length === 0) {{ stream.getTracks().forEach(track => track.stop()); throw new Error('Браузер не передал аудиодорожку для выбранной вкладки/экрана. Попробуйте вкладку с включенным "передача звука" или другой источник.'); }}
     return stream;
   }}
   async function buildCaptureStream() {{
     const streams = [];
-    if (hasDisplayAudio()) streams.push(await getDisplayAudioStream());
-    if (hasInputAudio()) streams.push(await navigator.mediaDevices.getUserMedia(microphoneConstraints()));
-    mediaStreams.push(...streams);
+    try {{
+      if (hasDisplayAudio()) streams.push(await getDisplayAudioStream());
+      if (hasInputAudio()) streams.push(await navigator.mediaDevices.getUserMedia(microphoneConstraints()));
+      mediaStreams.push(...streams);
+    }} catch (err) {{
+      streams.forEach(stream => stream.getTracks().forEach(track => track.stop()));
+      throw err;
+    }}
     await populateInputDevices().catch(() => {{ log('Не удалось обновить список аудиоустройств после разрешения браузера.'); }});
     if (streams.length === 1) return streams[0];
     if (streams.length > 1) {{
@@ -404,8 +443,8 @@ def _build_realtime_app_javascript(root_id: str, config_setup_js: str, *, async_
       const stream = await buildCaptureStream(); if (!audioContext) audioContext = new AudioContext(); await audioContext.resume();
       ws = new WebSocket(CONFIG.wsUrl);
       ws.onopen = () => {{ setStatus(STATUS.websocketOpen); log('WebSocket открыт; используется ' + CONFIG.modelId + ' / ' + CONFIG.audioFormat + ' / commit_strategy=' + CONFIG.commitStrategy); }};
-      ws.onerror = () => {{ log('Ошибка WebSocket. Проверьте сеть, token и доступ к ElevenLabs realtime.'); }};
-      ws.onclose = (event) => {{ const expected = userStopRequested; log((expected ? 'WebSocket закрыт после команды пользователя: ' : 'Неожиданное закрытие WebSocket: ') + 'code=' + event.code + ', reason=' + (event.reason || '')); setStatus(STATUS.closed); stop(false); }};
+      ws.onerror = () => {{ log('Ошибка WebSocket. Проверьте сеть, одноразовый токен realtime и доступ к ElevenLabs realtime.'); }};
+      ws.onclose = (event) => {{ const expected = userStopRequested; log((expected ? 'WebSocket закрыт после команды пользователя: ' : 'Неожиданное закрытие WebSocket: ') + 'code=' + event.code + ', reason=' + (event.reason || '')); stop(false); if (expected) setStatus(STATUS.stopped); else setStatus(STATUS.closed); }};
       ws.onmessage = (event) => {{ try {{ handleRealtimeEvent(JSON.parse(event.data)); }} catch (err) {{ log('Получено не-JSON сообщение realtime; оно пропущено.'); }} }};
       const source = audioContext.createMediaStreamSource(stream); sourceNodes.push(source);
       processor = audioContext.createScriptProcessor(4096, 1, 1);
@@ -417,15 +456,15 @@ def _build_realtime_app_javascript(root_id: str, config_setup_js: str, *, async_
   function stop(closeSocket = true) {{
     const shouldCloseSocket = closeSocket && ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING);
     if (closeSocket) userStopRequested = true;
-    if (cleanupDone) {{ if (shouldCloseSocket) ws.close(); return; }}
+    if (cleanupDone) {{ if (shouldCloseSocket) ws.close(); if (closeSocket || userStopRequested) setStatus(STATUS.stopped); return; }}
     cleanupDone = true; isRunning = false; partialEl.textContent = ''; setSourceControlsDisabled(false); updateSourceUi();
     try {{ if (processor) processor.disconnect(); }} catch (e) {{}}
     processor = null; sourceNodes.forEach(node => {{ try {{ node.disconnect(); }} catch (e) {{}} }}); sourceNodes = [];
     mediaStreams.forEach(stream => stream.getTracks().forEach(track => track.stop())); mediaStreams = [];
     if (shouldCloseSocket) ws.close(); ws = null;
     if (audioContext && audioContext.state !== 'closed') audioContext.close(); audioContext = null;
-    setStatus(closeSocket ? STATUS.stopped : STATUS.closed);
-    log(closeSocket ? 'Остановлено: media tracks освобождены; закрытие WebSocket запрошено.' : 'Очистка выполнена один раз после закрытия соединения; media tracks освобождены.');
+    setStatus((closeSocket || userStopRequested) ? STATUS.stopped : STATUS.closed);
+    log(closeSocket ? 'Остановлено: медиадорожки освобождены; закрытие WebSocket запрошено.' : 'Очистка выполнена один раз после закрытия соединения; медиадорожки освобождены.');
   }}
   startBtn.addEventListener('click', start);
   stopBtn.addEventListener('click', () => stop(true));
@@ -437,7 +476,7 @@ def _build_realtime_app_javascript(root_id: str, config_setup_js: str, *, async_
     if (!finalTranscript) return;
     const confirmed = window.confirm('Будет очищен только подтверждённый текст в текущей вкладке. Google Docs, manifest, предварительный текст и текущая сессия не будут затронуты.');
     if (!confirmed) return;
-    finalTranscript = ''; committedEl.textContent = ''; updateTranscriptButtons(); log('Подтверждённый текст очищен в текущей вкладке. Предварительный текст, диагностика, аудио и WebSocket не затронуты.');
+    clearCommittedSegments(); log('Подтверждённый текст очищен в текущей вкладке. Предварительный текст, диагностика, аудио и WebSocket не затронуты.');
   }});
   markJsReady(); populateInputDevices().catch(() => {{ log('Список устройств пока недоступен: браузер может скрывать названия до разрешения.'); }});
   if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) navigator.mediaDevices.addEventListener('devicechange', () => populateInputDevices().catch(err => log('Не удалось обновить список устройств после devicechange: ' + (err && err.message ? err.message : String(err)))));
@@ -471,7 +510,7 @@ def build_realtime_colab_iframe_srcdoc(token: str, root_id: str | None = None) -
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>LIVE-COLAB-01 realtime transcription prototype</title>
+  <title>LIVE-COLAB-01 realtime-распознавания prototype</title>
 </head>
 <body style="margin:0;padding:0;background:#fff;">
 {shell}
@@ -490,7 +529,7 @@ def build_realtime_colab_iframe_html(token: str) -> str:
     escaped_srcdoc = html.escape(srcdoc, quote=True)
     return f'''
 <iframe
-  title="LIVE-COLAB-01 realtime transcription prototype"
+  title="LIVE-COLAB-01 realtime-распознавания prototype"
   srcdoc="{escaped_srcdoc}"
   allow="microphone; display-capture; clipboard-write"
   sandbox="allow-scripts allow-same-origin allow-downloads"
@@ -506,7 +545,7 @@ def build_realtime_colab_html(token: str) -> str:
 
 
 def build_realtime_frontend_config(token: str) -> dict[str, Any]:
-    """Build browser config for a standalone page without the main API key."""
+    """Build browser config for a standalone page without the main ключ API."""
 
     return {
         "wsUrl": build_realtime_websocket_url(token),
@@ -560,11 +599,11 @@ def build_realtime_frontend_html(token: str, root_id: str | None = None) -> str:
     shell = build_realtime_colab_html_shell(root_id)
     shell = shell.replace(
         "LIVE-COLAB-01: прототип realtime-распознавания",
-        "LIVE-COLAB-PROXY-01: standalone frontend bridge realtime-распознавания",
+        "LIVE-COLAB-PROXY-01: отдельная realtime-страница realtime-распознавания",
     )
     shell = shell.replace(
-        "Экспериментальный Colab-прототип: без сохранения в Google Docs, без manifest, без speaker projects. Основной API key остаётся на стороне Python; браузер получает только single-use realtime token.",
-        "Экспериментальный standalone bridge через Colab proxy/new tab: без сохранения в Google Docs, без manifest, без speaker projects. Браузер получает только single-use realtime token; launcher/proxy Colab остаётся заменяемой инфраструктурой для будущей PWA.",
+        "Экспериментальный Colab-прототип: без сохранения в Google Docs, без manifest, без проектов спикеров. Основной ключ API остаётся на стороне Python; браузер получает только одноразовый токен realtime.",
+        "Экспериментальная отдельная realtime-страница через Colab proxy/new tab: без сохранения в Google Docs, без manifest, без проектов спикеров. Браузер получает только одноразовый токен realtime; launcher/proxy Colab остаётся заменяемой инфраструктурой для будущей PWA.",
     )
     shell = shell.replace(
         "Статус: HTML iframe загружен; JavaScript ещё не подключён",
@@ -576,7 +615,7 @@ def build_realtime_frontend_html(token: str, root_id: str | None = None) -> str:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>LIVE-COLAB-PROXY-01 realtime frontend bridge</title>
+  <title>LIVE-COLAB-PROXY-01 отдельная realtime-страница</title>
 </head>
 <body style="margin:0;padding:16px;background:#f8fafc;">
 {shell}
@@ -675,14 +714,14 @@ def build_realtime_proxy_launch_html(
     )
     return f"""
 <div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;line-height:1.45;max-width:900px;border:1px solid #d8dee9;border-radius:14px;padding:16px;margin:8px 0;background:#fff;color:#17202a;">
-  <h2 style="margin:0 0 8px;">LIVE-COLAB-PROXY-01: standalone bridge realtime-распознавания</h2>
-  <p style="margin:0 0 12px;">Экспериментальный bridge: Colab запускает локальный Python HTTP server и открывает standalone-страницу браузера в новой вкладке.</p>
+  <h2 style="margin:0 0 8px;">LIVE-COLAB-PROXY-01: отдельная realtime-страница realtime-распознавания</h2>
+  <p style="margin:0 0 12px;">Экспериментальный контур: Colab запускает локальный HTTP-сервер Python и открывает отдельную realtime-страницу браузера в новой вкладке.</p>
   <p style="margin:0 0 12px;"><a href="{escaped_public_url}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:10px 14px;border-radius:10px;background:#2563eb;color:#fff;text-decoration:none;font-weight:700;">Открыть realtime-страницу в новой вкладке</a></p>
   <ul style="margin:0 0 12px 20px;padding:0;">
     <li>Без сохранения в Google Docs.</li>
     <li>Без чтения/записи manifest и без изменений схемы manifest.</li>
-    <li>Без интеграции speaker projects.</li>
-    <li>Браузер получает только single-use realtime token, но не основной API key.</li>
+    <li>Без интеграции проектов спикеров.</li>
+    <li>Браузер получает только одноразовый токен realtime, но не основной ключ API.</li>
     <li>Не заявляйте полный realtime E2E успех до ручной проверки Colab/browser/provider.</li>
   </ul>
   <p style="margin:0;color:#4b5563;">{html.escape(proxy_note)} Локальный runtime URL: <code>{escaped_local_url}</code></p>

@@ -99,7 +99,7 @@ Flow:
 
 `LIVE-COLAB-01` is an experimental separate runtime contour present in `main`. It is not part of the stable batch flow yet and is not a replacement for the current batch Google Colab workflow; batch mode remains fully working, independent and the current stable/fallback channel. The output-cell UI path is blocked in the tested Colab runtime because active JavaScript did not attach for inline `display(HTML(...))`, separate `IPython.display.Javascript(...)`, or `iframe srcdoc` attempts.
 
-`LIVE-COLAB-PROXY-01` is the active bridge experiment: Colab creates the single-use realtime token, starts a lightweight local HTTP server, and exposes a standalone realtime frontend page through a Colab proxy/new tab. This contour treats the Colab launcher/proxy as replaceable infrastructure. Future PWA/backend work is a parallel future contour, not a replacement for batch Colab and not a dependency of this Colab experiment.
+`LIVE-COLAB-PROXY-01` is the active bridge experiment: Colab creates the one-time realtime token, starts a lightweight local HTTP server, and exposes a separate realtime browser page through a Colab proxy/new tab. This contour treats the Colab launcher/proxy as replaceable infrastructure. Future PWA/backend work is a parallel future contour, not a replacement for batch Colab and not a dependency of this Colab experiment.
 
 Future PWA/backend work must be based on lessons from actual runtime validation, not assumed browser/provider behavior. Browser-based system/desktop audio capture is constrained and may require OS-level routing, virtual input devices or loopback.
 
@@ -113,11 +113,12 @@ Runtime behavior to validate manually:
 
 1. Python reads the ElevenLabs API key from Colab Secrets / `userdata` or environment without printing it, trying preferred `ELEVEN_API_KEY` first and `ELEVENLABS_API_KEY` only as a compatibility alias.
 2. Python creates a realtime single-use token through `POST https://api.elevenlabs.io/v1/single-use-token/realtime_scribe`.
-3. Browser JavaScript receives only the temporary single-use token or generated realtime WebSocket URL and opens `wss://api.elevenlabs.io/v1/speech-to-text/realtime` with `model_id=scribe_v2_realtime`, `audio_format=pcm_16000` and `commit_strategy=vad`.
+3. Browser JavaScript receives only the temporary one-time realtime token or generated realtime WebSocket URL and opens `wss://api.elevenlabs.io/v1/speech-to-text/realtime` with `model_id=scribe_v2_realtime`, `audio_format=pcm_16000` and `commit_strategy=vad`.
 4. Browser captures audio, converts to 16kHz mono PCM where feasible, and sends documented `message_type="input_audio_chunk"` messages with `audio_base_64` PCM payloads and `sample_rate=16000`.
-5. The proxy standalone page displays `Статус: page loaded`, then `Статус: idle` after JavaScript boot; Start uses `starting`, WebSocket open uses `websocket_open`, and ElevenLabs session events use `session_started` where applicable.
-6. UI displays partial transcript separately from committed transcript and supports Start/Stop.
-7. Stop must close WebSocket and release all media tracks.
+5. The proxy standalone page displays Russian-first statuses: `Статус: страница загружена`, then `Статус: Готово` after JavaScript boot; Start uses `Статус: Запуск…`, WebSocket open uses `Статус: Соединение установлено`, and ElevenLabs session events use `Статус: Сессия распознавания запущена` where applicable.
+6. UI displays `Предварительный текст` separately from committed transcript and supports Start/Stop. Provider VAD (`commit_strategy=vad`) determines partial-to-committed transitions; there is no local “seven lines” or line-count threshold.
+7. Committed provider events render as ordered safe text DOM segments under browser-only `realtime_live_transcript_v1`; this is not Google Docs standardization, does not create Docs, and does not mutate `manifest`.
+8. Stop must close WebSocket and release all медиадорожки. After explicit user Stop, expected WebSocket close details stay in diagnostics while visible status remains `Статус: Остановлено`; unexpected close may show `Статус: Соединение закрыто`.
 
 Supported audio capture modes for validation:
 
@@ -129,7 +130,7 @@ Supported audio capture modes for validation:
 Safety boundaries:
 
 - do not expose the main ElevenLabs API key from `ELEVEN_API_KEY` or the compatibility alias `ELEVENLABS_API_KEY` to browser JavaScript;
-- do not log the main API key or single-use token;
+- do not log the main API key or one-time realtime token;
 - do not save transcripts to Google Docs in `LIVE-COLAB-01`;
 - do not call Google Docs/Drive APIs from `LIVE-COLAB-01`;
 - do not read or write `manifest` and do not change manifest schema;

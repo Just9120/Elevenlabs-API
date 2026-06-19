@@ -62,25 +62,27 @@ Implementation status:
 
 - [x] Add proxy/new-tab launcher path in `elevenlabs_realtime.py`.
 - [x] Serve a standalone realtime browser page from a lightweight local HTTP server.
-- [x] Keep browser exposure limited to a single-use realtime token or generated realtime WebSocket URL.
-- [x] Static/generated-JS validation covers generated `/realtime.js` syntax.
+- [x] Keep browser exposure limited to a one-time realtime token or generated realtime WebSocket URL.
+- [x] Static/generated-JS validation covers generated `/realtime.js` syntax, Stop status preservation, failed mixed-capture cleanup, Russian-first UI copy, source controls, and browser-only `realtime_live_transcript_v1` committed segments.
 - [x] Document output-cell UI attempts as blocked in tested Colab runtime.
-- [x] One manual Colab proxy/new-tab run confirmed page boot, display+microphone capture, WebSocket open, ElevenLabs `session_started`, partial transcript, committed transcript, user Stop, media track release and WebSocket close.
-- [ ] Microphone-only, display-only, virtual-input/loopback, device refresh behavior, and all-browser coverage remain pending; do not claim full realtime E2E validation.
+- [x] One manual Colab proxy/new-tab run confirmed page boot, display+microphone capture, WebSocket open, ElevenLabs `session_started`, partial transcript, committed transcript, user Stop, media-track release and WebSocket close.
+- [ ] Microphone-only, display-only, virtual-input/loopback, refreshed-device UX, structured live presentation, and all-browser coverage remain pending; do not claim full realtime E2E validation.
 
 Manual runtime checklist:
 
-- [ ] Launcher creates a single-use token using preferred `ELEVEN_API_KEY`, with `ELEVENLABS_API_KEY` only as compatibility alias.
+- [ ] Launcher creates a one-time realtime token using preferred `ELEVEN_API_KEY`, with `ELEVENLABS_API_KEY` only as compatibility alias.
 - [ ] Launcher starts the local HTTP server and displays `Открыть realtime-страницу в новой вкладке`.
 - [ ] Link uses a Colab proxy URL when available, or shows the Russian fallback instruction when unavailable.
 - [ ] Standalone page opens in a normal browser tab/window and shows `Статус: страница загружена`, then `Статус: Готово`.
 - [ ] Start changes status to `Статус: Запуск…`; WebSocket open changes status to `Статус: Соединение установлено`; ElevenLabs session events show `Статус: Сессия распознавания запущена` where applicable, with `session_started` in diagnostics.
+- [ ] Provider VAD (`commit_strategy=vad`) controls partial-to-committed transitions; no local “seven lines” threshold is used.
+- [ ] Committed events render as ordered browser-only `realtime_live_transcript_v1` segments; this is not Google Docs standardization and does not create Docs or mutate `manifest`.
 - [ ] Independent `Аудио вкладки / экрана` and `Микрофон / аудиовход` controls behave as documented for microphone-only, display-only, display+input mixing, and virtual/loopback devices selected as audio inputs.
-- [ ] Без сохранения в Google Docs, без мутаций `manifest`, без интеграции speaker projects и без раскрытия основного API key.
+- [ ] Без сохранения в Google Docs, без мутаций `manifest`, без интеграции проектов спикеров и без раскрытия основного ключа API.
 
 ### LIVE-COLAB-01: Realtime Colab prototype
 
-Цель: validate the first experimental realtime Colab prototype for live browser audio capture + ElevenLabs realtime STT. This is separate from the batch workflow and must not save to Google Docs, mutate `manifest`, or integrate speaker projects.
+Цель: validate the first experimental realtime Colab prototype for live browser audio capture + ElevenLabs realtime STT. This is separate from the batch workflow and must not save to Google Docs, mutate `manifest`, or integrate проекты спикеров.
 
 Implementation status:
 
@@ -100,7 +102,7 @@ Manual runtime checklist:
 - [ ] Partial transcript appears.
 - [ ] Committed transcript appears.
 - [ ] Stop releases tracks and closes WebSocket.
-- [ ] No API key in JS; browser receives only single-use realtime token.
+- [ ] No API key in JS; browser receives only one-time realtime token.
 - [ ] No `manifest` or Google Docs mutations.
 
 Next steps:
