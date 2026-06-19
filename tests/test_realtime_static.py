@@ -447,10 +447,10 @@ def test_realtime_lifecycle_stop_status_and_failed_capture_cleanup_are_guarded()
     )
 
     assert "ws.onclose = (event) =>" in js
-    assert "if (expected) setStatus(STATUS.stopped); else setStatus(STATUS.closed);" in js
-    assert "if (cleanupDone)" in js
-    assert "if (closeSocket || userStopRequested) setStatus(STATUS.stopped); return;" in js
-    assert "streams.forEach(stream => stream.getTracks().forEach(track => track.stop()));" in js
+    assert "finalStatus: expected ? STATUS.stopped : STATUS.closed" in js
+    assert "if (attempt.cleanupDone)" in js
+    assert "if (current && finalStatus) setStatus(finalStatus); return;" in js
+    assert "function stopStreams(streams)" in js
     assert "throw err;" in js
     assert "partialEl.textContent = ''; setStatus(STATUS.starting);" in js
 
@@ -498,6 +498,82 @@ def test_proxy_frontend_does_not_introduce_persistence_or_extra_runtime_surfaces
 
     for forbidden in ["localStorage", "sessionStorage", "indexedDB", "serviceWorker", "manifest.json", "speaker-project", "Google Docs save"]:
         assert forbidden not in assets
+
+def test_realtime_attempt_scoped_permission_cancellation_guards() -> None:
+    js = realtime.build_realtime_frontend_javascript("temporary-token", realtime.create_realtime_colab_root_id())
+
+    assert "let currentAttempt = null" in js
+    assert "let attemptGeneration = 0" in js
+    assert "function createAttempt()" in js
+    assert "function isCurrentAttempt(attempt)" in js
+    assert "function assertCurrentAttempt(attempt)" in js
+    assert "const attempt = createAttempt(); currentAttempt = attempt;" in js
+    assert "await attempt.audioContext.resume(); assertCurrentAttempt(attempt);" in js
+    assert "attachWebSocket(attempt)" in js
+
+
+def test_realtime_stop_during_pending_display_permission_stops_stale_stream_before_websocket() -> None:
+    js = realtime.build_realtime_frontend_javascript("temporary-token", realtime.create_realtime_colab_root_id())
+
+    assert "async function getDisplayAudioStream(attempt)" in js
+    assert "navigator.mediaDevices.getDisplayMedia" in js
+    assert "if (!isCurrentAttempt(attempt)) { stopStream(stream); throw new Error('STALE_ATTEMPT'); }" in js
+    assert "assertCurrentAttempt(attempt);" in js
+
+
+def test_realtime_stop_during_pending_microphone_permission_stops_stale_stream_before_websocket() -> None:
+    js = realtime.build_realtime_frontend_javascript("temporary-token", realtime.create_realtime_colab_root_id())
+
+    assert "async function getInputAudioStream(attempt)" in js
+    assert "navigator.mediaDevices.getUserMedia(microphoneConstraints())" in js
+    assert "if (!isCurrentAttempt(attempt)) { stopStream(stream); throw new Error('STALE_ATTEMPT'); }" in js
+
+
+def test_realtime_mixed_source_stale_acquisition_cleanup_and_source_reset() -> None:
+    js = realtime.build_realtime_frontend_javascript("temporary-token", realtime.create_realtime_colab_root_id())
+
+    assert "if (hasDisplayAudio()) streams.push(await getDisplayAudioStream(attempt));" in js
+    assert "if (hasInputAudio()) streams.push(await getInputAudioStream(attempt));" in js
+    assert "catch (err) { stopStreams(streams); throw err; }" in js
+    assert "function resetUiAfterAttempt()" in js
+    assert "setSourceControlsDisabled(false); updateSourceUi();" in js
+
+
+def test_realtime_browser_prompt_cancelled_without_websocket_creation_is_ready() -> None:
+    js = realtime.build_realtime_frontend_javascript("temporary-token", realtime.create_realtime_colab_root_id())
+
+    assert "function isPermissionCancellation(err)" in js
+    assert "Разрешение на захват аудио отменено или отклонено в браузере" in js
+    assert "Запуск остановлен до создания WebSocket; состояние готово к повторной попытке." in js
+    assert "finalStatus: STATUS.ready" in js
+    assert "attempt.websocketCreated = true" in js
+
+
+def test_realtime_stale_old_attempt_cannot_affect_newer_attempt_or_callbacks() -> None:
+    js = realtime.build_realtime_frontend_javascript("temporary-token", realtime.create_realtime_colab_root_id())
+
+    assert "currentAttempt && currentAttempt.id === attempt.id" in js
+    assert "if (!isCurrentAttempt(attempt)) return; setStatus(STATUS.websocketOpen)" in js
+    assert "if (!isCurrentAttempt(attempt)) return; const expected = attempt.userStopRequested" in js
+    assert "if (!isCurrentAttempt(attempt)) return; try { handleRealtimeEvent" in js
+
+
+def test_realtime_expected_stop_and_unexpected_close_remain_distinguishable() -> None:
+    js = realtime.build_realtime_frontend_javascript("temporary-token", realtime.create_realtime_colab_root_id())
+
+    assert "const expected = attempt.userStopRequested" in js
+    assert "WebSocket закрыт после команды пользователя" in js
+    assert "Неожиданное закрытие WebSocket" in js
+    assert "finalStatus: expected ? STATUS.stopped : STATUS.closed" in js
+    assert "cleanupAttempt(attempt, {closeSocket, finalStatus: STATUS.stopped" in js
+
+
+def test_realtime_partial_text_clears_after_cancellation_failure_and_stop() -> None:
+    js = realtime.build_realtime_frontend_javascript("temporary-token", realtime.create_realtime_colab_root_id())
+
+    assert "partialEl.textContent = ''; setSourceControlsDisabled(false); updateSourceUi();" in js
+    assert "isRunning = true; setSourceControlsDisabled(true); updateSourceUi(); partialEl.textContent = ''; setStatus(STATUS.starting);" in js
+    assert "if (!attempt) { isRunning = false; partialEl.textContent = '';" in js
 
 def test_generated_proxy_realtime_javascript_passes_node_syntax_check(tmp_path: Path) -> None:
     node = shutil.which("node")

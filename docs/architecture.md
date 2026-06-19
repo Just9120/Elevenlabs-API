@@ -20,7 +20,7 @@
 - `notebooks/elevenlabs_realtime_colab.ipynb` — thin launcher for realtime validation contour.
 - `elevenlabs_realtime.py` — Python realtime runtime: reads ElevenLabs key, creates one-time realtime token, builds WebSocket URL, serves standalone frontend through a local HTTP server and renders Colab proxy/new-tab launch HTML.
 - Colab proxy/new-tab bridge — Colab hosts a local HTTP server; `google.colab.kernel.proxyPort(port)` provides browser-accessible URL when available.
-- Browser realtime frontend — standalone HTML/JS document requesting microphone/display permissions, capturing/mixing browser audio, opening ElevenLabs WebSocket, rendering partial and committed text.
+- Browser realtime frontend — standalone HTML/JS document with internal boundaries for document shell, attempt-scoped session lifecycle, microphone/display capture and mixing, WebSocket send/receive lifecycle, and live transcript presentation.
 - ElevenLabs token/WebSocket boundary — Python calls `POST /v1/single-use-token/realtime_scribe`; browser connects to ElevenLabs realtime STT WebSocket using the one-time token with `scribe_v2_realtime`, `pcm_16000`, `commit_strategy=vad`.
 
 ## 3. Authority and data-flow boundaries
@@ -48,8 +48,8 @@ Docs-only workflows operate on existing Google Docs and/or `manifest` records. T
 2. Python reads `ELEVEN_API_KEY` or compatibility `ELEVENLABS_API_KEY` without printing the value.
 3. Python creates one-time ElevenLabs realtime token.
 4. Python starts a local HTTP server and exposes a standalone page through Colab proxy/new tab.
-5. Browser page requests microphone and/or display capture permissions.
-6. Browser captures/mixes audio, opens WebSocket, sends `input_audio_chunk` messages, receives provider events.
+5. Browser page requests microphone and/or display capture permissions under an attempt-scoped lifecycle guard.
+6. Browser captures/mixes audio, verifies the attempt is still current after async boundaries, opens WebSocket only for the current attempt, sends `input_audio_chunk` messages, receives provider events.
 7. Browser renders partial text and ordered committed `realtime_live_transcript_v1` segments.
 8. User Stop closes WebSocket and releases media tracks.
 
@@ -74,12 +74,12 @@ Documentation maintenance can update repository docs and validation status, but 
 
 ## 7. Current refactor seams for future implementation work
 
-These are recommendations for future RT-REF-01-style implementation, not claims about current module boundaries:
+Current realtime frontend boundaries in `elevenlabs_realtime.py`:
 
 - **Token/proxy server layer** — isolate one-time token creation, local HTTP server lifecycle and Colab proxy URL rendering from frontend construction.
 - **Frontend document shell** — separate static HTML/CSS shell from runtime JavaScript state and provider config injection.
-- **Frontend session state/lifecycle** — make Start/Stop/WebSocket/media-track lifecycle explicit, including cancellation protection while browser permission prompts are open.
+- **Frontend session state/lifecycle** — Start/Stop/WebSocket/media-track lifecycle uses a monotonically increasing attempt context so stale permission/capture work stops its own streams and cannot update newer attempts.
 - **Browser capture/mixing** — isolate microphone/display/virtual-input capture and Web Audio mixing from WebSocket send logic.
 - **Live transcript presentation** — isolate partial text, committed `realtime_live_transcript_v1` segments, copy/download and clear-confirmed-text behavior.
 
-Future refactors must preserve existing token/proxy/WebSocket behavior, browser-only transcript rendering, no Google Docs/manifest side effects, and conservative validation requirements.
+Future refactors must preserve existing token/proxy/WebSocket behavior, browser-only transcript rendering, no Google Docs/manifest side effects, and conservative validation requirements. Permission-cancellation safety is statically covered but still requires manual browser validation.
