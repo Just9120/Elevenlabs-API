@@ -6,16 +6,16 @@
 
 - `LIVE-COLAB-01` is present in `main`, but output-cell UI execution is blocked in the tested Colab runtime.
 - Tested output-cell attempts that did not attach active JavaScript: inline `<script>` inside `display(HTML(...))`, separate `IPython.display.Javascript(...)`, and sandboxed `iframe srcdoc`.
-- `LIVE-COLAB-PROXY-01` is the next experimental bridge: Colab acts as a Python launcher/local HTTP server and opens a standalone browser page through a Colab proxy/new tab.
+- `LIVE-COLAB-PROXY-01` is the experimental bridge where Colab acts as a Python launcher/local HTTP server and opens a standalone browser page through a Colab proxy/new tab.
 - The contour is experimental.
-- Static CI checks cover notebook hygiene, helper behavior, generated `/realtime.js` syntax, and safety guardrails; manual Colab proxy/new-tab runtime validation remains pending.
-- Manual end-to-end Colab runtime validation is still pending for the proxy standalone page.
-- Success must be proven by runtime checks in a real browser/Colab session, not by static tests alone.
+- Static CI checks cover notebook hygiene, helper behavior, generated `/realtime.js` syntax, and safety guardrails.
+- One manual Colab/browser run has confirmed the display+microphone path only: page boot, WebSocket open, ElevenLabs `session_started`, partial transcript, committed transcript, user Stop, media track release and WebSocket close.
+- Microphone-only, display-only, virtual-input/loopback, device refresh behavior and all-browser coverage remain pending; do not claim full realtime E2E validation.
 
 
 ## LIVE-COLAB-PROXY-01 standalone proxy bridge
 
-`LIVE-COLAB-PROXY-01` avoids active JavaScript inside notebook output cells. The notebook still stays thin: it downloads `elevenlabs_realtime.py`, Python reads `ELEVEN_API_KEY` first and `ELEVENLABS_API_KEY` only as a compatibility alias, creates one ElevenLabs `realtime_scribe` single-use token, starts a lightweight localhost HTTP server in the Colab runtime, and displays a link labeled `Open realtime frontend in a new tab`.
+`LIVE-COLAB-PROXY-01` avoids active JavaScript inside notebook output cells. The notebook still stays thin: it downloads `elevenlabs_realtime.py`, Python reads `ELEVEN_API_KEY` first and `ELEVENLABS_API_KEY` only as a compatibility alias, creates one ElevenLabs `realtime_scribe` single-use token, starts a lightweight localhost HTTP server in the Colab runtime, and displays a link labeled `Открыть realtime-страницу в новой вкладке`.
 
 The standalone page is served from the Colab runtime and should be opened through the Colab proxy URL when `google.colab.kernel.proxyPort(port)` is available. If the proxy helper is unavailable, the launcher shows a Russian fallback instruction instead of claiming success. The browser page runs as a normal document in a separate tab/window and requests microphone/display permissions there.
 
@@ -63,35 +63,38 @@ This runtime contour is intended to validate:
 - The prototype must not log the main API key or the single-use token.
 - Transcript text, audio chunks, API keys, provider raw responses and browser audio data must not be stored in `manifest` or analytics.
 
-## Audio source modes
+## Audio source controls
 
-### Microphone
+The standalone realtime page now separates capture decisions into two independent controls:
 
-- Uses browser microphone/input-device capture through `getUserMedia`.
-- This is the best first validation path because it has the fewest moving parts.
-- It may capture only the local user and may not capture remote speakers played through headphones.
+### Аудио вкладки / экрана
 
-### Browser tab / screen audio
-
-- Uses browser display/tab capture through `getDisplayMedia`.
-- Requires browser support and browser-specific permission UI.
+- `Выключено` is the default.
+- `Вкладка браузера / экран со звуком` uses browser display/tab capture through `getDisplayMedia`.
 - The user may need to choose a browser tab and explicitly enable tab audio sharing.
 - If no audio track is provided, the UI should show the Russian no-audio-track error.
 - Do not assume every window, screen or shared source provides audio.
 
-### Browser tab / screen audio + microphone
+### Микрофон / аудиовход
 
-- Captures display/tab audio and microphone audio, then mixes them into one stream in the browser.
-- Useful for meetings where remote speakers are in a browser tab and the local user speaks through a microphone.
-- Watch for echo/double audio when the microphone also hears speakers from the same tab or device output.
+- `Выключено` disables microphone/input capture.
+- `Устройство по умолчанию` uses browser default `getUserMedia` audio input.
+- Browser/OS-provided audio-input device names are shown unchanged when labels are available.
+- Hidden labels use generated Russian fallback names such as `Аудиовход 1`.
+- Virtual cable, loopback, Stereo Mix, BlackHole, CABLE Output or similar devices are selected here as ordinary audio-input devices; they are not a separate source mode.
 
-### Virtual input / system audio device
+### Supported combinations
 
-- For desktop apps, browser capture may not directly access app/system audio.
-- The expected path is OS-level audio routing, loopback or a virtual audio device.
-- The browser sees that routed source as an input device, similar to a microphone.
-- This is the expected validation path for desktop Zoom/Teams/Telegram/WhatsApp-like apps.
-- Browser-based capture must not be described as reliable system-wide desktop audio capture.
+- Tab/screen audio off + microphone/input off: Start is disabled.
+- Tab/screen audio off + microphone/input enabled: captures only the selected microphone/input.
+- Tab/screen audio on + microphone/input off: captures only browser tab/screen audio.
+- Tab/screen audio on + microphone/input enabled: mixes both streams through the existing Web Audio path and warns that the microphone may recapture tab audio; headphones are recommended.
+
+## Manual evidence and remaining validation gaps
+
+A real manual Colab/browser run has confirmed one source combination only: standalone page boot, display+microphone capture, WebSocket open, ElevenLabs `session_started`, partial transcript, committed transcript, user Stop, media track release and WebSocket close. This is partial runtime evidence for display+microphone only and must not be described as full realtime E2E validation.
+
+Still pending: microphone-only, display-only, virtual-input/loopback, device refresh behavior, and all-browser coverage. Do not record transcript content, API keys, tokens, private audio, browser identity or other sensitive runtime data.
 
 ## Manual runtime validation checklist
 
@@ -101,20 +104,20 @@ Copy this checklist into the runtime report and mark each item as pass/fail/not 
 - [ ] Confirm the notebook fetches `elevenlabs_realtime.py` from `main` or the selected `GITHUB_REF`.
 - [ ] Confirm preferred `ELEVEN_API_KEY` loads from Colab Secrets without printing the value. If the preferred secret is unavailable, confirm `ELEVENLABS_API_KEY` works only as a compatibility alias.
 - [ ] Confirm a single-use token is created.
-- [ ] Confirm the launcher displays `Open realtime frontend in a new tab`.
+- [ ] Confirm the launcher displays `Открыть realtime-страницу в новой вкладке`.
 - [ ] Confirm the link uses a Colab proxy URL when `google.colab.kernel.proxyPort(port)` is available.
-- [ ] Confirm the standalone page opens in a new tab and shows `Статус: page loaded`, then `Статус: idle` after JavaScript boot.
+- [ ] Confirm the standalone page opens in a new tab and shows `Статус: страница загружена`, then `Статус: Готово` after JavaScript boot.
 - [ ] Confirm the realtime UI renders.
-- [ ] Confirm microphone mode starts.
-- [ ] Confirm Start changes status to `starting`.
-- [ ] Confirm WebSocket opens and status changes to `websocket_open`.
-- [ ] Confirm ElevenLabs session start events show `session_started` where applicable.
+- [ ] Confirm microphone/input-only capture starts when only `Микрофон / аудиовход` is enabled.
+- [ ] Confirm Start changes status to `Статус: Запуск…`.
+- [ ] Confirm WebSocket opens and status changes to `Статус: Соединение установлено`.
+- [ ] Confirm ElevenLabs session start events show `Статус: Сессия распознавания запущена` where applicable, with `session_started` preserved in diagnostics.
 - [ ] Confirm partial transcript appears.
 - [ ] Confirm committed transcript appears.
 - [ ] Confirm Stop closes WebSocket and releases media tracks.
-- [ ] Confirm tab/screen audio mode either works or shows the expected Russian no-audio-track error.
-- [ ] Confirm display+mic mode starts and mixes, or document the failure.
-- [ ] Confirm virtual input mode can see the virtual/loopback device, if available.
+- [ ] Confirm display-only capture either works or shows the expected Russian no-audio-track error.
+- [ ] Confirm display+input mixed mode starts and mixes, or document the failure.
+- [ ] Confirm a virtual/loopback device can be selected under `Микрофон / аудиовход`, if available.
 - [ ] Confirm the main API key is not visible in browser JS, notebook output, diagnostics or logs.
 - [ ] Confirm no transcript/audio/secrets are written to `manifest` or analytics.
 

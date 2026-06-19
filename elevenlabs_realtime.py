@@ -213,6 +213,8 @@ def build_realtime_colab_html_shell(root_id: str) -> str:
     #{root_id} .el-panel {{ border:1px solid #e5e7eb;border-radius:12px;padding:12px;margin:14px 0;background:#fafafa; }}
     #{root_id} .el-field {{ margin:0 0 12px; }}
     #{root_id} .el-label {{ display:block;margin:0 0 6px;color:#1f2937;font-weight:700; }}
+    #{root_id} .el-hint {{ margin:6px 0 0;color:#4b5563;font-size:13px; }}
+    #{root_id} .el-warning {{ margin:8px 0 0;padding:8px 10px;border:1px solid #f59e0b;border-radius:10px;background:#fffbeb;color:#92400e;font-weight:700; }}
     #{root_id} select {{ display:block;width:min(100%,420px);padding:7px 9px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#111827; }}
     #{root_id} .el-controls {{ display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:4px; }}
     #{root_id} button {{ padding:8px 14px;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc;color:#111827;cursor:pointer; }}
@@ -223,42 +225,48 @@ def build_realtime_colab_html_shell(root_id: str) -> str:
     #{root_id} .el-diagnostics-placeholder {{ padding:0 10px 10px;color:#6b7280;font-size:13px; }}
     #{root_id} [data-el="diagnostics"] {{ white-space:pre-wrap;background:#263238;color:#eef2f7;border-radius:8px;padding:9px 10px;margin:0 10px 10px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.45;max-height:160px;overflow:auto; }}
     #{root_id} .el-section-title {{ margin:14px 0 6px;color:#111827;font-size:16px; }}
+    #{root_id} [data-el="committed"] {{ white-space:pre-wrap;font-size:17px;line-height:1.6;overflow-wrap:anywhere;word-break:break-word;min-height:180px;max-height:360px;overflow:auto;border:1px solid #cbd5e1;border-radius:10px;padding:12px;background:#fbfbfb; }}
   </style>
-  <h2 class="el-title">LIVE-COLAB-01: realtime transcription prototype</h2>
-  <p class="el-subtitle">Экспериментальный Colab-прототип: без Google Docs save, без manifest, без speaker projects. Main API key остаётся Python-side; browser получает только single-use realtime token.</p>
-  <div class="el-panel" aria-label="Realtime controls">
+  <h2 class="el-title">LIVE-COLAB-01: прототип realtime-распознавания</h2>
+  <p class="el-subtitle">Экспериментальный Colab-прототип: без сохранения в Google Docs, без manifest, без speaker projects. Основной API key остаётся на стороне Python; браузер получает только single-use realtime token.</p>
+  <div class="el-panel" aria-label="Элементы управления realtime-распознаванием">
     <div class="el-field">
-      <label class="el-label" for="{root_id}-source-mode">Источник аудио</label>
-      <select id="{root_id}-source-mode" data-el="source-mode">
-        <option value="mic">Microphone</option>
-        <option value="display">Browser tab / screen audio</option>
-        <option value="display_mic">Browser tab / screen audio + microphone</option>
-        <option value="virtual">Virtual input / system audio device</option>
+      <label class="el-label" for="{root_id}-display-audio">Аудио вкладки / экрана</label>
+      <select id="{root_id}-display-audio" data-el="display-audio">
+        <option value="off">Выключено</option>
+        <option value="on">Вкладка браузера / экран со звуком</option>
       </select>
+      <p class="el-hint">При выборе вкладки включите передачу звука. При захвате экрана браузер может не передать аудио.</p>
     </div>
     <div class="el-field">
-      <label class="el-label" for="{root_id}-input-device">Microphone / virtual input device</label>
+      <label class="el-label" for="{root_id}-input-device">Микрофон / аудиовход</label>
       <select id="{root_id}-input-device" data-el="input-device">
-        <option value="">Default browser input</option>
+        <option value="off">Выключено</option>
+        <option value="">Устройство по умолчанию</option>
       </select>
+      <p class="el-hint">Для звука приложений выберите здесь виртуальное или loopback-устройство, если оно доступно в системе.</p>
     </div>
     <div class="el-controls">
-      <button data-el="start">Start</button>
-      <button data-el="stop" disabled>Stop</button>
-      <button data-el="copy">Copy transcript</button>
-      <button data-el="download">Download .txt</button>
+      <button data-el="refresh-devices" type="button">Обновить список устройств</button>
+      <button data-el="start" disabled>Начать</button>
+      <button data-el="stop" disabled>Остановить</button>
+      <button data-el="copy" disabled>Скопировать текст</button>
+      <button data-el="download" disabled>Скачать .txt</button>
+      <button data-el="clear" disabled>Очистить подтверждённый текст</button>
     </div>
+    <p class="el-hint" data-el="source-required">Включите аудио вкладки / экрана или микрофон / аудиовход.</p>
+    <p class="el-warning" data-el="mix-warning" hidden>Микрофон может повторно захватывать звук вкладки. Для чистого результата используйте наушники.</p>
   </div>
-  <div data-el="status" data-js-ready-marker="pending">Статус: iframe HTML loaded; JS not attached yet</div>
+  <div data-el="status" data-js-ready-marker="pending">Статус: HTML iframe загружен; JavaScript ещё не подключён</div>
   <details data-el="diagnostics-wrap">
     <summary>Диагностика</summary>
     <div data-el="diagnostics-placeholder" class="el-diagnostics-placeholder">Диагностика появится после запуска realtime-сессии.</div>
     <pre data-el="diagnostics" hidden></pre>
   </details>
-  <h3 class="el-section-title">Partial transcript</h3>
+  <h3 class="el-section-title">Предварительный текст</h3>
   <div data-el="partial" style="min-height:56px;border:1px dashed #a7b3c4;border-radius:10px;padding:12px;background:#fcfcff;"></div>
-  <h3 class="el-section-title">Committed transcript</h3>
-  <pre data-el="committed" style="white-space:pre-wrap;min-height:180px;border:1px solid #cbd5e1;border-radius:10px;padding:12px;background:#fbfbfb;"></pre>
+  <h3 class="el-section-title">Подтверждённый текст</h3>
+  <pre data-el="committed"></pre>
 </div>
 """
 
@@ -279,12 +287,16 @@ def _build_realtime_app_javascript(root_id: str, config_setup_js: str, *, async_
     return;
   }}
   const byEl = (name) => root.querySelector(`[data-el="${{name}}"]`);
-  const modeEl = byEl('source-mode');
+  const displayAudioEl = byEl('display-audio');
   const inputDeviceEl = byEl('input-device');
+  const refreshDevicesBtn = byEl('refresh-devices');
   const startBtn = byEl('start');
   const stopBtn = byEl('stop');
   const copyBtn = byEl('copy');
   const downloadBtn = byEl('download');
+  const clearBtn = byEl('clear');
+  const sourceRequiredEl = byEl('source-required');
+  const mixWarningEl = byEl('mix-warning');
   const statusEl = byEl('status');
   const diagWrapEl = byEl('diagnostics-wrap');
   const diagPlaceholderEl = byEl('diagnostics-placeholder');
@@ -299,232 +311,138 @@ def _build_realtime_app_javascript(root_id: str, config_setup_js: str, *, async_
   let mediaStreams = [];
   let finalTranscript = '';
   let isRunning = false;
+  let cleanupDone = true;
+  let userStopRequested = false;
 
+  const STATUS = {{ready:'Готово', starting:'Запуск…', websocketOpen:'Соединение установлено', sessionStarted:'Сессия распознавания запущена', stopped:'Остановлено', closed:'Соединение закрыто'}};
   function setStatus(text) {{ statusEl.textContent = 'Статус: ' + text; }}
-  function markJsReady() {{
-    root.dataset.jsReady = 'true';
-    statusEl.dataset.jsReadyMarker = 'attached';
-    setStatus('idle');
+  function hasDisplayAudio() {{ return displayAudioEl.value === 'on'; }}
+  function hasInputAudio() {{ return inputDeviceEl.value !== 'off'; }}
+  function updateTranscriptButtons() {{ const hasText = finalTranscript.length > 0; copyBtn.disabled = !hasText; downloadBtn.disabled = !hasText; clearBtn.disabled = !hasText; }}
+  function updateSourceUi() {{
+    const anySource = hasDisplayAudio() || hasInputAudio();
+    startBtn.disabled = isRunning || !anySource;
+    stopBtn.disabled = !isRunning;
+    sourceRequiredEl.hidden = anySource;
+    mixWarningEl.hidden = !(hasDisplayAudio() && hasInputAudio() && !isRunning);
   }}
+  function setSourceControlsDisabled(disabled) {{ displayAudioEl.disabled = disabled; inputDeviceEl.disabled = disabled; refreshDevicesBtn.disabled = disabled; }}
+  function markJsReady() {{ root.dataset.jsReady = 'true'; statusEl.dataset.jsReadyMarker = 'attached'; setStatus(STATUS.ready); updateSourceUi(); updateTranscriptButtons(); }}
   function log(text) {{
     const line = '[' + new Date().toLocaleTimeString() + '] ' + text;
-    diagPlaceholderEl.hidden = true;
-    diagEl.hidden = false;
-    diagWrapEl.open = true;
+    diagPlaceholderEl.hidden = true; diagEl.hidden = false; diagWrapEl.open = true;
     diagEl.textContent = (diagEl.textContent ? diagEl.textContent + '\\n' : '') + line;
   }}
   function knownErrorMessage(value) {{
     const lower = String(value || '').toLowerCase();
-    for (const [key, message] of Object.entries(CONFIG.messages)) {{
-      if (lower.includes(key)) return message;
-    }}
-    return 'WebSocket realtime transcription error. Проверьте соединение, источник аудио и попробуйте снова.';
+    for (const [key, message] of Object.entries(CONFIG.messages)) {{ if (lower.includes(key)) return message; }}
+    return 'Ошибка WebSocket realtime-распознавания. Проверьте соединение, источник аудио и попробуйте снова.';
   }}
   async function populateInputDevices() {{
     if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
     const current = inputDeviceEl.value;
     const devices = await navigator.mediaDevices.enumerateDevices();
     const audioInputs = devices.filter(device => device.kind === 'audioinput');
-    inputDeviceEl.innerHTML = '<option value="">Default browser input</option>';
+    inputDeviceEl.innerHTML = '<option value="off">Выключено</option><option value="">Устройство по умолчанию</option>';
     audioInputs.forEach((device, index) => {{
-      const option = document.createElement('option');
-      option.value = device.deviceId;
-      option.textContent = device.label || ('Audio input ' + (index + 1));
-      inputDeviceEl.appendChild(option);
+      const option = document.createElement('option'); option.value = device.deviceId;
+      option.textContent = device.label || ('Аудиовход ' + (index + 1)); inputDeviceEl.appendChild(option);
     }});
     if ([...inputDeviceEl.options].some(option => option.value === current)) inputDeviceEl.value = current;
+    updateSourceUi();
   }}
-  function microphoneConstraints() {{
-    return inputDeviceEl.value ? {{audio: {{deviceId: {{exact: inputDeviceEl.value}}}}}} : {{audio: true}};
-  }}
-  function appendCommitted(text) {{
-    if (!text) return;
-    finalTranscript += (finalTranscript && !finalTranscript.endsWith('\\n') ? '\\n' : '') + text;
-    committedEl.textContent = finalTranscript;
-  }}
-  function pickTranscriptText(data) {{
-    return data.text || data.transcript || data.partial_transcript || data.committed_transcript || data.final_transcript || data.message || '';
-  }}
+  function microphoneConstraints() {{ return inputDeviceEl.value ? {{audio: {{deviceId: {{exact: inputDeviceEl.value}}}}}} : {{audio: true}}; }}
+  function appendCommitted(text) {{ if (!text) return; finalTranscript += (finalTranscript && !finalTranscript.endsWith('\\n') ? '\\n' : '') + text; committedEl.textContent = finalTranscript; updateTranscriptButtons(); }}
+  function pickTranscriptText(data) {{ return data.text || data.transcript || data.partial_transcript || data.committed_transcript || data.final_transcript || data.message || ''; }}
   function handleRealtimeEvent(data) {{
     const eventType = String(data.type || data.event || data.message_type || data.status || '').toLowerCase();
-    if (eventType.includes('session_started') || eventType.includes('session started')) {{
-      setStatus('session_started');
-      log('ElevenLabs session_started');
-      return;
-    }}
-    if (eventType.includes('error') || data.error || data.error_code) {{
-      const code = data.error_code || data.code || data.error || eventType;
-      log(knownErrorMessage(code));
-      return;
-    }}
+    if (eventType.includes('session_started') || eventType.includes('session started')) {{ setStatus(STATUS.sessionStarted); log('ElevenLabs session_started'); return; }}
+    if (eventType.includes('error') || data.error || data.error_code) {{ const code = data.error_code || data.code || data.error || eventType; log(knownErrorMessage(code)); return; }}
     const text = pickTranscriptText(data);
-    if (!text) {{
-      log('Realtime event: ' + eventType);
-      return;
-    }}
-    if (eventType.includes('partial') || data.is_final === false) {{
-      partialEl.textContent = text;
-      return;
-    }}
-    if (eventType.includes('commit') || eventType.includes('final') || data.is_final === true) {{
-      partialEl.textContent = '';
-      appendCommitted(text);
-      return;
-    }}
+    if (!text) {{ log('Событие realtime без текста: ' + eventType); return; }}
+    if (eventType.includes('partial') || data.is_final === false) {{ partialEl.textContent = text; return; }}
+    if (eventType.includes('commit') || eventType.includes('final') || data.is_final === true) {{ partialEl.textContent = ''; appendCommitted(text); return; }}
     partialEl.textContent = text;
   }}
   function floatTo16BitPcmBase64(float32) {{
-    const buffer = new ArrayBuffer(float32.length * 2);
-    const view = new DataView(buffer);
-    for (let i = 0; i < float32.length; i++) {{
-      const s = Math.max(-1, Math.min(1, float32[i]));
-      view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
-    }}
-    const bytes = new Uint8Array(buffer);
-    let binary = '';
-    const chunk = 0x8000;
-    for (let i = 0; i < bytes.length; i += chunk) {{
-      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
-    }}
+    const buffer = new ArrayBuffer(float32.length * 2); const view = new DataView(buffer);
+    for (let i = 0; i < float32.length; i++) {{ const s = Math.max(-1, Math.min(1, float32[i])); view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true); }}
+    const bytes = new Uint8Array(buffer); let binary = ''; const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {{ binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk)); }}
     return btoa(binary);
   }}
   function downsampleMono(input, inputRate, outputRate) {{
-    if (inputRate === outputRate) return input;
-    const ratio = inputRate / outputRate;
-    const newLength = Math.round(input.length / ratio);
-    const result = new Float32Array(newLength);
-    let offsetResult = 0;
-    let offsetBuffer = 0;
-    while (offsetResult < result.length) {{
-      const nextOffsetBuffer = Math.round((offsetResult + 1) * ratio);
-      let accum = 0;
-      let count = 0;
-      for (let i = offsetBuffer; i < nextOffsetBuffer && i < input.length; i++) {{
-        accum += input[i];
-        count++;
-      }}
-      result[offsetResult] = count ? accum / count : 0;
-      offsetResult++;
-      offsetBuffer = nextOffsetBuffer;
-    }}
+    if (inputRate === outputRate) return input; const ratio = inputRate / outputRate; const newLength = Math.round(input.length / ratio); const result = new Float32Array(newLength); let offsetResult = 0; let offsetBuffer = 0;
+    while (offsetResult < result.length) {{ const nextOffsetBuffer = Math.round((offsetResult + 1) * ratio); let accum = 0; let count = 0; for (let i = offsetBuffer; i < nextOffsetBuffer && i < input.length; i++) {{ accum += input[i]; count++; }} result[offsetResult] = count ? accum / count : 0; offsetResult++; offsetBuffer = nextOffsetBuffer; }}
     return result;
   }}
-  async function getStreamForMode(mode) {{
-    if (mode === 'mic' || mode === 'virtual') {{
-      if (mode === 'virtual') log('Virtual/system audio mode: выберите OS-level virtual audio/loopback input как microphone device. Browser не гарантирует прямой захват desktop app audio.');
-      return navigator.mediaDevices.getUserMedia(microphoneConstraints());
-    }}
-    if (mode === 'display') {{
-      const stream = await navigator.mediaDevices.getDisplayMedia({{video: true, audio: true}});
-      if (stream.getAudioTracks().length === 0) {{
-        stream.getTracks().forEach(track => track.stop());
-        throw new Error('Браузер не передал audio track для выбранной вкладки/экрана. Попробуйте вкладку с включенным "share audio" или другой источник.');
-      }}
-      return stream;
-    }}
-    if (mode === 'display_mic') {{
-      const displayStream = await navigator.mediaDevices.getDisplayMedia({{video: true, audio: true}});
-      if (displayStream.getAudioTracks().length === 0) {{
-        displayStream.getTracks().forEach(track => track.stop());
-        throw new Error('Браузер не передал audio track для выбранной вкладки/экрана. Попробуйте вкладку с включенным "share audio" или другой источник.');
-      }}
-      const micStream = await navigator.mediaDevices.getUserMedia(microphoneConstraints());
-      mediaStreams.push(displayStream, micStream);
-      log('Warning: display+mic mixing can create echo/double audio if the microphone hears speakers.');
-      const ctx = new AudioContext();
-      audioContext = ctx;
-      const destination = ctx.createMediaStreamDestination();
-      const displaySource = ctx.createMediaStreamSource(displayStream);
-      const micSource = ctx.createMediaStreamSource(micStream);
-      displaySource.connect(destination);
-      micSource.connect(destination);
-      sourceNodes.push(displaySource, micSource);
+  async function getDisplayAudioStream() {{
+    const stream = await navigator.mediaDevices.getDisplayMedia({{video: true, audio: true}});
+    if (stream.getAudioTracks().length === 0) {{ stream.getTracks().forEach(track => track.stop()); throw new Error('Браузер не передал audio track для выбранной вкладки/экрана. Попробуйте вкладку с включенным "share audio" или другой источник.'); }}
+    return stream;
+  }}
+  async function buildCaptureStream() {{
+    const streams = [];
+    if (hasDisplayAudio()) streams.push(await getDisplayAudioStream());
+    if (hasInputAudio()) streams.push(await navigator.mediaDevices.getUserMedia(microphoneConstraints()));
+    mediaStreams.push(...streams);
+    await populateInputDevices().catch(() => {{ log('Не удалось обновить список аудиоустройств после разрешения браузера.'); }});
+    if (streams.length === 1) return streams[0];
+    if (streams.length > 1) {{
+      const ctx = new AudioContext(); audioContext = ctx; const destination = ctx.createMediaStreamDestination();
+      streams.forEach(stream => {{ const source = ctx.createMediaStreamSource(stream); source.connect(destination); sourceNodes.push(source); }});
+      log('Смешивание источников: аудио вкладки / экрана + микрофон / аудиовход. Возможен повторный захват звука микрофоном.');
       return destination.stream;
     }}
-    throw new Error('Unknown audio source mode: ' + mode);
+    throw new Error('Включите аудио вкладки / экрана или микрофон / аудиовход.');
   }}
   async function start() {{
-    if (isRunning) return;
-    isRunning = true;
-    startBtn.disabled = true;
-    stopBtn.disabled = false;
-    partialEl.textContent = '';
-    setStatus('starting');
+    if (isRunning || (!hasDisplayAudio() && !hasInputAudio())) return;
+    isRunning = true; cleanupDone = false; userStopRequested = false; setSourceControlsDisabled(true); updateSourceUi(); partialEl.textContent = ''; setStatus(STATUS.starting);
     try {{
-      if (!navigator.mediaDevices) throw new Error('Browser mediaDevices API is unavailable in this environment.');
-      await populateInputDevices();
-      const mode = modeEl.value;
-      let stream = await getStreamForMode(mode);
-      if (!mediaStreams.includes(stream)) mediaStreams.push(stream);
-      if (!audioContext) audioContext = new AudioContext();
-      await audioContext.resume();
+      if (!navigator.mediaDevices) throw new Error('MediaDevices API недоступен в этом окружении браузера.');
+      const stream = await buildCaptureStream(); if (!audioContext) audioContext = new AudioContext(); await audioContext.resume();
       ws = new WebSocket(CONFIG.wsUrl);
-      ws.onopen = () => {{ setStatus('websocket_open'); log('WebSocket opened; using ' + CONFIG.modelId + ' / ' + CONFIG.audioFormat + ' / commit_strategy=' + CONFIG.commitStrategy); }};
-      ws.onerror = () => {{ log('WebSocket error. Проверьте сеть, token и ElevenLabs realtime access.'); }};
-      ws.onclose = (event) => {{ log('WebSocket closed: code=' + event.code + ', reason=' + (event.reason || '')); setStatus('closed'); stop(false); }};
-      ws.onmessage = (event) => {{
-        try {{ handleRealtimeEvent(JSON.parse(event.data)); }}
-        catch (err) {{ log('Non-JSON realtime message ignored.'); }}
-      }};
-      const source = audioContext.createMediaStreamSource(stream);
-      sourceNodes.push(source);
-      // Prototype-only: ScriptProcessorNode is deprecated. TODO: migrate to AudioWorklet for PWA/backend-grade realtime capture.
+      ws.onopen = () => {{ setStatus(STATUS.websocketOpen); log('WebSocket открыт; используется ' + CONFIG.modelId + ' / ' + CONFIG.audioFormat + ' / commit_strategy=' + CONFIG.commitStrategy); }};
+      ws.onerror = () => {{ log('Ошибка WebSocket. Проверьте сеть, token и доступ к ElevenLabs realtime.'); }};
+      ws.onclose = (event) => {{ const expected = userStopRequested; log((expected ? 'WebSocket закрыт после команды пользователя: ' : 'Неожиданное закрытие WebSocket: ') + 'code=' + event.code + ', reason=' + (event.reason || '')); setStatus(STATUS.closed); stop(false); }};
+      ws.onmessage = (event) => {{ try {{ handleRealtimeEvent(JSON.parse(event.data)); }} catch (err) {{ log('Получено не-JSON сообщение realtime; оно пропущено.'); }} }};
+      const source = audioContext.createMediaStreamSource(stream); sourceNodes.push(source);
       processor = audioContext.createScriptProcessor(4096, 1, 1);
-      processor.onaudioprocess = (event) => {{
-        if (!ws || ws.readyState !== WebSocket.OPEN) return;
-        const mono = event.inputBuffer.getChannelData(0);
-        const pcm16k = downsampleMono(mono, audioContext.sampleRate, 16000);
-        const payload = floatTo16BitPcmBase64(pcm16k);
-        ws.send(JSON.stringify({{
-          message_type: 'input_audio_chunk',
-          audio_base_64: payload,
-          sample_rate: 16000
-        }}));
-      }};
-      source.connect(processor);
-      processor.connect(audioContext.destination);
-      log('Audio capture started. If this is display audio, browser support and share-audio selection are required.');
-    }} catch (err) {{
-      log(err && err.message ? err.message : String(err));
-      stop();
-    }}
+      processor.onaudioprocess = (event) => {{ if (!ws || ws.readyState !== WebSocket.OPEN) return; const mono = event.inputBuffer.getChannelData(0); const pcm16k = downsampleMono(mono, audioContext.sampleRate, 16000); const payload = floatTo16BitPcmBase64(pcm16k); ws.send(JSON.stringify({{message_type: 'input_audio_chunk', audio_base_64: payload, sample_rate: 16000}})); }};
+      source.connect(processor); processor.connect(audioContext.destination);
+      log('Захват аудио запущен. Для аудио вкладки / экрана требуется поддержка браузера и выбранная передача звука.');
+    }} catch (err) {{ log(err && err.message ? err.message : String(err)); stop(false); }}
   }}
   function stop(closeSocket = true) {{
-    isRunning = false;
-    startBtn.disabled = false;
-    stopBtn.disabled = true;
+    const shouldCloseSocket = closeSocket && ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING);
+    if (closeSocket) userStopRequested = true;
+    if (cleanupDone) {{ if (shouldCloseSocket) ws.close(); return; }}
+    cleanupDone = true; isRunning = false; partialEl.textContent = ''; setSourceControlsDisabled(false); updateSourceUi();
     try {{ if (processor) processor.disconnect(); }} catch (e) {{}}
-    sourceNodes.forEach(node => {{ try {{ node.disconnect(); }} catch (e) {{}} }});
-    sourceNodes = [];
-    mediaStreams.forEach(stream => stream.getTracks().forEach(track => track.stop()));
-    mediaStreams = [];
-    if (closeSocket && ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) ws.close();
-    ws = null;
-    if (audioContext && audioContext.state !== 'closed') audioContext.close();
-    audioContext = null;
-    setStatus('stopped');
-    log('Stopped: media tracks released and WebSocket close requested.');
+    processor = null; sourceNodes.forEach(node => {{ try {{ node.disconnect(); }} catch (e) {{}} }}); sourceNodes = [];
+    mediaStreams.forEach(stream => stream.getTracks().forEach(track => track.stop())); mediaStreams = [];
+    if (shouldCloseSocket) ws.close(); ws = null;
+    if (audioContext && audioContext.state !== 'closed') audioContext.close(); audioContext = null;
+    setStatus(closeSocket ? STATUS.stopped : STATUS.closed);
+    log(closeSocket ? 'Остановлено: media tracks освобождены; закрытие WebSocket запрошено.' : 'Очистка выполнена один раз после закрытия соединения; media tracks освобождены.');
   }}
   startBtn.addEventListener('click', start);
-  stopBtn.addEventListener('click', () => stop());
-  copyBtn.addEventListener('click', async () => {{
-    await navigator.clipboard.writeText(finalTranscript);
-    log('Committed transcript copied to clipboard.');
+  stopBtn.addEventListener('click', () => stop(true));
+  refreshDevicesBtn.addEventListener('click', () => populateInputDevices().catch(err => log('Не удалось обновить список устройств: ' + (err && err.message ? err.message : String(err)))));
+  displayAudioEl.addEventListener('change', updateSourceUi); inputDeviceEl.addEventListener('change', updateSourceUi);
+  copyBtn.addEventListener('click', async () => {{ if (!finalTranscript) return; await navigator.clipboard.writeText(finalTranscript); log('Подтверждённый текст скопирован в буфер обмена.'); }});
+  downloadBtn.addEventListener('click', () => {{ if (!finalTranscript) return; const blob = new Blob([finalTranscript], {{type: 'text/plain;charset=utf-8'}}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'elevenlabs-realtime-transcript.txt'; a.click(); URL.revokeObjectURL(url); }});
+  clearBtn.addEventListener('click', () => {{
+    if (!finalTranscript) return;
+    const confirmed = window.confirm('Будет очищен только подтверждённый текст в текущей вкладке. Google Docs, manifest, предварительный текст и текущая сессия не будут затронуты.');
+    if (!confirmed) return;
+    finalTranscript = ''; committedEl.textContent = ''; updateTranscriptButtons(); log('Подтверждённый текст очищен в текущей вкладке. Предварительный текст, диагностика, аудио и WebSocket не затронуты.');
   }});
-  downloadBtn.addEventListener('click', () => {{
-    const blob = new Blob([finalTranscript], {{type: 'text/plain;charset=utf-8'}});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'elevenlabs-realtime-transcript.txt';
-    a.click();
-    URL.revokeObjectURL(url);
-  }});
-  markJsReady();
-  populateInputDevices().catch(() => {{ /* Device labels may be unavailable before browser permission. */ }});
+  markJsReady(); populateInputDevices().catch(() => {{ log('Список устройств пока недоступен: браузер может скрывать названия до разрешения.'); }});
+  if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) navigator.mediaDevices.addEventListener('devicechange', () => populateInputDevices().catch(err => log('Не удалось обновить список устройств после devicechange: ' + (err && err.message ? err.message : String(err)))));
 }})();
 """
-
 
 def build_realtime_colab_javascript(token: str, root_id: str) -> str:
     """Return executable JavaScript for the current Colab realtime UI render."""
@@ -641,16 +559,16 @@ def build_realtime_frontend_html(token: str, root_id: str | None = None) -> str:
     root_id = _validate_realtime_colab_root_id(root_id or create_realtime_colab_root_id())
     shell = build_realtime_colab_html_shell(root_id)
     shell = shell.replace(
-        "LIVE-COLAB-01: realtime transcription prototype",
-        "LIVE-COLAB-PROXY-01: realtime frontend bridge",
+        "LIVE-COLAB-01: прототип realtime-распознавания",
+        "LIVE-COLAB-PROXY-01: standalone frontend bridge realtime-распознавания",
     )
     shell = shell.replace(
-        "Экспериментальный Colab-прототип: без Google Docs save, без manifest, без speaker projects. Main API key остаётся Python-side; browser получает только single-use realtime token.",
-        "Экспериментальный standalone bridge через Colab proxy/new tab: no Google Docs save, no manifest, no speaker projects. Browser receives only a single-use realtime token; Colab launcher/proxy is replaceable infrastructure for a future PWA.",
+        "Экспериментальный Colab-прототип: без сохранения в Google Docs, без manifest, без speaker projects. Основной API key остаётся на стороне Python; браузер получает только single-use realtime token.",
+        "Экспериментальный standalone bridge через Colab proxy/new tab: без сохранения в Google Docs, без manifest, без speaker projects. Браузер получает только single-use realtime token; launcher/proxy Colab остаётся заменяемой инфраструктурой для будущей PWA.",
     )
     shell = shell.replace(
-        "Статус: iframe HTML loaded; JS not attached yet",
-        "Статус: page loaded",
+        "Статус: HTML iframe загружен; JavaScript ещё не подключён",
+        "Статус: страница загружена",
     )
     del token
     return f"""<!doctype html>
@@ -751,23 +669,23 @@ def build_realtime_proxy_launch_html(
 
     escaped_public_url = html.escape(public_url, quote=True)
     escaped_local_url = html.escape(local_url, quote=True)
-    proxy_note = "Colab proxy URL is active." if used_colab_proxy else (
+    proxy_note = "Colab proxy URL активен." if used_colab_proxy else (
         "Не удалось получить Colab proxy URL автоматически. Если ссылка localhost не открывается из браузера, "
         "перезапустите в Google Colab runtime и проверьте доступность google.colab.kernel.proxyPort(port)."
     )
     return f"""
 <div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;line-height:1.45;max-width:900px;border:1px solid #d8dee9;border-radius:14px;padding:16px;margin:8px 0;background:#fff;color:#17202a;">
-  <h2 style="margin:0 0 8px;">LIVE-COLAB-PROXY-01 realtime frontend bridge</h2>
-  <p style="margin:0 0 12px;">Experimental bridge: Colab launches a local Python HTTP server and exposes a standalone browser page in a new tab.</p>
-  <p style="margin:0 0 12px;"><a href="{escaped_public_url}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:10px 14px;border-radius:10px;background:#2563eb;color:#fff;text-decoration:none;font-weight:700;">Open realtime frontend in a new tab</a></p>
+  <h2 style="margin:0 0 8px;">LIVE-COLAB-PROXY-01: standalone bridge realtime-распознавания</h2>
+  <p style="margin:0 0 12px;">Экспериментальный bridge: Colab запускает локальный Python HTTP server и открывает standalone-страницу браузера в новой вкладке.</p>
+  <p style="margin:0 0 12px;"><a href="{escaped_public_url}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:10px 14px;border-radius:10px;background:#2563eb;color:#fff;text-decoration:none;font-weight:700;">Открыть realtime-страницу в новой вкладке</a></p>
   <ul style="margin:0 0 12px 20px;padding:0;">
-    <li>No Google Docs save.</li>
-    <li>No manifest reads/writes and no manifest schema changes.</li>
-    <li>No speaker projects integration.</li>
-    <li>Browser receives only a single-use realtime token, never the main API key.</li>
-    <li>Do not claim realtime E2E success until manual Colab/browser/provider validation passes.</li>
+    <li>Без сохранения в Google Docs.</li>
+    <li>Без чтения/записи manifest и без изменений схемы manifest.</li>
+    <li>Без интеграции speaker projects.</li>
+    <li>Браузер получает только single-use realtime token, но не основной API key.</li>
+    <li>Не заявляйте полный realtime E2E успех до ручной проверки Colab/browser/provider.</li>
   </ul>
-  <p style="margin:0;color:#4b5563;">{html.escape(proxy_note)} Local runtime URL: <code>{escaped_local_url}</code></p>
+  <p style="margin:0;color:#4b5563;">{html.escape(proxy_note)} Локальный runtime URL: <code>{escaped_local_url}</code></p>
 </div>
 """
 

@@ -232,11 +232,11 @@ def test_generated_iframe_has_media_permissions_and_sandbox_flags() -> None:
 def test_generated_iframe_srcdoc_contains_readiness_marker_and_listeners() -> None:
     srcdoc = realtime.build_realtime_colab_iframe_srcdoc("temporary-token")
 
-    assert "Статус: iframe HTML loaded; JS not attached yet" in srcdoc
+    assert "Статус: HTML iframe загружен; JavaScript ещё не подключён" in srcdoc
     assert "function markJsReady()" in srcdoc
-    assert "setStatus('idle')" in srcdoc
+    assert "setStatus(STATUS.ready)" in srcdoc
     assert "startBtn.addEventListener('click', start)" in srcdoc
-    assert "stopBtn.addEventListener('click', () => stop())" in srcdoc
+    assert "stopBtn.addEventListener('click', () => stop(true))" in srcdoc
     assert "copyBtn.addEventListener('click'" in srcdoc
     assert "downloadBtn.addEventListener('click'" in srcdoc
 
@@ -289,11 +289,11 @@ def test_generated_shell_and_javascript_include_js_ready_status_transition_marke
     html = realtime.build_realtime_colab_html_shell(root_id)
     js = realtime.build_realtime_colab_javascript("temporary-token", root_id)
 
-    assert "Статус: iframe HTML loaded; JS not attached yet" in html
+    assert "Статус: HTML iframe загружен; JavaScript ещё не подключён" in html
     assert "function markJsReady()" in js
     assert "root.dataset.jsReady = 'true'" in js
     assert "statusEl.dataset.jsReadyMarker = 'attached'" in js
-    assert "setStatus('idle')" in js
+    assert "setStatus(STATUS.ready)" in js
 
 
 def test_generated_shell_and_javascript_still_include_realtime_controls() -> None:
@@ -301,12 +301,12 @@ def test_generated_shell_and_javascript_still_include_realtime_controls() -> Non
     html = realtime.build_realtime_colab_html_shell(root_id)
     js = realtime.build_realtime_colab_javascript("temporary-token", root_id)
 
-    assert 'data-el="start">Start</button>' in html
-    assert 'data-el="stop" disabled>Stop</button>' in html
-    assert 'data-el="copy">Copy transcript</button>' in html
-    assert 'data-el="download">Download .txt</button>' in html
+    assert 'data-el="start" disabled>Начать</button>' in html
+    assert 'data-el="stop" disabled>Остановить</button>' in html
+    assert 'data-el="copy" disabled>Скопировать текст</button>' in html
+    assert 'data-el="download" disabled>Скачать .txt</button>' in html
     assert "startBtn.addEventListener('click', start)" in js
-    assert "stopBtn.addEventListener('click', () => stop())" in js
+    assert "stopBtn.addEventListener('click', () => stop(true))" in js
     assert "copyBtn.addEventListener('click'" in js
     assert "downloadBtn.addEventListener('click'" in js
 
@@ -327,8 +327,8 @@ def test_generated_html_shell_uses_compact_diagnostics_ui() -> None:
     html = realtime.build_realtime_colab_html_shell(root_id)
     js = realtime.build_realtime_colab_javascript("temporary-token", root_id)
 
-    assert "LIVE-COLAB-01: realtime transcription prototype" in html
-    assert "Источник аудио" in html
+    assert "LIVE-COLAB-01: прототип realtime-распознавания" in html
+    assert "Аудио вкладки / экрана" in html
     assert "<summary>Диагностика</summary>" in html
     assert "Диагностика появится после запуска realtime-сессии." in html
     assert '<pre data-el="diagnostics" hidden></pre>' in html
@@ -357,23 +357,22 @@ def test_proxy_standalone_frontend_includes_controls_status_and_external_realtim
     page = realtime.build_realtime_frontend_html("temporary-token")
     js = realtime.build_realtime_frontend_javascript("temporary-token", realtime.create_realtime_colab_root_id())
 
-    assert "LIVE-COLAB-PROXY-01: realtime frontend bridge" in page
-    assert "Статус: page loaded" in page
+    assert "LIVE-COLAB-PROXY-01: standalone frontend bridge realtime-распознавания" in page
+    assert "Статус: страница загружена" in page
     assert '<script src="/realtime.js" defer></script>' in page
     assert "<script>" not in page
     assert not re.search(r"<script(?![^>]*\bsrc=)[^>]*>.*?</script>", page, flags=re.DOTALL | re.IGNORECASE)
     assert "temporary-token" not in page
     assert "fetch('/config.json'" in js
-    assert "setStatus('idle')" in js
-    assert "setStatus('starting')" in js
-    assert "setStatus('websocket_open')" in js
-    assert "setStatus('session_started')" in js
-    assert 'data-el="start">Start</button>' in page
-    assert 'data-el="stop" disabled>Stop</button>' in page
-    assert "Microphone" in page
-    assert "Browser tab / screen audio" in page
-    assert "Browser tab / screen audio + microphone" in page
-    assert "Virtual input / system audio device" in page
+    assert "setStatus(STATUS.ready)" in js
+    assert "setStatus(STATUS.starting)" in js
+    assert "setStatus(STATUS.websocketOpen)" in js
+    assert "setStatus(STATUS.sessionStarted)" in js
+    assert 'data-el="start" disabled>Начать</button>' in page
+    assert 'data-el="stop" disabled>Остановить</button>' in page
+    assert "Микрофон / аудиовход" in page
+    assert "Вкладка браузера / экран со звуком" in page
+    assert "Virtual input / system audio device" not in page
     assert "navigator.mediaDevices.getUserMedia" in js
     assert "navigator.mediaDevices.getDisplayMedia" in js
     assert "new WebSocket(CONFIG.wsUrl)" in js
@@ -383,6 +382,68 @@ def test_proxy_standalone_frontend_includes_controls_status_and_external_realtim
         assert forbidden not in page
         assert forbidden not in js
 
+
+
+def test_proxy_frontend_has_independent_sources_and_russian_device_labels() -> None:
+    page = realtime.build_realtime_frontend_html("temporary-token")
+    js = realtime.build_realtime_frontend_javascript("temporary-token", realtime.create_realtime_colab_root_id())
+
+    assert 'data-el="display-audio"' in page
+    assert 'data-el="input-device"' in page
+    assert '<option value="off">Выключено</option>' in page
+    assert '<option value="">Устройство по умолчанию</option>' in page
+    assert "Аудиовход " in js
+    assert "Обновить список устройств" in page
+    assert "Включите аудио вкладки / экрана или микрофон / аудиовход." in page
+    assert "hasDisplayAudio()" in js
+    assert "hasInputAudio()" in js
+    assert "startBtn.disabled = isRunning || !anySource" in js
+    assert "navigator.mediaDevices.addEventListener('devicechange'" in js
+
+
+def test_proxy_frontend_represents_display_only_input_only_and_mixed_branches_without_virtual_mode() -> None:
+    page = realtime.build_realtime_frontend_html("temporary-token")
+    js = realtime.build_realtime_frontend_javascript("temporary-token", realtime.create_realtime_colab_root_id())
+
+    assert "getDisplayAudioStream" in js
+    assert "navigator.mediaDevices.getUserMedia(microphoneConstraints())" in js
+    assert "streams.length === 1" in js
+    assert "streams.length > 1" in js
+    assert "createMediaStreamDestination" in js
+    assert "Микрофон может повторно захватывать звук вкладки" in page
+    assert "virtual" not in page
+    assert "mode === 'virtual'" not in js
+    assert "Virtual input" not in js
+
+
+def test_transcript_readability_clear_confirmation_and_lifecycle_guards() -> None:
+    page = realtime.build_realtime_frontend_html("temporary-token")
+    js = realtime.build_realtime_frontend_javascript("temporary-token", realtime.create_realtime_colab_root_id())
+
+    assert "Предварительный текст" in page
+    assert "Подтверждённый текст" in page
+    assert "font-size:17px" in page
+    assert "line-height:1.6" in page
+    assert "white-space:pre-wrap" in page
+    assert 'data-el="clear" disabled>Очистить подтверждённый текст</button>' in page
+    assert "function updateTranscriptButtons()" in js
+    assert "copyBtn.disabled = !hasText" in js
+    assert "downloadBtn.disabled = !hasText" in js
+    assert "clearBtn.disabled = !hasText" in js
+    assert "window.confirm('Будет очищен только подтверждённый текст в текущей вкладке. Google Docs, manifest, предварительный текст и текущая сессия не будут затронуты.')" in js
+    assert "finalTranscript = ''; committedEl.textContent = ''; updateTranscriptButtons()" in js
+    assert "partialEl.textContent = '';" in js
+    assert "cleanupDone" in js
+    assert "userStopRequested" in js
+    assert "WebSocket закрыт после команды пользователя" in js
+    assert "Неожиданное закрытие WebSocket" in js
+
+
+def test_proxy_frontend_does_not_introduce_persistence_or_extra_runtime_surfaces() -> None:
+    assets = realtime.build_realtime_frontend_html("temporary-token") + realtime.build_realtime_frontend_javascript("temporary-token", realtime.create_realtime_colab_root_id())
+
+    for forbidden in ["localStorage", "sessionStorage", "indexedDB", "serviceWorker", "manifest.json", "speaker-project", "Google Docs save"]:
+        assert forbidden not in assets
 
 def test_generated_proxy_realtime_javascript_passes_node_syntax_check(tmp_path: Path) -> None:
     node = shutil.which("node")
@@ -433,7 +494,7 @@ def test_proxy_server_serves_standalone_frontend_assets_without_provider_calls()
             content_type = response.headers.get("Content-Type")
         assert response.status == 200
         assert content_type == "text/html; charset=utf-8"
-        assert "LIVE-COLAB-PROXY-01: realtime frontend bridge" in body
+        assert "LIVE-COLAB-PROXY-01: standalone frontend bridge realtime-распознавания" in body
         assert '<script src="/realtime.js" defer></script>' in body
         assert "temporary-token" not in body
 
@@ -443,7 +504,7 @@ def test_proxy_server_serves_standalone_frontend_assets_without_provider_calls()
         assert response.status == 200
         assert js_content_type == "application/javascript; charset=utf-8"
         assert "fetch('/config.json'" in js
-        assert "setStatus('idle')" in js
+        assert "setStatus(STATUS.ready)" in js
         assert "temporary-token" not in js
 
         with urlopen(local_url + "config.json", timeout=5) as response:
@@ -469,11 +530,11 @@ def test_proxy_launch_html_contains_required_link_label_and_warnings() -> None:
         used_colab_proxy=True,
     )
 
-    assert "Open realtime frontend in a new tab" in launch_html
-    assert "Experimental bridge" in launch_html
-    assert "No Google Docs save" in launch_html
-    assert "No manifest reads/writes" in launch_html
-    assert "No speaker projects integration" in launch_html
+    assert "Открыть realtime-страницу в новой вкладке" in launch_html
+    assert "Экспериментальный bridge" in launch_html
+    assert "Без сохранения в Google Docs" in launch_html
+    assert "Без чтения/записи manifest" in launch_html
+    assert "Без интеграции speaker projects" in launch_html
     assert "single-use realtime token" in launch_html
     assert "https://colab.example/proxy/123/" in launch_html
 
