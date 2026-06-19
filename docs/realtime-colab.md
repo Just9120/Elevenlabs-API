@@ -29,7 +29,7 @@ Still pending:
 - microphone-only capture;
 - display-only capture and no-audio-track behavior;
 - loopback/virtual input route;
-- permission-cancellation behavior while browser prompts are open;
+- permission-cancellation behavior while browser prompts are open (implemented/static-tested, pending manual runtime validation);
 - refreshed-device UX;
 - structured live presentation verification for `realtime_live_transcript_v1` copy/download/clear behavior;
 - cross-browser validation;
@@ -71,7 +71,13 @@ The realtime WebSocket uses `scribe_v2_realtime`, `pcm_16000` and `commit_strate
 - Realtime has no Google Docs save, no `manifest` reads/writes/schema changes, no analytics mutation for batch workflow and no speaker project integration.
 - Do not record transcript content, API keys, one-time tokens, browser identity, private audio, or raw provider payloads in reports.
 
-## 7. Manual runtime checklist
+## 7. Intended permission-cancellation lifecycle
+
+If the user presses `Остановить` while display, microphone or mixed-source permission prompts are still open, the visible final status should remain `Статус: Остановлено`, source controls should become usable again, and any stream returned after that stale attempt should be stopped immediately. Stale attempts must not open a late WebSocket or update/clean up a newer attempt.
+
+If the browser prompt itself is cancelled or denied before WebSocket creation, the UI should return to a safe retry state, temporary preliminary text should clear, diagnostics should explain in Russian that capture permission was cancelled or denied, and the page should not show `Статус: Соединение закрыто` for a WebSocket that never existed.
+
+## 8. Manual runtime checklist
 
 Copy this checklist into a runtime report and mark pass/fail/not tested:
 
@@ -86,7 +92,7 @@ Copy this checklist into a runtime report and mark pass/fail/not tested:
 - [ ] Confirm display-only capture works or shows the expected Russian no-audio-track error.
 - [ ] Confirm display+input mixed mode starts and documents echo/double-audio behavior.
 - [ ] Confirm loopback/virtual input can be selected if available.
-- [ ] Confirm permission cancellation returns UI to a safe state and releases any acquired tracks.
+- [ ] Confirm permission cancellation returns UI to `Статус: Остановлено` after explicit Stop, or safe ready state after browser denial/cancel, and releases any acquired stale tracks without opening a late WebSocket.
 - [ ] Confirm WebSocket opens and `session_started` appears in diagnostics when provider sends it.
 - [ ] Confirm partial transcript appears.
 - [ ] Confirm committed transcript appears as ordered `realtime_live_transcript_v1` segments.
@@ -95,7 +101,7 @@ Copy this checklist into a runtime report and mark pass/fail/not tested:
 - [ ] Confirm no Google Docs, `manifest` or speaker project mutation occurs.
 - [ ] Confirm main API key and one-time token are not visible in browser JS, notebook output, diagnostics or logs.
 
-## 8. Troubleshooting
+## 9. Troubleshooting
 
 | Symptom | Likely cause | What to check |
 | --- | --- | --- |
@@ -111,7 +117,7 @@ Copy this checklist into a runtime report and mark pass/fail/not tested:
 | Desktop app audio not captured | Browser cannot directly capture that app/system output | Route desktop audio through loopback/virtual input and select it as an input device. |
 | Stop does not release capture indicator | Tracks or display capture were not fully stopped | Press Stop again, close browser sharing UI if needed and record browser/OS details without private data. |
 
-## 9. Runtime report template
+## 10. Runtime report template
 
 Do not paste API keys, one-time tokens, raw transcript body, private audio content, browser identity or raw provider payloads.
 

@@ -2,8 +2,8 @@
 
 ## Operational dashboard
 
-- ✅ **DOCS-REF-01 — Documentation reconciliation and architecture baseline** — current docs-only reconciliation target for merged realtime work; no runtime behavior change.
-- 👉 **RT-REF-01 — Refactor realtime frontend boundaries and harden permission-cancellation lifecycle** — current recommended next delivery item.
+- ✅ **DOCS-REF-01 — Documentation reconciliation and architecture baseline** — merged/completed docs-only reconciliation; no runtime behavior change.
+- 👉 **RT-REF-01 — Refactor realtime frontend boundaries and harden permission-cancellation lifecycle** — current PR / pending merge.
 - 📋 **RUNTIME-01 — Batch source picker / manifest skip / Google Docs output smoke-check** — planned manual Colab/Drive/Docs validation.
 - 📋 **SPEAKER-RUNTIME-01 — Speaker projects workflow on copied diarized Google Doc** — planned manual validation.
 - 📋 **PERF-RUNTIME-01 — Startup timing summary collection** — planned runtime diagnostics validation.
@@ -28,16 +28,16 @@ Current confirmed realtime evidence is partial: one display+microphone run confi
 
 ### RT-REF-01 — Refactor realtime frontend boundaries and harden permission-cancellation lifecycle
 
-Planned scope only; do not implement as part of docs-only reconciliation:
+Current PR / pending merge scope:
 
 - move realtime frontend responsibilities into clearer boundaries;
 - preserve existing proxy/token/WebSocket behavior;
-- add cancellation protection while browser permission prompts are open;
+- add attempt-scoped cancellation protection while display, microphone or mixed-source browser permission prompts are open;
 - preserve browser-only live transcript rendering with `realtime_live_transcript_v1`;
 - preserve no Google Docs save, no `manifest` mutation and no speaker project integration;
 - require focused static tests and fresh manual realtime validation after refactor.
 
-Suggested implementation seams are described in `docs/architecture.md` as recommendations, not current implementation facts.
+Implementation keeps token/proxy/WebSocket behavior unchanged and adds static coverage; permission-cancellation runtime validation remains pending until manually tested.
 
 ## Near backlog
 

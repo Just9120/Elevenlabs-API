@@ -30,7 +30,7 @@ Realtime Colab prototype is experimental and still requires manual Colab runtime
 
 Realtime-контур остаётся экспериментальным. Текущая подтверждённая manual evidence ограничена одним display+microphone run: standalone page boot, display+microphone capture, WebSocket open, `session_started`, partial transcript, committed transcript, user Stop, media-track release и WebSocket close.
 
-Не заявляйте полный realtime E2E success: microphone-only, display-only, loopback/virtual input, permission-cancellation behavior, refreshed-device UX, structured live presentation и cross-browser validation всё ещё требуют ручной проверки. Realtime не сохраняет Google Docs, не читает и не мутирует `manifest`, не интегрируется с speaker projects и использует browser-only `realtime_live_transcript_v1`.
+Не заявляйте полный realtime E2E success: microphone-only, display-only, loopback/virtual input, permission-cancellation behavior (now guarded/static-tested but not manually validated), refreshed-device UX, structured live presentation и cross-browser validation всё ещё требуют ручной проверки. Realtime не сохраняет Google Docs, не читает и не мутирует `manifest`, не интегрируется с speaker projects и использует browser-only `realtime_live_transcript_v1`.
 
 ## Навигация по источникам истины
 

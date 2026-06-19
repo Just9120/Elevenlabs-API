@@ -105,6 +105,9 @@ Realtime-specific constraints:
 
 Локальные CI/static checks подтверждают только то, что они реально покрывают. Full runtime success нельзя заявлять без ручной Google Colab/Drive/Docs/browser/provider evidence.
 
+
+Permission-cancellation intended behavior: explicit `Остановить` during pending display/microphone/mixed capture must keep final visible status `Статус: Остановлено`, re-enable source controls, prevent late WebSocket creation, and immediately stop stale streams/resources returned after cancellation. Browser denial/cancel before WebSocket creation must return to a safe retry state with Russian diagnostics, not a misleading WebSocket-close status. Runtime validation of this behavior remains pending.
+
 Текущая realtime evidence ограничена: standalone page boot, display+microphone capture, WebSocket open, `session_started`, partial transcript, committed transcript, user Stop, media-track release и WebSocket close. Pending gaps перечислены в `VALIDATION_MATRIX.md` и `docs/realtime-colab.md`.
 
 ## 9. Supporting detail map
