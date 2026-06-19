@@ -357,7 +357,7 @@ def test_proxy_standalone_frontend_includes_controls_status_and_external_realtim
     page = realtime.build_realtime_frontend_html("temporary-token")
     js = realtime.build_realtime_frontend_javascript("temporary-token", realtime.create_realtime_colab_root_id())
 
-    assert "LIVE-COLAB-PROXY-01: standalone frontend bridge realtime-распознавания" in page
+    assert "LIVE-COLAB-PROXY-01: отдельная realtime-страница" in page
     assert "Статус: страница загружена" in page
     assert '<script src="/realtime.js" defer></script>' in page
     assert "<script>" not in page
@@ -431,13 +431,67 @@ def test_transcript_readability_clear_confirmation_and_lifecycle_guards() -> Non
     assert "downloadBtn.disabled = !hasText" in js
     assert "clearBtn.disabled = !hasText" in js
     assert "window.confirm('Будет очищен только подтверждённый текст в текущей вкладке. Google Docs, manifest, предварительный текст и текущая сессия не будут затронуты.')" in js
-    assert "finalTranscript = ''; committedEl.textContent = ''; updateTranscriptButtons()" in js
+    assert "function clearCommittedSegments()" in js
+    assert "finalTranscript = ''; committedSegmentCount = 0; renderCommittedEmptyState(); updateTranscriptButtons();" in js
     assert "partialEl.textContent = '';" in js
     assert "cleanupDone" in js
     assert "userStopRequested" in js
     assert "WebSocket закрыт после команды пользователя" in js
     assert "Неожиданное закрытие WebSocket" in js
 
+
+
+def test_realtime_lifecycle_stop_status_and_failed_capture_cleanup_are_guarded() -> None:
+    js = realtime.build_realtime_frontend_javascript(
+        "temporary-token", realtime.create_realtime_colab_root_id()
+    )
+
+    assert "ws.onclose = (event) =>" in js
+    assert "if (expected) setStatus(STATUS.stopped); else setStatus(STATUS.closed);" in js
+    assert "if (cleanupDone)" in js
+    assert "if (closeSocket || userStopRequested) setStatus(STATUS.stopped); return;" in js
+    assert "streams.forEach(stream => stream.getTracks().forEach(track => track.stop()));" in js
+    assert "throw err;" in js
+    assert "partialEl.textContent = ''; setStatus(STATUS.starting);" in js
+
+
+def test_realtime_live_transcript_v1_uses_safe_ordered_dom_segments() -> None:
+    page = realtime.build_realtime_frontend_html("temporary-token")
+    js = realtime.build_realtime_frontend_javascript(
+        "temporary-token", realtime.create_realtime_colab_root_id()
+    )
+
+    assert 'data-schema="realtime_live_transcript_v1"' in page
+    assert "Пока нет подтверждённых фрагментов" in js
+    assert "document.createElement('p')" in js
+    assert "segment.className = 'el-committed-segment'" in js
+    assert "segment.textContent = text" in js
+    assert "segment.innerHTML" not in js
+    assert "segment.dataset.segmentIndex = String(committedSegmentCount + 1)" in js
+    assert "finalTranscript += (finalTranscript && !finalTranscript.endsWith('\\n') ? '\\n' : '') + text" in js
+    assert "appendCommittedSegment(text)" in js
+    assert "committedEl.replaceChildren()" in js
+
+
+def test_realtime_user_facing_copy_is_russian_first() -> None:
+    assets = realtime.build_realtime_frontend_html("temporary-token") + realtime.build_realtime_frontend_javascript(
+        "temporary-token", realtime.create_realtime_colab_root_id()
+    ) + realtime.build_realtime_proxy_launch_html("https://colab.example/proxy/123/", "http://127.0.0.1:123/", used_colab_proxy=True)
+
+    for forbidden in [
+        "standalone frontend bridge",
+        "single-use realtime token",
+        "Python HTTP server",
+        "speaker projects",
+        "media tracks",
+        "Main API key",
+        "share audio",
+    ]:
+        assert forbidden not in assets
+    assert "одноразовый токен realtime" in assets
+    assert "локальный HTTP-сервер Python" in assets
+    assert "проектов" in assets
+    assert "медиадорожки" in assets
 
 def test_proxy_frontend_does_not_introduce_persistence_or_extra_runtime_surfaces() -> None:
     assets = realtime.build_realtime_frontend_html("temporary-token") + realtime.build_realtime_frontend_javascript("temporary-token", realtime.create_realtime_colab_root_id())
@@ -494,7 +548,7 @@ def test_proxy_server_serves_standalone_frontend_assets_without_provider_calls()
             content_type = response.headers.get("Content-Type")
         assert response.status == 200
         assert content_type == "text/html; charset=utf-8"
-        assert "LIVE-COLAB-PROXY-01: standalone frontend bridge realtime-распознавания" in body
+        assert "LIVE-COLAB-PROXY-01: отдельная realtime-страница" in body
         assert '<script src="/realtime.js" defer></script>' in body
         assert "temporary-token" not in body
 
@@ -531,11 +585,11 @@ def test_proxy_launch_html_contains_required_link_label_and_warnings() -> None:
     )
 
     assert "Открыть realtime-страницу в новой вкладке" in launch_html
-    assert "Экспериментальный bridge" in launch_html
+    assert "Экспериментальный контур" in launch_html
     assert "Без сохранения в Google Docs" in launch_html
     assert "Без чтения/записи manifest" in launch_html
-    assert "Без интеграции speaker projects" in launch_html
-    assert "single-use realtime token" in launch_html
+    assert "Без интеграции проектов спикеров" in launch_html
+    assert "одноразовый токен realtime" in launch_html
     assert "https://colab.example/proxy/123/" in launch_html
 
 
