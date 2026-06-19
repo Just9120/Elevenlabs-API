@@ -420,7 +420,7 @@ def _build_realtime_app_javascript(root_id: str, config_setup_js: str, *, async_
   }}
 
   // browser capture and mixing
-  async function populateInputDevices(attempt = currentAttempt) {{
+  async function populateInputDevices(attempt = null) {{
     if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
     const current = inputDeviceEl.value;
     const devices = await navigator.mediaDevices.enumerateDevices();
@@ -494,7 +494,7 @@ def _build_realtime_app_javascript(root_id: str, config_setup_js: str, *, async_
       log('Захват аудио запущен. Для аудио вкладки / экрана требуется поддержка браузера и выбранная передача звука.');
     }} catch (err) {{
       if (!ownsCurrentUi(attempt)) {{ cleanupAttempt(attempt); return; }}
-      if (String(err && err.message) === 'STALE_ATTEMPT') {{ cleanupAttempt(attempt); return; }}
+      if (!isAttemptActive(attempt) || String(err && err.message) === 'STALE_ATTEMPT') {{ cleanupAttempt(attempt); return; }}
       const message = isPermissionCancellation(err) ? 'Разрешение на захват аудио отменено или отклонено в браузере. Выберите источник и нажмите «Начать» для повторной попытки.' : (err && err.message ? err.message : String(err));
       log(message);
       cleanupAttempt(attempt, {{finalStatus: STATUS.ready, logMessage: attempt.websocketCreated ? null : 'Запуск остановлен до создания WebSocket; состояние готово к повторной попытке.'}});

@@ -611,6 +611,54 @@ def test_realtime_stop_between_display_and_microphone_prevents_websocket_creatio
     assert js.index("await populateInputDevices(attempt)") < js.index("attachWebSocket(attempt)")
     assert js.index("assertAttemptActive(attempt);\n    attempt.websocketCreated = true;") < js.index("attempt.ws = new WebSocket(CONFIG.wsUrl)")
 
+
+def test_realtime_inactive_attempt_catch_precedes_permission_cancellation_ready_cleanup() -> None:
+    js = realtime.build_realtime_frontend_javascript("temporary-token", realtime.create_realtime_colab_root_id())
+
+    inactive_branch = "if (!isAttemptActive(attempt) || String(err && err.message) === 'STALE_ATTEMPT') { cleanupAttempt(attempt); return; }"
+    permission_branch = "const message = isPermissionCancellation(err) ?"
+    ready_cleanup = "cleanupAttempt(attempt, {finalStatus: STATUS.ready"
+    assert inactive_branch in js
+    assert permission_branch in js
+    assert ready_cleanup in js
+    assert js.index(inactive_branch) < js.index(permission_branch) < js.index(ready_cleanup)
+
+
+def test_realtime_stop_then_late_permission_rejection_preserves_stopped_status() -> None:
+    js = realtime.build_realtime_frontend_javascript("temporary-token", realtime.create_realtime_colab_root_id())
+
+    stop_cancel = "attempt.userStopRequested = true;\n    attempt.cancelled = true;\n    cleanupAttempt(attempt, {closeSocket, finalStatus: STATUS.stopped"
+    inactive_branch = "if (!isAttemptActive(attempt) || String(err && err.message) === 'STALE_ATTEMPT') { cleanupAttempt(attempt); return; }"
+    ready_cleanup = "cleanupAttempt(attempt, {finalStatus: STATUS.ready"
+    assert stop_cancel in js
+    assert inactive_branch in js
+    assert ready_cleanup in js
+    assert js.index(inactive_branch) < js.index("const message = isPermissionCancellation(err) ?")
+
+
+def test_realtime_device_refresh_defaults_to_passive_without_attempt() -> None:
+    js = realtime.build_realtime_frontend_javascript("temporary-token", realtime.create_realtime_colab_root_id())
+
+    assert "async function populateInputDevices(attempt = null)" in js
+    assert "if (attempt) assertAttemptActive(attempt);" in js
+    assert "const devices = await navigator.mediaDevices.enumerateDevices();" in js
+
+
+def test_realtime_startup_device_refresh_is_attempt_bound_after_enumeration() -> None:
+    js = realtime.build_realtime_frontend_javascript("temporary-token", realtime.create_realtime_colab_root_id())
+
+    assert "await populateInputDevices(attempt).catch" in js
+    assert js.index("const devices = await navigator.mediaDevices.enumerateDevices();") < js.index("if (attempt) assertAttemptActive(attempt);")
+
+
+def test_realtime_passive_refresh_call_sites_do_not_reuse_cancelled_attempt() -> None:
+    js = realtime.build_realtime_frontend_javascript("temporary-token", realtime.create_realtime_colab_root_id())
+
+    assert "refreshDevicesBtn.addEventListener('click', () => populateInputDevices().catch" in js
+    assert "markJsReady(); populateInputDevices().catch" in js
+    assert "devicechange', () => populateInputDevices().catch" in js
+    assert "populateInputDevices(currentAttempt)" not in js
+
 def test_generated_proxy_realtime_javascript_passes_node_syntax_check(tmp_path: Path) -> None:
     node = shutil.which("node")
     if node is None:
