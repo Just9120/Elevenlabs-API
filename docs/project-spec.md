@@ -1,188 +1,58 @@
-# Project spec: Elevenlabs-API / Google Docs transcription workflow
+# Project spec: Elevenlabs-API
 
 ## 1. Статус документа
 
-Этот документ — основной Russian-first source of truth для текущего состояния проекта `Just9120/Elevenlabs-API`. Он синхронизирует продуктовый scope, runtime flows, docs-only workflows, safety boundaries и validation requirements.
-
-Документ описывает ожидаемое поведение проекта, но сам по себе не доказывает runtime/E2E validation. Все статусы валидации должны сверяться с `VALIDATION_MATRIX.md` и фактическими CI/runtime записями.
+Этот документ — активный Russian-first product contract для `Just9120/Elevenlabs-API`. Он фиксирует текущий scope, durable constraints, runtime/data boundaries и safety rules. Validation evidence хранится отдельно в `VALIDATION_MATRIX.md`; delivery state — в `docs/delivery-plan.md`; observed component map — в `docs/architecture.md`.
 
 ## 2. Цель продукта
 
-Цель продукта — дать пользователю Google Colab workflow для quality-first транскрибации длинных audio/video sources в Google Docs с защитой от повторной обработки через `manifest`, интеграцией Google Drive/Docs, понятным выбором provider path и безопасными docs-only maintenance сценариями.
+Проект даёт пользователю Google Colab workflow для quality-first транскрибации audio/video sources в Google Docs с защитой от повторной обработки через `manifest`, интеграцией Google Drive/Docs, понятным provider selection и безопасными docs-only maintenance сценариями.
 
-Продукт должен:
+Основной продуктовый результат batch workflow: Google Docs transcript в выбранной папке результата и обновлённый `manifest`, позволяющий безопасно пропустить уже обработанный source при повторном запуске.
 
-- выбирать source files из компьютера или Google Drive;
-- создавать Google Docs transcript в выбранной папке результата;
-- обновлять `manifest` так, чтобы повторные runs могли безопасно пропускать уже обработанные sources;
-- поддерживать `transcript_doc_v1.2` для новых и существующих Google Docs;
-- давать docs-only tools для стандартизации документов и обслуживания `manifest` без provider/STT/LLM calls;
-- фиксировать diagnostics/analytics без transcript body и без Google Docs body content;
-- предоставлять опциональный post-processing workflow для ручного переименования `Speaker N labels` в diarized Google Docs.
+## 3. Текущие продуктовые контуры
 
-## 3. Поддерживаемый scope
+### 3.1 Стабильный batch Colab workflow
 
-В текущем scope находятся:
+Активный стабильный workflow использует `notebooks/elevenlabs_api_colab.ipynb` как launcher и `elevenlabs_api.py` как canonical runtime. В scope входят:
 
-- Google Colab launcher workflow через `notebooks/elevenlabs_api_colab.ipynb`;
-- основной canonical runtime в `elevenlabs_api.py`;
-- source selection для локальных файлов и Google Drive;
+- локальный и Google Drive source selection;
 - provider paths `ElevenLabs / scribe_v2`, `OpenAI / gpt-4o-transcribe`, `OpenAI / gpt-4o-transcribe-diarize`;
 - создание Google Docs transcript;
 - `manifest` skip protection и source/document synchronization;
-- docs-only standardization существующих Google Docs к `transcript_doc_v1.2`;
-- docs-only manifest maintenance для reconciliation/refresh;
-- analytics JSONL и startup timing instrumentation;
-- optional speaker project rename workflow для существующих diarized Google Docs;
-- unit/static validation для helper logic и UI guardrails;
-- experimental `Realtime Colab prototype` / `LIVE-COLAB-01` and `LIVE-COLAB-PROXY-01` as a separate runtime validation contour for live browser audio capture + ElevenLabs realtime STT.
+- `transcript_doc_v1.2` для новых и обслуживаемых документов;
+- analytics JSONL и startup timing diagnostics без transcript body и без Google Docs body content.
 
-## 4. Активные runtime flows
+### 3.2 Docs-only maintenance workflows
 
-### 4.1 Транскрибация нового source
+Docs-only workflows работают с уже существующими Google Docs или existing `manifest` records. Они не должны вызывать provider/STT/LLM APIs и не должны регистрировать новые transcription outputs вместо основного runtime success path.
 
-Runtime flow:
+В scope входят:
 
-1. Пользователь выбирает provider path и source mode.
-2. Colab показывает preflight summary.
-3. Workflow проверяет наличие нужных secrets без печати значений.
-4. Workflow вычисляет `source_signature` и проверяет `manifest`.
-5. Если source уже обработан совместимыми настройками, default conflict handling — безопасное `Пропустить`.
-6. Если обработка разрешена, workflow извлекает аудио при необходимости, вызывает выбранный provider/STT path, формирует transcript и создает Google Doc.
-7. После успешного создания Google Doc workflow обновляет `sources` и `documents` в `manifest`.
-8. Analytics фиксирует run metadata/status/timing без transcript body.
+- dry-run/apply стандартализация существующих Google Docs к `transcript_doc_v1.2`;
+- `manifest` reconciliation/refresh для связей между Docs и source records;
+- optional speaker project rename для diarized Google Docs с ручным mapping `Speaker N labels` → project speakers.
 
-### 4.2 Docs-only standardization
+Speaker projects не являются voice identification, speaker verification или biometric matching. Workflow не использует voice samples, voiceprints, embeddings или автоматическое определение людей по голосу. Roster хранится отдельно: `VoiceOps Workspace/projects/speaker_projects.json`.
 
-Docs-only standardization работает с папкой результата и существующими Google Docs. Она проверяет документы, определяет current/outdated/unstructured/unreadable status и при apply приводит поддерживаемые документы к `transcript_doc_v1.2`.
+### 3.3 Experimental realtime Colab/proxy contour
 
-Требования:
+Realtime — отдельный экспериментальный контур через `notebooks/elevenlabs_realtime_colab.ipynb` и `elevenlabs_realtime.py`. Он предназначен для проверки browser audio capture + ElevenLabs realtime STT через одноразовый token и WebSocket.
 
-- dry-run должен быть доступен и понятен;
-- workflow не вызывает provider/STT/LLM APIs;
-- workflow не создает транскрипт из source file;
-- workflow не должен сохранять Google Docs body content в `manifest` или analytics.
+Realtime не является заменой stable batch workflow и не меняет batch runtime contract. Realtime не сохраняет Google Docs, не читает/пишет `manifest`, не обновляет analytics batch workflow и не интегрируется с speaker projects.
 
-### 4.3 Manifest maintenance
+Текущая user-visible realtime model:
 
-Manifest maintenance — docs-only reconciliation/refresh flow для выбранной папки результата. Он обновляет связи и standard check metadata между Google Docs и `manifest`.
+- отдельные controls для `Аудио вкладки / экрана` и `Микрофон / аудиовход`;
+- virtual/loopback/system audio route выбирается как обычное browser/OS audio input device, если он доступен;
+- ElevenLabs provider VAD через `commit_strategy=vad` управляет partial-to-committed transitions;
+- committed events показываются только в браузере как `realtime_live_transcript_v1`;
+- `Скопировать текст` и `Скачать .txt` работают с browser-only committed text;
+- нет Google Docs save, `manifest` mutation, speaker project integration или provider raw payload persistence.
 
-Требования:
+## 4. Source и output boundaries
 
-- не вызывать provider/STT/LLM APIs;
-- не создавать и не мутировать Google Docs body;
-- не хранить transcript body или Docs body content;
-- не использовать maintenance как основной catalog path для новых transcription Docs, потому что успешная транскрибация сама синхронизирует `sources` и `documents`.
-
-### 4.4 Optional speaker project rename workflow
-
-Speaker project workflow — optional post-processing для уже существующего Google Docs transcript.
-
-Flow:
-
-1. Пользователь выбирает существующий Google Doc.
-2. Workflow извлекает plain text для анализа labels.
-3. Workflow допускает сценарий только для документов с diarized labels:
-   - `Speakers: no` блокирует workflow с пояснением;
-   - `Speakers: yes` допускает workflow при наличии detected labels;
-   - unknown metadata может продолжаться только с warning, если detected labels найдены.
-4. Workflow показывает найденные `Speaker N labels`, counts и несколько sample phrases.
-5. Пользователь вручную сопоставляет `Speaker N` с active speakers выбранного проекта.
-6. Preview показывает planned replacements и оставляет unmapped labels unchanged.
-7. Apply выполняется только явно и проверяет stale preview context.
-8. Current MVP apply переписывает Google Doc как plain text, поэтому runtime validation должна выполняться на копиях.
-
-Этот flow не является частью транскрибации, не вызывает provider/STT/LLM APIs и не выполняет voice identification.
-
-
-### 4.5 Realtime Colab prototype (LIVE-COLAB-01)
-
-`LIVE-COLAB-01` is an experimental separate runtime contour present in `main`. It is not part of the stable batch flow yet and is not a replacement for the current batch Google Colab workflow; batch mode remains fully working, independent and the current stable/fallback channel. The output-cell UI path is blocked in the tested Colab runtime because active JavaScript did not attach for inline `display(HTML(...))`, separate `IPython.display.Javascript(...)`, or `iframe srcdoc` attempts.
-
-`LIVE-COLAB-PROXY-01` is the active bridge experiment: Colab creates the one-time realtime token, starts a lightweight local HTTP server, and exposes a separate realtime browser page through a Colab proxy/new tab. This contour treats the Colab launcher/proxy as replaceable infrastructure. Future PWA/backend work is a parallel future contour, not a replacement for batch Colab and not a dependency of this Colab experiment.
-
-Future PWA/backend work must be based on lessons from actual runtime validation, not assumed browser/provider behavior. Browser-based system/desktop audio capture is constrained and may require OS-level routing, virtual input devices or loopback.
-
-Prototype files:
-
-- `elevenlabs_realtime.py` — standalone runtime and proxy page server; it must not import or mutate `elevenlabs_api.py`;
-- `notebooks/elevenlabs_realtime_colab.ipynb` — thin launcher;
-- `docs/realtime-colab.md` — focused runtime validation guide and caveats.
-
-Runtime behavior to validate manually:
-
-1. Python reads the ElevenLabs API key from Colab Secrets / `userdata` or environment without printing it, trying preferred `ELEVEN_API_KEY` first and `ELEVENLABS_API_KEY` only as a compatibility alias.
-2. Python creates a realtime single-use token through `POST https://api.elevenlabs.io/v1/single-use-token/realtime_scribe`.
-3. Browser JavaScript receives only the temporary one-time realtime token or generated realtime WebSocket URL and opens `wss://api.elevenlabs.io/v1/speech-to-text/realtime` with `model_id=scribe_v2_realtime`, `audio_format=pcm_16000` and `commit_strategy=vad`.
-4. Browser captures audio, converts to 16kHz mono PCM where feasible, and sends documented `message_type="input_audio_chunk"` messages with `audio_base_64` PCM payloads and `sample_rate=16000`.
-5. The proxy standalone page displays Russian-first statuses: `Статус: страница загружена`, then `Статус: Готово` after JavaScript boot; Start uses `Статус: Запуск…`, WebSocket open uses `Статус: Соединение установлено`, and ElevenLabs session events use `Статус: Сессия распознавания запущена` where applicable.
-6. UI displays `Предварительный текст` separately from committed transcript and supports Start/Stop. Provider VAD (`commit_strategy=vad`) determines partial-to-committed transitions; there is no local “seven lines” or line-count threshold.
-7. Committed provider events render as ordered safe text DOM segments under browser-only `realtime_live_transcript_v1`; this is not Google Docs standardization, does not create Docs, and does not mutate `manifest`.
-8. Stop must close WebSocket and release all медиадорожки. After explicit user Stop, expected WebSocket close details stay in diagnostics while visible status remains `Статус: Остановлено`; unexpected close may show `Статус: Соединение закрыто`.
-
-Supported audio capture modes for validation:
-
-- microphone via `navigator.mediaDevices.getUserMedia({ audio: true })`;
-- browser tab/screen audio via `navigator.mediaDevices.getDisplayMedia({ video: true, audio: true })`, with a clear Russian error when no audio track is returned;
-- browser tab/screen audio + microphone mixed through Web Audio API, with warning about echo/double audio;
-- virtual input/system audio route treated as a microphone/input-device selection mode. Desktop app audio may require OS-level routing, virtual audio device or loopback; browser capture must not be described as guaranteed system-wide audio capture.
-
-Safety boundaries:
-
-- do not expose the main ElevenLabs API key from `ELEVEN_API_KEY` or the compatibility alias `ELEVENLABS_API_KEY` to browser JavaScript;
-- do not log the main API key or one-time realtime token;
-- do not save transcripts to Google Docs in `LIVE-COLAB-01`;
-- do not call Google Docs/Drive APIs from `LIVE-COLAB-01`;
-- do not read or write `manifest` and do not change manifest schema;
-- do not integrate speaker projects;
-- do not store transcript text, audio chunks, API keys, provider raw responses or browser audio data in `manifest`/analytics;
-- do not claim live E2E success until manually validated in Colab.
-
-## 5. Compatibility / migration layer
-
-Compatibility layer может существовать для чтения старых manifest shapes, old standard Docs и legacy metadata. Его задача — сохранить возможность безопасного чтения/обновления существующих артефактов без изменения runtime behavior и без потери skip protection.
-
-Правила:
-
-- internal schema keys остаются техническими identifiers на English;
-- user-facing wording может быть Russian-first;
-- migration/maintenance не должны молча менять manifest schema beyond documented current behavior;
-- old-format data should be interpreted conservatively;
-- backup behavior for destructive manifest migration/apply paths должен сохраняться там, где уже предусмотрен.
-
-## 6. Legacy / import-only helpers
-
-В коде могут сохраняться helpers, которые не являются primary user workflow: legacy import/backfill, path parsing, compatibility readers, low-level Drive helpers. Они не должны рекламироваться в README как основной UX.
-
-Удалять такие helpers можно только после отдельного решения, потому что они могут поддерживать старые manifest/docs или тесты совместимости.
-
-## 7. Что вне scope
-
-Вне текущего scope:
-
-- автоматический provider fallback без явного решения пользователя;
-- гарантированная поддержка параллельных Colab tabs или multi-user manifest writes;
-- хранение transcript body в `manifest` или analytics;
-- хранение Google Docs body content в `manifest` или analytics;
-- voice identification, speaker verification, biometric matching;
-- использование voice samples, voiceprints или embeddings для speaker projects;
-- автоматическое определение реальных имен людей по голосу;
-- гарантия formatting preservation при текущем speaker rename apply;
-- заявление live E2E success для flows, которые прошли только unit/static validation;
-- Telegram integration;
-- PWA/backend code for realtime in the current Colab bridge; future PWA/backend architecture is a parallel future contour after Colab realtime validation and must not replace or break the batch Colab workflow;
-- Google Docs save, manifest mutation or speaker project integration from `LIVE-COLAB-01` or `LIVE-COLAB-PROXY-01`.
-
-## 8. Пользовательские роли
-
-- **Оператор транскрибации**: запускает Colab, выбирает source, provider path и папку результата, следит за preflight и итоговым отчетом.
-- **Куратор документов**: проверяет и стандартизирует существующие Google Docs transcript, выполняет manifest maintenance.
-- **Редактор diarized transcript**: вручную сопоставляет `Speaker N labels` со спикерами проекта и применяет rename на копии документа.
-- **Maintainer проекта**: обновляет docs, tests, CI guardrails и validation matrix без нарушения runtime safety boundaries.
-
-## 9. Основные сценарии
-
-### 9.1 Source files
+Папка источника содержит audio/video source files и используется только для transcription flows. Папка результата содержит Google Docs transcript outputs и используется для создания Docs, docs-only standardization и manifest maintenance.
 
 Поддерживаемые source modes:
 
@@ -192,208 +62,55 @@ Compatibility layer может существовать для чтения ст
 - `Google Drive: несколько файлов`;
 - `Google Drive: папка`.
 
-Google Drive picker buttons являются primary reliable path. Double-click — только convenience. Для `drive_multi` нужен explicit/button-based fallback, потому что multi-select должен быть безопасным и предсказуемым.
+Google Drive picker buttons — primary reliable path. Double-click — convenience only. `drive_multi` должен оставаться explicit/button-based for safety: он обрабатывает выбранные files, а не folders, recursion или folder scan.
 
-### 9.2 Папка источника и папка результата
+## 5. Manifest, Docs и analytics authority
 
-Папка источника содержит audio/video files и используется для transcription. Папка результата содержит Google Docs transcript и используется для output, docs-only standardization и manifest maintenance.
+`manifest` хранит processing state, source/document links, statuses и diagnostics metadata. Он не является storage для transcript body, Google Docs body content, sample phrases или raw provider payloads.
 
-Recursive scan применим только к source folder scenario, если явно включен.
+Ключевые boundaries:
 
-### 9.3 Conflict handling
+- successful transcription runtime синхронизирует `sources` и `documents`;
+- repeated source с совместимым successful record должен default to safe skip / `Пропустить`;
+- manifest maintenance выполняет reconciliation/refresh, но не заменяет provider transcription success path;
+- analytics JSONL хранит operational run metadata, timing и statuses без secrets, transcript body, Docs body content или raw provider bodies;
+- startup timing summary — diagnostic signal, а не доказательство успешной транскрибации.
 
-Если source уже обработан, пользовательский default должен быть safe skip / `Пропустить`. Любое поведение, которое может повторно вызвать provider/STT и потратить credits, должно требовать явного действия.
+## 6. Google Docs transcript standard
 
-### 9.4 Existing Docs maintenance
+`transcript_doc_v1.2` — текущий стандарт Google Docs transcript для batch/docs-only контуров. Existing Docs standardization должна различать current, outdated, unstructured и unreadable documents. Backfill/default metadata должны быть консервативными и не придумывать неизвестные facts.
 
-Пользователь может выбрать папку результата и выполнить:
+Realtime `realtime_live_transcript_v1` — отдельный browser-only presentation format. Он не является Google Docs standardization и не должен автоматически превращаться в batch transcript или `manifest` entry.
 
-- dry-run standardization report;
-- apply standardization к поддерживаемым Docs;
-- manifest maintenance для reconciliation/refresh.
+## 7. Safety and privacy constraints
 
-### 9.5 Speaker projects
+Общие constraints:
 
-Пользователь может открыть optional post-processing UI для уже существующего diarized Google Doc, создать или выбрать проект спикеров, добавить roster, preview mapping и явно apply rename.
+- не логировать secrets, API keys, one-time tokens или raw provider response bodies;
+- не сохранять transcript body/audio chunks/private audio в `manifest` или analytics;
+- не сохранять Google Docs body content в `manifest` или analytics;
+- docs-only workflows не вызывают provider/STT/LLM APIs;
+- safe conflict default — `Пропустить`, а не повторная платная provider transcription;
+- manifest model рассчитан на single-user/single-runtime usage; параллельные Colab tabs не являются supported scenario.
 
-## 10. Функциональные требования
+Realtime-specific constraints:
 
-### 10.1 Transcription
+- основной ElevenLabs key читается Python-side из Colab Secrets/userdata/environment;
+- preferred secret: `ELEVEN_API_KEY`; `ELEVENLABS_API_KEY` — compatibility alias;
+- browser получает только одноразовый realtime token/WebSocket URL, не основной API key;
+- WebSocket использует `scribe_v2_realtime`, `pcm_16000`, `commit_strategy=vad`;
+- realtime не должен делать Google Docs save, `manifest` mutation, speaker project integration или batch workflow side effects.
 
-- Поддерживать `ElevenLabs / scribe_v2` как основной provider path.
-- Поддерживать ручные OpenAI paths без заявления автоматического fallback.
-- Проверять API key availability без вывода секретов.
-- Создавать Google Docs transcript в выбранной папке результата.
-- Обновлять `manifest` после успешного завершения.
-- Не записывать transcript body в `manifest` или analytics.
+## 8. Validation/readiness rules
 
-### 10.2 Manifest
+Локальные CI/static checks подтверждают только то, что они реально покрывают. Full runtime success нельзя заявлять без ручной Google Colab/Drive/Docs/browser/provider evidence.
 
-- Вычислять и использовать `source_signature` для skip protection.
-- Разделять `sources` и `documents` в current-format manifest.
-- Связывать documents через `doc_id`/`doc_link` и source references.
-- Сохранять orphan source records conservatively.
-- Различать selected-folder scan counters и global manifest statistics в reports.
-- Не хранить Google Docs body content.
+Текущая realtime evidence ограничена: standalone page boot, display+microphone capture, WebSocket open, `session_started`, partial transcript, committed transcript, user Stop, media-track release и WebSocket close. Pending gaps перечислены в `VALIDATION_MATRIX.md` и `docs/realtime-colab.md`.
 
-### 10.3 Google Docs transcript standard
+## 9. Supporting detail map
 
-- Новый Google Docs transcript должен соответствовать `transcript_doc_v1.2`, насколько это покрыто текущей runtime implementation.
-- Existing Docs standardization должна уметь распознавать current, outdated, unstructured и unreadable documents.
-- Metadata defaults для legacy/backfill должны быть консервативными и не придумывать неизвестные данные сверх documented fallback behavior.
-
-### 10.4 Analytics и diagnostics
-
-- Записывать run-level status, timing, startup timing и operational metadata.
-- Не записывать secrets, transcript body, Docs body content или raw provider body.
-- Startup timing summary должен помогать performance diagnostics, но не должен трактоваться как evidence of transcription success.
-
-### 10.5 Speaker project workflow
-
-- Работать только с уже существующим Google Doc.
-- Блокировать `Speakers: no`.
-- Разрешать `Speakers: yes` при наличии detected `Speaker N labels`.
-- При unknown metadata разрешать preview только с warning, если labels detected.
-- Detect labels только на границах speaker turns, а не inline mentions.
-- Показывать counts и ограниченные sample phrases без persistence.
-- Хранить project roster отдельно в `VoiceOps Workspace/projects/speaker_projects.json`.
-- Принимать mapping только к active project speakers.
-- Оставлять unmapped labels unchanged.
-- Refuse stale preview plans, если поменялись document, selected project, mapping text или active roster.
-- Apply должен менять только speaker-turn labels.
-- Current MVP apply переписывает Google Doc как plain text и должен предупреждать пользователя.
-
-## 11. Бизнес-правила
-
-- Safety first: при сомнении пропустить, предупредить или потребовать явное действие.
-- `Пропустить` — default для конфликтов повторной обработки.
-- Provider/STT calls нельзя выполнять из docs-only workflows.
-- Provider/STT retries не должны маскировать duplicate billing risk.
-- Google Docs mutation должна быть explicit для apply flows.
-- Speaker projects не определяют личность по голосу; пользователь сам делает mapping на основе visible text context.
-- Speaker project samples — UI aid, не persisted data.
-- Unmapped speaker labels остаются как есть.
-- Runtime validation claims должны соответствовать фактическим проверкам.
-
-## 12. Data/state model
-
-### 12.1 `manifest`
-
-`manifest` хранит state, links и status metadata. Current model разделяет:
-
-- `sources` — source processing state keyed by `source_signature` или compatible source identity;
-- `documents` — Google Docs transcript records keyed by `doc_id`;
-- summary/statistics fields для reports и maintenance.
-
-Запрещено хранить:
-
-- transcript body;
-- Google Docs body content;
-- sample phrases;
-- API keys/secrets;
-- raw provider response body.
-
-### 12.2 Analytics
-
-Analytics JSONL хранит run-level operational data. Допустимы statuses, durations, provider/model identifiers, source mode, high-level counters and errors. Недопустимы transcript text, Google Docs content, secrets и raw provider bodies.
-
-### 12.3 Speaker projects
-
-Speaker project data хранится отдельно от `manifest`:
-
-- путь: `VoiceOps Workspace/projects/speaker_projects.json`;
-- содержит project metadata and speaker roster;
-- archive/deactivate должен скрывать элементы без hard delete там, где это предусмотрено;
-- не содержит voice samples, voiceprints, embeddings или biometric data;
-- не должен хранить transcript body или sample phrases.
-
-## 13. Интеграции
-
-- **Google Colab**: runtime environment, UI widgets, Secrets/userdata.
-- **Google Drive API**: source file access, folder selection, artifact storage.
-- **Google Docs API**: create/update transcript documents.
-- **ElevenLabs**: `scribe_v2` transcription provider path.
-- **OpenAI**: `gpt-4o-transcribe` and `gpt-4o-transcribe-diarize` manual provider paths.
-
-Integration behavior must be conservative under transient failures. Google Docs text insertion/update idempotency risks should be handled more narrowly than generic Drive metadata operations.
-
-## 14. Нефункциональные требования
-
-- Colab UX должен быть readable in light/dark themes where feasible.
-- Startup path должен быть observable через timing instrumentation.
-- Long-running operations должны давать понятные status messages.
-- Docs-only reports должны быть Russian-first и не смешивать user-facing English labels без необходимости.
-- CI checks должны оставаться lightweight и запускаться локально.
-- Documentation must not overclaim unvalidated runtime behavior.
-
-## 15. Архитектурные ограничения
-
-- Launcher notebook должен оставаться thin launcher; canonical workflow живет в `elevenlabs_api.py`.
-- Runtime code не должен переноситься в notebook.
-- Manifest schema changes require explicit task and validation; docs cleanup не меняет schema.
-- Single-user/single-runtime manifest model; parallel notebooks/tabs are not supported.
-- Source folder and destination/output folder are separate concepts.
-- Drive picker buttons remain primary reliable UX path; double-click remains optional convenience.
-- Current speaker rename apply uses plain-text rewrite and does not preserve full Google Docs formatting.
-
-## 16. Безопасность
-
-Обязательные safety caveats:
-
-- no transcript body in `manifest`/analytics;
-- no Google Docs body content stored in `manifest`/analytics;
-- no provider/STT/LLM calls in docs-only workflows;
-- no raw provider body logging;
-- no secrets/API keys in logs or artifacts;
-- speaker projects are not voice identification;
-- speaker projects do not use voice samples, voiceprints, embeddings, or biometric matching;
-- speaker project apply should be validated on copied Docs first because current MVP rewrites plain text.
-
-## 17. Observability / diagnostics
-
-Observability includes:
-
-- preflight summary before transcription run;
-- manifest skip/conflict reporting;
-- docs-only dry-run/apply reports;
-- analytics JSONL;
-- startup timing summary;
-- error/status messages in Colab UI.
-
-Diagnostics must be useful without exposing sensitive content. Timing and status are allowed; transcript text and Docs body content are not.
-
-## 18. Testing / validation
-
-Validation layers:
-
-- `python scripts/ci_checks.py` — notebook hygiene, launcher thinness, logging guards, temp cleanup guards and pytest invocation;
-- `pytest -q` — unit/static tests for helpers, reports, manifest logic, UI guardrails and speaker project logic;
-- manual/runtime Colab validation — required for Google Drive picker behavior, real Google Docs creation/update, provider calls, manifest skip in live runs and speaker apply on copied Docs.
-
-Conservative validation rules:
-
-- Unit/static tests do not prove live Colab browser behavior.
-- Docs-only CI success does not prove provider/STT success.
-- Startup timing summary does not prove transcription success.
-- Speaker project unit tests do not prove Google Docs formatting safety.
-- Do not upgrade validation status without evidence.
-
-## 19. Release readiness
-
-A release/readiness claim for current docs/runtime should require:
-
-- local CI checks pass;
-- `pytest -q` pass;
-- validation matrix updated with conservative statuses;
-- README, project spec and delivery plan synchronized;
-- runtime smoke-check for source picker / manifest skip / Docs output before claiming E2E success;
-- speaker workflow manual validation on copied diarized Google Doc before claiming live E2E success;
-- startup timing summary collected in a real Colab run before making performance claims.
-
-## 20. Open questions
-
-- What exact runtime evidence is sufficient to mark `OpenAI / gpt-4o-transcribe-diarize` as non-experimental for non-chunked sources?
-- What evidence is sufficient for `OpenAI diarization + chunking`, given possible inconsistent `Speaker N labels` across chunks?
-- Should future speaker apply preserve Google Docs formatting through structured Docs API operations instead of plain-text rewrite?
-- Should manifest support multi-runtime locking, or should single-runtime remain an explicit permanent constraint?
-- Which analytics fields are most useful for startup performance without increasing privacy risk?
+- `README.md` — short entrypoint и navigation.
+- `docs/architecture.md` — observed component/data-flow map and future refactor seams.
+- `docs/realtime-colab.md` — realtime operator/validation guide.
+- `VALIDATION_MATRIX.md` — validation evidence/status truth table.
+- `docs/delivery-plan.md` — current operational delivery dashboard.
