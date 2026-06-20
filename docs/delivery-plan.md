@@ -5,17 +5,17 @@
 - ✅ **DOCS-REF-01 — Documentation reconciliation and architecture baseline** — merged/completed docs-only reconciliation; no runtime behavior change.
 - ✅ **RT-REF-01 — Refactor realtime frontend boundaries and harden permission-cancellation lifecycle** — merged into main via PR #65; static/generated-JS coverage added; manual permission-cancellation validation remains pending under LIVE-COLAB-PROXY-01.
 - ✅ **RT-POLISH-01 — Behavior-preserving realtime frontend lifecycle readability refactor** — merged into main; no new manual/browser evidence claimed.
-- 👉 **RT-TOKEN-01 — Fresh realtime single-use token per standalone Start attempt** — current focused bug-fix item for repeated Start → Stop → Start sessions without page reload; repeat-session validation remains pending after merge.
+- ✅ **RT-TOKEN-01 — Fresh realtime single-use token per standalone Start attempt** — done/merged into main; sequential Start → Stop → Start in one standalone page was manually confirmed after RT-TOKEN-01.
+- 👉 **LIVE-COLAB-PROXY-01 remaining validation** — current recommended manual realtime validation gaps after RT-TOKEN-01.
 - 📋 **RUNTIME-01 — Batch source picker / manifest skip / Google Docs output smoke-check** — planned manual Colab/Drive/Docs validation.
 - 📋 **SPEAKER-RUNTIME-01 — Speaker projects workflow on copied diarized Google Doc** — planned manual validation.
 - 📋 **PERF-RUNTIME-01 — Startup timing summary collection** — planned runtime diagnostics validation.
-- 📋 **LIVE-COLAB-PROXY-01 remaining validation** — next recommended manual realtime validation gaps after RT-TOKEN-01.
 
 ## Current checkpoint
 
 Batch Colab remains the stable/fallback product workflow. Docs-only maintenance workflows remain separate and must not call provider/STT/LLM APIs. Realtime Colab/proxy remains an experimental contour for browser capture + ElevenLabs realtime STT and must not save Google Docs, mutate `manifest`, or integrate speaker projects.
 
-Current confirmed realtime evidence is partial: one display+microphone run confirmed standalone page boot, capture, WebSocket open, `session_started`, partial transcript, committed transcript, user Stop, media-track release and WebSocket close. Full realtime E2E success is not claimed.
+Current confirmed realtime evidence is partial: one display+microphone run confirmed standalone page boot, capture, WebSocket open, `session_started`, partial transcript, committed transcript, user Stop, media-track release and WebSocket close. After RT-TOKEN-01, the standalone page also manually confirmed sequential Start → Stop → Start without page reload: both sessions reached WebSocket open and `session_started`, both stopped cleanly, and the final close was user-initiated with code 1000. Full realtime E2E success is not claimed.
 
 ## Completed milestone summary
 
@@ -28,23 +28,19 @@ Current confirmed realtime evidence is partial: one display+microphone run confi
 
 ## Active recommended next item
 
-### RT-TOKEN-01 — fresh realtime single-use token per standalone Start attempt
-
-Current focused bug-fix item: the standalone LIVE-COLAB-PROXY-01 page must keep `/config.json` static/non-sensitive and request a fresh no-store session config immediately before each WebSocket attach. This addresses observed repeat Start authorization failure evidence without adding a new successful manual runtime claim. Repeat-session validation remains pending after merge.
-
 ### LIVE-COLAB-PROXY-01 remaining validation
 
-Next recommended manual runtime scope after RT-TOKEN-01:
+Current recommended manual runtime scope after RT-TOKEN-01. RT-TOKEN-01 is done/merged into `main`; repeated Start → Stop → Start in one standalone page was manually confirmed after RT-TOKEN-01, including fresh per-Start token behavior sufficient for sequential sessions without page reload. Remaining validation gaps are preserved below:
 
 - validate the standalone Colab proxy/new-tab page from `main` or the merged RT-REF-01 commit;
 - confirm microphone/input-only, display-only and display+microphone capture behavior where browser permissions and devices are available;
-- manually validate permission cancellation while display, microphone or mixed-source prompts are pending, or record browser prompt modality as not tested when it blocks interaction with `Остановить`;
+- manually validate explicit Stop while display, microphone or mixed-source prompts are pending, or record browser prompt modality as not tested when it blocks interaction with `Остановить`; ordinary browser deny/cancel before WebSocket creation has partial manual evidence only;
 - confirm refreshed-device UX after Stop/cancelled attempts;
 - verify `realtime_live_transcript_v1` browser-only copy/download/clear behavior for committed text;
 - preserve the realtime boundaries: no Google Docs save, no `manifest` mutation, no batch analytics mutation and no speaker project integration;
 - do not record API keys, one-time tokens, private audio, raw transcript content, raw provider payloads or browser identity.
 
-RT-REF-01 is complete and merged into `main` via PR #65. RT-POLISH-01 is merged into `main`. Static/generated-JS coverage does not replace the remaining live browser/Colab validation above; repeated Start → Stop → Start must still be manually verified after RT-TOKEN-01 merges.
+RT-REF-01 is complete and merged into `main` via PR #65. RT-POLISH-01 and RT-TOKEN-01 are merged into `main`. Static/generated-JS coverage does not replace the remaining live browser/Colab validation above; the sequential same-page repeat-session path is manually confirmed, but the other realtime validation gaps remain pending.
 
 ## Near backlog
 
@@ -77,7 +73,7 @@ Collect timing from clean Colab runtime and confirm summary contains no secrets,
 
 ### LIVE-COLAB-PROXY-01 remaining validation
 
-Use `docs/realtime-colab.md` as the operator guide. Pending: microphone-only, display-only, loopback/virtual input, permission cancellation, refreshed-device UX, structured `realtime_live_transcript_v1` behavior and cross-browser validation.
+Use `docs/realtime-colab.md` as the operator guide. Pending: microphone-only, display-only, loopback/virtual input, explicit Stop-during-prompt cancellation, refreshed-device UX, structured `realtime_live_transcript_v1` copy/download/clear behavior and cross-browser validation. Ordinary browser deny/cancel before WebSocket creation has partial manual evidence only.
 
 ## Blockers and validation notes
 
