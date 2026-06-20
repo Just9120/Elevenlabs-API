@@ -481,6 +481,20 @@ def _build_realtime_app_javascript(root_id: str, config_setup_js: str, *, async_
   // WebSocket send/receive lifecycle
   function handleWebSocketOpen(attempt) {{ if (!isAttemptActive(attempt)) return; setStatus(STATUS.websocketOpen); log('WebSocket открыт; используется ' + CONFIG.modelId + ' / ' + CONFIG.audioFormat + ' / commit_strategy=' + CONFIG.commitStrategy); }}
   function handleWebSocketError(attempt) {{ if (!isAttemptActive(attempt)) return; log('Ошибка WebSocket. Проверьте сеть, одноразовый токен realtime и доступ к ElevenLabs realtime.'); }}
+  async function loadRealtimeSessionConfig(attempt) {{
+    assertAttemptActive(attempt);
+    const response = await fetch('/session-config.json', {{cache: 'no-store'}});
+    assertAttemptActive(attempt);
+    if (!response.ok) {{
+      throw new Error('Не удалось подготовить новую realtime-сессию. Проверьте ключ API и попробуйте ещё раз.');
+    }}
+    const sessionConfig = await response.json();
+    assertAttemptActive(attempt);
+    if (!sessionConfig || typeof sessionConfig.wsUrl !== 'string' || !sessionConfig.wsUrl) {{
+      throw new Error('Не удалось подготовить новую realtime-сессию. Попробуйте ещё раз.');
+    }}
+    return sessionConfig;
+  }}
   function handleWebSocketClose(attempt, event) {{
     if (!ownsCurrentUi(attempt)) return;
     if (!isAttemptActive(attempt) && !attempt.userStopRequested) return;
@@ -492,10 +506,10 @@ def _build_realtime_app_javascript(root_id: str, config_setup_js: str, *, async_
     if (!isAttemptActive(attempt)) return;
     try {{ handleRealtimeEvent(JSON.parse(event.data)); }} catch (err) {{ log('Получено не-JSON сообщение realtime; оно пропущено.'); }}
   }}
-  function attachWebSocket(attempt) {{
+  function attachWebSocket(attempt, wsUrl) {{
     assertAttemptActive(attempt);
     attempt.websocketCreated = true;
-    attempt.ws = new WebSocket(CONFIG.wsUrl);
+    attempt.ws = new WebSocket(wsUrl);
     attempt.ws.onopen = () => handleWebSocketOpen(attempt);
     attempt.ws.onerror = () => handleWebSocketError(attempt);
     attempt.ws.onclose = (event) => handleWebSocketClose(attempt, event);
@@ -530,7 +544,8 @@ def _build_realtime_app_javascript(root_id: str, config_setup_js: str, *, async_
       const stream = await buildCaptureStream(attempt); assertAttemptActive(attempt);
       if (!attempt.audioContext) attempt.audioContext = new AudioContext();
       await attempt.audioContext.resume(); assertAttemptActive(attempt);
-      attachWebSocket(attempt);
+      const sessionConfig = await loadRealtimeSessionConfig(attempt); assertAttemptActive(attempt);
+      attachWebSocket(attempt, sessionConfig.wsUrl);
       connectAudioProcessor(attempt, stream);
       log('Захват аудио запущен. Для аудио вкладки / экрана требуется поддержка браузера и выбранная передача звука.');
     }} catch (err) {{
@@ -622,11 +637,10 @@ def build_realtime_colab_html(token: str) -> str:
     return build_realtime_colab_iframe_html(token)
 
 
-def build_realtime_frontend_config(token: str) -> dict[str, Any]:
-    """Build browser config for a standalone page without the main ключ API."""
+def build_realtime_frontend_config() -> dict[str, Any]:
+    """Build static browser config for a standalone page without secrets or token URLs."""
 
     return {
-        "wsUrl": build_realtime_websocket_url(token),
         "modelId": REALTIME_MODEL_ID,
         "audioFormat": REALTIME_AUDIO_FORMAT,
         "commitStrategy": REALTIME_COMMIT_STRATEGY,
@@ -635,7 +649,13 @@ def build_realtime_frontend_config(token: str) -> dict[str, Any]:
     }
 
 
-def build_realtime_frontend_javascript(token: str, root_id: str) -> str:
+def build_realtime_session_config(token: str) -> dict[str, str]:
+    """Build one short-lived browser session config from a fresh single-use token."""
+
+    return {"wsUrl": build_realtime_websocket_url(token)}
+
+
+def build_realtime_frontend_javascript(token: str | None, root_id: str) -> str:
     """Return external frontend JavaScript for the standalone Colab proxy page."""
 
     # The token argument is intentionally not embedded in this executable asset.
@@ -670,7 +690,7 @@ def build_realtime_frontend_javascript(token: str, root_id: str) -> str:
     return _build_realtime_app_javascript(root_id, config_setup_js, async_boot=True)
 
 
-def build_realtime_frontend_html(token: str, root_id: str | None = None) -> str:
+def build_realtime_frontend_html(token: str | None = None, root_id: str | None = None) -> str:
     """Return a standalone realtime browser page for Colab proxy/new-tab use."""
 
     root_id = _validate_realtime_colab_root_id(root_id or create_realtime_colab_root_id())
@@ -733,6 +753,15 @@ class _RealtimeFrontendRequestHandler(BaseHTTPRequestHandler):
             body = json.dumps(self.server.frontend_config, ensure_ascii=False).encode("utf-8")  # type: ignore[attr-defined]
             self._send_bytes(body, content_type="application/json; charset=utf-8")
             return
+        if path == "/session-config.json":
+            try:
+                token = self.server.realtime_token_factory()  # type: ignore[attr-defined]
+                body = json.dumps(build_realtime_session_config(token), ensure_ascii=False).encode("utf-8")
+                self._send_bytes(body, content_type="application/json; charset=utf-8")
+            except Exception:
+                body = json.dumps({"error": "Не удалось подготовить новую realtime-сессию. Проверьте ключ API и попробуйте ещё раз."}, ensure_ascii=False).encode("utf-8")
+                self._send_bytes(body, content_type="application/json; charset=utf-8", status=503)
+            return
         if path == "/healthz":
             self._send_bytes(b"ok", content_type="text/plain; charset=utf-8")
             return
@@ -740,18 +769,19 @@ class _RealtimeFrontendRequestHandler(BaseHTTPRequestHandler):
 
 
 def start_realtime_frontend_server(
-    token: str, *, host: str = "127.0.0.1", port: int = 0
+    token_factory: Callable[[], str], *, host: str = "127.0.0.1", port: int = 0
 ) -> tuple[ThreadingHTTPServer, str]:
     """Start a lightweight local HTTP server for the standalone browser page."""
 
     root_id = create_realtime_colab_root_id()
-    frontend_html = build_realtime_frontend_html(token, root_id=root_id)
-    frontend_javascript = build_realtime_frontend_javascript(token, root_id)
-    frontend_config = build_realtime_frontend_config(token)
+    frontend_html = build_realtime_frontend_html(root_id=root_id)
+    frontend_javascript = build_realtime_frontend_javascript(None, root_id)
+    frontend_config = build_realtime_frontend_config()
     server = ThreadingHTTPServer((host, port), _RealtimeFrontendRequestHandler)
     server.frontend_html = frontend_html  # type: ignore[attr-defined]
     server.frontend_javascript = frontend_javascript  # type: ignore[attr-defined]
     server.frontend_config = frontend_config  # type: ignore[attr-defined]
+    server.realtime_token_factory = token_factory  # type: ignore[attr-defined]
     thread = threading.Thread(target=server.serve_forever, name="elevenlabs-realtime-proxy", daemon=True)
     thread.start()
     _REALTIME_PROXY_SERVERS.append(server)
@@ -818,8 +848,10 @@ def launch_realtime_colab_proxy() -> None:
     from IPython.display import HTML, display
 
     api_key = get_elevenlabs_api_key()
-    token = create_realtime_single_use_token(api_key)
-    server, local_url = start_realtime_frontend_server(token)
+    def token_factory() -> str:
+        return create_realtime_single_use_token(api_key)
+
+    server, local_url = start_realtime_frontend_server(token_factory)
     port = int(server.server_address[1])
     proxy_url = get_colab_proxy_url(port)
     public_url = proxy_url or local_url
