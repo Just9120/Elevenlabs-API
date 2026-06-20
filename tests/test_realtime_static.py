@@ -338,19 +338,29 @@ def test_generated_html_shell_uses_compact_diagnostics_ui() -> None:
     assert "Ready. Manual Colab/browser/provider runtime validation" not in html
 
 
-def test_proxy_frontend_config_contains_only_single_use_realtime_websocket_url(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_proxy_frontend_static_config_contains_no_token_url_or_main_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ELEVEN_API_KEY", "preferred-key")
     monkeypatch.setenv("ELEVENLABS_API_KEY", "compatibility-key")
-    config = realtime.build_realtime_frontend_config("temporary-token")
+    config = realtime.build_realtime_frontend_config()
 
-    assert config["wsUrl"].startswith("wss://api.elevenlabs.io/v1/speech-to-text/realtime?")
-    assert "temporary-token" in config["wsUrl"]
+    assert "wsUrl" not in config
+    assert "token" not in json.dumps(config, ensure_ascii=False).lower()
     assert config["modelId"] == realtime.REALTIME_MODEL_ID
     assert config["audioFormat"] == realtime.REALTIME_AUDIO_FORMAT
     assert config["commitStrategy"] == realtime.REALTIME_COMMIT_STRATEGY
     serialized = json.dumps(config, ensure_ascii=False)
     for forbidden in ["ELEVEN_API_KEY", "ELEVENLABS_API_KEY", "preferred-key", "compatibility-key", "main-api-key"]:
         assert forbidden not in serialized
+
+
+def test_proxy_session_config_contains_fresh_realtime_websocket_url_only() -> None:
+    first = realtime.build_realtime_session_config("temporary-token-1")
+    second = realtime.build_realtime_session_config("temporary-token-2")
+
+    assert list(first) == ["wsUrl"]
+    assert "temporary-token-1" in first["wsUrl"]
+    assert "temporary-token-2" in second["wsUrl"]
+    assert first["wsUrl"] != second["wsUrl"]
 
 
 def test_proxy_standalone_frontend_includes_controls_status_and_external_realtime_js() -> None:
@@ -375,7 +385,9 @@ def test_proxy_standalone_frontend_includes_controls_status_and_external_realtim
     assert "Virtual input / system audio device" not in page
     assert "navigator.mediaDevices.getUserMedia" in js
     assert "navigator.mediaDevices.getDisplayMedia" in js
-    assert "new WebSocket(CONFIG.wsUrl)" in js
+    assert "fetch('/session-config.json', {cache: 'no-store'})" in js
+    assert "new WebSocket(wsUrl)" in js
+    assert "new WebSocket(CONFIG.wsUrl)" not in js
     assert "message_type: 'input_audio_chunk'" in js
     assert "audio_base_64: payload" in js
     for forbidden in ["ELEVEN_API_KEY", "ELEVENLABS_API_KEY", "preferred-key", "compatibility-key", "main-api-key", "temporary-token"]:
@@ -513,7 +525,7 @@ def test_realtime_attempt_scoped_permission_cancellation_guards() -> None:
     assert "const attempt = createAttempt(); initializeAttemptUi(attempt);" in js
     assert "currentAttempt = attempt" in js
     assert "await attempt.audioContext.resume(); assertAttemptActive(attempt);" in js
-    assert "attachWebSocket(attempt)" in js
+    assert "attachWebSocket(attempt, sessionConfig.wsUrl)" in js
 
 
 def test_realtime_stop_during_pending_display_permission_stops_stale_stream_before_websocket() -> None:
@@ -616,8 +628,8 @@ def test_realtime_stop_between_display_and_microphone_prevents_websocket_creatio
     assert "if (!isAttemptActive(attempt)) { stopStream(stream); throw new Error('STALE_ATTEMPT'); }" in js
     assert "assertAttemptActive(attempt);" in js
     assert "return populateInputDevices(attempt).catch" in js
-    assert js.index("await refreshInputDevicesAfterPermission(attempt)") < js.index("attachWebSocket(attempt)")
-    assert js.index("assertAttemptActive(attempt);\n    attempt.websocketCreated = true;") < js.index("attempt.ws = new WebSocket(CONFIG.wsUrl)")
+    assert js.index("await refreshInputDevicesAfterPermission(attempt)") < js.index("loadRealtimeSessionConfig(attempt)") < js.index("attachWebSocket(attempt, sessionConfig.wsUrl)")
+    assert js.index("assertAttemptActive(attempt);\n    attempt.websocketCreated = true;") < js.index("attempt.ws = new WebSocket(wsUrl)")
 
 
 def test_realtime_inactive_attempt_catch_precedes_permission_cancellation_ready_cleanup() -> None:
@@ -705,14 +717,16 @@ def test_proxy_frontend_javascript_uses_deterministic_config_loader() -> None:
     )
 
     assert "fetch('/config.json', {cache: 'no-store'})" in js
+    assert "fetch('/session-config.json', {cache: 'no-store'})" in js
     assert "_build_realtime_app_javascript" in function_source
     assert ".index(" not in function_source
     assert "javascript[:" not in function_source
     assert "runtime-config-loaded-from-json" not in function_source
 
 
-def test_proxy_server_serves_standalone_frontend_assets_without_provider_calls() -> None:
-    server, local_url = realtime.start_realtime_frontend_server("temporary-token")
+def test_proxy_server_serves_standalone_frontend_assets_and_mints_session_tokens_on_demand() -> None:
+    tokens = iter(["temporary-token-1", "temporary-token-2"])
+    server, local_url = realtime.start_realtime_frontend_server(lambda: next(tokens))
     try:
         with urlopen(local_url, timeout=5) as response:
             body = response.read().decode("utf-8")
@@ -738,7 +752,15 @@ def test_proxy_server_serves_standalone_frontend_assets_without_provider_calls()
         assert response.status == 200
         assert config_content_type == "application/json; charset=utf-8"
         assert config["bridge"] == "LIVE-COLAB-PROXY-01"
-        assert "temporary-token" in config["wsUrl"]
+        assert "wsUrl" not in config
+
+        with urlopen(local_url + "session-config.json", timeout=5) as response:
+            first_session = json.loads(response.read().decode("utf-8"))
+        with urlopen(local_url + "session-config.json", timeout=5) as response:
+            second_session = json.loads(response.read().decode("utf-8"))
+        assert "temporary-token-1" in first_session["wsUrl"]
+        assert "temporary-token-2" in second_session["wsUrl"]
+        assert first_session["wsUrl"] != second_session["wsUrl"]
 
         combined = body + js + json.dumps(config, ensure_ascii=False)
         assert "ELEVEN_API_KEY" not in combined
@@ -747,6 +769,39 @@ def test_proxy_server_serves_standalone_frontend_assets_without_provider_calls()
         server.shutdown()
         server.server_close()
 
+
+
+def test_proxy_session_config_failure_is_safe_and_retry_ready() -> None:
+    server, local_url = realtime.start_realtime_frontend_server(
+        lambda: (_ for _ in ()).throw(realtime.RealtimeTokenError("secret temporary-token main-api-key"))
+    )
+    try:
+        with pytest.raises(Exception) as exc_info:
+            urlopen(local_url + "session-config.json", timeout=5)
+        err = exc_info.value
+        response = getattr(err, "fp", None)
+        assert response is not None
+        body = response.read().decode("utf-8")
+        assert getattr(err, "code", None) == 503
+        assert "Не удалось подготовить новую realtime-сессию" in body
+        assert "temporary-token" not in body
+        assert "main-api-key" not in body
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_realtime_session_config_stale_attempt_cannot_open_websocket_or_overwrite_stopped() -> None:
+    js = realtime.build_realtime_frontend_javascript("temporary-token", realtime.create_realtime_colab_root_id())
+
+    assert "const sessionConfig = await loadRealtimeSessionConfig(attempt); assertAttemptActive(attempt);" in js
+    assert "attachWebSocket(attempt, sessionConfig.wsUrl);" in js
+    assert js.index("loadRealtimeSessionConfig(attempt)") < js.index("attachWebSocket(attempt, sessionConfig.wsUrl)")
+    assert "const response = await fetch('/session-config.json', {cache: 'no-store'});\n    assertAttemptActive(attempt);" in js
+    assert "const sessionConfig = await response.json();\n    assertAttemptActive(attempt);" in js
+    inactive_branch = "if (!isAttemptActive(attempt) || String(err && err.message) === 'STALE_ATTEMPT') { cleanupAttempt(attempt); return; }"
+    assert inactive_branch in js
+    assert js.index(inactive_branch) < js.index("const message = isPermissionCancellation(err) ?")
 
 def test_proxy_launch_html_contains_required_link_label_and_warnings() -> None:
     launch_html = realtime.build_realtime_proxy_launch_html(
@@ -798,7 +853,7 @@ def test_realtime_proxy_source_has_no_google_docs_drive_manifest_or_speaker_call
 def test_proxy_page_assets_do_not_introduce_google_docs_drive_manifest_or_speaker_calls() -> None:
     page = realtime.build_realtime_frontend_html("temporary-token")
     js = realtime.build_realtime_frontend_javascript("temporary-token", realtime.create_realtime_colab_root_id())
-    config = json.dumps(realtime.build_realtime_frontend_config("temporary-token"), ensure_ascii=False)
+    config = json.dumps(realtime.build_realtime_frontend_config(), ensure_ascii=False)
     assets = page + js + config
 
     for forbidden in [
