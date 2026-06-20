@@ -8,7 +8,7 @@ Output-cell UI path is blocked in the tested Colab runtime: active JavaScript di
 
 ## 2. Confirmed evidence
 
-Current confirmed manual evidence is limited to one display+microphone run:
+Current confirmed manual evidence is limited to partial standalone-page paths:
 
 - standalone page boot;
 - display+microphone capture;
@@ -18,7 +18,9 @@ Current confirmed manual evidence is limited to one display+microphone run:
 - committed transcript;
 - user Stop;
 - media-track release;
-- WebSocket close.
+- WebSocket close;
+- after RT-TOKEN-01, sequential Start → Stop → Start in the same standalone page without reload: the first session reached WebSocket open and `session_started`, Stop released media resources and requested WebSocket close, the second Start reached WebSocket open and `session_started` again, the second session stopped cleanly, and the final close was user-initiated with code 1000;
+- ordinary browser capture permission cancellation/denial before WebSocket creation returned the existing safe retry diagnostic, created no WebSocket for that attempt, and left the UI usable for retry.
 
 This is partial runtime evidence only. Do not claim full realtime E2E success.
 
@@ -29,11 +31,11 @@ Still pending:
 - microphone-only capture;
 - display-only capture and no-audio-track behavior;
 - loopback/virtual input route;
-- permission-cancellation behavior while browser prompts are open (implemented/static-tested, pending manual runtime validation);
+- explicit Stop while a browser permission prompt remains open (implemented/static-tested, pending manual runtime validation unless separately proven);
 - refreshed-device UX;
 - structured live presentation verification for `realtime_live_transcript_v1` copy/download/clear behavior;
 - cross-browser validation;
-- runtime confirmation that main API key, one-time token, transcript content, private audio and raw provider payloads are not exposed in logs/output.
+- runtime confirmation that main API key, one-time token, transcript content, private audio and raw provider payloads are not exposed in logs/output. Ordinary browser denial/cancel before WebSocket creation has partial manual evidence only and does not prove Stop-during-prompt behavior.
 
 ## 4. Current source-control model
 
@@ -75,7 +77,7 @@ The realtime WebSocket uses `scribe_v2_realtime`, `pcm_16000` and `commit_strate
 
 If the user presses `Остановить` while display, microphone or mixed-source permission prompts are still open, the visible final status should remain `Статус: Остановлено`, source controls should become usable again, and any stream returned after that stale attempt should be stopped immediately. Stale attempts must not open a late WebSocket or update/clean up a newer attempt.
 
-If the browser prompt itself is cancelled or denied before WebSocket creation, the UI should return to a safe retry state, temporary preliminary text should clear, diagnostics should explain in Russian that capture permission was cancelled or denied, and the page should not show `Статус: Соединение закрыто` for a WebSocket that never existed.
+If the browser prompt itself is cancelled or denied before WebSocket creation, the UI should return to a safe retry state, temporary preliminary text should clear, diagnostics should explain in Russian that capture permission was cancelled or denied, and the page should not show `Статус: Соединение закрыто` for a WebSocket that never existed. This ordinary browser deny/cancel path now has limited manual evidence for safe retry without WebSocket creation; explicit Stop while a prompt remains open is still pending.
 
 ## 8. Manual runtime checklist
 
