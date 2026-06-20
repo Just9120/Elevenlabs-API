@@ -4,10 +4,11 @@
 
 - ✅ **DOCS-REF-01 — Documentation reconciliation and architecture baseline** — merged/completed docs-only reconciliation; no runtime behavior change.
 - ✅ **RT-REF-01 — Refactor realtime frontend boundaries and harden permission-cancellation lifecycle** — merged into main via PR #65; static/generated-JS coverage added; manual permission-cancellation validation remains pending under LIVE-COLAB-PROXY-01.
+- 👉 **RT-POLISH-01 — Behavior-preserving realtime frontend lifecycle readability refactor** — current focused PR item; cleanup before final manual realtime validation, with no new manual/browser evidence claimed.
 - 📋 **RUNTIME-01 — Batch source picker / manifest skip / Google Docs output smoke-check** — planned manual Colab/Drive/Docs validation.
 - 📋 **SPEAKER-RUNTIME-01 — Speaker projects workflow on copied diarized Google Doc** — planned manual validation.
 - 📋 **PERF-RUNTIME-01 — Startup timing summary collection** — planned runtime diagnostics validation.
-- 👉 **LIVE-COLAB-PROXY-01 remaining validation** — current recommended manual realtime validation gaps.
+- 📋 **LIVE-COLAB-PROXY-01 remaining validation** — next recommended manual realtime validation gaps after RT-POLISH-01.
 
 ## Current checkpoint
 
@@ -26,9 +27,15 @@ Current confirmed realtime evidence is partial: one display+microphone run confi
 
 ## Active recommended next item
 
+### RT-POLISH-01 — behavior-preserving realtime frontend lifecycle readability refactor
+
+Current focused PR item: refactor the generated realtime browser JavaScript lifecycle helpers for readability before final manual realtime validation. This is intended to preserve runtime behavior, product scope, protocol, user-visible copy, and safety boundaries. Static/generated-JS checks may validate helper delegation and lifecycle guard ordering, but this item does not add or claim new manual browser/Colab evidence.
+
+Pending merge, the next runtime validation item remains LIVE-COLAB-PROXY-01.
+
 ### LIVE-COLAB-PROXY-01 remaining validation
 
-Current recommended manual runtime scope:
+Next recommended manual runtime scope after RT-POLISH-01:
 
 - validate the standalone Colab proxy/new-tab page from `main` or the merged RT-REF-01 commit;
 - confirm microphone/input-only, display-only and display+microphone capture behavior where browser permissions and devices are available;

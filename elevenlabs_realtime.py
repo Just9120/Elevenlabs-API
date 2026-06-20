@@ -376,6 +376,14 @@ def _build_realtime_app_javascript(root_id: str, config_setup_js: str, *, async_
   function stopStream(stream) {{ if (stream) stream.getTracks().forEach(track => track.stop()); }}
   function stopStreams(streams) {{ streams.forEach(stopStream); }}
   function resetUiAfterAttempt() {{ isRunning = false; partialEl.textContent = ''; setSourceControlsDisabled(false); updateSourceUi(); }}
+  function initializeAttemptUi(attempt) {{
+    currentAttempt = attempt;
+    isRunning = true;
+    setSourceControlsDisabled(true);
+    updateSourceUi();
+    partialEl.textContent = '';
+    setStatus(STATUS.starting);
+  }}
   function cleanupAttempt(attempt, {{closeSocket = false, finalStatus = null, logMessage = null}} = {{}}) {{
     const current = ownsCurrentUi(attempt);
     const shouldCloseSocket = closeSocket && attempt.ws && (attempt.ws.readyState === WebSocket.OPEN || attempt.ws.readyState === WebSocket.CONNECTING);
@@ -434,6 +442,10 @@ def _build_realtime_app_javascript(root_id: str, config_setup_js: str, *, async_
     if ([...inputDeviceEl.options].some(option => option.value === current)) inputDeviceEl.value = current;
     updateSourceUi();
   }}
+  function refreshInputDevicesPassively(reason) {{ populateInputDevices().catch(err => log(reason + (err && err.message ? err.message : String(err)))); }}
+  function refreshInputDevicesAfterPermission(attempt) {{
+    return populateInputDevices(attempt).catch((err) => {{ if (String(err && err.message) !== 'STALE_ATTEMPT') log('Не удалось обновить список аудиоустройств после разрешения браузера.'); }});
+  }}
   function microphoneConstraints() {{ return inputDeviceEl.value ? {{audio: {{deviceId: {{exact: inputDeviceEl.value}}}}}} : {{audio: true}}; }}
   async function getDisplayAudioStream(attempt) {{
     const stream = await navigator.mediaDevices.getDisplayMedia({{video: true, audio: true}});
@@ -452,7 +464,7 @@ def _build_realtime_app_javascript(root_id: str, config_setup_js: str, *, async_
     try {{
       if (hasDisplayAudio()) registerCapturedStream(await getDisplayAudioStream(attempt));
       if (hasInputAudio()) registerCapturedStream(await getInputAudioStream(attempt));
-      await populateInputDevices(attempt).catch((err) => {{ if (String(err && err.message) !== 'STALE_ATTEMPT') log('Не удалось обновить список аудиоустройств после разрешения браузера.'); }});
+      await refreshInputDevicesAfterPermission(attempt);
       assertAttemptActive(attempt);
       if (streams.length === 1) return streams[0];
       if (streams.length > 1) {{
@@ -467,37 +479,62 @@ def _build_realtime_app_javascript(root_id: str, config_setup_js: str, *, async_
   function isPermissionCancellation(err) {{ return ['NotAllowedError', 'PermissionDeniedError', 'AbortError'].includes(err && err.name); }}
 
   // WebSocket send/receive lifecycle
+  function handleWebSocketOpen(attempt) {{ if (!isAttemptActive(attempt)) return; setStatus(STATUS.websocketOpen); log('WebSocket открыт; используется ' + CONFIG.modelId + ' / ' + CONFIG.audioFormat + ' / commit_strategy=' + CONFIG.commitStrategy); }}
+  function handleWebSocketError(attempt) {{ if (!isAttemptActive(attempt)) return; log('Ошибка WebSocket. Проверьте сеть, одноразовый токен realtime и доступ к ElevenLabs realtime.'); }}
+  function handleWebSocketClose(attempt, event) {{
+    if (!ownsCurrentUi(attempt)) return;
+    if (!isAttemptActive(attempt) && !attempt.userStopRequested) return;
+    const expected = attempt.userStopRequested;
+    log((expected ? 'WebSocket закрыт после команды пользователя: ' : 'Неожиданное закрытие WebSocket: ') + 'code=' + event.code + ', reason=' + (event.reason || ''));
+    cleanupAttempt(attempt, {{finalStatus: expected ? STATUS.stopped : STATUS.closed, logMessage: expected ? null : 'Соединение закрыто не по команде пользователя; медиадорожки освобождены.'}});
+  }}
+  function handleWebSocketMessage(attempt, event) {{
+    if (!isAttemptActive(attempt)) return;
+    try {{ handleRealtimeEvent(JSON.parse(event.data)); }} catch (err) {{ log('Получено не-JSON сообщение realtime; оно пропущено.'); }}
+  }}
   function attachWebSocket(attempt) {{
     assertAttemptActive(attempt);
     attempt.websocketCreated = true;
     attempt.ws = new WebSocket(CONFIG.wsUrl);
-    attempt.ws.onopen = () => {{ if (!isAttemptActive(attempt)) return; setStatus(STATUS.websocketOpen); log('WebSocket открыт; используется ' + CONFIG.modelId + ' / ' + CONFIG.audioFormat + ' / commit_strategy=' + CONFIG.commitStrategy); }};
-    attempt.ws.onerror = () => {{ if (!isAttemptActive(attempt)) return; log('Ошибка WebSocket. Проверьте сеть, одноразовый токен realtime и доступ к ElevenLabs realtime.'); }};
-    attempt.ws.onclose = (event) => {{ if (!ownsCurrentUi(attempt)) return; if (!isAttemptActive(attempt) && !attempt.userStopRequested) return; const expected = attempt.userStopRequested; log((expected ? 'WebSocket закрыт после команды пользователя: ' : 'Неожиданное закрытие WebSocket: ') + 'code=' + event.code + ', reason=' + (event.reason || '')); cleanupAttempt(attempt, {{finalStatus: expected ? STATUS.stopped : STATUS.closed, logMessage: expected ? null : 'Соединение закрыто не по команде пользователя; медиадорожки освобождены.'}}); }};
-    attempt.ws.onmessage = (event) => {{ if (!isAttemptActive(attempt)) return; try {{ handleRealtimeEvent(JSON.parse(event.data)); }} catch (err) {{ log('Получено не-JSON сообщение realtime; оно пропущено.'); }} }};
+    attempt.ws.onopen = () => handleWebSocketOpen(attempt);
+    attempt.ws.onerror = () => handleWebSocketError(attempt);
+    attempt.ws.onclose = (event) => handleWebSocketClose(attempt, event);
+    attempt.ws.onmessage = (event) => handleWebSocketMessage(attempt, event);
+  }}
+  function sendAudioProcessChunk(attempt, event) {{
+    if (!isAttemptActive(attempt) || !attempt.ws || attempt.ws.readyState !== WebSocket.OPEN) return;
+    const mono = event.inputBuffer.getChannelData(0);
+    const pcm16k = downsampleMono(mono, attempt.audioContext.sampleRate, 16000);
+    const payload = floatTo16BitPcmBase64(pcm16k);
+    attempt.ws.send(JSON.stringify({{message_type: 'input_audio_chunk', audio_base_64: payload, sample_rate: 16000}}));
+  }}
+  function connectAudioProcessor(attempt, stream) {{
+    const source = attempt.audioContext.createMediaStreamSource(stream); attempt.sourceNodes.push(source);
+    attempt.processor = attempt.audioContext.createScriptProcessor(4096, 1, 1);
+    attempt.processor.onaudioprocess = (event) => sendAudioProcessChunk(attempt, event);
+    source.connect(attempt.processor); attempt.processor.connect(attempt.audioContext.destination);
+  }}
+  function handleStartFailure(attempt, err) {{
+    if (!ownsCurrentUi(attempt)) {{ cleanupAttempt(attempt); return; }}
+    if (!isAttemptActive(attempt) || String(err && err.message) === 'STALE_ATTEMPT') {{ cleanupAttempt(attempt); return; }}
+    const message = isPermissionCancellation(err) ? 'Разрешение на захват аудио отменено или отклонено в браузере. Выберите источник и нажмите «Начать» для повторной попытки.' : (err && err.message ? err.message : String(err));
+    log(message);
+    cleanupAttempt(attempt, {{finalStatus: STATUS.ready, logMessage: attempt.websocketCreated ? null : 'Запуск остановлен до создания WebSocket; состояние готово к повторной попытке.'}});
   }}
 
   async function start() {{
     if (isRunning || (!hasDisplayAudio() && !hasInputAudio())) return;
-    const attempt = createAttempt(); currentAttempt = attempt;
-    isRunning = true; setSourceControlsDisabled(true); updateSourceUi(); partialEl.textContent = ''; setStatus(STATUS.starting);
+    const attempt = createAttempt(); initializeAttemptUi(attempt);
     try {{
       if (!navigator.mediaDevices) throw new Error('MediaDevices API недоступен в этом окружении браузера.');
       const stream = await buildCaptureStream(attempt); assertAttemptActive(attempt);
       if (!attempt.audioContext) attempt.audioContext = new AudioContext();
       await attempt.audioContext.resume(); assertAttemptActive(attempt);
       attachWebSocket(attempt);
-      const source = attempt.audioContext.createMediaStreamSource(stream); attempt.sourceNodes.push(source);
-      attempt.processor = attempt.audioContext.createScriptProcessor(4096, 1, 1);
-      attempt.processor.onaudioprocess = (event) => {{ if (!isAttemptActive(attempt) || !attempt.ws || attempt.ws.readyState !== WebSocket.OPEN) return; const mono = event.inputBuffer.getChannelData(0); const pcm16k = downsampleMono(mono, attempt.audioContext.sampleRate, 16000); const payload = floatTo16BitPcmBase64(pcm16k); attempt.ws.send(JSON.stringify({{message_type: 'input_audio_chunk', audio_base_64: payload, sample_rate: 16000}})); }};
-      source.connect(attempt.processor); attempt.processor.connect(attempt.audioContext.destination);
+      connectAudioProcessor(attempt, stream);
       log('Захват аудио запущен. Для аудио вкладки / экрана требуется поддержка браузера и выбранная передача звука.');
     }} catch (err) {{
-      if (!ownsCurrentUi(attempt)) {{ cleanupAttempt(attempt); return; }}
-      if (!isAttemptActive(attempt) || String(err && err.message) === 'STALE_ATTEMPT') {{ cleanupAttempt(attempt); return; }}
-      const message = isPermissionCancellation(err) ? 'Разрешение на захват аудио отменено или отклонено в браузере. Выберите источник и нажмите «Начать» для повторной попытки.' : (err && err.message ? err.message : String(err));
-      log(message);
-      cleanupAttempt(attempt, {{finalStatus: STATUS.ready, logMessage: attempt.websocketCreated ? null : 'Запуск остановлен до создания WebSocket; состояние готово к повторной попытке.'}});
+      handleStartFailure(attempt, err);
     }}
   }}
   function stop(closeSocket = true) {{
@@ -509,7 +546,7 @@ def _build_realtime_app_javascript(root_id: str, config_setup_js: str, *, async_
   }}
   startBtn.addEventListener('click', start);
   stopBtn.addEventListener('click', () => stop(true));
-  refreshDevicesBtn.addEventListener('click', () => populateInputDevices().catch(err => log('Не удалось обновить список устройств: ' + (err && err.message ? err.message : String(err)))));
+  refreshDevicesBtn.addEventListener('click', () => refreshInputDevicesPassively('Не удалось обновить список устройств: '));
   displayAudioEl.addEventListener('change', updateSourceUi); inputDeviceEl.addEventListener('change', updateSourceUi);
   copyBtn.addEventListener('click', async () => {{ if (!finalTranscript) return; await navigator.clipboard.writeText(finalTranscript); log('Подтверждённый текст скопирован в буфер обмена.'); }});
   downloadBtn.addEventListener('click', () => {{ if (!finalTranscript) return; const blob = new Blob([finalTranscript], {{type: 'text/plain;charset=utf-8'}}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'elevenlabs-realtime-transcript.txt'; a.click(); URL.revokeObjectURL(url); }});
@@ -520,7 +557,7 @@ def _build_realtime_app_javascript(root_id: str, config_setup_js: str, *, async_
     clearCommittedSegments(); log('Подтверждённый текст очищен в текущей вкладке. Предварительный текст, диагностика, аудио и WebSocket не затронуты.');
   }});
   markJsReady(); populateInputDevices().catch(() => {{ log('Список устройств пока недоступен: браузер может скрывать названия до разрешения.'); }});
-  if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) navigator.mediaDevices.addEventListener('devicechange', () => populateInputDevices().catch(err => log('Не удалось обновить список устройств после devicechange: ' + (err && err.message ? err.message : String(err)))));
+  if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) navigator.mediaDevices.addEventListener('devicechange', () => refreshInputDevicesPassively('Не удалось обновить список устройств после devicechange: '));
 }})();
 """
 
