@@ -352,6 +352,9 @@ WAV_RECOMPRESS_THRESHOLD_MB = 300
 WAV_RECOMPRESS_THRESHOLD_BYTES = WAV_RECOMPRESS_THRESHOLD_MB * 1024 * 1024
 OPENAI_UPLOAD_LIMIT_BYTES = 25 * 1024 * 1024
 OPENAI_SEGMENT_TARGET_BYTES = 20 * 1024 * 1024
+OPENAI_PROVIDER_MAX_DURATION_SECONDS = 1400
+# Keep chunks safely below the observed OpenAI hard limit to leave provider headroom.
+OPENAI_SEGMENT_TARGET_DURATION_SECONDS = 1320
 OPENAI_PREP_AUDIO_BITRATE = "96k"
 OPENAI_PREP_AUDIO_CHANNELS = 1
 PROJECT_TEMP_PREFIX = "elevenlabs_api_"
@@ -4078,7 +4081,7 @@ def find_nearby_silence_split_point(input_path: str, start_seconds: float, targe
     )
     window_end = min(
         total_duration,
-        target_end_seconds + OPENAI_SILENCE_SEARCH_AFTER_SECONDS,
+        target_end_seconds,
     )
 
     if window_end - window_start < 3.0:
@@ -4118,6 +4121,8 @@ def find_nearby_silence_split_point(input_path: str, start_seconds: float, targe
             continue
         if absolute_end >= total_duration:
             continue
+        if absolute_end > target_end_seconds:
+            continue
         candidates.append(absolute_end)
 
     if not candidates:
@@ -4149,7 +4154,7 @@ def choose_openai_split_duration(input_path: str, start_seconds: float, target_d
     if chosen_duration < OPENAI_MIN_SPLIT_DURATION_SECONDS:
         return min(target_duration, remaining)
 
-    return min(chosen_duration, remaining)
+    return min(chosen_duration, target_duration, remaining)
 
 
 def create_openai_audio_chunk(prepared_path: str, start_seconds: float, part_duration: float) -> str:
@@ -4232,19 +4237,33 @@ def convert_media_to_openai_m4a(input_path: str, original_filename: str) -> tupl
 
 
 
-def split_openai_audio_if_needed(prepared_path: str, prepared_name: str) -> tuple[list[tuple[str, str]], list[str]]:
-    file_size = os.path.getsize(prepared_path)
-    if file_size <= OPENAI_UPLOAD_LIMIT_BYTES:
-        return [(prepared_path, prepared_name)], []
+def get_openai_split_reason(prepared_file_size_bytes: int, prepared_duration_seconds: float) -> Optional[str]:
+    size_exceeded = prepared_file_size_bytes > OPENAI_UPLOAD_LIMIT_BYTES
+    duration_exceeded = prepared_duration_seconds > OPENAI_SEGMENT_TARGET_DURATION_SECONDS
+    if size_exceeded and duration_exceeded:
+        return "size_and_duration"
+    if size_exceeded:
+        return "size"
+    if duration_exceeded:
+        return "duration"
+    return None
 
+
+def split_openai_audio_if_needed(prepared_path: str, prepared_name: str) -> tuple[list[tuple[str, str]], list[str], Optional[str]]:
+    file_size = os.path.getsize(prepared_path)
     duration = get_media_duration_seconds(prepared_path)
     if duration <= 0:
         raise RuntimeError("Не удалось определить длительность файла для smart split под OpenAI.")
 
+    split_reason = get_openai_split_reason(file_size, duration)
+    if split_reason is None:
+        return [(prepared_path, prepared_name)], [], None
+
     safety_ratio = 0.92
+    size_target_duration = duration * (OPENAI_SEGMENT_TARGET_BYTES / file_size) * safety_ratio if file_size > 0 else duration
     base_target_duration = max(
         float(OPENAI_MIN_SPLIT_DURATION_SECONDS),
-        duration * (OPENAI_SEGMENT_TARGET_BYTES / file_size) * safety_ratio,
+        min(float(OPENAI_SEGMENT_TARGET_DURATION_SECONDS), size_target_duration),
     )
 
     created_paths = []
@@ -4307,7 +4326,7 @@ def split_openai_audio_if_needed(prepared_path: str, prepared_name: str) -> tupl
             next_part_duration = choose_openai_split_duration(
                 input_path=prepared_path,
                 start_seconds=start_seconds,
-                target_duration=min(reduced_target_duration, remaining),
+                target_duration=min(reduced_target_duration, remaining, float(OPENAI_SEGMENT_TARGET_DURATION_SECONDS)),
                 total_duration=duration,
             )
             if next_part_duration >= part_duration - 0.25:
@@ -4315,9 +4334,9 @@ def split_openai_audio_if_needed(prepared_path: str, prepared_name: str) -> tupl
                     float(OPENAI_MIN_SPLIT_DURATION_SECONDS),
                     part_duration * 0.8,
                 )
-            part_duration = min(next_part_duration, remaining)
+            part_duration = min(next_part_duration, remaining, float(OPENAI_SEGMENT_TARGET_DURATION_SECONDS))
 
-    return parts, created_paths
+    return parts, created_paths, split_reason
 
 def build_openai_transcription_form_data(options: TranscriptionRuntimeOptions) -> list[tuple[str, str]]:
     data = [
@@ -4423,11 +4442,11 @@ def transcribe_media_path_openai(
         cleanup_paths.append(prepared_path)
 
         with timer.measure("postprocess_merge") if timer else nullcontext():
-            parts, part_cleanup_paths = split_openai_audio_if_needed(prepared_path, prepared_name)
+            parts, part_cleanup_paths, split_reason = split_openai_audio_if_needed(prepared_path, prepared_name)
         cleanup_paths.extend(part_cleanup_paths)
 
         if len(parts) > 1:
-            print(f"OpenAI smart split: {len(parts)} частей")
+            print(f"OpenAI smart split: {len(parts)} частей (reason: {split_reason})")
             print("OpenAI merge: overlap-aware, split старается попадать в паузы")
             if options.separate_speakers:
                 print_openai_diarize_split_warning()
