@@ -23,6 +23,8 @@
 - `transcript_doc_v1.2` для новых и обслуживаемых документов;
 - analytics JSONL и startup timing diagnostics без transcript body и без Google Docs body content.
 
+Batch provider boundary: selected provider determines the outbound STT request path. Enabling both ElevenLabs and OpenAI secrets in Colab is allowed; the selected provider controls which key and endpoint are used for a batch transcription request. OpenAI batch long-file handling prepares mono AAC M4A and applies both 25 MB upload-size and 1320-second safe-duration splitting safeguards before the first provider request. OpenAI realtime remains out of scope for this batch workflow.
+
 ### 3.2 Docs-only maintenance workflows
 
 Docs-only workflows работают с уже существующими Google Docs или existing `manifest` records. Они не должны вызывать provider/STT/LLM APIs и не должны регистрировать новые transcription outputs вместо основного runtime success path.
@@ -115,5 +117,6 @@ Permission-cancellation intended behavior: explicit `Остановить` durin
 - `README.md` — short entrypoint и navigation.
 - `docs/architecture.md` — observed component/data-flow map and future refactor seams.
 - `docs/realtime-colab.md` — realtime operator/validation guide.
+- `docs/provider-transcription-contract.md` — concise current batch provider contract.
 - `VALIDATION_MATRIX.md` — validation evidence/status truth table.
 - `docs/delivery-plan.md` — current operational delivery dashboard.

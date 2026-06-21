@@ -63,6 +63,8 @@ HELPER_NAMES = {
     "normalize_text_for_overlap_match",
     "trim_duplicate_prefix_by_token_overlap",
     "merge_transcript_parts_with_overlap",
+    "get_openai_split_reason",
+    "choose_openai_split_duration",
     "get_openai_diarize_chunking_preflight_warning",
     "collect_existing_google_docs_for_standardization",
     "build_docs_only_standardized_transcript_document_text",
@@ -183,6 +185,10 @@ def load_text_helpers() -> dict[str, object]:
                     "STARTUP_TIMING_VARIABILITY_NOTE",
                     "STARTUP_BOOTSTRAP_LIMITATION_NOTE",
                     "SPEAKER_TURN_LABEL_RE",
+                    "OPENAI_UPLOAD_LIMIT_BYTES",
+                    "OPENAI_SEGMENT_TARGET_BYTES",
+                    "OPENAI_PROVIDER_MAX_DURATION_SECONDS",
+                    "OPENAI_SEGMENT_TARGET_DURATION_SECONDS",
                 }:
                     selected_nodes.append(node)
                     break
@@ -217,6 +223,8 @@ def load_text_helpers() -> dict[str, object]:
         # from the Colab runtime configuration surface.
         "OPENAI_MERGE_MAX_OVERLAP_TOKENS": 12,
         "OPENAI_MERGE_MIN_OVERLAP_TOKENS": 3,
+        "OPENAI_MIN_SPLIT_DURATION_SECONDS": 30,
+        "find_nearby_silence_split_point": lambda **_kwargs: None,
         "MANIFEST_IN_PROGRESS_TTL_HOURS": 12,
         "list_drive_folder_children": lambda _folder_id: [],
         "find_file_in_folder": lambda _folder_id, _file_name: None,
@@ -249,6 +257,8 @@ normalize_doc_plain_text = HELPERS["normalize_doc_plain_text"]
 segment_plain_transcript_for_docs = HELPERS["segment_plain_transcript_for_docs"]
 trim_duplicate_prefix_by_token_overlap = HELPERS["trim_duplicate_prefix_by_token_overlap"]
 merge_transcript_parts_with_overlap = HELPERS["merge_transcript_parts_with_overlap"]
+get_openai_split_reason = HELPERS["get_openai_split_reason"]
+choose_openai_split_duration = HELPERS["choose_openai_split_duration"]
 get_openai_diarize_chunking_preflight_warning = HELPERS[
     "get_openai_diarize_chunking_preflight_warning"
 ]
@@ -2961,3 +2971,95 @@ def test_speaker_rename_plan_is_cleared_when_relevant_ui_state_changes() -> None
 
     find_block = source.split("def on_find_speakers_clicked", 1)[1].split("def on_preview_speaker_rename_clicked", 1)[0]
     assert '"plan": None' in find_block
+
+
+def test_openai_models_and_request_payload_contract_remain_unchanged() -> None:
+    source = CANONICAL_SOURCE.read_text(encoding="utf-8")
+    assert 'OPENAI_DEFAULT_MODEL = "gpt-4o-transcribe"' in source
+    assert 'OPENAI_DIARIZE_MODEL = "gpt-4o-transcribe-diarize"' in source
+    openai_form = source.split("def build_openai_transcription_form_data", 1)[1].split("def transcribe_openai_fileobj", 1)[0]
+    assert '("response_format", "text")' in openai_form
+    assert '("response_format", "diarized_json")' in openai_form
+    assert '("chunking_strategy", "auto")' in openai_form
+    assert '("prompt", prompt)' in openai_form
+
+
+def test_elevenlabs_batch_request_payload_contract_remains_unchanged() -> None:
+    source = CANONICAL_SOURCE.read_text(encoding="utf-8")
+    eleven_form = source.split("def build_transcription_form_data", 1)[1].split("def log_safe_http_error", 1)[0]
+    assert 'MODEL_ID = "scribe_v2"' in source
+    assert '("model_id", MODEL_ID)' in eleven_form
+    assert '("timestamps_granularity", "none")' in eleven_form
+    assert '("diarize", str(options.separate_speakers).lower())' in eleven_form
+    assert '("no_verbatim", str(USE_NO_VERBATIM).lower())' in eleven_form
+    assert '("temperature", str(TEMPERATURE))' in eleven_form
+    assert '("tag_audio_events", str(TAG_AUDIO_EVENTS).lower())' in eleven_form
+    assert '("keyterms", term)' in eleven_form
+
+
+def test_openai_split_message_uses_safe_reason_without_paths_or_payloads() -> None:
+    source = CANONICAL_SOURCE.read_text(encoding="utf-8")
+    block = source.split("if len(parts) > 1:", 1)[1].split("transcripts = []", 1)[0]
+    assert 'OpenAI smart split: {len(parts)} частей (reason: {split_reason})' in block
+    assert "resp.text" not in block
+    assert "OPENAI_API_KEY" not in block
+    assert "prepared_path" not in block
+
+
+def test_provider_contract_docs_do_not_include_fake_secret_values_or_raw_bodies() -> None:
+    docs = [
+        ROOT / "docs" / "provider-transcription-contract.md",
+        ROOT / "README.md",
+        ROOT / "docs" / "project-spec.md",
+        ROOT / "docs" / "delivery-plan.md",
+    ]
+    forbidden = ["sk-", "Bearer ", "raw request", "raw response body"]
+    for doc in docs:
+        text = doc.read_text(encoding="utf-8")
+        for needle in forbidden:
+            assert needle not in text
+
+
+def test_openai_split_reason_allows_small_short_file_without_split() -> None:
+    assert get_openai_split_reason(24 * 1024 * 1024, 1320) is None
+
+
+def test_openai_split_reason_flags_duration_only_for_long_small_file() -> None:
+    assert get_openai_split_reason(24 * 1024 * 1024, 1320.01) == "duration"
+
+
+def test_openai_split_reason_flags_size_only_for_large_short_file() -> None:
+    assert get_openai_split_reason(26 * 1024 * 1024, 1320) == "size"
+
+
+def test_openai_split_reason_flags_size_and_duration() -> None:
+    assert get_openai_split_reason(26 * 1024 * 1024, 1321) == "size_and_duration"
+
+
+def test_openai_split_duration_never_uses_pause_after_target() -> None:
+    calls = []
+
+    def after_target_pause(**kwargs):
+        calls.append(kwargs)
+        return kwargs["target_end_seconds"] + 5
+
+    original = choose_openai_split_duration.__globals__["find_nearby_silence_split_point"]
+    choose_openai_split_duration.__globals__["find_nearby_silence_split_point"] = after_target_pause
+    try:
+        duration = choose_openai_split_duration("prepared.m4a", 0, 1320, 2000)
+    finally:
+        choose_openai_split_duration.__globals__["find_nearby_silence_split_point"] = original
+
+    assert duration == 1320
+    assert calls[0]["target_end_seconds"] == 1320
+
+
+def test_openai_split_duration_fallback_stays_at_or_below_target() -> None:
+    original = choose_openai_split_duration.__globals__["find_nearby_silence_split_point"]
+    choose_openai_split_duration.__globals__["find_nearby_silence_split_point"] = lambda **_kwargs: None
+    try:
+        duration = choose_openai_split_duration("prepared.m4a", 10, 1320, 4000)
+    finally:
+        choose_openai_split_duration.__globals__["find_nearby_silence_split_point"] = original
+
+    assert duration == 1320

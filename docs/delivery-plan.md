@@ -6,7 +6,8 @@
 - ✅ **RT-REF-01 — Refactor realtime frontend boundaries and harden permission-cancellation lifecycle** — merged into main via PR #65; static/generated-JS coverage added; manual permission-cancellation validation remains pending under LIVE-COLAB-PROXY-01.
 - ✅ **RT-POLISH-01 — Behavior-preserving realtime frontend lifecycle readability refactor** — merged into main; no new manual/browser evidence claimed.
 - ✅ **RT-TOKEN-01 — Fresh realtime single-use token per standalone Start attempt** — done/merged into main; sequential Start → Stop → Start in one standalone page was manually confirmed after RT-TOKEN-01.
-- 👉 **LIVE-COLAB-PROXY-01 remaining validation** — current recommended manual realtime validation gaps after RT-TOKEN-01.
+- 👉 **OPENAI-BATCH-DURATION-01 — OpenAI batch duration-aware splitting** — current focused item; addresses observed OpenAI 1400-second duration rejection by splitting on size plus safe duration.
+- 📋 **LIVE-COLAB-PROXY-01 remaining validation** — separate unfinished manual realtime validation gaps after RT-TOKEN-01.
 - 📋 **RUNTIME-01 — Batch source picker / manifest skip / Google Docs output smoke-check** — planned manual Colab/Drive/Docs validation.
 - 📋 **SPEAKER-RUNTIME-01 — Speaker projects workflow on copied diarized Google Doc** — planned manual validation.
 - 📋 **PERF-RUNTIME-01 — Startup timing summary collection** — planned runtime diagnostics validation.
@@ -27,6 +28,10 @@ Current confirmed realtime evidence is partial: one display+microphone run confi
 - Output-cell realtime UI path is documented as blocked in the tested Colab runtime.
 
 ## Active recommended next item
+
+### OPENAI-BATCH-DURATION-01 — OpenAI batch duration-aware splitting
+
+Current focused item: make the existing OpenAI batch path split prepared files when either the 25 MB upload limit or the safe 1320-second duration target requires it. This addresses observed runtime evidence where OpenAI rejected a compressed long prepared file because about 1768 seconds exceeded the provider hard maximum of 1400 seconds. Provider selection, key handling, ElevenLabs batch behavior and all realtime paths remain out of scope. Live long-file OpenAI validation remains pending until manually tested.
 
 ### LIVE-COLAB-PROXY-01 remaining validation
 
