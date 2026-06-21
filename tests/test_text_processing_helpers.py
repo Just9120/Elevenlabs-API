@@ -12,6 +12,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import os
 import re
 import time
 import uuid
@@ -64,7 +65,10 @@ HELPER_NAMES = {
     "trim_duplicate_prefix_by_token_overlap",
     "merge_transcript_parts_with_overlap",
     "get_openai_split_reason",
+    "find_nearby_silence_split_point",
     "choose_openai_split_duration",
+    "create_openai_audio_chunk",
+    "split_openai_audio_if_needed",
     "get_openai_diarize_chunking_preflight_warning",
     "collect_existing_google_docs_for_standardization",
     "build_docs_only_standardized_transcript_document_text",
@@ -189,6 +193,15 @@ def load_text_helpers() -> dict[str, object]:
                     "OPENAI_SEGMENT_TARGET_BYTES",
                     "OPENAI_PROVIDER_MAX_DURATION_SECONDS",
                     "OPENAI_SEGMENT_TARGET_DURATION_SECONDS",
+                    "OPENAI_MIN_SPLIT_DURATION_SECONDS",
+                    "OPENAI_SPLIT_OVERLAP_SECONDS",
+                    "OPENAI_SILENCE_SEARCH_BEFORE_SECONDS",
+                    "OPENAI_SILENCE_NOISE_LEVEL",
+                    "OPENAI_SILENCE_MIN_DURATION_SECONDS",
+                    "OPENAI_MERGE_MAX_OVERLAP_TOKENS",
+                    "OPENAI_MERGE_MIN_OVERLAP_TOKENS",
+                    "OPENAI_PREP_AUDIO_BITRATE",
+                    "OPENAI_PREP_AUDIO_CHANNELS",
                 }:
                     selected_nodes.append(node)
                     break
@@ -218,13 +231,8 @@ def load_text_helpers() -> dict[str, object]:
         "Optional": Optional,
         "Path": Path,
         "_STARTUP_TOTAL_STARTED": time.perf_counter(),
-        # These globals are runtime tuning knobs used by the overlap helper.
-        # They are injected here so the pure function can be tested in isolation
-        # from the Colab runtime configuration surface.
-        "OPENAI_MERGE_MAX_OVERLAP_TOKENS": 12,
-        "OPENAI_MERGE_MIN_OVERLAP_TOKENS": 3,
-        "OPENAI_MIN_SPLIT_DURATION_SECONDS": 30,
-        "find_nearby_silence_split_point": lambda **_kwargs: None,
+        "os": os,
+        "get_media_duration_seconds": lambda _path: 0.0,
         "MANIFEST_IN_PROGRESS_TTL_HOURS": 12,
         "list_drive_folder_children": lambda _folder_id: [],
         "find_file_in_folder": lambda _folder_id, _file_name: None,
@@ -259,6 +267,7 @@ trim_duplicate_prefix_by_token_overlap = HELPERS["trim_duplicate_prefix_by_token
 merge_transcript_parts_with_overlap = HELPERS["merge_transcript_parts_with_overlap"]
 get_openai_split_reason = HELPERS["get_openai_split_reason"]
 choose_openai_split_duration = HELPERS["choose_openai_split_duration"]
+split_openai_audio_if_needed = HELPERS["split_openai_audio_if_needed"]
 get_openai_diarize_chunking_preflight_warning = HELPERS[
     "get_openai_diarize_chunking_preflight_warning"
 ]
@@ -3020,6 +3029,38 @@ def test_provider_contract_docs_do_not_include_fake_secret_values_or_raw_bodies(
             assert needle not in text
 
 
+OPENAI_SPLITTER_HELPERS = {
+    "find_nearby_silence_split_point",
+    "choose_openai_split_duration",
+    "split_openai_audio_if_needed",
+    "create_openai_audio_chunk",
+}
+
+
+def test_openai_splitter_configuration_globals_are_defined_in_production_config() -> None:
+    source = CANONICAL_SOURCE.read_text(encoding="utf-8")
+    python_source = "\n".join(
+        line for line in source.splitlines() if not line.lstrip().startswith("!")
+    )
+    module = ast.parse(python_source, filename=str(CANONICAL_SOURCE))
+
+    assigned_openai_names = set()
+    referenced_openai_names = set()
+    for node in module.body:
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id.startswith("OPENAI_"):
+                    assigned_openai_names.add(target.id)
+        elif isinstance(node, ast.FunctionDef) and node.name in OPENAI_SPLITTER_HELPERS:
+            for child in ast.walk(node):
+                if isinstance(child, ast.Name) and child.id.startswith("OPENAI_"):
+                    referenced_openai_names.add(child.id)
+
+    assert referenced_openai_names
+    assert referenced_openai_names <= assigned_openai_names
+    assert HELPERS["OPENAI_MIN_SPLIT_DURATION_SECONDS"] == 30
+
+
 def test_openai_split_reason_allows_small_short_file_without_split() -> None:
     assert get_openai_split_reason(24 * 1024 * 1024, 1320) is None
 
@@ -3034,6 +3075,49 @@ def test_openai_split_reason_flags_size_only_for_large_short_file() -> None:
 
 def test_openai_split_reason_flags_size_and_duration() -> None:
     assert get_openai_split_reason(26 * 1024 * 1024, 1321) == "size_and_duration"
+
+
+def test_openai_duration_only_split_path_reaches_duration_selection_without_name_error(tmp_path) -> None:
+    prepared_path = tmp_path / "prepared.m4a"
+    prepared_path.write_bytes(b"x")
+    created_chunks = []
+    choose_calls = []
+
+    globals_dict = split_openai_audio_if_needed.__globals__
+    original_get_duration = globals_dict["get_media_duration_seconds"]
+    original_create_chunk = globals_dict["create_openai_audio_chunk"]
+    original_choose_duration = globals_dict["choose_openai_split_duration"]
+
+    def fake_create_chunk(**_kwargs):
+        output_path = tmp_path / f"chunk-{len(created_chunks)}.m4a"
+        output_path.write_bytes(b"chunk")
+        created_chunks.append(str(output_path))
+        return str(output_path)
+
+    def recording_choose_duration(**kwargs):
+        choose_calls.append(kwargs)
+        return original_choose_duration(**kwargs)
+
+    globals_dict["get_media_duration_seconds"] = lambda _path: 1320.01
+    globals_dict["create_openai_audio_chunk"] = fake_create_chunk
+    globals_dict["choose_openai_split_duration"] = recording_choose_duration
+    original_find_silence = original_choose_duration.__globals__["find_nearby_silence_split_point"]
+    original_choose_duration.__globals__["find_nearby_silence_split_point"] = lambda **_kwargs: None
+    try:
+        parts, cleanup_paths, split_reason = split_openai_audio_if_needed(
+            str(prepared_path),
+            "prepared.m4a",
+        )
+    finally:
+        globals_dict["get_media_duration_seconds"] = original_get_duration
+        globals_dict["create_openai_audio_chunk"] = original_create_chunk
+        globals_dict["choose_openai_split_duration"] = original_choose_duration
+        original_choose_duration.__globals__["find_nearby_silence_split_point"] = original_find_silence
+
+    assert split_reason == "duration"
+    assert choose_calls
+    assert parts
+    assert cleanup_paths == created_chunks
 
 
 def test_openai_split_duration_never_uses_pause_after_target() -> None:
