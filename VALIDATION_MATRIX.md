@@ -48,13 +48,15 @@
 | Realtime single-use token safety | Static-reviewed / runtime pending | Browser should not receive `ELEVEN_API_KEY` or `ELEVENLABS_API_KEY`. The RT-TOKEN-01 repeat-session evidence confirms fresh per-Start token behavior for sequential Start → Stop → Start in one page, but does not prove absence of key/token exposure; live token creation/log review remains pending across validation paths. |
 | Realtime Google Docs save / manifest mutation / speaker integration | Not supported | Not part of current realtime contour. Any future save path requires separate scope and validation. |
 | OpenAI provider paths | Experimental | Manual alternative paths require separate E2E validation, especially diarization and chunking. |
-| OpenAI batch duration-plus-size split decisions | Unit/static-tested / live long-file pending | Focused tests cover no-split, duration-only, size-only, combined split reasons, duration target clamping and unchanged request-path contracts. Live OpenAI long-but-small and oversized-file validation remains pending. |
+| OpenAI batch duration-plus-size split decisions | Unit/static-tested / partial manual evidence | Focused tests cover no-split, duration-only, size-only, combined split reasons, duration target clamping and unchanged request-path contracts. One long duration-triggered OpenAI batch run completed with Google Doc output and local timing evidence; oversized-file and diarization validation remain pending. |
+| OpenAI safe per-chunk timing diagnostics | Unit/static-tested / pending manual review | Local-only diagnostics cover per-part index/count, duration, size, preparation time, provider request time, and aggregate split/prepare/provider/merge totals without transcript, key, path, Doc, payload, or raw response details. Manual review should be repeated on a long OpenAI run. |
 | Parallel notebooks / two Colab tabs | Not supported | Manifest model is single-user/single-runtime. |
 | GitHub Actions CI | Must be checked per PR | Local checks are necessary but not identical to hosted CI. |
 
 ## Runtime validation backlog
 
-- **OPENAI-BATCH-DURATION-01 manual validation** — OpenAI short file, long-but-small file above 1320 seconds, oversized file and diarization on a copied non-sensitive recording.
+- **OPENAI-BATCH-DURATION-01 manual validation** — one long-but-small file above 1320 seconds has partial manual evidence with Google Doc output; OpenAI short file, oversized file and diarization on a copied non-sensitive recording remain pending.
+- **OPENAI-BATCH-TIMING-01 manual validation** — rerun one long OpenAI file and compare split, preparation, provider request and merge totals in local diagnostics.
 - **RUNTIME-01** — source picker / `manifest` skip / Google Docs output smoke-check in real Colab.
 - **SPEAKER-RUNTIME-01** — speaker project workflow on a copied diarized Google Doc, including formatting caveat.
 - **PERF-RUNTIME-01** — collect startup timing summary from clean Colab runtime without treating it as transcription success.

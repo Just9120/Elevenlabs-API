@@ -6,7 +6,8 @@
 - ✅ **RT-REF-01 — Refactor realtime frontend boundaries and harden permission-cancellation lifecycle** — merged into main via PR #65; static/generated-JS coverage added; manual permission-cancellation validation remains pending under LIVE-COLAB-PROXY-01.
 - ✅ **RT-POLISH-01 — Behavior-preserving realtime frontend lifecycle readability refactor** — merged into main; no new manual/browser evidence claimed.
 - ✅ **RT-TOKEN-01 — Fresh realtime single-use token per standalone Start attempt** — done/merged into main; sequential Start → Stop → Start in one standalone page was manually confirmed after RT-TOKEN-01.
-- 👉 **OPENAI-BATCH-DURATION-01 — OpenAI batch duration-aware splitting** — current focused item; addresses observed OpenAI 1400-second duration rejection by splitting on size plus safe duration.
+- ✅ **OPENAI-BATCH-DURATION-01 — OpenAI batch duration-aware splitting** — manually runtime-confirmed for one long duration-triggered OpenAI batch run that produced a Google Doc; oversized-file and OpenAI diarization runtime validation remain pending.
+- 👉 **OPENAI-BATCH-TIMING-01 — Safe OpenAI per-chunk timing observability** — current focused item; adds local diagnostics only and does not introduce parallelism.
 - 📋 **LIVE-COLAB-PROXY-01 remaining validation** — separate unfinished manual realtime validation gaps after RT-TOKEN-01.
 - 📋 **RUNTIME-01 — Batch source picker / manifest skip / Google Docs output smoke-check** — planned manual Colab/Drive/Docs validation.
 - 📋 **SPEAKER-RUNTIME-01 — Speaker projects workflow on copied diarized Google Doc** — planned manual validation.
@@ -29,9 +30,13 @@ Current confirmed realtime evidence is partial: one display+microphone run confi
 
 ## Active recommended next item
 
+### OPENAI-BATCH-TIMING-01 — Safe OpenAI per-chunk timing observability
+
+Current focused item: add local-only OpenAI chunk timing diagnostics after duration-aware splitting, with accurate aggregate phases for split, chunk preparation, provider request wait, and merge. This is observability only: OpenAI chunk requests remain sequential, and no parallelism, retry, provider payload, model, key handling, ElevenLabs batch, realtime, Google Docs, manifest, or analytics behavior changes are in scope.
+
 ### OPENAI-BATCH-DURATION-01 — OpenAI batch duration-aware splitting
 
-Current focused item: make the existing OpenAI batch path split prepared files when either the 25 MB upload limit or the safe 1320-second duration target requires it. This addresses observed runtime evidence where OpenAI rejected a compressed long prepared file because about 1768 seconds exceeded the provider hard maximum of 1400 seconds. Provider selection, key handling, ElevenLabs batch behavior and all realtime paths remain out of scope. Live long-file OpenAI validation remains pending until manually tested.
+Duration-triggered OpenAI splitting is manually runtime-confirmed for one long batch run that produced a Google Doc. Oversized-file validation and OpenAI diarization validation remain pending; do not generalize the long-file result to those paths.
 
 ### LIVE-COLAB-PROXY-01 remaining validation
 
@@ -85,6 +90,7 @@ Use `docs/realtime-colab.md` as the operator guide. Pending: microphone-only, di
 - Realtime output-cell UI path is blocked in the tested Colab runtime; active validation path is proxy/new-tab standalone page.
 - Realtime evidence is partial and must not be generalized beyond the confirmed display+microphone path.
 - Batch Google Docs output and manifest skip still need controlled live runtime validation before E2E claims.
+- OpenAI duration-triggered chunking has one manually confirmed long-file Google Docs output path; oversized-file and OpenAI diarization validation remain pending.
 - OpenAI diarization + chunking remains high risk due to potential inconsistent `Speaker N labels` across chunks.
 - Speaker project apply may rewrite Google Doc as plain text; first validation must use copies.
 

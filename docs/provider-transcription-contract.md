@@ -24,6 +24,7 @@ This document records the current batch transcription provider contract. It does
 - Observed hard duration limit: 1400 seconds.
 - Safe per-part duration target: 1320 seconds.
 - Speaker labels are provider labels only. They are not identity claims.
+- OpenAI chunk timing is local diagnostic console output only; it does not persist transcript text, source paths, filenames, Google Docs identifiers, provider payloads, keys, raw responses, or source metadata beyond aggregate chunk duration and size.
 - OpenAI realtime is not part of this batch contract.
 
 ## Manual validation checklist
