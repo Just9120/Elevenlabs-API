@@ -225,6 +225,12 @@ def print_timing_summary(timer: Optional[RunTimer]):
         "drive_download",
         "media_prepare",
         "provider_transcription",
+        # OpenAI-specific phases are a detailed local breakdown inside the broader
+        # provider_transcription workflow metric; they do not reinterpret that global metric.
+        "openai_split",
+        "openai_chunk_prepare",
+        "openai_provider_request",
+        "openai_merge",
         "postprocess_merge",
         "docs_output",
         "manifest_write",
@@ -4257,7 +4263,12 @@ def get_openai_split_reason(prepared_file_size_bytes: int, prepared_duration_sec
     return None
 
 
-def split_openai_audio_if_needed(prepared_path: str, prepared_name: str) -> tuple[list[tuple[str, str]], list[str], Optional[str]]:
+def split_openai_audio_if_needed(
+    prepared_path: str,
+    prepared_name: str,
+    chunk_timing_records: Optional[list[dict]] = None,
+    timer: Optional[RunTimer] = None,
+) -> tuple[list[tuple[str, str]], list[str], Optional[str]]:
     file_size = os.path.getsize(prepared_path)
     duration = get_media_duration_seconds(prepared_path)
     if duration <= 0:
@@ -4265,6 +4276,15 @@ def split_openai_audio_if_needed(prepared_path: str, prepared_name: str) -> tupl
 
     split_reason = get_openai_split_reason(file_size, duration)
     if split_reason is None:
+        if chunk_timing_records is not None:
+            chunk_timing_records.append({
+                "index": 1,
+                "total": 1,
+                "duration_seconds": duration,
+                "size_bytes": file_size,
+                "prepare_seconds": 0.0,
+                "provider_request_seconds": None,
+            })
         return [(prepared_path, prepared_name)], [], None
 
     safety_ratio = 0.92
@@ -4292,18 +4312,33 @@ def split_openai_audio_if_needed(prepared_path: str, prepared_name: str) -> tupl
         if part_duration <= 0:
             break
 
+        retained_prepare_seconds = 0.0
         while True:
+            attempt_started = time.perf_counter()
             output_path = create_openai_audio_chunk(
                 prepared_path=prepared_path,
                 start_seconds=start_seconds,
                 part_duration=part_duration,
             )
+            attempt_elapsed = max(0.0, time.perf_counter() - attempt_started)
+            retained_prepare_seconds += attempt_elapsed
+            if timer:
+                timer.add_duration("openai_chunk_prepare", attempt_elapsed)
 
             part_size = os.path.getsize(output_path)
             if part_size <= OPENAI_UPLOAD_LIMIT_BYTES:
                 created_paths.append(output_path)
                 part_name = f"{Path(prepared_name).stem} - part {part_index:03d}.m4a"
                 parts.append((output_path, part_name))
+                if chunk_timing_records is not None:
+                    chunk_timing_records.append({
+                        "index": part_index,
+                        "total": None,
+                        "duration_seconds": part_duration,
+                        "size_bytes": part_size,
+                        "prepare_seconds": retained_prepare_seconds,
+                        "provider_request_seconds": None,
+                    })
 
                 if start_seconds + part_duration >= duration - 0.01:
                     start_seconds = duration
@@ -4344,7 +4379,64 @@ def split_openai_audio_if_needed(prepared_path: str, prepared_name: str) -> tupl
                 )
             part_duration = min(next_part_duration, remaining, float(OPENAI_SEGMENT_TARGET_DURATION_SECONDS))
 
+    if chunk_timing_records is not None:
+        total_parts = len(chunk_timing_records)
+        for record in chunk_timing_records:
+            record["total"] = total_parts
+
     return parts, created_paths, split_reason
+
+
+def format_openai_chunk_size(size_bytes: Optional[int]) -> str:
+    if size_bytes is None:
+        return "unknown"
+    if size_bytes >= 1024 * 1024:
+        return f"{size_bytes / (1024 * 1024):.2f} MB"
+    return f"{int(size_bytes)} bytes"
+
+
+def format_openai_chunk_seconds(value: Optional[float]) -> str:
+    if value is None:
+        return "not completed"
+    return f"{max(0.0, value):.2f}s"
+
+
+def build_openai_chunk_timing_diagnostics(
+    chunk_timing_records: list[dict],
+    split_seconds: Optional[float],
+    merge_seconds: Optional[float],
+    failed: bool = False,
+) -> str:
+    lines = ["=== OpenAI chunk timing (local) ==="]
+    for record in chunk_timing_records:
+        lines.append(
+            f"- Part {record.get('index')}/{record.get('total') or '?'}: "
+            f"duration={format_openai_chunk_seconds(record.get('duration_seconds'))}, "
+            f"size={format_openai_chunk_size(record.get('size_bytes'))}, "
+            f"prepare={format_openai_chunk_seconds(record.get('prepare_seconds'))}, "
+            f"provider request (upload + provider wait)={format_openai_chunk_seconds(record.get('provider_request_seconds'))}"
+        )
+    total_prepare = sum(float(record.get("prepare_seconds") or 0.0) for record in chunk_timing_records)
+    total_provider = sum(float(record.get("provider_request_seconds") or 0.0) for record in chunk_timing_records)
+    lines.append(
+        f"- totals: split={format_openai_chunk_seconds(split_seconds)}, "
+        f"chunk prepare={format_openai_chunk_seconds(total_prepare)}, "
+        f"provider request (upload + provider wait)={format_openai_chunk_seconds(total_provider)}, "
+        f"merge={format_openai_chunk_seconds(merge_seconds)}"
+    )
+    if failed:
+        lines.append("- status: failed before all OpenAI parts completed; only safe attempted/completed chunk timings are shown.")
+    lines.append("=== End OpenAI chunk timing ===")
+    return "\n".join(lines)
+
+
+def print_openai_chunk_timing_diagnostics(chunk_timing_records: list[dict], split_seconds: Optional[float], merge_seconds: Optional[float], failed: bool = False):
+    if not chunk_timing_records:
+        return
+    total = max((int(record.get("total") or 0) for record in chunk_timing_records), default=0)
+    if total <= 1 and not failed:
+        return
+    print(build_openai_chunk_timing_diagnostics(chunk_timing_records, split_seconds, merge_seconds, failed=failed))
 
 def build_openai_transcription_form_data(options: TranscriptionRuntimeOptions) -> list[tuple[str, str]]:
     data = [
@@ -4449,9 +4541,21 @@ def transcribe_media_path_openai(
             prepared_path, prepared_name = convert_media_to_openai_m4a(input_path, original_filename)
         cleanup_paths.append(prepared_path)
 
-        with timer.measure("postprocess_merge") if timer else nullcontext():
-            parts, part_cleanup_paths, split_reason = split_openai_audio_if_needed(prepared_path, prepared_name)
+        chunk_timing_records = []
+        split_started = time.perf_counter()
+        try:
+            parts, part_cleanup_paths, split_reason = split_openai_audio_if_needed(
+                prepared_path,
+                prepared_name,
+                chunk_timing_records=chunk_timing_records,
+                timer=timer,
+            )
+        finally:
+            split_seconds = max(0.0, time.perf_counter() - split_started)
+            if timer:
+                timer.add_duration("openai_split", split_seconds)
         cleanup_paths.extend(part_cleanup_paths)
+        merge_seconds = None
 
         if len(parts) > 1:
             print(f"OpenAI smart split: {len(parts)} частей (reason: {split_reason})")
@@ -4460,14 +4564,34 @@ def transcribe_media_path_openai(
                 print_openai_diarize_split_warning()
 
         transcripts = []
-        for idx, (part_path, part_name) in enumerate(parts, start=1):
-            if len(parts) > 1:
-                print(f"  → OpenAI часть {idx}/{len(parts)}: {part_name}")
-            mime_type = mimetypes.guess_type(part_name)[0] or "audio/mp4"
-            with open(part_path, "rb") as f:
-                transcripts.append(transcribe_openai_fileobj(part_name, f, mime_type, options))
+        try:
+            for idx, (part_path, part_name) in enumerate(parts, start=1):
+                if len(parts) > 1:
+                    print(f"  → OpenAI часть {idx}/{len(parts)}")
+                mime_type = mimetypes.guess_type(part_name)[0] or "audio/mp4"
+                provider_started = time.perf_counter()
+                record = chunk_timing_records[idx - 1] if idx - 1 < len(chunk_timing_records) else None
+                try:
+                    with open(part_path, "rb") as f:
+                        transcripts.append(transcribe_openai_fileobj(part_name, f, mime_type, options))
+                finally:
+                    provider_seconds = max(0.0, time.perf_counter() - provider_started)
+                    if timer:
+                        timer.add_duration("openai_provider_request", provider_seconds)
+                    if record is not None:
+                        record["provider_request_seconds"] = provider_seconds
+        except Exception:
+            print_openai_chunk_timing_diagnostics(chunk_timing_records, split_seconds, merge_seconds, failed=True)
+            raise
 
-        transcript_text = merge_transcript_parts_with_overlap(transcripts)
+        merge_started = time.perf_counter()
+        try:
+            transcript_text = merge_transcript_parts_with_overlap(transcripts)
+        finally:
+            merge_seconds = max(0.0, time.perf_counter() - merge_started)
+            if timer:
+                timer.add_duration("openai_merge", merge_seconds)
+        print_openai_chunk_timing_diagnostics(chunk_timing_records, split_seconds, merge_seconds)
         if not transcript_text:
             raise RuntimeError("OpenAI не вернул итоговый текст после обработки частей.")
         return transcript_text

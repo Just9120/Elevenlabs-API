@@ -69,6 +69,10 @@ HELPER_NAMES = {
     "choose_openai_split_duration",
     "create_openai_audio_chunk",
     "split_openai_audio_if_needed",
+    "format_openai_chunk_size",
+    "format_openai_chunk_seconds",
+    "build_openai_chunk_timing_diagnostics",
+    "print_openai_chunk_timing_diagnostics",
     "get_openai_diarize_chunking_preflight_warning",
     "collect_existing_google_docs_for_standardization",
     "build_docs_only_standardized_transcript_document_text",
@@ -268,6 +272,7 @@ merge_transcript_parts_with_overlap = HELPERS["merge_transcript_parts_with_overl
 get_openai_split_reason = HELPERS["get_openai_split_reason"]
 choose_openai_split_duration = HELPERS["choose_openai_split_duration"]
 split_openai_audio_if_needed = HELPERS["split_openai_audio_if_needed"]
+build_openai_chunk_timing_diagnostics = HELPERS["build_openai_chunk_timing_diagnostics"]
 get_openai_diarize_chunking_preflight_warning = HELPERS[
     "get_openai_diarize_chunking_preflight_warning"
 ]
@@ -3067,6 +3072,111 @@ def test_openai_split_reason_allows_small_short_file_without_split() -> None:
 
 def test_openai_split_reason_flags_duration_only_for_long_small_file() -> None:
     assert get_openai_split_reason(24 * 1024 * 1024, 1320.01) == "duration"
+
+
+
+
+def test_openai_aggregate_timing_labels_are_in_stable_summary_order() -> None:
+    source = CANONICAL_SOURCE.read_text(encoding="utf-8")
+    summary_section = source.split("def print_timing_summary", 1)[1].split("def format_timing_line", 1)[0]
+    ordered = [
+        "provider_transcription",
+        "openai_split",
+        "openai_chunk_prepare",
+        "openai_provider_request",
+        "openai_merge",
+        "postprocess_merge",
+    ]
+    positions = [summary_section.index(f'"{label}"') for label in ordered]
+    assert positions == sorted(positions)
+
+
+def test_openai_multi_part_timing_diagnostics_are_safe_and_complete() -> None:
+    records = [
+        {"index": 1, "total": 2, "duration_seconds": 1318.8, "size_bytes": 21_000_000, "prepare_seconds": 1.234, "provider_request_seconds": 5.678},
+        {"index": 2, "total": 2, "duration_seconds": 600.0, "size_bytes": 10_000_000, "prepare_seconds": 2.0, "provider_request_seconds": 6.0},
+    ]
+    diagnostics = build_openai_chunk_timing_diagnostics(records, split_seconds=3.5, merge_seconds=0.25)
+
+    assert "=== OpenAI chunk timing (local) ===" in diagnostics
+    assert "Part 1/2" in diagnostics
+    assert "duration=1318.80s" in diagnostics
+    assert "size=20.03 MB" in diagnostics
+    assert "prepare=1.23s" in diagnostics
+    assert "provider request (upload + provider wait)=5.68s" in diagnostics
+    assert "totals: split=3.50s, chunk prepare=3.23s, provider request (upload + provider wait)=11.68s, merge=0.25s" in diagnostics
+
+    unsafe_values = [
+        "/tmp/private/source.m4a",
+        "private-recording.m4a",
+        "docs.google.com/document/d/fake",
+        "fake transcript body",
+        "sk-fake-key",
+        "Bearer fake",
+        "raw provider body",
+        "response payload",
+    ]
+    for unsafe in unsafe_values:
+        assert unsafe not in diagnostics
+
+
+def test_openai_duration_only_split_records_per_part_preparation_timing(tmp_path) -> None:
+    prepared_path = tmp_path / "prepared.m4a"
+    prepared_path.write_bytes(b"x" * 100)
+    records = []
+    globals_dict = split_openai_audio_if_needed.__globals__
+    original_get_duration = globals_dict["get_media_duration_seconds"]
+    original_create_chunk = globals_dict["create_openai_audio_chunk"]
+    original_choose_duration = globals_dict["choose_openai_split_duration"]
+
+    def fake_create_chunk(**_kwargs):
+        output_path = tmp_path / f"chunk-{len(records)}.m4a"
+        output_path.write_bytes(b"chunk")
+        return str(output_path)
+
+    globals_dict["get_media_duration_seconds"] = lambda _path: 1320.01
+    globals_dict["create_openai_audio_chunk"] = fake_create_chunk
+    globals_dict["choose_openai_split_duration"] = lambda **kwargs: min(kwargs["target_duration"], kwargs["total_duration"] - kwargs["start_seconds"])
+    try:
+        parts, cleanup_paths, split_reason = split_openai_audio_if_needed(str(prepared_path), "prepared.m4a", chunk_timing_records=records)
+    finally:
+        globals_dict["get_media_duration_seconds"] = original_get_duration
+        globals_dict["create_openai_audio_chunk"] = original_create_chunk
+        globals_dict["choose_openai_split_duration"] = original_choose_duration
+
+    assert split_reason == "duration"
+    assert parts
+    assert cleanup_paths
+    assert records
+    assert records[0]["prepare_seconds"] >= 0
+    assert records[0]["duration_seconds"] > 0
+    assert records[0]["size_bytes"] == len(b"chunk")
+
+
+def test_openai_request_payload_and_batch_paths_do_not_introduce_parallelism() -> None:
+    source = CANONICAL_SOURCE.read_text(encoding="utf-8")
+    openai_path = source.split("def transcribe_media_path_openai", 1)[1].split("def transcribe_media_path", 1)[0]
+    assert "transcribe_openai_fileobj(part_name" in openai_path
+    assert "for idx, (part_path, part_name) in enumerate(parts, start=1):" in openai_path
+    forbidden = ["ThreadPoolExecutor", "ProcessPoolExecutor", "asyncio", "gather(", "create_task", "threading.Thread", "multiprocessing"]
+    for token in forbidden:
+        assert token not in openai_path
+
+    elevenlabs_path = source.split("def transcribe_media_path_elevenlabs", 1)[1].split("def transcribe_media_path_openai", 1)[0]
+    assert elevenlabs_path.count("transcribe_fileobj(send_name, f, mime_type, options)") == 1
+
+
+def test_openai_failed_second_chunk_diagnostics_remain_safe() -> None:
+    records = [
+        {"index": 1, "total": 2, "duration_seconds": 100.0, "size_bytes": 1234, "prepare_seconds": 0.5, "provider_request_seconds": 4.0},
+        {"index": 2, "total": 2, "duration_seconds": 90.0, "size_bytes": 2345, "prepare_seconds": 0.6, "provider_request_seconds": 1.0},
+    ]
+    diagnostics = build_openai_chunk_timing_diagnostics(records, split_seconds=1.2, merge_seconds=None, failed=True)
+    assert "Part 1/2" in diagnostics
+    assert "Part 2/2" in diagnostics
+    assert "failed before all OpenAI parts completed" in diagnostics
+    for unsafe in ["/content/drive/private.m4a", "secret-file.m4a", "transcript words", "sk-test", "Bearer"]:
+        assert unsafe not in diagnostics
 
 
 def test_openai_split_reason_flags_size_only_for_large_short_file() -> None:
