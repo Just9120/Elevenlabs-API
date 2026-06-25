@@ -24,7 +24,7 @@
 - `transcript_doc_v1.2` для новых и обслуживаемых документов;
 - analytics JSONL и startup timing diagnostics без transcript body и без Google Docs body content.
 
-Batch provider boundary: selected provider determines the outbound STT request path. Enabling both ElevenLabs and OpenAI secrets in Colab is allowed; the selected provider controls which key and endpoint are used for a batch transcription request. OpenAI batch long-file handling prepares mono AAC M4A and applies both 25 MB upload-size and 1320-second safe-duration splitting safeguards before the first provider request. Manual user segmentation, when enabled for one-source modes, runs before provider transcription, creates one Google Doc per user segment, and does not change provider contracts or replace OpenAI technical smart split inside an OpenAI segment. OpenAI realtime remains out of scope for this batch workflow.
+Batch provider boundary: selected provider determines the outbound STT request path. Enabling both ElevenLabs and OpenAI secrets in Colab is allowed; the selected provider controls which key and endpoint are used for a batch transcription request. OpenAI batch long-file handling prepares mono AAC M4A and applies both 25 MB upload-size and 1320-second safe-duration splitting safeguards before the first provider request. Manual user segmentation, when enabled for one-source modes, runs before provider transcription, creates temporary audio-only segment files, creates one Google Doc per user segment, and does not change provider contracts or replace OpenAI technical smart split inside an OpenAI segment. OpenAI realtime remains out of scope for this batch workflow.
 
 ### 3.2 Docs-only maintenance workflows
 

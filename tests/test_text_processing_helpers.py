@@ -16,7 +16,7 @@ import os
 import re
 import time
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from typing import Optional
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -246,6 +246,7 @@ def load_text_helpers() -> dict[str, object]:
         "time": time,
         "uuid": uuid,
         "contextmanager": contextmanager,
+        "nullcontext": nullcontext,
         "Optional": Optional,
         "Path": Path,
         "_STARTUP_TOTAL_STARTED": time.perf_counter(),
@@ -3280,6 +3281,8 @@ build_user_segment_source_signature = HELPERS["build_user_segment_source_signatu
 build_user_segment_preview_text = HELPERS["build_user_segment_preview_text"]
 user_segment_mode_unavailable_message = HELPERS["user_segment_mode_unavailable_message"]
 build_safe_user_segment_source_check_text = HELPERS["build_safe_user_segment_source_check_text"]
+create_user_segment_media_file = HELPERS["create_user_segment_media_file"]
+process_user_segments_for_source = HELPERS["process_user_segments_for_source"]
 
 
 def test_user_segment_parser_parses_mmss_and_end_and_hhmmss() -> None:
@@ -3399,6 +3402,197 @@ def test_user_segment_safe_source_check_text_contains_only_safe_preview() -> Non
     ]
     for token in forbidden:
         assert token not in text
+
+
+
+def test_user_segment_media_file_uses_accurate_audio_only_m4a_command(tmp_path) -> None:
+    calls = []
+    output_path = tmp_path / "segment.m4a"
+    globals_dict = create_user_segment_media_file.__globals__
+    original_create_temp = globals_dict.get("create_project_temp_file")
+    original_ensure = globals_dict.get("ensure_ffmpeg_available")
+    original_run = globals_dict["subprocess"].run
+    globals_dict["create_project_temp_file"] = lambda suffix="": str(output_path)
+    globals_dict["ensure_ffmpeg_available"] = lambda: None
+
+    def fake_run(cmd, check, stdout, stderr):
+        calls.append(cmd)
+        output_path.write_bytes(b"m4a")
+
+    globals_dict["subprocess"].run = fake_run
+    try:
+        result = create_user_segment_media_file(
+            "/content/drive/MyDrive/source.mp4",
+            {"start_seconds": 1420.0, "duration_seconds": 120.5},
+        )
+    finally:
+        globals_dict["subprocess"].run = original_run
+        if original_create_temp is None:
+            globals_dict.pop("create_project_temp_file", None)
+        else:
+            globals_dict["create_project_temp_file"] = original_create_temp
+        if original_ensure is None:
+            globals_dict.pop("ensure_ffmpeg_available", None)
+        else:
+            globals_dict["ensure_ffmpeg_available"] = original_ensure
+
+    assert result == str(output_path)
+    cmd = calls[0]
+    assert cmd[-1].endswith(".m4a")
+    assert not cmd[-1].endswith(".mp4")
+    assert cmd.index("-i") < cmd.index("-ss")
+    assert cmd[cmd.index("-ss") + 1] == "1420.000"
+    assert cmd[cmd.index("-t") + 1] == "120.500"
+    assert "-vn" in cmd
+    assert cmd[cmd.index("-ac") + 1] == "1"
+    assert cmd[cmd.index("-c:a") + 1] == "aac"
+    assert "-b:a" in cmd
+    assert "copy" not in cmd
+    assert [cmd[i:i + 2] for i in range(len(cmd) - 1)].count(["-c", "copy"]) == 0
+
+
+def test_user_segment_media_file_cleans_m4a_on_ffmpeg_failure(tmp_path) -> None:
+    output_path = tmp_path / "failed.m4a"
+    output_path.write_bytes(b"partial")
+    globals_dict = create_user_segment_media_file.__globals__
+    original_create_temp = globals_dict.get("create_project_temp_file")
+    original_ensure = globals_dict.get("ensure_ffmpeg_available")
+    original_run = globals_dict["subprocess"].run
+    globals_dict["create_project_temp_file"] = lambda suffix="": str(output_path)
+    globals_dict["ensure_ffmpeg_available"] = lambda: None
+
+    def failing_run(*_args, **_kwargs):
+        raise globals_dict["subprocess"].CalledProcessError(1, ["ffmpeg"], stderr=b"bad")
+
+    globals_dict["subprocess"].run = failing_run
+    try:
+        try:
+            create_user_segment_media_file("source.mov", {"start_seconds": 1.0, "duration_seconds": 2.0})
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError("expected ffmpeg failure")
+    finally:
+        globals_dict["subprocess"].run = original_run
+        if original_create_temp is None:
+            globals_dict.pop("create_project_temp_file", None)
+        else:
+            globals_dict["create_project_temp_file"] = original_create_temp
+        if original_ensure is None:
+            globals_dict.pop("ensure_ffmpeg_available", None)
+        else:
+            globals_dict["ensure_ffmpeg_available"] = original_ensure
+
+    assert not output_path.exists()
+
+
+def test_user_segment_processing_passes_m4a_name_and_cleans_on_success(tmp_path) -> None:
+    segment_path = tmp_path / "segment.m4a"
+    segment_path.write_bytes(b"audio")
+    calls = []
+    globals_dict = process_user_segments_for_source.__globals__
+    originals = {name: globals_dict.get(name) for name in [
+        "get_media_duration_seconds", "create_user_segment_media_file", "transcribe_media_path",
+        "upsert_transcript_document", "mark_manifest_in_progress", "mark_manifest_done",
+        "mark_manifest_failed", "should_skip_by_manifest", "get_single_existing_doc_match", "append_success",
+        "conflict_mode_needs_existing_match_before_transcription", "report_progress_for_file", "PROGRESS_STAGES_PER_FILE",
+    ]}
+    globals_dict["get_media_duration_seconds"] = lambda _path: 60.0
+    globals_dict["create_user_segment_media_file"] = lambda _path, _segment: str(segment_path)
+    globals_dict["transcribe_media_path"] = lambda input_path, original_filename, options, timer=None: calls.append((input_path, original_filename)) or "transcript"
+    globals_dict["upsert_transcript_document"] = lambda **_kwargs: {"status": "success", "action": "created", "doc_name": "Doc", "link": "link"}
+    globals_dict["mark_manifest_in_progress"] = lambda *_args, **_kwargs: None
+    globals_dict["mark_manifest_done"] = lambda *_args, **_kwargs: None
+    globals_dict["mark_manifest_failed"] = lambda *_args, **_kwargs: None
+    globals_dict["should_skip_by_manifest"] = lambda *_args, **_kwargs: (False, "")
+    globals_dict["get_single_existing_doc_match"] = lambda *_args, **_kwargs: None
+    globals_dict["conflict_mode_needs_existing_match_before_transcription"] = lambda _mode: False
+    globals_dict["report_progress_for_file"] = lambda *_args, **_kwargs: None
+    globals_dict["PROGRESS_STAGES_PER_FILE"] = 4
+    globals_dict["append_success"] = lambda successes, source_name, result: successes.append({"source": source_name, **result})
+
+    class RunCtx:
+        output_folder_id = "folder"
+        conflict_mode = "update"
+        ignore_manifest = True
+        docs_index = {}
+        manifest = {}
+        settings_signature = "settings"
+        options = object()
+
+    try:
+        successes, errors, skipped = process_user_segments_for_source(
+            input_path="source.mp4",
+            original_filename="Weekly call.mp4",
+            original_source_signature="orig",
+            original_source_meta={},
+            source_mode="drive_file",
+            source_reference="drive-ref",
+            segment_plan_text="Project A | 00:00-end",
+            run_ctx=RunCtx(),
+        )
+    finally:
+        for name, original in originals.items():
+            if original is None:
+                globals_dict.pop(name, None)
+            else:
+                globals_dict[name] = original
+
+    assert not errors and not skipped and successes
+    assert calls == [(str(segment_path), "Weekly call — Project A.m4a")]
+    assert not segment_path.exists()
+
+
+def test_user_segment_processing_cleans_m4a_on_provider_failure(tmp_path) -> None:
+    segment_path = tmp_path / "segment.m4a"
+    segment_path.write_bytes(b"audio")
+    globals_dict = process_user_segments_for_source.__globals__
+    originals = {name: globals_dict.get(name) for name in [
+        "get_media_duration_seconds", "create_user_segment_media_file", "transcribe_media_path",
+        "mark_manifest_in_progress", "mark_manifest_failed", "should_skip_by_manifest", "get_single_existing_doc_match",
+        "conflict_mode_needs_existing_match_before_transcription", "report_progress_for_file", "PROGRESS_STAGES_PER_FILE",
+    ]}
+    globals_dict["get_media_duration_seconds"] = lambda _path: 60.0
+    globals_dict["create_user_segment_media_file"] = lambda _path, _segment: str(segment_path)
+    globals_dict["transcribe_media_path"] = lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("provider failed"))
+    globals_dict["mark_manifest_in_progress"] = lambda *_args, **_kwargs: None
+    globals_dict["mark_manifest_failed"] = lambda *_args, **_kwargs: None
+    globals_dict["should_skip_by_manifest"] = lambda *_args, **_kwargs: (False, "")
+    globals_dict["get_single_existing_doc_match"] = lambda *_args, **_kwargs: None
+    globals_dict["conflict_mode_needs_existing_match_before_transcription"] = lambda _mode: False
+    globals_dict["report_progress_for_file"] = lambda *_args, **_kwargs: None
+    globals_dict["PROGRESS_STAGES_PER_FILE"] = 4
+
+    class RunCtx:
+        output_folder_id = "folder"
+        conflict_mode = "update"
+        ignore_manifest = True
+        docs_index = {}
+        manifest = {}
+        settings_signature = "settings"
+        options = object()
+
+    try:
+        successes, errors, skipped = process_user_segments_for_source(
+            input_path="source.wav",
+            original_filename="Weekly call.wav",
+            original_source_signature="orig",
+            original_source_meta={},
+            source_mode="drive_file",
+            source_reference="drive-ref",
+            segment_plan_text="Project A | 00:00-end",
+            run_ctx=RunCtx(),
+        )
+    finally:
+        for name, original in originals.items():
+            if original is None:
+                globals_dict.pop(name, None)
+            else:
+                globals_dict[name] = original
+
+    assert not successes and not skipped
+    assert errors and errors[0]["source"] == "Weekly call — Project A"
+    assert not segment_path.exists()
 
 
 def test_user_segment_runtime_static_contracts() -> None:

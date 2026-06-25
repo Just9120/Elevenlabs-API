@@ -4203,15 +4203,17 @@ def user_segment_mode_unavailable_message(mode: str) -> str:
 
 def create_user_segment_media_file(input_path: str, segment: dict) -> str:
     ensure_ffmpeg_available()
-    suffix = Path(input_path).suffix or ".m4a"
-    output_path = create_project_temp_file(suffix=suffix)
+    output_path = create_project_temp_file(suffix=".m4a")
     cmd = [
         "ffmpeg",
         "-y",
+        "-i", input_path,
         "-ss", f"{segment['start_seconds']:.3f}",
         "-t", f"{segment['duration_seconds']:.3f}",
-        "-i", input_path,
-        "-c", "copy",
+        "-vn",
+        "-ac", "1",
+        "-c:a", "aac",
+        "-b:a", OPENAI_PREP_AUDIO_BITRATE,
         output_path,
     ]
     try:
@@ -4220,7 +4222,7 @@ def create_user_segment_media_file(input_path: str, segment: dict) -> str:
         if os.path.exists(output_path):
             os.remove(output_path)
         stderr = e.stderr.decode("utf-8", errors="ignore")
-        raise RuntimeError(f"Не удалось создать временный файл сегмента.\n{stderr[-1200:]}") from e
+        raise RuntimeError(f"Не удалось создать временный аудио-сегмент.\n{stderr[-1200:]}") from e
     return output_path
 
 
@@ -5382,7 +5384,7 @@ def process_user_segments_for_source(
                     with timer.measure("provider_transcription") if timer else nullcontext():
                         transcript = transcribe_media_path(
                             input_path=segment_path,
-                            original_filename=f"{segment_source_name}{Path(original_filename).suffix}",
+                            original_filename=f"{segment_source_name}.m4a",
                             options=run_ctx.options,
                             timer=timer,
                         )

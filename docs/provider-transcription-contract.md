@@ -4,7 +4,7 @@ This document records the current batch transcription provider contract. It does
 
 ## Manual user segmentation pre-layer
 
-Optional manual project segmentation runs before batch provider transcription and only in one-source modes. Each temporary user segment is submitted through the same selected provider settings as a normal source file; ElevenLabs and OpenAI request payload contracts remain unchanged per segment, and OpenAI smart split may still run inside an OpenAI segment.
+Optional manual project segmentation runs before batch provider transcription and only in one-source modes. Each temporary user segment is an audio-only M4A input submitted through the same selected provider settings as a normal source file; ElevenLabs and OpenAI request payload contracts remain unchanged per segment, and OpenAI smart split may still run inside an OpenAI segment.
 
 ## ElevenLabs batch
 
