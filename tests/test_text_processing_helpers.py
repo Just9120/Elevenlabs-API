@@ -144,7 +144,10 @@ HELPER_NAMES = {
     "get_initial_user_segment_builder_rows",
     "add_user_segment_builder_row",
     "remove_last_user_segment_builder_row",
+    "normalize_user_segment_builder_rows",
     "get_user_segment_builder_start_labels",
+    "validate_user_segment_builder_add_end",
+    "try_add_user_segment_builder_row",
     "normalize_optional_user_segment_document_title",
     "build_user_segments_from_builder",
     "validate_user_segment_document_title",
@@ -3295,7 +3298,10 @@ parse_user_segment_plan = HELPERS["parse_user_segment_plan"]
 get_initial_user_segment_builder_rows = HELPERS["get_initial_user_segment_builder_rows"]
 add_user_segment_builder_row = HELPERS["add_user_segment_builder_row"]
 remove_last_user_segment_builder_row = HELPERS["remove_last_user_segment_builder_row"]
+normalize_user_segment_builder_rows = HELPERS["normalize_user_segment_builder_rows"]
 get_user_segment_builder_start_labels = HELPERS["get_user_segment_builder_start_labels"]
+validate_user_segment_builder_add_end = HELPERS["validate_user_segment_builder_add_end"]
+try_add_user_segment_builder_row = HELPERS["try_add_user_segment_builder_row"]
 build_user_segments_from_builder = HELPERS["build_user_segments_from_builder"]
 build_user_segment_requested_document_titles = HELPERS["build_user_segment_requested_document_titles"]
 reject_duplicate_user_segment_requested_titles = HELPERS["reject_duplicate_user_segment_requested_titles"]
@@ -3325,6 +3331,9 @@ def test_user_segment_visual_builder_defaults_and_card_state_static() -> None:
     assert 'description="Разделить запись на несколько документов"' in source
     assert "user_segment_builder_widget.layout.display = \"\" if user_segment_enable_widget.value" in source
     assert "widgets.Textarea(" not in source.split("user_segment_enable_widget = widgets.Checkbox", 1)[1].split("check_source_button", 1)[0]
+    render_block = source.split("def render_user_segment_builder_cards", 1)[1].split("def on_user_segment_add_part_clicked", 1)[0]
+    assert "Конец: <b>До конца записи</b>" in render_block
+    assert "widgets.Checkbox(" not in render_block
     rows = get_initial_user_segment_builder_rows()
     assert rows == [{"title": "", "end": "", "to_end": True}]
     assert get_user_segment_builder_start_labels(rows) == ["00:00"]
@@ -3341,6 +3350,54 @@ def test_user_segment_visual_builder_add_remove_and_inherited_start() -> None:
     rows = remove_last_user_segment_builder_row(rows)
     assert len(rows) == 1
     assert rows[0]["to_end"] is True
+
+
+def test_user_segment_visual_builder_add_requires_valid_final_end() -> None:
+    rows = get_initial_user_segment_builder_rows()
+    updated, error = try_add_user_segment_builder_row(rows)
+    assert updated == rows
+    assert "Часть 1" in error
+    assert "после 00:00" in error
+    assert get_user_segment_builder_start_labels(updated) == ["00:00"]
+
+    rows[0]["end"] = "bad"
+    updated, error = try_add_user_segment_builder_row(rows)
+    assert len(updated) == 1
+    assert "Часть 1" in error
+    assert "после 00:00" in error
+    assert "—" not in get_user_segment_builder_start_labels(updated)
+
+    rows[0]["end"] = "00:00"
+    updated, error = try_add_user_segment_builder_row(rows)
+    assert len(updated) == 1
+    assert "Часть 1" in error
+    assert "после 00:00" in error
+
+
+def test_user_segment_visual_builder_valid_add_and_final_state_normalization() -> None:
+    rows = [{"title": "Keep me", "end": "10:10", "to_end": False}]
+    updated, error = try_add_user_segment_builder_row(rows, duration_seconds=1200)
+    assert error is None
+    assert updated == [
+        {"title": "Keep me", "end": "10:10", "to_end": False},
+        {"title": "", "end": "", "to_end": True},
+    ]
+    assert get_user_segment_builder_start_labels(updated, 1200) == ["00:00", "10:10"]
+    assert normalize_user_segment_builder_rows([
+        {"title": "", "end": "10:10", "to_end": True},
+        {"title": "", "end": "", "to_end": False},
+    ]) == [
+        {"title": "", "end": "10:10", "to_end": False},
+        {"title": "", "end": "", "to_end": True},
+    ]
+
+
+def test_user_segment_visual_builder_add_rejects_end_beyond_known_duration() -> None:
+    rows = [{"title": "", "end": "02:00", "to_end": True}]
+    updated, error = try_add_user_segment_builder_row(rows, duration_seconds=60)
+    assert len(updated) == 1
+    assert "Часть 1" in error
+    assert "длительность" in error
 
 
 def test_user_segment_visual_builder_builds_canonical_segments_and_titles() -> None:
@@ -3384,6 +3441,16 @@ def test_user_segment_visual_builder_accepts_hhmmss_and_rejects_card_errors() ->
             assert "формат" not in str(exc)
         else:
             raise AssertionError("expected builder validation error")
+
+
+def test_user_segment_visual_builder_runtime_rejects_malformed_final_to_end_false() -> None:
+    try:
+        build_user_segments_from_builder([{"title": "", "end": "", "to_end": False}], 60)
+    except ValueError as exc:
+        assert "Часть 1" in str(exc)
+        assert "До конца записи" in str(exc)
+    else:
+        raise AssertionError("expected final to_end defensive validation")
 
 
 def test_user_segment_parser_rejects_invalid_inputs() -> None:

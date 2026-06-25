@@ -4258,6 +4258,16 @@ def remove_last_user_segment_builder_row(rows: list[dict]) -> list[dict]:
     return updated
 
 
+def normalize_user_segment_builder_rows(rows: list[dict]) -> list[dict]:
+    updated = [dict(row) for row in (rows or get_initial_user_segment_builder_rows())]
+    if not updated:
+        updated = get_initial_user_segment_builder_rows()
+    last_index = len(updated) - 1
+    for idx, row in enumerate(updated):
+        row["to_end"] = idx == last_index
+    return updated
+
+
 def get_user_segment_builder_start_labels(rows: list[dict], duration_seconds: Optional[float] = None) -> list[str]:
     labels = []
     current_start_label = "00:00"
@@ -4270,6 +4280,39 @@ def get_user_segment_builder_start_labels(rows: list[dict], duration_seconds: Op
             except Exception:
                 current_start_label = "—"
     return labels
+
+
+def validate_user_segment_builder_add_end(rows: list[dict], duration_seconds: Optional[float] = None) -> Optional[str]:
+    effective_rows = normalize_user_segment_builder_rows(rows)
+    start_labels = get_user_segment_builder_start_labels(effective_rows, duration_seconds)
+    start_seconds = 0.0
+    if len(effective_rows) > 1:
+        for prior in effective_rows[:-1]:
+            try:
+                start_seconds, _ = parse_user_segment_time(prior.get("end", ""), allow_end=False, duration_seconds=duration_seconds)
+            except Exception:
+                start_seconds = 0.0
+    final_index = len(effective_rows) - 1
+    final_row = effective_rows[final_index]
+    final_label = f"Часть {final_index + 1}"
+    start_label = start_labels[final_index]
+    try:
+        end_seconds, _ = parse_user_segment_time(final_row.get("end", ""), allow_end=False, duration_seconds=duration_seconds)
+    except Exception:
+        return f"{final_label}: сначала укажите корректное время окончания после {start_label}."
+    if end_seconds <= start_seconds:
+        return f"{final_label}: сначала укажите корректное время окончания после {start_label}."
+    if duration_seconds is not None and duration_seconds > 0 and end_seconds > duration_seconds + 0.001:
+        return f"{final_label}: время окончания выходит за длительность записи."
+    return None
+
+
+def try_add_user_segment_builder_row(rows: list[dict], duration_seconds: Optional[float] = None) -> tuple[list[dict], Optional[str]]:
+    normalized = normalize_user_segment_builder_rows(rows)
+    error = validate_user_segment_builder_add_end(normalized, duration_seconds)
+    if error:
+        return normalized, error
+    return add_user_segment_builder_row(normalized), None
 
 
 def normalize_optional_user_segment_document_title(title: str) -> Optional[str]:
@@ -4290,8 +4333,9 @@ def build_user_segments_from_builder(rows: list[dict], duration_seconds: float) 
     segments = []
     start_seconds = 0.0
     start_label = "00:00"
-    last_index = len(rows) - 1
-    for idx, row in enumerate(rows, start=1):
+    effective_rows = [dict(row) for row in rows]
+    last_index = len(effective_rows) - 1
+    for idx, row in enumerate(effective_rows, start=1):
         display_label = f"Часть {idx}"
         requested_document_title = normalize_optional_user_segment_document_title(row.get("title", ""))
         is_final = idx - 1 == last_index
@@ -7310,6 +7354,7 @@ user_segment_enable_widget = widgets.Checkbox(
 )
 
 user_segment_builder_rows_state = get_initial_user_segment_builder_rows()
+user_segment_builder_error_by_index = {}
 user_segment_builder_cards_box = widgets.VBox([])
 user_segment_add_part_button = widgets.Button(description="+ Добавить ещё часть", icon="plus")
 user_segment_remove_part_button = widgets.Button(description="Удалить последнюю часть", icon="trash")
@@ -7574,7 +7619,7 @@ use_keyterms_widget.observe(refresh_ui, names="value")
 
 
 def read_user_segment_builder_rows_from_widgets() -> list[dict]:
-    return [dict(row) for row in user_segment_builder_rows_state]
+    return normalize_user_segment_builder_rows(user_segment_builder_rows_state)
 
 
 def get_enabled_user_segment_builder_rows(mode: str) -> Optional[list[dict]]:
@@ -7588,6 +7633,7 @@ def get_enabled_user_segment_builder_rows(mode: str) -> Optional[list[dict]]:
 
 def render_user_segment_builder_cards():
     global user_segment_builder_rows_state
+    user_segment_builder_rows_state = normalize_user_segment_builder_rows(user_segment_builder_rows_state)
     start_labels = get_user_segment_builder_start_labels(user_segment_builder_rows_state)
     cards = []
     last_index = len(user_segment_builder_rows_state) - 1
@@ -7598,32 +7644,38 @@ def render_user_segment_builder_cards():
             placeholder="Оставьте пустым для автоматического названия",
             layout=widgets.Layout(width="620px"),
         )
-        end_widget = widgets.Text(
-            value=row.get("end", ""),
-            description="Конец:",
-            placeholder="MM:SS или HH:MM:SS",
-            disabled=idx == last_index and row.get("to_end", True),
-            layout=widgets.Layout(width="260px"),
-        )
-        to_end_widget = widgets.Checkbox(
-            value=bool(row.get("to_end", False)) if idx == last_index else False,
-            description="До конца записи",
-            disabled=idx != last_index,
-            indent=False,
-        )
+        is_final = idx == last_index
         def on_title_change(change, row_index=idx):
             user_segment_builder_rows_state[row_index]["title"] = change["new"]
         def on_end_change(change, row_index=idx):
             user_segment_builder_rows_state[row_index]["end"] = change["new"]
-            render_user_segment_builder_cards()
-        def on_to_end_change(change, row_index=idx):
-            user_segment_builder_rows_state[row_index]["to_end"] = bool(change["new"])
+            user_segment_builder_error_by_index.pop(row_index, None)
             render_user_segment_builder_cards()
         title_widget.observe(on_title_change, names="value")
-        end_widget.observe(on_end_change, names="value")
-        to_end_widget.observe(on_to_end_change, names="value")
-        error = ""
-        if idx < last_index:
+        time_controls = []
+        if is_final:
+            time_controls.append(widgets.HTML("Конец: <b>До конца записи</b>"))
+            split_end_widget = widgets.Text(
+                value=row.get("end", ""),
+                description="Новая граница:",
+                placeholder="MM:SS или HH:MM:SS",
+                disabled=False,
+                layout=widgets.Layout(width="340px"),
+            )
+            split_end_widget.observe(on_end_change, names="value")
+            time_controls.append(split_end_widget)
+        else:
+            end_widget = widgets.Text(
+                value=row.get("end", ""),
+                description="Конец:",
+                placeholder="MM:SS или HH:MM:SS",
+                disabled=False,
+                layout=widgets.Layout(width="260px"),
+            )
+            end_widget.observe(on_end_change, names="value")
+            time_controls.append(end_widget)
+        error = user_segment_builder_error_by_index.get(idx, "")
+        if idx < last_index and not error:
             try:
                 parse_user_segment_time(row.get("end", ""), allow_end=False)
             except Exception:
@@ -7635,7 +7687,7 @@ def render_user_segment_builder_cards():
             widgets.HTML("<span style='color:#5f6368;'>Оставьте пустым для автоматического названия.</span>"),
             widgets.HTML("<b>Временной интервал</b>"),
             widgets.HTML(f"Начало: <code>{start_labels[idx]}</code>"),
-            widgets.HBox([end_widget, to_end_widget]),
+            widgets.HBox(time_controls),
             widgets.HTML(error),
         ])
         cards.append(card)
@@ -7644,14 +7696,20 @@ def render_user_segment_builder_cards():
 
 
 def on_user_segment_add_part_clicked(_):
-    global user_segment_builder_rows_state
-    user_segment_builder_rows_state = add_user_segment_builder_row(user_segment_builder_rows_state)
+    global user_segment_builder_rows_state, user_segment_builder_error_by_index
+    user_segment_builder_error_by_index = {}
+    updated_rows, error = try_add_user_segment_builder_row(user_segment_builder_rows_state)
+    user_segment_builder_rows_state = updated_rows
+    if error:
+        user_segment_builder_error_by_index[len(user_segment_builder_rows_state) - 1] = f"<div style='color:#b3261e;'>{error}</div>"
     render_user_segment_builder_cards()
 
 
 def on_user_segment_remove_part_clicked(_):
-    global user_segment_builder_rows_state
+    global user_segment_builder_rows_state, user_segment_builder_error_by_index
     user_segment_builder_rows_state = remove_last_user_segment_builder_row(user_segment_builder_rows_state)
+    user_segment_builder_rows_state = normalize_user_segment_builder_rows(user_segment_builder_rows_state)
+    user_segment_builder_error_by_index = {}
     render_user_segment_builder_cards()
 
 
