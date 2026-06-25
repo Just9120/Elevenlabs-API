@@ -4139,6 +4139,7 @@ def parse_user_segment_plan(raw_text: str, duration_seconds: float) -> list[dict
         raise ValueError("Включена сегментация, но список сегментов пуст.")
 
     segments = []
+    seen_label_keys = {}
     for line_no, line in enumerate(raw_text.splitlines(), start=1):
         stripped = line.strip()
         if not stripped:
@@ -4147,6 +4148,10 @@ def parse_user_segment_plan(raw_text: str, duration_seconds: float) -> list[dict
             raise ValueError(f"Строка {line_no}: нужен формат Метка проекта | 00:00-end.")
         label_part, range_part = [part.strip() for part in stripped.split("|", 1)]
         label = validate_user_segment_label(label_part)
+        label_key = label.casefold()
+        if label_key in seen_label_keys:
+            raise ValueError(f"Строка {line_no}: дублируется метка сегмента «{label}»; метки проектов должны быть уникальны.")
+        seen_label_keys[label_key] = line_no
         if "-" not in range_part:
             raise ValueError(f"Строка {line_no}: нужен диапазон start-end.")
         start_part, end_part = [part.strip() for part in range_part.split("-", 1)]
@@ -5209,6 +5214,43 @@ def inspect_source_input(
     return info
 
 
+
+
+def count_user_segment_conflict_hits(original_filename: str, segments: list[dict], docs_index: dict[str, list[dict]]) -> int:
+    count = 0
+    for segment in segments:
+        base_name = build_user_segment_source_name(original_filename, segment["label"])
+        if get_existing_doc_matches(base_name, docs_index):
+            count += 1
+    return count
+
+
+def build_safe_user_segment_source_check_text(
+    source_type_label: str,
+    filename: str,
+    is_video: bool,
+    segments: list[dict],
+    conflict_count: Optional[int],
+    manifest_enabled: bool,
+) -> str:
+    lines = [
+        "====================",
+        "ПРОВЕРКА ИСТОЧНИКА",
+        "====================",
+        f"Тип источника: {source_type_label}",
+        f"Имя: {filename}",
+        f"Формат: {'видео' if is_video else 'аудио'}",
+        "",
+        "Предпросмотр сегментации (без путей, ссылок, ID и текста транскрипта):",
+        build_user_segment_preview_text(segments),
+    ]
+    if conflict_count is None:
+        lines.append("Папка назначения ещё не выбрана, совпадения не проверялись.")
+    else:
+        lines.append(f"Совпадений имён документов по сегментам: {conflict_count}")
+    lines.append(f"Manifest: {'включён' if manifest_enabled else 'выключен'}")
+    return "\n".join(lines)
+
 def warn_about_large_local_uploads(uploaded: dict):
     large = []
     for filename, file_bytes in uploaded.items():
@@ -5405,6 +5447,22 @@ def process_local_uploaded(
 
             base_name = os.path.splitext(os.path.basename(filename))[0]
 
+            if user_segment_plan_text is not None:
+                print(f"\nОбрабатываю: {filename}")
+                temp_input_path = save_uploaded_bytes_to_temp(filename, file_bytes)
+                return process_user_segments_for_source(
+                    input_path=temp_input_path,
+                    original_filename=filename,
+                    original_source_signature=source_signature,
+                    original_source_meta=source_meta,
+                    source_mode=source_mode,
+                    source_reference="uploaded_bytes",
+                    segment_plan_text=user_segment_plan_text,
+                    run_ctx=run_ctx,
+                    progress_callback=progress_callback,
+                    timer=timer,
+                )
+
             if conflict_mode_needs_existing_match_before_transcription(run_ctx.conflict_mode) and get_single_existing_doc_match(base_name, run_ctx.docs_index):
                 print(f"Пропуск: {filename} -> документ уже существует")
                 skipped.append({"source": filename, "reason": "Документ уже существует"})
@@ -5419,19 +5477,6 @@ def process_local_uploaded(
 
             print(f"\nОбрабатываю: {filename}")
             temp_input_path = save_uploaded_bytes_to_temp(filename, file_bytes)
-            if user_segment_plan_text:
-                return process_user_segments_for_source(
-                    input_path=temp_input_path,
-                    original_filename=filename,
-                    original_source_signature=source_signature,
-                    original_source_meta=source_meta,
-                    source_mode=source_mode,
-                    source_reference="uploaded_bytes",
-                    segment_plan_text=user_segment_plan_text,
-                    run_ctx=run_ctx,
-                    progress_callback=progress_callback,
-                    timer=timer,
-                )
             with timer.measure("manifest_write") if timer else nullcontext():
                 mark_manifest_in_progress(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, source_meta)
             report_progress_for_file(progress_callback, idx, total, 1, f"Транскрибация: {filename}")
@@ -5475,8 +5520,9 @@ def process_local_uploaded(
                 append_success(successes, filename, result)
 
         except Exception as e:
-            with timer.measure("manifest_write") if timer else nullcontext():
-                mark_manifest_failed(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, str(e), source_meta)
+            if user_segment_plan_text is None:
+                with timer.measure("manifest_write") if timer else nullcontext():
+                    mark_manifest_failed(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, str(e), source_meta)
             print(f"Ошибка: {filename} -> {e}")
             errors.append({"source": filename, "error": str(e)})
 
@@ -5519,6 +5565,21 @@ def process_drive_file_input(
         try:
             base_name = os.path.splitext(filename)[0]
 
+            if user_segment_plan_text is not None:
+                print(f"\nОбрабатываю: {filename}")
+                return process_user_segments_for_source(
+                    input_path=file_path,
+                    original_filename=filename,
+                    original_source_signature=source_signature,
+                    original_source_meta=source_meta,
+                    source_mode="drive_file",
+                    source_reference="local_path",
+                    segment_plan_text=user_segment_plan_text,
+                    run_ctx=run_ctx,
+                    progress_callback=progress_callback,
+                    timer=timer,
+                )
+
             if conflict_mode_needs_existing_match_before_transcription(run_ctx.conflict_mode) and get_single_existing_doc_match(base_name, run_ctx.docs_index):
                 print(f"Пропуск: {filename} -> документ уже существует")
                 skipped.append({"source": filename, "reason": "Документ уже существует"})
@@ -5532,19 +5593,6 @@ def process_drive_file_input(
                     return successes, errors, skipped
 
             print(f"\nОбрабатываю: {filename}")
-            if user_segment_plan_text:
-                return process_user_segments_for_source(
-                    input_path=file_path,
-                    original_filename=filename,
-                    original_source_signature=source_signature,
-                    original_source_meta=source_meta,
-                    source_mode="drive_file",
-                    source_reference="local_path",
-                    segment_plan_text=user_segment_plan_text,
-                    run_ctx=run_ctx,
-                    progress_callback=progress_callback,
-                    timer=timer,
-                )
             with timer.measure("manifest_write") if timer else nullcontext():
                 mark_manifest_in_progress(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, source_meta)
             report_progress_for_file(progress_callback, 1, 1, 1, f"Транскрибация: {filename}")
@@ -5579,8 +5627,9 @@ def process_drive_file_input(
                 append_success(successes, file_path, result)
 
         except Exception as e:
-            with timer.measure("manifest_write") if timer else nullcontext():
-                mark_manifest_failed(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, str(e), source_meta)
+            if user_segment_plan_text is None:
+                with timer.measure("manifest_write") if timer else nullcontext():
+                    mark_manifest_failed(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, str(e), source_meta)
             print(f"Ошибка: {file_path} -> {e}")
             errors.append({"source": file_path, "error": str(e)})
 
@@ -5610,6 +5659,23 @@ def process_drive_file_input(
     try:
         base_name = os.path.splitext(filename)[0]
 
+        if user_segment_plan_text is not None:
+            print(f"\nОбрабатываю: {filename}")
+            report_progress_for_file(progress_callback, 1, 1, 1, f"Скачивание из Google Drive: {filename}")
+            tmp_path = download_drive_file_to_temp(resolved["id"], filename)
+            return process_user_segments_for_source(
+                input_path=tmp_path,
+                original_filename=filename,
+                original_source_signature=source_signature,
+                original_source_meta=source_meta,
+                source_mode="drive_file",
+                source_reference=resolved["id"],
+                segment_plan_text=user_segment_plan_text,
+                run_ctx=run_ctx,
+                progress_callback=progress_callback,
+                timer=timer,
+            )
+
         if conflict_mode_needs_existing_match_before_transcription(run_ctx.conflict_mode) and get_single_existing_doc_match(base_name, run_ctx.docs_index):
             print(f"Пропуск: {filename} -> документ уже существует")
             skipped.append({"source": filename, "reason": "Документ уже существует"})
@@ -5625,19 +5691,6 @@ def process_drive_file_input(
         print(f"\nОбрабатываю: {filename}")
         report_progress_for_file(progress_callback, 1, 1, 1, f"Скачивание из Google Drive: {filename}")
         tmp_path = download_drive_file_to_temp(resolved["id"], filename)
-        if user_segment_plan_text:
-            return process_user_segments_for_source(
-                input_path=tmp_path,
-                original_filename=filename,
-                original_source_signature=source_signature,
-                original_source_meta=source_meta,
-                source_mode="drive_file",
-                source_reference=resolved["id"],
-                segment_plan_text=user_segment_plan_text,
-                run_ctx=run_ctx,
-                progress_callback=progress_callback,
-                timer=timer,
-            )
         mark_manifest_in_progress(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, source_meta)
         report_progress_for_file(progress_callback, 1, 1, 2, f"Транскрибация: {filename}")
 
@@ -5668,7 +5721,8 @@ def process_drive_file_input(
             append_success(successes, resolved.get("webViewLink") or filename, result)
 
     except Exception as e:
-        mark_manifest_failed(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, str(e), source_meta)
+        if user_segment_plan_text is None:
+            mark_manifest_failed(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, str(e), source_meta)
         print(f"Ошибка: {filename} -> {e}")
         errors.append({"source": filename, "error": str(e)})
 
@@ -7035,7 +7089,7 @@ user_segment_help_widget = widgets.HTML(
     "<div style='margin-top:6px; color:#5f6368;'>"
     "<b>Разделить запись по проектам перед транскрибацией</b><br>"
     "Доступно только для режимов «Компьютер: 1 файл» и «Google Drive: 1 файл». "
-    "Время должно идти подряд от 00:00 до end; будет создан один Google Doc на сегмент. "
+    "Время должно идти подряд от 00:00 до end; метки проектов должны быть уникальны; будет создан один Google Doc на сегмент. "
     "Выбранный провайдер применяется к каждому сегменту. "
     "OpenAI может дополнительно технически разделить длинный сегмент внутри своих лимитов."
     "</div>"
@@ -7311,6 +7365,7 @@ def on_check_source_clicked(_):
             mode = mode_widget.value
             if user_segment_enable_widget.value and user_segment_mode_unavailable_message(mode):
                 print(user_segment_mode_unavailable_message(mode))
+                return
             if mode not in {"drive_file", "drive_multi", "drive_folder"}:
                 print("Проверка источника нужна только для режимов Google Drive.")
                 return
@@ -7349,6 +7404,43 @@ def on_check_source_clicked(_):
             )
 
             resolved = info["resolved"]
+
+            if mode == "drive_file" and user_segment_enable_widget.value:
+                item = info["preview_items"][0]
+                if resolved["source_type"] == "local_path":
+                    source_type_label = "файл mounted Drive"
+                    try:
+                        duration_seconds = get_media_duration_seconds(resolved["path"])
+                    except Exception as e:
+                        raise ValueError("Не удалось определить длительность медиафайла. Сегментация остановлена до запроса к провайдеру.") from e
+                else:
+                    source_type_label = "файл Google Drive"
+                    tmp_preview_path = download_drive_file_to_temp(resolved["id"], resolved["name"])
+                    try:
+                        try:
+                            duration_seconds = get_media_duration_seconds(tmp_preview_path)
+                        except Exception as e:
+                            raise ValueError("Не удалось определить длительность медиафайла. Сегментация остановлена до запроса к провайдеру.") from e
+                    finally:
+                        if os.path.exists(tmp_preview_path):
+                            os.remove(tmp_preview_path)
+
+                segments = parse_user_segment_plan(user_segment_text_widget.value, duration_seconds)
+                docs_index = build_existing_docs_index(output_folder_id) if output_folder_id else {}
+                conflict_count = (
+                    count_user_segment_conflict_hits(resolved["name"], segments, docs_index)
+                    if output_folder_id else None
+                )
+                print(build_safe_user_segment_source_check_text(
+                    source_type_label=source_type_label,
+                    filename=resolved["name"],
+                    is_video=item["is_video"],
+                    segments=segments,
+                    conflict_count=conflict_count,
+                    manifest_enabled=use_manifest_widget.value,
+                ))
+                return
+
             print("====================")
             print("ПРОВЕРКА ИСТОЧНИКА")
             print("====================")
@@ -7371,26 +7463,6 @@ def on_check_source_clicked(_):
                 print(f"- {item['display_name']}")
                 print(f"- Формат: {'видео' if item['is_video'] else 'аудио'}")
 
-                if user_segment_enable_widget.value:
-                    duration_source = resolved.get("path") if resolved.get("source_type") == "local_path" else None
-                    if duration_source:
-                        try:
-                            duration_seconds = get_media_duration_seconds(duration_source)
-                        except Exception as e:
-                            raise ValueError("Не удалось определить длительность медиафайла. Сегментация остановлена до запроса к провайдеру.") from e
-                    else:
-                        tmp_preview_path = download_drive_file_to_temp(resolved["id"], resolved["name"])
-                        try:
-                            try:
-                                duration_seconds = get_media_duration_seconds(tmp_preview_path)
-                            except Exception as e:
-                                raise ValueError("Не удалось определить длительность медиафайла. Сегментация остановлена до запроса к провайдеру.") from e
-                        finally:
-                            if os.path.exists(tmp_preview_path):
-                                os.remove(tmp_preview_path)
-                    segments = parse_user_segment_plan(user_segment_text_widget.value, duration_seconds)
-                    print("\nПредпросмотр сегментации (без путей и текста транскрипта):")
-                    print(build_user_segment_preview_text(segments))
 
                 if output_folder_id:
                     print(f"- Совпадений в папке назначения: {info['conflict_count']}")

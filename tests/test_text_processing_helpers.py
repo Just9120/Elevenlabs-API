@@ -146,6 +146,8 @@ HELPER_NAMES = {
     "create_user_segment_media_file",
     "cleanup_user_segment_paths",
     "process_user_segments_for_source",
+    "count_user_segment_conflict_hits",
+    "build_safe_user_segment_source_check_text",
 }
 
 
@@ -3277,6 +3279,7 @@ parse_user_segment_plan = HELPERS["parse_user_segment_plan"]
 build_user_segment_source_signature = HELPERS["build_user_segment_source_signature"]
 build_user_segment_preview_text = HELPERS["build_user_segment_preview_text"]
 user_segment_mode_unavailable_message = HELPERS["user_segment_mode_unavailable_message"]
+build_safe_user_segment_source_check_text = HELPERS["build_safe_user_segment_source_check_text"]
 
 
 def test_user_segment_parser_parses_mmss_and_end_and_hhmmss() -> None:
@@ -3336,6 +3339,68 @@ def test_user_segment_preview_is_safe() -> None:
         assert token not in text
 
 
+
+def test_user_segment_parser_rejects_duplicate_labels_case_insensitive() -> None:
+    raw = "Project A | 00:00-00:10\nProject B | 00:10-00:20\nproject a | 00:20-end"
+    try:
+        parse_user_segment_plan(raw, 30)
+    except ValueError as exc:
+        assert "Строка 3" in str(exc)
+        assert "дублируется метка" in str(exc)
+        assert "project a" in str(exc)
+    else:
+        raise AssertionError("expected duplicate label rejection")
+
+
+def test_user_segment_parser_rejects_duplicate_labels_after_whitespace_normalization() -> None:
+    raw = "Project   A | 00:00-00:10\nOther | 00:10-00:20\nproject a | 00:20-end"
+    try:
+        parse_user_segment_plan(raw, 30)
+    except ValueError as exc:
+        assert "Строка 3" in str(exc)
+        assert "уникальны" in str(exc)
+    else:
+        raise AssertionError("expected duplicate label rejection")
+
+
+def test_user_segment_parser_valid_unique_labels_keep_structure() -> None:
+    segments = parse_user_segment_plan("Project A | 00:00-00:10\nProject B | 00:10-end", 20)
+    assert [segment["label"] for segment in segments] == ["Project A", "Project B"]
+    assert segments[0]["range_label"] == "00:00-00:10"
+    assert segments[1]["range_label"] == "00:10-end"
+
+
+def test_user_segment_safe_source_check_text_contains_only_safe_preview() -> None:
+    segments = parse_user_segment_plan("Project A | 00:00-00:30\nProject B | 00:30-end", 60)
+    text = build_safe_user_segment_source_check_text(
+        source_type_label="файл Google Drive",
+        filename="Weekly call.mp4",
+        is_video=True,
+        segments=segments,
+        conflict_count=1,
+        manifest_enabled=True,
+    )
+    assert "Weekly call.mp4" in text
+    assert "Сегментация: 2" in text
+    assert "Project A (00:00-00:30)" in text
+    assert "Project B (00:30-end)" in text
+    assert "Совпадений имён документов по сегментам: 1" in text
+    forbidden = [
+        "/content/drive/MyDrive/private.mp4",
+        "/tmp/elevenlabs_api_secret.m4a",
+        "drive-file-id-123",
+        "https://drive.google.com/file/d/drive-file-id-123/view",
+        "source_reference",
+        "transcript text",
+        "sk-fake",
+        "Bearer fake",
+        "raw payload",
+        "raw response",
+    ]
+    for token in forbidden:
+        assert token not in text
+
+
 def test_user_segment_runtime_static_contracts() -> None:
     source = CANONICAL_SOURCE.read_text(encoding="utf-8")
     assert "Разделить запись по проектам перед транскрибацией" in source
@@ -3352,7 +3417,49 @@ def test_user_segmented_and_non_segmented_paths_are_separate_static() -> None:
     source = CANONICAL_SOURCE.read_text(encoding="utf-8")
     local_block = source.split("def process_local_uploaded", 1)[1].split("def process_drive_file_input", 1)[0]
     drive_block = source.split("def process_drive_file_input", 1)[1].split("def process_drive_multi_input", 1)[0]
-    assert "if user_segment_plan_text:" in local_block
-    assert "if user_segment_plan_text:" in drive_block
+    drive_local_block = drive_block.split('if resolved["source_type"] == "local_path":', 1)[1].split('if resolved["mimeType"] == FOLDER_MIME:', 1)[0]
+    drive_download_block = drive_block.split('if resolved["mimeType"] == FOLDER_MIME:', 1)[1].split("def process_drive_multi_input", 1)[0] if "def process_drive_multi_input" in drive_block else drive_block.split('if resolved["mimeType"] == FOLDER_MIME:', 1)[1]
+
+    assert "if user_segment_plan_text is not None:" in local_block
+    assert "if user_segment_plan_text is not None:" in drive_local_block
+    assert "if user_segment_plan_text is not None:" in drive_download_block
+
+    for block in [local_block, drive_local_block, drive_download_block]:
+        segment_index = block.index("if user_segment_plan_text is not None:")
+        assert segment_index < block.index("conflict_mode_needs_existing_match_before_transcription")
+        assert segment_index < block.index("should_skip_by_manifest")
+        assert segment_index < block.index("mark_manifest_in_progress")
+
+    assert "if user_segment_plan_text is None:" in local_block
+    assert "if user_segment_plan_text is None:" in drive_local_block
+    assert "if user_segment_plan_text is None:" in drive_download_block
     assert "mark_manifest_in_progress(run_ctx.manifest, source_signature" in local_block
     assert "mark_manifest_in_progress(run_ctx.manifest, source_signature" in drive_block
+
+
+
+
+def test_user_segment_failures_use_derived_segment_identity_static() -> None:
+    source = CANONICAL_SOURCE.read_text(encoding="utf-8")
+    segment_block = source.split("def process_user_segments_for_source", 1)[1].split("def process_local_uploaded", 1)[0]
+    assert "segment_signature = build_user_segment_source_signature" in segment_block
+    assert "mark_manifest_failed(run_ctx.manifest, segment_signature" in segment_block
+    assert "mark_manifest_failed(run_ctx.manifest, original_source_signature" not in segment_block
+
+
+def test_user_segment_source_check_uses_safe_branch_before_detailed_identifiers() -> None:
+    source = CANONICAL_SOURCE.read_text(encoding="utf-8")
+    check_block = source.split("def on_check_source_clicked", 1)[1].split("# Legacy/import helper", 1)[0]
+    safe_branch = check_block.split('if mode == "drive_file" and user_segment_enable_widget.value:', 1)[1].split('if resolved["source_type"] == "drive_link":', 1)[0]
+    assert "build_safe_user_segment_source_check_text" in safe_branch
+    assert "return" in safe_branch
+    detailed_block = check_block.split('if resolved["source_type"] == "drive_link":', 1)[1]
+    assert 'print(f"ID: {resolved[\'id\']}")' in detailed_block
+    assert 'print(f"Путь: {resolved[\'path\']}")' in detailed_block
+
+
+def test_user_segment_docs_and_help_state_unique_label_rule() -> None:
+    source = CANONICAL_SOURCE.read_text(encoding="utf-8")
+    spec = (ROOT / "docs" / "project-spec.md").read_text(encoding="utf-8")
+    assert "метки проектов должны быть уникальны" in source
+    assert "unique case-insensitively" in spec

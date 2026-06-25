@@ -67,7 +67,7 @@ Realtime не является заменой stable batch workflow и не ме
 
 Google Drive picker buttons — primary reliable path. Double-click — convenience only. `drive_multi` должен оставаться explicit/button-based for safety: он обрабатывает выбранные files, а не folders, recursion или folder scan.
 
-Manual pre-transcription segmentation v1 is available only for `Компьютер: 1 файл` and `Google Drive: 1 файл`. Segment input is one line per project in `Label | start-end`, where time is `MM:SS`, `HH:MM:SS`, and final end may be `end`; segments must cover the file contiguously from `00:00` to `end`. Multi-file, folder, recursive folder and `drive_multi` modes do not support manual segmentation in v1.
+Manual pre-transcription segmentation v1 is available only for `Компьютер: 1 файл` and `Google Drive: 1 файл`. Segment input is one line per project in `Label | start-end`, where time is `MM:SS`, `HH:MM:SS`, and final end may be `end`; segments must cover the file contiguously from `00:00` to `end`, and user segment labels must be unique case-insensitively within one segmentation plan. Multi-file, folder, recursive folder and `drive_multi` modes do not support manual segmentation in v1.
 
 ## 5. Manifest, Docs и analytics authority
 
