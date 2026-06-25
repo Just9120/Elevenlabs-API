@@ -17,13 +17,14 @@
 Активный стабильный workflow использует `notebooks/elevenlabs_api_colab.ipynb` как launcher и `elevenlabs_api.py` как canonical runtime. В scope входят:
 
 - локальный и Google Drive source selection;
+- optional manual pre-transcription segmentation for one source recording (`Компьютер: 1 файл` and `Google Drive: 1 файл` only);
 - provider paths `ElevenLabs / scribe_v2`, `OpenAI / gpt-4o-transcribe`, `OpenAI / gpt-4o-transcribe-diarize`;
 - создание Google Docs transcript;
 - `manifest` skip protection и source/document synchronization;
 - `transcript_doc_v1.2` для новых и обслуживаемых документов;
 - analytics JSONL и startup timing diagnostics без transcript body и без Google Docs body content.
 
-Batch provider boundary: selected provider determines the outbound STT request path. Enabling both ElevenLabs and OpenAI secrets in Colab is allowed; the selected provider controls which key and endpoint are used for a batch transcription request. OpenAI batch long-file handling prepares mono AAC M4A and applies both 25 MB upload-size and 1320-second safe-duration splitting safeguards before the first provider request. OpenAI realtime remains out of scope for this batch workflow.
+Batch provider boundary: selected provider determines the outbound STT request path. Enabling both ElevenLabs and OpenAI secrets in Colab is allowed; the selected provider controls which key and endpoint are used for a batch transcription request. OpenAI batch long-file handling prepares mono AAC M4A and applies both 25 MB upload-size and 1320-second safe-duration splitting safeguards before the first provider request. Manual user segmentation, when enabled for one-source modes, runs before provider transcription, creates one Google Doc per user segment, and does not change provider contracts or replace OpenAI technical smart split inside an OpenAI segment. OpenAI realtime remains out of scope for this batch workflow.
 
 ### 3.2 Docs-only maintenance workflows
 
@@ -65,6 +66,8 @@ Realtime не является заменой stable batch workflow и не ме
 - `Google Drive: папка`.
 
 Google Drive picker buttons — primary reliable path. Double-click — convenience only. `drive_multi` должен оставаться explicit/button-based for safety: он обрабатывает выбранные files, а не folders, recursion или folder scan.
+
+Manual pre-transcription segmentation v1 is available only for `Компьютер: 1 файл` and `Google Drive: 1 файл`. Segment input is one line per project in `Label | start-end`, where time is `MM:SS`, `HH:MM:SS`, and final end may be `end`; segments must cover the file contiguously from `00:00` to `end`. Multi-file, folder, recursive folder and `drive_multi` modes do not support manual segmentation in v1.
 
 ## 5. Manifest, Docs и analytics authority
 

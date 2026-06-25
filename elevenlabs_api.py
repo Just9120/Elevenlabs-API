@@ -224,6 +224,8 @@ def print_timing_summary(timer: Optional[RunTimer]):
         "source_collect",
         "drive_download",
         "media_prepare",
+        "user_segment_split",
+        "user_segment_processing",
         "provider_transcription",
         # OpenAI-specific phases are a detailed local breakdown inside the broader
         # provider_transcription workflow metric; they do not reinterpret that global metric.
@@ -985,6 +987,53 @@ def build_uploaded_source_signature(filename: str, file_bytes: bytes) -> str:
         "filename": filename,
         "sha256": file_hash,
     })
+
+
+def build_user_segment_source_signature(
+    original_source_signature: str,
+    original_source_name: str,
+    segment_label: str,
+    start_label: str,
+    end_label: str,
+    source_mode: str,
+    source_reference: str = "",
+) -> str:
+    return json_sha256({
+        "source_type": "user_segment",
+        "original_source_signature": original_source_signature,
+        "original_source_name": original_source_name,
+        "segment_label": segment_label,
+        "start": start_label,
+        "end": end_label,
+        "source_mode": source_mode,
+        "source_reference": source_reference or "",
+    })
+
+
+def build_user_segment_source_name(original_source_name: str, segment_label: str) -> str:
+    stem = os.path.splitext(os.path.basename(original_source_name))[0]
+    return f"{stem} — {segment_label}"
+
+
+def build_user_segment_meta(
+    original_source_meta: dict,
+    original_source_name: str,
+    segment: dict,
+    source_mode: str,
+    source_reference: str = "",
+) -> dict:
+    meta = dict(original_source_meta or {})
+    meta.update({
+        "type": "user_segment",
+        "original_source_name": original_source_name,
+        "segment_label": segment["label"],
+        "segment_start": segment["start_label"],
+        "segment_end": segment["end_label"],
+        "source_mode": source_mode,
+        "source_reference": source_reference or "",
+    })
+    meta.pop("path", None)
+    return meta
 
 
 def get_or_create_folder_in_parent(parent_id: str, folder_name: str) -> dict:
@@ -3202,19 +3251,29 @@ def build_transcript_metadata_lines(
     language: str,
     speakers_enabled: bool | None,
     created_at: str,
+    segment_label: Optional[str] = None,
+    segment_time_range: Optional[str] = None,
+    original_source_name: Optional[str] = None,
 ) -> list[str]:
     if speakers_enabled is None:
         speakers_value = "unknown"
     else:
         speakers_value = "yes" if speakers_enabled else "no"
 
-    return [
+    lines = [
         f"Provider: {format_transcript_metadata_value(provider)}",
         f"Model: {format_transcript_metadata_value(provider_model)}",
         f"Language: {format_transcript_metadata_value(language)}",
         f"Speakers: {speakers_value}",
         f"Created at: {format_transcript_metadata_value(created_at)}",
     ]
+    if segment_label:
+        lines.append(f"Segment project: {format_transcript_metadata_value(segment_label)}")
+    if segment_time_range:
+        lines.append(f"Segment time range: {format_transcript_metadata_value(segment_time_range)}")
+    if original_source_name:
+        lines.append(f"Original source: {format_transcript_metadata_value(original_source_name)}")
+    return lines
 
 
 def segment_plain_transcript_for_docs(transcript_text: str, target_chars: int = 1800) -> str:
@@ -4039,6 +4098,132 @@ def get_media_duration_seconds(input_path: str) -> float:
 
 
 
+
+
+def parse_user_segment_time(value: str, *, allow_end: bool = False, duration_seconds: Optional[float] = None) -> tuple[float, str]:
+    raw = str(value or "").strip()
+    if allow_end and raw.casefold() == "end":
+        if duration_seconds is None or duration_seconds <= 0:
+            raise ValueError("Не удалось определить длительность медиафайла для границы end.")
+        return float(duration_seconds), "end"
+
+    parts = raw.split(":")
+    if len(parts) not in {2, 3} or not all(re.fullmatch(r"\d{2}", part) for part in parts):
+        raise ValueError(f"Некорректное время: {raw}")
+    values = [int(part) for part in parts]
+    if len(values) == 2:
+        minutes, seconds = values
+        if seconds >= 60:
+            raise ValueError(f"Некорректное время: {raw}")
+        return float(minutes * 60 + seconds), raw
+    hours, minutes, seconds = values
+    if minutes >= 60 or seconds >= 60:
+        raise ValueError(f"Некорректное время: {raw}")
+    return float(hours * 3600 + minutes * 60 + seconds), raw
+
+
+def validate_user_segment_label(label: str) -> str:
+    cleaned = re.sub(r"\s+", " ", str(label or "")).strip()
+    if not cleaned:
+        raise ValueError("У каждого сегмента должна быть непустая метка проекта до символа |.")
+    if "/" in cleaned or "\\" in cleaned or any(ord(ch) < 32 for ch in cleaned):
+        raise ValueError("Метка сегмента не должна содержать /, \\ или управляющие символы.")
+    return cleaned
+
+
+def parse_user_segment_plan(raw_text: str, duration_seconds: float) -> list[dict]:
+    if duration_seconds is None or duration_seconds <= 0:
+        raise ValueError("Не удалось определить длительность медиафайла. Сегментация остановлена до запроса к провайдеру.")
+    raw_text = str(raw_text or "")
+    if not raw_text.strip():
+        raise ValueError("Включена сегментация, но список сегментов пуст.")
+
+    segments = []
+    for line_no, line in enumerate(raw_text.splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if "|" not in stripped:
+            raise ValueError(f"Строка {line_no}: нужен формат Метка проекта | 00:00-end.")
+        label_part, range_part = [part.strip() for part in stripped.split("|", 1)]
+        label = validate_user_segment_label(label_part)
+        if "-" not in range_part:
+            raise ValueError(f"Строка {line_no}: нужен диапазон start-end.")
+        start_part, end_part = [part.strip() for part in range_part.split("-", 1)]
+        start_seconds, start_label = parse_user_segment_time(start_part, allow_end=False, duration_seconds=duration_seconds)
+        end_seconds, end_label = parse_user_segment_time(end_part, allow_end=True, duration_seconds=duration_seconds)
+        if end_seconds <= start_seconds:
+            raise ValueError(f"Строка {line_no}: сегмент должен иметь положительную длительность.")
+        if start_seconds > duration_seconds or end_seconds > duration_seconds + 0.001:
+            raise ValueError(f"Строка {line_no}: граница сегмента выходит за длительность медиафайла.")
+        segments.append({
+            "label": label,
+            "start_seconds": start_seconds,
+            "end_seconds": end_seconds,
+            "duration_seconds": end_seconds - start_seconds,
+            "start_label": start_label,
+            "end_label": end_label,
+            "range_label": f"{start_label}-{end_label}",
+        })
+
+    if not segments:
+        raise ValueError("Включена сегментация, но список сегментов пуст.")
+    if abs(segments[0]["start_seconds"]) > 0.001:
+        raise ValueError("Первый сегмент должен начинаться с 00:00.")
+    if segments[-1]["end_label"] != "end":
+        raise ValueError("Последний сегмент должен заканчиваться на end.")
+
+    previous_end = 0.0
+    for idx, segment in enumerate(segments, start=1):
+        if segment["start_seconds"] < previous_end - 0.001:
+            raise ValueError("Сегменты пересекаются или указаны не по порядку.")
+        if segment["start_seconds"] > previous_end + 0.001:
+            raise ValueError("В v1 сегменты должны идти подряд без пропусков от 00:00 до end.")
+        previous_end = segment["end_seconds"]
+    return segments
+
+
+def build_user_segment_preview_text(segments: list[dict]) -> str:
+    lines = [f"Сегментация: {len(segments)} сегмент(ов)."]
+    for idx, segment in enumerate(segments, start=1):
+        lines.append(f"- {idx}. {segment['label']} ({segment['range_label']})")
+    return "\n".join(lines)
+
+
+def user_segment_mode_unavailable_message(mode: str) -> str:
+    if mode in {"local_file", "drive_file"}:
+        return ""
+    return "Ручная разбивка по проектам доступна только для режимов «Компьютер: 1 файл» и «Google Drive: 1 файл»."
+
+
+def create_user_segment_media_file(input_path: str, segment: dict) -> str:
+    ensure_ffmpeg_available()
+    suffix = Path(input_path).suffix or ".m4a"
+    output_path = create_project_temp_file(suffix=suffix)
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-ss", f"{segment['start_seconds']:.3f}",
+        "-t", f"{segment['duration_seconds']:.3f}",
+        "-i", input_path,
+        "-c", "copy",
+        output_path,
+    ]
+    try:
+        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except subprocess.CalledProcessError as e:
+        if os.path.exists(output_path):
+            os.remove(output_path)
+        stderr = e.stderr.decode("utf-8", errors="ignore")
+        raise RuntimeError(f"Не удалось создать временный файл сегмента.\n{stderr[-1200:]}") from e
+    return output_path
+
+
+def cleanup_user_segment_paths(paths: list[str]):
+    for path in paths:
+        if path and os.path.exists(path):
+            os.remove(path)
+
 def normalize_text_for_overlap_match(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip().casefold()
 
@@ -4643,6 +4828,7 @@ def upsert_transcript_document(
     source_name: str,
     source_mode: str,
     options: TranscriptionRuntimeOptions,
+    segment_metadata: Optional[dict] = None,
 ) -> dict:
     existing = get_single_existing_doc_match(base_name, docs_index)
 
@@ -4658,6 +4844,9 @@ def upsert_transcript_document(
             language=language,
             speakers_enabled=options.separate_speakers,
             created_at=utc_now_iso(),
+            segment_label=(segment_metadata or {}).get("label"),
+            segment_time_range=(segment_metadata or {}).get("range_label"),
+            original_source_name=(segment_metadata or {}).get("original_source_name"),
         )
         return build_structured_transcript_document_text(
             document_title=doc_title,
@@ -5080,12 +5269,122 @@ def report_progress_for_file(progress_callback, file_index: int, total_files: in
     progress_callback(current_units, total_units, label)
 
 
+
+
+def process_user_segments_for_source(
+    input_path: str,
+    original_filename: str,
+    original_source_signature: str,
+    original_source_meta: dict,
+    source_mode: str,
+    source_reference: str,
+    segment_plan_text: str,
+    run_ctx: RunExecutionContext,
+    progress_callback=None,
+    timer: Optional[RunTimer] = None,
+) -> tuple[list, list, list]:
+    successes, errors, skipped = [], [], []
+    segment_paths = []
+    try:
+        duration_seconds = get_media_duration_seconds(input_path)
+    except Exception as e:
+        raise ValueError("Не удалось определить длительность медиафайла. Сегментация остановлена до запроса к провайдеру.") from e
+    if duration_seconds <= 0:
+        raise ValueError("Не удалось определить длительность медиафайла. Сегментация остановлена до запроса к провайдеру.")
+    segments = parse_user_segment_plan(segment_plan_text, duration_seconds)
+    print(build_user_segment_preview_text(segments))
+
+    try:
+        with timer.measure("user_segment_split") if timer else nullcontext():
+            for segment in segments:
+                segment_paths.append(create_user_segment_media_file(input_path, segment))
+
+        total = len(segments)
+        for idx, (segment, segment_path) in enumerate(zip(segments, segment_paths), start=1):
+            file_started = time.perf_counter()
+            segment_source_name = build_user_segment_source_name(original_filename, segment["label"])
+            segment_signature = build_user_segment_source_signature(
+                original_source_signature=original_source_signature,
+                original_source_name=original_filename,
+                segment_label=segment["label"],
+                start_label=segment["start_label"],
+                end_label=segment["end_label"],
+                source_mode=source_mode,
+                source_reference=source_reference,
+            )
+            segment_meta = build_user_segment_meta(
+                original_source_meta=original_source_meta,
+                original_source_name=original_filename,
+                segment=segment,
+                source_mode=source_mode,
+                source_reference=source_reference,
+            )
+            base_name = segment_source_name
+            print(f"Сегмент {idx}/{total}: {segment['label']} ({segment['range_label']})")
+            try:
+                if conflict_mode_needs_existing_match_before_transcription(run_ctx.conflict_mode) and get_single_existing_doc_match(base_name, run_ctx.docs_index):
+                    print(f"Пропуск: {segment_source_name} -> документ уже существует")
+                    skipped.append({"source": segment_source_name, "reason": "Документ уже существует"})
+                    continue
+                if not run_ctx.ignore_manifest:
+                    should_skip, reason = should_skip_by_manifest(run_ctx.manifest, segment_signature, run_ctx.settings_signature)
+                    if should_skip:
+                        print(f"Пропуск: {segment_source_name} -> {reason}")
+                        skipped.append({"source": segment_source_name, "reason": reason})
+                        continue
+
+                with timer.measure("manifest_write") if timer else nullcontext():
+                    mark_manifest_in_progress(run_ctx.manifest, segment_signature, run_ctx.settings_signature, segment_source_name, segment_meta)
+                report_progress_for_file(progress_callback, idx, total, 1, f"Транскрибация сегмента: {segment['label']}")
+                with timer.measure("user_segment_processing") if timer else nullcontext():
+                    with timer.measure("provider_transcription") if timer else nullcontext():
+                        transcript = transcribe_media_path(
+                            input_path=segment_path,
+                            original_filename=f"{segment_source_name}{Path(original_filename).suffix}",
+                            options=run_ctx.options,
+                            timer=timer,
+                        )
+                report_progress_for_file(progress_callback, idx, total, 3, f"Запись в Google Docs: {segment['label']}")
+                with timer.measure("docs_output") if timer else nullcontext():
+                    result = upsert_transcript_document(
+                        base_name=base_name,
+                        transcript_text=transcript,
+                        output_folder_id=run_ctx.output_folder_id,
+                        docs_index=run_ctx.docs_index,
+                        conflict_mode=run_ctx.conflict_mode,
+                        source_name=segment_source_name,
+                        source_mode=source_mode,
+                        options=run_ctx.options,
+                        segment_metadata={**segment, "original_source_name": original_filename},
+                    )
+                if result["status"] == "skipped":
+                    print(f"Пропуск: {segment_source_name} -> {result['reason']}")
+                    skipped.append({"source": segment_source_name, "reason": result["reason"]})
+                else:
+                    with timer.measure("manifest_write") if timer else nullcontext():
+                        mark_manifest_done(run_ctx.manifest, segment_signature, run_ctx.settings_signature, segment_source_name, result["doc_name"], result["link"], segment_meta)
+                    print(f"Готово: {result['link']}")
+                    append_success(successes, segment_source_name, result)
+            except Exception as e:
+                with timer.measure("manifest_write") if timer else nullcontext():
+                    mark_manifest_failed(run_ctx.manifest, segment_signature, run_ctx.settings_signature, segment_source_name, str(e), segment_meta)
+                print(f"Ошибка: {segment_source_name} -> {e}")
+                errors.append({"source": segment_source_name, "error": str(e)})
+            finally:
+                if timer:
+                    timer.add_duration("per_file_total", time.perf_counter() - file_started)
+                report_progress_for_file(progress_callback, idx, total, PROGRESS_STAGES_PER_FILE, f"Готово: {segment['label']}")
+        return successes, errors, skipped
+    finally:
+        cleanup_user_segment_paths(segment_paths)
+
 def process_local_uploaded(
     uploaded: dict,
     run_ctx: RunExecutionContext,
     source_mode: str,
     progress_callback=None,
     timer: Optional[RunTimer] = None,
+    user_segment_plan_text: Optional[str] = None,
 ) -> tuple[list, list, list]:
     successes, errors, skipped = [], [], []
 
@@ -5120,6 +5419,19 @@ def process_local_uploaded(
 
             print(f"\nОбрабатываю: {filename}")
             temp_input_path = save_uploaded_bytes_to_temp(filename, file_bytes)
+            if user_segment_plan_text:
+                return process_user_segments_for_source(
+                    input_path=temp_input_path,
+                    original_filename=filename,
+                    original_source_signature=source_signature,
+                    original_source_meta=source_meta,
+                    source_mode=source_mode,
+                    source_reference="uploaded_bytes",
+                    segment_plan_text=user_segment_plan_text,
+                    run_ctx=run_ctx,
+                    progress_callback=progress_callback,
+                    timer=timer,
+                )
             with timer.measure("manifest_write") if timer else nullcontext():
                 mark_manifest_in_progress(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, source_meta)
             report_progress_for_file(progress_callback, idx, total, 1, f"Транскрибация: {filename}")
@@ -5183,6 +5495,7 @@ def process_drive_file_input(
     run_ctx: RunExecutionContext,
     progress_callback=None,
     timer: Optional[RunTimer] = None,
+    user_segment_plan_text: Optional[str] = None,
 ) -> tuple[list, list, list]:
     successes, errors, skipped = [], [], []
     run_file_started = time.perf_counter()
@@ -5219,6 +5532,19 @@ def process_drive_file_input(
                     return successes, errors, skipped
 
             print(f"\nОбрабатываю: {filename}")
+            if user_segment_plan_text:
+                return process_user_segments_for_source(
+                    input_path=file_path,
+                    original_filename=filename,
+                    original_source_signature=source_signature,
+                    original_source_meta=source_meta,
+                    source_mode="drive_file",
+                    source_reference="local_path",
+                    segment_plan_text=user_segment_plan_text,
+                    run_ctx=run_ctx,
+                    progress_callback=progress_callback,
+                    timer=timer,
+                )
             with timer.measure("manifest_write") if timer else nullcontext():
                 mark_manifest_in_progress(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, source_meta)
             report_progress_for_file(progress_callback, 1, 1, 1, f"Транскрибация: {filename}")
@@ -5297,9 +5623,22 @@ def process_drive_file_input(
                 return successes, errors, skipped
 
         print(f"\nОбрабатываю: {filename}")
-        mark_manifest_in_progress(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, source_meta)
         report_progress_for_file(progress_callback, 1, 1, 1, f"Скачивание из Google Drive: {filename}")
         tmp_path = download_drive_file_to_temp(resolved["id"], filename)
+        if user_segment_plan_text:
+            return process_user_segments_for_source(
+                input_path=tmp_path,
+                original_filename=filename,
+                original_source_signature=source_signature,
+                original_source_meta=source_meta,
+                source_mode="drive_file",
+                source_reference=resolved["id"],
+                segment_plan_text=user_segment_plan_text,
+                run_ctx=run_ctx,
+                progress_callback=progress_callback,
+                timer=timer,
+            )
+        mark_manifest_in_progress(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, source_meta)
         report_progress_for_file(progress_callback, 1, 1, 2, f"Транскрибация: {filename}")
 
         transcript = transcribe_media_path(
@@ -6679,6 +7018,31 @@ keyterms_widget = widgets.Textarea(
     layout=widgets.Layout(width="1000px", height="160px")
 )
 
+user_segment_enable_widget = widgets.Checkbox(
+    value=False,
+    description="Разделить запись по проектам",
+    indent=False
+)
+
+user_segment_text_widget = widgets.Textarea(
+    value="",
+    placeholder="Project Alpha | 00:00-23:40\nProject Beta | 23:40-end",
+    description="Сегменты:",
+    layout=widgets.Layout(width="1000px", height="120px")
+)
+
+user_segment_help_widget = widgets.HTML(
+    "<div style='margin-top:6px; color:#5f6368;'>"
+    "<b>Разделить запись по проектам перед транскрибацией</b><br>"
+    "Доступно только для режимов «Компьютер: 1 файл» и «Google Drive: 1 файл». "
+    "Время должно идти подряд от 00:00 до end; будет создан один Google Doc на сегмент. "
+    "Выбранный провайдер применяется к каждому сегменту. "
+    "OpenAI может дополнительно технически разделить длинный сегмент внутри своих лимитов."
+    "</div>"
+)
+
+user_segment_unavailable_widget = widgets.HTML("")
+
 check_source_button = widgets.Button(
     description="Проверить источник",
     icon="search"
@@ -6911,6 +7275,25 @@ mode_widget.observe(refresh_ui, names="value")
 use_keyterms_widget.observe(refresh_ui, names="value")
 
 
+def get_enabled_user_segment_plan_text(mode: str) -> Optional[str]:
+    if not user_segment_enable_widget.value:
+        return None
+    unavailable = user_segment_mode_unavailable_message(mode)
+    if unavailable:
+        raise ValueError(unavailable)
+    return user_segment_text_widget.value
+
+
+def refresh_user_segment_ui(*_args):
+    message = user_segment_mode_unavailable_message(mode_widget.value)
+    user_segment_unavailable_widget.value = f"<div style='color:#b3261e;'>{message}</div>" if message else ""
+    user_segment_text_widget.disabled = bool(message) or not user_segment_enable_widget.value
+
+
+mode_widget.observe(refresh_user_segment_ui, names="value")
+user_segment_enable_widget.observe(refresh_user_segment_ui, names="value")
+
+
 def get_source_input_value() -> str:
     current_mode = mode_widget.value
     if current_mode in {"drive_file", "drive_multi", "drive_folder"}:
@@ -6926,6 +7309,8 @@ def on_check_source_clicked(_):
 
         try:
             mode = mode_widget.value
+            if user_segment_enable_widget.value and user_segment_mode_unavailable_message(mode):
+                print(user_segment_mode_unavailable_message(mode))
             if mode not in {"drive_file", "drive_multi", "drive_folder"}:
                 print("Проверка источника нужна только для режимов Google Drive.")
                 return
@@ -6985,6 +7370,27 @@ def on_check_source_clicked(_):
                 print("\nФайл распознан корректно.")
                 print(f"- {item['display_name']}")
                 print(f"- Формат: {'видео' if item['is_video'] else 'аудио'}")
+
+                if user_segment_enable_widget.value:
+                    duration_source = resolved.get("path") if resolved.get("source_type") == "local_path" else None
+                    if duration_source:
+                        try:
+                            duration_seconds = get_media_duration_seconds(duration_source)
+                        except Exception as e:
+                            raise ValueError("Не удалось определить длительность медиафайла. Сегментация остановлена до запроса к провайдеру.") from e
+                    else:
+                        tmp_preview_path = download_drive_file_to_temp(resolved["id"], resolved["name"])
+                        try:
+                            try:
+                                duration_seconds = get_media_duration_seconds(tmp_preview_path)
+                            except Exception as e:
+                                raise ValueError("Не удалось определить длительность медиафайла. Сегментация остановлена до запроса к провайдеру.") from e
+                        finally:
+                            if os.path.exists(tmp_preview_path):
+                                os.remove(tmp_preview_path)
+                    segments = parse_user_segment_plan(user_segment_text_widget.value, duration_seconds)
+                    print("\nПредпросмотр сегментации (без путей и текста транскрипта):")
+                    print(build_user_segment_preview_text(segments))
 
                 if output_folder_id:
                     print(f"- Совпадений в папке назначения: {info['conflict_count']}")
@@ -7573,6 +7979,7 @@ def on_start_clicked(_):
                 )
 
             print_preflight_summary(run_ctx=run_ctx, source_mode=mode)
+            user_segment_plan_text = get_enabled_user_segment_plan_text(mode)
 
             if mode == "local_file":
                 print("Выбери один файл с компьютера...")
@@ -7589,6 +7996,7 @@ def on_start_clicked(_):
                         progress_callback=set_progress,
                         timer=timer,
                         source_mode=mode,
+                        user_segment_plan_text=user_segment_plan_text,
                     )
 
             elif mode == "local_multi":
@@ -7619,6 +8027,7 @@ def on_start_clicked(_):
                         run_ctx=run_ctx,
                         progress_callback=set_progress,
                         timer=timer,
+                        user_segment_plan_text=user_segment_plan_text,
                     )
 
             elif mode == "drive_multi":
@@ -8039,6 +8448,7 @@ import_existing_button.on_click(on_import_existing_clicked)
 standardize_existing_docs_button.on_click(on_standardize_existing_docs_clicked)
 standardize_manifest_v2_button.on_click(on_standardize_manifest_v2_clicked)
 start_button.on_click(on_start_clicked)
+refresh_user_segment_ui()
 
 advanced_box = widgets.VBox([
     conflict_mode_widget,
@@ -8049,6 +8459,11 @@ advanced_box = widgets.VBox([
     speaker_split_widget,
     use_keyterms_widget,
     keyterms_widget,
+    widgets.HTML("<hr><b>Разделить запись по проектам перед транскрибацией</b>"),
+    user_segment_enable_widget,
+    user_segment_text_widget,
+    user_segment_help_widget,
+    user_segment_unavailable_widget,
 ])
 
 advanced_accordion = widgets.Accordion(children=[advanced_box])

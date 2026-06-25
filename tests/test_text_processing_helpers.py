@@ -135,6 +135,17 @@ HELPER_NAMES = {
     "summarize_drive_multi_selection",
     "get_drive_source_double_click_action",
     "format_timing_line",
+    "parse_user_segment_time",
+    "validate_user_segment_label",
+    "parse_user_segment_plan",
+    "build_user_segment_preview_text",
+    "user_segment_mode_unavailable_message",
+    "build_user_segment_source_signature",
+    "build_user_segment_source_name",
+    "build_user_segment_meta",
+    "create_user_segment_media_file",
+    "cleanup_user_segment_paths",
+    "process_user_segments_for_source",
 }
 
 
@@ -206,6 +217,7 @@ def load_text_helpers() -> dict[str, object]:
                     "OPENAI_MERGE_MIN_OVERLAP_TOKENS",
                     "OPENAI_PREP_AUDIO_BITRATE",
                     "OPENAI_PREP_AUDIO_CHANNELS",
+                    "PROJECT_TEMP_PREFIX",
                 }:
                     selected_nodes.append(node)
                     break
@@ -236,6 +248,8 @@ def load_text_helpers() -> dict[str, object]:
         "Path": Path,
         "_STARTUP_TOTAL_STARTED": time.perf_counter(),
         "os": os,
+        "subprocess": __import__("subprocess"),
+        "tempfile": __import__("tempfile"),
         "get_media_duration_seconds": lambda _path: 0.0,
         "MANIFEST_IN_PROGRESS_TTL_HOURS": 12,
         "list_drive_folder_children": lambda _folder_id: [],
@@ -3257,3 +3271,88 @@ def test_openai_split_duration_fallback_stays_at_or_below_target() -> None:
         choose_openai_split_duration.__globals__["find_nearby_silence_split_point"] = original
 
     assert duration == 1320
+
+
+parse_user_segment_plan = HELPERS["parse_user_segment_plan"]
+build_user_segment_source_signature = HELPERS["build_user_segment_source_signature"]
+build_user_segment_preview_text = HELPERS["build_user_segment_preview_text"]
+user_segment_mode_unavailable_message = HELPERS["user_segment_mode_unavailable_message"]
+
+
+def test_user_segment_parser_parses_mmss_and_end_and_hhmmss() -> None:
+    segments = parse_user_segment_plan("Project A | 00:00-23:40\nProject B | 23:40-end", 1800)
+    assert segments[0]["label"] == "Project A"
+    assert segments[0]["start_seconds"] == 0
+    assert segments[0]["end_seconds"] == 1420
+    assert segments[1]["end_label"] == "end"
+    hh = parse_user_segment_plan("Project Gamma | 00:00-01:05:20\nTail | 01:05:20-end", 4000)
+    assert hh[0]["end_seconds"] == 3920
+
+
+def test_user_segment_parser_rejects_invalid_inputs() -> None:
+    cases = [
+        (" | 00:00-end", 100),
+        ("A | nope-end", 100),
+        ("A | 00:00-00:50\nB | 00:40-end", 100),
+        ("A | 00:30-00:50\nB | 00:50-end", 100),
+        ("A | 00:00-00:40\nB | 00:50-end", 100),
+        ("A | 00:00-00:50\nB | 00:50-01:30", 100),
+        ("A | 00:00-00:00\nB | 00:00-end", 100),
+        ("Bad/Label | 00:00-end", 100),
+        ("Bad\\Label | 00:00-end", 100),
+        ("Bad\x01Label | 00:00-end", 100),
+        ("A | 00:00-02:00\nB | 02:00-end", 100),
+    ]
+    for raw, duration in cases:
+        try:
+            parse_user_segment_plan(raw, duration)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"expected rejection for {raw!r}")
+
+
+def test_user_segmentation_ui_mode_availability_static() -> None:
+    assert user_segment_mode_unavailable_message("local_file") == ""
+    assert user_segment_mode_unavailable_message("drive_file") == ""
+    for mode in ["local_multi", "drive_multi", "drive_folder"]:
+        assert "доступна только" in user_segment_mode_unavailable_message(mode)
+
+
+def test_user_segment_source_identity_is_distinct_and_stable() -> None:
+    a1 = build_user_segment_source_signature("orig", "Weekly call.mp4", "Project A", "00:00", "23:40", "drive_file", "file-id")
+    a2 = build_user_segment_source_signature("orig", "Weekly call.mp4", "Project A", "00:00", "23:40", "drive_file", "file-id")
+    b = build_user_segment_source_signature("orig", "Weekly call.mp4", "Project B", "23:40", "end", "drive_file", "file-id")
+    assert a1 == a2
+    assert a1 != b
+
+
+def test_user_segment_preview_is_safe() -> None:
+    segments = parse_user_segment_plan("Project A | 00:00-00:30\nProject B | 00:30-end", 60)
+    text = build_user_segment_preview_text(segments)
+    assert "Project A" in text and "00:30-end" in text
+    forbidden = ["/tmp/private/source.m4a", "sk-fake", "raw provider body", "transcript text", "docs.google.com/document/d/fake"]
+    for token in forbidden:
+        assert token not in text
+
+
+def test_user_segment_runtime_static_contracts() -> None:
+    source = CANONICAL_SOURCE.read_text(encoding="utf-8")
+    assert "Разделить запись по проектам перед транскрибацией" in source
+    assert "create_user_segment_media_file" in source
+    assert '"-ss", f"{segment[\'start_seconds\']:.3f}"' in source
+    assert '"-t", f"{segment[\'duration_seconds\']:.3f}"' in source
+    assert "process_user_segments_for_source" in source
+    assert "transcribe_media_path(" in source
+    assert "cleanup_user_segment_paths(segment_paths)" in source
+    assert "ThreadPoolExecutor" not in source.split("def process_user_segments_for_source", 1)[1].split("def process_local_uploaded", 1)[0]
+
+
+def test_user_segmented_and_non_segmented_paths_are_separate_static() -> None:
+    source = CANONICAL_SOURCE.read_text(encoding="utf-8")
+    local_block = source.split("def process_local_uploaded", 1)[1].split("def process_drive_file_input", 1)[0]
+    drive_block = source.split("def process_drive_file_input", 1)[1].split("def process_drive_multi_input", 1)[0]
+    assert "if user_segment_plan_text:" in local_block
+    assert "if user_segment_plan_text:" in drive_block
+    assert "mark_manifest_in_progress(run_ctx.manifest, source_signature" in local_block
+    assert "mark_manifest_in_progress(run_ctx.manifest, source_signature" in drive_block
