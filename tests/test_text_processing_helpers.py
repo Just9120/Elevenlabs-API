@@ -16,6 +16,8 @@ import os
 import re
 import time
 import uuid
+
+import pytest
 from contextlib import contextmanager, nullcontext
 from typing import Optional
 from datetime import datetime, timedelta, timezone
@@ -138,6 +140,12 @@ HELPER_NAMES = {
     "parse_user_segment_time",
     "validate_user_segment_label",
     "parse_user_segment_plan",
+    "validate_user_segment_document_title",
+    "build_user_segment_requested_document_titles",
+    "reject_duplicate_user_segment_requested_titles",
+    "allocate_user_segment_document_titles",
+    "apply_user_segment_document_titles",
+    "get_existing_document_names_from_index",
     "build_user_segment_preview_text",
     "user_segment_mode_unavailable_message",
     "build_user_segment_source_signature",
@@ -3277,6 +3285,11 @@ def test_openai_split_duration_fallback_stays_at_or_below_target() -> None:
 
 
 parse_user_segment_plan = HELPERS["parse_user_segment_plan"]
+build_user_segment_requested_document_titles = HELPERS["build_user_segment_requested_document_titles"]
+reject_duplicate_user_segment_requested_titles = HELPERS["reject_duplicate_user_segment_requested_titles"]
+allocate_user_segment_document_titles = HELPERS["allocate_user_segment_document_titles"]
+apply_user_segment_document_titles = HELPERS["apply_user_segment_document_titles"]
+get_existing_document_names_from_index = HELPERS["get_existing_document_names_from_index"]
 build_user_segment_source_signature = HELPERS["build_user_segment_source_signature"]
 build_user_segment_preview_text = HELPERS["build_user_segment_preview_text"]
 user_segment_mode_unavailable_message = HELPERS["user_segment_mode_unavailable_message"]
@@ -3490,6 +3503,7 @@ def test_user_segment_processing_passes_m4a_name_and_cleans_on_success(tmp_path)
     segment_path = tmp_path / "segment.m4a"
     segment_path.write_bytes(b"audio")
     calls = []
+    upsert_calls = []
     globals_dict = process_user_segments_for_source.__globals__
     originals = {name: globals_dict.get(name) for name in [
         "get_media_duration_seconds", "create_user_segment_media_file", "transcribe_media_path",
@@ -3500,7 +3514,7 @@ def test_user_segment_processing_passes_m4a_name_and_cleans_on_success(tmp_path)
     globals_dict["get_media_duration_seconds"] = lambda _path: 60.0
     globals_dict["create_user_segment_media_file"] = lambda _path, _segment: str(segment_path)
     globals_dict["transcribe_media_path"] = lambda input_path, original_filename, options, timer=None: calls.append((input_path, original_filename)) or "transcript"
-    globals_dict["upsert_transcript_document"] = lambda **_kwargs: {"status": "success", "action": "created", "doc_name": "Doc", "link": "link"}
+    globals_dict["upsert_transcript_document"] = lambda **kwargs: upsert_calls.append(kwargs) or {"status": "success", "action": "created", "doc_name": "Doc", "link": "link"}
     globals_dict["mark_manifest_in_progress"] = lambda *_args, **_kwargs: None
     globals_dict["mark_manifest_done"] = lambda *_args, **_kwargs: None
     globals_dict["mark_manifest_failed"] = lambda *_args, **_kwargs: None
@@ -3515,7 +3529,8 @@ def test_user_segment_processing_passes_m4a_name_and_cleans_on_success(tmp_path)
         output_folder_id = "folder"
         conflict_mode = "update"
         ignore_manifest = True
-        docs_index = {}
+        docs_index = {"синк t-сustom": [{"name": "Синк T-Custom"}]}
+        user_segment_suffix_allocation_enabled = True
         manifest = {}
         settings_signature = "settings"
         options = object()
@@ -3528,7 +3543,7 @@ def test_user_segment_processing_passes_m4a_name_and_cleans_on_success(tmp_path)
             original_source_meta={},
             source_mode="drive_file",
             source_reference="drive-ref",
-            segment_plan_text="Project A | 00:00-end",
+            segment_plan_text="Project A | 00:00-end | Синк T-Custom",
             run_ctx=RunCtx(),
         )
     finally:
@@ -3540,6 +3555,10 @@ def test_user_segment_processing_passes_m4a_name_and_cleans_on_success(tmp_path)
 
     assert not errors and not skipped and successes
     assert calls == [(str(segment_path), "Weekly call — Project A.m4a")]
+    assert upsert_calls[0]["base_name"] == "Синк T-Custom (1)"
+    assert upsert_calls[0]["segment_metadata"]["label"] == "Project A"
+    assert upsert_calls[0]["segment_metadata"]["range_label"] == "00:00-end"
+    assert upsert_calls[0]["segment_metadata"]["original_source_name"] == "Weekly call.mp4"
     assert not segment_path.exists()
 
 
@@ -3657,3 +3676,111 @@ def test_user_segment_docs_and_help_state_unique_label_rule() -> None:
     spec = (ROOT / "docs" / "project-spec.md").read_text(encoding="utf-8")
     assert "метки проектов должны быть уникальны" in source
     assert "unique case-insensitively" in spec
+
+
+def test_user_segment_two_field_syntax_keeps_automatic_title_behavior() -> None:
+    segments = parse_user_segment_plan("Tivali | 00:00-end", 60)
+    assert segments[0]["requested_document_title"] is None
+    assert build_user_segment_requested_document_titles("Синк Tivali 21.06.2026 (2).mp4", segments) == ["Синк Tivali 21.06.2026 (2) — Tivali"]
+
+
+def test_user_segment_three_field_syntax_parses_custom_title_and_normalizes_spaces() -> None:
+    segments = parse_user_segment_plan("Tivali | 00:00-end |  Синк   Tivali — задачи  ", 60)
+    assert segments[0]["requested_document_title"] == "Синк Tivali — задачи"
+    assert build_user_segment_requested_document_titles("source.mp4", segments) == ["Синк Tivali — задачи"]
+
+
+def test_user_segment_empty_extra_field_too_many_fields_and_unsafe_titles_are_rejected() -> None:
+    for text in [
+        "Tivali | 00:00-end |   ",
+        "Tivali | 00:00-end | Title | Extra",
+        "Tivali | 00:00-end | Bad/Title",
+        "Tivali | 00:00-end | Bad\\Title",
+    ]:
+        with pytest.raises(ValueError):
+            parse_user_segment_plan(text, 60)
+
+
+def test_user_segment_duplicate_labels_still_rejected_case_insensitively() -> None:
+    with pytest.raises(ValueError, match="дублируется метка"):
+        parse_user_segment_plan("Tivali | 00:00-00:30\ntivali | 00:30-end", 60)
+
+
+def test_user_segment_duplicate_requested_titles_rejected_without_suffixes_and_allowed_with_suffixes() -> None:
+    titles = ["Status meeting", "status MEETING"]
+    with pytest.raises(ValueError, match="Используйте уникальные названия"):
+        allocate_user_segment_document_titles(titles, [], False)
+    assert allocate_user_segment_document_titles(titles, [], True) == ["Status meeting", "status MEETING (1)"]
+
+
+def test_user_segment_title_allocator_handles_free_and_existing_collisions_deterministically() -> None:
+    assert allocate_user_segment_document_titles(["Auto — A"], [], True) == ["Auto — A"]
+    assert allocate_user_segment_document_titles(["Custom"], [], True) == ["Custom"]
+    assert allocate_user_segment_document_titles(["Title"], ["Title"], True) == ["Title (1)"]
+    assert allocate_user_segment_document_titles(["Title"], ["Title", "Title (1)"], True) == ["Title (2)"]
+    assert allocate_user_segment_document_titles(["Title"], ["title"], True) == ["Title (1)"]
+    assert allocate_user_segment_document_titles(["Status meeting", "Status meeting"], [], True) == ["Status meeting", "Status meeting (1)"]
+    assert allocate_user_segment_document_titles(["Source — A", "Source — A"], [], True) == ["Source — A", "Source — A (1)"]
+
+
+def test_user_segment_title_allocator_never_emits_copy_paths_timestamps_or_uuid_suffixes() -> None:
+    allocated = allocate_user_segment_document_titles(["Status meeting"], ["Status meeting"], True)[0]
+    assert allocated == "Status meeting (1)"
+    forbidden = ["copy", "копия", "/", "\\", "2026-06-25", "00000000-0000-0000-0000-000000000000"]
+    assert all(token not in allocated.casefold() for token in forbidden)
+
+
+def test_user_segment_preview_shows_requested_final_or_conflict_mode_without_sensitive_values() -> None:
+    segments = parse_user_segment_plan("Tivali | 00:00-end | Синк Tivali — задачи", 60)
+    requested = build_user_segment_requested_document_titles("source.mp4", segments)
+    titled = apply_user_segment_document_titles(segments, requested, ["Синк Tivali — задачи (1)"])
+    enabled = build_user_segment_preview_text(titled, suffix_allocation_enabled=True, conflict_mode="skip")
+    assert "Запрошенное название Google Doc: Синк Tivali — задачи" in enabled
+    assert "Итоговое название Google Doc: Синк Tivali — задачи (1)" in enabled
+    disabled = build_user_segment_preview_text(titled, suffix_allocation_enabled=False, conflict_mode="skip")
+    assert "Конфликт имён: используется общий режим «skip»" in disabled
+    for unsafe in ["/tmp/", "https://", "drive.google.com", "Bearer", "api_key", "raw response"]:
+        assert unsafe not in enabled
+
+
+def test_user_segment_manifest_identity_ignores_requested_title_and_suffix_policy() -> None:
+    base_kwargs = dict(
+        original_source_signature="source-sig",
+        original_source_name="source.mp4",
+        segment_label="Tivali",
+        start_label="00:00",
+        end_label="end",
+        source_mode="drive_file",
+        source_reference="drive-id",
+    )
+    assert build_user_segment_source_signature(**base_kwargs) == build_user_segment_source_signature(**base_kwargs)
+
+
+def test_existing_segment_doc_standardization_preserves_actual_drive_title_and_metadata() -> None:
+    writes = []
+    doc = {"id": "doc-1", "name": "Синк Tivali — задачи (1)", "display_name": "Синк Tivali — задачи (1)", "webViewLink": "link", "createdTime": "2026-06-01T00:00:00Z"}
+    original_collect = standardize_existing_google_docs_in_folder.__globals__["collect_existing_google_docs_for_standardization"]
+    original_extract = standardize_existing_google_docs_in_folder.__globals__["extract_google_doc_plain_text"]
+    original_write = standardize_existing_google_docs_in_folder.__globals__["write_title_and_text_to_doc"]
+    standardize_existing_google_docs_in_folder.__globals__["collect_existing_google_docs_for_standardization"] = lambda *_args, **_kwargs: ([doc], {"folders_seen": 0, "skipped_non_google_docs": 0, "errors": []})
+    standardize_existing_google_docs_in_folder.__globals__["extract_google_doc_plain_text"] = lambda _doc_id: (
+        "Old heading\n\nTranscript metadata\n"
+        "Source file: Синк Tivali 21.06.2026 (2) — Tivali\n"
+        "Source mode: Google Drive: 1 файл\nProvider: ElevenLabs\nModel: scribe_v2\nLanguage: Русский\nSpeakers: no\nCreated at: unknown\n"
+        "Segment project: Tivali\nSegment time range: 00:00-end\nOriginal source: Синк Tivali 21.06.2026 (2).mp4\n\nTranscript\n\nBody"
+    )
+    standardize_existing_google_docs_in_folder.__globals__["write_title_and_text_to_doc"] = lambda **kwargs: writes.append(kwargs)
+    try:
+        report = standardize_existing_google_docs_in_folder("root", dry_run=False)
+    finally:
+        standardize_existing_google_docs_in_folder.__globals__["collect_existing_google_docs_for_standardization"] = original_collect
+        standardize_existing_google_docs_in_folder.__globals__["extract_google_doc_plain_text"] = original_extract
+        standardize_existing_google_docs_in_folder.__globals__["write_title_and_text_to_doc"] = original_write
+    assert report["standardized"][0]["doc_name"] == "Синк Tivali — задачи (1)"
+    assert len(writes) == 1
+    assert writes[0]["title"] == "Синк Tivali — задачи (1)"
+    text = writes[0]["transcript_text"]
+    assert text.startswith("Синк Tivali — задачи (1)\n\nTranscript metadata")
+    assert "Segment project: Tivali" in text
+    assert "Segment time range: 00:00-end" in text
+    assert "Original source: Синк Tivali 21.06.2026 (2).mp4" in text
