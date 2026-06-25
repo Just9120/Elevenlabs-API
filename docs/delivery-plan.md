@@ -8,7 +8,7 @@
 - ✅ **RT-TOKEN-01 — Fresh realtime single-use token per standalone Start attempt** — done/merged into main; sequential Start → Stop → Start in one standalone page was manually confirmed after RT-TOKEN-01.
 - ✅ **OPENAI-BATCH-DURATION-01 — OpenAI batch duration-aware splitting** — manually runtime-confirmed for one long duration-triggered OpenAI batch run that produced a Google Doc; oversized-file and OpenAI diarization runtime validation remain pending.
 - ✅ **OPENAI-BATCH-TIMING-01 — Safe OpenAI per-chunk timing observability** — implemented as local diagnostics; manual review remains separate.
-- 👉 **USER-SEGMENTS-01 — Manual pre-transcription project segmentation** — current focused item; one-source-only batch segmentation before provider transcription.
+- 👉 **USER-SEGMENTS-VISUAL-BUILDER-01 — Visual multi-document segmentation builder** — current focused item; replaces raw manual segment text input with a one-source-only visual builder before provider transcription.
 - 📋 **LIVE-COLAB-PROXY-01 remaining validation** — separate unfinished manual realtime validation gaps after RT-TOKEN-01.
 - 📋 **RUNTIME-01 — Batch source picker / manifest skip / Google Docs output smoke-check** — planned manual Colab/Drive/Docs validation.
 - 📋 **SPEAKER-RUNTIME-01 — Speaker projects workflow on copied diarized Google Doc** — planned manual validation.
@@ -31,9 +31,9 @@ Current confirmed realtime evidence is partial: one display+microphone run confi
 
 ## Active recommended next item
 
-### USER-SEGMENTS-01 — Manual pre-transcription project segmentation
+### USER-SEGMENTS-VISUAL-BUILDER-01 — Visual multi-document segmentation builder
 
-Current focused item: add optional one-source-only manual project/time segmentation before provider transcription. It creates temporary media segments, processes each segment sequentially through the selected existing provider path, creates one Google Doc per segment, and keeps OpenAI timing validation and realtime validation as separate workstreams.
+Current focused item: replace raw pipe-delimited user segmentation input with an optional one-source-only visual builder. It builds contiguous `Часть N` segment data before provider transcription, keeps one Google Doc per part, preserves existing segment splitting/provider/docs behavior, and keeps runtime Colab validation separate.
 
 ### OPENAI-BATCH-TIMING-01 — Safe OpenAI per-chunk timing observability
 

@@ -1003,7 +1003,7 @@ def build_user_segment_source_signature(
         "source_type": "user_segment",
         "original_source_signature": original_source_signature,
         "original_source_name": original_source_name,
-        "segment_label": segment_label,
+        "segment_identity": "source_range_v2",
         "start": start_label,
         "end": end_label,
         "source_mode": source_mode,
@@ -4228,9 +4228,151 @@ def parse_user_segment_plan(raw_text: str, duration_seconds: float) -> list[dict
     return segments
 
 
+def make_user_segment_builder_row(title: str = "", end: str = "", to_end: bool = False) -> dict:
+    return {
+        "title": str(title or ""),
+        "end": str(end or ""),
+        "to_end": bool(to_end),
+    }
+
+
+def get_initial_user_segment_builder_rows() -> list[dict]:
+    return [make_user_segment_builder_row(to_end=True)]
+
+
+def add_user_segment_builder_row(rows: list[dict]) -> list[dict]:
+    updated = [dict(row) for row in (rows or get_initial_user_segment_builder_rows())]
+    if not updated:
+        updated = get_initial_user_segment_builder_rows()
+    updated[-1]["to_end"] = False
+    updated.append(make_user_segment_builder_row(to_end=True))
+    return updated
+
+
+def remove_last_user_segment_builder_row(rows: list[dict]) -> list[dict]:
+    updated = [dict(row) for row in (rows or get_initial_user_segment_builder_rows())]
+    if len(updated) <= 1:
+        return get_initial_user_segment_builder_rows()
+    updated.pop()
+    updated[-1]["to_end"] = True
+    return updated
+
+
+def normalize_user_segment_builder_rows(rows: list[dict]) -> list[dict]:
+    updated = [dict(row) for row in (rows or get_initial_user_segment_builder_rows())]
+    if not updated:
+        updated = get_initial_user_segment_builder_rows()
+    last_index = len(updated) - 1
+    for idx, row in enumerate(updated):
+        row["to_end"] = idx == last_index
+    return updated
+
+
+def get_user_segment_builder_start_labels(rows: list[dict], duration_seconds: Optional[float] = None) -> list[str]:
+    labels = []
+    current_start_label = "00:00"
+    effective_rows = rows or get_initial_user_segment_builder_rows()
+    for idx, row in enumerate(effective_rows):
+        labels.append(current_start_label)
+        if idx < len(effective_rows) - 1:
+            try:
+                _, current_start_label = parse_user_segment_time(row.get("end", ""), allow_end=False, duration_seconds=duration_seconds)
+            except Exception:
+                current_start_label = "—"
+    return labels
+
+
+def validate_user_segment_builder_add_end(rows: list[dict], duration_seconds: Optional[float] = None) -> Optional[str]:
+    effective_rows = normalize_user_segment_builder_rows(rows)
+    start_labels = get_user_segment_builder_start_labels(effective_rows, duration_seconds)
+    start_seconds = 0.0
+    if len(effective_rows) > 1:
+        for prior in effective_rows[:-1]:
+            try:
+                start_seconds, _ = parse_user_segment_time(prior.get("end", ""), allow_end=False, duration_seconds=duration_seconds)
+            except Exception:
+                start_seconds = 0.0
+    final_index = len(effective_rows) - 1
+    final_row = effective_rows[final_index]
+    final_label = f"Часть {final_index + 1}"
+    start_label = start_labels[final_index]
+    try:
+        end_seconds, _ = parse_user_segment_time(final_row.get("end", ""), allow_end=False, duration_seconds=duration_seconds)
+    except Exception:
+        return f"{final_label}: сначала укажите корректное время окончания после {start_label}."
+    if end_seconds <= start_seconds:
+        return f"{final_label}: сначала укажите корректное время окончания после {start_label}."
+    if duration_seconds is not None and duration_seconds > 0 and end_seconds > duration_seconds + 0.001:
+        return f"{final_label}: время окончания выходит за длительность записи."
+    return None
+
+
+def try_add_user_segment_builder_row(rows: list[dict], duration_seconds: Optional[float] = None) -> tuple[list[dict], Optional[str]]:
+    normalized = normalize_user_segment_builder_rows(rows)
+    error = validate_user_segment_builder_add_end(normalized, duration_seconds)
+    if error:
+        return normalized, error
+    return add_user_segment_builder_row(normalized), None
+
+
+def normalize_optional_user_segment_document_title(title: str) -> Optional[str]:
+    raw = str(title or "")
+    if raw and not raw.strip():
+        raise ValueError("Название Google Doc не должно состоять только из пробелов.")
+    if not raw.strip():
+        return None
+    return validate_user_segment_document_title(raw)
+
+
+def build_user_segments_from_builder(rows: list[dict], duration_seconds: float) -> list[dict]:
+    if duration_seconds is None or duration_seconds <= 0:
+        raise ValueError("Не удалось определить длительность медиафайла. Сегментация остановлена до запроса к провайдеру.")
+    if not rows:
+        raise ValueError("Включена сегментация, но не добавлено ни одной части.")
+
+    segments = []
+    start_seconds = 0.0
+    start_label = "00:00"
+    effective_rows = [dict(row) for row in rows]
+    last_index = len(effective_rows) - 1
+    for idx, row in enumerate(effective_rows, start=1):
+        display_label = f"Часть {idx}"
+        requested_document_title = normalize_optional_user_segment_document_title(row.get("title", ""))
+        is_final = idx - 1 == last_index
+        if is_final:
+            if not row.get("to_end", True):
+                raise ValueError(f"{display_label}: финальная часть должна заканчиваться значением «До конца записи».")
+            end_seconds, end_label = float(duration_seconds), "end"
+        else:
+            if row.get("to_end"):
+                raise ValueError(f"{display_label}: «До конца записи» доступно только для последней части.")
+            try:
+                end_seconds, end_label = parse_user_segment_time(row.get("end", ""), allow_end=False, duration_seconds=duration_seconds)
+            except Exception as e:
+                raise ValueError(f"{display_label}: укажите корректное время окончания после {start_label}.") from e
+        if end_seconds <= start_seconds:
+            raise ValueError(f"{display_label}: укажите корректное время окончания после {start_label}.")
+        if end_seconds > duration_seconds + 0.001:
+            raise ValueError(f"{display_label}: граница части выходит за длительность записи.")
+        segments.append({
+            "label": display_label,
+            "display_label": display_label,
+            "start_seconds": start_seconds,
+            "end_seconds": end_seconds,
+            "duration_seconds": end_seconds - start_seconds,
+            "start_label": start_label,
+            "end_label": end_label,
+            "range_label": f"{start_label}-{end_label}",
+            "requested_document_title": requested_document_title,
+        })
+        start_seconds, start_label = end_seconds, end_label
+    return segments
+
+
 def build_user_segment_requested_document_titles(original_filename: str, segments: list[dict]) -> list[str]:
+    source_stem = os.path.splitext(os.path.basename(original_filename))[0]
     return [
-        segment.get("requested_document_title") or build_user_segment_source_name(original_filename, segment["label"])
+        segment.get("requested_document_title") or f"{source_stem} — {segment.get('display_label') or segment['label']}"
         for segment in segments
     ]
 
@@ -4280,15 +4422,18 @@ def apply_user_segment_document_titles(segments: list[dict], requested_titles: l
 
 
 def build_user_segment_preview_text(segments: list[dict], *, suffix_allocation_enabled: Optional[bool] = None, conflict_mode: Optional[str] = None) -> str:
-    lines = [f"Сегментация: {len(segments)} сегмент(ов)."]
+    lines = [f"Сегментация: {len(segments)} части"]
     for idx, segment in enumerate(segments, start=1):
-        lines.append(f"- {idx}. {segment['label']} ({segment['range_label']})")
+        label = segment.get("display_label") or segment["label"]
+        lines.append("")
+        lines.append(f"{idx}. {label}")
+        lines.append(f"   Время: {segment['range_label']}")
         if segment.get("requested_base_document_title"):
-            lines.append(f"  Запрошенное название Google Doc: {segment['requested_base_document_title']}")
+            lines.append(f"   Название документа: {segment['requested_base_document_title']}")
         if suffix_allocation_enabled and segment.get("final_document_title"):
-            lines.append(f"  Итоговое название Google Doc: {segment['final_document_title']}")
+            lines.append(f"   Итоговое название документа: {segment['final_document_title']}")
         elif suffix_allocation_enabled is False and conflict_mode:
-            lines.append(f"  Конфликт имён: используется общий режим «{conflict_mode}»")
+            lines.append(f"   Конфликт имён: используется общий режим «{conflict_mode}»")
     return "\n".join(lines)
 
 
@@ -5433,10 +5578,11 @@ def process_user_segments_for_source(
     original_source_meta: dict,
     source_mode: str,
     source_reference: str,
-    segment_plan_text: str,
+    segment_plan_text: Optional[str],
     run_ctx: RunExecutionContext,
     progress_callback=None,
     timer: Optional[RunTimer] = None,
+    segment_plan: Optional[list[dict]] = None,
 ) -> tuple[list, list, list]:
     successes, errors, skipped = [], [], []
     segment_paths = []
@@ -5446,7 +5592,7 @@ def process_user_segments_for_source(
         raise ValueError("Не удалось определить длительность медиафайла. Сегментация остановлена до запроса к провайдеру.") from e
     if duration_seconds <= 0:
         raise ValueError("Не удалось определить длительность медиафайла. Сегментация остановлена до запроса к провайдеру.")
-    segments = parse_user_segment_plan(segment_plan_text, duration_seconds)
+    segments = segment_plan if segment_plan is not None else parse_user_segment_plan(segment_plan_text, duration_seconds)
     requested_titles = build_user_segment_requested_document_titles(original_filename, segments)
     final_titles = allocate_user_segment_document_titles(
         requested_titles,
@@ -5551,6 +5697,7 @@ def process_local_uploaded(
     progress_callback=None,
     timer: Optional[RunTimer] = None,
     user_segment_plan_text: Optional[str] = None,
+    user_segment_builder_rows: Optional[list[dict]] = None,
 ) -> tuple[list, list, list]:
     successes, errors, skipped = [], [], []
 
@@ -5571,7 +5718,7 @@ def process_local_uploaded(
 
             base_name = os.path.splitext(os.path.basename(filename))[0]
 
-            if user_segment_plan_text is not None:
+            if user_segment_plan_text is not None or user_segment_builder_rows is not None:
                 print(f"\nОбрабатываю: {filename}")
                 temp_input_path = save_uploaded_bytes_to_temp(filename, file_bytes)
                 return process_user_segments_for_source(
@@ -5583,6 +5730,7 @@ def process_local_uploaded(
                     source_reference="uploaded_bytes",
                     segment_plan_text=user_segment_plan_text,
                     run_ctx=run_ctx,
+                    segment_plan=build_user_segments_from_builder(user_segment_builder_rows, get_media_duration_seconds(temp_input_path)) if user_segment_builder_rows is not None else None,
                     progress_callback=progress_callback,
                     timer=timer,
                 )
@@ -5644,7 +5792,7 @@ def process_local_uploaded(
                 append_success(successes, filename, result)
 
         except Exception as e:
-            if user_segment_plan_text is None:
+            if user_segment_plan_text is None and user_segment_builder_rows is None:
                 with timer.measure("manifest_write") if timer else nullcontext():
                     mark_manifest_failed(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, str(e), source_meta)
             print(f"Ошибка: {filename} -> {e}")
@@ -5666,6 +5814,7 @@ def process_drive_file_input(
     progress_callback=None,
     timer: Optional[RunTimer] = None,
     user_segment_plan_text: Optional[str] = None,
+    user_segment_builder_rows: Optional[list[dict]] = None,
 ) -> tuple[list, list, list]:
     successes, errors, skipped = [], [], []
     run_file_started = time.perf_counter()
@@ -5689,7 +5838,7 @@ def process_drive_file_input(
         try:
             base_name = os.path.splitext(filename)[0]
 
-            if user_segment_plan_text is not None:
+            if user_segment_plan_text is not None or user_segment_builder_rows is not None:
                 print(f"\nОбрабатываю: {filename}")
                 return process_user_segments_for_source(
                     input_path=file_path,
@@ -5700,6 +5849,7 @@ def process_drive_file_input(
                     source_reference="local_path",
                     segment_plan_text=user_segment_plan_text,
                     run_ctx=run_ctx,
+                    segment_plan=build_user_segments_from_builder(user_segment_builder_rows, get_media_duration_seconds(file_path)) if user_segment_builder_rows is not None else None,
                     progress_callback=progress_callback,
                     timer=timer,
                 )
@@ -5751,7 +5901,7 @@ def process_drive_file_input(
                 append_success(successes, file_path, result)
 
         except Exception as e:
-            if user_segment_plan_text is None:
+            if user_segment_plan_text is None and user_segment_builder_rows is None:
                 with timer.measure("manifest_write") if timer else nullcontext():
                     mark_manifest_failed(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, str(e), source_meta)
             print(f"Ошибка: {file_path} -> {e}")
@@ -5783,7 +5933,7 @@ def process_drive_file_input(
     try:
         base_name = os.path.splitext(filename)[0]
 
-        if user_segment_plan_text is not None:
+        if user_segment_plan_text is not None or user_segment_builder_rows is not None:
             print(f"\nОбрабатываю: {filename}")
             report_progress_for_file(progress_callback, 1, 1, 1, f"Скачивание из Google Drive: {filename}")
             tmp_path = download_drive_file_to_temp(resolved["id"], filename)
@@ -5796,6 +5946,7 @@ def process_drive_file_input(
                 source_reference=resolved["id"],
                 segment_plan_text=user_segment_plan_text,
                 run_ctx=run_ctx,
+                segment_plan=build_user_segments_from_builder(user_segment_builder_rows, get_media_duration_seconds(tmp_path)) if user_segment_builder_rows is not None else None,
                 progress_callback=progress_callback,
                 timer=timer,
             )
@@ -5845,7 +5996,7 @@ def process_drive_file_input(
             append_success(successes, resolved.get("webViewLink") or filename, result)
 
     except Exception as e:
-        if user_segment_plan_text is None:
+        if user_segment_plan_text is None and user_segment_builder_rows is None:
             mark_manifest_failed(run_ctx.manifest, source_signature, run_ctx.settings_signature, filename, str(e), source_meta)
         print(f"Ошибка: {filename} -> {e}")
         errors.append({"source": filename, "error": str(e)})
@@ -7198,32 +7349,35 @@ keyterms_widget = widgets.Textarea(
 
 user_segment_enable_widget = widgets.Checkbox(
     value=False,
-    description="Разделить запись по проектам",
+    description="Разделить запись на несколько документов",
     indent=False
 )
 
-user_segment_text_widget = widgets.Textarea(
-    value="",
-    placeholder="Tivali | 00:00-23:40 | Синк Tivali — задачи\nДругой проект | 23:40-end",
-    description="Сегменты:",
-    layout=widgets.Layout(width="1000px", height="120px")
+user_segment_builder_rows_state = get_initial_user_segment_builder_rows()
+user_segment_builder_error_by_index = {}
+user_segment_builder_cards_box = widgets.VBox([])
+user_segment_add_part_button = widgets.Button(description="+ Добавить ещё часть", icon="plus")
+user_segment_remove_part_button = widgets.Button(description="Удалить последнюю часть", icon="trash")
+user_segment_builder_widget = widgets.VBox(
+    [user_segment_builder_cards_box, widgets.HBox([user_segment_add_part_button, user_segment_remove_part_button])],
+    layout=widgets.Layout(width="1000px")
 )
 
 user_segment_suffix_widget = widgets.Checkbox(
     value=False,
-    description="При совпадении названий сегментов создавать отдельный документ с суффиксом (1)",
+    description="При совпадении названий создавать отдельный документ с суффиксом (1)",
     indent=False,
     layout=widgets.Layout(width="760px")
 )
 
 user_segment_help_widget = widgets.HTML(
     "<div style='margin-top:6px; color:#5f6368;'>"
-    "<b>Разделить запись по проектам перед транскрибацией</b><br>"
+    "<b>Разделить запись на несколько документов перед транскрибацией</b><br>"
     "Доступно только для режимов «Компьютер: 1 файл» и «Google Drive: 1 файл». "
-    "Сегментация опциональна и выключена по умолчанию. Формат строки: Метка проекта | 00:00-end | Название Google Doc. "
-    "Третье поле опционально; без него имя документа генерируется автоматически. "
+    "Сегментация опциональна и выключена по умолчанию. Добавьте визуальные карточки «Часть 1», «Часть 2» без служебного синтаксиса. "
+    "Название Google Doc в карточке опционально; без него имя документа генерируется автоматически. "
     "Опция суффиксов (1), (2) опциональна и выключена по умолчанию. "
-    "Время должно идти подряд от 00:00 до end; метки проектов должны быть уникальны. "
+    "Начало каждой части наследуется из конца предыдущей; последняя часть заканчивается «До конца записи». "
     "Пользовательские названия документов могут повторяться только при включённых суффиксах. "
     "Выбранный провайдер применяется к каждому сегменту. "
     "OpenAI может дополнительно технически разделить длинный сегмент внутри своих лимитов."
@@ -7464,25 +7618,114 @@ mode_widget.observe(refresh_ui, names="value")
 use_keyterms_widget.observe(refresh_ui, names="value")
 
 
-def get_enabled_user_segment_plan_text(mode: str) -> Optional[str]:
+def read_user_segment_builder_rows_from_widgets() -> list[dict]:
+    return normalize_user_segment_builder_rows(user_segment_builder_rows_state)
+
+
+def get_enabled_user_segment_builder_rows(mode: str) -> Optional[list[dict]]:
     if not user_segment_enable_widget.value:
         return None
     unavailable = user_segment_mode_unavailable_message(mode)
     if unavailable:
         raise ValueError(unavailable)
-    return user_segment_text_widget.value
+    return read_user_segment_builder_rows_from_widgets()
+
+
+def render_user_segment_builder_cards():
+    global user_segment_builder_rows_state
+    user_segment_builder_rows_state = normalize_user_segment_builder_rows(user_segment_builder_rows_state)
+    start_labels = get_user_segment_builder_start_labels(user_segment_builder_rows_state)
+    cards = []
+    last_index = len(user_segment_builder_rows_state) - 1
+    for idx, row in enumerate(user_segment_builder_rows_state):
+        title_widget = widgets.Text(
+            value=row.get("title", ""),
+            description="",
+            placeholder="Оставьте пустым для автоматического названия",
+            layout=widgets.Layout(width="620px"),
+        )
+        is_final = idx == last_index
+        def on_title_change(change, row_index=idx):
+            user_segment_builder_rows_state[row_index]["title"] = change["new"]
+        def on_end_change(change, row_index=idx):
+            user_segment_builder_rows_state[row_index]["end"] = change["new"]
+            user_segment_builder_error_by_index.pop(row_index, None)
+            render_user_segment_builder_cards()
+        title_widget.observe(on_title_change, names="value")
+        time_controls = []
+        if is_final:
+            time_controls.append(widgets.HTML("Конец: <b>До конца записи</b>"))
+            split_end_widget = widgets.Text(
+                value=row.get("end", ""),
+                description="Новая граница:",
+                placeholder="MM:SS или HH:MM:SS",
+                disabled=False,
+                layout=widgets.Layout(width="340px"),
+            )
+            split_end_widget.observe(on_end_change, names="value")
+            time_controls.append(split_end_widget)
+        else:
+            end_widget = widgets.Text(
+                value=row.get("end", ""),
+                description="Конец:",
+                placeholder="MM:SS или HH:MM:SS",
+                disabled=False,
+                layout=widgets.Layout(width="260px"),
+            )
+            end_widget.observe(on_end_change, names="value")
+            time_controls.append(end_widget)
+        error = user_segment_builder_error_by_index.get(idx, "")
+        if idx < last_index and not error:
+            try:
+                parse_user_segment_time(row.get("end", ""), allow_end=False)
+            except Exception:
+                error = f"<div style='color:#b3261e;'>Часть {idx + 1}: укажите корректное время окончания после {start_labels[idx]}.</div>"
+        card = widgets.VBox([
+            widgets.HTML(f"<div style='border:1px solid #dadce0;border-radius:8px;padding:12px;margin:8px 0;'><b>Часть {idx + 1}</b></div>"),
+            widgets.HTML("Название выходного Google Doc"),
+            title_widget,
+            widgets.HTML("<span style='color:#5f6368;'>Оставьте пустым для автоматического названия.</span>"),
+            widgets.HTML("<b>Временной интервал</b>"),
+            widgets.HTML(f"Начало: <code>{start_labels[idx]}</code>"),
+            widgets.HBox(time_controls),
+            widgets.HTML(error),
+        ])
+        cards.append(card)
+    user_segment_builder_cards_box.children = tuple(cards)
+    user_segment_remove_part_button.layout.display = "" if len(user_segment_builder_rows_state) >= 2 else "none"
+
+
+def on_user_segment_add_part_clicked(_):
+    global user_segment_builder_rows_state, user_segment_builder_error_by_index
+    user_segment_builder_error_by_index = {}
+    updated_rows, error = try_add_user_segment_builder_row(user_segment_builder_rows_state)
+    user_segment_builder_rows_state = updated_rows
+    if error:
+        user_segment_builder_error_by_index[len(user_segment_builder_rows_state) - 1] = f"<div style='color:#b3261e;'>{error}</div>"
+    render_user_segment_builder_cards()
+
+
+def on_user_segment_remove_part_clicked(_):
+    global user_segment_builder_rows_state, user_segment_builder_error_by_index
+    user_segment_builder_rows_state = remove_last_user_segment_builder_row(user_segment_builder_rows_state)
+    user_segment_builder_rows_state = normalize_user_segment_builder_rows(user_segment_builder_rows_state)
+    user_segment_builder_error_by_index = {}
+    render_user_segment_builder_cards()
 
 
 def refresh_user_segment_ui(*_args):
     message = user_segment_mode_unavailable_message(mode_widget.value)
     user_segment_unavailable_widget.value = f"<div style='color:#b3261e;'>{message}</div>" if message else ""
-    user_segment_text_widget.disabled = bool(message) or not user_segment_enable_widget.value
     user_segment_suffix_widget.disabled = bool(message) or not user_segment_enable_widget.value
+    user_segment_builder_widget.layout.display = "" if user_segment_enable_widget.value and not message else "none"
     user_segment_suffix_widget.layout.display = "" if user_segment_enable_widget.value and not message else "none"
+    render_user_segment_builder_cards()
 
 
 mode_widget.observe(refresh_user_segment_ui, names="value")
 user_segment_enable_widget.observe(refresh_user_segment_ui, names="value")
+user_segment_add_part_button.on_click(on_user_segment_add_part_clicked)
+user_segment_remove_part_button.on_click(on_user_segment_remove_part_clicked)
 
 
 def get_source_input_value() -> str:
@@ -7562,7 +7805,7 @@ def on_check_source_clicked(_):
                         if os.path.exists(tmp_preview_path):
                             os.remove(tmp_preview_path)
 
-                segments = parse_user_segment_plan(user_segment_text_widget.value, duration_seconds)
+                segments = build_user_segments_from_builder(read_user_segment_builder_rows_from_widgets(), duration_seconds)
                 docs_index = build_existing_docs_index(output_folder_id) if output_folder_id else {}
                 requested_titles = build_user_segment_requested_document_titles(resolved["name"], segments)
                 final_titles = allocate_user_segment_document_titles(
@@ -8198,7 +8441,7 @@ def on_start_clicked(_):
                 )
 
             print_preflight_summary(run_ctx=run_ctx, source_mode=mode)
-            user_segment_plan_text = get_enabled_user_segment_plan_text(mode)
+            user_segment_builder_rows = get_enabled_user_segment_builder_rows(mode)
 
             if mode == "local_file":
                 print("Выбери один файл с компьютера...")
@@ -8215,7 +8458,8 @@ def on_start_clicked(_):
                         progress_callback=set_progress,
                         timer=timer,
                         source_mode=mode,
-                        user_segment_plan_text=user_segment_plan_text,
+                        user_segment_plan_text=None,
+                        user_segment_builder_rows=user_segment_builder_rows,
                     )
 
             elif mode == "local_multi":
@@ -8246,7 +8490,8 @@ def on_start_clicked(_):
                         run_ctx=run_ctx,
                         progress_callback=set_progress,
                         timer=timer,
-                        user_segment_plan_text=user_segment_plan_text,
+                        user_segment_plan_text=None,
+                        user_segment_builder_rows=user_segment_builder_rows,
                     )
 
             elif mode == "drive_multi":
@@ -8680,7 +8925,7 @@ advanced_box = widgets.VBox([
     keyterms_widget,
     widgets.HTML("<hr><b>Разделить запись по проектам перед транскрибацией</b>"),
     user_segment_enable_widget,
-    user_segment_text_widget,
+    user_segment_builder_widget,
     user_segment_suffix_widget,
     user_segment_help_widget,
     user_segment_unavailable_widget,
