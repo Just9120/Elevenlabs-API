@@ -16,7 +16,7 @@ import os
 import re
 import time
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from typing import Optional
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -135,6 +135,19 @@ HELPER_NAMES = {
     "summarize_drive_multi_selection",
     "get_drive_source_double_click_action",
     "format_timing_line",
+    "parse_user_segment_time",
+    "validate_user_segment_label",
+    "parse_user_segment_plan",
+    "build_user_segment_preview_text",
+    "user_segment_mode_unavailable_message",
+    "build_user_segment_source_signature",
+    "build_user_segment_source_name",
+    "build_user_segment_meta",
+    "create_user_segment_media_file",
+    "cleanup_user_segment_paths",
+    "process_user_segments_for_source",
+    "count_user_segment_conflict_hits",
+    "build_safe_user_segment_source_check_text",
 }
 
 
@@ -206,6 +219,7 @@ def load_text_helpers() -> dict[str, object]:
                     "OPENAI_MERGE_MIN_OVERLAP_TOKENS",
                     "OPENAI_PREP_AUDIO_BITRATE",
                     "OPENAI_PREP_AUDIO_CHANNELS",
+                    "PROJECT_TEMP_PREFIX",
                 }:
                     selected_nodes.append(node)
                     break
@@ -232,10 +246,13 @@ def load_text_helpers() -> dict[str, object]:
         "time": time,
         "uuid": uuid,
         "contextmanager": contextmanager,
+        "nullcontext": nullcontext,
         "Optional": Optional,
         "Path": Path,
         "_STARTUP_TOTAL_STARTED": time.perf_counter(),
         "os": os,
+        "subprocess": __import__("subprocess"),
+        "tempfile": __import__("tempfile"),
         "get_media_duration_seconds": lambda _path: 0.0,
         "MANIFEST_IN_PROGRESS_TTL_HOURS": 12,
         "list_drive_folder_children": lambda _folder_id: [],
@@ -3257,3 +3274,386 @@ def test_openai_split_duration_fallback_stays_at_or_below_target() -> None:
         choose_openai_split_duration.__globals__["find_nearby_silence_split_point"] = original
 
     assert duration == 1320
+
+
+parse_user_segment_plan = HELPERS["parse_user_segment_plan"]
+build_user_segment_source_signature = HELPERS["build_user_segment_source_signature"]
+build_user_segment_preview_text = HELPERS["build_user_segment_preview_text"]
+user_segment_mode_unavailable_message = HELPERS["user_segment_mode_unavailable_message"]
+build_safe_user_segment_source_check_text = HELPERS["build_safe_user_segment_source_check_text"]
+create_user_segment_media_file = HELPERS["create_user_segment_media_file"]
+process_user_segments_for_source = HELPERS["process_user_segments_for_source"]
+
+
+def test_user_segment_parser_parses_mmss_and_end_and_hhmmss() -> None:
+    segments = parse_user_segment_plan("Project A | 00:00-23:40\nProject B | 23:40-end", 1800)
+    assert segments[0]["label"] == "Project A"
+    assert segments[0]["start_seconds"] == 0
+    assert segments[0]["end_seconds"] == 1420
+    assert segments[1]["end_label"] == "end"
+    hh = parse_user_segment_plan("Project Gamma | 00:00-01:05:20\nTail | 01:05:20-end", 4000)
+    assert hh[0]["end_seconds"] == 3920
+
+
+def test_user_segment_parser_rejects_invalid_inputs() -> None:
+    cases = [
+        (" | 00:00-end", 100),
+        ("A | nope-end", 100),
+        ("A | 00:00-00:50\nB | 00:40-end", 100),
+        ("A | 00:30-00:50\nB | 00:50-end", 100),
+        ("A | 00:00-00:40\nB | 00:50-end", 100),
+        ("A | 00:00-00:50\nB | 00:50-01:30", 100),
+        ("A | 00:00-00:00\nB | 00:00-end", 100),
+        ("Bad/Label | 00:00-end", 100),
+        ("Bad\\Label | 00:00-end", 100),
+        ("Bad\x01Label | 00:00-end", 100),
+        ("A | 00:00-02:00\nB | 02:00-end", 100),
+    ]
+    for raw, duration in cases:
+        try:
+            parse_user_segment_plan(raw, duration)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"expected rejection for {raw!r}")
+
+
+def test_user_segmentation_ui_mode_availability_static() -> None:
+    assert user_segment_mode_unavailable_message("local_file") == ""
+    assert user_segment_mode_unavailable_message("drive_file") == ""
+    for mode in ["local_multi", "drive_multi", "drive_folder"]:
+        assert "доступна только" in user_segment_mode_unavailable_message(mode)
+
+
+def test_user_segment_source_identity_is_distinct_and_stable() -> None:
+    a1 = build_user_segment_source_signature("orig", "Weekly call.mp4", "Project A", "00:00", "23:40", "drive_file", "file-id")
+    a2 = build_user_segment_source_signature("orig", "Weekly call.mp4", "Project A", "00:00", "23:40", "drive_file", "file-id")
+    b = build_user_segment_source_signature("orig", "Weekly call.mp4", "Project B", "23:40", "end", "drive_file", "file-id")
+    assert a1 == a2
+    assert a1 != b
+
+
+def test_user_segment_preview_is_safe() -> None:
+    segments = parse_user_segment_plan("Project A | 00:00-00:30\nProject B | 00:30-end", 60)
+    text = build_user_segment_preview_text(segments)
+    assert "Project A" in text and "00:30-end" in text
+    forbidden = ["/tmp/private/source.m4a", "sk-fake", "raw provider body", "transcript text", "docs.google.com/document/d/fake"]
+    for token in forbidden:
+        assert token not in text
+
+
+
+def test_user_segment_parser_rejects_duplicate_labels_case_insensitive() -> None:
+    raw = "Project A | 00:00-00:10\nProject B | 00:10-00:20\nproject a | 00:20-end"
+    try:
+        parse_user_segment_plan(raw, 30)
+    except ValueError as exc:
+        assert "Строка 3" in str(exc)
+        assert "дублируется метка" in str(exc)
+        assert "project a" in str(exc)
+    else:
+        raise AssertionError("expected duplicate label rejection")
+
+
+def test_user_segment_parser_rejects_duplicate_labels_after_whitespace_normalization() -> None:
+    raw = "Project   A | 00:00-00:10\nOther | 00:10-00:20\nproject a | 00:20-end"
+    try:
+        parse_user_segment_plan(raw, 30)
+    except ValueError as exc:
+        assert "Строка 3" in str(exc)
+        assert "уникальны" in str(exc)
+    else:
+        raise AssertionError("expected duplicate label rejection")
+
+
+def test_user_segment_parser_valid_unique_labels_keep_structure() -> None:
+    segments = parse_user_segment_plan("Project A | 00:00-00:10\nProject B | 00:10-end", 20)
+    assert [segment["label"] for segment in segments] == ["Project A", "Project B"]
+    assert segments[0]["range_label"] == "00:00-00:10"
+    assert segments[1]["range_label"] == "00:10-end"
+
+
+def test_user_segment_safe_source_check_text_contains_only_safe_preview() -> None:
+    segments = parse_user_segment_plan("Project A | 00:00-00:30\nProject B | 00:30-end", 60)
+    text = build_safe_user_segment_source_check_text(
+        source_type_label="файл Google Drive",
+        filename="Weekly call.mp4",
+        is_video=True,
+        segments=segments,
+        conflict_count=1,
+        manifest_enabled=True,
+    )
+    assert "Weekly call.mp4" in text
+    assert "Сегментация: 2" in text
+    assert "Project A (00:00-00:30)" in text
+    assert "Project B (00:30-end)" in text
+    assert "Совпадений имён документов по сегментам: 1" in text
+    forbidden = [
+        "/content/drive/MyDrive/private.mp4",
+        "/tmp/elevenlabs_api_secret.m4a",
+        "drive-file-id-123",
+        "https://drive.google.com/file/d/drive-file-id-123/view",
+        "source_reference",
+        "transcript text",
+        "sk-fake",
+        "Bearer fake",
+        "raw payload",
+        "raw response",
+    ]
+    for token in forbidden:
+        assert token not in text
+
+
+
+def test_user_segment_media_file_uses_accurate_audio_only_m4a_command(tmp_path) -> None:
+    calls = []
+    output_path = tmp_path / "segment.m4a"
+    globals_dict = create_user_segment_media_file.__globals__
+    original_create_temp = globals_dict.get("create_project_temp_file")
+    original_ensure = globals_dict.get("ensure_ffmpeg_available")
+    original_run = globals_dict["subprocess"].run
+    globals_dict["create_project_temp_file"] = lambda suffix="": str(output_path)
+    globals_dict["ensure_ffmpeg_available"] = lambda: None
+
+    def fake_run(cmd, check, stdout, stderr):
+        calls.append(cmd)
+        output_path.write_bytes(b"m4a")
+
+    globals_dict["subprocess"].run = fake_run
+    try:
+        result = create_user_segment_media_file(
+            "/content/drive/MyDrive/source.mp4",
+            {"start_seconds": 1420.0, "duration_seconds": 120.5},
+        )
+    finally:
+        globals_dict["subprocess"].run = original_run
+        if original_create_temp is None:
+            globals_dict.pop("create_project_temp_file", None)
+        else:
+            globals_dict["create_project_temp_file"] = original_create_temp
+        if original_ensure is None:
+            globals_dict.pop("ensure_ffmpeg_available", None)
+        else:
+            globals_dict["ensure_ffmpeg_available"] = original_ensure
+
+    assert result == str(output_path)
+    cmd = calls[0]
+    assert cmd[-1].endswith(".m4a")
+    assert not cmd[-1].endswith(".mp4")
+    assert cmd.index("-i") < cmd.index("-ss")
+    assert cmd[cmd.index("-ss") + 1] == "1420.000"
+    assert cmd[cmd.index("-t") + 1] == "120.500"
+    assert "-vn" in cmd
+    assert cmd[cmd.index("-ac") + 1] == "1"
+    assert cmd[cmd.index("-c:a") + 1] == "aac"
+    assert "-b:a" in cmd
+    assert "copy" not in cmd
+    assert [cmd[i:i + 2] for i in range(len(cmd) - 1)].count(["-c", "copy"]) == 0
+
+
+def test_user_segment_media_file_cleans_m4a_on_ffmpeg_failure(tmp_path) -> None:
+    output_path = tmp_path / "failed.m4a"
+    output_path.write_bytes(b"partial")
+    globals_dict = create_user_segment_media_file.__globals__
+    original_create_temp = globals_dict.get("create_project_temp_file")
+    original_ensure = globals_dict.get("ensure_ffmpeg_available")
+    original_run = globals_dict["subprocess"].run
+    globals_dict["create_project_temp_file"] = lambda suffix="": str(output_path)
+    globals_dict["ensure_ffmpeg_available"] = lambda: None
+
+    def failing_run(*_args, **_kwargs):
+        raise globals_dict["subprocess"].CalledProcessError(1, ["ffmpeg"], stderr=b"bad")
+
+    globals_dict["subprocess"].run = failing_run
+    try:
+        try:
+            create_user_segment_media_file("source.mov", {"start_seconds": 1.0, "duration_seconds": 2.0})
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError("expected ffmpeg failure")
+    finally:
+        globals_dict["subprocess"].run = original_run
+        if original_create_temp is None:
+            globals_dict.pop("create_project_temp_file", None)
+        else:
+            globals_dict["create_project_temp_file"] = original_create_temp
+        if original_ensure is None:
+            globals_dict.pop("ensure_ffmpeg_available", None)
+        else:
+            globals_dict["ensure_ffmpeg_available"] = original_ensure
+
+    assert not output_path.exists()
+
+
+def test_user_segment_processing_passes_m4a_name_and_cleans_on_success(tmp_path) -> None:
+    segment_path = tmp_path / "segment.m4a"
+    segment_path.write_bytes(b"audio")
+    calls = []
+    globals_dict = process_user_segments_for_source.__globals__
+    originals = {name: globals_dict.get(name) for name in [
+        "get_media_duration_seconds", "create_user_segment_media_file", "transcribe_media_path",
+        "upsert_transcript_document", "mark_manifest_in_progress", "mark_manifest_done",
+        "mark_manifest_failed", "should_skip_by_manifest", "get_single_existing_doc_match", "append_success",
+        "conflict_mode_needs_existing_match_before_transcription", "report_progress_for_file", "PROGRESS_STAGES_PER_FILE",
+    ]}
+    globals_dict["get_media_duration_seconds"] = lambda _path: 60.0
+    globals_dict["create_user_segment_media_file"] = lambda _path, _segment: str(segment_path)
+    globals_dict["transcribe_media_path"] = lambda input_path, original_filename, options, timer=None: calls.append((input_path, original_filename)) or "transcript"
+    globals_dict["upsert_transcript_document"] = lambda **_kwargs: {"status": "success", "action": "created", "doc_name": "Doc", "link": "link"}
+    globals_dict["mark_manifest_in_progress"] = lambda *_args, **_kwargs: None
+    globals_dict["mark_manifest_done"] = lambda *_args, **_kwargs: None
+    globals_dict["mark_manifest_failed"] = lambda *_args, **_kwargs: None
+    globals_dict["should_skip_by_manifest"] = lambda *_args, **_kwargs: (False, "")
+    globals_dict["get_single_existing_doc_match"] = lambda *_args, **_kwargs: None
+    globals_dict["conflict_mode_needs_existing_match_before_transcription"] = lambda _mode: False
+    globals_dict["report_progress_for_file"] = lambda *_args, **_kwargs: None
+    globals_dict["PROGRESS_STAGES_PER_FILE"] = 4
+    globals_dict["append_success"] = lambda successes, source_name, result: successes.append({"source": source_name, **result})
+
+    class RunCtx:
+        output_folder_id = "folder"
+        conflict_mode = "update"
+        ignore_manifest = True
+        docs_index = {}
+        manifest = {}
+        settings_signature = "settings"
+        options = object()
+
+    try:
+        successes, errors, skipped = process_user_segments_for_source(
+            input_path="source.mp4",
+            original_filename="Weekly call.mp4",
+            original_source_signature="orig",
+            original_source_meta={},
+            source_mode="drive_file",
+            source_reference="drive-ref",
+            segment_plan_text="Project A | 00:00-end",
+            run_ctx=RunCtx(),
+        )
+    finally:
+        for name, original in originals.items():
+            if original is None:
+                globals_dict.pop(name, None)
+            else:
+                globals_dict[name] = original
+
+    assert not errors and not skipped and successes
+    assert calls == [(str(segment_path), "Weekly call — Project A.m4a")]
+    assert not segment_path.exists()
+
+
+def test_user_segment_processing_cleans_m4a_on_provider_failure(tmp_path) -> None:
+    segment_path = tmp_path / "segment.m4a"
+    segment_path.write_bytes(b"audio")
+    globals_dict = process_user_segments_for_source.__globals__
+    originals = {name: globals_dict.get(name) for name in [
+        "get_media_duration_seconds", "create_user_segment_media_file", "transcribe_media_path",
+        "mark_manifest_in_progress", "mark_manifest_failed", "should_skip_by_manifest", "get_single_existing_doc_match",
+        "conflict_mode_needs_existing_match_before_transcription", "report_progress_for_file", "PROGRESS_STAGES_PER_FILE",
+    ]}
+    globals_dict["get_media_duration_seconds"] = lambda _path: 60.0
+    globals_dict["create_user_segment_media_file"] = lambda _path, _segment: str(segment_path)
+    globals_dict["transcribe_media_path"] = lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("provider failed"))
+    globals_dict["mark_manifest_in_progress"] = lambda *_args, **_kwargs: None
+    globals_dict["mark_manifest_failed"] = lambda *_args, **_kwargs: None
+    globals_dict["should_skip_by_manifest"] = lambda *_args, **_kwargs: (False, "")
+    globals_dict["get_single_existing_doc_match"] = lambda *_args, **_kwargs: None
+    globals_dict["conflict_mode_needs_existing_match_before_transcription"] = lambda _mode: False
+    globals_dict["report_progress_for_file"] = lambda *_args, **_kwargs: None
+    globals_dict["PROGRESS_STAGES_PER_FILE"] = 4
+
+    class RunCtx:
+        output_folder_id = "folder"
+        conflict_mode = "update"
+        ignore_manifest = True
+        docs_index = {}
+        manifest = {}
+        settings_signature = "settings"
+        options = object()
+
+    try:
+        successes, errors, skipped = process_user_segments_for_source(
+            input_path="source.wav",
+            original_filename="Weekly call.wav",
+            original_source_signature="orig",
+            original_source_meta={},
+            source_mode="drive_file",
+            source_reference="drive-ref",
+            segment_plan_text="Project A | 00:00-end",
+            run_ctx=RunCtx(),
+        )
+    finally:
+        for name, original in originals.items():
+            if original is None:
+                globals_dict.pop(name, None)
+            else:
+                globals_dict[name] = original
+
+    assert not successes and not skipped
+    assert errors and errors[0]["source"] == "Weekly call — Project A"
+    assert not segment_path.exists()
+
+
+def test_user_segment_runtime_static_contracts() -> None:
+    source = CANONICAL_SOURCE.read_text(encoding="utf-8")
+    assert "Разделить запись по проектам перед транскрибацией" in source
+    assert "create_user_segment_media_file" in source
+    assert '"-ss", f"{segment[\'start_seconds\']:.3f}"' in source
+    assert '"-t", f"{segment[\'duration_seconds\']:.3f}"' in source
+    assert "process_user_segments_for_source" in source
+    assert "transcribe_media_path(" in source
+    assert "cleanup_user_segment_paths(segment_paths)" in source
+    assert "ThreadPoolExecutor" not in source.split("def process_user_segments_for_source", 1)[1].split("def process_local_uploaded", 1)[0]
+
+
+def test_user_segmented_and_non_segmented_paths_are_separate_static() -> None:
+    source = CANONICAL_SOURCE.read_text(encoding="utf-8")
+    local_block = source.split("def process_local_uploaded", 1)[1].split("def process_drive_file_input", 1)[0]
+    drive_block = source.split("def process_drive_file_input", 1)[1].split("def process_drive_multi_input", 1)[0]
+    drive_local_block = drive_block.split('if resolved["source_type"] == "local_path":', 1)[1].split('if resolved["mimeType"] == FOLDER_MIME:', 1)[0]
+    drive_download_block = drive_block.split('if resolved["mimeType"] == FOLDER_MIME:', 1)[1].split("def process_drive_multi_input", 1)[0] if "def process_drive_multi_input" in drive_block else drive_block.split('if resolved["mimeType"] == FOLDER_MIME:', 1)[1]
+
+    assert "if user_segment_plan_text is not None:" in local_block
+    assert "if user_segment_plan_text is not None:" in drive_local_block
+    assert "if user_segment_plan_text is not None:" in drive_download_block
+
+    for block in [local_block, drive_local_block, drive_download_block]:
+        segment_index = block.index("if user_segment_plan_text is not None:")
+        assert segment_index < block.index("conflict_mode_needs_existing_match_before_transcription")
+        assert segment_index < block.index("should_skip_by_manifest")
+        assert segment_index < block.index("mark_manifest_in_progress")
+
+    assert "if user_segment_plan_text is None:" in local_block
+    assert "if user_segment_plan_text is None:" in drive_local_block
+    assert "if user_segment_plan_text is None:" in drive_download_block
+    assert "mark_manifest_in_progress(run_ctx.manifest, source_signature" in local_block
+    assert "mark_manifest_in_progress(run_ctx.manifest, source_signature" in drive_block
+
+
+
+
+def test_user_segment_failures_use_derived_segment_identity_static() -> None:
+    source = CANONICAL_SOURCE.read_text(encoding="utf-8")
+    segment_block = source.split("def process_user_segments_for_source", 1)[1].split("def process_local_uploaded", 1)[0]
+    assert "segment_signature = build_user_segment_source_signature" in segment_block
+    assert "mark_manifest_failed(run_ctx.manifest, segment_signature" in segment_block
+    assert "mark_manifest_failed(run_ctx.manifest, original_source_signature" not in segment_block
+
+
+def test_user_segment_source_check_uses_safe_branch_before_detailed_identifiers() -> None:
+    source = CANONICAL_SOURCE.read_text(encoding="utf-8")
+    check_block = source.split("def on_check_source_clicked", 1)[1].split("# Legacy/import helper", 1)[0]
+    safe_branch = check_block.split('if mode == "drive_file" and user_segment_enable_widget.value:', 1)[1].split('if resolved["source_type"] == "drive_link":', 1)[0]
+    assert "build_safe_user_segment_source_check_text" in safe_branch
+    assert "return" in safe_branch
+    detailed_block = check_block.split('if resolved["source_type"] == "drive_link":', 1)[1]
+    assert 'print(f"ID: {resolved[\'id\']}")' in detailed_block
+    assert 'print(f"Путь: {resolved[\'path\']}")' in detailed_block
+
+
+def test_user_segment_docs_and_help_state_unique_label_rule() -> None:
+    source = CANONICAL_SOURCE.read_text(encoding="utf-8")
+    spec = (ROOT / "docs" / "project-spec.md").read_text(encoding="utf-8")
+    assert "метки проектов должны быть уникальны" in source
+    assert "unique case-insensitively" in spec

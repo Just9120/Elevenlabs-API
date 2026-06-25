@@ -7,7 +7,8 @@
 - ✅ **RT-POLISH-01 — Behavior-preserving realtime frontend lifecycle readability refactor** — merged into main; no new manual/browser evidence claimed.
 - ✅ **RT-TOKEN-01 — Fresh realtime single-use token per standalone Start attempt** — done/merged into main; sequential Start → Stop → Start in one standalone page was manually confirmed after RT-TOKEN-01.
 - ✅ **OPENAI-BATCH-DURATION-01 — OpenAI batch duration-aware splitting** — manually runtime-confirmed for one long duration-triggered OpenAI batch run that produced a Google Doc; oversized-file and OpenAI diarization runtime validation remain pending.
-- 👉 **OPENAI-BATCH-TIMING-01 — Safe OpenAI per-chunk timing observability** — current focused item; adds local diagnostics only and does not introduce parallelism.
+- ✅ **OPENAI-BATCH-TIMING-01 — Safe OpenAI per-chunk timing observability** — implemented as local diagnostics; manual review remains separate.
+- 👉 **USER-SEGMENTS-01 — Manual pre-transcription project segmentation** — current focused item; one-source-only batch segmentation before provider transcription.
 - 📋 **LIVE-COLAB-PROXY-01 remaining validation** — separate unfinished manual realtime validation gaps after RT-TOKEN-01.
 - 📋 **RUNTIME-01 — Batch source picker / manifest skip / Google Docs output smoke-check** — planned manual Colab/Drive/Docs validation.
 - 📋 **SPEAKER-RUNTIME-01 — Speaker projects workflow on copied diarized Google Doc** — planned manual validation.
@@ -30,9 +31,13 @@ Current confirmed realtime evidence is partial: one display+microphone run confi
 
 ## Active recommended next item
 
+### USER-SEGMENTS-01 — Manual pre-transcription project segmentation
+
+Current focused item: add optional one-source-only manual project/time segmentation before provider transcription. It creates temporary media segments, processes each segment sequentially through the selected existing provider path, creates one Google Doc per segment, and keeps OpenAI timing validation and realtime validation as separate workstreams.
+
 ### OPENAI-BATCH-TIMING-01 — Safe OpenAI per-chunk timing observability
 
-Current focused item: add local-only OpenAI chunk timing diagnostics after duration-aware splitting, with accurate aggregate phases for split, chunk preparation, provider request wait, and merge. This is observability only: OpenAI chunk requests remain sequential, and no parallelism, retry, provider payload, model, key handling, ElevenLabs batch, realtime, Google Docs, manifest, or analytics behavior changes are in scope.
+OpenAI timing diagnostics remain separate from USER-SEGMENTS-01 manual runtime validation. OpenAI smart split may still happen inside an OpenAI user segment, but manual project segmentation must not replace provider-path safeguards.
 
 ### OPENAI-BATCH-DURATION-01 — OpenAI batch duration-aware splitting
 
