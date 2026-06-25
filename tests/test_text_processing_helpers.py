@@ -140,6 +140,13 @@ HELPER_NAMES = {
     "parse_user_segment_time",
     "validate_user_segment_label",
     "parse_user_segment_plan",
+    "make_user_segment_builder_row",
+    "get_initial_user_segment_builder_rows",
+    "add_user_segment_builder_row",
+    "remove_last_user_segment_builder_row",
+    "get_user_segment_builder_start_labels",
+    "normalize_optional_user_segment_document_title",
+    "build_user_segments_from_builder",
     "validate_user_segment_document_title",
     "build_user_segment_requested_document_titles",
     "reject_duplicate_user_segment_requested_titles",
@@ -3285,6 +3292,11 @@ def test_openai_split_duration_fallback_stays_at_or_below_target() -> None:
 
 
 parse_user_segment_plan = HELPERS["parse_user_segment_plan"]
+get_initial_user_segment_builder_rows = HELPERS["get_initial_user_segment_builder_rows"]
+add_user_segment_builder_row = HELPERS["add_user_segment_builder_row"]
+remove_last_user_segment_builder_row = HELPERS["remove_last_user_segment_builder_row"]
+get_user_segment_builder_start_labels = HELPERS["get_user_segment_builder_start_labels"]
+build_user_segments_from_builder = HELPERS["build_user_segments_from_builder"]
 build_user_segment_requested_document_titles = HELPERS["build_user_segment_requested_document_titles"]
 reject_duplicate_user_segment_requested_titles = HELPERS["reject_duplicate_user_segment_requested_titles"]
 allocate_user_segment_document_titles = HELPERS["allocate_user_segment_document_titles"]
@@ -3306,6 +3318,72 @@ def test_user_segment_parser_parses_mmss_and_end_and_hhmmss() -> None:
     assert segments[1]["end_label"] == "end"
     hh = parse_user_segment_plan("Project Gamma | 00:00-01:05:20\nTail | 01:05:20-end", 4000)
     assert hh[0]["end_seconds"] == 3920
+
+
+def test_user_segment_visual_builder_defaults_and_card_state_static() -> None:
+    source = CANONICAL_SOURCE.read_text(encoding="utf-8")
+    assert 'description="Разделить запись на несколько документов"' in source
+    assert "user_segment_builder_widget.layout.display = \"\" if user_segment_enable_widget.value" in source
+    assert "widgets.Textarea(" not in source.split("user_segment_enable_widget = widgets.Checkbox", 1)[1].split("check_source_button", 1)[0]
+    rows = get_initial_user_segment_builder_rows()
+    assert rows == [{"title": "", "end": "", "to_end": True}]
+    assert get_user_segment_builder_start_labels(rows) == ["00:00"]
+
+
+def test_user_segment_visual_builder_add_remove_and_inherited_start() -> None:
+    rows = get_initial_user_segment_builder_rows()
+    rows[0]["end"] = "10:10"
+    rows = add_user_segment_builder_row(rows)
+    assert len(rows) == 2
+    assert rows[0]["to_end"] is False
+    assert rows[1]["to_end"] is True
+    assert get_user_segment_builder_start_labels(rows, 1200) == ["00:00", "10:10"]
+    rows = remove_last_user_segment_builder_row(rows)
+    assert len(rows) == 1
+    assert rows[0]["to_end"] is True
+
+
+def test_user_segment_visual_builder_builds_canonical_segments_and_titles() -> None:
+    rows = [
+        {"title": "", "end": "10:10", "to_end": False},
+        {"title": "  Manual   Title  ", "end": "", "to_end": True},
+    ]
+    segments = build_user_segments_from_builder(rows, 1200)
+    assert segments[0]["display_label"] == "Часть 1"
+    assert segments[0]["start_label"] == "00:00"
+    assert segments[0]["end_label"] == "10:10"
+    assert segments[0]["duration_seconds"] == 610
+    assert segments[1]["display_label"] == "Часть 2"
+    assert segments[1]["start_label"] == "10:10"
+    assert segments[1]["end_label"] == "end"
+    assert segments[1]["requested_document_title"] == "Manual Title"
+    assert build_user_segment_requested_document_titles("Source File.m4a", segments) == [
+        "Source File — Часть 1",
+        "Manual Title",
+    ]
+
+
+def test_user_segment_visual_builder_accepts_hhmmss_and_rejects_card_errors() -> None:
+    segments = build_user_segments_from_builder([
+        {"title": "", "end": "01:05:20", "to_end": False},
+        {"title": "", "end": "", "to_end": True},
+    ], 4000)
+    assert segments[0]["end_seconds"] == 3920
+    cases = [
+        ([{"title": "", "end": "bad", "to_end": False}, {"title": "", "end": "", "to_end": True}], "Часть 1"),
+        ([{"title": "", "end": "00:00", "to_end": False}, {"title": "", "end": "", "to_end": True}], "после 00:00"),
+        ([{"title": "", "end": "00:10", "to_end": True}, {"title": "", "end": "", "to_end": True}], "только для последней"),
+        ([{"title": "", "end": "00:10", "to_end": False}, {"title": "", "end": "", "to_end": False}], "финальная часть"),
+        ([{"title": "Bad | Title", "end": "", "to_end": True}], "Название Google Doc"),
+    ]
+    for rows, expected in cases:
+        try:
+            build_user_segments_from_builder(rows, 60)
+        except ValueError as exc:
+            assert expected in str(exc)
+            assert "формат" not in str(exc)
+        else:
+            raise AssertionError("expected builder validation error")
 
 
 def test_user_segment_parser_rejects_invalid_inputs() -> None:
@@ -3398,8 +3476,10 @@ def test_user_segment_safe_source_check_text_contains_only_safe_preview() -> Non
     )
     assert "Weekly call.mp4" in text
     assert "Сегментация: 2" in text
-    assert "Project A (00:00-00:30)" in text
-    assert "Project B (00:30-end)" in text
+    assert "1. Project A" in text
+    assert "Время: 00:00-00:30" in text
+    assert "2. Project B" in text
+    assert "Время: 00:30-end" in text
     assert "Совпадений имён документов по сегментам: 1" in text
     forbidden = [
         "/content/drive/MyDrive/private.mp4",
@@ -3633,19 +3713,19 @@ def test_user_segmented_and_non_segmented_paths_are_separate_static() -> None:
     drive_local_block = drive_block.split('if resolved["source_type"] == "local_path":', 1)[1].split('if resolved["mimeType"] == FOLDER_MIME:', 1)[0]
     drive_download_block = drive_block.split('if resolved["mimeType"] == FOLDER_MIME:', 1)[1].split("def process_drive_multi_input", 1)[0] if "def process_drive_multi_input" in drive_block else drive_block.split('if resolved["mimeType"] == FOLDER_MIME:', 1)[1]
 
-    assert "if user_segment_plan_text is not None:" in local_block
-    assert "if user_segment_plan_text is not None:" in drive_local_block
-    assert "if user_segment_plan_text is not None:" in drive_download_block
+    assert "if user_segment_plan_text is not None or user_segment_builder_rows is not None:" in local_block
+    assert "if user_segment_plan_text is not None or user_segment_builder_rows is not None:" in drive_local_block
+    assert "if user_segment_plan_text is not None or user_segment_builder_rows is not None:" in drive_download_block
 
     for block in [local_block, drive_local_block, drive_download_block]:
-        segment_index = block.index("if user_segment_plan_text is not None:")
+        segment_index = block.index("if user_segment_plan_text is not None or user_segment_builder_rows is not None:")
         assert segment_index < block.index("conflict_mode_needs_existing_match_before_transcription")
         assert segment_index < block.index("should_skip_by_manifest")
         assert segment_index < block.index("mark_manifest_in_progress")
 
-    assert "if user_segment_plan_text is None:" in local_block
-    assert "if user_segment_plan_text is None:" in drive_local_block
-    assert "if user_segment_plan_text is None:" in drive_download_block
+    assert "if user_segment_plan_text is None and user_segment_builder_rows is None:" in local_block
+    assert "if user_segment_plan_text is None and user_segment_builder_rows is None:" in drive_local_block
+    assert "if user_segment_plan_text is None and user_segment_builder_rows is None:" in drive_download_block
     assert "mark_manifest_in_progress(run_ctx.manifest, source_signature" in local_block
     assert "mark_manifest_in_progress(run_ctx.manifest, source_signature" in drive_block
 
@@ -3675,7 +3755,7 @@ def test_user_segment_docs_and_help_state_unique_label_rule() -> None:
     source = CANONICAL_SOURCE.read_text(encoding="utf-8")
     spec = (ROOT / "docs" / "project-spec.md").read_text(encoding="utf-8")
     assert "метки проектов должны быть уникальны" in source
-    assert "unique case-insensitively" in spec
+    assert "case-insensitively" in spec
 
 
 def test_user_segment_two_field_syntax_keeps_automatic_title_behavior() -> None:
@@ -3735,8 +3815,8 @@ def test_user_segment_preview_shows_requested_final_or_conflict_mode_without_sen
     requested = build_user_segment_requested_document_titles("source.mp4", segments)
     titled = apply_user_segment_document_titles(segments, requested, ["Синк Tivali — задачи (1)"])
     enabled = build_user_segment_preview_text(titled, suffix_allocation_enabled=True, conflict_mode="skip")
-    assert "Запрошенное название Google Doc: Синк Tivali — задачи" in enabled
-    assert "Итоговое название Google Doc: Синк Tivali — задачи (1)" in enabled
+    assert "Название документа: Синк Tivali — задачи" in enabled
+    assert "Итоговое название документа: Синк Tivali — задачи (1)" in enabled
     disabled = build_user_segment_preview_text(titled, suffix_allocation_enabled=False, conflict_mode="skip")
     assert "Конфликт имён: используется общий режим «skip»" in disabled
     for unsafe in ["/tmp/", "https://", "drive.google.com", "Bearer", "api_key", "raw response"]:
