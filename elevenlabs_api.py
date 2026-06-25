@@ -913,6 +913,7 @@ class RunExecutionContext:
     manifest: dict
     settings_signature: str
     options: TranscriptionRuntimeOptions
+    user_segment_suffix_allocation_enabled: bool = False
 
 
 def ensure_provider_api_key(options: TranscriptionRuntimeOptions):
@@ -2870,12 +2871,39 @@ def build_docs_only_standardized_transcript_document_text(
 ) -> str:
     """Build current structured transcript text from an existing Google Doc."""
 
-    return build_backfilled_transcript_document_text(
-        document_title=document_title,
+    transcript_body = extract_unstructured_transcript_body_for_backfill(
+        existing_document_text,
+        document_title,
+    )
+    existing_metadata = extract_structured_transcript_metadata_values(existing_document_text)
+    lines = [line.strip() for line in str(existing_document_text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    try:
+        metadata_index = lines.index(STRUCTURED_TRANSCRIPT_METADATA_LABEL)
+        transcript_index = lines.index(STRUCTURED_TRANSCRIPT_BODY_LABEL, metadata_index + 1)
+    except ValueError:
+        metadata_index = -1
+        transcript_index = -1
+    if metadata_index >= 0 and transcript_index > metadata_index:
+        for line in lines[metadata_index + 1:transcript_index]:
+            if ":" in line:
+                key, value = line.split(":", 1)
+                existing_metadata.setdefault(key.strip(), value.strip())
+    metadata_lines = build_transcript_metadata_lines(
         source_name=DOCS_ONLY_STANDARDIZATION_SOURCE_FILE,
         source_mode=DOCS_ONLY_STANDARDIZATION_SOURCE_MODE,
-        existing_document_text=existing_document_text,
-        created_at=created_at,
+        provider=EXISTING_DOCS_BACKFILL_PROVIDER,
+        provider_model=EXISTING_DOCS_BACKFILL_PROVIDER_MODEL,
+        language=EXISTING_DOCS_BACKFILL_LANGUAGE,
+        speakers_enabled=EXISTING_DOCS_BACKFILL_SPEAKERS_ENABLED,
+        created_at=format_visible_transcript_timestamp(created_at),
+        segment_label=existing_metadata.get("Segment project"),
+        segment_time_range=existing_metadata.get("Segment time range"),
+        original_source_name=existing_metadata.get("Original source"),
+    )
+    return build_structured_transcript_document_text(
+        document_title=document_title,
+        transcript_text=transcript_body,
+        metadata_lines=metadata_lines,
     )
 
 
@@ -4131,6 +4159,15 @@ def validate_user_segment_label(label: str) -> str:
     return cleaned
 
 
+def validate_user_segment_document_title(title: str) -> str:
+    cleaned = re.sub(r"\s+", " ", str(title or "")).strip()
+    if not cleaned:
+        raise ValueError("Название Google Doc после третьего символа | не должно быть пустым.")
+    if any(ch in cleaned for ch in ("/", "\\", "|")) or any(ord(ch) < 32 for ch in cleaned):
+        raise ValueError("Название Google Doc не должно содержать /, \\, |, переносы строк или управляющие символы.")
+    return cleaned
+
+
 def parse_user_segment_plan(raw_text: str, duration_seconds: float) -> list[dict]:
     if duration_seconds is None or duration_seconds <= 0:
         raise ValueError("Не удалось определить длительность медиафайла. Сегментация остановлена до запроса к провайдеру.")
@@ -4144,9 +4181,11 @@ def parse_user_segment_plan(raw_text: str, duration_seconds: float) -> list[dict
         stripped = line.strip()
         if not stripped:
             continue
-        if "|" not in stripped:
-            raise ValueError(f"Строка {line_no}: нужен формат Метка проекта | 00:00-end.")
-        label_part, range_part = [part.strip() for part in stripped.split("|", 1)]
+        parts = [part.strip() for part in stripped.split("|")]
+        if len(parts) not in {2, 3}:
+            raise ValueError(f"Строка {line_no}: нужен формат Метка проекта | 00:00-end или Метка проекта | 00:00-end | Название Google Doc.")
+        label_part, range_part = parts[0], parts[1]
+        requested_document_title = validate_user_segment_document_title(parts[2]) if len(parts) == 3 else None
         label = validate_user_segment_label(label_part)
         label_key = label.casefold()
         if label_key in seen_label_keys:
@@ -4169,6 +4208,7 @@ def parse_user_segment_plan(raw_text: str, duration_seconds: float) -> list[dict
             "start_label": start_label,
             "end_label": end_label,
             "range_label": f"{start_label}-{end_label}",
+            "requested_document_title": requested_document_title,
         })
 
     if not segments:
@@ -4188,10 +4228,67 @@ def parse_user_segment_plan(raw_text: str, duration_seconds: float) -> list[dict
     return segments
 
 
-def build_user_segment_preview_text(segments: list[dict]) -> str:
+def build_user_segment_requested_document_titles(original_filename: str, segments: list[dict]) -> list[str]:
+    return [
+        segment.get("requested_document_title") or build_user_segment_source_name(original_filename, segment["label"])
+        for segment in segments
+    ]
+
+
+def reject_duplicate_user_segment_requested_titles(requested_titles: list[str]) -> None:
+    seen = {}
+    for idx, title in enumerate(requested_titles, start=1):
+        key = re.sub(r"\s+", " ", str(title)).strip().casefold()
+        if key in seen:
+            raise ValueError(
+                "Дублируются названия Google Docs в плане сегментации. "
+                "Используйте уникальные названия или включите опцию суффиксов (1), (2)."
+            )
+        seen[key] = idx
+
+
+def allocate_user_segment_document_titles(
+    requested_titles: list[str],
+    existing_document_names: list[str],
+    suffix_allocation_enabled: bool,
+) -> list[str]:
+    if not suffix_allocation_enabled:
+        reject_duplicate_user_segment_requested_titles(requested_titles)
+        return list(requested_titles)
+
+    reserved = {re.sub(r"\s+", " ", str(name)).strip().casefold() for name in existing_document_names}
+    allocated = []
+    for requested in requested_titles:
+        candidate = requested
+        suffix = 0
+        while re.sub(r"\s+", " ", candidate).strip().casefold() in reserved:
+            suffix += 1
+            candidate = f"{requested} ({suffix})"
+        reserved.add(re.sub(r"\s+", " ", candidate).strip().casefold())
+        allocated.append(candidate)
+    return allocated
+
+
+def apply_user_segment_document_titles(segments: list[dict], requested_titles: list[str], final_titles: list[str]) -> list[dict]:
+    titled_segments = []
+    for segment, requested_title, final_title in zip(segments, requested_titles, final_titles):
+        titled = dict(segment)
+        titled["requested_base_document_title"] = requested_title
+        titled["final_document_title"] = final_title
+        titled_segments.append(titled)
+    return titled_segments
+
+
+def build_user_segment_preview_text(segments: list[dict], *, suffix_allocation_enabled: Optional[bool] = None, conflict_mode: Optional[str] = None) -> str:
     lines = [f"Сегментация: {len(segments)} сегмент(ов)."]
     for idx, segment in enumerate(segments, start=1):
         lines.append(f"- {idx}. {segment['label']} ({segment['range_label']})")
+        if segment.get("requested_base_document_title"):
+            lines.append(f"  Запрошенное название Google Doc: {segment['requested_base_document_title']}")
+        if suffix_allocation_enabled and segment.get("final_document_title"):
+            lines.append(f"  Итоговое название Google Doc: {segment['final_document_title']}")
+        elif suffix_allocation_enabled is False and conflict_mode:
+            lines.append(f"  Конфликт имён: используется общий режим «{conflict_mode}»")
     return "\n".join(lines)
 
 
@@ -5218,11 +5315,23 @@ def inspect_source_input(
 
 
 
+def get_existing_document_names_from_index(docs_index: dict[str, list[dict]]) -> list[str]:
+    names = []
+    seen = set()
+    for docs in (docs_index or {}).values():
+        for doc in docs or []:
+            name = doc.get("name")
+            key = str(name or "").casefold()
+            if name and key not in seen:
+                seen.add(key)
+                names.append(name)
+    return names
+
+
 def count_user_segment_conflict_hits(original_filename: str, segments: list[dict], docs_index: dict[str, list[dict]]) -> int:
     count = 0
-    for segment in segments:
-        base_name = build_user_segment_source_name(original_filename, segment["label"])
-        if get_existing_doc_matches(base_name, docs_index):
+    for title in build_user_segment_requested_document_titles(original_filename, segments):
+        if get_existing_doc_matches(title, docs_index):
             count += 1
     return count
 
@@ -5234,6 +5343,8 @@ def build_safe_user_segment_source_check_text(
     segments: list[dict],
     conflict_count: Optional[int],
     manifest_enabled: bool,
+    suffix_allocation_enabled: bool = False,
+    conflict_mode: Optional[str] = None,
 ) -> str:
     lines = [
         "====================",
@@ -5244,7 +5355,7 @@ def build_safe_user_segment_source_check_text(
         f"Формат: {'видео' if is_video else 'аудио'}",
         "",
         "Предпросмотр сегментации (без путей, ссылок, ID и текста транскрипта):",
-        build_user_segment_preview_text(segments),
+        build_user_segment_preview_text(segments, suffix_allocation_enabled=suffix_allocation_enabled, conflict_mode=conflict_mode),
     ]
     if conflict_count is None:
         lines.append("Папка назначения ещё не выбрана, совпадения не проверялись.")
@@ -5336,7 +5447,18 @@ def process_user_segments_for_source(
     if duration_seconds <= 0:
         raise ValueError("Не удалось определить длительность медиафайла. Сегментация остановлена до запроса к провайдеру.")
     segments = parse_user_segment_plan(segment_plan_text, duration_seconds)
-    print(build_user_segment_preview_text(segments))
+    requested_titles = build_user_segment_requested_document_titles(original_filename, segments)
+    final_titles = allocate_user_segment_document_titles(
+        requested_titles,
+        get_existing_document_names_from_index(run_ctx.docs_index),
+        getattr(run_ctx, "user_segment_suffix_allocation_enabled", False),
+    )
+    segments = apply_user_segment_document_titles(segments, requested_titles, final_titles)
+    print(build_user_segment_preview_text(
+        segments,
+        suffix_allocation_enabled=getattr(run_ctx, "user_segment_suffix_allocation_enabled", False),
+        conflict_mode=run_ctx.conflict_mode,
+    ))
 
     try:
         with timer.measure("user_segment_split") if timer else nullcontext():
@@ -5363,7 +5485,7 @@ def process_user_segments_for_source(
                 source_mode=source_mode,
                 source_reference=source_reference,
             )
-            base_name = segment_source_name
+            base_name = segment.get("final_document_title") or segment_source_name
             print(f"Сегмент {idx}/{total}: {segment['label']} ({segment['range_label']})")
             try:
                 if conflict_mode_needs_existing_match_before_transcription(run_ctx.conflict_mode) and get_single_existing_doc_match(base_name, run_ctx.docs_index):
@@ -7082,16 +7204,27 @@ user_segment_enable_widget = widgets.Checkbox(
 
 user_segment_text_widget = widgets.Textarea(
     value="",
-    placeholder="Project Alpha | 00:00-23:40\nProject Beta | 23:40-end",
+    placeholder="Tivali | 00:00-23:40 | Синк Tivali — задачи\nДругой проект | 23:40-end",
     description="Сегменты:",
     layout=widgets.Layout(width="1000px", height="120px")
+)
+
+user_segment_suffix_widget = widgets.Checkbox(
+    value=False,
+    description="При совпадении названий сегментов создавать отдельный документ с суффиксом (1)",
+    indent=False,
+    layout=widgets.Layout(width="760px")
 )
 
 user_segment_help_widget = widgets.HTML(
     "<div style='margin-top:6px; color:#5f6368;'>"
     "<b>Разделить запись по проектам перед транскрибацией</b><br>"
     "Доступно только для режимов «Компьютер: 1 файл» и «Google Drive: 1 файл». "
-    "Время должно идти подряд от 00:00 до end; метки проектов должны быть уникальны; будет создан один Google Doc на сегмент. "
+    "Сегментация опциональна и выключена по умолчанию. Формат строки: Метка проекта | 00:00-end | Название Google Doc. "
+    "Третье поле опционально; без него имя документа генерируется автоматически. "
+    "Опция суффиксов (1), (2) опциональна и выключена по умолчанию. "
+    "Время должно идти подряд от 00:00 до end; метки проектов должны быть уникальны. "
+    "Пользовательские названия документов могут повторяться только при включённых суффиксах. "
     "Выбранный провайдер применяется к каждому сегменту. "
     "OpenAI может дополнительно технически разделить длинный сегмент внутри своих лимитов."
     "</div>"
@@ -7344,6 +7477,8 @@ def refresh_user_segment_ui(*_args):
     message = user_segment_mode_unavailable_message(mode_widget.value)
     user_segment_unavailable_widget.value = f"<div style='color:#b3261e;'>{message}</div>" if message else ""
     user_segment_text_widget.disabled = bool(message) or not user_segment_enable_widget.value
+    user_segment_suffix_widget.disabled = bool(message) or not user_segment_enable_widget.value
+    user_segment_suffix_widget.layout.display = "" if user_segment_enable_widget.value and not message else "none"
 
 
 mode_widget.observe(refresh_user_segment_ui, names="value")
@@ -7429,6 +7564,13 @@ def on_check_source_clicked(_):
 
                 segments = parse_user_segment_plan(user_segment_text_widget.value, duration_seconds)
                 docs_index = build_existing_docs_index(output_folder_id) if output_folder_id else {}
+                requested_titles = build_user_segment_requested_document_titles(resolved["name"], segments)
+                final_titles = allocate_user_segment_document_titles(
+                    requested_titles,
+                    get_existing_document_names_from_index(docs_index),
+                    user_segment_suffix_widget.value,
+                )
+                segments = apply_user_segment_document_titles(segments, requested_titles, final_titles)
                 conflict_count = (
                     count_user_segment_conflict_hits(resolved["name"], segments, docs_index)
                     if output_folder_id else None
@@ -7440,6 +7582,8 @@ def on_check_source_clicked(_):
                     segments=segments,
                     conflict_count=conflict_count,
                     manifest_enabled=use_manifest_widget.value,
+                    suffix_allocation_enabled=user_segment_suffix_widget.value,
+                    conflict_mode=conflict_mode_widget.value,
                 ))
                 return
 
@@ -7839,6 +7983,7 @@ def build_run_execution_context(output_folder_id: str, output_folder_path: str, 
         manifest=load_manifest(),
         settings_signature=build_settings_signature(options),
         options=options,
+        user_segment_suffix_allocation_enabled=user_segment_suffix_widget.value,
     )
 
 
@@ -8536,6 +8681,7 @@ advanced_box = widgets.VBox([
     widgets.HTML("<hr><b>Разделить запись по проектам перед транскрибацией</b>"),
     user_segment_enable_widget,
     user_segment_text_widget,
+    user_segment_suffix_widget,
     user_segment_help_widget,
     user_segment_unavailable_widget,
 ])
