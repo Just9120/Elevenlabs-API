@@ -146,6 +146,7 @@ HELPER_NAMES = {
     "remove_last_user_segment_builder_row",
     "normalize_user_segment_builder_rows",
     "get_user_segment_builder_start_labels",
+    "validate_user_segment_builder_add_result",
     "validate_user_segment_builder_add_end",
     "try_add_user_segment_builder_row",
     "normalize_optional_user_segment_document_title",
@@ -3300,6 +3301,7 @@ add_user_segment_builder_row = HELPERS["add_user_segment_builder_row"]
 remove_last_user_segment_builder_row = HELPERS["remove_last_user_segment_builder_row"]
 normalize_user_segment_builder_rows = HELPERS["normalize_user_segment_builder_rows"]
 get_user_segment_builder_start_labels = HELPERS["get_user_segment_builder_start_labels"]
+validate_user_segment_builder_add_result = HELPERS["validate_user_segment_builder_add_result"]
 validate_user_segment_builder_add_end = HELPERS["validate_user_segment_builder_add_end"]
 try_add_user_segment_builder_row = HELPERS["try_add_user_segment_builder_row"]
 build_user_segments_from_builder = HELPERS["build_user_segments_from_builder"]
@@ -3399,6 +3401,79 @@ def test_user_segment_visual_builder_add_rejects_end_beyond_known_duration() -> 
     assert "Часть 1" in error
     assert "длительность" in error
 
+
+
+def test_user_segment_visual_builder_earlier_malformed_boundary_blocks_add() -> None:
+    rows = [
+        {"title": "", "end": "bad", "to_end": False},
+        {"title": "", "end": "00:20", "to_end": True},
+    ]
+    updated, error = try_add_user_segment_builder_row(rows, duration_seconds=60)
+    result = validate_user_segment_builder_add_result(rows, duration_seconds=60)
+    assert len(updated) == 2
+    assert updated == normalize_user_segment_builder_rows(rows)
+    assert result["row_index"] == 0
+    assert error == result["error"]
+    assert "Часть 1" in error
+    assert "после 00:00" in error
+
+
+def test_user_segment_visual_builder_earlier_non_monotonic_boundary_blocks_add() -> None:
+    rows = [
+        {"title": "", "end": "00:00", "to_end": False},
+        {"title": "", "end": "00:20", "to_end": True},
+    ]
+    updated, error = try_add_user_segment_builder_row(rows, duration_seconds=60)
+    assert len(updated) == 2
+    assert "Часть 1" in error
+    assert "после 00:00" in error
+    assert validate_user_segment_builder_add_result(rows, duration_seconds=60)["row_index"] == 0
+
+
+def test_user_segment_visual_builder_known_duration_rejects_prior_and_final_boundaries() -> None:
+    prior_rows = [
+        {"title": "", "end": "01:10", "to_end": False},
+        {"title": "", "end": "01:20", "to_end": True},
+    ]
+    prior_updated, prior_error = try_add_user_segment_builder_row(prior_rows, duration_seconds=60)
+    assert len(prior_updated) == 2
+    assert "Часть 1" in prior_error
+    assert "длительность" in prior_error
+    assert validate_user_segment_builder_add_result(prior_rows, duration_seconds=60)["row_index"] == 0
+
+    final_rows = [
+        {"title": "", "end": "00:20", "to_end": False},
+        {"title": "", "end": "01:10", "to_end": True},
+    ]
+    final_updated, final_error = try_add_user_segment_builder_row(final_rows, duration_seconds=60)
+    assert len(final_updated) == 2
+    assert "Часть 2" in final_error
+    assert "длительность" in final_error
+    assert validate_user_segment_builder_add_result(final_rows, duration_seconds=60)["row_index"] == 1
+
+
+def test_user_segment_visual_builder_valid_multi_card_add_preserves_starts() -> None:
+    rows = [
+        {"title": "A", "end": "00:20", "to_end": False},
+        {"title": "B", "end": "00:40", "to_end": True},
+    ]
+    updated, error = try_add_user_segment_builder_row(rows, duration_seconds=90)
+    assert error is None
+    assert updated == [
+        {"title": "A", "end": "00:20", "to_end": False},
+        {"title": "B", "end": "00:40", "to_end": False},
+        {"title": "", "end": "", "to_end": True},
+    ]
+    assert get_user_segment_builder_start_labels(updated, 90) == ["00:00", "00:20", "00:40"]
+
+
+def test_user_segment_visual_builder_canonical_build_rejects_invalid_multi_card_state() -> None:
+    for rows, expected in [
+        ([{"title": "", "end": "bad", "to_end": False}, {"title": "", "end": "", "to_end": True}], "Часть 1"),
+        ([{"title": "", "end": "00:20", "to_end": False}, {"title": "", "end": "00:20", "to_end": False}, {"title": "", "end": "", "to_end": True}], "Часть 2"),
+    ]:
+        with pytest.raises(ValueError, match=expected):
+            build_user_segments_from_builder(rows, 60)
 
 def test_user_segment_visual_builder_builds_canonical_segments_and_titles() -> None:
     rows = [

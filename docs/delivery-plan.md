@@ -8,9 +8,10 @@
 - ✅ **RT-TOKEN-01 — Fresh realtime single-use token per standalone Start attempt** — done/merged into main; sequential Start → Stop → Start in one standalone page was manually confirmed after RT-TOKEN-01.
 - ✅ **OPENAI-BATCH-DURATION-01 — OpenAI batch duration-aware splitting** — manually runtime-confirmed for one long duration-triggered OpenAI batch run that produced a Google Doc; oversized-file and OpenAI diarization runtime validation remain pending.
 - ✅ **OPENAI-BATCH-TIMING-01 — Safe OpenAI per-chunk timing observability** — implemented as local diagnostics; manual review remains separate.
-- 👉 **USER-SEGMENTS-VISUAL-BUILDER-01 — Visual multi-document segmentation builder** — current focused item; replaces raw manual segment text input with a one-source-only visual builder before provider transcription.
+- ✅ **USER-SEGMENTS-VISUAL-BUILDER-01 — Visual multi-document segmentation builder** — completed/merged via PR #75; raw manual segment text input replaced with a one-source-only visual builder before provider transcription.
+- ✅ **USER-SEGMENTS-HARDENING-01 — Harden visual segment builder validation** — completed follow-up; full-chain add validation, correct-card add errors, and regression coverage added.
+- 👉 **RUNTIME-01 — Batch source picker / manifest skip / Google Docs output smoke-check** — planned manual Colab/Drive/Docs validation; includes visual-builder runtime smoke validation without claiming it yet.
 - 📋 **LIVE-COLAB-PROXY-01 remaining validation** — separate unfinished manual realtime validation gaps after RT-TOKEN-01.
-- 📋 **RUNTIME-01 — Batch source picker / manifest skip / Google Docs output smoke-check** — planned manual Colab/Drive/Docs validation.
 - 📋 **SPEAKER-RUNTIME-01 — Speaker projects workflow on copied diarized Google Doc** — planned manual validation.
 - 📋 **PERF-RUNTIME-01 — Startup timing summary collection** — planned runtime diagnostics validation.
 
@@ -31,9 +32,13 @@ Current confirmed realtime evidence is partial: one display+microphone run confi
 
 ## Active recommended next item
 
-### USER-SEGMENTS-VISUAL-BUILDER-01 — Visual multi-document segmentation builder
+### RUNTIME-01 — batch runtime smoke validation
 
-Current focused item: replace raw pipe-delimited user segmentation input with an optional one-source-only visual builder. It builds contiguous `Часть N` segment data before provider transcription, keeps one Google Doc per part, preserves existing segment splitting/provider/docs behavior, and keeps runtime Colab validation separate.
+Current recommended next item: perform separate manual Colab/Drive/Docs batch smoke validation, including the visual user-segment builder, selected output folder, Google Docs creation, and `manifest` skip behavior. Do not claim runtime success until this is executed in Colab and recorded with factual evidence.
+
+### USER-SEGMENTS-VISUAL-BUILDER-01 / USER-SEGMENTS-HARDENING-01 — Visual multi-document segmentation builder
+
+USER-SEGMENTS-VISUAL-BUILDER-01 is completed/merged via PR #75. USER-SEGMENTS-HARDENING-01 is the completed follow-up that hardens the add-part path by validating the full existing chain in order, reporting add errors on the first failing card, and keeping canonical segment construction defensive. Static/unit coverage was added; manual Colab runtime validation remains separate under RUNTIME-01.
 
 ### OPENAI-BATCH-TIMING-01 — Safe OpenAI per-chunk timing observability
 
