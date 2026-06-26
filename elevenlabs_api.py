@@ -4282,36 +4282,51 @@ def get_user_segment_builder_start_labels(rows: list[dict], duration_seconds: Op
     return labels
 
 
-def validate_user_segment_builder_add_end(rows: list[dict], duration_seconds: Optional[float] = None) -> Optional[str]:
+def validate_user_segment_builder_add_result(rows: list[dict], duration_seconds: Optional[float] = None) -> dict:
     effective_rows = normalize_user_segment_builder_rows(rows)
-    start_labels = get_user_segment_builder_start_labels(effective_rows, duration_seconds)
     start_seconds = 0.0
-    if len(effective_rows) > 1:
-        for prior in effective_rows[:-1]:
-            try:
-                start_seconds, _ = parse_user_segment_time(prior.get("end", ""), allow_end=False, duration_seconds=duration_seconds)
-            except Exception:
-                start_seconds = 0.0
-    final_index = len(effective_rows) - 1
-    final_row = effective_rows[final_index]
-    final_label = f"Часть {final_index + 1}"
-    start_label = start_labels[final_index]
-    try:
-        end_seconds, _ = parse_user_segment_time(final_row.get("end", ""), allow_end=False, duration_seconds=duration_seconds)
-    except Exception:
-        return f"{final_label}: сначала укажите корректное время окончания после {start_label}."
-    if end_seconds <= start_seconds:
-        return f"{final_label}: сначала укажите корректное время окончания после {start_label}."
-    if duration_seconds is not None and duration_seconds > 0 and end_seconds > duration_seconds + 0.001:
-        return f"{final_label}: время окончания выходит за длительность записи."
-    return None
+    start_label = "00:00"
+    last_index = len(effective_rows) - 1
+
+    for idx, row in enumerate(effective_rows):
+        display_label = f"Часть {idx + 1}"
+        try:
+            end_seconds, end_label = parse_user_segment_time(row.get("end", ""), allow_end=False, duration_seconds=duration_seconds)
+        except Exception:
+            return {
+                "ok": False,
+                "row_index": idx,
+                "error": f"{display_label}: сначала укажите корректное время окончания после {start_label}.",
+            }
+        if end_seconds <= start_seconds:
+            return {
+                "ok": False,
+                "row_index": idx,
+                "error": f"{display_label}: сначала укажите корректное время окончания после {start_label}.",
+            }
+        if duration_seconds is not None and duration_seconds > 0 and end_seconds > duration_seconds + 0.001:
+            return {
+                "ok": False,
+                "row_index": idx,
+                "error": f"{display_label}: время окончания выходит за длительность записи.",
+            }
+        if idx == last_index:
+            break
+        start_seconds, start_label = end_seconds, end_label
+
+    return {"ok": True, "row_index": None, "error": None}
+
+
+def validate_user_segment_builder_add_end(rows: list[dict], duration_seconds: Optional[float] = None) -> Optional[str]:
+    result = validate_user_segment_builder_add_result(rows, duration_seconds)
+    return result["error"] if not result["ok"] else None
 
 
 def try_add_user_segment_builder_row(rows: list[dict], duration_seconds: Optional[float] = None) -> tuple[list[dict], Optional[str]]:
     normalized = normalize_user_segment_builder_rows(rows)
-    error = validate_user_segment_builder_add_end(normalized, duration_seconds)
-    if error:
-        return normalized, error
+    result = validate_user_segment_builder_add_result(normalized, duration_seconds)
+    if not result["ok"]:
+        return normalized, result["error"]
     return add_user_segment_builder_row(normalized), None
 
 
@@ -7698,10 +7713,13 @@ def render_user_segment_builder_cards():
 def on_user_segment_add_part_clicked(_):
     global user_segment_builder_rows_state, user_segment_builder_error_by_index
     user_segment_builder_error_by_index = {}
-    updated_rows, error = try_add_user_segment_builder_row(user_segment_builder_rows_state)
-    user_segment_builder_rows_state = updated_rows
-    if error:
-        user_segment_builder_error_by_index[len(user_segment_builder_rows_state) - 1] = f"<div style='color:#b3261e;'>{error}</div>"
+    normalized_rows = normalize_user_segment_builder_rows(user_segment_builder_rows_state)
+    validation = validate_user_segment_builder_add_result(normalized_rows)
+    if not validation["ok"]:
+        user_segment_builder_rows_state = normalized_rows
+        user_segment_builder_error_by_index[validation["row_index"]] = f"<div style='color:#b3261e;'>{validation['error']}</div>"
+    else:
+        user_segment_builder_rows_state = add_user_segment_builder_row(normalized_rows)
     render_user_segment_builder_cards()
 
 
