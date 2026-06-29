@@ -1,0 +1,50 @@
+name: Studio PWA CI
+
+on:
+  pull_request:
+    paths:
+      - 'apps/studio/**'
+      - 'deploy/studio/**'
+      - '.github/workflows/studio-ci.yml'
+      - '.github/workflows/studio-cd.yml'
+      - 'scripts/deploy_studio.sh'
+      - 'docs/runbooks/studio-deploy.md'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/studio/**'
+      - 'deploy/studio/**'
+      - '.github/workflows/studio-ci.yml'
+      - '.github/workflows/studio-cd.yml'
+      - 'scripts/deploy_studio.sh'
+      - 'docs/runbooks/studio-deploy.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: studio-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  studio:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/studio/package-lock.json
+      - run: npm ci
+        working-directory: apps/studio
+      - run: npm run lint
+        working-directory: apps/studio
+      - run: npm run test -- --run
+        working-directory: apps/studio
+      - run: npm run build
+        working-directory: apps/studio
+      - run: docker build -t elevenlabs-studio-web:test apps/studio
+      - run: echo "STUDIO_CI_OK"
