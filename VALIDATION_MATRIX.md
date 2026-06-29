@@ -54,6 +54,8 @@
 | Title-preserving Google Docs standardization | Unit-tested / needs runtime validation | Docs-only standardization coverage verifies that existing segment-generated Drive titles, including custom titles and `(1)`/`(2)` suffixes, remain the structured heading and that segment metadata lines are preserved without creating or renaming Google Docs. |
 | Parallel notebooks / two Colab tabs | Not supported | Manifest model is single-user/single-runtime. |
 | GitHub Actions CI | Must be checked per PR | Local checks are necessary but not identical to hosted CI. |
+| Studio PWA static foundation | CI/static/unit/build evidence pending in PWA-FOUNDATION-01 | `apps/studio` covers Russian-first installable app shell, client-only prototype data, local file metadata display, local segment validation, settings public URL, PWA manifest/service worker and static nginx image build. Production VPS deployment is not runtime-validated yet. |
+| Studio production integrations | Not implemented / not runtime-validated | Google OAuth, Google Drive, Google Docs, provider processing, uploads, queues, job execution, Redis, PostgreSQL, workers and persistence are intentionally absent from PWA-FOUNDATION-01 and have no runtime validation. |
 
 ## Runtime validation backlog
 

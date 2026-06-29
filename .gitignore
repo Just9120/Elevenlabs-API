@@ -48,3 +48,9 @@ exports/
 transcripts/
 manifests/
 manifest*.json
+
+# Studio PWA generated files
+apps/studio/node_modules/
+apps/studio/dist/
+apps/studio/*.tsbuildinfo
+!deploy/studio/.env.example

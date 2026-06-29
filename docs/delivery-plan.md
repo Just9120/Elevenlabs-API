@@ -10,7 +10,8 @@
 - ✅ **OPENAI-BATCH-TIMING-01 — Safe OpenAI per-chunk timing observability** — implemented as local diagnostics; manual review remains separate.
 - ✅ **USER-SEGMENTS-VISUAL-BUILDER-01 — Visual multi-document segmentation builder** — completed/merged via PR #75; raw manual segment text input replaced with a one-source-only visual builder before provider transcription.
 - ✅ **USER-SEGMENTS-HARDENING-01 — Harden visual segment builder validation** — completed follow-up; full-chain add validation, correct-card add errors, and regression coverage added.
-- 👉 **RUNTIME-01 — Batch source picker / manifest skip / Google Docs output smoke-check** — planned manual Colab/Drive/Docs validation; includes visual-builder runtime smoke validation without claiming it yet.
+- 👉 **PWA-FOUNDATION-01 — Studio PWA foundation and isolated delivery boundary** — current recommended item for a UI-only, deployable PWA contour at `studio.librechat.online`; no provider, Google, queue, persistence or transcription runtime.
+- 📋 **RUNTIME-01 — Batch source picker / manifest skip / Google Docs output smoke-check** — deferred by current product priority; still planned manual Colab/Drive/Docs validation without claiming pass/fail.
 - 📋 **LIVE-COLAB-PROXY-01 remaining validation** — separate unfinished manual realtime validation gaps after RT-TOKEN-01.
 - 📋 **SPEAKER-RUNTIME-01 — Speaker projects workflow on copied diarized Google Doc** — planned manual validation.
 - 📋 **PERF-RUNTIME-01 — Startup timing summary collection** — planned runtime diagnostics validation.
@@ -32,9 +33,13 @@ Current confirmed realtime evidence is partial: one display+microphone run confi
 
 ## Active recommended next item
 
+### PWA-FOUNDATION-01 — Studio PWA foundation
+
+Current recommended next item: establish `apps/studio/`, PWA-only CI/CD scaffolding and localhost-only `studio-web` deployment boundary for `studio.librechat.online`. This item is UI-only and must not add provider calls, Google integration, uploads, queues, databases, workers, persistence or changes to Colab runtime behavior.
+
 ### RUNTIME-01 — batch runtime smoke validation
 
-Current recommended next item: perform separate manual Colab/Drive/Docs batch smoke validation, including the visual user-segment builder, selected output folder, Google Docs creation, and `manifest` skip behavior. Do not claim runtime success until this is executed in Colab and recorded with factual evidence.
+RUNTIME-01 is deferred by current product priority, not passed or failed. It remains a separate manual Colab/Drive/Docs batch smoke validation item, including the visual user-segment builder, selected output folder, Google Docs creation, and `manifest` skip behavior. Do not claim runtime success until this is executed in Colab and recorded with factual evidence.
 
 ### USER-SEGMENTS-VISUAL-BUILDER-01 / USER-SEGMENTS-HARDENING-01 — Visual multi-document segmentation builder
 

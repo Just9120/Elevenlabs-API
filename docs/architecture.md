@@ -83,3 +83,11 @@ Current realtime frontend boundaries in `elevenlabs_realtime.py`:
 - **Live transcript presentation** — isolate partial text, committed `realtime_live_transcript_v1` segments, copy/download and clear-confirmed-text behavior.
 
 Future refactors must preserve existing token/proxy/WebSocket behavior, browser-only transcript rendering, no Google Docs/manifest side effects, and conservative validation requirements. Permission-cancellation safety is statically covered but still requires manual browser validation.
+
+## 8. Studio PWA frontend/deploy boundary
+
+`apps/studio/` is the PWA frontend-only workspace. It contains a React + TypeScript + Vite app shell, PWA manifest, service worker, static nginx container config and frontend tests. Current functionality is static/client-side: Russian-first navigation, prototype projects/jobs, browser-only file metadata display, settings with public app URL, and local validation of visual multi-document segments.
+
+`deploy/studio/` contains the production Compose file, environment schema and host nginx vhost template. The only current service is `studio-web`, a stateless web container served behind host nginx through `127.0.0.1:8181`. The repository template for host nginx is not applied by repository code.
+
+Future API, OAuth, provider processing, uploads, queues, database, worker and job-pipeline architecture are deliberately not implemented in PWA-FOUNDATION-01. Those capabilities require separate product scope, runtime architecture and validation.

@@ -53,6 +53,12 @@ Realtime не является заменой stable batch workflow и не ме
 - `Скопировать текст` и `Скачать .txt` работают с browser-only committed text;
 - нет Google Docs save, `manifest` mutation, speaker project integration или provider raw payload persistence.
 
+### 3.4 Studio PWA contour (PWA-FOUNDATION-01)
+
+Studio PWA is a new product contour for `studio.librechat.online`. In PWA-FOUNDATION-01 it is an installable Russian-first UI foundation only: app shell, local prototype project/job data, local browser-only file metadata reading, and a visual multi-document segment builder that mirrors the intended sequential segment UX.
+
+Colab batch remains the stable fallback and the only current production path for provider transcription, Google Docs output, Drive integration and `manifest` mutation. The PWA foundation does not call transcription providers, Google OAuth, Google Drive, Google Docs, Redis, PostgreSQL, queues, workers, existing Colab runtime code, or any transcription runtime. It does not upload files to a server and does not persist processing state beyond browser UI state.
+
 ## 4. Source и output boundaries
 
 Папка источника содержит audio/video source files и используется только для transcription flows. Папка результата содержит Google Docs transcript outputs и используется для создания Docs, docs-only standardization и manifest maintenance.
