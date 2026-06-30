@@ -1,14 +1,14 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import App from './App';
 import { buildSegmentPlan, parseTimeToSeconds } from './segments';
 const json = (body: unknown, ok = true, status = 200) => Promise.resolve({ ok, status, json: () => Promise.resolve(body), text: () => Promise.resolve(JSON.stringify(body)) } as Response);
-async function renderApp(mode: 'static' | 'platform') {
-  vi.resetModules(); vi.stubEnv('VITE_STUDIO_PLATFORM_MODE', mode);
-  const { default: App } = await import('./App'); render(<App />);
+function renderApp(mode: 'static' | 'platform') {
+  render(<App mode={mode} />);
 }
 describe('Studio PWA', () => {
-  beforeEach(() => { localStorage.clear(); sessionStorage.clear(); vi.unstubAllEnvs(); vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
+  beforeEach(() => { localStorage.clear(); sessionStorage.clear(); vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
     if (url.endsWith('/api/auth/session')) return json({ authenticated: true, user: { email: 'user@example.com', role: 'admin' } });
     if (url.endsWith('/api/auth/csrf')) return json({ csrf_token: 'csrf-after-refresh', user: { email: 'user@example.com', role: 'admin' } });
     if (url.endsWith('/api/auth/bootstrap-status')) return json({ bootstrap_required: false });
@@ -21,7 +21,7 @@ describe('Studio PWA', () => {
     return json({ ok: true });
   })); });
   it('static-only mode renders public UI and makes no /api requests', async () => {
-    await renderApp('static');
+    renderApp('static');
     expect(screen.getByText('Панель готова к установке')).toBeInTheDocument();
     expect(fetch).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole('button', { name: /Настройки/ }));
@@ -29,14 +29,14 @@ describe('Studio PWA', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
   it('platform mode refreshes in-memory CSRF and renders settings without browser storage secrets', async () => {
-    await renderApp('platform');
+    renderApp('platform');
     await screen.findByText(/Панель аккаунта готова/);
     expect(fetch).toHaveBeenCalledWith('/api/auth/csrf', expect.objectContaining({ method: 'POST' }));
     await userEvent.click(screen.getByRole('button', { name: /Настройки/ }));
     await screen.findByText(/BYOK credentials/); expect(screen.getByText(/••••1234/)).toBeInTheDocument(); expect(window.localStorage.length).toBe(0); expect(window.sessionStorage.length).toBe(0);
   });
   it('platform mode supports credential replacement without rendering raw key', async () => {
-    await renderApp('platform'); await userEvent.click(await screen.findByRole('button', { name: /Настройки/ }));
+    renderApp('platform'); await userEvent.click(await screen.findByRole('button', { name: /Настройки/ }));
     const replaceForm = await screen.findByLabelText('Заменить credential');
     await userEvent.selectOptions(replaceForm.querySelector('select')!, 'c1');
     await userEvent.type(screen.getByPlaceholderText('Новый ключ для замены'), 'raw-secret-never-render');
@@ -46,7 +46,7 @@ describe('Studio PWA', () => {
   });
   it('shows bootstrap-required operator instruction', async () => {
     (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation((url: string) => url.endsWith('/api/auth/session') ? json({}, false, 401) : json({ bootstrap_required: true }));
-    await renderApp('platform'); expect(await screen.findByText(/bootstrap-admin/)).toBeInTheDocument();
+    renderApp('platform'); expect(await screen.findByText(/bootstrap-admin/)).toBeInTheDocument();
   });
   it('validates sequential segment boundaries', () => {
     expect(parseTimeToSeconds('01:05')).toBe(65);
