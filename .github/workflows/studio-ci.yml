@@ -11,7 +11,10 @@ on:
       - 'scripts/deploy_studio.sh'
       - 'scripts/deploy_studio_platform.sh'
       - 'scripts/migrate_studio_platform.sh'
+      - 'scripts/backup_studio_postgres_r2.sh'
       - 'docs/runbooks/studio-deploy.md'
+      - 'docs/runbooks/studio-platform-ops.md'
+      - 'tests/test_studio_api_core.py'
   push:
     branches: [main]
     paths:
@@ -23,7 +26,10 @@ on:
       - 'scripts/deploy_studio.sh'
       - 'scripts/deploy_studio_platform.sh'
       - 'scripts/migrate_studio_platform.sh'
+      - 'scripts/backup_studio_postgres_r2.sh'
       - 'docs/runbooks/studio-deploy.md'
+      - 'docs/runbooks/studio-platform-ops.md'
+      - 'tests/test_studio_api_core.py'
   workflow_dispatch:
 
 permissions:
@@ -36,14 +42,56 @@ concurrency:
 jobs:
   studio:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: studio_test
+          POSTGRES_USER: studio_test
+          POSTGRES_PASSWORD: studio_test_password
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U studio_test -d studio_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      STUDIO_DATABASE_SCHEME: postgresql+psycopg
+      STUDIO_DATABASE_HOST: 127.0.0.1
+      STUDIO_DATABASE_PORT: '5432'
+      STUDIO_DATABASE_NAME: studio_test
+      STUDIO_DATABASE_USER: studio_test
+      STUDIO_POSTGRES_PASSWORD_FILE: ${{ runner.temp }}/studio_postgres_password
+      STUDIO_REDIS_URL: redis://127.0.0.1:6379/0
+      STUDIO_CREDENTIAL_MASTER_KEY_FILE: ${{ runner.temp }}/studio_credential_master_key
+      STUDIO_APP_ORIGIN: https://studio.test
+      STUDIO_COOKIE_SECURE: 'false'
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: apps/studio/package-lock.json
+      - name: Create CI fixture secret files
+        run: |
+          printf 'studio_test_password' > "$STUDIO_POSTGRES_PASSWORD_FILE"
+          python -c "import base64; print(base64.b64encode(b'5' * 32).decode())" > "$STUDIO_CREDENTIAL_MASTER_KEY_FILE"
+      - run: python -m pip install --upgrade pip && pip install -r requirements-dev.txt
+      - run: alembic -c apps/studio-api/alembic.ini upgrade head
+      - run: pytest -q tests/test_studio_api_core.py
       - run: npm ci
         working-directory: apps/studio
       - run: npm run lint
@@ -53,20 +101,13 @@ jobs:
       - run: npm run build
         working-directory: apps/studio
       - run: docker build -t elevenlabs-studio-web:test apps/studio
-
       - name: Validate platform compose config
         run: |
           tmp=$(mktemp -d)
           printf 'not-a-secret-ci-password' > "$tmp/postgres_password"
-          python - <<'PY2' > "$tmp/master_key"
-import base64
-print(base64.b64encode(b'3'*32).decode())
-PY2
+          python -c "import base64; print(base64.b64encode(b'3' * 32).decode())" > "$tmp/master_key"
           cp deploy/studio/.env.example "$tmp/.env"
-          cat >> "$tmp/.env" <<EOF
-STUDIO_POSTGRES_PASSWORD_FILE=$tmp/postgres_password
-STUDIO_CREDENTIAL_MASTER_KEY_FILE=$tmp/master_key
-EOF
+          printf 'STUDIO_POSTGRES_PASSWORD_FILE=%s\nSTUDIO_CREDENTIAL_MASTER_KEY_FILE=%s\n' "$tmp/postgres_password" "$tmp/master_key" >> "$tmp/.env"
           docker compose --env-file "$tmp/.env" -f deploy/studio/compose.platform.yml config >/dev/null
       - run: docker build -t elevenlabs-studio-api:test apps/studio-api
       - run: echo "STUDIO_CI_OK"

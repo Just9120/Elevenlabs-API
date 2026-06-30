@@ -15,7 +15,7 @@ Copy `deploy/studio/.env.example` to `deploy/studio/.env` and set only paths/pla
 ## Migration order
 
 1. Start PostgreSQL and Redis with `scripts/deploy_studio_platform.sh` or reviewed Compose commands.
-2. Run a tagged pre-migration backup first: `STUDIO_BACKUP_TAG=pre-migration-YYYYMMDD scripts/backup_studio_postgres_r2.sh`.
+2. Run a tagged pre-migration backup first: `STUDIO_BACKUP_TAG=pre-migration scripts/backup_studio_postgres_r2.sh`.
 3. Run migrations only after backup confirmation: `STUDIO_PRE_MIGRATION_BACKUP_CONFIRMED=yes scripts/migrate_studio_platform.sh`.
 4. Start or restart `studio-api` and `studio-web`.
 
@@ -44,3 +44,18 @@ Restore rehearsal is manual: restore a snapshot into a separate temporary Postgr
 ## Validation evidence to record
 
 Record secret-free evidence for platform health, migration revision, bootstrap status, login/logout/session rotation, CSRF rejection, credential create/list/replace/revoke/delete masking, Redis rate limits, backup snapshot creation, restore rehearsal, and browser acceptance. Do not claim production provider execution, uploads, Google integration, queues, jobs, or transcript output.
+
+## Hardening notes for PWA-PLATFORM-01 follow-up
+
+The API constructs its PostgreSQL SQLAlchemy URL from non-secret connection fields plus the read-only `/run/secrets/studio_postgres_password` file. Do not export the raw password into `STUDIO_POSTGRES_PASSWORD` or interpolate it into Compose environment variables.
+
+Forwarded client IP handling assumes only the local host nginx proxy boundary. The API may parse `X-Forwarded-For` only when the direct peer is the configured trusted local proxy; arbitrary forwarded headers from other peers are ignored.
+
+Use only documented backup tags:
+
+```bash
+STUDIO_BACKUP_TAG=scheduled scripts/backup_studio_postgres_r2.sh
+STUDIO_BACKUP_TAG=pre-migration scripts/backup_studio_postgres_r2.sh
+```
+
+The backup script uses a fixed logical restic host and `--group-by host,tags` so the temporary dump path does not fragment retention. Scheduled backups retain all snapshots within 7 days plus daily snapshots for 30 days and monthly snapshots for 12 months. Pre-migration snapshots are retained for 90 days. Restore rehearsal remains manual and must target a separate temporary database.

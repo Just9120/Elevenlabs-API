@@ -1,6 +1,6 @@
 import json
 from datetime import timedelta
-from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import text, func
 from sqlalchemy.orm import Session
@@ -9,7 +9,7 @@ from alembic.script import ScriptDirectory
 from .audit import audit
 from .config import get_settings
 from .db import Base, engine, get_db
-from .deps import current_session, require_csrf, require_same_origin
+from .deps import current_session, get_client_ip, require_csrf, require_same_origin
 from .models import *
 from .rate_limit import RateLimiter
 from .security import *
@@ -22,7 +22,7 @@ class LoginIn(BaseModel): email: EmailStr; password: str; login_csrf_token: str
 class CredentialIn(BaseModel): provider: CredentialProvider; label: str=Field(min_length=1,max_length=120); raw_value: str=Field(min_length=8,max_length=4096)
 
 def client_id(request: Request):
-    return request.headers.get("x-forwarded-for", request.client.host if request.client else "unknown").split(",")[0].strip()
+    return get_client_ip(request, settings)
 
 def set_cookie(resp: Response, token: str):
     resp.set_cookie(settings.cookie_name, token, max_age=settings.session_days*86400, httponly=True, secure=settings.cookie_secure, samesite="lax", path="/")
@@ -40,8 +40,11 @@ def healthz(db: Session=Depends(get_db)):
         current=None
         try: current=db.execute(text("select version_num from alembic_version")).scalar()
         except Exception: current=None
-        return {"ok": current == expected, "database": "reachable", "migrations": "current" if current == expected else "pending"}
-    except Exception: return {"ok": False, "database": "unreachable", "migrations": "unknown"}
+        if current != expected:
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "service unavailable")
+        return {"ok": True, "database": "reachable", "migrations": "current"}
+    except Exception:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "service unavailable")
 
 @app.get("/api/auth/bootstrap-status")
 def bootstrap_status(db: Session=Depends(get_db)):
@@ -73,7 +76,11 @@ def logout(response: Response, pair=Depends(require_csrf), db: Session=Depends(g
 
 @app.get("/api/auth/session")
 def session(pair=Depends(current_session)):
-    sess,user=pair; return {"authenticated": True, "user": {"id": user.id,"email": user.email,"role": user.role.value}}
+    sess,user=pair; return {"authenticated": True, "user": {"id": user.id,"email": user.email,"role": user.role.value}, "session": {"expires_at": sess.expires_at.isoformat()}}
+
+@app.post("/api/auth/csrf")
+def refresh_csrf(pair=Depends(current_session), db: Session=Depends(get_db), _=Depends(require_same_origin)):
+    sess,user=pair; raw_csrf=new_token(); sess.csrf_hash=token_hash(raw_csrf); sess.rotated_at=utcnow(); audit(db,"auth.csrf_refreshed", actor_user_id=user.id, subject_user_id=user.id, session_id=sess.id); db.commit(); return {"csrf_token": raw_csrf, "user": {"id": user.id,"email": user.email,"role": user.role.value}, "session": {"expires_at": sess.expires_at.isoformat()}}
 
 @app.get("/api/account")
 def account(pair=Depends(current_session)): return session(pair)

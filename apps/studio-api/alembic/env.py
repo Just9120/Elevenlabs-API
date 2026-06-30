@@ -5,7 +5,7 @@ from studio_api.config import get_settings
 from studio_api.db import Base
 from studio_api import models
 config=context.config
-config.set_main_option("sqlalchemy.url", get_settings().database_url)
+config.set_main_option("sqlalchemy.url", get_settings().sqlalchemy_url())
 if config.config_file_name: fileConfig(config.config_file_name)
 target_metadata=Base.metadata
 def run_migrations_offline():

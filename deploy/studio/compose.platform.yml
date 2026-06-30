@@ -3,7 +3,7 @@ services:
   studio-web:
     build:
       context: ../../apps/studio
-      args: { VITE_APP_PUBLIC_URL: ${APP_PUBLIC_URL:?APP_PUBLIC_URL is required} }
+      args: { VITE_APP_PUBLIC_URL: ${APP_PUBLIC_URL:?APP_PUBLIC_URL is required}, VITE_STUDIO_PLATFORM_MODE: platform }
     image: elevenlabs-studio-web:local
     restart: unless-stopped
     ports: ["127.0.0.1:8181:8080"]
@@ -18,11 +18,16 @@ services:
     restart: unless-stopped
     ports: ["127.0.0.1:8182:8000"]
     environment:
-      STUDIO_DATABASE_URL: postgresql+psycopg://studio:${STUDIO_POSTGRES_PASSWORD:?set by deploy script}@postgres:5432/studio
+      STUDIO_DATABASE_SCHEME: postgresql+psycopg
+      STUDIO_DATABASE_HOST: postgres
+      STUDIO_DATABASE_PORT: "5432"
+      STUDIO_DATABASE_NAME: studio
+      STUDIO_DATABASE_USER: studio
+      STUDIO_POSTGRES_PASSWORD_FILE: /run/secrets/studio_postgres_password
       STUDIO_REDIS_URL: redis://redis:6379/0
       STUDIO_APP_ORIGIN: ${APP_PUBLIC_URL:?APP_PUBLIC_URL is required}
       STUDIO_CREDENTIAL_MASTER_KEY_FILE: /run/secrets/studio_credential_master_key
-    secrets: [studio_credential_master_key]
+    secrets: [studio_credential_master_key, studio_postgres_password]
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }

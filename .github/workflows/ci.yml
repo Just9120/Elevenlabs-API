@@ -17,8 +17,41 @@ concurrency:
 jobs:
   checks:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: studio_test
+          POSTGRES_USER: studio_test
+          POSTGRES_PASSWORD: studio_test_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U studio_test -d studio_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      STUDIO_DATABASE_SCHEME: postgresql+psycopg
+      STUDIO_DATABASE_HOST: 127.0.0.1
+      STUDIO_DATABASE_PORT: '5432'
+      STUDIO_DATABASE_NAME: studio_test
+      STUDIO_DATABASE_USER: studio_test
+      STUDIO_POSTGRES_PASSWORD_FILE: ${{ runner.temp }}/studio_postgres_password
+      STUDIO_REDIS_URL: redis://127.0.0.1:6379/0
+      STUDIO_CREDENTIAL_MASTER_KEY_FILE: ${{ runner.temp }}/studio_credential_master_key
+      STUDIO_APP_ORIGIN: https://studio.test
+      STUDIO_COOKIE_SECURE: 'false'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -32,6 +65,14 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
+
+      - name: Create CI fixture secret files
+        run: |
+          printf 'studio_test_password' > "$STUDIO_POSTGRES_PASSWORD_FILE"
+          python -c "import base64; print(base64.b64encode(b'4' * 32).decode())" > "$STUDIO_CREDENTIAL_MASTER_KEY_FILE"
+
+      - name: Run Alembic upgrade
+        run: alembic -c apps/studio-api/alembic.ini upgrade head
 
       - name: Run lightweight CI checks
         run: python scripts/ci_checks.py

@@ -9,5 +9,4 @@ set -a
 # shellcheck disable=SC1091
 source deploy/studio/.env
 set +a
-export STUDIO_POSTGRES_PASSWORD="$(<"${STUDIO_POSTGRES_PASSWORD_FILE:?}")"
 docker compose --env-file deploy/studio/.env -f deploy/studio/compose.platform.yml run --rm studio-api alembic -c /app/alembic.ini upgrade head

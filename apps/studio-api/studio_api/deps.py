@@ -1,4 +1,5 @@
-from fastapi import Cookie, Depends, Header, HTTPException, Request
+from ipaddress import ip_address
+from fastapi import Depends, HTTPException, Request, Header
 from sqlalchemy.orm import Session
 from .config import Settings, get_settings
 from .db import get_db
@@ -12,6 +13,22 @@ def origin_ok(request: Request, settings: Settings) -> bool:
 
 def require_same_origin(request: Request, settings: Settings=Depends(get_settings)):
     if not origin_ok(request, settings): raise HTTPException(403, "Недопустимый источник запроса")
+
+def get_client_ip(request: Request, settings: Settings) -> str:
+    peer = request.client.host if request.client else "unknown"
+    try:
+        trusted = ip_address(settings.trusted_proxy_ip)
+        direct = ip_address(peer)
+    except ValueError:
+        return peer
+    if direct == trusted:
+        forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+        if forwarded:
+            try:
+                return str(ip_address(forwarded))
+            except ValueError:
+                return peer
+    return peer
 
 def current_session(request: Request, db: Session=Depends(get_db), settings: Settings=Depends(get_settings)):
     raw=request.cookies.get(settings.cookie_name)
