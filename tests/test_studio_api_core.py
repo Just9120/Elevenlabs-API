@@ -112,7 +112,12 @@ def test_credential_lifecycle_no_raw_secret_echo_and_audit_safe():
     r = c.post(f"/api/credentials/{cid}/replace", json={"provider": "openai", "label": "main", "raw_value": "sk-test-new-secret-abcdef"}, headers={"origin": "https://studio.test", "x-csrf-token": csrf}); assert r.status_code == 200
     r = c.post(f"/api/credentials/{cid}/revoke", headers={"origin": "https://studio.test", "x-csrf-token": csrf}); assert r.status_code == 200
     r = c.delete(f"/api/credentials/{cid}", headers={"origin": "https://studio.test", "x-csrf-token": csrf}); assert r.status_code == 200
-    db = SessionLocal(); assert raw not in "\n".join(a.metadata_json for a in db.query(AuditEvent).all()); assert all(v.ciphertext is None for v in db.query(ProviderCredentialVersion).all())
+    db = SessionLocal()
+    try:
+        assert raw not in "\n".join(a.metadata_json for a in db.query(AuditEvent).all())
+        assert all(v.ciphertext is None for v in db.query(ProviderCredentialVersion).all())
+    finally:
+        db.close()
 
 
 def test_aes_gcm_unique_nonce_and_aad_binding():
