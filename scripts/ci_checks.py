@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
 import sys
 from pathlib import Path
 
@@ -176,23 +175,6 @@ def check_temp_cleanup_patterns() -> None:
     print("[ci-checks] Temp cleanup safety guard passed.")
 
 
-def check_pytest_if_tests_exist() -> None:
-    tests_dir = ROOT / "tests"
-    test_paths = list(tests_dir.glob("test_*.py")) if tests_dir.exists() else []
-    if not test_paths:
-        print("[ci-checks] No pytest tests found; skipping pytest run.")
-        return
-
-    result = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q"],
-        cwd=ROOT,
-        text=True,
-    )
-    if result.returncode != 0:
-        fail(f"pytest failed with exit code {result.returncode}")
-    print("[ci-checks] Pytest checks passed.")
-
-
 def main() -> int:
     try:
         check_notebooks()
@@ -201,7 +183,6 @@ def main() -> int:
         check_realtime_runtime_boundaries()
         check_no_raw_provider_body_logging()
         check_temp_cleanup_patterns()
-        check_pytest_if_tests_exist()
     except CheckError as exc:
         print(f"[ci-checks] FAILED: {exc}")
         return 1

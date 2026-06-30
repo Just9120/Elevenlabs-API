@@ -76,3 +76,5 @@ git diff --check
 ```
 
 Runtime validation выполняется отдельно в Google Colab/Drive/Docs и не доказывается только локальными checks.
+
+- Studio platform operations runbook: `docs/runbooks/studio-platform-ops.md` (stateful account/session/BYOK path; manual deployment only).

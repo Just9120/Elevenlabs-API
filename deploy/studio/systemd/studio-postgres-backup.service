@@ -1,0 +1,6 @@
+[Unit]
+Description=Studio PostgreSQL restic backup to R2
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/elevenlabs-studio/backup.env
+ExecStart=/opt/elevenlabs-studio/scripts/backup_studio_postgres_r2.sh
