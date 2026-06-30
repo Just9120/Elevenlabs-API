@@ -80,7 +80,7 @@ jobs:
         run: python scripts/ci_checks.py
 
       - name: Run pytest
-        run: pytest -q
+        run: timeout 180s python -m pytest -vv
 
       - name: Mark CI success
         run: echo "CI_OK"
