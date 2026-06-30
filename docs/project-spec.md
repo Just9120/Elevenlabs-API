@@ -61,28 +61,37 @@ Studio is the new desktop-first responsive web application contour for the initi
 
 Colab batch remains the stable fallback during the PWA transition and the only current production path for provider transcription, Google Drive/Docs output, Drive integration and `manifest` mutation. The current Studio foundation does not include a backend API, authentication, provider keys, provider calls, Google OAuth/Drive/Docs integration, server-side file uploads, transcription jobs, database, Redis, queue, worker, persistent storage, migrations, existing Colab runtime changes, or any production transcription job pipeline.
 
-### 3.5 PWA-DEPLOY-01 first-deploy contract
+### 3.5 PWA-DEPLOY-01 first-deploy contract and evidence
 
-`PWA-DEPLOY-01` is the next Studio stage: a manual first deployment of the existing stateless `studio-web` container only. Scope is intentionally limited to:
+`PWA-DEPLOY-01` is complete for the first stateless Studio deployment at `https://studio.librechat.online`. The deployment validates public app-shell availability only; it does not create a production transcription platform.
 
-- isolated deployment clone on branch `main`;
-- `studio-web` binding only to `127.0.0.1:8181`;
-- host nginx and Certbot/TLS manually managed by the VPS operator;
-- public HTTPS address `https://studio.librechat.online`;
-- manual validation of local health, public HTTPS health, page load, manifest/service worker presence, PWA install/open, and offline app-shell reopen after an initial successful online visit.
+Verified deployment facts:
 
-Explicit non-goals for `PWA-DEPLOY-01`:
+- an isolated Studio deployment clone exists at `/opt/elevenlabs-studio` on branch `main`;
+- the existing stateless `studio-web` container was built and started successfully;
+- the container is healthy and binds only to `127.0.0.1:8181`;
+- host nginx proxies `studio.librechat.online` to the local Studio container;
+- a Let's Encrypt certificate for `studio.librechat.online` was issued and HTTPS works;
+- `https://studio.librechat.online/healthz` returned HTTP 200;
+- HTTP redirects to HTTPS;
+- the public homepage exposes `manifest.webmanifest`;
+- the public service worker `sw.js` is present and precaches the app shell.
 
-- no backend API;
-- no user authentication;
-- no provider keys;
-- no provider calls;
-- no Google OAuth, Drive, or Docs;
-- no server-side file uploads;
-- no transcription jobs;
-- no database, Redis, queue, worker, persistent storage, or migrations;
-- no CD activation;
-- no changes to Colab, realtime, provider contracts, Google Docs behavior, or manifest behavior.
+Manual browser/PWA evidence:
+
+- Studio UI opens in a normal desktop browser;
+- the browser offers PWA installation;
+- the installed app opens in a separate window;
+- after a successful online visit, the app shell appears to reopen offline. Browser/version were not recorded; this is manual user-reported confirmation and is not proof of offline transcription, provider execution, Google integration, authentication, credentials, uploads, or job processing.
+
+Current deployment boundaries remain unchanged:
+
+- current Studio is still UI-only;
+- PWA offline behavior covers the app shell after a prior online visit only;
+- no production transcription platform exists yet;
+- CD remains disabled;
+- no backend API, user authentication, provider keys, provider calls, Google OAuth, Google Drive, Google Docs, server-side file uploads, transcription jobs, database, Redis, queue, worker, persistence, persistent storage, or migrations were added;
+- no changes were made to Colab, realtime, provider contracts, Google Docs behavior, or manifest behavior.
 
 ### 3.6 Approved future Studio platform direction, not implementation authorization
 

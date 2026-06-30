@@ -11,7 +11,8 @@
 - ✅ **USER-SEGMENTS-VISUAL-BUILDER-01 — Visual multi-document segmentation builder** — completed/merged via PR #75; raw manual segment text input replaced with a one-source-only visual builder before provider transcription.
 - ✅ **USER-SEGMENTS-HARDENING-01 — Harden visual segment builder validation** — completed follow-up; full-chain add validation, correct-card add errors, and regression coverage added.
 - ✅ **PWA-FOUNDATION-01 — Studio PWA foundation and isolated delivery boundary** — completed/merged via PR #77; existing Python CI and Studio PWA CI passed before merge.
-- 👉 **PWA-DEPLOY-01 — Manual first Studio deployment** — current recommended next item for operator-run deployment of the existing stateless `studio-web` container at `https://studio.librechat.online`; CD remains disabled.
+- ✅ **PWA-DEPLOY-01 — Manual first Studio deployment** — completed for the existing stateless `studio-web` container at `https://studio.librechat.online`; CD remains disabled and only public app-shell availability is validated.
+- 👉 **PWA-PLATFORM-01-PREP — Define future Studio platform scope and validation plan** — current recommended planning item; preparation only, not implementation.
 - 📋 **PWA-PLATFORM-01 — Future Studio backend/auth/BYOK/Google/processing platform** — planned but blocked on explicit implementation scope, detailed stateful-service design, security review, deployment model, and validation plan.
 - 📋 **RUNTIME-01 — Batch source picker / manifest skip / Google Docs output smoke-check** — deferred by current product priority; still planned manual Colab/Drive/Docs validation without claiming pass/fail.
 - 📋 **LIVE-COLAB-PROXY-01 remaining validation** — separate unfinished manual realtime validation gaps after RT-TOKEN-01.
@@ -30,37 +31,30 @@ Current confirmed realtime evidence is partial: one display+microphone run confi
 
 ### PWA-DEPLOY-01 — Manual first Studio deployment
 
-Current recommended next item: operator-run manual first deployment of the existing stateless `studio-web` container behind host nginx at `studio.librechat.online`.
+PWA-DEPLOY-01 is complete for the existing stateless `studio-web` container behind host nginx at `https://studio.librechat.online`. This records public app-shell availability only, not a production transcription platform.
 
-Scope:
+Factual evidence recorded from manual VPS/browser validation:
 
-- isolated deployment clone on branch `main`;
-- `studio-web` binds only to `127.0.0.1:8181`;
-- host nginx and Certbot/TLS remain manually managed by the VPS operator;
-- public HTTPS address is `https://studio.librechat.online`;
-- CD remains disabled for the first deployment stage.
+- isolated Studio deployment clone exists at `/opt/elevenlabs-studio` on branch `main`;
+- existing stateless `studio-web` container was built and started successfully;
+- local container health passed and the container binds only to `127.0.0.1:8181`;
+- host nginx proxies `studio.librechat.online` to the local Studio container;
+- Let's Encrypt certificate was issued for `studio.librechat.online` and HTTPS works;
+- `https://studio.librechat.online/healthz` returned HTTP 200;
+- HTTP redirects to HTTPS;
+- public homepage exposes `manifest.webmanifest`;
+- public `sw.js` is present and precaches the app shell;
+- Studio UI opens in a normal desktop browser;
+- browser offers PWA installation;
+- installed app opens in a separate window;
+- after a successful online visit, the app shell appears to reopen offline. Browser/version were not recorded; this is manual user-reported confirmation and must not be described as proof of offline transcription, provider execution, Google integration, authentication, credentials, uploads, or job processing.
 
-Manual acceptance criteria:
+Boundaries preserved after deployment:
 
-- local health passes;
-- public HTTPS health passes;
-- Studio page loads;
-- manifest and service worker are present;
-- PWA install/open is manually checked;
-- offline app-shell reopen works after a prior successful online visit.
-
-Explicit non-goals:
-
-- no backend API;
-- no user authentication;
-- no provider keys;
-- no provider calls;
-- no Google OAuth, Drive, or Docs;
-- no server-side file uploads;
-- no transcription jobs;
-- no database, Redis, queue, worker, persistent storage, or migrations;
-- no CD activation;
-- no changes to Colab, realtime, provider contracts, Google Docs behavior, or manifest behavior.
+- current Studio is still UI-only;
+- CD remains disabled;
+- no backend API, authentication, provider keys, provider calls, Google OAuth/Drive/Docs, uploads, transcription jobs, database, Redis, queue, worker, persistence, or migrations were added;
+- no changes were made to Colab, realtime, provider contracts, Google Docs behavior, or manifest behavior.
 
 ### PWA-FOUNDATION-01 — Studio PWA foundation
 
@@ -72,9 +66,13 @@ RUNTIME-01 is deferred by current product priority, not passed or failed. It rem
 
 ## Near backlog
 
+### PWA-PLATFORM-01-PREP — Future Studio platform definition
+
+Current recommended planning item: define the explicit implementation scope, detailed stateful-service design, security review inputs, deployment model, and validation plan required before any PWA-PLATFORM-01 implementation can start. This is preparation/definition only, not backend/auth/BYOK/Google/processing implementation.
+
 ### PWA-PLATFORM-01 — Future Studio platform stage
 
-Future stage for backend/auth/BYOK/Google/processing platform capabilities. It is blocked on explicit implementation scope, detailed stateful-service design, security review, deployment model, and validation plan. It must not start from the current deployment item and must not be treated as authorized by the future-direction notes in `docs/project-spec.md`.
+Future stage for backend/auth/BYOK/Google/processing platform capabilities. It remains blocked until explicit implementation scope, detailed stateful-service design, security review, deployment model, and validation plan are approved. It must not start from the completed deployment item and must not be treated as authorized by the future-direction notes in `docs/project-spec.md`.
 
 ### RUNTIME-01 — batch runtime smoke validation
 
@@ -102,8 +100,8 @@ Collect timing from clean Colab runtime and confirm summary contains no secrets,
 
 ## Blockers and validation notes
 
-- PWA-DEPLOY-01 requires operator confirmation of DNS, host nginx/TLS readiness, correct deployment clone identity, and localhost-only `studio-web` binding before public validation.
-- PWA-PLATFORM-01 is blocked on explicit implementation scope, detailed stateful-service design, security review, deployment model, and validation plan.
+- PWA-DEPLOY-01 public app-shell deployment validation is complete, but it does not validate offline transcription, provider execution, Google integration, authentication, credentials, uploads, jobs, or production processing.
+- PWA-PLATFORM-01 remains blocked on explicit implementation scope, detailed stateful-service design, security review, deployment model, and validation plan.
 - Realtime output-cell UI path is blocked in the tested Colab runtime; active validation path is proxy/new-tab standalone page.
 - Realtime evidence is partial and must not be generalized beyond the confirmed display+microphone and sequential same-page Start → Stop → Start paths.
 - Batch Google Docs output and manifest skip still need controlled live runtime validation before E2E claims.
