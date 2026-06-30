@@ -12,8 +12,8 @@
 - ✅ **USER-SEGMENTS-HARDENING-01 — Harden visual segment builder validation** — completed follow-up; full-chain add validation, correct-card add errors, and regression coverage added.
 - ✅ **PWA-FOUNDATION-01 — Studio PWA foundation and isolated delivery boundary** — completed/merged via PR #77; existing Python CI and Studio PWA CI passed before merge.
 - ✅ **PWA-DEPLOY-01 — Manual first Studio deployment** — completed for the existing stateless `studio-web` container at `https://studio.librechat.online`; CD remains disabled and only public app-shell availability is validated.
-- 👉 **PWA-PLATFORM-01-PREP — Define future Studio platform scope and validation plan** — current recommended planning item; preparation only, not implementation.
-- 📋 **PWA-PLATFORM-01 — Future Studio backend/auth/BYOK/Google/processing platform** — planned but blocked on explicit implementation scope, detailed stateful-service design, security review, deployment model, and validation plan.
+- ✅ **PWA-PLATFORM-01-PREP — Studio platform implementation contract and private-path cleanup** — completed/merged documentation and decision preparation; no runtime implementation.
+- ⛔ **PWA-PLATFORM-01 — First Studio stateful account/session/BYOK platform core** — planned but blocked until explicit approval resolves backend framework, database, encryption-key management, backup/restore, rate limiting, migration/rollback, deployment design, and whether queue/storage/OAuth remain deferred.
 - 📋 **RUNTIME-01 — Batch source picker / manifest skip / Google Docs output smoke-check** — deferred by current product priority; still planned manual Colab/Drive/Docs validation without claiming pass/fail.
 - 📋 **LIVE-COLAB-PROXY-01 remaining validation** — separate unfinished manual realtime validation gaps after RT-TOKEN-01.
 - 📋 **SPEAKER-RUNTIME-01 — Speaker projects workflow on copied diarized Google Doc** — planned manual validation.
@@ -29,13 +29,19 @@ Current confirmed realtime evidence is partial: one display+microphone run confi
 
 ## Active recommended next item
 
+The next action is explicit approval of the first implementation slice and unresolved technology/operations decisions. Backend implementation is not the active immediate item.
+
+### PWA-PLATFORM-01-PREP — Studio platform implementation contract
+
+PWA-PLATFORM-01-PREP is complete as documentation/design preparation. It created `docs/studio-platform-01-prep.md`, preserved the current UI-only Studio and Colab boundaries, and cleaned the private deployment path out of durable product/delivery/validation documents. It did not implement backend/auth/BYOK/Google/uploads/jobs/workers/deployment changes.
+
 ### PWA-DEPLOY-01 — Manual first Studio deployment
 
 PWA-DEPLOY-01 is complete for the existing stateless `studio-web` container behind host nginx at `https://studio.librechat.online`. This records public app-shell availability only, not a production transcription platform.
 
 Factual evidence recorded from manual VPS/browser validation:
 
-- isolated Studio deployment clone exists at `/opt/elevenlabs-studio` on branch `main`;
+- isolated operator-managed deployment checkout exists on branch `main`;
 - existing stateless `studio-web` container was built and started successfully;
 - local container health passed and the container binds only to `127.0.0.1:8181`;
 - host nginx proxies `studio.librechat.online` to the local Studio container;
@@ -66,13 +72,9 @@ RUNTIME-01 is deferred by current product priority, not passed or failed. It rem
 
 ## Near backlog
 
-### PWA-PLATFORM-01-PREP — Future Studio platform definition
+### PWA-PLATFORM-01 — First Studio stateful platform core
 
-Current recommended planning item: define the explicit implementation scope, detailed stateful-service design, security review inputs, deployment model, and validation plan required before any PWA-PLATFORM-01 implementation can start. This is preparation/definition only, not backend/auth/BYOK/Google/processing implementation.
-
-### PWA-PLATFORM-01 — Future Studio platform stage
-
-Future stage for backend/auth/BYOK/Google/processing platform capabilities. It remains blocked until explicit implementation scope, detailed stateful-service design, security review, deployment model, and validation plan are approved. It must not start from the completed deployment item and must not be treated as authorized by the future-direction notes in `docs/project-spec.md`.
+Planned first stateful stage: account/session/BYOK foundation with bootstrap-admin or invite-only access, local sessions, encrypted user-owned provider credential lifecycle, and audit/security event boundaries. It is blocked until explicit approval resolves the open decisions listed in `docs/studio-platform-01-prep.md`, including backend framework, database, encryption-key management, backup/restore objective, rate-limit implementation, migration/rollback procedure, stateful deployment design, and whether queue/worker, media storage, and OAuth remain deferred. Provider execution, uploads, Drive/Docs, and workers must remain separate later-stage work unless explicitly approved.
 
 ### RUNTIME-01 — batch runtime smoke validation
 
@@ -101,7 +103,7 @@ Collect timing from clean Colab runtime and confirm summary contains no secrets,
 ## Blockers and validation notes
 
 - PWA-DEPLOY-01 public app-shell deployment validation is complete, but it does not validate offline transcription, provider execution, Google integration, authentication, credentials, uploads, jobs, or production processing.
-- PWA-PLATFORM-01 remains blocked on explicit implementation scope, detailed stateful-service design, security review, deployment model, and validation plan.
+- PWA-PLATFORM-01 remains blocked on explicit approval and unresolved technology/operations decisions listed in `docs/studio-platform-01-prep.md`; backend implementation is not the active immediate item.
 - Realtime output-cell UI path is blocked in the tested Colab runtime; active validation path is proxy/new-tab standalone page.
 - Realtime evidence is partial and must not be generalized beyond the confirmed display+microphone and sequential same-page Start → Stop → Start paths.
 - Batch Google Docs output and manifest skip still need controlled live runtime validation before E2E claims.

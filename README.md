@@ -11,7 +11,7 @@ Russian-first репозиторий для Google Colab workflow, которы�
 
 ## Studio PWA
 
-Frontend workspace: `apps/studio/`. Production scaffolding: `deploy/studio/`, `.github/workflows/studio-ci.yml`, `.github/workflows/studio-cd.yml`, `scripts/deploy_studio.sh`, and `docs/runbooks/studio-deploy.md`. The PWA container is designed for host nginx reverse proxy to `127.0.0.1:8181` and does not replace the Colab workflow. See `docs/project-spec.md` for the current Studio contract, the manual `PWA-DEPLOY-01` boundary, and non-implemented future platform direction.
+Frontend workspace: `apps/studio/`. Production scaffolding: `deploy/studio/`, `.github/workflows/studio-ci.yml`, `.github/workflows/studio-cd.yml`, `scripts/deploy_studio.sh`, and `docs/runbooks/studio-deploy.md`. The PWA container is designed for host nginx reverse proxy to `127.0.0.1:8181` and does not replace the Colab workflow. See `docs/project-spec.md` for the current Studio contract, the manual `PWA-DEPLOY-01` boundary, and non-implemented future platform direction; supporting first-stateful-stage preparation is in `docs/studio-platform-01-prep.md`.
 
 Local PWA commands after dependencies are available:
 

@@ -94,14 +94,39 @@ The current repository runtime and deployed Studio runtime do not contain a Stud
 
 ## 9. Planned, not implemented: Studio platform boundaries
 
-The following boundaries describe intended future architecture only. They are not implemented in repository runtime or deployed Studio runtime, and they do not approve a backend framework, database, queue, storage engine, OAuth client, or deployment topology.
+The following boundaries describe intended future architecture only. They are not implemented in repository runtime or deployed Studio runtime, and they do not approve a backend framework, database, queue, storage engine, OAuth client, or deployment topology. Supporting preparation detail lives in `docs/studio-platform-01-prep.md`.
 
-- **Browser/PWA frontend boundary** — user-facing Studio shell, installable PWA behavior, project/job UI, upload controls, settings and segment planning views.
-- **Backend API boundary** — future server-side application boundary for authenticated Studio operations.
-- **Server-side session/auth boundary** — future local password and optional Google sign-in flow using server-side sessions and secure cookies.
-- **Encrypted provider credential and Google token boundary** — future reversible encryption boundary for BYOK provider credentials and Google refresh tokens; raw secrets must not be exposed to the browser.
-- **Persistent user/project/job/output boundary** — future state authority for users, projects, jobs, output metadata and processing status.
-- **Asynchronous job/worker/queue boundary** — future execution boundary for transcription processing that avoids embedding secrets in job payloads.
-- **Google Drive/Docs integration boundary** — future explicit-consent integration boundary for Drive connection and Docs output.
+```text
+Current implemented runtime
+  Browser/PWA frontend (`apps/studio`)
+    -> static `studio-web` container
+    -> host nginx + Certbot operated outside repository automation
+
+Planned first stateful platform core (unimplemented)
+  Browser/PWA frontend
+    -> Backend API (unimplemented)
+       -> server-side auth/session boundary (unimplemented)
+       -> user/account state (unimplemented)
+       -> encrypted BYOK provider credential store (unimplemented)
+       -> audit/security events (unimplemented)
+
+Later processing pipeline (unimplemented, separate approval)
+  Backend API
+    -> upload/media storage boundary (unimplemented)
+    -> job records and queue/worker boundary (unimplemented)
+    -> provider execution boundary using credential identity/version (unimplemented)
+    -> output metadata/artifact boundary (unimplemented)
+
+Later Google Drive/Docs integration (unimplemented, separate approval)
+  Backend API
+    -> optional Google sign-in (unimplemented)
+    -> explicit Drive consent + encrypted refresh-token boundary (unimplemented)
+    -> Drive/Docs output integration (unimplemented)
+```
+
+- **Current Browser/PWA frontend boundary** — user-facing Studio shell, installable PWA behavior, prototype project/job UI, browser-only file metadata display, settings and segment planning views.
+- **First stateful platform core, unimplemented** — future backend API, local password auth, server-side sessions, account state, encrypted BYOK credential lifecycle, and audit/security events.
+- **Later processing pipeline, unimplemented** — future uploads, temporary media lifecycle, job creation/cancel/retry/status, queue/worker execution, provider calls, output metadata/artifacts, and processing observability.
+- **Later Google Drive/Docs integration, unimplemented** — future optional Google sign-in, explicit Drive consent, encrypted refresh-token lifecycle, Drive connection status, and Docs output.
 
 Future API, OAuth, provider processing, uploads, queues, database, worker and job-pipeline capabilities require separate product scope, runtime architecture, security review, deployment design and validation before implementation.

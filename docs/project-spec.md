@@ -67,7 +67,7 @@ Colab batch remains the stable fallback during the PWA transition and the only c
 
 Verified deployment facts:
 
-- an isolated Studio deployment clone exists at `/opt/elevenlabs-studio` on branch `main`;
+- an isolated operator-managed deployment checkout exists on branch `main`;
 - the existing stateless `studio-web` container was built and started successfully;
 - the container is healthy and binds only to `127.0.0.1:8181`;
 - host nginx proxies `studio.librechat.online` to the local Studio container;
@@ -114,6 +114,8 @@ The following is approved product direction and architecture intent only. It doe
 - Future architecture separates browser UI, backend API, session/auth boundary, encrypted credential/token boundary, persistent user/project/job/output state, asynchronous worker/queue boundary, and Google integration boundary.
 - Technology choices for backend framework, database, queue, storage, and OAuth client configuration are deliberately not yet fixed.
 - A future domain migration is possible only through a separate explicit decision.
+- The supporting implementation-contract preparation document is `docs/studio-platform-01-prep.md`; it provides release slicing, domain boundaries, lifecycle expectations, validation categories, and open decisions without replacing this product spec.
+- The approved first stateful platform direction is a future account/session/BYOK foundation only: bootstrap-admin or invite-only access, local sessions, user-owned encrypted provider credentials, and security/audit lifecycle boundaries. This direction does not implement or authorize provider execution, server uploads, Google Drive/Docs, job workers, queues, databases, migrations, or stateful deployment by itself.
 
 ## 4. Source и output boundaries
 
