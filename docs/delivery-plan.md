@@ -10,7 +10,9 @@
 - ✅ **OPENAI-BATCH-TIMING-01 — Safe OpenAI per-chunk timing observability** — implemented as local diagnostics; manual review remains separate.
 - ✅ **USER-SEGMENTS-VISUAL-BUILDER-01 — Visual multi-document segmentation builder** — completed/merged via PR #75; raw manual segment text input replaced with a one-source-only visual builder before provider transcription.
 - ✅ **USER-SEGMENTS-HARDENING-01 — Harden visual segment builder validation** — completed follow-up; full-chain add validation, correct-card add errors, and regression coverage added.
-- 👉 **PWA-FOUNDATION-01 — Studio PWA foundation and isolated delivery boundary** — current recommended item for a UI-only, deployable PWA contour at `studio.librechat.online`; no provider, Google, queue, persistence or transcription runtime.
+- ✅ **PWA-FOUNDATION-01 — Studio PWA foundation and isolated delivery boundary** — completed/merged via PR #77; existing Python CI and Studio PWA CI passed before merge.
+- 👉 **PWA-DEPLOY-01 — Manual first Studio deployment** — current recommended next item for operator-run deployment of the existing stateless `studio-web` container at `https://studio.librechat.online`; CD remains disabled.
+- 📋 **PWA-PLATFORM-01 — Future Studio backend/auth/BYOK/Google/processing platform** — planned but blocked on explicit implementation scope, detailed stateful-service design, security review, deployment model, and validation plan.
 - 📋 **RUNTIME-01 — Batch source picker / manifest skip / Google Docs output smoke-check** — deferred by current product priority; still planned manual Colab/Drive/Docs validation without claiming pass/fail.
 - 📋 **LIVE-COLAB-PROXY-01 remaining validation** — separate unfinished manual realtime validation gaps after RT-TOKEN-01.
 - 📋 **SPEAKER-RUNTIME-01 — Speaker projects workflow on copied diarized Google Doc** — planned manual validation.
@@ -18,56 +20,61 @@
 
 ## Current checkpoint
 
-Batch Colab remains the stable/fallback product workflow. Docs-only maintenance workflows remain separate and must not call provider/STT/LLM APIs. Realtime Colab/proxy remains an experimental contour for browser capture + ElevenLabs realtime STT and must not save Google Docs, mutate `manifest`, or integrate speaker projects.
+Batch Colab remains the stable/fallback product workflow and the only current production path for provider transcription, Google Drive/Docs output, and `manifest` mutation. Docs-only maintenance workflows remain separate and must not call provider/STT/LLM APIs. Realtime Colab/proxy remains an experimental contour for browser capture + ElevenLabs realtime STT and must not save Google Docs, mutate `manifest`, or integrate speaker projects.
+
+`apps/studio/` is currently an installable, static, client-side PWA foundation only. There is no Studio backend API, authentication, server upload, provider execution, Google integration, persistence, database, Redis, queue, worker, or production transcription job pipeline.
 
 Current confirmed realtime evidence is partial: one display+microphone run confirmed standalone page boot, capture, WebSocket open, `session_started`, partial transcript, committed transcript, user Stop, media-track release and WebSocket close. After RT-TOKEN-01, the standalone page also manually confirmed sequential Start → Stop → Start without page reload: both sessions reached WebSocket open and `session_started`, both stopped cleanly, and the final close was user-initiated with code 1000. Full realtime E2E success is not claimed.
 
-## Completed milestone summary
-
-- README/project docs were converted to Russian-first source-of-truth/navigation model.
-- `docs/project-spec.md` is the active product contract.
-- `VALIDATION_MATRIX.md` is the evidence/status truth table.
-- Batch source/output folder distinction, safe skip / `Пропустить`, docs-only boundaries and speaker project safety boundaries are documented.
-- Realtime notebook/runtime/proxy bridge exist with static/generated-JS validation and partial manual display+microphone evidence.
-- Output-cell realtime UI path is documented as blocked in the tested Colab runtime.
-
 ## Active recommended next item
+
+### PWA-DEPLOY-01 — Manual first Studio deployment
+
+Current recommended next item: operator-run manual first deployment of the existing stateless `studio-web` container behind host nginx at `studio.librechat.online`.
+
+Scope:
+
+- isolated deployment clone on branch `main`;
+- `studio-web` binds only to `127.0.0.1:8181`;
+- host nginx and Certbot/TLS remain manually managed by the VPS operator;
+- public HTTPS address is `https://studio.librechat.online`;
+- CD remains disabled for the first deployment stage.
+
+Manual acceptance criteria:
+
+- local health passes;
+- public HTTPS health passes;
+- Studio page loads;
+- manifest and service worker are present;
+- PWA install/open is manually checked;
+- offline app-shell reopen works after a prior successful online visit.
+
+Explicit non-goals:
+
+- no backend API;
+- no user authentication;
+- no provider keys;
+- no provider calls;
+- no Google OAuth, Drive, or Docs;
+- no server-side file uploads;
+- no transcription jobs;
+- no database, Redis, queue, worker, persistent storage, or migrations;
+- no CD activation;
+- no changes to Colab, realtime, provider contracts, Google Docs behavior, or manifest behavior.
 
 ### PWA-FOUNDATION-01 — Studio PWA foundation
 
-Current recommended next item: establish `apps/studio/`, PWA-only CI/CD scaffolding and localhost-only `studio-web` deployment boundary for `studio.librechat.online`. This item is UI-only and must not add provider calls, Google integration, uploads, queues, databases, workers, persistence or changes to Colab runtime behavior.
+PWA-FOUNDATION-01 is complete/merged via PR #77. It established `apps/studio/`, PWA-only CI scaffolding, production scaffolding, and the localhost-only `studio-web` delivery boundary for `studio.librechat.online`. Studio CI passed before merge: reproducible `npm ci`, lint, tests, production build, and Docker image build. The completed foundation remains UI-only and did not add provider calls, Google integration, uploads, queues, databases, workers, persistence or changes to Colab runtime behavior.
 
 ### RUNTIME-01 — batch runtime smoke validation
 
 RUNTIME-01 is deferred by current product priority, not passed or failed. It remains a separate manual Colab/Drive/Docs batch smoke validation item, including the visual user-segment builder, selected output folder, Google Docs creation, and `manifest` skip behavior. Do not claim runtime success until this is executed in Colab and recorded with factual evidence.
 
-### USER-SEGMENTS-VISUAL-BUILDER-01 / USER-SEGMENTS-HARDENING-01 — Visual multi-document segmentation builder
-
-USER-SEGMENTS-VISUAL-BUILDER-01 is completed/merged via PR #75. USER-SEGMENTS-HARDENING-01 is the completed follow-up that hardens the add-part path by validating the full existing chain in order, reporting add errors on the first failing card, and keeping canonical segment construction defensive. Static/unit coverage was added; manual Colab runtime validation remains separate under RUNTIME-01.
-
-### OPENAI-BATCH-TIMING-01 — Safe OpenAI per-chunk timing observability
-
-OpenAI timing diagnostics remain separate from USER-SEGMENTS-01 manual runtime validation. OpenAI smart split may still happen inside an OpenAI user segment, but manual project segmentation must not replace provider-path safeguards.
-
-### OPENAI-BATCH-DURATION-01 — OpenAI batch duration-aware splitting
-
-Duration-triggered OpenAI splitting is manually runtime-confirmed for one long batch run that produced a Google Doc. Oversized-file validation and OpenAI diarization validation remain pending; do not generalize the long-file result to those paths.
-
-### LIVE-COLAB-PROXY-01 remaining validation
-
-Current recommended manual runtime scope after RT-TOKEN-01. RT-TOKEN-01 is done/merged into `main`; repeated Start → Stop → Start in one standalone page was manually confirmed after RT-TOKEN-01, including fresh per-Start token behavior sufficient for sequential sessions without page reload. Remaining validation gaps are preserved below:
-
-- validate the standalone Colab proxy/new-tab page from `main` or the merged RT-REF-01 commit;
-- confirm microphone/input-only, display-only and display+microphone capture behavior where browser permissions and devices are available;
-- manually validate explicit Stop while display, microphone or mixed-source prompts are pending, or record browser prompt modality as not tested when it blocks interaction with `Остановить`; ordinary browser deny/cancel before WebSocket creation has partial manual evidence only;
-- confirm refreshed-device UX after Stop/cancelled attempts;
-- verify `realtime_live_transcript_v1` browser-only copy/download/clear behavior for committed text;
-- preserve the realtime boundaries: no Google Docs save, no `manifest` mutation, no batch analytics mutation and no speaker project integration;
-- do not record API keys, one-time tokens, private audio, raw transcript content, raw provider payloads or browser identity.
-
-RT-REF-01 is complete and merged into `main` via PR #65. RT-POLISH-01 and RT-TOKEN-01 are merged into `main`. Static/generated-JS coverage does not replace the remaining live browser/Colab validation above; the sequential same-page repeat-session path is manually confirmed, but the other realtime validation gaps remain pending.
-
 ## Near backlog
+
+### PWA-PLATFORM-01 — Future Studio platform stage
+
+Future stage for backend/auth/BYOK/Google/processing platform capabilities. It is blocked on explicit implementation scope, detailed stateful-service design, security review, deployment model, and validation plan. It must not start from the current deployment item and must not be treated as authorized by the future-direction notes in `docs/project-spec.md`.
 
 ### RUNTIME-01 — batch runtime smoke validation
 
@@ -81,29 +88,24 @@ Validate in real Colab/Drive/Docs:
 - rerun same source and confirm safe skip / `Пропустить` without repeat provider/STT call;
 - record result in `VALIDATION_MATRIX.md` only after factual validation.
 
+### LIVE-COLAB-PROXY-01 remaining validation
+
+Use `docs/realtime-colab.md` as the operator guide. Pending: microphone-only, display-only, loopback/virtual input, explicit Stop-during-prompt cancellation, refreshed-device UX, structured `realtime_live_transcript_v1` copy/download/clear behavior and cross-browser validation. Ordinary browser deny/cancel before WebSocket creation has partial manual evidence only.
+
 ### SPEAKER-RUNTIME-01 — speaker project validation
 
-Validate on copied diarized Google Doc only:
-
-- gate behavior for `Speakers: no`, `Speakers: yes` and unknown metadata where possible;
-- turn-boundary `Speaker N labels` detection;
-- counts/sample display without persistence;
-- manual mapping and explicit apply;
-- unmapped labels unchanged;
-- plain-text rewrite/formatting impact.
+Validate on copied diarized Google Doc only: gate behavior, turn-boundary `Speaker N labels` detection, counts/sample display without persistence, manual mapping, explicit apply, unmapped labels unchanged, and plain-text rewrite/formatting impact.
 
 ### PERF-RUNTIME-01 — startup timing collection
 
 Collect timing from clean Colab runtime and confirm summary contains no secrets, transcript body, Docs body content or raw provider responses. Do not treat timing as transcription success.
 
-### LIVE-COLAB-PROXY-01 remaining validation
-
-Use `docs/realtime-colab.md` as the operator guide. Pending: microphone-only, display-only, loopback/virtual input, explicit Stop-during-prompt cancellation, refreshed-device UX, structured `realtime_live_transcript_v1` copy/download/clear behavior and cross-browser validation. Ordinary browser deny/cancel before WebSocket creation has partial manual evidence only.
-
 ## Blockers and validation notes
 
+- PWA-DEPLOY-01 requires operator confirmation of DNS, host nginx/TLS readiness, correct deployment clone identity, and localhost-only `studio-web` binding before public validation.
+- PWA-PLATFORM-01 is blocked on explicit implementation scope, detailed stateful-service design, security review, deployment model, and validation plan.
 - Realtime output-cell UI path is blocked in the tested Colab runtime; active validation path is proxy/new-tab standalone page.
-- Realtime evidence is partial and must not be generalized beyond the confirmed display+microphone path.
+- Realtime evidence is partial and must not be generalized beyond the confirmed display+microphone and sequential same-page Start → Stop → Start paths.
 - Batch Google Docs output and manifest skip still need controlled live runtime validation before E2E claims.
 - OpenAI duration-triggered chunking has one manually confirmed long-file Google Docs output path; oversized-file and OpenAI diarization validation remain pending.
 - OpenAI diarization + chunking remains high risk due to potential inconsistent `Speaker N labels` across chunks.

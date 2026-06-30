@@ -53,11 +53,58 @@ Realtime не является заменой stable batch workflow и не ме
 - `Скопировать текст` и `Скачать .txt` работают с browser-only committed text;
 - нет Google Docs save, `manifest` mutation, speaker project integration или provider raw payload persistence.
 
-### 3.4 Studio PWA contour (PWA-FOUNDATION-01)
+### 3.4 Studio PWA contour (current product scope)
 
-Studio PWA is a new product contour for `studio.librechat.online`. In PWA-FOUNDATION-01 it is an installable Russian-first UI foundation only: app shell, local prototype project/job data, local browser-only file metadata reading, and a visual multi-document segment builder that mirrors the intended sequential segment UX.
+Studio is the new desktop-first responsive web application contour for the initial public address `studio.librechat.online`. It has PWA enhancements: installability, standalone-window behavior, and a cached app shell for reopening the application shell after a successful online visit. Studio is not an offline-first transcription product. Offline app-shell behavior must never imply offline transcription, provider execution, Google integration, credential use, authentication, job processing, or local browser processing of private source media.
 
-Colab batch remains the stable fallback and the only current production path for provider transcription, Google Docs output, Drive integration and `manifest` mutation. The PWA foundation does not call transcription providers, Google OAuth, Google Drive, Google Docs, Redis, PostgreSQL, queues, workers, existing Colab runtime code, or any transcription runtime. It does not upload files to a server and does not persist processing state beyond browser UI state.
+`PWA-FOUNDATION-01` is completed/merged and remains UI-only. The current Studio application is limited to Russian-first UI navigation, prototype browser-only project/job state, browser-only file metadata display, and visual sequential multi-document segment planning. It does not upload source media to a server and does not persist transcription processing state.
+
+Colab batch remains the stable fallback during the PWA transition and the only current production path for provider transcription, Google Drive/Docs output, Drive integration and `manifest` mutation. The current Studio foundation does not include a backend API, authentication, provider keys, provider calls, Google OAuth/Drive/Docs integration, server-side file uploads, transcription jobs, database, Redis, queue, worker, persistent storage, migrations, existing Colab runtime changes, or any production transcription job pipeline.
+
+### 3.5 PWA-DEPLOY-01 first-deploy contract
+
+`PWA-DEPLOY-01` is the next Studio stage: a manual first deployment of the existing stateless `studio-web` container only. Scope is intentionally limited to:
+
+- isolated deployment clone on branch `main`;
+- `studio-web` binding only to `127.0.0.1:8181`;
+- host nginx and Certbot/TLS manually managed by the VPS operator;
+- public HTTPS address `https://studio.librechat.online`;
+- manual validation of local health, public HTTPS health, page load, manifest/service worker presence, PWA install/open, and offline app-shell reopen after an initial successful online visit.
+
+Explicit non-goals for `PWA-DEPLOY-01`:
+
+- no backend API;
+- no user authentication;
+- no provider keys;
+- no provider calls;
+- no Google OAuth, Drive, or Docs;
+- no server-side file uploads;
+- no transcription jobs;
+- no database, Redis, queue, worker, persistent storage, or migrations;
+- no CD activation;
+- no changes to Colab, realtime, provider contracts, Google Docs behavior, or manifest behavior.
+
+### 3.6 Approved future Studio platform direction, not implementation authorization
+
+The following is approved product direction and architecture intent only. It does not authorize implementation, deployment, migrations, stateful services, OAuth client setup, or credential storage until a later explicitly scoped delivery item.
+
+- Studio is designed to become multi-user-ready, although initial use is personal.
+- Local password login is supported in the future, but public registration is initially disabled; bootstrap-admin or invite-only access is the intended policy.
+- Google sign-in is an additional future login option.
+- Google Drive connection requires explicit user consent. A Google sign-in journey may request Drive authorization as part of the same consent flow, but Drive must not be described as automatically connected without user consent.
+- Authentication uses server-side sessions with `__Host-*` cookies using `Secure`, `HttpOnly`, `SameSite=Lax`, `Path=/`, and no `Domain`.
+- Auth JWTs, Google refresh tokens, and provider keys must not be stored in browser local storage.
+- Passwords are stored only as Argon2id hashes.
+- Studio uses a BYOK model: each user supplies their own ElevenLabs/OpenAI provider credential; there is no shared global provider key for all users.
+- Provider credentials and Google refresh tokens must be reversibly encrypted at rest.
+- Encryption material is outside Git and outside the database.
+- Browser UI must never receive raw stored provider credentials or raw refresh tokens.
+- Provider credentials are masked in UI and must not appear in API responses, logs, analytics, job payloads, or browser storage.
+- Future jobs reference a credential identity/version rather than embedding secrets.
+- A worker may decrypt a credential only immediately before making the provider request.
+- Future architecture separates browser UI, backend API, session/auth boundary, encrypted credential/token boundary, persistent user/project/job/output state, asynchronous worker/queue boundary, and Google integration boundary.
+- Technology choices for backend framework, database, queue, storage, and OAuth client configuration are deliberately not yet fixed.
+- A future domain migration is possible only through a separate explicit decision.
 
 ## 4. Source и output boundaries
 

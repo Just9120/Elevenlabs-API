@@ -84,10 +84,24 @@ Current realtime frontend boundaries in `elevenlabs_realtime.py`:
 
 Future refactors must preserve existing token/proxy/WebSocket behavior, browser-only transcript rendering, no Google Docs/manifest side effects, and conservative validation requirements. Permission-cancellation safety is statically covered but still requires manual browser validation.
 
-## 8. Studio PWA frontend/deploy boundary
+## 8. Current Studio PWA frontend/deploy boundary
 
 `apps/studio/` is the PWA frontend-only workspace. It contains a React + TypeScript + Vite app shell, PWA manifest, service worker, static nginx container config and frontend tests. Current functionality is static/client-side: Russian-first navigation, prototype projects/jobs, browser-only file metadata display, settings with public app URL, and local validation of visual multi-document segments.
 
-`deploy/studio/` contains the production Compose file, environment schema and host nginx vhost template. The only current service is `studio-web`, a stateless web container served behind host nginx through `127.0.0.1:8181`. The repository template for host nginx is not applied by repository code.
+`deploy/studio/` contains the production Compose file, environment schema and host nginx vhost template. The only current service is `studio-web`, a stateless web container served behind host nginx through `127.0.0.1:8181`. Host nginx and TLS remain manually managed by the VPS operator; the repository template for host nginx is not applied by repository code.
 
-Future API, OAuth, provider processing, uploads, queues, database, worker and job-pipeline architecture are deliberately not implemented in PWA-FOUNDATION-01. Those capabilities require separate product scope, runtime architecture and validation.
+The current repository runtime and deployed Studio runtime do not contain a Studio backend API, authentication/session system, provider credential store, Google OAuth/Drive/Docs integration, server upload path, persistent user/project/job/output store, database, Redis, queue, worker, stateful migration, or production transcription job pipeline.
+
+## 9. Planned, not implemented: Studio platform boundaries
+
+The following boundaries describe intended future architecture only. They are not implemented in repository runtime or deployed Studio runtime, and they do not approve a backend framework, database, queue, storage engine, OAuth client, or deployment topology.
+
+- **Browser/PWA frontend boundary** — user-facing Studio shell, installable PWA behavior, project/job UI, upload controls, settings and segment planning views.
+- **Backend API boundary** — future server-side application boundary for authenticated Studio operations.
+- **Server-side session/auth boundary** — future local password and optional Google sign-in flow using server-side sessions and secure cookies.
+- **Encrypted provider credential and Google token boundary** — future reversible encryption boundary for BYOK provider credentials and Google refresh tokens; raw secrets must not be exposed to the browser.
+- **Persistent user/project/job/output boundary** — future state authority for users, projects, jobs, output metadata and processing status.
+- **Asynchronous job/worker/queue boundary** — future execution boundary for transcription processing that avoids embedding secrets in job payloads.
+- **Google Drive/Docs integration boundary** — future explicit-consent integration boundary for Drive connection and Docs output.
+
+Future API, OAuth, provider processing, uploads, queues, database, worker and job-pipeline capabilities require separate product scope, runtime architecture, security review, deployment design and validation before implementation.
