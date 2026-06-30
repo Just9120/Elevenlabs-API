@@ -46,7 +46,53 @@ describe('Studio PWA', () => {
     await userEvent.type(screen.getByPlaceholderText('Новый ключ для замены'), 'raw-secret-never-render');
     await userEvent.click(screen.getByRole('button', { name: 'Заменить' }));
     await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/credentials/c1/replace', expect.anything()));
+    const replaceCall = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.find(([url]) => url === '/api/credentials/c1/replace');
+    expect(JSON.parse(String(replaceCall?.[1]?.body))).toMatchObject({ raw_value: 'raw-secret-never-render' });
     expect(screen.queryByText('raw-secret-never-render')).not.toBeInTheDocument();
+  });
+  it('creates credentials with raw_value while using credential-specific field names', async () => {
+    renderApp('platform'); await userEvent.click(await screen.findByRole('button', { name: /Настройки/ }));
+    await userEvent.type(await screen.findByPlaceholderText('Метка'), 'primary-provider');
+    await userEvent.type(screen.getByPlaceholderText('Новый ключ'), 'fake-provider-token');
+    await userEvent.click(screen.getByRole('button', { name: 'Создать' }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/credentials', expect.objectContaining({ method: 'POST' })));
+    const createCall = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.find(([url, init]) => url === '/api/credentials' && init?.method === 'POST');
+    expect(JSON.parse(String(createCall?.[1]?.body))).toMatchObject({ label: 'primary-provider', raw_value: 'fake-provider-token' });
+  });
+
+  it('marks login fields with explicit browser autocomplete semantics', async () => {
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation((url: string) => url.endsWith('/api/auth/session') ? json({}, false, 401) : json({ bootstrap_required: false }));
+    renderApp('platform');
+    const email = await screen.findByLabelText('Email');
+    const password = screen.getByLabelText('Пароль');
+    expect(email).toHaveAttribute('autocomplete', 'username');
+    expect(password).toHaveAttribute('autocomplete', 'current-password');
+  });
+  it('marks BYOK credential forms to avoid saved login autofill', async () => {
+    renderApp('platform');
+    await userEvent.click(await screen.findByRole('button', { name: /Настройки/ }));
+    await screen.findByText(/BYOK credentials/);
+    const createKey = screen.getByPlaceholderText('Новый ключ');
+    const replaceKey = screen.getByPlaceholderText('Новый ключ для замены');
+    expect(createKey.closest('form')).toHaveAttribute('autocomplete', 'off');
+    expect(replaceKey.closest('form')).toHaveAttribute('autocomplete', 'off');
+    const label = screen.getByPlaceholderText('Метка');
+    expect(label).toHaveAttribute('name', 'credential_label');
+    expect(label).toHaveAttribute('autocomplete', 'off');
+    expect(createKey).toHaveAttribute('name', 'credential_raw_value');
+    expect(replaceKey).toHaveAttribute('name', 'replacement_credential_raw_value');
+    expect(createKey).toHaveAttribute('autocomplete', 'new-password');
+    expect(replaceKey).toHaveAttribute('autocomplete', 'new-password');
+    expect(createKey).toHaveAttribute('type', 'password');
+    expect(replaceKey).toHaveAttribute('type', 'password');
+    expect(createKey).toHaveAttribute('spellcheck', 'false');
+    expect(replaceKey).toHaveAttribute('spellcheck', 'false');
+    expect(createKey).toHaveAttribute('data-1p-ignore', 'true');
+    expect(createKey).toHaveAttribute('data-lpignore', 'true');
+    expect(createKey).toHaveAttribute('data-bwignore', 'true');
+    expect(replaceKey).toHaveAttribute('data-1p-ignore', 'true');
+    expect(replaceKey).toHaveAttribute('data-lpignore', 'true');
+    expect(replaceKey).toHaveAttribute('data-bwignore', 'true');
   });
   it('shows bootstrap-required operator instruction', async () => {
     (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation((url: string) => url.endsWith('/api/auth/session') ? json({}, false, 401) : json({ bootstrap_required: true }));
