@@ -47,9 +47,7 @@ jobs:
       STUDIO_DATABASE_PORT: '5432'
       STUDIO_DATABASE_NAME: studio_test
       STUDIO_DATABASE_USER: studio_test
-      STUDIO_POSTGRES_PASSWORD_FILE: ${{ runner.temp }}/studio_postgres_password
       STUDIO_REDIS_URL: redis://127.0.0.1:6379/0
-      STUDIO_CREDENTIAL_MASTER_KEY_FILE: ${{ runner.temp }}/studio_credential_master_key
       STUDIO_APP_ORIGIN: https://studio.test
       STUDIO_COOKIE_SECURE: 'false'
     steps:
@@ -68,8 +66,12 @@ jobs:
 
       - name: Create CI fixture secret files
         run: |
-          printf 'studio_test_password' > "$STUDIO_POSTGRES_PASSWORD_FILE"
-          python -c "import base64; print(base64.b64encode(b'4' * 32).decode())" > "$STUDIO_CREDENTIAL_MASTER_KEY_FILE"
+          POSTGRES_PASSWORD_FILE="$RUNNER_TEMP/studio_postgres_password"
+          CREDENTIAL_MASTER_KEY_FILE="$RUNNER_TEMP/studio_credential_master_key"
+          printf 'studio_test_password' > "$POSTGRES_PASSWORD_FILE"
+          python -c "import base64; print(base64.b64encode(b'4' * 32).decode())" > "$CREDENTIAL_MASTER_KEY_FILE"
+          printf 'STUDIO_POSTGRES_PASSWORD_FILE=%s\n' "$POSTGRES_PASSWORD_FILE" >> "$GITHUB_ENV"
+          printf 'STUDIO_CREDENTIAL_MASTER_KEY_FILE=%s\n' "$CREDENTIAL_MASTER_KEY_FILE" >> "$GITHUB_ENV"
 
       - name: Run Alembic upgrade
         run: alembic -c apps/studio-api/alembic.ini upgrade head

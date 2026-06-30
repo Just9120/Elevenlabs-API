@@ -6,8 +6,8 @@ This runbook covers the operator-run stateful Studio platform path introduced by
 
 Create operator-managed `0600` files readable by the deployment operator only. Keep values outside Git and PostgreSQL:
 
-- PostgreSQL password file, mounted as `/run/secrets/studio_postgres_password` only into PostgreSQL.
-- Base64-encoded 32-byte credential master key file, mounted read-only as `/run/secrets/studio_credential_master_key` only into the API.
+- PostgreSQL password file, mounted as `/run/secrets/studio_postgres_password` read-only into PostgreSQL and `studio-api`.
+- Base64-encoded 32-byte credential master key file, mounted read-only as `/run/secrets/studio_credential_master_key` only into `studio-api`.
 - Restic password and scoped Cloudflare R2 S3 access-key files for backups.
 
 Copy `deploy/studio/.env.example` to `deploy/studio/.env` and set only paths/placeholders, never secret values.
