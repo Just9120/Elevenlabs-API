@@ -132,3 +132,7 @@ If runtime code/notebooks/token flow/Google Docs behavior/manifest behavior are 
 ### PWA-PLATFORM-01 hardening follow-up note
 
 The open PR branch now separates static-only and platform-mode Studio builds, keeps PostgreSQL password material file-mounted instead of environment-interpolated, adds authenticated CSRF refresh for page reloads, hardens readiness and trusted-proxy IP handling, and corrects PostgreSQL-only backup retention grouping. Manual deployment/runtime/backup/browser validation remains pending.
+
+### Studio platform isolated CD follow-up note
+
+The current PR replaces the unsafe legacy-only automatic CD contour with isolated platform web/API CD definitions for `deploy/studio/compose.platform.yml`. Automatic deployment remains gated behind `STUDIO_PLATFORM_CD_ENABLED=true`; initial platform web deployment and all migrations, backups/restores, PostgreSQL, Redis, nginx, volume, runtime-secret, and legacy-stack maintenance remain manual/operator-scoped. No production deployment has been executed by coding-agent validation.

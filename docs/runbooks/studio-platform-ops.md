@@ -59,3 +59,31 @@ STUDIO_BACKUP_TAG=pre-migration scripts/backup_studio_postgres_r2.sh
 ```
 
 The backup script uses a fixed logical restic host and `--group-by host,tags` so the temporary dump path does not fragment retention. Scheduled backups retain all snapshots within 7 days plus daily snapshots for 30 days and monthly snapshots for 12 months. Pre-migration snapshots are retained for 90 days. Restore rehearsal remains manual and must target a separate temporary database.
+
+## Isolated platform CD scope
+
+The active production stack is `deploy/studio/compose.platform.yml`. Standard CD is intentionally split into component-only workflows that share the `studio-platform-production` concurrency group and call `scripts/deploy_studio_platform_component.sh` on the production host.
+
+### Platform web CD
+
+`Studio Platform Web CD` deploys only the `studio-web` service. Automatic push-to-main deployments are limited to frontend changes under `apps/studio/**` and run only when the repository variable `STUDIO_PLATFORM_CD_ENABLED` is set to `true`. Manual `workflow_dispatch` remains available for an explicit initial or operator-requested web deployment before enabling automatic platform CD.
+
+The web deploy builds only `studio-web`, updates it with `--no-deps`, checks `http://127.0.0.1:8181/healthz`, and prints `STUDIO_PLATFORM_WEB_DEPLOY_OK` only after that health check passes.
+
+### Platform API CD
+
+`Studio Platform API CD` deploys only the `studio-api` service. Automatic push-to-main deployments are limited to non-migration backend changes under `apps/studio-api/**` and explicitly exclude `apps/studio-api/alembic/versions/**`. Migration, deployment, Compose, nginx, script, and platform-configuration changes do not automatically deploy the API. Manual `workflow_dispatch` targets the API only.
+
+The API deploy verifies PostgreSQL and Redis are already healthy, builds only `studio-api`, compares the current database revision with the Alembic head in the newly built API image, refuses to proceed with a clear manual-migration-required error if revisions differ or cannot be compared, updates `studio-api` with `--no-deps`, checks `http://127.0.0.1:8182/api/healthz`, and prints `STUDIO_PLATFORM_API_DEPLOY_OK` only after that health check passes.
+
+### Manual maintenance boundary
+
+Standard platform CD never deploys or maintains PostgreSQL, Redis, migrations, backups, restores, nginx, volumes, runtime credential secrets, or the legacy `compose.prod.yml` stack. Those changes require separate, deliberate manual maintenance with explicit operator scope and validation. Failed platform web or API health checks fail loudly and do not trigger automatic rollback.
+
+## Initial platform CD enablement
+
+1. Configure the existing GitHub Actions secrets: `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, `DEPLOY_KNOWN_HOSTS`, and `STUDIO_DEPLOY_DIR`.
+2. Merge the PR that introduces the isolated platform web/API CD workflows and component deploy script.
+3. Run `workflow_dispatch` for `Studio Platform Web CD` once.
+4. Verify production health and routing through the operator-managed nginx boundary.
+5. Set the repository variable `STUDIO_PLATFORM_CD_ENABLED=true` only after successful validation.

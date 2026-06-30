@@ -1,55 +1,17 @@
-name: Studio PWA CD
+name: Studio Legacy CD Retired
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'apps/studio/**'
-      - 'deploy/studio/**'
-      - '.github/workflows/studio-cd.yml'
-      - 'scripts/deploy_studio.sh'
   workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: studio-cd-production
-  cancel-in-progress: false
-
 jobs:
-  deploy:
-    if: ${{ vars.STUDIO_CD_ENABLED == 'true' }}
+  retired:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
     steps:
-      - name: Validate secret schema presence
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
-          STUDIO_DEPLOY_DIR: ${{ secrets.STUDIO_DEPLOY_DIR }}
+      - name: Legacy automatic Studio CD is retired
         run: |
-          test -n "$DEPLOY_HOST"
-          test -n "$DEPLOY_USER"
-          test -n "$DEPLOY_SSH_KEY"
-          test -n "$DEPLOY_KNOWN_HOSTS"
-          test -n "$STUDIO_DEPLOY_DIR"
-      - name: Configure SSH
-        env:
-          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
-        run: |
-          install -m 700 -d ~/.ssh
-          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/studio_deploy_key
-          chmod 600 ~/.ssh/studio_deploy_key
-          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
-      - name: Deploy studio-web only
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          STUDIO_DEPLOY_DIR: ${{ secrets.STUDIO_DEPLOY_DIR }}
-        run: |
-          ssh -i ~/.ssh/studio_deploy_key "$DEPLOY_USER@$DEPLOY_HOST" \
-            "cd \"$STUDIO_DEPLOY_DIR\" && STUDIO_DEPLOY_DIR=\"$STUDIO_DEPLOY_DIR\" bash scripts/deploy_studio.sh"
+          echo "Legacy automatic Studio CD is retired."
+          echo "Use Studio Platform Web CD or Studio Platform API CD for isolated platform deployments."
+          exit 1
