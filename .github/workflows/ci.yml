@@ -80,7 +80,7 @@ jobs:
         run: python scripts/ci_checks.py
 
       - name: Run pytest
-        run: timeout 180s python -m pytest -vv
+        run: PYTHONFAULTHANDLER=1 timeout --signal=SIGABRT --kill-after=10s 180s python -X faulthandler -m pytest -vv
 
       - name: Mark CI success
         run: echo "CI_OK"

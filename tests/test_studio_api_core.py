@@ -106,12 +106,14 @@ def test_same_origin_and_authenticated_csrf_required():
 
 
 def test_credential_lifecycle_no_raw_secret_echo_and_audit_safe():
-    pw = admin(); c = TestClient(app); csrf = login(c, pw); raw = "sk-test-secret-value-123456"
-    r = c.post("/api/credentials", json={"provider": "openai", "label": "main", "raw_value": raw}, headers={"origin": "https://studio.test", "x-csrf-token": csrf}); assert r.status_code == 200; cid = r.json()["id"]; assert raw not in r.text
-    r = c.get("/api/credentials"); assert raw not in r.text and "••••" in r.text
-    r = c.post(f"/api/credentials/{cid}/replace", json={"provider": "openai", "label": "main", "raw_value": "sk-test-new-secret-abcdef"}, headers={"origin": "https://studio.test", "x-csrf-token": csrf}); assert r.status_code == 200
-    r = c.post(f"/api/credentials/{cid}/revoke", headers={"origin": "https://studio.test", "x-csrf-token": csrf}); assert r.status_code == 200
-    r = c.delete(f"/api/credentials/{cid}", headers={"origin": "https://studio.test", "x-csrf-token": csrf}); assert r.status_code == 200
+    pw = admin(); raw = "sk-test-secret-value-123456"
+    with TestClient(app) as c:
+        csrf = login(c, pw)
+        r = c.post("/api/credentials", json={"provider": "openai", "label": "main", "raw_value": raw}, headers={"origin": "https://studio.test", "x-csrf-token": csrf}); assert r.status_code == 200; cid = r.json()["id"]; assert raw not in r.text
+        r = c.get("/api/credentials"); assert raw not in r.text and "••••" in r.text
+        r = c.post(f"/api/credentials/{cid}/replace", json={"provider": "openai", "label": "main", "raw_value": "sk-test-new-secret-abcdef"}, headers={"origin": "https://studio.test", "x-csrf-token": csrf}); assert r.status_code == 200
+        r = c.post(f"/api/credentials/{cid}/revoke", headers={"origin": "https://studio.test", "x-csrf-token": csrf}); assert r.status_code == 200
+        r = c.delete(f"/api/credentials/{cid}", headers={"origin": "https://studio.test", "x-csrf-token": csrf}); assert r.status_code == 200
     db = SessionLocal()
     try:
         assert raw not in "\n".join(a.metadata_json for a in db.query(AuditEvent).all())
