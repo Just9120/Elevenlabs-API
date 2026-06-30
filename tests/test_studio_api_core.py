@@ -24,8 +24,11 @@ import pytest
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 from fastapi.testclient import TestClient
+from starlette.requests import Request
 from sqlalchemy import text
+from studio_api.config import Settings
 from studio_api.db import SessionLocal, engine
+from studio_api.deps import get_client_ip
 from studio_api.main import app, limiter
 from studio_api.models import AuditEvent, LocalIdentity, ProviderCredentialVersion, User, UserRole, UserStatus
 from studio_api.security import aad, decrypt, encrypt, hash_password, master_key_from_b64, verify_password
@@ -133,12 +136,17 @@ def test_bootstrap_status():
     c = TestClient(app); assert c.get("/api/auth/bootstrap-status").json()["bootstrap_required"] is True; admin(); assert c.get("/api/auth/bootstrap-status").json()["bootstrap_required"] is False
 
 
+def request_with_peer(peer: tuple[str, int], forwarded_for: str) -> Request:
+    return Request({"type": "http", "method": "GET", "path": "/", "headers": [(b"x-forwarded-for", forwarded_for.encode())], "client": peer})
+
+
 def test_spoofed_forwarded_for_ignored_without_trusted_proxy():
-    pw = admin(); c = TestClient(app, client=("8.8.8.8", 12345))
-    for _ in range(5):
-        r = c.post("/api/auth/login-context", headers={"origin": "https://studio.test", "x-forwarded-for": "1.2.3.4"})
-        assert r.status_code == 200
-    assert c.post("/api/auth/login-context", headers={"origin": "https://studio.test", "x-forwarded-for": "9.9.9.9"}).status_code == 200
+    settings = Settings(trusted_proxy_ip="127.0.0.1")
+    spoofed = request_with_peer(("8.8.8.8", 12345), "1.2.3.4")
+    trusted = request_with_peer(("127.0.0.1", 12345), "1.2.3.4")
+
+    assert get_client_ip(spoofed, settings) == "8.8.8.8"
+    assert get_client_ip(trusted, settings) == "1.2.3.4"
 
 
 def test_secret_boundary_static_assertions():
