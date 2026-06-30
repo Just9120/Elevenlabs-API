@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'apps/studio-api/**'
+      - '!apps/studio-api/alembic.ini'
       - '!apps/studio-api/alembic/**'
       - '!apps/studio-api/alembic/versions/**'
   workflow_dispatch:

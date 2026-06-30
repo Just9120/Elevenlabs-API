@@ -44,8 +44,18 @@ require_service_healthy() {
   [[ "$health" == "healthy" ]] || fail "$service must already be healthy before API deployment; observed status: $health"
 }
 
-single_revision() {
-  awk 'NF {print $1}' | sed -n '1p'
+capture_revision_ids() {
+  awk 'NF {print $1}'
+}
+
+require_exactly_one_revision() {
+  local label="$1"
+  shift
+  local revisions=("$@")
+  if [[ "${#revisions[@]}" -ne 1 ]]; then
+    fail "manual migration required: expected exactly one $label revision, found ${#revisions[@]}"
+  fi
+  [[ -n "${revisions[0]}" ]] || fail "manual migration required: $label revision is empty"
 }
 
 verify_database_revision_matches_new_image() {
@@ -54,12 +64,15 @@ verify_database_revision_matches_new_image() {
   require_service_healthy redis
 
   log "comparing database revision with Alembic head from the newly built API image"
-  local head_revision current_revision
-  head_revision="$(compose run --rm --no-deps --entrypoint alembic studio-api heads 2>/dev/null | single_revision)"
-  [[ -n "$head_revision" ]] || fail "manual migration required: unable to determine Alembic head from the newly built API image"
+  local -a head_revisions current_revisions
+  mapfile -t head_revisions < <(compose run --rm --no-deps --entrypoint alembic studio-api heads 2>/dev/null | capture_revision_ids)
+  require_exactly_one_revision "Alembic head" "${head_revisions[@]}"
+  local head_revision="${head_revisions[0]}"
 
-  current_revision="$(compose run --rm --no-deps --entrypoint alembic studio-api current 2>/dev/null | single_revision)"
-  [[ -n "$current_revision" ]] || fail "manual migration required: unable to determine current database revision safely"
+  mapfile -t current_revisions < <(compose run --rm --no-deps --entrypoint alembic studio-api current 2>/dev/null | capture_revision_ids)
+  require_exactly_one_revision "current database" "${current_revisions[@]}"
+  local current_revision="${current_revisions[0]}"
+
   [[ "$current_revision" == "$head_revision" ]] || fail "manual migration required: database revision ($current_revision) does not match API image Alembic head ($head_revision)"
 }
 
