@@ -53,3 +53,7 @@ Record factual evidence without secret values or private user content:
 6. Perform one manual PWA install/open check and record browser/OS context without private content.
 7. After a successful online load, disable network access and confirm one offline app-shell reopen check. This confirms only cached app-shell behavior, not offline transcription or offline processing.
 8. Confirm no provider calls, Google OAuth/Drive/Docs activity, server-side uploads, transcription jobs, database, Redis, queue, worker, persistent storage, migration, CD activation, cleanup, pruning, or host configuration changes occurred outside the explicit Studio vhost.
+
+## Stateful platform path
+
+The static deployment procedure above remains valid and must not require PostgreSQL, Redis, or credential secrets. For the separate stateful account/session/BYOK platform path, use `docs/runbooks/studio-platform-ops.md`, `deploy/studio/compose.platform.yml`, `scripts/deploy_studio_platform.sh`, and `scripts/migrate_studio_platform.sh`.

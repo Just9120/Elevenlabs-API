@@ -2,3 +2,7 @@
 -r requirements-colab.txt
 
 pytest
+
+# Studio API platform core test dependencies
+-r apps/studio-api/requirements.txt
+httpx==0.28.1

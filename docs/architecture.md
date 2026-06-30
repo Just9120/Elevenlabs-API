@@ -130,3 +130,9 @@ Later Google Drive/Docs integration (unimplemented, separate approval)
 - **Later Google Drive/Docs integration, unimplemented** — future optional Google sign-in, explicit Drive consent, encrypted refresh-token lifecycle, Drive connection status, and Docs output.
 
 Future API, OAuth, provider processing, uploads, queues, database, worker and job-pipeline capabilities require separate product scope, runtime architecture, security review, deployment design and validation before implementation.
+
+## PWA-PLATFORM-01 implemented source boundary
+
+The repository now contains `apps/studio-api`, a FastAPI service using SQLAlchemy 2/Alembic with PostgreSQL 17 as the intended deployment database, Redis 7 only as an internal rate-limit store, opaque PostgreSQL-backed browser sessions, login/authenticated CSRF enforcement, audit events, and AES-256-GCM encrypted user-owned BYOK credential versions for ElevenLabs/OpenAI.
+
+The Studio PWA talks to the API through same-origin `/api` and keeps the existing project/task/upload screens as non-processing prototypes. Later uploads, queues/workers, provider calls, Google OAuth/Drive/Docs, job execution, and output processing remain separate unimplemented boundaries.

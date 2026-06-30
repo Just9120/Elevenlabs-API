@@ -187,3 +187,9 @@ Permission-cancellation intended behavior: explicit `Остановить` durin
 - `docs/provider-transcription-contract.md` — concise current batch provider contract.
 - `VALIDATION_MATRIX.md` — validation evidence/status truth table.
 - `docs/delivery-plan.md` — current operational delivery dashboard.
+
+### 3.7 PWA-PLATFORM-01 implemented platform core boundary
+
+PWA-PLATFORM-01 adds the first stateful Studio platform core in source form only: FastAPI backend, PostgreSQL schema/migrations, Redis-backed rate limits, server-side cookie sessions, bootstrap-admin provisioning, safe audit events, and encrypted BYOK credential lifecycle for ElevenLabs/OpenAI. It does not claim production deployment until the operator completes the platform runbook validation.
+
+The boundary remains account/session/BYOK only. It does not implement audio/video upload, media storage, transcription jobs, provider execution, Google OAuth/Drive/Docs, queues/workers, project CRUD, output persistence, public registration, invites, password recovery, or CD.

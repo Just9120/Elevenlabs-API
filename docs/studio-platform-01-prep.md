@@ -167,3 +167,9 @@ Each decision below must be resolved by the later `PWA-PLATFORM-01` implementati
 | Backup/restore objective | Recovery point/time objectives, test cadence, encrypted secret recovery, migration rollback. | `PWA-PLATFORM-01` approval package |
 | Rate-limit implementation | Auth abuse protection, per-IP/per-account rules, proxy awareness, testability, operational visibility. | `PWA-PLATFORM-01` approval package |
 | Migration/rollback procedure | Zero/low downtime expectations, schema versioning, rollback safety, backup preconditions, operator runbook. | `PWA-PLATFORM-01` approval package |
+
+## 14. PWA-PLATFORM-01 resolved implementation choices
+
+The implementation approval resolved the first-stage choices as: FastAPI backend in `apps/studio-api`, Python 3.11, PostgreSQL 17, SQLAlchemy 2/Alembic, Argon2id via `argon2-cffi`, Redis 7 for rate limiting only, opaque PostgreSQL sessions, bootstrap-admin CLI only, and AES-256-GCM encrypted BYOK credentials for ElevenLabs/OpenAI only.
+
+Deferred choices remain deferred for upload/media storage, queues/workers, provider execution, Google OAuth/Drive/Docs, project CRUD, output persistence, invites, public registration, password recovery, CD, and production runtime validation.

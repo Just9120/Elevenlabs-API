@@ -1,0 +1,63 @@
+name: elevenlabs-studio-platform
+services:
+  studio-web:
+    build:
+      context: ../../apps/studio
+      args: { VITE_APP_PUBLIC_URL: ${APP_PUBLIC_URL:?APP_PUBLIC_URL is required} }
+    image: elevenlabs-studio-web:local
+    restart: unless-stopped
+    ports: ["127.0.0.1:8181:8080"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz | grep -q ok"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+  studio-api:
+    build: ../../apps/studio-api
+    image: elevenlabs-studio-api:local
+    restart: unless-stopped
+    ports: ["127.0.0.1:8182:8000"]
+    environment:
+      STUDIO_DATABASE_URL: postgresql+psycopg://studio:${STUDIO_POSTGRES_PASSWORD:?set by deploy script}@postgres:5432/studio
+      STUDIO_REDIS_URL: redis://redis:6379/0
+      STUDIO_APP_ORIGIN: ${APP_PUBLIC_URL:?APP_PUBLIC_URL is required}
+      STUDIO_CREDENTIAL_MASTER_KEY_FILE: /run/secrets/studio_credential_master_key
+    secrets: [studio_credential_master_key]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "python - <<'PY'\nimport urllib.request,sys\nsys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/healthz', timeout=2).status==200 else 1)\nPY"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: studio
+      POSTGRES_USER: studio
+      POSTGRES_PASSWORD_FILE: /run/secrets/studio_postgres_password
+    secrets: [studio_postgres_password]
+    volumes: [studio-postgres-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U studio -d studio"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 3s
+      retries: 5
+secrets:
+  studio_postgres_password:
+    file: ${STUDIO_POSTGRES_PASSWORD_FILE:?secret file required}
+  studio_credential_master_key:
+    file: ${STUDIO_CREDENTIAL_MASTER_KEY_FILE:?secret file required}
+volumes:
+  studio-postgres-data:
