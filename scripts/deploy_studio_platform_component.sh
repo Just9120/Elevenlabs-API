@@ -45,7 +45,7 @@ require_service_healthy() {
 }
 
 capture_revision_ids() {
-  awk 'NF {print $1}'
+  awk '$1 ~ /^[[:alnum:]_]+$/ && (NF == 1 || $2 ~ /^\(/) {print $1}'
 }
 
 require_exactly_one_revision() {
