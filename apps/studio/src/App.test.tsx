@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
@@ -33,7 +33,11 @@ describe('Studio PWA', () => {
     await screen.findByText(/Панель аккаунта готова/);
     expect(fetch).toHaveBeenCalledWith('/api/auth/csrf', expect.objectContaining({ method: 'POST' }));
     await userEvent.click(screen.getByRole('button', { name: /Настройки/ }));
-    await screen.findByText(/BYOK credentials/); expect(screen.getByText(/••••1234/)).toBeInTheDocument(); expect(window.localStorage.length).toBe(0); expect(window.sessionStorage.length).toBe(0);
+    await screen.findByText(/BYOK credentials/);
+    const credentialCard = screen.getByRole('heading', { name: 'main' }).closest('article');
+    expect(credentialCard).not.toBeNull();
+    expect(within(credentialCard!).getByText(/••••1234/)).toBeInTheDocument();
+    expect(window.localStorage.length).toBe(0); expect(window.sessionStorage.length).toBe(0);
   });
   it('platform mode supports credential replacement without rendering raw key', async () => {
     renderApp('platform'); await userEvent.click(await screen.findByRole('button', { name: /Настройки/ }));
