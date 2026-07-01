@@ -357,7 +357,8 @@ function ProjectsPage({
   async function save(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError("");
-    const fd = new FormData(e.currentTarget);
+    const form = e.currentTarget;
+    const fd = new FormData(form);
     try {
       await csrfMutate<Project>("/projects", csrf, onCsrf, {
         method: "POST",
@@ -366,7 +367,7 @@ function ProjectsPage({
           description: fd.get("project_description"),
         }),
       });
-      e.currentTarget.reset();
+      form.reset();
       load();
     } catch (err) {
       setError(
@@ -505,7 +506,8 @@ function SettingsPage({
     csrfMutate<T>(path, csrf, onCsrf, options);
   async function save(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    const fd = new FormData(e.currentTarget);
+    const form = e.currentTarget;
+    const fd = new FormData(form);
     try {
       await safeMutate("/credentials", {
         method: "POST",
@@ -515,7 +517,7 @@ function SettingsPage({
           raw_value: fd.get("credential_raw_value"),
         }),
       });
-      e.currentTarget.reset();
+      form.reset();
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ошибка");
@@ -523,7 +525,8 @@ function SettingsPage({
   }
   async function replace(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    const fd = new FormData(e.currentTarget);
+    const form = e.currentTarget;
+    const fd = new FormData(form);
     const id = String(fd.get("credential_id") ?? "");
     const selected = credentials.find((c) => c.id === id);
     if (!selected) return setError("Выберите credential для замены.");
@@ -536,7 +539,7 @@ function SettingsPage({
           raw_value: fd.get("replacement_credential_raw_value"),
         }),
       });
-      e.currentTarget.reset();
+      form.reset();
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ошибка");

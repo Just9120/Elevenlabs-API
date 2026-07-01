@@ -282,12 +282,23 @@ describe("Studio PWA", () => {
       title: "Created project",
       description: "Brief",
     });
+    await waitFor(() =>
+      expect(
+        (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(
+          ([url, init]) => url === "/api/projects" && !init?.method,
+        ),
+      ).toHaveLength(2),
+    );
+    expect(
+      screen.queryByText(/Cannot read properties of null.*reset/),
+    ).not.toBeInTheDocument();
 
     await userEvent.click(
       screen.getByRole("button", { name: "Редактировать" }),
     );
-    await userEvent.clear(screen.getByDisplayValue("Research calls"));
-    await userEvent.type(screen.getByDisplayValue(""), "Renamed project");
+    const editTitle = screen.getByDisplayValue("Research calls");
+    await userEvent.clear(editTitle);
+    await userEvent.type(editTitle, "Renamed project");
     await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
