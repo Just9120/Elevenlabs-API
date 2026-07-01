@@ -1,0 +1,73 @@
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from pathlib import Path
+
+from botocore.exceptions import ClientError
+
+from .config import Settings
+
+
+class SourceStorageError(RuntimeError):
+    pass
+
+
+@dataclass(frozen=True)
+class ObjectHead:
+    size_bytes: int | None
+    content_type: str | None
+
+
+class S3SourceStorage:
+    def __init__(self, settings: Settings):
+        self.settings = settings
+        self.bucket = settings.source_s3_bucket
+        if not settings.source_storage_configured():
+            raise SourceStorageError("Временное хранилище источников не настроено")
+
+        import boto3
+
+        self.client = boto3.client(
+            "s3",
+            endpoint_url=settings.source_s3_endpoint_url,
+            region_name=settings.source_s3_region,
+            aws_access_key_id=Path(settings.source_s3_access_key_id_file).read_text(encoding="utf-8").strip(),
+            aws_secret_access_key=Path(settings.source_s3_secret_access_key_file).read_text(encoding="utf-8").strip(),
+        )
+
+    def presigned_put_url(self, key: str, content_type: str, expires_seconds: int) -> str:
+        return self.client.generate_presigned_url(
+            "put_object",
+            Params={"Bucket": self.bucket, "Key": key, "ContentType": content_type},
+            ExpiresIn=expires_seconds,
+        )
+
+    def head_object(self, key: str) -> ObjectHead:
+        try:
+            result = self.client.head_object(Bucket=self.bucket, Key=key)
+        except ClientError as exc:
+            code = exc.response.get("Error", {}).get("Code")
+            if code in {"404", "NoSuchKey", "NotFound"}:
+                raise FileNotFoundError(key) from exc
+            raise
+        return ObjectHead(size_bytes=result.get("ContentLength"), content_type=result.get("ContentType"))
+
+    def delete_object(self, key: str) -> None:
+        try:
+            self.client.delete_object(Bucket=self.bucket, Key=key)
+        except ClientError as exc:
+            code = exc.response.get("Error", {}).get("Code")
+            if code in {"404", "NoSuchKey", "NotFound"}:
+                return
+            raise
+
+
+def get_source_storage(settings: Settings) -> S3SourceStorage:
+    return S3SourceStorage(settings)
+
+
+def safe_filename(name: str) -> str:
+    value = (name or "source").strip().replace("\\", "_").replace("/", "_")
+    value = re.sub(r"[^A-Za-z0-9._ -]+", "_", value).strip(" ._")
+    return (value or "source")[:180]

@@ -15,6 +15,7 @@
 - ✅ **PWA-PLATFORM-01-PREP — Studio platform implementation contract and private-path cleanup** — completed/merged documentation and decision preparation; no runtime implementation.
 - ✅ **PWA-PLATFORM-01 — First Studio stateful account/session/BYOK platform core** — implemented in source form; manual production rollout remains operator-scoped.
 - ✅ **PWA-PROJECTS-01 — Studio Projects API foundation** — backend persistence/API/migration foundation is live; platform-mode frontend follow-up is implemented in this PR.
+- 👉 **PWA-SOURCES-01A — Studio source/storage backend foundation** — backend-only source metadata, selected Google Drive output folder binding, and temporary local-upload storage foundation.
 - 📋 **RUNTIME-01 — Batch source picker / manifest skip / Google Docs output smoke-check** — deferred by current product priority; still planned manual Colab/Drive/Docs validation without claiming pass/fail.
 - 📋 **LIVE-COLAB-PROXY-01 remaining validation** — separate unfinished manual realtime validation gaps after RT-TOKEN-01.
 - 📋 **SPEAKER-RUNTIME-01 — Speaker projects workflow on copied diarized Google Doc** — planned manual validation.
@@ -30,7 +31,7 @@ Current confirmed realtime evidence is partial: one display+microphone run confi
 
 ## Active recommended next item
 
-The active Studio Projects follow-up adds the platform-mode UI on top of the already-live authenticated, user-owned `/api/projects` API. Static mode remains unchanged and demo-only.
+The active Studio backend follow-up is PWA-SOURCES-01A: add backend-only project source records and fail-closed temporary local-upload storage configuration support. Transcription outputs always target the user-selected Google Drive folder recorded on the project. Input sources may be Google Drive source-file metadata or local computer files uploaded temporarily to private S3/R2-compatible storage; local uploads expire/delete after 1 hour. Production local-upload initiation remains fail-closed until a separate ops/config PR wires S3/R2 env and secret files into the API container. Frontend UI, Google OAuth/Drive picker, provider transcription execution, queues/workers, and Google Docs creation remain follow-ups.
 
 ### PWA-PLATFORM-01-PREP — Studio platform implementation contract
 
@@ -74,9 +75,13 @@ RUNTIME-01 is deferred by current product priority, not passed or failed. It rem
 
 ## Near backlog
 
+### PWA-SOURCES-01A — Studio source/storage backend foundation
+
+Backend-only foundation for Studio project sources: projects can store the selected output Google Drive folder, and source records support `google_drive` metadata or `local_upload` temporary S3/R2-compatible storage with fail-closed configuration. Transcription outputs always target the selected Google Drive folder. Local computer sources are temporary inputs only: they use private object storage, are not proxied through FastAPI memory or stored in PostgreSQL/VPS disk, and expire/delete after 1 hour. Production local-upload initiation remains fail-closed until a separate ops/config PR wires S3/R2 env and secret files into the API container. Frontend UI, Google OAuth/Drive picker, provider transcription execution, queues/workers, and Google Docs creation remain follow-ups. This PR does not change frontend, Compose, deploy scripts, workflows, production secrets, nginx, backup/restore, or runtime `.env` files. Production rollout needs a separate manual pre-migration backup, Alembic migration, and API deployment because this item includes a database migration; automatic web deploy must not be triggered by this backend+migration-only PR.
+
 ### PWA-PROJECTS-01 — Studio Projects API foundation
 
-Backend foundation for persisted Projects is live: id, owner user id, title, optional description, created_at, updated_at, nullable archived_at, and authenticated owner-scoped API endpoints. This frontend follow-up adds the platform-mode Projects UI against `/api/projects` while keeping static mode demo-only. Uploads, media storage, transcription jobs, provider calls, queues/workers, Google OAuth/Drive/Docs, output persistence, public registration, invites, password recovery, and project sharing remain deferred. CD workflow behavior is unchanged.
+Backend foundation for persisted Projects is live: id, owner user id, title, optional description, created_at, updated_at, nullable archived_at, and authenticated owner-scoped API endpoints. The platform-mode Projects UI is available against `/api/projects` while static mode remains demo-only. Uploads, transcription jobs, provider calls, queues/workers, Google OAuth/Drive/Docs, output persistence, public registration, invites, password recovery, and project sharing remain deferred beyond PWA-SOURCES-01A. CD workflow behavior is unchanged.
 
 ### PWA-PLATFORM-01 — First Studio stateful platform core
 

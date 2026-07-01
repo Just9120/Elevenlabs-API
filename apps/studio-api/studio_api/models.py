@@ -9,6 +9,8 @@ class UserRole(str, enum.Enum): admin="admin"; user="user"
 class UserStatus(str, enum.Enum): active="active"; disabled="disabled"; deleted="deleted"
 class CredentialProvider(str, enum.Enum): elevenlabs="elevenlabs"; openai="openai"
 class CredentialStatus(str, enum.Enum): active="active"; revoked="revoked"; deleted="deleted"
+class SourceType(str, enum.Enum): local_upload="local_upload"; google_drive="google_drive"
+class SourceUploadStatus(str, enum.Enum): pending="pending"; uploaded="uploaded"; deleted="deleted"; expired="expired"; failed="failed"
 
 class User(Base):
     __tablename__="users"
@@ -84,7 +86,33 @@ class Project(Base):
     created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now)
     updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now, onupdate=now, index=True)
     archived_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True), index=True)
+    output_drive_folder_id: Mapped[str|None]=mapped_column(String(256))
+    output_drive_folder_url: Mapped[str|None]=mapped_column(Text)
+    output_drive_folder_name: Mapped[str|None]=mapped_column(String(512))
+    sources: Mapped[list["Source"]]=relationship("Source", back_populates="project")
     __table_args__=(Index("ix_projects_owner_active_updated", "owner_user_id", "archived_at", "updated_at"),)
+
+class Source(Base):
+    __tablename__="sources"
+    id: Mapped[str]=mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    project_id: Mapped[str]=mapped_column(ForeignKey("projects.id"), index=True)
+    source_type: Mapped[SourceType]=mapped_column(Enum(SourceType), index=True)
+    original_filename: Mapped[str]=mapped_column(String(255))
+    mime_type: Mapped[str|None]=mapped_column(String(255))
+    size_bytes: Mapped[int|None]=mapped_column(Integer)
+    drive_file_id: Mapped[str|None]=mapped_column(String(256))
+    drive_file_url: Mapped[str|None]=mapped_column(Text)
+    s3_bucket: Mapped[str|None]=mapped_column(String(255))
+    s3_object_key: Mapped[str|None]=mapped_column(Text)
+    upload_status: Mapped[SourceUploadStatus]=mapped_column(Enum(SourceUploadStatus), default=SourceUploadStatus.pending, index=True)
+    uploaded_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True), index=True)
+    deleted_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True), index=True)
+    delete_reason: Mapped[str|None]=mapped_column(String(80))
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now)
+    updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now, onupdate=now)
+    project: Mapped[Project]=relationship("Project", back_populates="sources")
+    __table_args__=(Index("ix_sources_project_status", "project_id", "upload_status", "created_at"),)
 
 class AuditEvent(Base):
     __tablename__="audit_events"
