@@ -41,6 +41,23 @@ Install `deploy/studio/systemd/studio-postgres-backup.service` and `.timer` only
 
 Restore rehearsal is manual: restore a snapshot into a separate temporary PostgreSQL target, invalidate restored sessions before any access test, run read-only smoke checks, then destroy only the temporary target. Backup and restore scripts must never auto-delete live data.
 
+
+## Temporary source upload storage
+
+Temporary local computer source uploads use a private, dedicated S3/R2-compatible bucket scoped to Studio source-upload inputs. These objects are temporary inputs only; transcript outputs remain in the user-selected Google Drive folder. Do not use this bucket as transcript output storage.
+
+Before deploying `studio-api` with source uploads enabled:
+
+1. Create operator-managed `0600` secret files readable by the deployment operator only:
+   - `studio_source_s3_access_key_id`
+   - `studio_source_s3_secret_access_key`
+2. Add the non-secret source storage settings to production `deploy/studio/.env`: endpoint URL, region, bucket, upload TTL, presign TTL, and maximum upload bytes.
+3. Add `STUDIO_SOURCE_S3_ACCESS_KEY_ID_FILE` and `STUDIO_SOURCE_S3_SECRET_ACCESS_KEY_FILE` to production `deploy/studio/.env` as file paths to the operator-managed secret files. Values ending in `_FILE` are paths, not secret contents.
+4. Do not print, `cat`, or otherwise log the secret files. Do not use `docker compose config` for validation because it can expose resolved secrets.
+5. Roll out manually after the runtime `.env` and secret files are prepared: deploy only `studio-api`, then verify `http://127.0.0.1:8182/api/healthz`.
+
+No Alembic migration, database backup, restore, nginx change, queue, worker, provider execution, Google OAuth, Drive picker, or Google Docs creation is required for this config-only rollout.
+
 ## Validation evidence to record
 
 Record secret-free evidence for platform health, migration revision, bootstrap status, login/logout/session rotation, CSRF rejection, credential create/list/replace/revoke/delete masking, Redis rate limits, backup snapshot creation, restore rehearsal, and browser acceptance. Do not claim production provider execution, uploads, Google integration, queues, jobs, or transcript output.
