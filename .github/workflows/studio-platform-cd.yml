@@ -100,10 +100,9 @@ jobs:
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
-          STUDIO_DEPLOY_DIR: ${{ secrets.STUDIO_DEPLOY_DIR }}
         run: |
           set -euo pipefail
-          for name in DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY DEPLOY_KNOWN_HOSTS STUDIO_DEPLOY_DIR; do
+          for name in DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY DEPLOY_KNOWN_HOSTS; do
             if [[ -z "${!name}" ]]; then
               echo "required deployment secret is missing: $name" >&2
               exit 1
@@ -128,12 +127,12 @@ jobs:
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          STUDIO_DEPLOY_DIR: ${{ secrets.STUDIO_DEPLOY_DIR }}
         run: |
           set -euo pipefail
           ssh -i ~/.ssh/deploy_key -o BatchMode=yes "$DEPLOY_USER@$DEPLOY_HOST" \
-            'STUDIO_DEPLOY_DIR='"'"'$STUDIO_DEPLOY_DIR'"'"' bash -s' <<'REMOTE'
+            "bash -se -- /opt/elevenlabs-studio" <<'REMOTE'
           set -euo pipefail
+          STUDIO_DEPLOY_DIR="$1"
           cd "$STUDIO_DEPLOY_DIR"
           git fetch --prune origin main
           git show origin/main:scripts/deploy_studio_platform_component.sh | STUDIO_DEPLOY_DIR="$STUDIO_DEPLOY_DIR" bash -s -- web
@@ -154,10 +153,9 @@ jobs:
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
-          STUDIO_DEPLOY_DIR: ${{ secrets.STUDIO_DEPLOY_DIR }}
         run: |
           set -euo pipefail
-          for name in DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY DEPLOY_KNOWN_HOSTS STUDIO_DEPLOY_DIR; do
+          for name in DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY DEPLOY_KNOWN_HOSTS; do
             if [[ -z "${!name}" ]]; then
               echo "required deployment secret is missing: $name" >&2
               exit 1
@@ -182,12 +180,12 @@ jobs:
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          STUDIO_DEPLOY_DIR: ${{ secrets.STUDIO_DEPLOY_DIR }}
         run: |
           set -euo pipefail
           ssh -i ~/.ssh/deploy_key -o BatchMode=yes "$DEPLOY_USER@$DEPLOY_HOST" \
-            'STUDIO_DEPLOY_DIR='"'"'$STUDIO_DEPLOY_DIR'"'"' bash -s' <<'REMOTE'
+            "bash -se -- /opt/elevenlabs-studio" <<'REMOTE'
           set -euo pipefail
+          STUDIO_DEPLOY_DIR="$1"
           cd "$STUDIO_DEPLOY_DIR"
           git fetch --prune origin main
           git show origin/main:scripts/deploy_studio_platform_component.sh | STUDIO_DEPLOY_DIR="$STUDIO_DEPLOY_DIR" bash -s -- api
