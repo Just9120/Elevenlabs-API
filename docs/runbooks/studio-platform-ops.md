@@ -29,61 +29,40 @@ Run inside the API container after migrations:
 docker compose --env-file deploy/studio/.env -f deploy/studio/compose.platform.yml run --rm studio-api python -m studio_api.cli admin@example.com
 ```
 
-The command prompts without echo and refuses to create a second active admin.
-
 ## nginx rollout
 
-Review and install `deploy/studio/studio.librechat.online.nginx.conf`. It proxies `/api/` to `127.0.0.1:8182` and keeps static PWA traffic on `127.0.0.1:8181`. Host nginx and certificates remain operator-managed.
+Review and install `deploy/studio/studio.librechat.online.nginx.conf`. It proxies `/api/` to `127.0.0.1:8182` and keeps static PWA traffic on `127.0.0.1:8181`.
 
 ## Backups and restore rehearsal
 
-Install `deploy/studio/systemd/studio-postgres-backup.service` and `.timer` only after manually initializing the restic repository. The timer uses `OnUnitActiveSec=10h`. Scheduled retention keeps 7 days of scheduled snapshots, daily snapshots for 30 days, monthly snapshots for 12 months, and tagged pre-migration snapshots for 90 days by operator policy.
+Install systemd timer only after restic init.
 
-Restore rehearsal is manual: restore a snapshot into a separate temporary PostgreSQL target, invalidate restored sessions before any access test, run read-only smoke checks, then destroy only the temporary target. Backup and restore scripts must never auto-delete live data.
+Restore rehearsal is manual and must use a temporary database.
 
-## Validation evidence to record
+## Platform CD scope
 
-Record secret-free evidence for platform health, migration revision, bootstrap status, login/logout/session rotation, CSRF rejection, credential create/list/replace/revoke/delete masking, Redis rate limits, backup snapshot creation, restore rehearsal, and browser acceptance. Do not claim production provider execution, uploads, Google integration, queues, jobs, or transcript output.
+The active production stack is `deploy/studio/compose.platform.yml`. Standard CD is now a single workflow named `Studio Platform CD` with two isolated jobs: `deploy-web` and `deploy-api`.
 
-## Hardening notes for PWA-PLATFORM-01 follow-up
+### Automatic behavior
 
-The API constructs its PostgreSQL SQLAlchemy URL from non-secret connection fields plus the read-only `/run/secrets/studio_postgres_password` file. Do not export the raw password into `STUDIO_POSTGRES_PASSWORD` or interpolate it into Compose environment variables.
+- Push to `main` triggers detection.
+- `apps/studio/**` triggers web deployment.
+- `apps/studio-api/**` triggers API deployment.
+- API migration folders are excluded from automatic deployment.
+- Both components may deploy in a single workflow run.
 
-Forwarded client IP handling assumes only the local host nginx proxy boundary. The API may parse `X-Forwarded-For` only when the direct peer is the configured trusted local proxy; arbitrary forwarded headers from other peers are ignored.
+### Manual behavior
 
-Use only documented backup tags:
+Manual `workflow_dispatch` requires selecting `web` or `api` explicitly.
 
-```bash
-STUDIO_BACKUP_TAG=scheduled scripts/backup_studio_postgres_r2.sh
-STUDIO_BACKUP_TAG=pre-migration scripts/backup_studio_postgres_r2.sh
-```
+### Safety boundary
 
-The backup script uses a fixed logical restic host and `--group-by host,tags` so the temporary dump path does not fragment retention. Scheduled backups retain all snapshots within 7 days plus daily snapshots for 30 days and monthly snapshots for 12 months. Pre-migration snapshots are retained for 90 days. Restore rehearsal remains manual and must target a separate temporary database.
+Deploy jobs never manage PostgreSQL, Redis, migrations, backups, restores, nginx, or secrets.
 
-## Isolated platform CD scope
+## Initial platform enablement
 
-The active production stack is `deploy/studio/compose.platform.yml`. Standard CD is intentionally split into component-only workflows that share the `studio-platform-production` concurrency group and call `scripts/deploy_studio_platform_component.sh` on the production host.
-
-### Platform web CD
-
-`Studio Platform Web CD` deploys only the `studio-web` service. Automatic push-to-main deployments are limited to frontend changes under `apps/studio/**` and run only when the repository variable `STUDIO_PLATFORM_CD_ENABLED` is set to `true`. Manual `workflow_dispatch` remains available for an explicit initial or operator-requested web deployment before enabling automatic platform CD.
-
-The web deploy builds only `studio-web`, updates it with `--no-deps`, checks `http://127.0.0.1:8181/healthz`, and prints `STUDIO_PLATFORM_WEB_DEPLOY_OK` only after that health check passes.
-
-### Platform API CD
-
-`Studio Platform API CD` deploys only the `studio-api` service. Automatic push-to-main deployments are limited to non-migration backend changes under `apps/studio-api/**` and explicitly exclude `apps/studio-api/alembic/versions/**`. Migration, deployment, Compose, nginx, script, and platform-configuration changes do not automatically deploy the API. Manual `workflow_dispatch` targets the API only.
-
-The API deploy verifies PostgreSQL and Redis are already healthy, builds only `studio-api`, compares the current database revision with the Alembic head in the newly built API image, refuses to proceed with a clear manual-migration-required error if revisions differ or cannot be compared, updates `studio-api` with `--no-deps`, checks `http://127.0.0.1:8182/api/healthz`, and prints `STUDIO_PLATFORM_API_DEPLOY_OK` only after that health check passes.
-
-### Manual maintenance boundary
-
-Standard platform CD never deploys or maintains PostgreSQL, Redis, migrations, backups, restores, nginx, volumes, runtime credential secrets, or the legacy `compose.prod.yml` stack. Those changes require separate, deliberate manual maintenance with explicit operator scope and validation. Failed platform web or API health checks fail loudly and do not trigger automatic rollback.
-
-## Initial platform CD enablement
-
-1. Configure the existing GitHub Actions secrets: `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, `DEPLOY_KNOWN_HOSTS`, and `STUDIO_DEPLOY_DIR`.
-2. Merge the PR that introduces the isolated platform web/API CD workflows and component deploy script.
-3. Run `workflow_dispatch` for `Studio Platform Web CD` once.
-4. Verify production health and routing through the operator-managed nginx boundary.
-5. Set the repository variable `STUDIO_PLATFORM_CD_ENABLED=true` only after successful validation.
+1. Configure GitHub secrets.
+2. Merge platform CD workflow.
+3. Run manual web deployment once.
+4. Validate health.
+5. Enable `STUDIO_PLATFORM_CD_ENABLED=true`.
