@@ -6,14 +6,28 @@ Create Date: 2026-07-01
 """
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 revision = "0003_project_sources"
 down_revision = "0002_user_projects"
 branch_labels = None
 depends_on = None
 
-source_type = sa.Enum("local_upload", "google_drive", name="sourcetype")
-upload_status = sa.Enum("pending", "uploaded", "deleted", "expired", "failed", name="sourceuploadstatus")
+source_type = postgresql.ENUM(
+    "local_upload",
+    "google_drive",
+    name="sourcetype",
+    create_type=False,
+)
+upload_status = postgresql.ENUM(
+    "pending",
+    "uploaded",
+    "deleted",
+    "expired",
+    "failed",
+    name="sourceuploadstatus",
+    create_type=False,
+)
 
 
 def upgrade():
@@ -26,9 +40,9 @@ def upgrade():
         op.add_column("projects", sa.Column("output_drive_folder_url", sa.Text(), nullable=True))
     if "output_drive_folder_name" not in columns:
         op.add_column("projects", sa.Column("output_drive_folder_name", sa.String(length=512), nullable=True))
+    source_type.create(bind, checkfirst=True)
+    upload_status.create(bind, checkfirst=True)
     if "sources" not in inspector.get_table_names():
-        source_type.create(bind, checkfirst=True)
-        upload_status.create(bind, checkfirst=True)
         op.create_table(
             "sources",
             sa.Column("id", sa.String(length=36), nullable=False),
@@ -51,6 +65,7 @@ def upgrade():
             sa.ForeignKeyConstraint(["project_id"], ["projects.id"]),
             sa.PrimaryKeyConstraint("id"),
         )
+    inspector = sa.inspect(bind)
     indexes = {idx["name"] for idx in inspector.get_indexes("sources")}
     for name, cols in {
         op.f("ix_sources_project_id"): ["project_id"],
