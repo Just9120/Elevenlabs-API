@@ -30,7 +30,7 @@ from studio_api.config import Settings
 from studio_api.db import SessionLocal, engine
 from studio_api.deps import get_client_ip
 from studio_api.main import app, limiter
-from studio_api.models import AuditEvent, LocalIdentity, ProviderCredentialVersion, User, UserRole, UserStatus
+from studio_api.models import AuditEvent, LocalIdentity, Project, ProviderCredentialVersion, User, UserRole, UserStatus
 from studio_api.security import aad, decrypt, encrypt, hash_password, master_key_from_b64, verify_password
 
 ALEMBIC = ROOT / "apps/studio-api/alembic.ini"
@@ -47,7 +47,7 @@ def clean_state(migrated_database):
     except Exception as exc:
         pytest.skip(f"Redis unavailable for platform tests: {exc}")
     with engine.begin() as conn:
-        tables = ["audit_events", "provider_credential_versions", "provider_credentials", "sessions", "login_contexts", "local_identities", "users"]
+        tables = ["audit_events", "provider_credential_versions", "provider_credentials", "projects", "sessions", "login_contexts", "local_identities", "users"]
         conn.execute(text("TRUNCATE " + ", ".join(tables) + " RESTART IDENTITY CASCADE"))
     yield
 
@@ -59,10 +59,10 @@ def admin(email="a@example.com", password="correct horse battery"):
     return password
 
 
-def login(c, password):
+def login(c, password, email="a@example.com"):
     r = c.post("/api/auth/login-context", headers={"origin": "https://studio.test"}); assert r.status_code == 200
     token = r.json()["login_csrf_token"]
-    r = c.post("/api/auth/login", json={"email": "a@example.com", "password": password, "login_csrf_token": token}, headers={"origin": "https://studio.test"}); assert r.status_code == 200
+    r = c.post("/api/auth/login", json={"email": email, "password": password, "login_csrf_token": token}, headers={"origin": "https://studio.test"}); assert r.status_code == 200
     return r.json()["csrf_token"]
 
 
@@ -156,3 +156,57 @@ def test_secret_boundary_static_assertions():
     assert "STUDIO_POSTGRES_PASSWORD:" not in compose
     assert "postgresql+psycopg://studio:${" not in compose
     assert "export STUDIO_POSTGRES_PASSWORD" not in deploy + migrate
+
+
+
+def test_projects_require_authentication():
+    c = TestClient(app)
+    assert c.get("/api/projects").status_code == 401
+    assert c.post("/api/projects", json={"title": "Project"}, headers={"origin": "https://studio.test", "x-csrf-token": "bad"}).status_code == 401
+
+
+def test_project_create_list_update_archive_lifecycle_and_archived_excluded():
+    pw = admin(); c = TestClient(app); csrf = login(c, pw)
+    r = c.post("/api/projects", json={"title": "  First project  ", "description": "  Notes  "}, headers={"origin": "https://studio.test", "x-csrf-token": csrf})
+    assert r.status_code == 200
+    created = r.json()
+    assert created["title"] == "First project"
+    assert created["description"] == "Notes"
+    assert created["owner_user_id"]
+    assert created["archived_at"] is None
+
+    r = c.patch(f"/api/projects/{created['id']}", json={"title": "Renamed", "description": ""}, headers={"origin": "https://studio.test", "x-csrf-token": csrf})
+    assert r.status_code == 200
+    assert r.json()["title"] == "Renamed"
+    assert r.json()["description"] is None
+
+    r = c.get("/api/projects")
+    assert r.status_code == 200
+    assert [p["id"] for p in r.json()["projects"]] == [created["id"]]
+
+    r = c.post(f"/api/projects/{created['id']}/archive", headers={"origin": "https://studio.test", "x-csrf-token": csrf})
+    assert r.status_code == 200
+    assert c.get("/api/projects").json()["projects"] == []
+    assert c.patch(f"/api/projects/{created['id']}", json={"title": "Nope"}, headers={"origin": "https://studio.test", "x-csrf-token": csrf}).status_code == 404
+
+
+def test_project_ownership_isolation_between_users():
+    pw1 = admin("owner@example.com")
+    pw2 = admin("other@example.com")
+    c1 = TestClient(app); c2 = TestClient(app)
+    csrf1 = login(c1, pw1, "owner@example.com")
+    csrf2 = login(c2, pw2, "other@example.com")
+    r = c1.post("/api/projects", json={"title": "Owner only"}, headers={"origin": "https://studio.test", "x-csrf-token": csrf1})
+    pid = r.json()["id"]
+    assert c2.get("/api/projects").json()["projects"] == []
+    assert c2.patch(f"/api/projects/{pid}", json={"title": "Stolen"}, headers={"origin": "https://studio.test", "x-csrf-token": csrf2}).status_code == 404
+    assert c2.post(f"/api/projects/{pid}/archive", headers={"origin": "https://studio.test", "x-csrf-token": csrf2}).status_code == 404
+    assert c1.get("/api/projects").json()["projects"][0]["title"] == "Owner only"
+
+
+def test_project_validation_failures():
+    pw = admin(); c = TestClient(app); csrf = login(c, pw)
+    headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+    assert c.post("/api/projects", json={"title": "   "}, headers=headers).status_code == 422
+    assert c.post("/api/projects", json={"title": "x" * 161}, headers=headers).status_code == 422
+    assert c.post("/api/projects", json={"title": "Ok", "description": "x" * 2001}, headers=headers).status_code == 422

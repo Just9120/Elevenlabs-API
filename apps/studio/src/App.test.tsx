@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
@@ -14,6 +14,10 @@ describe('Studio PWA', () => {
     if (url.endsWith('/api/auth/bootstrap-status')) return json({ bootstrap_required: false });
     if (url.endsWith('/api/auth/login-context')) return json({ login_csrf_token: 'login-csrf' });
     if (url.endsWith('/api/auth/login')) return json({ user: { email: 'user@example.com', role: 'admin' }, csrf_token: 'csrf' });
+    if (url.endsWith('/api/projects') && init?.method === 'POST') return json({ id: 'p2', title: 'Created project', description: null, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), archived_at: null });
+    if (url.endsWith('/api/projects/p1') && init?.method === 'PATCH') return json({ id: 'p1', title: 'Renamed project', description: 'Updated notes', created_at: new Date().toISOString(), updated_at: new Date().toISOString(), archived_at: null });
+    if (url.endsWith('/api/projects/p1/archive')) return json({ ok: true });
+    if (url.endsWith('/api/projects')) return json({ projects: [{ id: 'p1', title: 'API project', description: 'Workspace notes', created_at: new Date().toISOString(), updated_at: new Date().toISOString(), archived_at: null }] });
     if (url.endsWith('/api/credentials') && init?.method === 'POST') return json({ id: 'c1' });
     if (url.endsWith('/replace')) return json({ ok: true });
     if (url.endsWith('/api/credentials')) return json({ credentials: [{ id: 'c1', provider: 'openai', label: 'main', status: 'active', masked_value: '••••1234', active_version: 1 }] });
@@ -24,10 +28,62 @@ describe('Studio PWA', () => {
     renderApp('static');
     expect(screen.getByText('Панель готова к установке')).toBeInTheDocument();
     expect(fetch).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: /Проекты/ }));
+    expect(screen.getAllByText('Демо-данные').length).toBeGreaterThan(0);
+    expect(fetch).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole('button', { name: /Настройки/ }));
     expect(screen.getByText(/Статический режим/)).toBeInTheDocument();
     expect(fetch).not.toHaveBeenCalled();
   });
+
+  it('platform projects page loads projects from API and creates a project', async () => {
+    renderApp('platform');
+    await userEvent.click(await screen.findByRole('button', { name: /Проекты/ }));
+    expect(await screen.findByText('API project')).toBeInTheDocument();
+    await userEvent.type(screen.getByPlaceholderText(/интервью продукта/), 'Created project');
+    await userEvent.type(screen.getByPlaceholderText(/Краткая заметка/), 'New notes');
+    await userEvent.click(screen.getByRole('button', { name: 'Создать проект' }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/projects', expect.objectContaining({ method: 'POST' })));
+  });
+
+  it('platform projects page shows empty and error states', async () => {
+    cleanup();
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url.endsWith('/api/auth/session')) return json({ authenticated: true, user: { email: 'user@example.com', role: 'admin' } });
+      if (url.endsWith('/api/auth/csrf')) return json({ csrf_token: 'csrf-after-refresh', user: { email: 'user@example.com', role: 'admin' } });
+      if (url.endsWith('/api/projects')) return json({ projects: [] });
+      return json({ ok: true });
+    });
+    renderApp('platform');
+    await userEvent.click(await screen.findByRole('button', { name: /Проекты/ }));
+    expect(await screen.findByText(/пока нет проектов/)).toBeInTheDocument();
+
+    cleanup();
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url.endsWith('/api/auth/session')) return json({ authenticated: true, user: { email: 'user@example.com', role: 'admin' } });
+      if (url.endsWith('/api/auth/csrf')) return json({ csrf_token: 'csrf-after-refresh', user: { email: 'user@example.com', role: 'admin' } });
+      if (url.endsWith('/api/projects')) return json({}, false, 500);
+      return json({ ok: true });
+    });
+    renderApp('platform');
+    await userEvent.click(await screen.findByRole('button', { name: /Проекты/ }));
+    expect(await screen.findByText(/Операция не выполнена/)).toBeInTheDocument();
+  });
+
+  it('platform projects page edits description and archives', async () => {
+    renderApp('platform');
+    await userEvent.click(await screen.findByRole('button', { name: /Проекты/ }));
+    await screen.findByText('API project');
+    await userEvent.click(screen.getByRole('button', { name: 'Редактировать' }));
+    const title = screen.getByDisplayValue('API project');
+    await userEvent.clear(title);
+    await userEvent.type(title, 'Renamed project');
+    await userEvent.click(screen.getByRole('button', { name: 'Сохранить' }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/projects/p1', expect.objectContaining({ method: 'PATCH' })));
+    await userEvent.click(await screen.findByRole('button', { name: 'Архивировать' }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/projects/p1/archive', expect.objectContaining({ method: 'POST' })));
+  });
+
   it('platform mode refreshes in-memory CSRF and renders settings without browser storage secrets', async () => {
     renderApp('platform');
     await screen.findByText(/Панель аккаунта готова/);

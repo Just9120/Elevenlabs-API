@@ -20,6 +20,8 @@ limiter=RateLimiter()
 
 class LoginIn(BaseModel): email: EmailStr; password: str; login_csrf_token: str
 class CredentialIn(BaseModel): provider: CredentialProvider; label: str=Field(min_length=1,max_length=120); raw_value: str=Field(min_length=8,max_length=4096)
+class ProjectIn(BaseModel): title: str=Field(min_length=1,max_length=160); description: str|None=Field(default=None,max_length=2000)
+class ProjectPatch(BaseModel): title: str|None=Field(default=None,min_length=1,max_length=160); description: str|None=Field(default=None,max_length=2000)
 
 def client_id(request: Request):
     return get_client_ip(request, settings)
@@ -88,6 +90,50 @@ def account(pair=Depends(current_session)): return session(pair)
 @app.post("/api/auth/sessions/revoke-other")
 def revoke_other(pair=Depends(require_csrf), db: Session=Depends(get_db)):
     sess,user=pair; n=db.query(Session).filter(Session.user_id==user.id, Session.id!=sess.id, Session.revoked_at.is_(None)).update({"revoked_at": utcnow()}); audit(db,"auth.sessions_revoked", actor_user_id=user.id, subject_user_id=user.id); db.commit(); return {"revoked": n}
+
+def project_payload(p: Project):
+    return {"id": p.id, "owner_user_id": p.owner_user_id, "title": p.title, "description": p.description, "created_at": p.created_at.isoformat(), "updated_at": p.updated_at.isoformat(), "archived_at": p.archived_at.isoformat() if p.archived_at else None}
+
+def clean_project_title(title: str) -> str:
+    value=title.strip()
+    if not value: raise HTTPException(422, "Название проекта обязательно")
+    if len(value)>160: raise HTTPException(422, "Название проекта слишком длинное")
+    return value
+
+def clean_project_description(description: str|None) -> str|None:
+    if description is None: return None
+    value=description.strip()
+    if len(value)>2000: raise HTTPException(422, "Описание проекта слишком длинное")
+    return value or None
+
+def owned_project_or_404(db: Session, user: User, project_id: str) -> Project:
+    p=db.get(Project, project_id)
+    if not p or p.owner_user_id!=user.id or p.archived_at is not None: raise HTTPException(404,"Не найдено")
+    return p
+
+@app.get("/api/projects")
+def list_projects(pair=Depends(current_session), db: Session=Depends(get_db)):
+    _,user=pair
+    rows=db.query(Project).filter(Project.owner_user_id==user.id, Project.archived_at.is_(None)).order_by(Project.updated_at.desc(), Project.created_at.desc()).all()
+    return {"projects":[project_payload(p) for p in rows]}
+
+@app.post("/api/projects")
+def create_project(data: ProjectIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("project:create:"+user.id, 60, 3600)
+    p=Project(owner_user_id=user.id, title=clean_project_title(data.title), description=clean_project_description(data.description))
+    db.add(p); db.flush(); audit(db,"project.created",actor_user_id=user.id,subject_user_id=user.id); db.commit(); return project_payload(p)
+
+@app.patch("/api/projects/{project_id}")
+def update_project(project_id: str, data: ProjectPatch, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("project:update:"+user.id, 120, 3600); p=owned_project_or_404(db,user,project_id)
+    if data.title is not None: p.title=clean_project_title(data.title)
+    if data.description is not None: p.description=clean_project_description(data.description)
+    p.updated_at=utcnow(); audit(db,"project.updated",actor_user_id=user.id,subject_user_id=user.id); db.commit(); return project_payload(p)
+
+@app.post("/api/projects/{project_id}/archive")
+def archive_project(project_id: str, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("project:archive:"+user.id, 120, 3600); p=owned_project_or_404(db,user,project_id)
+    now=utcnow(); p.archived_at=now; p.updated_at=now; audit(db,"project.archived",actor_user_id=user.id,subject_user_id=user.id); db.commit(); return {"ok": True}
 
 @app.get("/api/credentials")
 def list_credentials(pair=Depends(current_session), db: Session=Depends(get_db)):
