@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     database_port: int = 5432
     database_name: str = "studio"
     database_user: str = "studio"
+    # The PostgreSQL password is read from a mounted secret file, not stored in the source tree.
     postgres_password_file: str = "/run/secrets/studio_postgres_password"
     redis_url: str = "redis://redis:6379/0"
     app_origin: str = "https://studio.librechat.online"
