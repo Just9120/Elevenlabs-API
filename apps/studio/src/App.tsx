@@ -3,6 +3,7 @@ import { Briefcase, ClipboardList, Home, PlusCircle, Settings } from 'lucide-rea
 import { buildSegmentPlan, hasSegmentErrors, type Segment } from './segments';
 import './styles.css';
 
+// Platform mode is selected at build time by VITE_STUDIO_PLATFORM_MODE.
 const platformMode = import.meta.env.VITE_STUDIO_PLATFORM_MODE === 'platform';
 const appUrl = import.meta.env.VITE_APP_PUBLIC_URL ?? 'https://studio.librechat.online';
 type Page = 'dashboard' | 'projects' | 'new' | 'jobs' | 'settings';
