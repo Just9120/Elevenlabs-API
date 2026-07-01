@@ -213,13 +213,16 @@ def test_project_validation_failures():
     assert c.post("/api/projects", json={"title": "Ok", "description": "x" * 2001}, headers=headers).status_code == 422
 
 class FakeStorage:
-    deleted = []
     def __init__(self):
+        self.deleted = []
         self.head_size = 123
         self.head_type = "audio/mpeg"
+        self.missing = False
     def presigned_put_url(self, key, content_type, expires_seconds):
         return f"https://upload.test/{key}?signature=fake"
     def head_object(self, key):
+        if self.missing:
+            raise FileNotFoundError(key)
         from studio_api.source_storage import ObjectHead
         return ObjectHead(size_bytes=self.head_size, content_type=self.head_type)
     def delete_object(self, key):
@@ -288,9 +291,12 @@ def test_local_upload_initiate_requires_auth_ownership_and_validates(monkeypatch
     assert body["source_id"]
     assert body["upload"]["method"] == "PUT"
     assert body["upload"]["expires_in"] == 900
-    assert "ACCESS" not in r.text.upper() and "SECRET" not in r.text.upper()
-    db = SessionLocal(); src = db.get(Source, body["source_id"]); db.close()
-    assert src.s3_object_key.startswith("users/") and ".." not in src.s3_object_key
+    assert "/secret%20song" not in r.text and "secret song.mp3" not in r.text and "secret%20song.mp3" not in r.text
+    assert "no-secret-id" not in r.text and "no-secret-key" not in r.text
+    db = SessionLocal(); src = db.get(Source, body["source_id"]); object_key = src.s3_object_key; source_id = src.id; original_filename = src.original_filename; db.close()
+    assert original_filename == "secret song.mp3"
+    assert object_key.endswith(f"/projects/{pid}/sources/{source_id}/source")
+    assert original_filename not in object_key
 
 
 def test_local_upload_initiate_fails_closed_without_storage(monkeypatch):
@@ -300,6 +306,19 @@ def test_local_upload_initiate_fails_closed_without_storage(monkeypatch):
     main_mod.settings.source_s3_bucket = None
     r = c.post(f"/api/projects/{pid}/sources/local-upload/initiate", json={"original_filename":"a.mp3","mime_type":"audio/mpeg","size_bytes":10}, headers=headers)
     assert r.status_code == 503
+
+
+def test_complete_local_upload_missing_object_returns_conflict(monkeypatch):
+    fake = enable_fake_storage(monkeypatch)
+    c, headers, pid = create_logged_in_project("missing-object@example.com")
+    r = c.post(f"/api/projects/{pid}/sources/local-upload/initiate", json={"original_filename":"missing.mp3","mime_type":"audio/mpeg","size_bytes":10}, headers=headers)
+    sid = r.json()["source_id"]
+    fake.missing = True
+    r = c.post(f"/api/sources/{sid}/local-upload/complete", headers=headers)
+    assert r.status_code == 409
+    db = SessionLocal(); src = db.get(Source, sid); db.close()
+    assert src.upload_status.value == "pending"
+    assert src.uploaded_at is None
 
 
 def test_complete_local_upload_and_delete_owner_isolation(monkeypatch):

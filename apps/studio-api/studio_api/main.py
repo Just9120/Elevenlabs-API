@@ -215,7 +215,7 @@ def initiate_local_upload(project_id: str, data: LocalUploadInitiateIn, pair=Dep
     mime=validate_upload(data.mime_type, data.size_bytes)
     if not settings.source_storage_configured(): raise HTTPException(503, "Временное хранилище источников не настроено")
     now=utcnow(); src=Source(project_id=p.id, source_type=SourceType.local_upload, original_filename=safe_filename(data.original_filename), mime_type=mime, size_bytes=data.size_bytes, upload_status=SourceUploadStatus.pending, expires_at=now+timedelta(seconds=settings.source_upload_ttl_seconds))
-    db.add(src); db.flush(); src.s3_bucket=settings.source_s3_bucket; src.s3_object_key=f"users/{user.id}/projects/{p.id}/sources/{src.id}/{safe_filename(data.original_filename)}"
+    db.add(src); db.flush(); src.s3_bucket=settings.source_s3_bucket; src.s3_object_key=f"users/{user.id}/projects/{p.id}/sources/{src.id}/source"
     storage=get_source_storage(settings); url=storage.presigned_put_url(src.s3_object_key, mime, settings.source_presign_ttl_seconds)
     audit(db,"source.local_upload.initiated",actor_user_id=user.id,subject_user_id=user.id); db.commit()
     return {"source_id": src.id, "upload": {"method":"PUT", "url": url, "headers": {"Content-Type": mime}, "expires_in": settings.source_presign_ttl_seconds}, "expires_at": src.expires_at.isoformat()}
@@ -224,7 +224,10 @@ def initiate_local_upload(project_id: str, data: LocalUploadInitiateIn, pair=Dep
 def complete_local_upload(source_id: str, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     _,user=pair; src=owned_source_or_404(db,user,source_id)
     if src.source_type!=SourceType.local_upload or src.upload_status!=SourceUploadStatus.pending or src.deleted_at is not None: raise HTTPException(404,"Не найдено")
-    head=get_source_storage(settings).head_object(src.s3_object_key)
+    try:
+        head=get_source_storage(settings).head_object(src.s3_object_key)
+    except FileNotFoundError:
+        raise HTTPException(409, "Загруженный объект источника не найден")
     if head.size_bytes is not None and src.size_bytes is not None and head.size_bytes > settings.source_max_upload_bytes: raise HTTPException(422, "Файл слишком большой")
     if head.content_type and not (head.content_type.lower().startswith(ALLOWED_SOURCE_MIME_PREFIXES) or head.content_type.lower() in ALLOWED_SOURCE_MIME_TYPES): raise HTTPException(422, "Неподдерживаемый тип файла")
     src.upload_status=SourceUploadStatus.uploaded; src.uploaded_at=utcnow(); src.updated_at=utcnow(); audit(db,"source.local_upload.completed",actor_user_id=user.id,subject_user_id=user.id); db.commit(); return source_payload(src)
