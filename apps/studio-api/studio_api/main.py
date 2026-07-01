@@ -13,6 +13,7 @@ from .deps import current_session, get_client_ip, require_csrf, require_same_ori
 from .models import *
 from .rate_limit import RateLimiter
 from .security import *
+from .source_storage import get_source_storage, safe_filename
 
 settings=get_settings()
 app=FastAPI(docs_url="/docs" if settings.enable_api_docs else None, redoc_url=None, openapi_url="/openapi.json" if settings.enable_api_docs else None)
@@ -21,7 +22,24 @@ limiter=RateLimiter()
 class LoginIn(BaseModel): email: EmailStr; password: str; login_csrf_token: str
 class CredentialIn(BaseModel): provider: CredentialProvider; label: str=Field(min_length=1,max_length=120); raw_value: str=Field(min_length=8,max_length=4096)
 class ProjectIn(BaseModel): title: str=Field(min_length=1,max_length=160); description: str|None=Field(default=None,max_length=2000)
-class ProjectPatch(BaseModel): title: str|None=Field(default=None,min_length=1,max_length=160); description: str|None=Field(default=None,max_length=2000)
+class ProjectPatch(BaseModel):
+    title: str|None=Field(default=None,min_length=1,max_length=160)
+    description: str|None=Field(default=None,max_length=2000)
+    output_drive_folder_id: str|None=Field(default=None,max_length=256)
+    output_drive_folder_url: str|None=Field(default=None,max_length=2000)
+    output_drive_folder_name: str|None=Field(default=None,max_length=512)
+
+class GoogleDriveSourceIn(BaseModel):
+    drive_file_id: str=Field(min_length=1,max_length=256)
+    drive_file_url: str|None=Field(default=None,max_length=2000)
+    original_filename: str=Field(min_length=1,max_length=255)
+    mime_type: str|None=Field(default=None,max_length=255)
+    size_bytes: int|None=Field(default=None,ge=0)
+
+class LocalUploadInitiateIn(BaseModel):
+    original_filename: str=Field(min_length=1,max_length=255)
+    mime_type: str=Field(min_length=1,max_length=255)
+    size_bytes: int=Field(ge=1)
 
 def client_id(request: Request):
     return get_client_ip(request, settings)
@@ -92,7 +110,10 @@ def revoke_other(pair=Depends(require_csrf), db: Session=Depends(get_db)):
     sess,user=pair; n=db.query(Session).filter(Session.user_id==user.id, Session.id!=sess.id, Session.revoked_at.is_(None)).update({"revoked_at": utcnow()}); audit(db,"auth.sessions_revoked", actor_user_id=user.id, subject_user_id=user.id); db.commit(); return {"revoked": n}
 
 def project_payload(p: Project):
-    return {"id": p.id, "owner_user_id": p.owner_user_id, "title": p.title, "description": p.description, "created_at": p.created_at.isoformat(), "updated_at": p.updated_at.isoformat(), "archived_at": p.archived_at.isoformat() if p.archived_at else None}
+    return {"id": p.id, "owner_user_id": p.owner_user_id, "title": p.title, "description": p.description, "output_drive_folder_id": p.output_drive_folder_id, "output_drive_folder_url": p.output_drive_folder_url, "output_drive_folder_name": p.output_drive_folder_name, "created_at": p.created_at.isoformat(), "updated_at": p.updated_at.isoformat(), "archived_at": p.archived_at.isoformat() if p.archived_at else None}
+
+def source_payload(s: Source):
+    return {"id": s.id, "project_id": s.project_id, "source_type": s.source_type.value, "original_filename": s.original_filename, "mime_type": s.mime_type, "size_bytes": s.size_bytes, "drive_file_id": s.drive_file_id, "drive_file_url": s.drive_file_url, "upload_status": s.upload_status.value, "uploaded_at": s.uploaded_at.isoformat() if s.uploaded_at else None, "expires_at": s.expires_at.isoformat() if s.expires_at else None, "deleted_at": s.deleted_at.isoformat() if s.deleted_at else None, "delete_reason": s.delete_reason, "created_at": s.created_at.isoformat(), "updated_at": s.updated_at.isoformat()}
 
 def clean_project_title(title: str) -> str:
     value=title.strip()
@@ -105,6 +126,35 @@ def clean_project_description(description: str|None) -> str|None:
     value=description.strip()
     if len(value)>2000: raise HTTPException(422, "Описание проекта слишком длинное")
     return value or None
+
+def clean_drive_id(value: str|None, label="ID Google Drive") -> str|None:
+    if value is None: return None
+    value=value.strip()
+    if not value: return None
+    if len(value)>256 or not all(ch.isalnum() or ch in "_-" for ch in value): raise HTTPException(422, f"Некорректный {label}")
+    return value
+
+def clean_drive_url(value: str|None) -> str|None:
+    if value is None: return None
+    value=value.strip()
+    if not value: return None
+    if len(value)>2000 or not (value.startswith("https://drive.google.com/") or value.startswith("https://docs.google.com/")):
+        raise HTTPException(422, "Некорректная ссылка Google Drive")
+    return value
+
+def clean_optional_name(value: str|None) -> str|None:
+    if value is None: return None
+    value=value.strip()
+    return value[:512] or None
+
+ALLOWED_SOURCE_MIME_PREFIXES=("audio/", "video/")
+ALLOWED_SOURCE_MIME_TYPES={"application/ogg"}
+
+def validate_upload(mime_type: str, size_bytes: int):
+    m=mime_type.strip().lower()
+    if not (m.startswith(ALLOWED_SOURCE_MIME_PREFIXES) or m in ALLOWED_SOURCE_MIME_TYPES): raise HTTPException(422, "Неподдерживаемый тип файла")
+    if size_bytes > settings.source_max_upload_bytes: raise HTTPException(422, "Файл слишком большой")
+    return m
 
 def owned_project_or_404(db: Session, user: User, project_id: str) -> Project:
     p=db.get(Project, project_id)
@@ -128,12 +178,67 @@ def update_project(project_id: str, data: ProjectPatch, pair=Depends(require_csr
     _,user=pair; limiter.check("project:update:"+user.id, 120, 3600); p=owned_project_or_404(db,user,project_id)
     if data.title is not None: p.title=clean_project_title(data.title)
     if data.description is not None: p.description=clean_project_description(data.description)
+    if "output_drive_folder_id" in data.model_fields_set: p.output_drive_folder_id=clean_drive_id(data.output_drive_folder_id, "ID папки Google Drive")
+    if "output_drive_folder_url" in data.model_fields_set: p.output_drive_folder_url=clean_drive_url(data.output_drive_folder_url)
+    if "output_drive_folder_name" in data.model_fields_set: p.output_drive_folder_name=clean_optional_name(data.output_drive_folder_name)
     p.updated_at=utcnow(); audit(db,"project.updated",actor_user_id=user.id,subject_user_id=user.id); db.commit(); return project_payload(p)
 
 @app.post("/api/projects/{project_id}/archive")
 def archive_project(project_id: str, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     _,user=pair; limiter.check("project:archive:"+user.id, 120, 3600); p=owned_project_or_404(db,user,project_id)
     now=utcnow(); p.archived_at=now; p.updated_at=now; audit(db,"project.archived",actor_user_id=user.id,subject_user_id=user.id); db.commit(); return {"ok": True}
+
+
+
+def owned_source_or_404(db: Session, user: User, source_id: str) -> Source:
+    src=db.get(Source, source_id)
+    if not src: raise HTTPException(404,"Не найдено")
+    p=db.get(Project, src.project_id)
+    if not p or p.owner_user_id!=user.id or p.archived_at is not None: raise HTTPException(404,"Не найдено")
+    return src
+
+@app.get("/api/projects/{project_id}/sources")
+def list_sources(project_id: str, pair=Depends(current_session), db: Session=Depends(get_db)):
+    _,user=pair; p=owned_project_or_404(db,user,project_id)
+    rows=db.query(Source).filter(Source.project_id==p.id).order_by(Source.created_at.desc()).all()
+    return {"sources":[source_payload(r) for r in rows]}
+
+@app.post("/api/projects/{project_id}/sources/google-drive")
+def create_google_drive_source(project_id: str, data: GoogleDriveSourceIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("source:gdrive:create:"+user.id, 120, 3600); p=owned_project_or_404(db,user,project_id)
+    src=Source(project_id=p.id, source_type=SourceType.google_drive, original_filename=safe_filename(data.original_filename), mime_type=data.mime_type.strip() if data.mime_type else None, size_bytes=data.size_bytes, drive_file_id=clean_drive_id(data.drive_file_id, "ID файла Google Drive"), drive_file_url=clean_drive_url(data.drive_file_url), upload_status=SourceUploadStatus.uploaded, uploaded_at=utcnow())
+    db.add(src); audit(db,"source.google_drive.created",actor_user_id=user.id,subject_user_id=user.id); db.commit(); return source_payload(src)
+
+@app.post("/api/projects/{project_id}/sources/local-upload/initiate")
+def initiate_local_upload(project_id: str, data: LocalUploadInitiateIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("source:local:initiate:"+user.id, 60, 3600); p=owned_project_or_404(db,user,project_id)
+    mime=validate_upload(data.mime_type, data.size_bytes)
+    if not settings.source_storage_configured(): raise HTTPException(503, "Временное хранилище источников не настроено")
+    now=utcnow(); src=Source(project_id=p.id, source_type=SourceType.local_upload, original_filename=safe_filename(data.original_filename), mime_type=mime, size_bytes=data.size_bytes, upload_status=SourceUploadStatus.pending, expires_at=now+timedelta(seconds=settings.source_upload_ttl_seconds))
+    db.add(src); db.flush(); src.s3_bucket=settings.source_s3_bucket; src.s3_object_key=f"users/{user.id}/projects/{p.id}/sources/{src.id}/{safe_filename(data.original_filename)}"
+    storage=get_source_storage(settings); url=storage.presigned_put_url(src.s3_object_key, mime, settings.source_presign_ttl_seconds)
+    audit(db,"source.local_upload.initiated",actor_user_id=user.id,subject_user_id=user.id); db.commit()
+    return {"source_id": src.id, "upload": {"method":"PUT", "url": url, "headers": {"Content-Type": mime}, "expires_in": settings.source_presign_ttl_seconds}, "expires_at": src.expires_at.isoformat()}
+
+@app.post("/api/sources/{source_id}/local-upload/complete")
+def complete_local_upload(source_id: str, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=pair; src=owned_source_or_404(db,user,source_id)
+    if src.source_type!=SourceType.local_upload or src.upload_status!=SourceUploadStatus.pending or src.deleted_at is not None: raise HTTPException(404,"Не найдено")
+    head=get_source_storage(settings).head_object(src.s3_object_key)
+    if head.size_bytes is not None and src.size_bytes is not None and head.size_bytes > settings.source_max_upload_bytes: raise HTTPException(422, "Файл слишком большой")
+    if head.content_type and not (head.content_type.lower().startswith(ALLOWED_SOURCE_MIME_PREFIXES) or head.content_type.lower() in ALLOWED_SOURCE_MIME_TYPES): raise HTTPException(422, "Неподдерживаемый тип файла")
+    src.upload_status=SourceUploadStatus.uploaded; src.uploaded_at=utcnow(); src.updated_at=utcnow(); audit(db,"source.local_upload.completed",actor_user_id=user.id,subject_user_id=user.id); db.commit(); return source_payload(src)
+
+@app.delete("/api/sources/{source_id}")
+def delete_source(source_id: str, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=pair; src=owned_source_or_404(db,user,source_id)
+    if src.deleted_at is None:
+        if src.source_type==SourceType.local_upload and src.s3_object_key:
+            get_source_storage(settings).delete_object(src.s3_object_key)
+        src.upload_status=SourceUploadStatus.deleted; src.deleted_at=utcnow(); src.delete_reason="user_deleted"; src.updated_at=src.deleted_at
+        audit(db,"source.deleted",actor_user_id=user.id,subject_user_id=user.id)
+        db.commit()
+    return {"ok": True}
 
 @app.get("/api/credentials")
 def list_credentials(pair=Depends(current_session), db: Session=Depends(get_db)):

@@ -3,6 +3,7 @@ import os
 import subprocess
 import sys
 import tempfile
+from datetime import timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,8 +31,8 @@ from studio_api.config import Settings
 from studio_api.db import SessionLocal, engine
 from studio_api.deps import get_client_ip
 from studio_api.main import app, limiter
-from studio_api.models import AuditEvent, LocalIdentity, Project, ProviderCredentialVersion, User, UserRole, UserStatus
-from studio_api.security import aad, decrypt, encrypt, hash_password, master_key_from_b64, verify_password
+from studio_api.models import AuditEvent, LocalIdentity, Project, ProviderCredentialVersion, Source, User, UserRole, UserStatus
+from studio_api.security import aad, decrypt, encrypt, hash_password, master_key_from_b64, utcnow, verify_password
 
 ALEMBIC = ROOT / "apps/studio-api/alembic.ini"
 
@@ -47,7 +48,7 @@ def clean_state(migrated_database):
     except Exception as exc:
         pytest.skip(f"Redis unavailable for platform tests: {exc}")
     with engine.begin() as conn:
-        tables = ["audit_events", "provider_credential_versions", "provider_credentials", "projects", "sessions", "login_contexts", "local_identities", "users"]
+        tables = ["audit_events", "provider_credential_versions", "provider_credentials", "sources", "projects", "sessions", "login_contexts", "local_identities", "users"]
         conn.execute(text("TRUNCATE " + ", ".join(tables) + " RESTART IDENTITY CASCADE"))
     yield
 
@@ -210,3 +211,125 @@ def test_project_validation_failures():
     assert c.post("/api/projects", json={"title": "   "}, headers=headers).status_code == 422
     assert c.post("/api/projects", json={"title": "x" * 161}, headers=headers).status_code == 422
     assert c.post("/api/projects", json={"title": "Ok", "description": "x" * 2001}, headers=headers).status_code == 422
+
+class FakeStorage:
+    deleted = []
+    def __init__(self):
+        self.head_size = 123
+        self.head_type = "audio/mpeg"
+    def presigned_put_url(self, key, content_type, expires_seconds):
+        return f"https://upload.test/{key}?signature=fake"
+    def head_object(self, key):
+        from studio_api.source_storage import ObjectHead
+        return ObjectHead(size_bytes=self.head_size, content_type=self.head_type)
+    def delete_object(self, key):
+        self.deleted.append(key)
+
+
+def enable_fake_storage(monkeypatch):
+    from studio_api import main as main_mod
+    fake = FakeStorage()
+    main_mod.settings.source_s3_endpoint_url = "https://r2.example"
+    main_mod.settings.source_s3_region = "auto"
+    main_mod.settings.source_s3_bucket = "studio-temp"
+    main_mod.settings.source_s3_access_key_id_file = "/tmp/no-secret-id"
+    main_mod.settings.source_s3_secret_access_key_file = "/tmp/no-secret-key"
+    main_mod.settings.source_max_upload_bytes = 1000
+    main_mod.settings.source_upload_ttl_seconds = 3600
+    main_mod.settings.source_presign_ttl_seconds = 900
+    monkeypatch.setattr(main_mod, "get_source_storage", lambda settings: fake)
+    return fake
+
+
+def create_logged_in_project(email="sources@example.com"):
+    pw = admin(email)
+    c = TestClient(app)
+    csrf = login(c, pw, email)
+    headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+    r = c.post("/api/projects", json={"title": "Sources"}, headers=headers)
+    assert r.status_code == 200
+    return c, headers, r.json()["id"]
+
+
+def test_project_drive_folder_binding_update_and_clear():
+    c, headers, pid = create_logged_in_project("folder@example.com")
+    payload = {"output_drive_folder_id": "abc_123-XYZ", "output_drive_folder_url": "https://drive.google.com/drive/folders/abc_123-XYZ", "output_drive_folder_name": " Results "}
+    r = c.patch(f"/api/projects/{pid}", json=payload, headers=headers)
+    assert r.status_code == 200
+    assert r.json()["output_drive_folder_id"] == "abc_123-XYZ"
+    assert r.json()["output_drive_folder_name"] == "Results"
+    r = c.patch(f"/api/projects/{pid}", json={"output_drive_folder_id": None, "output_drive_folder_url": None, "output_drive_folder_name": None}, headers=headers)
+    assert r.status_code == 200
+    assert r.json()["output_drive_folder_id"] is None
+    assert c.patch(f"/api/projects/{pid}", json={"output_drive_folder_url": "https://evil.test/x"}, headers=headers).status_code == 422
+
+
+def test_google_drive_source_metadata_lifecycle_owner_scoped():
+    c, headers, pid = create_logged_in_project("gdrive@example.com")
+    r = c.post(f"/api/projects/{pid}/sources/google-drive", json={"drive_file_id":"file_123", "drive_file_url":"https://drive.google.com/file/d/file_123/view", "original_filename":"meeting.mp4", "mime_type":"video/mp4", "size_bytes":42}, headers=headers)
+    assert r.status_code == 200
+    sid = r.json()["id"]
+    assert r.json()["source_type"] == "google_drive"
+    assert "s3" not in r.text.lower()
+    assert c.get(f"/api/projects/{pid}/sources").json()["sources"][0]["id"] == sid
+    assert c.delete(f"/api/sources/{sid}", headers=headers).status_code == 200
+    assert c.delete(f"/api/sources/{sid}", headers=headers).status_code == 200
+
+
+def test_local_upload_initiate_requires_auth_ownership_and_validates(monkeypatch):
+    fake = enable_fake_storage(monkeypatch)
+    c, headers, pid = create_logged_in_project("local@example.com")
+    assert TestClient(app).post(f"/api/projects/{pid}/sources/local-upload/initiate", json={"original_filename":"a.mp3","mime_type":"audio/mpeg","size_bytes":10}).status_code == 401
+    assert c.post(f"/api/projects/{pid}/sources/local-upload/initiate", json={"original_filename":"a.txt","mime_type":"text/plain","size_bytes":10}, headers=headers).status_code == 422
+    assert c.post(f"/api/projects/{pid}/sources/local-upload/initiate", json={"original_filename":"a.mp3","mime_type":"audio/mpeg","size_bytes":1001}, headers=headers).status_code == 422
+    r = c.post(f"/api/projects/{pid}/sources/local-upload/initiate", json={"original_filename":"../secret song.mp3","mime_type":"audio/mpeg","size_bytes":10}, headers=headers)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["source_id"]
+    assert body["upload"]["method"] == "PUT"
+    assert body["upload"]["expires_in"] == 900
+    assert "ACCESS" not in r.text.upper() and "SECRET" not in r.text.upper()
+    db = SessionLocal(); src = db.get(Source, body["source_id"]); db.close()
+    assert src.s3_object_key.startswith("users/") and ".." not in src.s3_object_key
+
+
+def test_local_upload_initiate_fails_closed_without_storage(monkeypatch):
+    from studio_api import main as main_mod
+    c, headers, pid = create_logged_in_project("nostorage@example.com")
+    main_mod.settings.source_s3_endpoint_url = None
+    main_mod.settings.source_s3_bucket = None
+    r = c.post(f"/api/projects/{pid}/sources/local-upload/initiate", json={"original_filename":"a.mp3","mime_type":"audio/mpeg","size_bytes":10}, headers=headers)
+    assert r.status_code == 503
+
+
+def test_complete_local_upload_and_delete_owner_isolation(monkeypatch):
+    fake = enable_fake_storage(monkeypatch)
+    c1, h1, pid = create_logged_in_project("owner2@example.com")
+    c2, h2, _ = create_logged_in_project("other2@example.com")
+    r = c1.post(f"/api/projects/{pid}/sources/local-upload/initiate", json={"original_filename":"a.mp3","mime_type":"audio/mpeg","size_bytes":10}, headers=h1)
+    sid = r.json()["source_id"]
+    assert c2.post(f"/api/sources/{sid}/local-upload/complete", headers=h2).status_code == 404
+    assert c1.post(f"/api/sources/{sid}/local-upload/complete", headers=h1).status_code == 200
+    assert c2.delete(f"/api/sources/{sid}", headers=h2).status_code == 404
+    assert c1.delete(f"/api/sources/{sid}", headers=h1).status_code == 200
+    assert c1.delete(f"/api/sources/{sid}", headers=h1).status_code == 200
+    assert fake.deleted
+
+
+def test_expired_local_upload_cleanup_marks_deleted_and_deletes(monkeypatch):
+    fake = enable_fake_storage(monkeypatch)
+    from studio_api import source_cleanup
+    from studio_api.models import Source, SourceType, SourceUploadStatus
+    monkeypatch.setattr(source_cleanup, "get_source_storage", lambda settings: fake)
+    c, headers, pid = create_logged_in_project("cleanup@example.com")
+    db = SessionLocal()
+    try:
+        src = Source(project_id=pid, source_type=SourceType.local_upload, original_filename="old.mp3", mime_type="audio/mpeg", size_bytes=10, s3_bucket="studio-temp", s3_object_key="old/key", upload_status=SourceUploadStatus.pending, expires_at=utcnow()-timedelta(seconds=1))
+        db.add(src); db.commit()
+        assert source_cleanup.cleanup_expired_local_uploads(db, __import__("studio_api.main", fromlist=["settings"]).settings) == 1
+        db.refresh(src)
+        assert src.upload_status == SourceUploadStatus.expired
+        assert src.deleted_at is not None and src.delete_reason == "expired"
+        assert fake.deleted == ["old/key"]
+    finally:
+        db.close()

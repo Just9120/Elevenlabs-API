@@ -23,12 +23,28 @@ class Settings(BaseSettings):
     credential_key_id: str = "studio-v1"
     enable_api_docs: bool = False
     trusted_proxy_ip: str = "127.0.0.1"
+    source_s3_endpoint_url: str | None = None
+    source_s3_region: str = "auto"
+    source_s3_bucket: str | None = None
+    source_s3_access_key_id_file: str | None = None
+    source_s3_secret_access_key_file: str | None = None
+    source_upload_ttl_seconds: int = 3600
+    source_presign_ttl_seconds: int = 900
+    source_max_upload_bytes: int = 536870912
 
     def master_key_b64(self) -> str:
         return Path(self.credential_master_key_file).read_text(encoding="utf-8").strip()
 
     def postgres_password(self) -> str:
         return Path(self.postgres_password_file).read_text(encoding="utf-8").strip()
+
+    def source_storage_configured(self) -> bool:
+        return bool(
+            self.source_s3_endpoint_url
+            and self.source_s3_bucket
+            and self.source_s3_access_key_id_file
+            and self.source_s3_secret_access_key_file
+        )
 
     def sqlalchemy_url(self) -> str:
         if self.database_url:
