@@ -1,0 +1,177 @@
+name: Studio Platform CD
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/studio/**'
+      - 'apps/studio-api/**'
+      - '!apps/studio-api/alembic.ini'
+      - '!apps/studio-api/alembic/**'
+      - '!apps/studio-api/alembic/versions/**'
+  workflow_dispatch:
+    inputs:
+      component:
+        description: 'Component to deploy'
+        required: true
+        type: choice
+        options:
+          - web
+          - api
+
+permissions:
+  contents: read
+
+concurrency:
+  group: studio-platform-production
+  cancel-in-progress: false
+
+jobs:
+  detect-components:
+    if: ${{ github.event_name == 'workflow_dispatch' || vars.STUDIO_PLATFORM_CD_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      web: ${{ steps.components.outputs.web }}
+      api: ${{ steps.components.outputs.api }}
+    steps:
+      - uses: actions/checkout@v4
+        if: ${{ github.event_name == 'push' }}
+        with:
+          fetch-depth: 0
+      - id: components
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MANUAL_COMPONENT: ${{ github.event.inputs.component || '' }}
+          PUSH_BEFORE: ${{ github.event.before || '' }}
+          PUSH_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          web=false
+          api=false
+
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            case "$MANUAL_COMPONENT" in
+              web) web=true ;;
+              api) api=true ;;
+              *)
+                echo "unsupported manual component: $MANUAL_COMPONENT" >&2
+                exit 1
+                ;;
+            esac
+          else
+            if [[ "$PUSH_BEFORE" =~ ^0{40}$ ]]; then
+              changed_files="$(git diff-tree --no-commit-id --name-only -r "$PUSH_SHA")"
+            else
+              changed_files="$(git diff --name-only "$PUSH_BEFORE" "$PUSH_SHA")"
+            fi
+
+            while IFS= read -r path; do
+              case "$path" in
+                apps/studio/*)
+                  web=true
+                  ;;
+                apps/studio-api/alembic.ini|apps/studio-api/alembic/*)
+                  ;;
+                apps/studio-api/*)
+                  api=true
+                  ;;
+              esac
+            done <<< "$changed_files"
+          fi
+
+          echo "web=$web" >> "$GITHUB_OUTPUT"
+          echo "api=$api" >> "$GITHUB_OUTPUT"
+
+  deploy-web:
+    needs: detect-components
+    if: ${{ needs.detect-components.outputs.web == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Validate secret schema presence
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          STUDIO_DEPLOY_DIR: ${{ secrets.STUDIO_DEPLOY_DIR }}
+        run: |
+          test -n "$DEPLOY_HOST"
+          test -n "$DEPLOY_USER"
+          test -n "$DEPLOY_SSH_KEY"
+          test -n "$DEPLOY_KNOWN_HOSTS"
+          test -n "$STUDIO_DEPLOY_DIR"
+      - name: Configure SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/studio_deploy_key
+          chmod 600 ~/.ssh/studio_deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+      - name: Deploy platform web only
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          STUDIO_DEPLOY_DIR: ${{ secrets.STUDIO_DEPLOY_DIR }}
+        run: |
+          ssh -i ~/.ssh/studio_deploy_key -o BatchMode=yes "$DEPLOY_USER@$DEPLOY_HOST" \
+            "STUDIO_DEPLOY_DIR=\"$STUDIO_DEPLOY_DIR\" bash -se -- web" <<'REMOTE'
+          set -euo pipefail
+          component="$1"
+          cd "$STUDIO_DEPLOY_DIR"
+          git fetch --prune origin main
+          git show origin/main:scripts/deploy_studio_platform_component.sh |
+            STUDIO_DEPLOY_DIR="$STUDIO_DEPLOY_DIR" bash -s -- "$component"
+          REMOTE
+
+  deploy-api:
+    needs: [detect-components, deploy-web]
+    if: >-
+      ${{
+        always() &&
+        needs.detect-components.outputs.api == 'true' &&
+        (needs.deploy-web.result == 'success' || needs.deploy-web.result == 'skipped')
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Validate secret schema presence
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          STUDIO_DEPLOY_DIR: ${{ secrets.STUDIO_DEPLOY_DIR }}
+        run: |
+          test -n "$DEPLOY_HOST"
+          test -n "$DEPLOY_USER"
+          test -n "$DEPLOY_SSH_KEY"
+          test -n "$DEPLOY_KNOWN_HOSTS"
+          test -n "$STUDIO_DEPLOY_DIR"
+      - name: Configure SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/studio_deploy_key
+          chmod 600 ~/.ssh/studio_deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+      - name: Deploy platform API only
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          STUDIO_DEPLOY_DIR: ${{ secrets.STUDIO_DEPLOY_DIR }}
+        run: |
+          ssh -i ~/.ssh/studio_deploy_key -o BatchMode=yes "$DEPLOY_USER@$DEPLOY_HOST" \
+            "STUDIO_DEPLOY_DIR=\"$STUDIO_DEPLOY_DIR\" bash -se -- api" <<'REMOTE'
+          set -euo pipefail
+          component="$1"
+          cd "$STUDIO_DEPLOY_DIR"
+          git fetch --prune origin main
+          git show origin/main:scripts/deploy_studio_platform_component.sh |
+            STUDIO_DEPLOY_DIR="$STUDIO_DEPLOY_DIR" bash -s -- "$component"
+          REMOTE
