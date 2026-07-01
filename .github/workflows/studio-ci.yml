@@ -7,9 +7,7 @@ on:
       - 'apps/studio-api/**'
       - 'deploy/studio/**'
       - '.github/workflows/studio-ci.yml'
-      - '.github/workflows/studio-cd.yml'
-      - '.github/workflows/studio-platform-web-cd.yml'
-      - '.github/workflows/studio-platform-api-cd.yml'
+      - '.github/workflows/studio-platform-cd.yml'
       - 'scripts/deploy_studio.sh'
       - 'scripts/deploy_studio_platform.sh'
       - 'scripts/deploy_studio_platform_component.sh'
@@ -24,9 +22,7 @@ on:
       - 'apps/studio-api/**'
       - 'deploy/studio/**'
       - '.github/workflows/studio-ci.yml'
-      - '.github/workflows/studio-cd.yml'
-      - '.github/workflows/studio-platform-web-cd.yml'
-      - '.github/workflows/studio-platform-api-cd.yml'
+      - '.github/workflows/studio-platform-cd.yml'
       - 'scripts/deploy_studio.sh'
       - 'scripts/deploy_studio_platform.sh'
       - 'scripts/deploy_studio_platform_component.sh'
@@ -70,8 +66,6 @@ jobs:
           CREDENTIAL_MASTER_KEY_FILE="$tmp/master_key"
           printf 'not-a-secret-ci-password' > "$POSTGRES_PASSWORD_FILE"
           python -c "import base64; print(base64.b64encode(b'3' * 32).decode())" > "$CREDENTIAL_MASTER_KEY_FILE"
-          printf 'STUDIO_POSTGRES_PASSWORD_FILE=%s\n' "$POSTGRES_PASSWORD_FILE" >> "$GITHUB_ENV"
-          printf 'STUDIO_CREDENTIAL_MASTER_KEY_FILE=%s\n' "$CREDENTIAL_MASTER_KEY_FILE" >> "$GITHUB_ENV"
           cp deploy/studio/.env.example "$tmp/.env"
           printf 'STUDIO_POSTGRES_PASSWORD_FILE=%s\nSTUDIO_CREDENTIAL_MASTER_KEY_FILE=%s\n' "$POSTGRES_PASSWORD_FILE" "$CREDENTIAL_MASTER_KEY_FILE" >> "$tmp/.env"
           docker compose --env-file "$tmp/.env" -f deploy/studio/compose.platform.yml config >/dev/null
