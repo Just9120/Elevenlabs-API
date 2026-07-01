@@ -13,7 +13,8 @@
 - ✅ **PWA-FOUNDATION-01 — Studio PWA foundation and isolated delivery boundary** — completed/merged via PR #77; existing Python CI and Studio PWA CI passed before merge.
 - ✅ **PWA-DEPLOY-01 — Manual first Studio deployment** — completed for the existing stateless `studio-web` container at `https://studio.librechat.online`; CD remains disabled and only public app-shell availability is validated.
 - ✅ **PWA-PLATFORM-01-PREP — Studio platform implementation contract and private-path cleanup** — completed/merged documentation and decision preparation; no runtime implementation.
-- ⛔ **PWA-PLATFORM-01 — First Studio stateful account/session/BYOK platform core** — planned but blocked until explicit approval resolves backend framework, database, encryption-key management, backup/restore, rate limiting, migration/rollback, deployment design, and whether queue/storage/OAuth remain deferred.
+- ✅ **PWA-PLATFORM-01 — First Studio stateful account/session/BYOK platform core** — implemented in source form; manual production rollout remains operator-scoped.
+- 👉 **PWA-PROJECTS-01 — Studio Projects API foundation** — active/next Studio delivery item in this PR; backend-only persistence/API/migration foundation. Platform-mode Projects UI follows only after manual production migration and API rollout.
 - 📋 **RUNTIME-01 — Batch source picker / manifest skip / Google Docs output smoke-check** — deferred by current product priority; still planned manual Colab/Drive/Docs validation without claiming pass/fail.
 - 📋 **LIVE-COLAB-PROXY-01 remaining validation** — separate unfinished manual realtime validation gaps after RT-TOKEN-01.
 - 📋 **SPEAKER-RUNTIME-01 — Speaker projects workflow on copied diarized Google Doc** — planned manual validation.
@@ -23,13 +24,13 @@
 
 Batch Colab remains the stable/fallback product workflow and the only current production path for provider transcription, Google Drive/Docs output, and `manifest` mutation. Docs-only maintenance workflows remain separate and must not call provider/STT/LLM APIs. Realtime Colab/proxy remains an experimental contour for browser capture + ElevenLabs realtime STT and must not save Google Docs, mutate `manifest`, or integrate speaker projects.
 
-`apps/studio/` is currently an installable, static, client-side PWA foundation only. There is no Studio backend API, authentication, server upload, provider execution, Google integration, persistence, database, Redis, queue, worker, or production transcription job pipeline.
+`apps/studio/` static and platform frontend behavior is unchanged by PWA-PROJECTS-01. Static mode remains demo-only and does not call `/api`. This PR provides only the backend Projects persistence/API/migration foundation; the platform-mode Projects UI is deferred to a follow-up after manual production migration and API rollout. Uploads, jobs, providers, Google integration, processing, queues/workers, output persistence, and sharing remain deferred.
 
 Current confirmed realtime evidence is partial: one display+microphone run confirmed standalone page boot, capture, WebSocket open, `session_started`, partial transcript, committed transcript, user Stop, media-track release and WebSocket close. After RT-TOKEN-01, the standalone page also manually confirmed sequential Start → Stop → Start without page reload: both sessions reached WebSocket open and `session_started`, both stopped cleanly, and the final close was user-initiated with code 1000. Full realtime E2E success is not claimed.
 
 ## Active recommended next item
 
-The next action is explicit approval of the first implementation slice and unresolved technology/operations decisions. Backend implementation is not the active immediate item.
+The active Studio implementation item is PWA-PROJECTS-01 backend foundation: authenticated, user-owned project persistence API and migration only. It does not change the Studio frontend; the platform-mode Projects UI is a follow-up after the API is live in production, and static mode remains unchanged.
 
 ### PWA-PLATFORM-01-PREP — Studio platform implementation contract
 
@@ -72,6 +73,10 @@ PWA-FOUNDATION-01 is complete/merged via PR #77. It established `apps/studio/`, 
 RUNTIME-01 is deferred by current product priority, not passed or failed. It remains a separate manual Colab/Drive/Docs batch smoke validation item, including the visual user-segment builder, selected output folder, Google Docs creation, and `manifest` skip behavior. Do not claim runtime success until this is executed in Colab and recorded with factual evidence.
 
 ## Near backlog
+
+### PWA-PROJECTS-01 — Studio Projects API foundation
+
+This PR adds the backend foundation for persisted Projects only: id, owner user id, title, optional description, created_at, updated_at, nullable archived_at, authenticated owner-scoped API endpoints, backend tests, and an Alembic migration. It intentionally does not change the Studio frontend because frontend CD can deploy before the manual production migration/API rollout. The platform-mode Projects UI is a follow-up after the operator completes the separate manual pre-migration backup, migration, and API rollout. Static mode remains unchanged. Uploads, media storage, transcription jobs, provider calls, queues/workers, Google OAuth/Drive/Docs, output persistence, public registration, invites, password recovery, and project sharing remain deferred. CD workflow behavior is unchanged.
 
 ### PWA-PLATFORM-01 — First Studio stateful platform core
 
