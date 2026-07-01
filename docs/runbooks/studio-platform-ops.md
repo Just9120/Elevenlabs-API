@@ -1,6 +1,6 @@
 # Studio platform operations runbook
 
-This runbook covers the operator-run stateful Studio platform path introduced by PWA-PLATFORM-01. It does not deploy automatically and does not authorize provider execution, uploads, Google integration, queues, workers, or jobs.
+This runbook covers the operator-run stateful Studio platform path introduced by PWA-PLATFORM-01. Standard CD is isolated and gated: it may deploy only the Studio web or API component, never provider execution, uploads, Google integration, queues, workers, jobs, PostgreSQL, Redis, migrations, backups, restores, nginx, volumes, or runtime credential secrets.
 
 ## Secrets and preconditions
 
@@ -66,13 +66,13 @@ The active production stack is `deploy/studio/compose.platform.yml`. Standard CD
 
 ### Platform web deployment
 
-The `deploy-web` job deploys only the `studio-web` service. Automatic push-to-main deployments are limited to frontend changes under `apps/studio/**` and run only when the repository variable `STUDIO_PLATFORM_CD_ENABLED` is set to `true`. Manual `workflow_dispatch` remains available while that variable is false and requires choosing the `web` component explicitly.
+The `deploy-web` job deploys only the `studio-web` service. Automatic push-to-main deployments are limited to frontend changes under `apps/studio/**` and run only when the repository variable `STUDIO_PLATFORM_CD_ENABLED` is set to `true`. Manual `workflow_dispatch` remains available at all times and requires choosing the `web` component explicitly.
 
 The web deploy builds only `studio-web`, updates it with `--no-deps`, checks `http://127.0.0.1:8181/healthz`, and prints `STUDIO_PLATFORM_WEB_DEPLOY_OK` only after that health check passes.
 
 ### Platform API deployment
 
-The `deploy-api` job deploys only the `studio-api` service. Automatic push-to-main deployments are limited to non-migration backend changes under `apps/studio-api/**`. Changes under `apps/studio-api/alembic/**` or `apps/studio-api/alembic.ini` suppress automatic API deployment, including pushes that combine migration-related files with normal API files. Manual `workflow_dispatch` remains available while automatic CD is disabled and requires choosing the `api` component explicitly.
+The `deploy-api` job deploys only the `studio-api` service. Automatic push-to-main deployments are limited to non-migration backend changes under `apps/studio-api/**`. Changes under `apps/studio-api/alembic/**` or `apps/studio-api/alembic.ini` suppress automatic API deployment, including pushes that combine migration-related files with normal API files. Manual `workflow_dispatch` remains available at all times and requires choosing the `api` component explicitly.
 
 The API deploy verifies PostgreSQL and Redis are already healthy, builds only `studio-api`, compares the current database revision with the Alembic head in the newly built API image, refuses to proceed with a clear manual-migration-required error if revisions differ or cannot be compared, updates `studio-api` with `--no-deps`, checks `http://127.0.0.1:8182/api/healthz`, and prints `STUDIO_PLATFORM_API_DEPLOY_OK` only after that health check passes.
 
@@ -82,10 +82,13 @@ When one automatic push selects both components, `deploy-web` runs first and `de
 
 Standard platform CD never deploys or maintains PostgreSQL, Redis, migrations, backups, restores, nginx, volumes, runtime credential secrets, or the legacy `compose.prod.yml` stack. Those changes require separate, deliberate manual maintenance with explicit operator scope and validation. Failed platform web or API health checks fail loudly and do not trigger automatic rollback.
 
-## Initial platform CD enablement
+## Initial platform CD enablement and validation
 
-1. Configure the existing GitHub Actions secrets: `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, `DEPLOY_KNOWN_HOSTS`, and `STUDIO_DEPLOY_DIR`.
-2. Merge the PR that introduces or restores the single `Studio Platform CD` workflow and component deploy script.
-3. Run `workflow_dispatch` for `Studio Platform CD` once and choose `web`.
-4. Verify production health and routing through the operator-managed nginx boundary.
-5. Set the repository variable `STUDIO_PLATFORM_CD_ENABLED=true` only after successful validation.
+1. Configure the GitHub Actions secrets: `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, and `DEPLOY_KNOWN_HOSTS`.
+2. `STUDIO_DEPLOY_DIR` is not a secret. The workflow uses the fixed production checkout `/opt/elevenlabs-studio`.
+3. Merge the single `Studio Platform CD` workflow and component deploy script.
+4. Run `workflow_dispatch` for `Studio Platform CD` once with `web`, then once with `api`.
+5. Verify public and localhost health/routing through the operator-managed nginx boundary.
+6. Set the repository variable `STUDIO_PLATFORM_CD_ENABLED=true` only after both manual component deployments pass.
+
+Operator validation recorded on 2026-07-01: manual `web` and manual `api` dispatches completed successfully. Automatic push deployment remains off until the repository variable is explicitly set to `true`.
