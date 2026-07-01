@@ -15,7 +15,8 @@
 - ✅ **PWA-PLATFORM-01-PREP — Studio platform implementation contract and private-path cleanup** — completed/merged documentation and decision preparation; no runtime implementation.
 - ✅ **PWA-PLATFORM-01 — First Studio stateful account/session/BYOK platform core** — implemented in source form; manual production rollout remains operator-scoped.
 - ✅ **PWA-PROJECTS-01 — Studio Projects API foundation** — backend persistence/API/migration foundation is live; platform-mode frontend follow-up is implemented in this PR.
-- 👉 **PWA-SOURCES-01A — Studio source/storage backend foundation** — backend-only source metadata, selected Google Drive output folder binding, and temporary local-upload storage foundation.
+- ✅ **PWA-SOURCES-01A — Studio source/storage backend foundation** — backend foundation is live/done: source records, Google Drive source metadata, selected output folder binding, local-upload initiation, S3/R2 presigned upload contract, 1-hour expiry, and cleanup CLI.
+- 👉 **PWA-SOURCES-01B — Studio source upload storage runtime config** — ops/config follow-up to wire temporary local-upload S3/R2 env and secret files into the production `studio-api` Compose runtime.
 - 📋 **RUNTIME-01 — Batch source picker / manifest skip / Google Docs output smoke-check** — deferred by current product priority; still planned manual Colab/Drive/Docs validation without claiming pass/fail.
 - 📋 **LIVE-COLAB-PROXY-01 remaining validation** — separate unfinished manual realtime validation gaps after RT-TOKEN-01.
 - 📋 **SPEAKER-RUNTIME-01 — Speaker projects workflow on copied diarized Google Doc** — planned manual validation.
@@ -31,7 +32,7 @@ Current confirmed realtime evidence is partial: one display+microphone run confi
 
 ## Active recommended next item
 
-The active Studio backend follow-up is PWA-SOURCES-01A: add backend-only project source records and fail-closed temporary local-upload storage configuration support. Transcription outputs always target the user-selected Google Drive folder recorded on the project. Input sources may be Google Drive source-file metadata or local computer files uploaded temporarily to private S3/R2-compatible storage; local uploads expire/delete after 1 hour. Production local-upload initiation remains fail-closed until a separate ops/config PR wires S3/R2 env and secret files into the API container. Frontend UI, Google OAuth/Drive picker, provider transcription execution, queues/workers, and Google Docs creation remain follow-ups.
+The active Studio ops/config follow-up is PWA-SOURCES-01B: wire the already-implemented temporary local-upload S3/R2 storage settings and file-mounted secrets into the production `studio-api` Compose runtime. Transcription outputs always target the user-selected Google Drive folder recorded on the project. Local computer source files are temporary private S3/R2 objects only and must expire/delete after 1 hour or after processing in later work. Frontend UI, Google OAuth/Drive picker, provider transcription execution, queues/workers, and Google Docs creation remain follow-ups.
 
 ### PWA-PLATFORM-01-PREP — Studio platform implementation contract
 
@@ -75,9 +76,13 @@ RUNTIME-01 is deferred by current product priority, not passed or failed. It rem
 
 ## Near backlog
 
+### PWA-SOURCES-01B — Studio source upload storage runtime config
+
+Ops/config follow-up for the already-live PWA-SOURCES-01A backend foundation: wire temporary source-upload S3/R2 non-secret settings and file-mounted access-key secrets into `deploy/studio/compose.platform.yml` for the `studio-api` service. Keep secret values file-based only; no raw S3/R2 credential values are committed or passed through Compose environment variables. This PR has no Alembic migration, no frontend/API behavior change, and should not trigger automatic web/API CD by path detection because it touches only deploy config and documentation. Rollout remains operator-managed after production `deploy/studio/.env` is updated and the referenced runtime secret files are created. UI, Google OAuth/Drive picker, provider transcription execution, queues/workers, and Google Docs creation remain follow-ups.
+
 ### PWA-SOURCES-01A — Studio source/storage backend foundation
 
-Backend-only foundation for Studio project sources: projects can store the selected output Google Drive folder, and source records support `google_drive` metadata or `local_upload` temporary S3/R2-compatible storage with fail-closed configuration. Transcription outputs always target the selected Google Drive folder. Local computer sources are temporary inputs only: they use private object storage, are not proxied through FastAPI memory or stored in PostgreSQL/VPS disk, and expire/delete after 1 hour. Production local-upload initiation remains fail-closed until a separate ops/config PR wires S3/R2 env and secret files into the API container. Frontend UI, Google OAuth/Drive picker, provider transcription execution, queues/workers, and Google Docs creation remain follow-ups. This PR does not change frontend, Compose, deploy scripts, workflows, production secrets, nginx, backup/restore, or runtime `.env` files. Production rollout needs a separate manual pre-migration backup, Alembic migration, and API deployment because this item includes a database migration; automatic web deploy must not be triggered by this backend+migration-only PR.
+PWA-SOURCES-01A is live/done as the backend-only foundation for Studio project sources: projects can store the selected output Google Drive folder, and source records support `google_drive` metadata or `local_upload` temporary S3/R2-compatible storage with fail-closed configuration, presigned upload initiation, 1-hour expiry, and cleanup CLI support. Transcription outputs always target the selected Google Drive folder. Local computer sources are temporary inputs only: they use private object storage, are not proxied through FastAPI memory or stored in PostgreSQL/VPS disk, and expire/delete after 1 hour or after processing in later work. Frontend UI, Google OAuth/Drive picker, provider transcription execution, queues/workers, and Google Docs creation remain follow-ups.
 
 ### PWA-PROJECTS-01 — Studio Projects API foundation
 
