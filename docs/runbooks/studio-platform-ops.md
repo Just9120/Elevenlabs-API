@@ -62,19 +62,21 @@ The backup script uses a fixed logical restic host and `--group-by host,tags` so
 
 ## Isolated platform CD scope
 
-The active production stack is `deploy/studio/compose.platform.yml`. Standard CD is intentionally split into component-only workflows that share the `studio-platform-production` concurrency group and call `scripts/deploy_studio_platform_component.sh` on the production host.
+The active production stack is `deploy/studio/compose.platform.yml`. Standard CD uses one GitHub Actions workflow, `Studio Platform CD`, with two isolated component deploy jobs sharing the `studio-platform-production` concurrency group. The workflow calls `scripts/deploy_studio_platform_component.sh` on the production host and passes exactly `web` or `api`.
 
-### Platform web CD
+### Platform web deployment
 
-`Studio Platform Web CD` deploys only the `studio-web` service. Automatic push-to-main deployments are limited to frontend changes under `apps/studio/**` and run only when the repository variable `STUDIO_PLATFORM_CD_ENABLED` is set to `true`. Manual `workflow_dispatch` remains available for an explicit initial or operator-requested web deployment before enabling automatic platform CD.
+The `deploy-web` job deploys only the `studio-web` service. Automatic push-to-main deployments are limited to frontend changes under `apps/studio/**` and run only when the repository variable `STUDIO_PLATFORM_CD_ENABLED` is set to `true`. Manual `workflow_dispatch` remains available while that variable is false and requires choosing the `web` component explicitly.
 
 The web deploy builds only `studio-web`, updates it with `--no-deps`, checks `http://127.0.0.1:8181/healthz`, and prints `STUDIO_PLATFORM_WEB_DEPLOY_OK` only after that health check passes.
 
-### Platform API CD
+### Platform API deployment
 
-`Studio Platform API CD` deploys only the `studio-api` service. Automatic push-to-main deployments are limited to non-migration backend changes under `apps/studio-api/**` and explicitly exclude `apps/studio-api/alembic/versions/**`. Migration, deployment, Compose, nginx, script, and platform-configuration changes do not automatically deploy the API. Manual `workflow_dispatch` targets the API only.
+The `deploy-api` job deploys only the `studio-api` service. Automatic push-to-main deployments are limited to non-migration backend changes under `apps/studio-api/**`. Changes under `apps/studio-api/alembic/**` or `apps/studio-api/alembic.ini` suppress automatic API deployment, including pushes that combine migration-related files with normal API files. Manual `workflow_dispatch` remains available while automatic CD is disabled and requires choosing the `api` component explicitly.
 
 The API deploy verifies PostgreSQL and Redis are already healthy, builds only `studio-api`, compares the current database revision with the Alembic head in the newly built API image, refuses to proceed with a clear manual-migration-required error if revisions differ or cannot be compared, updates `studio-api` with `--no-deps`, checks `http://127.0.0.1:8182/api/healthz`, and prints `STUDIO_PLATFORM_API_DEPLOY_OK` only after that health check passes.
+
+When one automatic push selects both components, `deploy-web` runs first and `deploy-api` runs only after the web deployment succeeds. If no web deployment is selected, the API job may run independently.
 
 ### Manual maintenance boundary
 
@@ -83,7 +85,7 @@ Standard platform CD never deploys or maintains PostgreSQL, Redis, migrations, b
 ## Initial platform CD enablement
 
 1. Configure the existing GitHub Actions secrets: `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, `DEPLOY_KNOWN_HOSTS`, and `STUDIO_DEPLOY_DIR`.
-2. Merge the PR that introduces the isolated platform web/API CD workflows and component deploy script.
-3. Run `workflow_dispatch` for `Studio Platform Web CD` once.
+2. Merge the PR that introduces or restores the single `Studio Platform CD` workflow and component deploy script.
+3. Run `workflow_dispatch` for `Studio Platform CD` once and choose `web`.
 4. Verify production health and routing through the operator-managed nginx boundary.
 5. Set the repository variable `STUDIO_PLATFORM_CD_ENABLED=true` only after successful validation.

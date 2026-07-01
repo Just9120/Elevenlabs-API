@@ -61,6 +61,7 @@ Boundaries preserved after deployment:
 - CD remains disabled;
 - no backend API, authentication, provider keys, provider calls, Google OAuth/Drive/Docs, uploads, transcription jobs, database, Redis, queue, worker, persistence, or migrations were added;
 - no changes were made to Colab, realtime, provider contracts, Google Docs behavior, or manifest behavior.
+- Studio production CD is expected to be a single `Studio Platform CD` workflow at `.github/workflows/studio-platform-cd.yml`; split web/API Studio platform CD workflows are not current state.
 
 ### PWA-FOUNDATION-01 — Studio PWA foundation
 
