@@ -16,7 +16,8 @@
 - ✅ **PWA-PLATFORM-01 — First Studio stateful account/session/BYOK platform core** — implemented in source form; manual production rollout remains operator-scoped.
 - ✅ **PWA-PROJECTS-01 — Studio Projects API foundation** — backend persistence/API/migration foundation is live; platform-mode frontend follow-up is implemented in this PR.
 - ✅ **PWA-SOURCES-01A — Studio source/storage backend foundation** — backend foundation is live/done: source records, Google Drive source metadata, selected output folder binding, local-upload initiation, S3/R2 presigned upload contract, 1-hour expiry, and cleanup CLI.
-- 👉 **PWA-SOURCES-01B — Studio source upload storage runtime config** — ops/config follow-up to wire temporary local-upload S3/R2 env and secret files into the production `studio-api` Compose runtime.
+- ✅ **PWA-SOURCES-01B — Studio source upload storage runtime config** — done/live: temporary local-upload S3/R2 env and file-mounted secrets have been wired into the production `studio-api` Compose runtime by the operator.
+- 👉 **PWA-SOURCES-02 — Studio project source UI** — active frontend/docs item for binding output Drive folder metadata, listing source records, adding Google Drive source metadata, and direct browser PUT local-upload flow.
 - 📋 **RUNTIME-01 — Batch source picker / manifest skip / Google Docs output smoke-check** — deferred by current product priority; still planned manual Colab/Drive/Docs validation without claiming pass/fail.
 - 📋 **LIVE-COLAB-PROXY-01 remaining validation** — separate unfinished manual realtime validation gaps after RT-TOKEN-01.
 - 📋 **SPEAKER-RUNTIME-01 — Speaker projects workflow on copied diarized Google Doc** — planned manual validation.
@@ -26,13 +27,13 @@
 
 Batch Colab remains the stable/fallback product workflow and the only current production path for provider transcription, Google Drive/Docs output, and `manifest` mutation. Docs-only maintenance workflows remain separate and must not call provider/STT/LLM APIs. Realtime Colab/proxy remains an experimental contour for browser capture + ElevenLabs realtime STT and must not save Google Docs, mutate `manifest`, or integrate speaker projects.
 
-`apps/studio/` static mode remains demo-only and does not call `/api`. Platform mode now has a Projects UI for the already-live `/api/projects` backend: list, loading/empty/error states, create, edit, and archive. Uploads, jobs, providers, Google integration, processing, queues/workers, output persistence, and sharing remain deferred.
+`apps/studio/` static mode remains demo-only and does not call `/api`. Platform mode now has Projects/source UI for the already-live projects and sources backends: project list/create/edit/archive, selected output Drive folder metadata, source listing/deletion, manual Google Drive source metadata, and temporary local-upload intake. Jobs, providers, Google OAuth/Drive picker, Google Docs output, processing, queues/workers, output persistence, and sharing remain deferred.
 
 Current confirmed realtime evidence is partial: one display+microphone run confirmed standalone page boot, capture, WebSocket open, `session_started`, partial transcript, committed transcript, user Stop, media-track release and WebSocket close. After RT-TOKEN-01, the standalone page also manually confirmed sequential Start → Stop → Start without page reload: both sessions reached WebSocket open and `session_started`, both stopped cleanly, and the final close was user-initiated with code 1000. Full realtime E2E success is not claimed.
 
 ## Active recommended next item
 
-The active Studio ops/config follow-up is PWA-SOURCES-01B: wire the already-implemented temporary local-upload S3/R2 storage settings and file-mounted secrets into the production `studio-api` Compose runtime. Transcription outputs always target the user-selected Google Drive folder recorded on the project. Local computer source files are temporary private S3/R2 objects only and must expire/delete after 1 hour or after processing in later work. Frontend UI, Google OAuth/Drive picker, provider transcription execution, queues/workers, and Google Docs creation remain follow-ups.
+The active Studio frontend/docs item is PWA-SOURCES-02: add platform-mode project source UI for selected output Google Drive folder metadata, source record listing/deletion, manual Google Drive source metadata, and the existing local-upload contract (`initiate` → browser direct PUT to S3/R2 presigned URL → `complete`). This PR is frontend/docs only: no backend migration, no backend API contract change, no provider execution, no Google OAuth/Drive picker, no Google Docs creation, and no queue/worker.
 
 ### PWA-PLATFORM-01-PREP — Studio platform implementation contract
 
@@ -76,9 +77,13 @@ RUNTIME-01 is deferred by current product priority, not passed or failed. It rem
 
 ## Near backlog
 
+### PWA-SOURCES-02 — Studio project source UI
+
+Active frontend/docs item: platform-mode Studio can bind a project to selected output Google Drive folder metadata, list/delete project source records, add Google Drive source-file metadata manually, and upload a local audio/video file with the existing backend contract (`initiate` → browser direct PUT to S3/R2 presigned URL → `complete`). Static mode remains demo-only and must make zero `/api` requests. This item has no backend migration, no backend API change unless a frontend-blocking contract bug is found, no provider execution, no Google OAuth/Drive picker, no Google Docs creation, and no queue/worker.
+
 ### PWA-SOURCES-01B — Studio source upload storage runtime config
 
-Ops/config follow-up for the already-live PWA-SOURCES-01A backend foundation: wire temporary source-upload S3/R2 non-secret settings and file-mounted access-key secrets into `deploy/studio/compose.platform.yml` for the `studio-api` service. Keep secret values file-based only; no raw S3/R2 credential values are committed or passed through Compose environment variables. This PR has no Alembic migration, no frontend/API behavior change, and should not trigger automatic web/API CD by path detection because it touches only deploy config and documentation. Rollout remains operator-managed after production `deploy/studio/.env` is updated and the referenced runtime secret files are created. UI, Google OAuth/Drive picker, provider transcription execution, queues/workers, and Google Docs creation remain follow-ups.
+Done/live: the already-implemented temporary source-upload S3/R2 non-secret settings and file-mounted access-key secrets have been wired into the production `studio-api` Compose runtime by the operator. Secret values remain file-based only; no raw S3/R2 credential values are committed or passed through Compose environment variables. UI, Google OAuth/Drive picker, provider transcription execution, queues/workers, and Google Docs creation remain follow-ups.
 
 ### PWA-SOURCES-01A — Studio source/storage backend foundation
 
