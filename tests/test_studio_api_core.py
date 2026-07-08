@@ -31,7 +31,7 @@ from studio_api.config import Settings
 from studio_api.db import SessionLocal, engine
 from studio_api.deps import get_client_ip
 from studio_api.main import app, limiter
-from studio_api.models import AuditEvent, LocalIdentity, Project, ProviderCredentialVersion, Source, SourceType, SourceUploadStatus, User, UserRole, UserStatus
+from studio_api.models import AuditEvent, JobStatus, LocalIdentity, Project, ProviderCredentialVersion, Source, SourceType, SourceUploadStatus, TranscriptionJob, User, UserRole, UserStatus
 from studio_api.security import aad, decrypt, encrypt, hash_password, master_key_from_b64, utcnow, verify_password
 
 ALEMBIC = ROOT / "apps/studio-api/alembic.ini"
@@ -326,6 +326,93 @@ def test_create_job_from_google_drive_and_local_sources_preserves_order_and_safe
     listed = c.get(f"/api/projects/{pid}/jobs")
     assert listed.status_code == 200 and listed.json()["jobs"][0]["id"] == body["id"]
 
+
+
+def test_job_creation_is_record_only_and_response_omits_processing_outputs():
+    c, headers, pid = create_logged_in_project("jobs-record-only@example.com")
+    sid = create_gdrive_source(c, headers, pid)
+    r = c.post(f"/api/projects/{pid}/jobs", json={"source_ids":[sid]}, headers=headers)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "queued"
+    assert body["started_at"] is None
+    assert body["finished_at"] is None
+    assert body["cancelled_at"] is None
+    assert body["error_code"] is None
+    assert body["error_message"] is None
+    assert "output" not in body
+    assert "transcript" not in r.text.lower()
+    assert "google_doc" not in r.text.lower()
+    assert_job_response_safe(r.text)
+
+
+def test_job_failure_metadata_response_redacts_sensitive_internal_values():
+    c, headers, pid = create_logged_in_project("jobs-failure-safe@example.com")
+    sid = create_gdrive_source(c, headers, pid)
+    jid = c.post(f"/api/projects/{pid}/jobs", json={"source_ids":[sid]}, headers=headers).json()["id"]
+    db = SessionLocal()
+    try:
+        job = db.get(TranscriptionJob, jid)
+        job.status = JobStatus.failed
+        job.error_code = "raw_provider_token"
+        job.error_message = "Provider returned bearer token, transcript body, and /run/secrets/file-mounted-value"
+        job.finished_at = utcnow()
+        db.commit()
+    finally:
+        db.close()
+
+    detail = c.get(f"/api/jobs/{jid}")
+    assert detail.status_code == 200
+    body = detail.json()
+    assert body["status"] == "failed"
+    assert body["error_code"] == "Недоступно"
+    assert body["error_message"] == "Недоступно"
+    assert "bearer" not in detail.text.lower()
+    assert "transcript body" not in detail.text.lower()
+    assert "file-mounted" not in detail.text.lower()
+    assert_job_response_safe(detail.text)
+
+
+def test_cancel_only_transitions_queued_jobs_and_leaves_terminal_jobs_unchanged():
+    c, headers, pid = create_logged_in_project("jobs-cancel-terminal@example.com")
+    queued_sid = create_gdrive_source(c, headers, pid, "queued.mp4")
+    completed_sid = create_gdrive_source(c, headers, pid, "completed.mp4")
+    failed_sid = create_gdrive_source(c, headers, pid, "failed.mp4")
+    queued_id = c.post(f"/api/projects/{pid}/jobs", json={"source_ids":[queued_sid]}, headers=headers).json()["id"]
+    completed_id = c.post(f"/api/projects/{pid}/jobs", json={"source_ids":[completed_sid]}, headers=headers).json()["id"]
+    failed_id = c.post(f"/api/projects/{pid}/jobs", json={"source_ids":[failed_sid]}, headers=headers).json()["id"]
+
+    db = SessionLocal()
+    try:
+        completed = db.get(TranscriptionJob, completed_id)
+        completed.status = JobStatus.completed
+        completed.finished_at = utcnow()
+        failed = db.get(TranscriptionJob, failed_id)
+        failed.status = JobStatus.failed
+        failed.finished_at = utcnow()
+        failed.error_code = "provider_unavailable"
+        failed.error_message = "Provider unavailable"
+        db.commit()
+    finally:
+        db.close()
+
+    assert c.post(f"/api/jobs/{queued_id}/cancel", headers=headers).json()["status"] == "cancelled"
+    completed_cancel = c.post(f"/api/jobs/{completed_id}/cancel", headers=headers)
+    failed_cancel = c.post(f"/api/jobs/{failed_id}/cancel", headers=headers)
+    assert completed_cancel.status_code == 200
+    assert failed_cancel.status_code == 200
+    assert completed_cancel.json()["status"] == "completed"
+    assert completed_cancel.json()["cancelled_at"] is None
+    assert failed_cancel.json()["status"] == "failed"
+    assert failed_cancel.json()["cancelled_at"] is None
+    assert failed_cancel.json()["error_message"] == "Provider unavailable"
+
+    db = SessionLocal()
+    try:
+        events = [e.event_type for e in db.query(AuditEvent).filter(AuditEvent.event_type == "job.cancelled").all()]
+        assert events == ["job.cancelled"]
+    finally:
+        db.close()
 
 def test_create_job_rejects_invalid_source_sets_and_archived_project():
     c, headers, pid = create_logged_in_project("jobs-invalid@example.com")
