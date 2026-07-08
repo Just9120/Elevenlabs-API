@@ -292,6 +292,17 @@ def test_transcription_jobs_auth_and_csrf_required():
     assert c.post(f"/api/jobs/{jid}/cancel").status_code == 403
 
 
+def test_create_job_normalizes_blank_provider_credential_id_to_null():
+    c, headers, pid = create_logged_in_project("jobs-blank-credential@example.com")
+    sid = create_gdrive_source(c, headers, pid)
+    for value in ["", "   "]:
+        r = c.post(f"/api/projects/{pid}/jobs", json={"source_ids":[sid], "provider_credential_id":value}, headers=headers)
+        assert r.status_code == 200
+        assert r.json()["provider_credential_id"] is None
+        assert_job_response_safe(r.text)
+        assert "raw-provider-secret" not in r.text
+
+
 def test_create_job_from_google_drive_and_local_sources_preserves_order_and_safe_metadata():
     c, headers, pid = create_logged_in_project("jobs-create@example.com")
     sid1 = create_gdrive_source(c, headers, pid, "first.mp4")

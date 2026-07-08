@@ -48,6 +48,16 @@ class TranscriptionJobCreateIn(BaseModel):
     language: str|None=Field(default=None, max_length=40)
     options: dict|None=None
 
+    @field_validator("provider_credential_id", mode="before")
+    @classmethod
+    def normalize_provider_credential_id(cls, value):
+        if value is None:
+            return None
+        if isinstance(value, str):
+            value=value.strip()
+            return value or None
+        return value
+
     @field_validator("source_ids")
     @classmethod
     def unique_source_ids(cls, value):
