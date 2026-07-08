@@ -175,6 +175,45 @@ def check_temp_cleanup_patterns() -> None:
     print("[ci-checks] Temp cleanup safety guard passed.")
 
 
+
+def check_studio_google_oauth_compose_wiring() -> None:
+    compose_path = ROOT / "deploy" / "studio" / "compose.platform.yml"
+    env_example_path = ROOT / "deploy" / "studio" / ".env.example"
+    optional_secret_path = ROOT / "deploy" / "studio" / "optional-empty-secret"
+
+    compose_text = compose_path.read_text(encoding="utf-8")
+    env_example_text = env_example_path.read_text(encoding="utf-8")
+
+    required_compose_markers = [
+        "STUDIO_GOOGLE_OAUTH_CLIENT_ID: ${STUDIO_GOOGLE_OAUTH_CLIENT_ID:-}",
+        "STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE: /run/secrets/studio_google_oauth_client_secret",
+        "STUDIO_GOOGLE_OAUTH_REDIRECT_URI: ${STUDIO_GOOGLE_OAUTH_REDIRECT_URI:-}",
+        "STUDIO_GOOGLE_OAUTH_SCOPES: ${STUDIO_GOOGLE_OAUTH_SCOPES:-openid email https://www.googleapis.com/auth/drive.file}",
+        "STUDIO_GOOGLE_OAUTH_STATE_TTL_SECONDS: ${STUDIO_GOOGLE_OAUTH_STATE_TTL_SECONDS:-600}",
+        "- studio_google_oauth_client_secret",
+        "studio_google_oauth_client_secret:",
+        "file: ${STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE:-./optional-empty-secret}",
+    ]
+    for marker in required_compose_markers:
+        if marker not in compose_text:
+            fail(f"Studio Google OAuth Compose wiring missing marker: {marker}")
+
+    required_env_markers = [
+        "STUDIO_GOOGLE_OAUTH_CLIENT_ID=__REQUIRED_GOOGLE_OAUTH_CLIENT_ID__",
+        "STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE=",
+        "STUDIO_GOOGLE_OAUTH_REDIRECT_URI=https://studio.librechat.online/api/google/oauth/callback",
+        "STUDIO_GOOGLE_OAUTH_SCOPES=openid email https://www.googleapis.com/auth/drive.file",
+        "STUDIO_GOOGLE_OAUTH_STATE_TTL_SECONDS=600",
+    ]
+    for marker in required_env_markers:
+        if marker not in env_example_text:
+            fail(f"Studio Google OAuth .env.example schema missing marker: {marker}")
+
+    if not optional_secret_path.exists() or optional_secret_path.stat().st_size != 0:
+        fail("Studio Google OAuth optional empty secret placeholder must exist and be zero bytes")
+
+    print("[ci-checks] Studio Google OAuth Compose/env wiring checks passed.")
+
 def main() -> int:
     try:
         check_notebooks()
@@ -183,6 +222,7 @@ def main() -> int:
         check_realtime_runtime_boundaries()
         check_no_raw_provider_body_logging()
         check_temp_cleanup_patterns()
+        check_studio_google_oauth_compose_wiring()
     except CheckError as exc:
         print(f"[ci-checks] FAILED: {exc}")
         return 1

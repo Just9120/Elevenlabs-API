@@ -58,6 +58,20 @@ Before deploying `studio-api` with source uploads enabled:
 
 No Alembic migration, database backup, restore, nginx change, queue, worker, provider execution, Google OAuth, Drive picker, or Google Docs creation is required for this config-only rollout.
 
+## Google OAuth runtime config
+
+Google OAuth is configured through the same operator-managed runtime `.env` plus read-only secret-file model as other Studio API secrets. The backend remains fail-closed when the OAuth client id, redirect URI, scopes, state TTL, or non-empty client-secret file are not configured.
+
+Before deploying `studio-api` with Google OAuth enabled:
+
+1. Create an operator-managed `0600` Google OAuth client-secret file readable by the deployment operator only, for example under the runtime secret directory.
+2. Set `STUDIO_GOOGLE_OAUTH_CLIENT_ID`, `STUDIO_GOOGLE_OAUTH_REDIRECT_URI`, `STUDIO_GOOGLE_OAUTH_SCOPES`, and `STUDIO_GOOGLE_OAUTH_STATE_TTL_SECONDS` in production `deploy/studio/.env`.
+3. Set `STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE` in production `deploy/studio/.env` to the host path of the operator-managed client-secret file. Values ending in `_FILE` are paths, not secret contents.
+4. Do not print, `cat`, or otherwise log the runtime `.env` or client-secret file. Do not use `docker compose config` for validation because it can expose resolved secrets.
+5. Roll out manually after the runtime `.env` and secret file are prepared: deploy only `studio-api`, then verify `http://127.0.0.1:8182/api/healthz` and the authenticated OAuth flow. Unauthenticated `GET /api/google/connection` should still return `401`.
+
+If Google OAuth is not being enabled for a rollout, leave `STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE` blank so Compose mounts the committed empty optional placeholder. The OAuth endpoints continue to fail closed until the operator provides complete runtime values and a non-empty client-secret file.
+
 ## Validation evidence to record
 
 Record secret-free evidence for platform health, migration revision, bootstrap status, login/logout/session rotation, CSRF rejection, credential create/list/replace/revoke/delete masking, Redis rate limits, backup snapshot creation, restore rehearsal, and browser acceptance. Do not claim production provider execution, uploads, Google integration, queues, jobs, or transcript output.
