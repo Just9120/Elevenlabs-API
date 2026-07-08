@@ -70,6 +70,16 @@ type GoogleConnection = {
   revoked_at: string | null;
 };
 type GoogleOauthStart = { authorization_url: string; expires_at: string };
+type DriveMetadata = {
+  id: string;
+  name: string | null;
+  mime_type: string | null;
+  size_bytes: number | null;
+  web_view_link: string | null;
+  created_time: string | null;
+  modified_time: string | null;
+  is_folder: boolean;
+};
 const LOCAL_UPLOAD_LIMIT_BYTES = 536870912;
 const emptySourceState = {
   loading: false,
@@ -410,11 +420,37 @@ function SourcesPanel({
   onError: (message: string) => void;
 }) {
   const [uploadState, setUploadState] = useState("");
-  async function addDriveSource(e: FormEvent<HTMLFormElement>) {
+  const [driveFileId, setDriveFileId] = useState("");
+  const [driveMetadata, setDriveMetadata] = useState<DriveMetadata | null>(
+    null,
+  );
+  const [driveVerifyState, setDriveVerifyState] = useState("");
+  const [driveVerifyError, setDriveVerifyError] = useState("");
+  async function verifyDriveMetadata(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    const form = e.currentTarget;
-    const fd = new FormData(form);
-    const rawSize = String(fd.get("size_bytes") ?? "").trim();
+    const cleanId = driveFileId.trim();
+    if (!cleanId) {
+      setDriveVerifyError("Введите Google Drive file/folder ID.");
+      return;
+    }
+    setDriveMetadata(null);
+    setDriveVerifyError("");
+    setDriveVerifyState("Проверяем Drive metadata…");
+    try {
+      const metadata = await api<DriveMetadata>(
+        `/google/drive/files/${encodeURIComponent(cleanId)}/metadata`,
+      );
+      setDriveMetadata(metadata);
+      setDriveVerifyState("Drive metadata проверена.");
+    } catch {
+      setDriveVerifyState("");
+      setDriveVerifyError(
+        "Не удалось проверить Drive metadata. Проверьте подключение Google Drive, доступ к файлу или runtime-настройки и повторите.",
+      );
+    }
+  }
+  async function addVerifiedDriveSource() {
+    if (!driveMetadata) return;
     try {
       await csrfMutate<Source>(
         `/projects/${project.id}/sources/google-drive`,
@@ -423,15 +459,18 @@ function SourcesPanel({
         {
           method: "POST",
           body: JSON.stringify({
-            drive_file_id: fd.get("drive_file_id"),
-            drive_file_url: fd.get("drive_file_url") || null,
-            original_filename: fd.get("original_filename"),
-            mime_type: fd.get("mime_type") || null,
-            size_bytes: rawSize ? Number(rawSize) : null,
+            drive_file_id: driveMetadata.id,
+            drive_file_url: driveMetadata.web_view_link || null,
+            original_filename:
+              driveMetadata.name || `Google Drive source ${driveMetadata.id}`,
+            mime_type: driveMetadata.mime_type || null,
+            size_bytes: driveMetadata.size_bytes ?? null,
           }),
         },
       );
-      form.reset();
+      setDriveFileId("");
+      setDriveMetadata(null);
+      setDriveVerifyState("Google Drive source metadata добавлена.");
       onReload(project.id);
     } catch (err) {
       onError(
@@ -542,30 +581,49 @@ function SourcesPanel({
           </button>
         </article>
       ))}
-      <form className="source-form" onSubmit={addDriveSource}>
+      <form className="source-form" onSubmit={verifyDriveMetadata}>
         <p className="notice">
-          Google Drive source metadata only: файл не проверяется, OAuth/Drive
-          API пока не вызываются.
+          Введите один Google Drive file/folder ID. Браузер вызывает только
+          backend Studio; Google API напрямую из UI не вызывается.
         </p>
-        <input name="drive_file_id" placeholder="Drive file ID" required />
         <input
-          name="drive_file_url"
-          placeholder="Drive file URL (необязательно)"
-        />
-        <input
-          name="original_filename"
-          placeholder="Original filename"
+          value={driveFileId}
+          onChange={(e) => {
+            setDriveFileId(e.target.value);
+            setDriveMetadata(null);
+            setDriveVerifyError("");
+            setDriveVerifyState("");
+          }}
+          placeholder="Drive file/folder ID"
+          aria-label="Drive file/folder ID"
           required
         />
-        <input name="mime_type" placeholder="MIME type (необязательно)" />
-        <input
-          name="size_bytes"
-          type="number"
-          min="0"
-          placeholder="Size bytes (необязательно)"
-        />
-        <button className="primary">Добавить Drive metadata</button>
+        <button className="primary" disabled={!driveFileId.trim()}>
+          Проверить Drive metadata
+        </button>
       </form>
+      {driveVerifyState && <p role="status">{driveVerifyState}</p>}
+      {driveVerifyError && <p className="error">{driveVerifyError}</p>}
+      {driveMetadata && (
+        <article className="source-card" aria-label="Drive metadata preview">
+          <b>{driveMetadata.name || "Google Drive source"}</b>
+          {driveMetadata.is_folder && <span>Папка Google Drive</span>}
+          <span>MIME: {driveMetadata.mime_type || "не указан"}</span>
+          <span>Размер: {formatBytes(driveMetadata.size_bytes)}</span>
+          <span>Создан: {formatTime(driveMetadata.created_time)}</span>
+          <span>Изменён: {formatTime(driveMetadata.modified_time)}</span>
+          {driveMetadata.web_view_link && (
+            <a href={driveMetadata.web_view_link}>Открыть в Google Drive</a>
+          )}
+          <button
+            type="button"
+            className="primary"
+            onClick={addVerifiedDriveSource}
+          >
+            Добавить source из проверенных metadata
+          </button>
+        </article>
+      )}
       <label className="drop compact">
         Загрузить временный локальный audio/video source
         <input
