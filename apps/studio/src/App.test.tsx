@@ -88,6 +88,17 @@ describe("Studio PWA", () => {
               },
             ],
           });
+        if (url.endsWith("/api/google/drive/files/drive-file-2/metadata"))
+          return json({
+            id: "drive-file-2",
+            name: "verified-drive-call.mov",
+            mime_type: "video/quicktime",
+            size_bytes: 1234,
+            web_view_link: "https://drive.example/file/2",
+            created_time: "2026-07-01T00:00:00Z",
+            modified_time: "2026-07-02T00:00:00Z",
+            is_folder: false,
+          });
         if (url.endsWith("/api/projects/p1/sources") && !init?.method)
           return json({
             sources: [
@@ -183,7 +194,8 @@ describe("Studio PWA", () => {
           });
         if (url.endsWith("/api/google/oauth/start") && init?.method === "POST")
           return json({
-            authorization_url: "https://accounts.google.com/o/oauth2/v2/auth?state=secret-state",
+            authorization_url:
+              "https://accounts.google.com/o/oauth2/v2/auth?state=secret-state",
             expires_at: "2026-07-01T00:10:00",
           });
         return json({ ok: true });
@@ -597,7 +609,7 @@ describe("Studio PWA", () => {
       output_drive_folder_name: null,
     });
   });
-  it("loads sources, adds Drive metadata, uploads local file, and deletes with CSRF", async () => {
+  it("loads sources, verifies Drive metadata, adds verified source, uploads local file, and deletes with CSRF", async () => {
     renderApp("platform");
     await userEvent.click(
       await screen.findByRole("button", { name: /Проекты/ }),
@@ -612,23 +624,33 @@ describe("Studio PWA", () => {
       expect.objectContaining({ credentials: "same-origin" }),
     );
     await userEvent.type(
-      screen.getByPlaceholderText("Drive file ID"),
+      screen.getByPlaceholderText("Drive file/folder ID"),
       "drive-file-2",
     );
-    await userEvent.type(
-      screen.getByPlaceholderText("Original filename"),
-      "manual.mov",
-    );
-    await userEvent.type(
-      screen.getByPlaceholderText("MIME type (необязательно)"),
-      "video/quicktime",
-    );
-    await userEvent.type(
-      screen.getByPlaceholderText("Size bytes (необязательно)"),
-      "1234",
-    );
     await userEvent.click(
-      screen.getByRole("button", { name: "Добавить Drive metadata" }),
+      screen.getByRole("button", { name: "Проверить Drive metadata" }),
+    );
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/google/drive/files/drive-file-2/metadata",
+        expect.objectContaining({ credentials: "same-origin" }),
+      ),
+    );
+    const preview = await screen.findByLabelText("Drive metadata preview");
+    expect(
+      within(preview).getByText("verified-drive-call.mov"),
+    ).toBeInTheDocument();
+    expect(
+      within(preview).getByText("MIME: video/quicktime"),
+    ).toBeInTheDocument();
+    expect(within(preview).getByText("Размер: 0.00 MB")).toBeInTheDocument();
+    expect(
+      within(preview).getByRole("link", { name: "Открыть в Google Drive" }),
+    ).toHaveAttribute("href", "https://drive.example/file/2");
+    await userEvent.click(
+      within(preview).getByRole("button", {
+        name: "Добавить source из проверенных metadata",
+      }),
     );
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
@@ -646,7 +668,8 @@ describe("Studio PWA", () => {
     });
     expect(JSON.parse(String(driveCall?.[1]?.body))).toMatchObject({
       drive_file_id: "drive-file-2",
-      original_filename: "manual.mov",
+      drive_file_url: "https://drive.example/file/2",
+      original_filename: "verified-drive-call.mov",
       mime_type: "video/quicktime",
       size_bytes: 1234,
     });
@@ -702,6 +725,66 @@ describe("Studio PWA", () => {
       "x-csrf-token": "csrf-after-refresh",
     });
   });
+  it("shows safe Drive metadata verification errors without rendering token-like backend details", async () => {
+    const rawSecret =
+      "ya29.raw-access-token-never-render raw-google-payload refresh_token";
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (url: string, init?: RequestInit) => {
+        if (url.endsWith("/api/auth/session"))
+          return json({
+            authenticated: true,
+            user: { email: "user@example.com", role: "admin" },
+          });
+        if (url.endsWith("/api/auth/csrf"))
+          return json({ csrf_token: "csrf-after-refresh" });
+        if (url.endsWith("/api/projects"))
+          return json({
+            projects: [
+              {
+                id: "p1",
+                title: "Research calls",
+                description: null,
+                created_at: "2026-07-01T00:00:00",
+                updated_at: "2026-07-01T00:00:00",
+                archived_at: null,
+                output_drive_folder_id: null,
+                output_drive_folder_url: null,
+                output_drive_folder_name: null,
+              },
+            ],
+          });
+        if (url.endsWith("/api/projects/p1/sources") && !init?.method)
+          return json({ sources: [] });
+        if (url.includes("/api/google/drive/files/"))
+          return json({ detail: rawSecret }, false, 409);
+        return json({ credentials: [], events: [] });
+      },
+    );
+    renderApp("platform");
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Проекты/ }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Показать sources" }),
+    );
+    await userEvent.type(
+      screen.getByPlaceholderText("Drive file/folder ID"),
+      "drive-file-with-error",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Проверить Drive metadata" }),
+    );
+    expect(
+      await screen.findByText(/Не удалось проверить Drive metadata/),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/raw-access-token-never-render/),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/raw-google-payload/)).not.toBeInTheDocument();
+    expect(window.localStorage.length).toBe(0);
+    expect(window.sessionStorage.length).toBe(0);
+  });
+
   it("marks login fields with explicit browser autocomplete semantics", async () => {
     (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       (url: string) =>
