@@ -1,7 +1,7 @@
 import json
 from datetime import timedelta
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy import text, func
 from sqlalchemy.orm import Session
 from alembic.config import Config
@@ -40,6 +40,30 @@ class LocalUploadInitiateIn(BaseModel):
     original_filename: str=Field(min_length=1,max_length=255)
     mime_type: str=Field(min_length=1,max_length=255)
     size_bytes: int=Field(ge=1)
+
+class TranscriptionJobCreateIn(BaseModel):
+    source_ids: list[str]=Field(min_length=1, max_length=50)
+    provider_credential_id: str|None=Field(default=None, max_length=36)
+    title: str|None=Field(default=None, max_length=160)
+    language: str|None=Field(default=None, max_length=40)
+    options: dict|None=None
+
+    @field_validator("provider_credential_id", mode="before")
+    @classmethod
+    def normalize_provider_credential_id(cls, value):
+        if value is None:
+            return None
+        if isinstance(value, str):
+            value=value.strip()
+            return value or None
+        return value
+
+    @field_validator("source_ids")
+    @classmethod
+    def unique_source_ids(cls, value):
+        if len(value) != len(set(value)):
+            raise ValueError("Повторяющиеся источники не допускаются")
+        return value
 
 def client_id(request: Request):
     return get_client_ip(request, settings)
@@ -147,6 +171,64 @@ def clean_optional_name(value: str|None) -> str|None:
     value=value.strip()
     return value[:512] or None
 
+def clean_job_title(value: str|None) -> str|None:
+    if value is None: return None
+    value=value.strip()
+    if len(value)>160: raise HTTPException(422, "Название задания слишком длинное")
+    return value or None
+
+def clean_job_language(value: str|None) -> str|None:
+    if value is None: return None
+    value=value.strip().lower()
+    if not value: return None
+    if len(value)>40 or not all(ch.isalnum() or ch in "_-" for ch in value): raise HTTPException(422, "Некорректный язык задания")
+    return value
+
+def safe_job_options(value: dict|None) -> str|None:
+    if value is None: return None
+    encoded=json.dumps(value, ensure_ascii=False, sort_keys=True)
+    if len(encoded)>4000: raise HTTPException(422, "Параметры задания слишком большие")
+    lowered=encoded.lower()
+    forbidden=("secret", "token", "api_key", "apikey", "password", "credential", "authorization", "refresh")
+    if any(word in lowered for word in forbidden): raise HTTPException(422, "Параметры задания содержат недопустимые поля")
+    return encoded
+
+def job_source_payload(js: TranscriptionJobSource):
+    data=source_payload(js.source)
+    data.pop("drive_file_url", None)
+    data["position"]=js.position
+    data["job_source_status"]=js.status.value
+    return data
+
+def job_payload(job: TranscriptionJob, include_sources=False):
+    payload={"id": job.id, "project_id": job.project_id, "status": job.status.value, "title": job.title, "provider": job.provider, "provider_credential_id": job.provider_credential_id, "source_count": len(job.sources), "created_at": job.created_at.isoformat(), "updated_at": job.updated_at.isoformat(), "cancelled_at": job.cancelled_at.isoformat() if job.cancelled_at else None, "started_at": job.started_at.isoformat() if job.started_at else None, "finished_at": job.finished_at.isoformat() if job.finished_at else None, "error_code": job.error_code, "error_message": job.error_message}
+    if include_sources: payload["sources"]=[job_source_payload(s) for s in sorted(job.sources, key=lambda item: item.position)]
+    return payload
+
+def owned_job_or_404(db: Session, user: User, job_id: str) -> TranscriptionJob:
+    job=db.get(TranscriptionJob, job_id)
+    if not job or job.owner_user_id!=user.id: raise HTTPException(404, "Не найдено")
+    return job
+
+def validate_job_sources(db: Session, project_id: str, source_ids: list[str]) -> list[Source]:
+    rows=db.query(Source).filter(Source.id.in_(source_ids), Source.project_id==project_id).all()
+    by_id={r.id:r for r in rows}
+    ordered=[]
+    for sid in source_ids:
+        src=by_id.get(sid)
+        if not src or src.deleted_at is not None:
+            raise HTTPException(422, "Один или несколько источников недоступны для задания")
+        if src.source_type==SourceType.google_drive:
+            usable=bool(src.drive_file_id) and src.upload_status==SourceUploadStatus.uploaded
+        elif src.source_type==SourceType.local_upload:
+            usable=src.upload_status==SourceUploadStatus.uploaded and src.s3_object_key is not None
+        else:
+            usable=False
+        if not usable:
+            raise HTTPException(422, "Один или несколько источников недоступны для задания")
+        ordered.append(src)
+    return ordered
+
 ALLOWED_SOURCE_MIME_PREFIXES=("audio/", "video/")
 ALLOWED_SOURCE_MIME_TYPES={"application/ogg"}
 
@@ -243,6 +325,42 @@ def delete_source(source_id: str, pair=Depends(require_csrf), db: Session=Depend
         db.commit()
     return {"ok": True}
 
+
+
+@app.get("/api/projects/{project_id}/jobs")
+def list_project_jobs(project_id: str, pair=Depends(current_session), db: Session=Depends(get_db)):
+    _,user=pair; p=owned_project_or_404(db,user,project_id)
+    rows=db.query(TranscriptionJob).filter(TranscriptionJob.project_id==p.id, TranscriptionJob.owner_user_id==user.id).order_by(TranscriptionJob.created_at.desc()).all()
+    return {"jobs":[job_payload(r) for r in rows]}
+
+@app.post("/api/projects/{project_id}/jobs")
+def create_transcription_job(project_id: str, data: TranscriptionJobCreateIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("job:create:"+user.id, 60, 3600); p=owned_project_or_404(db,user,project_id)
+    sources=validate_job_sources(db, p.id, data.source_ids)
+    if data.provider_credential_id:
+        cred=db.get(ProviderCredential, data.provider_credential_id)
+        if not cred or cred.user_id!=user.id or cred.status!=CredentialStatus.active: raise HTTPException(422, "Учетные данные провайдера недоступны")
+    job=TranscriptionJob(project_id=p.id, owner_user_id=user.id, status=JobStatus.queued, provider_credential_id=data.provider_credential_id, title=clean_job_title(data.title), language=clean_job_language(data.language), options_json=safe_job_options(data.options))
+    db.add(job); db.flush()
+    for idx, src in enumerate(sources):
+        db.add(TranscriptionJobSource(job_id=job.id, source_id=src.id, position=idx, status=JobSourceStatus.queued))
+    audit(db,"job.created",actor_user_id=user.id,subject_user_id=user.id,project_id=p.id,job_id=job.id,source_count=len(sources))
+    db.commit(); db.refresh(job)
+    return job_payload(job, include_sources=True)
+
+@app.get("/api/jobs/{job_id}")
+def get_transcription_job(job_id: str, pair=Depends(current_session), db: Session=Depends(get_db)):
+    _,user=pair; job=owned_job_or_404(db,user,job_id)
+    return job_payload(job, include_sources=True)
+
+@app.post("/api/jobs/{job_id}/cancel")
+def cancel_transcription_job(job_id: str, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("job:cancel:"+user.id, 120, 3600); job=owned_job_or_404(db,user,job_id)
+    if job.status==JobStatus.queued:
+        now=utcnow(); job.status=JobStatus.cancelled; job.cancelled_at=now; job.updated_at=now
+        audit(db,"job.cancelled",actor_user_id=user.id,subject_user_id=user.id,project_id=job.project_id,job_id=job.id)
+        db.commit(); db.refresh(job)
+    return job_payload(job, include_sources=True)
 
 def google_connection_payload(c: GoogleConnection|None):
     if not c or c.status != GoogleConnectionStatus.active:
