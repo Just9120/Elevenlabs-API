@@ -1,6 +1,6 @@
 import json
 from datetime import timedelta
-from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import text, func
 from sqlalchemy.orm import Session
@@ -313,11 +313,11 @@ def delete_google_connection(pair=Depends(require_csrf), db: Session=Depends(get
     now=utcnow(); conn.status=GoogleConnectionStatus.revoked; conn.refresh_token_ciphertext=None; conn.refresh_token_nonce=None; conn.key_id=None; conn.revoked_at=now; conn.updated_at=now
     audit(db,"google.disconnected",actor_user_id=user.id,subject_user_id=user.id); db.commit(); return google_connection_payload(conn)
 
-@app.get("/api/google/drive/files/{drive_file_id}/metadata")
-def get_google_drive_file_metadata(drive_file_id: str, pair=Depends(current_session), db: Session=Depends(get_db)):
-    _,user=pair; limiter.check("google:drive:metadata:"+user.id, 120, 3600)
-    clean_id=clean_drive_id(drive_file_id, "ID файла Google Drive")
-    if not clean_id: raise HTTPException(422, "Некорректный ID файла Google Drive")
+
+def google_drive_metadata_payload(meta):
+    return {"id": meta.id, "name": meta.name, "mime_type": meta.mime_type, "size_bytes": meta.size_bytes, "web_view_link": meta.web_view_link, "created_time": meta.created_time, "modified_time": meta.modified_time, "is_folder": meta.is_folder}
+
+def refreshed_google_drive_access_token(db: Session, user: User) -> str:
     cfg=google_config_or_503()
     conn=current_google_connection(db, user)
     if not conn:
@@ -326,16 +326,39 @@ def get_google_drive_file_metadata(drive_file_id: str, pair=Depends(current_sess
         raise HTTPException(409, "Google Drive connection is not active")
     if not conn.refresh_token_ciphertext or not conn.refresh_token_nonce or not conn.key_id:
         raise HTTPException(409, "Google Drive connection is not active")
+    refresh_token=decrypt(conn.refresh_token_ciphertext, conn.refresh_token_nonce, key(), google_token_aad(user.id, conn.id))
+    from .google_drive import refresh_access_token
+    return refresh_access_token(cfg, refresh_token)
+
+@app.get("/api/google/drive/files/{drive_file_id}/metadata")
+def get_google_drive_file_metadata(drive_file_id: str, pair=Depends(current_session), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("google:drive:metadata:"+user.id, 120, 3600)
+    clean_id=clean_drive_id(drive_file_id, "ID файла Google Drive")
+    if not clean_id: raise HTTPException(422, "Некорректный ID файла Google Drive")
     try:
-        refresh_token=decrypt(conn.refresh_token_ciphertext, conn.refresh_token_nonce, key(), google_token_aad(user.id, conn.id))
-        from .google_drive import fetch_drive_file_metadata, refresh_access_token
-        access_token=refresh_access_token(cfg, refresh_token)
+        from .google_drive import fetch_drive_file_metadata
+        access_token=refreshed_google_drive_access_token(db, user)
         meta=fetch_drive_file_metadata(access_token, clean_id)
     except HTTPException:
         raise
     except Exception:
         raise HTTPException(502, "Google Drive metadata is unavailable")
-    return {"id": meta.id, "name": meta.name, "mime_type": meta.mime_type, "size_bytes": meta.size_bytes, "web_view_link": meta.web_view_link, "created_time": meta.created_time, "modified_time": meta.modified_time, "is_folder": meta.is_folder}
+    return google_drive_metadata_payload(meta)
+
+@app.get("/api/google/drive/folders/{folder_id}/children")
+def get_google_drive_folder_children(folder_id: str, page_size: int=Query(50, ge=1, le=100), page_token: str|None=Query(None, min_length=1, max_length=512), pair=Depends(current_session), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("google:drive:folder-children:"+user.id, 120, 3600)
+    clean_id=clean_drive_id(folder_id, "ID папки Google Drive")
+    if not clean_id: raise HTTPException(422, "Некорректный ID папки Google Drive")
+    try:
+        from .google_drive import list_drive_folder_children
+        access_token=refreshed_google_drive_access_token(db, user)
+        children=list_drive_folder_children(access_token, clean_id, page_size=page_size, page_token=page_token)
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(502, "Google Drive folder children are unavailable")
+    return {"folder_id": children.folder_id, "items": [google_drive_metadata_payload(item) for item in children.items], "next_page_token": children.next_page_token}
 
 @app.get("/api/credentials")
 def list_credentials(pair=Depends(current_session), db: Session=Depends(get_db)):
