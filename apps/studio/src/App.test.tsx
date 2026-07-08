@@ -53,6 +53,9 @@ describe("Studio PWA", () => {
             created_at: "2026-07-01T00:00:00",
             updated_at: "2026-07-01T00:00:00",
             archived_at: null,
+            output_drive_folder_id: null,
+            output_drive_folder_url: null,
+            output_drive_folder_name: null,
           });
         if (url.includes("/api/projects/") && init?.method === "PATCH")
           return json({
@@ -62,6 +65,9 @@ describe("Studio PWA", () => {
             created_at: "2026-07-01T00:00:00",
             updated_at: "2026-07-01T00:00:00",
             archived_at: null,
+            output_drive_folder_id: null,
+            output_drive_folder_url: null,
+            output_drive_folder_name: null,
           });
         if (url.endsWith("/archive") && init?.method === "POST")
           return json({ ok: true });
@@ -75,9 +81,62 @@ describe("Studio PWA", () => {
                 created_at: "2026-07-01T00:00:00",
                 updated_at: "2026-07-01T00:00:00",
                 archived_at: null,
+                output_drive_folder_id: "folder-123",
+                output_drive_folder_url:
+                  "https://drive.example/folders/folder-123",
+                output_drive_folder_name: "Transcripts",
               },
             ],
           });
+        if (url.endsWith("/api/projects/p1/sources") && !init?.method)
+          return json({
+            sources: [
+              {
+                id: "s1",
+                project_id: "p1",
+                source_type: "google_drive",
+                original_filename: "drive-call.mp4",
+                mime_type: "video/mp4",
+                size_bytes: 2048,
+                drive_file_id: "drive-file-1",
+                drive_file_url: "https://drive.example/file/1",
+                upload_status: "uploaded",
+                uploaded_at: "2026-07-01T00:01:00",
+                expires_at: null,
+                deleted_at: null,
+                delete_reason: null,
+                created_at: "2026-07-01T00:00:00",
+                updated_at: "2026-07-01T00:00:00",
+              },
+            ],
+          });
+        if (
+          url.endsWith("/api/projects/p1/sources/google-drive") &&
+          init?.method === "POST"
+        )
+          return json({ id: "s2" });
+        if (
+          url.endsWith("/api/projects/p1/sources/local-upload/initiate") &&
+          init?.method === "POST"
+        )
+          return json({
+            source_id: "local-source-1",
+            upload: {
+              method: "PUT",
+              url: "https://upload.example/presigned",
+              headers: { "Content-Type": "audio/ogg" },
+              expires_in: 3600,
+            },
+          });
+        if (url === "https://upload.example/presigned")
+          return json({}, true, 200);
+        if (
+          url.endsWith("/api/sources/local-source-1/local-upload/complete") &&
+          init?.method === "POST"
+        )
+          return json({ id: "local-source-1" });
+        if (url.endsWith("/api/sources/s1") && init?.method === "DELETE")
+          return json({ ok: true });
         if (url.endsWith("/api/credentials") && init?.method === "POST")
           return json({ id: "c1" });
         if (url.endsWith("/replace")) return json({ ok: true });
@@ -315,6 +374,163 @@ describe("Studio PWA", () => {
     );
   });
 
+  it("renders and updates output Drive folder metadata with CSRF", async () => {
+    renderApp("platform");
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Проекты/ }),
+    );
+    expect(await screen.findByText(/Transcripts/)).toBeInTheDocument();
+    expect(screen.getByText(/folder-123/)).toBeInTheDocument();
+    const folderId = screen.getByPlaceholderText("Output Drive folder ID");
+    await userEvent.clear(folderId);
+    await userEvent.type(folderId, "folder-456");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Сохранить output folder" }),
+    );
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/projects/p1",
+        expect.objectContaining({ method: "PATCH" }),
+      ),
+    );
+    const patchCalls = (
+      fetch as unknown as ReturnType<typeof vi.fn>
+    ).mock.calls.filter(
+      ([url, init]) => url === "/api/projects/p1" && init?.method === "PATCH",
+    );
+    expect(patchCalls.at(-1)?.[1]?.headers).toMatchObject({
+      "x-csrf-token": "csrf-after-refresh",
+    });
+    expect(JSON.parse(String(patchCalls.at(-1)?.[1]?.body))).toMatchObject({
+      output_drive_folder_id: "folder-456",
+    });
+    await userEvent.click(
+      screen.getByRole("button", { name: "Очистить output folder" }),
+    );
+    await waitFor(() =>
+      expect(
+        (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(
+          ([url, init]) =>
+            url === "/api/projects/p1" && init?.method === "PATCH",
+        ).length,
+      ).toBeGreaterThan(1),
+    );
+    const clearCall = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls
+      .filter(
+        ([url, init]) => url === "/api/projects/p1" && init?.method === "PATCH",
+      )
+      .at(-1);
+    expect(JSON.parse(String(clearCall?.[1]?.body))).toMatchObject({
+      output_drive_folder_id: null,
+      output_drive_folder_url: null,
+      output_drive_folder_name: null,
+    });
+  });
+  it("loads sources, adds Drive metadata, uploads local file, and deletes with CSRF", async () => {
+    renderApp("platform");
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Проекты/ }),
+    );
+    await screen.findByText("Research calls");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Показать sources" }),
+    );
+    expect(await screen.findByText("drive-call.mp4")).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/projects/p1/sources",
+      expect.objectContaining({ credentials: "same-origin" }),
+    );
+    await userEvent.type(
+      screen.getByPlaceholderText("Drive file ID"),
+      "drive-file-2",
+    );
+    await userEvent.type(
+      screen.getByPlaceholderText("Original filename"),
+      "manual.mov",
+    );
+    await userEvent.type(
+      screen.getByPlaceholderText("MIME type (необязательно)"),
+      "video/quicktime",
+    );
+    await userEvent.type(
+      screen.getByPlaceholderText("Size bytes (необязательно)"),
+      "1234",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Добавить Drive metadata" }),
+    );
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/projects/p1/sources/google-drive",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+    const driveCall = (
+      fetch as unknown as ReturnType<typeof vi.fn>
+    ).mock.calls.find(
+      ([url]) => url === "/api/projects/p1/sources/google-drive",
+    );
+    expect(driveCall?.[1]?.headers).toMatchObject({
+      "x-csrf-token": "csrf-after-refresh",
+    });
+    expect(JSON.parse(String(driveCall?.[1]?.body))).toMatchObject({
+      drive_file_id: "drive-file-2",
+      original_filename: "manual.mov",
+      mime_type: "video/quicktime",
+      size_bytes: 1234,
+    });
+    const file = new File(["abc"], "clip.ogg", { type: "audio/ogg" });
+    await userEvent.upload(
+      screen.getByLabelText(/Загрузить временный локальный/),
+      file,
+    );
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/sources/local-source-1/local-upload/complete",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+    const initCall = (
+      fetch as unknown as ReturnType<typeof vi.fn>
+    ).mock.calls.find(
+      ([url]) => url === "/api/projects/p1/sources/local-upload/initiate",
+    );
+    expect(initCall?.[1]?.headers).toMatchObject({
+      "x-csrf-token": "csrf-after-refresh",
+    });
+    expect(JSON.parse(String(initCall?.[1]?.body))).toMatchObject({
+      original_filename: "clip.ogg",
+      mime_type: "audio/ogg",
+      size_bytes: 3,
+    });
+    const putCall = (
+      fetch as unknown as ReturnType<typeof vi.fn>
+    ).mock.calls.find(([url]) => url === "https://upload.example/presigned");
+    expect(putCall?.[1]).toMatchObject({
+      method: "PUT",
+      headers: { "Content-Type": "audio/ogg" },
+      body: file,
+    });
+    expect(putCall?.[1]).not.toHaveProperty("credentials");
+    expect(
+      screen.queryByText("https://upload.example/presigned"),
+    ).not.toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Удалить source" }),
+    );
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/sources/s1",
+        expect.objectContaining({ method: "DELETE" }),
+      ),
+    );
+    const deleteCall = (
+      fetch as unknown as ReturnType<typeof vi.fn>
+    ).mock.calls.find(([url]) => url === "/api/sources/s1");
+    expect(deleteCall?.[1]?.headers).toMatchObject({
+      "x-csrf-token": "csrf-after-refresh",
+    });
+  });
   it("marks login fields with explicit browser autocomplete semantics", async () => {
     (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       (url: string) =>

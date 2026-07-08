@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import {
   Briefcase,
   ClipboardList,
@@ -28,10 +28,60 @@ type Project = {
   id: string;
   title: string;
   description: string | null;
+  output_drive_folder_id: string | null;
+  output_drive_folder_url: string | null;
+  output_drive_folder_name: string | null;
   created_at: string;
   updated_at: string;
   archived_at: string | null;
 };
+type Source = {
+  id: string;
+  project_id: string;
+  source_type: "local_upload" | "google_drive";
+  original_filename: string;
+  mime_type: string | null;
+  size_bytes: number | null;
+  drive_file_id: string | null;
+  drive_file_url: string | null;
+  upload_status: "pending" | "uploaded" | "deleted" | "expired" | "failed";
+  uploaded_at: string | null;
+  expires_at: string | null;
+  deleted_at: string | null;
+  delete_reason: string | null;
+  created_at: string;
+  updated_at: string;
+};
+type UploadInit = {
+  source_id: string;
+  upload: {
+    method: "PUT";
+    url: string;
+    headers: Record<string, string>;
+    expires_in: number;
+  };
+};
+const LOCAL_UPLOAD_LIMIT_BYTES = 536870912;
+const emptySourceState = {
+  loading: false,
+  error: "",
+  loaded: false,
+  items: [] as Source[],
+};
+function formatBytes(value: number | null) {
+  if (value == null) return "не указан";
+  return `${(value / 1024 / 1024).toFixed(2)} MB`;
+}
+function formatTime(value: string | null) {
+  return value ? new Date(value).toLocaleString("ru-RU") : "—";
+}
+function isSupportedMediaFile(file: File) {
+  return (
+    file.type.startsWith("audio/") ||
+    file.type.startsWith("video/") ||
+    file.type === "application/ogg"
+  );
+}
 const nav: { id: Page; label: string; icon: typeof Home }[] = [
   { id: "dashboard", label: "Панель", icon: Home },
   { id: "projects", label: "Проекты", icon: Briefcase },
@@ -330,6 +380,195 @@ async function csrfMutate<T>(
     });
   }
 }
+function SourcesPanel({
+  project,
+  csrf,
+  onCsrf,
+  sources,
+  onReload,
+  onError,
+}: {
+  project: Project;
+  csrf: string;
+  onCsrf: (csrf: string) => void;
+  sources: {
+    loading: boolean;
+    error: string;
+    loaded: boolean;
+    items: Source[];
+  };
+  onReload: (projectId: string) => void;
+  onError: (message: string) => void;
+}) {
+  const [uploadState, setUploadState] = useState("");
+  async function addDriveSource(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const fd = new FormData(form);
+    const rawSize = String(fd.get("size_bytes") ?? "").trim();
+    try {
+      await csrfMutate<Source>(
+        `/projects/${project.id}/sources/google-drive`,
+        csrf,
+        onCsrf,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            drive_file_id: fd.get("drive_file_id"),
+            drive_file_url: fd.get("drive_file_url") || null,
+            original_filename: fd.get("original_filename"),
+            mime_type: fd.get("mime_type") || null,
+            size_bytes: rawSize ? Number(rawSize) : null,
+          }),
+        },
+      );
+      form.reset();
+      onReload(project.id);
+    } catch (err) {
+      onError(
+        err instanceof Error
+          ? err.message
+          : "Не удалось добавить Google Drive source metadata.",
+      );
+    }
+  }
+  async function uploadLocal(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0] ?? null;
+    e.target.value = "";
+    if (!file) return onError("Выберите audio/video файл для загрузки.");
+    if (!isSupportedMediaFile(file))
+      return onError("Поддерживаются только audio/video файлы или OGG.");
+    if (file.size <= 0)
+      return onError("Файл пустой. Выберите другой source файл.");
+    if (file.size > LOCAL_UPLOAD_LIMIT_BYTES)
+      return onError(
+        "Файл больше 512 MB. Выберите меньший временный source файл.",
+      );
+    try {
+      setUploadState("Подготовка upload…");
+      const initiated = await csrfMutate<UploadInit>(
+        `/projects/${project.id}/sources/local-upload/initiate`,
+        csrf,
+        onCsrf,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            original_filename: file.name,
+            mime_type: file.type || "application/octet-stream",
+            size_bytes: file.size,
+          }),
+        },
+      );
+      setUploadState("Загрузка во временное хранилище…");
+      const put = await fetch(initiated.upload.url, {
+        method: initiated.upload.method,
+        headers: initiated.upload.headers,
+        body: file,
+      });
+      if (!put.ok)
+        throw new Error(
+          "Не удалось загрузить файл во временное хранилище. Проверьте CORS/bucket policy и повторите.",
+        );
+      setUploadState("Подтверждение upload…");
+      await csrfMutate<Source>(
+        `/sources/${initiated.source_id}/local-upload/complete`,
+        csrf,
+        onCsrf,
+        { method: "POST" },
+      );
+      setUploadState("Файл загружен и готов как временный source.");
+      onReload(project.id);
+    } catch (err) {
+      setUploadState("Ошибка upload.");
+      onError(
+        err instanceof Error
+          ? err.message
+          : "Не удалось загрузить локальный source файл.",
+      );
+    }
+  }
+  async function deleteSource(id: string) {
+    try {
+      await csrfMutate<{ ok: boolean }>(`/sources/${id}`, csrf, onCsrf, {
+        method: "DELETE",
+      });
+      onReload(project.id);
+    } catch (err) {
+      onError(
+        err instanceof Error ? err.message : "Не удалось удалить source.",
+      );
+    }
+  }
+  return (
+    <section className="sources" aria-label={`Sources ${project.title}`}>
+      <h4>Sources проекта</h4>
+      {sources.loading && <p role="status">Загрузка sources…</p>}
+      {sources.error && <p className="error">{sources.error}</p>}
+      {sources.loaded && !sources.loading && sources.items.length === 0 && (
+        <p className="notice">Source records пока не добавлены.</p>
+      )}
+      {sources.items.map((source) => (
+        <article className="source-card" key={source.id}>
+          <b>{source.original_filename}</b>
+          <span>
+            {source.source_type === "google_drive"
+              ? "Google Drive metadata"
+              : "Local temporary upload"}
+          </span>
+          <span>Статус: {source.upload_status}</span>
+          <span>Размер: {formatBytes(source.size_bytes)}</span>
+          <span>MIME: {source.mime_type || "не указан"}</span>
+          <span>Uploaded: {formatTime(source.uploaded_at)}</span>
+          <span>Expires: {formatTime(source.expires_at)}</span>
+          <span>Deleted: {formatTime(source.deleted_at)}</span>
+          {source.delete_reason && <span>Reason: {source.delete_reason}</span>}
+          {source.drive_file_id && (
+            <span>Drive file ID: {source.drive_file_id}</span>
+          )}
+          {source.drive_file_url && (
+            <a href={source.drive_file_url}>Drive file URL</a>
+          )}
+          <button type="button" onClick={() => deleteSource(source.id)}>
+            Удалить source
+          </button>
+        </article>
+      ))}
+      <form className="source-form" onSubmit={addDriveSource}>
+        <p className="notice">
+          Google Drive source metadata only: файл не проверяется, OAuth/Drive
+          API пока не вызываются.
+        </p>
+        <input name="drive_file_id" placeholder="Drive file ID" required />
+        <input
+          name="drive_file_url"
+          placeholder="Drive file URL (необязательно)"
+        />
+        <input
+          name="original_filename"
+          placeholder="Original filename"
+          required
+        />
+        <input name="mime_type" placeholder="MIME type (необязательно)" />
+        <input
+          name="size_bytes"
+          type="number"
+          min="0"
+          placeholder="Size bytes (необязательно)"
+        />
+        <button className="primary">Добавить Drive metadata</button>
+      </form>
+      <label className="drop compact">
+        Загрузить временный локальный audio/video source
+        <input
+          type="file"
+          accept="audio/*,video/*,.ogg,.oga,application/ogg"
+          onChange={uploadLocal}
+        />
+      </label>
+      {uploadState && <p role="status">{uploadState}</p>}
+    </section>
+  );
+}
 function ProjectsPage({
   csrf,
   onCsrf,
@@ -338,6 +577,10 @@ function ProjectsPage({
   onCsrf: (csrf: string) => void;
 }) {
   const [projects, setProjects] = useState<Project[]>([]);
+  const [sources, setSources] = useState<
+    Record<string, typeof emptySourceState>
+  >({});
+  const [expanded, setExpanded] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
@@ -354,6 +597,47 @@ function ProjectsPage({
       .finally(() => setLoading(false));
   };
   useEffect(load, []);
+  const loadSources = (projectId: string) => {
+    setSources((v) => ({
+      ...v,
+      [projectId]: {
+        ...(v[projectId] ?? emptySourceState),
+        loading: true,
+        error: "",
+      },
+    }));
+    api<{ sources: Source[] }>(`/projects/${projectId}/sources`)
+      .then((r) =>
+        setSources((v) => ({
+          ...v,
+          [projectId]: {
+            loading: false,
+            error: "",
+            loaded: true,
+            items: r.sources,
+          },
+        })),
+      )
+      .catch((err) =>
+        setSources((v) => ({
+          ...v,
+          [projectId]: {
+            loading: false,
+            error:
+              err instanceof Error
+                ? err.message
+                : "Не удалось загрузить sources.",
+            loaded: true,
+            items: [],
+          },
+        })),
+      );
+  };
+  const expand = (id: string) => {
+    const next = expanded === id ? null : id;
+    setExpanded(next);
+    if (next && !sources[id]?.loaded) loadSources(id);
+  };
   async function save(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError("");
@@ -395,6 +679,41 @@ function ProjectsPage({
       );
     }
   }
+  async function patchFolder(
+    id: string,
+    body: Record<string, FormDataEntryValue | null>,
+  ) {
+    setError("");
+    try {
+      await csrfMutate<Project>(`/projects/${id}`, csrf, onCsrf, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      });
+      load();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Не удалось сохранить Drive folder metadata.",
+      );
+    }
+  }
+  async function saveFolder(e: FormEvent<HTMLFormElement>, id: string) {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    await patchFolder(id, {
+      output_drive_folder_id: fd.get("output_drive_folder_id"),
+      output_drive_folder_url: fd.get("output_drive_folder_url") || null,
+      output_drive_folder_name: fd.get("output_drive_folder_name") || null,
+    });
+  }
+  async function clearFolder(id: string) {
+    await patchFolder(id, {
+      output_drive_folder_id: null,
+      output_drive_folder_url: null,
+      output_drive_folder_name: null,
+    });
+  }
   async function archive(id: string) {
     setError("");
     try {
@@ -416,8 +735,9 @@ function ProjectsPage({
       <p className="eyebrow">Platform API</p>
       <h2>Проекты</h2>
       <p className="notice">
-        Проекты загружаются из same-origin `/api/projects`. Загрузки, задания,
-        provider calls, Google и sharing ещё не подключены.
+        Проекты и sources загружаются из same-origin API. Provider
+        transcription, Google OAuth/Drive picker, Google Docs и очереди ещё не
+        подключены.
       </p>
       <form className="inline project-form" onSubmit={save}>
         <input
@@ -441,9 +761,9 @@ function ProjectsPage({
           пространство.
         </p>
       )}
-      <div className="grid">
+      <div className="grid project-grid">
         {projects.map((p) => (
-          <article className="card" key={p.id}>
+          <article className="card project-card" key={p.id}>
             <span className="tag">Активный проект</span>
             {editing === p.id ? (
               <form className="project-edit" onSubmit={(e) => update(e, p.id)}>
@@ -471,8 +791,60 @@ function ProjectsPage({
                 <p className="muted">
                   Обновлено: {new Date(p.updated_at).toLocaleString("ru-RU")}
                 </p>
+                <div className="folder-status">
+                  <b>Output Google Drive folder</b>
+                  {p.output_drive_folder_id ? (
+                    <p>
+                      Настроена: {p.output_drive_folder_name || "без имени"} ·
+                      ID {p.output_drive_folder_id}{" "}
+                      {p.output_drive_folder_url && (
+                        <a href={p.output_drive_folder_url}>Folder URL</a>
+                      )}
+                    </p>
+                  ) : (
+                    <p>Папка результата не настроена.</p>
+                  )}
+                </div>
+                <form
+                  className="source-form"
+                  onSubmit={(e) => saveFolder(e, p.id)}
+                >
+                  <input
+                    name="output_drive_folder_id"
+                    defaultValue={p.output_drive_folder_id ?? ""}
+                    placeholder="Output Drive folder ID"
+                    required
+                  />
+                  <input
+                    name="output_drive_folder_url"
+                    defaultValue={p.output_drive_folder_url ?? ""}
+                    placeholder="Folder URL (необязательно)"
+                  />
+                  <input
+                    name="output_drive_folder_name"
+                    defaultValue={p.output_drive_folder_name ?? ""}
+                    placeholder="Folder display name (необязательно)"
+                  />
+                  <button className="primary">Сохранить output folder</button>
+                  <button type="button" onClick={() => clearFolder(p.id)}>
+                    Очистить output folder
+                  </button>
+                </form>
                 <button onClick={() => setEditing(p.id)}>Редактировать</button>
                 <button onClick={() => archive(p.id)}>Архивировать</button>
+                <button onClick={() => expand(p.id)}>
+                  {expanded === p.id ? "Скрыть sources" : "Показать sources"}
+                </button>
+                {expanded === p.id && (
+                  <SourcesPanel
+                    project={p}
+                    csrf={csrf}
+                    onCsrf={onCsrf}
+                    sources={sources[p.id] ?? emptySourceState}
+                    onReload={loadSources}
+                    onError={setError}
+                  />
+                )}
               </>
             )}
           </article>
