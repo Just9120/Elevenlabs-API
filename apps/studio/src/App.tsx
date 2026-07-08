@@ -61,6 +61,15 @@ type UploadInit = {
     expires_in: number;
   };
 };
+type GoogleConnection = {
+  connected: boolean;
+  status: string | null;
+  google_email: string | null;
+  scopes: string | null;
+  connected_at: string | null;
+  revoked_at: string | null;
+};
+type GoogleOauthStart = { authorization_url: string; expires_at: string };
 const LOCAL_UPLOAD_LIMIT_BYTES = 536870912;
 const emptySourceState = {
   loading: false,
@@ -866,12 +875,28 @@ function SettingsPage({
 }) {
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [events, setEvents] = useState<Audit[]>([]);
+  const [googleConnection, setGoogleConnection] =
+    useState<GoogleConnection | null>(null);
+  const [googleLoading, setGoogleLoading] = useState(true);
+  const [googleMessage, setGoogleMessage] = useState("");
   const [error, setError] = useState("");
+  const loadGoogleConnection = () => {
+    setGoogleLoading(true);
+    setGoogleMessage("");
+    api<GoogleConnection>("/google/connection")
+      .then((r) => setGoogleConnection(r))
+      .catch(() => {
+        setGoogleConnection(null);
+        setGoogleMessage("Google Drive connection сейчас недоступен.");
+      })
+      .finally(() => setGoogleLoading(false));
+  };
   const load = () => {
     api<{ credentials: Credential[] }>("/credentials").then((r) =>
       setCredentials(r.credentials),
     );
     api<{ events: Audit[] }>("/audit-events").then((r) => setEvents(r.events));
+    loadGoogleConnection();
   };
   useEffect(load, []);
   const safeMutate = <T,>(path: string, options: RequestInit) =>
@@ -926,6 +951,31 @@ function SettingsPage({
       setError(err instanceof Error ? err.message : "Ошибка");
     }
   };
+  const connectGoogle = async () => {
+    setGoogleMessage("");
+    try {
+      const r = await safeMutate<GoogleOauthStart>("/google/oauth/start", {
+        method: "POST",
+      });
+      window.location.assign(r.authorization_url);
+    } catch {
+      setGoogleMessage("Google OAuth ещё не настроен оператором.");
+    }
+  };
+  const disconnectGoogle = async () => {
+    setGoogleMessage("");
+    try {
+      const r = await safeMutate<GoogleConnection>("/google/connection", {
+        method: "DELETE",
+      });
+      setGoogleConnection(r);
+    } catch {
+      setGoogleMessage("Не удалось отключить Google Drive. Попробуйте позже.");
+    }
+  };
+  const googleCanDisconnect = Boolean(
+    googleConnection?.connected || googleConnection?.status === "revoked",
+  );
   return (
     <section className="card wide">
       <h2>Настройки аккаунта</h2>
@@ -1007,6 +1057,52 @@ function SettingsPage({
           </article>
         ))}
       </div>
+      <h3>Google Drive connection</h3>
+      <p className="notice">
+        Подключение только подтверждает доступ Google Drive. Picker, просмотр
+        файлов, Google Docs output и задачи транскрибации ещё не включены.
+      </p>
+      <article className="card">
+        <span className="tag">Google Drive</span>
+        {googleLoading ? (
+          <p>Проверяем статус подключения…</p>
+        ) : googleConnection?.connected ? (
+          <>
+            <h3>Drive подключён</h3>
+            <dl className="meta">
+              <dt>Email Google</dt>
+              <dd>{googleConnection.google_email ?? "—"}</dd>
+              <dt>Status</dt>
+              <dd>{googleConnection.status ?? "—"}</dd>
+              <dt>Scopes</dt>
+              <dd>{googleConnection.scopes ?? "—"}</dd>
+              <dt>Connected</dt>
+              <dd>{formatTime(googleConnection.connected_at)}</dd>
+              <dt>Revoked</dt>
+              <dd>{formatTime(googleConnection.revoked_at)}</dd>
+            </dl>
+          </>
+        ) : googleConnection ? (
+          <>
+            <h3>Drive не подключён</h3>
+            <p>
+              Status: {googleConnection.status ?? "disconnected"}
+              {googleConnection.revoked_at
+                ? ` · revoked ${formatTime(googleConnection.revoked_at)}`
+                : ""}
+            </p>
+            <button className="primary" onClick={connectGoogle}>
+              Подключить Google Drive
+            </button>
+          </>
+        ) : (
+          <p>Google Drive connection недоступен.</p>
+        )}
+        {googleCanDisconnect && (
+          <button onClick={disconnectGoogle}>Отключить Google Drive</button>
+        )}
+        {googleMessage && <p className="error">{googleMessage}</p>}
+      </article>
       <h3>События безопасности</h3>
       <ul>
         {events.map((e) => (
