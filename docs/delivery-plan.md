@@ -20,7 +20,8 @@
 - ✅ **PWA-SOURCES-02 — Studio project source UI** — implemented on main: platform-mode UI binds output Drive folder metadata, lists/deletes source records, adds Google Drive source metadata, and uses direct browser PUT local-upload flow.
 - ✅ **PWA-GOOGLE-01A — Studio Google Drive OAuth backend foundation** — backend-only explicit-consent Google Drive connection foundation is merged and manually rolled out. No frontend UI, Drive picker, Drive file listing/access, Google Docs output, provider execution, transcription jobs, queues/workers, or manifest mutation.
 - ✅ **PWA-GOOGLE-01B — Studio Google OAuth runtime config** — merged/source-done Compose runtime wiring for Google OAuth env and file-mounted client-secret configuration; production rollout/live enablement is not claimed without operator evidence.
-- 👉 **PWA-GOOGLE-02 — Studio Google Drive connection UI** — current frontend/docs item adding platform settings status/start/disconnect UI for the existing backend OAuth foundation.
+- ✅ **PWA-GOOGLE-02 — Studio Google Drive connection UI** — source-done/merged on main: platform settings status/start/disconnect UI for the existing backend OAuth foundation.
+- 👉 **PWA-GOOGLE-03A — Studio Google Drive metadata backend foundation** — active backend-only item adding authenticated safe metadata lookup for one explicitly supplied Drive file/folder ID through the user's active Google OAuth connection.
 - 📋 **RUNTIME-01 — Batch source picker / manifest skip / Google Docs output smoke-check** — deferred by current product priority; still planned manual Colab/Drive/Docs validation without claiming pass/fail.
 - 📋 **LIVE-COLAB-PROXY-01 remaining validation** — separate unfinished manual realtime validation gaps after RT-TOKEN-01.
 - 📋 **SPEAKER-RUNTIME-01 — Speaker projects workflow on copied diarized Google Doc** — planned manual validation.
@@ -30,13 +31,13 @@
 
 Batch Colab remains the stable/fallback product workflow and the only current production path for provider transcription, Google Drive/Docs output, and `manifest` mutation. Docs-only maintenance workflows remain separate and must not call provider/STT/LLM APIs. Realtime Colab/proxy remains an experimental contour for browser capture + ElevenLabs realtime STT and must not save Google Docs, mutate `manifest`, or integrate speaker projects.
 
-`apps/studio/` static mode remains demo-only and does not call `/api`. Platform mode now has Projects/source UI for the already-live projects and sources backends: project list/create/edit/archive, selected output Drive folder metadata, source listing/deletion, manual Google Drive source metadata, and temporary local-upload intake. The current frontend follow-up is Google Drive connection status/start/disconnect UI on account settings using safe backend metadata only. Jobs, providers, Drive picker, Drive file listing/access, Google Docs output, processing, queues/workers, output persistence, sharing, production deployment, and manifest mutation remain deferred. PWA-GOOGLE-01B is source-done/merged for runtime config wiring, but production rollout/live enablement is not claimed without operator evidence.
+`apps/studio/` static mode remains demo-only and does not call `/api`. Platform mode now has Projects/source UI for the already-live projects and sources backends: project list/create/edit/archive, selected output Drive folder metadata, source listing/deletion, manual Google Drive source metadata, temporary local-upload intake, and Google Drive connection status/start/disconnect UI on account settings using safe backend metadata only. The current backend follow-up is safe metadata lookup for one explicitly supplied Drive file/folder ID. Jobs, providers, Drive picker, Drive listing/browsing UI, Google Docs output, processing, queues/workers, output persistence, sharing, production deployment, and manifest mutation remain deferred. PWA-GOOGLE-01B is source-done/merged for runtime config wiring, but production rollout/live enablement is not claimed without operator evidence.
 
 Current confirmed realtime evidence is partial: one display+microphone run confirmed standalone page boot, capture, WebSocket open, `session_started`, partial transcript, committed transcript, user Stop, media-track release and WebSocket close. After RT-TOKEN-01, the standalone page also manually confirmed sequential Start → Stop → Start without page reload: both sessions reached WebSocket open and `session_started`, both stopped cleanly, and the final close was user-initiated with code 1000. Full realtime E2E success is not claimed.
 
 ## Active recommended next item
 
-The active Studio frontend/docs item is PWA-GOOGLE-02: add account-settings Google Drive connection status/start/disconnect UI against the existing backend OAuth endpoints. The UI must show only safe metadata, use CSRF mutation for start/disconnect, and handle fail-closed missing runtime config with operator-safe copy. No Drive picker, Drive source browsing, Google Docs creation, provider execution, jobs/queues/workers, migration, production deploy, manifest mutation, or backend OAuth behavior change is included.
+The active Studio backend item is PWA-GOOGLE-03A: add an authenticated API foundation that fetches safe normalized metadata for one explicitly supplied Google Drive file/folder ID using the current user's active Google OAuth connection. It refreshes an access token only in backend memory from the encrypted stored refresh token, does not persist access tokens, and returns only safe file metadata. Explicit non-goals: no Drive picker, no Drive listing/browsing UI, no Google Docs creation, no provider execution, no jobs/queues/workers, no migration, no production deployment, and no manifest mutation.
 
 ### PWA-PLATFORM-01-PREP — Studio platform implementation contract
 
@@ -80,9 +81,13 @@ RUNTIME-01 is deferred by current product priority, not passed or failed. It rem
 
 ## Near backlog
 
+### PWA-GOOGLE-03A — Studio Google Drive metadata backend foundation
+
+Active backend-only item: authenticated Studio users can request safe metadata for one explicitly supplied Google Drive file/folder ID via the current user's active Google OAuth connection. The endpoint must not expose refresh tokens, access tokens, raw Google payloads, client secrets, secret file paths, owners, permissions, labels, thumbnails, or sharing details. It has no Drive picker, no Drive listing/browsing UI, no Google Docs creation, no provider execution, no jobs/queues/workers, no migration, no production deployment, and no manifest mutation.
+
 ### PWA-GOOGLE-02 — Studio Google Drive connection UI
 
-Active frontend/docs item: platform-mode account settings can show Google Drive connection loading/connected/disconnected/revoked/unavailable states, start OAuth via `POST /api/google/oauth/start` with CSRF and immediate browser navigation, and disconnect via `DELETE /api/google/connection` with CSRF. The UI may render only safe connection metadata (`connected`, `status`, Google email, scopes, connected/revoked timestamps) and must not store OAuth URLs, states, codes, tokens, provider credentials, or secrets in browser storage. This item has no Drive picker, Drive source browsing, Google Docs creation, provider execution, jobs/queues/workers, migration, production deploy, manifest mutation, or backend OAuth behavior change.
+Source-done/merged: platform-mode account settings can show Google Drive connection loading/connected/disconnected/revoked/unavailable states, start OAuth via `POST /api/google/oauth/start` with CSRF and immediate browser navigation, and disconnect via `DELETE /api/google/connection` with CSRF. The UI may render only safe connection metadata (`connected`, `status`, Google email, scopes, connected/revoked timestamps) and must not store OAuth URLs, states, codes, tokens, provider credentials, or secrets in browser storage. This item has no Drive picker, Drive source browsing, Google Docs creation, provider execution, jobs/queues/workers, migration, production deploy, manifest mutation, or backend OAuth behavior change.
 
 ### PWA-GOOGLE-01B — Studio Google OAuth runtime config
 

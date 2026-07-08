@@ -501,3 +501,114 @@ def test_google_connection_user_isolation(monkeypatch, tmp_path):
     login(c2, "password-two-long", "g2@example.com")
     assert c1.get("/api/google/connection").json()["google_email"] == "g1@gmail.com"
     assert c2.get("/api/google/connection").json()["connected"] is False
+
+
+def add_google_connection_for_user(email: str, refresh_token: str, status="active"):
+    from studio_api.models import GoogleConnection, GoogleConnectionStatus, GoogleProvider
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter_by(email=email).one()
+        conn = GoogleConnection(user_id=user.id, provider=GoogleProvider.google, status=GoogleConnectionStatus(status), google_email="drive-user@gmail.com", scopes="openid email https://www.googleapis.com/auth/drive.file", connected_at=utcnow())
+        db.add(conn); db.flush()
+        ct, nonce = encrypt(refresh_token, master_key_from_b64(base64.b64encode(b"1" * 32).decode()), aad(user.id, conn.id, "refresh", "google"))
+        conn.refresh_token_ciphertext = ct
+        conn.refresh_token_nonce = nonce
+        conn.key_id = "studio-v1"
+        db.commit()
+        return conn.id
+    finally:
+        db.close()
+
+
+def test_google_drive_metadata_requires_authentication():
+    c = TestClient(app)
+    assert c.get("/api/google/drive/files/file_123/metadata").status_code == 401
+
+
+def test_google_drive_metadata_no_connection_safe_error(monkeypatch, tmp_path):
+    configure_google_oauth(monkeypatch, tmp_path)
+    pw = admin("drive-none@example.com"); c = TestClient(app); login(c, pw, "drive-none@example.com")
+    r = c.get("/api/google/drive/files/file_123/metadata")
+    assert r.status_code == 404
+    assert "refresh" not in r.text.lower() and "access" not in r.text.lower() and str(tmp_path) not in r.text
+
+
+def test_google_drive_metadata_revoked_connection_safe_error(monkeypatch, tmp_path):
+    configure_google_oauth(monkeypatch, tmp_path)
+    pw = admin("drive-revoked@example.com"); c = TestClient(app); login(c, pw, "drive-revoked@example.com")
+    add_google_connection_for_user("drive-revoked@example.com", "fake-refresh-token-revoked", status="revoked")
+    r = c.get("/api/google/drive/files/file_123/metadata")
+    assert r.status_code == 409
+    assert "fake-refresh-token-revoked" not in r.text and str(tmp_path) not in r.text
+
+
+def test_google_drive_metadata_missing_runtime_config_fails_closed(monkeypatch):
+    from studio_api import main as main_mod
+    pw = admin("drive-noconfig@example.com"); c = TestClient(app); login(c, pw, "drive-noconfig@example.com")
+    add_google_connection_for_user("drive-noconfig@example.com", "fake-refresh-token-config")
+    main_mod.settings.google_oauth_client_id = None
+    main_mod.settings.google_oauth_client_secret_file = None
+    main_mod.settings.google_oauth_redirect_uri = None
+    r = c.get("/api/google/drive/files/file_123/metadata")
+    assert r.status_code == 503
+    assert "fake-refresh-token-config" not in r.text and "secret" not in r.text.lower()
+
+
+def test_google_drive_metadata_active_connection_returns_safe_metadata(monkeypatch, tmp_path):
+    configure_google_oauth(monkeypatch, tmp_path)
+    raw_refresh = "fake-refresh-token-success"
+    raw_access = "fake-access-token-success"
+    pw = admin("drive-success@example.com"); c = TestClient(app); login(c, pw, "drive-success@example.com")
+    add_google_connection_for_user("drive-success@example.com", raw_refresh)
+    calls = {}
+    def fake_refresh(cfg, refresh_token):
+        calls["refresh_token"] = refresh_token
+        return raw_access
+    def fake_fetch(access_token, drive_file_id):
+        calls["access_token"] = access_token
+        calls["drive_file_id"] = drive_file_id
+        from studio_api.google_drive import GoogleDriveMetadata
+        return GoogleDriveMetadata("file_123", "Meeting.mp4", "video/mp4", 42, "https://drive.google.com/file/d/file_123/view", "2026-01-01T00:00:00.000Z", "2026-01-02T00:00:00.000Z", False)
+    monkeypatch.setattr("studio_api.google_drive.refresh_access_token", fake_refresh)
+    monkeypatch.setattr("studio_api.google_drive.fetch_drive_file_metadata", fake_fetch)
+    r = c.get("/api/google/drive/files/file_123/metadata")
+    assert r.status_code == 200
+    assert r.json() == {"id":"file_123", "name":"Meeting.mp4", "mime_type":"video/mp4", "size_bytes":42, "web_view_link":"https://drive.google.com/file/d/file_123/view", "created_time":"2026-01-01T00:00:00.000Z", "modified_time":"2026-01-02T00:00:00.000Z", "is_folder":False}
+    assert calls == {"refresh_token": raw_refresh, "access_token": raw_access, "drive_file_id": "file_123"}
+    forbidden = [raw_refresh, raw_access, "google-client-secret-test", str(tmp_path), "rawPayload", "owners", "permissions"]
+    assert all(value not in r.text for value in forbidden)
+
+
+def test_google_drive_metadata_drive_failure_safe_no_raw_leak(monkeypatch, tmp_path):
+    configure_google_oauth(monkeypatch, tmp_path)
+    raw_refresh = "fake-refresh-token-failure"
+    raw_access = "fake-access-token-failure"
+    raw_google_body = "raw google body with permissions and token fake-access-token-failure"
+    pw = admin("drive-failure@example.com"); c = TestClient(app); login(c, pw, "drive-failure@example.com")
+    add_google_connection_for_user("drive-failure@example.com", raw_refresh)
+    monkeypatch.setattr("studio_api.google_drive.refresh_access_token", lambda cfg, refresh_token: raw_access)
+    def fake_fetch(access_token, drive_file_id):
+        raise RuntimeError(raw_google_body)
+    monkeypatch.setattr("studio_api.google_drive.fetch_drive_file_metadata", fake_fetch)
+    r = c.get("/api/google/drive/files/file_123/metadata")
+    assert r.status_code == 502
+    assert raw_refresh not in r.text and raw_access not in r.text and raw_google_body not in r.text and str(tmp_path) not in r.text
+
+
+def test_google_drive_metadata_user_isolation(monkeypatch, tmp_path):
+    configure_google_oauth(monkeypatch, tmp_path)
+    pw1 = admin("drive-owner@example.com", "password-one-long")
+    pw2 = admin("drive-other@example.com", "password-two-long")
+    add_google_connection_for_user("drive-owner@example.com", "fake-refresh-token-owner")
+    c1 = TestClient(app); c2 = TestClient(app)
+    login(c1, pw1, "drive-owner@example.com")
+    login(c2, pw2, "drive-other@example.com")
+    monkeypatch.setattr("studio_api.google_drive.refresh_access_token", lambda cfg, refresh_token: "fake-access-token-owner")
+    def fake_fetch(access_token, drive_file_id):
+        from studio_api.google_drive import GoogleDriveMetadata
+        return GoogleDriveMetadata(drive_file_id, "Owner file", "application/vnd.google-apps.folder", None, None, None, None, True)
+    monkeypatch.setattr("studio_api.google_drive.fetch_drive_file_metadata", fake_fetch)
+    assert c1.get("/api/google/drive/files/folder_123/metadata").status_code == 200
+    r = c2.get("/api/google/drive/files/folder_123/metadata")
+    assert r.status_code == 404
+    assert "fake-refresh-token-owner" not in r.text and "fake-access-token-owner" not in r.text

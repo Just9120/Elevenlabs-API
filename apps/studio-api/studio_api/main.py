@@ -313,6 +313,30 @@ def delete_google_connection(pair=Depends(require_csrf), db: Session=Depends(get
     now=utcnow(); conn.status=GoogleConnectionStatus.revoked; conn.refresh_token_ciphertext=None; conn.refresh_token_nonce=None; conn.key_id=None; conn.revoked_at=now; conn.updated_at=now
     audit(db,"google.disconnected",actor_user_id=user.id,subject_user_id=user.id); db.commit(); return google_connection_payload(conn)
 
+@app.get("/api/google/drive/files/{drive_file_id}/metadata")
+def get_google_drive_file_metadata(drive_file_id: str, pair=Depends(current_session), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("google:drive:metadata:"+user.id, 120, 3600)
+    clean_id=clean_drive_id(drive_file_id, "ID файла Google Drive")
+    if not clean_id: raise HTTPException(422, "Некорректный ID файла Google Drive")
+    cfg=google_config_or_503()
+    conn=current_google_connection(db, user)
+    if not conn:
+        raise HTTPException(404, "Google Drive connection is not connected")
+    if conn.status != GoogleConnectionStatus.active:
+        raise HTTPException(409, "Google Drive connection is not active")
+    if not conn.refresh_token_ciphertext or not conn.refresh_token_nonce or not conn.key_id:
+        raise HTTPException(409, "Google Drive connection is not active")
+    try:
+        refresh_token=decrypt(conn.refresh_token_ciphertext, conn.refresh_token_nonce, key(), google_token_aad(user.id, conn.id))
+        from .google_drive import fetch_drive_file_metadata, refresh_access_token
+        access_token=refresh_access_token(cfg, refresh_token)
+        meta=fetch_drive_file_metadata(access_token, clean_id)
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(502, "Google Drive metadata is unavailable")
+    return {"id": meta.id, "name": meta.name, "mime_type": meta.mime_type, "size_bytes": meta.size_bytes, "web_view_link": meta.web_view_link, "created_time": meta.created_time, "modified_time": meta.modified_time, "is_folder": meta.is_folder}
+
 @app.get("/api/credentials")
 def list_credentials(pair=Depends(current_session), db: Session=Depends(get_db)):
     _,user=pair; rows=db.query(ProviderCredential).filter_by(user_id=user.id).all(); out=[]
