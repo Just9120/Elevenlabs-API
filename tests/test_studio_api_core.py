@@ -31,7 +31,7 @@ from studio_api.config import Settings
 from studio_api.db import SessionLocal, engine
 from studio_api.deps import get_client_ip
 from studio_api.main import app, limiter
-from studio_api.models import AuditEvent, LocalIdentity, Project, ProviderCredentialVersion, Source, User, UserRole, UserStatus
+from studio_api.models import AuditEvent, LocalIdentity, Project, ProviderCredentialVersion, Source, SourceType, SourceUploadStatus, User, UserRole, UserStatus
 from studio_api.security import aad, decrypt, encrypt, hash_password, master_key_from_b64, utcnow, verify_password
 
 ALEMBIC = ROOT / "apps/studio-api/alembic.ini"
@@ -48,7 +48,7 @@ def clean_state(migrated_database):
     except Exception as exc:
         pytest.skip(f"Redis unavailable for platform tests: {exc}")
     with engine.begin() as conn:
-        tables = ["audit_events", "google_oauth_states", "google_connections", "provider_credential_versions", "provider_credentials", "sources", "projects", "sessions", "login_contexts", "local_identities", "users"]
+        tables = ["audit_events", "google_oauth_states", "google_connections", "provider_credential_versions", "provider_credentials", "transcription_job_sources", "transcription_jobs", "sources", "projects", "sessions", "login_contexts", "local_identities", "users"]
         conn.execute(text("TRUNCATE " + ", ".join(tables) + " RESTART IDENTITY CASCADE"))
     yield
 
@@ -253,6 +253,113 @@ def create_logged_in_project(email="sources@example.com"):
     assert r.status_code == 200
     return c, headers, r.json()["id"]
 
+
+
+def create_gdrive_source(c, headers, pid, name="meeting.mp4"):
+    r = c.post(f"/api/projects/{pid}/sources/google-drive", json={"drive_file_id": f"file_{name.replace('.', '_')}", "drive_file_url":"https://drive.google.com/file/d/file_123/view", "original_filename":name, "mime_type":"video/mp4", "size_bytes":42}, headers=headers)
+    assert r.status_code == 200
+    return r.json()["id"]
+
+
+def add_local_source(pid, status=SourceUploadStatus.uploaded, deleted=False):
+    db = SessionLocal()
+    try:
+        src = Source(project_id=pid, source_type=SourceType.local_upload, original_filename="local.mp3", mime_type="audio/mpeg", size_bytes=10, s3_bucket="studio-temp", s3_object_key="safe/object", upload_status=status, uploaded_at=utcnow() if status == SourceUploadStatus.uploaded else None, deleted_at=utcnow() if deleted else None, delete_reason="test" if deleted else None)
+        db.add(src); db.commit(); return src.id
+    finally:
+        db.close()
+
+
+def assert_job_response_safe(text):
+    forbidden = ["raw-provider-secret", "ciphertext", "refresh-token", "oauth-state", "oauth-code", "raw_google", "presigned", "no-secret-key", "temporary-object-bytes", "safe/object"]
+    lowered = text.lower()
+    for value in forbidden:
+        assert value.lower() not in lowered
+
+
+def test_transcription_jobs_auth_and_csrf_required():
+    c, headers, pid = create_logged_in_project("jobs-auth@example.com")
+    sid = create_gdrive_source(c, headers, pid)
+    anon = TestClient(app)
+    assert anon.get(f"/api/projects/{pid}/jobs").status_code == 401
+    assert anon.post(f"/api/projects/{pid}/jobs", json={"source_ids":[sid]}).status_code == 401
+    assert c.post(f"/api/projects/{pid}/jobs", json={"source_ids":[sid]}).status_code == 403
+    r = c.post(f"/api/projects/{pid}/jobs", json={"source_ids":[sid]}, headers=headers)
+    assert r.status_code == 200
+    jid = r.json()["id"]
+    assert anon.get(f"/api/jobs/{jid}").status_code == 401
+    assert anon.post(f"/api/jobs/{jid}/cancel").status_code == 401
+    assert c.post(f"/api/jobs/{jid}/cancel").status_code == 403
+
+
+def test_create_job_from_google_drive_and_local_sources_preserves_order_and_safe_metadata():
+    c, headers, pid = create_logged_in_project("jobs-create@example.com")
+    sid1 = create_gdrive_source(c, headers, pid, "first.mp4")
+    sid2 = add_local_source(pid)
+    raw = "raw-provider-secret"
+    cred = c.post("/api/credentials", json={"provider":"openai", "label":"jobs", "raw_value":raw}, headers=headers).json()["id"]
+    r = c.post(f"/api/projects/{pid}/jobs", json={"source_ids":[sid1, sid2], "provider_credential_id":cred, "title":" Batch ", "language":"EN_us", "options":{"diarize":False}}, headers=headers)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "queued"
+    assert body["source_count"] == 2
+    assert [s["id"] for s in body["sources"]] == [sid1, sid2]
+    assert [s["position"] for s in body["sources"]] == [0, 1]
+    assert body["provider_credential_id"] == cred
+    assert "drive_file_url" not in body["sources"][0]
+    assert_job_response_safe(r.text)
+    assert raw not in r.text
+    detail = c.get(f"/api/jobs/{body['id']}")
+    assert detail.status_code == 200
+    assert [s["id"] for s in detail.json()["sources"]] == [sid1, sid2]
+    listed = c.get(f"/api/projects/{pid}/jobs")
+    assert listed.status_code == 200 and listed.json()["jobs"][0]["id"] == body["id"]
+
+
+def test_create_job_rejects_invalid_source_sets_and_archived_project():
+    c, headers, pid = create_logged_in_project("jobs-invalid@example.com")
+    sid = create_gdrive_source(c, headers, pid)
+    assert c.post(f"/api/projects/{pid}/jobs", json={"source_ids":[]}, headers=headers).status_code == 422
+    assert c.post(f"/api/projects/{pid}/jobs", json={"source_ids":[sid, sid]}, headers=headers).status_code == 422
+    c2, h2, pid2 = create_logged_in_project("jobs-other@example.com")
+    sid_other = create_gdrive_source(c2, h2, pid2)
+    assert c.post(f"/api/projects/{pid}/jobs", json={"source_ids":[sid_other]}, headers=headers).status_code == 422
+    db = SessionLocal(); src = db.get(Source, sid); src.deleted_at = utcnow(); src.upload_status = SourceUploadStatus.deleted; db.commit(); db.close()
+    assert c.post(f"/api/projects/{pid}/jobs", json={"source_ids":[sid]}, headers=headers).status_code == 422
+    c.post(f"/api/projects/{pid}/archive", headers=headers)
+    assert c.post(f"/api/projects/{pid}/jobs", json={"source_ids":[sid]}, headers=headers).status_code == 404
+
+
+def test_create_job_rejects_unusable_local_upload_statuses():
+    for status in [SourceUploadStatus.pending, SourceUploadStatus.expired, SourceUploadStatus.deleted, SourceUploadStatus.failed]:
+        c, headers, pid = create_logged_in_project(f"jobs-{status.value}@example.com")
+        sid = add_local_source(pid, status=status, deleted=(status == SourceUploadStatus.deleted))
+        r = c.post(f"/api/projects/{pid}/jobs", json={"source_ids":[sid]}, headers=headers)
+        assert r.status_code == 422
+
+
+def test_job_list_owner_scope_and_cancel_idempotent_with_audit():
+    c1, h1, pid1 = create_logged_in_project("jobs-owner1@example.com")
+    c2, h2, pid2 = create_logged_in_project("jobs-owner2@example.com")
+    sid1 = create_gdrive_source(c1, h1, pid1)
+    sid2 = create_gdrive_source(c2, h2, pid2)
+    jid1 = c1.post(f"/api/projects/{pid1}/jobs", json={"source_ids":[sid1]}, headers=h1).json()["id"]
+    jid2 = c2.post(f"/api/projects/{pid2}/jobs", json={"source_ids":[sid2]}, headers=h2).json()["id"]
+    assert [j["id"] for j in c1.get(f"/api/projects/{pid1}/jobs").json()["jobs"]] == [jid1]
+    assert c1.get(f"/api/jobs/{jid2}").status_code == 404
+    assert c1.post(f"/api/jobs/{jid2}/cancel", headers=h1).status_code == 404
+    r1 = c1.post(f"/api/jobs/{jid1}/cancel", headers=h1)
+    r2 = c1.post(f"/api/jobs/{jid1}/cancel", headers=h1)
+    assert r1.status_code == 200 and r2.status_code == 200
+    assert r1.json()["status"] == "cancelled" and r2.json()["status"] == "cancelled"
+    assert r1.json()["cancelled_at"] is not None
+    db = SessionLocal()
+    try:
+        events = [e.event_type for e in db.query(AuditEvent).order_by(AuditEvent.created_at).all()]
+        assert "job.created" in events and "job.cancelled" in events
+        assert events.count("job.cancelled") == 1
+    finally:
+        db.close()
 
 def test_project_drive_folder_binding_update_and_clear():
     c, headers, pid = create_logged_in_project("folder@example.com")

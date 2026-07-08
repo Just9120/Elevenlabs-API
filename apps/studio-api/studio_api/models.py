@@ -13,6 +13,8 @@ class GoogleConnectionStatus(str, enum.Enum): active="active"; revoked="revoked"
 class GoogleProvider(str, enum.Enum): google="google"
 class SourceType(str, enum.Enum): local_upload="local_upload"; google_drive="google_drive"
 class SourceUploadStatus(str, enum.Enum): pending="pending"; uploaded="uploaded"; deleted="deleted"; expired="expired"; failed="failed"
+class JobStatus(str, enum.Enum): queued="queued"; cancelled="cancelled"; failed="failed"; completed="completed"
+class JobSourceStatus(str, enum.Enum): queued="queued"; skipped="skipped"
 
 class User(Base):
     __tablename__="users"
@@ -122,6 +124,7 @@ class Project(Base):
     output_drive_folder_url: Mapped[str|None]=mapped_column(Text)
     output_drive_folder_name: Mapped[str|None]=mapped_column(String(512))
     sources: Mapped[list["Source"]]=relationship("Source", back_populates="project")
+    jobs: Mapped[list["TranscriptionJob"]]=relationship("TranscriptionJob", back_populates="project")
     __table_args__=(Index("ix_projects_owner_active_updated", "owner_user_id", "archived_at", "updated_at"),)
 
 class Source(Base):
@@ -145,6 +148,40 @@ class Source(Base):
     updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now, onupdate=now)
     project: Mapped[Project]=relationship("Project", back_populates="sources")
     __table_args__=(Index("ix_sources_project_status", "project_id", "upload_status", "created_at"),)
+
+class TranscriptionJob(Base):
+    __tablename__="transcription_jobs"
+    id: Mapped[str]=mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    project_id: Mapped[str]=mapped_column(ForeignKey("projects.id"), index=True)
+    owner_user_id: Mapped[str]=mapped_column(ForeignKey("users.id"), index=True)
+    status: Mapped[JobStatus]=mapped_column(Enum(JobStatus), default=JobStatus.queued, index=True)
+    provider: Mapped[str|None]=mapped_column(String(40))
+    provider_credential_id: Mapped[str|None]=mapped_column(ForeignKey("provider_credentials.id"), index=True)
+    title: Mapped[str|None]=mapped_column(String(160))
+    language: Mapped[str|None]=mapped_column(String(40))
+    options_json: Mapped[str|None]=mapped_column(Text)
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now)
+    updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now, onupdate=now)
+    cancelled_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    error_code: Mapped[str|None]=mapped_column(String(80))
+    error_message: Mapped[str|None]=mapped_column(String(512))
+    project: Mapped[Project]=relationship("Project", back_populates="jobs")
+    sources: Mapped[list["TranscriptionJobSource"]]=relationship("TranscriptionJobSource", back_populates="job", order_by="TranscriptionJobSource.position")
+    __table_args__=(Index("ix_transcription_jobs_project_status_created", "project_id", "status", "created_at"),)
+
+class TranscriptionJobSource(Base):
+    __tablename__="transcription_job_sources"
+    id: Mapped[str]=mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    job_id: Mapped[str]=mapped_column(ForeignKey("transcription_jobs.id"), index=True)
+    source_id: Mapped[str]=mapped_column(ForeignKey("sources.id"), index=True)
+    position: Mapped[int]=mapped_column(Integer)
+    status: Mapped[JobSourceStatus]=mapped_column(Enum(JobSourceStatus), default=JobSourceStatus.queued)
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now)
+    job: Mapped[TranscriptionJob]=relationship("TranscriptionJob", back_populates="sources")
+    source: Mapped[Source]=relationship("Source")
+    __table_args__=(UniqueConstraint("job_id", "source_id", name="uq_transcription_job_source"), Index("ix_transcription_job_sources_job_position", "job_id", "position"),)
 
 class AuditEvent(Base):
     __tablename__="audit_events"

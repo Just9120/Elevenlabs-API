@@ -59,7 +59,7 @@ Studio is the new desktop-first responsive web application contour for the initi
 
 `PWA-FOUNDATION-01` is completed/merged and remains UI-only. The current Studio application is limited to Russian-first UI navigation, prototype browser-only project/job state, browser-only file metadata display, and visual sequential multi-document segment planning. It does not upload source media to a server and does not persist transcription processing state.
 
-Colab batch remains the stable fallback during the PWA transition and the only current production path for provider transcription, Google Drive/Docs output, Drive integration and `manifest` mutation. The current Studio platform has a backend account/session/BYOK/project/source foundation and Google Drive connection status/start/disconnect UI backed by the explicit-consent OAuth foundation. It still does not include provider calls, Drive picker, Drive source browsing, Google Docs output creation, transcription jobs, queue/worker execution, existing Colab runtime changes, or any production transcription job pipeline.
+Colab batch remains the stable fallback during the PWA transition and the only current production path for provider transcription, Google Drive/Docs output, Drive integration and `manifest` mutation. The current Studio platform has a backend account/session/BYOK/project/source foundation, Google Drive connection status/start/disconnect UI backed by the explicit-consent OAuth foundation, and a backend-only transcription job record/API foundation for creating, listing, reading, and cancelling jobs from existing project sources. Studio job records are not processed yet. It still does not include provider calls, Drive picker, Google Docs output creation, queue/worker execution, existing Colab runtime changes, manifest mutation, output persistence, or any production transcription job pipeline.
 
 ### 3.5 PWA-DEPLOY-01 first-deploy contract and evidence
 
@@ -109,9 +109,9 @@ The following is approved product direction and architecture intent only. It doe
 - Encryption material is outside Git and outside the database.
 - Browser UI must never receive raw stored provider credentials or raw refresh tokens.
 - Provider credentials are masked in UI and must not appear in API responses, logs, analytics, job payloads, or browser storage.
-- Future jobs reference a credential identity/version rather than embedding secrets.
+- Studio transcription job records may reference a credential identity without embedding secrets; job API payloads must never expose raw or encrypted credential material.
 - A worker may decrypt a credential only immediately before making the provider request.
-- Future architecture separates browser UI, backend API, session/auth boundary, encrypted credential/token boundary, persistent user/project/job/output state, asynchronous worker/queue boundary, and Google integration boundary.
+- Future architecture separates browser UI, backend API, session/auth boundary, encrypted credential/token boundary, persistent user/project/job/output state, asynchronous worker/queue boundary, and Google integration boundary. The current job foundation persists queued/cancelled job metadata only; provider execution, workers, Google Docs output, manifest mutation, and production processing remain deferred.
 - Technology choices for backend framework, database, queue, storage, and OAuth client configuration are deliberately not yet fixed.
 - A future domain migration is possible only through a separate explicit decision.
 - The supporting implementation-contract preparation document is `docs/studio-platform-01-prep.md`; it provides release slicing, domain boundaries, lifecycle expectations, validation categories, and open decisions without replacing this product spec.
