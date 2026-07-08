@@ -52,6 +52,35 @@ type Source = {
   created_at: string;
   updated_at: string;
 };
+type JobStatus = "queued" | "cancelled" | "failed" | "completed";
+type JobSource = Source & {
+  position: number;
+  job_source_status: JobStatus;
+};
+type TranscriptionJob = {
+  id: string;
+  project_id: string;
+  status: JobStatus;
+  title: string | null;
+  provider: string | null;
+  provider_credential_id: string | null;
+  source_count: number;
+  sources?: JobSource[];
+  created_at: string;
+  updated_at: string;
+  cancelled_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  error_code: string | null;
+  error_message: string | null;
+};
+type JobState = {
+  loading: boolean;
+  error: string;
+  loaded: boolean;
+  items: TranscriptionJob[];
+};
+
 type UploadInit = {
   source_id: string;
   upload: {
@@ -93,6 +122,12 @@ const emptySourceState = {
   loaded: false,
   items: [] as Source[],
 };
+const emptyJobState: JobState = {
+  loading: false,
+  error: "",
+  loaded: false,
+  items: [],
+};
 function formatBytes(value: number | null) {
   if (value == null) return "не указан";
   return `${(value / 1024 / 1024).toFixed(2)} MB`;
@@ -102,6 +137,31 @@ function formatTime(value: string | null) {
 }
 function driveDisplayName(item: DriveMetadata) {
   return item.name || `Google Drive source ${item.id}`;
+}
+function isUsableJobSource(source: Source) {
+  return (
+    source.upload_status === "uploaded" &&
+    !source.deleted_at &&
+    (source.source_type === "google_drive" || source.source_type === "local_upload")
+  );
+}
+function unusableJobSourceReason(source: Source) {
+  if (source.deleted_at) return "Удалённый source нельзя добавить в job";
+  if (source.upload_status !== "uploaded") return "Source ещё не готов для job";
+  return "Source type не поддерживается для job";
+}
+function isSafeDisplayUrl(value: string | null) {
+  return Boolean(
+    value &&
+      /^https?:\/\//i.test(value) &&
+      !/\s|token|secret|cipher|presigned|s3:|r2:|key/i.test(value),
+  );
+}
+function jobTitle(job: TranscriptionJob) {
+  return job.title?.trim() || `Job ${job.id}`;
+}
+function safeJobSources(job: TranscriptionJob) {
+  return [...(job.sources ?? [])].sort((a, b) => a.position - b.position);
 }
 function isSupportedMediaFile(file: File) {
   return (
@@ -659,8 +719,8 @@ function SourcesPanel({
           {source.drive_file_id && (
             <span>Drive file ID: {source.drive_file_id}</span>
           )}
-          {source.drive_file_url && (
-            <a href={source.drive_file_url}>Drive file URL</a>
+          {isSafeDisplayUrl(source.drive_file_url) && (
+            <a href={source.drive_file_url ?? undefined}>Drive file URL</a>
           )}
           <button type="button" onClick={() => deleteSource(source.id)}>
             Удалить source
@@ -699,8 +759,8 @@ function SourcesPanel({
           <span>Размер: {formatBytes(driveMetadata.size_bytes)}</span>
           <span>Создан: {formatTime(driveMetadata.created_time)}</span>
           <span>Изменён: {formatTime(driveMetadata.modified_time)}</span>
-          {driveMetadata.web_view_link && (
-            <a href={driveMetadata.web_view_link}>Открыть в Google Drive</a>
+          {isSafeDisplayUrl(driveMetadata.web_view_link) && (
+            <a href={driveMetadata.web_view_link ?? undefined}>Открыть в Google Drive</a>
           )}
           <button
             type="button"
@@ -777,8 +837,8 @@ function SourcesPanel({
               <span>Размер: {formatBytes(item.size_bytes)}</span>
               <span>Создан: {formatTime(item.created_time)}</span>
               <span>Изменён: {formatTime(item.modified_time)}</span>
-              {item.web_view_link && (
-                <a href={item.web_view_link}>Открыть в Google Drive</a>
+              {isSafeDisplayUrl(item.web_view_link) && (
+                <a href={item.web_view_link ?? undefined}>Открыть в Google Drive</a>
               )}
             </article>
           ))}
@@ -807,6 +867,194 @@ function SourcesPanel({
     </section>
   );
 }
+
+function JobsPanel({
+  project,
+  csrf,
+  onCsrf,
+  jobs,
+  sources,
+  onLoadSources,
+  onReloadJobs,
+}: {
+  project: Project;
+  csrf: string;
+  onCsrf: (csrf: string) => void;
+  jobs: JobState;
+  sources: typeof emptySourceState;
+  onLoadSources: (projectId: string) => void;
+  onReloadJobs: (projectId: string) => void;
+}) {
+  const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
+  const [title, setTitle] = useState("");
+  const [message, setMessage] = useState("");
+  const [detail, setDetail] = useState<Record<string, { loading: boolean; error: string; job: TranscriptionJob | null }>>({});
+  const usableSelected = selectedSourceIds.filter((id) =>
+    sources.items.some((source) => source.id === id && isUsableJobSource(source)),
+  );
+  async function createJob(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setMessage("");
+    if (!sources.loaded) {
+      setMessage("Сначала загрузите sources проекта.");
+      return;
+    }
+    if (usableSelected.length === 0) {
+      setMessage("Выберите хотя бы один готовый source для job.");
+      return;
+    }
+    try {
+      const created = await csrfMutate<TranscriptionJob>(
+        `/projects/${project.id}/jobs`,
+        csrf,
+        onCsrf,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            source_ids: usableSelected,
+            title: title.trim() || null,
+          }),
+        },
+      );
+      setTitle("");
+      setSelectedSourceIds([]);
+      setDetail((current) => ({
+        ...current,
+        [created.id]: { loading: false, error: "", job: created },
+      }));
+      setMessage("Job создана как queued record. Processing ещё не выполняется.");
+      onReloadJobs(project.id);
+    } catch {
+      setMessage("Не удалось создать job. Проверьте выбранные sources и повторите.");
+    }
+  }
+  async function loadDetail(jobId: string) {
+    setDetail((current) => ({
+      ...current,
+      [jobId]: { loading: true, error: "", job: current[jobId]?.job ?? null },
+    }));
+    try {
+      const loaded = await api<TranscriptionJob>(`/jobs/${jobId}`);
+      setDetail((current) => ({
+        ...current,
+        [jobId]: { loading: false, error: "", job: loaded },
+      }));
+    } catch {
+      setDetail((current) => ({
+        ...current,
+        [jobId]: { loading: false, error: "Не удалось загрузить детали job.", job: current[jobId]?.job ?? null },
+      }));
+    }
+  }
+  async function cancelJob(jobId: string) {
+    setMessage("");
+    try {
+      const cancelled = await csrfMutate<TranscriptionJob>(`/jobs/${jobId}/cancel`, csrf, onCsrf, { method: "POST" });
+      setDetail((current) => ({
+        ...current,
+        [jobId]: { loading: false, error: "", job: cancelled },
+      }));
+      setMessage("Job отменена или уже была отменена.");
+      onReloadJobs(project.id);
+    } catch {
+      setMessage("Не удалось отменить job. Повторите безопасно позже.");
+    }
+  }
+  return (
+    <section className="sources" aria-label={`Jobs ${project.title}`}>
+      <h4>Jobs проекта</h4>
+      {jobs.loading && <p role="status">Загрузка jobs…</p>}
+      {jobs.error && <p className="error">{jobs.error}</p>}
+      {jobs.loaded && !jobs.loading && jobs.items.length === 0 && (
+        <p className="notice">Job records пока не созданы.</p>
+      )}
+      <form className="source-form" onSubmit={createJob}>
+        <h5>Создать queued job из sources</h5>
+        {!sources.loaded ? (
+          <p className="notice">Сначала загрузите sources проекта, затем выберите готовые записи.</p>
+        ) : (
+          sources.items.map((source) => {
+            const usable = isUsableJobSource(source);
+            return (
+              <label key={source.id}>
+                <input
+                  type="checkbox"
+                  disabled={!usable}
+                  checked={selectedSourceIds.includes(source.id)}
+                  onChange={(e) =>
+                    setSelectedSourceIds((current) =>
+                      e.target.checked
+                        ? [...current, source.id]
+                        : current.filter((id) => id !== source.id),
+                    )
+                  }
+                />
+                {source.original_filename} · {source.upload_status}
+                {!usable && <span> — {unusableJobSourceReason(source)}</span>}
+              </label>
+            );
+          })
+        )}
+        {!sources.loaded && (
+          <button type="button" onClick={() => onLoadSources(project.id)}>
+            Загрузить sources для job
+          </button>
+        )}
+        <input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Название job (необязательно)"
+          aria-label="Название job"
+          maxLength={160}
+        />
+        <button className="primary" disabled={!sources.loaded}>Создать job</button>
+      </form>
+      {message && <p className={message.startsWith("Не удалось") ? "error" : "notice"}>{message}</p>}
+      {jobs.items.map((job) => {
+        const currentDetail = detail[job.id];
+        const detailedJob = currentDetail?.job;
+        return (
+          <article className="source-card" key={job.id}>
+            <b>{jobTitle(job)}</b>
+            <span>Статус: {job.status}</span>
+            <span>Sources: {job.source_count}</span>
+            <span>Created: {formatTime(job.created_at)}</span>
+            <span>Updated: {formatTime(job.updated_at)}</span>
+            <span>Cancelled: {formatTime(job.cancelled_at)}</span>
+            {job.error_code && <span>Error code: {job.error_code}</span>}
+            {job.error_message && <span>Error: {job.error_message}</span>}
+            <button type="button" onClick={() => void loadDetail(job.id)}>Показать детали job</button>
+            {job.status === "queued" && (
+              <button type="button" onClick={() => void cancelJob(job.id)}>Отменить job</button>
+            )}
+            {currentDetail?.loading && <p role="status">Загрузка деталей job…</p>}
+            {currentDetail?.error && <p className="error">{currentDetail.error}</p>}
+            {detailedJob && (
+              <section aria-label={`Job detail ${detailedJob.id}`}>
+                <h5>Sources job</h5>
+                {safeJobSources(detailedJob).map((source) => (
+                  <article className="source-card" key={`${detailedJob.id}-${source.id}`}>
+                    <b>{source.position + 1}. {source.original_filename}</b>
+                    <span>Job source status: {source.job_source_status}</span>
+                    <span>Source type: {source.source_type}</span>
+                    <span>Upload status: {source.upload_status}</span>
+                    <span>MIME: {source.mime_type || "не указан"}</span>
+                    <span>Размер: {formatBytes(source.size_bytes)}</span>
+                    <span>Uploaded: {formatTime(source.uploaded_at)}</span>
+                    <span>Deleted: {formatTime(source.deleted_at)}</span>
+                    {source.drive_file_id && <span>Drive file ID: {source.drive_file_id}</span>}
+                    {isSafeDisplayUrl(source.drive_file_url) && <a href={source.drive_file_url ?? undefined}>Drive file URL</a>}
+                  </article>
+                ))}
+              </section>
+            )}
+          </article>
+        );
+      })}
+    </section>
+  );
+}
+
 function ProjectsPage({
   csrf,
   onCsrf,
@@ -818,6 +1066,8 @@ function ProjectsPage({
   const [sources, setSources] = useState<
     Record<string, typeof emptySourceState>
   >({});
+  const [jobs, setJobs] = useState<Record<string, JobState>>({});
+  const [expandedJobs, setExpandedJobs] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -871,10 +1121,34 @@ function ProjectsPage({
         })),
       );
   };
+  const loadJobs = (projectId: string) => {
+    setJobs((v) => ({
+      ...v,
+      [projectId]: { ...(v[projectId] ?? emptyJobState), loading: true, error: "" },
+    }));
+    api<{ jobs: TranscriptionJob[] }>(`/projects/${projectId}/jobs`)
+      .then((r) =>
+        setJobs((v) => ({
+          ...v,
+          [projectId]: { loading: false, error: "", loaded: true, items: r.jobs },
+        })),
+      )
+      .catch(() =>
+        setJobs((v) => ({
+          ...v,
+          [projectId]: { loading: false, error: "Не удалось загрузить jobs.", loaded: true, items: [] },
+        })),
+      );
+  };
   const expand = (id: string) => {
     const next = expanded === id ? null : id;
     setExpanded(next);
     if (next && !sources[id]?.loaded) loadSources(id);
+  };
+  const expandJobs = (id: string) => {
+    const next = expandedJobs === id ? null : id;
+    setExpandedJobs(next);
+    if (next && !jobs[id]?.loaded) loadJobs(id);
   };
   async function save(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -1073,6 +1347,9 @@ function ProjectsPage({
                 <button onClick={() => expand(p.id)}>
                   {expanded === p.id ? "Скрыть sources" : "Показать sources"}
                 </button>
+                <button onClick={() => expandJobs(p.id)}>
+                  {expandedJobs === p.id ? "Скрыть jobs" : "Показать jobs"}
+                </button>
                 {expanded === p.id && (
                   <SourcesPanel
                     project={p}
@@ -1081,6 +1358,17 @@ function ProjectsPage({
                     sources={sources[p.id] ?? emptySourceState}
                     onReload={loadSources}
                     onError={setError}
+                  />
+                )}
+                {expandedJobs === p.id && (
+                  <JobsPanel
+                    project={p}
+                    csrf={csrf}
+                    onCsrf={onCsrf}
+                    jobs={jobs[p.id] ?? emptyJobState}
+                    sources={sources[p.id] ?? emptySourceState}
+                    onLoadSources={loadSources}
+                    onReloadJobs={loadJobs}
                   />
                 )}
               </>

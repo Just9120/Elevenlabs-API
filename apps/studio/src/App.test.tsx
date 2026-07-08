@@ -143,6 +143,8 @@ describe("Studio PWA", () => {
             ],
             next_page_token: null,
           });
+        if (url.endsWith("/api/projects/p1/jobs") && !init?.method)
+          return json({ jobs: [] });
         if (url.endsWith("/api/projects/p1/sources") && !init?.method)
           return json({
             sources: [
@@ -769,6 +771,309 @@ describe("Studio PWA", () => {
       "x-csrf-token": "csrf-after-refresh",
     });
   });
+  it("creates, lists, details, and cancels project jobs safely with CSRF", async () => {
+    const secretLike = "sk-live-raw-token refresh_token encrypted_ciphertext s3://secret-key https://upload.example/leak";
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (url: string, init?: RequestInit) => {
+        if (url.endsWith("/api/auth/session"))
+          return json({ authenticated: true, user: { email: "user@example.com", role: "admin" } });
+        if (url.endsWith("/api/auth/csrf")) return json({ csrf_token: "csrf-after-refresh" });
+        if (url.endsWith("/api/projects"))
+          return json({
+            projects: [
+              {
+                id: "p1",
+                title: "Research calls",
+                description: null,
+                created_at: "2026-07-01T00:00:00",
+                updated_at: "2026-07-01T00:00:00",
+                archived_at: null,
+                output_drive_folder_id: null,
+                output_drive_folder_url: null,
+                output_drive_folder_name: null,
+              },
+            ],
+          });
+        if (url.endsWith("/api/projects/p1/sources") && !init?.method)
+          return json({
+            sources: [
+              {
+                id: "s1",
+                project_id: "p1",
+                source_type: "google_drive",
+                original_filename: "ready-drive.mp4",
+                mime_type: "video/mp4",
+                size_bytes: 2048,
+                drive_file_id: "drive-file-1",
+                drive_file_url: "https://drive.example/file/1",
+                upload_status: "uploaded",
+                uploaded_at: "2026-07-01T00:01:00",
+                expires_at: null,
+                deleted_at: null,
+                delete_reason: null,
+                created_at: "2026-07-01T00:00:00",
+                updated_at: "2026-07-01T00:00:00",
+              },
+              {
+                id: "s2",
+                project_id: "p1",
+                source_type: "local_upload",
+                original_filename: "ready-local.ogg",
+                mime_type: "audio/ogg",
+                size_bytes: 4096,
+                drive_file_id: null,
+                drive_file_url: null,
+                upload_status: "uploaded",
+                uploaded_at: "2026-07-01T00:02:00",
+                expires_at: "2026-07-01T01:02:00",
+                deleted_at: null,
+                delete_reason: null,
+                created_at: "2026-07-01T00:00:00",
+                updated_at: "2026-07-01T00:00:00",
+              },
+              {
+                id: "s3",
+                project_id: "p1",
+                source_type: "local_upload",
+                original_filename: "pending-local.ogg",
+                mime_type: "audio/ogg",
+                size_bytes: 1024,
+                drive_file_id: null,
+                drive_file_url: null,
+                upload_status: "pending",
+                uploaded_at: null,
+                expires_at: null,
+                deleted_at: null,
+                delete_reason: null,
+                created_at: "2026-07-01T00:00:00",
+                updated_at: "2026-07-01T00:00:00",
+              },
+              {
+                id: "s4",
+                project_id: "p1",
+                source_type: "google_drive",
+                original_filename: "deleted-drive.mp4",
+                mime_type: "video/mp4",
+                size_bytes: null,
+                drive_file_id: "drive-file-4",
+                drive_file_url: secretLike,
+                upload_status: "uploaded",
+                uploaded_at: "2026-07-01T00:03:00",
+                expires_at: null,
+                deleted_at: "2026-07-01T00:04:00",
+                delete_reason: "user",
+                created_at: "2026-07-01T00:00:00",
+                updated_at: "2026-07-01T00:00:00",
+              },
+            ],
+          });
+        if (url.endsWith("/api/projects/p1/jobs") && !init?.method)
+          return json({
+            jobs: [
+              {
+                id: "job-1",
+                project_id: "p1",
+                status: "queued",
+                title: "Queued review",
+                provider: null,
+                provider_credential_id: "cred-safe-id-not-rendered",
+                source_count: 2,
+                created_at: "2026-07-02T00:00:00Z",
+                updated_at: "2026-07-02T00:01:00Z",
+                cancelled_at: null,
+                started_at: null,
+                finished_at: null,
+                error_code: null,
+                error_message: null,
+              },
+              {
+                id: "job-2",
+                project_id: "p1",
+                status: "failed",
+                title: null,
+                provider: null,
+                provider_credential_id: null,
+                source_count: 1,
+                created_at: "2026-07-03T00:00:00Z",
+                updated_at: "2026-07-03T00:01:00Z",
+                cancelled_at: null,
+                started_at: null,
+                finished_at: null,
+                error_code: "SAFE_CODE",
+                error_message: "Safe visible error",
+              },
+            ],
+          });
+        if (url.endsWith("/api/projects/p1/jobs") && init?.method === "POST")
+          return json({
+            id: "job-created",
+            project_id: "p1",
+            status: "queued",
+            title: "Created from UI",
+            provider: null,
+            provider_credential_id: null,
+            source_count: 2,
+            sources: [],
+            created_at: "2026-07-04T00:00:00Z",
+            updated_at: "2026-07-04T00:00:00Z",
+            cancelled_at: null,
+            started_at: null,
+            finished_at: null,
+            error_code: null,
+            error_message: null,
+          });
+        if (url.endsWith("/api/jobs/job-1"))
+          return json({
+            id: "job-1",
+            project_id: "p1",
+            status: "queued",
+            title: "Queued review",
+            provider: null,
+            provider_credential_id: null,
+            source_count: 2,
+            created_at: "2026-07-02T00:00:00Z",
+            updated_at: "2026-07-02T00:01:00Z",
+            cancelled_at: null,
+            started_at: null,
+            finished_at: null,
+            error_code: null,
+            error_message: null,
+            sources: [
+              {
+                id: "s2",
+                project_id: "p1",
+                position: 1,
+                job_source_status: "queued",
+                source_type: "local_upload",
+                original_filename: "ready-local.ogg",
+                mime_type: "audio/ogg",
+                size_bytes: 4096,
+                drive_file_id: null,
+                drive_file_url: secretLike,
+                upload_status: "uploaded",
+                uploaded_at: "2026-07-01T00:02:00",
+                expires_at: null,
+                deleted_at: null,
+                delete_reason: null,
+                created_at: "2026-07-01T00:00:00",
+                updated_at: "2026-07-01T00:00:00",
+              },
+              {
+                id: "s1",
+                project_id: "p1",
+                position: 0,
+                job_source_status: "queued",
+                source_type: "google_drive",
+                original_filename: "ready-drive.mp4",
+                mime_type: "video/mp4",
+                size_bytes: 2048,
+                drive_file_id: "drive-file-1",
+                drive_file_url: null,
+                upload_status: "uploaded",
+                uploaded_at: "2026-07-01T00:01:00",
+                expires_at: null,
+                deleted_at: null,
+                delete_reason: null,
+                created_at: "2026-07-01T00:00:00",
+                updated_at: "2026-07-01T00:00:00",
+              },
+            ],
+          });
+        if (url.endsWith("/api/jobs/job-1/cancel") && init?.method === "POST")
+          return json({
+            id: "job-1",
+            project_id: "p1",
+            status: "cancelled",
+            title: "Queued review",
+            provider: null,
+            provider_credential_id: null,
+            source_count: 2,
+            sources: [],
+            created_at: "2026-07-02T00:00:00Z",
+            updated_at: "2026-07-02T00:02:00Z",
+            cancelled_at: "2026-07-02T00:02:00Z",
+            started_at: null,
+            finished_at: null,
+            error_code: null,
+            error_message: null,
+          });
+        return json({});
+      },
+    );
+    renderApp("platform");
+    await userEvent.click(await screen.findByRole("button", { name: /Проекты/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "Показать jobs" }));
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/projects/p1/jobs",
+        expect.objectContaining({ credentials: "same-origin" }),
+      ),
+    );
+    expect(await screen.findByText("Queued review")).toBeInTheDocument();
+    expect(screen.getByText("Job job-2")).toBeInTheDocument();
+    expect(screen.getByText("Статус: queued")).toBeInTheDocument();
+    expect(screen.getByText("Sources: 2")).toBeInTheDocument();
+    expect(screen.getByText("Error code: SAFE_CODE")).toBeInTheDocument();
+    expect(screen.getByText("Error: Safe visible error")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Показать sources" }));
+    expect(await screen.findByText("ready-drive.mp4")).toBeInTheDocument();
+    expect(screen.getByText(/Source ещё не готов для job/)).toBeInTheDocument();
+    expect(screen.getByText(/Удалённый source нельзя добавить в job/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/pending-local/)).toBeDisabled();
+    expect(screen.getByLabelText(/deleted-drive/)).toBeDisabled();
+    await userEvent.click(screen.getByLabelText(/ready-drive/));
+    await userEvent.click(screen.getByLabelText(/ready-local/));
+    await userEvent.type(screen.getByLabelText("Название job"), "Created from UI");
+    await userEvent.click(screen.getByRole("button", { name: "Создать job" }));
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/projects/p1/jobs",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+    const createCall = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.find(
+      ([url, init]) => url === "/api/projects/p1/jobs" && init?.method === "POST",
+    );
+    expect(createCall?.[1]?.headers).toMatchObject({ "x-csrf-token": "csrf-after-refresh" });
+    expect(JSON.parse(String(createCall?.[1]?.body))).toEqual({
+      source_ids: ["s1", "s2"],
+      title: "Created from UI",
+    });
+
+    await userEvent.click(screen.getAllByRole("button", { name: "Показать детали job" })[0]);
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/jobs/job-1",
+        expect.objectContaining({ credentials: "same-origin" }),
+      ),
+    );
+    const detail = await screen.findByLabelText("Job detail job-1");
+    expect(within(detail).getByText("1. ready-drive.mp4")).toBeInTheDocument();
+    expect(within(detail).getByText("2. ready-local.ogg")).toBeInTheDocument();
+    expect(within(detail).getAllByText("Job source status: queued")).toHaveLength(2);
+    expect(within(detail).queryByRole("link", { name: "Drive file URL" })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Отменить job" }));
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/jobs/job-1/cancel",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+    const cancelCall = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.find(
+      ([url]) => url === "/api/jobs/job-1/cancel",
+    );
+    expect(cancelCall?.[1]?.headers).toMatchObject({ "x-csrf-token": "csrf-after-refresh" });
+    expect(await screen.findByText("Job отменена или уже была отменена.")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("raw-token");
+    expect(document.body.textContent).not.toContain("refresh_token");
+    expect(document.body.textContent).not.toContain("encrypted_ciphertext");
+    expect(document.body.textContent).not.toContain("https://upload.example/leak");
+    expect(window.localStorage.length).toBe(0);
+    expect(window.sessionStorage.length).toBe(0);
+  });
+
   it("lists Drive folder children, appends pages, and adds selected file metadata only", async () => {
     renderApp("platform");
     await userEvent.click(
