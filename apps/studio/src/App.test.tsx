@@ -99,6 +99,50 @@ describe("Studio PWA", () => {
             modified_time: "2026-07-02T00:00:00Z",
             is_folder: false,
           });
+        if (url.endsWith("/api/google/drive/folders/folder-children/children"))
+          return json({
+            folder_id: "folder-children",
+            items: [
+              {
+                id: "child-file-1",
+                name: "child-call.mp3",
+                mime_type: "audio/mpeg",
+                size_bytes: 4096,
+                web_view_link: "https://drive.example/file/child-1",
+                created_time: "2026-07-03T00:00:00Z",
+                modified_time: "2026-07-04T00:00:00Z",
+                is_folder: false,
+              },
+              {
+                id: "child-folder-1",
+                name: "Nested folder",
+                mime_type: "application/vnd.google-apps.folder",
+                size_bytes: null,
+                web_view_link: "https://drive.example/folder/nested",
+                created_time: "2026-07-05T00:00:00Z",
+                modified_time: "2026-07-06T00:00:00Z",
+                is_folder: true,
+              },
+            ],
+            next_page_token: "next-token",
+          });
+        if (url.endsWith("/api/google/drive/folders/folder-children/children?page_token=next-token"))
+          return json({
+            folder_id: "folder-children",
+            items: [
+              {
+                id: "child-file-2",
+                name: "second-child.wav",
+                mime_type: "audio/wav",
+                size_bytes: null,
+                web_view_link: null,
+                created_time: null,
+                modified_time: "2026-07-07T00:00:00Z",
+                is_folder: false,
+              },
+            ],
+            next_page_token: null,
+          });
         if (url.endsWith("/api/projects/p1/sources") && !init?.method)
           return json({
             sources: [
@@ -725,6 +769,81 @@ describe("Studio PWA", () => {
       "x-csrf-token": "csrf-after-refresh",
     });
   });
+  it("lists Drive folder children, appends pages, and adds selected file metadata only", async () => {
+    renderApp("platform");
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Проекты/ }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Показать sources" }),
+    );
+    await userEvent.type(screen.getByPlaceholderText("Drive folder ID"), "folder-children");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Показать файлы в папке" }),
+    );
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/google/drive/folders/folder-children/children",
+        expect.objectContaining({ credentials: "same-origin" }),
+      ),
+    );
+    const children = await screen.findByLabelText("Drive folder children");
+    expect(within(children).getByText("child-call.mp3")).toBeInTheDocument();
+    expect(within(children).getByText("Файл Google Drive")).toBeInTheDocument();
+    expect(within(children).getByText("Nested folder")).toBeInTheDocument();
+    expect(
+      within(children).getByText("Папка Google Drive — не добавляется как source файл"),
+    ).toBeInTheDocument();
+    expect(within(children).getByText("MIME: audio/mpeg")).toBeInTheDocument();
+    expect(within(children).getByText("Размер: 0.00 MB")).toBeInTheDocument();
+    expect(
+      within(children)
+        .getAllByRole("link", { name: "Открыть в Google Drive" })[0],
+    ).toHaveAttribute("href", "https://drive.example/file/child-1");
+
+    await userEvent.click(within(children).getByRole("button", { name: "Загрузить ещё" }));
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/google/drive/folders/folder-children/children?page_token=next-token",
+        expect.objectContaining({ credentials: "same-origin" }),
+      ),
+    );
+    expect(await screen.findByText("second-child.wav")).toBeInTheDocument();
+
+    const childFile = within(children).getByLabelText("child-call.mp3");
+    const childFolder = within(children).getByLabelText("Nested folder");
+    expect(childFolder).toBeDisabled();
+    await userEvent.click(childFile);
+    await userEvent.click(
+      within(children).getByRole("button", { name: "Добавить выбранные sources" }),
+    );
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/projects/p1/sources/google-drive",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+    const driveCalls = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(
+      ([url, init]) => url === "/api/projects/p1/sources/google-drive" && init?.method === "POST",
+    );
+    expect(driveCalls).toHaveLength(1);
+    expect(driveCalls[0]?.[1]?.headers).toMatchObject({
+      "x-csrf-token": "csrf-after-refresh",
+    });
+    expect(JSON.parse(String(driveCalls[0]?.[1]?.body))).toMatchObject({
+      drive_file_id: "child-file-1",
+      drive_file_url: "https://drive.example/file/child-1",
+      original_filename: "child-call.mp3",
+      mime_type: "audio/mpeg",
+      size_bytes: 4096,
+    });
+    expect(JSON.stringify(driveCalls.map((call) => call[1]?.body))).not.toContain(
+      "child-folder-1",
+    );
+    expect(window.localStorage.length).toBe(0);
+    expect(window.sessionStorage.length).toBe(0);
+  });
+
   it("shows safe Drive metadata verification errors without rendering token-like backend details", async () => {
     const rawSecret =
       "ya29.raw-access-token-never-render raw-google-payload refresh_token";
@@ -757,6 +876,8 @@ describe("Studio PWA", () => {
           return json({ sources: [] });
         if (url.includes("/api/google/drive/files/"))
           return json({ detail: rawSecret }, false, 409);
+        if (url.includes("/api/google/drive/folders/"))
+          return json({ detail: rawSecret }, false, 502);
         return json({ credentials: [], events: [] });
       },
     );
@@ -776,6 +897,16 @@ describe("Studio PWA", () => {
     );
     expect(
       await screen.findByText(/Не удалось проверить Drive metadata/),
+    ).toBeInTheDocument();
+    await userEvent.type(
+      screen.getByPlaceholderText("Drive folder ID"),
+      "folder-with-error",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Показать файлы в папке" }),
+    );
+    expect(
+      await screen.findByText(/Не удалось загрузить файлы из Drive папки/),
     ).toBeInTheDocument();
     expect(
       screen.queryByText(/raw-access-token-never-render/),

@@ -80,6 +80,12 @@ type DriveMetadata = {
   modified_time: string | null;
   is_folder: boolean;
 };
+
+type DriveFolderChildren = {
+  folder_id: string;
+  items: DriveMetadata[];
+  next_page_token: string | null;
+};
 const LOCAL_UPLOAD_LIMIT_BYTES = 536870912;
 const emptySourceState = {
   loading: false,
@@ -93,6 +99,9 @@ function formatBytes(value: number | null) {
 }
 function formatTime(value: string | null) {
   return value ? new Date(value).toLocaleString("ru-RU") : "—";
+}
+function driveDisplayName(item: DriveMetadata) {
+  return item.name || `Google Drive source ${item.id}`;
 }
 function isSupportedMediaFile(file: File) {
   return (
@@ -426,6 +435,12 @@ function SourcesPanel({
   );
   const [driveVerifyState, setDriveVerifyState] = useState("");
   const [driveVerifyError, setDriveVerifyError] = useState("");
+  const [driveFolderId, setDriveFolderId] = useState("");
+  const [driveFolderItems, setDriveFolderItems] = useState<DriveMetadata[]>([]);
+  const [driveFolderNextPageToken, setDriveFolderNextPageToken] = useState<string | null>(null);
+  const [driveFolderState, setDriveFolderState] = useState("");
+  const [driveFolderError, setDriveFolderError] = useState("");
+  const [selectedDriveChildren, setSelectedDriveChildren] = useState<string[]>([]);
   async function verifyDriveMetadata(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const cleanId = driveFileId.trim();
@@ -462,7 +477,7 @@ function SourcesPanel({
             drive_file_id: driveMetadata.id,
             drive_file_url: driveMetadata.web_view_link || null,
             original_filename:
-              driveMetadata.name || `Google Drive source ${driveMetadata.id}`,
+              driveDisplayName(driveMetadata),
             mime_type: driveMetadata.mime_type || null,
             size_bytes: driveMetadata.size_bytes ?? null,
           }),
@@ -478,6 +493,77 @@ function SourcesPanel({
           ? err.message
           : "Не удалось добавить Google Drive source metadata.",
       );
+    }
+  }
+  async function loadDriveFolderChildren(pageToken?: string) {
+    const cleanId = driveFolderId.trim();
+    if (!cleanId) {
+      setDriveFolderError("Введите Google Drive folder ID.");
+      return;
+    }
+    setDriveFolderError("");
+    setDriveFolderState(
+      pageToken ? "Загружаем ещё файлы из папки…" : "Загружаем файлы из Drive папки…",
+    );
+    if (!pageToken) {
+      setDriveFolderItems([]);
+      setSelectedDriveChildren([]);
+      setDriveFolderNextPageToken(null);
+    }
+    try {
+      const query = pageToken ? `?page_token=${encodeURIComponent(pageToken)}` : "";
+      const result = await api<DriveFolderChildren>(
+        `/google/drive/folders/${encodeURIComponent(cleanId)}/children${query}`,
+      );
+      setDriveFolderItems((current) =>
+        pageToken ? [...current, ...result.items] : result.items,
+      );
+      setDriveFolderNextPageToken(result.next_page_token);
+      setDriveFolderState("Drive folder children загружены.");
+    } catch {
+      setDriveFolderState("");
+      setDriveFolderError(
+        "Не удалось загрузить файлы из Drive папки. Проверьте подключение Google Drive, доступ к папке или runtime-настройки и повторите.",
+      );
+    }
+  }
+  async function addSelectedDriveChildren() {
+    const selectedItems = driveFolderItems.filter(
+      (item) => selectedDriveChildren.includes(item.id) && !item.is_folder,
+    );
+    if (selectedItems.length === 0) {
+      setDriveFolderError("Выберите хотя бы один файл из списка Drive folder children.");
+      return;
+    }
+    setDriveFolderError("");
+    setDriveFolderState("Добавляем выбранные Drive sources…");
+    try {
+      for (const item of selectedItems) {
+        await csrfMutate<Source>(
+          `/projects/${project.id}/sources/google-drive`,
+          csrf,
+          onCsrf,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              drive_file_id: item.id,
+              drive_file_url: item.web_view_link || null,
+              original_filename: driveDisplayName(item),
+              mime_type: item.mime_type || null,
+              size_bytes: item.size_bytes ?? null,
+            }),
+          },
+        );
+      }
+      setSelectedDriveChildren([]);
+      setDriveFolderState("Выбранные Google Drive sources добавлены.");
+      onReload(project.id);
+    } catch {
+      setDriveFolderState("");
+      setDriveFolderError(
+        "Не удалось добавить все выбранные Google Drive sources. Проверьте список sources и повторите безопасно.",
+      );
+      onReload(project.id);
     }
   }
   async function uploadLocal(e: ChangeEvent<HTMLInputElement>) {
@@ -582,6 +668,7 @@ function SourcesPanel({
         </article>
       ))}
       <form className="source-form" onSubmit={verifyDriveMetadata}>
+        <h5>Добавить один Drive file/folder ID</h5>
         <p className="notice">
           Введите один Google Drive file/folder ID. Браузер вызывает только
           backend Studio; Google API напрямую из UI не вызывается.
@@ -606,7 +693,7 @@ function SourcesPanel({
       {driveVerifyError && <p className="error">{driveVerifyError}</p>}
       {driveMetadata && (
         <article className="source-card" aria-label="Drive metadata preview">
-          <b>{driveMetadata.name || "Google Drive source"}</b>
+          <b>{driveDisplayName(driveMetadata)}</b>
           {driveMetadata.is_folder && <span>Папка Google Drive</span>}
           <span>MIME: {driveMetadata.mime_type || "не указан"}</span>
           <span>Размер: {formatBytes(driveMetadata.size_bytes)}</span>
@@ -623,6 +710,90 @@ function SourcesPanel({
             Добавить source из проверенных metadata
           </button>
         </article>
+      )}
+
+      <form
+        className="source-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void loadDriveFolderChildren();
+        }}
+      >
+        <h5>Показать файлы из Drive folder ID</h5>
+        <p className="notice">
+          Введите один Google Drive folder ID. UI показывает только direct
+          children и safe metadata от backend; вложенная навигация и Drive
+          search не выполняются.
+        </p>
+        <input
+          value={driveFolderId}
+          onChange={(e) => {
+            setDriveFolderId(e.target.value);
+            setDriveFolderItems([]);
+            setSelectedDriveChildren([]);
+            setDriveFolderNextPageToken(null);
+            setDriveFolderError("");
+            setDriveFolderState("");
+          }}
+          placeholder="Drive folder ID"
+          aria-label="Drive folder ID"
+          required
+        />
+        <button className="primary" disabled={!driveFolderId.trim()}>
+          Показать файлы в папке
+        </button>
+      </form>
+      {driveFolderState && <p role="status">{driveFolderState}</p>}
+      {driveFolderError && <p className="error">{driveFolderError}</p>}
+      {driveFolderItems.length === 0 &&
+        driveFolderState === "Drive folder children загружены." && (
+          <p className="notice">В этой Drive папке нет direct children.</p>
+        )}
+      {driveFolderItems.length > 0 && (
+        <section aria-label="Drive folder children">
+          {driveFolderItems.map((item) => (
+            <article className="source-card" key={item.id}>
+              <label>
+                <input
+                  type="checkbox"
+                  disabled={item.is_folder}
+                  checked={selectedDriveChildren.includes(item.id)}
+                  onChange={(e) => {
+                    setSelectedDriveChildren((current) =>
+                      e.target.checked
+                        ? [...current, item.id]
+                        : current.filter((id) => id !== item.id),
+                    );
+                  }}
+                />
+                {driveDisplayName(item)}
+              </label>
+              {item.is_folder ? (
+                <span>Папка Google Drive — не добавляется как source файл</span>
+              ) : (
+                <span>Файл Google Drive</span>
+              )}
+              <span>MIME: {item.mime_type || "не указан"}</span>
+              <span>Размер: {formatBytes(item.size_bytes)}</span>
+              <span>Создан: {formatTime(item.created_time)}</span>
+              <span>Изменён: {formatTime(item.modified_time)}</span>
+              {item.web_view_link && (
+                <a href={item.web_view_link}>Открыть в Google Drive</a>
+              )}
+            </article>
+          ))}
+          <button type="button" className="primary" onClick={addSelectedDriveChildren}>
+            Добавить выбранные sources
+          </button>
+          {driveFolderNextPageToken && (
+            <button
+              type="button"
+              onClick={() => void loadDriveFolderChildren(driveFolderNextPageToken)}
+            >
+              Загрузить ещё
+            </button>
+          )}
+        </section>
       )}
       <label className="drop compact">
         Загрузить временный локальный audio/video source
