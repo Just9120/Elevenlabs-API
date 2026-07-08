@@ -164,6 +164,15 @@ function jobTitle(job: TranscriptionJob) {
 function safeJobSources(job: TranscriptionJob) {
   return [...(job.sources ?? [])].sort((a, b) => a.position - b.position);
 }
+function jobStatusLabel(status: JobStatus) {
+  const labels: Record<JobStatus, string> = {
+    queued: "Queued · record only",
+    cancelled: "Cancelled · processing не запускался",
+    failed: "Failed · safe error metadata only",
+    completed: "Completed · reserved for future processing",
+  };
+  return labels[status];
+}
 function credentialDisplay(c: Credential) {
   return [
     c.provider,
@@ -924,6 +933,12 @@ function JobsPanel({
     };
   }, []);
   const activeCredentials = credentials.filter((credential) => credential.status === "active");
+  const usableSourceCount = sources.loaded
+    ? sources.items.filter(isUsableJobSource).length
+    : 0;
+  const selectedCredential = activeCredentials.find(
+    (credential) => credential.id === selectedCredentialId,
+  );
   const usableSelected = selectedSourceIds.filter((id) =>
     sources.items.some((source) => source.id === id && isUsableJobSource(source)),
   );
@@ -991,7 +1006,7 @@ function JobsPanel({
         ...current,
         [jobId]: { loading: false, error: "", job: cancelled },
       }));
-      setMessage("Job отменена или уже была отменена.");
+      setMessage("Job record отменён или уже был отменён. Provider processing не запускался.");
       onReloadJobs(project.id);
     } catch {
       setMessage("Не удалось отменить job. Повторите безопасно позже.");
@@ -1002,9 +1017,42 @@ function JobsPanel({
       <h4>Jobs проекта</h4>
       {jobs.loading && <p role="status">Загрузка jobs…</p>}
       {jobs.error && <p className="error">{jobs.error}</p>}
+      <div className="notice" aria-label="Job lifecycle boundary">
+        <p>Queued job сейчас означает только сохранённую запись. Processing worker ещё не подключён.</p>
+        <p>Cancel отменяет queued record; provider processing ещё не запускался.</p>
+        <p>Provider execution, Google Docs output и manifest mutation пока deferred.</p>
+      </div>
       {jobs.loaded && !jobs.loading && jobs.items.length === 0 && (
         <p className="notice">Job records пока не созданы.</p>
       )}
+      <section className="source-form" aria-label="Project job readiness checklist">
+        <h5>Readiness checklist перед future processing</h5>
+        <ul>
+          <li>
+            Sources: {sources.loaded
+              ? `${usableSourceCount} usable uploaded source(s)`
+              : "sources ещё не загружены"}
+            {!sources.loaded && " — загрузите sources для readiness preview."}
+            {sources.loaded && usableSourceCount === 0 && " — нет uploaded usable sources."}
+          </li>
+          <li>
+            BYOK credential: {selectedCredential
+              ? `${credentialDisplay(selectedCredential)} selected`
+              : "не выбран — optional для record creation."}
+            {!selectedCredential &&
+              (activeCredentials.length > 0
+                ? " Future processing потребует выбрать active provider credential."
+                : " Active provider credential недоступен; future processing потребует active BYOK credential.")}
+          </li>
+          <li>
+            Output folder: {project.output_drive_folder_id
+              ? `configured (${project.output_drive_folder_name || project.output_drive_folder_id})`
+              : "не настроен — future Google Docs output потребует output Drive folder."}
+          </li>
+          <li>Processing: worker/provider execution не реализованы в этом slice.</li>
+        </ul>
+        <p className="notice">Checklist только объясняет readiness и не запускает processing.</p>
+      </section>
       <form className="source-form" onSubmit={createJob}>
         <h5>Создать queued job из sources</h5>
         {!sources.loaded ? (
@@ -1073,7 +1121,7 @@ function JobsPanel({
         return (
           <article className="source-card" key={job.id}>
             <b>{jobTitle(job)}</b>
-            <span>Статус: {job.status}</span>
+            <span>Статус: {jobStatusLabel(job.status)}</span>
             <span>Sources: {job.source_count}</span>
             <span>Created: {formatTime(job.created_at)}</span>
             <span>Updated: {formatTime(job.updated_at)}</span>
@@ -1082,7 +1130,7 @@ function JobsPanel({
             {job.error_message && <span>Error: {job.error_message}</span>}
             <button type="button" onClick={() => void loadDetail(job.id)}>Показать детали job</button>
             {job.status === "queued" && (
-              <button type="button" onClick={() => void cancelJob(job.id)}>Отменить job</button>
+              <button type="button" onClick={() => void cancelJob(job.id)}>Отменить queued record</button>
             )}
             {currentDetail?.loading && <p role="status">Загрузка деталей job…</p>}
             {currentDetail?.error && <p className="error">{currentDetail.error}</p>}

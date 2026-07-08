@@ -771,6 +771,16 @@ describe("Studio PWA", () => {
       "x-csrf-token": "csrf-after-refresh",
     });
   });
+
+  it("shows configured output folder in job readiness checklist", async () => {
+    renderApp("platform");
+    await userEvent.click(await screen.findByRole("button", { name: /Проекты/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "Показать jobs" }));
+    expect(await screen.findByLabelText("Project job readiness checklist")).toHaveTextContent(
+      "Output folder: configured (Transcripts)",
+    );
+  });
+
   it("creates, lists, details, and cancels project jobs safely with CSRF", async () => {
     const secretLike = "sk-live-raw-token refresh_token encrypted_ciphertext s3://secret-key https://upload.example/leak";
     (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
@@ -1048,14 +1058,23 @@ describe("Studio PWA", () => {
       ),
     );
     expect(await screen.findByText("Queued review")).toBeInTheDocument();
+    expect(screen.getByText("Queued job сейчас означает только сохранённую запись. Processing worker ещё не подключён.")).toBeInTheDocument();
+    expect(screen.getByText("Cancel отменяет queued record; provider processing ещё не запускался.")).toBeInTheDocument();
+    expect(screen.getByText("Provider execution, Google Docs output и manifest mutation пока deferred.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Project job readiness checklist")).toHaveTextContent("sources ещё не загружены");
+    expect(screen.getByLabelText("Project job readiness checklist")).toHaveTextContent("не выбран — optional для record creation");
+    expect(screen.getByLabelText("Project job readiness checklist")).toHaveTextContent("Output folder: не настроен");
+    expect(screen.getByLabelText("Project job readiness checklist")).toHaveTextContent("worker/provider execution не реализованы");
     expect(screen.getByText("Job job-2")).toBeInTheDocument();
-    expect(screen.getByText("Статус: queued")).toBeInTheDocument();
+    expect(screen.getByText("Статус: Queued · record only")).toBeInTheDocument();
+    expect(screen.getByText("Статус: Failed · safe error metadata only")).toBeInTheDocument();
     expect(screen.getByText("Sources: 2")).toBeInTheDocument();
     expect(screen.getByText("Error code: SAFE_CODE")).toBeInTheDocument();
     expect(screen.getByText("Error: Safe visible error")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Показать sources" }));
     expect(await screen.findByText("ready-drive.mp4")).toBeInTheDocument();
+    expect(screen.getByLabelText("Project job readiness checklist")).toHaveTextContent("Sources: 2 usable uploaded source(s)");
     expect(screen.getByText(/Source ещё не готов для job/)).toBeInTheDocument();
     expect(screen.getByText(/Удалённый source нельзя добавить в job/)).toBeInTheDocument();
     expect(screen.getByLabelText(/pending-local/)).toBeDisabled();
@@ -1069,6 +1088,7 @@ describe("Studio PWA", () => {
     expect(within(credentialSelect).queryByRole("option", { name: /Revoked STT/ })).not.toBeInTheDocument();
     expect(within(credentialSelect).queryByRole("option", { name: /Deleted STT/ })).not.toBeInTheDocument();
     await userEvent.selectOptions(credentialSelect, "cred-active");
+    expect(screen.getByLabelText("Project job readiness checklist")).toHaveTextContent("openai · Primary STT · ••••1234 · v2 selected");
     await userEvent.click(screen.getByRole("button", { name: "Создать job" }));
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
@@ -1099,7 +1119,7 @@ describe("Studio PWA", () => {
     expect(within(detail).getAllByText("Job source status: queued")).toHaveLength(2);
     expect(within(detail).queryByRole("link", { name: "Drive file URL" })).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "Отменить job" }));
+    await userEvent.click(screen.getByRole("button", { name: "Отменить queued record" }));
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
         "/api/jobs/job-1/cancel",
@@ -1110,7 +1130,7 @@ describe("Studio PWA", () => {
       ([url]) => url === "/api/jobs/job-1/cancel",
     );
     expect(cancelCall?.[1]?.headers).toMatchObject({ "x-csrf-token": "csrf-after-refresh" });
-    expect(await screen.findByText("Job отменена или уже была отменена.")).toBeInTheDocument();
+    expect(await screen.findByText("Job record отменён или уже был отменён. Provider processing не запускался.")).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("raw-token");
     expect(document.body.textContent).not.toContain("refresh_token");
     expect(document.body.textContent).not.toContain("encrypted_ciphertext");
@@ -1195,6 +1215,7 @@ describe("Studio PWA", () => {
     expect(
       await screen.findByText("Credentials сейчас недоступны. Job можно создать без credential."),
     ).toBeInTheDocument();
+    expect(screen.getByLabelText("Project job readiness checklist")).toHaveTextContent("Active provider credential недоступен");
     expect(screen.queryByText("raw backend detail ignored")).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Показать sources" }));
