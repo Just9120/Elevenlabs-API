@@ -31,6 +31,11 @@ class Settings(BaseSettings):
     source_upload_ttl_seconds: int = 3600
     source_presign_ttl_seconds: int = 900
     source_max_upload_bytes: int = 536870912
+    google_oauth_client_id: str | None = None
+    google_oauth_client_secret_file: str | None = None
+    google_oauth_redirect_uri: str | None = None
+    google_oauth_scopes: str = "openid email https://www.googleapis.com/auth/drive.file"
+    google_oauth_state_ttl_seconds: int = 600
 
     def master_key_b64(self) -> str:
         return Path(self.credential_master_key_file).read_text(encoding="utf-8").strip()
