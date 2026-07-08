@@ -53,9 +53,10 @@ type Source = {
   updated_at: string;
 };
 type JobStatus = "queued" | "cancelled" | "failed" | "completed";
+type JobSourceStatus = "queued" | "skipped";
 type JobSource = Source & {
   position: number;
-  job_source_status: JobStatus;
+  job_source_status: JobSourceStatus;
 };
 type TranscriptionJob = {
   id: string;
@@ -162,6 +163,14 @@ function jobTitle(job: TranscriptionJob) {
 }
 function safeJobSources(job: TranscriptionJob) {
   return [...(job.sources ?? [])].sort((a, b) => a.position - b.position);
+}
+function credentialDisplay(c: Credential) {
+  return [
+    c.provider,
+    c.label,
+    c.masked_value,
+    c.active_version ? `v${c.active_version}` : "",
+  ].filter(Boolean).join(" · ");
 }
 function isSupportedMediaFile(file: File) {
   return (
@@ -886,9 +895,35 @@ function JobsPanel({
   onReloadJobs: (projectId: string) => void;
 }) {
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
+  const [selectedCredentialId, setSelectedCredentialId] = useState("");
+  const [credentials, setCredentials] = useState<Credential[]>([]);
+  const [credentialsLoading, setCredentialsLoading] = useState(true);
+  const [credentialsError, setCredentialsError] = useState("");
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
   const [detail, setDetail] = useState<Record<string, { loading: boolean; error: string; job: TranscriptionJob | null }>>({});
+  useEffect(() => {
+    let cancelled = false;
+    setCredentialsLoading(true);
+    setCredentialsError("");
+    api<{ credentials: Credential[] }>("/credentials")
+      .then((r) => {
+        if (!cancelled) setCredentials(r.credentials);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCredentials([]);
+          setCredentialsError("Credentials сейчас недоступны. Job можно создать без credential.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setCredentialsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const activeCredentials = credentials.filter((credential) => credential.status === "active");
   const usableSelected = selectedSourceIds.filter((id) =>
     sources.items.some((source) => source.id === id && isUsableJobSource(source)),
   );
@@ -913,11 +948,13 @@ function JobsPanel({
           body: JSON.stringify({
             source_ids: usableSelected,
             title: title.trim() || null,
+            provider_credential_id: selectedCredentialId || null,
           }),
         },
       );
       setTitle("");
       setSelectedSourceIds([]);
+      setSelectedCredentialId("");
       setDetail((current) => ({
         ...current,
         [created.id]: { loading: false, error: "", job: created },
@@ -1007,6 +1044,26 @@ function JobsPanel({
           aria-label="Название job"
           maxLength={160}
         />
+        <label>
+          Provider credential для будущего processing
+          <select
+            aria-label="Provider credential для будущего processing"
+            value={selectedCredentialId}
+            onChange={(e) => setSelectedCredentialId(e.target.value)}
+          >
+            <option value="">Без credential</option>
+            {activeCredentials.map((credential) => (
+              <option key={credential.id} value={credential.id}>
+                {credentialDisplay(credential)}
+              </option>
+            ))}
+          </select>
+        </label>
+        {credentialsLoading && <p role="status">Загрузка credentials…</p>}
+        {!credentialsLoading && credentialsError && <p className="notice">{credentialsError}</p>}
+        {!credentialsLoading && !credentialsError && activeCredentials.length === 0 && (
+          <p className="notice">Активных BYOK credentials нет. Job будет создана без credential.</p>
+        )}
         <button className="primary" disabled={!sources.loaded}>Создать job</button>
       </form>
       {message && <p className={message.startsWith("Не удалось") ? "error" : "notice"}>{message}</p>}

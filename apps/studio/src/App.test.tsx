@@ -778,6 +778,38 @@ describe("Studio PWA", () => {
         if (url.endsWith("/api/auth/session"))
           return json({ authenticated: true, user: { email: "user@example.com", role: "admin" } });
         if (url.endsWith("/api/auth/csrf")) return json({ csrf_token: "csrf-after-refresh" });
+        if (url.endsWith("/api/credentials"))
+          return json({
+            credentials: [
+              {
+                id: "cred-active",
+                provider: "openai",
+                label: "Primary STT",
+                status: "active",
+                masked_value: "••••1234",
+                active_version: 2,
+                raw_value: secretLike,
+                ciphertext: secretLike,
+                nonce: secretLike,
+              },
+              {
+                id: "cred-revoked",
+                provider: "elevenlabs",
+                label: "Revoked STT",
+                status: "revoked",
+                masked_value: "••••9999",
+                active_version: 1,
+              },
+              {
+                id: "cred-deleted",
+                provider: "openai",
+                label: "Deleted STT",
+                status: "deleted",
+                masked_value: "••••0000",
+                active_version: 1,
+              },
+            ],
+          });
         if (url.endsWith("/api/projects"))
           return json({
             projects: [
@@ -1009,6 +1041,12 @@ describe("Studio PWA", () => {
         expect.objectContaining({ credentials: "same-origin" }),
       ),
     );
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/credentials",
+        expect.objectContaining({ credentials: "same-origin" }),
+      ),
+    );
     expect(await screen.findByText("Queued review")).toBeInTheDocument();
     expect(screen.getByText("Job job-2")).toBeInTheDocument();
     expect(screen.getByText("Статус: queued")).toBeInTheDocument();
@@ -1025,6 +1063,12 @@ describe("Studio PWA", () => {
     await userEvent.click(screen.getByLabelText(/ready-drive/));
     await userEvent.click(screen.getByLabelText(/ready-local/));
     await userEvent.type(screen.getByLabelText("Название job"), "Created from UI");
+    const credentialSelect = screen.getByLabelText("Provider credential для будущего processing");
+    expect(within(credentialSelect).getByRole("option", { name: "Без credential" })).toBeInTheDocument();
+    expect(within(credentialSelect).getByRole("option", { name: "openai · Primary STT · ••••1234 · v2" })).toBeInTheDocument();
+    expect(within(credentialSelect).queryByRole("option", { name: /Revoked STT/ })).not.toBeInTheDocument();
+    expect(within(credentialSelect).queryByRole("option", { name: /Deleted STT/ })).not.toBeInTheDocument();
+    await userEvent.selectOptions(credentialSelect, "cred-active");
     await userEvent.click(screen.getByRole("button", { name: "Создать job" }));
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
@@ -1039,6 +1083,7 @@ describe("Studio PWA", () => {
     expect(JSON.parse(String(createCall?.[1]?.body))).toEqual({
       source_ids: ["s1", "s2"],
       title: "Created from UI",
+      provider_credential_id: "cred-active",
     });
 
     await userEvent.click(screen.getAllByRole("button", { name: "Показать детали job" })[0]);
@@ -1070,6 +1115,103 @@ describe("Studio PWA", () => {
     expect(document.body.textContent).not.toContain("refresh_token");
     expect(document.body.textContent).not.toContain("encrypted_ciphertext");
     expect(document.body.textContent).not.toContain("https://upload.example/leak");
+    expect(document.body.textContent).not.toContain("cred-active");
+    expect(document.body.textContent).not.toContain("cred-revoked");
+    expect(window.localStorage.length).toBe(0);
+    expect(window.sessionStorage.length).toBe(0);
+  });
+
+  it("allows creating a job without credential when credential loading fails", async () => {
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (url: string, init?: RequestInit) => {
+        if (url.endsWith("/api/auth/session"))
+          return json({ authenticated: true, user: { email: "user@example.com", role: "admin" } });
+        if (url.endsWith("/api/auth/csrf")) return json({ csrf_token: "csrf-after-refresh" });
+        if (url.endsWith("/api/credentials")) return json({ detail: "raw backend detail ignored" }, false, 503);
+        if (url.endsWith("/api/projects"))
+          return json({
+            projects: [
+              {
+                id: "p1",
+                title: "Research calls",
+                description: null,
+                created_at: "2026-07-01T00:00:00",
+                updated_at: "2026-07-01T00:00:00",
+                archived_at: null,
+                output_drive_folder_id: null,
+                output_drive_folder_url: null,
+                output_drive_folder_name: null,
+              },
+            ],
+          });
+        if (url.endsWith("/api/projects/p1/jobs") && !init?.method)
+          return json({ jobs: [] });
+        if (url.endsWith("/api/projects/p1/sources") && !init?.method)
+          return json({
+            sources: [
+              {
+                id: "s1",
+                project_id: "p1",
+                source_type: "local_upload",
+                original_filename: "ready-local.ogg",
+                mime_type: "audio/ogg",
+                size_bytes: 4096,
+                drive_file_id: null,
+                drive_file_url: null,
+                upload_status: "uploaded",
+                uploaded_at: "2026-07-01T00:02:00",
+                expires_at: "2026-07-01T01:02:00",
+                deleted_at: null,
+                delete_reason: null,
+                created_at: "2026-07-01T00:00:00",
+                updated_at: "2026-07-01T00:00:00",
+              },
+            ],
+          });
+        if (url.endsWith("/api/projects/p1/jobs") && init?.method === "POST")
+          return json({
+            id: "job-created",
+            project_id: "p1",
+            status: "queued",
+            title: null,
+            provider: null,
+            provider_credential_id: null,
+            source_count: 1,
+            sources: [],
+            created_at: "2026-07-04T00:00:00Z",
+            updated_at: "2026-07-04T00:00:00Z",
+            cancelled_at: null,
+            started_at: null,
+            finished_at: null,
+            error_code: null,
+            error_message: null,
+          });
+        return json({});
+      },
+    );
+    renderApp("platform");
+    await userEvent.click(await screen.findByRole("button", { name: /Проекты/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "Показать jobs" }));
+    expect(
+      await screen.findByText("Credentials сейчас недоступны. Job можно создать без credential."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("raw backend detail ignored")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Показать sources" }));
+    await userEvent.click(await screen.findByLabelText(/ready-local/));
+    await userEvent.click(screen.getByRole("button", { name: "Создать job" }));
+    const createCall = await waitFor(() => {
+      const call = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.find(
+        ([url, init]) => url === "/api/projects/p1/jobs" && init?.method === "POST",
+      );
+      expect(call).toBeTruthy();
+      return call;
+    });
+    expect(JSON.parse(String(createCall?.[1]?.body))).toEqual({
+      source_ids: ["s1"],
+      title: null,
+      provider_credential_id: null,
+    });
     expect(window.localStorage.length).toBe(0);
     expect(window.sessionStorage.length).toBe(0);
   });
