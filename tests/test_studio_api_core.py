@@ -612,3 +612,111 @@ def test_google_drive_metadata_user_isolation(monkeypatch, tmp_path):
     r = c2.get("/api/google/drive/files/folder_123/metadata")
     assert r.status_code == 404
     assert "fake-refresh-token-owner" not in r.text and "fake-access-token-owner" not in r.text
+
+
+def test_google_drive_folder_children_requires_authentication():
+    c = TestClient(app)
+    assert c.get("/api/google/drive/folders/folder_123/children").status_code == 401
+
+
+def test_google_drive_folder_children_no_connection_safe_error(monkeypatch, tmp_path):
+    configure_google_oauth(monkeypatch, tmp_path)
+    pw = admin("drive-children-none@example.com"); c = TestClient(app); login(c, pw, "drive-children-none@example.com")
+    r = c.get("/api/google/drive/folders/folder_123/children")
+    assert r.status_code == 404
+    assert "refresh" not in r.text.lower() and "access" not in r.text.lower() and str(tmp_path) not in r.text
+
+
+def test_google_drive_folder_children_revoked_connection_safe_error(monkeypatch, tmp_path):
+    configure_google_oauth(monkeypatch, tmp_path)
+    pw = admin("drive-children-revoked@example.com"); c = TestClient(app); login(c, pw, "drive-children-revoked@example.com")
+    add_google_connection_for_user("drive-children-revoked@example.com", "fake-refresh-token-children-revoked", status="revoked")
+    r = c.get("/api/google/drive/folders/folder_123/children")
+    assert r.status_code == 409
+    assert "fake-refresh-token-children-revoked" not in r.text and str(tmp_path) not in r.text
+
+
+def test_google_drive_folder_children_missing_runtime_config_fails_closed(monkeypatch):
+    from studio_api import main as main_mod
+    pw = admin("drive-children-noconfig@example.com"); c = TestClient(app); login(c, pw, "drive-children-noconfig@example.com")
+    add_google_connection_for_user("drive-children-noconfig@example.com", "fake-refresh-token-children-config")
+    main_mod.settings.google_oauth_client_id = None
+    main_mod.settings.google_oauth_client_secret_file = None
+    main_mod.settings.google_oauth_redirect_uri = None
+    r = c.get("/api/google/drive/folders/folder_123/children")
+    assert r.status_code == 503
+    assert "fake-refresh-token-children-config" not in r.text and "secret" not in r.text.lower()
+
+
+def test_google_drive_folder_children_active_connection_returns_safe_items_and_pagination(monkeypatch, tmp_path):
+    configure_google_oauth(monkeypatch, tmp_path)
+    raw_refresh = "fake-refresh-token-children-success"
+    raw_access = "fake-access-token-children-success"
+    pw = admin("drive-children-success@example.com"); c = TestClient(app); login(c, pw, "drive-children-success@example.com")
+    add_google_connection_for_user("drive-children-success@example.com", raw_refresh)
+    calls = {}
+    def fake_refresh(cfg, refresh_token):
+        calls["refresh_token"] = refresh_token
+        return raw_access
+    def fake_list(access_token, folder_id, page_size=50, page_token=None):
+        calls.update({"access_token": access_token, "folder_id": folder_id, "page_size": page_size, "page_token": page_token})
+        from studio_api.google_drive import GoogleDriveFolderChildren, GoogleDriveMetadata
+        return GoogleDriveFolderChildren(folder_id, [
+            GoogleDriveMetadata("file_123", "Meeting.mp4", "video/mp4", 42, "https://drive.google.com/file/d/file_123/view", "2026-01-01T00:00:00.000Z", "2026-01-02T00:00:00.000Z", False),
+            GoogleDriveMetadata("folder_child", "Nested", "application/vnd.google-apps.folder", None, "https://drive.google.com/drive/folders/folder_child", "2026-01-03T00:00:00.000Z", "2026-01-04T00:00:00.000Z", True),
+        ], "safe-next-page-token")
+    monkeypatch.setattr("studio_api.google_drive.refresh_access_token", fake_refresh)
+    monkeypatch.setattr("studio_api.google_drive.list_drive_folder_children", fake_list)
+    r = c.get("/api/google/drive/folders/folder_123/children?page_size=25&page_token=safe-page-token")
+    assert r.status_code == 200
+    assert r.json() == {"folder_id":"folder_123", "items":[
+        {"id":"file_123", "name":"Meeting.mp4", "mime_type":"video/mp4", "size_bytes":42, "web_view_link":"https://drive.google.com/file/d/file_123/view", "created_time":"2026-01-01T00:00:00.000Z", "modified_time":"2026-01-02T00:00:00.000Z", "is_folder":False},
+        {"id":"folder_child", "name":"Nested", "mime_type":"application/vnd.google-apps.folder", "size_bytes":None, "web_view_link":"https://drive.google.com/drive/folders/folder_child", "created_time":"2026-01-03T00:00:00.000Z", "modified_time":"2026-01-04T00:00:00.000Z", "is_folder":True},
+    ], "next_page_token":"safe-next-page-token"}
+    assert calls == {"refresh_token": raw_refresh, "access_token": raw_access, "folder_id": "folder_123", "page_size": 25, "page_token": "safe-page-token"}
+    forbidden = [raw_refresh, raw_access, "google-client-secret-test", str(tmp_path), "rawPayload", "owners", "permissions", "labels", "thumbnail"]
+    assert all(value not in r.text for value in forbidden)
+
+
+def test_google_drive_folder_children_drive_failure_safe_no_raw_leak(monkeypatch, tmp_path):
+    configure_google_oauth(monkeypatch, tmp_path)
+    raw_refresh = "fake-refresh-token-children-failure"
+    raw_access = "fake-access-token-children-failure"
+    raw_google_body = "raw google body with owners permissions labels thumbnails and token fake-access-token-children-failure"
+    pw = admin("drive-children-failure@example.com"); c = TestClient(app); login(c, pw, "drive-children-failure@example.com")
+    add_google_connection_for_user("drive-children-failure@example.com", raw_refresh)
+    monkeypatch.setattr("studio_api.google_drive.refresh_access_token", lambda cfg, refresh_token: raw_access)
+    def fake_list(access_token, folder_id, page_size=50, page_token=None):
+        raise RuntimeError(raw_google_body)
+    monkeypatch.setattr("studio_api.google_drive.list_drive_folder_children", fake_list)
+    r = c.get("/api/google/drive/folders/folder_123/children")
+    assert r.status_code == 502
+    assert raw_refresh not in r.text and raw_access not in r.text and raw_google_body not in r.text and str(tmp_path) not in r.text
+
+
+def test_google_drive_folder_children_user_isolation(monkeypatch, tmp_path):
+    configure_google_oauth(monkeypatch, tmp_path)
+    pw1 = admin("drive-children-owner@example.com", "password-one-long")
+    pw2 = admin("drive-children-other@example.com", "password-two-long")
+    add_google_connection_for_user("drive-children-owner@example.com", "fake-refresh-token-children-owner")
+    c1 = TestClient(app); c2 = TestClient(app)
+    login(c1, pw1, "drive-children-owner@example.com")
+    login(c2, pw2, "drive-children-other@example.com")
+    monkeypatch.setattr("studio_api.google_drive.refresh_access_token", lambda cfg, refresh_token: "fake-access-token-children-owner")
+    def fake_list(access_token, folder_id, page_size=50, page_token=None):
+        from studio_api.google_drive import GoogleDriveFolderChildren
+        return GoogleDriveFolderChildren(folder_id, [], None)
+    monkeypatch.setattr("studio_api.google_drive.list_drive_folder_children", fake_list)
+    assert c1.get("/api/google/drive/folders/folder_123/children").status_code == 200
+    r = c2.get("/api/google/drive/folders/folder_123/children")
+    assert r.status_code == 404
+    assert "fake-refresh-token-children-owner" not in r.text and "fake-access-token-children-owner" not in r.text
+
+
+def test_google_drive_folder_children_invalid_folder_id_returns_422(monkeypatch, tmp_path):
+    configure_google_oauth(monkeypatch, tmp_path)
+    pw = admin("drive-children-invalid@example.com"); c = TestClient(app); login(c, pw, "drive-children-invalid@example.com")
+    add_google_connection_for_user("drive-children-invalid@example.com", "fake-refresh-token-children-invalid")
+    r = c.get("/api/google/drive/folders/bad:id/children")
+    assert r.status_code == 422
+    assert "fake-refresh-token-children-invalid" not in r.text
