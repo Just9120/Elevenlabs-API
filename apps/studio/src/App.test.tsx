@@ -163,6 +163,29 @@ describe("Studio PWA", () => {
               },
             ],
           });
+        if (url.endsWith("/api/google/connection") && init?.method === "DELETE")
+          return json({
+            connected: false,
+            status: "revoked",
+            google_email: "safe.user@example.com",
+            scopes: "https://www.googleapis.com/auth/drive.file",
+            connected_at: "2026-07-01T00:00:00",
+            revoked_at: "2026-07-02T00:00:00",
+          });
+        if (url.endsWith("/api/google/connection"))
+          return json({
+            connected: false,
+            status: null,
+            google_email: null,
+            scopes: null,
+            connected_at: null,
+            revoked_at: null,
+          });
+        if (url.endsWith("/api/google/oauth/start") && init?.method === "POST")
+          return json({
+            authorization_url: "https://accounts.google.com/o/oauth2/v2/auth?state=secret-state",
+            expires_at: "2026-07-01T00:10:00",
+          });
         return json({ ok: true });
       }),
     );
@@ -192,6 +215,154 @@ describe("Studio PWA", () => {
     expect(window.localStorage.length).toBe(0);
     expect(window.sessionStorage.length).toBe(0);
   });
+  it("renders disconnected Google Drive state", async () => {
+    renderApp("platform");
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Настройки/ }),
+    );
+    expect(await screen.findByText("Drive не подключён")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Подключить Google Drive" }),
+    ).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/google/connection",
+      expect.objectContaining({ credentials: "same-origin" }),
+    );
+  });
+
+  it("renders connected Google Drive safe metadata without raw tokens", async () => {
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (url: string) => {
+        if (url.endsWith("/api/auth/session"))
+          return json({
+            authenticated: true,
+            user: { email: "user@example.com", role: "admin" },
+          });
+        if (url.endsWith("/api/auth/csrf"))
+          return json({ csrf_token: "csrf-after-refresh" });
+        if (url.endsWith("/api/credentials")) return json({ credentials: [] });
+        if (url.endsWith("/api/audit-events")) return json({ events: [] });
+        if (url.endsWith("/api/google/connection"))
+          return json({
+            connected: true,
+            status: "active",
+            google_email: "safe.user@example.com",
+            scopes: "https://www.googleapis.com/auth/drive.file",
+            connected_at: "2026-07-01T00:00:00",
+            revoked_at: null,
+            refresh_token: "raw-refresh-token-never-render",
+          });
+        return json({ ok: true });
+      },
+    );
+    renderApp("platform");
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Настройки/ }),
+    );
+    expect(await screen.findByText("Drive подключён")).toBeInTheDocument();
+    expect(screen.getByText("safe.user@example.com")).toBeInTheDocument();
+    expect(screen.getByText("active")).toBeInTheDocument();
+    expect(
+      screen.getByText("https://www.googleapis.com/auth/drive.file"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("raw-refresh-token-never-render"),
+    ).not.toBeInTheDocument();
+    expect(window.localStorage.length).toBe(0);
+    expect(window.sessionStorage.length).toBe(0);
+  });
+
+  it("starts Google OAuth with CSRF and navigates without storing OAuth data", async () => {
+    const assign = vi.fn();
+    Object.defineProperty(window, "location", {
+      value: { ...window.location, assign },
+      writable: true,
+    });
+    renderApp("platform");
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Настройки/ }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Подключить Google Drive" }),
+    );
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/google/oauth/start",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+    const startCall = (
+      fetch as unknown as ReturnType<typeof vi.fn>
+    ).mock.calls.find(([url]) => url === "/api/google/oauth/start");
+    expect(startCall?.[1]?.headers).toMatchObject({
+      "x-csrf-token": "csrf-after-refresh",
+    });
+    expect(assign).toHaveBeenCalledWith(
+      "https://accounts.google.com/o/oauth2/v2/auth?state=secret-state",
+    );
+    expect(document.body).not.toHaveTextContent("secret-state");
+    expect(window.localStorage.length).toBe(0);
+    expect(window.sessionStorage.length).toBe(0);
+  });
+
+  it("disconnects Google Drive with CSRF", async () => {
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (url: string, init?: RequestInit) => {
+        if (url.endsWith("/api/auth/session"))
+          return json({
+            authenticated: true,
+            user: { email: "user@example.com", role: "admin" },
+          });
+        if (url.endsWith("/api/auth/csrf"))
+          return json({ csrf_token: "csrf-after-refresh" });
+        if (url.endsWith("/api/credentials")) return json({ credentials: [] });
+        if (url.endsWith("/api/audit-events")) return json({ events: [] });
+        if (url.endsWith("/api/google/connection") && init?.method === "DELETE")
+          return json({
+            connected: false,
+            status: "revoked",
+            google_email: "safe.user@example.com",
+            scopes: "https://www.googleapis.com/auth/drive.file",
+            connected_at: "2026-07-01T00:00:00",
+            revoked_at: "2026-07-02T00:00:00",
+          });
+        if (url.endsWith("/api/google/connection"))
+          return json({
+            connected: true,
+            status: "active",
+            google_email: "safe.user@example.com",
+            scopes: "https://www.googleapis.com/auth/drive.file",
+            connected_at: "2026-07-01T00:00:00",
+            revoked_at: null,
+          });
+        return json({ ok: true });
+      },
+    );
+    renderApp("platform");
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Настройки/ }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Отключить Google Drive" }),
+    );
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/google/connection",
+        expect.objectContaining({ method: "DELETE" }),
+      ),
+    );
+    const deleteCall = (
+      fetch as unknown as ReturnType<typeof vi.fn>
+    ).mock.calls.find(
+      ([url, init]) =>
+        url === "/api/google/connection" && init?.method === "DELETE",
+    );
+    expect(deleteCall?.[1]?.headers).toMatchObject({
+      "x-csrf-token": "csrf-after-refresh",
+    });
+    expect(await screen.findByText(/Status: revoked/)).toBeInTheDocument();
+  });
+
   it("platform mode supports credential replacement without rendering raw key", async () => {
     renderApp("platform");
     await userEvent.click(
