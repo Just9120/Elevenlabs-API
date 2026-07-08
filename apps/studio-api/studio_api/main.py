@@ -243,6 +243,76 @@ def delete_source(source_id: str, pair=Depends(require_csrf), db: Session=Depend
         db.commit()
     return {"ok": True}
 
+
+def google_connection_payload(c: GoogleConnection|None):
+    if not c or c.status != GoogleConnectionStatus.active:
+        return {"connected": False, "status": c.status.value if c else None, "google_email": c.google_email if c else None, "scopes": c.scopes if c else None, "connected_at": c.connected_at.isoformat() if c and c.connected_at else None, "revoked_at": c.revoked_at.isoformat() if c and c.revoked_at else None}
+    return {"connected": True, "status": c.status.value, "google_email": c.google_email, "scopes": c.scopes, "connected_at": c.connected_at.isoformat() if c.connected_at else None, "revoked_at": c.revoked_at.isoformat() if c.revoked_at else None}
+
+def current_google_connection(db: Session, user: User) -> GoogleConnection|None:
+    return db.query(GoogleConnection).filter_by(user_id=user.id, provider=GoogleProvider.google).first()
+
+def google_config_or_503():
+    from .google_oauth import GoogleOAuthConfigError, config_unavailable, load_google_oauth_config
+    try:
+        return load_google_oauth_config(settings)
+    except GoogleOAuthConfigError:
+        raise config_unavailable()
+
+def google_token_aad(user_id: str, connection_id: str) -> bytes:
+    return aad(user_id, connection_id, "refresh", "google")
+
+@app.get("/api/google/connection")
+def get_google_connection(pair=Depends(current_session), db: Session=Depends(get_db)):
+    _,user=pair
+    return google_connection_payload(current_google_connection(db, user))
+
+@app.post("/api/google/oauth/start")
+def start_google_oauth(request: Request, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    sess,user=pair; limiter.check("google:oauth:start:"+user.id, 20, 3600)
+    cfg=google_config_or_503()
+    from .google_oauth import authorization_url
+    raw_state=new_token()
+    state=GoogleOAuthState(user_id=user.id, session_id=sess.id, state_hash=token_hash(raw_state), expires_at=utcnow()+timedelta(seconds=settings.google_oauth_state_ttl_seconds))
+    db.add(state); audit(db,"google.oauth_started",actor_user_id=user.id,subject_user_id=user.id,session_id=sess.id); db.commit()
+    return {"authorization_url": authorization_url(cfg, raw_state), "expires_at": state.expires_at.isoformat()}
+
+@app.get("/api/google/oauth/callback")
+def google_oauth_callback(state: str|None=None, code: str|None=None, error: str|None=None, db: Session=Depends(get_db)):
+    if error:
+        audit(db,"google.oauth_failed"); db.commit(); raise HTTPException(400, "Google OAuth failed")
+    if not state or not code:
+        raise HTTPException(400, "Invalid OAuth callback")
+    row=db.query(GoogleOAuthState).filter_by(state_hash=token_hash(state)).first()
+    if not row or row.used_at is not None or row.expires_at <= utcnow():
+        raise HTTPException(400, "Invalid OAuth state")
+    cfg=google_config_or_503()
+    from .google_oauth import exchange_code_for_tokens
+    try:
+        tokens=exchange_code_for_tokens(cfg, code)
+    except Exception:
+        audit(db,"google.oauth_failed",actor_user_id=row.user_id,subject_user_id=row.user_id); db.commit(); raise HTTPException(400, "Google OAuth failed")
+    if not tokens.refresh_token:
+        audit(db,"google.oauth_failed",actor_user_id=row.user_id,subject_user_id=row.user_id); db.commit(); raise HTTPException(400, "Google OAuth did not return offline access")
+    conn=db.query(GoogleConnection).filter_by(user_id=row.user_id, provider=GoogleProvider.google).first()
+    now=utcnow()
+    if not conn:
+        conn=GoogleConnection(user_id=row.user_id, provider=GoogleProvider.google, created_at=now)
+        db.add(conn); db.flush()
+    ct,nonce=encrypt(tokens.refresh_token, key(), google_token_aad(row.user_id, conn.id))
+    conn.status=GoogleConnectionStatus.active; conn.google_subject=tokens.google_subject; conn.google_email=tokens.google_email; conn.scopes=tokens.scope or cfg.scopes; conn.refresh_token_ciphertext=ct; conn.refresh_token_nonce=nonce; conn.key_id=settings.credential_key_id; conn.connected_at=now; conn.revoked_at=None; conn.updated_at=now
+    row.used_at=now
+    audit(db,"google.connected",actor_user_id=row.user_id,subject_user_id=row.user_id); db.commit()
+    return {"ok": True, "connected": True}
+
+@app.delete("/api/google/connection")
+def delete_google_connection(pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("google:disconnect:"+user.id, 20, 3600)
+    conn=current_google_connection(db, user)
+    if not conn: return google_connection_payload(None)
+    now=utcnow(); conn.status=GoogleConnectionStatus.revoked; conn.refresh_token_ciphertext=None; conn.refresh_token_nonce=None; conn.key_id=None; conn.revoked_at=now; conn.updated_at=now
+    audit(db,"google.disconnected",actor_user_id=user.id,subject_user_id=user.id); db.commit(); return google_connection_payload(conn)
+
 @app.get("/api/credentials")
 def list_credentials(pair=Depends(current_session), db: Session=Depends(get_db)):
     _,user=pair; rows=db.query(ProviderCredential).filter_by(user_id=user.id).all(); out=[]

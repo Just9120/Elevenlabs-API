@@ -59,7 +59,7 @@ Studio is the new desktop-first responsive web application contour for the initi
 
 `PWA-FOUNDATION-01` is completed/merged and remains UI-only. The current Studio application is limited to Russian-first UI navigation, prototype browser-only project/job state, browser-only file metadata display, and visual sequential multi-document segment planning. It does not upload source media to a server and does not persist transcription processing state.
 
-Colab batch remains the stable fallback during the PWA transition and the only current production path for provider transcription, Google Drive/Docs output, Drive integration and `manifest` mutation. The current Studio foundation does not include a backend API, authentication, provider keys, provider calls, Google OAuth/Drive/Docs integration, server-side file uploads, transcription jobs, database, Redis, queue, worker, persistent storage, migrations, existing Colab runtime changes, or any production transcription job pipeline.
+Colab batch remains the stable fallback during the PWA transition and the only current production path for provider transcription, Google Drive/Docs output, Drive integration and `manifest` mutation. The current Studio platform has a backend account/session/BYOK/project/source foundation and is adding a backend Google Drive connection foundation. It still does not include provider calls, Drive picker, Drive source browsing, Google Docs output creation, transcription jobs, queue/worker execution, existing Colab runtime changes, or any production transcription job pipeline.
 
 ### 3.5 PWA-DEPLOY-01 first-deploy contract and evidence
 
@@ -89,7 +89,7 @@ Current deployment boundaries remain unchanged:
 - current Studio is still UI-only;
 - PWA offline behavior covers the app shell after a prior online visit only;
 - no production transcription platform exists yet;
-- CD remains disabled;
+- Studio platform CD exists for isolated platform deployment, but CD changes are out of scope for this item;
 - no backend API, user authentication, provider keys, provider calls, Google OAuth, Google Drive, Google Docs, server-side file uploads, transcription jobs, database, Redis, queue, worker, persistence, persistent storage, or migrations were added;
 - no changes were made to Colab, realtime, provider contracts, Google Docs behavior, or manifest behavior.
 
@@ -194,4 +194,4 @@ PWA-PLATFORM-01 adds the first stateful Studio platform core in source form only
 
 PWA-SOURCES backend work adds project CRUD, selected output Google Drive folder metadata on projects, Google Drive source metadata records, and temporary local-upload source records through private S3/R2-compatible browser direct PUT. Studio platform UI can bind output Drive folder metadata on projects, create source metadata records, and create local temporary upload source records. Transcription outputs still target the user-selected Google Drive folder recorded on the project. Local computer source files remain temporary inputs only and must not be proxied through FastAPI or stored as raw bytes in PostgreSQL, browser storage, repo files, or VPS disk.
 
-The current Studio platform boundary includes account/session/BYOK plus project/source metadata and temporary upload intake only. Google Drive picker/OAuth, provider execution, transcription jobs, queues/workers, Google Docs output, manifest mutation, project sharing, public registration, invites, password recovery, and CD remain deferred.
+The current Studio platform boundary includes account/session/BYOK plus project/source metadata, temporary upload intake, and a backend-only Google Drive OAuth connection foundation. Google Drive connection requires explicit user consent, stores refresh tokens encrypted at rest, keeps provider credentials and Google tokens as separate secret boundaries, and never returns raw Google tokens to the browser. Drive picker, Drive source browsing/file access, Google Docs output creation, provider execution, transcription jobs, queues/workers, manifest mutation, project sharing, public registration, invites, and password recovery remain deferred. Studio platform CD exists, but CD changes are out of scope for the Google OAuth backend item.

@@ -48,7 +48,7 @@ def clean_state(migrated_database):
     except Exception as exc:
         pytest.skip(f"Redis unavailable for platform tests: {exc}")
     with engine.begin() as conn:
-        tables = ["audit_events", "provider_credential_versions", "provider_credentials", "sources", "projects", "sessions", "login_contexts", "local_identities", "users"]
+        tables = ["audit_events", "google_oauth_states", "google_connections", "provider_credential_versions", "provider_credentials", "sources", "projects", "sessions", "login_contexts", "local_identities", "users"]
         conn.execute(text("TRUNCATE " + ", ".join(tables) + " RESTART IDENTITY CASCADE"))
     yield
 
@@ -352,3 +352,152 @@ def test_expired_local_upload_cleanup_marks_deleted_and_deletes(monkeypatch):
         assert fake.deleted == ["old/key"]
     finally:
         db.close()
+
+
+def configure_google_oauth(monkeypatch, tmp_path):
+    from studio_api import main as main_mod
+    secret = tmp_path / "google_client_secret"
+    secret.write_text("google-client-secret-test", encoding="utf-8")
+    main_mod.settings.google_oauth_client_id = "google-client-id-test.apps.googleusercontent.com"
+    main_mod.settings.google_oauth_client_secret_file = str(secret)
+    main_mod.settings.google_oauth_redirect_uri = "https://studio.test/api/google/oauth/callback"
+    main_mod.settings.google_oauth_scopes = "openid email https://www.googleapis.com/auth/drive.file"
+    main_mod.settings.google_oauth_state_ttl_seconds = 600
+    return secret
+
+
+def test_google_connection_requires_authentication():
+    c = TestClient(app)
+    assert c.get("/api/google/connection").status_code == 401
+
+
+def test_google_connection_status_no_connection():
+    pw = admin("google-empty@example.com"); c = TestClient(app); login(c, pw, "google-empty@example.com")
+    r = c.get("/api/google/connection")
+    assert r.status_code == 200
+    assert r.json() == {"connected": False, "status": None, "google_email": None, "scopes": None, "connected_at": None, "revoked_at": None}
+
+
+def test_google_oauth_start_requires_csrf_and_fails_closed_when_missing_config(monkeypatch):
+    from studio_api import main as main_mod
+    pw = admin("google-start@example.com"); c = TestClient(app); csrf = login(c, pw, "google-start@example.com")
+    assert c.post("/api/google/oauth/start", headers={"origin": "https://studio.test"}).status_code == 403
+    main_mod.settings.google_oauth_client_id = None
+    main_mod.settings.google_oauth_client_secret_file = None
+    main_mod.settings.google_oauth_redirect_uri = None
+    r = c.post("/api/google/oauth/start", headers={"origin": "https://studio.test", "x-csrf-token": csrf})
+    assert r.status_code == 503
+    assert "secret" not in r.text.lower()
+
+
+def test_google_oauth_start_returns_safe_url_and_stores_hashed_state(monkeypatch, tmp_path):
+    configure_google_oauth(monkeypatch, tmp_path)
+    pw = admin("google-url@example.com"); c = TestClient(app); csrf = login(c, pw, "google-url@example.com")
+    r = c.post("/api/google/oauth/start", headers={"origin": "https://studio.test", "x-csrf-token": csrf})
+    assert r.status_code == 200
+    body = r.json(); url = body["authorization_url"]
+    assert "client_id=google-client-id-test" in url
+    assert "access_type=offline" in url
+    assert "prompt=consent" in url
+    assert "google-client-secret-test" not in r.text
+    assert "refresh_token" not in r.text and "access_token" not in r.text and "id_token" not in r.text
+    from urllib.parse import parse_qs, urlparse
+    state = parse_qs(urlparse(url).query)["state"][0]
+    db = SessionLocal()
+    try:
+        from studio_api.models import GoogleOAuthState
+        rows = db.query(GoogleOAuthState).all()
+        assert len(rows) == 1
+        assert rows[0].state_hash != state
+        assert rows[0].expires_at > utcnow()
+    finally:
+        db.close()
+
+
+def test_google_oauth_callback_rejects_missing_invalid_expired_and_used_state(monkeypatch, tmp_path):
+    configure_google_oauth(monkeypatch, tmp_path)
+    pw = admin("google-state@example.com"); c = TestClient(app); csrf = login(c, pw, "google-state@example.com")
+    assert c.get("/api/google/oauth/callback").status_code == 400
+    assert c.get("/api/google/oauth/callback?state=bad&code=code").status_code == 400
+    r = c.post("/api/google/oauth/start", headers={"origin": "https://studio.test", "x-csrf-token": csrf})
+    from urllib.parse import parse_qs, urlparse
+    state = parse_qs(urlparse(r.json()["authorization_url"]).query)["state"][0]
+    db = SessionLocal()
+    try:
+        from studio_api.models import GoogleOAuthState
+        row = db.query(GoogleOAuthState).first(); row.expires_at = utcnow() - timedelta(seconds=1); db.commit()
+    finally:
+        db.close()
+    assert c.get(f"/api/google/oauth/callback?state={state}&code=code").status_code == 400
+
+    r = c.post("/api/google/oauth/start", headers={"origin": "https://studio.test", "x-csrf-token": csrf})
+    state = parse_qs(urlparse(r.json()["authorization_url"]).query)["state"][0]
+    from studio_api.google_oauth import GoogleTokenResult
+    monkeypatch.setattr("studio_api.google_oauth.exchange_code_for_tokens", lambda cfg, code: GoogleTokenResult("refresh-safe", None, None, "openid email", "sub", "g@example.com"))
+    assert c.get(f"/api/google/oauth/callback?state={state}&code=code").status_code == 200
+    assert c.get(f"/api/google/oauth/callback?state={state}&code=code").status_code == 400
+
+
+def test_google_oauth_callback_stores_encrypted_token_and_safe_metadata_disconnect_wipes(monkeypatch, tmp_path):
+    configure_google_oauth(monkeypatch, tmp_path)
+    from studio_api.google_oauth import GoogleTokenResult
+    raw_refresh = "refresh-token-raw-test-value"
+    raw_access = "access-token-raw-test-value"
+    raw_id = "id-token-raw-test-value"
+    called = {"count": 0}
+    def fake_exchange(cfg, code):
+        called["count"] += 1
+        return GoogleTokenResult(raw_refresh, raw_access, raw_id, "openid email https://www.googleapis.com/auth/drive.file", "google-sub-1", "user@gmail.com")
+    monkeypatch.setattr("studio_api.google_oauth.exchange_code_for_tokens", fake_exchange)
+    pw = admin("google-connect@example.com"); c = TestClient(app); csrf = login(c, pw, "google-connect@example.com")
+    r = c.post("/api/google/oauth/start", headers={"origin": "https://studio.test", "x-csrf-token": csrf})
+    from urllib.parse import parse_qs, urlparse
+    state = parse_qs(urlparse(r.json()["authorization_url"]).query)["state"][0]
+    r = c.get(f"/api/google/oauth/callback?state={state}&code=auth-code")
+    assert r.status_code == 200
+    assert raw_refresh not in r.text and raw_access not in r.text and raw_id not in r.text
+    assert called["count"] == 1
+    r = c.get("/api/google/connection")
+    assert r.status_code == 200
+    assert r.json()["connected"] is True
+    assert r.json()["google_email"] == "user@gmail.com"
+    assert raw_refresh not in r.text and raw_access not in r.text and raw_id not in r.text
+    db = SessionLocal()
+    try:
+        from studio_api.models import GoogleConnection
+        conn = db.query(GoogleConnection).one()
+        assert conn.refresh_token_ciphertext and conn.refresh_token_nonce
+        assert raw_refresh.encode() not in conn.refresh_token_ciphertext
+        assert decrypt(conn.refresh_token_ciphertext, conn.refresh_token_nonce, master_key_from_b64(base64.b64encode(b"1" * 32).decode()), aad(conn.user_id, conn.id, "refresh", "google")) == raw_refresh
+    finally:
+        db.close()
+    r = c.delete("/api/google/connection", headers={"origin": "https://studio.test", "x-csrf-token": csrf})
+    assert r.status_code == 200
+    assert r.json()["connected"] is False and r.json()["status"] == "revoked"
+    db = SessionLocal()
+    try:
+        from studio_api.models import GoogleConnection
+        conn = db.query(GoogleConnection).one()
+        assert conn.refresh_token_ciphertext is None and conn.refresh_token_nonce is None and conn.key_id is None
+    finally:
+        db.close()
+
+
+def test_google_connection_user_isolation(monkeypatch, tmp_path):
+    configure_google_oauth(monkeypatch, tmp_path)
+    from studio_api.models import GoogleConnection, GoogleConnectionStatus, GoogleProvider
+    db = SessionLocal()
+    try:
+        u1 = User(email="g1@example.com", role=UserRole.admin, status=UserStatus.active)
+        u2 = User(email="g2@example.com", role=UserRole.admin, status=UserStatus.active)
+        db.add_all([u1, u2]); db.flush()
+        db.add_all([LocalIdentity(user_id=u1.id, password_hash=hash_password("password-one-long")), LocalIdentity(user_id=u2.id, password_hash=hash_password("password-two-long"))])
+        db.add(GoogleConnection(user_id=u1.id, provider=GoogleProvider.google, status=GoogleConnectionStatus.active, google_email="g1@gmail.com", scopes="openid email", connected_at=utcnow()))
+        db.commit()
+    finally:
+        db.close()
+    c1 = TestClient(app); c2 = TestClient(app)
+    login(c1, "password-one-long", "g1@example.com")
+    login(c2, "password-two-long", "g2@example.com")
+    assert c1.get("/api/google/connection").json()["google_email"] == "g1@gmail.com"
+    assert c2.get("/api/google/connection").json()["connected"] is False
