@@ -16,6 +16,8 @@ CI verifies the project.
 
 CD delivers the project.
 
+`source-done/merged` means repository source/docs reached the target branch; it is not the same as `production-live`. Coding-agent PRs must not claim production rollout, migration rollout, runtime processing, or stateful-service changes without explicit runtime/operator evidence.
+
 CI must not deploy.
 
 CD must not perform cleanup, hardening, destructive operations, uncontrolled migrations, backup/restore, or stateful service maintenance unless this is an explicit separate maintenance task.
@@ -140,7 +142,7 @@ Do not hide bootstrap or hardening inside an ordinary CD workflow change.
 
 ## Secrets and `.env`
 
-Secrets must not be committed, printed, logged, copied into prompts, copied into generated bundles, exposed in examples, or written into tests.
+Secrets must not be committed, printed, logged, copied into prompts, copied into generated bundles, exposed in examples, or written into tests. Tests and CI must not expose real secrets, mutate secret/env fixtures globally, or write secret fixture files at import time.
 
 `.env.example`, `.env.sample`, or `.env.template` may describe required runtime variables.
 
@@ -178,7 +180,7 @@ Standard CD must not:
 - move persistent data;
 - perform cleanup that can affect state.
 
-Any stateful service work must be a separate explicit maintenance or migration task with scope, validation, and rollback expectations.
+Migrations, runtime changes, and stateful-service work must be separate explicit manual/operator-aware tasks with scope, validation, and rollback expectations.
 
 ---
 

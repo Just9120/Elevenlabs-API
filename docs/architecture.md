@@ -136,3 +136,7 @@ Future API, OAuth, provider processing, uploads, queues, database, worker and jo
 The repository now contains `apps/studio-api`, a FastAPI service using SQLAlchemy 2/Alembic with PostgreSQL 17 as the intended deployment database, Redis 7 only as an internal rate-limit store, opaque PostgreSQL-backed browser sessions, login/authenticated CSRF enforcement, audit events, and AES-256-GCM encrypted user-owned BYOK credential versions for ElevenLabs/OpenAI.
 
 The Studio PWA talks to the API through same-origin `/api` and keeps the existing project/task/upload screens as non-processing prototypes. Later uploads, queues/workers, provider calls, Google OAuth/Drive/Docs, job execution, and output processing remain separate unimplemented boundaries.
+
+## 10. Current Colab and Studio contour alignment
+
+Google Colab batch remains the current production workflow for source selection, provider transcription, Google Docs transcript output, and `manifest` progress/skip mutation. Studio PWA is the development/platform contour intended to reach Colab product parity with PWA/platform adaptations. Current Studio jobs are record/preflight/readiness only: worker execution, provider calls, Drive download/export processing, Google Docs output, output persistence, and manifest authority remain future boundaries requiring separate scope and validation.

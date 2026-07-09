@@ -12,9 +12,9 @@
 
 ## 3. Текущие продуктовые контуры
 
-### 3.1 Стабильный batch Colab workflow
+### 3.1 Google Colab contour: primary working workflow
 
-Активный стабильный workflow использует `notebooks/elevenlabs_api_colab.ipynb` как launcher и `elevenlabs_api.py` как canonical runtime. В scope входят:
+Google Colab is the primary working product contour and the current stable/fallback production workflow. Studio PWA work must not break this contour or silently change its runtime contract. The active stable workflow uses `notebooks/elevenlabs_api_colab.ipynb` as launcher and `elevenlabs_api.py` as canonical runtime. В scope входят:
 
 - локальный и Google Drive source selection;
 - optional manual pre-transcription segmentation for one source recording (`Компьютер: 1 файл` and `Google Drive: 1 файл` only);
@@ -53,13 +53,17 @@ Realtime не является заменой stable batch workflow и не ме
 - `Скопировать текст` и `Скачать .txt` работают с browser-only committed text;
 - нет Google Docs save, `manifest` mutation, speaker project integration или provider raw payload persistence.
 
-### 3.4 Studio PWA contour (current product scope)
+### 3.4 Studio PWA contour (current development product scope)
 
-Studio is the new desktop-first responsive web application contour for the initial public address `studio.librechat.online`. It has PWA enhancements: installability, standalone-window behavior, and a cached app shell for reopening the application shell after a successful online visit. Studio is not an offline-first transcription product. Offline app-shell behavior must never imply offline transcription, provider execution, Google integration, credential use, authentication, job processing, or local browser processing of private source media.
+Studio is the current development contour for the initial public address `studio.librechat.online`. Its product target is to duplicate the Google Colab product scope with PWA/platform adaptations: browser app UX, account/session boundaries, user-owned credential handling, project/source/job records, explicit Google consent, and future server-side processing boundaries. Studio must not be described as replacing the working Colab production contour until production runtime/operator evidence exists.
 
-`PWA-FOUNDATION-01` is completed/merged and remains UI-only. The current Studio application is limited to Russian-first UI navigation, prototype browser-only project/job state, browser-only file metadata display, and visual sequential multi-document segment planning. It does not upload source media to a server and does not persist transcription processing state.
+Studio has PWA enhancements: installability, standalone-window behavior, and a cached app shell for reopening the application shell after a successful online visit. Studio is not an offline-first transcription product. Offline app-shell behavior must never imply offline transcription, provider execution, Google integration, credential use, authentication, job processing, or local browser processing of private source media.
 
-Colab batch remains the stable fallback during the PWA transition and the only current production path for provider transcription, Google Drive/Docs output, Drive integration and `manifest` mutation. The current Studio platform has a backend account/session/BYOK/project/source foundation, Google Drive connection status/start/disconnect UI backed by the explicit-consent OAuth foundation, and a backend-only transcription job record/API foundation for creating, listing, reading, and cancelling jobs from existing project sources. Studio job records are not processed yet; the Studio job UI must communicate that queued jobs are persisted records only until worker/provider execution is implemented. Studio can attach an existing active BYOK provider credential identity to a queued job record through safe credential metadata only; raw provider credentials are never exposed to the browser. Source, credential, and output-folder readiness indicators are explanatory prerequisites for future processing and do not start processing today. It still does not include provider calls, Drive picker, Google Docs output creation, queue/worker execution, existing Colab runtime changes, manifest mutation, output persistence, credential decryption/use in the browser, or any production transcription job pipeline.
+Current Studio source state includes account/session/BYOK foundation, projects, sources, Google Drive OAuth connection status/start/disconnect UI, safe Drive metadata lookup, direct folder-children selection for one explicitly supplied Drive folder, local temporary upload source intake, persisted transcription job records, job UI, processing preflight snapshots, and claim-readiness guardrails for future processing. Studio can attach an existing active BYOK provider credential identity to a queued job record through safe credential metadata only; raw provider credentials are never exposed to the browser. Source, credential, and output-folder readiness indicators are explanatory prerequisites for future processing and do not start processing today.
+
+Current Studio non-goals/deferred boundaries remain: no worker, no queue consumer, no provider execution, no credential decryption/use for processing, no Google Drive download/export processing, no source byte access by the processing pipeline, no Google Docs output creation, no output persistence, no manifest mutation, no production processing pipeline, no automatic migration rollout, and no production-live claim without runtime/operator evidence. Studio job records are record-only until separately scoped worker/provider/output work changes that boundary.
+
+Shared product safety rules across Colab and Studio: no raw secrets/tokens in browser responses, logs, docs, examples, test output, or generated artifacts; raw provider credentials are never sent to the browser; transcript body, Google Docs body content, raw provider payloads, source bytes, OAuth responses, private storage keys, presigned URLs, environment values, and file-mounted secret contents must stay out of safe metadata. Source ownership, user, project, OAuth, credential, output-folder, and source-state boundaries must be re-checked server-side before any real Studio processing. `source-done/merged` means repository source or docs are merged to main; it does not mean `production-live`.
 
 ### 3.5 PWA-DEPLOY-01 first-deploy contract and evidence
 
