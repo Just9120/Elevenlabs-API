@@ -17,7 +17,7 @@ Production migration rollout for already-existing Studio job persistence remains
 
 ## Future claim and lease semantics
 
-`PWA-JOBS-02C` defines the contract for future server-side ownership of queued Studio transcription jobs. This section is design-only: it does not add a worker, queue consumer, status value, endpoint, database column, migration, runtime service, or production rollout. Current Studio jobs remain record-only.
+`PWA-JOBS-02C` defines the contract for future server-side ownership of queued Studio transcription jobs. This section is design-only: it does not add a worker, queue consumer, status value, endpoint, database column, migration, runtime service, or production rollout. Current Studio jobs remain record-only. `PWA-JOBS-02D` may add an internal non-mutating claim-readiness planning helper over the existing read-only preflight snapshot; that helper is not a claim, lease, worker, queue, provider execution, output, schema, or runtime implementation.
 
 ### Claim
 
