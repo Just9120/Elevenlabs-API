@@ -17,13 +17,14 @@ Keep this file short. Put detailed product, delivery, CI/CD, architecture, runbo
 For normal focused tasks:
 
 1. Read this `AGENTS.md` first.
-2. Treat the user task or prepared task prompt as the primary working context.
-3. Before opening additional documentation, decide the minimal context needed.
-4. Read only the files and sections relevant to the requested change.
-5. Inspect only code, tests, configuration, and docs directly related to the task.
-6. Make the smallest safe change that satisfies the task.
-7. Run relevant existing checks when available.
-8. Report what changed, what was checked, and what was not checked.
+2. For normal product/repository work, read `docs/ai-coding-workflow.md` next unless the prepared task explicitly narrows the workflow context.
+3. Treat the user task or prepared task prompt as the primary working context.
+4. Before opening additional documentation, decide the minimal context needed.
+5. Read only the files and sections relevant to the requested change.
+6. Inspect only code, tests, configuration, and docs directly related to the task.
+7. Make the smallest safe change that satisfies the task.
+8. Run relevant existing checks when available.
+9. Report what changed, what was checked, and what was not checked.
 
 Do not perform broad audits, large refactors, dependency upgrades, architecture changes, cleanup, CI/CD changes, deployment changes, or documentation rewrites unless explicitly requested.
 
@@ -61,7 +62,7 @@ For coding agents, it is a source to consult only when needed. For ordinary focu
 
 Read only the relevant sections of `docs/project-spec.md` when the task changes or depends on:
 
-- product scope;
+- product scope, including Google Colab vs Studio PWA contour questions;
 - new feature behavior;
 - business rules;
 - user-facing behavior;
@@ -122,8 +123,8 @@ When the user prompt already provides a focused task, delivery item ID, relevant
 
 Use repository documents only to resolve specific uncertainty:
 
-- read `docs/delivery-plan.md` only to verify or update the referenced delivery item;
-- read relevant sections of `docs/project-spec.md` only when product scope, behavior, architecture, safety, data, integrations, or acceptance criteria are affected;
+- read `docs/delivery-plan.md` only to verify or update the referenced delivery item, active item, or current delivery state;
+- read relevant sections of `docs/project-spec.md` only when product scope, business rules, durable constraints, acceptance criteria, behavior, architecture, safety, data, integrations, or Google Colab/Studio PWA contour questions are affected;
 - read or create `docs/delivery-plan-archive.md` only when the task explicitly requires historical delivery archival or reconciliation;
 - read `docs/ai-coding-workflow.md` only for workflow, PR process, documentation-rule, or AI delivery setup tasks;
 - read `docs/ci-cd-rules.md` only for CI/CD, deploy, Docker, VPS/server, secrets, runtime environment, rollback, or stateful-service tasks;
@@ -168,7 +169,7 @@ If requirements, architecture, code, and tests conflict, report the conflict. Do
 
 Update `docs/delivery-plan.md` only when delivery state changes.
 
-Create or update `docs/delivery-plan-archive.md` only when explicitly moving old delivery history out of `docs/delivery-plan.md`, reconciling historical delivery state, or performing a broad delivery-history audit.
+Create or update `docs/delivery-plan-archive.md` only when explicitly moving old delivery history out of `docs/delivery-plan.md`, reconciling historical delivery state, or performing a broad delivery-history audit. Do not read it for ordinary tasks.
 
 Update `docs/project-spec.md` only when the task intentionally changes product scope, business logic, requirements, constraints, data model, integrations, acceptance criteria, or intended behavior.
 
@@ -180,7 +181,7 @@ Update `docs/ai-coding-workflow.md` or this `AGENTS.md` only when the task expli
 
 Update `docs/ai-delivery-infrastructure-plan.md` only when that file exists and the task changes AI workflow/tooling adoption state, Context Bundle Builder delivery state, or related validation/evidence.
 
-Do not casually rewrite documentation as a side effect of code work.
+Do not casually rewrite documentation as a side effect of code work. Do not create new documentation files unless the task explicitly asks for a new file and that file is in the approved documentation set for the task.
 
 ---
 
@@ -203,7 +204,7 @@ Keep this file compact. If a rule becomes long, move details to a referenced doc
 
 Do not modify CI/CD, Docker, deploy scripts, server/VPS configuration, secrets, `.env`, stateful services, database migrations, backups, restores, or rollback logic unless explicitly requested.
 
-For CI/CD or deployment tasks, read `docs/ci-cd-rules.md` before making changes.
+For CI/CD, deployment, runtime, secrets, migrations, or stateful-service tasks, read `docs/ci-cd-rules.md` before making changes.
 
 Never print secret values.
 
