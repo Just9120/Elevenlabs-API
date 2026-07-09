@@ -1,41 +1,76 @@
-import base64
-import os
 import sys
-import tempfile
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps/studio-api"))
-os.environ.setdefault("STUDIO_POSTGRES_PASSWORD_FILE", str(Path(tempfile.gettempdir()) / "studio_preflight_pg_password"))
-os.environ.setdefault("STUDIO_CREDENTIAL_MASTER_KEY_FILE", str(Path(tempfile.gettempdir()) / "studio_preflight_master_key"))
-Path(os.environ["STUDIO_POSTGRES_PASSWORD_FILE"]).write_text("unused", encoding="utf-8")
-Path(os.environ["STUDIO_CREDENTIAL_MASTER_KEY_FILE"]).write_text(base64.b64encode(b"1" * 32).decode(), encoding="utf-8")
 
 from studio_api.job_processing_preflight import build_processing_preflight
-from studio_api.models import JobSourceStatus, JobStatus, Project, Source, SourceType, SourceUploadStatus, TranscriptionJob, TranscriptionJobSource
 
 
-def source(source_id, project_id="project-1", source_type=SourceType.google_drive, upload_status=SourceUploadStatus.uploaded, deleted=False, missing_identity=False):
-    src = Source(id=source_id, project_id=project_id, source_type=source_type, original_filename=f"{source_id}.mp4", upload_status=upload_status)
-    if source_type == SourceType.google_drive and not missing_identity:
+@dataclass
+class ProjectStub:
+    id: str = "project-1"
+    output_drive_folder_id: str | None = None
+
+
+@dataclass
+class SourceStub:
+    id: str
+    project_id: str = "project-1"
+    source_type: str = "google_drive"
+    upload_status: str = "uploaded"
+    deleted_at: datetime | None = None
+    drive_file_id: str | None = None
+    drive_file_url: str | None = None
+    s3_bucket: str | None = None
+    s3_object_key: str | None = None
+
+
+@dataclass
+class JobSourceStub:
+    source: SourceStub
+    position: int
+
+
+@dataclass
+class JobStub:
+    id: str = "job-1"
+    project_id: str = "project-1"
+    status: str = "queued"
+    provider_credential_id: str | None = None
+    project: ProjectStub | None = None
+    sources: list[JobSourceStub] = field(default_factory=list)
+
+
+def source(
+    source_id,
+    project_id="project-1",
+    source_type="google_drive",
+    upload_status="uploaded",
+    deleted=False,
+    missing_identity=False,
+):
+    src = SourceStub(id=source_id, project_id=project_id, source_type=source_type, upload_status=upload_status)
+    if source_type == "google_drive" and not missing_identity:
         src.drive_file_id = f"drive_{source_id}"
         src.drive_file_url = "https://drive.google.com/file/d/private/view"
-    if source_type == SourceType.local_upload and not missing_identity:
+    if source_type == "local_upload" and not missing_identity:
         src.s3_bucket = "studio-temp"
         src.s3_object_key = "users/private/projects/project-1/sources/source/source"
     if deleted:
-        from datetime import datetime, timezone
         src.deleted_at = datetime.now(timezone.utc)
     return src
 
 
-def job_with_sources(*sources, status=JobStatus.queued, credential_id=None, output_folder_id=None):
-    job = TranscriptionJob(id="job-1", project_id="project-1", owner_user_id="user-1", status=status, provider_credential_id=credential_id)
-    job.project = Project(id="project-1", owner_user_id="user-1", title="Project", output_drive_folder_id=output_folder_id)
-    job.sources = []
-    for position, src in enumerate(sources):
-        job.sources.append(TranscriptionJobSource(job_id=job.id, source_id=src.id, source=src, position=position, status=JobSourceStatus.queued))
-    return job
+def job_with_sources(*sources, status="queued", credential_id=None, output_folder_id=None):
+    return JobStub(
+        status=status,
+        provider_credential_id=credential_id,
+        project=ProjectStub(output_drive_folder_id=output_folder_id),
+        sources=[JobSourceStub(source=src, position=position) for position, src in enumerate(sources)],
+    )
 
 
 def assert_summary_safe(summary):
@@ -59,7 +94,7 @@ def assert_summary_safe(summary):
 
 def test_processing_preflight_eligible_sources_preserves_order_and_safe_metadata():
     google = source("google-1")
-    local = source("local-1", source_type=SourceType.local_upload)
+    local = source("local-1", source_type="local_upload")
 
     summary = build_processing_preflight(job_with_sources(google, local, credential_id="credential-123", output_folder_id="folder-123"))
 
@@ -75,21 +110,21 @@ def test_processing_preflight_eligible_sources_preserves_order_and_safe_metadata
 
 
 def test_processing_preflight_blocks_terminal_job_without_mutating_status():
-    job = job_with_sources(source("google-1"), status=JobStatus.completed)
+    job = job_with_sources(source("google-1"), status="completed")
 
     summary = build_processing_preflight(job)
 
     assert summary["eligible"] is False
     assert "job_status_not_queued" in summary["blocking_reasons"]
-    assert job.status == JobStatus.completed
+    assert job.status == "completed"
     assert_summary_safe(summary)
 
 
 def test_processing_preflight_blocks_deleted_unuploaded_and_missing_identity_sources():
     cases = [
-        (source("deleted", source_type=SourceType.local_upload, upload_status=SourceUploadStatus.deleted, deleted=True), "source_deleted"),
-        (source("pending", source_type=SourceType.local_upload, upload_status=SourceUploadStatus.pending), "source_not_uploaded"),
-        (source("missing-identity", source_type=SourceType.local_upload, missing_identity=True), "source_missing_required_identity"),
+        (source("deleted", source_type="local_upload", upload_status="deleted", deleted=True), "source_deleted"),
+        (source("pending", source_type="local_upload", upload_status="pending"), "source_not_uploaded"),
+        (source("missing-identity", source_type="local_upload", missing_identity=True), "source_missing_required_identity"),
     ]
 
     for src, expected_reason in cases:

@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from typing import Any, TypedDict
 
-from .models import JobStatus, SourceType, SourceUploadStatus, TranscriptionJob, TranscriptionJobSource
+
+QUEUED_JOB_STATUS = "queued"
+GOOGLE_DRIVE_SOURCE_TYPE = "google_drive"
+LOCAL_UPLOAD_SOURCE_TYPE = "local_upload"
+UPLOADED_SOURCE_STATUS = "uploaded"
+DELETED_SOURCE_STATUS = "deleted"
 
 
 class PreflightSourceSummary(TypedDict):
@@ -28,17 +33,22 @@ class ProcessingPreflightSummary(TypedDict):
     output_folder_configured: bool
 
 
-def build_processing_preflight(job: TranscriptionJob) -> ProcessingPreflightSummary:
+def build_processing_preflight(job: Any) -> ProcessingPreflightSummary:
     """Build a read-only, safe metadata snapshot for future job processing.
 
     The snapshot is deliberately conservative. It does not claim, mutate, or
     process the job; does not access source bytes; does not decrypt or inspect
     provider credentials; and omits private storage identities such as object
     keys and presigned URLs.
+
+    The helper intentionally uses only duck-typed ORM attributes so importing
+    this module stays side-effect free in unit tests and does not initialize the
+    database/settings layer.
     """
 
+    job_status = _enum_value(job.status)
     blocking_reasons: list[str] = []
-    if job.status != JobStatus.queued:
+    if job_status != QUEUED_JOB_STATUS:
         blocking_reasons.append("job_status_not_queued")
 
     ordered_job_sources = sorted(job.sources, key=lambda item: item.position)
@@ -54,7 +64,7 @@ def build_processing_preflight(job: TranscriptionJob) -> ProcessingPreflightSumm
     return {
         "job_id": job.id,
         "project_id": job.project_id,
-        "status": job.status.value,
+        "status": job_status,
         "eligible": not blocking_reasons,
         "blocking_reasons": blocking_reasons,
         "sources": source_summaries,
@@ -63,7 +73,7 @@ def build_processing_preflight(job: TranscriptionJob) -> ProcessingPreflightSumm
     }
 
 
-def _summarize_source(job: TranscriptionJob, job_source: TranscriptionJobSource) -> PreflightSourceSummary:
+def _summarize_source(job: Any, job_source: Any) -> PreflightSourceSummary:
     source = job_source.source
     blocking_reasons: list[str] = []
 
@@ -80,26 +90,28 @@ def _summarize_source(job: TranscriptionJob, job_source: TranscriptionJobSource)
             "blocking_reasons": ["source_missing"],
         }
 
+    source_type = _enum_value(source.source_type)
+    upload_status = _enum_value(source.upload_status)
     project_matches_job = source.project_id == job.project_id
     if not project_matches_job:
         blocking_reasons.append("source_project_mismatch")
 
-    is_deleted = source.deleted_at is not None or source.upload_status == SourceUploadStatus.deleted
+    is_deleted = source.deleted_at is not None or upload_status == DELETED_SOURCE_STATUS
     if is_deleted:
         blocking_reasons.append("source_deleted")
 
-    is_uploaded = source.upload_status == SourceUploadStatus.uploaded
+    is_uploaded = upload_status == UPLOADED_SOURCE_STATUS
     if not is_uploaded:
         blocking_reasons.append("source_not_uploaded")
 
-    has_required_identity = _source_has_required_identity(source)
+    has_required_identity = _source_has_required_identity(source, source_type)
     if not has_required_identity:
         blocking_reasons.append("source_missing_required_identity")
 
     return {
         "source_id": source.id,
-        "source_type": source.source_type.value,
-        "upload_status": source.upload_status.value,
+        "source_type": source_type,
+        "upload_status": upload_status,
         "project_matches_job": project_matches_job,
         "is_deleted": is_deleted,
         "has_required_identity": has_required_identity,
@@ -109,16 +121,20 @@ def _summarize_source(job: TranscriptionJob, job_source: TranscriptionJobSource)
     }
 
 
-def _source_has_required_identity(source: Any) -> bool:
-    if source.source_type == SourceType.google_drive:
+def _source_has_required_identity(source: Any, source_type: str) -> bool:
+    if source_type == GOOGLE_DRIVE_SOURCE_TYPE:
         return bool(source.drive_file_id)
-    if source.source_type == SourceType.local_upload:
+    if source_type == LOCAL_UPLOAD_SOURCE_TYPE:
         return bool(source.s3_bucket) and bool(source.s3_object_key)
     return False
 
 
-def _project_output_folder_configured(job: TranscriptionJob) -> bool:
+def _project_output_folder_configured(job: Any) -> bool:
     project = job.project
     if project is None:
         return False
     return bool(getattr(project, "output_drive_folder_id", None))
+
+
+def _enum_value(value: Any) -> str:
+    return str(getattr(value, "value", value))
