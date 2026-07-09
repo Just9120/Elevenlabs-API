@@ -8,7 +8,7 @@ Studio PWA is the current development contour. Its target is to duplicate the Go
 
 - **Google Colab batch workflow** — primary working contour and current stable/fallback production workflow through `notebooks/elevenlabs_api_colab.ipynb` and `elevenlabs_api.py`.
 - **Studio PWA** — development/platform contour for `studio.librechat.online`; current source foundations include account/session/BYOK, projects, sources, Google Drive OAuth/metadata/folder-child selection, local temporary upload intake, persisted job records, job UI, and preflight/readiness guardrails. Studio jobs remain record-only until a separately scoped worker/provider/output pipeline exists.
-- **Realtime Colab/proxy** — experimental browser-capture validation contour; it does not replace batch Colab, save Google Docs, or mutate `manifest`.
+- **Realtime Colab prototype / proxy** — experimental browser-capture validation contour using single-use token semantics; it does not replace batch Colab, has no Google Docs save/output, has no manifest mutation, and still requires manual Colab runtime validation.
 
 ## Main documents
 
