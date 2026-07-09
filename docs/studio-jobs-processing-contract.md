@@ -125,6 +125,14 @@ Google Docs output creation, output persistence, and manifest mutation remain fu
 
 Until those slices exist, Studio jobs remain record-only and must not imply production processing or generated transcript output.
 
+## Provider execution preconditions and side-effect boundaries
+
+Future processing must not move from preflight, claim-readiness, claim, or lease ownership into provider execution unless processing-time source access and output-destination rules are satisfied inside the server-side execution boundary. Existing preflight snapshots and claim-readiness helpers are metadata-only, non-authorizing guardrails: they can explain missing prerequisites, but they do not prove that source bytes are accessible, Drive content still exists, provider credentials are usable, or Google Docs output can be created.
+
+Provider execution, source byte access, Google Drive download/export processing, Google Docs output creation, output persistence, and manifest mutation remain separate future slices. A future worker must treat each external side effect as an explicit boundary rather than assuming a queued or claimed record authorizes the next step.
+
+Cancellation and retry behavior must account for side-effect checkpoints before source access, before provider submission, before Google Docs creation, before output persistence, and before manifest update/export/sync if any manifest behavior is ever implemented. After any external side effect, retry/recovery design must avoid duplicate provider processing and must persist only safe normalized metadata, not transcript body, Google Docs body content, raw provider payloads, raw Google responses, source bytes, secrets, tokens, private storage keys, presigned URLs, or temporary file paths.
+
 ## Failure and safe metadata boundary
 
 Future failure/status metadata may record safe operational facts such as high-level error category, retry eligibility, timestamps, and non-secret provider/source/output boundary names. It must not include raw provider payloads, transcript body, Google Docs body content, source media bytes, tokens, secrets, raw OAuth responses, credential material, environment values, or file-mounted secret contents.
