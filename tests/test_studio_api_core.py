@@ -27,6 +27,7 @@ from alembic.script import ScriptDirectory
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 from sqlalchemy import inspect, text
+from sqlalchemy.exc import OperationalError
 from studio_api.config import Settings
 from studio_api.db import SessionLocal, engine
 from studio_api.deps import get_client_ip
@@ -36,7 +37,7 @@ from studio_api.security import aad, decrypt, encrypt, hash_password, master_key
 from studio_api.job_claim_lease import JobLeaseError, JobLeaseFailureReason, acquire_job_lease, is_lease_active, release_job_lease, renew_job_lease
 from studio_api.job_processing_lifecycle import JobProcessingError, JobProcessingFailureReason, acknowledge_job_cancellation, begin_job_processing, fail_job_processing, recover_expired_processing_job
 from studio_api.google_docs_output import GoogleDocsCreateResult, new_google_docs_transcript_artifact
-from studio_api.job_output_persistence import JobOutputPersistenceError, JobOutputPersistenceReason, persist_processing_job_source_output_and_maybe_complete
+from studio_api.job_output_persistence import JobOutputPersistenceError, JobOutputPersistenceReason, _load_locked_output_authority, persist_processing_job_source_output_and_maybe_complete
 
 ALEMBIC = ROOT / "apps/studio-api/alembic.ini"
 
@@ -1104,6 +1105,51 @@ def test_output_persistence_refreshes_stale_identity_map_before_authorizing(muta
             verifier.close()
     finally:
         session_a.close(); session_b.close()
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda job, project, rel, source: setattr(project, "output_drive_folder_id", "folder-blocked"),
+    lambda job, project, rel, source: setattr(project, "archived_at", LEASE_TEST_NOW),
+    lambda job, project, rel, source: (setattr(source, "deleted_at", LEASE_TEST_NOW), setattr(source, "upload_status", SourceUploadStatus.deleted)),
+])
+def test_output_persistence_authority_locks_block_concurrent_mutations(mutate):
+    _, job_id = lease_test_job(status=JobStatus.queued, ready=True)
+    setup = SessionLocal()
+    try:
+        handle = acquire_job_lease(setup, job_id=job_id, lease_owner_id="owner-1", now=LEASE_TEST_NOW, lease_ttl=LEASE_TEST_TTL)
+        begin_job_processing(setup, job_id=job_id, lease_owner_id=handle.lease_owner_id, lease_generation=handle.lease_generation, now=LEASE_TEST_NOW)
+        rel_id = setup.query(TranscriptionJobSource.id).filter_by(job_id=job_id).scalar_one()
+        setup.commit()
+    finally:
+        setup.close()
+
+    session_a = SessionLocal()
+    session_b = SessionLocal()
+    try:
+        _load_locked_output_authority(
+            session_a,
+            job_id=job_id,
+            job_source_id=rel_id,
+            lease_owner_id="owner-1",
+            lease_generation=handle.lease_generation,
+            output_folder_id="folder-1",
+            now=LEASE_TEST_NOW,
+        )
+
+        session_b.execute(text("SET LOCAL lock_timeout = '100ms'"))
+        job_b = session_b.get(TranscriptionJob, job_id)
+        project_b = session_b.get(Project, job_b.project_id)
+        rel_b = session_b.query(TranscriptionJobSource).filter_by(job_id=job_id).one()
+        source_b = session_b.get(Source, rel_b.source_id)
+        mutate(job_b, project_b, rel_b, source_b)
+        with pytest.raises(OperationalError):
+            session_b.flush()
+        session_b.rollback()
+
+        assert session_b.query(TranscriptionJobOutput).filter_by(job_id=job_id).count() == 0
+        assert session_b.get(TranscriptionJob, job_id).status == JobStatus.processing
+    finally:
+        session_a.rollback(); session_a.close(); session_b.close()
 
 def test_acquire_active_reclaim_stale_fencing_and_no_commit():
     _, job_id = lease_test_job()

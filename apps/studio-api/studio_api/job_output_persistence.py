@@ -50,6 +50,15 @@ class JobOutputPersistenceResult:
     lease_generation: int
 
 
+@dataclass(frozen=True)
+class _LockedOutputAuthority:
+    job: TranscriptionJob
+    project: Project
+    selected_relation: TranscriptionJobSource
+    selected_source: Source
+    job_source_relations: tuple[TranscriptionJobSource, ...]
+
+
 def persist_processing_job_source_output_and_maybe_complete(
     db: Session,
     *,
@@ -69,21 +78,17 @@ def persist_processing_job_source_output_and_maybe_complete(
             raise JobOutputPersistenceError(JobOutputPersistenceReason.artifact_context_closed) from exc
         raise
 
-    job = db.execute(select(TranscriptionJob).where(TranscriptionJob.id == job_id).with_for_update().execution_options(populate_existing=True)).scalar_one_or_none()
-    if job is None:
-        raise JobOutputPersistenceError(JobOutputPersistenceReason.job_not_found)
-    _require_job_boundary(db, job, lease_owner_id, lease_generation, now)
-    project = _require_project(db, job)
-    if project.output_drive_folder_id != output_folder_id:
-        raise JobOutputPersistenceError(JobOutputPersistenceReason.output_folder_changed)
-    rel = db.execute(select(TranscriptionJobSource).where(TranscriptionJobSource.id == job_source_id).execution_options(populate_existing=True)).scalar_one_or_none()
-    if rel is None or rel.job_id != job.id:
-        raise JobOutputPersistenceError(JobOutputPersistenceReason.job_source_not_found)
-    if rel.status == JobSourceStatus.skipped:
-        raise JobOutputPersistenceError(JobOutputPersistenceReason.job_source_not_processable)
-    source = db.execute(select(Source).where(Source.id == rel.source_id).execution_options(populate_existing=True)).scalar_one_or_none()
-    if source is None or source.project_id != job.project_id or source.upload_status != SourceUploadStatus.uploaded or source.deleted_at is not None:
-        raise JobOutputPersistenceError(JobOutputPersistenceReason.job_source_not_processable)
+    authority = _load_locked_output_authority(
+        db,
+        job_id=job_id,
+        job_source_id=job_source_id,
+        lease_owner_id=lease_owner_id,
+        lease_generation=lease_generation,
+        output_folder_id=output_folder_id,
+        now=now,
+    )
+    job = authority.job
+    rel = authority.selected_relation
 
     existing = db.execute(select(TranscriptionJobOutput).where(TranscriptionJobOutput.job_source_id == job_source_id)).scalar_one_or_none()
     if existing is None:
@@ -110,7 +115,7 @@ def persist_processing_job_source_output_and_maybe_complete(
         if not _same_output(existing, document_id, web_view_url, output_folder_id, artifact, lease_generation):
             raise JobOutputPersistenceError(JobOutputPersistenceReason.output_conflict)
 
-    required_ids = [row[0] for row in db.execute(select(TranscriptionJobSource.id).where(TranscriptionJobSource.job_id == job.id, TranscriptionJobSource.status != JobSourceStatus.skipped)).all()]
+    required_ids = [rel.id for rel in authority.job_source_relations if rel.status != JobSourceStatus.skipped]
     persisted_count = db.execute(select(func.count(TranscriptionJobOutput.id)).where(TranscriptionJobOutput.job_id == job.id, TranscriptionJobOutput.job_source_id.in_(required_ids or ["__none__"]))).scalar_one()
     required_count = len(required_ids)
     completed = required_count > 0 and persisted_count == required_count
@@ -137,11 +142,46 @@ def _require_job_boundary(db: Session, job: TranscriptionJob, owner: str, genera
         raise JobOutputPersistenceError(JobOutputPersistenceReason.cancellation_requested)
 
 
-def _require_project(db: Session, job: TranscriptionJob) -> Project:
-    project = db.execute(select(Project).where(Project.id == job.project_id).execution_options(populate_existing=True)).scalar_one_or_none()
+def _load_locked_output_authority(
+    db: Session,
+    *,
+    job_id: str,
+    job_source_id: str,
+    lease_owner_id: str,
+    lease_generation: int,
+    output_folder_id: str,
+    now: datetime,
+) -> _LockedOutputAuthority:
+    job = db.execute(select(TranscriptionJob).where(TranscriptionJob.id == job_id).with_for_update().execution_options(populate_existing=True)).scalar_one_or_none()
+    if job is None:
+        raise JobOutputPersistenceError(JobOutputPersistenceReason.job_not_found)
+    _require_job_boundary(db, job, lease_owner_id, lease_generation, now)
+
+    project = db.execute(select(Project).where(Project.id == job.project_id).with_for_update().execution_options(populate_existing=True)).scalar_one_or_none()
     if project is None or project.owner_user_id != job.owner_user_id or project.archived_at is not None or not project.output_drive_folder_id:
         raise JobOutputPersistenceError(JobOutputPersistenceReason.project_unavailable)
-    return project
+    if project.output_drive_folder_id != output_folder_id:
+        raise JobOutputPersistenceError(JobOutputPersistenceReason.output_folder_changed)
+
+    relations = tuple(
+        db.execute(
+            select(TranscriptionJobSource)
+            .where(TranscriptionJobSource.job_id == job.id)
+            .order_by(TranscriptionJobSource.position, TranscriptionJobSource.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).scalars().all()
+    )
+    selected = next((rel for rel in relations if rel.id == job_source_id), None)
+    if selected is None:
+        raise JobOutputPersistenceError(JobOutputPersistenceReason.job_source_not_found)
+    if selected.status == JobSourceStatus.skipped:
+        raise JobOutputPersistenceError(JobOutputPersistenceReason.job_source_not_processable)
+
+    source = db.execute(select(Source).where(Source.id == selected.source_id).with_for_update().execution_options(populate_existing=True)).scalar_one_or_none()
+    if source is None or source.project_id != job.project_id or source.upload_status != SourceUploadStatus.uploaded or source.deleted_at is not None:
+        raise JobOutputPersistenceError(JobOutputPersistenceReason.job_source_not_processable)
+    return _LockedOutputAuthority(job, project, selected, source, relations)
 
 
 def _same_output(existing: TranscriptionJobOutput, document_id: str, web_view_url: str, output_folder_id: str, artifact: GoogleDocsTranscriptArtifact, generation: int) -> bool:
