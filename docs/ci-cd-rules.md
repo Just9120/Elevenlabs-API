@@ -127,6 +127,8 @@ CD should:
 - when CD builds or pulls an image through a mutable tag, verify before reporting success that the running container uses the intended newly built or pulled image identity because health alone is not sufficient deployment evidence;
 - report success, for example `DEPLOY_OK`, only after post-check passes.
 
+Deployment programs must not be executed from stdin when child commands may inherit or consume stdin. Materialize the trusted script or deploy program and execute it as a file; for non-interactive container commands, detach stdin explicitly (for example Docker Compose `-T` plus stdin redirected from `/dev/null`) so a child process cannot consume the remaining deploy program and create a false-success run.
+
 CD implementation details may differ by project. The safety boundaries above must remain intact.
 
 For git-based server/VPS deploy, the expected repository access model must be explicit.

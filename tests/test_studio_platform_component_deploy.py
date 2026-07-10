@@ -4,6 +4,7 @@ import os
 import stat
 import subprocess
 from pathlib import Path
+import re
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "deploy_studio_platform_component.sh"
@@ -14,7 +15,7 @@ def _write_exe(path: Path, content: str) -> None:
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
 
-def run_deploy(tmp_path: Path, component: str, **env_overrides: str) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+def run_deploy(tmp_path: Path, component: str, *, via_stdin: bool = False, **env_overrides: str) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     log = tmp_path / "calls.log"
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -83,6 +84,17 @@ if [[ "$1" == "compose" ]]; then
       esac
       ;;
     run)
+      has_detached_tty=false
+      for arg in "$@"; do
+        if [[ "$arg" == "-T" ]]; then has_detached_tty=true; fi
+      done
+      if [[ "$has_detached_tty" != "true" ]]; then
+        cat >/dev/null
+      else
+        if read -r unexpected_stdin; then
+          printf 'unexpected-run-stdin %s\n' "$unexpected_stdin" >> {str(log)!r}
+        fi
+      fi
       last="${{@: -1}}"
       if [[ "$last" == "heads" ]]; then echo {state['head_revision']!r}; elif [[ "$last" == "current" ]]; then echo {state['current_revision']!r}; else exit 47; fi
       ;;
@@ -118,7 +130,11 @@ fi
     if created_env_file:
         env_file.write_text("# test placeholder; fake docker does not read this file\n", encoding="utf-8")
     try:
-        proc = subprocess.run(["bash", str(SCRIPT), component], cwd=ROOT, env=env, text=True, capture_output=True, timeout=10)
+        if via_stdin:
+            with SCRIPT.open("r", encoding="utf-8") as stdin:
+                proc = subprocess.run(["bash", "-s", "--", component], cwd=ROOT, env=env, text=True, stdin=stdin, capture_output=True, timeout=10)
+        else:
+            proc = subprocess.run(["bash", str(SCRIPT), component], cwd=ROOT, env=env, text=True, capture_output=True, timeout=10)
     finally:
         if created_env_file:
             env_file.unlink()
@@ -153,6 +169,38 @@ def test_successful_api_deployment_orders_identity_before_health() -> None:
     assert index_of(calls, "compose-up-args -d --no-deps --force-recreate studio-api") < index_of(calls, "docker compose --env-file deploy/studio/.env -f deploy/studio/compose.platform.yml ps -q studio-api")
     assert index_of(calls, "docker inspect --format {{.Image}} container-new") < index_of(calls, "curl -fsS http://127.0.0.1:8182/api/healthz")
     assert_no_forbidden_mutation(calls)
+
+
+def test_api_deploy_via_stdin_still_reaches_success_boundary(tmp_path: Path) -> None:
+    proc, calls = run_deploy(tmp_path, "api", via_stdin=True)
+    assert proc.returncode == 0, proc.stderr + proc.stdout
+    assert proc.stdout.count("STUDIO_PLATFORM_API_DEPLOY_OK") == 1
+    assert index_of(calls, "ps -q postgres") < index_of(calls, "ps -q redis")
+    assert index_of(calls, "ps -q redis") < index_of(calls, "alembic studio-api heads")
+    assert index_of(calls, "alembic studio-api heads") < index_of(calls, "alembic studio-api current")
+    assert index_of(calls, "alembic studio-api current") < index_of(calls, "compose-up-args -d --no-deps --force-recreate studio-api")
+    assert index_of(calls, "compose-up-args -d --no-deps --force-recreate studio-api") < index_of(calls, "docker inspect --format {{.Image}} container-new")
+    assert index_of(calls, "docker inspect --format {{.Image}} container-new") < index_of(calls, "curl -fsS http://127.0.0.1:8182/api/healthz")
+    assert not any(line.startswith("unexpected-run-stdin ") for line in calls)
+    assert_no_forbidden_mutation(calls)
+
+
+def test_studio_platform_cd_materializes_deploy_script_for_both_components() -> None:
+    workflow = (ROOT / ".github/workflows/studio-platform-cd.yml").read_text(encoding="utf-8")
+    assert "git show origin/main:scripts/deploy_studio_platform_component.sh |" not in workflow
+    assert "bash -s -- web" not in workflow
+    assert "bash -s -- api" not in workflow
+    for component in ("web", "api"):
+        pattern = re.compile(
+            rf"git fetch --prune origin main.*?"
+            rf"deploy_script=\"\$\(mktemp\)\".*?"
+            rf"trap 'rm -f \"\$deploy_script\"' EXIT.*?"
+            rf"git show origin/main:scripts/deploy_studio_platform_component.sh >\"\$deploy_script\".*?"
+            rf"\[\[ -s \"\$deploy_script\" \]\].*?"
+            rf"STUDIO_DEPLOY_DIR=\"\$STUDIO_DEPLOY_DIR\" bash \"\$deploy_script\" {component}",
+            re.DOTALL,
+        )
+        assert pattern.search(workflow), f"{component} deploy does not execute a materialized temporary script"
 
 
 def test_successful_web_deployment_has_no_api_dependency_gates(tmp_path: Path) -> None:
