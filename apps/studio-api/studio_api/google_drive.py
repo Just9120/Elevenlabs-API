@@ -1,11 +1,15 @@
 import json
+import re
 from dataclasses import dataclass
+from enum import Enum
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from .google_oauth import GoogleOAuthConfig, TOKEN_URL
 
 DRIVE_FILES_URL = "https://www.googleapis.com/drive/v3/files"
+DRIVE_SIZE_PATTERN = re.compile(r"^(0|[1-9][0-9]*)$")
 GOOGLE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
 SAFE_DRIVE_METADATA_FIELDS = "id,name,mimeType,size,webViewLink,createdTime,modifiedTime"
 SAFE_DRIVE_CHILDREN_FIELDS = f"nextPageToken,files({SAFE_DRIVE_METADATA_FIELDS})"
@@ -23,6 +27,17 @@ class GoogleDriveMetadata:
     created_time: str | None
     modified_time: str | None
     is_folder: bool
+
+
+class GoogleDriveMetadataReason(str, Enum):
+    not_found = "not_found"
+    unavailable = "unavailable"
+
+
+class GoogleDriveMetadataError(RuntimeError):
+    def __init__(self, reason: GoogleDriveMetadataReason):
+        self.reason = reason
+        super().__init__(reason.value)
 
 
 @dataclass(frozen=True)
@@ -54,9 +69,18 @@ def fetch_drive_file_metadata(access_token: str, drive_file_id: str) -> GoogleDr
         f"{DRIVE_FILES_URL}/{drive_file_id}?{params}",
         headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
     )
-    with urlopen(req, timeout=10) as resp:  # nosec - Google Drive endpoint; tests monkeypatch urlopen/helper.
-        payload = json.loads(resp.read().decode("utf-8"))
-    return normalize_drive_metadata(payload)
+    try:
+        with urlopen(req, timeout=10) as resp:  # nosec - Google Drive endpoint; tests monkeypatch urlopen/helper.
+            payload = json.loads(resp.read().decode("utf-8"))
+    except HTTPError as exc:
+        if exc.code == 404:
+            raise GoogleDriveMetadataError(GoogleDriveMetadataReason.not_found) from exc
+        raise GoogleDriveMetadataError(GoogleDriveMetadataReason.unavailable) from exc
+    except (URLError, OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise GoogleDriveMetadataError(GoogleDriveMetadataReason.unavailable) from exc
+    if not isinstance(payload, dict):
+        raise GoogleDriveMetadataError(GoogleDriveMetadataReason.unavailable)
+    return normalize_drive_file_metadata(payload)
 
 
 def list_drive_folder_children(
@@ -109,3 +133,29 @@ def normalize_drive_metadata(payload: dict) -> GoogleDriveMetadata:
         modified_time=payload.get("modifiedTime") if isinstance(payload.get("modifiedTime"), str) else None,
         is_folder=mime_type == GOOGLE_FOLDER_MIME_TYPE,
     )
+
+
+def normalize_drive_file_metadata(payload: dict) -> GoogleDriveMetadata:
+    file_id = payload.get("id")
+    mime_type = payload.get("mimeType")
+    if not isinstance(file_id, str) or not file_id.strip():
+        raise GoogleDriveMetadataError(GoogleDriveMetadataReason.unavailable)
+    if not isinstance(mime_type, str) or not mime_type.strip():
+        raise GoogleDriveMetadataError(GoogleDriveMetadataReason.unavailable)
+    if "size" in payload:
+        _parse_strict_drive_size(payload.get("size"))
+    return normalize_drive_metadata(payload)
+
+
+def _parse_strict_drive_size(raw_size) -> int:
+    if isinstance(raw_size, bool):
+        raise GoogleDriveMetadataError(GoogleDriveMetadataReason.unavailable)
+    if isinstance(raw_size, int):
+        if raw_size < 0:
+            raise GoogleDriveMetadataError(GoogleDriveMetadataReason.unavailable)
+        return raw_size
+    if isinstance(raw_size, str):
+        if not DRIVE_SIZE_PATTERN.fullmatch(raw_size):
+            raise GoogleDriveMetadataError(GoogleDriveMetadataReason.unavailable)
+        return int(raw_size)
+    raise GoogleDriveMetadataError(GoogleDriveMetadataReason.unavailable)

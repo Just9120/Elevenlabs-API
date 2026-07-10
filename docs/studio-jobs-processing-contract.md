@@ -33,6 +33,17 @@ Processing lease renewal is allowed for both `queued` and `processing` jobs when
 
 Expired processing lease recovery is an explicit internal primitive, not a scheduler or polling loop. If a processing job has no active unexpired lease and no cancellation request, recovery returns it to `queued` while preserving first `started_at` and `attempt_count`; a future claim may increment lease generation. If a cancellation request exists, recovery transitions the job to terminal `cancelled`. Completion remains deferred until Google Docs output and safe output persistence exist.
 
+
+## PWA-JOBS-03C processing-time source availability verification foundation
+
+`PWA-JOBS-03C` adds an internal, server-side, read-only availability boundary for jobs that are already in `processing` under an exact active lease owner and lease generation. It verifies the current ordered job sources immediately before a future source-materialization/provider boundary, but the verification result is only an ephemeral snapshot and is not permanent authorization to download bytes or call a provider.
+
+For `local_upload` sources, verification uses private temporary source-storage metadata and S3/R2 `HEAD` only. It checks configured bucket identity, source expiry, object existence, current object MIME type, current content length, and conflicts between persisted and actual object metadata. It does not download objects, create local temp files, return bucket/key values, or generate presigned URLs.
+
+For `google_drive` sources, verification resolves one ephemeral user-owned Google access token inside the server boundary and reuses it for all Drive sources in the verification call. It fetches current Drive file metadata, requires matching identity, rejects folders, validates supported audio/video/application-ogg MIME, and enforces the configured size limit when Drive reports a size. It does not expose Drive file IDs in the safe summary, return bearer/refresh tokens, include raw Google payloads, or use `alt=media`.
+
+Because external metadata checks can take time, the helper reloads lifecycle and source state after external I/O before returning a ready result. Status must still be `processing`, lease owner/generation must still match, the lease must still be active, cancellation must still be absent, and sources must not have been deleted, expired, moved, replaced, or changed away from uploaded state. Future byte materialization/provider code must still re-check its own immediate side-effect boundary.
+
 ## Future claim and lease semantics
 
 `PWA-JOBS-02C` defines the contract for future server-side ownership of queued Studio transcription jobs. This section is design-only: it does not add a worker, queue consumer, status value, endpoint, database column, migration, runtime service, or production rollout. Current Studio jobs remain record-only. `PWA-JOBS-02D` may add an internal non-mutating claim-readiness planning helper over the existing read-only preflight snapshot; that helper is not a claim, lease, worker, queue, provider execution, output, schema, or runtime implementation.
