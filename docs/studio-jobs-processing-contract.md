@@ -14,6 +14,14 @@ PR #103 merged `PWA-JOBS-01D`, improving the user-facing record-only readiness/s
 
 Production migration rollout for already-existing Studio job persistence remains manual/operator-scoped and must not be claimed by docs-only or future coding-only work unless separately validated by the operator.
 
+## PWA-JOBS-03A source-only lease foundation
+
+`PWA-JOBS-03A` introduces internal PostgreSQL persistence and transactional primitives for claiming, renewing, and releasing bounded ownership of one eligible queued Studio job. This is coordination state only: a lease represents exclusive intent for a future execution component, not provider processing. A claimed job remains `queued`, and `started_at` remains reserved for a later real processing transition.
+
+Lease owner identity, lease generation, claim timestamp, and lease expiration are internal server-side metadata and must not be exposed in browser/API payloads, user-facing errors, audit metadata, frontend state, logs, generated artifacts, or examples. Cancellation of a queued job invalidates active lease ownership and expiration in the same record-only transition while preserving generation history for fencing.
+
+This slice still does not add a worker, queue consumer, scheduler, provider call, credential decryption/use, source-byte access, Google Drive download/export processing, Google Docs output, output persistence, manifest mutation, production migration rollout, VPS access, or secrets changes. Worker/provider execution remains a later separately scoped slice.
+
 
 ## Future claim and lease semantics
 

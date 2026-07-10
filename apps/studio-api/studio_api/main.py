@@ -15,6 +15,7 @@ from .rate_limit import RateLimiter
 from .security import *
 from .source_storage import get_source_storage, safe_filename
 from .job_lifecycle import can_cancel_job_status, safe_failure_metadata_value
+from .job_claim_lease import invalidate_job_lease
 
 settings=get_settings()
 app=FastAPI(docs_url="/docs" if settings.enable_api_docs else None, redoc_url=None, openapi_url="/openapi.json" if settings.enable_api_docs else None)
@@ -358,7 +359,7 @@ def get_transcription_job(job_id: str, pair=Depends(current_session), db: Sessio
 def cancel_transcription_job(job_id: str, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     _,user=pair; limiter.check("job:cancel:"+user.id, 120, 3600); job=owned_job_or_404(db,user,job_id)
     if can_cancel_job_status(job.status):
-        now=utcnow(); job.status=JobStatus.cancelled; job.cancelled_at=now; job.updated_at=now
+        now=utcnow(); job.status=JobStatus.cancelled; job.cancelled_at=now; job.updated_at=now; invalidate_job_lease(job)
         audit(db,"job.cancelled",actor_user_id=user.id,subject_user_id=user.id,project_id=job.project_id,job_id=job.id)
         db.commit(); db.refresh(job)
     return job_payload(job, include_sources=True)
