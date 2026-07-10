@@ -125,8 +125,10 @@ def _load_snapshot(db: Session, job_id: str, owner: str, generation: int, now: d
 def _validate_metadata(meta: DriveFolderAuthorizationMetadata, expected_id: str) -> None:
     if meta.id != expected_id:
         raise OutputDestinationError(OutputDestinationReason.output_identity_mismatch)
-    if meta.mime_type != GOOGLE_FOLDER_MIME_TYPE or meta.trashed is True:
+    if meta.mime_type != GOOGLE_FOLDER_MIME_TYPE:
         raise OutputDestinationError(OutputDestinationReason.output_not_folder)
+    if meta.trashed is not False:
+        raise OutputDestinationError(OutputDestinationReason.metadata_unavailable)
     if meta.can_add_children is not True:
         raise OutputDestinationError(OutputDestinationReason.output_folder_not_writable)
 

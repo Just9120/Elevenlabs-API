@@ -67,11 +67,16 @@ def test_provider_credential_success_aad_and_redaction(db, models):
     def decryptor(ct, nonce, key, aad):
         seen.update(ct=ct, nonce=nonce, key=key, aad=aad); return "credential-value"
     with open_processing_job_provider_credential(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), now=now, decryptor=decryptor) as handle:
+        retained = handle
         assert handle.provider == "elevenlabs"
         assert handle.credential_version_id == version.id
         assert handle.raw_secret == "credential-value"
         assert "credential-value" not in repr(handle)
     assert seen["aad"] == f"user={user.id};credential={cred.id};version={version.id};provider=elevenlabs".encode()
+    from studio_api.provider_credential_access import ProviderCredentialAccessError
+    with pytest.raises(ProviderCredentialAccessError) as exc:
+        retained.raw_secret
+    assert str(exc.value) == "context_closed"
 
 
 def test_provider_credential_openai_success(db, models):
@@ -136,7 +141,8 @@ def test_output_destination_success_one_token_and_redaction(db, models):
 @pytest.mark.parametrize("meta,reason", [
     (("other", "application/vnd.google-apps.folder", False, True), "output_identity_mismatch"),
     (("configured-folder", "text/plain", False, True), "output_not_folder"),
-    (("configured-folder", "application/vnd.google-apps.folder", True, True), "output_not_folder"),
+    (("configured-folder", "application/vnd.google-apps.folder", True, True), "metadata_unavailable"),
+    (("configured-folder", "application/vnd.google-apps.folder", None, True), "metadata_unavailable"),
     (("configured-folder", "application/vnd.google-apps.folder", False, False), "output_folder_not_writable"),
     (("configured-folder", "application/vnd.google-apps.folder", False, None), "output_folder_not_writable"),
 ])
@@ -162,20 +168,92 @@ def test_output_destination_revalidates_after_io(db, models):
 
 
 def test_execution_prerequisites_success_redacted_and_caller_exception(db, models):
+    from studio_api.google_drive import GOOGLE_FOLDER_MIME_TYPE
     from studio_api.job_execution_context import open_processing_job_execution_prerequisites
-    from studio_api.job_output_destination import ProcessingJobOutputDestination
-    from studio_api.provider_credential_access import ProcessingJobProviderCredential
-    *_, job, now = make_job(db, models)
-    class CM:
-        def __enter__(self): return ProcessingJobProviderCredential("cred", "ver", "elevenlabs", "credential-value")
-        def __exit__(self, *args): return False
-    def opener(*a, **k): return CM()
-    def verifier(*a, **k): return ProcessingJobOutputDestination(job.id, "project", now, "folder")
-    with open_processing_job_execution_prerequisites(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), now=now, credential_opener=opener, output_verifier=verifier) as handle:
-        assert handle.provider == "elevenlabs" and handle.credential_version_id == "ver"
+    from studio_api.job_output_destination import DriveFolderAuthorizationMetadata
+    *_, version, job, now = make_job(db, models)
+    verifier_kwargs = {
+        "token_resolver": lambda *a, **k: "ephemeral-access",
+        "metadata_fetcher": lambda token, folder: DriveFolderAuthorizationMetadata(folder, GOOGLE_FOLDER_MIME_TYPE, False, True),
+        "decryptor": lambda *_: "credential-value",
+    }
+    with open_processing_job_execution_prerequisites(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), now=now, **verifier_kwargs) as handle:
+        retained = handle
+        assert handle.provider == "elevenlabs" and handle.credential_version_id == version.id
+        assert handle.raw_credential_secret == "credential-value"
         assert "credential-value" not in repr(handle) and "configured-folder" not in repr(handle)
+    from studio_api.provider_credential_access import ProviderCredentialAccessError
+    with pytest.raises(ProviderCredentialAccessError) as closed:
+        retained.raw_credential_secret
+    assert str(closed.value) == "context_closed"
     sentinel = RuntimeError("caller")
     with pytest.raises(RuntimeError) as exc:
-        with open_processing_job_execution_prerequisites(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), now=now, credential_opener=opener, output_verifier=verifier):
+        with open_processing_job_execution_prerequisites(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), now=now, **verifier_kwargs):
+            raise sentinel
+    assert exc.value is sentinel
+
+
+def test_execution_prerequisites_final_revalidation_blocks_credential_mutation(db, models):
+    from studio_api.google_drive import GOOGLE_FOLDER_MIME_TYPE
+    from studio_api.job_execution_context import JobExecutionContextError, open_processing_job_execution_prerequisites
+    from studio_api.job_output_destination import DriveFolderAuthorizationMetadata
+    user, project, cred, version, job, now = make_job(db, models)
+    def fetcher(token, folder):
+        version.revoked_at = now; db.flush()
+        return DriveFolderAuthorizationMetadata(folder, GOOGLE_FOLDER_MIME_TYPE, False, True)
+    with pytest.raises(JobExecutionContextError) as exc:
+        with open_processing_job_execution_prerequisites(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), now=now, decryptor=lambda *_: "credential-value", token_resolver=lambda *a, **k: "token", metadata_fetcher=fetcher):
+            pass
+    assert str(exc.value) == "credential_unavailable"
+
+
+def test_execution_prerequisites_final_revalidation_blocks_credential_replacement(db, models):
+    from studio_api.google_drive import GOOGLE_FOLDER_MIME_TYPE
+    from studio_api.job_execution_context import JobExecutionContextError, open_processing_job_execution_prerequisites
+    from studio_api.job_output_destination import DriveFolderAuthorizationMetadata
+    user, project, cred, version, job, now = make_job(db, models)
+    def fetcher(token, folder):
+        replacement = models.ProviderCredentialVersion(credential_id=cred.id, version=2, ciphertext=b"ct2", nonce=b"nonce2", key_id="credential-key-v1", masked_value="masked-value", fingerprint="digest2")
+        db.add(replacement); db.flush()
+        cred.active_version_id = replacement.id; db.flush()
+        return DriveFolderAuthorizationMetadata(folder, GOOGLE_FOLDER_MIME_TYPE, False, True)
+    with pytest.raises(JobExecutionContextError) as exc:
+        with open_processing_job_execution_prerequisites(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), now=now, decryptor=lambda *_: "credential-value", token_resolver=lambda *a, **k: "token", metadata_fetcher=fetcher):
+            pass
+    assert str(exc.value) == "credential_unavailable"
+
+
+def test_execution_prerequisites_final_revalidation_blocks_lease_loss_and_cancellation(db, models):
+    from studio_api.google_drive import GOOGLE_FOLDER_MIME_TYPE
+    from studio_api.job_execution_context import JobExecutionContextError, open_processing_job_execution_prerequisites
+    from studio_api.job_output_destination import DriveFolderAuthorizationMetadata
+    *_, job, now = make_job(db, models)
+    def fetcher(token, folder):
+        job.lease_owner_id = "other"; db.flush()
+        return DriveFolderAuthorizationMetadata(folder, GOOGLE_FOLDER_MIME_TYPE, False, True)
+    with pytest.raises(JobExecutionContextError) as exc:
+        with open_processing_job_execution_prerequisites(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), now=now, decryptor=lambda *_: "credential-value", token_resolver=lambda *a, **k: "token", metadata_fetcher=fetcher):
+            pass
+    assert str(exc.value) == "credential_unavailable"
+
+    *_, job2, now2 = make_job(db, models, provider="openai")
+    def canceling_fetcher(token, folder):
+        job2.cancel_requested_at = now2; db.flush()
+        return DriveFolderAuthorizationMetadata(folder, GOOGLE_FOLDER_MIME_TYPE, False, True)
+    with pytest.raises(JobExecutionContextError) as cancel_exc:
+        with open_processing_job_execution_prerequisites(db, job_id=job2.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), now=now2, decryptor=lambda *_: "credential-value", token_resolver=lambda *a, **k: "token", metadata_fetcher=canceling_fetcher):
+            pass
+    assert str(cancel_exc.value) == "credential_unavailable"
+
+
+def test_execution_prerequisites_preserves_caller_provider_credential_error(db, models):
+    from studio_api.google_drive import GOOGLE_FOLDER_MIME_TYPE
+    from studio_api.job_execution_context import open_processing_job_execution_prerequisites
+    from studio_api.job_output_destination import DriveFolderAuthorizationMetadata
+    from studio_api.provider_credential_access import ProviderCredentialAccessError, ProviderCredentialAccessReason
+    *_, job, now = make_job(db, models)
+    sentinel = ProviderCredentialAccessError(ProviderCredentialAccessReason.credential_changed)
+    with pytest.raises(ProviderCredentialAccessError) as exc:
+        with open_processing_job_execution_prerequisites(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), now=now, decryptor=lambda *_: "credential-value", token_resolver=lambda *a, **k: "token", metadata_fetcher=lambda token, folder: DriveFolderAuthorizationMetadata(folder, GOOGLE_FOLDER_MIME_TYPE, False, True)):
             raise sentinel
     assert exc.value is sentinel

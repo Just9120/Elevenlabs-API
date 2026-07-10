@@ -32,6 +32,7 @@ class ProviderCredentialAccessReason(str, Enum):
     key_boundary_mismatch = "key_boundary_mismatch"
     decrypt_failed = "decrypt_failed"
     credential_changed = "credential_changed"
+    context_closed = "context_closed"
 
 
 class ProviderCredentialAccessError(RuntimeError):
@@ -40,12 +41,34 @@ class ProviderCredentialAccessError(RuntimeError):
         super().__init__(reason.value)
 
 
+class _RevocableCredentialSecret:
+    def __init__(self, value: str):
+        self._value = value
+        self._revoked = False
+
+    def get(self) -> str:
+        if self._revoked:
+            raise ProviderCredentialAccessError(ProviderCredentialAccessReason.context_closed)
+        return self._value
+
+    def revoke(self) -> None:
+        self._value = ""
+        self._revoked = True
+
+    def __repr__(self) -> str:
+        return "<redacted>"
+
+
 @dataclass(frozen=True)
 class ProcessingJobProviderCredential:
     credential_id: str
     credential_version_id: str
     provider: str
-    raw_secret: str = field(repr=False)
+    _secret: _RevocableCredentialSecret = field(repr=False)
+
+    @property
+    def raw_secret(self) -> str:
+        return self._secret.get()
 
     def __repr__(self) -> str:
         return (
@@ -96,16 +119,18 @@ def open_processing_job_provider_credential(
 ) -> Iterator[ProcessingJobProviderCredential]:
     clock = clock or (lambda: utcnow().replace(tzinfo=None))
     snap = _load_snapshot(db, job_id, lease_owner_id, lease_generation, now or clock(), settings)
+    secret_holder: _RevocableCredentialSecret | None = None
     try:
         try:
             key = master_key_resolver(settings) if master_key_resolver else master_key_from_b64(settings.master_key_b64())
-            raw_secret = decryptor(snap.ciphertext, snap.nonce, key, aad(snap.owner_user_id, snap.credential_id, snap.version_id, snap.credential_provider))
+            secret_holder = _RevocableCredentialSecret(decryptor(snap.ciphertext, snap.nonce, key, aad(snap.owner_user_id, snap.credential_id, snap.version_id, snap.credential_provider)))
         except Exception as exc:
             raise ProviderCredentialAccessError(ProviderCredentialAccessReason.decrypt_failed) from exc
         _compare_snapshot(snap, _load_snapshot(db, job_id, lease_owner_id, lease_generation, clock(), settings))
-        yield ProcessingJobProviderCredential(snap.credential_id, snap.version_id, snap.credential_provider, raw_secret)
+        yield ProcessingJobProviderCredential(snap.credential_id, snap.version_id, snap.credential_provider, secret_holder)
     finally:
-        raw_secret = None  # drop the context-local reference; Python strings are not zeroized.
+        if secret_holder is not None:
+            secret_holder.revoke()
 
 
 def _load_snapshot(db: Session, job_id: str, owner: str, generation: int, now: datetime, settings) -> _CredentialSnapshot:
