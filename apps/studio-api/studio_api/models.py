@@ -13,7 +13,7 @@ class GoogleConnectionStatus(str, enum.Enum): active="active"; revoked="revoked"
 class GoogleProvider(str, enum.Enum): google="google"
 class SourceType(str, enum.Enum): local_upload="local_upload"; google_drive="google_drive"
 class SourceUploadStatus(str, enum.Enum): pending="pending"; uploaded="uploaded"; deleted="deleted"; expired="expired"; failed="failed"
-class JobStatus(str, enum.Enum): queued="queued"; cancelled="cancelled"; failed="failed"; completed="completed"
+class JobStatus(str, enum.Enum): queued="queued"; processing="processing"; cancelled="cancelled"; failed="failed"; completed="completed"
 class JobSourceStatus(str, enum.Enum): queued="queued"; skipped="skipped"
 
 class User(Base):
@@ -163,6 +163,8 @@ class TranscriptionJob(Base):
     created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now)
     updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now, onupdate=now)
     cancelled_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    cancel_requested_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    attempt_count: Mapped[int]=mapped_column(Integer, default=0, server_default=text("0"))
     started_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     error_code: Mapped[str|None]=mapped_column(String(80))

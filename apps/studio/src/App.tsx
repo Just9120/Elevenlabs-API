@@ -52,7 +52,7 @@ type Source = {
   created_at: string;
   updated_at: string;
 };
-type JobStatus = "queued" | "cancelled" | "failed" | "completed";
+type JobStatus = "queued" | "processing" | "cancelled" | "failed" | "completed";
 type JobSourceStatus = "queued" | "skipped";
 type JobSource = Source & {
   position: number;
@@ -70,6 +70,8 @@ type TranscriptionJob = {
   created_at: string;
   updated_at: string;
   cancelled_at: string | null;
+  cancel_requested_at: string | null;
+  attempt_count: number;
   started_at: string | null;
   finished_at: string | null;
   error_code: string | null;
@@ -167,7 +169,8 @@ function safeJobSources(job: TranscriptionJob) {
 function jobStatusLabel(status: JobStatus) {
   const labels: Record<JobStatus, string> = {
     queued: "Queued · record only",
-    cancelled: "Cancelled · processing не запускался",
+    processing: "В обработке · lifecycle foundation only",
+    cancelled: "Cancelled · terminal",
     failed: "Failed · safe error metadata only",
     completed: "Completed · reserved for future processing",
   };
@@ -1006,7 +1009,7 @@ function JobsPanel({
         ...current,
         [jobId]: { loading: false, error: "", job: cancelled },
       }));
-      setMessage("Job record отменён или уже был отменён. Provider processing не запускался.");
+      setMessage("Запрос отмены отправлен или job уже терминальна. Worker/provider execution ещё не подключены.");
       onReloadJobs(project.id);
     } catch {
       setMessage("Не удалось отменить job. Повторите безопасно позже.");
@@ -1126,11 +1129,19 @@ function JobsPanel({
             <span>Created: {formatTime(job.created_at)}</span>
             <span>Updated: {formatTime(job.updated_at)}</span>
             <span>Cancelled: {formatTime(job.cancelled_at)}</span>
+            <span>Attempts: {job.attempt_count ?? 0}</span>
+            {job.status === "processing" && job.cancel_requested_at && <span>Отмена запрошена: {formatTime(job.cancel_requested_at)}</span>}
             {job.error_code && <span>Error code: {job.error_code}</span>}
             {job.error_message && <span>Error: {job.error_message}</span>}
             <button type="button" onClick={() => void loadDetail(job.id)}>Показать детали job</button>
             {job.status === "queued" && (
               <button type="button" onClick={() => void cancelJob(job.id)}>Отменить queued record</button>
+            )}
+            {job.status === "processing" && !job.cancel_requested_at && (
+              <button type="button" onClick={() => void cancelJob(job.id)}>Запросить отмену processing</button>
+            )}
+            {job.status === "processing" && job.cancel_requested_at && (
+              <button type="button" disabled>Отмена запрошена</button>
             )}
             {currentDetail?.loading && <p role="status">Загрузка деталей job…</p>}
             {currentDetail?.error && <p className="error">{currentDetail.error}</p>}

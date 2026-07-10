@@ -923,7 +923,27 @@ describe("Studio PWA", () => {
                 created_at: "2026-07-02T00:00:00Z",
                 updated_at: "2026-07-02T00:01:00Z",
                 cancelled_at: null,
+                cancel_requested_at: null,
+                attempt_count: 0,
                 started_at: null,
+                finished_at: null,
+                error_code: null,
+                error_message: null,
+              },
+              {
+                id: "job-processing",
+                project_id: "p1",
+                status: "processing",
+                title: "Processing review",
+                provider: null,
+                provider_credential_id: null,
+                source_count: 1,
+                created_at: "2026-07-02T00:00:00Z",
+                updated_at: "2026-07-02T00:03:00Z",
+                cancelled_at: null,
+                cancel_requested_at: "2026-07-02T00:03:00Z",
+                attempt_count: 2,
+                started_at: "2026-07-02T00:01:00Z",
                 finished_at: null,
                 error_code: null,
                 error_message: null,
@@ -939,6 +959,8 @@ describe("Studio PWA", () => {
                 created_at: "2026-07-03T00:00:00Z",
                 updated_at: "2026-07-03T00:01:00Z",
                 cancelled_at: null,
+                cancel_requested_at: null,
+                attempt_count: 0,
                 started_at: null,
                 finished_at: null,
                 error_code: "SAFE_CODE",
@@ -1034,6 +1056,8 @@ describe("Studio PWA", () => {
             created_at: "2026-07-02T00:00:00Z",
             updated_at: "2026-07-02T00:02:00Z",
             cancelled_at: "2026-07-02T00:02:00Z",
+            cancel_requested_at: null,
+            attempt_count: 0,
             started_at: null,
             finished_at: null,
             error_code: null,
@@ -1068,6 +1092,9 @@ describe("Studio PWA", () => {
     expect(screen.getByText("Job job-2")).toBeInTheDocument();
     expect(screen.getByText("Статус: Queued · record only")).toBeInTheDocument();
     expect(screen.getByText("Статус: Failed · safe error metadata only")).toBeInTheDocument();
+    expect(screen.getByText("Статус: В обработке · lifecycle foundation only")).toBeInTheDocument();
+    expect(screen.getByText(/Отмена запрошена:/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Отмена запрошена" })).toBeDisabled();
     expect(screen.getByText("Sources: 2")).toBeInTheDocument();
     expect(screen.getByText("Error code: SAFE_CODE")).toBeInTheDocument();
     expect(screen.getByText("Error: Safe visible error")).toBeInTheDocument();
@@ -1130,7 +1157,7 @@ describe("Studio PWA", () => {
       ([url]) => url === "/api/jobs/job-1/cancel",
     );
     expect(cancelCall?.[1]?.headers).toMatchObject({ "x-csrf-token": "csrf-after-refresh" });
-    expect(await screen.findByText("Job record отменён или уже был отменён. Provider processing не запускался.")).toBeInTheDocument();
+    expect(await screen.findByText("Запрос отмены отправлен или job уже терминальна. Worker/provider execution ещё не подключены.")).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("raw-token");
     expect(document.body.textContent).not.toContain("refresh_token");
     expect(document.body.textContent).not.toContain("encrypted_ciphertext");
@@ -1139,6 +1166,11 @@ describe("Studio PWA", () => {
     expect(document.body.textContent).not.toContain("cred-revoked");
     expect(window.localStorage.length).toBe(0);
     expect(window.sessionStorage.length).toBe(0);
+  });
+
+  it("renders processing cancellation-request state without extra api calls in static mode", async () => {
+    renderApp("static");
+    expect(fetch).not.toHaveBeenCalledWith(expect.stringContaining("/api"), expect.anything());
   });
 
   it("allows creating a job without credential when credential loading fails", async () => {
