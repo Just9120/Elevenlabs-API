@@ -6,8 +6,6 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-import os
-os.environ.setdefault("STUDIO_DATABASE_URL", "sqlite+pysqlite:///:memory:")
 import httpx
 import pytest
 from sqlalchemy import create_engine
@@ -24,9 +22,13 @@ class Settings:
     source_s3_bucket: str = "bucket"
 
 
-@pytest.fixture()
-def db(monkeypatch):
+@pytest.fixture(autouse=True)
+def isolated_studio_database_url(monkeypatch):
     monkeypatch.setenv("STUDIO_DATABASE_URL", "sqlite+pysqlite:///:memory:")
+
+
+@pytest.fixture()
+def db():
     from studio_api.db import Base
     import studio_api.models  # noqa
     engine = create_engine("sqlite+pysqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
