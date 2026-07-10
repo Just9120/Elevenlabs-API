@@ -6,11 +6,11 @@ from enum import Enum
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
 from .google_docs_output import GoogleDocsOutputError, GoogleDocsOutputReason, GoogleDocsTranscriptArtifact
 from .job_claim_lease import invalidate_job_lease, is_lease_active
-from .models import JobSourceStatus, JobStatus, Project, SourceUploadStatus, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource
+from .models import JobSourceStatus, JobStatus, Project, Source, SourceUploadStatus, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource
 
 GOOGLE_DOCS_TRANSCRIPT_OUTPUT_KIND = "google_docs_transcript"
 TRANSCRIPT_STANDARD = "transcript_doc_v1.2"
@@ -69,19 +69,20 @@ def persist_processing_job_source_output_and_maybe_complete(
             raise JobOutputPersistenceError(JobOutputPersistenceReason.artifact_context_closed) from exc
         raise
 
-    job = db.execute(select(TranscriptionJob).where(TranscriptionJob.id == job_id).with_for_update()).scalar_one_or_none()
+    job = db.execute(select(TranscriptionJob).where(TranscriptionJob.id == job_id).with_for_update().execution_options(populate_existing=True)).scalar_one_or_none()
     if job is None:
         raise JobOutputPersistenceError(JobOutputPersistenceReason.job_not_found)
     _require_job_boundary(db, job, lease_owner_id, lease_generation, now)
     project = _require_project(db, job)
     if project.output_drive_folder_id != output_folder_id:
         raise JobOutputPersistenceError(JobOutputPersistenceReason.output_folder_changed)
-    rel = db.execute(select(TranscriptionJobSource).options(selectinload(TranscriptionJobSource.source)).where(TranscriptionJobSource.id == job_source_id)).scalar_one_or_none()
+    rel = db.execute(select(TranscriptionJobSource).where(TranscriptionJobSource.id == job_source_id).execution_options(populate_existing=True)).scalar_one_or_none()
     if rel is None or rel.job_id != job.id:
         raise JobOutputPersistenceError(JobOutputPersistenceReason.job_source_not_found)
     if rel.status == JobSourceStatus.skipped:
         raise JobOutputPersistenceError(JobOutputPersistenceReason.job_source_not_processable)
-    if rel.source is None or rel.source.project_id != job.project_id or rel.source.upload_status != SourceUploadStatus.uploaded or rel.source.deleted_at is not None:
+    source = db.execute(select(Source).where(Source.id == rel.source_id).execution_options(populate_existing=True)).scalar_one_or_none()
+    if source is None or source.project_id != job.project_id or source.upload_status != SourceUploadStatus.uploaded or source.deleted_at is not None:
         raise JobOutputPersistenceError(JobOutputPersistenceReason.job_source_not_processable)
 
     existing = db.execute(select(TranscriptionJobOutput).where(TranscriptionJobOutput.job_source_id == job_source_id)).scalar_one_or_none()
@@ -137,7 +138,7 @@ def _require_job_boundary(db: Session, job: TranscriptionJob, owner: str, genera
 
 
 def _require_project(db: Session, job: TranscriptionJob) -> Project:
-    project = db.get(Project, job.project_id)
+    project = db.execute(select(Project).where(Project.id == job.project_id).execution_options(populate_existing=True)).scalar_one_or_none()
     if project is None or project.owner_user_id != job.owner_user_id or project.archived_at is not None or not project.output_drive_folder_id:
         raise JobOutputPersistenceError(JobOutputPersistenceReason.project_unavailable)
     return project
