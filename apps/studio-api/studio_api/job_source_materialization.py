@@ -119,53 +119,56 @@ def materialize_processing_job_source(
     check_now = now or clock()
     temp: BinaryIO | None = None
     try:
-        cached_token: dict[str, str] = {}
-        def _cached_drive_token_resolver(*args, **kwargs):
-            if "token" not in cached_token:
-                cached_token["token"] = drive_token_resolver(*args, **kwargs)
-            return cached_token["token"]
+        try:
+            cached_token: dict[str, str] = {}
 
-        availability = verify_processing_job_sources(
-            db,
-            job_id=job_id,
-            lease_owner_id=lease_owner_id,
-            lease_generation=lease_generation,
-            now=check_now,
-            settings=settings,
-            storage_factory=storage_factory,
-            drive_token_resolver=_cached_drive_token_resolver,
-            drive_metadata_fetcher=drive_metadata_fetcher,
-            now_provider=clock,
-        )
-        if not availability.ready:
-            raise SourceMaterializationError(_availability_reason(availability.blocking_reasons))
-        snap = _load_selected_snapshot(db, job_id, job_source_id, lease_owner_id, lease_generation, check_now, settings)
-        temp = SpooledTemporaryFile(max_size=min(settings.source_max_upload_bytes, 8 * 1024 * 1024), mode="w+b")
-        byte_count, response_mime, response_length = _copy_source_bytes(
-            snap,
-            temp,
-            settings,
-            storage_factory,
-            _cached_drive_token_resolver,
-            drive_content_fetcher,
-            db,
-        )
-        _validate_materialized_metadata(snap, byte_count, response_mime, response_length, settings)
-        _compare_snapshot(snap, _load_selected_snapshot(db, job_id, job_source_id, lease_owner_id, lease_generation, clock(), settings))
-        temp.seek(0)
-        handle = MaterializedJobSource(
-            identity=MaterializedSourceIdentity(job_id=snap.job_id, job_source_id=snap.job_source_id, source_id=snap.source_id),
-            position=snap.position,
-            original_filename=safe_filename(snap.original_filename),
-            mime_type=normalize_source_mime_type(response_mime) or snap.mime_type or "application/octet-stream",
-            byte_count=byte_count,
-            stream=temp,
-        )
+            def _cached_drive_token_resolver(*args, **kwargs):
+                if "token" not in cached_token:
+                    cached_token["token"] = drive_token_resolver(*args, **kwargs)
+                return cached_token["token"]
+
+            availability = verify_processing_job_sources(
+                db,
+                job_id=job_id,
+                lease_owner_id=lease_owner_id,
+                lease_generation=lease_generation,
+                now=check_now,
+                settings=settings,
+                storage_factory=storage_factory,
+                drive_token_resolver=_cached_drive_token_resolver,
+                drive_metadata_fetcher=drive_metadata_fetcher,
+                now_provider=clock,
+            )
+            if not availability.ready:
+                raise SourceMaterializationError(_availability_reason(availability.blocking_reasons))
+            snap = _load_selected_snapshot(db, job_id, job_source_id, lease_owner_id, lease_generation, check_now, settings)
+            temp = SpooledTemporaryFile(max_size=min(settings.source_max_upload_bytes, 8 * 1024 * 1024), mode="w+b")
+            byte_count, response_mime, response_length = _copy_source_bytes(
+                snap,
+                temp,
+                settings,
+                storage_factory,
+                _cached_drive_token_resolver,
+                drive_content_fetcher,
+                db,
+            )
+            _validate_materialized_metadata(snap, byte_count, response_mime, response_length, settings)
+            _compare_snapshot(snap, _load_selected_snapshot(db, job_id, job_source_id, lease_owner_id, lease_generation, clock(), settings))
+            temp.seek(0)
+            handle = MaterializedJobSource(
+                identity=MaterializedSourceIdentity(job_id=snap.job_id, job_source_id=snap.job_source_id, source_id=snap.source_id),
+                position=snap.position,
+                original_filename=safe_filename(snap.original_filename),
+                mime_type=normalize_source_mime_type(response_mime) or snap.mime_type or "application/octet-stream",
+                byte_count=byte_count,
+                stream=temp,
+            )
+        except SourceMaterializationError:
+            raise
+        except Exception as exc:
+            raise SourceMaterializationError(SourceMaterializationReason.temporary_materialization_failure) from exc
+
         yield handle
-    except SourceMaterializationError:
-        raise
-    except Exception as exc:
-        raise SourceMaterializationError(SourceMaterializationReason.temporary_materialization_failure) from exc
     finally:
         if temp is not None:
             temp.close()

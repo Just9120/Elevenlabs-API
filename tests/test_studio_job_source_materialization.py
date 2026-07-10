@@ -265,3 +265,24 @@ def test_mutations_during_copy_clean_temp(sqlite_session, models):
                 pass
         assert str(err.value) in {"selected_source_changed", "lease_not_owned", "cancellation_requested", "availability_verification_failed"}
         assert body.closed
+
+
+def test_caller_exception_propagates_unchanged_and_stream_closes(sqlite_session, models):
+    class SentinelCallerError(Exception):
+        pass
+
+    job, _, rel, _, now, _ = make_job(sqlite_session, models)
+    body = FakeBody([b"a" * 100])
+    storage = FakeStorage(FakeStream(body))
+    yielded_stream = None
+
+    with pytest.raises(SentinelCallerError) as err:
+        with materialize(sqlite_session, job, rel, storage=storage, now=now) as handle:
+            yielded_stream = handle.stream
+            assert yielded_stream.read(1) == b"a"
+            raise SentinelCallerError("caller sentinel")
+
+    assert type(err.value) is SentinelCallerError
+    assert str(err.value) == "caller sentinel"
+    assert yielded_stream is not None
+    assert yielded_stream.closed
