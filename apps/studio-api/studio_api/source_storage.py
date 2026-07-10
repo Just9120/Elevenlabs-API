@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 
 from botocore.exceptions import ClientError
@@ -11,6 +12,36 @@ from .config import Settings
 
 class SourceStorageError(RuntimeError):
     pass
+
+
+class SourceObjectReadReason(str, Enum):
+    missing = "missing"
+    unavailable = "unavailable"
+
+
+class SourceObjectReadError(RuntimeError):
+    def __init__(self, reason: SourceObjectReadReason):
+        self.reason = reason
+        super().__init__(reason.value)
+
+
+@dataclass
+class SourceObjectStream:
+    body: object
+    content_type: str | None
+    content_length: int | None
+
+    def iter_chunks(self, chunk_size: int):
+        while True:
+            chunk = self.body.read(chunk_size)
+            if not chunk:
+                break
+            yield chunk
+
+    def close(self) -> None:
+        close = getattr(self.body, "close", None)
+        if close:
+            close()
 
 
 @dataclass(frozen=True)
@@ -52,6 +83,18 @@ class S3SourceStorage:
                 raise FileNotFoundError(key) from exc
             raise
         return ObjectHead(size_bytes=result.get("ContentLength"), content_type=result.get("ContentType"))
+
+    def open_read(self, key: str) -> SourceObjectStream:
+        try:
+            result = self.client.get_object(Bucket=self.bucket, Key=key)
+        except ClientError as exc:
+            code = exc.response.get("Error", {}).get("Code")
+            if code in {"404", "NoSuchKey", "NotFound"}:
+                raise SourceObjectReadError(SourceObjectReadReason.missing) from exc
+            raise SourceObjectReadError(SourceObjectReadReason.unavailable) from exc
+        except Exception as exc:
+            raise SourceObjectReadError(SourceObjectReadReason.unavailable) from exc
+        return SourceObjectStream(result["Body"], result.get("ContentType"), result.get("ContentLength"))
 
     def delete_object(self, key: str) -> None:
         try:

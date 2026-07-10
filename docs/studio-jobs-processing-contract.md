@@ -44,6 +44,19 @@ For `google_drive` sources, verification resolves one ephemeral user-owned Googl
 
 Because external metadata checks can take time, the helper reloads lifecycle and source state after external I/O before returning a ready result. Status must still be `processing`, lease owner/generation must still match, the lease must still be active, cancellation must still be absent, and sources must not have been deleted, expired, moved, replaced, or changed away from uploaded state. Future byte materialization/provider code must still re-check its own immediate side-effect boundary.
 
+
+## PWA-JOBS-03D internal single-source byte materialization boundary
+
+`PWA-JOBS-03D` adds an internal-only context-managed boundary for one ordered source relation on an already leased `processing` job. The helper re-runs the processing-time availability boundary immediately before byte access; an older browser payload or previous availability summary is never authorization to materialize bytes.
+
+Before opening S3/R2 or Drive content, the boundary requires the job to exist, remain `processing`, retain the exact lease owner and generation, have an active unexpired lease, have no cancellation request, and belong to an existing owner-consistent non-archived project. The selected relation must belong to the job, remain processable, point at a source in the same project, have uploaded status, be neither deleted nor expired, and have supported MIME and bounded persisted size.
+
+The selected relation/source identity is snapshotted immediately before external I/O and reloaded after byte copy. Lease loss, expiration, cancellation, job/project/source/relation identity mutation, deletion/expiry, MIME mutation, or size mutation fails closed before a handle is yielded. External S3/R2 `get_object` and Drive `alt=media` I/O happen outside any row-locking claim path.
+
+Bytes are copied into bounded `SpooledTemporaryFile` storage and the configured maximum is enforced while streaming. The temporary stream is rewound before yield and is closed/deleted on success, failure, cancellation, or caller exceptions. Safe materialization errors expose only normalized reason values and never expose tokens, Drive ids, bucket/object keys, URLs, response bodies, filenames, source bytes, or temporary paths.
+
+This slice is source-byte materialization only. It does not add a worker, queue consumer, provider request, provider credential use, Google Docs output, output persistence, completed transition, manifest mutation, public endpoint, production runtime, deployment, or production processing claim.
+
 ## Future claim and lease semantics
 
 `PWA-JOBS-02C` defines the contract for future server-side ownership of queued Studio transcription jobs. This section is design-only: it does not add a worker, queue consumer, status value, endpoint, database column, migration, runtime service, or production rollout. Current Studio jobs remain record-only. `PWA-JOBS-02D` may add an internal non-mutating claim-readiness planning helper over the existing read-only preflight snapshot; that helper is not a claim, lease, worker, queue, provider execution, output, schema, or runtime implementation.
