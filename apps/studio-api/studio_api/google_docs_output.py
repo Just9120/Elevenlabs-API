@@ -43,9 +43,10 @@ class GoogleDocsCreateResult:
 
 
 class _RevocableArtifact:
-    def __init__(self, document_id: str, web_view_link: str):
+    def __init__(self, document_id: str, web_view_link: str, output_folder_id: str):
         self._document_id = document_id
         self._web_view_link = web_view_link
+        self._output_folder_id = output_folder_id
         self._revoked = False
 
     def document_id(self) -> str:
@@ -58,9 +59,15 @@ class _RevocableArtifact:
             raise GoogleDocsOutputError(GoogleDocsOutputReason.context_closed)
         return self._web_view_link
 
+    def output_folder_id(self) -> str:
+        if self._revoked:
+            raise GoogleDocsOutputError(GoogleDocsOutputReason.context_closed)
+        return self._output_folder_id
+
     def revoke(self) -> None:
         self._document_id = ""
         self._web_view_link = ""
+        self._output_folder_id = ""
         self._revoked = True
 
 
@@ -77,6 +84,10 @@ class GoogleDocsTranscriptArtifact:
     @property
     def web_view_link(self) -> str:
         return self._holder.web_view_link()
+
+    @property
+    def output_folder_id(self) -> str:
+        return self._holder.output_folder_id()
 
     def revoke(self) -> None:
         self._holder.revoke()
@@ -154,7 +165,7 @@ def normalize_google_docs_create_response(payload: Any, *, expected_folder_id: s
 
 
 def new_google_docs_transcript_artifact(*, result: GoogleDocsCreateResult, created_at: datetime, character_count: int) -> GoogleDocsTranscriptArtifact:
-    return GoogleDocsTranscriptArtifact(_RevocableArtifact(result.document_id, result.web_view_link), created_at, character_count)
+    return GoogleDocsTranscriptArtifact(_RevocableArtifact(result.document_id, result.web_view_link, result.parents[0]), created_at, character_count)
 
 
 def _multipart_body(boundary: str, *, title: str, folder_id: str, document_text: str) -> bytes:

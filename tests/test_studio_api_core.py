@@ -26,15 +26,18 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 from fastapi.testclient import TestClient
 from starlette.requests import Request
-from sqlalchemy import inspect, text
+from sqlalchemy import inspect, select, text
+from sqlalchemy.exc import OperationalError
 from studio_api.config import Settings
 from studio_api.db import SessionLocal, engine
 from studio_api.deps import get_client_ip
 from studio_api.main import app, limiter
-from studio_api.models import AuditEvent, JobStatus, LocalIdentity, Project, ProviderCredentialVersion, Source, SourceType, SourceUploadStatus, TranscriptionJob, TranscriptionJobSource, User, UserRole, UserStatus
+from studio_api.models import AuditEvent, JobStatus, LocalIdentity, Project, ProviderCredentialVersion, Source, SourceType, SourceUploadStatus, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, User, UserRole, UserStatus
 from studio_api.security import aad, decrypt, encrypt, hash_password, master_key_from_b64, utcnow, verify_password
 from studio_api.job_claim_lease import JobLeaseError, JobLeaseFailureReason, acquire_job_lease, is_lease_active, release_job_lease, renew_job_lease
 from studio_api.job_processing_lifecycle import JobProcessingError, JobProcessingFailureReason, acknowledge_job_cancellation, begin_job_processing, fail_job_processing, recover_expired_processing_job
+from studio_api.google_docs_output import GoogleDocsCreateResult, new_google_docs_transcript_artifact
+from studio_api.job_output_persistence import JobOutputPersistenceError, JobOutputPersistenceReason, _load_locked_output_authority, persist_processing_job_source_output_and_maybe_complete
 
 ALEMBIC = ROOT / "apps/studio-api/alembic.ini"
 
@@ -50,7 +53,7 @@ def clean_state(migrated_database):
     except Exception as exc:
         pytest.skip(f"Redis unavailable for platform tests: {exc}")
     with engine.begin() as conn:
-        tables = ["audit_events", "google_oauth_states", "google_connections", "provider_credential_versions", "provider_credentials", "transcription_job_sources", "transcription_jobs", "sources", "projects", "sessions", "login_contexts", "local_identities", "users"]
+        tables = ["audit_events", "google_oauth_states", "google_connections", "provider_credential_versions", "provider_credentials", "transcription_job_outputs", "transcription_job_sources", "transcription_jobs", "sources", "projects", "sessions", "login_contexts", "local_identities", "users"]
         conn.execute(text("TRUNCATE " + ", ".join(tables) + " RESTART IDENTITY CASCADE"))
     yield
 
@@ -1011,6 +1014,142 @@ def test_job_lease_migration_real_0005_shape_upgrades_to_head():
     finally:
         subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "upgrade", "head"], cwd=ROOT, check=True)
 
+
+
+def test_job_output_migration_clean_chain_constraints_and_0007_roundtrip():
+    inspector = inspect(engine)
+    assert "transcription_job_outputs" in inspector.get_table_names()
+    cols = {c["name"]: c for c in inspector.get_columns("transcription_job_outputs")}
+    assert {"id", "job_id", "job_source_id", "document_id", "web_view_url", "output_drive_folder_id", "output_kind", "transcript_standard", "document_character_count", "document_created_at", "persisted_at", "lease_generation"}.issubset(cols)
+    uniques = {tuple(u["column_names"]) for u in inspector.get_unique_constraints("transcription_job_outputs")}
+    assert ("job_source_id",) in uniques and ("document_id",) in uniques
+    indexes = {idx["name"] for idx in inspector.get_indexes("transcription_job_outputs")}
+    assert "ix_transcription_job_outputs_job_id" in indexes
+    fks = {tuple(fk["constrained_columns"]): fk["referred_table"] for fk in inspector.get_foreign_keys("transcription_job_outputs")}
+    assert fks[("job_id",)] == "transcription_jobs" and fks[("job_source_id",)] == "transcription_job_sources"
+    subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "downgrade", "0007_job_processing_lifecycle"], cwd=ROOT, check=True)
+    try:
+        assert "transcription_job_outputs" not in inspect(engine).get_table_names()
+        assert "transcription_job_sources" in inspect(engine).get_table_names()
+        subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "upgrade", "head"], cwd=ROOT, check=True)
+        assert "transcription_job_outputs" in inspect(engine).get_table_names()
+    finally:
+        subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "upgrade", "head"], cwd=ROOT, check=True)
+
+
+def output_persistence_artifact(doc_id="doc-fresh"):
+    return new_google_docs_transcript_artifact(
+        result=GoogleDocsCreateResult(
+            doc_id,
+            "Secret Title",
+            "application/vnd.google-apps.document",
+            f"https://docs.example/{doc_id}",
+            ("folder-1",),
+        ),
+        created_at=LEASE_TEST_NOW,
+        character_count=12,
+    )
+
+
+@pytest.mark.parametrize("mutate,reason", [
+    (lambda job, project, rel, source: setattr(job, "cancel_requested_at", LEASE_TEST_NOW), JobOutputPersistenceReason.cancellation_requested),
+    (lambda job, project, rel, source: setattr(job, "lease_owner_id", "other-owner"), JobOutputPersistenceReason.lease_not_owned),
+    (lambda job, project, rel, source: setattr(job, "lease_generation", job.lease_generation + 1), JobOutputPersistenceReason.lease_not_owned),
+    (lambda job, project, rel, source: setattr(project, "output_drive_folder_id", "folder-changed"), JobOutputPersistenceReason.output_folder_changed),
+    (lambda job, project, rel, source: setattr(project, "archived_at", LEASE_TEST_NOW), JobOutputPersistenceReason.project_unavailable),
+])
+def test_output_persistence_refreshes_stale_identity_map_before_authorizing(mutate, reason):
+    _, job_id = lease_test_job(status=JobStatus.queued, ready=True)
+    setup = SessionLocal()
+    try:
+        handle = acquire_job_lease(setup, job_id=job_id, lease_owner_id="owner-1", now=LEASE_TEST_NOW, lease_ttl=LEASE_TEST_TTL)
+        begin_job_processing(setup, job_id=job_id, lease_owner_id=handle.lease_owner_id, lease_generation=handle.lease_generation, now=LEASE_TEST_NOW)
+        setup.commit()
+    finally:
+        setup.close()
+
+    session_a = SessionLocal()
+    session_b = SessionLocal()
+    try:
+        job_a = session_a.get(TranscriptionJob, job_id)
+        project_a = session_a.get(Project, job_a.project_id)
+        rel_a = session_a.query(TranscriptionJobSource).filter_by(job_id=job_id).one()
+        source_a = session_a.get(Source, rel_a.source_id)
+        assert job_a.status == JobStatus.processing and project_a.output_drive_folder_id == "folder-1" and source_a.upload_status == SourceUploadStatus.uploaded
+
+        job_b = session_b.get(TranscriptionJob, job_id)
+        project_b = session_b.get(Project, job_b.project_id)
+        rel_b = session_b.query(TranscriptionJobSource).filter_by(job_id=job_id).one()
+        source_b = session_b.get(Source, rel_b.source_id)
+        mutate(job_b, project_b, rel_b, source_b)
+        session_b.commit()
+
+        with pytest.raises(JobOutputPersistenceError) as exc:
+            persist_processing_job_source_output_and_maybe_complete(
+                session_a,
+                job_id=job_id,
+                job_source_id=rel_a.id,
+                lease_owner_id="owner-1",
+                lease_generation=handle.lease_generation,
+                artifact=output_persistence_artifact(),
+                now=LEASE_TEST_NOW,
+            )
+        assert exc.value.reason == reason
+        session_a.rollback()
+
+        verifier = SessionLocal()
+        try:
+            assert verifier.query(TranscriptionJobOutput).filter_by(job_id=job_id).count() == 0
+            assert verifier.get(TranscriptionJob, job_id).status == JobStatus.processing
+        finally:
+            verifier.close()
+    finally:
+        session_a.close(); session_b.close()
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda job, project, rel, source: setattr(project, "output_drive_folder_id", "folder-blocked"),
+    lambda job, project, rel, source: setattr(project, "archived_at", LEASE_TEST_NOW),
+    lambda job, project, rel, source: (setattr(source, "deleted_at", LEASE_TEST_NOW), setattr(source, "upload_status", SourceUploadStatus.deleted)),
+])
+def test_output_persistence_authority_locks_block_concurrent_mutations(mutate):
+    _, job_id = lease_test_job(status=JobStatus.queued, ready=True)
+    setup = SessionLocal()
+    try:
+        handle = acquire_job_lease(setup, job_id=job_id, lease_owner_id="owner-1", now=LEASE_TEST_NOW, lease_ttl=LEASE_TEST_TTL)
+        begin_job_processing(setup, job_id=job_id, lease_owner_id=handle.lease_owner_id, lease_generation=handle.lease_generation, now=LEASE_TEST_NOW)
+        rel_id = setup.execute(select(TranscriptionJobSource.id).where(TranscriptionJobSource.job_id == job_id)).scalar_one()
+        setup.commit()
+    finally:
+        setup.close()
+
+    session_a = SessionLocal()
+    session_b = SessionLocal()
+    try:
+        _load_locked_output_authority(
+            session_a,
+            job_id=job_id,
+            job_source_id=rel_id,
+            lease_owner_id="owner-1",
+            lease_generation=handle.lease_generation,
+            output_folder_id="folder-1",
+            now=LEASE_TEST_NOW,
+        )
+
+        session_b.execute(text("SET LOCAL lock_timeout = '100ms'"))
+        job_b = session_b.get(TranscriptionJob, job_id)
+        project_b = session_b.get(Project, job_b.project_id)
+        rel_b = session_b.query(TranscriptionJobSource).filter_by(job_id=job_id).one()
+        source_b = session_b.get(Source, rel_b.source_id)
+        mutate(job_b, project_b, rel_b, source_b)
+        with pytest.raises(OperationalError):
+            session_b.flush()
+        session_b.rollback()
+
+        assert session_b.query(TranscriptionJobOutput).filter_by(job_id=job_id).count() == 0
+        assert session_b.get(TranscriptionJob, job_id).status == JobStatus.processing
+    finally:
+        session_a.rollback(); session_a.close(); session_b.close()
 
 def test_acquire_active_reclaim_stale_fencing_and_no_commit():
     _, job_id = lease_test_job()

@@ -95,9 +95,11 @@ ephemeral ElevenLabs transcript
 → internal Google output authorization
 → one Google Docs artifact
 → ephemeral redacted document reference
+→ owner-scoped per-source output record
+→ completed only when every non-skipped relation has persisted output
 ```
 
-The boundary resolves one fresh Google access token, verifies the current project output folder, fences job/source/output identity before and after external I/O, creates exactly one Google Docs transcript through Drive multipart upload/conversion, and yields only a revocable redacted document-reference handle. It is deliberately not a worker and is not exposed through FastAPI. It performs no transcript/output persistence, completion transition, manifest mutation, retry, cleanup/rollback deletion, runtime/deploy behavior, or production processing claim.
+The boundary resolves one fresh Google access token, verifies the current project output folder, fences job/source/output identity before and after external I/O, creates exactly one Google Docs transcript through Drive multipart upload/conversion, and yields only a revocable redacted document-reference handle. A follow-on internal persistence boundary stores only safe Google document references and aggregate metadata per job-source relation, never transcript text or Google Docs body content, and transitions the job to `completed` only when all non-skipped relations have output rows under the current lease owner/generation. It is deliberately not a worker and is not exposed through FastAPI. It performs no manifest mutation, retry, cleanup/rollback deletion, runtime/deploy behavior, public output API, or production processing claim.
 
 ## 10. Current refactor seams for future implementation work
 

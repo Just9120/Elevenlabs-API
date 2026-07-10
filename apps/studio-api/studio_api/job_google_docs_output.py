@@ -21,7 +21,7 @@ from .google_docs_output import (
 from .job_claim_lease import is_lease_active
 from .job_output_destination import DriveFolderAuthorizationMetadata, OutputDestinationError, _fetch_drive_folder_authorization_metadata, _validate_metadata
 from .job_source_materialization import SourceMaterializationError, _load_selected_snapshot
-from .models import JobStatus, Project, TranscriptionJob
+from .models import JobStatus, Project, TranscriptionJob, TranscriptionJobOutput
 from .security import utcnow
 
 
@@ -59,6 +59,7 @@ class JobGoogleDocsOutputReason(str, Enum):
     malformed_google_docs_response = "malformed_google_docs_response"
     lifecycle_changed_after_output_creation = "lifecycle_changed_after_output_creation"
     context_closed = "context_closed"
+    output_already_persisted = "output_already_persisted"
 
 
 class JobGoogleDocsOutputError(RuntimeError):
@@ -110,6 +111,7 @@ def create_processing_job_google_doc_from_transcript(
     clock = clock or (lambda: utcnow().replace(tzinfo=None))
     check_now = now or clock()
     artifact: GoogleDocsTranscriptArtifact | None = None
+    _require_no_persisted_output(db, job_source_id)
     snap = _load_output_job_snapshot(db, job_id, lease_owner_id, lease_generation, check_now)
     source_snap = _load_source_snapshot(db, job_id, job_source_id, lease_owner_id, lease_generation, check_now, settings)
     try:
@@ -141,6 +143,7 @@ def create_processing_job_google_doc_from_transcript(
         )
         _compare_or_before(_load_output_job_snapshot(db, job_id, lease_owner_id, lease_generation, clock()), snap)
         _compare_source_or_before(_load_source_snapshot(db, job_id, job_source_id, lease_owner_id, lease_generation, clock(), settings), source_snap)
+        _require_no_persisted_output(db, job_source_id)
         transport = google_docs_transport or GoogleDocsTranscriptTransport()
         try:
             result = _call_transport(transport, access_token=token, folder_id=snap.output_drive_folder_id, title=formatted.title, document_text=formatted.body)
@@ -281,3 +284,8 @@ def _utc_iso(value: datetime) -> str:
         value = value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
+
+
+def _require_no_persisted_output(db: Session, job_source_id: str) -> None:
+    if db.query(TranscriptionJobOutput.id).filter(TranscriptionJobOutput.job_source_id == job_source_id).first() is not None:
+        raise JobGoogleDocsOutputError(JobGoogleDocsOutputReason.output_already_persisted)
