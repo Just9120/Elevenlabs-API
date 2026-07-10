@@ -99,13 +99,13 @@ The active production stack is `deploy/studio/compose.platform.yml`. Standard CD
 
 The `deploy-web` job deploys only the `studio-web` service. Automatic push-to-main deployments are limited to frontend changes under `apps/studio/**` and run only when the repository variable `STUDIO_PLATFORM_CD_ENABLED` is set to `true`. Manual `workflow_dispatch` remains available at all times and requires choosing the `web` component explicitly.
 
-The web deploy builds only `studio-web`, updates it with `--no-deps`, checks `http://127.0.0.1:8181/healthz`, and prints `STUDIO_PLATFORM_WEB_DEPLOY_OK` only after that health check passes.
+The web deploy builds only `studio-web`, captures the newly built `elevenlabs-studio-web:local` image ID, force-recreates only `studio-web` with `--no-deps --force-recreate`, verifies the running container image ID matches the newly built tagged image ID, then checks `http://127.0.0.1:8181/healthz`. `STUDIO_PLATFORM_WEB_DEPLOY_OK` proves both image replacement and localhost health passed. PostgreSQL and Redis remain untouched.
 
 ### Platform API deployment
 
 The `deploy-api` job deploys only the `studio-api` service. Automatic push-to-main deployments are limited to non-migration backend changes under `apps/studio-api/**`. Changes under `apps/studio-api/alembic/**` or `apps/studio-api/alembic.ini` suppress automatic API deployment, including pushes that combine migration-related files with normal API files. Manual `workflow_dispatch` remains available at all times and requires choosing the `api` component explicitly.
 
-The API deploy verifies PostgreSQL and Redis are already healthy, builds only `studio-api`, compares the current database revision with the Alembic head in the newly built API image, refuses to proceed with a clear manual-migration-required error if revisions differ or cannot be compared, updates `studio-api` with `--no-deps`, checks `http://127.0.0.1:8182/api/healthz`, and prints `STUDIO_PLATFORM_API_DEPLOY_OK` only after that health check passes.
+The API deploy builds only `studio-api`, captures the newly built `elevenlabs-studio-api:local` image ID, verifies PostgreSQL and Redis are already healthy, compares the current database revision with the Alembic head in the newly built API image, refuses to proceed with a clear manual-migration-required error if revisions differ or cannot be compared, force-recreates only `studio-api` with `--no-deps --force-recreate`, verifies the running container image ID matches the newly built tagged image ID, then checks `http://127.0.0.1:8182/api/healthz`. `STUDIO_PLATFORM_API_DEPLOY_OK` proves both image replacement and localhost health passed. PostgreSQL and Redis remain untouched by the component update.
 
 When one automatic push selects both components, `deploy-web` runs first and `deploy-api` runs only after the web deployment succeeds. If no web deployment is selected, the API job may run independently.
 

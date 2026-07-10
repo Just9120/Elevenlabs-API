@@ -124,6 +124,7 @@ CD should:
 - block deploy when required runtime secrets are unresolved;
 - deploy only the intended application service;
 - run a post-check;
+- when CD builds or pulls an image through a mutable tag, verify before reporting success that the running container uses the intended newly built or pulled image identity because health alone is not sufficient deployment evidence;
 - report success, for example `DEPLOY_OK`, only after post-check passes.
 
 CD implementation details may differ by project. The safety boundaries above must remain intact.
@@ -293,6 +294,7 @@ CD is done when:
 - unresolved required runtime secrets block deploy before build/up/restart;
 - stateful services and volumes are not touched;
 - post-check is present;
+- when an image is built or pulled through a mutable tag, the running container image identity is verified against the intended newly built or pulled image before success is reported;
 - failed post-check cannot produce a success marker such as `DEPLOY_OK`;
 - success is reported only after validation;
 - rollback behavior is explicit or safely absent.
