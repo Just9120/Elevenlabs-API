@@ -41,8 +41,8 @@ def is_terminal_job_status(status: JobStatus) -> bool:
 
 
 def can_cancel_job_status(status: JobStatus) -> bool:
-    """Record-only jobs may only transition from queued to cancelled."""
-    return status == JobStatus.queued
+    """Jobs that accept a public cancellation action."""
+    return status in {JobStatus.queued, JobStatus.processing}
 
 
 def safe_failure_metadata_value(value: str | None) -> str | None:

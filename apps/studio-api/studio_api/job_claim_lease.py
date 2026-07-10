@@ -23,6 +23,7 @@ class JobLeaseFailureReason(str, Enum):
     lease_active = "lease_active"
     lease_not_owned = "lease_not_owned"
     lease_not_active = "lease_not_active"
+    lease_not_releasable = "lease_not_releasable"
 
 
 class JobLeaseError(RuntimeError):
@@ -86,7 +87,7 @@ def renew_job_lease(
     job = _locked_job(db, job_id)
     if job is None:
         raise JobLeaseError(JobLeaseFailureReason.job_not_found)
-    if job.status != JobStatus.queued:
+    if job.status not in {JobStatus.queued, JobStatus.processing}:
         raise JobLeaseError(JobLeaseFailureReason.job_not_queued)
     _require_current_owner(job, owner, lease_generation)
     if not is_lease_active(job, now):
@@ -104,6 +105,8 @@ def release_job_lease(
     if job is None:
         raise JobLeaseError(JobLeaseFailureReason.job_not_found)
     _require_current_owner(job, owner, lease_generation)
+    if job.status == JobStatus.processing:
+        raise JobLeaseError(JobLeaseFailureReason.lease_not_releasable)
     if job.lease_expires_at is None:
         raise JobLeaseError(JobLeaseFailureReason.lease_not_active)
     job.lease_owner_id = None

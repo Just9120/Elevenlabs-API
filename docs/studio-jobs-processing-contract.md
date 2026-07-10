@@ -23,6 +23,16 @@ Lease owner identity, lease generation, claim timestamp, and lease expiration ar
 This slice still does not add a worker, queue consumer, scheduler, provider call, credential decryption/use, source-byte access, Google Drive download/export processing, Google Docs output, output persistence, manifest mutation, production migration rollout, VPS access, or secrets changes. Worker/provider execution remains a later separately scoped slice.
 
 
+## PWA-JOBS-03B processing lifecycle foundation
+
+`PWA-JOBS-03B` implements the internal state-machine layer after a valid lease has been acquired. A queued lease remains exclusive execution intent only. `begin_job_processing` is the first real processing state transition: it moves a valid leased queued job to `processing`, increments `attempt_count`, sets `started_at` only once, and still performs no provider work, credential use, source-byte access, Google API call, output persistence, completed transition, or manifest mutation.
+
+Cancellation is now request/acknowledgement based while a job is `processing`. A queued job still transitions immediately to terminal `cancelled` and invalidates active lease ownership. A processing job records `cancel_requested_at`, remains `processing`, keeps its active lease, and is terminally cancelled only when the current fenced owner acknowledges cancellation or when explicit expired-lease recovery observes the pending request. Repeated processing cancellation requests are idempotent and preserve the first request timestamp.
+
+Processing lease renewal is allowed for both `queued` and `processing` jobs when owner, generation, and unexpired lease match. Raw lease release is intentionally blocked for `processing` jobs so processing state cannot be orphaned; processing lease termination must happen through cancellation acknowledgement, safe failure, explicit expired-lease recovery, or a later separately scoped completion/output transition.
+
+Expired processing lease recovery is an explicit internal primitive, not a scheduler or polling loop. If a processing job has no active unexpired lease and no cancellation request, recovery returns it to `queued` while preserving first `started_at` and `attempt_count`; a future claim may increment lease generation. If a cancellation request exists, recovery transitions the job to terminal `cancelled`. Completion remains deferred until Google Docs output and safe output persistence exist.
+
 ## Future claim and lease semantics
 
 `PWA-JOBS-02C` defines the contract for future server-side ownership of queued Studio transcription jobs. This section is design-only: it does not add a worker, queue consumer, status value, endpoint, database column, migration, runtime service, or production rollout. Current Studio jobs remain record-only. `PWA-JOBS-02D` may add an internal non-mutating claim-readiness planning helper over the existing read-only preflight snapshot; that helper is not a claim, lease, worker, queue, provider execution, output, schema, or runtime implementation.

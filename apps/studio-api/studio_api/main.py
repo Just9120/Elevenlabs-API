@@ -14,8 +14,8 @@ from .models import *
 from .rate_limit import RateLimiter
 from .security import *
 from .source_storage import get_source_storage, safe_filename
-from .job_lifecycle import can_cancel_job_status, safe_failure_metadata_value
-from .job_claim_lease import invalidate_job_lease
+from .job_lifecycle import safe_failure_metadata_value
+from .job_processing_lifecycle import request_job_cancellation
 
 settings=get_settings()
 app=FastAPI(docs_url="/docs" if settings.enable_api_docs else None, redoc_url=None, openapi_url="/openapi.json" if settings.enable_api_docs else None)
@@ -203,7 +203,7 @@ def job_source_payload(js: TranscriptionJobSource):
     return data
 
 def job_payload(job: TranscriptionJob, include_sources=False):
-    payload={"id": job.id, "project_id": job.project_id, "status": job.status.value, "title": job.title, "provider": job.provider, "provider_credential_id": job.provider_credential_id, "source_count": len(job.sources), "created_at": job.created_at.isoformat(), "updated_at": job.updated_at.isoformat(), "cancelled_at": job.cancelled_at.isoformat() if job.cancelled_at else None, "started_at": job.started_at.isoformat() if job.started_at else None, "finished_at": job.finished_at.isoformat() if job.finished_at else None, "error_code": safe_failure_metadata_value(job.error_code), "error_message": safe_failure_metadata_value(job.error_message)}
+    payload={"id": job.id, "project_id": job.project_id, "status": job.status.value, "title": job.title, "provider": job.provider, "provider_credential_id": job.provider_credential_id, "source_count": len(job.sources), "created_at": job.created_at.isoformat(), "updated_at": job.updated_at.isoformat(), "cancelled_at": job.cancelled_at.isoformat() if job.cancelled_at else None, "cancel_requested_at": job.cancel_requested_at.isoformat() if job.cancel_requested_at else None, "attempt_count": job.attempt_count or 0, "started_at": job.started_at.isoformat() if job.started_at else None, "finished_at": job.finished_at.isoformat() if job.finished_at else None, "error_code": safe_failure_metadata_value(job.error_code), "error_message": safe_failure_metadata_value(job.error_message)}
     if include_sources: payload["sources"]=[job_source_payload(s) for s in sorted(job.sources, key=lambda item: item.position)]
     return payload
 
@@ -358,9 +358,9 @@ def get_transcription_job(job_id: str, pair=Depends(current_session), db: Sessio
 @app.post("/api/jobs/{job_id}/cancel")
 def cancel_transcription_job(job_id: str, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     _,user=pair; limiter.check("job:cancel:"+user.id, 120, 3600); job=owned_job_or_404(db,user,job_id)
-    if can_cancel_job_status(job.status):
-        now=utcnow(); job.status=JobStatus.cancelled; job.cancelled_at=now; job.updated_at=now; invalidate_job_lease(job)
-        audit(db,"job.cancelled",actor_user_id=user.id,subject_user_id=user.id,project_id=job.project_id,job_id=job.id)
+    _, changed, event_type = request_job_cancellation(db, job_id=job.id, now=utcnow())
+    if changed and event_type:
+        audit(db,event_type,actor_user_id=user.id,subject_user_id=user.id,project_id=job.project_id,job_id=job.id)
         db.commit(); db.refresh(job)
     return job_payload(job, include_sources=True)
 
