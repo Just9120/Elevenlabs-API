@@ -225,3 +225,15 @@ Non-goals for `PWA-JOBS-02-PREP`:
 - no production deployment;
 - no automatic migration rollout;
 - no secrets, tokens, environment values, or file-mounted secret contents.
+
+## PWA-OUTPUT-01A internal Google Docs single-transcript write boundary
+
+`PWA-OUTPUT-01A` adds an internal server-only output boundary for exactly one active ephemeral transcript from exactly one source of an already leased `processing` Studio job. The boundary is not a worker and is not exposed through FastAPI.
+
+The boundary requires the transcript handle to still be active, resolves one fresh user-owned Google access token, verifies the currently configured project output folder with Drive metadata, and performs one Google Drive multipart upload/conversion request to create one Google Docs transcript. The visible document body follows `transcript_doc_v1.2`: document title, transcript metadata for ElevenLabs `scribe_v2`, language, speakers `no`, UTC created timestamp, then transcript text. It does not add source-file/source-mode lines, provider raw JSON, word payloads, or persisted document body metadata.
+
+Before Google Docs creation, the helper reloads and fences job lifecycle, lease owner/generation/expiry, cancellation absence, project owner/archive state, output folder identity, and selected relation/source identity/processability. It repeats DB-only checks after token refresh and folder metadata I/O, and immediately before the create request. After the create request succeeds, it performs a fresh lifecycle/output/source identity check. If state changed after the irreversible Google side effect, normal success is not yielded and only a safe normalized post-output reason is exposed; the helper does not retry, delete, move, or roll back the created file.
+
+The yielded document reference is ephemeral and redacted. Internal code can read document id and web view link only while the context is active; retained handles fail closed after context exit. Representations and normalized errors must not expose access tokens, folder ids, document ids, URLs, titles, transcript text, multipart bodies, or raw Google response bodies.
+
+This slice intentionally adds no output persistence, transcript persistence, job completion transition, job-source completion mutation, manifest mutation, worker, queue consumer, public processing endpoint, automatic retry, idempotency record, migration, runtime/deploy change, or production processing claim. Safe persistence/reconciliation after output creation is deferred to `PWA-OUTPUT-01B`.
