@@ -18,7 +18,7 @@ def upgrade():
     bind = op.get_bind()
     inspector = sa.inspect(bind)
     if bind.dialect.name == "postgresql":
-        op.execute("ALTER TYPE jobstatus ADD VALUE IF NOT EXISTS 'processing'")
+        op.execute("ALTER TYPE jobstatus ADD VALUE IF NOT EXISTS 'processing' AFTER 'queued'")
     columns = {column["name"] for column in inspector.get_columns("transcription_jobs")}
     if "attempt_count" not in columns:
         op.add_column("transcription_jobs", sa.Column("attempt_count", sa.Integer(), server_default=sa.text("0"), nullable=False))

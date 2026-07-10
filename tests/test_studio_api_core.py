@@ -958,6 +958,20 @@ def assert_lease_reason(exc, reason):
     assert exc.value.reason == reason
 
 
+def jobstatus_enum_values():
+    with engine.connect() as conn:
+        return conn.execute(text(
+            "SELECT e.enumlabel FROM pg_enum e "
+            "JOIN pg_type t ON t.oid = e.enumtypid "
+            "WHERE t.typname = 'jobstatus' "
+            "ORDER BY e.enumsortorder"
+        )).scalars().all()
+
+
+def assert_jobstatus_enum_order():
+    assert jobstatus_enum_values() == ["queued", "processing", "cancelled", "failed", "completed"]
+
+
 def test_job_lease_migration_clean_chain_shape_and_defaults():
     inspector = inspect(engine)
     cols = {c["name"]: c for c in inspector.get_columns("transcription_jobs")}
@@ -968,6 +982,7 @@ def test_job_lease_migration_clean_chain_shape_and_defaults():
     assert cols["cancel_requested_at"]["nullable"] is True
     indexes = [idx["name"] for idx in inspector.get_indexes("transcription_jobs")]
     assert indexes.count("ix_transcription_jobs_status_lease_expires_created") == 1
+    assert_jobstatus_enum_order()
     _, job_id = lease_test_job()
     db = SessionLocal()
     try:
@@ -992,6 +1007,7 @@ def test_job_lease_migration_real_0005_shape_upgrades_to_head():
         assert {"lease_owner_id", "lease_generation", "claimed_at", "lease_expires_at", "attempt_count", "cancel_requested_at"}.issubset(cols)
         indexes = [idx["name"] for idx in inspector.get_indexes("transcription_jobs")]
         assert indexes.count("ix_transcription_jobs_status_lease_expires_created") == 1
+        assert_jobstatus_enum_order()
     finally:
         subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "upgrade", "head"], cwd=ROOT, check=True)
 
@@ -1121,12 +1137,29 @@ def test_cancel_clears_lease_and_public_payloads_are_safe():
         for key in ["lease_owner_id", "lease_generation", "claimed_at", "lease_expires_at"]:
             assert key not in body
         db.refresh(job)
-        assert job.lease_owner_id is None and job.lease_expires_at is None and job.lease_generation == handle.lease_generation
-        with pytest.raises(JobLeaseError):
-            renew_job_lease(db, job_id=job.id, lease_owner_id="internal-owner", lease_generation=handle.lease_generation, now=LEASE_TEST_NOW, lease_ttl=LEASE_TEST_TTL)
-        with pytest.raises(JobLeaseError):
-            release_job_lease(db, job_id=job.id, lease_owner_id="internal-owner", lease_generation=handle.lease_generation)
-        assert client.post(f"/api/jobs/{job.id}/cancel", headers=headers).status_code == 200
+        generation = handle.lease_generation
+        assert job.lease_owner_id is None and job.lease_expires_at is None and job.lease_generation == generation
+
+        stale = SessionLocal()
+        try:
+            with pytest.raises(JobLeaseError) as exc:
+                renew_job_lease(stale, job_id=job_id, lease_owner_id="internal-owner", lease_generation=generation, now=LEASE_TEST_NOW, lease_ttl=LEASE_TEST_TTL)
+            assert_lease_reason(exc, JobLeaseFailureReason.job_not_queued)
+            stale.rollback()
+        finally:
+            stale.close()
+
+        stale = SessionLocal()
+        try:
+            with pytest.raises(JobLeaseError) as exc:
+                release_job_lease(stale, job_id=job_id, lease_owner_id="internal-owner", lease_generation=generation)
+            assert_lease_reason(exc, JobLeaseFailureReason.lease_not_owned)
+            stale.rollback()
+        finally:
+            stale.close()
+
+        assert client.post(f"/api/jobs/{job_id}/cancel", headers=headers).status_code == 200
+        db.rollback()
         audit_text = "\n".join(event.metadata_json for event in db.query(AuditEvent).all())
         assert "internal-owner" not in audit_text
     finally:
@@ -1221,8 +1254,9 @@ def test_processing_failure_and_expired_recovery_paths():
         h = acquire_job_lease(db, job_id=job.id, lease_owner_id="owner", now=LEASE_TEST_NOW, lease_ttl=timedelta(minutes=1))
         begin_job_processing(db, job_id=job.id, lease_owner_id="owner", lease_generation=h.lease_generation, now=LEASE_TEST_NOW)
         started_at = job.started_at
-        with pytest.raises(JobProcessingError):
+        with pytest.raises(JobProcessingError) as exc:
             recover_expired_processing_job(db, job_id=job.id, now=LEASE_TEST_NOW + timedelta(seconds=30))
+        assert exc.value.reason == JobProcessingFailureReason.lease_active
         recover_expired_processing_job(db, job_id=job.id, now=LEASE_TEST_NOW + timedelta(minutes=2))
         assert job.status == JobStatus.queued
         assert job.attempt_count == 1 and job.started_at == started_at

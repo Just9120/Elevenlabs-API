@@ -20,6 +20,7 @@ class JobProcessingFailureReason(str, Enum):
     job_not_ready = "job_not_ready"
     lease_not_owned = "lease_not_owned"
     lease_not_active = "lease_not_active"
+    lease_active = "lease_active"
     cancellation_requested = "cancellation_requested"
     cancellation_not_requested = "cancellation_not_requested"
 
@@ -120,7 +121,7 @@ def fail_job_processing(db: Session, *, job_id: str, lease_owner_id: str, lease_
 def recover_expired_processing_job(db: Session, *, job_id: str, now: datetime) -> JobProcessingResult:
     job = _processing_job(db, job_id)
     if is_lease_active(job, now):
-        raise JobProcessingError(JobProcessingFailureReason.lease_not_active)
+        raise JobProcessingError(JobProcessingFailureReason.lease_active)
     if job.cancel_requested_at is not None:
         job.status = JobStatus.cancelled
         job.cancelled_at = now
