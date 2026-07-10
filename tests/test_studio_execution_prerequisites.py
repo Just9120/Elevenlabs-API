@@ -223,7 +223,7 @@ def test_execution_prerequisites_final_revalidation_blocks_credential_replacemen
     assert str(exc.value) == "credential_unavailable"
 
 
-def test_execution_prerequisites_final_revalidation_blocks_lease_loss_and_cancellation(db, models):
+def test_execution_prerequisites_output_verification_blocks_lease_loss_and_cancellation(db, models):
     from studio_api.google_drive import GOOGLE_FOLDER_MIME_TYPE
     from studio_api.job_execution_context import JobExecutionContextError, open_processing_job_execution_prerequisites
     from studio_api.job_output_destination import DriveFolderAuthorizationMetadata
@@ -234,7 +234,7 @@ def test_execution_prerequisites_final_revalidation_blocks_lease_loss_and_cancel
     with pytest.raises(JobExecutionContextError) as exc:
         with open_processing_job_execution_prerequisites(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), now=now, decryptor=lambda *_: "credential-value", token_resolver=lambda *a, **k: "token", metadata_fetcher=fetcher):
             pass
-    assert str(exc.value) == "credential_unavailable"
+    assert str(exc.value) == "output_destination_unavailable"
 
     *_, job2, now2 = make_job(db, models, provider="openai")
     def canceling_fetcher(token, folder):
@@ -243,7 +243,7 @@ def test_execution_prerequisites_final_revalidation_blocks_lease_loss_and_cancel
     with pytest.raises(JobExecutionContextError) as cancel_exc:
         with open_processing_job_execution_prerequisites(db, job_id=job2.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), now=now2, decryptor=lambda *_: "credential-value", token_resolver=lambda *a, **k: "token", metadata_fetcher=canceling_fetcher):
             pass
-    assert str(cancel_exc.value) == "credential_unavailable"
+    assert str(cancel_exc.value) == "output_destination_unavailable"
 
 
 def test_execution_prerequisites_preserves_caller_provider_credential_error(db, models):
