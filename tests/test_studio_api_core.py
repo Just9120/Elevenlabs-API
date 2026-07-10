@@ -26,7 +26,7 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 from fastapi.testclient import TestClient
 from starlette.requests import Request
-from sqlalchemy import inspect, text
+from sqlalchemy import inspect, select, text
 from sqlalchemy.exc import OperationalError
 from studio_api.config import Settings
 from studio_api.db import SessionLocal, engine
@@ -1118,7 +1118,7 @@ def test_output_persistence_authority_locks_block_concurrent_mutations(mutate):
     try:
         handle = acquire_job_lease(setup, job_id=job_id, lease_owner_id="owner-1", now=LEASE_TEST_NOW, lease_ttl=LEASE_TEST_TTL)
         begin_job_processing(setup, job_id=job_id, lease_owner_id=handle.lease_owner_id, lease_generation=handle.lease_generation, now=LEASE_TEST_NOW)
-        rel_id = setup.query(TranscriptionJobSource.id).filter_by(job_id=job_id).scalar_one()
+        rel_id = setup.execute(select(TranscriptionJobSource.id).where(TranscriptionJobSource.job_id == job_id)).scalar_one()
         setup.commit()
     finally:
         setup.close()
