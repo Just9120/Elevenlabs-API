@@ -50,7 +50,7 @@ def clean_state(migrated_database):
     except Exception as exc:
         pytest.skip(f"Redis unavailable for platform tests: {exc}")
     with engine.begin() as conn:
-        tables = ["audit_events", "google_oauth_states", "google_connections", "provider_credential_versions", "provider_credentials", "transcription_job_sources", "transcription_jobs", "sources", "projects", "sessions", "login_contexts", "local_identities", "users"]
+        tables = ["audit_events", "google_oauth_states", "google_connections", "provider_credential_versions", "provider_credentials", "transcription_job_outputs", "transcription_job_sources", "transcription_jobs", "sources", "projects", "sessions", "login_contexts", "local_identities", "users"]
         conn.execute(text("TRUNCATE " + ", ".join(tables) + " RESTART IDENTITY CASCADE"))
     yield
 
@@ -1011,6 +1011,27 @@ def test_job_lease_migration_real_0005_shape_upgrades_to_head():
     finally:
         subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "upgrade", "head"], cwd=ROOT, check=True)
 
+
+
+def test_job_output_migration_clean_chain_constraints_and_0007_roundtrip():
+    inspector = inspect(engine)
+    assert "transcription_job_outputs" in inspector.get_table_names()
+    cols = {c["name"]: c for c in inspector.get_columns("transcription_job_outputs")}
+    assert {"id", "job_id", "job_source_id", "document_id", "web_view_url", "output_drive_folder_id", "output_kind", "transcript_standard", "document_character_count", "document_created_at", "persisted_at", "lease_generation"}.issubset(cols)
+    uniques = {tuple(u["column_names"]) for u in inspector.get_unique_constraints("transcription_job_outputs")}
+    assert ("job_source_id",) in uniques and ("document_id",) in uniques
+    indexes = {idx["name"] for idx in inspector.get_indexes("transcription_job_outputs")}
+    assert "ix_transcription_job_outputs_job_id" in indexes
+    fks = {tuple(fk["constrained_columns"]): fk["referred_table"] for fk in inspector.get_foreign_keys("transcription_job_outputs")}
+    assert fks[("job_id",)] == "transcription_jobs" and fks[("job_source_id",)] == "transcription_job_sources"
+    subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "downgrade", "0007_job_processing_lifecycle"], cwd=ROOT, check=True)
+    try:
+        assert "transcription_job_outputs" not in inspect(engine).get_table_names()
+        assert "transcription_job_sources" in inspect(engine).get_table_names()
+        subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "upgrade", "head"], cwd=ROOT, check=True)
+        assert "transcription_job_outputs" in inspect(engine).get_table_names()
+    finally:
+        subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "upgrade", "head"], cwd=ROOT, check=True)
 
 def test_acquire_active_reclaim_stale_fencing_and_no_commit():
     _, job_id = lease_test_job()

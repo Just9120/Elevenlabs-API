@@ -227,3 +227,40 @@ def test_caller_exception_propagates_and_artifact_revoked(db, models):
     from studio_api.google_docs_output import GoogleDocsOutputError
     with pytest.raises(GoogleDocsOutputError, match="context_closed"):
         retained.web_view_link
+
+
+def test_artifact_folder_id_lifetime_redacted():
+    from studio_api.google_docs_output import GoogleDocsCreateResult, GoogleDocsOutputError, new_google_docs_transcript_artifact
+    artifact = new_google_docs_transcript_artifact(result=GoogleDocsCreateResult("doc-private", "Secret", "application/vnd.google-apps.document", "https://docs.example/private", ("folder-private",)), created_at=datetime(2026,1,2), character_count=1)
+    assert artifact.document_id == "doc-private" and artifact.web_view_link == "https://docs.example/private" and artifact.output_folder_id == "folder-private"
+    assert all(s not in repr(artifact) for s in ["doc-private", "https://docs.example/private", "folder-private", "Secret"])
+    artifact.revoke()
+    for attr in ["document_id", "web_view_link", "output_folder_id"]:
+        with pytest.raises(GoogleDocsOutputError, match="context_closed"):
+            getattr(artifact, attr)
+
+
+def test_existing_persisted_output_blocks_token_and_create(db, models):
+    from studio_api.job_google_docs_output import JobGoogleDocsOutputError, create_processing_job_google_doc_from_transcript
+    user, project, src, job, rel, now = make_job(db, models)
+    db.add(models.TranscriptionJobOutput(job_id=job.id, job_source_id=rel.id, document_id="doc-private", web_view_url="https://docs.example/private", output_drive_folder_id="folder-private", output_kind="google_docs_transcript", transcript_standard="transcript_doc_v1.2", document_character_count=1, document_created_at=now, persisted_at=now, lease_generation=7)); db.commit()
+    transport = FakeTransport(); token_calls=[]
+    with pytest.raises(JobGoogleDocsOutputError, match="output_already_persisted"):
+        with create_processing_job_google_doc_from_transcript(db, job_id=job.id, job_source_id=rel.id, lease_owner_id="worker", lease_generation=7, transcript=Transcript(), settings=Settings(), now=now, clock=lambda: now, token_resolver=lambda *a, **k: token_calls.append(1) or "token", metadata_fetcher=good_meta, google_docs_transport=transport): pass
+    assert token_calls == [] and transport.calls == []
+
+
+def test_output_inserted_before_final_check_blocks_google_create(db, models):
+    from studio_api.job_google_docs_output import JobGoogleDocsOutputError, create_processing_job_google_doc_from_transcript
+    user, project, src, job, rel, now = make_job(db, models)
+    transport = FakeTransport(); inserted = {"done": False}
+    def closed_transcript_text_once():
+        if not inserted["done"]:
+            db.add(models.TranscriptionJobOutput(job_id=job.id, job_source_id=rel.id, document_id="doc-private", web_view_url="https://docs.example/private", output_drive_folder_id="folder-private", output_kind="google_docs_transcript", transcript_standard="transcript_doc_v1.2", document_character_count=1, document_created_at=now, persisted_at=now, lease_generation=7)); db.flush(); inserted["done"] = True
+        return "text"
+    class T(Transcript):
+        @property
+        def text(self): return closed_transcript_text_once()
+    with pytest.raises(JobGoogleDocsOutputError, match="output_already_persisted"):
+        with create_processing_job_google_doc_from_transcript(db, job_id=job.id, job_source_id=rel.id, lease_owner_id="worker", lease_generation=7, transcript=T(), settings=Settings(), now=now, clock=lambda: now, token_resolver=lambda *a, **k: "token", metadata_fetcher=good_meta, google_docs_transport=transport): pass
+    assert transport.calls == []

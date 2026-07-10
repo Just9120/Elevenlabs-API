@@ -1,6 +1,6 @@
 import enum, uuid
 from datetime import datetime, timezone
-from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint, text
+from sqlalchemy import CheckConstraint, DateTime, Enum, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .db import Base
 
@@ -176,6 +176,22 @@ class TranscriptionJob(Base):
     project: Mapped[Project]=relationship("Project", back_populates="jobs")
     sources: Mapped[list["TranscriptionJobSource"]]=relationship("TranscriptionJobSource", back_populates="job", order_by="TranscriptionJobSource.position")
     __table_args__=(Index("ix_transcription_jobs_project_status_created", "project_id", "status", "created_at"), Index("ix_transcription_jobs_status_lease_expires_created", "status", "lease_expires_at", "created_at"),)
+
+class TranscriptionJobOutput(Base):
+    __tablename__="transcription_job_outputs"
+    id: Mapped[str]=mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    job_id: Mapped[str]=mapped_column(ForeignKey("transcription_jobs.id"), nullable=False)
+    job_source_id: Mapped[str]=mapped_column(ForeignKey("transcription_job_sources.id"), nullable=False)
+    document_id: Mapped[str]=mapped_column(String(256), nullable=False)
+    web_view_url: Mapped[str]=mapped_column(Text, nullable=False)
+    output_drive_folder_id: Mapped[str]=mapped_column(String(256), nullable=False)
+    output_kind: Mapped[str]=mapped_column(String(80), nullable=False)
+    transcript_standard: Mapped[str]=mapped_column(String(80), nullable=False)
+    document_character_count: Mapped[int]=mapped_column(Integer, nullable=False)
+    document_created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False)
+    persisted_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False)
+    lease_generation: Mapped[int]=mapped_column(Integer, nullable=False)
+    __table_args__=(CheckConstraint("document_character_count >= 0", name="ck_transcription_job_outputs_character_count_nonnegative"), UniqueConstraint("job_source_id", name="uq_transcription_job_outputs_job_source"), UniqueConstraint("document_id", name="uq_transcription_job_outputs_document_id"), Index("ix_transcription_job_outputs_job_id", "job_id"),)
 
 class TranscriptionJobSource(Base):
     __tablename__="transcription_job_sources"
