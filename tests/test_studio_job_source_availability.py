@@ -575,6 +575,59 @@ def test_fresh_clock_detects_source_expiring_during_external_io(sqlite_session, 
     assert_safe_summary(summary)
 
 
+def test_default_revalidation_clock_uses_fresh_utcnow(sqlite_session, models, monkeypatch):
+    from studio_api import job_source_availability
+
+    job_id, _, _, _, now, _ = make_processing_job(sqlite_session, models, expires_delta=timedelta(seconds=5))
+    post_io_now = now + timedelta(seconds=10)
+    monkeypatch.setattr(job_source_availability, "utcnow", lambda: post_io_now)
+
+    summary = verify(
+        sqlite_session,
+        job_id=job_id,
+        lease_owner_id="worker-1",
+        lease_generation=1,
+        now=now,
+        storage_factory=lambda _: FakeStorage(),
+    )
+
+    assert summary.ready is False
+    assert summary.verified_at == post_io_now
+    assert "lease_not_active" in summary.blocking_reasons
+    assert all("source_state_changed" not in source.blocking_reasons for source in summary.sources)
+    assert_safe_summary(summary)
+
+
+@pytest.mark.parametrize("payload", [b'{"id":"drive-1","mimeType":"audio/mpeg","size":0}', b'{"id":"drive-1","mimeType":"audio/mpeg","size":123}', b'{"id":"drive-1","mimeType":"audio/mpeg","size":"0"}', b'{"id":"drive-1","mimeType":"audio/mpeg","size":"123"}'])
+def test_valid_integer_drive_metadata_sizes_are_accepted(sqlite_session, models, monkeypatch, payload):
+    from studio_api import google_drive
+    from studio_api.job_source_availability import verify_processing_job_sources
+
+    job_id, _, _, _, now, _ = make_processing_job(sqlite_session, models, source_type=models.SourceType.google_drive)
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+        def __exit__(self, exc_type, exc, tb):
+            return False
+        def read(self):
+            return payload
+
+    monkeypatch.setattr(google_drive, "urlopen", lambda req, timeout=10: FakeResponse())
+    summary = verify_processing_job_sources(
+        sqlite_session,
+        job_id=job_id,
+        lease_owner_id="worker-1",
+        lease_generation=1,
+        now=now,
+        settings=SimpleSettings(),
+        drive_token_resolver=lambda db, *, user_id, settings: "access-token-secret",
+        now_provider=lambda: now,
+    )
+    assert summary.ready is True
+    assert_safe_summary(summary)
+
+
 def test_drive_metadata_typed_errors_map_to_safe_availability_reasons(sqlite_session, models, monkeypatch):
     from studio_api import google_drive
     from studio_api.job_source_availability import verify_processing_job_sources
@@ -632,7 +685,17 @@ def test_drive_metadata_typed_errors_map_to_safe_availability_reasons(sqlite_ses
         b'{"id":"drive-1","size":"100"}',
         b'{"id":"drive-1","mimeType":"","size":"100"}',
         b'{"id":"drive-1","mimeType":"audio/mpeg","size":"not-int"}',
+        b'{"id":"drive-1","mimeType":"audio/mpeg","size":""}',
+        b'{"id":"drive-1","mimeType":"audio/mpeg","size":"   "}',
         b'{"id":"drive-1","mimeType":"audio/mpeg","size":"-1"}',
+        b'{"id":"drive-1","mimeType":"audio/mpeg","size":-1}',
+        b'{"id":"drive-1","mimeType":"audio/mpeg","size":1.5}',
+        b'{"id":"drive-1","mimeType":"audio/mpeg","size":"1.5"}',
+        b'{"id":"drive-1","mimeType":"audio/mpeg","size":true}',
+        b'{"id":"drive-1","mimeType":"audio/mpeg","size":false}',
+        b'{"id":"drive-1","mimeType":"audio/mpeg","size":[]}',
+        b'{"id":"drive-1","mimeType":"audio/mpeg","size":{}}',
+        b'{"id":"drive-1","mimeType":"audio/mpeg","size":null}',
     ],
 )
 def test_malformed_drive_metadata_maps_to_unavailable(sqlite_session, models, monkeypatch, payload):

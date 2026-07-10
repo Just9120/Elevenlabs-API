@@ -10,6 +10,7 @@ from .google_connection_access import GoogleConnectionAccessError, refresh_user_
 from .google_drive import GOOGLE_FOLDER_MIME_TYPE, GoogleDriveMetadataError, GoogleDriveMetadataReason, fetch_drive_file_metadata
 from .job_claim_lease import is_lease_active
 from .models import JobStatus, Project, SourceType, SourceUploadStatus, TranscriptionJob, TranscriptionJobSource
+from .security import utcnow
 from .source_policy import is_supported_source_mime_type, normalize_source_mime_type, validate_source_size
 from .source_storage import get_source_storage
 
@@ -152,7 +153,7 @@ def verify_processing_job_sources(
                 reasons.append("unsupported_source_type")
         source_summaries.append(_source_summary(snap, effective_mime, effective_size, reasons))
 
-    recheck_now = now_provider() if now_provider else now
+    recheck_now = now_provider() if now_provider else utcnow().replace(tzinfo=None)
     recheck = _revalidate(db, boundary_snapshot, lease_owner_id, lease_generation, recheck_now)
     if recheck.changed_source_ids:
         source_summaries = [

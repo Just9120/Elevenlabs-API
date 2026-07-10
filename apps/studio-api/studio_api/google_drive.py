@@ -1,4 +1,5 @@
 import json
+import re
 from dataclasses import dataclass
 from enum import Enum
 from urllib.error import HTTPError, URLError
@@ -8,6 +9,7 @@ from urllib.request import Request, urlopen
 from .google_oauth import GoogleOAuthConfig, TOKEN_URL
 
 DRIVE_FILES_URL = "https://www.googleapis.com/drive/v3/files"
+DRIVE_SIZE_PATTERN = re.compile(r"^(0|[1-9][0-9]*)$")
 GOOGLE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
 SAFE_DRIVE_METADATA_FIELDS = "id,name,mimeType,size,webViewLink,createdTime,modifiedTime"
 SAFE_DRIVE_CHILDREN_FIELDS = f"nextPageToken,files({SAFE_DRIVE_METADATA_FIELDS})"
@@ -140,12 +142,20 @@ def normalize_drive_file_metadata(payload: dict) -> GoogleDriveMetadata:
         raise GoogleDriveMetadataError(GoogleDriveMetadataReason.unavailable)
     if not isinstance(mime_type, str) or not mime_type.strip():
         raise GoogleDriveMetadataError(GoogleDriveMetadataReason.unavailable)
-    raw_size = payload.get("size")
-    if raw_size is not None:
-        try:
-            size_bytes = int(raw_size)
-        except (TypeError, ValueError) as exc:
-            raise GoogleDriveMetadataError(GoogleDriveMetadataReason.unavailable) from exc
-        if size_bytes < 0:
-            raise GoogleDriveMetadataError(GoogleDriveMetadataReason.unavailable)
+    if "size" in payload:
+        _parse_strict_drive_size(payload.get("size"))
     return normalize_drive_metadata(payload)
+
+
+def _parse_strict_drive_size(raw_size) -> int:
+    if isinstance(raw_size, bool):
+        raise GoogleDriveMetadataError(GoogleDriveMetadataReason.unavailable)
+    if isinstance(raw_size, int):
+        if raw_size < 0:
+            raise GoogleDriveMetadataError(GoogleDriveMetadataReason.unavailable)
+        return raw_size
+    if isinstance(raw_size, str):
+        if not DRIVE_SIZE_PATTERN.fullmatch(raw_size):
+            raise GoogleDriveMetadataError(GoogleDriveMetadataReason.unavailable)
+        return int(raw_size)
+    raise GoogleDriveMetadataError(GoogleDriveMetadataReason.unavailable)
