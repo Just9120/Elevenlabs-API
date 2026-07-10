@@ -67,11 +67,11 @@ verify_database_revision_matches_new_image() {
 
   log "comparing database revision with Alembic head from the newly built API image"
   local -a head_revisions current_revisions
-  mapfile -t head_revisions < <(compose run --rm --no-deps --entrypoint alembic studio-api heads 2>/dev/null | capture_revision_ids)
+  mapfile -t head_revisions < <(compose run --rm --no-deps -T --entrypoint alembic studio-api heads </dev/null 2>/dev/null | capture_revision_ids)
   require_exactly_one_revision "Alembic head" "${head_revisions[@]}"
   local head_revision="${head_revisions[0]}"
 
-  mapfile -t current_revisions < <(compose run --rm --no-deps --entrypoint alembic studio-api current 2>/dev/null | capture_revision_ids)
+  mapfile -t current_revisions < <(compose run --rm --no-deps -T --entrypoint alembic studio-api current </dev/null 2>/dev/null | capture_revision_ids)
   require_exactly_one_revision "current database" "${current_revisions[@]}"
   local current_revision="${current_revisions[0]}"
 
