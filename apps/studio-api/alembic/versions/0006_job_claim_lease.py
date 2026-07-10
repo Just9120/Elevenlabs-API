@@ -12,23 +12,41 @@ down_revision = "0005_transcription_jobs"
 branch_labels = None
 depends_on = None
 
+LEASE_INDEX_NAME = "ix_transcription_jobs_status_lease_expires_created"
+LEASE_COLUMNS = {
+    "lease_owner_id": sa.Column("lease_owner_id", sa.String(length=128), nullable=True),
+    "lease_generation": sa.Column("lease_generation", sa.Integer(), server_default=sa.text("0"), nullable=False),
+    "claimed_at": sa.Column("claimed_at", sa.DateTime(timezone=True), nullable=True),
+    "lease_expires_at": sa.Column("lease_expires_at", sa.DateTime(timezone=True), nullable=True),
+}
+
 
 def upgrade():
-    op.add_column("transcription_jobs", sa.Column("lease_owner_id", sa.String(length=128), nullable=True))
-    op.add_column("transcription_jobs", sa.Column("lease_generation", sa.Integer(), server_default="0", nullable=False))
-    op.add_column("transcription_jobs", sa.Column("claimed_at", sa.DateTime(timezone=True), nullable=True))
-    op.add_column("transcription_jobs", sa.Column("lease_expires_at", sa.DateTime(timezone=True), nullable=True))
-    op.create_index(
-        "ix_transcription_jobs_status_lease_expires_created",
-        "transcription_jobs",
-        ["status", "lease_expires_at", "created_at"],
-        unique=False,
-    )
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    columns = {column["name"] for column in inspector.get_columns("transcription_jobs")}
+    for name, column in LEASE_COLUMNS.items():
+        if name not in columns:
+            op.add_column("transcription_jobs", column)
+
+    indexes = {idx["name"] for idx in sa.inspect(bind).get_indexes("transcription_jobs")}
+    if LEASE_INDEX_NAME not in indexes:
+        op.create_index(
+            LEASE_INDEX_NAME,
+            "transcription_jobs",
+            ["status", "lease_expires_at", "created_at"],
+            unique=False,
+        )
 
 
 def downgrade():
-    op.drop_index("ix_transcription_jobs_status_lease_expires_created", table_name="transcription_jobs")
-    op.drop_column("transcription_jobs", "lease_expires_at")
-    op.drop_column("transcription_jobs", "claimed_at")
-    op.drop_column("transcription_jobs", "lease_generation")
-    op.drop_column("transcription_jobs", "lease_owner_id")
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    indexes = {idx["name"] for idx in inspector.get_indexes("transcription_jobs")}
+    if LEASE_INDEX_NAME in indexes:
+        op.drop_index(LEASE_INDEX_NAME, table_name="transcription_jobs")
+
+    columns = {column["name"] for column in sa.inspect(bind).get_columns("transcription_jobs")}
+    for name in reversed(LEASE_COLUMNS):
+        if name in columns:
+            op.drop_column("transcription_jobs", name)

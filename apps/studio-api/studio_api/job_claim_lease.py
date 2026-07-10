@@ -103,9 +103,9 @@ def release_job_lease(
     job = _locked_job(db, job_id)
     if job is None:
         raise JobLeaseError(JobLeaseFailureReason.job_not_found)
-    if job.lease_owner_id is None and job.lease_expires_at is None and job.lease_generation == lease_generation:
-        return False
     _require_current_owner(job, owner, lease_generation)
+    if job.lease_expires_at is None:
+        raise JobLeaseError(JobLeaseFailureReason.lease_not_active)
     job.lease_owner_id = None
     job.lease_expires_at = None
     db.flush()

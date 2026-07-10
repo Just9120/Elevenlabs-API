@@ -1,6 +1,6 @@
 import enum, uuid
 from datetime import datetime, timezone
-from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .db import Base
 
@@ -168,7 +168,7 @@ class TranscriptionJob(Base):
     error_code: Mapped[str|None]=mapped_column(String(80))
     error_message: Mapped[str|None]=mapped_column(String(512))
     lease_owner_id: Mapped[str|None]=mapped_column(String(128))
-    lease_generation: Mapped[int]=mapped_column(Integer, default=0, server_default="0")
+    lease_generation: Mapped[int]=mapped_column(Integer, default=0, server_default=text("0"))
     claimed_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     lease_expires_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     project: Mapped[Project]=relationship("Project", back_populates="jobs")
