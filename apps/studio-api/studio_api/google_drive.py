@@ -1,5 +1,7 @@
 import json
 from dataclasses import dataclass
+from enum import Enum
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -23,6 +25,18 @@ class GoogleDriveMetadata:
     created_time: str | None
     modified_time: str | None
     is_folder: bool
+
+
+class GoogleDriveMetadataReason(str, Enum):
+    not_found = "not_found"
+    unavailable = "unavailable"
+
+
+class GoogleDriveMetadataError(RuntimeError):
+    def __init__(self, reason: GoogleDriveMetadataReason):
+        self.reason = reason
+        super().__init__(reason.value)
+
 
 
 @dataclass(frozen=True)
@@ -54,8 +68,17 @@ def fetch_drive_file_metadata(access_token: str, drive_file_id: str) -> GoogleDr
         f"{DRIVE_FILES_URL}/{drive_file_id}?{params}",
         headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
     )
-    with urlopen(req, timeout=10) as resp:  # nosec - Google Drive endpoint; tests monkeypatch urlopen/helper.
-        payload = json.loads(resp.read().decode("utf-8"))
+    try:
+        with urlopen(req, timeout=10) as resp:  # nosec - Google Drive endpoint; tests monkeypatch urlopen/helper.
+            payload = json.loads(resp.read().decode("utf-8"))
+    except HTTPError as exc:
+        if exc.code == 404:
+            raise GoogleDriveMetadataError(GoogleDriveMetadataReason.not_found) from exc
+        raise GoogleDriveMetadataError(GoogleDriveMetadataReason.unavailable) from exc
+    except (URLError, OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise GoogleDriveMetadataError(GoogleDriveMetadataReason.unavailable) from exc
+    if not isinstance(payload, dict):
+        raise GoogleDriveMetadataError(GoogleDriveMetadataReason.unavailable)
     return normalize_drive_metadata(payload)
 
 

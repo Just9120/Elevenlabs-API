@@ -7,7 +7,7 @@ from typing import Callable
 from sqlalchemy.orm import Session, selectinload
 
 from .google_connection_access import GoogleConnectionAccessError, refresh_user_google_drive_access_token
-from .google_drive import GOOGLE_FOLDER_MIME_TYPE, fetch_drive_file_metadata
+from .google_drive import GOOGLE_FOLDER_MIME_TYPE, GoogleDriveMetadataError, GoogleDriveMetadataReason, fetch_drive_file_metadata
 from .job_claim_lease import is_lease_active
 from .models import JobStatus, Project, Source, SourceType, SourceUploadStatus, TranscriptionJob, TranscriptionJobSource
 from .source_policy import is_supported_source_mime_type, normalize_source_mime_type, validate_source_size
@@ -63,6 +63,7 @@ def verify_processing_job_sources(
     if initial_reasons:
         return _summary(job_id, job.project_id if job else None, now, lease_generation, initial_reasons, [])
 
+    boundary_snapshot = _boundary_snapshot(job, project, job_sources)
     snapshots = [_snapshot(job, js) for js in job_sources]
     token: str | None = None
     token_failed_reason: str | None = None
@@ -98,8 +99,8 @@ def verify_processing_job_sources(
                 reasons.append("unsupported_source_type")
         source_summaries.append(_source_summary(snap, effective_mime, effective_size, reasons))
 
-    recheck_reasons = _revalidate(db, job_id, lease_owner_id, lease_generation, now, snapshots)
-    if recheck_reasons:
+    recheck_reasons, source_state_changed = _revalidate(db, boundary_snapshot, lease_owner_id, lease_generation, now)
+    if source_state_changed:
         source_summaries = [_with_extra_reason(s, "source_state_changed") for s in source_summaries]
     all_reasons = _dedupe([r for s in source_summaries for r in s.blocking_reasons] + recheck_reasons)
     return _summary(job.id, job.project_id, now, lease_generation, all_reasons, source_summaries)
@@ -180,6 +181,10 @@ def _verify_drive(snap, token, settings, fetcher):
         return None, None, ["source_missing_required_identity"]
     try:
         meta = fetcher(token, snap["drive_file_id"])
+    except GoogleDriveMetadataError as exc:
+        if exc.reason == GoogleDriveMetadataReason.not_found:
+            return None, None, ["drive_file_missing"]
+        return None, None, ["drive_metadata_unavailable"]
     except FileNotFoundError:
         return None, None, ["drive_file_missing"]
     except Exception:
@@ -197,18 +202,115 @@ def _verify_drive(snap, token, settings, fetcher):
     return mime, meta.size_bytes, reasons
 
 
-def _revalidate(db, job_id, owner, generation, now, snapshots):
+def _boundary_snapshot(job, project, job_sources):
+    return {
+        "job": {
+            "id": job.id,
+            "owner_user_id": job.owner_user_id,
+            "project_id": job.project_id,
+            "status": _enum_value(job.status),
+            "lease_owner_id": job.lease_owner_id,
+            "lease_generation": job.lease_generation,
+            "lease_expires_at": job.lease_expires_at,
+            "cancel_requested_at": job.cancel_requested_at,
+        },
+        "project": {
+            "id": project.id if project else None,
+            "owner_user_id": project.owner_user_id if project else None,
+            "archived_at": project.archived_at if project else None,
+        },
+        "relations": [_relation_source_identity(js) for js in sorted(job_sources, key=lambda item: item.position)],
+    }
+
+
+def _relation_source_identity(job_source):
+    src = job_source.source
+    return {
+        "job_source_id": job_source.id,
+        "source_id": job_source.source_id,
+        "position": job_source.position,
+        "job_source_status": _enum_value(job_source.status),
+        "source_type": _enum_value(src.source_type) if src else None,
+        "project_id": src.project_id if src else None,
+        "drive_file_id": src.drive_file_id if src else None,
+        "s3_bucket": src.s3_bucket if src else None,
+        "s3_object_key": src.s3_object_key if src else None,
+        "mime_type": normalize_source_mime_type(src.mime_type) if src else None,
+        "size_bytes": src.size_bytes if src else None,
+        "upload_status": _enum_value(src.upload_status) if src else None,
+        "deleted_at": src.deleted_at if src else None,
+        "expires_at": src.expires_at if src else None,
+    }
+
+
+def _revalidate(db, snapshot, owner, generation, now):
     db.expire_all()
-    job = _load_job(db, job_id)
-    reasons = _job_boundary_reasons(job, owner, generation, now)
-    if reasons:
-        return ["source_state_changed"] if reasons == [] else reasons
-    current = {js.source_id: js.source for js in job.sources}
-    for snap in snapshots:
-        src = current.get(snap["source_id"])
-        if src is None or src.project_id != snap["project_id"] or src.deleted_at != snap["deleted_at"] or str(src.upload_status.value) != snap["upload_status"] or src.expires_at != snap["expires_at"]:
-            return ["source_state_changed"]
-    return []
+    job = _load_job(db, snapshot["job"]["id"])
+    lifecycle_reasons = _job_boundary_reasons(job, owner, generation, now)
+    if job is None:
+        return lifecycle_reasons, True
+
+    project = db.get(Project, job.project_id)
+    if project is None or project.owner_user_id != job.owner_user_id:
+        lifecycle_reasons.append("project_missing")
+    elif project.archived_at is not None:
+        lifecycle_reasons.append("project_archived")
+
+    current_boundary = _current_job_project_snapshot(job, project)
+    expected_boundary = snapshot["job"] | {
+        "project_owner_user_id": snapshot["project"]["owner_user_id"],
+        "project_archived_at": snapshot["project"]["archived_at"],
+    }
+    if current_boundary != expected_boundary:
+        if _job_or_project_identity_changed(job, project, snapshot):
+            lifecycle_reasons.append("project_missing")
+        if job.lease_expires_at != snapshot["job"]["lease_expires_at"] and "lease_not_active" not in lifecycle_reasons:
+            lifecycle_reasons.append("lease_not_active")
+
+    current_relations = [_relation_source_identity(js) for js in sorted(job.sources, key=lambda item: item.position)]
+    source_state_changed = current_relations != snapshot["relations"]
+    if not source_state_changed:
+        for relation in current_relations:
+            if relation["upload_status"] != SourceUploadStatus.uploaded.value:
+                source_state_changed = True
+                break
+            if relation["deleted_at"] is not None:
+                source_state_changed = True
+                break
+            if relation["expires_at"] is not None and relation["expires_at"] <= now:
+                source_state_changed = True
+                break
+    if source_state_changed and "source_state_changed" not in lifecycle_reasons:
+        return _dedupe(lifecycle_reasons + ["source_state_changed"]), True
+    return _dedupe(lifecycle_reasons), False
+
+
+def _current_job_project_snapshot(job, project):
+    return {
+        "id": job.id,
+        "owner_user_id": job.owner_user_id,
+        "project_id": job.project_id,
+        "status": _enum_value(job.status),
+        "lease_owner_id": job.lease_owner_id,
+        "lease_generation": job.lease_generation,
+        "lease_expires_at": job.lease_expires_at,
+        "cancel_requested_at": job.cancel_requested_at,
+        "project_owner_user_id": project.owner_user_id if project else None,
+        "project_archived_at": project.archived_at if project else None,
+    }
+
+
+def _job_or_project_identity_changed(job, project, snapshot):
+    return (
+        job.owner_user_id != snapshot["job"]["owner_user_id"]
+        or job.project_id != snapshot["job"]["project_id"]
+        or project is None
+        or project.owner_user_id != snapshot["project"]["owner_user_id"]
+    )
+
+
+def _enum_value(value):
+    return str(getattr(value, "value", value))
 
 
 def _source_summary(snap, mime, size, reasons):
