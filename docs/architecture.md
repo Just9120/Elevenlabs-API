@@ -72,7 +72,13 @@ Documentation maintenance can update repository docs and validation status, but 
 - Speaker projects are manual label rename helpers, not biometric identification.
 - CI/static validation does not prove live Colab/Drive/Docs/browser/provider success.
 
-## 7. Current refactor seams for future implementation work
+## 7. Studio PWA internal processing prerequisites boundary
+
+The Studio API now has internal-only execution-prerequisite helpers for a job that is already in `processing` under an exact active lease. The boundary resolves and decrypts the current owner-scoped BYOK provider credential inside a context manager, verifies the project-configured Google Drive output folder with the current user's Google connection, and revalidates lifecycle/identity state after decryption and Drive metadata I/O before yielding an ephemeral redacted handle.
+
+This boundary is deliberately not a worker and is not exposed through FastAPI. It performs no provider transcription request, source-byte materialization, Google Docs creation, transcript/output persistence, completion transition, manifest mutation, runtime/deploy behavior, or production processing claim.
+
+## 8. Current refactor seams for future implementation work
 
 Current realtime frontend boundaries in `elevenlabs_realtime.py`:
 
