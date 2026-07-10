@@ -70,6 +70,18 @@ Both boundaries revalidate with a fresh clock after decryption or Google metadat
 
 This slice still does not call ElevenLabs or OpenAI transcription APIs, materialize source bytes, create Google Docs, persist transcript/output text, complete jobs, mutate manifests, add a worker or queue consumer, or expose a public endpoint.
 
+## PWA-JOBS-04B internal ElevenLabs single-source transcription boundary
+
+`PWA-JOBS-04B` adds an internal server-only boundary for exactly one already-materialized source of one already leased `processing` Studio job. It composes the existing execution-prerequisites context, the existing single-source materialization context, and exactly one synchronous ElevenLabs speech-to-text request using `scribe_v2`.
+
+Immediately before the provider request, the boundary performs a fresh DB-only revalidation of job lifecycle, lease owner/generation/expiry, cancellation absence, project validity, provider credential identity/version/provider/usability, configured output-folder identity, and selected job-source/source identity/processability. This final check does not repeat credential decryption, Google metadata requests, Drive downloads, S3 downloads, or source copying, and no row lock is held during source I/O or the provider request. If the check fails, the provider is not called.
+
+After a successful provider response, the boundary performs a fresh post-provider lifecycle check before yielding transcript content. If processing status, lease ownership, active lease, cancellation absence, or project validity changed, the transcript is discarded and no second provider request or automatic retry is attempted.
+
+The normalized transcript result is ephemeral and redacted: transcript text and word text are available only while the context is active, retained handles fail closed after context exit, and representations expose only safe aggregate metadata such as text length and word count. Raw provider responses, provider error bodies, API keys, source identities, source bytes, Drive/private storage identifiers, transcript text, and word text are not exposed or persisted.
+
+This slice still does not add a worker, queue consumer, public endpoint, OpenAI provider execution, Google Docs output, transcript/output persistence, job completion transition, job-source status persistence, manifest mutation, runtime/deploy behavior, production rollout, or automatic retry.
+
 ## Future claim and lease semantics
 
 `PWA-JOBS-02C` defines the contract for future server-side ownership of queued Studio transcription jobs. This section is design-only: it does not add a worker, queue consumer, status value, endpoint, database column, migration, runtime service, or production rollout. Current Studio jobs remain record-only. `PWA-JOBS-02D` may add an internal non-mutating claim-readiness planning helper over the existing read-only preflight snapshot; that helper is not a claim, lease, worker, queue, provider execution, output, schema, or runtime implementation.
