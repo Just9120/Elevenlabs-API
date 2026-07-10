@@ -3,7 +3,7 @@ import os
 import subprocess
 import sys
 import tempfile
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,13 +26,14 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 from fastapi.testclient import TestClient
 from starlette.requests import Request
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 from studio_api.config import Settings
 from studio_api.db import SessionLocal, engine
 from studio_api.deps import get_client_ip
 from studio_api.main import app, limiter
-from studio_api.models import AuditEvent, JobStatus, LocalIdentity, Project, ProviderCredentialVersion, Source, SourceType, SourceUploadStatus, TranscriptionJob, User, UserRole, UserStatus
+from studio_api.models import AuditEvent, JobStatus, LocalIdentity, Project, ProviderCredentialVersion, Source, SourceType, SourceUploadStatus, TranscriptionJob, TranscriptionJobSource, User, UserRole, UserStatus
 from studio_api.security import aad, decrypt, encrypt, hash_password, master_key_from_b64, utcnow, verify_password
+from studio_api.job_claim_lease import JobLeaseError, JobLeaseFailureReason, acquire_job_lease, is_lease_active, release_job_lease, renew_job_lease
 
 ALEMBIC = ROOT / "apps/studio-api/alembic.ini"
 
@@ -925,3 +926,216 @@ def test_google_drive_folder_children_invalid_folder_id_returns_422(monkeypatch,
     r = c.get("/api/google/drive/folders/bad:id/children")
     assert r.status_code == 422
     assert "fake-refresh-token-children-invalid" not in r.text
+
+
+LEASE_TEST_NOW = datetime(2026, 7, 10, 12, 0, tzinfo=timezone.utc)
+LEASE_TEST_TTL = timedelta(minutes=15)
+
+
+def lease_test_job(status=JobStatus.queued, ready=True):
+    db = SessionLocal()
+    try:
+        user = User(email=f"lease-{utcnow().timestamp()}@example.com", role=UserRole.admin, status=UserStatus.active)
+        db.add(user); db.flush(); db.add(LocalIdentity(user_id=user.id, password_hash=hash_password("correct horse battery")))
+        project = Project(owner_user_id=user.id, title="Lease Project", output_drive_folder_id="folder-1")
+        db.add(project); db.flush()
+        if ready:
+            source = Source(project_id=project.id, source_type=SourceType.google_drive, original_filename="a.mp3", upload_status=SourceUploadStatus.uploaded, drive_file_id="drive-file-1")
+        else:
+            source = Source(project_id=project.id, source_type=SourceType.google_drive, original_filename="a.mp3", upload_status=SourceUploadStatus.pending)
+        db.add(source); db.flush()
+        job = TranscriptionJob(project_id=project.id, owner_user_id=user.id, status=status, title="Lease Job")
+        db.add(job); db.flush()
+        db.add(TranscriptionJobSource(job_id=job.id, source_id=source.id, position=0))
+        db.commit()
+        return user.id, job.id
+    finally:
+        db.close()
+
+
+def assert_lease_reason(exc, reason):
+    assert exc.value.reason == reason
+
+
+def test_job_lease_migration_clean_chain_shape_and_defaults():
+    inspector = inspect(engine)
+    cols = {c["name"]: c for c in inspector.get_columns("transcription_jobs")}
+    assert {"lease_owner_id", "lease_generation", "claimed_at", "lease_expires_at"}.issubset(cols)
+    assert cols["lease_owner_id"]["nullable"] is True
+    assert cols["lease_generation"]["nullable"] is False
+    indexes = [idx["name"] for idx in inspector.get_indexes("transcription_jobs")]
+    assert indexes.count("ix_transcription_jobs_status_lease_expires_created") == 1
+    _, job_id = lease_test_job()
+    db = SessionLocal()
+    try:
+        job = db.get(TranscriptionJob, job_id)
+        assert job.lease_generation == 0
+        assert job.lease_owner_id is None
+        assert job.claimed_at is None
+        assert job.lease_expires_at is None
+    finally:
+        db.close()
+
+
+def test_job_lease_migration_real_0005_shape_upgrades_to_head():
+    subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "downgrade", "0005_transcription_jobs"], cwd=ROOT, check=True)
+    try:
+        cols_at_0005 = {c["name"] for c in inspect(engine).get_columns("transcription_jobs")}
+        assert "lease_owner_id" not in cols_at_0005
+        subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "upgrade", "head"], cwd=ROOT, check=True)
+        inspector = inspect(engine)
+        cols = {c["name"] for c in inspector.get_columns("transcription_jobs")}
+        assert {"lease_owner_id", "lease_generation", "claimed_at", "lease_expires_at"}.issubset(cols)
+        indexes = [idx["name"] for idx in inspector.get_indexes("transcription_jobs")]
+        assert indexes.count("ix_transcription_jobs_status_lease_expires_created") == 1
+    finally:
+        subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "upgrade", "head"], cwd=ROOT, check=True)
+
+
+def test_acquire_active_reclaim_stale_fencing_and_no_commit():
+    _, job_id = lease_test_job()
+    db = SessionLocal()
+    try:
+        job = db.get(TranscriptionJob, job_id)
+        handle = acquire_job_lease(db, job_id=job.id, lease_owner_id="owner-1", now=LEASE_TEST_NOW, lease_ttl=LEASE_TEST_TTL)
+        assert handle.lease_generation == 1
+        assert handle.claimed_at == LEASE_TEST_NOW
+        assert handle.lease_expires_at == LEASE_TEST_NOW + LEASE_TEST_TTL
+        assert job.status == JobStatus.queued
+        assert job.started_at is None
+        other = SessionLocal()
+        try:
+            assert other.get(TranscriptionJob, job.id).lease_owner_id is None
+        finally:
+            other.close()
+        db.commit()
+
+        with pytest.raises(JobLeaseError) as exc:
+            acquire_job_lease(db, job_id=job.id, lease_owner_id="owner-2", now=LEASE_TEST_NOW + timedelta(minutes=1), lease_ttl=LEASE_TEST_TTL)
+        assert_lease_reason(exc, JobLeaseFailureReason.lease_active)
+        db.rollback(); job = db.get(TranscriptionJob, job.id)
+        assert job.lease_owner_id == "owner-1" and job.lease_generation == 1
+
+        reclaimed = acquire_job_lease(db, job_id=job.id, lease_owner_id="owner-2", now=LEASE_TEST_NOW + timedelta(minutes=16), lease_ttl=LEASE_TEST_TTL)
+        assert reclaimed.lease_generation == 2
+        assert job.lease_owner_id == "owner-2"
+        with pytest.raises(JobLeaseError) as exc:
+            renew_job_lease(db, job_id=job.id, lease_owner_id="owner-1", lease_generation=1, now=LEASE_TEST_NOW + timedelta(minutes=17), lease_ttl=LEASE_TEST_TTL)
+        assert_lease_reason(exc, JobLeaseFailureReason.lease_not_owned)
+        with pytest.raises(JobLeaseError) as exc:
+            release_job_lease(db, job_id=job.id, lease_owner_id="owner-1", lease_generation=1)
+        assert_lease_reason(exc, JobLeaseFailureReason.lease_not_owned)
+    finally:
+        db.close()
+
+
+def test_two_sessions_cannot_both_claim_active_lease():
+    _, job_id = lease_test_job()
+    first = SessionLocal(); second = SessionLocal()
+    try:
+        first_handle = acquire_job_lease(first, job_id=job_id, lease_owner_id="owner-1", now=LEASE_TEST_NOW, lease_ttl=LEASE_TEST_TTL)
+        first.commit()
+        with pytest.raises(JobLeaseError) as exc:
+            acquire_job_lease(second, job_id=job_id, lease_owner_id="owner-2", now=LEASE_TEST_NOW + timedelta(minutes=1), lease_ttl=LEASE_TEST_TTL)
+        assert_lease_reason(exc, JobLeaseFailureReason.lease_active)
+        second.rollback()
+        stored = second.get(TranscriptionJob, job_id)
+        assert stored.lease_owner_id == "owner-1"
+        assert stored.lease_generation == first_handle.lease_generation
+    finally:
+        first.close(); second.close()
+
+
+def test_renew_and_strict_release_semantics():
+    _, job_id = lease_test_job()
+    db = SessionLocal()
+    try:
+        job = db.get(TranscriptionJob, job_id)
+        handle = acquire_job_lease(db, job_id=job.id, lease_owner_id="owner", now=LEASE_TEST_NOW, lease_ttl=LEASE_TEST_TTL)
+        renewed = renew_job_lease(db, job_id=job.id, lease_owner_id="owner", lease_generation=handle.lease_generation, now=LEASE_TEST_NOW + timedelta(minutes=5), lease_ttl=timedelta(minutes=30))
+        assert renewed.lease_generation == handle.lease_generation
+        assert renewed.lease_expires_at == LEASE_TEST_NOW + timedelta(minutes=35)
+        assert release_job_lease(db, job_id=job.id, lease_owner_id="owner", lease_generation=handle.lease_generation) is True
+        assert job.lease_owner_id is None and job.lease_expires_at is None and job.lease_generation == 1
+        with pytest.raises(JobLeaseError) as exc:
+            release_job_lease(db, job_id=job.id, lease_owner_id="owner", lease_generation=handle.lease_generation)
+        assert_lease_reason(exc, JobLeaseFailureReason.lease_not_owned)
+    finally:
+        db.close()
+
+
+def test_expired_terminal_unready_and_invalid_leases_fail_closed():
+    _, job_id = lease_test_job(ready=False)
+    db = SessionLocal()
+    try:
+        with pytest.raises(JobLeaseError) as exc:
+            acquire_job_lease(db, job_id=job_id, lease_owner_id="owner", now=LEASE_TEST_NOW, lease_ttl=LEASE_TEST_TTL)
+        assert_lease_reason(exc, JobLeaseFailureReason.job_not_ready)
+        with pytest.raises(JobLeaseError) as exc:
+            acquire_job_lease(db, job_id=job_id, lease_owner_id=" ", now=LEASE_TEST_NOW, lease_ttl=LEASE_TEST_TTL)
+        assert_lease_reason(exc, JobLeaseFailureReason.invalid_owner)
+        with pytest.raises(JobLeaseError) as exc:
+            acquire_job_lease(db, job_id=job_id, lease_owner_id="owner", now=LEASE_TEST_NOW, lease_ttl=timedelta(0))
+        assert_lease_reason(exc, JobLeaseFailureReason.invalid_ttl)
+    finally:
+        db.close()
+
+    _, terminal_job_id = lease_test_job(status=JobStatus.completed)
+    db = SessionLocal()
+    try:
+        with pytest.raises(JobLeaseError) as exc:
+            acquire_job_lease(db, job_id=terminal_job_id, lease_owner_id="owner", now=LEASE_TEST_NOW, lease_ttl=LEASE_TEST_TTL)
+        assert_lease_reason(exc, JobLeaseFailureReason.job_not_queued)
+    finally:
+        db.close()
+
+    _, expiring_job_id = lease_test_job()
+    db = SessionLocal()
+    try:
+        handle = acquire_job_lease(db, job_id=expiring_job_id, lease_owner_id="owner", now=LEASE_TEST_NOW, lease_ttl=LEASE_TEST_TTL)
+        with pytest.raises(JobLeaseError) as exc:
+            renew_job_lease(db, job_id=expiring_job_id, lease_owner_id="owner", lease_generation=handle.lease_generation, now=LEASE_TEST_NOW + timedelta(minutes=16), lease_ttl=LEASE_TEST_TTL)
+        assert_lease_reason(exc, JobLeaseFailureReason.lease_not_active)
+    finally:
+        db.close()
+
+
+def test_cancel_clears_lease_and_public_payloads_are_safe():
+    user_id, job_id = lease_test_job()
+    db = SessionLocal()
+    try:
+        job = db.get(TranscriptionJob, job_id)
+        user = db.get(User, user_id)
+        handle = acquire_job_lease(db, job_id=job.id, lease_owner_id="internal-owner", now=LEASE_TEST_NOW, lease_ttl=LEASE_TEST_TTL)
+        db.commit()
+        client = TestClient(app); csrf = login(client, "correct horse battery", user.email)
+        headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+        r = client.post(f"/api/jobs/{job.id}/cancel", headers=headers)
+        assert r.status_code == 200
+        body = r.json()
+        assert body["status"] == "cancelled"
+        for key in ["lease_owner_id", "lease_generation", "claimed_at", "lease_expires_at"]:
+            assert key not in body
+        db.refresh(job)
+        assert job.lease_owner_id is None and job.lease_expires_at is None and job.lease_generation == handle.lease_generation
+        with pytest.raises(JobLeaseError):
+            renew_job_lease(db, job_id=job.id, lease_owner_id="internal-owner", lease_generation=handle.lease_generation, now=LEASE_TEST_NOW, lease_ttl=LEASE_TEST_TTL)
+        with pytest.raises(JobLeaseError):
+            release_job_lease(db, job_id=job.id, lease_owner_id="internal-owner", lease_generation=handle.lease_generation)
+        assert client.post(f"/api/jobs/{job.id}/cancel", headers=headers).status_code == 200
+        audit_text = "\n".join(event.metadata_json for event in db.query(AuditEvent).all())
+        assert "internal-owner" not in audit_text
+    finally:
+        db.close()
+
+
+def test_active_lease_helper():
+    _, job_id = lease_test_job()
+    db = SessionLocal()
+    try:
+        job = db.get(TranscriptionJob, job_id)
+        acquire_job_lease(db, job_id=job.id, lease_owner_id="owner", now=LEASE_TEST_NOW, lease_ttl=LEASE_TEST_TTL)
+        assert is_lease_active(job, LEASE_TEST_NOW + timedelta(minutes=14)) is True
+        assert is_lease_active(job, LEASE_TEST_NOW + timedelta(minutes=15)) is False
+    finally:
+        db.close()

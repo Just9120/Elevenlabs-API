@@ -1,6 +1,6 @@
 import enum, uuid
 from datetime import datetime, timezone
-from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .db import Base
 
@@ -167,9 +167,13 @@ class TranscriptionJob(Base):
     finished_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     error_code: Mapped[str|None]=mapped_column(String(80))
     error_message: Mapped[str|None]=mapped_column(String(512))
+    lease_owner_id: Mapped[str|None]=mapped_column(String(128))
+    lease_generation: Mapped[int]=mapped_column(Integer, default=0, server_default=text("0"))
+    claimed_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    lease_expires_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     project: Mapped[Project]=relationship("Project", back_populates="jobs")
     sources: Mapped[list["TranscriptionJobSource"]]=relationship("TranscriptionJobSource", back_populates="job", order_by="TranscriptionJobSource.position")
-    __table_args__=(Index("ix_transcription_jobs_project_status_created", "project_id", "status", "created_at"),)
+    __table_args__=(Index("ix_transcription_jobs_project_status_created", "project_id", "status", "created_at"), Index("ix_transcription_jobs_status_lease_expires_created", "status", "lease_expires_at", "created_at"),)
 
 class TranscriptionJobSource(Base):
     __tablename__="transcription_job_sources"
