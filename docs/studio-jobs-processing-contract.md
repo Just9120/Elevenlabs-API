@@ -57,6 +57,19 @@ Bytes are copied into bounded `SpooledTemporaryFile` storage and the configured 
 
 This slice is source-byte materialization only. It does not add a worker, queue consumer, provider request, provider credential use, Google Docs output, output persistence, completed transition, manifest mutation, public endpoint, production runtime, deployment, or production processing claim.
 
+
+## PWA-JOBS-04A internal execution-prerequisites boundary
+
+`PWA-JOBS-04A` adds an internal server-only prerequisites boundary for one already leased `processing` job. It composes two checks needed before a later provider execution slice: owner-scoped provider credential access and project-scoped output destination authorization. The yielded handle is ephemeral and internal; it is not returned by FastAPI, not persisted, and not an authorization to call a provider or create output.
+
+The credential boundary reloads the job, project, credential, and active credential version; requires `processing` status, exact active lease owner/generation, no cancellation request, an existing non-archived owner-consistent project, an active non-deleted `elevenlabs` or `openai` credential owned by the job owner, and a usable active version with ciphertext, nonce, and the supported key id. Decryption uses the same AAD tuple as credential creation: user id, credential id, credential-version id, and provider value. The raw credential secret is held only inside the context-managed handle and is redacted from representation and normalized errors.
+
+The output destination boundary derives the Drive folder id only from the current job project. It resolves one ephemeral Google access token through the Google connection boundary, fetches only folder authorization metadata, and requires that the returned identity matches the configured folder id, the MIME type is the Google Drive folder MIME type, the folder is not trashed, and `capabilities.canAddChildren` is positively true. Folder ids, tokens, URLs, raw Google payloads, permissions, owners, and authorization headers are not exposed by safe errors or default representations.
+
+Both boundaries revalidate with a fresh clock after decryption or Google metadata I/O. Status, lease owner/generation, active lease, cancellation state, project owner/archive state, credential identity/version/provider state, and output folder identity must still match the pre-I/O snapshot or the helper fails closed with a normalized reason. External key loading, decryption, token refresh, and Drive metadata requests are outside any row-locking claim path. Caller exceptions raised inside the context manager propagate unchanged while cleanup drops context-local secret references.
+
+This slice still does not call ElevenLabs or OpenAI transcription APIs, materialize source bytes, create Google Docs, persist transcript/output text, complete jobs, mutate manifests, add a worker or queue consumer, or expose a public endpoint.
+
 ## Future claim and lease semantics
 
 `PWA-JOBS-02C` defines the contract for future server-side ownership of queued Studio transcription jobs. This section is design-only: it does not add a worker, queue consumer, status value, endpoint, database column, migration, runtime service, or production rollout. Current Studio jobs remain record-only. `PWA-JOBS-02D` may add an internal non-mutating claim-readiness planning helper over the existing read-only preflight snapshot; that helper is not a claim, lease, worker, queue, provider execution, output, schema, or runtime implementation.
