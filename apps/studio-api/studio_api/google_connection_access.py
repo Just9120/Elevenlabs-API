@@ -1,0 +1,52 @@
+from __future__ import annotations
+
+from enum import Enum
+from sqlalchemy.orm import Session
+
+from .google_oauth import GoogleOAuthConfigError, load_google_oauth_config
+from .models import GoogleConnection, GoogleConnectionStatus, GoogleProvider
+from .security import aad, decrypt, master_key_from_b64
+
+
+class GoogleConnectionAccessReason(str, Enum):
+    missing = "google_connection_missing"
+    inactive = "google_connection_inactive"
+    token_unavailable = "google_token_unavailable"
+    config_unavailable = "google_config_unavailable"
+
+
+class GoogleConnectionAccessError(RuntimeError):
+    def __init__(self, reason: GoogleConnectionAccessReason):
+        self.reason = reason
+        super().__init__(reason.value)
+
+
+def google_token_aad(user_id: str, connection_id: str) -> bytes:
+    return aad(user_id, connection_id, "refresh", "google")
+
+
+def refresh_user_google_drive_access_token(db: Session, *, user_id: str, settings) -> str:
+    conn = db.query(GoogleConnection).filter_by(user_id=user_id, provider=GoogleProvider.google).first()
+    if conn is None:
+        raise GoogleConnectionAccessError(GoogleConnectionAccessReason.missing)
+    if conn.status != GoogleConnectionStatus.active:
+        raise GoogleConnectionAccessError(GoogleConnectionAccessReason.inactive)
+    if not conn.refresh_token_ciphertext or not conn.refresh_token_nonce or not conn.key_id:
+        raise GoogleConnectionAccessError(GoogleConnectionAccessReason.inactive)
+    try:
+        cfg = load_google_oauth_config(settings)
+        refresh_token = decrypt(
+            conn.refresh_token_ciphertext,
+            conn.refresh_token_nonce,
+            master_key_from_b64(settings.master_key_b64()),
+            google_token_aad(user_id, conn.id),
+        )
+        from .google_drive import refresh_access_token
+
+        return refresh_access_token(cfg, refresh_token)
+    except GoogleConnectionAccessError:
+        raise
+    except GoogleOAuthConfigError as exc:
+        raise GoogleConnectionAccessError(GoogleConnectionAccessReason.config_unavailable) from exc
+    except Exception as exc:
+        raise GoogleConnectionAccessError(GoogleConnectionAccessReason.token_unavailable) from exc

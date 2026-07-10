@@ -14,6 +14,8 @@ from .models import *
 from .rate_limit import RateLimiter
 from .security import *
 from .source_storage import get_source_storage, safe_filename
+from .source_policy import is_supported_source_mime_type, normalize_source_mime_type, validate_source_size
+from .google_connection_access import GoogleConnectionAccessError, GoogleConnectionAccessReason, google_token_aad, refresh_user_google_drive_access_token
 from .job_lifecycle import safe_failure_metadata_value
 from .job_processing_lifecycle import request_job_cancellation
 
@@ -231,13 +233,10 @@ def validate_job_sources(db: Session, project_id: str, source_ids: list[str]) ->
         ordered.append(src)
     return ordered
 
-ALLOWED_SOURCE_MIME_PREFIXES=("audio/", "video/")
-ALLOWED_SOURCE_MIME_TYPES={"application/ogg"}
-
 def validate_upload(mime_type: str, size_bytes: int):
-    m=mime_type.strip().lower()
-    if not (m.startswith(ALLOWED_SOURCE_MIME_PREFIXES) or m in ALLOWED_SOURCE_MIME_TYPES): raise HTTPException(422, "Неподдерживаемый тип файла")
-    if size_bytes > settings.source_max_upload_bytes: raise HTTPException(422, "Файл слишком большой")
+    m=normalize_source_mime_type(mime_type)
+    if not is_supported_source_mime_type(m): raise HTTPException(422, "Неподдерживаемый тип файла")
+    if not validate_source_size(size_bytes, settings.source_max_upload_bytes): raise HTTPException(422, "Файл слишком большой")
     return m
 
 def owned_project_or_404(db: Session, user: User, project_id: str) -> Project:
@@ -313,7 +312,7 @@ def complete_local_upload(source_id: str, pair=Depends(require_csrf), db: Sessio
     except FileNotFoundError:
         raise HTTPException(409, "Загруженный объект источника не найден")
     if head.size_bytes is not None and src.size_bytes is not None and head.size_bytes > settings.source_max_upload_bytes: raise HTTPException(422, "Файл слишком большой")
-    if head.content_type and not (head.content_type.lower().startswith(ALLOWED_SOURCE_MIME_PREFIXES) or head.content_type.lower() in ALLOWED_SOURCE_MIME_TYPES): raise HTTPException(422, "Неподдерживаемый тип файла")
+    if head.content_type and not is_supported_source_mime_type(head.content_type): raise HTTPException(422, "Неподдерживаемый тип файла")
     src.upload_status=SourceUploadStatus.uploaded; src.uploaded_at=utcnow(); src.updated_at=utcnow(); audit(db,"source.local_upload.completed",actor_user_id=user.id,subject_user_id=user.id); db.commit(); return source_payload(src)
 
 @app.delete("/api/sources/{source_id}")
@@ -379,9 +378,6 @@ def google_config_or_503():
     except GoogleOAuthConfigError:
         raise config_unavailable()
 
-def google_token_aad(user_id: str, connection_id: str) -> bytes:
-    return aad(user_id, connection_id, "refresh", "google")
-
 @app.get("/api/google/connection")
 def get_google_connection(pair=Depends(current_session), db: Session=Depends(get_db)):
     _,user=pair
@@ -438,17 +434,16 @@ def google_drive_metadata_payload(meta):
     return {"id": meta.id, "name": meta.name, "mime_type": meta.mime_type, "size_bytes": meta.size_bytes, "web_view_link": meta.web_view_link, "created_time": meta.created_time, "modified_time": meta.modified_time, "is_folder": meta.is_folder}
 
 def refreshed_google_drive_access_token(db: Session, user: User) -> str:
-    cfg=google_config_or_503()
-    conn=current_google_connection(db, user)
-    if not conn:
-        raise HTTPException(404, "Google Drive connection is not connected")
-    if conn.status != GoogleConnectionStatus.active:
-        raise HTTPException(409, "Google Drive connection is not active")
-    if not conn.refresh_token_ciphertext or not conn.refresh_token_nonce or not conn.key_id:
-        raise HTTPException(409, "Google Drive connection is not active")
-    refresh_token=decrypt(conn.refresh_token_ciphertext, conn.refresh_token_nonce, key(), google_token_aad(user.id, conn.id))
-    from .google_drive import refresh_access_token
-    return refresh_access_token(cfg, refresh_token)
+    try:
+        return refresh_user_google_drive_access_token(db, user_id=user.id, settings=settings)
+    except GoogleConnectionAccessError as exc:
+        if exc.reason == GoogleConnectionAccessReason.missing:
+            raise HTTPException(404, "Google Drive connection is not connected")
+        if exc.reason == GoogleConnectionAccessReason.inactive:
+            raise HTTPException(409, "Google Drive connection is not active")
+        if exc.reason == GoogleConnectionAccessReason.config_unavailable:
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Google OAuth is not configured")
+        raise HTTPException(502, "Google Drive metadata is unavailable")
 
 @app.get("/api/google/drive/files/{drive_file_id}/metadata")
 def get_google_drive_file_metadata(drive_file_id: str, pair=Depends(current_session), db: Session=Depends(get_db)):
