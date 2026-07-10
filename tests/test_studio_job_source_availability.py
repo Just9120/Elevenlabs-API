@@ -342,7 +342,11 @@ def test_ordered_relation_toctou_changes_block_ready(sqlite_session, models, mut
 
     summary = verify(sqlite_session, job_id=job_id, lease_owner_id="worker-1", lease_generation=1, now=now, storage_factory=lambda _: FakeStorage(before_head=mutate))
     assert summary.ready is False
-    assert "source_state_changed" in summary.blocking_reasons
+    if mutation in {"add_relation", "remove_relation"}:
+        assert "source_set_changed" in summary.blocking_reasons
+        assert all("source_state_changed" not in source.blocking_reasons for source in summary.sources)
+    else:
+        assert "source_state_changed" in summary.blocking_reasons
     assert_safe_summary(summary)
 
 
@@ -384,6 +388,193 @@ def test_project_and_lifecycle_toctou_reasons_are_not_per_source_changes(sqlite_
     assert_safe_summary(summary)
 
 
+
+def test_boundary_snapshot_is_immutable_tuple(sqlite_session, models):
+    from dataclasses import FrozenInstanceError
+    from studio_api.job_source_availability import _boundary_snapshot
+
+    job_id, _, _, _, _, _ = make_processing_job(sqlite_session, models)
+    job = sqlite_session.get(models.TranscriptionJob, job_id)
+    snapshot = _boundary_snapshot(job, job.project, job.sources)
+
+    assert isinstance(snapshot.relations, tuple)
+    with pytest.raises(FrozenInstanceError):
+        snapshot.job.status = "queued"
+    with pytest.raises(TypeError):
+        snapshot.relations[0] = snapshot.relations[0]
+
+
+def test_precise_source_change_marks_only_changed_source(sqlite_session, models):
+    job_id, source_a_id, _, project_id, now, _ = make_processing_job(sqlite_session, models)
+    source_b = models.Source(
+        project_id=project_id,
+        source_type=models.SourceType.local_upload,
+        original_filename="second.mp3",
+        mime_type="audio/mpeg",
+        size_bytes=100,
+        s3_bucket="studio-temp",
+        s3_object_key="private/key-b",
+        upload_status=models.SourceUploadStatus.uploaded,
+        uploaded_at=now,
+        expires_at=now + timedelta(hours=1),
+    )
+    sqlite_session.add(source_b)
+    sqlite_session.flush()
+    sqlite_session.add(models.TranscriptionJobSource(job_id=job_id, source_id=source_b.id, position=1))
+    sqlite_session.commit()
+
+    def mutate_source_a():
+        source = sqlite_session.get(models.Source, source_a_id)
+        source.mime_type = "audio/wav"
+        sqlite_session.flush()
+
+    summary = verify(
+        sqlite_session,
+        job_id=job_id,
+        lease_owner_id="worker-1",
+        lease_generation=1,
+        now=now,
+        storage_factory=lambda _: FakeStorage(before_head=mutate_source_a),
+    )
+
+    by_id = {source.source_id: source for source in summary.sources}
+    assert summary.ready is False
+    assert "source_state_changed" in by_id[source_a_id].blocking_reasons
+    assert "source_state_changed" not in by_id[source_b.id].blocking_reasons
+    assert by_id[source_b.id].available is True
+    assert_safe_summary(summary)
+
+
+def test_relation_set_addition_is_top_level_only_for_existing_sources(sqlite_session, models):
+    job_id, _, _, project_id, now, _ = make_processing_job(sqlite_session, models)
+
+    def add_unattributable_relation():
+        extra = models.Source(project_id=project_id, source_type=models.SourceType.local_upload, original_filename="extra.mp3", mime_type="audio/mpeg", size_bytes=100, s3_bucket="studio-temp", s3_object_key="extra/key", upload_status=models.SourceUploadStatus.uploaded, uploaded_at=now, expires_at=now + timedelta(hours=1))
+        sqlite_session.add(extra)
+        sqlite_session.flush()
+        sqlite_session.add(models.TranscriptionJobSource(job_id=job_id, source_id=extra.id, position=1))
+        sqlite_session.flush()
+
+    summary = verify(sqlite_session, job_id=job_id, lease_owner_id="worker-1", lease_generation=1, now=now, storage_factory=lambda _: FakeStorage(before_head=add_unattributable_relation))
+    assert summary.ready is False
+    assert "source_set_changed" in summary.blocking_reasons
+    assert all("source_state_changed" not in source.blocking_reasons for source in summary.sources)
+    assert_safe_summary(summary)
+
+
+def test_relation_reorder_with_two_sources_is_attributed(sqlite_session, models):
+    job_id, source_a_id, job_source_a_id, project_id, now, _ = make_processing_job(sqlite_session, models)
+    source_b = models.Source(project_id=project_id, source_type=models.SourceType.local_upload, original_filename="second.mp3", mime_type="audio/mpeg", size_bytes=100, s3_bucket="studio-temp", s3_object_key="private/key-b", upload_status=models.SourceUploadStatus.uploaded, uploaded_at=now, expires_at=now + timedelta(hours=1))
+    sqlite_session.add(source_b)
+    sqlite_session.flush()
+    relation_b = models.TranscriptionJobSource(job_id=job_id, source_id=source_b.id, position=1)
+    sqlite_session.add(relation_b)
+    sqlite_session.commit()
+
+    def reorder():
+        sqlite_session.get(models.TranscriptionJobSource, job_source_a_id).position = 1
+        sqlite_session.get(models.TranscriptionJobSource, relation_b.id).position = 0
+        sqlite_session.flush()
+
+    summary = verify(sqlite_session, job_id=job_id, lease_owner_id="worker-1", lease_generation=1, now=now, storage_factory=lambda _: FakeStorage(before_head=reorder))
+    by_id = {source.source_id: source for source in summary.sources}
+    assert summary.ready is False
+    assert "source_state_changed" in by_id[source_a_id].blocking_reasons
+    assert "source_state_changed" in by_id[source_b.id].blocking_reasons
+    assert_safe_summary(summary)
+
+
+def test_relation_id_replacement_preserving_source_and_position_is_attributed(sqlite_session, models):
+    job_id, source_id, job_source_id, _, now, _ = make_processing_job(sqlite_session, models)
+
+    def replace_relation_id():
+        relation = sqlite_session.get(models.TranscriptionJobSource, job_source_id)
+        sqlite_session.delete(relation)
+        sqlite_session.flush()
+        sqlite_session.add(models.TranscriptionJobSource(job_id=job_id, source_id=source_id, position=0))
+        sqlite_session.flush()
+
+    summary = verify(sqlite_session, job_id=job_id, lease_owner_id="worker-1", lease_generation=1, now=now, storage_factory=lambda _: FakeStorage(before_head=replace_relation_id))
+    assert summary.ready is False
+    assert "source_state_changed" in summary.sources[0].blocking_reasons
+    assert "source_set_changed" not in summary.blocking_reasons
+    assert_safe_summary(summary)
+
+
+@pytest.mark.parametrize(
+    ("mutation", "reason"),
+    [
+        ("job_owner", "project_missing"),
+        ("job_project", "project_missing"),
+        ("project_owner", "project_missing"),
+        ("job_deleted", "job_not_found"),
+    ],
+)
+def test_lifecycle_identity_and_disappearance_toctou(sqlite_session, models, mutation, reason):
+    job_id, _, _, project_id, now, _ = make_processing_job(sqlite_session, models)
+
+    def mutate():
+        job = sqlite_session.get(models.TranscriptionJob, job_id)
+        project = sqlite_session.get(models.Project, project_id)
+        if mutation == "job_owner":
+            job.owner_user_id = "other-owner"
+        elif mutation == "job_project":
+            other = models.Project(owner_user_id=job.owner_user_id, title="Other")
+            sqlite_session.add(other)
+            sqlite_session.flush()
+            job.project_id = other.id
+        elif mutation == "project_owner":
+            project.owner_user_id = "other-owner"
+        else:
+            for relation in list(job.sources):
+                sqlite_session.delete(relation)
+            sqlite_session.flush()
+            sqlite_session.delete(job)
+        sqlite_session.flush()
+
+    summary = verify(sqlite_session, job_id=job_id, lease_owner_id="worker-1", lease_generation=1, now=now, storage_factory=lambda _: FakeStorage(before_head=mutate))
+    assert summary.ready is False
+    assert reason in summary.blocking_reasons
+    assert all("source_state_changed" not in source.blocking_reasons for source in summary.sources)
+    assert_safe_summary(summary)
+
+
+def test_fresh_clock_detects_lease_expiring_during_external_io(sqlite_session, models):
+    job_id, _, _, _, now, _ = make_processing_job(sqlite_session, models, expires_delta=timedelta(seconds=5))
+    summary = verify(
+        sqlite_session,
+        job_id=job_id,
+        lease_owner_id="worker-1",
+        lease_generation=1,
+        now=now,
+        storage_factory=lambda _: FakeStorage(),
+        now_provider=lambda: now + timedelta(seconds=10),
+    )
+    assert summary.ready is False
+    assert summary.verified_at == now + timedelta(seconds=10)
+    assert "lease_not_active" in summary.blocking_reasons
+    assert all("source_state_changed" not in source.blocking_reasons for source in summary.sources)
+
+
+def test_fresh_clock_detects_source_expiring_during_external_io(sqlite_session, models):
+    job_id, source_id, _, _, now, _ = make_processing_job(sqlite_session, models)
+    source = sqlite_session.get(models.Source, source_id)
+    source.expires_at = now + timedelta(seconds=5)
+    sqlite_session.commit()
+    summary = verify(
+        sqlite_session,
+        job_id=job_id,
+        lease_owner_id="worker-1",
+        lease_generation=1,
+        now=now,
+        storage_factory=lambda _: FakeStorage(),
+        now_provider=lambda: now + timedelta(seconds=10),
+    )
+    assert summary.ready is False
+    assert "source_state_changed" in summary.sources[0].blocking_reasons
+    assert_safe_summary(summary)
+
+
 def test_drive_metadata_typed_errors_map_to_safe_availability_reasons(sqlite_session, models, monkeypatch):
     from studio_api import google_drive
     from studio_api.job_source_availability import verify_processing_job_sources
@@ -420,7 +611,55 @@ def test_drive_metadata_typed_errors_map_to_safe_availability_reasons(sqlite_ses
     assert "drive_metadata_unavailable" in forbidden.blocking_reasons
     assert_safe_summary(forbidden)
 
+    server_error = run_with_urlopen(lambda req, timeout=10: (_ for _ in ()).throw(HTTPError(req.full_url, 500, "server", {}, BytesIO(b"raw google payload"))))
+    assert server_error.ready is False
+    assert "drive_metadata_unavailable" in server_error.blocking_reasons
+    assert_safe_summary(server_error)
+
     network = run_with_urlopen(lambda req, timeout=10: (_ for _ in ()).throw(URLError("raw google payload")))
     assert network.ready is False
     assert "drive_metadata_unavailable" in network.blocking_reasons
     assert_safe_summary(network)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b"not-json",
+        b"[]",
+        b"{}",
+        b'{"id":"","mimeType":"audio/mpeg","size":"100"}',
+        b'{"id":"drive-1","size":"100"}',
+        b'{"id":"drive-1","mimeType":"","size":"100"}',
+        b'{"id":"drive-1","mimeType":"audio/mpeg","size":"not-int"}',
+        b'{"id":"drive-1","mimeType":"audio/mpeg","size":"-1"}',
+    ],
+)
+def test_malformed_drive_metadata_maps_to_unavailable(sqlite_session, models, monkeypatch, payload):
+    from studio_api import google_drive
+    from studio_api.job_source_availability import verify_processing_job_sources
+
+    job_id, _, _, _, now, _ = make_processing_job(sqlite_session, models, source_type=models.SourceType.google_drive)
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+        def __exit__(self, exc_type, exc, tb):
+            return False
+        def read(self):
+            return payload
+
+    monkeypatch.setattr(google_drive, "urlopen", lambda req, timeout=10: FakeResponse())
+    summary = verify_processing_job_sources(
+        sqlite_session,
+        job_id=job_id,
+        lease_owner_id="worker-1",
+        lease_generation=1,
+        now=now,
+        settings=SimpleSettings(),
+        drive_token_resolver=lambda db, *, user_id, settings: "access-token-secret",
+    )
+    assert summary.ready is False
+    assert "drive_metadata_unavailable" in summary.blocking_reasons
+    assert "drive_file_identity_mismatch" not in summary.blocking_reasons
+    assert_safe_summary(summary)

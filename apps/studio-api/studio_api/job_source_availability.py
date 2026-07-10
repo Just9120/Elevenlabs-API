@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, selectinload
 from .google_connection_access import GoogleConnectionAccessError, refresh_user_google_drive_access_token
 from .google_drive import GOOGLE_FOLDER_MIME_TYPE, GoogleDriveMetadataError, GoogleDriveMetadataReason, fetch_drive_file_metadata
 from .job_claim_lease import is_lease_active
-from .models import JobStatus, Project, Source, SourceType, SourceUploadStatus, TranscriptionJob, TranscriptionJobSource
+from .models import JobStatus, Project, SourceType, SourceUploadStatus, TranscriptionJob, TranscriptionJobSource
 from .source_policy import is_supported_source_mime_type, normalize_source_mime_type, validate_source_size
 from .source_storage import get_source_storage
 
@@ -37,6 +37,58 @@ class ProcessingSourceAvailabilitySummary:
     sources: list[ProcessingSourceAvailabilitySourceSummary]
 
 
+@dataclass(frozen=True)
+class JobBoundarySnapshot:
+    id: str
+    owner_user_id: str
+    project_id: str
+    status: str
+    lease_owner_id: str | None
+    lease_generation: int
+    lease_expires_at: datetime | None
+    cancel_requested_at: datetime | None
+
+
+@dataclass(frozen=True)
+class ProjectBoundarySnapshot:
+    id: str | None
+    owner_user_id: str | None
+    archived_at: datetime | None
+
+
+@dataclass(frozen=True)
+class SourceRelationSnapshot:
+    job_source_id: str
+    job_id: str
+    source_id: str
+    position: int
+    job_source_status: str
+    source_type: str | None
+    project_id: str | None
+    drive_file_id: str | None
+    s3_bucket: str | None
+    s3_object_key: str | None
+    mime_type: str | None
+    size_bytes: int | None
+    upload_status: str | None
+    deleted_at: datetime | None
+    expires_at: datetime | None
+
+
+@dataclass(frozen=True)
+class ProcessingBoundarySnapshot:
+    job: JobBoundarySnapshot
+    project: ProjectBoundarySnapshot
+    relations: tuple[SourceRelationSnapshot, ...]
+
+
+@dataclass(frozen=True)
+class RevalidationResult:
+    blocking_reasons: tuple[str, ...]
+    changed_source_ids: frozenset[str]
+    source_set_changed: bool = False
+
+
 def verify_processing_job_sources(
     db: Session,
     *,
@@ -48,6 +100,7 @@ def verify_processing_job_sources(
     storage_factory: Callable = get_source_storage,
     drive_token_resolver: Callable = refresh_user_google_drive_access_token,
     drive_metadata_fetcher: Callable = fetch_drive_file_metadata,
+    now_provider: Callable[[], datetime] | None = None,
 ) -> ProcessingSourceAvailabilitySummary:
     job = _load_job(db, job_id)
     initial_reasons = _job_boundary_reasons(job, lease_owner_id, lease_generation, now)
@@ -99,11 +152,15 @@ def verify_processing_job_sources(
                 reasons.append("unsupported_source_type")
         source_summaries.append(_source_summary(snap, effective_mime, effective_size, reasons))
 
-    recheck_reasons, source_state_changed = _revalidate(db, boundary_snapshot, lease_owner_id, lease_generation, now)
-    if source_state_changed:
-        source_summaries = [_with_extra_reason(s, "source_state_changed") for s in source_summaries]
-    all_reasons = _dedupe([r for s in source_summaries for r in s.blocking_reasons] + recheck_reasons)
-    return _summary(job.id, job.project_id, now, lease_generation, all_reasons, source_summaries)
+    recheck_now = now_provider() if now_provider else now
+    recheck = _revalidate(db, boundary_snapshot, lease_owner_id, lease_generation, recheck_now)
+    if recheck.changed_source_ids:
+        source_summaries = [
+            _with_extra_reason(s, "source_state_changed") if s.source_id in recheck.changed_source_ids else s
+            for s in source_summaries
+        ]
+    all_reasons = _dedupe([r for s in source_summaries for r in s.blocking_reasons] + list(recheck.blocking_reasons))
+    return _summary(job.id, job.project_id, recheck_now, lease_generation, all_reasons, source_summaries)
 
 
 def _load_job(db: Session, job_id: str):
@@ -202,111 +259,162 @@ def _verify_drive(snap, token, settings, fetcher):
     return mime, meta.size_bytes, reasons
 
 
-def _boundary_snapshot(job, project, job_sources):
-    return {
-        "job": {
-            "id": job.id,
-            "owner_user_id": job.owner_user_id,
-            "project_id": job.project_id,
-            "status": _enum_value(job.status),
-            "lease_owner_id": job.lease_owner_id,
-            "lease_generation": job.lease_generation,
-            "lease_expires_at": job.lease_expires_at,
-            "cancel_requested_at": job.cancel_requested_at,
-        },
-        "project": {
-            "id": project.id if project else None,
-            "owner_user_id": project.owner_user_id if project else None,
-            "archived_at": project.archived_at if project else None,
-        },
-        "relations": [_relation_source_identity(js) for js in sorted(job_sources, key=lambda item: item.position)],
-    }
+def _boundary_snapshot(job, project, job_sources) -> ProcessingBoundarySnapshot:
+    return ProcessingBoundarySnapshot(
+        job=JobBoundarySnapshot(
+            id=job.id,
+            owner_user_id=job.owner_user_id,
+            project_id=job.project_id,
+            status=_enum_value(job.status),
+            lease_owner_id=job.lease_owner_id,
+            lease_generation=job.lease_generation,
+            lease_expires_at=job.lease_expires_at,
+            cancel_requested_at=job.cancel_requested_at,
+        ),
+        project=ProjectBoundarySnapshot(
+            id=project.id if project else None,
+            owner_user_id=project.owner_user_id if project else None,
+            archived_at=project.archived_at if project else None,
+        ),
+        relations=tuple(_relation_source_identity(js) for js in sorted(job_sources, key=lambda item: item.position)),
+    )
 
 
-def _relation_source_identity(job_source):
+def _relation_source_identity(job_source) -> SourceRelationSnapshot:
     src = job_source.source
-    return {
-        "job_source_id": job_source.id,
-        "source_id": job_source.source_id,
-        "position": job_source.position,
-        "job_source_status": _enum_value(job_source.status),
-        "source_type": _enum_value(src.source_type) if src else None,
-        "project_id": src.project_id if src else None,
-        "drive_file_id": src.drive_file_id if src else None,
-        "s3_bucket": src.s3_bucket if src else None,
-        "s3_object_key": src.s3_object_key if src else None,
-        "mime_type": normalize_source_mime_type(src.mime_type) if src else None,
-        "size_bytes": src.size_bytes if src else None,
-        "upload_status": _enum_value(src.upload_status) if src else None,
-        "deleted_at": src.deleted_at if src else None,
-        "expires_at": src.expires_at if src else None,
-    }
+    return SourceRelationSnapshot(
+        job_source_id=job_source.id,
+        job_id=job_source.job_id,
+        source_id=job_source.source_id,
+        position=job_source.position,
+        job_source_status=_enum_value(job_source.status),
+        source_type=_enum_value(src.source_type) if src else None,
+        project_id=src.project_id if src else None,
+        drive_file_id=src.drive_file_id if src else None,
+        s3_bucket=src.s3_bucket if src else None,
+        s3_object_key=src.s3_object_key if src else None,
+        mime_type=normalize_source_mime_type(src.mime_type) if src else None,
+        size_bytes=src.size_bytes if src else None,
+        upload_status=_enum_value(src.upload_status) if src else None,
+        deleted_at=src.deleted_at if src else None,
+        expires_at=src.expires_at if src else None,
+    )
 
 
-def _revalidate(db, snapshot, owner, generation, now):
+def _revalidate(db, snapshot: ProcessingBoundarySnapshot, owner, generation, now) -> RevalidationResult:
     db.expire_all()
-    job = _load_job(db, snapshot["job"]["id"])
+    job = _load_job(db, snapshot.job.id)
     lifecycle_reasons = _job_boundary_reasons(job, owner, generation, now)
     if job is None:
-        return lifecycle_reasons, True
+        return RevalidationResult(tuple(_dedupe(lifecycle_reasons)), frozenset())
 
     project = db.get(Project, job.project_id)
-    if project is None or project.owner_user_id != job.owner_user_id:
+    if project is None or project.owner_user_id != job.owner_user_id or _project_identity_changed(project, snapshot):
         lifecycle_reasons.append("project_missing")
     elif project.archived_at is not None:
         lifecycle_reasons.append("project_archived")
 
-    current_boundary = _current_job_project_snapshot(job, project)
-    expected_boundary = snapshot["job"] | {
-        "project_owner_user_id": snapshot["project"]["owner_user_id"],
-        "project_archived_at": snapshot["project"]["archived_at"],
-    }
-    if current_boundary != expected_boundary:
-        if _job_or_project_identity_changed(job, project, snapshot):
-            lifecycle_reasons.append("project_missing")
-        if job.lease_expires_at != snapshot["job"]["lease_expires_at"] and "lease_not_active" not in lifecycle_reasons:
-            lifecycle_reasons.append("lease_not_active")
+    if _job_identity_changed(job, snapshot):
+        lifecycle_reasons.append("project_missing")
+    if job.lease_expires_at != snapshot.job.lease_expires_at and "lease_not_active" not in lifecycle_reasons:
+        lifecycle_reasons.append("lease_not_active")
 
-    current_relations = [_relation_source_identity(js) for js in sorted(job.sources, key=lambda item: item.position)]
-    source_state_changed = current_relations != snapshot["relations"]
-    if not source_state_changed:
-        for relation in current_relations:
-            if relation["upload_status"] != SourceUploadStatus.uploaded.value:
-                source_state_changed = True
-                break
-            if relation["deleted_at"] is not None:
-                source_state_changed = True
-                break
-            if relation["expires_at"] is not None and relation["expires_at"] <= now:
-                source_state_changed = True
-                break
-    if source_state_changed and "source_state_changed" not in lifecycle_reasons:
-        return _dedupe(lifecycle_reasons + ["source_state_changed"]), True
-    return _dedupe(lifecycle_reasons), False
-
-
-def _current_job_project_snapshot(job, project):
-    return {
-        "id": job.id,
-        "owner_user_id": job.owner_user_id,
-        "project_id": job.project_id,
-        "status": _enum_value(job.status),
-        "lease_owner_id": job.lease_owner_id,
-        "lease_generation": job.lease_generation,
-        "lease_expires_at": job.lease_expires_at,
-        "cancel_requested_at": job.cancel_requested_at,
-        "project_owner_user_id": project.owner_user_id if project else None,
-        "project_archived_at": project.archived_at if project else None,
-    }
-
-
-def _job_or_project_identity_changed(job, project, snapshot):
-    return (
-        job.owner_user_id != snapshot["job"]["owner_user_id"]
-        or job.project_id != snapshot["job"]["project_id"]
-        or project is None
-        or project.owner_user_id != snapshot["project"]["owner_user_id"]
+    current_relations = tuple(_relation_source_identity(js) for js in sorted(job.sources, key=lambda item: item.position))
+    relation_recheck = _relation_revalidation(snapshot.relations, current_relations, now)
+    return RevalidationResult(
+        tuple(_dedupe(lifecycle_reasons + relation_recheck["top_level_reasons"])),
+        frozenset(relation_recheck["changed_source_ids"]),
+        relation_recheck["source_set_changed"],
     )
+
+
+def _relation_revalidation(original: tuple[SourceRelationSnapshot, ...], current: tuple[SourceRelationSnapshot, ...], now: datetime):
+    changed_source_ids: set[str] = set()
+    top_level_reasons: list[str] = []
+    original_by_relation_id = {item.job_source_id: item for item in original}
+    current_by_relation_id = {item.job_source_id: item for item in current}
+    source_set_changed = False
+
+    if len(original) != len(current):
+        return {
+            "top_level_reasons": ["source_set_changed"],
+            "changed_source_ids": changed_source_ids,
+            "source_set_changed": True,
+        }
+    if len(original_by_relation_id) != len(original) or len(current_by_relation_id) != len(current):
+        source_set_changed = True
+    if set(original_by_relation_id) != set(current_by_relation_id):
+        removed = set(original_by_relation_id) - set(current_by_relation_id)
+        added = set(current_by_relation_id) - set(original_by_relation_id)
+        source_set_changed = True
+        if removed and not added:
+            top_level_reasons.append("source_set_changed")
+        elif added and not removed:
+            top_level_reasons.append("source_set_changed")
+        else:
+            for relation_id in removed:
+                original_relation = original_by_relation_id[relation_id]
+                replacement = _matching_relation_replacement(original_relation, [current_by_relation_id[item] for item in added])
+                if replacement is None:
+                    top_level_reasons.append("source_set_changed")
+                else:
+                    changed_source_ids.add(original_relation.source_id)
+    for original_relation in original:
+        current_relation = current_by_relation_id.get(original_relation.job_source_id)
+        if current_relation is None:
+            continue
+        if current_relation != original_relation:
+            changed_source_ids.add(original_relation.source_id)
+        if current_relation.upload_status != SourceUploadStatus.uploaded.value:
+            changed_source_ids.add(original_relation.source_id)
+        if current_relation.deleted_at is not None:
+            changed_source_ids.add(original_relation.source_id)
+        if current_relation.expires_at is not None and current_relation.expires_at <= now:
+            changed_source_ids.add(original_relation.source_id)
+
+    if _ordered_relation_keys(original) != _ordered_relation_keys(current):
+        for original_relation, current_relation in zip(original, current, strict=False):
+            if original_relation.job_source_id == current_relation.job_source_id:
+                changed_source_ids.add(original_relation.source_id)
+            elif (
+                original_relation.source_id == current_relation.source_id
+                and original_relation.position == current_relation.position
+            ):
+                changed_source_ids.add(original_relation.source_id)
+            else:
+                source_set_changed = True
+                top_level_reasons.append("source_set_changed")
+
+    return {
+        "top_level_reasons": _dedupe(top_level_reasons),
+        "changed_source_ids": changed_source_ids,
+        "source_set_changed": source_set_changed,
+    }
+
+
+def _matching_relation_replacement(original_relation: SourceRelationSnapshot, candidates: list[SourceRelationSnapshot]) -> SourceRelationSnapshot | None:
+    matches = [
+        item
+        for item in candidates
+        if item.source_id == original_relation.source_id and item.position == original_relation.position
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
+def _ordered_relation_keys(relations: tuple[SourceRelationSnapshot, ...]) -> tuple[tuple[str, str, int], ...]:
+    return tuple((item.job_source_id, item.source_id, item.position) for item in relations)
+
+
+def _project_identity_changed(project, snapshot: ProcessingBoundarySnapshot) -> bool:
+    return (
+        project is None
+        or project.id != snapshot.project.id
+        or project.owner_user_id != snapshot.project.owner_user_id
+    )
+
+
+def _job_identity_changed(job, snapshot: ProcessingBoundarySnapshot) -> bool:
+    return job.owner_user_id != snapshot.job.owner_user_id or job.project_id != snapshot.job.project_id
 
 
 def _enum_value(value):

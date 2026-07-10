@@ -38,7 +38,6 @@ class GoogleDriveMetadataError(RuntimeError):
         super().__init__(reason.value)
 
 
-
 @dataclass(frozen=True)
 class GoogleDriveFolderChildren:
     folder_id: str
@@ -79,7 +78,7 @@ def fetch_drive_file_metadata(access_token: str, drive_file_id: str) -> GoogleDr
         raise GoogleDriveMetadataError(GoogleDriveMetadataReason.unavailable) from exc
     if not isinstance(payload, dict):
         raise GoogleDriveMetadataError(GoogleDriveMetadataReason.unavailable)
-    return normalize_drive_metadata(payload)
+    return normalize_drive_file_metadata(payload)
 
 
 def list_drive_folder_children(
@@ -132,3 +131,21 @@ def normalize_drive_metadata(payload: dict) -> GoogleDriveMetadata:
         modified_time=payload.get("modifiedTime") if isinstance(payload.get("modifiedTime"), str) else None,
         is_folder=mime_type == GOOGLE_FOLDER_MIME_TYPE,
     )
+
+
+def normalize_drive_file_metadata(payload: dict) -> GoogleDriveMetadata:
+    file_id = payload.get("id")
+    mime_type = payload.get("mimeType")
+    if not isinstance(file_id, str) or not file_id.strip():
+        raise GoogleDriveMetadataError(GoogleDriveMetadataReason.unavailable)
+    if not isinstance(mime_type, str) or not mime_type.strip():
+        raise GoogleDriveMetadataError(GoogleDriveMetadataReason.unavailable)
+    raw_size = payload.get("size")
+    if raw_size is not None:
+        try:
+            size_bytes = int(raw_size)
+        except (TypeError, ValueError) as exc:
+            raise GoogleDriveMetadataError(GoogleDriveMetadataReason.unavailable) from exc
+        if size_bytes < 0:
+            raise GoogleDriveMetadataError(GoogleDriveMetadataReason.unavailable)
+    return normalize_drive_metadata(payload)
