@@ -159,3 +159,63 @@ def _parse_strict_drive_size(raw_size) -> int:
             raise GoogleDriveMetadataError(GoogleDriveMetadataReason.unavailable)
         return int(raw_size)
     raise GoogleDriveMetadataError(GoogleDriveMetadataReason.unavailable)
+
+class GoogleDriveContentReason(str, Enum):
+    not_found = "not_found"
+    unavailable = "unavailable"
+
+
+class GoogleDriveContentError(RuntimeError):
+    def __init__(self, reason: GoogleDriveContentReason):
+        self.reason = reason
+        super().__init__(reason.value)
+
+
+@dataclass
+class GoogleDriveContentStream:
+    response: object
+    content_type: str | None
+    content_length: int | None
+
+    def iter_chunks(self, chunk_size: int):
+        while True:
+            chunk = self.response.read(chunk_size)
+            if not chunk:
+                break
+            yield chunk
+
+    def close(self) -> None:
+        close = getattr(self.response, "close", None)
+        if close:
+            close()
+
+
+def fetch_drive_file_content(access_token: str, drive_file_id: str) -> GoogleDriveContentStream:
+    params = urlencode({"alt": "media", "supportsAllDrives": "true"})
+    req = Request(
+        f"{DRIVE_FILES_URL}/{drive_file_id}?{params}",
+        headers={"Authorization": f"Bearer {access_token}", "Accept": "*/*"},
+    )
+    try:
+        resp = urlopen(req, timeout=30)  # nosec - Google Drive endpoint; tests monkeypatch helper.
+    except HTTPError as exc:
+        if exc.code == 404:
+            raise GoogleDriveContentError(GoogleDriveContentReason.not_found) from exc
+        raise GoogleDriveContentError(GoogleDriveContentReason.unavailable) from exc
+    except (URLError, OSError) as exc:
+        raise GoogleDriveContentError(GoogleDriveContentReason.unavailable) from exc
+    return GoogleDriveContentStream(
+        resp,
+        resp.headers.get("Content-Type") if getattr(resp, "headers", None) is not None else None,
+        _content_length(resp.headers.get("Content-Length") if getattr(resp, "headers", None) is not None else None),
+    )
+
+
+def _content_length(value) -> int | None:
+    if value is None:
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed >= 0 else None
