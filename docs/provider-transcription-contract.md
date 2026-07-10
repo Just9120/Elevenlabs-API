@@ -17,6 +17,10 @@ Optional manual project segmentation runs before batch provider transcription an
 - Keyterms are optional.
 - Speaker separation is optional.
 
+## Studio ElevenLabs internal subset
+
+The Studio server-side boundary currently supports only a conservative internal single-source ElevenLabs subset: one already-materialized source for an already-leased `processing` job, one synchronous `scribe_v2` request, `no_verbatim=false`, `temperature=0`, `tag_audio_events=false`, `diarize=false`, and `use_multi_channel=false`. It omits `language_code` when the already-validated job language is absent so provider auto-detection remains available. It does not implement keyterms, diarization, multi-channel processing, webhooks, async polling, `source_url`, `cloud_storage_url`, OpenAI, output persistence, Google Docs creation, job completion, or manifest mutation. The existing batch defaults above remain unchanged.
+
 ## OpenAI batch
 
 - Standard model: `gpt-4o-transcribe`.
