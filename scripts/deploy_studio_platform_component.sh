@@ -14,11 +14,13 @@ fail() { printf '[studio-platform-component-deploy] ERROR: %s\n' "$*" >&2; exit 
 case "$1" in
   web)
     SERVICE="studio-web"
+    IMAGE_REF="elevenlabs-studio-web:local"
     HEALTH_URL="http://127.0.0.1:8181/healthz"
     SUCCESS_MARKER="STUDIO_PLATFORM_WEB_DEPLOY_OK"
     ;;
   api)
     SERVICE="studio-api"
+    IMAGE_REF="elevenlabs-studio-api:local"
     HEALTH_URL="http://127.0.0.1:8182/api/healthz"
     SUCCESS_MARKER="STUDIO_PLATFORM_API_DEPLOY_OK"
     ;;
@@ -76,6 +78,30 @@ verify_database_revision_matches_new_image() {
   [[ "$current_revision" == "$head_revision" ]] || fail "manual migration required: database revision ($current_revision) does not match API image Alembic head ($head_revision)"
 }
 
+inspect_image_id() {
+  local image_ref="$1" image_id
+  if ! image_id="$(docker image inspect --format '{{.Id}}' "$image_ref")"; then
+    fail "could not inspect built image identity for $SERVICE"
+  fi
+  [[ -n "$image_id" ]] || fail "built image identity for $SERVICE is empty"
+  printf '%s\n' "$image_id"
+}
+
+verify_running_image_identity() {
+  local expected_image_id="$1" container_id running_image_id
+
+  log "verifying running $SERVICE image identity"
+  container_id="$(compose ps -q "$SERVICE")"
+  [[ -n "$container_id" ]] || fail "$SERVICE container is not running after forced recreation"
+
+  if ! running_image_id="$(docker inspect --format '{{.Image}}' "$container_id")"; then
+    fail "could not inspect running image identity for $SERVICE"
+  fi
+  [[ -n "$running_image_id" ]] || fail "running image identity for $SERVICE is empty"
+
+  [[ "$running_image_id" == "$expected_image_id" ]] || fail "running $SERVICE image identity ($running_image_id) does not match built image identity ($expected_image_id)"
+}
+
 poll_health() {
   log "checking localhost health: $HEALTH_URL"
   for _ in $(seq 1 30); do
@@ -113,10 +139,14 @@ git merge --ff-only "origin/$EXPECTED_BRANCH"
 log "building only $SERVICE"
 compose build "$SERVICE"
 
+log "capturing built image identity for $SERVICE"
+BUILT_IMAGE_ID="$(inspect_image_id "$IMAGE_REF")"
+
 if [[ "$SERVICE" == "studio-api" ]]; then
   verify_database_revision_matches_new_image
 fi
 
-log "starting/updating only $SERVICE without dependencies"
-compose up -d --no-deps "$SERVICE"
+log "force-recreating only $SERVICE without dependencies"
+compose up -d --no-deps --force-recreate "$SERVICE"
+verify_running_image_identity "$BUILT_IMAGE_ID"
 poll_health
