@@ -1,0 +1,229 @@
+from __future__ import annotations
+
+import sys
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from pathlib import Path
+from urllib.parse import parse_qs, urlparse
+
+import httpx
+import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "apps/studio-api"))
+
+
+@dataclass(frozen=True)
+class Settings:
+    source_max_upload_bytes: int = 1000
+    source_s3_bucket: str = "bucket"
+
+
+@pytest.fixture(autouse=True)
+def isolated_studio_database_url(monkeypatch):
+    monkeypatch.setenv("STUDIO_DATABASE_URL", "sqlite+pysqlite:///:memory:")
+
+
+@pytest.fixture()
+def db():
+    from studio_api.db import Base
+    import studio_api.models  # noqa
+    engine = create_engine("sqlite+pysqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
+    session = SessionLocal()
+    try:
+        yield session
+    finally:
+        session.close(); Base.metadata.drop_all(engine); engine.dispose()
+
+
+@pytest.fixture()
+def models():
+    from studio_api import models as m
+    return m
+
+
+def make_job(db, m, *, title="Job Title", language="en"):
+    now = datetime(2026, 1, 2, 3, 4, 5)
+    user = m.User(email=f"{id(db)}@example.com", role=m.UserRole.user, status=m.UserStatus.active)
+    db.add(user); db.flush()
+    project = m.Project(owner_user_id=user.id, title="p", output_drive_folder_id="folder-private")
+    db.add(project); db.flush()
+    src = m.Source(project_id=project.id, source_type=m.SourceType.local_upload, original_filename="тайна meeting.mp3", mime_type="audio/mpeg", size_bytes=5, s3_bucket="bucket", s3_object_key="private/object", upload_status=m.SourceUploadStatus.uploaded, uploaded_at=now, expires_at=now + timedelta(hours=1))
+    db.add(src); db.flush()
+    job = m.TranscriptionJob(project_id=project.id, owner_user_id=user.id, status=m.JobStatus.processing, provider="elevenlabs", title=title, language=language, lease_owner_id="worker", lease_generation=7, claimed_at=now, lease_expires_at=now + timedelta(minutes=5), started_at=now)
+    db.add(job); db.flush()
+    rel = m.TranscriptionJobSource(job_id=job.id, source_id=src.id, position=0)
+    db.add(rel); db.commit()
+    return user, project, src, job, rel, now
+
+
+class Transcript:
+    text_length = 12
+    detected_language_code = "ru"
+    def __init__(self, text="Привет\nмир"):
+        self._text = text; self.closed = False
+    @property
+    def text(self):
+        if self.closed:
+            from studio_api.elevenlabs_transcription import ElevenLabsTranscriptionError, ElevenLabsTranscriptionReason
+            raise ElevenLabsTranscriptionError(ElevenLabsTranscriptionReason.context_closed)
+        return self._text
+
+
+class FakeTransport:
+    def __init__(self, mutate=None):
+        self.calls = []; self.delete_calls = 0; self.mutate = mutate
+    def create_transcript_document(self, **kwargs):
+        self.calls.append(kwargs)
+        if self.mutate:
+            self.mutate()
+        from studio_api.google_docs_output import normalize_google_docs_create_response
+        return normalize_google_docs_create_response({"id":"doc-private","name":kwargs["title"],"mimeType":"application/vnd.google-apps.document","webViewLink":"https://docs.example/private","parents":[kwargs["folder_id"]]}, expected_folder_id=kwargs["folder_id"])
+
+
+def good_meta(token, folder):
+    from studio_api.google_drive import GOOGLE_FOLDER_MIME_TYPE
+    from studio_api.job_output_destination import DriveFolderAuthorizationMetadata
+    return DriveFolderAuthorizationMetadata(folder, GOOGLE_FOLDER_MIME_TYPE, False, True)
+
+
+def test_transport_multipart_and_redaction():
+    from studio_api.google_docs_output import GoogleDocsTranscriptTransport
+    calls = []
+    def post(url, **kwargs):
+        calls.append((url, kwargs)); return httpx.Response(200, json={"id":"doc-private","name":"Secret Title","mimeType":"application/vnd.google-apps.document","webViewLink":"https://docs.example/private","parents":["folder-private"]})
+    result = GoogleDocsTranscriptTransport(post=post).create_transcript_document(access_token="token-secret", folder_id="folder-private", title="Secret Title", document_text="Привет\nbody")
+    url, kwargs = calls[0]
+    parsed = urlparse(url)
+    assert parsed.scheme == "https" and parsed.netloc == "www.googleapis.com" and parsed.path == "/upload/drive/v3/files"
+    assert parse_qs(parsed.query) == {"uploadType":["multipart"], "supportsAllDrives":["true"], "fields":["id,name,mimeType,webViewLink,parents"]}
+    assert kwargs["headers"]["Authorization"] == "Bearer token-secret"
+    assert "multipart/related" in kwargs["headers"]["Content-Type"]
+    body = kwargs["content"]
+    assert body.index(b"application/json") < body.index(b"text/plain; charset=UTF-8")
+    assert b'"name":"Secret Title"' in body and b'"mimeType":"application/vnd.google-apps.document"' in body and b'"parents":["folder-private"]' in body
+    assert "Привет\nbody".encode() in body
+    assert result.document_id == "doc-private" and result.web_view_link == "https://docs.example/private"
+    assert all(secret not in repr(result) for secret in ["doc-private", "Secret Title", "folder-private", "https://docs.example/private"])
+
+
+@pytest.mark.parametrize("status,reason", [(401,"authentication_rejected"),(403,"authentication_rejected"),(400,"request_rejected"),(404,"request_rejected"),(409,"request_rejected"),(422,"request_rejected"),(429,"rate_limited"),(500,"unavailable")])
+def test_transport_error_mapping_redacts(status, reason):
+    from studio_api.google_docs_output import GoogleDocsOutputError, GoogleDocsTranscriptTransport
+    def post(*a, **k): return httpx.Response(status, content=b"raw secret response doc-private folder-private Secret Title body")
+    with pytest.raises(GoogleDocsOutputError) as exc:
+        GoogleDocsTranscriptTransport(post=post).create_transcript_document(access_token="token-secret", folder_id="folder-private", title="Secret Title", document_text="body")
+    assert str(exc.value) == reason
+    assert all(s not in str(exc.value) and s not in repr(exc.value) for s in ["token-secret","folder-private","doc-private","Secret Title","body","raw secret"])
+
+
+@pytest.mark.parametrize("exc_obj,reason", [(httpx.TimeoutException("token-secret"),"timeout"),(httpx.ConnectError("folder-private"),"unavailable")])
+def test_transport_network_mapping_redacts(exc_obj, reason):
+    from studio_api.google_docs_output import GoogleDocsOutputError, GoogleDocsTranscriptTransport
+    def post(*a, **k): raise exc_obj
+    with pytest.raises(GoogleDocsOutputError, match=reason):
+        GoogleDocsTranscriptTransport(post=post).create_transcript_document(access_token="token-secret", folder_id="folder-private", title="Secret Title", document_text="body")
+
+
+def test_transport_malformed_response_rejected():
+    from studio_api.google_docs_output import GoogleDocsOutputError, GoogleDocsTranscriptTransport
+    def post(*a, **k): return httpx.Response(200, json={"id":"", "mimeType":"text/plain", "parents":[]})
+    with pytest.raises(GoogleDocsOutputError, match="malformed_response"):
+        GoogleDocsTranscriptTransport(post=post).create_transcript_document(access_token="token", folder_id="folder", title="title", document_text="body")
+
+
+def test_formatting_contract_title_language_unicode_empty_body():
+    from studio_api.job_google_docs_output import choose_transcript_document_title, format_transcript_doc_v1_2
+    created = datetime(2026,1,2,3,4,5)
+    doc = format_transcript_doc_v1_2(title=" My Job ", transcript_text="Привет\nмир", job_language=" ", detected_language_code="ru", created_at=created)
+    assert doc.body == "My Job\n\nTranscript metadata\nProvider: ElevenLabs\nModel: scribe_v2\nLanguage: ru\nSpeakers: no\nCreated at: 2026-01-02T03:04:05Z\n\nTranscript\n\nПривет\nмир"
+    assert "Source file:" not in doc.body and "Source mode:" not in doc.body
+    assert choose_transcript_document_title(job_title=" ", original_filename="folder/audio.name.mp3") == "audio.name"
+    empty = format_transcript_doc_v1_2(title="\x00", transcript_text="", job_language=None, detected_language_code=None, created_at=created)
+    assert empty.title == "Transcript" and empty.body.endswith("Transcript\n\n") and "Language: unknown" in empty.body
+
+
+def test_success_job_boundary_one_token_one_create_lifetime_and_no_mutation(db, models):
+    from studio_api.job_google_docs_output import create_processing_job_google_doc_from_transcript
+    user, project, src, job, rel, now = make_job(db, models)
+    tokens = []; metadata_calls = []; transport = FakeTransport()
+    before = (job.status, job.finished_at, job.error_code, job.error_message, rel.status, src.deleted_at, project.output_drive_folder_id)
+    with create_processing_job_google_doc_from_transcript(db, job_id=job.id, job_source_id=rel.id, lease_owner_id="worker", lease_generation=7, transcript=Transcript(), settings=Settings(), now=now, clock=lambda: now, token_resolver=lambda *a, **k: tokens.append(1) or "token-secret", metadata_fetcher=lambda token, folder: metadata_calls.append((token, folder)) or good_meta(token, folder), google_docs_transport=transport) as artifact:
+        retained = artifact
+        assert artifact.document_id == "doc-private" and artifact.web_view_link == "https://docs.example/private"
+        assert "doc-private" not in repr(artifact) and "https://docs.example/private" not in repr(artifact) and "Job Title" not in repr(artifact)
+    assert tokens == [1] and len(metadata_calls) == 1 and len(transport.calls) == 1
+    assert metadata_calls[0][0] == transport.calls[0]["access_token"] == "token-secret"
+    assert (job.status, job.finished_at, job.error_code, job.error_message, rel.status, src.deleted_at, project.output_drive_folder_id) == before
+    from studio_api.google_docs_output import GoogleDocsOutputError
+    with pytest.raises(GoogleDocsOutputError, match="context_closed"):
+        retained.document_id
+
+
+@pytest.mark.parametrize("mutate,reason", [
+    (lambda m,p,s,j,r,n: setattr(j,"status",m.JobStatus.failed), "job_not_processing"),
+    (lambda m,p,s,j,r,n: setattr(j,"lease_owner_id","other"), "lease_not_owned"),
+    (lambda m,p,s,j,r,n: setattr(j,"lease_generation",8), "lease_not_owned"),
+    (lambda m,p,s,j,r,n: setattr(j,"lease_expires_at",n-timedelta(seconds=1)), "lease_not_active"),
+    (lambda m,p,s,j,r,n: setattr(j,"cancel_requested_at",n), "cancellation_requested"),
+    (lambda m,p,s,j,r,n: setattr(p,"archived_at",n), "project_unavailable"),
+    (lambda m,p,s,j,r,n: setattr(p,"owner_user_id","other"), "project_unavailable"),
+    (lambda m,p,s,j,r,n: setattr(p,"output_drive_folder_id","changed"), "output_identity_changed_before_output_creation"),
+    (lambda m,p,s,j,r,n: setattr(r,"status",m.JobSourceStatus.skipped), "job_source_not_processable"),
+    (lambda m,p,s,j,r,n: setattr(s,"project_id","other"), "job_source_not_processable"),
+    (lambda m,p,s,j,r,n: setattr(s,"upload_status",m.SourceUploadStatus.pending), "job_source_not_processable"),
+    (lambda m,p,s,j,r,n: setattr(s,"deleted_at",n), "job_source_not_processable"),
+    (lambda m,p,s,j,r,n: setattr(s,"expires_at",n-timedelta(seconds=1)), "job_source_not_processable"),
+])
+def test_fail_closed_mutations_before_create(db, models, mutate, reason):
+    from studio_api.job_google_docs_output import JobGoogleDocsOutputError, create_processing_job_google_doc_from_transcript
+    user, project, src, job, rel, now = make_job(db, models)
+    transport = FakeTransport()
+    def metadata(token, folder):
+        mutate(models, project, src, job, rel, now); db.flush(); return good_meta(token, folder)
+    with pytest.raises(JobGoogleDocsOutputError, match=reason):
+        with create_processing_job_google_doc_from_transcript(db, job_id=job.id, job_source_id=rel.id, lease_owner_id="worker", lease_generation=7, transcript=Transcript(), settings=Settings(), now=now, clock=lambda: now, token_resolver=lambda *a, **k: "token-secret", metadata_fetcher=metadata, google_docs_transport=transport): pass
+    assert transport.calls == []
+
+
+def test_transcript_closed_folder_failure_and_token_unavailable_block_create(db, models):
+    from studio_api.google_connection_access import GoogleConnectionAccessError, GoogleConnectionAccessReason
+    from studio_api.job_google_docs_output import JobGoogleDocsOutputError, create_processing_job_google_doc_from_transcript
+    user, project, src, job, rel, now = make_job(db, models)
+    t = Transcript(); t.closed = True
+    transport = FakeTransport()
+    with pytest.raises(JobGoogleDocsOutputError, match="transcript_context_closed"):
+        with create_processing_job_google_doc_from_transcript(db, job_id=job.id, job_source_id=rel.id, lease_owner_id="worker", lease_generation=7, transcript=t, settings=Settings(), now=now, clock=lambda: now, token_resolver=lambda *a, **k: "token", metadata_fetcher=good_meta, google_docs_transport=transport): pass
+    with pytest.raises(JobGoogleDocsOutputError, match="google_connection_unavailable"):
+        with create_processing_job_google_doc_from_transcript(db, job_id=job.id, job_source_id=rel.id, lease_owner_id="worker", lease_generation=7, transcript=Transcript(), settings=Settings(), now=now, clock=lambda: now, token_resolver=lambda *a, **k: (_ for _ in ()).throw(GoogleConnectionAccessError(GoogleConnectionAccessReason.missing)), metadata_fetcher=good_meta, google_docs_transport=transport): pass
+    assert transport.calls == []
+
+
+def test_post_create_mutation_safe_no_retry_no_success(db, models):
+    from studio_api.job_google_docs_output import JobGoogleDocsOutputError, create_processing_job_google_doc_from_transcript
+    user, project, src, job, rel, now = make_job(db, models)
+    transport = FakeTransport(mutate=lambda: (setattr(project, "output_drive_folder_id", "changed"), db.flush()))
+    with pytest.raises(JobGoogleDocsOutputError) as exc:
+        with create_processing_job_google_doc_from_transcript(db, job_id=job.id, job_source_id=rel.id, lease_owner_id="worker", lease_generation=7, transcript=Transcript(), settings=Settings(), now=now, clock=lambda: now, token_resolver=lambda *a, **k: "token-secret", metadata_fetcher=good_meta, google_docs_transport=transport): pass
+    assert str(exc.value) == "lifecycle_changed_after_output_creation"
+    assert len(transport.calls) == 1 and transport.delete_calls == 0
+    assert all(s not in str(exc.value) and s not in repr(exc.value) for s in ["doc-private","https://docs.example/private","Job Title","folder-private","token-secret","Привет"])
+
+
+def test_caller_exception_propagates_and_artifact_revoked(db, models):
+    from studio_api.job_google_docs_output import create_processing_job_google_doc_from_transcript
+    user, project, src, job, rel, now = make_job(db, models)
+    sentinel = RuntimeError("caller")
+    retained = None
+    with pytest.raises(RuntimeError) as exc:
+        with create_processing_job_google_doc_from_transcript(db, job_id=job.id, job_source_id=rel.id, lease_owner_id="worker", lease_generation=7, transcript=Transcript(), settings=Settings(), now=now, clock=lambda: now, token_resolver=lambda *a, **k: "token", metadata_fetcher=good_meta, google_docs_transport=FakeTransport()) as artifact:
+            retained = artifact; raise sentinel
+    assert exc.value is sentinel
+    from studio_api.google_docs_output import GoogleDocsOutputError
+    with pytest.raises(GoogleDocsOutputError, match="context_closed"):
+        retained.web_view_link
