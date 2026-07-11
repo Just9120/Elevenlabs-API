@@ -83,6 +83,10 @@ def test_malformed_port_fails_closed():
     assert normalize_google_web_view_url("https://docs.google.com:bad/doc") is None
 
 
+def test_empty_port_delimiter_fails_closed():
+    assert normalize_google_web_view_url("https://docs.google.com:/doc") is None
+
+
 def test_unsafe_secret_bearing_url_is_never_returned():
     secret_url = "https://user:secret-token@docs.google.com/document/d/abc"
     assert normalize_google_web_view_url(secret_url) is None

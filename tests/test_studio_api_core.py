@@ -1530,12 +1530,14 @@ def create_job_with_sources(email="job-output@example.com", names=("one.mp4",)):
     return c, headers, pid, r.json()["id"], source_ids
 
 
-def add_output_row(job_id, source_id, *, url="https://docs.google.com/document/d/doc/edit", doc_id=None, persisted_at=None):
+def add_output_row(job_id, source_id, *, url="https://docs.google.com/document/d/doc/edit", doc_id=None, persisted_at=None, output_id=None):
     db = SessionLocal()
     try:
         rel = db.query(TranscriptionJobSource).filter_by(job_id=job_id, source_id=source_id).one()
         now = persisted_at or utcnow()
+        values = {"id": output_id} if output_id is not None else {}
         output = TranscriptionJobOutput(
+            **values,
             job_id=job_id,
             job_source_id=rel.id,
             document_id=doc_id or f"doc-{job_id}-{source_id}",
@@ -1612,14 +1614,80 @@ def test_job_output_partial_outputs_for_non_queued_statuses(status_value):
 
 
 def test_job_output_deterministic_ordering_and_hidden_output_id():
-    c, _headers, _pid, jid, source_ids = create_job_with_sources("job-output-order@example.com", ("pos0.mp4", "pos1.mp4"))
-    t = datetime(2026, 7, 11, 10, 0, tzinfo=timezone.utc)
-    id_b = add_output_row(jid, source_ids[1], doc_id="doc-output-order-b", persisted_at=t)
-    id_a = add_output_row(jid, source_ids[0], doc_id="doc-output-order-a", persisted_at=t + timedelta(seconds=1))
-    body = c.get(f"/api/jobs/{jid}/outputs").json()
-    assert [o["source_id"] for o in body["outputs"]] == [source_ids[0], source_ids[1]]
+    c, _headers, _pid, jid, source_ids = create_job_with_sources(
+        "job-output-order@example.com",
+        ("position-primary.mp4", "timestamp-late.mp4", "timestamp-early.mp4", "id-b.mp4", "id-a.mp4"),
+    )
+    db = SessionLocal()
+    try:
+        relations = db.query(TranscriptionJobSource).filter_by(job_id=jid).all()
+        by_source_id = {rel.source_id: rel for rel in relations}
+        by_source_id[source_ids[0]].position = 0
+        by_source_id[source_ids[1]].position = 1
+        by_source_id[source_ids[2]].position = 1
+        by_source_id[source_ids[3]].position = 2
+        by_source_id[source_ids[4]].position = 2
+        db.commit()
+    finally:
+        db.close()
+
+    base = datetime(2026, 7, 11, 10, 0, tzinfo=timezone.utc)
+    id_position_primary = add_output_row(
+        jid,
+        source_ids[0],
+        doc_id="doc-output-order-position",
+        persisted_at=base + timedelta(hours=1),
+        output_id="order-output-position-primary",
+    )
+    id_timestamp_late = add_output_row(
+        jid,
+        source_ids[1],
+        doc_id="doc-output-order-timestamp-late",
+        persisted_at=base + timedelta(minutes=2),
+        output_id="order-output-timestamp-late",
+    )
+    id_timestamp_early = add_output_row(
+        jid,
+        source_ids[2],
+        doc_id="doc-output-order-timestamp-early",
+        persisted_at=base + timedelta(minutes=1),
+        output_id="order-output-timestamp-early",
+    )
+    id_tiebreaker_b = add_output_row(
+        jid,
+        source_ids[3],
+        doc_id="doc-output-order-id-b",
+        persisted_at=base + timedelta(minutes=3),
+        output_id="order-output-id-b",
+    )
+    id_tiebreaker_a = add_output_row(
+        jid,
+        source_ids[4],
+        doc_id="doc-output-order-id-a",
+        persisted_at=base + timedelta(minutes=3),
+        output_id="order-output-id-a",
+    )
+
+    response = c.get(f"/api/jobs/{jid}/outputs")
+    body = response.json()
+    assert [o["source_id"] for o in body["outputs"]] == [
+        source_ids[0],
+        source_ids[2],
+        source_ids[1],
+        source_ids[4],
+        source_ids[3],
+    ]
+    assert [o["source_position"] for o in body["outputs"]] == [0, 1, 1, 2, 2]
+    assert [o["source_name"] for o in body["outputs"]] == [
+        "position-primary.mp4",
+        "timestamp-early.mp4",
+        "timestamp-late.mp4",
+        "id-a.mp4",
+        "id-b.mp4",
+    ]
     assert all("id" not in o and "output_id" not in o for o in body["outputs"])
-    assert id_a not in c.get(f"/api/jobs/{jid}/outputs").text and id_b not in c.get(f"/api/jobs/{jid}/outputs").text
+    for output_id in [id_position_primary, id_timestamp_late, id_timestamp_early, id_tiebreaker_a, id_tiebreaker_b]:
+        assert output_id not in response.text
 
 
 def test_job_output_mixed_url_safety_preserves_entries_and_hides_secret_url():

@@ -42,6 +42,9 @@ def normalize_google_web_view_url(value) -> str | None:
             return None
         if parsed.username is not None or parsed.password is not None:
             return None
+        host_port = parsed.netloc.rsplit("@", 1)[-1]
+        if host_port.endswith(":"):
+            return None
         if parsed.port is not None:
             return None
     except (TypeError, ValueError):
