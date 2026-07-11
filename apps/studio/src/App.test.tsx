@@ -19,6 +19,168 @@ const json = (body: unknown, ok = true, status = 200) =>
 function renderApp(mode: "static" | "platform") {
   render(<App mode={mode} />);
 }
+
+type OutputFixtureOptions = {
+  jobStatus?: "queued" | "processing" | "completed" | "failed" | "cancelled";
+  outputCount?: number;
+  outputs?: unknown[];
+  detailOk?: boolean;
+  outputsOk?: boolean;
+  detailErrorBody?: unknown;
+  outputsErrorBody?: unknown;
+};
+
+function installFocusedOutputFixture(options: OutputFixtureOptions = {}) {
+  const jobStatus = options.jobStatus ?? "processing";
+  const outputCount = options.outputCount ?? options.outputs?.length ?? 1;
+  const outputs = options.outputs ?? [
+    {
+      source_id: "source-id-not-rendered",
+      source_position: 0,
+      source_name: `${jobStatus}-source`,
+      source_type: "google_drive",
+      output_kind: "transcript",
+      transcript_standard: "transcript_doc_v1.2",
+      web_view_url: "https://docs.google.com/document/d/focused-safe/edit",
+      link_available: true,
+      document_character_count: 456,
+      document_created_at: "2026-07-02T00:10:00Z",
+      persisted_at: "2026-07-02T00:11:00Z",
+    },
+  ];
+  (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+    (url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/auth/session"))
+        return json({
+          authenticated: true,
+          user: { email: "user@example.com", role: "admin" },
+        });
+      if (url.endsWith("/api/auth/csrf"))
+        return json({ csrf_token: "csrf-after-refresh" });
+      if (url.endsWith("/api/projects"))
+        return json({
+          projects: [
+            {
+              id: "p1",
+              title: "Research calls",
+              description: null,
+              created_at: "2026-07-01T00:00:00",
+              updated_at: "2026-07-01T00:00:00",
+              archived_at: null,
+              output_drive_folder_id: null,
+              output_drive_folder_url: null,
+              output_drive_folder_name: null,
+            },
+          ],
+        });
+      if (url.endsWith("/api/credentials")) return json({ credentials: [] });
+      if (url.endsWith("/api/projects/p1/jobs") && !init?.method)
+        return json({
+          jobs: [
+            {
+              id: "job-focused",
+              project_id: "p1",
+              status: jobStatus,
+              title: "Focused output job",
+              provider: null,
+              provider_credential_id: null,
+              source_count: 1,
+              created_at: "2026-07-02T00:00:00Z",
+              updated_at: "2026-07-02T00:01:00Z",
+              cancelled_at:
+                jobStatus === "cancelled" ? "2026-07-02T00:02:00Z" : null,
+              cancel_requested_at: null,
+              attempt_count: 1,
+              started_at: "2026-07-02T00:00:30Z",
+              finished_at: ["completed", "failed", "cancelled"].includes(
+                jobStatus,
+              )
+                ? "2026-07-02T00:03:00Z"
+                : null,
+              error_code: jobStatus === "failed" ? "SAFE_FAILED" : null,
+              error_message: jobStatus === "failed" ? "Safe failure" : null,
+            },
+          ],
+        });
+      if (url.endsWith("/api/jobs/job-focused/outputs"))
+        return options.outputsOk === false
+          ? json(
+              options.outputsErrorBody ?? { detail: "raw sql traceback token" },
+              false,
+              500,
+            )
+          : json({
+              job_id: "job-focused",
+              job_status: jobStatus,
+              output_count: outputCount,
+              outputs,
+            });
+      if (url.endsWith("/api/jobs/job-focused"))
+        return options.detailOk === false
+          ? json(
+              options.detailErrorBody ?? {
+                detail: "raw detail traceback token",
+              },
+              false,
+              500,
+            )
+          : json({
+              id: "job-focused",
+              project_id: "p1",
+              status: jobStatus,
+              title: "Focused output job",
+              provider: null,
+              provider_credential_id: null,
+              source_count: 1,
+              created_at: "2026-07-02T00:00:00Z",
+              updated_at: "2026-07-02T00:01:00Z",
+              cancelled_at:
+                jobStatus === "cancelled" ? "2026-07-02T00:02:00Z" : null,
+              cancel_requested_at: null,
+              attempt_count: 1,
+              started_at: "2026-07-02T00:00:30Z",
+              finished_at: ["completed", "failed", "cancelled"].includes(
+                jobStatus,
+              )
+                ? "2026-07-02T00:03:00Z"
+                : null,
+              error_code: jobStatus === "failed" ? "SAFE_FAILED" : null,
+              error_message: jobStatus === "failed" ? "Safe failure" : null,
+              sources: [
+                {
+                  id: "source-detail-id-not-output-id",
+                  project_id: "p1",
+                  position: 0,
+                  job_source_status: "queued",
+                  source_type: "google_drive",
+                  original_filename: "focused-source.mp3",
+                  mime_type: "audio/mpeg",
+                  size_bytes: 1234,
+                  drive_file_id: null,
+                  drive_file_url: null,
+                  upload_status: "uploaded",
+                  uploaded_at: "2026-07-01T00:01:00Z",
+                  expires_at: null,
+                  deleted_at: null,
+                  delete_reason: null,
+                  created_at: "2026-07-01T00:00:00Z",
+                  updated_at: "2026-07-01T00:00:00Z",
+                },
+              ],
+            });
+      return json({ credentials: [], events: [] });
+    },
+  );
+}
+
+async function openFocusedJobsList() {
+  renderApp("platform");
+  await userEvent.click(await screen.findByRole("button", { name: /Проекты/ }));
+  await userEvent.click(
+    await screen.findByRole("button", { name: "Показать jobs" }),
+  );
+  expect(await screen.findByText("Focused output job")).toBeInTheDocument();
+}
 describe("Studio PWA", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -1624,6 +1786,146 @@ describe("Studio PWA", () => {
     expect(screen.queryByText(/raw-google-payload/)).not.toBeInTheDocument();
     expect(window.localStorage.length).toBe(0);
     expect(window.sessionStorage.length).toBe(0);
+  });
+
+  it("does not request job outputs until explicit job detail opening", async () => {
+    installFocusedOutputFixture();
+    renderApp("platform");
+    await screen.findByText("Панель аккаунта готова");
+    expect(
+      (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(([url]) =>
+        String(url).endsWith("/api/jobs/job-focused/outputs"),
+      ),
+    ).toBe(false);
+
+    await userEvent.click(screen.getByRole("button", { name: /Проекты/ }));
+    await screen.findByText("Research calls");
+    expect(
+      (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(([url]) =>
+        String(url).endsWith("/api/jobs/job-focused/outputs"),
+      ),
+    ).toBe(false);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Показать jobs" }),
+    );
+    expect(await screen.findByText("Focused output job")).toBeInTheDocument();
+    expect(
+      (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(([url]) =>
+        String(url).endsWith("/api/jobs/job-focused/outputs"),
+      ),
+    ).toBe(false);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Показать детали job" }),
+    );
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/jobs/job-focused/outputs",
+        expect.objectContaining({ credentials: "same-origin" }),
+      ),
+    );
+    const outputCalls = (
+      fetch as unknown as ReturnType<typeof vi.fn>
+    ).mock.calls.filter(([url]) => url === "/api/jobs/job-focused/outputs");
+    expect(outputCalls).toHaveLength(1);
+    expect(outputCalls[0]?.[1]?.method).toBeUndefined();
+    expect(outputCalls[0]?.[1]?.headers).not.toHaveProperty("x-csrf-token");
+  });
+
+  it("renders the explicit empty job outputs state without output links", async () => {
+    installFocusedOutputFixture({
+      jobStatus: "queued",
+      outputCount: 0,
+      outputs: [],
+    });
+    await openFocusedJobsList();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Показать детали job" }),
+    );
+    const outputs = await screen.findByLabelText("Job outputs job-focused");
+    expect(outputs).toHaveTextContent("Lifecycle status из outputs: Queued");
+    expect(outputs).toHaveTextContent("Output records: 0");
+    expect(outputs).toHaveTextContent("Output records пока не найдены.");
+    expect(
+      within(outputs).queryByRole("link", { name: "Открыть output в Google" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["failed", "Failed · safe error metadata only"],
+    ["cancelled", "Cancelled · terminal"],
+  ] as const)(
+    "renders partial outputs for %s jobs without completed-status gating",
+    async (jobStatus, label) => {
+      installFocusedOutputFixture({ jobStatus });
+      await openFocusedJobsList();
+      await userEvent.click(
+        screen.getByRole("button", { name: "Показать детали job" }),
+      );
+      const outputs = await screen.findByLabelText("Job outputs job-focused");
+      expect(outputs).toHaveTextContent(
+        `Lifecycle status из outputs: ${label}`,
+      );
+      expect(outputs).toHaveTextContent("Output records: 1");
+      expect(outputs).toHaveTextContent(`${jobStatus}-source`);
+      expect(outputs).toHaveTextContent(
+        "Output availability не означает, что job завершена.",
+      );
+      expect(
+        within(outputs).getByRole("link", { name: "Открыть output в Google" }),
+      ).toHaveAttribute(
+        "href",
+        "https://docs.google.com/document/d/focused-safe/edit",
+      );
+    },
+  );
+
+  it("keeps loaded job details visible when outputs request fails generically", async () => {
+    installFocusedOutputFixture({
+      outputsOk: false,
+      outputsErrorBody: { detail: "raw database traceback token" },
+    });
+    await openFocusedJobsList();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Показать детали job" }),
+    );
+    const detail = await screen.findByLabelText("Job detail job-focused");
+    expect(
+      within(detail).getByText("1. focused-source.mp3"),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText("Не удалось загрузить outputs job."),
+    ).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain(
+      "raw database traceback token",
+    );
+  });
+
+  it("keeps successful outputs visible when job detail request fails generically", async () => {
+    installFocusedOutputFixture({
+      detailOk: false,
+      detailErrorBody: { detail: "raw detail traceback token" },
+    });
+    await openFocusedJobsList();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Показать детали job" }),
+    );
+    expect(
+      await screen.findByText("Не удалось загрузить детали job."),
+    ).toBeInTheDocument();
+    const outputs = await screen.findByLabelText("Job outputs job-focused");
+    expect(outputs).toHaveTextContent("Output records: 1");
+    expect(outputs).toHaveTextContent("processing-source");
+    expect(
+      within(outputs).getByRole("link", { name: "Открыть output в Google" }),
+    ).toHaveAttribute(
+      "href",
+      "https://docs.google.com/document/d/focused-safe/edit",
+    );
+    expect(document.body.textContent).not.toContain(
+      "raw detail traceback token",
+    );
   });
 
   it("marks login fields with explicit browser autocomplete semantics", async () => {
