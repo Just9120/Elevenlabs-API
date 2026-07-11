@@ -101,7 +101,7 @@ ephemeral ElevenLabs transcript
 
 The boundary resolves one fresh Google access token, verifies the current project output folder, fences job/source/output identity before and after external I/O, creates exactly one Google Docs transcript through Drive multipart upload/conversion, and yields only a revocable redacted document-reference handle. A follow-on internal persistence boundary stores only safe Google document references and aggregate metadata per job-source relation, never transcript text or Google Docs body content, and transitions the job to `completed` only when all non-skipped relations have output rows under the current lease owner/generation. It is deliberately not a worker and is not exposed through FastAPI. It performs no manifest mutation, retry, cleanup/rollback deletion, runtime/deploy behavior, public output API, or production processing claim.
 
-Source now contains the internal synchronous orchestrator for one already-leased job, separate from future worker/runtime invocation, public API behavior, and manifest authority. The internal composition is:
+Source now contains the internal synchronous orchestrator for one already-leased job and an internal one-shot explicit-job runner that acquires and commits a lease before invoking that orchestrator. Both are separate from future worker/runtime invocation, public API behavior, and manifest authority. The internal composition is:
 
 ```text
 leased processing job
@@ -115,7 +115,7 @@ leased processing job
 → completed when all required outputs exist
 ```
 
-This diagram shows conceptual processing stages, not a mandate for separate orchestrator calls at each stage. The existing ElevenLabs boundary currently composes execution prerequisites, source materialization, and provider transcription internally, so the internal/server-only orchestrator does not materialize the source separately before invoking that boundary. Source now contains an internal synchronous orchestrator for one already-leased job; future worker/runtime invocation remains separately unapproved, public API behavior must not start processing, and the Colab manifest remains outside Studio mutation authority.
+This diagram shows conceptual processing stages, not a mandate for separate orchestrator calls at each stage. The existing ElevenLabs boundary currently composes execution prerequisites, source materialization, and provider transcription internally, so the internal/server-only orchestrator does not materialize the source separately before invoking that boundary. Source now contains an internal synchronous orchestrator for one already-leased job plus an internal explicit queued-job claim-and-process boundary; future worker/runtime invocation remains separately unapproved, public API behavior must not start processing, and the Colab manifest remains outside Studio mutation authority.
 
 ## 10. Current refactor seams for future implementation work
 
