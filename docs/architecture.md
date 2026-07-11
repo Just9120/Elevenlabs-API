@@ -115,7 +115,24 @@ leased processing job
 → completed when all required outputs exist
 ```
 
-This diagram shows conceptual processing stages, not a mandate for separate orchestrator calls at each stage. The existing ElevenLabs boundary currently composes execution prerequisites, source materialization, and provider transcription internally, so the internal/server-only orchestrator does not materialize the source separately before invoking that boundary. Source now contains an internal synchronous orchestrator for one already-leased job plus internal explicit queued-job and single-iteration claim-next processing boundaries; the dedicated worker process is not implemented yet, public API behavior must not start processing, and the Colab manifest remains outside Studio mutation authority. The source topology now separates the `studio-api` HTTP process from a dedicated `studio-worker` polling process. Both processes use the same application image with different commands: the API serves HTTP, while the worker runs `python -m studio_api.worker`. They share PostgreSQL as the processing authority for discovery, ordering, row locks, leases, lifecycle, output persistence, and completion. Redis remains unrelated rate-limit infrastructure and is not a processing queue, lock service, scheduler, wake-up channel, retry mechanism, or worker heartbeat store. This is source/Compose wiring only and does not add operator deployment steps or production-live evidence.
+This diagram shows conceptual processing stages, not a mandate for separate orchestrator calls at each stage. The existing ElevenLabs boundary currently composes execution prerequisites, source materialization, and provider transcription internally, so the internal/server-only orchestrator does not materialize the source separately before invoking that boundary. Source now contains an internal synchronous orchestrator for one already-leased job, internal explicit queued-job and single-iteration claim-next processing boundaries, and a dedicated worker process entrypoint/source-only Compose wiring; public API behavior must not start processing, production worker rollout is not claimed, and the Colab manifest remains outside Studio mutation authority. The source topology now separates the `studio-api` HTTP process from a dedicated `studio-worker` polling process. Both processes use the same application image with different commands: the API serves HTTP, while the worker runs `python -m studio_api.worker`. They share PostgreSQL as the processing authority for discovery, ordering, row locks, leases, lifecycle, output persistence, and completion. Redis remains unrelated rate-limit infrastructure and is not a processing queue, lock service, scheduler, wake-up channel, retry mechanism, or worker heartbeat store. This is source/Compose wiring only and does not add operator deployment steps or production-live evidence.
+
+
+## 9.1 Studio browser-safe output read path contract
+
+The processing write path and future browser read path are separate:
+
+```text
+processing write path
+→ Google Docs artifact
+→ persisted safe output reference
+
+authenticated browser read path
+→ owner-scoped output serializer
+→ validated Google web-view URL only
+```
+
+`PWA-OUTPUT-02-PREP` approves the read-path contract for a future explicit `GET /api/jobs/{job_id}/outputs` endpoint, but this PREP PR does not implement that endpoint, a serializer, frontend links, polling, Google API calls, output persistence changes, worker changes, runtime changes, deployment, or production-live processing. The future read path must first authorize the job through the same owner-scoped authority as job detail, then serialize only source metadata already visible to that owner plus safe output metadata and a parsed/validated `docs.google.com` or `drive.google.com` HTTPS web-view URL. It must never return transcript text, document body content, Google document ids, output folder ids, lease generation, storage paths, tokens, raw provider/Google responses, or unsafe persisted URLs.
 
 ## 10. Current refactor seams for future implementation work
 
