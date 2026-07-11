@@ -1,6 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 from urllib.parse import quote_plus
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
@@ -36,6 +37,9 @@ class Settings(BaseSettings):
     google_oauth_redirect_uri: str | None = None
     google_oauth_scopes: str = "openid email https://www.googleapis.com/auth/drive.file"
     google_oauth_state_ttl_seconds: int = 600
+    worker_poll_interval_seconds: int = Field(default=5, ge=1, le=60)
+    worker_error_backoff_seconds: int = Field(default=5, ge=1, le=300)
+    worker_lease_ttl_seconds: int = Field(default=3600, ge=300, le=86400)
 
     def master_key_b64(self) -> str:
         return Path(self.credential_master_key_file).read_text(encoding="utf-8").strip()

@@ -16,7 +16,7 @@ Capability/status snapshot:
 - Google Colab is the current working production contour for provider transcription, Google Drive/Docs transcript output, and `manifest` progress/skip mutation.
 - Studio PWA is the current development contour intended to duplicate Google Colab product scope with PWA/platform adaptations.
 - Studio PWA source has many platform foundations merged: account/session/BYOK, projects, sources, Google Drive OAuth/metadata/folder-child selection, local temporary upload intake, persisted job records, job UI, and preflight/claim-readiness guardrails.
-- Studio PWA production processing is not claimed: current jobs have internal processing/provider/output boundary slices through safe output persistence, fenced completion, a synchronous single-job orchestrator, an internal one-shot explicit-job claim-and-orchestrate boundary, and an internal single-iteration claim-next boundary, but no worker, queue consumer, public processing pipeline, production processing pipeline, or manifest mutation.
+- Studio PWA production processing is not claimed: current source has a dedicated `studio-worker` polling process entrypoint and Compose source wiring, plus internal processing/provider/output boundary slices through safe output persistence, fenced completion, a synchronous single-job orchestrator, an internal one-shot explicit-job claim-and-orchestrate boundary, and an internal single-iteration claim-next boundary. This is source wiring only: no deployment, public processing pipeline, production processing pipeline, or manifest mutation is claimed.
 - Studio job persistence migration rollout remains manual/operator-scoped unless runtime/operator evidence exists.
 
 - ✅ **DOCS-REF-01 — Documentation reconciliation and architecture baseline** — merged/completed docs-only reconciliation; no runtime behavior change.
@@ -62,63 +62,23 @@ Capability/status snapshot:
 - ✅ **PWA-PIPELINE-01A — Internal synchronous single-job orchestrator** — source-done/merged via PR #122 (head `b3c693da7fc7ab301a6939f0ff46402f0b0707b4`, merge `f2481a05f0a79a3cccd3631d3a1c9e98dc825d52`); Backend CI #288 passed and Studio PWA CI #120 passed. It added the internal server-only synchronous orchestrator for one already-leased job and did not add worker/runtime/API/production processing behavior.
 - ✅ **PWA-PIPELINE-01B — Internal one-shot claim-and-process boundary** — source-done/merged via PR #123 (head `cc739bb04df1b200d556f99d33bbc3ec20e463dc`, merge `2b6b766e41337dcab3c5548ae1ee4dd1ec0eae34`); Backend CI #290 passed and Studio PWA CI #122 passed. It added the internal server-only explicit-job claim, lease commit, and orchestrator invocation boundary without worker/runtime/API/production processing behavior.
 - ✅ **PWA-WORKER-01A — Internal single-iteration claim-next-and-process boundary** — source-done/merged via PR #124 (head `6e858a066304b3bf20388322c81c293f61df49ff`, merge `99f0e34e67740a60053242e98e194f888ff05341`); Backend CI #293 passed and Studio PWA CI #125 passed. It added one internal non-looping claim-next-and-process iteration without worker/runtime/API/production processing behavior.
-- 👉 **PWA-WORKER-01-PREP — Dedicated Studio polling worker runtime contract** — active docs-only item; define the future dedicated `studio-worker` process, owner identity, polling loop, session lifecycle, lease-renewal checkpoints, shutdown, error/logging, runtime configuration, source wiring expectations, and validation/production boundaries without changing runtime source.
-- 📋 **PWA-WORKER-01B — Dedicated Studio polling worker source and Compose wiring** — only approved next implementation item after this preparation contract; includes dedicated worker loop/entrypoint source, three validated worker Settings fields, environment-template keys, one `studio-worker` Compose service, narrow orchestration integration with `renew_job_lease`, committed renewal checkpoints defined by PWA-WORKER-01-PREP, focused worker/orchestration-renewal/configuration/Compose-contract tests, and no deployment or production-live claim.
+- ✅ **PWA-WORKER-01-PREP — Dedicated Studio polling worker runtime contract** — source-done/merged via PR #125 (head `a5694a13db1243b12bd93705b280057cbc35bbfc`, merge `e850f6f6cd68dde8ebb55c8008bcc19f1c9750c4`); Backend CI #296 passed. It defined the dedicated `studio-worker` runtime contract without changing runtime source.
+- 👉 **PWA-WORKER-01B — Dedicated Studio polling worker source and Compose wiring** — active implementation item; adds dedicated worker loop/entrypoint source, three validated worker Settings fields, environment-template keys, one `studio-worker` Compose service, narrow orchestration integration with `renew_job_lease`, committed renewal checkpoints defined by PWA-WORKER-01-PREP, focused worker/orchestration-renewal/configuration/Compose-contract tests, and no deployment or production-live claim.
 - 📋 **RUNTIME-01 — Batch source picker / manifest skip / Google Docs output smoke-check** — deferred by current product priority; still planned manual Colab/Drive/Docs validation without claiming pass/fail.
 
 ## Current checkpoint
 
 Batch Colab remains the primary working product contour and current/fallback production workflow for provider transcription, Google Drive/Docs output, Drive integration, and `manifest` progress/skip mutation. Docs-only maintenance workflows remain separate and must not call provider/STT/LLM APIs. Realtime Colab/proxy remains an experimental contour for browser capture + ElevenLabs realtime STT and must not save Google Docs, mutate `manifest`, or integrate speaker projects.
 
-Studio PWA is the current development contour intended to duplicate Google Colab product scope with PWA/platform adaptations. Source on main now includes account/session/BYOK, projects, sources, Google Drive OAuth/metadata/folder-child selection, local temporary upload intake, persisted job records, job UI, preflight/claim-readiness guardrails, internal processing-time source materialization, and processing prerequisites. PWA-WORKER-01A is source-done/merged via PR #124 (head `6e858a066304b3bf20388322c81c293f61df49ff`, merge `99f0e34e67740a60053242e98e194f888ff05341`) with Backend CI #293 passed and Studio PWA CI #125 passed. PWA-WORKER-01-PREP is the active docs-only item for the future dedicated polling worker runtime contract. Current Studio jobs still have no polling worker process, public processing pipeline, production processing pipeline, or manifest mutation claimed. STUDIO-CD-IMAGE-01 and STUDIO-CD-STDIN-01 are source-done, CI-verified, and production-live from operator evidence. Studio job persistence migration rollout remains manual/operator-scoped unless operator evidence exists.
+Studio PWA is the current development contour intended to duplicate Google Colab product scope with PWA/platform adaptations. Source on main now includes account/session/BYOK, projects, sources, Google Drive OAuth/metadata/folder-child selection, local temporary upload intake, persisted job records, job UI, preflight/claim-readiness guardrails, internal processing-time source materialization, and processing prerequisites. PWA-WORKER-01A is source-done/merged via PR #124 (head `6e858a066304b3bf20388322c81c293f61df49ff`, merge `99f0e34e67740a60053242e98e194f888ff05341`) with Backend CI #293 passed and Studio PWA CI #125 passed. PWA-WORKER-01-PREP is source-done/merged via PR #125 (head `a5694a13db1243b12bd93705b280057cbc35bbfc`, merge `e850f6f6cd68dde8ebb55c8008bcc19f1c9750c4`) with Backend CI #296 passed. PWA-WORKER-01B is the active implementation item for dedicated worker source and Compose source wiring. Current Studio source now includes a worker entrypoint and Compose service definition, but no production rollout, public processing pipeline, production processing pipeline, or manifest mutation is claimed. STUDIO-CD-IMAGE-01 and STUDIO-CD-STDIN-01 are source-done, CI-verified, and production-live from operator evidence. Studio job persistence migration rollout remains manual/operator-scoped unless operator evidence exists.
 
 Current confirmed realtime evidence is partial: one display+microphone run confirmed standalone page boot, capture, WebSocket open, `session_started`, partial transcript, committed transcript, user Stop, media-track release and WebSocket close. After RT-TOKEN-01, the standalone page also manually confirmed sequential Start → Stop → Start without page reload: both sessions reached WebSocket open and `session_started`, both stopped cleanly, and the final close was user-initiated with code 1000. Full realtime E2E success is not claimed.
 
 ## Active recommended next item
 
-The active recommended item is **PWA-WORKER-01-PREP — Dedicated Studio polling worker runtime contract**. This docs-only item defines the future dedicated `studio-worker` process contract: separate server-side Python process topology, process-lifetime lease owner identity, polling/backoff configuration, one-iteration session lifecycle, PostgreSQL authority, Redis exclusion, deterministic lease-renewal checkpoints, graceful shutdown, error continuation, safe logging, and production-claim boundaries. It must not add runtime code, tests, Dockerfiles, Compose services, environment templates, deployment scripts, migrations, secrets, Redis behavior, worker execution, polling, lease-renewal code, automatic recovery, retries, or production rollout.
+The active recommended item is **PWA-WORKER-01B — Dedicated Studio polling worker source and Compose wiring**. PWA-WORKER-01B adds the source-only dedicated polling worker process, Settings fields, safe worker logging, signal-aware loop, deterministic lease renewal checkpoints, focused tests, and `studio-worker` Compose source wiring. It must not deploy the worker, modify deployment scripts/workflows, create another next delivery item, or claim production-live processing.
 
-The only approved next implementation item is **PWA-WORKER-01B — Dedicated Studio polling worker source and Compose wiring**. PWA-WORKER-01B may add a dedicated worker loop/entrypoint module, three validated worker settings, matching environment-template keys, one `studio-worker` Compose service that reuses the `studio-api` image with a command override, narrow orchestration integration with `renew_job_lease`, the committed renewal checkpoints defined by PWA-WORKER-01-PREP, focused worker/orchestration-renewal/configuration/Compose-contract tests, and narrow source documentation. It must not deploy to production, execute migrations, change volumes, recreate PostgreSQL or Redis, change production `.env` values, add a Redis queue, add a public endpoint, or claim production-live processing.
-
-### PWA-PLATFORM-01-PREP — Studio platform implementation contract
-
-PWA-PLATFORM-01-PREP is complete as documentation/design preparation. It created `docs/studio-platform-01-prep.md`, preserved the current UI-only Studio and Colab boundaries, and cleaned the private deployment path out of durable product/delivery/validation documents. It did not implement backend/auth/BYOK/Google/uploads/jobs/workers/deployment changes.
-
-### PWA-DEPLOY-01 — Manual first Studio deployment
-
-PWA-DEPLOY-01 is complete for the existing stateless `studio-web` container behind host nginx at `https://studio.librechat.online`. This records public app-shell availability only, not a production transcription platform.
-
-Factual evidence recorded from manual VPS/browser validation:
-
-- isolated operator-managed deployment checkout exists on branch `main`;
-- existing stateless `studio-web` container was built and started successfully;
-- local container health passed and the container binds only to `127.0.0.1:8181`;
-- host nginx proxies `studio.librechat.online` to the local Studio container;
-- Let's Encrypt certificate was issued for `studio.librechat.online` and HTTPS works;
-- `https://studio.librechat.online/healthz` returned HTTP 200;
-- HTTP redirects to HTTPS;
-- public homepage exposes `manifest.webmanifest`;
-- public `sw.js` is present and precaches the app shell;
-- Studio UI opens in a normal desktop browser;
-- browser offers PWA installation;
-- installed app opens in a separate window;
-- after a successful online visit, the app shell appears to reopen offline. Browser/version were not recorded; this is manual user-reported confirmation and must not be described as proof of offline transcription, provider execution, Google integration, authentication, credentials, uploads, or job processing.
-
-Boundaries preserved after deployment:
-
-- current Studio is still UI-only;
-- Studio platform CD exists now, but this first manual deployment evidence did not depend on automatic CD;
-- no backend API, authentication, provider keys, provider calls, Google OAuth/Drive/Docs, uploads, transcription jobs, database, Redis, queue, worker, persistence, or migrations were added;
-- no changes were made to Colab, realtime, provider contracts, Google Docs behavior, or manifest behavior.
-- Studio production CD is expected to be a single `Studio Platform CD` workflow at `.github/workflows/studio-platform-cd.yml`; split web/API Studio platform CD workflows are not current state.
-
-### PWA-FOUNDATION-01 — Studio PWA foundation
-
-PWA-FOUNDATION-01 is complete/merged via PR #77. It established `apps/studio/`, PWA-only CI scaffolding, production scaffolding, and the localhost-only `studio-web` delivery boundary for `studio.librechat.online`. Studio CI passed before merge: reproducible `npm ci`, lint, tests, production build, and Docker image build. The completed foundation remains UI-only and did not add provider calls, Google integration, uploads, queues, databases, workers, persistence or changes to Colab runtime behavior.
-
-### RUNTIME-01 — batch runtime smoke validation
-
-RUNTIME-01 is deferred by current product priority, not passed or failed. It remains a separate manual Colab/Drive/Docs batch smoke validation item, including the visual user-segment builder, selected output folder, Google Docs creation, and `manifest` skip behavior. Do not claim runtime success until this is executed in Colab and recorded with factual evidence.
+**RUNTIME-01** remains deferred.
 
 ## Near backlog
 

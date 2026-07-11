@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import Callable
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .job_claim_lease import is_lease_active
+from .job_claim_lease import JobLeaseError, JobLeaseFailureReason, is_lease_active, renew_job_lease
 from .job_elevenlabs_transcription import (
     JobElevenLabsTranscriptionError,
     transcribe_processing_job_source_with_elevenlabs,
@@ -41,6 +41,7 @@ class JobProcessingOrchestrationReason(str, Enum):
     output_reconciliation_required = "output_reconciliation_required"
     incomplete_output_coverage = "incomplete_output_coverage"
     commit_failed = "commit_failed"
+    lease_renewal_failed = "lease_renewal_failed"
 
 
 class JobProcessingOrchestrationError(RuntimeError):
@@ -79,6 +80,8 @@ def orchestrate_processing_job(
     transcription_opener: Callable = transcribe_processing_job_source_with_elevenlabs,
     google_docs_opener: Callable = create_processing_job_google_doc_from_transcript,
     output_persister: Callable = persist_processing_job_source_output_and_maybe_complete,
+    lease_ttl: timedelta,
+    lease_renewer: Callable = renew_job_lease,
 ) -> JobProcessingOrchestrationResult:
     clock = clock or (lambda: utcnow().replace(tzinfo=None))
     processed = 0
@@ -98,6 +101,8 @@ def orchestrate_processing_job(
             return outcome
         if _has_output(db, rel.id):
             continue
+
+        _renew_and_commit(db, job_id, lease_owner_id, lease_generation, lease_ttl, clock, lease_renewer)
 
         transcript_cm = None
         transcript_entered = False
@@ -135,6 +140,7 @@ def orchestrate_processing_job(
             before_google = _checkpoint(db, job_id, lease_owner_id, lease_generation, clock, processed)
             if before_google is not None:
                 return before_google
+            _renew_and_commit(db, job_id, lease_owner_id, lease_generation, lease_ttl, clock, lease_renewer)
             try:
                 google_cm = google_docs_opener(
                     db,
@@ -230,6 +236,31 @@ def orchestrate_processing_job(
             raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.incomplete_output_coverage) from exc
         raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.incomplete_output_coverage)
     return final
+
+
+def _renew_and_commit(db, job_id, owner, generation, lease_ttl, clock, lease_renewer) -> None:
+    try:
+        lease_renewer(
+            db,
+            job_id=job_id,
+            lease_owner_id=owner,
+            lease_generation=generation,
+            now=clock(),
+            lease_ttl=lease_ttl,
+        )
+    except JobLeaseError as exc:
+        db.rollback()
+        mapping = {
+            JobLeaseFailureReason.job_not_found: JobProcessingOrchestrationReason.job_not_found,
+            JobLeaseFailureReason.lease_not_owned: JobProcessingOrchestrationReason.lease_not_owned,
+            JobLeaseFailureReason.lease_not_active: JobProcessingOrchestrationReason.lease_not_active,
+            JobLeaseFailureReason.job_not_queued: JobProcessingOrchestrationReason.job_not_processable,
+        }
+        raise JobProcessingOrchestrationError(mapping.get(exc.reason, JobProcessingOrchestrationReason.lease_renewal_failed)) from exc
+    except Exception as exc:
+        db.rollback()
+        raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.lease_renewal_failed) from exc
+    _commit(db, JobProcessingOrchestrationReason.commit_failed)
 
 
 def _enter_processing(db, job_id, owner, generation, clock) -> None:

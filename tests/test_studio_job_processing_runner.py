@@ -22,6 +22,8 @@ class Settings:
 @pytest.fixture(autouse=True)
 def isolated_studio_database_url(monkeypatch):
     monkeypatch.setenv("STUDIO_DATABASE_URL", "sqlite+pysqlite:///:memory:")
+    from studio_api.config import get_settings
+    get_settings.cache_clear()
 
 
 @pytest.fixture()
@@ -89,7 +91,7 @@ def test_success_claim_commits_before_orchestration_and_passes_exact_handle(db):
     assert claim_and_orchestrate_processing_job(db, job_id="input-job", lease_owner_id="input-owner", lease_ttl=timedelta(minutes=5), settings=settings, clock=clock, lease_acquirer=acquirer, orchestrator=orchestrator) is result
     assert [e if isinstance(e, str) else e[0] for e in events] == ["acquire", "commit", "orchestrate"]
     assert events[0][1]["job_id"] == "input-job" and events[0][1]["lease_owner_id"] == "input-owner"
-    assert events[2][1] == {"job_id": "handle-job", "lease_owner_id": "committed-owner", "lease_generation": 42, "settings": settings, "clock": clock}
+    assert events[2][1] == {"job_id": "handle-job", "lease_owner_id": "committed-owner", "lease_generation": 42, "settings": settings, "clock": clock, "lease_ttl": timedelta(minutes=5)}
 
 
 def test_real_lease_integration_commits_before_fake_orchestrator(engine, db):

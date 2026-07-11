@@ -68,6 +68,7 @@ def claim_next_and_orchestrate_processing_job(
         settings=settings,
         clock=clock,
         orchestrator=orchestrator,
+        lease_ttl=lease_ttl,
     )
 
 
@@ -107,6 +108,7 @@ def claim_and_orchestrate_processing_job(
         settings=settings,
         clock=clock,
         orchestrator=orchestrator,
+        lease_ttl=lease_ttl,
     )
 
 
@@ -117,6 +119,7 @@ def _commit_and_orchestrate(
     settings,
     clock: Callable[[], datetime],
     orchestrator: Callable,
+    lease_ttl: timedelta,
 ) -> JobProcessingOrchestrationResult:
     try:
         db.commit()
@@ -132,6 +135,7 @@ def _commit_and_orchestrate(
             lease_generation=handle.lease_generation,
             settings=settings,
             clock=clock,
+            lease_ttl=lease_ttl,
         )
     except JobProcessingOrchestrationError:
         db.rollback()
