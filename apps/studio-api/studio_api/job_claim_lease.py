@@ -54,28 +54,35 @@ def acquire_next_ready_job_lease(
 ) -> JobLeaseHandle | None:
     owner = _validated_owner(lease_owner_id)
     expires_at = now + _validated_ttl(lease_ttl)
-    candidates = db.execute(
-        select(TranscriptionJob)
-        .where(
+    excluded_job_ids: set[str] = set()
+    while True:
+        filters = [
             TranscriptionJob.status == JobStatus.queued,
             or_(
                 TranscriptionJob.lease_owner_id.is_(None),
                 TranscriptionJob.lease_expires_at.is_(None),
                 TranscriptionJob.lease_expires_at <= now,
             ),
-        )
-        .order_by(TranscriptionJob.created_at.asc(), TranscriptionJob.id.asc())
-        .with_for_update(skip_locked=True)
-    ).scalars()
-    for job in candidates:
-        if job.status != JobStatus.queued:
-            continue
-        if is_lease_active(job, now):
+        ]
+        if excluded_job_ids:
+            filters.append(TranscriptionJob.id.not_in(excluded_job_ids))
+
+        job = db.execute(
+            select(TranscriptionJob)
+            .where(*filters)
+            .order_by(TranscriptionJob.created_at.asc(), TranscriptionJob.id.asc())
+            .limit(1)
+            .with_for_update(skip_locked=True)
+        ).scalar_one_or_none()
+        if job is None:
+            return None
+        if job.status != JobStatus.queued or is_lease_active(job, now):
+            excluded_job_ids.add(job.id)
             continue
         if not build_claim_readiness(job)["ready_for_future_claim"]:
+            excluded_job_ids.add(job.id)
             continue
         return _apply_job_lease(db, job=job, owner=owner, claimed_at=now, expires_at=expires_at)
-    return None
 
 
 def acquire_job_lease(

@@ -1270,6 +1270,50 @@ def test_concurrent_claim_next_callers_do_not_receive_same_job():
     finally:
         first.rollback(); second.rollback(); verifier.close(); first.close(); second.close()
 
+
+def test_claim_next_with_unready_oldest_does_not_prelock_later_ready_candidate():
+    _, unready_id = lease_test_job(ready=False)
+    _, first_ready_id = lease_test_job()
+    _, second_ready_id = lease_test_job()
+    setup = SessionLocal()
+    try:
+        setup.get(TranscriptionJob, unready_id).created_at = LEASE_TEST_NOW
+        setup.get(TranscriptionJob, first_ready_id).created_at = LEASE_TEST_NOW + timedelta(seconds=1)
+        setup.get(TranscriptionJob, second_ready_id).created_at = LEASE_TEST_NOW + timedelta(seconds=2)
+        setup.commit()
+    finally:
+        setup.close()
+
+    first = SessionLocal(); second = SessionLocal(); verifier = SessionLocal()
+    try:
+        first_handle = acquire_next_ready_job_lease(
+            first,
+            lease_owner_id="owner-1",
+            now=LEASE_TEST_NOW + timedelta(minutes=1),
+            lease_ttl=LEASE_TEST_TTL,
+        )
+        assert first_handle is not None
+        assert first_handle.job_id == first_ready_id
+
+        second_handle = acquire_next_ready_job_lease(
+            second,
+            lease_owner_id="owner-2",
+            now=LEASE_TEST_NOW + timedelta(minutes=1),
+            lease_ttl=LEASE_TEST_TTL,
+        )
+        assert second_handle is not None
+        assert second_handle.job_id == second_ready_id
+        assert second_handle.job_id != first_handle.job_id
+
+        first.commit(); second.commit()
+        for handle in (first_handle, second_handle):
+            stored = verifier.get(TranscriptionJob, handle.job_id)
+            assert stored.lease_owner_id == handle.lease_owner_id
+            assert stored.lease_generation == handle.lease_generation
+        assert verifier.get(TranscriptionJob, unready_id).lease_owner_id is None
+    finally:
+        first.rollback(); second.rollback(); verifier.close(); first.close(); second.close()
+
 def test_renew_and_strict_release_semantics():
     _, job_id = lease_test_job()
     db = SessionLocal()
