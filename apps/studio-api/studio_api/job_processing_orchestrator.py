@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
@@ -99,37 +100,38 @@ def orchestrate_processing_job(
             continue
 
         transcript_cm = None
+        transcript_entered = False
         google_cm = None
-        artifact_created = False
+        google_entered = False
         try:
-            transcript_cm = transcription_opener(
-                db,
-                job_id=job_id,
-                job_source_id=rel.id,
-                lease_owner_id=lease_owner_id,
-                lease_generation=lease_generation,
-                settings=settings,
-                now=clock(),
-                clock=clock,
-            )
-            transcript = transcript_cm.__enter__()
-        except Exception as exc:
-            if transcript_cm is not None:
-                transcript_cm.__exit__(type(exc), exc, exc.__traceback__)
-            result = _handle_pre_output_failure(
-                db,
-                job_id,
-                lease_owner_id,
-                lease_generation,
-                clock,
-                "pipeline_transcription_failed",
-                _safe_reason(exc),
-            )
-            if result is not None:
-                return result
-            raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.transcription_failed) from exc
+            try:
+                transcript_cm = transcription_opener(
+                    db,
+                    job_id=job_id,
+                    job_source_id=rel.id,
+                    lease_owner_id=lease_owner_id,
+                    lease_generation=lease_generation,
+                    settings=settings,
+                    now=clock(),
+                    clock=clock,
+                )
+                transcript = transcript_cm.__enter__()
+                transcript_entered = True
+            except Exception as exc:
+                result = _handle_pre_output_failure(
+                    db,
+                    job_id,
+                    lease_owner_id,
+                    lease_generation,
+                    clock,
+                    processed,
+                    "pipeline_transcription_failed",
+                    _safe_reason(exc),
+                )
+                if result is not None:
+                    return result
+                raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.transcription_failed) from exc
 
-        try:
             before_google = _checkpoint(db, job_id, lease_owner_id, lease_generation, clock, processed)
             if before_google is not None:
                 return before_google
@@ -146,10 +148,8 @@ def orchestrate_processing_job(
                     clock=clock,
                 )
                 artifact = google_cm.__enter__()
-                artifact_created = True
+                google_entered = True
             except JobGoogleDocsOutputError as exc:
-                if google_cm is not None:
-                    google_cm.__exit__(type(exc), exc, exc.__traceback__)
                 if exc.reason == JobGoogleDocsOutputReason.output_already_persisted:
                     db.rollback()
                     existing = _after_existing_output_race(db, job_id, lease_owner_id, lease_generation, clock, processed)
@@ -165,16 +165,21 @@ def orchestrate_processing_job(
                     lease_owner_id,
                     lease_generation,
                     clock,
+                    processed,
                     "pipeline_google_docs_failed",
                     exc.reason.value,
                 )
                 if result is not None:
                     return result
                 raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.google_docs_failed) from exc
+            except Exception as exc:
+                _record_output_uncertainty(db, job_id, lease_owner_id, lease_generation, clock, "unknown")
+                raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.output_reconciliation_required) from exc
+
             try:
-                after_google = _checkpoint(db, job_id, lease_owner_id, lease_generation, clock, processed, after_output_side_effect=True)
-                if after_google is not None:
-                    _record_output_uncertainty(db, job_id, lease_owner_id, lease_generation, clock, "cancellation_requested")
+                post_output_reason = _post_output_authority_reason(db, job_id, lease_owner_id, lease_generation, clock)
+                if post_output_reason is not None:
+                    _record_output_uncertainty(db, job_id, lease_owner_id, lease_generation, clock, post_output_reason)
                     raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.output_reconciliation_required)
                 persisted = output_persister(
                     db,
@@ -199,10 +204,23 @@ def orchestrate_processing_job(
             if persisted.completed:
                 return _result(db, job_id, processed, completed=True)
         finally:
-            if google_cm is not None and artifact_created:
-                google_cm.__exit__(None, None, None)
-            if transcript_cm is not None:
-                transcript_cm.__exit__(None, None, None)
+            active = sys.exc_info()
+            if google_entered:
+                try:
+                    google_cm.__exit__(*active)
+                except Exception as exc:
+                    if active[0] is None:
+                        _record_output_uncertainty(db, job_id, lease_owner_id, lease_generation, clock, "unknown")
+                        raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.output_reconciliation_required) from exc
+            if transcript_entered:
+                try:
+                    transcript_cm.__exit__(*active)
+                except Exception as exc:
+                    if active[0] is None and google_entered:
+                        _record_output_uncertainty(db, job_id, lease_owner_id, lease_generation, clock, "unknown")
+                        raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.output_reconciliation_required) from exc
+                    if active[0] is None:
+                        raise
 
     final = _result(db, job_id, processed, completed=False)
     if final.final_job_status == JobStatus.processing and final.persisted_output_count == final.required_source_count:
@@ -238,7 +256,7 @@ def _enter_processing(db, job_id, owner, generation, clock) -> None:
         raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.job_not_processable)
 
 
-def _checkpoint(db, job_id, owner, generation, clock, processed, *, after_output_side_effect=False):
+def _checkpoint(db, job_id, owner, generation, clock, processed):
     db.expire_all()
     job = db.get(TranscriptionJob, job_id)
     if job is None:
@@ -250,16 +268,10 @@ def _checkpoint(db, job_id, owner, generation, clock, processed, *, after_output
     if job.status != JobStatus.processing:
         raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.job_not_processable)
     if job.lease_owner_id != owner or job.lease_generation != generation:
-        if after_output_side_effect:
-            return None
         raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.lease_not_owned)
     if not is_lease_active(job, clock()):
-        if after_output_side_effect:
-            return None
         raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.lease_not_active)
     if job.cancel_requested_at is not None:
-        if after_output_side_effect:
-            return None
         try:
             acknowledge_job_cancellation(db, job_id=job_id, lease_owner_id=owner, lease_generation=generation, now=clock())
             _commit(db, JobProcessingOrchestrationReason.commit_failed)
@@ -267,6 +279,21 @@ def _checkpoint(db, job_id, owner, generation, clock, processed, *, after_output
             db.rollback()
             raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.commit_failed) from exc
         return _result(db, job_id, processed, completed=False)
+    return None
+
+
+def _post_output_authority_reason(db, job_id, owner, generation, clock) -> str | None:
+    db.rollback()
+    db.expire_all()
+    job = db.get(TranscriptionJob, job_id)
+    if job is None or job.status != JobStatus.processing:
+        return "job_not_processable"
+    if job.lease_owner_id != owner or job.lease_generation != generation:
+        return "lease_not_owned"
+    if not is_lease_active(job, clock()):
+        return "lease_not_active"
+    if job.cancel_requested_at is not None:
+        return "cancellation_requested"
     return None
 
 
@@ -300,16 +327,20 @@ def _safe_reason(exc: BaseException) -> str:
     return getattr(reason, "value", None) or "unknown"
 
 
-def _handle_pre_output_failure(db, job_id, owner, generation, clock, code, message):
+def _handle_pre_output_failure(db, job_id, owner, generation, clock, processed, code, message):
     db.rollback()
     try:
-        result = _checkpoint(db, job_id, owner, generation, clock, 0)
+        result = _checkpoint(db, job_id, owner, generation, clock, processed)
         if result is not None and result.final_job_status == JobStatus.cancelled:
             return result
     except JobProcessingOrchestrationError:
         raise
     try:
         _safe_fail(db, job_id, owner, generation, clock, code, message)
+    except JobProcessingOrchestrationError as exc:
+        if exc.reason == JobProcessingOrchestrationReason.commit_failed:
+            raise
+        db.rollback()
     except Exception:
         db.rollback()
     return None

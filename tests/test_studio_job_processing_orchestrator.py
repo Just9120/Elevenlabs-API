@@ -249,3 +249,203 @@ def test_result_and_error_repr_redaction():
     e=JobProcessingOrchestrationError(JobProcessingOrchestrationReason.output_reconciliation_required)
     leaked="SECRET_TRANSCRIPT SECRET_DOC_ID SECRET_FOLDER token credential SECRET_KEY raw payload"
     assert all(part not in repr(r)+repr(e)+str(e) for part in leaked.split())
+
+
+@pytest.mark.parametrize(
+    "mutate,reason",
+    [
+        (lambda m, job, now: setattr(job, "cancel_requested_at", now), "output_reconciliation_required"),
+        (lambda m, job, now: setattr(job, "lease_owner_id", "other"), "output_reconciliation_required"),
+        (lambda m, job, now: setattr(job, "lease_generation", 99), "output_reconciliation_required"),
+        (lambda m, job, now: setattr(job, "lease_expires_at", now - timedelta(seconds=1)), "output_reconciliation_required"),
+    ],
+)
+def test_post_output_state_change_prevents_persistence_and_normalizes(db, mutate, reason):
+    from studio_api import models as m
+    from studio_api.job_processing_orchestrator import JobProcessingOrchestrationError, orchestrate_processing_job
+
+    job, _ = make_job(db, m, status=m.JobStatus.processing)
+    events = []
+    t, _ = fakes(events)
+    persist_calls = []
+
+    def googler(*args, **kwargs):
+        events.append(("google", kwargs["job_source_id"]))
+
+        class MutatingGoogleCM(FakeCM):
+            def __enter__(self):
+                value = super().__enter__()
+                mutate(m, db.get(m.TranscriptionJob, job.id), Clock()())
+                db.commit()
+                return value
+
+        return MutatingGoogleCM(Artifact(), events, "google_enter", "google_exit")
+
+    def persister(*args, **kwargs):
+        persist_calls.append(kwargs)
+        raise AssertionError("persister should not be called after unsafe post-output state")
+
+    with pytest.raises(JobProcessingOrchestrationError) as excinfo:
+        orchestrate_processing_job(
+            db,
+            job_id=job.id,
+            lease_owner_id="worker",
+            lease_generation=7,
+            settings=Settings(),
+            clock=Clock(),
+            transcription_opener=t,
+            google_docs_opener=googler,
+            output_persister=persister,
+        )
+
+    assert excinfo.value.reason.value == reason
+    assert persist_calls == []
+    assert len([e for e in events if isinstance(e, tuple) and e[0] == "transcribe"]) == 1
+    assert len([e for e in events if isinstance(e, tuple) and e[0] == "google"]) == 1
+    leaked = "SECRET_DOC_ID SECRET_FOLDER SECRET_TRANSCRIPT token credential raw payload"
+    assert all(part not in repr(excinfo.value) + str(excinfo.value) for part in leaked.split())
+
+
+@pytest.mark.parametrize("boundary", ["transcription", "google_definite"])
+def test_safe_failure_commit_failure_surfaces_commit_failed(db, monkeypatch, boundary):
+    from studio_api import models as m
+    from studio_api.job_elevenlabs_transcription import JobElevenLabsTranscriptionError, JobElevenLabsTranscriptionReason
+    from studio_api.job_google_docs_output import JobGoogleDocsOutputError, JobGoogleDocsOutputReason
+    from studio_api.job_processing_orchestrator import JobProcessingOrchestrationError, orchestrate_processing_job
+
+    job, _ = make_job(db, m, status=m.JobStatus.processing)
+    events = []
+    exc = JobElevenLabsTranscriptionError(JobElevenLabsTranscriptionReason.provider_timeout) if boundary == "transcription" else None
+    gexc = JobGoogleDocsOutputError(JobGoogleDocsOutputReason.google_docs_request_rejected) if boundary == "google_definite" else None
+    t, g = fakes(events, transcribe_exc=exc, google_exc=gexc)
+    original_commit = db.commit
+    original_rollback = db.rollback
+    rollbacks = []
+
+    def fail_commit():
+        raise RuntimeError("SECRET commit failed")
+
+    def count_rollback():
+        rollbacks.append("rollback")
+        return original_rollback()
+
+    monkeypatch.setattr(db, "commit", fail_commit)
+    monkeypatch.setattr(db, "rollback", count_rollback)
+
+    with pytest.raises(JobProcessingOrchestrationError) as excinfo:
+        orchestrate_processing_job(
+            db,
+            job_id=job.id,
+            lease_owner_id="worker",
+            lease_generation=7,
+            settings=Settings(),
+            clock=Clock(),
+            transcription_opener=t,
+            google_docs_opener=g,
+            output_persister=persist_real(db, m, 1),
+        )
+
+    assert excinfo.value.reason.value == "commit_failed"
+    assert rollbacks
+    assert len([e for e in events if isinstance(e, tuple) and e[0] == "transcribe"]) == 1
+    if boundary == "transcription":
+        assert not any(isinstance(e, tuple) and e[0] == "google" for e in events)
+    else:
+        assert len([e for e in events if isinstance(e, tuple) and e[0] == "google"]) == 1
+    assert "provider_timeout" not in str(excinfo.value)
+    assert "google_docs_request_rejected" not in str(excinfo.value)
+    monkeypatch.setattr(db, "commit", original_commit)
+
+
+class FailingEnterCM:
+    def __init__(self, events, name):
+        self.events = events
+        self.name = name
+    def __enter__(self):
+        self.events.append(f"{self.name}_enter")
+        raise RuntimeError("SECRET raw payload token credential document folder transcript")
+    def __exit__(self, *args):
+        self.events.append(f"{self.name}_exit")
+        return False
+
+
+@pytest.mark.parametrize("boundary", ["transcription", "google"])
+def test_unexpected_context_entry_errors_are_normalized_and_do_not_exit_unentered(db, boundary):
+    from studio_api import models as m
+    from studio_api.job_processing_orchestrator import JobProcessingOrchestrationError, orchestrate_processing_job
+
+    job, _ = make_job(db, m, status=m.JobStatus.processing)
+    events = []
+
+    def transcriber(*args, **kwargs):
+        events.append(("transcribe", kwargs["job_source_id"]))
+        if boundary == "transcription":
+            return FailingEnterCM(events, "transcript")
+        return FakeCM(Transcript(), events, "transcript_enter", "transcript_exit")
+
+    def googler(*args, **kwargs):
+        events.append(("google", kwargs["job_source_id"]))
+        return FailingEnterCM(events, "google")
+
+    with pytest.raises(JobProcessingOrchestrationError) as excinfo:
+        orchestrate_processing_job(
+            db,
+            job_id=job.id,
+            lease_owner_id="worker",
+            lease_generation=7,
+            settings=Settings(),
+            clock=Clock(),
+            transcription_opener=transcriber,
+            google_docs_opener=googler,
+            output_persister=persist_real(db, m, 1),
+        )
+
+    if boundary == "transcription":
+        assert excinfo.value.reason.value == "transcription_failed"
+        assert not any(isinstance(e, tuple) and e[0] == "google" for e in events)
+        assert "transcript_exit" not in events
+    else:
+        assert excinfo.value.reason.value == "output_reconciliation_required"
+        assert len([e for e in events if isinstance(e, tuple) and e[0] == "google"]) == 1
+        assert "google_exit" not in events
+        assert "transcript_exit" in events
+    assert len([e for e in events if isinstance(e, tuple) and e[0] == "transcribe"]) == 1
+    leaked = "SECRET raw payload token credential document folder"
+    assert all(part not in repr(excinfo.value) + str(excinfo.value) for part in leaked.split())
+
+
+def test_processed_count_preserved_when_later_transcription_failure_observes_cancellation(db):
+    from studio_api import models as m
+    from studio_api.job_elevenlabs_transcription import JobElevenLabsTranscriptionError, JobElevenLabsTranscriptionReason
+    from studio_api.job_processing_orchestrator import orchestrate_processing_job
+
+    job, rels = make_job(db, m, status=m.JobStatus.processing, sources=2)
+    events = []
+    persister = persist_real(db, m, 2)
+
+    def transcriber(*args, **kwargs):
+        events.append(("transcribe", kwargs["job_source_id"]))
+        if kwargs["job_source_id"] == rels[1].id:
+            db.get(m.TranscriptionJob, job.id).cancel_requested_at = Clock()()
+            db.commit()
+            raise JobElevenLabsTranscriptionError(JobElevenLabsTranscriptionReason.provider_timeout)
+        return FakeCM(Transcript(), events, "transcript_enter", "transcript_exit")
+
+    _, g = fakes(events)
+    result = orchestrate_processing_job(
+        db,
+        job_id=job.id,
+        lease_owner_id="worker",
+        lease_generation=7,
+        settings=Settings(),
+        clock=Clock(),
+        transcription_opener=transcriber,
+        google_docs_opener=g,
+        output_persister=persister,
+    )
+
+    assert result.final_job_status == m.JobStatus.cancelled
+    assert result.processed_source_count == 1
+    assert db.query(m.TranscriptionJobOutput).count() == 1
+    assert len([e for e in events if isinstance(e, tuple) and e[0] == "transcribe"]) == 2
+    assert len([e for e in events if isinstance(e, tuple) and e[0] == "google"]) == 1
