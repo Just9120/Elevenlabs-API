@@ -127,12 +127,14 @@ processing write path
 → Google Docs artifact
 → persisted safe output reference
 
-authenticated browser read path
-→ owner-scoped output serializer
-→ validated Google web-view URL only
+authenticated session
+→ owner-scoped job authority
+→ deterministic output/source query
+→ closed allowlist serializer
+→ validated Google web-view URL or null
 ```
 
-`PWA-OUTPUT-02-PREP` approves the read-path contract for a future explicit `GET /api/jobs/{job_id}/outputs` endpoint, but this PREP PR does not implement that endpoint, a serializer, frontend links, polling, Google API calls, output persistence changes, worker changes, runtime changes, deployment, or production-live processing. The future read path must first authorize the job through the same owner-scoped authority as job detail, then serialize only source metadata already visible to that owner plus safe output metadata and a parsed/validated `docs.google.com` or `drive.google.com` HTTPS web-view URL. It must never return transcript text, document body content, Google document ids, output folder ids, lease generation, storage paths, tokens, raw provider/Google responses, or unsafe persisted URLs.
+`PWA-OUTPUT-02A` implements the read path in source for the explicit `GET /api/jobs/{job_id}/outputs` endpoint. The path first authorizes the job through the same owner-scoped authority as job detail, then queries persisted output/source rows with deterministic ordering, serializes only a closed allowlist of source metadata plus safe output metadata, and returns a parsed/validated `docs.google.com` or `drive.google.com` HTTPS web-view URL or `null`. It does not add frontend links, polling, Google API calls, output persistence changes, worker changes, runtime changes, deployment, or production-live processing. It must never return transcript text, document body content, Google document ids, output folder ids, lease generation, storage paths, tokens, raw provider/Google responses, or unsafe persisted URLs.
 
 ## 10. Current refactor seams for future implementation work
 

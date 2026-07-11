@@ -1517,3 +1517,248 @@ def test_processing_failure_and_expired_recovery_paths():
         assert job.status == JobStatus.cancelled and job.finished_at == LEASE_TEST_NOW + timedelta(minutes=6)
     finally:
         db.close()
+
+JOB_OUTPUT_TOP_KEYS = {"job_id", "job_status", "output_count", "outputs"}
+JOB_OUTPUT_ENTRY_KEYS = {"source_id", "source_position", "source_name", "source_type", "output_kind", "transcript_standard", "web_view_url", "link_available", "document_character_count", "document_created_at", "persisted_at"}
+
+
+def create_job_with_sources(email="job-output@example.com", names=("one.mp4",)):
+    c, headers, pid = create_logged_in_project(email)
+    source_ids = [create_gdrive_source(c, headers, pid, name) for name in names]
+    r = c.post(f"/api/projects/{pid}/jobs", json={"source_ids": source_ids}, headers=headers)
+    assert r.status_code == 200
+    return c, headers, pid, r.json()["id"], source_ids
+
+
+def add_output_row(job_id, source_id, *, url="https://docs.google.com/document/d/doc/edit", doc_id=None, persisted_at=None, output_id=None):
+    db = SessionLocal()
+    try:
+        rel = db.query(TranscriptionJobSource).filter_by(job_id=job_id, source_id=source_id).one()
+        now = persisted_at or utcnow()
+        values = {"id": output_id} if output_id is not None else {}
+        output = TranscriptionJobOutput(
+            **values,
+            job_id=job_id,
+            job_source_id=rel.id,
+            document_id=doc_id or f"doc-{job_id}-{source_id}",
+            web_view_url=url,
+            output_drive_folder_id="folder-secret-marker",
+            output_kind="google_doc_transcript",
+            transcript_standard="transcript_doc_v1.2",
+            document_character_count=42,
+            document_created_at=now,
+            persisted_at=now,
+            lease_generation=3,
+        )
+        db.add(output)
+        db.commit()
+        return output.id
+    finally:
+        db.close()
+
+
+def test_job_output_authentication_and_no_csrf_required():
+    c, headers, _pid, jid, source_ids = create_job_with_sources("job-output-auth@example.com")
+    add_output_row(jid, source_ids[0], doc_id="doc-output-auth")
+    anon = TestClient(app)
+    assert anon.get(f"/api/jobs/{jid}/outputs").status_code == 401
+    r = c.get(f"/api/jobs/{jid}/outputs")
+    assert r.status_code == 200
+    assert r.json()["output_count"] == 1
+
+
+def test_job_output_owner_scoped_success_exact_shapes():
+    c1, _h1, _pid1, jid1, source_ids1 = create_job_with_sources("job-output-owner1@example.com")
+    c2, _h2, _pid2, jid2, source_ids2 = create_job_with_sources("job-output-owner2@example.com")
+    add_output_row(jid1, source_ids1[0], url="https://docs.google.com/document/d/own/edit", doc_id="doc-output-owner-1")
+    add_output_row(jid2, source_ids2[0], url="https://docs.google.com/document/d/other/edit", doc_id="doc-output-owner-2")
+    body = c1.get(f"/api/jobs/{jid1}/outputs").json()
+    assert set(body) == JOB_OUTPUT_TOP_KEYS
+    assert body["job_id"] == jid1 and body["job_status"] == "queued" and body["output_count"] == 1
+    assert set(body["outputs"][0]) == JOB_OUTPUT_ENTRY_KEYS
+    assert body["outputs"][0]["source_id"] == source_ids1[0]
+    assert "other" not in repr(body)
+    assert c1.get(f"/api/jobs/{jid2}/outputs").status_code == 404
+
+
+def test_job_output_missing_and_cross_owner_are_generic_404():
+    c1, _h1, _pid1, _jid1, _source_ids1 = create_job_with_sources("job-output-404-owner@example.com")
+    c2, _h2, _pid2, jid2, _source_ids2 = create_job_with_sources("job-output-404-other@example.com")
+    missing = c1.get("/api/jobs/00000000-0000-0000-0000-000000000000/outputs")
+    cross = c1.get(f"/api/jobs/{jid2}/outputs")
+    assert missing.status_code == 404 and cross.status_code == 404
+    assert missing.text == cross.text
+
+
+def test_job_output_empty_owned_queued_job():
+    c, _headers, _pid, jid, _source_ids = create_job_with_sources("job-output-empty@example.com")
+    r = c.get(f"/api/jobs/{jid}/outputs")
+    assert r.status_code == 200
+    assert r.json() == {"job_id": jid, "job_status": "queued", "output_count": 0, "outputs": []}
+
+
+@pytest.mark.parametrize("status_value", [JobStatus.processing, JobStatus.failed, JobStatus.cancelled, JobStatus.completed])
+def test_job_output_partial_outputs_for_non_queued_statuses(status_value):
+    c, _headers, _pid, jid, source_ids = create_job_with_sources(f"job-output-partial-{status_value.value}@example.com")
+    add_output_row(jid, source_ids[0], doc_id=f"doc-output-partial-{status_value.value}")
+    db = SessionLocal()
+    try:
+        job = db.get(TranscriptionJob, jid)
+        job.status = status_value
+        db.commit()
+    finally:
+        db.close()
+    body = c.get(f"/api/jobs/{jid}/outputs").json()
+    assert body["job_status"] == status_value.value
+    assert body["output_count"] == 1
+
+
+def test_job_output_deterministic_ordering_and_hidden_output_id():
+    c, _headers, _pid, jid, source_ids = create_job_with_sources(
+        "job-output-order@example.com",
+        ("position-primary.mp4", "timestamp-late.mp4", "timestamp-early.mp4", "id-b.mp4", "id-a.mp4"),
+    )
+    db = SessionLocal()
+    try:
+        relations = db.query(TranscriptionJobSource).filter_by(job_id=jid).all()
+        by_source_id = {rel.source_id: rel for rel in relations}
+        by_source_id[source_ids[0]].position = 0
+        by_source_id[source_ids[1]].position = 1
+        by_source_id[source_ids[2]].position = 1
+        by_source_id[source_ids[3]].position = 2
+        by_source_id[source_ids[4]].position = 2
+        db.commit()
+    finally:
+        db.close()
+
+    base = datetime(2026, 7, 11, 10, 0, tzinfo=timezone.utc)
+    id_position_primary = add_output_row(
+        jid,
+        source_ids[0],
+        doc_id="doc-output-order-position",
+        persisted_at=base + timedelta(hours=1),
+        output_id="order-output-position-primary",
+    )
+    id_timestamp_late = add_output_row(
+        jid,
+        source_ids[1],
+        doc_id="doc-output-order-timestamp-late",
+        persisted_at=base + timedelta(minutes=2),
+        output_id="order-output-timestamp-late",
+    )
+    id_timestamp_early = add_output_row(
+        jid,
+        source_ids[2],
+        doc_id="doc-output-order-timestamp-early",
+        persisted_at=base + timedelta(minutes=1),
+        output_id="order-output-timestamp-early",
+    )
+    id_tiebreaker_b = add_output_row(
+        jid,
+        source_ids[3],
+        doc_id="doc-output-order-id-b",
+        persisted_at=base + timedelta(minutes=3),
+        output_id="order-output-id-b",
+    )
+    id_tiebreaker_a = add_output_row(
+        jid,
+        source_ids[4],
+        doc_id="doc-output-order-id-a",
+        persisted_at=base + timedelta(minutes=3),
+        output_id="order-output-id-a",
+    )
+
+    response = c.get(f"/api/jobs/{jid}/outputs")
+    body = response.json()
+    assert [o["source_id"] for o in body["outputs"]] == [
+        source_ids[0],
+        source_ids[2],
+        source_ids[1],
+        source_ids[4],
+        source_ids[3],
+    ]
+    assert [o["source_position"] for o in body["outputs"]] == [0, 1, 1, 2, 2]
+    assert [o["source_name"] for o in body["outputs"]] == [
+        "position-primary.mp4",
+        "timestamp-early.mp4",
+        "timestamp-late.mp4",
+        "id-a.mp4",
+        "id-b.mp4",
+    ]
+    assert all("id" not in o and "output_id" not in o for o in body["outputs"])
+    for output_id in [id_position_primary, id_timestamp_late, id_timestamp_early, id_tiebreaker_a, id_tiebreaker_b]:
+        assert output_id not in response.text
+
+
+def test_job_output_mixed_url_safety_preserves_entries_and_hides_secret_url():
+    c, _headers, _pid, jid, source_ids = create_job_with_sources("job-output-url@example.com", ("safe.mp4", "unsafe.mp4"))
+    safe = "https://docs.google.com/document/d/safe/edit?tab=t#h"
+    unsafe = "https://user:secret-output-token@docs.google.com/document/d/unsafe/edit"
+    add_output_row(jid, source_ids[0], url=safe, doc_id="doc-output-url-safe")
+    add_output_row(jid, source_ids[1], url=unsafe, doc_id="doc-output-url-unsafe")
+    r = c.get(f"/api/jobs/{jid}/outputs")
+    body = r.json()
+    assert body["output_count"] == 2
+    assert body["outputs"][0]["web_view_url"] == safe
+    assert body["outputs"][0]["link_available"] is True
+    assert body["outputs"][1]["web_view_url"] is None
+    assert body["outputs"][1]["link_available"] is False
+    assert unsafe not in r.text and "secret-output-token" not in r.text
+
+
+def test_job_output_forbidden_fields_and_secret_markers_absent():
+    c, _headers, _pid, jid, source_ids = create_job_with_sources("job-output-forbidden@example.com")
+    add_output_row(jid, source_ids[0], doc_id="secret-doc-marker", url="https://docs.google.com/document/d/safe/edit")
+    db = SessionLocal()
+    try:
+        source = db.get(Source, source_ids[0])
+        source.drive_file_id = "secret-drive-id-marker"
+        source.drive_file_url = "https://drive.google.com/secret-drive-url-marker"
+        source.s3_bucket = "secret-bucket-marker"
+        source.s3_object_key = "secret-object-key-marker"
+        output = db.query(TranscriptionJobOutput).filter_by(job_id=jid).one()
+        output.output_drive_folder_id = "secret-folder-marker"
+        output.lease_generation = 123
+        db.commit()
+    finally:
+        db.close()
+    r = c.get(f"/api/jobs/{jid}/outputs")
+    for marker in ["secret-doc-marker", "secret-drive-id-marker", "secret-drive-url-marker", "secret-bucket-marker", "secret-object-key-marker", "secret-folder-marker", "lease_generation", "job_source_id"]:
+        assert marker not in r.text
+
+
+def test_job_output_existing_job_payloads_remain_unchanged_after_outputs_exist():
+    c, _headers, pid, jid, source_ids = create_job_with_sources("job-output-compat@example.com")
+    add_output_row(jid, source_ids[0], doc_id="doc-output-compat", url="https://docs.google.com/document/d/compat/edit")
+    detail = c.get(f"/api/jobs/{jid}")
+    listed = c.get(f"/api/projects/{pid}/jobs")
+    for response in [detail, listed]:
+        assert response.status_code == 200
+        assert "outputs" not in response.text
+        assert "web_view_url" not in response.text
+        assert "compat/edit" not in response.text
+
+
+def test_job_output_archived_project_matches_existing_job_detail_authority():
+    c, headers, pid, jid, source_ids = create_job_with_sources("job-output-archived@example.com")
+    add_output_row(jid, source_ids[0], doc_id="doc-output-archived")
+    c.post(f"/api/projects/{pid}/archive", headers=headers)
+    detail = c.get(f"/api/jobs/{jid}")
+    outputs = c.get(f"/api/jobs/{jid}/outputs")
+    assert detail.status_code == outputs.status_code == 200
+    assert outputs.json()["output_count"] == 1
+
+
+def test_job_output_unexpected_query_failure_is_generic(monkeypatch):
+    c, _headers, _pid, jid, _source_ids = create_job_with_sources("job-output-failure@example.com")
+    secret = "secret-sql-url-token traceback SELECT * FROM transcription_job_outputs"
+    def fail(_db, _job_id):
+        raise RuntimeError(secret)
+    monkeypatch.setattr("studio_api.main.load_browser_job_output_rows", fail)
+    client = TestClient(app, raise_server_exceptions=False)
+    client.cookies.update(c.cookies)
+    r = client.get(f"/api/jobs/{jid}/outputs")
+    assert r.status_code == 500
+    assert secret not in r.text
+    for marker in ["secret-sql-url-token", "traceback", "SELECT", jid, "transcription_job_outputs"]:
+        assert marker not in r.text

@@ -492,7 +492,7 @@ This source does not add a background heartbeat: no renewal runs while one sourc
 
 ## PWA-OUTPUT-02-PREP browser-safe Studio job output discovery contract
 
-`PWA-OUTPUT-02-PREP` is documentation-only preparation for browser-safe discovery of Studio outputs already persisted by internal processing. It does not add an API route, serializer, frontend behavior, polling, output persistence, processing behavior, worker behavior, Google API call, migration, Compose/runtime/deploy change, production rollout, or production-live processing claim.
+`PWA-OUTPUT-02-PREP` prepared the browser-safe discovery contract for Studio outputs already persisted by internal processing. `PWA-OUTPUT-02A` now implements the source-only read API endpoint, closed allowlist serializer, parsed Google URL validation, partial output discovery, and deterministic ordering. It does not add frontend behavior, polling, output persistence changes, processing behavior, worker behavior, Google API calls, migrations, Compose/runtime/deploy changes, production rollout, or a production-live processing claim.
 
 ### Approved endpoint shape
 
@@ -502,7 +502,7 @@ The only approved browser output-discovery endpoint is:
 GET /api/jobs/{job_id}/outputs
 ```
 
-The endpoint is an internal authenticated browser API, is read-only, and requires the existing authenticated browser session. It does not require CSRF protection because it performs no mutation. Output URLs must not be added to project job-list responses, and the first implementation must not automatically widen every existing `GET /api/jobs/{job_id}` response with output records. Keeping output discovery explicit preserves list/detail compatibility, keeps URL-bearing metadata opt-in, and enables focused authorization and redaction tests.
+The endpoint is implemented as an internal authenticated browser API, is read-only, and requires the existing authenticated browser session. It does not require CSRF protection because it performs no mutation. Output URLs must not be added to project job-list responses, and the first implementation must not automatically widen every existing `GET /api/jobs/{job_id}` response with output records. Keeping output discovery explicit preserves list/detail compatibility, keeps URL-bearing metadata opt-in, and enables focused authorization and redaction tests.
 
 Conceptual response shape:
 
@@ -523,7 +523,7 @@ The endpoint must use the same owner-scoped job authority as the existing job-de
 
 Output rows must be constrained through the already-authorized job id. The implementation must not authorize by output id, source id, project id, document id, URL, or archived project state. Archived project state must not create broader access than the existing job-detail contract. No admin bypass, sharing path, public links endpoint, anonymous access, signed API token, or service-to-service output endpoint is approved.
 
-The future implementation must join output rows to the job-source relation and source record only after job ownership is established.
+The implementation joins output rows to the job-source relation and source record only after job ownership is established.
 
 ### Browser-safe and forbidden fields
 
@@ -565,12 +565,12 @@ Unauthenticated requests follow the existing session dependency behavior. Nonexi
 
 ### Implementation, frontend, and production boundaries
 
-The only approved next implementation item after this PREP contract is `PWA-OUTPUT-02A — Browser-safe Studio job output API`.
+`PWA-OUTPUT-02A — Browser-safe Studio job output API` is the active source implementation of this read path.
 
-That later implementation may add `GET /api/jobs/{job_id}/outputs`; add a small focused output serializer/helper; add parsed Google URL validation; query persisted outputs with deterministic ordering; join only the authorized job-source/source metadata needed by the response; add PostgreSQL-backed API tests; add DB-free helper tests when useful; and update the four relevant documentation files narrowly.
+That implementation adds `GET /api/jobs/{job_id}/outputs`, a small focused output serializer/helper, parsed Google URL validation, deterministic persisted-output queries, authorized job-source/source joins limited to response metadata, PostgreSQL-backed API tests, DB-free helper tests, and narrow updates to the relevant documentation files.
 
-That implementation must not modify the database schema, add migrations, change output persistence, change processing or worker behavior, add frontend output links, add a public processing endpoint, add Google API calls, refresh Google tokens, verify document existence live, add sharing, add download/proxy behavior, expose transcript text or document body, deploy to production, or claim production-live processing. No additional delivery item id is approved or named after `PWA-OUTPUT-02A`.
+It must not modify the database schema, add migrations, change output persistence, change processing or worker behavior, add frontend output links, add a public processing endpoint, add Google API calls, refresh Google tokens, verify document existence live, add sharing, add download/proxy behavior, expose transcript text or document body, deploy to production, or claim production-live processing. No additional delivery item id is approved or named after `PWA-OUTPUT-02A`.
 
 Frontend output rendering is outside `PWA-OUTPUT-02A`. A later separately approved frontend item may request the explicit outputs endpoint for an opened job, display partial or completed output links, distinguish job status from output availability, and open validated Google links in a new browser context with safe `rel` attributes. This contract does not assign an item id to that future frontend work and does not approve frontend polling behavior.
 
-This PREP PR makes no runtime change. Even after `PWA-OUTPUT-02A`, source-done/merged will not mean production-live; the `studio-worker` still requires separate operator rollout and evidence; browser output access will require source deployment before it is live; Colab remains the working production contour; Studio manifest mutation remains unimplemented; and exactly-once Google document creation remains unclaimed.
+`PWA-OUTPUT-02A` is source-only; source-done/merged will not mean production-live; the `studio-worker` still requires separate operator rollout and evidence; browser output access will require source deployment before it is live; Colab remains the working production contour; Studio manifest mutation remains unimplemented; and exactly-once Google document creation remains unclaimed.
