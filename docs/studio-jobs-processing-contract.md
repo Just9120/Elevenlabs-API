@@ -355,3 +355,124 @@ These boundaries do not poll, loop, sleep, back off, run as a worker process, co
 ### Residual limitations
 
 This contract preserves these limitations: no worker process, no polling loop, no sleep/backoff, no Redis queue, no queue consumer, no public processing endpoint, no automatic startup, no scheduler, no OpenAI execution, no manifest mutation, no browser output API, no frontend output links, no automatic retry/reconciliation, no exactly-once guarantee, no runtime/deploy changes, no production migration execution, and no production-live processing claim.
+
+### PWA-WORKER-01-PREP dedicated Studio polling worker runtime contract
+
+`PWA-WORKER-01-PREP` is documentation-only preparation for the first dedicated Studio polling worker runtime. It does not implement a worker process, polling, signal handling, lease-renewal code, Docker/Compose wiring, deployment, operator procedure, migration, Redis behavior, retries, recovery, manifest mutation, or production-live processing.
+
+#### Process topology
+
+The future worker is a dedicated server-side Python process named conceptually `studio-worker`. It must run separately from the FastAPI/Uvicorn `studio-api` HTTP process, process at most one job at a time per process, use PostgreSQL as the job discovery and locking authority, and invoke the existing claim-next-and-orchestrate boundaries for exactly one iteration at a time.
+
+The worker must expose no HTTP port and no public API. It must never execute inside a FastAPI request handler, startup hook, FastAPI background task, or the Studio browser/frontend container. The first implementation must reuse the existing Studio API application image with a different command override instead of creating a second divergent application image or Dockerfile.
+
+The initial Compose topology is limited to one `studio-worker` service instance. PostgreSQL `SELECT FOR UPDATE SKIP LOCKED` makes future multiple replicas concurrency-safe in principle, but this preparation item does not approve autoscaling or replica-management behavior.
+
+#### Worker lease owner identity
+
+Each worker process must generate exactly one opaque lease owner id at process startup and keep it stable for that process lifetime. Restarting the process must generate a different owner id. The required format semantics are:
+
+```text
+studio-worker:<bounded-host-identity>:<random-process-uuid>
+```
+
+Exact implementation formatting may vary, but the value must fit the existing 128-character lease-owner limit. It must not contain a user id, email, project id, job id, source id, secret, token, credential, private hostname metadata, or deployment path. It is internal coordination metadata, not a secret, and must never be returned through browser APIs. The worker must not create a new owner id for each loop iteration.
+
+#### Runtime configuration
+
+The next implementation may add only these worker runtime settings and environment variables:
+
+| Settings field | Environment variable | Default | Minimum | Maximum |
+|---|---|---:|---:|---:|
+| `worker_poll_interval_seconds` | `STUDIO_WORKER_POLL_INTERVAL_SECONDS` | 5 | 1 | 60 |
+| `worker_error_backoff_seconds` | `STUDIO_WORKER_ERROR_BACKOFF_SECONDS` | 5 | 1 | 300 |
+| `worker_lease_ttl_seconds` | `STUDIO_WORKER_LEASE_TTL_SECONDS` | 3600 | 300 | 86400 |
+
+The lease TTL maximum matches the existing 24-hour lease maximum. Invalid worker configuration must fail fast during process startup with a normalized, non-secret configuration error. The process must not start polling with invalid values. Worker configuration must not be loaded from browser input, job metadata, Redis, or database rows.
+
+#### Main worker loop
+
+The future worker loop is:
+
+```text
+validate runtime configuration
+→ create one process owner id
+→ install SIGTERM/SIGINT stop handling
+→ repeat until stop requested:
+    create a fresh SQLAlchemy Session
+    → call claim_next_and_orchestrate_processing_job once
+    → close the Session
+    → if a job was processed:
+        continue without an idle sleep
+    → if idle:
+        interruptibly wait for poll interval
+    → if a normalized iteration/job error occurred:
+        safely report the reason
+        interruptibly wait for error backoff
+    → if stop was requested:
+        do not claim another job
+→ exit cleanly
+```
+
+The loop itself must not contain provider, Google, storage, lifecycle, or persistence logic. It delegates one iteration to the existing runner and orchestrator boundaries. It must not approve batch claims, multiple simultaneous jobs in one process, an in-memory queue, a Redis queue, a scheduler, cron behavior, recursive worker invocation, or automatic retry of the same processing attempt.
+
+#### Database session lifecycle
+
+The worker must create a fresh SQLAlchemy `Session` for each single iteration. It must not reuse one `Session` indefinitely across iterations, keep a `Session` open during idle sleep, keep a failed transaction alive for the next iteration, or retain ORM entities across iterations.
+
+For every iteration, the existing iteration boundary owns its commits and rollbacks. The worker must close the `Session` in a `finally` block. An idle result must end the transaction before sleep. A raised exception must not leak a failed transaction into the next iteration. Database connection pooling remains owned by the existing SQLAlchemy engine.
+
+#### PostgreSQL and Redis authority
+
+PostgreSQL remains authoritative for job discovery, deterministic ordering, row locking, leases, lifecycle, output persistence, and completion.
+
+Redis must not be used for job queues, job discovery, locks, lease ownership, retries, scheduling, wake-up notifications, or worker heartbeats. The existing Redis service remains unrelated rate-limit infrastructure. The worker contract must not add a Redis dependency beyond unrelated application configuration that already exists.
+
+#### Lease TTL and renewal policy
+
+The future runtime must use the existing synchronous `renew_job_lease` primitive only at deterministic orchestration checkpoints. It must not use a background heartbeat thread, asyncio task, timer thread, or second concurrent renewal `Session`.
+
+The next implementation item must extend orchestration composition narrowly so that the active lease can be renewed and committed at these safe checkpoints:
+
+- before starting external work for the first source;
+- before starting external work for each later source;
+- after provider completion and before Google token/Drive/Docs work;
+- after each durable per-source output commit and before another source.
+
+Every successful renewal must use the exact current owner and generation, use a fresh clock value, use the configured worker lease TTL, and commit before the next external side effect. If renewal, ownership validation, or renewal commit fails, the implementation must rollback, stop the current orchestration, perform no new provider or Google side effect, avoid automatic retry, and preserve normalized fencing behavior.
+
+Residual limitation: there is no background renewal during one in-progress source materialization/provider call. One continuous source/provider stage must complete within the configured lease TTL. Expiry still fails closed. This limitation prevents a production-live claim until runtime validation exists.
+
+#### Graceful shutdown
+
+SIGTERM and SIGINT must request shutdown rather than abruptly starting new work. When idle, the worker must interrupt the wait and exit. Before claiming, it must check the stop flag. Once a job has been claimed and orchestration has begun, the worker must allow the current synchronous iteration to reach its normal completion or normalized failure. After that iteration returns or raises, it must not claim another job.
+
+The worker must not automatically cancel the active job, release its lease, kill provider or Google calls from a signal handler, or perform database operations inside the signal handler. It should exit with status 0 after an orderly requested shutdown. Unexpected fatal startup/configuration failures may exit non-zero. Forced container termination and operator timeout behavior remain deployment/operator concerns and are not production evidence.
+
+#### Error behavior
+
+Startup/configuration errors must emit a safe normalized message, exit non-zero, and begin no polling. Idle is a normal result, must not be logged as warning/error, and waits for the poll interval.
+
+Known `JobLeaseError`, `JobProcessingRunnerError`, or `JobProcessingOrchestrationError` from one iteration must rollback/close through existing boundaries, log only a safe type/reason and allowed operational metadata, avoid same-attempt retry, wait for error backoff, and continue the outer loop unless shutdown was requested.
+
+Unexpected iteration exceptions must close/rollback the iteration `Session`, log a normalized `worker_iteration_failed` event without raw exception text, wait for error backoff, and continue unless shutdown was requested. The worker must not silently exit after one job-level failure. It must not convert failed, cancelled, completed, or uncertain-output jobs back to queued. Expired-processing recovery remains separate and must not be added to this worker loop.
+
+#### Safe logging
+
+Allowed safe operational fields are event name, normalized reason, job id when already present in a safe result/error context, final job status, attempt count, required source count, persisted output count, processed source count, completion boolean, and process owner id only in redacted/bounded internal startup diagnostics.
+
+The worker must never log transcript text or words, private source filenames, source ids or job-source ids unless separately approved, document ids or URLs, Drive folder ids, provider responses, Google responses, OAuth tokens, provider credentials, object keys, presigned URLs, secret file contents, environment values, raw exception text, or tracebacks containing request data.
+
+Python logging to stdout/stderr is sufficient for the first implementation. This contract does not approve a metrics backend, tracing platform, audit table, or new observability dependency.
+
+#### Approved next implementation scope
+
+The only explicitly approved next implementation item is `PWA-WORKER-01B — Dedicated Studio polling worker source and Compose wiring`.
+
+That later source PR may add a worker loop/entrypoint module; add the three validated `Settings` fields; add the three keys to `deploy/studio/.env.example`; add one `studio-worker` service to `deploy/studio/compose.platform.yml`; reuse the `studio-api` image with a command override; mount the same required credential, Google, PostgreSQL, and source-storage secret files; depend on PostgreSQL health; use `restart: unless-stopped`; expose no port; add focused unit and Compose-contract tests; and update deployment source documentation narrowly.
+
+That later item must not deploy to production, execute migrations, change volumes, recreate PostgreSQL or Redis, change production `.env` values, add a Redis queue, add a public endpoint, or claim production-live processing.
+
+#### Deployment and production boundary
+
+This preparation PR makes no runtime change. Even after the later source implementation, source-done/merged will not mean production-live; migration rollout remains manual/operator-scoped; deployment requires separate operator action and evidence; provider/Google processing success requires factual runtime evidence; Colab remains the working production contour until Studio runtime evidence exists; Studio manifest mutation remains unimplemented; and exactly-once Google document creation remains unclaimed.
