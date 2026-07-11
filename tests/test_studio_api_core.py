@@ -34,7 +34,7 @@ from studio_api.deps import get_client_ip
 from studio_api.main import app, limiter
 from studio_api.models import AuditEvent, JobStatus, LocalIdentity, Project, ProviderCredentialVersion, Source, SourceType, SourceUploadStatus, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, User, UserRole, UserStatus
 from studio_api.security import aad, decrypt, encrypt, hash_password, master_key_from_b64, utcnow, verify_password
-from studio_api.job_claim_lease import JobLeaseError, JobLeaseFailureReason, acquire_job_lease, is_lease_active, release_job_lease, renew_job_lease
+from studio_api.job_claim_lease import JobLeaseError, JobLeaseFailureReason, acquire_job_lease, acquire_next_ready_job_lease, is_lease_active, release_job_lease, renew_job_lease
 from studio_api.job_processing_lifecycle import JobProcessingError, JobProcessingFailureReason, acknowledge_job_cancellation, begin_job_processing, fail_job_processing, recover_expired_processing_job
 from studio_api.google_docs_output import GoogleDocsCreateResult, new_google_docs_transcript_artifact
 from studio_api.job_output_persistence import JobOutputPersistenceError, JobOutputPersistenceReason, _load_locked_output_authority, persist_processing_job_source_output_and_maybe_complete
@@ -1204,6 +1204,71 @@ def test_two_sessions_cannot_both_claim_active_lease():
     finally:
         first.close(); second.close()
 
+
+
+def test_claim_next_skip_locked_claims_next_unlocked_job():
+    _, oldest_id = lease_test_job()
+    _, next_id = lease_test_job()
+    setup = SessionLocal()
+    try:
+        setup.get(TranscriptionJob, oldest_id).created_at = LEASE_TEST_NOW
+        setup.get(TranscriptionJob, next_id).created_at = LEASE_TEST_NOW + timedelta(seconds=1)
+        setup.commit()
+    finally:
+        setup.close()
+
+    locker = SessionLocal(); claimer = SessionLocal(); verifier = SessionLocal()
+    try:
+        locker.execute(
+            select(TranscriptionJob)
+            .where(TranscriptionJob.id == oldest_id)
+            .with_for_update()
+        ).scalar_one()
+
+        handle = acquire_next_ready_job_lease(
+            claimer,
+            lease_owner_id="owner-b",
+            now=LEASE_TEST_NOW + timedelta(minutes=1),
+            lease_ttl=LEASE_TEST_TTL,
+        )
+        assert handle is not None
+        assert handle.job_id == next_id
+        assert handle.lease_owner_id == "owner-b"
+        assert handle.lease_generation == 1
+        claimer.commit()
+
+        stored = verifier.get(TranscriptionJob, next_id)
+        assert stored.lease_owner_id == handle.lease_owner_id
+        assert stored.lease_generation == handle.lease_generation
+        assert verifier.get(TranscriptionJob, oldest_id).lease_owner_id is None
+    finally:
+        locker.rollback(); claimer.rollback(); verifier.close(); locker.close(); claimer.close()
+
+
+def test_concurrent_claim_next_callers_do_not_receive_same_job():
+    _, first_id = lease_test_job()
+    _, second_id = lease_test_job()
+    setup = SessionLocal()
+    try:
+        setup.get(TranscriptionJob, first_id).created_at = LEASE_TEST_NOW
+        setup.get(TranscriptionJob, second_id).created_at = LEASE_TEST_NOW + timedelta(seconds=1)
+        setup.commit()
+    finally:
+        setup.close()
+
+    first = SessionLocal(); second = SessionLocal(); verifier = SessionLocal()
+    try:
+        first_handle = acquire_next_ready_job_lease(first, lease_owner_id="owner-1", now=LEASE_TEST_NOW + timedelta(minutes=1), lease_ttl=LEASE_TEST_TTL)
+        second_handle = acquire_next_ready_job_lease(second, lease_owner_id="owner-2", now=LEASE_TEST_NOW + timedelta(minutes=1), lease_ttl=LEASE_TEST_TTL)
+        assert first_handle is not None and second_handle is not None
+        assert first_handle.job_id != second_handle.job_id
+        first.commit(); second.commit()
+        for handle in (first_handle, second_handle):
+            stored = verifier.get(TranscriptionJob, handle.job_id)
+            assert stored.lease_owner_id == handle.lease_owner_id
+            assert stored.lease_generation == handle.lease_generation
+    finally:
+        first.rollback(); second.rollback(); verifier.close(); first.close(); second.close()
 
 def test_renew_and_strict_release_semantics():
     _, job_id = lease_test_job()

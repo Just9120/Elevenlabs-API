@@ -6,7 +6,7 @@ from typing import Callable
 
 from sqlalchemy.orm import Session
 
-from .job_claim_lease import JobLeaseError, acquire_job_lease
+from .job_claim_lease import JobLeaseError, acquire_job_lease, acquire_next_ready_job_lease
 from .job_processing_orchestrator import (
     JobProcessingOrchestrationError,
     JobProcessingOrchestrationResult,
@@ -25,6 +25,50 @@ class JobProcessingRunnerError(RuntimeError):
     def __init__(self, reason: JobProcessingRunnerReason):
         self.reason = reason
         super().__init__(reason.value)
+
+
+def claim_next_and_orchestrate_processing_job(
+    db: Session,
+    *,
+    lease_owner_id: str,
+    lease_ttl: timedelta,
+    settings,
+    clock: Callable[[], datetime] | None = None,
+    next_lease_acquirer: Callable = acquire_next_ready_job_lease,
+    orchestrator: Callable = orchestrate_processing_job,
+) -> JobProcessingOrchestrationResult | None:
+    """Claim the next ready queued job, commit the lease, then run the orchestrator once.
+
+    Idle state is represented by ``None`` and ends the selection transaction.
+    """
+
+    clock = clock or (lambda: utcnow().replace(tzinfo=None))
+    now = clock()
+    try:
+        handle = next_lease_acquirer(
+            db,
+            lease_owner_id=lease_owner_id,
+            now=now,
+            lease_ttl=lease_ttl,
+        )
+    except JobLeaseError:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        raise JobProcessingRunnerError(JobProcessingRunnerReason.claim_failed) from exc
+
+    if handle is None:
+        db.rollback()
+        return None
+
+    return _commit_and_orchestrate(
+        db,
+        handle=handle,
+        settings=settings,
+        clock=clock,
+        orchestrator=orchestrator,
+    )
 
 
 def claim_and_orchestrate_processing_job(
@@ -57,6 +101,23 @@ def claim_and_orchestrate_processing_job(
         db.rollback()
         raise JobProcessingRunnerError(JobProcessingRunnerReason.claim_failed) from exc
 
+    return _commit_and_orchestrate(
+        db,
+        handle=handle,
+        settings=settings,
+        clock=clock,
+        orchestrator=orchestrator,
+    )
+
+
+def _commit_and_orchestrate(
+    db: Session,
+    *,
+    handle,
+    settings,
+    clock: Callable[[], datetime],
+    orchestrator: Callable,
+) -> JobProcessingOrchestrationResult:
     try:
         db.commit()
     except Exception as exc:
