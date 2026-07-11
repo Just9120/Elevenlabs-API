@@ -247,3 +247,84 @@ Persistence is an internal service-layer transaction boundary, not a FastAPI end
 Completion authority is persisted-output coverage, not receipt of a single artifact. In the same transaction as output persistence, the helper counts all non-skipped job-source relations and their output rows. Multi-source jobs remain `processing` after partial output persistence, keep `finished_at` unset, and preserve the active lease. Only when every non-skipped relation has exactly one output row does the helper set the job to `completed`, set `finished_at`, clear safe failure fields, and invalidate lease ownership. Job-source statuses remain `queued`/`skipped`; no `completed` job-source status is introduced.
 
 The Google Docs creation boundary now checks for an existing persisted output before token refresh or folder metadata I/O and again immediately before the Google create request. If an output row already exists, it raises the normalized `output_already_persisted` reason and makes no Google request. This prevents duplicate creation after successful persistence, but it is not full exactly-once output creation: a crash after Google creates a document and before database persistence can still leave an unpersisted external document. This slice deliberately adds no automatic retry, pending reservation, orphan discovery, reconciliation worker, or Google document delete/move/rollback behavior.
+
+## PWA-PIPELINE-01-PREP internal single-job orchestration contract
+
+`PWA-PIPELINE-01-PREP` defines the contract for the next implementation slice, `PWA-PIPELINE-01A — Internal synchronous single-job orchestrator`. It is a documentation-only approval for composition rules, not an implementation approval for a worker, queue consumer, scheduler, public processing endpoint, runtime service, automatic retry system, production migration execution, or production-live processing.
+
+### Orchestrator identity
+
+The future `PWA-PIPELINE-01A` orchestrator must be internal, server-only, and synchronous. It is invoked only with an existing database session, a job id, the exact lease owner id, the exact lease generation, settings, and a clock. It is not exposed through FastAPI, is not a worker, queue consumer, scheduler, CLI loop, background service, or runtime daemon, and is not authorized to claim an unowned job by itself.
+
+The orchestrator operates only on a job that is already leased by the supplied owner/generation and is eligible to enter or remain in `processing`. Claiming an unowned job, choosing lease owners, runtime invocation, worker topology, queue technology, and production lease-renewal policy remain outside this contract.
+
+### Deterministic source ordering and output authority
+
+The orchestrator must process job-source relations in deterministic persisted order:
+
+1. `position`;
+2. relation id as the stable tie-breaker.
+
+Relations with `JobSourceStatus.skipped` are ignored. Existing persisted outputs are authoritative: a relation with an existing output row must not repeat provider or Google Docs work, and the orchestrator may continue with the next required relation. Completion is determined by output coverage for every non-skipped relation, not by mutating job-source status. No `completed` job-source status is introduced.
+
+### Per-source sequence
+
+For each required non-skipped relation without persisted output, the orchestrator sequence is:
+
+```text
+fresh lifecycle/lease check
+→ source materialization context
+→ ElevenLabs transcription context
+→ Google Docs creation context
+→ output persistence and possible completion
+→ commit durable progress
+→ continue to the next relation only if the job remains processing
+```
+
+The orchestrator must call the existing boundaries rather than duplicating authorization or integration logic. It must not retain source bytes, transcript text, provider results, Google tokens, Google response bodies, document bodies, or revocable handles outside their context lifetime.
+
+### Transaction boundaries and commit ownership
+
+No database transaction or row lock may remain open across source download/materialization I/O, provider HTTP requests, Google token refresh, Drive metadata requests, or Google Docs creation. External source/provider/output work happens outside row-locking persistence transactions. After a Google Docs artifact is created, output persistence runs in its existing fenced transaction boundary.
+
+The orchestrator is the first internal layer allowed to own commits for the composed processing attempt. Lower-level boundaries continue to validate, perform scoped I/O, flush where designed, and never independently commit orchestration progress. The orchestrator must commit immediately after each successful per-source persistence result; the final relation may persist its output and transition the job to `completed` in that same commit. It must not hold final-output locks while starting work on another source.
+
+On exceptions, the orchestrator must roll back the active database transaction, preserve normalized typed boundary errors, avoid raw exception payloads in persistent failure metadata, and allow context-managed artifacts to revoke/close through normal context exit. A failed database commit must roll back the database transaction. A commit failure after Google document creation remains an output-reconciliation risk and must not trigger automatic Google creation retry.
+
+### Lease checkpoints
+
+`PWA-PIPELINE-01A` must not create a background heartbeat, thread, task, timer, worker loop, or scheduler. It may use the existing synchronous lease-renewal primitive only at deterministic safe checkpoints:
+
+- before beginning work on the next source;
+- after provider completion and before beginning Google output work;
+- after durable per-source persistence and before continuing to another source.
+
+Every existing boundary still performs its own active-lease and generation checks. If lease renewal or ownership validation fails, orchestration must stop, perform no new provider or Google side effect, avoid completing the job, and avoid automatic retry. Lease renewal policy for a production worker remains a later separately approved runtime concern.
+
+### Cancellation checkpoints
+
+Cancellation must be checked before source materialization, before provider submission, after provider completion, before Google Docs creation, after Google Docs creation and before persistence, after persistence and before starting another source, and before final completion.
+
+When cancellation is observed before an irreversible output side effect, the orchestrator must stop without starting the next side effect. When the current fenced owner can safely acknowledge cancellation, it must use the existing cancellation transition. It must never create another Google document after cancellation is observed, never discard or overwrite an already persisted output, and never delete a Google document as cancellation rollback.
+
+### Failure categories and partial-output policy
+
+Pre-output failures include source unavailability, source materialization failure, provider credential unavailability, provider request failure, malformed provider response, lease loss before Google creation, and cancellation before Google creation. These may transition the job through the existing safe failure or cancellation primitive when the current owner still holds a valid lease. Only normalized safe error codes/messages may be persisted.
+
+Output-side-effect uncertainty includes cases where Google creation may have succeeded but post-create fencing fails, the artifact exists but database persistence or commit fails, lifecycle changes between Google creation and persistence, or an output-reference conflict requires reconciliation. In these cases the orchestrator must not repeat provider execution, must not create another Google document automatically, and must not delete, move, rename, or roll back the external document. It may record only a safe normalized reconciliation-required failure when the current fenced lifecycle still permits it; otherwise lifecycle resolution remains with the existing cancellation/lease-recovery authority. Manual or separately designed reconciliation is required.
+
+### Retry and recovery boundary
+
+`PWA-PIPELINE-01A` adds no automatic retry. It must not automatically retry source downloads, provider requests, Google Docs creation, output persistence after an uncertain external side effect, or completed, failed, or cancelled jobs.
+
+Existing expired-lease recovery remains available, but recovery must not blindly re-run a relation when an unpersisted Google document may already exist. Exactly-once output creation is not claimed.
+
+### Successful result metadata
+
+A successful orchestration result may contain only safe operational metadata such as job id, final job status, attempt count, required source count, persisted output count, and whether completion occurred.
+
+It must not contain document ids or URLs, folder ids, source identifiers intended to remain private, transcript text, document body, provider raw responses, tokens, credentials, source bytes, or private storage paths or keys.
+
+### Residual limitations
+
+This contract preserves these limitations: no worker or queue, no public processing endpoint, no automatic invocation, no scheduler, no OpenAI execution, no manifest mutation, no browser output API, no frontend output links, no automatic reconciliation, no exactly-once guarantee, no runtime/deploy changes, no production migration execution, and no production-live processing claim.
