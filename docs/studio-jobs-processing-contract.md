@@ -471,6 +471,10 @@ The only explicitly approved next implementation item is `PWA-WORKER-01B — Ded
 
 That later source PR may add a worker loop/entrypoint module; add the three validated `Settings` fields; add the three keys to `deploy/studio/.env.example`; add one `studio-worker` service to `deploy/studio/compose.platform.yml`; reuse the `studio-api` image with a command override; mount the same required credential, Google, PostgreSQL, and source-storage secret files; depend on PostgreSQL health; use `restart: unless-stopped`; expose no port; add focused unit and Compose-contract tests; and update deployment source documentation narrowly.
 
+The same `PWA-WORKER-01B` implementation item is also authorized and required to modify the existing synchronous orchestrator only as needed to perform the `renew_job_lease` checkpoints documented by this PREP contract. That narrow orchestration extension must use the configured worker lease TTL, commit every successful renewal before the next external side effect, and stop safely on renewal, ownership-validation, or renewal-commit failure. Focused tests must cover renewal ordering, commit-before-side-effect behavior, fencing failure, and no automatic retry.
+
+This lease-renewal authorization does not permit a background heartbeat, second renewal thread/task/Session, unrelated orchestrator refactoring, automatic retry, recovery scans, public APIs, or production deployment. Do not create another delivery item for lease renewal.
+
 That later item must not deploy to production, execute migrations, change volumes, recreate PostgreSQL or Redis, change production `.env` values, add a Redis queue, add a public endpoint, or claim production-live processing.
 
 #### Deployment and production boundary
