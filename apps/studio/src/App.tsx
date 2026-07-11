@@ -58,6 +58,30 @@ type JobSource = Source & {
   position: number;
   job_source_status: JobSourceStatus;
 };
+type JobOutput = {
+  source_id?: string;
+  source_position: number | null;
+  source_name: string | null;
+  source_type: string | null;
+  output_kind: string | null;
+  transcript_standard: string | null;
+  web_view_url: string | null;
+  link_available: boolean;
+  document_character_count: number | null;
+  document_created_at: string | null;
+  persisted_at: string | null;
+};
+type JobOutputsResponse = {
+  job_id: string;
+  job_status: JobStatus;
+  output_count: number;
+  outputs: JobOutput[];
+};
+type JobOutputsState = {
+  loading: boolean;
+  error: string;
+  data: JobOutputsResponse | null;
+};
 type TranscriptionJob = {
   id: string;
   project_id: string;
@@ -145,7 +169,8 @@ function isUsableJobSource(source: Source) {
   return (
     source.upload_status === "uploaded" &&
     !source.deleted_at &&
-    (source.source_type === "google_drive" || source.source_type === "local_upload")
+    (source.source_type === "google_drive" ||
+      source.source_type === "local_upload")
   );
 }
 function unusableJobSourceReason(source: Source) {
@@ -156,8 +181,8 @@ function unusableJobSourceReason(source: Source) {
 function isSafeDisplayUrl(value: string | null) {
   return Boolean(
     value &&
-      /^https?:\/\//i.test(value) &&
-      !/\s|token|secret|cipher|presigned|s3:|r2:|key/i.test(value),
+    /^https?:\/\//i.test(value) &&
+    !/\s|token|secret|cipher|presigned|s3:|r2:|key/i.test(value),
   );
 }
 function jobTitle(job: TranscriptionJob) {
@@ -166,13 +191,31 @@ function jobTitle(job: TranscriptionJob) {
 function safeJobSources(job: TranscriptionJob) {
   return [...(job.sources ?? [])].sort((a, b) => a.position - b.position);
 }
+function isApprovedOutputUrl(value: string | null) {
+  if (!value) return false;
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" &&
+      (url.hostname === "docs.google.com" ||
+        url.hostname === "drive.google.com")
+    );
+  } catch {
+    return false;
+  }
+}
+function outputSourceLabel(output: JobOutput) {
+  const position =
+    output.source_position == null ? "—" : String(output.source_position + 1);
+  return `${position}. ${output.source_name || "Source без имени"}`;
+}
 function jobStatusLabel(status: JobStatus) {
   const labels: Record<JobStatus, string> = {
-    queued: "Queued · record only",
-    processing: "В обработке · lifecycle foundation only",
+    queued: "Queued",
+    processing: "В обработке",
     cancelled: "Cancelled · terminal",
     failed: "Failed · safe error metadata only",
-    completed: "Completed · reserved for future processing",
+    completed: "Completed",
   };
   return labels[status];
 }
@@ -182,7 +225,9 @@ function credentialDisplay(c: Credential) {
     c.label,
     c.masked_value,
     c.active_version ? `v${c.active_version}` : "",
-  ].filter(Boolean).join(" · ");
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 function isSupportedMediaFile(file: File) {
   return (
@@ -518,10 +563,14 @@ function SourcesPanel({
   const [driveVerifyError, setDriveVerifyError] = useState("");
   const [driveFolderId, setDriveFolderId] = useState("");
   const [driveFolderItems, setDriveFolderItems] = useState<DriveMetadata[]>([]);
-  const [driveFolderNextPageToken, setDriveFolderNextPageToken] = useState<string | null>(null);
+  const [driveFolderNextPageToken, setDriveFolderNextPageToken] = useState<
+    string | null
+  >(null);
   const [driveFolderState, setDriveFolderState] = useState("");
   const [driveFolderError, setDriveFolderError] = useState("");
-  const [selectedDriveChildren, setSelectedDriveChildren] = useState<string[]>([]);
+  const [selectedDriveChildren, setSelectedDriveChildren] = useState<string[]>(
+    [],
+  );
   async function verifyDriveMetadata(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const cleanId = driveFileId.trim();
@@ -557,8 +606,7 @@ function SourcesPanel({
           body: JSON.stringify({
             drive_file_id: driveMetadata.id,
             drive_file_url: driveMetadata.web_view_link || null,
-            original_filename:
-              driveDisplayName(driveMetadata),
+            original_filename: driveDisplayName(driveMetadata),
             mime_type: driveMetadata.mime_type || null,
             size_bytes: driveMetadata.size_bytes ?? null,
           }),
@@ -584,7 +632,9 @@ function SourcesPanel({
     }
     setDriveFolderError("");
     setDriveFolderState(
-      pageToken ? "Загружаем ещё файлы из папки…" : "Загружаем файлы из Drive папки…",
+      pageToken
+        ? "Загружаем ещё файлы из папки…"
+        : "Загружаем файлы из Drive папки…",
     );
     if (!pageToken) {
       setDriveFolderItems([]);
@@ -592,7 +642,9 @@ function SourcesPanel({
       setDriveFolderNextPageToken(null);
     }
     try {
-      const query = pageToken ? `?page_token=${encodeURIComponent(pageToken)}` : "";
+      const query = pageToken
+        ? `?page_token=${encodeURIComponent(pageToken)}`
+        : "";
       const result = await api<DriveFolderChildren>(
         `/google/drive/folders/${encodeURIComponent(cleanId)}/children${query}`,
       );
@@ -613,7 +665,9 @@ function SourcesPanel({
       (item) => selectedDriveChildren.includes(item.id) && !item.is_folder,
     );
     if (selectedItems.length === 0) {
-      setDriveFolderError("Выберите хотя бы один файл из списка Drive folder children.");
+      setDriveFolderError(
+        "Выберите хотя бы один файл из списка Drive folder children.",
+      );
       return;
     }
     setDriveFolderError("");
@@ -781,7 +835,9 @@ function SourcesPanel({
           <span>Создан: {formatTime(driveMetadata.created_time)}</span>
           <span>Изменён: {formatTime(driveMetadata.modified_time)}</span>
           {isSafeDisplayUrl(driveMetadata.web_view_link) && (
-            <a href={driveMetadata.web_view_link ?? undefined}>Открыть в Google Drive</a>
+            <a href={driveMetadata.web_view_link ?? undefined}>
+              Открыть в Google Drive
+            </a>
           )}
           <button
             type="button"
@@ -859,17 +915,25 @@ function SourcesPanel({
               <span>Создан: {formatTime(item.created_time)}</span>
               <span>Изменён: {formatTime(item.modified_time)}</span>
               {isSafeDisplayUrl(item.web_view_link) && (
-                <a href={item.web_view_link ?? undefined}>Открыть в Google Drive</a>
+                <a href={item.web_view_link ?? undefined}>
+                  Открыть в Google Drive
+                </a>
               )}
             </article>
           ))}
-          <button type="button" className="primary" onClick={addSelectedDriveChildren}>
+          <button
+            type="button"
+            className="primary"
+            onClick={addSelectedDriveChildren}
+          >
             Добавить выбранные sources
           </button>
           {driveFolderNextPageToken && (
             <button
               type="button"
-              onClick={() => void loadDriveFolderChildren(driveFolderNextPageToken)}
+              onClick={() =>
+                void loadDriveFolderChildren(driveFolderNextPageToken)
+              }
             >
               Загрузить ещё
             </button>
@@ -913,7 +977,13 @@ function JobsPanel({
   const [credentialsError, setCredentialsError] = useState("");
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
-  const [detail, setDetail] = useState<Record<string, { loading: boolean; error: string; job: TranscriptionJob | null }>>({});
+  const [detail, setDetail] = useState<
+    Record<
+      string,
+      { loading: boolean; error: string; job: TranscriptionJob | null }
+    >
+  >({});
+  const [outputs, setOutputs] = useState<Record<string, JobOutputsState>>({});
   useEffect(() => {
     let cancelled = false;
     setCredentialsLoading(true);
@@ -925,7 +995,9 @@ function JobsPanel({
       .catch(() => {
         if (!cancelled) {
           setCredentials([]);
-          setCredentialsError("Credentials сейчас недоступны. Job можно создать без credential.");
+          setCredentialsError(
+            "Credentials сейчас недоступны. Job можно создать без credential.",
+          );
         }
       })
       .finally(() => {
@@ -935,7 +1007,9 @@ function JobsPanel({
       cancelled = true;
     };
   }, []);
-  const activeCredentials = credentials.filter((credential) => credential.status === "active");
+  const activeCredentials = credentials.filter(
+    (credential) => credential.status === "active",
+  );
   const usableSourceCount = sources.loaded
     ? sources.items.filter(isUsableJobSource).length
     : 0;
@@ -943,7 +1017,9 @@ function JobsPanel({
     (credential) => credential.id === selectedCredentialId,
   );
   const usableSelected = selectedSourceIds.filter((id) =>
-    sources.items.some((source) => source.id === id && isUsableJobSource(source)),
+    sources.items.some(
+      (source) => source.id === id && isUsableJobSource(source),
+    ),
   );
   async function createJob(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -977,10 +1053,14 @@ function JobsPanel({
         ...current,
         [created.id]: { loading: false, error: "", job: created },
       }));
-      setMessage("Job создана как queued record. Processing ещё не выполняется.");
+      setMessage(
+        "Job создана. Статус lifecycle и доступные output records отслеживаются отдельно.",
+      );
       onReloadJobs(project.id);
     } catch {
-      setMessage("Не удалось создать job. Проверьте выбранные sources и повторите.");
+      setMessage(
+        "Не удалось создать job. Проверьте выбранные sources и повторите.",
+      );
     }
   }
   async function loadDetail(jobId: string) {
@@ -988,28 +1068,61 @@ function JobsPanel({
       ...current,
       [jobId]: { loading: true, error: "", job: current[jobId]?.job ?? null },
     }));
-    try {
-      const loaded = await api<TranscriptionJob>(`/jobs/${jobId}`);
-      setDetail((current) => ({
-        ...current,
-        [jobId]: { loading: false, error: "", job: loaded },
-      }));
-    } catch {
-      setDetail((current) => ({
-        ...current,
-        [jobId]: { loading: false, error: "Не удалось загрузить детали job.", job: current[jobId]?.job ?? null },
-      }));
-    }
+    setOutputs((current) => ({
+      ...current,
+      [jobId]: { loading: true, error: "", data: current[jobId]?.data ?? null },
+    }));
+    void api<TranscriptionJob>(`/jobs/${jobId}`)
+      .then((loaded) => {
+        setDetail((current) => ({
+          ...current,
+          [jobId]: { loading: false, error: "", job: loaded },
+        }));
+      })
+      .catch(() => {
+        setDetail((current) => ({
+          ...current,
+          [jobId]: {
+            loading: false,
+            error: "Не удалось загрузить детали job.",
+            job: current[jobId]?.job ?? null,
+          },
+        }));
+      });
+    void api<JobOutputsResponse>(`/jobs/${jobId}/outputs`)
+      .then((data) => {
+        setOutputs((current) => ({
+          ...current,
+          [jobId]: { loading: false, error: "", data },
+        }));
+      })
+      .catch(() => {
+        setOutputs((current) => ({
+          ...current,
+          [jobId]: {
+            loading: false,
+            error: "Не удалось загрузить outputs job.",
+            data: current[jobId]?.data ?? null,
+          },
+        }));
+      });
   }
   async function cancelJob(jobId: string) {
     setMessage("");
     try {
-      const cancelled = await csrfMutate<TranscriptionJob>(`/jobs/${jobId}/cancel`, csrf, onCsrf, { method: "POST" });
+      const cancelled = await csrfMutate<TranscriptionJob>(
+        `/jobs/${jobId}/cancel`,
+        csrf,
+        onCsrf,
+        { method: "POST" },
+      );
       setDetail((current) => ({
         ...current,
         [jobId]: { loading: false, error: "", job: cancelled },
       }));
-      setMessage("Запрос отмены отправлен или job уже терминальна. Worker/provider execution ещё не подключены.");
+      setMessage(
+        "Запрос отмены отправлен или job уже терминальна. Доступные output records, если они есть, остаются отдельными от lifecycle status.",
+      );
       onReloadJobs(project.id);
     } catch {
       setMessage("Не удалось отменить job. Повторите безопасно позже.");
@@ -1021,25 +1134,40 @@ function JobsPanel({
       {jobs.loading && <p role="status">Загрузка jobs…</p>}
       {jobs.error && <p className="error">{jobs.error}</p>}
       <div className="notice" aria-label="Job lifecycle boundary">
-        <p>Queued job сейчас означает только сохранённую запись. Processing worker ещё не подключён.</p>
-        <p>Cancel отменяет queued record; provider processing ещё не запускался.</p>
-        <p>Provider execution, Google Docs output и manifest mutation пока deferred.</p>
+        <p>
+          Job lifecycle status и persisted output records отображаются отдельно.
+        </p>
+        <p>
+          Processing, failed, cancelled и completed jobs могут иметь частичные
+          outputs.
+        </p>
+        <p>
+          UI загружает outputs только по кнопке деталей job; production-live
+          processing и deployment не подтверждены.
+        </p>
       </div>
       {jobs.loaded && !jobs.loading && jobs.items.length === 0 && (
         <p className="notice">Job records пока не созданы.</p>
       )}
-      <section className="source-form" aria-label="Project job readiness checklist">
+      <section
+        className="source-form"
+        aria-label="Project job readiness checklist"
+      >
         <h5>Readiness checklist перед future processing</h5>
         <ul>
           <li>
-            Sources: {sources.loaded
+            Sources:{" "}
+            {sources.loaded
               ? `${usableSourceCount} usable uploaded source(s)`
               : "sources ещё не загружены"}
             {!sources.loaded && " — загрузите sources для readiness preview."}
-            {sources.loaded && usableSourceCount === 0 && " — нет uploaded usable sources."}
+            {sources.loaded &&
+              usableSourceCount === 0 &&
+              " — нет uploaded usable sources."}
           </li>
           <li>
-            BYOK credential: {selectedCredential
+            BYOK credential:{" "}
+            {selectedCredential
               ? `${credentialDisplay(selectedCredential)} selected`
               : "не выбран — optional для record creation."}
             {!selectedCredential &&
@@ -1048,18 +1176,26 @@ function JobsPanel({
                 : " Active provider credential недоступен; future processing потребует active BYOK credential.")}
           </li>
           <li>
-            Output folder: {project.output_drive_folder_id
+            Output folder:{" "}
+            {project.output_drive_folder_id
               ? `configured (${project.output_drive_folder_name || project.output_drive_folder_id})`
-              : "не настроен — future Google Docs output потребует output Drive folder."}
+              : "не настроен — Google Docs output требует output Drive folder."}
           </li>
-          <li>Processing: worker/provider execution не реализованы в этом slice.</li>
+          <li>
+            Processing: checklist не запускает worker/provider execution и не
+            подтверждает production-live runtime.
+          </li>
         </ul>
-        <p className="notice">Checklist только объясняет readiness и не запускает processing.</p>
+        <p className="notice">
+          Checklist только объясняет readiness и не запускает processing.
+        </p>
       </section>
       <form className="source-form" onSubmit={createJob}>
         <h5>Создать queued job из sources</h5>
         {!sources.loaded ? (
-          <p className="notice">Сначала загрузите sources проекта, затем выберите готовые записи.</p>
+          <p className="notice">
+            Сначала загрузите sources проекта, затем выберите готовые записи.
+          </p>
         ) : (
           sources.items.map((source) => {
             const usable = isUsableJobSource(source);
@@ -1096,9 +1232,9 @@ function JobsPanel({
           maxLength={160}
         />
         <label>
-          Provider credential для будущего processing
+          Provider credential для processing
           <select
-            aria-label="Provider credential для будущего processing"
+            aria-label="Provider credential для processing"
             value={selectedCredentialId}
             onChange={(e) => setSelectedCredentialId(e.target.value)}
           >
@@ -1111,15 +1247,28 @@ function JobsPanel({
           </select>
         </label>
         {credentialsLoading && <p role="status">Загрузка credentials…</p>}
-        {!credentialsLoading && credentialsError && <p className="notice">{credentialsError}</p>}
-        {!credentialsLoading && !credentialsError && activeCredentials.length === 0 && (
-          <p className="notice">Активных BYOK credentials нет. Job будет создана без credential.</p>
+        {!credentialsLoading && credentialsError && (
+          <p className="notice">{credentialsError}</p>
         )}
-        <button className="primary" disabled={!sources.loaded}>Создать job</button>
+        {!credentialsLoading &&
+          !credentialsError &&
+          activeCredentials.length === 0 && (
+            <p className="notice">
+              Активных BYOK credentials нет. Job будет создана без credential.
+            </p>
+          )}
+        <button className="primary" disabled={!sources.loaded}>
+          Создать job
+        </button>
       </form>
-      {message && <p className={message.startsWith("Не удалось") ? "error" : "notice"}>{message}</p>}
+      {message && (
+        <p className={message.startsWith("Не удалось") ? "error" : "notice"}>
+          {message}
+        </p>
+      )}
       {jobs.items.map((job) => {
         const currentDetail = detail[job.id];
+        const currentOutputs = outputs[job.id];
         const detailedJob = currentDetail?.job;
         return (
           <article className="source-card" key={job.id}>
@@ -1130,27 +1279,113 @@ function JobsPanel({
             <span>Updated: {formatTime(job.updated_at)}</span>
             <span>Cancelled: {formatTime(job.cancelled_at)}</span>
             <span>Attempts: {job.attempt_count ?? 0}</span>
-            {job.status === "processing" && job.cancel_requested_at && <span>Отмена запрошена: {formatTime(job.cancel_requested_at)}</span>}
+            {job.status === "processing" && job.cancel_requested_at && (
+              <span>
+                Отмена запрошена: {formatTime(job.cancel_requested_at)}
+              </span>
+            )}
             {job.error_code && <span>Error code: {job.error_code}</span>}
             {job.error_message && <span>Error: {job.error_message}</span>}
-            <button type="button" onClick={() => void loadDetail(job.id)}>Показать детали job</button>
+            <button type="button" onClick={() => void loadDetail(job.id)}>
+              Показать детали job
+            </button>
             {job.status === "queued" && (
-              <button type="button" onClick={() => void cancelJob(job.id)}>Отменить queued record</button>
+              <button type="button" onClick={() => void cancelJob(job.id)}>
+                Отменить queued record
+              </button>
             )}
             {job.status === "processing" && !job.cancel_requested_at && (
-              <button type="button" onClick={() => void cancelJob(job.id)}>Запросить отмену processing</button>
+              <button type="button" onClick={() => void cancelJob(job.id)}>
+                Запросить отмену processing
+              </button>
             )}
             {job.status === "processing" && job.cancel_requested_at && (
-              <button type="button" disabled>Отмена запрошена</button>
+              <button type="button" disabled>
+                Отмена запрошена
+              </button>
             )}
-            {currentDetail?.loading && <p role="status">Загрузка деталей job…</p>}
-            {currentDetail?.error && <p className="error">{currentDetail.error}</p>}
+            {currentDetail?.loading && (
+              <p role="status">Загрузка деталей job…</p>
+            )}
+            {currentDetail?.error && (
+              <p className="error">{currentDetail.error}</p>
+            )}
+            {currentOutputs?.loading && (
+              <p role="status">Загрузка outputs job…</p>
+            )}
+            {currentOutputs?.error && (
+              <p className="error">{currentOutputs.error}</p>
+            )}
+            {currentOutputs?.data && (
+              <section aria-label={`Job outputs ${currentOutputs.data.job_id}`}>
+                <h5>Outputs job</h5>
+                <p>
+                  Lifecycle status из outputs:{" "}
+                  {jobStatusLabel(currentOutputs.data.job_status)}
+                </p>
+                <p>Output records: {currentOutputs.data.output_count}</p>
+                <p className="notice">
+                  Output availability не означает, что job завершена.
+                </p>
+                {currentOutputs.data.output_count === 0 && (
+                  <p className="notice">Output records пока не найдены.</p>
+                )}
+                {currentOutputs.data.outputs.map((output, index) => {
+                  const approvedLink =
+                    output.link_available === true &&
+                    isApprovedOutputUrl(output.web_view_url);
+                  return (
+                    <article
+                      className="source-card"
+                      key={`${job.id}-output-${index}`}
+                    >
+                      <b>{outputSourceLabel(output)}</b>
+                      <span>
+                        Source type: {output.source_type || "не указан"}
+                      </span>
+                      <span>
+                        Output kind: {output.output_kind || "не указан"}
+                      </span>
+                      <span>
+                        Transcript standard:{" "}
+                        {output.transcript_standard || "не указан"}
+                      </span>
+                      <span>
+                        Document characters:{" "}
+                        {output.document_character_count ?? "—"}
+                      </span>
+                      <span>
+                        Document created:{" "}
+                        {formatTime(output.document_created_at)}
+                      </span>
+                      <span>Persisted: {formatTime(output.persisted_at)}</span>
+                      {approvedLink ? (
+                        <a
+                          href={output.web_view_url ?? undefined}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          Открыть output в Google
+                        </a>
+                      ) : (
+                        <span>Ссылка недоступна</span>
+                      )}
+                    </article>
+                  );
+                })}
+              </section>
+            )}
             {detailedJob && (
               <section aria-label={`Job detail ${detailedJob.id}`}>
                 <h5>Sources job</h5>
                 {safeJobSources(detailedJob).map((source) => (
-                  <article className="source-card" key={`${detailedJob.id}-${source.id}`}>
-                    <b>{source.position + 1}. {source.original_filename}</b>
+                  <article
+                    className="source-card"
+                    key={`${detailedJob.id}-${source.id}`}
+                  >
+                    <b>
+                      {source.position + 1}. {source.original_filename}
+                    </b>
                     <span>Job source status: {source.job_source_status}</span>
                     <span>Source type: {source.source_type}</span>
                     <span>Upload status: {source.upload_status}</span>
@@ -1158,8 +1393,14 @@ function JobsPanel({
                     <span>Размер: {formatBytes(source.size_bytes)}</span>
                     <span>Uploaded: {formatTime(source.uploaded_at)}</span>
                     <span>Deleted: {formatTime(source.deleted_at)}</span>
-                    {source.drive_file_id && <span>Drive file ID: {source.drive_file_id}</span>}
-                    {isSafeDisplayUrl(source.drive_file_url) && <a href={source.drive_file_url ?? undefined}>Drive file URL</a>}
+                    {source.drive_file_id && (
+                      <span>Drive file ID: {source.drive_file_id}</span>
+                    )}
+                    {isSafeDisplayUrl(source.drive_file_url) && (
+                      <a href={source.drive_file_url ?? undefined}>
+                        Drive file URL
+                      </a>
+                    )}
                   </article>
                 ))}
               </section>
@@ -1240,19 +1481,33 @@ function ProjectsPage({
   const loadJobs = (projectId: string) => {
     setJobs((v) => ({
       ...v,
-      [projectId]: { ...(v[projectId] ?? emptyJobState), loading: true, error: "" },
+      [projectId]: {
+        ...(v[projectId] ?? emptyJobState),
+        loading: true,
+        error: "",
+      },
     }));
     api<{ jobs: TranscriptionJob[] }>(`/projects/${projectId}/jobs`)
       .then((r) =>
         setJobs((v) => ({
           ...v,
-          [projectId]: { loading: false, error: "", loaded: true, items: r.jobs },
+          [projectId]: {
+            loading: false,
+            error: "",
+            loaded: true,
+            items: r.jobs,
+          },
         })),
       )
       .catch(() =>
         setJobs((v) => ({
           ...v,
-          [projectId]: { loading: false, error: "Не удалось загрузить jobs.", loaded: true, items: [] },
+          [projectId]: {
+            loading: false,
+            error: "Не удалось загрузить jobs.",
+            loaded: true,
+            items: [],
+          },
         })),
       );
   };
