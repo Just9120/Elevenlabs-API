@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from .job_claim_readiness import build_claim_readiness
@@ -45,6 +45,46 @@ def is_lease_active(job: TranscriptionJob, now: datetime) -> bool:
     return bool(job.lease_owner_id and job.lease_expires_at and job.lease_expires_at > now)
 
 
+def acquire_next_ready_job_lease(
+    db: Session,
+    *,
+    lease_owner_id: str,
+    now: datetime,
+    lease_ttl: timedelta,
+) -> JobLeaseHandle | None:
+    owner = _validated_owner(lease_owner_id)
+    expires_at = now + _validated_ttl(lease_ttl)
+    excluded_job_ids: set[str] = set()
+    while True:
+        filters = [
+            TranscriptionJob.status == JobStatus.queued,
+            or_(
+                TranscriptionJob.lease_owner_id.is_(None),
+                TranscriptionJob.lease_expires_at.is_(None),
+                TranscriptionJob.lease_expires_at <= now,
+            ),
+        ]
+        if excluded_job_ids:
+            filters.append(TranscriptionJob.id.not_in(excluded_job_ids))
+
+        job = db.execute(
+            select(TranscriptionJob)
+            .where(*filters)
+            .order_by(TranscriptionJob.created_at.asc(), TranscriptionJob.id.asc())
+            .limit(1)
+            .with_for_update(skip_locked=True)
+        ).scalar_one_or_none()
+        if job is None:
+            return None
+        if job.status != JobStatus.queued or is_lease_active(job, now):
+            excluded_job_ids.add(job.id)
+            continue
+        if not build_claim_readiness(job)["ready_for_future_claim"]:
+            excluded_job_ids.add(job.id)
+            continue
+        return _apply_job_lease(db, job=job, owner=owner, claimed_at=now, expires_at=expires_at)
+
+
 def acquire_job_lease(
     db: Session,
     *,
@@ -65,12 +105,7 @@ def acquire_job_lease(
     if is_lease_active(job, now):
         raise JobLeaseError(JobLeaseFailureReason.lease_active)
 
-    job.lease_generation = (job.lease_generation or 0) + 1
-    job.lease_owner_id = owner
-    job.claimed_at = now
-    job.lease_expires_at = expires_at
-    db.flush()
-    return _handle(job)
+    return _apply_job_lease(db, job=job, owner=owner, claimed_at=now, expires_at=expires_at)
 
 
 def renew_job_lease(
@@ -118,6 +153,22 @@ def release_job_lease(
 def invalidate_job_lease(job: TranscriptionJob) -> None:
     job.lease_owner_id = None
     job.lease_expires_at = None
+
+
+def _apply_job_lease(
+    db: Session,
+    *,
+    job: TranscriptionJob,
+    owner: str,
+    claimed_at: datetime,
+    expires_at: datetime,
+) -> JobLeaseHandle:
+    job.lease_generation = (job.lease_generation or 0) + 1
+    job.lease_owner_id = owner
+    job.claimed_at = claimed_at
+    job.lease_expires_at = expires_at
+    db.flush()
+    return _handle(job)
 
 
 def _locked_job(db: Session, job_id: str) -> TranscriptionJob | None:

@@ -326,7 +326,7 @@ A successful orchestration result may contain only safe operational metadata suc
 
 It must not contain document ids or URLs, folder ids, source identifiers intended to remain private, transcript text, document body, provider raw responses, tokens, credentials, source bytes, or private storage paths or keys.
 
-### PWA-PIPELINE-01B internal one-shot claim-and-process boundary
+### PWA-PIPELINE-01B explicit-job and PWA-WORKER-01A claim-next boundaries
 
 `PWA-PIPELINE-01B` adds one internal, server-only, synchronous boundary for one explicitly identified queued Studio job:
 
@@ -337,8 +337,21 @@ explicit queued job id
 → existing synchronous orchestrator with the committed owner/generation
 ```
 
-This boundary does not discover jobs, poll, loop, run as a worker, consume a queue, start automatically, expose a public processing API, change runtime deployment, retry failures, release committed leases on orchestration failure, or claim production-live processing. Provider, source, Google, and output work must not begin until the lease commit succeeds; the existing orchestrator remains responsible for the queued-to-processing transition and all per-source processing behavior.
+PWA-WORKER-01A adds one internal, server-only, synchronous claim-next iteration:
+
+```text
+one invocation
+→ atomically select oldest unlocked ready queued job in PostgreSQL
+→ acquire lease
+→ commit lease
+→ existing synchronous orchestrator
+→ return result or idle
+```
+
+The claim-next iteration uses PostgreSQL row records as the discovery authority, deterministic `created_at` then job-id ordering among currently unlocked candidates, and row-level `SELECT FOR UPDATE SKIP LOCKED` selection so a locked candidate can be skipped without blocking. Unready candidates and active leases are skipped without mutation. Idle state returns `None` and ends the selection transaction.
+
+These boundaries do not poll, loop, sleep, back off, run as a worker process, consume or create a Redis queue, use Redis for discovery/locks/notifications/retries/scheduling, start automatically, add a scheduler, expose a public processing API, change runtime deployment, retry failures, release committed leases on orchestration failure, or claim production-live processing. Provider, source, Google, and output work must not begin until the lease commit succeeds; the existing orchestrator remains responsible for the queued-to-processing transition and all per-source processing behavior.
 
 ### Residual limitations
 
-This contract preserves these limitations: no worker or queue, no public processing endpoint, no automatic invocation, no scheduler, no OpenAI execution, no manifest mutation, no browser output API, no frontend output links, no automatic reconciliation, no exactly-once guarantee, no runtime/deploy changes, no production migration execution, and no production-live processing claim.
+This contract preserves these limitations: no worker process, no polling loop, no sleep/backoff, no Redis queue, no queue consumer, no public processing endpoint, no automatic startup, no scheduler, no OpenAI execution, no manifest mutation, no browser output API, no frontend output links, no automatic retry/reconciliation, no exactly-once guarantee, no runtime/deploy changes, no production migration execution, and no production-live processing claim.
