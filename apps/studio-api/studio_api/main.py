@@ -18,6 +18,7 @@ from .source_policy import is_supported_source_mime_type, normalize_source_mime_
 from .google_connection_access import GoogleConnectionAccessError, GoogleConnectionAccessReason, google_token_aad, refresh_user_google_drive_access_token
 from .job_lifecycle import safe_failure_metadata_value
 from .job_processing_lifecycle import request_job_cancellation
+from .job_output_read import browser_job_output_payload, load_browser_job_output_rows
 
 settings=get_settings()
 app=FastAPI(docs_url="/docs" if settings.enable_api_docs else None, redoc_url=None, openapi_url="/openapi.json" if settings.enable_api_docs else None)
@@ -353,6 +354,19 @@ def create_transcription_job(project_id: str, data: TranscriptionJobCreateIn, pa
 def get_transcription_job(job_id: str, pair=Depends(current_session), db: Session=Depends(get_db)):
     _,user=pair; job=owned_job_or_404(db,user,job_id)
     return job_payload(job, include_sources=True)
+
+
+@app.get("/api/jobs/{job_id}/outputs")
+def get_transcription_job_outputs(job_id: str, pair=Depends(current_session), db: Session=Depends(get_db)):
+    _,user=pair; job=owned_job_or_404(db,user,job_id)
+    try:
+        rows=load_browser_job_output_rows(db, job.id)
+        outputs=[browser_job_output_payload(output, job_source, source) for output, job_source, source in rows]
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Не удалось загрузить результаты задания") from None
+    return {"job_id": job.id, "job_status": job.status.value, "output_count": len(outputs), "outputs": outputs}
 
 @app.post("/api/jobs/{job_id}/cancel")
 def cancel_transcription_job(job_id: str, pair=Depends(require_csrf), db: Session=Depends(get_db)):
