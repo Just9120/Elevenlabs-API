@@ -115,7 +115,7 @@ leased processing job
 → completed when all required outputs exist
 ```
 
-This orchestrator is internal/server-only and may compose existing boundaries for one already-leased job. Future worker/runtime invocation remains separately unapproved, public API behavior must not start processing, and the Colab manifest remains outside Studio mutation authority.
+This diagram shows conceptual processing stages, not a mandate for separate orchestrator calls at each stage. The existing ElevenLabs boundary currently composes execution prerequisites, source materialization, and provider transcription internally, so the internal/server-only orchestrator must not materialize the source separately before invoking that boundary. Future worker/runtime invocation remains separately unapproved, public API behavior must not start processing, and the Colab manifest remains outside Studio mutation authority.
 
 ## 10. Current refactor seams for future implementation work
 

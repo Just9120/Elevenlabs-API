@@ -272,22 +272,23 @@ Relations with `JobSourceStatus.skipped` are ignored. Existing persisted outputs
 For each required non-skipped relation without persisted output, the orchestrator sequence is:
 
 ```text
-fresh lifecycle/lease check
-→ source materialization context
+fresh lifecycle/lease checkpoint
 → ElevenLabs transcription context
+    └─ internally owns prerequisites, source materialization, and provider call
+→ optional lease renewal, committed before Google I/O
 → Google Docs creation context
 → output persistence and possible completion
-→ commit durable progress
-→ continue to the next relation only if the job remains processing
+→ commit durable output progress
+→ continue only if the job remains processing
 ```
 
-The orchestrator must call the existing boundaries rather than duplicating authorization or integration logic. It must not retain source bytes, transcript text, provider results, Google tokens, Google response bodies, document bodies, or revocable handles outside their context lifetime.
+The orchestrator must call the existing boundaries rather than duplicating authorization or integration logic. In the current callable composition, `transcribe_processing_job_source_with_elevenlabs` already opens processing execution prerequisites, source materialization, and the ElevenLabs provider call; `PWA-PIPELINE-01A` must not call `materialize_processing_job_source` separately before calling that transcription boundary. It must not retain source bytes, transcript text, provider results, Google tokens, Google response bodies, document bodies, or revocable handles outside their context lifetime.
 
 ### Transaction boundaries and commit ownership
 
-No database transaction or row lock may remain open across source download/materialization I/O, provider HTTP requests, Google token refresh, Drive metadata requests, or Google Docs creation. External source/provider/output work happens outside row-locking persistence transactions. After a Google Docs artifact is created, output persistence runs in its existing fenced transaction boundary.
+The orchestrator must not intentionally hold `SELECT FOR UPDATE` locks or pending durable state mutations across source download/materialization I/O, provider HTTP requests, Google token refresh, Drive metadata requests, or Google Docs creation. Existing lower-level source-materialization, ElevenLabs, and Google Docs boundaries currently perform read-only validation through the supplied SQLAlchemy Session immediately before and after external I/O; `PWA-PIPELINE-01A` must not claim to eliminate those ambient read transactions unless those lower-level boundaries are explicitly refactored in approved scope. No new delivery item is created for transaction refactoring.
 
-The orchestrator is the first internal layer allowed to own commits for the composed processing attempt. Lower-level boundaries continue to validate, perform scoped I/O, flush where designed, and never independently commit orchestration progress. The orchestrator must commit immediately after each successful per-source persistence result; the final relation may persist its output and transition the job to `completed` in that same commit. It must not hold final-output locks while starting work on another source.
+Output persistence remains the dedicated row-locking transaction. The orchestrator is the first internal layer allowed to own commits for the composed processing attempt. Lower-level boundaries continue to validate, perform scoped I/O, flush where designed, and never independently commit orchestration progress. The orchestrator must commit immediately after each successful per-source output persistence result; the final relation may persist its output and transition the job to `completed` in that same commit. It must not hold final-output locks while starting work on another source.
 
 On exceptions, the orchestrator must roll back the active database transaction, preserve normalized typed boundary errors, avoid raw exception payloads in persistent failure metadata, and allow context-managed artifacts to revoke/close through normal context exit. A failed database commit must roll back the database transaction. A commit failure after Google document creation remains an output-reconciliation risk and must not trigger automatic Google creation retry.
 
@@ -299,7 +300,7 @@ On exceptions, the orchestrator must roll back the active database transaction, 
 - after provider completion and before beginning Google output work;
 - after durable per-source persistence and before continuing to another source.
 
-Every existing boundary still performs its own active-lease and generation checks. If lease renewal or ownership validation fails, orchestration must stop, perform no new provider or Google side effect, avoid completing the job, and avoid automatic retry. Lease renewal policy for a production worker remains a later separately approved runtime concern.
+Every existing boundary still performs its own active-lease and generation checks. Lease renewal uses a row-locking mutation and `flush()`; every successful renewal must be committed before the next external side effect begins, including Google token refresh, Drive metadata lookup, or Google Docs creation. If lease renewal, ownership validation, or a renewal commit fails, the orchestrator must roll back the active transaction, stop orchestration, perform no new provider or Google side effect, avoid completing the job, and avoid automatic retry. Lease renewal policy for a production worker remains a later separately approved runtime concern.
 
 ### Cancellation checkpoints
 
