@@ -480,3 +480,12 @@ That later item must not deploy to production, execute migrations, change volume
 #### Deployment and production boundary
 
 This preparation PR makes no runtime change. Even after the later source implementation, source-done/merged will not mean production-live; migration rollout remains manual/operator-scoped; deployment requires separate operator action and evidence; provider/Google processing success requires factual runtime evidence; Colab remains the working production contour until Studio runtime evidence exists; Studio manifest mutation remains unimplemented; and exactly-once Google document creation remains unclaimed.
+
+
+## PWA-WORKER-01B dedicated polling worker source
+
+`PWA-WORKER-01B` adds source for a dedicated synchronous `python -m studio_api.worker` process and source-only Compose wiring for one `studio-worker` service. The worker polls PostgreSQL through the internal claim-next runner, uses one process-lifetime opaque lease owner id, processes at most one job at a time, creates a fresh database Session per iteration, closes it before idle/backoff waits, and handles SIGTERM/SIGINT by setting a stop flag without cancelling jobs or releasing leases. Worker configuration is limited to the three validated `STUDIO_WORKER_*` timing settings and fails before polling or Session creation when invalid.
+
+The runner now passes the exact lease TTL used for acquisition into the orchestrator. The orchestrator renews the existing PostgreSQL lease with that TTL and commits before each source's external provider boundary and again after provider transcription before Google Docs work. A single renewal at the next source boundary covers the post-output-commit/pre-next-external-work checkpoint. Renewal failures map to normalized orchestration reasons, stop the current orchestration, do not retry, do not release the lease, and leave continuation to the worker backoff loop.
+
+This source does not add a background heartbeat: no renewal runs while one source materialization or provider call is in progress, one continuous provider stage must complete within `worker_lease_ttl_seconds`, expiry fails closed, and no exactly-once provider or Google behavior is claimed. `source-done` for this item is not `production-live`; operator rollout and evidence remain separate. Redis is not a processing queue, lock, scheduler, retry mechanism, notification channel, or heartbeat store.

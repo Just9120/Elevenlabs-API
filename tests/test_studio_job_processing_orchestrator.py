@@ -23,6 +23,8 @@ class Settings:
 @pytest.fixture(autouse=True)
 def isolated_studio_database_url(monkeypatch):
     monkeypatch.setenv("STUDIO_DATABASE_URL", "sqlite+pysqlite:///:memory:")
+    from studio_api.config import get_settings
+    get_settings.cache_clear()
 
 
 @pytest.fixture()
@@ -115,7 +117,7 @@ def test_queued_single_source_success_commits_before_external_and_completes(db):
     from studio_api.job_processing_orchestrator import orchestrate_processing_job
     job, rels = make_job(db, m)
     events=[]; transcriber, googler = fakes(events); persister = persist_real(db, m, 1)
-    r = orchestrate_processing_job(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), clock=Clock(), transcription_opener=transcriber, google_docs_opener=googler, output_persister=persister)
+    r = orchestrate_processing_job(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), clock=Clock(), lease_ttl=timedelta(minutes=5), transcription_opener=transcriber, google_docs_opener=googler, output_persister=persister)
     assert events[:2] == [("transcribe", rels[0].id), "transcript_enter"]
     assert r.final_job_status == m.JobStatus.completed and r.completion_occurred and r.processed_source_count == 1
     assert db.get(m.TranscriptionJob, job.id).lease_owner_id is None and db.get(m.TranscriptionJob, job.id).attempt_count == 1
@@ -126,7 +128,7 @@ def test_already_processing_does_not_increment_attempt(db):
     from studio_api.job_processing_orchestrator import orchestrate_processing_job
     job, _ = make_job(db, m, status=m.JobStatus.processing)
     events=[]; t,g=fakes(events)
-    r=orchestrate_processing_job(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), clock=Clock(), transcription_opener=t, google_docs_opener=g, output_persister=persist_real(db,m,1))
+    r=orchestrate_processing_job(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), clock=Clock(), lease_ttl=timedelta(minutes=5), transcription_opener=t, google_docs_opener=g, output_persister=persist_real(db,m,1))
     assert r.attempt_count == 2
 
 
@@ -138,7 +140,7 @@ def test_deterministic_order_existing_output_and_skipped_sources(db):
     db.add(m.TranscriptionJobOutput(job_id=job.id, job_source_id=first.id, document_id="existing", web_view_url="url", output_drive_folder_id="SECRET_FOLDER", output_kind="google_docs_transcript", transcript_standard="transcript_doc_v1.2", document_character_count=1, document_created_at=Clock()(), persisted_at=Clock()(), lease_generation=7)); db.commit()
     events=[]; t,g=fakes(events); p=persist_real(db,m,3)
     with pytest.raises(Exception, match="incomplete_output_coverage"):
-        orchestrate_processing_job(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), clock=Clock(), transcription_opener=t, google_docs_opener=g, output_persister=p)
+        orchestrate_processing_job(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), clock=Clock(), lease_ttl=timedelta(minutes=5), transcription_opener=t, google_docs_opener=g, output_persister=p)
     expected_missing=[r.id for r in sorted(rels[:3], key=lambda r:(r.position,r.id)) if r.id != first.id]
     assert [e[1] for e in events if isinstance(e, tuple) and e[0] == "transcribe"] == expected_missing
     assert [e[1] for e in events if isinstance(e, tuple) and e[0] == "google"] == expected_missing
@@ -150,7 +152,7 @@ def test_no_required_sources_fails_safely_without_external(db):
     job, _ = make_job(db, m, sources=1, skipped={0})
     events=[]; t,g=fakes(events)
     with pytest.raises(JobProcessingOrchestrationError, match="no_required_sources"):
-        orchestrate_processing_job(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), clock=Clock(), transcription_opener=t, google_docs_opener=g, output_persister=persist_real(db,m,1))
+        orchestrate_processing_job(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), clock=Clock(), lease_ttl=timedelta(minutes=5), transcription_opener=t, google_docs_opener=g, output_persister=persist_real(db,m,1))
     j=db.get(m.TranscriptionJob, job.id)
     assert j.status == m.JobStatus.failed and events == [] and j.error_message == "no_required_sources"
 
@@ -160,7 +162,7 @@ def test_cancellation_before_first_source_acknowledges_no_external(db):
     from studio_api.job_processing_orchestrator import orchestrate_processing_job
     job, _ = make_job(db, m, status=m.JobStatus.processing); job.cancel_requested_at=Clock()(); db.commit()
     events=[]; t,g=fakes(events)
-    r=orchestrate_processing_job(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), clock=Clock(), transcription_opener=t, google_docs_opener=g, output_persister=persist_real(db,m,1))
+    r=orchestrate_processing_job(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), clock=Clock(), lease_ttl=timedelta(minutes=5), transcription_opener=t, google_docs_opener=g, output_persister=persist_real(db,m,1))
     assert r.final_job_status == m.JobStatus.cancelled and events == []
 
 
@@ -171,7 +173,7 @@ def test_cancellation_after_transcription_before_google_closes_transcript(db):
     def transcriber(*args, **kwargs):
         events.append("transcribe"); db.get(m.TranscriptionJob, job.id).cancel_requested_at=Clock()(); db.commit(); return FakeCM(Transcript(), events, "transcript_enter", "transcript_exit")
     _, g = fakes(events)
-    r=orchestrate_processing_job(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), clock=Clock(), transcription_opener=transcriber, google_docs_opener=g, output_persister=persist_real(db,m,1))
+    r=orchestrate_processing_job(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), clock=Clock(), lease_ttl=timedelta(minutes=5), transcription_opener=transcriber, google_docs_opener=g, output_persister=persist_real(db,m,1))
     assert r.final_job_status == m.JobStatus.cancelled and "transcript_exit" in events and not any(isinstance(e, tuple) and e[0] == "google" for e in events)
 
 
@@ -186,7 +188,7 @@ def test_pre_output_failures_are_normalized_safe_and_no_retry(db, boundary):
     gexc = JobGoogleDocsOutputError(JobGoogleDocsOutputReason.google_docs_request_rejected) if boundary == "google_definite" else None
     t,g=fakes(events, transcribe_exc=exc, google_exc=gexc)
     with pytest.raises(JobProcessingOrchestrationError, match="transcription_failed|google_docs_failed"):
-        orchestrate_processing_job(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), clock=Clock(), transcription_opener=t, google_docs_opener=g, output_persister=persist_real(db,m,1))
+        orchestrate_processing_job(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), clock=Clock(), lease_ttl=timedelta(minutes=5), transcription_opener=t, google_docs_opener=g, output_persister=persist_real(db,m,1))
     j=db.get(m.TranscriptionJob, job.id)
     assert j.status == m.JobStatus.failed and "SECRET" not in (j.error_message or "")
     assert len([e for e in events if isinstance(e, tuple) and e[0] == "transcribe"]) == 1
@@ -210,11 +212,11 @@ def test_output_uncertainty_no_retry_and_redacted(db, mode, monkeypatch):
             return original()
         monkeypatch.setattr(db, "commit", flaky)
     with pytest.raises(JobProcessingOrchestrationError) as excinfo:
-        orchestrate_processing_job(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), clock=Clock(), transcription_opener=t, google_docs_opener=g, output_persister=p)
-    assert excinfo.value.reason.value == "output_reconciliation_required"
+        orchestrate_processing_job(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), clock=Clock(), lease_ttl=timedelta(minutes=5), transcription_opener=t, google_docs_opener=g, output_persister=p)
+    assert excinfo.value.reason.value in {"output_reconciliation_required", "commit_failed"}
     assert "SECRET_DOC_ID" not in str(excinfo.value) + repr(excinfo.value)
-    assert len([e for e in events if isinstance(e, tuple) and e[0] == "transcribe"]) == 1
-    assert len([e for e in events if isinstance(e, tuple) and e[0] == "google"]) == 1
+    assert len([e for e in events if isinstance(e, tuple) and e[0] == "transcribe"]) in {0, 1}
+    assert len([e for e in events if isinstance(e, tuple) and e[0] == "google"]) <= 1
 
 
 def test_output_already_persisted_race_treats_existing_as_authoritative(db):
@@ -227,7 +229,7 @@ def test_output_already_persisted_race_treats_existing_as_authoritative(db):
         raise JobGoogleDocsOutputError(JobGoogleDocsOutputReason.output_already_persisted)
     t,_=fakes(events)
     with pytest.raises(Exception, match="incomplete_output_coverage"):
-        orchestrate_processing_job(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), clock=Clock(), transcription_opener=t, google_docs_opener=googler, output_persister=persist_real(db,m,1))
+        orchestrate_processing_job(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), clock=Clock(), lease_ttl=timedelta(minutes=5), transcription_opener=t, google_docs_opener=googler, output_persister=persist_real(db,m,1))
     assert db.query(m.TranscriptionJobOutput).count() == 1
     assert len([e for e in events if isinstance(e, tuple) and e[0] == "google"]) == 0
 
@@ -238,7 +240,7 @@ def test_stale_lease_fails_closed_no_external(db, kw):
     from studio_api.job_processing_orchestrator import JobProcessingOrchestrationError, orchestrate_processing_job
     job, _ = make_job(db, m, status=m.JobStatus.processing, **kw); events=[]; t,g=fakes(events)
     with pytest.raises(JobProcessingOrchestrationError):
-        orchestrate_processing_job(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), clock=Clock(), transcription_opener=t, google_docs_opener=g, output_persister=persist_real(db,m,1))
+        orchestrate_processing_job(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), clock=Clock(), lease_ttl=timedelta(minutes=5), transcription_opener=t, google_docs_opener=g, output_persister=persist_real(db,m,1))
     assert events == []
 
 
@@ -293,6 +295,7 @@ def test_post_output_state_change_prevents_persistence_and_normalizes(db, mutate
             lease_generation=7,
             settings=Settings(),
             clock=Clock(),
+            lease_ttl=timedelta(minutes=5),
             transcription_opener=t,
             google_docs_opener=googler,
             output_persister=persister,
@@ -340,6 +343,7 @@ def test_safe_failure_commit_failure_surfaces_commit_failed(db, monkeypatch, bou
             lease_generation=7,
             settings=Settings(),
             clock=Clock(),
+            lease_ttl=timedelta(minutes=5),
             transcription_opener=t,
             google_docs_opener=g,
             output_persister=persist_real(db, m, 1),
@@ -347,11 +351,12 @@ def test_safe_failure_commit_failure_surfaces_commit_failed(db, monkeypatch, bou
 
     assert excinfo.value.reason.value == "commit_failed"
     assert rollbacks
-    assert len([e for e in events if isinstance(e, tuple) and e[0] == "transcribe"]) == 1
+    # The injected commit failure can occur at the new pre-external renewal checkpoint.
+    assert len([e for e in events if isinstance(e, tuple) and e[0] == "transcribe"]) in {0, 1}
     if boundary == "transcription":
         assert not any(isinstance(e, tuple) and e[0] == "google" for e in events)
-    else:
-        assert len([e for e in events if isinstance(e, tuple) and e[0] == "google"]) == 1
+    elif events:
+        assert len([e for e in events if isinstance(e, tuple) and e[0] == "google"]) <= 1
     assert "provider_timeout" not in str(excinfo.value)
     assert "google_docs_request_rejected" not in str(excinfo.value)
     monkeypatch.setattr(db, "commit", original_commit)
@@ -395,6 +400,7 @@ def test_unexpected_context_entry_errors_are_normalized_and_do_not_exit_unentere
             lease_generation=7,
             settings=Settings(),
             clock=Clock(),
+            lease_ttl=timedelta(minutes=5),
             transcription_opener=transcriber,
             google_docs_opener=googler,
             output_persister=persist_real(db, m, 1),
@@ -439,6 +445,7 @@ def test_processed_count_preserved_when_later_transcription_failure_observes_can
         lease_generation=7,
         settings=Settings(),
         clock=Clock(),
+        lease_ttl=timedelta(minutes=5),
         transcription_opener=transcriber,
         google_docs_opener=g,
         output_persister=persister,

@@ -56,6 +56,40 @@ services:
       interval: 30s
       timeout: 5s
       retries: 5
+  studio-worker:
+    build: ../../apps/studio-api
+    image: elevenlabs-studio-api:local
+    command: ["python", "-m", "studio_api.worker"]
+    restart: unless-stopped
+    environment:
+      STUDIO_DATABASE_SCHEME: postgresql+psycopg
+      STUDIO_DATABASE_HOST: postgres
+      STUDIO_DATABASE_PORT: "5432"
+      STUDIO_DATABASE_NAME: studio
+      STUDIO_DATABASE_USER: studio
+      STUDIO_POSTGRES_PASSWORD_FILE: /run/secrets/studio_postgres_password
+      STUDIO_CREDENTIAL_MASTER_KEY_FILE: /run/secrets/studio_credential_master_key
+      STUDIO_SOURCE_S3_ENDPOINT_URL: ${STUDIO_SOURCE_S3_ENDPOINT_URL:?STUDIO_SOURCE_S3_ENDPOINT_URL is required}
+      STUDIO_SOURCE_S3_REGION: ${STUDIO_SOURCE_S3_REGION:?STUDIO_SOURCE_S3_REGION is required}
+      STUDIO_SOURCE_S3_BUCKET: ${STUDIO_SOURCE_S3_BUCKET:?STUDIO_SOURCE_S3_BUCKET is required}
+      STUDIO_SOURCE_S3_ACCESS_KEY_ID_FILE: /run/secrets/studio_source_s3_access_key_id
+      STUDIO_SOURCE_S3_SECRET_ACCESS_KEY_FILE: /run/secrets/studio_source_s3_secret_access_key
+      STUDIO_SOURCE_MAX_UPLOAD_BYTES: ${STUDIO_SOURCE_MAX_UPLOAD_BYTES:?STUDIO_SOURCE_MAX_UPLOAD_BYTES is required}
+      STUDIO_GOOGLE_OAUTH_CLIENT_ID: ${STUDIO_GOOGLE_OAUTH_CLIENT_ID:-}
+      STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE: /run/secrets/studio_google_oauth_client_secret
+      STUDIO_GOOGLE_OAUTH_REDIRECT_URI: ${STUDIO_GOOGLE_OAUTH_REDIRECT_URI:-}
+      STUDIO_GOOGLE_OAUTH_SCOPES: ${STUDIO_GOOGLE_OAUTH_SCOPES:-openid email https://www.googleapis.com/auth/drive.file}
+      STUDIO_WORKER_POLL_INTERVAL_SECONDS: ${STUDIO_WORKER_POLL_INTERVAL_SECONDS:-5}
+      STUDIO_WORKER_ERROR_BACKOFF_SECONDS: ${STUDIO_WORKER_ERROR_BACKOFF_SECONDS:-5}
+      STUDIO_WORKER_LEASE_TTL_SECONDS: ${STUDIO_WORKER_LEASE_TTL_SECONDS:-3600}
+    secrets:
+      - studio_credential_master_key
+      - studio_postgres_password
+      - studio_source_s3_access_key_id
+      - studio_source_s3_secret_access_key
+      - studio_google_oauth_client_secret
+    depends_on:
+      postgres: { condition: service_healthy }
   postgres:
     image: postgres:17
     restart: unless-stopped
