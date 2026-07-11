@@ -489,3 +489,88 @@ This preparation PR makes no runtime change. Even after the later source impleme
 The runner now passes the exact lease TTL used for acquisition into the orchestrator. The orchestrator renews the existing PostgreSQL lease with that TTL and commits before each source's external provider boundary and again after provider transcription before Google Docs work. A single renewal at the next source boundary covers the post-output-commit/pre-next-external-work checkpoint. Renewal failures map to normalized orchestration reasons, stop the current orchestration, do not retry, do not release the lease, and leave continuation to the worker backoff loop.
 
 This source does not add a background heartbeat: no renewal runs while one source materialization or provider call is in progress, one continuous provider stage must complete within `worker_lease_ttl_seconds`, expiry fails closed, and no exactly-once provider or Google behavior is claimed. `source-done` for this item is not `production-live`; operator rollout and evidence remain separate. Redis is not a processing queue, lock, scheduler, retry mechanism, notification channel, or heartbeat store.
+
+## PWA-OUTPUT-02-PREP browser-safe Studio job output discovery contract
+
+`PWA-OUTPUT-02-PREP` is documentation-only preparation for browser-safe discovery of Studio outputs already persisted by internal processing. It does not add an API route, serializer, frontend behavior, polling, output persistence, processing behavior, worker behavior, Google API call, migration, Compose/runtime/deploy change, production rollout, or production-live processing claim.
+
+### Approved endpoint shape
+
+The only approved browser output-discovery endpoint is:
+
+```text
+GET /api/jobs/{job_id}/outputs
+```
+
+The endpoint is an internal authenticated browser API, is read-only, and requires the existing authenticated browser session. It does not require CSRF protection because it performs no mutation. Output URLs must not be added to project job-list responses, and the first implementation must not automatically widen every existing `GET /api/jobs/{job_id}` response with output records. Keeping output discovery explicit preserves list/detail compatibility, keeps URL-bearing metadata opt-in, and enables focused authorization and redaction tests.
+
+Conceptual response shape:
+
+```json
+{
+  "job_id": "<owned job id>",
+  "job_status": "queued|processing|completed|failed|cancelled",
+  "output_count": 0,
+  "outputs": []
+}
+```
+
+Each output entry may contain only `source_id`, `source_position`, `source_name`, `source_type`, `output_kind`, `transcript_standard`, `web_view_url`, `link_available`, `document_character_count`, `document_created_at`, and `persisted_at`. Field naming may follow current API conventions, but these semantics are fixed.
+
+### Authorization and not-found behavior
+
+The endpoint must use the same owner-scoped job authority as the existing job-detail endpoint. An authenticated user may read outputs only for a job whose `owner_user_id` matches the current user. Nonexistent jobs and cross-owner jobs must both return the existing generic 404 behavior, and no response may reveal whether another user's job exists.
+
+Output rows must be constrained through the already-authorized job id. The implementation must not authorize by output id, source id, project id, document id, URL, or archived project state. Archived project state must not create broader access than the existing job-detail contract. No admin bypass, sharing path, public links endpoint, anonymous access, signed API token, or service-to-service output endpoint is approved.
+
+The future implementation must join output rows to the job-source relation and source record only after job ownership is established.
+
+### Browser-safe and forbidden fields
+
+Output entries may include only source metadata already available to the same owner through the existing job-detail response: source id, source position, original filename as `source_name`, and source type.
+
+The following persisted output fields are approved for browser output: `output_kind`, `transcript_standard`, `document_character_count`, `document_created_at`, `persisted_at`, and a validated Google web-view URL. The URL is user-facing output navigation and may be returned only after validation.
+
+The endpoint must not expose job-source ids, S3 buckets, S3 object keys, Drive source file ids beyond fields already deliberately exposed by the existing source contract, private storage paths, temporary file paths, source bytes, database output ids, Google document ids, output Drive folder ids, lease generation, raw provider responses, Google API responses, transcript text, document body content, credential metadata, OAuth metadata, tokens, secret values, or internal error detail.
+
+Transcript bodies and Google Docs body content remain server-ephemeral and must never enter the API response.
+
+### URL validation and fail-closed behavior
+
+The API must never echo an arbitrary persisted URL directly. It may return `web_view_url` only when parsed URL components prove all of the following:
+
+- scheme is exactly HTTPS;
+- hostname is exactly `docs.google.com` or `drive.google.com`;
+- no embedded credentials are present;
+- there is no custom port;
+- the value is not a non-HTTPS scheme, `javascript:`, `data:`, `file:`, `blob:`, localhost, IP-literal, protocol-relative URL, or substring-based hostname trick.
+
+Validation must use parsed URL components rather than substring matching. The endpoint must not perform a live Google request merely to validate, verify, refresh, or repair the link.
+
+When a persisted output row has a missing or unsafe URL, the endpoint must preserve the output metadata entry, return `web_view_url` as `null`, return `link_available` as `false`, avoid exposing the unsafe value, avoid failing the whole endpoint solely because one link is unsafe, avoid mutating or repairing the database row, and avoid logging the unsafe URL. For an approved URL, return the normalized persisted URL and set `link_available` to `true`.
+
+### Partial-output, status, and ordering semantics
+
+Persisted outputs may exist for jobs in `processing`, `failed`, `cancelled`, and `completed`. The endpoint must return all currently persisted owner-scoped outputs regardless of terminal status. A queued job with no outputs returns HTTP 200 with `output_count` `0` and `outputs` `[]`; a processing job may return partial outputs; a failed or cancelled job may return partial outputs created before failure or cancellation; and a completed job returns all persisted outputs.
+
+The presence of one or more outputs must not imply job completion. `job_status` remains the lifecycle authority, and `output_count` is the count of returned persisted output entries. The read endpoint must not hide partial outputs merely because a job is not completed, and it must not create, retry, reconcile, delete, rename, move, refresh, or validate Google documents.
+
+Outputs must be ordered deterministically by job-source position ascending, then `persisted_at` ascending, then output row id ascending only as an internal tie-breaker. The internal output-row id must not be returned. The endpoint must not order by filename, document id, URL, Google timestamp, or database default order.
+
+### API error behavior and tests
+
+Unauthenticated requests follow the existing session dependency behavior. Nonexistent or cross-owner jobs return generic 404. A valid owned job with no outputs returns HTTP 200 and an empty collection. Malformed internal output metadata must not expose raw values. One unsafe URL must not fail other valid output entries. Unexpected database failure uses the existing normalized server-error behavior and must not expose SQL, row contents, identifiers, URLs, or traceback details. No new browser-visible error fields may contain internal reasons.
+
+`PWA-OUTPUT-02A` tests must cover at least: authentication/session dependency behavior; owner-scoped success; cross-owner and missing-job generic 404; empty owned job response; partial outputs for processing, failed, cancelled, and completed jobs; deterministic ordering; approved Google URL serialization; unsafe/missing URL fail-closed serialization without echoing unsafe values; forbidden-field redaction; `GET /api/jobs/{job_id}` and project job-list payloads remaining unwidened; and unexpected database-error normalization without internal details.
+
+### Implementation, frontend, and production boundaries
+
+The only approved next implementation item after this PREP contract is `PWA-OUTPUT-02A — Browser-safe Studio job output API`.
+
+That later implementation may add `GET /api/jobs/{job_id}/outputs`; add a small focused output serializer/helper; add parsed Google URL validation; query persisted outputs with deterministic ordering; join only the authorized job-source/source metadata needed by the response; add PostgreSQL-backed API tests; add DB-free helper tests when useful; and update the four relevant documentation files narrowly.
+
+That implementation must not modify the database schema, add migrations, change output persistence, change processing or worker behavior, add frontend output links, add a public processing endpoint, add Google API calls, refresh Google tokens, verify document existence live, add sharing, add download/proxy behavior, expose transcript text or document body, deploy to production, or claim production-live processing. No additional delivery item id is approved or named after `PWA-OUTPUT-02A`.
+
+Frontend output rendering is outside `PWA-OUTPUT-02A`. A later separately approved frontend item may request the explicit outputs endpoint for an opened job, display partial or completed output links, distinguish job status from output availability, and open validated Google links in a new browser context with safe `rel` attributes. This contract does not assign an item id to that future frontend work and does not approve frontend polling behavior.
+
+This PREP PR makes no runtime change. Even after `PWA-OUTPUT-02A`, source-done/merged will not mean production-live; the `studio-worker` still requires separate operator rollout and evidence; browser output access will require source deployment before it is live; Colab remains the working production contour; Studio manifest mutation remains unimplemented; and exactly-once Google document creation remains unclaimed.
