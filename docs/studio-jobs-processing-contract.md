@@ -250,17 +250,17 @@ The Google Docs creation boundary now checks for an existing persisted output be
 
 ## PWA-PIPELINE-01-PREP internal single-job orchestration contract
 
-`PWA-PIPELINE-01-PREP` defines the contract for the next implementation slice, `PWA-PIPELINE-01A — Internal synchronous single-job orchestrator`. It is a documentation-only approval for composition rules, not an implementation approval for a worker, queue consumer, scheduler, public processing endpoint, runtime service, automatic retry system, production migration execution, or production-live processing.
+`PWA-PIPELINE-01-PREP` defined the contract for `PWA-PIPELINE-01A — Internal synchronous single-job orchestrator`. Source now contains that internal synchronous orchestrator for one already-leased job. This remains not an implementation approval for a worker, queue consumer, scheduler, public processing endpoint, runtime service, automatic retry system, production migration execution, or production-live processing.
 
 ### Orchestrator identity
 
-The future `PWA-PIPELINE-01A` orchestrator must be internal, server-only, and synchronous. It is invoked only with an existing database session, a job id, the exact lease owner id, the exact lease generation, settings, and a clock. It is not exposed through FastAPI, is not a worker, queue consumer, scheduler, CLI loop, background service, or runtime daemon, and is not authorized to claim an unowned job by itself.
+The `PWA-PIPELINE-01A` orchestrator is internal, server-only, and synchronous. It is invoked only with an existing database session, a job id, the exact lease owner id, the exact lease generation, settings, and a clock. It is not exposed through FastAPI, is not a worker, queue consumer, scheduler, CLI loop, background service, or runtime daemon, and is not authorized to claim an unowned job by itself.
 
 The orchestrator operates only on a job that is already leased by the supplied owner/generation and is eligible to enter or remain in `processing`. Claiming an unowned job, choosing lease owners, runtime invocation, worker topology, queue technology, and production lease-renewal policy remain outside this contract.
 
 ### Deterministic source ordering and output authority
 
-The orchestrator must process job-source relations in deterministic persisted order:
+The orchestrator processes job-source relations in deterministic persisted order:
 
 1. `position`;
 2. relation id as the stable tie-breaker.
@@ -282,7 +282,7 @@ fresh lifecycle/lease checkpoint
 → continue only if the job remains processing
 ```
 
-The orchestrator must call the existing boundaries rather than duplicating authorization or integration logic. In the current callable composition, `transcribe_processing_job_source_with_elevenlabs` already opens processing execution prerequisites, source materialization, and the ElevenLabs provider call; `PWA-PIPELINE-01A` must not call `materialize_processing_job_source` separately before calling that transcription boundary. It must not retain source bytes, transcript text, provider results, Google tokens, Google response bodies, document bodies, or revocable handles outside their context lifetime.
+The orchestrator calls the existing boundaries rather than duplicating authorization or integration logic. In the current callable composition, `transcribe_processing_job_source_with_elevenlabs` already opens processing execution prerequisites, source materialization, and the ElevenLabs provider call; `PWA-PIPELINE-01A` must not call `materialize_processing_job_source` separately before calling that transcription boundary. It must not retain source bytes, transcript text, provider results, Google tokens, Google response bodies, document bodies, or revocable handles outside their context lifetime.
 
 ### Transaction boundaries and commit ownership
 
@@ -316,7 +316,7 @@ Output-side-effect uncertainty includes cases where Google creation may have suc
 
 ### Retry and recovery boundary
 
-`PWA-PIPELINE-01A` adds no automatic retry. It must not automatically retry source downloads, provider requests, Google Docs creation, output persistence after an uncertain external side effect, or completed, failed, or cancelled jobs.
+`PWA-PIPELINE-01A` adds no automatic retry. It does not automatically retry source downloads, provider requests, Google Docs creation, output persistence after an uncertain external side effect, or completed, failed, or cancelled jobs.
 
 Existing expired-lease recovery remains available, but recovery must not blindly re-run a relation when an unpersisted Google document may already exist. Exactly-once output creation is not claimed.
 
