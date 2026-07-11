@@ -126,7 +126,11 @@ describe("Studio PWA", () => {
             ],
             next_page_token: "next-token",
           });
-        if (url.endsWith("/api/google/drive/folders/folder-children/children?page_token=next-token"))
+        if (
+          url.endsWith(
+            "/api/google/drive/folders/folder-children/children?page_token=next-token",
+          )
+        )
           return json({
             folder_id: "folder-children",
             items: [
@@ -774,20 +778,29 @@ describe("Studio PWA", () => {
 
   it("shows configured output folder in job readiness checklist", async () => {
     renderApp("platform");
-    await userEvent.click(await screen.findByRole("button", { name: /Проекты/ }));
-    await userEvent.click(await screen.findByRole("button", { name: "Показать jobs" }));
-    expect(await screen.findByLabelText("Project job readiness checklist")).toHaveTextContent(
-      "Output folder: configured (Transcripts)",
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Проекты/ }),
     );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Показать jobs" }),
+    );
+    expect(
+      await screen.findByLabelText("Project job readiness checklist"),
+    ).toHaveTextContent("Output folder: configured (Transcripts)");
   });
 
   it("creates, lists, details, and cancels project jobs safely with CSRF", async () => {
-    const secretLike = "sk-live-raw-token refresh_token encrypted_ciphertext s3://secret-key https://upload.example/leak";
+    const secretLike =
+      "sk-live-raw-token refresh_token encrypted_ciphertext s3://secret-key https://upload.example/leak";
     (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       (url: string, init?: RequestInit) => {
         if (url.endsWith("/api/auth/session"))
-          return json({ authenticated: true, user: { email: "user@example.com", role: "admin" } });
-        if (url.endsWith("/api/auth/csrf")) return json({ csrf_token: "csrf-after-refresh" });
+          return json({
+            authenticated: true,
+            user: { email: "user@example.com", role: "admin" },
+          });
+        if (url.endsWith("/api/auth/csrf"))
+          return json({ csrf_token: "csrf-after-refresh" });
         if (url.endsWith("/api/credentials"))
           return json({
             credentials: [
@@ -986,6 +999,57 @@ describe("Studio PWA", () => {
             error_code: null,
             error_message: null,
           });
+        if (url.endsWith("/api/jobs/job-1/outputs"))
+          return json({
+            job_id: "job-1",
+            job_status: "processing",
+            output_count: 3,
+            outputs: [
+              {
+                source_id: "internal-source-id",
+                source_position: 1,
+                source_name: "second-output",
+                source_type: "local_upload",
+                output_kind: "transcript",
+                transcript_standard: "plain",
+                web_view_url:
+                  "https://docs.google.com/document/d/doc-safe/edit",
+                link_available: true,
+                document_character_count: 222,
+                document_created_at: "2026-07-02T00:10:00Z",
+                persisted_at: "2026-07-02T00:11:00Z",
+              },
+              {
+                source_id: "hidden-source-id",
+                source_position: 0,
+                source_name: "first-output",
+                source_type: "google_drive",
+                output_kind: "transcript",
+                transcript_standard: "plain",
+                web_view_url: null,
+                link_available: false,
+                document_character_count: 111,
+                document_created_at: "2026-07-02T00:08:00Z",
+                persisted_at: "2026-07-02T00:09:00Z",
+              },
+              {
+                source_id: "unsafe-source-id",
+                source_position: 2,
+                source_name: "unsafe-output",
+                source_type: "google_drive",
+                output_kind: "transcript",
+                transcript_standard: "plain",
+                web_view_url: "https://evil.example/doc-token-storage",
+                link_available: false,
+                document_character_count: 333,
+                document_created_at: "2026-07-02T00:12:00Z",
+                persisted_at: "2026-07-02T00:13:00Z",
+                transcript_text: "secret transcript body",
+                credential_token: "credential-token",
+                storage_key: "storage/private/key",
+              },
+            ],
+          });
         if (url.endsWith("/api/jobs/job-1"))
           return json({
             id: "job-1",
@@ -1067,8 +1131,12 @@ describe("Studio PWA", () => {
       },
     );
     renderApp("platform");
-    await userEvent.click(await screen.findByRole("button", { name: /Проекты/ }));
-    await userEvent.click(await screen.findByRole("button", { name: "Показать jobs" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Проекты/ }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Показать jobs" }),
+    );
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
         "/api/projects/p1/jobs",
@@ -1082,40 +1150,87 @@ describe("Studio PWA", () => {
       ),
     );
     expect(await screen.findByText("Queued review")).toBeInTheDocument();
-    expect(screen.getByText("Queued job сейчас означает только сохранённую запись. Processing worker ещё не подключён.")).toBeInTheDocument();
-    expect(screen.getByText("Cancel отменяет queued record; provider processing ещё не запускался.")).toBeInTheDocument();
-    expect(screen.getByText("Provider execution, Google Docs output и manifest mutation пока deferred.")).toBeInTheDocument();
-    expect(screen.getByLabelText("Project job readiness checklist")).toHaveTextContent("sources ещё не загружены");
-    expect(screen.getByLabelText("Project job readiness checklist")).toHaveTextContent("не выбран — optional для record creation");
-    expect(screen.getByLabelText("Project job readiness checklist")).toHaveTextContent("Output folder: не настроен");
-    expect(screen.getByLabelText("Project job readiness checklist")).toHaveTextContent("worker/provider execution не реализованы");
+    expect(
+      screen.getByText(
+        "Job lifecycle status и persisted output records отображаются отдельно.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Processing, failed, cancelled и completed jobs могут иметь частичные outputs.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "UI загружает outputs только по кнопке деталей job; production-live processing и deployment не подтверждены.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByLabelText("Project job readiness checklist"),
+    ).toHaveTextContent("sources ещё не загружены");
+    expect(
+      screen.getByLabelText("Project job readiness checklist"),
+    ).toHaveTextContent("не выбран — optional для record creation");
+    expect(
+      screen.getByLabelText("Project job readiness checklist"),
+    ).toHaveTextContent("Output folder: не настроен");
+    expect(
+      screen.getByLabelText("Project job readiness checklist"),
+    ).toHaveTextContent("не запускает worker/provider execution");
     expect(screen.getByText("Job job-2")).toBeInTheDocument();
-    expect(screen.getByText("Статус: Queued · record only")).toBeInTheDocument();
-    expect(screen.getByText("Статус: Failed · safe error metadata only")).toBeInTheDocument();
-    expect(screen.getByText("Статус: В обработке · lifecycle foundation only")).toBeInTheDocument();
+    expect(screen.getByText("Статус: Queued")).toBeInTheDocument();
+    expect(
+      screen.getByText("Статус: Failed · safe error metadata only"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Статус: В обработке")).toBeInTheDocument();
     expect(screen.getByText(/Отмена запрошена:/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Отмена запрошена" })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Отмена запрошена" }),
+    ).toBeDisabled();
     expect(screen.getByText("Sources: 2")).toBeInTheDocument();
     expect(screen.getByText("Error code: SAFE_CODE")).toBeInTheDocument();
     expect(screen.getByText("Error: Safe visible error")).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "Показать sources" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Показать sources" }),
+    );
     expect(await screen.findByText("ready-drive.mp4")).toBeInTheDocument();
-    expect(screen.getByLabelText("Project job readiness checklist")).toHaveTextContent("Sources: 2 usable uploaded source(s)");
+    expect(
+      screen.getByLabelText("Project job readiness checklist"),
+    ).toHaveTextContent("Sources: 2 usable uploaded source(s)");
     expect(screen.getByText(/Source ещё не готов для job/)).toBeInTheDocument();
-    expect(screen.getByText(/Удалённый source нельзя добавить в job/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Удалённый source нельзя добавить в job/),
+    ).toBeInTheDocument();
     expect(screen.getByLabelText(/pending-local/)).toBeDisabled();
     expect(screen.getByLabelText(/deleted-drive/)).toBeDisabled();
     await userEvent.click(screen.getByLabelText(/ready-drive/));
     await userEvent.click(screen.getByLabelText(/ready-local/));
-    await userEvent.type(screen.getByLabelText("Название job"), "Created from UI");
-    const credentialSelect = screen.getByLabelText("Provider credential для будущего processing");
-    expect(within(credentialSelect).getByRole("option", { name: "Без credential" })).toBeInTheDocument();
-    expect(within(credentialSelect).getByRole("option", { name: "openai · Primary STT · ••••1234 · v2" })).toBeInTheDocument();
-    expect(within(credentialSelect).queryByRole("option", { name: /Revoked STT/ })).not.toBeInTheDocument();
-    expect(within(credentialSelect).queryByRole("option", { name: /Deleted STT/ })).not.toBeInTheDocument();
+    await userEvent.type(
+      screen.getByLabelText("Название job"),
+      "Created from UI",
+    );
+    const credentialSelect = screen.getByLabelText(
+      "Provider credential для processing",
+    );
+    expect(
+      within(credentialSelect).getByRole("option", { name: "Без credential" }),
+    ).toBeInTheDocument();
+    expect(
+      within(credentialSelect).getByRole("option", {
+        name: "openai · Primary STT · ••••1234 · v2",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      within(credentialSelect).queryByRole("option", { name: /Revoked STT/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(credentialSelect).queryByRole("option", { name: /Deleted STT/ }),
+    ).not.toBeInTheDocument();
     await userEvent.selectOptions(credentialSelect, "cred-active");
-    expect(screen.getByLabelText("Project job readiness checklist")).toHaveTextContent("openai · Primary STT · ••••1234 · v2 selected");
+    expect(
+      screen.getByLabelText("Project job readiness checklist"),
+    ).toHaveTextContent("openai · Primary STT · ••••1234 · v2 selected");
     await userEvent.click(screen.getByRole("button", { name: "Создать job" }));
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
@@ -1123,17 +1238,24 @@ describe("Studio PWA", () => {
         expect.objectContaining({ method: "POST" }),
       ),
     );
-    const createCall = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.find(
-      ([url, init]) => url === "/api/projects/p1/jobs" && init?.method === "POST",
+    const createCall = (
+      fetch as unknown as ReturnType<typeof vi.fn>
+    ).mock.calls.find(
+      ([url, init]) =>
+        url === "/api/projects/p1/jobs" && init?.method === "POST",
     );
-    expect(createCall?.[1]?.headers).toMatchObject({ "x-csrf-token": "csrf-after-refresh" });
+    expect(createCall?.[1]?.headers).toMatchObject({
+      "x-csrf-token": "csrf-after-refresh",
+    });
     expect(JSON.parse(String(createCall?.[1]?.body))).toEqual({
       source_ids: ["s1", "s2"],
       title: "Created from UI",
       provider_credential_id: "cred-active",
     });
 
-    await userEvent.click(screen.getAllByRole("button", { name: "Показать детали job" })[0]);
+    await userEvent.click(
+      screen.getAllByRole("button", { name: "Показать детали job" })[0],
+    );
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
         "/api/jobs/job-1",
@@ -1143,25 +1265,76 @@ describe("Studio PWA", () => {
     const detail = await screen.findByLabelText("Job detail job-1");
     expect(within(detail).getByText("1. ready-drive.mp4")).toBeInTheDocument();
     expect(within(detail).getByText("2. ready-local.ogg")).toBeInTheDocument();
-    expect(within(detail).getAllByText("Job source status: queued")).toHaveLength(2);
-    expect(within(detail).queryByRole("link", { name: "Drive file URL" })).not.toBeInTheDocument();
+    expect(
+      within(detail).getAllByText("Job source status: queued"),
+    ).toHaveLength(2);
+    expect(
+      within(detail).queryByRole("link", { name: "Drive file URL" }),
+    ).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/jobs/job-1/outputs",
+        expect.objectContaining({ credentials: "same-origin" }),
+      ),
+    );
+    const outputCall = (
+      fetch as unknown as ReturnType<typeof vi.fn>
+    ).mock.calls.find(([url]) => url === "/api/jobs/job-1/outputs");
+    expect(outputCall?.[1]?.headers).not.toHaveProperty("x-csrf-token");
+    const outputs = await screen.findByLabelText("Job outputs job-1");
+    expect(outputs).toHaveTextContent(
+      "Lifecycle status из outputs: В обработке",
+    );
+    expect(outputs).toHaveTextContent("Output records: 3");
+    expect(outputs).toHaveTextContent("2. second-output");
+    expect(outputs).toHaveTextContent("1. first-output");
+    expect(outputs.textContent?.indexOf("2. second-output")).toBeLessThan(
+      outputs.textContent?.indexOf("1. first-output") ?? 0,
+    );
+    const outputLink = within(outputs).getByRole("link", {
+      name: "Открыть output в Google",
+    });
+    expect(outputLink).toHaveAttribute(
+      "href",
+      "https://docs.google.com/document/d/doc-safe/edit",
+    );
+    expect(outputLink).toHaveAttribute("target", "_blank");
+    expect(outputLink).toHaveAttribute("rel", "noopener noreferrer");
+    expect(outputs).toHaveTextContent("Ссылка недоступна");
+    expect(
+      within(outputs).queryByText("https://evil.example/doc-token-storage"),
+    ).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("secret transcript body");
+    expect(document.body.textContent).not.toContain("credential-token");
+    expect(document.body.textContent).not.toContain("storage/private/key");
+    expect(document.body.textContent).not.toContain("internal-source-id");
 
-    await userEvent.click(screen.getByRole("button", { name: "Отменить queued record" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Отменить queued record" }),
+    );
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
         "/api/jobs/job-1/cancel",
         expect.objectContaining({ method: "POST" }),
       ),
     );
-    const cancelCall = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.find(
-      ([url]) => url === "/api/jobs/job-1/cancel",
-    );
-    expect(cancelCall?.[1]?.headers).toMatchObject({ "x-csrf-token": "csrf-after-refresh" });
-    expect(await screen.findByText("Запрос отмены отправлен или job уже терминальна. Worker/provider execution ещё не подключены.")).toBeInTheDocument();
+    const cancelCall = (
+      fetch as unknown as ReturnType<typeof vi.fn>
+    ).mock.calls.find(([url]) => url === "/api/jobs/job-1/cancel");
+    expect(cancelCall?.[1]?.headers).toMatchObject({
+      "x-csrf-token": "csrf-after-refresh",
+    });
+    expect(
+      await screen.findByText(
+        "Запрос отмены отправлен или job уже терминальна. Доступные output records, если они есть, остаются отдельными от lifecycle status.",
+      ),
+    ).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("raw-token");
     expect(document.body.textContent).not.toContain("refresh_token");
     expect(document.body.textContent).not.toContain("encrypted_ciphertext");
-    expect(document.body.textContent).not.toContain("https://upload.example/leak");
+    expect(document.body.textContent).not.toContain(
+      "https://upload.example/leak",
+    );
     expect(document.body.textContent).not.toContain("cred-active");
     expect(document.body.textContent).not.toContain("cred-revoked");
     expect(window.localStorage.length).toBe(0);
@@ -1170,16 +1343,24 @@ describe("Studio PWA", () => {
 
   it("renders processing cancellation-request state without extra api calls in static mode", async () => {
     renderApp("static");
-    expect(fetch).not.toHaveBeenCalledWith(expect.stringContaining("/api"), expect.anything());
+    expect(fetch).not.toHaveBeenCalledWith(
+      expect.stringContaining("/api"),
+      expect.anything(),
+    );
   });
 
   it("allows creating a job without credential when credential loading fails", async () => {
     (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       (url: string, init?: RequestInit) => {
         if (url.endsWith("/api/auth/session"))
-          return json({ authenticated: true, user: { email: "user@example.com", role: "admin" } });
-        if (url.endsWith("/api/auth/csrf")) return json({ csrf_token: "csrf-after-refresh" });
-        if (url.endsWith("/api/credentials")) return json({ detail: "raw backend detail ignored" }, false, 503);
+          return json({
+            authenticated: true,
+            user: { email: "user@example.com", role: "admin" },
+          });
+        if (url.endsWith("/api/auth/csrf"))
+          return json({ csrf_token: "csrf-after-refresh" });
+        if (url.endsWith("/api/credentials"))
+          return json({ detail: "raw backend detail ignored" }, false, 503);
         if (url.endsWith("/api/projects"))
           return json({
             projects: [
@@ -1242,20 +1423,35 @@ describe("Studio PWA", () => {
       },
     );
     renderApp("platform");
-    await userEvent.click(await screen.findByRole("button", { name: /Проекты/ }));
-    await userEvent.click(await screen.findByRole("button", { name: "Показать jobs" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Проекты/ }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Показать jobs" }),
+    );
     expect(
-      await screen.findByText("Credentials сейчас недоступны. Job можно создать без credential."),
+      await screen.findByText(
+        "Credentials сейчас недоступны. Job можно создать без credential.",
+      ),
     ).toBeInTheDocument();
-    expect(screen.getByLabelText("Project job readiness checklist")).toHaveTextContent("Active provider credential недоступен");
-    expect(screen.queryByText("raw backend detail ignored")).not.toBeInTheDocument();
+    expect(
+      screen.getByLabelText("Project job readiness checklist"),
+    ).toHaveTextContent("Active provider credential недоступен");
+    expect(
+      screen.queryByText("raw backend detail ignored"),
+    ).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "Показать sources" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Показать sources" }),
+    );
     await userEvent.click(await screen.findByLabelText(/ready-local/));
     await userEvent.click(screen.getByRole("button", { name: "Создать job" }));
     const createCall = await waitFor(() => {
-      const call = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.find(
-        ([url, init]) => url === "/api/projects/p1/jobs" && init?.method === "POST",
+      const call = (
+        fetch as unknown as ReturnType<typeof vi.fn>
+      ).mock.calls.find(
+        ([url, init]) =>
+          url === "/api/projects/p1/jobs" && init?.method === "POST",
       );
       expect(call).toBeTruthy();
       return call;
@@ -1277,7 +1473,10 @@ describe("Studio PWA", () => {
     await userEvent.click(
       await screen.findByRole("button", { name: "Показать sources" }),
     );
-    await userEvent.type(screen.getByPlaceholderText("Drive folder ID"), "folder-children");
+    await userEvent.type(
+      screen.getByPlaceholderText("Drive folder ID"),
+      "folder-children",
+    );
     await userEvent.click(
       screen.getByRole("button", { name: "Показать файлы в папке" }),
     );
@@ -1292,16 +1491,21 @@ describe("Studio PWA", () => {
     expect(within(children).getByText("Файл Google Drive")).toBeInTheDocument();
     expect(within(children).getByText("Nested folder")).toBeInTheDocument();
     expect(
-      within(children).getByText("Папка Google Drive — не добавляется как source файл"),
+      within(children).getByText(
+        "Папка Google Drive — не добавляется как source файл",
+      ),
     ).toBeInTheDocument();
     expect(within(children).getByText("MIME: audio/mpeg")).toBeInTheDocument();
     expect(within(children).getByText("Размер: 0.00 MB")).toBeInTheDocument();
     expect(
-      within(children)
-        .getAllByRole("link", { name: "Открыть в Google Drive" })[0],
+      within(children).getAllByRole("link", {
+        name: "Открыть в Google Drive",
+      })[0],
     ).toHaveAttribute("href", "https://drive.example/file/child-1");
 
-    await userEvent.click(within(children).getByRole("button", { name: "Загрузить ещё" }));
+    await userEvent.click(
+      within(children).getByRole("button", { name: "Загрузить ещё" }),
+    );
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
         "/api/google/drive/folders/folder-children/children?page_token=next-token",
@@ -1315,7 +1519,9 @@ describe("Studio PWA", () => {
     expect(childFolder).toBeDisabled();
     await userEvent.click(childFile);
     await userEvent.click(
-      within(children).getByRole("button", { name: "Добавить выбранные sources" }),
+      within(children).getByRole("button", {
+        name: "Добавить выбранные sources",
+      }),
     );
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
@@ -1323,8 +1529,12 @@ describe("Studio PWA", () => {
         expect.objectContaining({ method: "POST" }),
       ),
     );
-    const driveCalls = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(
-      ([url, init]) => url === "/api/projects/p1/sources/google-drive" && init?.method === "POST",
+    const driveCalls = (
+      fetch as unknown as ReturnType<typeof vi.fn>
+    ).mock.calls.filter(
+      ([url, init]) =>
+        url === "/api/projects/p1/sources/google-drive" &&
+        init?.method === "POST",
     );
     expect(driveCalls).toHaveLength(1);
     expect(driveCalls[0]?.[1]?.headers).toMatchObject({
@@ -1337,9 +1547,9 @@ describe("Studio PWA", () => {
       mime_type: "audio/mpeg",
       size_bytes: 4096,
     });
-    expect(JSON.stringify(driveCalls.map((call) => call[1]?.body))).not.toContain(
-      "child-folder-1",
-    );
+    expect(
+      JSON.stringify(driveCalls.map((call) => call[1]?.body)),
+    ).not.toContain("child-folder-1");
     expect(window.localStorage.length).toBe(0);
     expect(window.sessionStorage.length).toBe(0);
   });
