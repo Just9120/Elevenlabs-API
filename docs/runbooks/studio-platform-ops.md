@@ -123,3 +123,57 @@ Standard platform CD never deploys or maintains PostgreSQL, Redis, migrations, b
 6. Set the repository variable `STUDIO_PLATFORM_CD_ENABLED=true` only after both manual component deployments pass.
 
 Operator validation recorded on 2026-07-01: manual `web` and manual `api` dispatches completed successfully. Automatic push deployment remains off until the repository variable is explicitly set to `true`.
+
+## Manual Studio processing rollout and controlled smoke contract
+
+This runbook section supports `PWA-PROCESSING-ROLLOUT-01A — Manual Studio processing rollout and controlled smoke validation`. It is an operator contract, not a coding-agent task. `PWA-PROCESSING-ROLLOUT-01-PREP` only documents this boundary and does not connect to production, run backups, run migrations, deploy containers, start workers, create jobs, call providers, call Google APIs, or mutate production.
+
+### State and responsibility boundary
+
+Keep these states separate in all reports: source-done/merged, CI-verified, deployed, migration-applied, worker-running, and production-live. Do not claim production-live Studio processing unless factual operator evidence exists. The operator must not record secrets, token values, document ids, folder ids, account data, source bytes, transcript body, document URLs, private paths, raw provider responses, or raw Google responses.
+
+### Preconditions
+
+Before rollout, confirm without printing values:
+
+- target checkout, remote, branch, and deploy directory identity;
+- tracked working tree is clean or explicitly reviewed as safe;
+- production runtime `.env` paths and secret files exist;
+- PostgreSQL and Redis are healthy;
+- source-upload storage config is complete;
+- Google OAuth config is complete and authenticated for the smoke account;
+- credential master key and encrypted BYOK records are usable;
+- an active ElevenLabs BYOK credential exists for the smoke account;
+- an accessible writable Google Drive output folder is selected;
+- exactly one `studio-worker` instance is intended;
+- current production database revision is known before migration.
+
+### Rollout sequence
+
+1. Stop or keep stopped `studio-worker` while migration readiness is uncertain.
+2. Create and confirm a tagged pre-migration PostgreSQL backup using the reviewed backup boundary.
+3. Compare production database revision with repository Alembic head `0008_transcription_job_outputs`.
+4. Require explicit operator confirmation, then run the existing manual migration script if needed.
+5. Verify production database revision equals `0008_transcription_job_outputs` before processing.
+6. Deploy `web` and `api` through the existing isolated component deployment model only after migration equality is confirmed; standard CD must not run migrations and does not deploy the worker.
+7. Verify intended commit, built image identity, running image identity, localhost health, public routing health, authenticated login/session behavior, and output endpoint availability without exposing another owner's output data.
+8. Manually start exactly one `studio-worker` using the intended `studio-api` image, with no HTTP port published.
+9. Verify PostgreSQL health, valid worker configuration, one bounded opaque process owner identity without recording the full raw value, and idle polling that does not create or mutate jobs.
+
+Starting `studio-api` does not prove `studio-worker` was recreated with the intended image.
+
+### Controlled smoke
+
+Run exactly one bounded smoke: one operator-approved test account/project, one small supported source, the existing ElevenLabs path only, one active owner-scoped BYOK credential, one authenticated Google connection, and one selected writable output folder. Create one queued job only after prerequisites pass. Do not create multiple jobs and do not retry automatically. Observe lifecycle through safe UI/API metadata; verify worker claim, terminal success or normalized failure, exactly one persisted output entry on success, approved frontend output metadata, and manual confirmation that the validated Google link opens the expected document in the selected folder. Do not copy transcript text into logs or evidence.
+
+### Stop conditions and recovery boundary
+
+Stop the worker and avoid automatic retry on database revision mismatch, missing runtime config, unexpected worker startup error, lease expiry or fencing loss, cancellation uncertainty, provider or Google authentication rejection, output side-effect uncertainty, duplicate or unexpected Google document creation, wrong output folder, missing persisted output after external document side effect, unsafe/secret-bearing evidence, or unknown exception/state transition.
+
+Stopping the worker must not automatically requeue, delete, retry, downgrade, remove output rows, or delete Google documents. Recovery allows no automatic database downgrade, no automatic job reset, no automatic provider retry, no automatic Google document deletion/recreation, no automatic output-row deletion, and no destructive Docker Compose `down`, prune, or volume removal. Stop or recreate only the intended worker component when safely required. API/web rollback requires an explicitly reviewed database-compatible operator decision. Output-side-effect uncertainty requires separate reconciliation work, and failed post-checks must fail loudly while preserving evidence.
+
+### Evidence record
+
+Classify every evidence item as `pass`, `fail`, `blocked`, or `not-run`. Safe evidence may include deployed commit, web/api/worker image identity confirmation, database revision, PostgreSQL/Redis/API/web health, worker instance count, startup/idle confirmation, safe job id if allowed, job status and attempt count, source count, persisted output count, output link availability boolean, confirmation that the validated link opened the expected Google document, and confirmation that no secrets, transcript bodies, document ids/URLs, source bytes, raw external responses, or copied transcript text were recorded.
+
+Residual limitations remain: no exactly-once Google document creation, no automatic reconciliation, no automatic retry, no background lease heartbeat during one long materialization/provider stage, one continuous materialization/provider stage must fit the worker lease TTL, no Studio manifest mutation, no OpenAI rollout, no multi-worker production validation, no production-live claim from documentation/CI alone, and Colab remains the fallback production contour until factual Studio runtime evidence exists.

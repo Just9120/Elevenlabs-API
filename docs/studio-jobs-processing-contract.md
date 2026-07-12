@@ -574,3 +574,159 @@ It must not modify the database schema, add migrations, change output persistenc
 `PWA-OUTPUT-02B — Studio job output links UI` requests `GET /api/jobs/{job_id}` and `GET /api/jobs/{job_id}/outputs` only when a user explicitly opens job details. The output request is a same-origin authenticated read and does not use CSRF mutation helpers. The UI may display only the approved output metadata, must render server ordering without re-sorting, must show unavailable-link entries instead of omitting them, must keep `job_status` separate from `output_count`, and must never gate outputs on `completed`. Clickable output links are allowed only when `link_available` is exactly `true` and the URL is a non-empty HTTPS URL on exact `docs.google.com` or `drive.google.com`; links open with `target="_blank"` and `rel="noopener noreferrer"`.
 
 `PWA-OUTPUT-02A` and `PWA-OUTPUT-02B` are source-only; source-done/merged will not mean production-live; the `studio-worker` still requires separate operator rollout and evidence; browser output access requires source deployment before it is live; Colab remains the working production contour; Studio manifest mutation remains unimplemented; and exactly-once Google document creation remains unclaimed.
+
+## PWA-PROCESSING-ROLLOUT-01-PREP production rollout operator contract
+
+`PWA-PROCESSING-ROLLOUT-01-PREP` is repository documentation only. It prepares a future operator-run production rollout and first controlled Studio processing smoke validation; it does not perform deployment, migration, backup, provider execution, Google Docs creation, job creation, worker startup, production mutation, or runtime validation. The future rollout is an explicit operator action, not a coding-agent task.
+
+Source-done, CI-verified, deployed, migration-applied, worker-running, and production-live are separate states. No production-live Studio processing claim is allowed from documentation, repository source, CI, or frontend/source availability alone; factual operator evidence is required.
+
+The only approved follow-up after this PREP contract is `PWA-PROCESSING-ROLLOUT-01A — Manual Studio processing rollout and controlled smoke validation`.
+
+### Secret-free preconditions
+
+Before any future production rollout action, the operator must confirm the following without printing values, real paths, credentials, tokens, document ids, folder ids, account data, source bytes, private object keys, raw provider responses, raw Google responses, or secret file contents:
+
+- target checkout identity, repository remote, branch, and deploy directory identity;
+- clean tracked working tree, or an explicitly reviewed safe tracked working tree state;
+- required production runtime `.env` paths and secret files exist;
+- PostgreSQL and Redis are healthy;
+- source-upload storage configuration is complete;
+- Google OAuth configuration is complete and the smoke user can authenticate the Google connection;
+- credential master key and encrypted BYOK records are usable;
+- exactly one active ElevenLabs BYOK credential exists for the smoke account;
+- one accessible writable Google Drive output folder is selected for the smoke project;
+- exactly one `studio-worker` instance is intended for the first rollout;
+- current production database revision is known before any migration.
+
+### Migration boundary
+
+The future operator sequence is:
+
+1. Ensure the worker is not running while migration readiness is uncertain.
+2. Create and confirm a tagged pre-migration PostgreSQL backup through the existing reviewed backup boundary.
+3. Compare the current production database revision with the repository Alembic head, currently `0008_transcription_job_outputs`.
+4. Require explicit operator confirmation before migration.
+5. Migrate manually through the existing migration script; migrations must not run at API startup or from standard CD.
+6. Verify the resulting production database revision is `0008_transcription_job_outputs` before starting processing.
+7. Do not automatically downgrade on failure. Rollback remains forward-fix unless a separate deliberate reversible-downgrade task is approved.
+
+This PREP contract does not execute a migration.
+
+### API and frontend rollout boundary
+
+After migration equality is confirmed, the future operator may deploy `web` and `api` through the existing isolated component deployment model. This PREP contract does not change the current CD workflow and does not add migrations or worker deployment to standard CD.
+
+Required safe evidence for API/web rollout:
+
+- intended source or merge commit;
+- newly built image identity;
+- running container image identity matching the intended image;
+- localhost API and web health;
+- public routing health;
+- authenticated login/session behavior;
+- output endpoint availability without exposing another owner's output data.
+
+### Worker rollout boundary
+
+Worker rollout is a separate manual step. Starting or recreating `studio-api` does not prove that `studio-worker` was recreated with the intended image.
+
+The future operator must:
+
+- deploy/start exactly one `studio-worker` instance;
+- reuse the same intended `studio-api` image;
+- publish no HTTP port for the worker;
+- require PostgreSQL health before processing;
+- verify the worker process starts with valid configuration;
+- verify one bounded opaque process owner identity exists without recording its full raw value;
+- verify idle polling does not create or mutate jobs;
+- avoid adding worker deployment to standard CD as part of this PREP boundary;
+- avoid enabling multiple replicas, autoscaling, Redis queues, cron, or schedulers for the first rollout.
+
+### Controlled production smoke validation
+
+The first production smoke run is deliberately bounded:
+
+- use one dedicated operator-approved test account/project;
+- use exactly one small supported source;
+- use the existing ElevenLabs processing path only;
+- require one active owner-scoped BYOK credential;
+- require an authenticated Google connection and one selected writable output folder;
+- create one queued job only after all prerequisites pass;
+- do not create multiple jobs or retry automatically;
+- observe lifecycle only through safe UI/API metadata;
+- verify the job is claimed by the worker;
+- verify the job reaches a factual terminal state or a normalized failure state;
+- if successful, verify exactly one persisted output entry exists for the source;
+- verify the frontend displays approved output metadata;
+- manually open the validated Google link and confirm the expected document exists in the selected folder;
+- do not record document id, URL, transcript body, source bytes, tokens, credential values, private paths, raw provider responses, raw Google responses, or copied transcript text.
+
+### Stop conditions
+
+The operator must stop the worker and avoid automatic retry if any of the following occurs:
+
+- database revision mismatch;
+- missing or unresolved runtime configuration;
+- unexpected worker startup error;
+- lease expiry or fencing loss;
+- cancellation uncertainty;
+- provider or Google authentication rejection;
+- output side-effect uncertainty;
+- duplicate or unexpected Google document creation;
+- document created in the wrong folder;
+- persisted output missing after an external document side effect;
+- unsafe or secret-bearing log/output evidence;
+- unknown exception or state transition.
+
+Stopping the worker must not automatically requeue, delete, retry, downgrade, remove output rows, or delete Google documents.
+
+### Recovery and rollback boundary
+
+Recovery is conservative:
+
+- no automatic database downgrade;
+- no automatic job reset to queued;
+- no automatic provider retry;
+- no automatic Google document deletion or recreation;
+- no automatic output-row deletion;
+- no destructive Docker Compose `down`, prune, or volume removal;
+- stop or recreate only the intended worker component when safely required;
+- API/web rollback is allowed only through an explicitly reviewed database-compatible operator decision;
+- output-side-effect uncertainty requires separate reconciliation work;
+- failed post-checks must fail loudly and preserve evidence.
+
+### Secret-free evidence checklist
+
+Evidence must distinguish `pass`, `fail`, `blocked`, and `not-run`. The safe record may include only facts such as:
+
+- deployed repository commit;
+- web, api, and worker image identity confirmation;
+- database revision;
+- PostgreSQL, Redis, API, and web health results;
+- worker instance count;
+- worker startup and idle confirmation;
+- safe job id if existing repository rules allow it;
+- job status and attempt count;
+- source count;
+- persisted output count;
+- output link availability boolean;
+- confirmation that the validated link opened the expected Google document;
+- confirmation that no secrets, transcript bodies, document ids/URLs, source bytes, raw external responses, or copied transcript text were recorded.
+
+### Residual limitations
+
+The rollout contract preserves these limitations:
+
+- no exactly-once Google document creation;
+- no automatic reconciliation;
+- no automatic retry;
+- no background lease heartbeat during one long materialization/provider stage;
+- one continuous materialization/provider stage must finish within the configured worker lease TTL;
+- no Studio manifest mutation;
+- no OpenAI processing rollout in this item;
+- no multi-worker production validation;
+- no production-live claim from documentation or CI alone;
+- Colab remains the fallback production contour until factual Studio runtime evidence exists.
+
+`PWA-PROCESSING-ROLLOUT-01A` is operator-run; it may apply the reviewed migration and start one worker only after prerequisites and backup confirmation, may collect the safe evidence above, must not be represented as completed by a coding agent, must not change source unless the rollout exposes a separately scoped defect, and must stop without improvising when the stop conditions occur.
