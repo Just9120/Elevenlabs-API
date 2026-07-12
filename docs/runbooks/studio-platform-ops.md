@@ -124,6 +124,17 @@ Standard platform CD never deploys or maintains PostgreSQL, Redis, migrations, b
 
 Operator validation recorded on 2026-07-01: manual `web` and manual `api` dispatches completed successfully. Automatic push deployment remains off until the repository variable is explicitly set to `true`.
 
+
+## Manual Studio processing host preflight workflow
+
+`Studio Processing Preflight` is a manual-only GitHub Actions workflow for the host-level portion of Phase 0. Dispatch it only from `main` with the required `expected_commit` input set to the exact 40-character production HEAD SHA that the operator expects at `/opt/elevenlabs-studio`. The workflow uses the existing `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, and `DEPLOY_KNOWN_HOSTS` SSH path, materializes the committed read-only preflight script as a temporary file outside the production checkout, executes that file, and removes it on success or failure.
+
+The workflow and script are read-only except for that transient temporary script file. They must not fetch, pull, checkout, reset, clean, build, deploy, restart, recreate, start workers, run backups, run migrations, call providers, call Google APIs, create jobs, inspect user/account data, or mutate repository files, runtime configuration, containers, images, volumes, services, or database state.
+
+The script prints a compact secret-free table and one normalized terminal marker. `STUDIO_PROCESSING_HOST_PREFLIGHT_OK` means the host identity gates, runtime-file/configuration gates, required secret-file presence checks, PostgreSQL/Redis health checks, API/web localhost and public routing checks, zero-worker pre-rollout expectation, and production database revision equality with repository Alembic head all passed. `STUDIO_PROCESSING_HOST_PREFLIGHT_BLOCKED` means one or more required host-level checks blocked or failed, and the workflow exits non-zero. Absence of the OK marker is not a production readiness claim.
+
+Account-specific smoke prerequisites remain manual and are always reported as `not-run`: authenticated smoke-account login, active Google connection, exactly one active ElevenLabs BYOK credential, writable output folder selection, and one small supported source availability. Host-preflight success does not authorize backup, migration, deployment, worker startup, or smoke job creation; preserve the rollout stop conditions and recovery boundaries below.
+
 ## Manual Studio processing rollout and controlled smoke contract
 
 This runbook section supports `PWA-PROCESSING-ROLLOUT-01A — Manual Studio processing rollout and controlled smoke validation`. It is an operator contract, not a coding-agent task. `PWA-PROCESSING-ROLLOUT-01-PREP` only documents this boundary and does not connect to production, run backups, run migrations, deploy containers, start workers, create jobs, call providers, call Google APIs, or mutate production.
