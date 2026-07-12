@@ -93,20 +93,28 @@ if [[ "$1" == "compose" ]]; then
   shift
   while [[ "$1" == "--env-file" || "$1" == "-f" ]]; do shift 2; done
   if [[ "$1" == "ps" ]]; then
-    svc="$3"
-    if [[ "$svc" == "studio-worker" ]]; then for i in $(seq 1 {worker_count}); do echo "container-alpha-studio-worker-$i"; done; exit 0; fi
-    case "$svc" in postgres|redis|studio-api|studio-web) echo "container-alpha-$svc";; *) exit 4;; esac
+    svc="${{@: -1}}"
+    statuses=""
+    case "$svc" in
+      postgres) statuses={service['postgres']!r};; redis) statuses={service['redis']!r};; studio-api) statuses={service['studio-api']!r};; studio-web) statuses={service['studio-web']!r};; studio-worker) statuses={state.get('worker', 'missing')!r};; *) exit 4;;
+    esac
+    [[ "$statuses" == "missing" ]] && exit 0
+    if [[ "$svc" == "studio-worker" ]]; then count={worker_count}; else IFS=',' read -ra parts <<< "$statuses"; count="${{#parts[@]}}"; fi
+    for i in $(seq 1 "$count"); do echo "container-alpha-$svc-$i"; done
+    exit 0
   elif [[ "$1" == "exec" ]]; then
     [[ "$2" == "-T" ]] || exit 45
     if read -r unexpected; then echo stdin-leak >> {str(log)!r}; fi
     printf '%s\n' {current!r}
   else exit 5; fi
 elif [[ "$1" == "inspect" ]]; then
-  id="${{@: -1}}"; svc="${{id#container-alpha-}}"; svc="${{svc%-1}}"; svc="${{svc%-2}}"
+  id="${{@: -1}}"; rest="${{id#container-alpha-}}"; idx="${{rest##*-}}"; svc="${{rest%-*}}"
   case "$svc" in
-    postgres) status={service['postgres']!r};; redis) status={service['redis']!r};; studio-api) status={service['studio-api']!r};; studio-web) status={service['studio-web']!r};; studio-worker) status={state.get('worker', 'healthy')!r};; *) status=missing;;
+    postgres) statuses={service['postgres']!r};; redis) statuses={service['redis']!r};; studio-api) statuses={service['studio-api']!r};; studio-web) statuses={service['studio-web']!r};; studio-worker) statuses={state.get('worker', 'healthy')!r};; *) statuses=unknown;;
   esac
-  if [[ "$*" == *State.Health* ]]; then echo "$status"; else [[ "$status" == "missing" || "$status" == "stopped" ]] && echo exited || echo running; fi
+  IFS=',' read -ra parts <<< "$statuses"
+  status="${{parts[$((idx-1))]:-unknown}}"
+  if [[ "$*" == *State.Health* ]]; then [[ "$status" == "stopped" ]] && echo none || echo "$status"; else [[ "$status" == "stopped" || "$status" == "missing" ]] && echo exited || echo running; fi
 else exit 6; fi
 """)
     _write_exe(bin_dir / "curl", f"#!/usr/bin/env bash\nprintf 'curl %s\\n' \"$*\" >> {str(log)!r}\nexit {state.get('curl_exit', '0')}\n")
@@ -235,7 +243,124 @@ def test_workflow_contract() -> None:
     assert data["concurrency"] == {"group": "studio-platform-production", "cancel-in-progress": False}
     assert "refs/heads/main" in text
     assert "StrictHostKeyChecking=yes" in text and "BatchMode=yes" in text
-    assert "mktemp /tmp/studio-processing-preflight" in text and "rm -f '$remote_script'" in text
+    assert "mktemp /tmp/studio-processing-preflight" in text and "rm -f -- \"$1\"" in text
     assert "deploy_studio_platform_component.sh" not in text
     assert "bash -s" not in text
     assert "git fetch" not in text and "git pull" not in text and "docker compose" not in text
+    assert "mapfile -t mktemp_lines" in text and "${#mktemp_lines[@]}" in text
+    assert "^/tmp/studio-processing-preflight\\.[A-Za-z0-9]{6,32}$" in text
+    assert "bash -c 'chmod 700 -- \"$1\"" in text
+
+REQUIRED_ROWS = [
+    "deploy directory identity", "repository remote identity", "branch identity", "commit identity", "tracked working tree",
+    "runtime env presence", "runtime setting completeness",
+    "POSTGRES_PASSWORD secret-file presence", "CREDENTIAL_MASTER_KEY secret-file presence", "SOURCE_S3_ACCESS_KEY_ID secret-file presence", "SOURCE_S3_SECRET_ACCESS_KEY secret-file presence", "GOOGLE_OAUTH_CLIENT_SECRET secret-file presence",
+    "postgres service count/status", "redis service count/status", "studio-api service count/status", "studio-web service count/status", "studio-worker service count/status",
+    "PostgreSQL health", "Redis health", "localhost API health", "localhost web health", "public API health", "public web health",
+    "repository Alembic head", "production Alembic revision", "revision equality",
+    "authenticated smoke-account login", "active Google connection", "exactly one active ElevenLabs BYOK credential", "writable output folder selected", "one small supported source available",
+]
+
+
+def row_statuses(stdout: str) -> dict[str, str]:
+    rows: dict[str, str] = {}
+    for line in stdout.splitlines():
+        if " | " not in line or line.startswith("check |") or line.startswith("--- |"):
+            continue
+        name, status, _ = line.split(" | ", 2)
+        rows[name] = status
+    return rows
+
+
+def assert_complete_table(proc: subprocess.CompletedProcess[str]) -> None:
+    rows = row_statuses(proc.stdout)
+    assert list(rows) == REQUIRED_ROWS
+    assert len(rows) == len(REQUIRED_ROWS)
+
+
+def test_blocked_results_emit_complete_table(tmp_path: Path) -> None:
+    scenarios = [
+        ("directory", lambda d: subprocess.run(["bash", str(SCRIPT), str(make_repo(d)[0]), "main", "Just9120/Elevenlabs-API", SHA], cwd=d, env={**os.environ, "PATH": f"{d/'bin'}:{os.environ['PATH']}"}, text=True, capture_output=True, timeout=10)),
+        ("remote", lambda d: run_preflight(d, remote="git@github.com:Other/Repo.git")[0]),
+        ("runtime", lambda d: run_preflight(d, env_text="APP_PUBLIC_URL=not-a-url\n")[0]),
+        ("worker", lambda d: run_preflight(d, worker_count="1", worker="healthy")[0]),
+        ("health", lambda d: run_preflight(d, api="unhealthy")[0]),
+        ("revision", lambda d: run_preflight(d, current="0007_job_processing_lifecycle")[0]),
+    ]
+    for name, runner in scenarios:
+        proc = runner(tmp_path / name)
+        assert proc.returncode != 0
+        assert proc.stdout.count("STUDIO_PROCESSING_HOST_PREFLIGHT_BLOCKED") == 1
+        assert_complete_table(proc)
+
+
+def with_env_override(tmp_path: Path, key: str, value: str):
+    repo, bin_dir = make_repo(tmp_path)
+    env_path = repo / "deploy/studio/.env"
+    lines = env_path.read_text(encoding="utf-8").splitlines()
+    env_path.write_text("\n".join((f"{key}={value}" if line.startswith(f"{key}=") else line) for line in lines) + "\n", encoding="utf-8")
+    proc = subprocess.run(["bash", str(SCRIPT), str(repo), "main", "Just9120/Elevenlabs-API", SHA], cwd=repo, env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"}, text=True, capture_output=True, timeout=10)
+    calls = (tmp_path / "calls.log").read_text().splitlines() if (tmp_path / "calls.log").exists() else []
+    return proc, calls
+
+
+def test_semantic_runtime_validation_blocks_before_docker(tmp_path: Path) -> None:
+    cases = [
+        ("APP_PUBLIC_URL", "http://studio.example"),
+        ("STUDIO_SOURCE_S3_ENDPOINT_URL", "not-a-url"),
+        ("STUDIO_GOOGLE_OAUTH_REDIRECT_URI", "http://studio.example/callback"),
+        ("STUDIO_WORKER_POLL_INTERVAL_SECONDS", "abc"),
+        ("STUDIO_WORKER_ERROR_BACKOFF_SECONDS", "-1"),
+        ("STUDIO_SOURCE_MAX_UPLOAD_BYTES", "0"),
+        ("STUDIO_WORKER_POLL_INTERVAL_SECONDS", "61"),
+        ("STUDIO_WORKER_LEASE_TTL_SECONDS", "299"),
+        ("STUDIO_SOURCE_UPLOAD_TTL_SECONDS", "10 20"),
+    ]
+    for i, (key, value) in enumerate(cases):
+        proc, calls = with_env_override(tmp_path / str(i), key, value)
+        assert proc.returncode != 0
+        assert row_statuses(proc.stdout)["runtime setting completeness"] == "blocked"
+        assert not any(c.startswith("docker ") for c in calls)
+        assert_complete_table(proc)
+
+
+def test_service_aggregation_fail_closed(tmp_path: Path) -> None:
+    cases = [
+        ({"postgres": "healthy,unhealthy"}, "postgres service count/status", "total count 2; running count 2; status unhealthy"),
+        ({"postgres": "healthy,unknown"}, "postgres service count/status", "total count 2; running count 2; status unknown"),
+        ({"postgres": "stopped"}, "postgres service count/status", "total count 1; running count 0; status stopped"),
+        ({"postgres": "missing"}, "postgres service count/status", "total count 0; running count 0; status missing"),
+        ({"postgres": "healthy,healthy"}, "postgres service count/status", "total count 2; running count 2; status healthy"),
+        ({"worker_count": "1", "worker": "healthy"}, "studio-worker service count/status", "studio-worker running count is not zero"),
+        ({"worker_count": "2", "worker": "healthy"}, "studio-worker service count/status", "studio-worker running count is not zero"),
+    ]
+    for i, (kwargs, row, observation) in enumerate(cases):
+        proc, calls, _ = run_preflight(tmp_path / str(i), **kwargs)
+        assert observation in proc.stdout
+        assert_no_forbidden(calls)
+        assert_complete_table(proc)
+
+
+def validate_remote_path_candidate(value: str) -> bool:
+    script = r'''
+set -euo pipefail
+mktemp_output="$1"
+mapfile -t mktemp_lines <<<"$mktemp_output"
+if [[ "${#mktemp_lines[@]}" -ne 1 || -z "${mktemp_lines[0]}" ]]; then exit 1; fi
+remote_script="${mktemp_lines[0]}"
+[[ "$remote_script" =~ ^/tmp/studio-processing-preflight\.[A-Za-z0-9]{6,32}$ ]]
+'''
+    return subprocess.run(["bash", "-c", script, "_", value], text=True).returncode == 0
+
+
+def test_remote_temp_path_validation_cases() -> None:
+    assert validate_remote_path_candidate("/tmp/studio-processing-preflight.Abc123")
+    for value in [
+        "/tmp/studio-processing-preflight.Abc123\n/tmp/studio-processing-preflight.Def456",
+        "banner\n/tmp/studio-processing-preflight.Abc123",
+        "/tmp/studio-processing-preflight.Abc'123",
+        "/tmp/studio-processing-preflight.Abc123;rm -rf /",
+        "/var/tmp/studio-processing-preflight.Abc123",
+        "",
+    ]:
+        assert not validate_remote_path_candidate(value)

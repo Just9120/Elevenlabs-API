@@ -76,11 +76,22 @@ jobs:
           EXPECTED_COMMIT: ${{ inputs.expected_commit }}
         run: |
           set -euo pipefail
-          remote_script="$(ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" 'mktemp /tmp/studio-processing-preflight.XXXXXX')"
+          mktemp_output="$(ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" 'mktemp /tmp/studio-processing-preflight.XXXXXX')"
+          mapfile -t mktemp_lines <<<"$mktemp_output"
+          if [[ "${#mktemp_lines[@]}" -ne 1 || -z "${mktemp_lines[0]}" ]]; then
+            echo "remote temporary script path was not exactly one non-empty line" >&2
+            exit 1
+          fi
+          remote_script="${mktemp_lines[0]}"
+          if [[ ! "$remote_script" =~ ^/tmp/studio-processing-preflight\.[A-Za-z0-9]{6,32}$ ]]; then
+            echo "remote temporary script path did not match the expected safe pattern" >&2
+            exit 1
+          fi
           cleanup() {
-            ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" "rm -f '$remote_script'" >/dev/null 2>&1 || true
+            ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" \
+              bash -c 'rm -f -- "$1"' _ "$remote_script" >/dev/null 2>&1 || true
           }
           trap cleanup EXIT
           scp -i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes scripts/studio_processing_preflight.sh "$DEPLOY_USER@$DEPLOY_HOST:$remote_script"
           ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" \
-            "chmod 700 '$remote_script' && cd /opt/elevenlabs-studio && '$remote_script' /opt/elevenlabs-studio main Just9120/Elevenlabs-API '$EXPECTED_COMMIT'"
+            bash -c 'chmod 700 -- "$1" && cd "$2" && "$1" "$2" "$3" "$4" "$5"' _ "$remote_script" /opt/elevenlabs-studio main Just9120/Elevenlabs-API "$EXPECTED_COMMIT"
