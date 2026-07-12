@@ -150,59 +150,62 @@ Future refactors must preserve existing token/proxy/WebSocket behavior, browser-
 
 ## 11. Current Studio PWA frontend/deploy boundary
 
-`apps/studio/` is the PWA frontend-only workspace. It contains a React + TypeScript + Vite app shell, PWA manifest, service worker, static nginx container config and frontend tests. Current functionality is static/client-side: Russian-first navigation, prototype projects/jobs, browser-only file metadata display, settings with public app URL, and local validation of visual multi-document segments.
+`apps/studio/` is the PWA frontend workspace. It contains a React + TypeScript + Vite app shell, PWA manifest, service worker, static nginx container config and frontend tests. Platform-mode source now includes authenticated API-backed project/source/job UI, Google connection/source selection surfaces, and safe output metadata/link rendering for opened job details while static mode remains demo-only.
 
-`deploy/studio/` contains the production Compose file, environment schema and host nginx vhost template. The only current service is `studio-web`, a stateless web container served behind host nginx through `127.0.0.1:8181`. Host nginx and TLS remain manually managed by the VPS operator; the repository template for host nginx is not applied by repository code.
+`deploy/studio/` contains the production Compose file, environment schema and host nginx vhost template. Repository source now defines `studio-web`, `studio-api`, PostgreSQL, Redis, and `studio-worker` Compose services, but standard Studio Platform CD deploys only `web` or `api`; worker rollout and migrations remain manual/operator-scoped. Host nginx and TLS remain manually managed by the VPS operator; the repository template for host nginx is not applied by repository code.
 
-The current repository runtime and deployed Studio runtime do not contain a Studio backend API, authentication/session system, provider credential store, Google OAuth/Drive/Docs integration, server upload path, persistent user/project/job/output store, database, Redis, queue, worker, stateful migration, or production transcription job pipeline.
+The current repository source contains a Studio backend API, authentication/session system, encrypted provider credential store, Google OAuth/Drive metadata integration, temporary source-upload storage boundaries, persistent user/project/job/output records, PostgreSQL, Redis rate limiting, Alembic migrations, a dedicated polling worker entrypoint, ElevenLabs processing boundaries, Google Docs creation, safe output persistence and fenced completion, a browser-safe output API, and platform frontend output rendering. This source state does not prove production migration rollout, a deployed or running worker, production-live Studio processing, Studio manifest mutation, automatic reconciliation, or exactly-once Google document creation.
 
-## 12. Planned, not implemented: Studio platform boundaries
+## 12. Current Studio platform source boundaries
 
-The following boundaries describe intended future architecture only. They are not implemented in repository runtime or deployed Studio runtime, and they do not approve a backend framework, database, queue, storage engine, OAuth client, or deployment topology. Supporting preparation detail lives in `docs/studio-platform-01-prep.md`.
+The following boundaries describe current repository source architecture. Production deployment, migration execution, worker startup, runtime evidence, manifest authority, and reconciliation remain separate unresolved/operator-scoped boundaries.
 
 ```text
-Current implemented runtime
+Current repository source
   Browser/PWA frontend (`apps/studio`)
-    -> static `studio-web` container
-    -> host nginx + Certbot operated outside repository automation
+    -> platform-mode API-backed project/source/job/output UI
+    -> static demo mode with zero `/api` requests
+    -> `studio-web` container behind operator-managed host nginx
 
-Planned first stateful platform core (unimplemented)
-  Browser/PWA frontend
-    -> Backend API (unimplemented)
-       -> server-side auth/session boundary (unimplemented)
-       -> user/account state (unimplemented)
-       -> encrypted BYOK provider credential store (unimplemented)
-       -> audit/security events (unimplemented)
+  Backend API (`apps/studio-api`)
+    -> server-side auth/session, CSRF, account, audit, and BYOK credential boundaries
+    -> project/source/job/output records in PostgreSQL
+    -> Redis rate limits only, not a processing queue or worker heartbeat
+    -> Google OAuth/Drive metadata and output authorization boundaries
+    -> browser-safe job output discovery API
 
-Later processing pipeline (unimplemented, separate approval)
-  Backend API
-    -> upload/media storage boundary (unimplemented)
-    -> job records and queue/worker boundary (unimplemented)
-    -> provider execution boundary using credential identity/version (unimplemented)
-    -> output metadata/artifact boundary (unimplemented)
-
-Later Google Drive/Docs integration (unimplemented, separate approval)
-  Backend API
-    -> optional Google sign-in (unimplemented)
-    -> explicit Drive consent + encrypted refresh-token boundary (unimplemented)
-    -> Drive/Docs output integration (unimplemented)
+  Processing source boundaries
+    -> dedicated `studio-worker` polling entrypoint and Compose source wiring
+    -> PostgreSQL claim/lease/fencing, processing lifecycle, and cancellation boundaries
+    -> source availability/materialization and prerequisites boundaries
+    -> ElevenLabs single-source execution boundary
+    -> Google Docs creation boundary
+    -> safe output persistence and fenced completion
 ```
 
-- **Current Browser/PWA frontend boundary** — user-facing Studio shell, installable PWA behavior, prototype project/job UI, browser-only file metadata display, settings and segment planning views.
-- **First stateful platform core, unimplemented** — future backend API, local password auth, server-side sessions, account state, encrypted BYOK credential lifecycle, and audit/security events.
-- **Later processing pipeline, unimplemented** — future uploads, temporary media lifecycle, job creation/cancel/retry/status, queue/worker execution, provider calls, output metadata/artifacts, and processing observability.
-- **Later Google Drive/Docs integration, unimplemented** — future optional Google sign-in, explicit Drive consent, encrypted refresh-token lifecycle, Drive connection status, and Docs output.
-
-Future API, OAuth, provider processing, uploads, queues, database, worker and job-pipeline capabilities require separate product scope, runtime architecture, security review, deployment design and validation before implementation.
+- **Current Browser/PWA frontend boundary** — user-facing Studio shell, installable PWA behavior, platform-mode project/source/job UI, Google connection/source surfaces, and safe output metadata/link rendering for opened job details.
+- **Current stateful platform core source boundary** — backend API, local password auth, server-side sessions, account state, encrypted BYOK credential lifecycle, audit/security events, PostgreSQL, Redis rate limiting, and Alembic migrations.
+- **Current processing source boundary** — source-only worker entrypoint, PostgreSQL claim/lease processing loop, ElevenLabs provider execution, Google Docs creation, safe output persistence, and fenced completion; not a production-live claim without operator evidence.
+- **Unresolved runtime/product boundaries** — production migration rollout, deployed/running worker evidence, Studio manifest mutation/authority, exactly-once Google document creation, automatic reconciliation, automatic retry policy, multi-worker validation, and OpenAI processing rollout.
 
 ## PWA-PLATFORM-01 implemented source boundary
 
 The repository now contains `apps/studio-api`, a FastAPI service using SQLAlchemy 2/Alembic with PostgreSQL 17 as the intended deployment database, Redis 7 only as an internal rate-limit store, opaque PostgreSQL-backed browser sessions, login/authenticated CSRF enforcement, audit events, and AES-256-GCM encrypted user-owned BYOK credential versions for ElevenLabs/OpenAI.
 
-The Studio PWA talks to the API through same-origin `/api` and keeps the existing project/task/upload screens as non-processing prototypes. Later uploads, queues/workers, provider calls, Google OAuth/Drive/Docs, job execution, and output processing remain separate unimplemented boundaries.
+The Studio PWA talks to the API through same-origin `/api`. Repository source now includes API-backed project/source/job/output surfaces, Google OAuth/Drive metadata integration, source-upload boundaries, a dedicated worker entrypoint, ElevenLabs processing, Google Docs creation, safe output persistence, and browser-safe output rendering. Production rollout, migration application, worker runtime evidence, manifest authority, reconciliation, and exactly-once output guarantees remain separate unresolved boundaries.
 
 ## 13. Current Colab and Studio contour alignment
 
-Google Colab batch remains the current production workflow for source selection, provider transcription, Google Docs transcript output, and `manifest` progress/skip mutation. Studio PWA is the development/platform contour intended to reach Colab product parity with PWA/platform adaptations. Studio jobs have records, preflight/readiness guardrails, and internal processing boundary slices in source form. The API includes internal PostgreSQL claim/lease primitives with opaque owner id, generation fencing, claimed timestamp, and expiration for exclusive execution intent. A later internal lifecycle layer can move a valid leased queued job to `processing`, increment attempts, record processing cancellation requests, safely fail/acknowledge cancellation, and explicitly recover expired processing leases. This is still not a worker or provider runtime. The new internal source-availability boundary verifies database lifecycle state, exact lease owner/generation, ephemeral Google token access, Drive metadata, and private S3/R2 HEAD metadata, then returns only a safe server-side summary with no browser exposure of tokens, raw Google/S3 payloads, object keys, presigned URLs, or source bytes. An internal source-byte materialization boundary now exists after source availability verification: it materializes exactly one selected relation for a leased `processing` job into bounded context-managed temporary storage, streams private S3/R2 objects through server credentials or binary Drive `alt=media`, revalidates lease/cancellation/source identity after copy, and yields only an internal safe handle. Studio source now contains internal boundaries through source materialization, provider execution, Google Docs creation, safe output persistence, fenced completion, an internal synchronous orchestrator for one already-leased job, and an internal claim-next iteration for one unlocked ready queued PostgreSQL job. Worker/runtime invocation, polling, public API processing behavior, manifest authority, and production processing remain separate future boundaries requiring separate scope and validation.
+Google Colab batch remains the current production workflow for source selection, provider transcription, Google Docs transcript output, and `manifest` progress/skip mutation. Studio PWA is the development/platform contour intended to reach Colab product parity with PWA/platform adaptations. Studio source now includes project/source/job records, preflight/readiness guardrails, PostgreSQL claim/lease/fencing, processing lifecycle and cancellation boundaries, source availability/materialization, processing prerequisites, ElevenLabs provider execution, Google Docs creation, safe output persistence, fenced completion, internal orchestration and claim-next processing, a dedicated polling `studio-worker` entrypoint, the authenticated browser-safe output API, and platform-mode output rendering. Worker deployment, production migration rollout, production-live processing, public runtime evidence, manifest authority, automatic reconciliation, exactly-once Google document creation, and multi-worker validation remain separate unresolved boundaries requiring operator evidence or future scope.
 
 The Colab Drive `manifest` remains the current production authority for batch progress, skip protection, and source-document synchronization. Studio currently has project, source, job, and internal output-reference authority in source form, but no manifest mutation authority and no production processing claim. Any future worker boundary depends on separately approved source-access, output-destination, and manifest/skip authority decisions before Studio can claim Colab processing parity.
+
+## Studio processing production rollout boundary
+
+`PWA-PROCESSING-ROLLOUT-01-PREP` does not change runtime architecture. It documents the operator-only boundary for a future first production Studio processing rollout.
+
+Architectural rollout states remain separate: source-done/merged, CI-verified, deployed, migration-applied, worker-running, and production-live. Standard Studio Platform CD currently deploys only `web` or `api`; it must not be treated as a migration runner or worker deployment mechanism. The future worker rollout is a separate manual step that starts exactly one `studio-worker` instance using the intended `studio-api` image, with no published HTTP port. Recreating `studio-api` does not prove `studio-worker` was recreated with the intended image.
+
+The production database revision must be known before migration, compared with repository Alembic head `0008_transcription_job_outputs`, migrated only through the existing manual migration boundary after a tagged pre-migration backup and explicit operator confirmation, and verified at `0008_transcription_job_outputs` before processing starts. API startup and standard CD must not run migrations, and failure does not trigger automatic downgrade.
+
+The first smoke validation remains intentionally single-worker and single-job: one operator-approved test account/project, one small supported source, one active ElevenLabs BYOK credential, one authenticated Google connection, one selected writable output folder, one queued job, safe UI/API lifecycle observation, and manual confirmation that the validated Google link opens the expected document. The architecture still does not provide exactly-once Google document creation, automatic reconciliation, automatic retry, background lease heartbeat for one long materialization/provider stage, Studio manifest mutation, OpenAI processing rollout, or multi-worker production validation. Colab remains the fallback production contour until factual Studio runtime evidence exists.
