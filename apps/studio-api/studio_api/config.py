@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     google_oauth_redirect_uri: str | None = None
     google_oauth_scopes: str = "openid email https://www.googleapis.com/auth/drive.file"
     google_oauth_state_ttl_seconds: int = 600
+    google_picker_api_key: str | None = None
+    google_picker_app_id: str | None = None
     worker_poll_interval_seconds: int = Field(default=5, ge=1, le=60)
     worker_error_backoff_seconds: int = Field(default=5, ge=1, le=300)
     worker_lease_ttl_seconds: int = Field(default=3600, ge=300, le=86400)
@@ -54,6 +56,9 @@ class Settings(BaseSettings):
             and self.source_s3_access_key_id_file
             and self.source_s3_secret_access_key_file
         )
+
+    def google_picker_configured(self) -> bool:
+        return bool((self.google_picker_api_key or "").strip() and (self.google_picker_app_id or "").strip())
 
     def sqlalchemy_url(self) -> str:
         if self.database_url:

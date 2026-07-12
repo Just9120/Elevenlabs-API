@@ -1762,3 +1762,80 @@ def test_job_output_unexpected_query_failure_is_generic(monkeypatch):
     assert secret not in r.text
     for marker in ["secret-sql-url-token", "traceback", "SELECT", jid, "transcription_job_outputs"]:
         assert marker not in r.text
+
+
+def test_google_scope_parser_exact_drive_file_only():
+    from studio_api.google_scopes import has_drive_file_scope
+    assert has_drive_file_scope("openid email https://www.googleapis.com/auth/drive.file")
+    assert has_drive_file_scope("  https://www.googleapis.com/auth/drive.file   openid ")
+    assert not has_drive_file_scope("openid email")
+    assert not has_drive_file_scope("https://www.googleapis.com/auth/drive.file.extra")
+
+
+def _connect_google_for_test(user_id: str, scopes: str = "openid email https://www.googleapis.com/auth/drive.file"):
+    from studio_api.models import GoogleConnection, GoogleConnectionStatus, GoogleProvider
+    from studio_api.google_connection_access import google_token_aad
+    db = SessionLocal()
+    try:
+        conn = GoogleConnection(user_id=user_id, provider=GoogleProvider.google, status=GoogleConnectionStatus.active, google_email="g@example.com", scopes=scopes, created_at=utcnow(), connected_at=utcnow())
+        db.add(conn); db.flush()
+        ct, nonce = encrypt("refresh-token-test", master_key_from_b64(Path(os.environ["STUDIO_CREDENTIAL_MASTER_KEY_FILE"]).read_text()), google_token_aad(user_id, conn.id))
+        conn.refresh_token_ciphertext = ct; conn.refresh_token_nonce = nonce; conn.key_id = "studio-v1"
+        db.commit(); return conn.id
+    finally:
+        db.close()
+
+
+def test_google_picker_session_csrf_scope_config_and_safe_response(monkeypatch):
+    import studio_api.main as main
+    pw = admin(); c = TestClient(app); csrf = login(c, pw)
+    db = SessionLocal(); user = db.query(User).first(); uid = user.id; db.close()
+    headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+    assert c.post("/api/google/picker/session", headers={"origin": "https://evil.test", "x-csrf-token": csrf}).status_code == 403
+    assert c.post("/api/google/picker/session", headers={"origin": "https://studio.test", "x-csrf-token": "bad"}).status_code == 403
+    assert c.post("/api/google/picker/session", headers=headers).status_code == 503
+    monkeypatch.setattr(main.settings, "google_picker_api_key", "public-key")
+    monkeypatch.setattr(main.settings, "google_picker_app_id", "123456")
+    assert c.post("/api/google/picker/session", headers=headers).status_code == 404
+    _connect_google_for_test(uid, "openid email")
+    assert c.post("/api/google/picker/session", headers=headers).status_code == 409
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE google_connections SET scopes='openid email https://www.googleapis.com/auth/drive.file'"))
+    monkeypatch.setattr(main, "refresh_user_google_drive_access_token", lambda *a, **k: "short-access-token")
+    r = c.post("/api/google/picker/session", headers=headers)
+    assert r.status_code == 200
+    assert r.headers["cache-control"] == "no-store"
+    assert r.headers["pragma"] == "no-cache"
+    body = r.json()
+    assert body == {"access_token": "short-access-token", "api_key": "public-key", "app_id": "123456", "scope_ready": True}
+    assert "refresh" not in r.text and "cipher" not in r.text and "key_id" not in r.text
+
+
+def test_google_picker_source_and_output_selection_revalidates_server_metadata(monkeypatch):
+    import studio_api.main as main
+    from studio_api.google_drive import GoogleDriveMetadata, GOOGLE_FOLDER_MIME_TYPE
+    pw = admin(); c = TestClient(app); csrf = login(c, pw)
+    db = SessionLocal(); uid = db.query(User).first().id; db.close(); _connect_google_for_test(uid)
+    monkeypatch.setattr(main, "refresh_user_google_drive_access_token", lambda *a, **k: "access")
+    metas = {
+        "file-a": GoogleDriveMetadata("file-a", "Backend A.mp3", "audio/mpeg", 10, "https://drive.google.com/file/d/file-a/view", None, None, False),
+        "file-b": GoogleDriveMetadata("file-b", "Backend B.mp4", "video/mp4", 20, "https://drive.google.com/file/d/file-b/view", None, None, False),
+        "folder": GoogleDriveMetadata("folder", "Results", GOOGLE_FOLDER_MIME_TYPE, None, "https://drive.google.com/drive/folders/folder", None, None, True),
+        "bad": GoogleDriveMetadata("bad", "Doc", "application/pdf", 5, "https://drive.google.com/file/d/bad/view", None, None, False),
+    }
+    monkeypatch.setattr("studio_api.google_drive.fetch_drive_file_metadata", lambda token, did: metas[did])
+    headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+    pid = c.post("/api/projects", json={"title":"Picker"}, headers=headers).json()["id"]
+    assert c.post(f"/api/projects/{pid}/sources/google-picker", json={"file_ids": []}, headers=headers).status_code == 422
+    assert c.post(f"/api/projects/{pid}/sources/google-picker", json={"file_ids": ["file-a", "file-a"]}, headers=headers).status_code == 422
+    assert c.post(f"/api/projects/{pid}/sources/google-picker", json={"file_ids": ["folder"]}, headers=headers).status_code == 422
+    assert c.post(f"/api/projects/{pid}/sources/google-picker", json={"file_ids": ["bad"]}, headers=headers).status_code == 422
+    r = c.post(f"/api/projects/{pid}/sources/google-picker", json={"file_ids": ["file-b", "file-a"]}, headers=headers)
+    assert r.status_code == 200
+    assert [s["original_filename"] for s in r.json()["sources"]] == ["Backend B.mp4", "Backend A.mp3"]
+    assert "client" not in r.text.lower()
+    assert c.post(f"/api/projects/{pid}/output-folder/google-picker", json={"folder_id":"file-a"}, headers=headers).status_code == 422
+    r = c.post(f"/api/projects/{pid}/output-folder/google-picker", json={"folder_id":"folder"}, headers=headers)
+    assert r.status_code == 200
+    assert r.json()["output_drive_folder_id"] == "folder"
+    assert r.json()["output_drive_folder_name"] == "Results"

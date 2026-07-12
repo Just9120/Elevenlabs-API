@@ -15,7 +15,8 @@ from .rate_limit import RateLimiter
 from .security import *
 from .source_storage import get_source_storage, safe_filename
 from .source_policy import is_supported_source_mime_type, normalize_source_mime_type, validate_source_size
-from .google_connection_access import GoogleConnectionAccessError, GoogleConnectionAccessReason, google_token_aad, refresh_user_google_drive_access_token
+from .google_connection_access import GoogleConnectionAccessError, GoogleConnectionAccessReason, active_google_connection_for_user, google_token_aad, refresh_user_google_drive_access_token, require_drive_file_scope
+from .google_scopes import has_drive_file_scope
 from .job_lifecycle import safe_failure_metadata_value
 from .job_processing_lifecycle import request_job_cancellation
 from .job_output_read import browser_job_output_payload, load_browser_job_output_rows
@@ -33,6 +34,27 @@ class ProjectPatch(BaseModel):
     output_drive_folder_id: str|None=Field(default=None,max_length=256)
     output_drive_folder_url: str|None=Field(default=None,max_length=2000)
     output_drive_folder_name: str|None=Field(default=None,max_length=512)
+
+class GooglePickerSourceSelectionIn(BaseModel):
+    file_ids: list[str]=Field(min_length=1,max_length=50)
+
+    @field_validator("file_ids")
+    @classmethod
+    def unique_file_ids(cls, value):
+        cleaned=[]
+        for item in value:
+            if not isinstance(item, str):
+                raise ValueError("Некорректный ID файла Google Drive")
+            normalized=item.strip()
+            if not normalized:
+                raise ValueError("Некорректный ID файла Google Drive")
+            cleaned.append(normalized)
+        if len(cleaned) != len(set(cleaned)):
+            raise ValueError("Повторяющиеся Google Drive файлы не допускаются")
+        return cleaned
+
+class GooglePickerOutputFolderIn(BaseModel):
+    folder_id: str=Field(min_length=1,max_length=256)
 
 class GoogleDriveSourceIn(BaseModel):
     drive_file_id: str=Field(min_length=1,max_length=256)
@@ -287,6 +309,81 @@ def list_sources(project_id: str, pair=Depends(current_session), db: Session=Dep
     rows=db.query(Source).filter(Source.project_id==p.id).order_by(Source.created_at.desc()).all()
     return {"sources":[source_payload(r) for r in rows]}
 
+def _picker_cache_headers(response: Response):
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+
+@app.post("/api/google/picker/session")
+def create_google_picker_session(response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("google:picker:session:"+user.id, 30, 300); _picker_cache_headers(response)
+    if not settings.google_picker_configured():
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Google Picker is not configured")
+    try:
+        conn=active_google_connection_for_user(db, user_id=user.id)
+        require_drive_file_scope(conn)
+        access_token=refresh_user_google_drive_access_token(db, user_id=user.id, settings=settings)
+    except GoogleConnectionAccessError as exc:
+        if exc.reason == GoogleConnectionAccessReason.missing:
+            raise HTTPException(404, "Google Drive connection is not connected")
+        if exc.reason == GoogleConnectionAccessReason.inactive:
+            raise HTTPException(409, "Google Drive connection is not active")
+        if exc.reason == GoogleConnectionAccessReason.scope_unavailable:
+            raise HTTPException(409, "Google Drive reconnect is required")
+        if exc.reason == GoogleConnectionAccessReason.config_unavailable:
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Google OAuth is not configured")
+        raise HTTPException(502, "Google Picker session is unavailable")
+    return {"access_token": access_token, "api_key": settings.google_picker_api_key.strip(), "app_id": settings.google_picker_app_id.strip(), "scope_ready": True}
+
+def _validated_drive_metadata_for_picker(db: Session, user: User, drive_id: str):
+    from .google_drive import GoogleDriveMetadataError, fetch_drive_file_metadata
+    clean_id=clean_drive_id(drive_id, "ID Google Drive")
+    if not clean_id: raise HTTPException(422, "Некорректный ID Google Drive")
+    try:
+        access_token=refreshed_google_drive_access_token(db, user)
+        return fetch_drive_file_metadata(access_token, clean_id)
+    except HTTPException:
+        raise
+    except GoogleDriveMetadataError:
+        raise HTTPException(422, "Выбранный ресурс Google Drive недоступен")
+    except Exception:
+        raise HTTPException(502, "Google Drive metadata is unavailable")
+
+@app.post("/api/projects/{project_id}/sources/google-picker")
+def create_google_picker_sources(project_id: str, data: GooglePickerSourceSelectionIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("source:gpicker:create:"+user.id, 60, 3600); p=owned_project_or_404(db,user,project_id)
+    metas=[]
+    for raw_id in data.file_ids:
+        meta=_validated_drive_metadata_for_picker(db, user, raw_id)
+        if meta.is_folder:
+            raise HTTPException(422, "Папки Google Drive нельзя добавить как source")
+        mime=normalize_source_mime_type(meta.mime_type or "")
+        if not is_supported_source_mime_type(mime):
+            raise HTTPException(422, "Неподдерживаемый тип файла")
+        if meta.size_bytes is not None and not validate_source_size(meta.size_bytes, settings.source_max_upload_bytes):
+            raise HTTPException(422, "Файл слишком большой")
+        metas.append((meta, mime))
+    now=utcnow(); created=[]
+    try:
+        for meta,mime in metas:
+            src=Source(project_id=p.id, source_type=SourceType.google_drive, original_filename=safe_filename(meta.name or f"Google Drive source {meta.id}"), mime_type=mime, size_bytes=meta.size_bytes, drive_file_id=clean_drive_id(meta.id, "ID файла Google Drive"), drive_file_url=clean_drive_url(meta.web_view_link), upload_status=SourceUploadStatus.uploaded, uploaded_at=now)
+            db.add(src); created.append(src)
+        audit(db,"source.google_picker.created",actor_user_id=user.id,subject_user_id=user.id,project_id=p.id,source_count=len(created)); db.commit()
+    except Exception:
+        db.rollback(); raise
+    return {"sources":[source_payload(src) for src in created]}
+
+@app.post("/api/projects/{project_id}/output-folder/google-picker")
+def set_google_picker_output_folder(project_id: str, data: GooglePickerOutputFolderIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("project:gpicker:folder:"+user.id, 60, 3600); p=owned_project_or_404(db,user,project_id)
+    meta=_validated_drive_metadata_for_picker(db, user, data.folder_id)
+    if not meta.is_folder:
+        raise HTTPException(422, "Выберите папку Google Drive для результатов")
+    p.output_drive_folder_id=clean_drive_id(meta.id, "ID папки Google Drive")
+    p.output_drive_folder_url=clean_drive_url(meta.web_view_link)
+    p.output_drive_folder_name=clean_optional_name(meta.name)
+    p.updated_at=utcnow(); audit(db,"project.output_folder.google_picker_set",actor_user_id=user.id,subject_user_id=user.id,project_id=p.id); db.commit(); db.refresh(p)
+    return project_payload(p)
+
 @app.post("/api/projects/{project_id}/sources/google-drive")
 def create_google_drive_source(project_id: str, data: GoogleDriveSourceIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     _,user=pair; limiter.check("source:gdrive:create:"+user.id, 120, 3600); p=owned_project_or_404(db,user,project_id)
@@ -378,9 +475,14 @@ def cancel_transcription_job(job_id: str, pair=Depends(require_csrf), db: Sessio
     return job_payload(job, include_sources=True)
 
 def google_connection_payload(c: GoogleConnection|None):
-    if not c or c.status != GoogleConnectionStatus.active:
-        return {"connected": False, "status": c.status.value if c else None, "google_email": c.google_email if c else None, "scopes": c.scopes if c else None, "connected_at": c.connected_at.isoformat() if c and c.connected_at else None, "revoked_at": c.revoked_at.isoformat() if c and c.revoked_at else None}
-    return {"connected": True, "status": c.status.value, "google_email": c.google_email, "scopes": c.scopes, "connected_at": c.connected_at.isoformat() if c.connected_at else None, "revoked_at": c.revoked_at.isoformat() if c.revoked_at else None}
+    picker_configured=settings.google_picker_configured()
+    scope_ready=bool(c and c.status == GoogleConnectionStatus.active and has_drive_file_scope(c.scopes))
+    base={"connected": bool(c and c.status == GoogleConnectionStatus.active), "status": c.status.value if c else None, "google_email": c.google_email if c else None, "scopes": c.scopes if c else None, "connected_at": c.connected_at.isoformat() if c and c.connected_at else None, "revoked_at": c.revoked_at.isoformat() if c and c.revoked_at else None, "picker_configured": picker_configured, "picker_scope_ready": scope_ready, "picker_ready": bool(picker_configured and scope_ready)}
+    if base["connected"] and not scope_ready:
+        base["reconnect_required"] = True
+    else:
+        base["reconnect_required"] = False
+    return base
 
 def current_google_connection(db: Session, user: User) -> GoogleConnection|None:
     return db.query(GoogleConnection).filter_by(user_id=user.id, provider=GoogleProvider.google).first()

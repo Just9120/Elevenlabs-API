@@ -7,6 +7,7 @@ import {
   Settings,
 } from "lucide-react";
 import { buildSegmentPlan, hasSegmentErrors, type Segment } from "./segments";
+import { openGooglePicker, type PickerSession } from "./googlePicker";
 import "./styles.css";
 
 // Platform mode is selected at build time by VITE_STUDIO_PLATFORM_MODE.
@@ -124,24 +125,12 @@ type GoogleConnection = {
   scopes: string | null;
   connected_at: string | null;
   revoked_at: string | null;
+  picker_ready?: boolean;
+  picker_configured?: boolean;
+  picker_scope_ready?: boolean;
+  reconnect_required?: boolean;
 };
 type GoogleOauthStart = { authorization_url: string; expires_at: string };
-type DriveMetadata = {
-  id: string;
-  name: string | null;
-  mime_type: string | null;
-  size_bytes: number | null;
-  web_view_link: string | null;
-  created_time: string | null;
-  modified_time: string | null;
-  is_folder: boolean;
-};
-
-type DriveFolderChildren = {
-  folder_id: string;
-  items: DriveMetadata[];
-  next_page_token: string | null;
-};
 const LOCAL_UPLOAD_LIMIT_BYTES = 536870912;
 const emptySourceState = {
   loading: false,
@@ -161,9 +150,6 @@ function formatBytes(value: number | null) {
 }
 function formatTime(value: string | null) {
   return value ? new Date(value).toLocaleString("ru-RU") : "—";
-}
-function driveDisplayName(item: DriveMetadata) {
-  return item.name || `Google Drive source ${item.id}`;
 }
 function isUsableJobSource(source: Source) {
   return (
@@ -539,415 +525,118 @@ function SourcesPanel({
   csrf,
   onCsrf,
   sources,
+  googleConnection,
   onReload,
   onError,
 }: {
   project: Project;
   csrf: string;
   onCsrf: (csrf: string) => void;
-  sources: {
-    loading: boolean;
-    error: string;
-    loaded: boolean;
-    items: Source[];
-  };
+  sources: { loading: boolean; error: string; loaded: boolean; items: Source[] };
+  googleConnection: GoogleConnection | null;
   onReload: (projectId: string) => void;
   onError: (message: string) => void;
 }) {
   const [uploadState, setUploadState] = useState("");
-  const [driveFileId, setDriveFileId] = useState("");
-  const [driveMetadata, setDriveMetadata] = useState<DriveMetadata | null>(
-    null,
-  );
-  const [driveVerifyState, setDriveVerifyState] = useState("");
-  const [driveVerifyError, setDriveVerifyError] = useState("");
-  const [driveFolderId, setDriveFolderId] = useState("");
-  const [driveFolderItems, setDriveFolderItems] = useState<DriveMetadata[]>([]);
-  const [driveFolderNextPageToken, setDriveFolderNextPageToken] = useState<
-    string | null
-  >(null);
-  const [driveFolderState, setDriveFolderState] = useState("");
-  const [driveFolderError, setDriveFolderError] = useState("");
-  const [selectedDriveChildren, setSelectedDriveChildren] = useState<string[]>(
-    [],
-  );
-  async function verifyDriveMetadata(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const cleanId = driveFileId.trim();
-    if (!cleanId) {
-      setDriveVerifyError("Введите Google Drive file/folder ID.");
-      return;
-    }
-    setDriveMetadata(null);
-    setDriveVerifyError("");
-    setDriveVerifyState("Проверяем Drive metadata…");
-    try {
-      const metadata = await api<DriveMetadata>(
-        `/google/drive/files/${encodeURIComponent(cleanId)}/metadata`,
-      );
-      setDriveMetadata(metadata);
-      setDriveVerifyState("Drive metadata проверена.");
-    } catch {
-      setDriveVerifyState("");
-      setDriveVerifyError(
-        "Не удалось проверить Drive metadata. Проверьте подключение Google Drive, доступ к файлу или runtime-настройки и повторите.",
-      );
-    }
+  const [pickerState, setPickerState] = useState("");
+  const [pickerError, setPickerError] = useState("");
+  const [openingPicker, setOpeningPicker] = useState(false);
+  const pickerReady = Boolean(googleConnection?.picker_ready);
+  async function pickerSession() {
+    return csrfMutate<PickerSession>("/google/picker/session", csrf, onCsrf, {
+      method: "POST",
+    });
   }
-  async function addVerifiedDriveSource() {
-    if (!driveMetadata) return;
+  async function chooseDriveSources() {
+    if (openingPicker) return;
+    setOpeningPicker(true);
+    setPickerError("");
+    setPickerState("Открываем Google Drive Picker…");
     try {
-      await csrfMutate<Source>(
-        `/projects/${project.id}/sources/google-drive`,
+      const session = await pickerSession();
+      const result = await openGooglePicker("sources", session);
+      if (result.action === "cancel") {
+        setPickerState("Выбор файлов отменён.");
+        return;
+      }
+      if (result.action === "error") {
+        setPickerState("");
+        setPickerError(result.message);
+        return;
+      }
+      const fileIds = result.docs.map((doc) => doc.id);
+      if (fileIds.length === 0) {
+        setPickerState("Google Picker не вернул файлы.");
+        return;
+      }
+      const created = await csrfMutate<{ sources: Source[] }>(
+        `/projects/${project.id}/sources/google-picker`,
         csrf,
         onCsrf,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            drive_file_id: driveMetadata.id,
-            drive_file_url: driveMetadata.web_view_link || null,
-            original_filename: driveDisplayName(driveMetadata),
-            mime_type: driveMetadata.mime_type || null,
-            size_bytes: driveMetadata.size_bytes ?? null,
-          }),
-        },
+        { method: "POST", body: JSON.stringify({ file_ids: fileIds }) },
       );
-      setDriveFileId("");
-      setDriveMetadata(null);
-      setDriveVerifyState("Google Drive source metadata добавлена.");
+      setPickerState(`Добавлено sources: ${created.sources.length}.`);
       onReload(project.id);
     } catch (err) {
-      onError(
-        err instanceof Error
-          ? err.message
-          : "Не удалось добавить Google Drive source metadata.",
-      );
-    }
-  }
-  async function loadDriveFolderChildren(pageToken?: string) {
-    const cleanId = driveFolderId.trim();
-    if (!cleanId) {
-      setDriveFolderError("Введите Google Drive folder ID.");
-      return;
-    }
-    setDriveFolderError("");
-    setDriveFolderState(
-      pageToken
-        ? "Загружаем ещё файлы из папки…"
-        : "Загружаем файлы из Drive папки…",
-    );
-    if (!pageToken) {
-      setDriveFolderItems([]);
-      setSelectedDriveChildren([]);
-      setDriveFolderNextPageToken(null);
-    }
-    try {
-      const query = pageToken
-        ? `?page_token=${encodeURIComponent(pageToken)}`
-        : "";
-      const result = await api<DriveFolderChildren>(
-        `/google/drive/folders/${encodeURIComponent(cleanId)}/children${query}`,
-      );
-      setDriveFolderItems((current) =>
-        pageToken ? [...current, ...result.items] : result.items,
-      );
-      setDriveFolderNextPageToken(result.next_page_token);
-      setDriveFolderState("Drive folder children загружены.");
-    } catch {
-      setDriveFolderState("");
-      setDriveFolderError(
-        "Не удалось загрузить файлы из Drive папки. Проверьте подключение Google Drive, доступ к папке или runtime-настройки и повторите.",
-      );
-    }
-  }
-  async function addSelectedDriveChildren() {
-    const selectedItems = driveFolderItems.filter(
-      (item) => selectedDriveChildren.includes(item.id) && !item.is_folder,
-    );
-    if (selectedItems.length === 0) {
-      setDriveFolderError(
-        "Выберите хотя бы один файл из списка Drive folder children.",
-      );
-      return;
-    }
-    setDriveFolderError("");
-    setDriveFolderState("Добавляем выбранные Drive sources…");
-    try {
-      for (const item of selectedItems) {
-        await csrfMutate<Source>(
-          `/projects/${project.id}/sources/google-drive`,
-          csrf,
-          onCsrf,
-          {
-            method: "POST",
-            body: JSON.stringify({
-              drive_file_id: item.id,
-              drive_file_url: item.web_view_link || null,
-              original_filename: driveDisplayName(item),
-              mime_type: item.mime_type || null,
-              size_bytes: item.size_bytes ?? null,
-            }),
-          },
-        );
-      }
-      setSelectedDriveChildren([]);
-      setDriveFolderState("Выбранные Google Drive sources добавлены.");
-      onReload(project.id);
-    } catch {
-      setDriveFolderState("");
-      setDriveFolderError(
-        "Не удалось добавить все выбранные Google Drive sources. Проверьте список sources и повторите безопасно.",
-      );
-      onReload(project.id);
+      setPickerState("");
+      onError(err instanceof Error ? err.message : "Не удалось выбрать файлы Google Drive.");
+    } finally {
+      setOpeningPicker(false);
     }
   }
   async function uploadLocal(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0] ?? null;
     e.target.value = "";
     if (!file) return onError("Выберите audio/video файл для загрузки.");
-    if (!isSupportedMediaFile(file))
-      return onError("Поддерживаются только audio/video файлы или OGG.");
-    if (file.size <= 0)
-      return onError("Файл пустой. Выберите другой source файл.");
-    if (file.size > LOCAL_UPLOAD_LIMIT_BYTES)
-      return onError(
-        "Файл больше 512 MB. Выберите меньший временный source файл.",
-      );
+    if (!isSupportedMediaFile(file)) return onError("Поддерживаются только audio/video файлы или OGG.");
+    if (file.size <= 0) return onError("Файл пустой. Выберите другой source файл.");
+    if (file.size > LOCAL_UPLOAD_LIMIT_BYTES) return onError("Файл больше 512 MB. Выберите меньший временный source файл.");
     try {
       setUploadState("Подготовка upload…");
-      const initiated = await csrfMutate<UploadInit>(
-        `/projects/${project.id}/sources/local-upload/initiate`,
-        csrf,
-        onCsrf,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            original_filename: file.name,
-            mime_type: file.type || "application/octet-stream",
-            size_bytes: file.size,
-          }),
-        },
-      );
+      const initiated = await csrfMutate<UploadInit>(`/projects/${project.id}/sources/local-upload/initiate`, csrf, onCsrf, { method: "POST", body: JSON.stringify({ original_filename: file.name, mime_type: file.type || "application/octet-stream", size_bytes: file.size }) });
       setUploadState("Загрузка во временное хранилище…");
-      const put = await fetch(initiated.upload.url, {
-        method: initiated.upload.method,
-        headers: initiated.upload.headers,
-        body: file,
-      });
-      if (!put.ok)
-        throw new Error(
-          "Не удалось загрузить файл во временное хранилище. Проверьте CORS/bucket policy и повторите.",
-        );
+      const put = await fetch(initiated.upload.url, { method: initiated.upload.method, headers: initiated.upload.headers, body: file });
+      if (!put.ok) throw new Error("Не удалось загрузить файл во временное хранилище. Проверьте CORS/bucket policy и повторите.");
       setUploadState("Подтверждение upload…");
-      await csrfMutate<Source>(
-        `/sources/${initiated.source_id}/local-upload/complete`,
-        csrf,
-        onCsrf,
-        { method: "POST" },
-      );
+      await csrfMutate<Source>(`/sources/${initiated.source_id}/local-upload/complete`, csrf, onCsrf, { method: "POST" });
       setUploadState("Файл загружен и готов как временный source.");
       onReload(project.id);
     } catch (err) {
       setUploadState("Ошибка upload.");
-      onError(
-        err instanceof Error
-          ? err.message
-          : "Не удалось загрузить локальный source файл.",
-      );
+      onError(err instanceof Error ? err.message : "Не удалось загрузить локальный source файл.");
     }
   }
   async function deleteSource(id: string) {
-    try {
-      await csrfMutate<{ ok: boolean }>(`/sources/${id}`, csrf, onCsrf, {
-        method: "DELETE",
-      });
-      onReload(project.id);
-    } catch (err) {
-      onError(
-        err instanceof Error ? err.message : "Не удалось удалить source.",
-      );
-    }
+    try { await csrfMutate<{ ok: boolean }>(`/sources/${id}`, csrf, onCsrf, { method: "DELETE" }); onReload(project.id); }
+    catch (err) { onError(err instanceof Error ? err.message : "Не удалось удалить source."); }
   }
   return (
     <section className="sources" aria-label={`Sources ${project.title}`}>
       <h4>Sources проекта</h4>
       {sources.loading && <p role="status">Загрузка sources…</p>}
       {sources.error && <p className="error">{sources.error}</p>}
-      {sources.loaded && !sources.loading && sources.items.length === 0 && (
-        <p className="notice">Source records пока не добавлены.</p>
-      )}
+      {sources.loaded && !sources.loading && sources.items.length === 0 && <p className="notice">Source records пока не добавлены.</p>}
       {sources.items.map((source) => (
         <article className="source-card" key={source.id}>
-          <b>{source.original_filename}</b>
-          <span>
-            {source.source_type === "google_drive"
-              ? "Google Drive metadata"
-              : "Local temporary upload"}
-          </span>
-          <span>Статус: {source.upload_status}</span>
-          <span>Размер: {formatBytes(source.size_bytes)}</span>
-          <span>MIME: {source.mime_type || "не указан"}</span>
-          <span>Uploaded: {formatTime(source.uploaded_at)}</span>
-          <span>Expires: {formatTime(source.expires_at)}</span>
-          <span>Deleted: {formatTime(source.deleted_at)}</span>
+          <b>{source.original_filename}</b><span>{source.source_type === "google_drive" ? "Google Drive metadata" : "Local temporary upload"}</span>
+          <span>Статус: {source.upload_status}</span><span>Размер: {formatBytes(source.size_bytes)}</span><span>MIME: {source.mime_type || "не указан"}</span>
+          <span>Uploaded: {formatTime(source.uploaded_at)}</span><span>Expires: {formatTime(source.expires_at)}</span><span>Deleted: {formatTime(source.deleted_at)}</span>
           {source.delete_reason && <span>Reason: {source.delete_reason}</span>}
-          {source.drive_file_id && (
-            <span>Drive file ID: {source.drive_file_id}</span>
-          )}
-          {isSafeDisplayUrl(source.drive_file_url) && (
-            <a href={source.drive_file_url ?? undefined}>Drive file URL</a>
-          )}
-          <button type="button" onClick={() => deleteSource(source.id)}>
-            Удалить source
-          </button>
+          {isSafeDisplayUrl(source.drive_file_url) && <a href={source.drive_file_url ?? undefined}>Открыть в Google Drive</a>}
+          <button type="button" onClick={() => deleteSource(source.id)}>Удалить source</button>
         </article>
       ))}
-      <form className="source-form" onSubmit={verifyDriveMetadata}>
-        <h5>Добавить один Drive file/folder ID</h5>
-        <p className="notice">
-          Введите один Google Drive file/folder ID. Браузер вызывает только
-          backend Studio; Google API напрямую из UI не вызывается.
-        </p>
-        <input
-          value={driveFileId}
-          onChange={(e) => {
-            setDriveFileId(e.target.value);
-            setDriveMetadata(null);
-            setDriveVerifyError("");
-            setDriveVerifyState("");
-          }}
-          placeholder="Drive file/folder ID"
-          aria-label="Drive file/folder ID"
-          required
-        />
-        <button className="primary" disabled={!driveFileId.trim()}>
-          Проверить Drive metadata
-        </button>
-      </form>
-      {driveVerifyState && <p role="status">{driveVerifyState}</p>}
-      {driveVerifyError && <p className="error">{driveVerifyError}</p>}
-      {driveMetadata && (
-        <article className="source-card" aria-label="Drive metadata preview">
-          <b>{driveDisplayName(driveMetadata)}</b>
-          {driveMetadata.is_folder && <span>Папка Google Drive</span>}
-          <span>MIME: {driveMetadata.mime_type || "не указан"}</span>
-          <span>Размер: {formatBytes(driveMetadata.size_bytes)}</span>
-          <span>Создан: {formatTime(driveMetadata.created_time)}</span>
-          <span>Изменён: {formatTime(driveMetadata.modified_time)}</span>
-          {isSafeDisplayUrl(driveMetadata.web_view_link) && (
-            <a href={driveMetadata.web_view_link ?? undefined}>
-              Открыть в Google Drive
-            </a>
-          )}
-          <button
-            type="button"
-            className="primary"
-            onClick={addVerifiedDriveSource}
-          >
-            Добавить source из проверенных metadata
-          </button>
-        </article>
-      )}
-
-      <form
-        className="source-form"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void loadDriveFolderChildren();
-        }}
-      >
-        <h5>Показать файлы из Drive folder ID</h5>
-        <p className="notice">
-          Введите один Google Drive folder ID. UI показывает только direct
-          children и safe metadata от backend; вложенная навигация и Drive
-          search не выполняются.
-        </p>
-        <input
-          value={driveFolderId}
-          onChange={(e) => {
-            setDriveFolderId(e.target.value);
-            setDriveFolderItems([]);
-            setSelectedDriveChildren([]);
-            setDriveFolderNextPageToken(null);
-            setDriveFolderError("");
-            setDriveFolderState("");
-          }}
-          placeholder="Drive folder ID"
-          aria-label="Drive folder ID"
-          required
-        />
-        <button className="primary" disabled={!driveFolderId.trim()}>
-          Показать файлы в папке
-        </button>
-      </form>
-      {driveFolderState && <p role="status">{driveFolderState}</p>}
-      {driveFolderError && <p className="error">{driveFolderError}</p>}
-      {driveFolderItems.length === 0 &&
-        driveFolderState === "Drive folder children загружены." && (
-          <p className="notice">В этой Drive папке нет direct children.</p>
-        )}
-      {driveFolderItems.length > 0 && (
-        <section aria-label="Drive folder children">
-          {driveFolderItems.map((item) => (
-            <article className="source-card" key={item.id}>
-              <label>
-                <input
-                  type="checkbox"
-                  disabled={item.is_folder}
-                  checked={selectedDriveChildren.includes(item.id)}
-                  onChange={(e) => {
-                    setSelectedDriveChildren((current) =>
-                      e.target.checked
-                        ? [...current, item.id]
-                        : current.filter((id) => id !== item.id),
-                    );
-                  }}
-                />
-                {driveDisplayName(item)}
-              </label>
-              {item.is_folder ? (
-                <span>Папка Google Drive — не добавляется как source файл</span>
-              ) : (
-                <span>Файл Google Drive</span>
-              )}
-              <span>MIME: {item.mime_type || "не указан"}</span>
-              <span>Размер: {formatBytes(item.size_bytes)}</span>
-              <span>Создан: {formatTime(item.created_time)}</span>
-              <span>Изменён: {formatTime(item.modified_time)}</span>
-              {isSafeDisplayUrl(item.web_view_link) && (
-                <a href={item.web_view_link ?? undefined}>
-                  Открыть в Google Drive
-                </a>
-              )}
-            </article>
-          ))}
-          <button
-            type="button"
-            className="primary"
-            onClick={addSelectedDriveChildren}
-          >
-            Добавить выбранные sources
-          </button>
-          {driveFolderNextPageToken && (
-            <button
-              type="button"
-              onClick={() =>
-                void loadDriveFolderChildren(driveFolderNextPageToken)
-              }
-            >
-              Загрузить ещё
-            </button>
-          )}
-        </section>
-      )}
-      <label className="drop compact">
-        Загрузить временный локальный audio/video source
-        <input
-          type="file"
-          accept="audio/*,video/*,.ogg,.oga,application/ogg"
-          onChange={uploadLocal}
-        />
-      </label>
+      <section className="source-form" aria-label="Google Drive Picker sources">
+        <h5>Google Drive</h5>
+        {!googleConnection?.connected && <p className="notice">Google Drive не подключён.</p>}
+        {googleConnection?.connected && googleConnection.reconnect_required && <p className="notice">Reconnect Google Drive to enable file selection.</p>}
+        {googleConnection?.connected && !googleConnection.picker_configured && <p className="notice">Google Picker временно недоступен: runtime-настройки не завершены.</p>}
+        {pickerReady && <p className="notice">Google Drive подключён. Файлы выбираются через официальный Picker; Studio сохранит metadata только после server-side проверки.</p>}
+        <button type="button" className="primary" disabled={!pickerReady || openingPicker} onClick={chooseDriveSources}>Выбрать файлы из Google Drive</button>
+        {pickerState && <p role="status">{pickerState}</p>}
+        {pickerError && <p className="error">{pickerError}</p>}
+      </section>
+      <label className="drop compact">Загрузить временный локальный audio/video source<input type="file" accept="audio/*,video/*,.ogg,.oga,application/ogg" onChange={uploadLocal} /></label>
       {uploadState && <p role="status">{uploadState}</p>}
     </section>
   );
@@ -1429,6 +1118,7 @@ function ProjectsPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
+  const [googleConnection, setGoogleConnection] = useState<GoogleConnection | null>(null);
   const load = () => {
     setLoading(true);
     setError("");
@@ -1442,6 +1132,7 @@ function ProjectsPage({
       .finally(() => setLoading(false));
   };
   useEffect(load, []);
+  useEffect(() => { api<GoogleConnection>("/google/connection").then(setGoogleConnection).catch(() => setGoogleConnection(null)); }, []);
   const loadSources = (projectId: string) => {
     setSources((v) => ({
       ...v,
@@ -1581,21 +1272,27 @@ function ProjectsPage({
       );
     }
   }
-  async function saveFolder(e: FormEvent<HTMLFormElement>, id: string) {
-    e.preventDefault();
-    const fd = new FormData(e.currentTarget);
-    await patchFolder(id, {
-      output_drive_folder_id: fd.get("output_drive_folder_id"),
-      output_drive_folder_url: fd.get("output_drive_folder_url") || null,
-      output_drive_folder_name: fd.get("output_drive_folder_name") || null,
-    });
-  }
   async function clearFolder(id: string) {
     await patchFolder(id, {
       output_drive_folder_id: null,
       output_drive_folder_url: null,
       output_drive_folder_name: null,
     });
+  }
+  async function chooseOutputFolder(id: string) {
+    setError("");
+    try {
+      const session = await csrfMutate<PickerSession>("/google/picker/session", csrf, onCsrf, { method: "POST" });
+      const result = await openGooglePicker("output-folder", session);
+      if (result.action === "cancel") return;
+      if (result.action === "error") { setError(result.message); return; }
+      const folderId = result.docs[0]?.id;
+      if (!folderId) { setError("Выберите одну папку Google Drive."); return; }
+      await csrfMutate<Project>(`/projects/${id}/output-folder/google-picker`, csrf, onCsrf, { method: "POST", body: JSON.stringify({ folder_id: folderId }) });
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось выбрать папку результатов.");
+    }
   }
   async function archive(id: string) {
     setError("");
@@ -1618,9 +1315,7 @@ function ProjectsPage({
       <p className="eyebrow">Platform API</p>
       <h2>Проекты</h2>
       <p className="notice">
-        Проекты и sources загружаются из same-origin API. Provider
-        transcription, Google OAuth/Drive picker, Google Docs и очереди ещё не
-        подключены.
+      Проекты и sources загружаются из same-origin API. Google Drive Picker используется для выбора файлов и папки результатов; worker rollout остаётся отдельным операторским шагом.
       </p>
       <form className="inline project-form" onSubmit={save}>
         <input
@@ -1688,31 +1383,16 @@ function ProjectsPage({
                     <p>Папка результата не настроена.</p>
                   )}
                 </div>
-                <form
-                  className="source-form"
-                  onSubmit={(e) => saveFolder(e, p.id)}
-                >
-                  <input
-                    name="output_drive_folder_id"
-                    defaultValue={p.output_drive_folder_id ?? ""}
-                    placeholder="Output Drive folder ID"
-                    required
-                  />
-                  <input
-                    name="output_drive_folder_url"
-                    defaultValue={p.output_drive_folder_url ?? ""}
-                    placeholder="Folder URL (необязательно)"
-                  />
-                  <input
-                    name="output_drive_folder_name"
-                    defaultValue={p.output_drive_folder_name ?? ""}
-                    placeholder="Folder display name (необязательно)"
-                  />
-                  <button className="primary">Сохранить output folder</button>
-                  <button type="button" onClick={() => clearFolder(p.id)}>
-                    Очистить output folder
+                <div className="source-form" aria-label="Output folder Google Picker">
+                  <button className="primary" type="button" disabled={!googleConnection?.picker_ready} onClick={() => chooseOutputFolder(p.id)}>
+                    Выбрать папку для результатов
                   </button>
-                </form>
+                  <button type="button" onClick={() => clearFolder(p.id)}>
+                    Очистить папку результатов
+                  </button>
+                  {googleConnection?.connected && googleConnection.reconnect_required && <p className="notice">Reconnect Google Drive to enable file selection.</p>}
+                  {googleConnection?.connected && !googleConnection.picker_configured && <p className="notice">Google Picker временно недоступен.</p>}
+                </div>
                 <button onClick={() => setEditing(p.id)}>Редактировать</button>
                 <button onClick={() => archive(p.id)}>Архивировать</button>
                 <button onClick={() => expand(p.id)}>
@@ -1727,6 +1407,7 @@ function ProjectsPage({
                     csrf={csrf}
                     onCsrf={onCsrf}
                     sources={sources[p.id] ?? emptySourceState}
+                    googleConnection={googleConnection}
                     onReload={loadSources}
                     onError={setError}
                   />
@@ -1947,8 +1628,8 @@ function SettingsPage({
       </div>
       <h3>Google Drive connection</h3>
       <p className="notice">
-        Подключение только подтверждает доступ Google Drive. Picker, просмотр
-        файлов, Google Docs output и задачи транскрибации ещё не включены.
+        Подключение подтверждает доступ Google Drive для Picker и server-side
+        проверки выбранных файлов/папок. Worker rollout и production smoke остаются отдельными операторскими шагами.
       </p>
       <article className="card">
         <span className="tag">Google Drive</span>
