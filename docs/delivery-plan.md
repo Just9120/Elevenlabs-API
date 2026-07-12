@@ -76,29 +76,20 @@ Capability/status snapshot:
 
 ## Last completed item: PWA-PROCESSING-PREFLIGHT-01A — Read-only Studio production host preflight workflow
 
-Status: source-done/merged via PR #130 (head `ba87fe7a991b748b8f1fbc0eed3e5b2d295622c0`, merge `41dfa926f77b2a8657dec1d675d770000b188843`); Backend CI #310 passed and Studio PWA CI #137 passed.
+Status: source-done/merged via PR #132 (head `4d3e907971e5245eac024f2e558e9648ba9bb085`, merge `10c175f8a42f51cb1eb27da001ffdc2dbf4fbd26`); Backend CI #316 passed and Studio PWA CI #141 passed.
 
 Scope:
 
-- Define a secret-free operator contract for a future controlled Studio processing production rollout and first smoke validation.
-- Keep `source-done/merged`, `CI-verified`, `deployed`, `migration-applied`, `worker-running`, and `production-live` as separate states.
-- Record that repository documentation and CI alone do not prove production-live Studio processing.
-- Preserve current boundaries: production migration rollout and worker rollout remain manual/operator-scoped; standard Studio Platform CD deploys only `web` or `api` and does not deploy `studio-worker` or execute migrations.
+- Added the read-only Studio production host preflight workflow as source, without executing production preflight from repository automation.
+- Preserved the separation between source merge, CI verification, operator-dispatched preflight, deployment, migration, worker start, and production-live smoke validation.
+- Did not claim production processing smoke success.
 
-Non-goals:
+Rollout boundary:
 
-- No production access, SSH/VPS work, backup execution, migration execution, deployment, Docker/Compose command, provider call, Google API call, job creation, source code change, workflow change, Compose change, `.env` template change, migration addition, secret change, or runtime behavior change.
-- No production processing claim, output success claim, worker rollout claim, migration rollout claim, or exactly-once Google document creation claim.
-
-Validation for this PREP item:
-
-- Repository-safe documentation checks only: `python scripts/ci_checks.py` and `git diff --check`.
-- Final diff must contain only intended documentation files.
-
-Follow-up boundary:
-
-- The only approved follow-up after this PREP item is **PWA-PROCESSING-ROLLOUT-01A — Manual Studio processing rollout and controlled smoke validation**. That operator item is currently blocked because production access was unavailable, not because production validation failed.
-- That item is operator-run, may apply the reviewed migration and start exactly one worker only after prerequisites and backup confirmation, may collect the defined safe runtime evidence, must not be represented as completed by a coding agent, must not change source unless a separately scoped defect is exposed, and must stop without improvising when the rollout contract stop conditions occur.
+- Worker/smoke rollout remains paused because the manual folder-ID UX did not satisfy the product requirement for native Drive navigation.
+- **PWA-GOOGLE-PICKER-01** remains the active source item before any resumed worker/smoke rollout.
+- No production Picker deployment, production worker start, job creation, smoke job, Google document creation, or production-live processing claim is recorded here.
+- **RUNTIME-01** remains deferred.
 
 ## Current checkpoint
 

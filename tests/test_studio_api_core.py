@@ -585,7 +585,7 @@ def test_google_connection_status_no_connection():
     pw = admin("google-empty@example.com"); c = TestClient(app); login(c, pw, "google-empty@example.com")
     r = c.get("/api/google/connection")
     assert r.status_code == 200
-    assert r.json() == {"connected": False, "status": None, "google_email": None, "scopes": None, "connected_at": None, "revoked_at": None}
+    assert r.json() == {"connected": False, "status": None, "google_email": None, "scopes": None, "connected_at": None, "revoked_at": None, "picker_configured": False, "picker_scope_ready": False, "picker_ready": False, "reconnect_required": False}
 
 
 def test_google_oauth_start_requires_csrf_and_fails_closed_when_missing_config(monkeypatch):

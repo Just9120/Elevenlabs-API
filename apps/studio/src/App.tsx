@@ -1,4 +1,4 @@
-import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   Briefcase,
   ClipboardList,
@@ -7,7 +7,8 @@ import {
   Settings,
 } from "lucide-react";
 import { buildSegmentPlan, hasSegmentErrors, type Segment } from "./segments";
-import { openGooglePicker, type PickerSession } from "./googlePicker";
+import * as googlePicker from "./googlePicker";
+import type { PickerSession } from "./googlePicker";
 import "./styles.css";
 
 // Platform mode is selected at build time by VITE_STUDIO_PLATFORM_MODE.
@@ -526,6 +527,8 @@ function SourcesPanel({
   onCsrf,
   sources,
   googleConnection,
+  pickerBusy,
+  setPickerBusy,
   onReload,
   onError,
 }: {
@@ -534,13 +537,15 @@ function SourcesPanel({
   onCsrf: (csrf: string) => void;
   sources: { loading: boolean; error: string; loaded: boolean; items: Source[] };
   googleConnection: GoogleConnection | null;
+  pickerBusy: boolean;
+  setPickerBusy: (busy: boolean) => void;
   onReload: (projectId: string) => void;
   onError: (message: string) => void;
 }) {
   const [uploadState, setUploadState] = useState("");
   const [pickerState, setPickerState] = useState("");
   const [pickerError, setPickerError] = useState("");
-  const [openingPicker, setOpeningPicker] = useState(false);
+  const sourcePickerOpeningRef = useRef(false);
   const pickerReady = Boolean(googleConnection?.picker_ready);
   async function pickerSession() {
     return csrfMutate<PickerSession>("/google/picker/session", csrf, onCsrf, {
@@ -548,13 +553,14 @@ function SourcesPanel({
     });
   }
   async function chooseDriveSources() {
-    if (openingPicker) return;
-    setOpeningPicker(true);
+    if (pickerBusy || sourcePickerOpeningRef.current) return;
+    sourcePickerOpeningRef.current = true;
+    setPickerBusy(true);
     setPickerError("");
     setPickerState("Открываем Google Drive Picker…");
     try {
       const session = await pickerSession();
-      const result = await openGooglePicker("sources", session);
+      const result = await googlePicker.openGooglePicker("sources", session);
       if (result.action === "cancel") {
         setPickerState("Выбор файлов отменён.");
         return;
@@ -581,7 +587,8 @@ function SourcesPanel({
       setPickerState("");
       onError(err instanceof Error ? err.message : "Не удалось выбрать файлы Google Drive.");
     } finally {
-      setOpeningPicker(false);
+      sourcePickerOpeningRef.current = false;
+      setPickerBusy(false);
     }
   }
   async function uploadLocal(e: ChangeEvent<HTMLInputElement>) {
@@ -629,10 +636,10 @@ function SourcesPanel({
       <section className="source-form" aria-label="Google Drive Picker sources">
         <h5>Google Drive</h5>
         {!googleConnection?.connected && <p className="notice">Google Drive не подключён.</p>}
-        {googleConnection?.connected && googleConnection.reconnect_required && <p className="notice">Reconnect Google Drive to enable file selection.</p>}
+        {googleConnection?.connected && googleConnection.reconnect_required && <p className="notice">Google Drive подключён, но для выбора файлов требуется повторная авторизация с правом drive.file. Откройте Настройки и нажмите «Переподключить Google Drive».</p>}
         {googleConnection?.connected && !googleConnection.picker_configured && <p className="notice">Google Picker временно недоступен: runtime-настройки не завершены.</p>}
         {pickerReady && <p className="notice">Google Drive подключён. Файлы выбираются через официальный Picker; Studio сохранит metadata только после server-side проверки.</p>}
-        <button type="button" className="primary" disabled={!pickerReady || openingPicker} onClick={chooseDriveSources}>Выбрать файлы из Google Drive</button>
+        <button type="button" className="primary" disabled={!pickerReady || pickerBusy} onClick={chooseDriveSources}>Выбрать файлы из Google Drive</button>
         {pickerState && <p role="status">{pickerState}</p>}
         {pickerError && <p className="error">{pickerError}</p>}
       </section>
@@ -1118,6 +1125,12 @@ function ProjectsPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
+  const [activePicker, setActivePicker] = useState(false);
+  const activePickerRef = useRef(false);
+  const setPickerBusy = (busy: boolean) => {
+    activePickerRef.current = busy;
+    setActivePicker(busy);
+  };
   const [googleConnection, setGoogleConnection] = useState<GoogleConnection | null>(null);
   const load = () => {
     setLoading(true);
@@ -1280,10 +1293,12 @@ function ProjectsPage({
     });
   }
   async function chooseOutputFolder(id: string) {
+    if (activePickerRef.current) return;
+    setPickerBusy(true);
     setError("");
     try {
       const session = await csrfMutate<PickerSession>("/google/picker/session", csrf, onCsrf, { method: "POST" });
-      const result = await openGooglePicker("output-folder", session);
+      const result = await googlePicker.openGooglePicker("output-folder", session);
       if (result.action === "cancel") return;
       if (result.action === "error") { setError(result.message); return; }
       const folderId = result.docs[0]?.id;
@@ -1292,6 +1307,8 @@ function ProjectsPage({
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Не удалось выбрать папку результатов.");
+    } finally {
+      setPickerBusy(false);
     }
   }
   async function archive(id: string) {
@@ -1384,13 +1401,13 @@ function ProjectsPage({
                   )}
                 </div>
                 <div className="source-form" aria-label="Output folder Google Picker">
-                  <button className="primary" type="button" disabled={!googleConnection?.picker_ready} onClick={() => chooseOutputFolder(p.id)}>
+                  <button className="primary" type="button" disabled={!googleConnection?.picker_ready || activePicker} onClick={() => chooseOutputFolder(p.id)}>
                     Выбрать папку для результатов
                   </button>
                   <button type="button" onClick={() => clearFolder(p.id)}>
                     Очистить папку результатов
                   </button>
-                  {googleConnection?.connected && googleConnection.reconnect_required && <p className="notice">Reconnect Google Drive to enable file selection.</p>}
+                  {googleConnection?.connected && googleConnection.reconnect_required && <p className="notice">Google Drive подключён, но для выбора папки результатов требуется повторная авторизация с правом drive.file. Откройте Настройки и нажмите «Переподключить Google Drive».</p>}
                   {googleConnection?.connected && !googleConnection.picker_configured && <p className="notice">Google Picker временно недоступен.</p>}
                 </div>
                 <button onClick={() => setEditing(p.id)}>Редактировать</button>
@@ -1408,6 +1425,8 @@ function ProjectsPage({
                     onCsrf={onCsrf}
                     sources={sources[p.id] ?? emptySourceState}
                     googleConnection={googleConnection}
+                    pickerBusy={activePicker}
+                    setPickerBusy={setPickerBusy}
                     onReload={loadSources}
                     onError={setError}
                   />
@@ -1448,6 +1467,7 @@ function SettingsPage({
     useState<GoogleConnection | null>(null);
   const [googleLoading, setGoogleLoading] = useState(true);
   const [googleMessage, setGoogleMessage] = useState("");
+  const [googleStarting, setGoogleStarting] = useState(false);
   const [error, setError] = useState("");
   const loadGoogleConnection = () => {
     setGoogleLoading(true);
@@ -1521,6 +1541,8 @@ function SettingsPage({
     }
   };
   const connectGoogle = async () => {
+    if (googleStarting) return;
+    setGoogleStarting(true);
     setGoogleMessage("");
     try {
       const r = await safeMutate<GoogleOauthStart>("/google/oauth/start", {
@@ -1528,7 +1550,8 @@ function SettingsPage({
       });
       window.location.assign(r.authorization_url);
     } catch {
-      setGoogleMessage("Google OAuth ещё не настроен оператором.");
+      setGoogleMessage("Не удалось начать подключение Google Drive. Попробуйте позже или проверьте настройки OAuth.");
+      setGoogleStarting(false);
     }
   };
   const disconnectGoogle = async () => {
@@ -1650,6 +1673,16 @@ function SettingsPage({
               <dt>Revoked</dt>
               <dd>{formatTime(googleConnection.revoked_at)}</dd>
             </dl>
+            {googleConnection.reconnect_required && (
+              <div className="notice" role="status">
+                Google Drive подключён, но для выбора файлов через Picker нужно повторно авторизовать доступ с правом drive.file. Текущее подключение будет сохранено до успешного завершения нового OAuth callback.
+              </div>
+            )}
+            {googleConnection.reconnect_required && (
+              <button className="primary" type="button" disabled={googleStarting} onClick={connectGoogle}>
+                Переподключить Google Drive
+              </button>
+            )}
           </>
         ) : googleConnection ? (
           <>
@@ -1660,7 +1693,7 @@ function SettingsPage({
                 ? ` · revoked ${formatTime(googleConnection.revoked_at)}`
                 : ""}
             </p>
-            <button className="primary" onClick={connectGoogle}>
+            <button className="primary" disabled={googleStarting} onClick={connectGoogle}>
               Подключить Google Drive
             </button>
           </>

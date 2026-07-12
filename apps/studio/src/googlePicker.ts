@@ -11,55 +11,99 @@ export type PickerSession = {
   scope_ready: boolean;
 };
 
+type PickerCallback = (data: unknown) => void;
+type PickerInstance = { setVisible: (visible: boolean) => void };
+type PickerView = {
+  setIncludeFolders?: (value: boolean) => PickerView;
+  setSelectFolderEnabled?: (value: boolean) => PickerView;
+  setMimeTypes?: (value: string) => PickerView;
+};
+type PickerBuilder = {
+  addView: (view: PickerView) => PickerBuilder;
+  enableFeature: (feature: string) => PickerBuilder;
+  setOAuthToken: (token: string) => PickerBuilder;
+  setDeveloperKey: (key: string) => PickerBuilder;
+  setAppId: (id: string) => PickerBuilder;
+  setCallback: (cb: PickerCallback) => PickerBuilder;
+  build: () => PickerInstance;
+};
+type PickerApi = {
+  Action: { PICKED: string; CANCEL: string; ERROR: string };
+  DocsView: new (viewId: string) => PickerView;
+  PickerBuilder: new () => PickerBuilder;
+  ViewId: { DOCS: string; FOLDERS: string };
+  Feature: { MULTISELECT_ENABLED: string; NAV_HIDDEN?: string };
+};
+
 declare global {
   interface Window {
     gapi?: { load: (name: string, cb: () => void) => void };
-    google?: {
-      picker?: {
-        Action: { PICKED: string; CANCEL: string };
-        DocsView: new (...args: unknown[]) => {
-          setIncludeFolders?: (value: boolean) => unknown;
-          setSelectFolderEnabled?: (value: boolean) => unknown;
-          setMimeTypes?: (value: string) => unknown;
-        };
-        PickerBuilder: new () => {
-          addView: (view: unknown) => Window["google"] extends { picker: { PickerBuilder: new () => infer B } } ? B : unknown;
-          enableFeature: (feature: unknown) => Window["google"] extends { picker: { PickerBuilder: new () => infer B } } ? B : unknown;
-          setOAuthToken: (token: string) => Window["google"] extends { picker: { PickerBuilder: new () => infer B } } ? B : unknown;
-          setDeveloperKey: (key: string) => Window["google"] extends { picker: { PickerBuilder: new () => infer B } } ? B : unknown;
-          setAppId: (id: string) => Window["google"] extends { picker: { PickerBuilder: new () => infer B } } ? B : unknown;
-          setCallback: (cb: (data: unknown) => void) => Window["google"] extends { picker: { PickerBuilder: new () => infer B } } ? B : unknown;
-          build: () => { setVisible: (visible: boolean) => void };
-        };
-        ViewId: { DOCS: string; FOLDERS: string };
-        Feature: { MULTISELECT_ENABLED: string; NAV_HIDDEN?: string };
-      };
-    };
+    google?: { picker?: PickerApi };
   }
 }
 
+const SCRIPT_SELECTOR = 'script[data-studio-google-picker="true"]';
+const SCRIPT_TIMEOUT_MS = 10000;
 let loader: Promise<void> | null = null;
+
+export function resetGooglePickerLoaderForTests() {
+  loader = null;
+}
+
+function clearFailedPickerScript() {
+  document.querySelectorAll<HTMLScriptElement>(SCRIPT_SELECTOR).forEach((script) => {
+    if (script.dataset.studioGooglePickerLoaded !== "true") {
+      script.remove();
+    }
+  });
+}
+
+function normalizedLoadError(): Error {
+  return new Error("Google Picker не загрузился. Повторите попытку.");
+}
 
 export function loadGooglePicker(): Promise<void> {
   if (loader) return loader;
   loader = new Promise((resolve, reject) => {
-    const existing = document.querySelector<HTMLScriptElement>(
-      'script[data-studio-google-picker="true"]',
-    );
-    const onReady = () => {
-      window.gapi?.load("picker", () => resolve());
+    let settled = false;
+    let script = document.querySelector<HTMLScriptElement>(SCRIPT_SELECTOR);
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      if (error) {
+        loader = null;
+        clearFailedPickerScript();
+        reject(error);
+        return;
+      }
+      if (script) script.dataset.studioGooglePickerLoaded = "true";
+      resolve();
     };
-    if (existing) {
-      onReady();
+    const loadPickerApi = () => {
+      try {
+        if (!window.gapi) {
+          finish(normalizedLoadError());
+          return;
+        }
+        window.gapi.load("picker", () => finish());
+      } catch {
+        finish(normalizedLoadError());
+      }
+    };
+    const timeout = window.setTimeout(() => finish(normalizedLoadError()), SCRIPT_TIMEOUT_MS);
+    if (script?.dataset.studioGooglePickerLoaded === "true") {
+      loadPickerApi();
       return;
     }
-    const script = document.createElement("script");
+    if (script) script.remove();
+    script = document.createElement("script");
     script.src = "https://apis.google.com/js/api.js";
     script.async = true;
     script.defer = true;
     script.dataset.studioGooglePicker = "true";
-    script.onload = onReady;
-    script.onerror = () => reject(new Error("Google Picker не загрузился"));
+    script.onload = loadPickerApi;
+    script.onerror = () => finish(normalizedLoadError());
     document.head.appendChild(script);
   });
   return loader;
@@ -90,18 +134,21 @@ export async function openGooglePicker(
       return;
     }
     let token = session.access_token;
-    const clear = () => {
+    let completed = false;
+    const finish = (result: PickerResult) => {
+      if (completed) return;
+      completed = true;
       token = "";
+      resolve(result);
     };
     const callback = (data: unknown) => {
       const action = (data as { action?: unknown }).action;
       if (action === pickerApi.Action.PICKED) {
-        const docs = selectedDocs(data);
-        clear();
-        resolve({ action: "picked", docs });
+        finish({ action: "picked", docs: selectedDocs(data) });
       } else if (action === pickerApi.Action.CANCEL) {
-        clear();
-        resolve({ action: "cancel" });
+        finish({ action: "cancel" });
+      } else if (action === pickerApi.Action.ERROR) {
+        finish({ action: "error", message: "Google Picker вернул ошибку. Повторите попытку." });
       }
     };
     try {
@@ -123,11 +170,9 @@ export async function openGooglePicker(
       builder.setDeveloperKey(session.api_key);
       builder.setAppId(session.app_id);
       builder.setCallback(callback);
-      const picker = builder.build();
-      picker.setVisible(true);
+      builder.build().setVisible(true);
     } catch {
-      clear();
-      resolve({ action: "error", message: "Не удалось открыть Google Picker" });
+      finish({ action: "error", message: "Не удалось открыть Google Picker" });
     }
   });
 }
