@@ -22,13 +22,16 @@ jobs:
     steps:
       - name: Validate dispatch inputs and branch
         shell: bash
+        env:
+          DISPATCH_REF: ${{ github.ref }}
+          EXPECTED_COMMIT: ${{ inputs.expected_commit }}
         run: |
           set -euo pipefail
-          if [[ "${{ github.ref }}" != "refs/heads/main" ]]; then
+          if [[ "$DISPATCH_REF" != "refs/heads/main" ]]; then
             echo "Studio Processing Preflight must be dispatched from main" >&2
             exit 1
           fi
-          if [[ ! "${{ inputs.expected_commit }}" =~ ^[0-9a-fA-F]{40}$ ]]; then
+          if [[ ! "$EXPECTED_COMMIT" =~ ^[0-9a-fA-F]{40}$ ]]; then
             echo "expected_commit must be exactly one 40-character hexadecimal commit SHA" >&2
             exit 1
           fi
@@ -87,11 +90,12 @@ jobs:
             echo "remote temporary script path did not match the expected safe pattern" >&2
             exit 1
           fi
+          shell_quote() { printf '%q' "$1"; }
           cleanup() {
-            ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" \
-              bash -c 'rm -f -- "$1"' _ "$remote_script" >/dev/null 2>&1 || true
+            cleanup_command="rm -f -- $(shell_quote "$remote_script")"
+            ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" "$cleanup_command" >/dev/null 2>&1 || true
           }
           trap cleanup EXIT
           scp -i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes scripts/studio_processing_preflight.sh "$DEPLOY_USER@$DEPLOY_HOST:$remote_script"
-          ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" \
-            bash -c 'chmod 700 -- "$1" && cd "$2" && "$1" "$2" "$3" "$4" "$5"' _ "$remote_script" /opt/elevenlabs-studio main Just9120/Elevenlabs-API "$EXPECTED_COMMIT"
+          execute_command="chmod 700 -- $(shell_quote "$remote_script") && cd $(shell_quote /opt/elevenlabs-studio) && $(shell_quote "$remote_script") $(shell_quote /opt/elevenlabs-studio) $(shell_quote main) $(shell_quote Just9120/Elevenlabs-API) $(shell_quote "$EXPECTED_COMMIT")"
+          ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" "$execute_command"

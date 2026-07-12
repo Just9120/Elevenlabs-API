@@ -243,13 +243,13 @@ def test_workflow_contract() -> None:
     assert data["concurrency"] == {"group": "studio-platform-production", "cancel-in-progress": False}
     assert "refs/heads/main" in text
     assert "StrictHostKeyChecking=yes" in text and "BatchMode=yes" in text
-    assert "mktemp /tmp/studio-processing-preflight" in text and "rm -f -- \"$1\"" in text
+    assert "mktemp /tmp/studio-processing-preflight" in text and "rm -f -- $(shell_quote" in text
     assert "deploy_studio_platform_component.sh" not in text
     assert "bash -s" not in text
     assert "git fetch" not in text and "git pull" not in text and "docker compose" not in text
     assert "mapfile -t mktemp_lines" in text and "${#mktemp_lines[@]}" in text
     assert "^/tmp/studio-processing-preflight\\.[A-Za-z0-9]{6,32}$" in text
-    assert "bash -c 'chmod 700 -- \"$1\"" in text
+    assert 'execute_command="chmod 700 -- $(shell_quote' in text
 
 REQUIRED_ROWS = [
     "deploy directory identity", "repository remote identity", "branch identity", "commit identity", "tracked working tree",
@@ -364,3 +364,108 @@ def test_remote_temp_path_validation_cases() -> None:
         "",
     ]:
         assert not validate_remote_path_candidate(value)
+
+
+def workflow_step_run(name: str) -> str:
+    data = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    for step in data["jobs"]["host-preflight"]["steps"]:
+        if step.get("name") == name:
+            return step["run"]
+    raise AssertionError(f"missing workflow step {name}")
+
+
+def test_dispatch_input_reaches_shell_only_as_environment_data() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    data = yaml.safe_load(text)
+    validate_step = next(step for step in data["jobs"]["host-preflight"]["steps"] if step.get("name") == "Validate dispatch inputs and branch")
+    assert validate_step["env"]["EXPECTED_COMMIT"] == "${{ inputs.expected_commit }}"
+    assert validate_step["env"]["DISPATCH_REF"] == "${{ github.ref }}"
+    for step in data["jobs"]["host-preflight"]["steps"]:
+        run = step.get("run", "")
+        assert "${{ inputs.expected_commit }}" not in run
+        assert "${{ github.event.inputs" not in run
+    run = validate_step["run"]
+    assert '"$EXPECTED_COMMIT" =~ ^[0-9a-fA-F]{40}$' in run
+    assert '"$DISPATCH_REF" != "refs/heads/main"' in run
+    hostile = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa$(touch /tmp/owned)"
+    assert not __import__("re").fullmatch(r"[0-9a-fA-F]{40}", hostile)
+
+
+def run_workflow_transport(tmp_path: Path, *, scp_fail: bool = False, exec_fail: bool = False) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(parents=True)
+    log = tmp_path / "transport.log"
+    remote_path = "/tmp/studio-processing-preflight.Abc123"
+    _write_exe(
+        bin_dir / "ssh",
+        f'''#!/usr/bin/env python3
+import os, shlex, subprocess, sys
+log={str(log)!r}
+remote={remote_path!r}
+args=sys.argv[1:]
+cmd=args[-1]
+with open(log, 'a', encoding='utf-8') as f: f.write('ssh-argc %d\\n' % len(args)); f.write('ssh-cmd '+cmd+'\\n')
+if cmd == 'mktemp /tmp/studio-processing-preflight.XXXXXX':
+    print(remote); sys.exit(0)
+parts=shlex.split(cmd)
+with open(log, 'a', encoding='utf-8') as f: f.write('ssh-parts '+repr(parts)+'\\n')
+if parts[:3] == ['rm', '-f', '--']:
+    with open(log, 'a', encoding='utf-8') as f: f.write('cleanup-path '+parts[3]+'\\n')
+    if parts[3] == remote and os.path.exists(parts[3]): os.remove(parts[3])
+    sys.exit(0)
+if {str(exec_fail)}: sys.exit(23)
+expected=['chmod','700','--',remote,'&&','cd','/opt/elevenlabs-studio','&&',remote,'/opt/elevenlabs-studio','main','Just9120/Elevenlabs-API',os.environ['EXPECTED_COMMIT']]
+if parts != expected:
+    with open(log, 'a', encoding='utf-8') as f: f.write('unexpected-parts '+repr(parts)+'\\n')
+    sys.exit(24)
+subprocess.run([remote, '/opt/elevenlabs-studio', 'main', 'Just9120/Elevenlabs-API', os.environ['EXPECTED_COMMIT']], check=True)
+sys.exit(0)
+''',
+    )
+    _write_exe(
+        bin_dir / "scp",
+        f'''#!/usr/bin/env python3
+import os, shutil, sys
+log={str(log)!r}
+with open(log, 'a', encoding='utf-8') as f: f.write('scp-args '+repr(sys.argv[1:])+'\\n')
+if {str(scp_fail)}: sys.exit(22)
+target=sys.argv[-1]
+assert target == 'deployer@example.invalid:{remote_path}'
+shutil.copyfile(sys.argv[-2], {remote_path!r})
+os.chmod({remote_path!r}, 0o700)
+''',
+    )
+    script_dir = tmp_path / "scripts"
+    script_dir.mkdir()
+    (script_dir / "studio_processing_preflight.sh").write_text(
+        f"#!/usr/bin/env bash\nprintf 'remote-preflight-args %s\\n' \"$*\" >> {str(log)!r}\n",
+        encoding="utf-8",
+    )
+    (script_dir / "studio_processing_preflight.sh").chmod(0o700)
+    env = os.environ.copy()
+    env.update({"PATH": f"{bin_dir}:{env['PATH']}", "DEPLOY_HOST": "example.invalid", "DEPLOY_USER": "deployer", "EXPECTED_COMMIT": SHA})
+    proc = subprocess.run(["bash", "-c", workflow_step_run("Run read-only Studio processing host preflight")], cwd=tmp_path, env=env, text=True, capture_output=True, timeout=10)
+    lines = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+    return proc, lines
+
+
+def test_workflow_ssh_transport_quotes_and_cleans_up_after_success(tmp_path: Path) -> None:
+    proc, lines = run_workflow_transport(tmp_path)
+    assert proc.returncode == 0, proc.stderr + proc.stdout + "\n" + "\n".join(lines)
+    assert any("mktemp /tmp/studio-processing-preflight.XXXXXX" in line for line in lines)
+    assert any("scp-args" in line and "deployer@example.invalid:/tmp/studio-processing-preflight.Abc123" in line for line in lines)
+    assert any("remote-preflight-args /opt/elevenlabs-studio main Just9120/Elevenlabs-API " + SHA in line for line in lines)
+    assert lines.count("cleanup-path /tmp/studio-processing-preflight.Abc123") == 1
+    joined = "\n".join(lines)
+    for forbidden in ["deploy_studio_platform_component.sh", "git fetch", "git pull", "docker compose", "compose build", "compose up", "compose restart", "alembic upgrade", "backup", "provider", "Google API", "job creation"]:
+        assert forbidden not in joined
+
+
+def test_workflow_cleanup_runs_after_upload_or_execution_failure(tmp_path: Path) -> None:
+    proc, lines = run_workflow_transport(tmp_path / "upload", scp_fail=True)
+    assert proc.returncode != 0
+    assert lines.count("cleanup-path /tmp/studio-processing-preflight.Abc123") == 1
+    proc, lines = run_workflow_transport(tmp_path / "exec", exec_fail=True)
+    assert proc.returncode != 0
+    assert lines.count("cleanup-path /tmp/studio-processing-preflight.Abc123") == 1
+    assert not any("cleanup-path /opt/elevenlabs-studio" in line or "cleanup-path /tmp" == line for line in lines)
