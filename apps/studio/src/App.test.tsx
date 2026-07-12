@@ -1,5 +1,6 @@
 import {
   cleanup,
+  fireEvent,
   render,
   screen,
   waitFor,
@@ -8,6 +9,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import * as googlePicker from "./googlePicker";
 import { buildSegmentPlan, parseTimeToSeconds } from "./segments";
 const json = (body: unknown, ok = true, status = 200) =>
   Promise.resolve({
@@ -18,6 +20,57 @@ const json = (body: unknown, ok = true, status = 200) =>
   } as Response);
 function renderApp(mode: "static" | "platform") {
   render(<App mode={mode} />);
+}
+
+function installFakeGooglePicker() {
+  googlePicker.resetGooglePickerLoaderForTests();
+  let callback: ((data: unknown) => void) | null = null;
+  const viewIds: string[] = [];
+  const setVisible = vi.fn();
+  class FakeView {
+    constructor(viewId: string) {
+      viewIds.push(viewId);
+    }
+    setIncludeFolders() { return this; }
+    setSelectFolderEnabled() { return this; }
+    setMimeTypes() { return this; }
+  }
+  class FakeBuilder {
+    addView() { return this; }
+    enableFeature() { return this; }
+    setOAuthToken() { return this; }
+    setDeveloperKey() { return this; }
+    setAppId() { return this; }
+    setCallback(cb: (data: unknown) => void) { callback = cb; return this; }
+    build() { return { setVisible }; }
+  }
+  window.gapi = { load: vi.fn((_name: string, cb: () => void) => cb()) };
+  window.google = {
+    picker: {
+      Action: { PICKED: "picked", CANCEL: "cancel", ERROR: "error" },
+      DocsView: FakeView,
+      PickerBuilder: FakeBuilder,
+      ViewId: { DOCS: "docs", FOLDERS: "folders" },
+      Feature: { MULTISELECT_ENABLED: "multi" },
+    },
+  };
+  return {
+    loadScript: async () => {
+      const script = await waitFor(() => {
+        const node = document.head.querySelector<HTMLScriptElement>('script[data-studio-google-picker="true"]');
+        expect(node).not.toBeNull();
+        return node;
+      });
+      script?.onload?.(new Event("load"));
+    },
+    trigger: (data: unknown) => {
+      if (!callback) throw new Error("Picker callback was not registered");
+      callback(data);
+    },
+    waitForCallback: () => waitFor(() => expect(callback).not.toBeNull()),
+    setVisible,
+    viewIds,
+  };
 }
 
 type OutputFixtureOptions = {
@@ -183,6 +236,11 @@ async function openFocusedJobsList() {
 }
 describe("Studio PWA", () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
+    googlePicker.resetGooglePickerLoaderForTests();
+    delete window.gapi;
+    delete window.google;
+    document.head.querySelectorAll('script[data-studio-google-picker="true"]').forEach((node) => node.remove());
     localStorage.clear();
     sessionStorage.clear();
     vi.stubGlobal(
@@ -333,6 +391,33 @@ describe("Studio PWA", () => {
               },
             ],
           });
+        if (url.endsWith("/api/google/picker/session") && init?.method === "POST")
+          return json({
+            access_token: "ya29.test-access-token",
+            api_key: "public-picker-key",
+            app_id: "123456789",
+            scope_ready: true,
+          });
+        if (
+          url.endsWith("/api/projects/p1/sources/google-picker") &&
+          init?.method === "POST"
+        )
+          return json({ sources: [{ id: "s-picker" }] });
+        if (
+          url.endsWith("/api/projects/p1/output-folder/google-picker") &&
+          init?.method === "POST"
+        )
+          return json({
+            id: "p1",
+            title: "Research calls",
+            description: "Customer interview notes",
+            created_at: "2026-07-01T00:00:00",
+            updated_at: "2026-07-01T00:02:00",
+            archived_at: null,
+            output_drive_folder_id: "folder-picked",
+            output_drive_folder_url: "https://drive.google.com/drive/folders/folder-picked",
+            output_drive_folder_name: "Picked folder",
+          });
         if (
           url.endsWith("/api/projects/p1/sources/google-drive") &&
           init?.method === "POST"
@@ -397,12 +482,16 @@ describe("Studio PWA", () => {
           });
         if (url.endsWith("/api/google/connection"))
           return json({
-            connected: false,
-            status: null,
-            google_email: null,
-            scopes: null,
-            connected_at: null,
+            connected: true,
+            status: "active",
+            google_email: "safe.user@example.com",
+            scopes: "openid email https://www.googleapis.com/auth/drive.file",
+            connected_at: "2026-07-01T00:00:00",
             revoked_at: null,
+            picker_configured: true,
+            picker_scope_ready: true,
+            picker_ready: true,
+            reconnect_required: false,
           });
         if (url.endsWith("/api/google/oauth/start") && init?.method === "POST")
           return json({
@@ -422,6 +511,76 @@ describe("Studio PWA", () => {
     expect(screen.getByText(/Статический режим/)).toBeInTheDocument();
     expect(fetch).not.toHaveBeenCalled();
   });
+
+  it("Google Picker loader deduplicates success and retries after load failure", async () => {
+    googlePicker.resetGooglePickerLoaderForTests();
+    window.gapi = { load: vi.fn((_name: string, cb: () => void) => cb()) };
+    const first = googlePicker.loadGooglePicker();
+    const second = googlePicker.loadGooglePicker();
+    expect(first).toBe(second);
+    const script = document.head.querySelector<HTMLScriptElement>('script[data-studio-google-picker="true"]');
+    expect(script).not.toBeNull();
+    script?.onload?.(new Event("load"));
+    await expect(first).resolves.toBeUndefined();
+    expect(document.head.querySelectorAll('script[data-studio-google-picker="true"]')).toHaveLength(1);
+
+    googlePicker.resetGooglePickerLoaderForTests();
+    delete window.gapi;
+    document.head.querySelectorAll('script[data-studio-google-picker="true"]').forEach((node) => node.remove());
+    const failed = googlePicker.loadGooglePicker();
+    const failedScript = document.head.querySelector<HTMLScriptElement>('script[data-studio-google-picker="true"]');
+    failedScript?.onerror?.(new Event("error"));
+    await expect(failed).rejects.toThrow("Google Picker не загрузился");
+    expect(document.head.querySelector('script[data-studio-google-picker="true"]')).toBeNull();
+
+    window.gapi = { load: vi.fn((_name: string, cb: () => void) => cb()) };
+    const retried = googlePicker.loadGooglePicker();
+    document.head.querySelector<HTMLScriptElement>('script[data-studio-google-picker="true"]')?.onload?.(new Event("load"));
+    await expect(retried).resolves.toBeUndefined();
+  });
+
+  it("Google Picker callback normalizes picked/cancel/error and is idempotent without token persistence", async () => {
+    googlePicker.resetGooglePickerLoaderForTests();
+    window.gapi = { load: vi.fn((_name: string, cb: () => void) => cb()) };
+    let callback: ((data: unknown) => void) | null = null;
+    class FakeView {
+      setIncludeFolders() { return this; }
+      setSelectFolderEnabled() { return this; }
+      setMimeTypes() { return this; }
+    }
+    class FakeBuilder {
+      addView() { return this; }
+      enableFeature() { return this; }
+      setOAuthToken() { return this; }
+      setDeveloperKey() { return this; }
+      setAppId() { return this; }
+      setCallback(cb: (data: unknown) => void) { callback = cb; return this; }
+      build() { return { setVisible: vi.fn() }; }
+    }
+    window.google = { picker: { Action: { PICKED: "picked", CANCEL: "cancel", ERROR: "error" }, DocsView: FakeView, PickerBuilder: FakeBuilder, ViewId: { DOCS: "docs", FOLDERS: "folders" }, Feature: { MULTISELECT_ENABLED: "multi" } } };
+    const pickedPromise = googlePicker.openGooglePicker("sources", { access_token: "ya29.secret", api_key: "public", app_id: "app", scope_ready: true });
+    document.head.querySelector<HTMLScriptElement>('script[data-studio-google-picker="true"]')?.onload?.(new Event("load"));
+    await waitFor(() => expect(callback).not.toBeNull());
+    callback?.({ action: "picked", docs: [{ id: "file-1", name: "Name", mimeType: "audio/mpeg" }] });
+    callback?.({ action: "error", raw: "raw-google-payload" });
+    await expect(pickedPromise).resolves.toEqual({ action: "picked", docs: [{ id: "file-1", name: "Name", mimeType: "audio/mpeg" }] });
+    expect(localStorage.length).toBe(0);
+    expect(sessionStorage.length).toBe(0);
+    expect(document.body.textContent).not.toContain("ya29.secret");
+
+    callback = null;
+    const cancelPromise = googlePicker.openGooglePicker("output-folder", { access_token: "ya29.cancel", api_key: "public", app_id: "app", scope_ready: true });
+    await waitFor(() => expect(callback).not.toBeNull());
+    callback?.({ action: "cancel" });
+    await expect(cancelPromise).resolves.toEqual({ action: "cancel" });
+
+    callback = null;
+    const errorPromise = googlePicker.openGooglePicker("sources", { access_token: "ya29.error", api_key: "public", app_id: "app", scope_ready: true });
+    await waitFor(() => expect(callback).not.toBeNull());
+    callback?.({ action: "error", raw: "raw-google-payload" });
+    await expect(errorPromise).resolves.toEqual({ action: "error", message: "Google Picker вернул ошибку. Повторите попытку." });
+    expect(document.body.textContent).not.toContain("raw-google-payload");
+  });
   it("platform mode refreshes in-memory CSRF and renders settings without browser storage secrets", async () => {
     renderApp("platform");
     await screen.findByText(/Панель аккаунта готова/);
@@ -440,6 +599,24 @@ describe("Studio PWA", () => {
     expect(window.sessionStorage.length).toBe(0);
   });
   it("renders disconnected Google Drive state", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/google/connection"))
+        return json({
+          connected: false,
+          status: "disconnected",
+          google_email: null,
+          scopes: null,
+          connected_at: null,
+          revoked_at: null,
+          picker_configured: false,
+          picker_scope_ready: false,
+          picker_ready: false,
+          reconnect_required: false,
+        });
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
     renderApp("platform");
     await userEvent.click(
       await screen.findByRole("button", { name: /Настройки/ }),
@@ -497,6 +674,24 @@ describe("Studio PWA", () => {
   });
 
   it("starts Google OAuth with CSRF and navigates without storing OAuth data", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/google/connection"))
+        return json({
+          connected: false,
+          status: "disconnected",
+          google_email: null,
+          scopes: null,
+          connected_at: null,
+          revoked_at: null,
+          picker_configured: false,
+          picker_scope_ready: false,
+          picker_ready: false,
+          reconnect_required: false,
+        });
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
     const assign = vi.fn();
     Object.defineProperty(window, "location", {
       value: { ...window.location, assign },
@@ -767,175 +962,6 @@ describe("Studio PWA", () => {
         expect.objectContaining({ method: "POST" }),
       ),
     );
-  });
-
-  it("renders and updates output Drive folder metadata with CSRF", async () => {
-    renderApp("platform");
-    await userEvent.click(
-      await screen.findByRole("button", { name: /Проекты/ }),
-    );
-    expect(await screen.findByText(/Transcripts/)).toBeInTheDocument();
-    expect(screen.getByText(/folder-123/)).toBeInTheDocument();
-    const folderId = screen.getByPlaceholderText("Output Drive folder ID");
-    await userEvent.clear(folderId);
-    await userEvent.type(folderId, "folder-456");
-    await userEvent.click(
-      screen.getByRole("button", { name: "Сохранить output folder" }),
-    );
-    await waitFor(() =>
-      expect(fetch).toHaveBeenCalledWith(
-        "/api/projects/p1",
-        expect.objectContaining({ method: "PATCH" }),
-      ),
-    );
-    const patchCalls = (
-      fetch as unknown as ReturnType<typeof vi.fn>
-    ).mock.calls.filter(
-      ([url, init]) => url === "/api/projects/p1" && init?.method === "PATCH",
-    );
-    expect(patchCalls.at(-1)?.[1]?.headers).toMatchObject({
-      "x-csrf-token": "csrf-after-refresh",
-    });
-    expect(JSON.parse(String(patchCalls.at(-1)?.[1]?.body))).toMatchObject({
-      output_drive_folder_id: "folder-456",
-    });
-    await userEvent.click(
-      screen.getByRole("button", { name: "Очистить output folder" }),
-    );
-    await waitFor(() =>
-      expect(
-        (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(
-          ([url, init]) =>
-            url === "/api/projects/p1" && init?.method === "PATCH",
-        ).length,
-      ).toBeGreaterThan(1),
-    );
-    const clearCall = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls
-      .filter(
-        ([url, init]) => url === "/api/projects/p1" && init?.method === "PATCH",
-      )
-      .at(-1);
-    expect(JSON.parse(String(clearCall?.[1]?.body))).toMatchObject({
-      output_drive_folder_id: null,
-      output_drive_folder_url: null,
-      output_drive_folder_name: null,
-    });
-  });
-  it("loads sources, verifies Drive metadata, adds verified source, uploads local file, and deletes with CSRF", async () => {
-    renderApp("platform");
-    await userEvent.click(
-      await screen.findByRole("button", { name: /Проекты/ }),
-    );
-    await screen.findByText("Research calls");
-    await userEvent.click(
-      screen.getByRole("button", { name: "Показать sources" }),
-    );
-    expect(await screen.findByText("drive-call.mp4")).toBeInTheDocument();
-    expect(fetch).toHaveBeenCalledWith(
-      "/api/projects/p1/sources",
-      expect.objectContaining({ credentials: "same-origin" }),
-    );
-    await userEvent.type(
-      screen.getByPlaceholderText("Drive file/folder ID"),
-      "drive-file-2",
-    );
-    await userEvent.click(
-      screen.getByRole("button", { name: "Проверить Drive metadata" }),
-    );
-    await waitFor(() =>
-      expect(fetch).toHaveBeenCalledWith(
-        "/api/google/drive/files/drive-file-2/metadata",
-        expect.objectContaining({ credentials: "same-origin" }),
-      ),
-    );
-    const preview = await screen.findByLabelText("Drive metadata preview");
-    expect(
-      within(preview).getByText("verified-drive-call.mov"),
-    ).toBeInTheDocument();
-    expect(
-      within(preview).getByText("MIME: video/quicktime"),
-    ).toBeInTheDocument();
-    expect(within(preview).getByText("Размер: 0.00 MB")).toBeInTheDocument();
-    expect(
-      within(preview).getByRole("link", { name: "Открыть в Google Drive" }),
-    ).toHaveAttribute("href", "https://drive.example/file/2");
-    await userEvent.click(
-      within(preview).getByRole("button", {
-        name: "Добавить source из проверенных metadata",
-      }),
-    );
-    await waitFor(() =>
-      expect(fetch).toHaveBeenCalledWith(
-        "/api/projects/p1/sources/google-drive",
-        expect.objectContaining({ method: "POST" }),
-      ),
-    );
-    const driveCall = (
-      fetch as unknown as ReturnType<typeof vi.fn>
-    ).mock.calls.find(
-      ([url]) => url === "/api/projects/p1/sources/google-drive",
-    );
-    expect(driveCall?.[1]?.headers).toMatchObject({
-      "x-csrf-token": "csrf-after-refresh",
-    });
-    expect(JSON.parse(String(driveCall?.[1]?.body))).toMatchObject({
-      drive_file_id: "drive-file-2",
-      drive_file_url: "https://drive.example/file/2",
-      original_filename: "verified-drive-call.mov",
-      mime_type: "video/quicktime",
-      size_bytes: 1234,
-    });
-    const file = new File(["abc"], "clip.ogg", { type: "audio/ogg" });
-    await userEvent.upload(
-      screen.getByLabelText(/Загрузить временный локальный/),
-      file,
-    );
-    await waitFor(() =>
-      expect(fetch).toHaveBeenCalledWith(
-        "/api/sources/local-source-1/local-upload/complete",
-        expect.objectContaining({ method: "POST" }),
-      ),
-    );
-    const initCall = (
-      fetch as unknown as ReturnType<typeof vi.fn>
-    ).mock.calls.find(
-      ([url]) => url === "/api/projects/p1/sources/local-upload/initiate",
-    );
-    expect(initCall?.[1]?.headers).toMatchObject({
-      "x-csrf-token": "csrf-after-refresh",
-    });
-    expect(JSON.parse(String(initCall?.[1]?.body))).toMatchObject({
-      original_filename: "clip.ogg",
-      mime_type: "audio/ogg",
-      size_bytes: 3,
-    });
-    const putCall = (
-      fetch as unknown as ReturnType<typeof vi.fn>
-    ).mock.calls.find(([url]) => url === "https://upload.example/presigned");
-    expect(putCall?.[1]).toMatchObject({
-      method: "PUT",
-      headers: { "Content-Type": "audio/ogg" },
-      body: file,
-    });
-    expect(putCall?.[1]).not.toHaveProperty("credentials");
-    expect(
-      screen.queryByText("https://upload.example/presigned"),
-    ).not.toBeInTheDocument();
-    await userEvent.click(
-      screen.getByRole("button", { name: "Удалить source" }),
-    );
-    await waitFor(() =>
-      expect(fetch).toHaveBeenCalledWith(
-        "/api/sources/s1",
-        expect.objectContaining({ method: "DELETE" }),
-      ),
-    );
-    const deleteCall = (
-      fetch as unknown as ReturnType<typeof vi.fn>
-    ).mock.calls.find(([url]) => url === "/api/sources/s1");
-    expect(deleteCall?.[1]?.headers).toMatchObject({
-      "x-csrf-token": "csrf-after-refresh",
-    });
   });
 
   it("shows configured output folder in job readiness checklist", async () => {
@@ -1511,6 +1537,157 @@ describe("Studio PWA", () => {
     );
   });
 
+  it("uses Google Picker actions instead of manual Drive ID forms in platform projects", async () => {
+    renderApp("platform");
+    await userEvent.click(await screen.findByRole("button", { name: /Проекты/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "Показать sources" }));
+    expect(screen.getByRole("button", { name: "Выбрать файлы из Google Drive" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Выбрать папку для результатов" })).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("Drive file/folder ID")).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("Drive folder ID")).not.toBeInTheDocument();
+    expect(window.localStorage.length).toBe(0);
+    expect(window.sessionStorage.length).toBe(0);
+  });
+
+  it("source Picker sends only selected file IDs and reloads sources", async () => {
+    const picker = installFakeGooglePicker();
+    renderApp("platform");
+    await userEvent.click(await screen.findByRole("button", { name: /Проекты/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "Показать sources" }));
+    await userEvent.click(screen.getByRole("button", { name: "Выбрать файлы из Google Drive" }));
+    await picker.loadScript();
+    await picker.waitForCallback();
+    expect(picker.viewIds).toContain("docs");
+    const sessionCalls = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(([url]) => url === "/api/google/picker/session");
+    expect(sessionCalls).toHaveLength(1);
+    expect(sessionCalls[0]?.[1]?.headers).toMatchObject({ "x-csrf-token": "csrf-after-refresh" });
+    picker.trigger({
+      action: "picked",
+      docs: [
+        { id: "file-1", name: "leaky-name", mimeType: "video/mp4", url: "https://drive.example/leaky" },
+        { id: "file-2", token: "ya29.leaky" },
+      ],
+    });
+    const mutationCall = await waitFor(() => {
+      const call = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.find(([url, init]) => url === "/api/projects/p1/sources/google-picker" && init?.method === "POST");
+      expect(call).toBeTruthy();
+      return call;
+    });
+    expect(JSON.parse(String(mutationCall?.[1]?.body))).toEqual({ file_ids: ["file-1", "file-2"] });
+    expect(String(mutationCall?.[1]?.body)).not.toContain("leaky-name");
+    expect(String(mutationCall?.[1]?.body)).not.toContain("video/mp4");
+    expect(String(mutationCall?.[1]?.body)).not.toContain("drive.example");
+    expect(String(mutationCall?.[1]?.body)).not.toContain("ya29");
+    expect(window.localStorage.length).toBe(0);
+    expect(window.sessionStorage.length).toBe(0);
+    expect(document.body.textContent).not.toContain("ya29.test-access-token");
+  });
+
+  it("source Picker cancel/error and duplicate clicks do not create source mutations", async () => {
+    let picker = installFakeGooglePicker();
+    renderApp("platform");
+    await userEvent.click(await screen.findByRole("button", { name: /Проекты/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "Показать sources" }));
+    const button = screen.getByRole("button", { name: "Выбрать файлы из Google Drive" });
+    fireEvent.click(button);
+    fireEvent.click(button);
+    await picker.loadScript();
+    await picker.waitForCallback();
+    expect((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(([url]) => url === "/api/google/picker/session")).toHaveLength(1);
+    picker.trigger({ action: "cancel" });
+    await screen.findByText("Выбор файлов отменён.");
+    expect((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(([url]) => url === "/api/projects/p1/sources/google-picker")).toBe(false);
+
+    cleanup();
+    vi.clearAllMocks();
+    picker = installFakeGooglePicker();
+    renderApp("platform");
+    await userEvent.click(await screen.findByRole("button", { name: /Проекты/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "Показать sources" }));
+    await userEvent.click(screen.getByRole("button", { name: "Выбрать файлы из Google Drive" }));
+    await picker.loadScript();
+    await picker.waitForCallback();
+    picker.trigger({ action: "error", raw: "raw-google-payload" });
+    expect(await screen.findByText("Google Picker вернул ошибку. Повторите попытку.")).toBeInTheDocument();
+    expect((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(([url]) => url === "/api/projects/p1/sources/google-picker")).toBe(false);
+    expect(document.body.textContent).not.toContain("raw-google-payload");
+  });
+
+  it("output-folder Picker sends only folder ID and guards duplicate opens", async () => {
+    const picker = installFakeGooglePicker();
+    renderApp("platform");
+    await userEvent.click(await screen.findByRole("button", { name: /Проекты/ }));
+    const button = await screen.findByRole("button", { name: "Выбрать папку для результатов" });
+    fireEvent.click(button);
+    fireEvent.click(button);
+    await picker.loadScript();
+    await picker.waitForCallback();
+    expect(picker.viewIds).toContain("folders");
+    expect((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(([url]) => url === "/api/google/picker/session")).toHaveLength(1);
+    picker.trigger({
+      action: "picked",
+      docs: [{ id: "folder-picked", name: "Folder Name", mimeType: "application/vnd.google-apps.folder", token: "ya29.leaky" }],
+    });
+    const folderCall = await waitFor(() => {
+      const call = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.find(([url, init]) => url === "/api/projects/p1/output-folder/google-picker" && init?.method === "POST");
+      expect(call).toBeTruthy();
+      return call;
+    });
+    expect(JSON.parse(String(folderCall?.[1]?.body))).toEqual({ folder_id: "folder-picked" });
+    expect(String(folderCall?.[1]?.body)).not.toContain("Folder Name");
+    expect(String(folderCall?.[1]?.body)).not.toContain("ya29");
+  });
+
+  it("output-folder Picker cancel/error does not mutate folder and source/folder cannot open simultaneously", async () => {
+    let picker = installFakeGooglePicker();
+    renderApp("platform");
+    await userEvent.click(await screen.findByRole("button", { name: /Проекты/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "Показать sources" }));
+    await userEvent.click(screen.getByRole("button", { name: "Выбрать файлы из Google Drive" }));
+    expect(await screen.findByRole("button", { name: "Выбрать папку для результатов" })).toBeDisabled();
+    await picker.loadScript();
+    await picker.waitForCallback();
+    picker.trigger({ action: "cancel" });
+    await screen.findByText("Выбор файлов отменён.");
+    expect((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(([url]) => url === "/api/projects/p1/output-folder/google-picker")).toBe(false);
+
+    cleanup();
+    vi.clearAllMocks();
+    picker = installFakeGooglePicker();
+    renderApp("platform");
+    await userEvent.click(await screen.findByRole("button", { name: /Проекты/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "Выбрать папку для результатов" }));
+    await picker.loadScript();
+    await picker.waitForCallback();
+    picker.trigger({ action: "error", raw: "raw-google-payload" });
+    expect(await screen.findByText("Google Picker вернул ошибку. Повторите попытку.")).toBeInTheDocument();
+    expect((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(([url]) => url === "/api/projects/p1/output-folder/google-picker")).toBe(false);
+    expect(document.body.textContent).not.toContain("raw-google-payload");
+  });
+
+  it("reconnect-required state provides a Settings recovery action", async () => {
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/auth/session")) return json({ authenticated: true, user: { email: "user@example.com", role: "admin" } });
+      if (url.endsWith("/api/auth/csrf")) return json({ csrf_token: "csrf-after-refresh" });
+      if (url.endsWith("/api/projects")) return json({ projects: [{ id: "p1", title: "Research calls", description: null, created_at: "2026-07-01T00:00:00", updated_at: "2026-07-01T00:00:00", archived_at: null, output_drive_folder_id: null, output_drive_folder_url: null, output_drive_folder_name: null }] });
+      if (url.endsWith("/api/projects/p1/sources") && !init?.method) return json({ sources: [] });
+      if (url.endsWith("/api/google/connection")) return json({ connected: true, status: "active", google_email: "safe.user@example.com", scopes: "openid email", connected_at: "2026-07-01T00:00:00", revoked_at: null, picker_configured: true, picker_scope_ready: false, picker_ready: false, reconnect_required: true });
+      if (url.endsWith("/api/google/oauth/start") && init?.method === "POST") return json({ authorization_url: "https://accounts.google.com/o/oauth2/v2/auth?state=safe", expires_at: "2026-07-01T00:10:00" });
+      return json({ credentials: [], events: [] });
+    });
+    const assign = vi.fn();
+    Object.defineProperty(window, "location", { value: { assign }, configurable: true });
+    renderApp("platform");
+    await userEvent.click(await screen.findByRole("button", { name: /Проекты/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "Показать sources" }));
+    await waitFor(() => expect(document.body.textContent).toContain("повторная авторизация"));
+    expect(screen.getByRole("button", { name: "Выбрать файлы из Google Drive" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: /Настройки/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "Переподключить Google Drive" }));
+    expect(fetch).toHaveBeenCalledWith("/api/google/oauth/start", expect.objectContaining({ method: "POST" }));
+    expect(assign).toHaveBeenCalledWith("https://accounts.google.com/o/oauth2/v2/auth?state=safe");
+  });
+
   it("allows creating a job without credential when credential loading fails", async () => {
     (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       (url: string, init?: RequestInit) => {
@@ -1623,167 +1800,6 @@ describe("Studio PWA", () => {
       title: null,
       provider_credential_id: null,
     });
-    expect(window.localStorage.length).toBe(0);
-    expect(window.sessionStorage.length).toBe(0);
-  });
-
-  it("lists Drive folder children, appends pages, and adds selected file metadata only", async () => {
-    renderApp("platform");
-    await userEvent.click(
-      await screen.findByRole("button", { name: /Проекты/ }),
-    );
-    await userEvent.click(
-      await screen.findByRole("button", { name: "Показать sources" }),
-    );
-    await userEvent.type(
-      screen.getByPlaceholderText("Drive folder ID"),
-      "folder-children",
-    );
-    await userEvent.click(
-      screen.getByRole("button", { name: "Показать файлы в папке" }),
-    );
-    await waitFor(() =>
-      expect(fetch).toHaveBeenCalledWith(
-        "/api/google/drive/folders/folder-children/children",
-        expect.objectContaining({ credentials: "same-origin" }),
-      ),
-    );
-    const children = await screen.findByLabelText("Drive folder children");
-    expect(within(children).getByText("child-call.mp3")).toBeInTheDocument();
-    expect(within(children).getByText("Файл Google Drive")).toBeInTheDocument();
-    expect(within(children).getByText("Nested folder")).toBeInTheDocument();
-    expect(
-      within(children).getByText(
-        "Папка Google Drive — не добавляется как source файл",
-      ),
-    ).toBeInTheDocument();
-    expect(within(children).getByText("MIME: audio/mpeg")).toBeInTheDocument();
-    expect(within(children).getByText("Размер: 0.00 MB")).toBeInTheDocument();
-    expect(
-      within(children).getAllByRole("link", {
-        name: "Открыть в Google Drive",
-      })[0],
-    ).toHaveAttribute("href", "https://drive.example/file/child-1");
-
-    await userEvent.click(
-      within(children).getByRole("button", { name: "Загрузить ещё" }),
-    );
-    await waitFor(() =>
-      expect(fetch).toHaveBeenCalledWith(
-        "/api/google/drive/folders/folder-children/children?page_token=next-token",
-        expect.objectContaining({ credentials: "same-origin" }),
-      ),
-    );
-    expect(await screen.findByText("second-child.wav")).toBeInTheDocument();
-
-    const childFile = within(children).getByLabelText("child-call.mp3");
-    const childFolder = within(children).getByLabelText("Nested folder");
-    expect(childFolder).toBeDisabled();
-    await userEvent.click(childFile);
-    await userEvent.click(
-      within(children).getByRole("button", {
-        name: "Добавить выбранные sources",
-      }),
-    );
-    await waitFor(() =>
-      expect(fetch).toHaveBeenCalledWith(
-        "/api/projects/p1/sources/google-drive",
-        expect.objectContaining({ method: "POST" }),
-      ),
-    );
-    const driveCalls = (
-      fetch as unknown as ReturnType<typeof vi.fn>
-    ).mock.calls.filter(
-      ([url, init]) =>
-        url === "/api/projects/p1/sources/google-drive" &&
-        init?.method === "POST",
-    );
-    expect(driveCalls).toHaveLength(1);
-    expect(driveCalls[0]?.[1]?.headers).toMatchObject({
-      "x-csrf-token": "csrf-after-refresh",
-    });
-    expect(JSON.parse(String(driveCalls[0]?.[1]?.body))).toMatchObject({
-      drive_file_id: "child-file-1",
-      drive_file_url: "https://drive.example/file/child-1",
-      original_filename: "child-call.mp3",
-      mime_type: "audio/mpeg",
-      size_bytes: 4096,
-    });
-    expect(
-      JSON.stringify(driveCalls.map((call) => call[1]?.body)),
-    ).not.toContain("child-folder-1");
-    expect(window.localStorage.length).toBe(0);
-    expect(window.sessionStorage.length).toBe(0);
-  });
-
-  it("shows safe Drive metadata verification errors without rendering token-like backend details", async () => {
-    const rawSecret =
-      "ya29.raw-access-token-never-render raw-google-payload refresh_token";
-    (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
-      (url: string, init?: RequestInit) => {
-        if (url.endsWith("/api/auth/session"))
-          return json({
-            authenticated: true,
-            user: { email: "user@example.com", role: "admin" },
-          });
-        if (url.endsWith("/api/auth/csrf"))
-          return json({ csrf_token: "csrf-after-refresh" });
-        if (url.endsWith("/api/projects"))
-          return json({
-            projects: [
-              {
-                id: "p1",
-                title: "Research calls",
-                description: null,
-                created_at: "2026-07-01T00:00:00",
-                updated_at: "2026-07-01T00:00:00",
-                archived_at: null,
-                output_drive_folder_id: null,
-                output_drive_folder_url: null,
-                output_drive_folder_name: null,
-              },
-            ],
-          });
-        if (url.endsWith("/api/projects/p1/sources") && !init?.method)
-          return json({ sources: [] });
-        if (url.includes("/api/google/drive/files/"))
-          return json({ detail: rawSecret }, false, 409);
-        if (url.includes("/api/google/drive/folders/"))
-          return json({ detail: rawSecret }, false, 502);
-        return json({ credentials: [], events: [] });
-      },
-    );
-    renderApp("platform");
-    await userEvent.click(
-      await screen.findByRole("button", { name: /Проекты/ }),
-    );
-    await userEvent.click(
-      await screen.findByRole("button", { name: "Показать sources" }),
-    );
-    await userEvent.type(
-      screen.getByPlaceholderText("Drive file/folder ID"),
-      "drive-file-with-error",
-    );
-    await userEvent.click(
-      screen.getByRole("button", { name: "Проверить Drive metadata" }),
-    );
-    expect(
-      await screen.findByText(/Не удалось проверить Drive metadata/),
-    ).toBeInTheDocument();
-    await userEvent.type(
-      screen.getByPlaceholderText("Drive folder ID"),
-      "folder-with-error",
-    );
-    await userEvent.click(
-      screen.getByRole("button", { name: "Показать файлы в папке" }),
-    );
-    expect(
-      await screen.findByText(/Не удалось загрузить файлы из Drive папки/),
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByText(/raw-access-token-never-render/),
-    ).not.toBeInTheDocument();
-    expect(screen.queryByText(/raw-google-payload/)).not.toBeInTheDocument();
     expect(window.localStorage.length).toBe(0);
     expect(window.sessionStorage.length).toBe(0);
   });

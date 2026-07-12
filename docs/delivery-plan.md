@@ -69,35 +69,27 @@ Capability/status snapshot:
 - ✅ **PWA-OUTPUT-02B — Studio job output links UI** — source-done/merged via PR #129 (head `a3ea0117b525970cdeec8235c3d740b1160387cb`, merge `7d555faa3e6e02d41327d6761f6bda1c2c7d59dd`); Backend CI #307 passed and Studio PWA CI #134 passed. It added platform-mode frontend output metadata and links without claiming production-live processing, worker rollout, manifest mutation, or exactly-once Google document creation.
 - ✅ **PWA-PROCESSING-ROLLOUT-01-PREP — Studio processing production rollout contract** — source-done/merged via PR #130 (head `ba87fe7a991b748b8f1fbc0eed3e5b2d295622c0`, merge `41dfa926f77b2a8657dec1d675d770000b188843`); Backend CI #310 passed and Studio PWA CI #137 passed.
 - ✅ **Blocked preflight reconciliation** — source-done/merged via PR #131 (head `5412a2c14f50fe6cb08cf1cb14be7174aaab283d`, merge `d5adc5b14a2f2abc4dca6e22280477702e4964a1`); Backend CI #312 passed.
-- 👉 **PWA-PROCESSING-PREFLIGHT-01A — Read-only Studio production host preflight workflow** — active source item by explicit reprioritization allowed by the blocked-state decision; source merge will not execute production preflight, and any later manual workflow dispatch remains operator action.
-- ⛔ **PWA-PROCESSING-ROLLOUT-01A — Manual Studio processing rollout and controlled smoke validation** — blocked: production operator environment/access was unavailable; the documented production checkout `/opt/elevenlabs-studio` could not be reached from the non-production coding workspace; Phase 0 production identity and runtime gates were not executed; no conclusion about actual production health, configuration, migration revision, worker state, or smoke readiness is supported.
+- ✅ **PWA-PROCESSING-PREFLIGHT-01A — Read-only Studio production host preflight workflow** — source-done/merged via PR #132; it did not execute production preflight and does not claim production processing smoke success.
+- 👉 **PWA-GOOGLE-PICKER-01 — Native Google Drive Picker navigation for Studio PWA** — active source item: replace manual Drive file/folder ID UX with official Google Picker modal, server-side verified source persistence, and server-side verified output-folder selection while preserving `drive.file` only.
+- ⛔ **PWA-PROCESSING-ROLLOUT-01A — Manual Studio processing rollout and controlled smoke validation** — paused before job creation: the manual folder-ID UX did not satisfy the product requirement for native Drive navigation. Keep worker/smoke rollout paused until PWA-GOOGLE-PICKER-01 is merged, deployed, configured, and manually validated.
 - 📋 **RUNTIME-01 — Batch source picker / manifest skip / Google Docs output smoke-check** — deferred by current product priority; still planned manual Colab/Drive/Docs validation without claiming pass/fail.
 
-## Last completed item: PWA-PROCESSING-ROLLOUT-01-PREP — Studio processing production rollout contract
+## Last completed item: PWA-PROCESSING-PREFLIGHT-01A — Read-only Studio production host preflight workflow
 
-Status: source-done/merged via PR #130 (head `ba87fe7a991b748b8f1fbc0eed3e5b2d295622c0`, merge `41dfa926f77b2a8657dec1d675d770000b188843`); Backend CI #310 passed and Studio PWA CI #137 passed.
+Status: source-done/merged via PR #132 (head `4d3e907971e5245eac024f2e558e9648ba9bb085`, merge `10c175f8a42f51cb1eb27da001ffdc2dbf4fbd26`); Backend CI #316 passed and Studio PWA CI #141 passed.
 
 Scope:
 
-- Define a secret-free operator contract for a future controlled Studio processing production rollout and first smoke validation.
-- Keep `source-done/merged`, `CI-verified`, `deployed`, `migration-applied`, `worker-running`, and `production-live` as separate states.
-- Record that repository documentation and CI alone do not prove production-live Studio processing.
-- Preserve current boundaries: production migration rollout and worker rollout remain manual/operator-scoped; standard Studio Platform CD deploys only `web` or `api` and does not deploy `studio-worker` or execute migrations.
+- Added the read-only Studio production host preflight workflow as source, without executing production preflight from repository automation.
+- Preserved the separation between source merge, CI verification, operator-dispatched preflight, deployment, migration, worker start, and production-live smoke validation.
+- Did not claim production processing smoke success.
 
-Non-goals:
+Rollout boundary:
 
-- No production access, SSH/VPS work, backup execution, migration execution, deployment, Docker/Compose command, provider call, Google API call, job creation, source code change, workflow change, Compose change, `.env` template change, migration addition, secret change, or runtime behavior change.
-- No production processing claim, output success claim, worker rollout claim, migration rollout claim, or exactly-once Google document creation claim.
-
-Validation for this PREP item:
-
-- Repository-safe documentation checks only: `python scripts/ci_checks.py` and `git diff --check`.
-- Final diff must contain only intended documentation files.
-
-Follow-up boundary:
-
-- The only approved follow-up after this PREP item is **PWA-PROCESSING-ROLLOUT-01A — Manual Studio processing rollout and controlled smoke validation**. That operator item is currently blocked because production access was unavailable, not because production validation failed.
-- That item is operator-run, may apply the reviewed migration and start exactly one worker only after prerequisites and backup confirmation, may collect the defined safe runtime evidence, must not be represented as completed by a coding agent, must not change source unless a separately scoped defect is exposed, and must stop without improvising when the rollout contract stop conditions occur.
+- Worker/smoke rollout remains paused because the manual folder-ID UX did not satisfy the product requirement for native Drive navigation.
+- **PWA-GOOGLE-PICKER-01** remains the active source item before any resumed worker/smoke rollout.
+- No production Picker deployment, production worker start, job creation, smoke job, Google document creation, or production-live processing claim is recorded here.
+- **RUNTIME-01** remains deferred.
 
 ## Current checkpoint
 
