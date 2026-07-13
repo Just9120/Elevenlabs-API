@@ -7,6 +7,8 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import * as googlePicker from "./googlePicker";
@@ -338,7 +340,9 @@ async function waitForPlatformOverview() {
 async function openPlatformNavPage(name: "Обзор" | "Проекты" | "Настройки") {
   await waitFor(() =>
     expect(
-      within(screen.getByRole("navigation")).getByRole("button", { name: "Обзор" }),
+      within(screen.getByRole("navigation")).getByRole("button", {
+        name: "Обзор",
+      }),
     ).toBeInTheDocument(),
   );
   await userEvent.click(
@@ -1072,7 +1076,9 @@ describe("Studio PWA", () => {
     });
     renderApp("platform");
     await openSettingsPage();
-    expect(await screen.findByText("Drive не подключён")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Google Drive не подключён"),
+    ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Подключить Google Drive" }),
     ).toBeInTheDocument();
@@ -1109,7 +1115,9 @@ describe("Studio PWA", () => {
     );
     renderApp("platform");
     await openSettingsPage();
-    expect(await screen.findByText("Drive подключён")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Google Drive подключён"),
+    ).toBeInTheDocument();
     expect(screen.getByText("safe.user@example.com")).toBeInTheDocument();
     expect(screen.getByText("active")).toBeInTheDocument();
     expect(
@@ -1230,7 +1238,9 @@ describe("Studio PWA", () => {
   it("platform mode supports credential replacement without rendering raw key", async () => {
     renderApp("platform");
     await openSettingsPage();
-    await userEvent.click(await screen.findByRole("button", { name: "Заменить" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Заменить" }),
+    );
     await userEvent.type(
       screen.getByPlaceholderText("Новый ключ для замены"),
       "raw-secret-never-render",
@@ -1255,7 +1265,9 @@ describe("Studio PWA", () => {
   it("creates credentials with raw_value while using credential-specific field names", async () => {
     renderApp("platform");
     await openSettingsPage();
-    await userEvent.click(await screen.findByRole("button", { name: "Добавить ключ" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Добавить ключ" }),
+    );
     await userEvent.type(
       await screen.findByPlaceholderText("Метка"),
       "primary-provider",
@@ -1763,7 +1775,9 @@ describe("Studio PWA", () => {
       ),
     );
     expect(await screen.findByText("Queued review")).toBeInTheDocument();
-    expect(screen.getByText("Создайте задачу из готовых файлов проекта.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Создайте задачу из готовых файлов проекта."),
+    ).toBeInTheDocument();
     expect(
       screen.getByLabelText("Project job readiness checklist"),
     ).toHaveTextContent("Готовые файлы: 2");
@@ -1790,7 +1804,9 @@ describe("Studio PWA", () => {
     expect(
       screen.getByLabelText("Project job readiness checklist"),
     ).toHaveTextContent("Готовые файлы: 2");
-    expect(screen.getByText(/Файл ещё не готов для задачи/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Файл ещё не готов для задачи/),
+    ).toBeInTheDocument();
     expect(
       screen.getByText(/Удалённый файл нельзя добавить в задачу/),
     ).toBeInTheDocument();
@@ -1802,9 +1818,7 @@ describe("Studio PWA", () => {
       screen.getByLabelText("Название задачи"),
       "Created from UI",
     );
-    const credentialSelect = screen.getByLabelText(
-      "Ключ провайдера",
-    );
+    const credentialSelect = screen.getByLabelText("Ключ провайдера");
     expect(
       within(credentialSelect).getByRole("option", { name: "Без ключа" }),
     ).toBeInTheDocument();
@@ -1859,9 +1873,7 @@ describe("Studio PWA", () => {
     const detail = await screen.findByLabelText("Job detail job-1");
     expect(within(detail).getByText("1. ready-drive.mp4")).toBeInTheDocument();
     expect(within(detail).getByText("2. ready-local.ogg")).toBeInTheDocument();
-    expect(
-      within(detail).getAllByText("Статус файла: queued"),
-    ).toHaveLength(2);
+    expect(within(detail).getAllByText("Статус файла: queued")).toHaveLength(2);
     expect(
       within(detail).queryByRole("link", { name: "Открыть в Google Drive" }),
     ).not.toBeInTheDocument();
@@ -2670,7 +2682,9 @@ describe("Studio PWA", () => {
       return defaultFetch?.(url, init) ?? json({ ok: true });
     });
     renderApp("platform");
-    expect(await screen.findByText("Drive не подключён")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Google Drive не подключён"),
+    ).toBeInTheDocument();
     expect(
       screen.queryByText(
         "Google Drive подключён. Статус подключения обновлён.",
@@ -2768,8 +2782,12 @@ describe("Studio PWA", () => {
     renderApp("platform");
     await openSettingsPage();
     await screen.findByText(/Ключи провайдеров/);
-    await userEvent.click(screen.getByRole("button", { name: "Добавить ключ" }));
-    await userEvent.click(screen.getAllByRole("button", { name: "Заменить" })[0]);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Добавить ключ" }),
+    );
+    await userEvent.click(
+      screen.getAllByRole("button", { name: "Заменить" })[0],
+    );
     const createKey = screen.getByPlaceholderText("Новый ключ");
     const replaceKey = screen.getByPlaceholderText("Новый ключ для замены");
     expect(createKey.closest("form")).toHaveAttribute("autocomplete", "off");
@@ -2795,6 +2813,167 @@ describe("Studio PWA", () => {
     expect(replaceKey).toHaveAttribute("data-lpignore", "true");
     expect(replaceKey).toHaveAttribute("data-bwignore", "true");
   });
+  it("renders polished overview summary cards with separated labels and values", async () => {
+    renderApp("platform");
+    const projectsCard = await screen.findByLabelText("Проекты");
+    expect(within(projectsCard).getByText("Проекты")).toHaveClass(
+      "summary-label",
+    );
+    expect(within(projectsCard).getByText("1")).toHaveClass("summary-value");
+    const driveCard = screen.getByLabelText("Google Drive");
+    expect(within(driveCard).getByText("Google Drive")).toHaveClass(
+      "summary-label",
+    );
+    expect(within(driveCard).getByText("Подключён")).toHaveClass(
+      "summary-value",
+    );
+    expect(screen.queryByText("ПРОЕКТЫ1")).not.toBeInTheDocument();
+    expect(screen.queryByText("GOOGLE DRIVEПодключён")).not.toBeInTheDocument();
+  });
+
+  it("keeps project list out of the application sidebar selector architecture", async () => {
+    renderApp("platform");
+    await openProjectsPage();
+    const projectList = await screen.findByLabelText("Список проектов");
+    expect(projectList.tagName.toLowerCase()).toBe("section");
+    expect(projectList).toHaveClass("project-list");
+    expect(projectList).not.toHaveClass("app-sidebar");
+    expect(within(projectList).getByText("Research calls")).toBeInTheDocument();
+  });
+
+  it("renders balanced Drive and device source cards with an accessible hidden file input", async () => {
+    renderApp("platform");
+    await openProjectsPage();
+    await userEvent.click(
+      await screen.findByRole("tab", { name: "Источники" }),
+    );
+    expect(await screen.findByLabelText("Google Drive")).toBeInTheDocument();
+    expect(screen.getByLabelText("С устройства")).toBeInTheDocument();
+    const input = screen.getByLabelText("Выбрать файл") as HTMLInputElement;
+    expect(input.tagName.toLowerCase()).toBe("input");
+    expect(input).toHaveAttribute("type", "file");
+    expect(input).toHaveClass("visually-hidden");
+    expect(input).toHaveAttribute(
+      "accept",
+      "audio/*,video/*,.ogg,.oga,application/ogg",
+    );
+    expect(input.closest(".file-picker-control")).not.toBeNull();
+    expect(screen.getByText("Файл не выбран")).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(
+      "https://upload.example/presigned",
+    );
+  });
+
+  it("clears stale local upload status before rejecting a new invalid file", async () => {
+    renderApp("platform");
+    await openProjectsPage();
+    await userEvent.click(
+      await screen.findByRole("tab", { name: "Источники" }),
+    );
+    const deviceCard = await screen.findByLabelText("С устройства");
+    const input = within(deviceCard).getByLabelText(
+      "Выбрать файл",
+    ) as HTMLInputElement;
+    const validFile = new File(["valid audio"], "valid.ogg", {
+      type: "audio/ogg",
+    });
+
+    await userEvent.upload(input, validFile);
+
+    await within(deviceCard).findByText("valid.ogg — Файл загружен и готов.");
+    const uploadInitiationsBeforeInvalid = (
+      fetch as unknown as ReturnType<typeof vi.fn>
+    ).mock.calls.filter(
+      ([url, init]) =>
+        String(url).endsWith(
+          "/api/projects/p1/sources/local-upload/initiate",
+        ) && init?.method === "POST",
+    );
+    expect(uploadInitiationsBeforeInvalid).toHaveLength(1);
+
+    const unsupportedFile = new File(["not media"], "unsupported.exe", {
+      type: "application/x-msdownload",
+    });
+    await userEvent.upload(input, unsupportedFile, { applyAccept: false });
+
+    await screen.findByText("Поддерживаются только аудио, видео или OGG.");
+    expect(
+      within(deviceCard).queryByText(/valid\.ogg/),
+    ).not.toBeInTheDocument();
+    expect(
+      within(deviceCard).queryByText(/Файл загружен и готов\./),
+    ).not.toBeInTheDocument();
+    expect(
+      within(deviceCard).queryByText(/unsupported\.exe/),
+    ).not.toBeInTheDocument();
+    expect(within(deviceCard).getByText("Файл не выбран")).toBeInTheDocument();
+    const uploadInitiationsAfterInvalid = (
+      fetch as unknown as ReturnType<typeof vi.fn>
+    ).mock.calls.filter(
+      ([url, init]) =>
+        String(url).endsWith(
+          "/api/projects/p1/sources/local-upload/initiate",
+        ) && init?.method === "POST",
+    );
+    expect(uploadInitiationsAfterInvalid).toHaveLength(1);
+  });
+
+  it("shows the no-ready-source recovery state and switches back to sources", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/projects/p1/sources") && !init?.method)
+        return json({ sources: [] });
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    renderApp("platform");
+    await openProjectsPage();
+    await userEvent.click(await screen.findByRole("tab", { name: "Задачи" }));
+    expect(
+      await screen.findByText("Сначала добавьте хотя бы один готовый файл."),
+    ).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Перейти к источникам" }),
+    );
+    expect(screen.getByRole("tab", { name: "Источники" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
+  it("places Google Drive technical values in a closed details block and repairs security summary markup", async () => {
+    renderApp("platform");
+    await openSettingsPage();
+    const technical = await screen.findByText("Технические сведения");
+    const details = technical.closest("details");
+    expect(details).not.toHaveAttribute("open");
+    expect(
+      within(details as HTMLElement).getByText("active"),
+    ).toBeInTheDocument();
+    expect(
+      within(details as HTMLElement).getByText(/drive.file/),
+    ).toBeInTheDocument();
+    const securitySummary = screen
+      .getByText("Журнал безопасности")
+      .closest("summary");
+    expect(securitySummary).toHaveAccessibleName("Журнал безопасности");
+    expect(securitySummary?.querySelector("h1,h2,h3,h4,h5,h6")).toBeNull();
+    expect(securitySummary?.closest("details")).not.toHaveAttribute("open");
+  });
+
+  it("keeps Studio CSS scoped to one token block without broad sidebar aside rules", () => {
+    const css = readFileSync(join(process.cwd(), "src/styles.css"), "utf8");
+    expect(css.match(/:root\s*\{/g)).toHaveLength(1);
+    expect(css).toContain(".app-sidebar");
+    expect(css).toContain(".file-picker-control:focus-within .button-like");
+    expect(css).toMatch(
+      /\.file-picker-control:focus-within \.button-like\s*\{[^}]*outline:/s,
+    );
+    expect(css).not.toMatch(/(^|\n)aside\s*\{/);
+    expect(css).not.toMatch(/aside\s*\{[^}]*height:\s*100vh/s);
+    expect(css).not.toMatch(/(^|\n)input\[type=["']file["']\]\s*\{/);
+  });
+
   it("shows bootstrap-required operator instruction", async () => {
     (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       (url: string) =>
