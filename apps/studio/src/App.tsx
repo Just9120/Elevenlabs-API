@@ -1677,13 +1677,13 @@ function SettingsPage({
   csrf,
   onCsrf,
   onLogout,
-  oauthMessage = "",
+  oauthResult,
 }: {
   user: User;
   csrf: string;
   onCsrf: (csrf: string) => void;
   onLogout: () => void;
-  oauthMessage?: string;
+  oauthResult: GoogleOauthResult | null;
 }) {
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [events, setEvents] = useState<Audit[]>([]);
@@ -1794,6 +1794,14 @@ function SettingsPage({
   const googleCanDisconnect = Boolean(
     googleConnection?.connected || googleConnection?.status === "revoked",
   );
+  const oauthMessage =
+    oauthResult === "connected"
+      ? !googleLoading && googleConnection?.connected
+        ? googleOauthMessages.connected
+        : ""
+      : oauthResult
+        ? googleOauthMessages[oauthResult]
+        : "";
   return (
     <section className="card wide">
       <h2>Настройки аккаунта</h2>
@@ -2108,7 +2116,7 @@ function PlatformShell() {
               setSession((current) => ({ ...current, csrf: token }))
             }
             onLogout={logout}
-            oauthMessage={oauthResult ? googleOauthMessages[oauthResult] : ""}
+            oauthResult={oauthResult}
           />
         )}
       </main>

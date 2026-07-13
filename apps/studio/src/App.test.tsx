@@ -2620,23 +2620,30 @@ describe("Studio PWA", () => {
     ).toBeInTheDocument();
   });
 
-  it("handles Google OAuth return on Settings, refreshes connection, and cleans URL", async () => {
+  it("waits for confirmed Google connection before showing OAuth success", async () => {
     window.history.pushState(
       {},
       "",
       "/studio?keep=1&google_oauth=connected#safe",
     );
     const replaceSpy = vi.spyOn(window.history, "replaceState");
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let resolveConnection: (value: Response) => void = () => undefined;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/google/connection"))
+        return new Promise((resolve) => {
+          resolveConnection = resolve;
+        });
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
     renderApp("platform");
     expect(
       await screen.findByRole("heading", { name: "Настройки аккаунта" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("Google Drive подключён. Статус подключения обновлён."),
-    ).toBeInTheDocument();
-    await screen.findByRole("heading", {
-      name: /Drive подключён|Drive не подключён/,
-    });
+      screen.queryByText("Google Drive подключён. Статус подключения обновлён."),
+    ).not.toBeInTheDocument();
     expect(fetch).toHaveBeenCalledWith(
       "/api/google/connection",
       expect.objectContaining({ credentials: "same-origin" }),
@@ -2647,6 +2654,26 @@ describe("Studio PWA", () => {
       "/studio?keep=1#safe",
     );
     expect(window.location.search).toBe("?keep=1");
+    resolveConnection(
+      await json({
+        connected: true,
+        status: "active",
+        google_email: "safe.user@example.com",
+        scopes: "openid email https://www.googleapis.com/auth/drive.file",
+        connected_at: "2026-07-01T00:00:00",
+        revoked_at: null,
+        picker_configured: true,
+        picker_scope_ready: true,
+        picker_ready: true,
+        reconnect_required: false,
+      }),
+    );
+    expect(
+      await screen.findByText(
+        "Google Drive подключён. Статус подключения обновлён.",
+      ),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("safe.user@example.com")).toBeInTheDocument();
     cleanup();
     renderApp("platform");
     await screen.findByText(/Панель аккаунта готова/);
@@ -2655,6 +2682,52 @@ describe("Studio PWA", () => {
         "Google Drive подключён. Статус подключения обновлён.",
       ),
     ).not.toBeInTheDocument();
+  });
+
+  it("does not show OAuth success when refreshed Google connection is disconnected", async () => {
+    window.history.pushState({}, "", "/?google_oauth=connected");
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/google/connection"))
+        return json({
+          connected: false,
+          status: "disconnected",
+          google_email: null,
+          scopes: null,
+          connected_at: null,
+          revoked_at: null,
+          picker_configured: false,
+          picker_scope_ready: false,
+          picker_ready: false,
+          reconnect_required: false,
+        });
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    renderApp("platform");
+    expect(await screen.findByText("Drive не подключён")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Google Drive подключён. Статус подключения обновлён."),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not show OAuth success when refreshed Google connection fails", async () => {
+    window.history.pushState({}, "", "/?google_oauth=connected");
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/google/connection"))
+        return json({ detail: "raw backend token detail" }, false, 500);
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    renderApp("platform");
+    expect(
+      await screen.findByText("Google Drive connection сейчас недоступен."),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Google Drive подключён. Статус подключения обновлён."),
+    ).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("raw backend token detail");
   });
 
   it.each([

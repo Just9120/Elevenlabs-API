@@ -625,12 +625,26 @@ def test_google_oauth_start_returns_safe_url_and_stores_hashed_state(monkeypatch
         db.close()
 
 
-def assert_oauth_redirect(response, result):
+def assert_oauth_redirect(response, result, forbidden_values=None):
     assert response.status_code == 303
     assert response.headers["cache-control"] == "no-store"
-    assert response.headers["location"] == f"https://studio.test/?google_oauth={result}"
-    forbidden = ["auth-code", "state=", "refresh", "access", "id-token", "user@gmail.com", "google-sub", "secret", "raw"]
-    assert all(value not in response.headers["location"] for value in forbidden)
+    location = response.headers["location"]
+    assert location == f"https://studio.test/?google_oauth={result}"
+    forbidden = [
+        "code=",
+        "state=",
+        "access_token=",
+        "refresh_token=",
+        "id_token=",
+        "auth-code",
+        "user@gmail.com",
+        "google-sub",
+        "id-token-raw-test-value",
+        "access-token-raw-test-value",
+        "refresh-token-raw-test-value",
+    ]
+    forbidden.extend(forbidden_values or [])
+    assert all(value not in location for value in forbidden)
 
 def test_google_oauth_callback_rejects_missing_invalid_expired_and_used_state(monkeypatch, tmp_path):
     configure_google_oauth(monkeypatch, tmp_path)
@@ -707,21 +721,21 @@ def test_google_oauth_callback_safe_expected_error_redirects(monkeypatch, tmp_pa
     pw = admin("google-errors@example.com"); c = TestClient(app, follow_redirects=False); csrf = login(c, pw, "google-errors@example.com")
     raw_description = "raw_google_denied_secret"
     r = c.get(f"/api/google/oauth/callback?error=access_denied&error_description={raw_description}")
-    assert_oauth_redirect(r, "cancelled")
-    assert raw_description not in r.headers["location"]
+    assert_oauth_redirect(r, "cancelled", [raw_description])
 
     from urllib.parse import parse_qs, urlparse
     from studio_api.google_oauth import GoogleTokenResult
 
     r = c.post("/api/google/oauth/start", headers={"origin": "https://studio.test", "x-csrf-token": csrf})
     state = parse_qs(urlparse(r.json()["authorization_url"]).query)["state"][0]
-    monkeypatch.setattr("studio_api.google_oauth.exchange_code_for_tokens", lambda cfg, code: (_ for _ in ()).throw(RuntimeError("raw exchange secret")))
-    assert_oauth_redirect(c.get(f"/api/google/oauth/callback?state={state}&code=auth-code"), "exchange_failed")
+    raw_exception = "raw exchange secret"
+    monkeypatch.setattr("studio_api.google_oauth.exchange_code_for_tokens", lambda cfg, code: (_ for _ in ()).throw(RuntimeError(raw_exception)))
+    assert_oauth_redirect(c.get(f"/api/google/oauth/callback?state={state}&code=auth-code"), "exchange_failed", [raw_exception])
 
     r = c.post("/api/google/oauth/start", headers={"origin": "https://studio.test", "x-csrf-token": csrf})
     state = parse_qs(urlparse(r.json()["authorization_url"]).query)["state"][0]
-    monkeypatch.setattr("studio_api.google_oauth.exchange_code_for_tokens", lambda cfg, code: GoogleTokenResult(None, "access", "id", "openid email", "google-sub", "user@gmail.com"))
-    assert_oauth_redirect(c.get(f"/api/google/oauth/callback?state={state}&code=auth-code"), "offline_access_missing")
+    monkeypatch.setattr("studio_api.google_oauth.exchange_code_for_tokens", lambda cfg, code: GoogleTokenResult(None, "access-token-test-value", "id-token-test-value", "openid email", "google-sub", "user@gmail.com"))
+    assert_oauth_redirect(c.get(f"/api/google/oauth/callback?state={state}&code=auth-code"), "offline_access_missing", ["access-token-test-value", "id-token-test-value"])
     db = SessionLocal()
     try:
         from studio_api.models import GoogleConnection
