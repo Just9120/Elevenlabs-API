@@ -570,6 +570,7 @@ def configure_google_oauth(monkeypatch, tmp_path):
     secret.write_text("google-client-secret-test", encoding="utf-8")
     main_mod.settings.google_oauth_client_id = "google-client-id-test.apps.googleusercontent.com"
     main_mod.settings.google_oauth_client_secret_file = str(secret)
+    main_mod.settings.app_origin = "https://studio.test"
     main_mod.settings.google_oauth_redirect_uri = "https://studio.test/api/google/oauth/callback"
     main_mod.settings.google_oauth_scopes = "openid email https://www.googleapis.com/auth/drive.file"
     main_mod.settings.google_oauth_state_ttl_seconds = 600
@@ -624,11 +625,18 @@ def test_google_oauth_start_returns_safe_url_and_stores_hashed_state(monkeypatch
         db.close()
 
 
+def assert_oauth_redirect(response, result):
+    assert response.status_code == 303
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["location"] == f"https://studio.test/?google_oauth={result}"
+    forbidden = ["auth-code", "state=", "refresh", "access", "id-token", "user@gmail.com", "google-sub", "secret", "raw"]
+    assert all(value not in response.headers["location"] for value in forbidden)
+
 def test_google_oauth_callback_rejects_missing_invalid_expired_and_used_state(monkeypatch, tmp_path):
     configure_google_oauth(monkeypatch, tmp_path)
-    pw = admin("google-state@example.com"); c = TestClient(app); csrf = login(c, pw, "google-state@example.com")
-    assert c.get("/api/google/oauth/callback").status_code == 400
-    assert c.get("/api/google/oauth/callback?state=bad&code=code").status_code == 400
+    pw = admin("google-state@example.com"); c = TestClient(app, follow_redirects=False); csrf = login(c, pw, "google-state@example.com")
+    assert_oauth_redirect(c.get("/api/google/oauth/callback"), "invalid_callback")
+    assert_oauth_redirect(c.get("/api/google/oauth/callback?state=bad&code=code"), "invalid_state")
     r = c.post("/api/google/oauth/start", headers={"origin": "https://studio.test", "x-csrf-token": csrf})
     from urllib.parse import parse_qs, urlparse
     state = parse_qs(urlparse(r.json()["authorization_url"]).query)["state"][0]
@@ -638,14 +646,14 @@ def test_google_oauth_callback_rejects_missing_invalid_expired_and_used_state(mo
         row = db.query(GoogleOAuthState).first(); row.expires_at = utcnow() - timedelta(seconds=1); db.commit()
     finally:
         db.close()
-    assert c.get(f"/api/google/oauth/callback?state={state}&code=code").status_code == 400
+    assert_oauth_redirect(c.get(f"/api/google/oauth/callback?state={state}&code=code"), "invalid_state")
 
     r = c.post("/api/google/oauth/start", headers={"origin": "https://studio.test", "x-csrf-token": csrf})
     state = parse_qs(urlparse(r.json()["authorization_url"]).query)["state"][0]
     from studio_api.google_oauth import GoogleTokenResult
     monkeypatch.setattr("studio_api.google_oauth.exchange_code_for_tokens", lambda cfg, code: GoogleTokenResult("refresh-safe", None, None, "openid email", "sub", "g@example.com"))
-    assert c.get(f"/api/google/oauth/callback?state={state}&code=code").status_code == 200
-    assert c.get(f"/api/google/oauth/callback?state={state}&code=code").status_code == 400
+    assert_oauth_redirect(c.get(f"/api/google/oauth/callback?state={state}&code=code"), "connected")
+    assert_oauth_redirect(c.get(f"/api/google/oauth/callback?state={state}&code=code"), "invalid_state")
 
 
 def test_google_oauth_callback_stores_encrypted_token_and_safe_metadata_disconnect_wipes(monkeypatch, tmp_path):
@@ -659,12 +667,12 @@ def test_google_oauth_callback_stores_encrypted_token_and_safe_metadata_disconne
         called["count"] += 1
         return GoogleTokenResult(raw_refresh, raw_access, raw_id, "openid email https://www.googleapis.com/auth/drive.file", "google-sub-1", "user@gmail.com")
     monkeypatch.setattr("studio_api.google_oauth.exchange_code_for_tokens", fake_exchange)
-    pw = admin("google-connect@example.com"); c = TestClient(app); csrf = login(c, pw, "google-connect@example.com")
+    pw = admin("google-connect@example.com"); c = TestClient(app, follow_redirects=False); csrf = login(c, pw, "google-connect@example.com")
     r = c.post("/api/google/oauth/start", headers={"origin": "https://studio.test", "x-csrf-token": csrf})
     from urllib.parse import parse_qs, urlparse
     state = parse_qs(urlparse(r.json()["authorization_url"]).query)["state"][0]
-    r = c.get(f"/api/google/oauth/callback?state={state}&code=auth-code")
-    assert r.status_code == 200
+    r = c.get(f"/api/google/oauth/callback?state={state}&code=auth-code&return_url=https://evil.test&next=https://evil.test", headers={"host":"evil.test", "origin":"https://evil.test", "referer":"https://evil.test/path"})
+    assert_oauth_redirect(r, "connected")
     assert raw_refresh not in r.text and raw_access not in r.text and raw_id not in r.text
     assert called["count"] == 1
     r = c.get("/api/google/connection")
@@ -692,6 +700,34 @@ def test_google_oauth_callback_stores_encrypted_token_and_safe_metadata_disconne
     finally:
         db.close()
 
+
+
+def test_google_oauth_callback_safe_expected_error_redirects(monkeypatch, tmp_path):
+    configure_google_oauth(monkeypatch, tmp_path)
+    pw = admin("google-errors@example.com"); c = TestClient(app, follow_redirects=False); csrf = login(c, pw, "google-errors@example.com")
+    raw_description = "raw_google_denied_secret"
+    r = c.get(f"/api/google/oauth/callback?error=access_denied&error_description={raw_description}")
+    assert_oauth_redirect(r, "cancelled")
+    assert raw_description not in r.headers["location"]
+
+    from urllib.parse import parse_qs, urlparse
+    from studio_api.google_oauth import GoogleTokenResult
+
+    r = c.post("/api/google/oauth/start", headers={"origin": "https://studio.test", "x-csrf-token": csrf})
+    state = parse_qs(urlparse(r.json()["authorization_url"]).query)["state"][0]
+    monkeypatch.setattr("studio_api.google_oauth.exchange_code_for_tokens", lambda cfg, code: (_ for _ in ()).throw(RuntimeError("raw exchange secret")))
+    assert_oauth_redirect(c.get(f"/api/google/oauth/callback?state={state}&code=auth-code"), "exchange_failed")
+
+    r = c.post("/api/google/oauth/start", headers={"origin": "https://studio.test", "x-csrf-token": csrf})
+    state = parse_qs(urlparse(r.json()["authorization_url"]).query)["state"][0]
+    monkeypatch.setattr("studio_api.google_oauth.exchange_code_for_tokens", lambda cfg, code: GoogleTokenResult(None, "access", "id", "openid email", "google-sub", "user@gmail.com"))
+    assert_oauth_redirect(c.get(f"/api/google/oauth/callback?state={state}&code=auth-code"), "offline_access_missing")
+    db = SessionLocal()
+    try:
+        from studio_api.models import GoogleConnection
+        assert db.query(GoogleConnection).count() == 0
+    finally:
+        db.close()
 
 def test_google_connection_user_isolation(monkeypatch, tmp_path):
     configure_google_oauth(monkeypatch, tmp_path)

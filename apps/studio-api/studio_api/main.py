@@ -1,6 +1,7 @@
 import json
 from datetime import timedelta
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy import text, func
 from sqlalchemy.orm import Session
@@ -509,23 +510,40 @@ def start_google_oauth(request: Request, pair=Depends(require_csrf), db: Session
     db.add(state); audit(db,"google.oauth_started",actor_user_id=user.id,subject_user_id=user.id,session_id=sess.id); db.commit()
     return {"authorization_url": authorization_url(cfg, raw_state), "expires_at": state.expires_at.isoformat()}
 
+GOOGLE_OAUTH_RESULTS = {
+    "connected",
+    "cancelled",
+    "invalid_callback",
+    "invalid_state",
+    "exchange_failed",
+    "offline_access_missing",
+}
+
+def google_oauth_redirect(result: str) -> RedirectResponse:
+    if result not in GOOGLE_OAUTH_RESULTS:
+        result = "invalid_callback"
+    base = settings.app_origin.rstrip("/")
+    response = RedirectResponse(f"{base}/?google_oauth={result}", status_code=status.HTTP_303_SEE_OTHER)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
 @app.get("/api/google/oauth/callback")
 def google_oauth_callback(state: str|None=None, code: str|None=None, error: str|None=None, db: Session=Depends(get_db)):
     if error:
-        audit(db,"google.oauth_failed"); db.commit(); raise HTTPException(400, "Google OAuth failed")
+        audit(db,"google.oauth_failed"); db.commit(); return google_oauth_redirect("cancelled")
     if not state or not code:
-        raise HTTPException(400, "Invalid OAuth callback")
+        return google_oauth_redirect("invalid_callback")
     row=db.query(GoogleOAuthState).filter_by(state_hash=token_hash(state)).first()
     if not row or row.used_at is not None or row.expires_at <= utcnow():
-        raise HTTPException(400, "Invalid OAuth state")
+        return google_oauth_redirect("invalid_state")
     cfg=google_config_or_503()
     from .google_oauth import exchange_code_for_tokens
     try:
         tokens=exchange_code_for_tokens(cfg, code)
     except Exception:
-        audit(db,"google.oauth_failed",actor_user_id=row.user_id,subject_user_id=row.user_id); db.commit(); raise HTTPException(400, "Google OAuth failed")
+        audit(db,"google.oauth_failed",actor_user_id=row.user_id,subject_user_id=row.user_id); db.commit(); return google_oauth_redirect("exchange_failed")
     if not tokens.refresh_token:
-        audit(db,"google.oauth_failed",actor_user_id=row.user_id,subject_user_id=row.user_id); db.commit(); raise HTTPException(400, "Google OAuth did not return offline access")
+        audit(db,"google.oauth_failed",actor_user_id=row.user_id,subject_user_id=row.user_id); db.commit(); return google_oauth_redirect("offline_access_missing")
     conn=db.query(GoogleConnection).filter_by(user_id=row.user_id, provider=GoogleProvider.google).first()
     now=utcnow()
     if not conn:
@@ -535,7 +553,7 @@ def google_oauth_callback(state: str|None=None, code: str|None=None, error: str|
     conn.status=GoogleConnectionStatus.active; conn.google_subject=tokens.google_subject; conn.google_email=tokens.google_email; conn.scopes=tokens.scope or cfg.scopes; conn.refresh_token_ciphertext=ct; conn.refresh_token_nonce=nonce; conn.key_id=settings.credential_key_id; conn.connected_at=now; conn.revoked_at=None; conn.updated_at=now
     row.used_at=now
     audit(db,"google.connected",actor_user_id=row.user_id,subject_user_id=row.user_id); db.commit()
-    return {"ok": True, "connected": True}
+    return google_oauth_redirect("connected")
 
 @app.delete("/api/google/connection")
 def delete_google_connection(pair=Depends(require_csrf), db: Session=Depends(get_db)):

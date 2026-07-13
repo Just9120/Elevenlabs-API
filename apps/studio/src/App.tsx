@@ -1,4 +1,11 @@
-import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ChangeEvent,
+  FormEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Briefcase,
   ClipboardList,
@@ -132,6 +139,39 @@ type GoogleConnection = {
   reconnect_required?: boolean;
 };
 type GoogleOauthStart = { authorization_url: string; expires_at: string };
+type SessionBootstrapStatus =
+  | "checking"
+  | "authenticated"
+  | "anonymous"
+  | "error";
+type SessionBootstrapState = {
+  status: SessionBootstrapStatus;
+  user: User | null;
+  csrf: string;
+  error: string;
+};
+type GoogleOauthResult =
+  | "connected"
+  | "cancelled"
+  | "invalid_callback"
+  | "invalid_state"
+  | "exchange_failed"
+  | "offline_access_missing";
+const googleOauthMessages: Record<GoogleOauthResult, string> = {
+  connected: "Google Drive подключён. Статус подключения обновлён.",
+  cancelled: "Подключение Google Drive отменено.",
+  invalid_callback:
+    "Не удалось завершить подключение Google Drive. Запустите подключение ещё раз.",
+  invalid_state:
+    "Не удалось завершить подключение Google Drive. Запустите подключение ещё раз.",
+  exchange_failed:
+    "Google Drive не подключён. Повторите авторизацию и подтвердите запрошенный доступ.",
+  offline_access_missing:
+    "Google Drive не подключён. Повторите авторизацию и подтвердите запрошенный доступ.",
+};
+const googleOauthResults = new Set<GoogleOauthResult>(
+  Object.keys(googleOauthMessages) as GoogleOauthResult[],
+);
 const LOCAL_UPLOAD_LIMIT_BYTES = 536870912;
 const emptySourceState = {
   loading: false,
@@ -239,6 +279,13 @@ const demoJobs = [
   { title: "Демо: ожидание серверной очереди", state: "Прототип" },
   { title: "Демо: проверка сегментов", state: "UI-only" },
 ];
+class ApiError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
 async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`/api${path}`, {
     ...options,
@@ -246,12 +293,38 @@ async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
     headers: { "content-type": "application/json", ...(options.headers ?? {}) },
   });
   if (!res.ok)
-    throw new Error(
+    throw new ApiError(
+      res.status,
       res.status === 429
         ? "Слишком много попыток. Попробуйте позже."
         : "Операция не выполнена. Проверьте данные и повторите.",
     );
   return res.json();
+}
+async function bootstrapSession(): Promise<{
+  user: User;
+  csrf: string;
+} | null> {
+  const session = await api<{ authenticated: boolean; user?: User }>(
+    "/auth/session",
+  );
+  if (!session.authenticated || !session.user) return null;
+  const csrf = await api<{ csrf_token: string }>("/auth/csrf", {
+    method: "POST",
+  });
+  return { user: session.user, csrf: csrf.csrf_token };
+}
+function consumeGoogleOauthResult(): GoogleOauthResult | null {
+  const current = `${window.location.pathname ?? "/"}${window.location.search ?? ""}${window.location.hash ?? ""}`;
+  const url = new URL(current, window.location.origin || "http://localhost");
+  const raw = url.searchParams.get("google_oauth");
+  if (raw === null) return null;
+  url.searchParams.delete("google_oauth");
+  const cleaned = `${url.pathname}${url.search}${url.hash}`;
+  window.history.replaceState(window.history.state, "", cleaned);
+  return googleOauthResults.has(raw as GoogleOauthResult)
+    ? (raw as GoogleOauthResult)
+    : null;
 }
 function NewTranscription() {
   const [file, setFile] = useState<File | null>(null);
@@ -535,7 +608,12 @@ function SourcesPanel({
   project: Project;
   csrf: string;
   onCsrf: (csrf: string) => void;
-  sources: { loading: boolean; error: string; loaded: boolean; items: Source[] };
+  sources: {
+    loading: boolean;
+    error: string;
+    loaded: boolean;
+    items: Source[];
+  };
   googleConnection: GoogleConnection | null;
   pickerBusy: boolean;
   setPickerBusy: (busy: boolean) => void;
@@ -585,7 +663,11 @@ function SourcesPanel({
       onReload(project.id);
     } catch (err) {
       setPickerState("");
-      onError(err instanceof Error ? err.message : "Не удалось выбрать файлы Google Drive.");
+      onError(
+        err instanceof Error
+          ? err.message
+          : "Не удалось выбрать файлы Google Drive.",
+      );
     } finally {
       sourcePickerOpeningRef.current = false;
       setPickerBusy(false);
@@ -595,55 +677,144 @@ function SourcesPanel({
     const file = e.target.files?.[0] ?? null;
     e.target.value = "";
     if (!file) return onError("Выберите audio/video файл для загрузки.");
-    if (!isSupportedMediaFile(file)) return onError("Поддерживаются только audio/video файлы или OGG.");
-    if (file.size <= 0) return onError("Файл пустой. Выберите другой source файл.");
-    if (file.size > LOCAL_UPLOAD_LIMIT_BYTES) return onError("Файл больше 512 MB. Выберите меньший временный source файл.");
+    if (!isSupportedMediaFile(file))
+      return onError("Поддерживаются только audio/video файлы или OGG.");
+    if (file.size <= 0)
+      return onError("Файл пустой. Выберите другой source файл.");
+    if (file.size > LOCAL_UPLOAD_LIMIT_BYTES)
+      return onError(
+        "Файл больше 512 MB. Выберите меньший временный source файл.",
+      );
     try {
       setUploadState("Подготовка upload…");
-      const initiated = await csrfMutate<UploadInit>(`/projects/${project.id}/sources/local-upload/initiate`, csrf, onCsrf, { method: "POST", body: JSON.stringify({ original_filename: file.name, mime_type: file.type || "application/octet-stream", size_bytes: file.size }) });
+      const initiated = await csrfMutate<UploadInit>(
+        `/projects/${project.id}/sources/local-upload/initiate`,
+        csrf,
+        onCsrf,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            original_filename: file.name,
+            mime_type: file.type || "application/octet-stream",
+            size_bytes: file.size,
+          }),
+        },
+      );
       setUploadState("Загрузка во временное хранилище…");
-      const put = await fetch(initiated.upload.url, { method: initiated.upload.method, headers: initiated.upload.headers, body: file });
-      if (!put.ok) throw new Error("Не удалось загрузить файл во временное хранилище. Проверьте CORS/bucket policy и повторите.");
+      const put = await fetch(initiated.upload.url, {
+        method: initiated.upload.method,
+        headers: initiated.upload.headers,
+        body: file,
+      });
+      if (!put.ok)
+        throw new Error(
+          "Не удалось загрузить файл во временное хранилище. Проверьте CORS/bucket policy и повторите.",
+        );
       setUploadState("Подтверждение upload…");
-      await csrfMutate<Source>(`/sources/${initiated.source_id}/local-upload/complete`, csrf, onCsrf, { method: "POST" });
+      await csrfMutate<Source>(
+        `/sources/${initiated.source_id}/local-upload/complete`,
+        csrf,
+        onCsrf,
+        { method: "POST" },
+      );
       setUploadState("Файл загружен и готов как временный source.");
       onReload(project.id);
     } catch (err) {
       setUploadState("Ошибка upload.");
-      onError(err instanceof Error ? err.message : "Не удалось загрузить локальный source файл.");
+      onError(
+        err instanceof Error
+          ? err.message
+          : "Не удалось загрузить локальный source файл.",
+      );
     }
   }
   async function deleteSource(id: string) {
-    try { await csrfMutate<{ ok: boolean }>(`/sources/${id}`, csrf, onCsrf, { method: "DELETE" }); onReload(project.id); }
-    catch (err) { onError(err instanceof Error ? err.message : "Не удалось удалить source."); }
+    try {
+      await csrfMutate<{ ok: boolean }>(`/sources/${id}`, csrf, onCsrf, {
+        method: "DELETE",
+      });
+      onReload(project.id);
+    } catch (err) {
+      onError(
+        err instanceof Error ? err.message : "Не удалось удалить source.",
+      );
+    }
   }
   return (
     <section className="sources" aria-label={`Sources ${project.title}`}>
       <h4>Sources проекта</h4>
       {sources.loading && <p role="status">Загрузка sources…</p>}
       {sources.error && <p className="error">{sources.error}</p>}
-      {sources.loaded && !sources.loading && sources.items.length === 0 && <p className="notice">Source records пока не добавлены.</p>}
+      {sources.loaded && !sources.loading && sources.items.length === 0 && (
+        <p className="notice">Source records пока не добавлены.</p>
+      )}
       {sources.items.map((source) => (
         <article className="source-card" key={source.id}>
-          <b>{source.original_filename}</b><span>{source.source_type === "google_drive" ? "Google Drive metadata" : "Local temporary upload"}</span>
-          <span>Статус: {source.upload_status}</span><span>Размер: {formatBytes(source.size_bytes)}</span><span>MIME: {source.mime_type || "не указан"}</span>
-          <span>Uploaded: {formatTime(source.uploaded_at)}</span><span>Expires: {formatTime(source.expires_at)}</span><span>Deleted: {formatTime(source.deleted_at)}</span>
+          <b>{source.original_filename}</b>
+          <span>
+            {source.source_type === "google_drive"
+              ? "Google Drive metadata"
+              : "Local temporary upload"}
+          </span>
+          <span>Статус: {source.upload_status}</span>
+          <span>Размер: {formatBytes(source.size_bytes)}</span>
+          <span>MIME: {source.mime_type || "не указан"}</span>
+          <span>Uploaded: {formatTime(source.uploaded_at)}</span>
+          <span>Expires: {formatTime(source.expires_at)}</span>
+          <span>Deleted: {formatTime(source.deleted_at)}</span>
           {source.delete_reason && <span>Reason: {source.delete_reason}</span>}
-          {isSafeDisplayUrl(source.drive_file_url) && <a href={source.drive_file_url ?? undefined}>Открыть в Google Drive</a>}
-          <button type="button" onClick={() => deleteSource(source.id)}>Удалить source</button>
+          {isSafeDisplayUrl(source.drive_file_url) && (
+            <a href={source.drive_file_url ?? undefined}>
+              Открыть в Google Drive
+            </a>
+          )}
+          <button type="button" onClick={() => deleteSource(source.id)}>
+            Удалить source
+          </button>
         </article>
       ))}
       <section className="source-form" aria-label="Google Drive Picker sources">
         <h5>Google Drive</h5>
-        {!googleConnection?.connected && <p className="notice">Google Drive не подключён.</p>}
-        {googleConnection?.connected && googleConnection.reconnect_required && <p className="notice">Google Drive подключён, но для выбора файлов требуется повторная авторизация с правом drive.file. Откройте Настройки и нажмите «Переподключить Google Drive».</p>}
-        {googleConnection?.connected && !googleConnection.picker_configured && <p className="notice">Google Picker временно недоступен: runtime-настройки не завершены.</p>}
-        {pickerReady && <p className="notice">Google Drive подключён. Файлы выбираются через официальный Picker; Studio сохранит metadata только после server-side проверки.</p>}
-        <button type="button" className="primary" disabled={!pickerReady || pickerBusy} onClick={chooseDriveSources}>Выбрать файлы из Google Drive</button>
+        {!googleConnection?.connected && (
+          <p className="notice">Google Drive не подключён.</p>
+        )}
+        {googleConnection?.connected && googleConnection.reconnect_required && (
+          <p className="notice">
+            Google Drive подключён, но для выбора файлов требуется повторная
+            авторизация с правом drive.file. Откройте Настройки и нажмите
+            «Переподключить Google Drive».
+          </p>
+        )}
+        {googleConnection?.connected && !googleConnection.picker_configured && (
+          <p className="notice">
+            Google Picker временно недоступен: runtime-настройки не завершены.
+          </p>
+        )}
+        {pickerReady && (
+          <p className="notice">
+            Google Drive подключён. Файлы выбираются через официальный Picker;
+            Studio сохранит metadata только после server-side проверки.
+          </p>
+        )}
+        <button
+          type="button"
+          className="primary"
+          disabled={!pickerReady || pickerBusy}
+          onClick={chooseDriveSources}
+        >
+          Выбрать файлы из Google Drive
+        </button>
         {pickerState && <p role="status">{pickerState}</p>}
         {pickerError && <p className="error">{pickerError}</p>}
       </section>
-      <label className="drop compact">Загрузить временный локальный audio/video source<input type="file" accept="audio/*,video/*,.ogg,.oga,application/ogg" onChange={uploadLocal} /></label>
+      <label className="drop compact">
+        Загрузить временный локальный audio/video source
+        <input
+          type="file"
+          accept="audio/*,video/*,.ogg,.oga,application/ogg"
+          onChange={uploadLocal}
+        />
+      </label>
       {uploadState && <p role="status">{uploadState}</p>}
     </section>
   );
@@ -1131,7 +1302,8 @@ function ProjectsPage({
     activePickerRef.current = busy;
     setActivePicker(busy);
   };
-  const [googleConnection, setGoogleConnection] = useState<GoogleConnection | null>(null);
+  const [googleConnection, setGoogleConnection] =
+    useState<GoogleConnection | null>(null);
   const load = () => {
     setLoading(true);
     setError("");
@@ -1145,7 +1317,11 @@ function ProjectsPage({
       .finally(() => setLoading(false));
   };
   useEffect(load, []);
-  useEffect(() => { api<GoogleConnection>("/google/connection").then(setGoogleConnection).catch(() => setGoogleConnection(null)); }, []);
+  useEffect(() => {
+    api<GoogleConnection>("/google/connection")
+      .then(setGoogleConnection)
+      .catch(() => setGoogleConnection(null));
+  }, []);
   const loadSources = (projectId: string) => {
     setSources((v) => ({
       ...v,
@@ -1297,16 +1473,39 @@ function ProjectsPage({
     setPickerBusy(true);
     setError("");
     try {
-      const session = await csrfMutate<PickerSession>("/google/picker/session", csrf, onCsrf, { method: "POST" });
-      const result = await googlePicker.openGooglePicker("output-folder", session);
+      const session = await csrfMutate<PickerSession>(
+        "/google/picker/session",
+        csrf,
+        onCsrf,
+        { method: "POST" },
+      );
+      const result = await googlePicker.openGooglePicker(
+        "output-folder",
+        session,
+      );
       if (result.action === "cancel") return;
-      if (result.action === "error") { setError(result.message); return; }
+      if (result.action === "error") {
+        setError(result.message);
+        return;
+      }
       const folderId = result.docs[0]?.id;
-      if (!folderId) { setError("Выберите одну папку Google Drive."); return; }
-      await csrfMutate<Project>(`/projects/${id}/output-folder/google-picker`, csrf, onCsrf, { method: "POST", body: JSON.stringify({ folder_id: folderId }) });
+      if (!folderId) {
+        setError("Выберите одну папку Google Drive.");
+        return;
+      }
+      await csrfMutate<Project>(
+        `/projects/${id}/output-folder/google-picker`,
+        csrf,
+        onCsrf,
+        { method: "POST", body: JSON.stringify({ folder_id: folderId }) },
+      );
       load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось выбрать папку результатов.");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Не удалось выбрать папку результатов.",
+      );
     } finally {
       setPickerBusy(false);
     }
@@ -1332,7 +1531,9 @@ function ProjectsPage({
       <p className="eyebrow">Platform API</p>
       <h2>Проекты</h2>
       <p className="notice">
-      Проекты и sources загружаются из same-origin API. Google Drive Picker используется для выбора файлов и папки результатов; worker rollout остаётся отдельным операторским шагом.
+        Проекты и sources загружаются из same-origin API. Google Drive Picker
+        используется для выбора файлов и папки результатов; worker rollout
+        остаётся отдельным операторским шагом.
       </p>
       <form className="inline project-form" onSubmit={save}>
         <input
@@ -1400,15 +1601,36 @@ function ProjectsPage({
                     <p>Папка результата не настроена.</p>
                   )}
                 </div>
-                <div className="source-form" aria-label="Output folder Google Picker">
-                  <button className="primary" type="button" disabled={!googleConnection?.picker_ready || activePicker} onClick={() => chooseOutputFolder(p.id)}>
+                <div
+                  className="source-form"
+                  aria-label="Output folder Google Picker"
+                >
+                  <button
+                    className="primary"
+                    type="button"
+                    disabled={!googleConnection?.picker_ready || activePicker}
+                    onClick={() => chooseOutputFolder(p.id)}
+                  >
                     Выбрать папку для результатов
                   </button>
                   <button type="button" onClick={() => clearFolder(p.id)}>
                     Очистить папку результатов
                   </button>
-                  {googleConnection?.connected && googleConnection.reconnect_required && <p className="notice">Google Drive подключён, но для выбора папки результатов требуется повторная авторизация с правом drive.file. Откройте Настройки и нажмите «Переподключить Google Drive».</p>}
-                  {googleConnection?.connected && !googleConnection.picker_configured && <p className="notice">Google Picker временно недоступен.</p>}
+                  {googleConnection?.connected &&
+                    googleConnection.reconnect_required && (
+                      <p className="notice">
+                        Google Drive подключён, но для выбора папки результатов
+                        требуется повторная авторизация с правом drive.file.
+                        Откройте Настройки и нажмите «Переподключить Google
+                        Drive».
+                      </p>
+                    )}
+                  {googleConnection?.connected &&
+                    !googleConnection.picker_configured && (
+                      <p className="notice">
+                        Google Picker временно недоступен.
+                      </p>
+                    )}
                 </div>
                 <button onClick={() => setEditing(p.id)}>Редактировать</button>
                 <button onClick={() => archive(p.id)}>Архивировать</button>
@@ -1455,11 +1677,13 @@ function SettingsPage({
   csrf,
   onCsrf,
   onLogout,
+  oauthMessage = "",
 }: {
   user: User;
   csrf: string;
   onCsrf: (csrf: string) => void;
   onLogout: () => void;
+  oauthMessage?: string;
 }) {
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [events, setEvents] = useState<Audit[]>([]);
@@ -1550,7 +1774,9 @@ function SettingsPage({
       });
       window.location.assign(r.authorization_url);
     } catch {
-      setGoogleMessage("Не удалось начать подключение Google Drive. Попробуйте позже или проверьте настройки OAuth.");
+      setGoogleMessage(
+        "Не удалось начать подключение Google Drive. Попробуйте позже или проверьте настройки OAuth.",
+      );
       setGoogleStarting(false);
     }
   };
@@ -1571,6 +1797,11 @@ function SettingsPage({
   return (
     <section className="card wide">
       <h2>Настройки аккаунта</h2>
+      {oauthMessage && (
+        <p className="notice" role="status">
+          {oauthMessage}
+        </p>
+      )}
       <p>
         Аккаунт: <b>{user.email}</b> ({user.role})
       </p>
@@ -1652,7 +1883,8 @@ function SettingsPage({
       <h3>Google Drive connection</h3>
       <p className="notice">
         Подключение подтверждает доступ Google Drive для Picker и server-side
-        проверки выбранных файлов/папок. Worker rollout и production smoke остаются отдельными операторскими шагами.
+        проверки выбранных файлов/папок. Worker rollout и production smoke
+        остаются отдельными операторскими шагами.
       </p>
       <article className="card">
         <span className="tag">Google Drive</span>
@@ -1675,11 +1907,19 @@ function SettingsPage({
             </dl>
             {googleConnection.reconnect_required && (
               <div className="notice" role="status">
-                Google Drive подключён, но для выбора файлов через Picker нужно повторно авторизовать доступ с правом drive.file. Текущее подключение будет сохранено до успешного завершения нового OAuth callback.
+                Google Drive подключён, но для выбора файлов через Picker нужно
+                повторно авторизовать доступ с правом drive.file. Текущее
+                подключение будет сохранено до успешного завершения нового OAuth
+                callback.
               </div>
             )}
             {googleConnection.reconnect_required && (
-              <button className="primary" type="button" disabled={googleStarting} onClick={connectGoogle}>
+              <button
+                className="primary"
+                type="button"
+                disabled={googleStarting}
+                onClick={connectGoogle}
+              >
                 Переподключить Google Drive
               </button>
             )}
@@ -1693,7 +1933,11 @@ function SettingsPage({
                 ? ` · revoked ${formatTime(googleConnection.revoked_at)}`
                 : ""}
             </p>
-            <button className="primary" disabled={googleStarting} onClick={connectGoogle}>
+            <button
+              className="primary"
+              disabled={googleStarting}
+              onClick={connectGoogle}
+            >
               Подключить Google Drive
             </button>
           </>
@@ -1717,27 +1961,76 @@ function SettingsPage({
   );
 }
 function PlatformShell() {
-  const [page, setPage] = useState<Page>("dashboard");
-  const [user, setUser] = useState<User | null>(null);
-  const [csrf, setCsrf] = useState("");
-  useEffect(() => {
-    api<{ authenticated: boolean; user: User }>("/auth/session")
-      .then((r) => {
-        setUser(r.user);
-        return api<{ csrf_token: string }>("/auth/csrf", { method: "POST" });
+  const [oauthResult] = useState<GoogleOauthResult | null>(() =>
+    consumeGoogleOauthResult(),
+  );
+  const [page, setPage] = useState<Page>(
+    oauthResult ? "settings" : "dashboard",
+  );
+  const [session, setSession] = useState<SessionBootstrapState>({
+    status: "checking",
+    user: null,
+    csrf: "",
+    error: "",
+  });
+  const checkSession = () => {
+    setSession({ status: "checking", user: null, csrf: "", error: "" });
+    bootstrapSession()
+      .then((result) => {
+        if (!result) {
+          setSession({ status: "anonymous", user: null, csrf: "", error: "" });
+          return;
+        }
+        setSession({
+          status: "authenticated",
+          user: result.user,
+          csrf: result.csrf,
+          error: "",
+        });
       })
-      .then((r) => setCsrf(r.csrf_token))
-      .catch(() => undefined);
-  }, []);
-  if (!user)
+      .catch((err) => {
+        if (err instanceof ApiError && err.status === 401) {
+          setSession({ status: "anonymous", user: null, csrf: "", error: "" });
+          return;
+        }
+        setSession({
+          status: "error",
+          user: null,
+          csrf: "",
+          error: "Не удалось проверить сессию. Повторите попытку.",
+        });
+      });
+  };
+  useEffect(checkSession, []);
+  if (session.status === "checking")
+    return (
+      <main className="auth">
+        <section className="card">
+          <p role="status">Проверяем сессию…</p>
+        </section>
+      </main>
+    );
+  if (session.status === "error")
+    return (
+      <main className="auth">
+        <section className="card">
+          <p className="error">{session.error}</p>
+          <button type="button" className="primary" onClick={checkSession}>
+            Повторить
+          </button>
+        </section>
+      </main>
+    );
+  if (session.status === "anonymous" || !session.user)
     return (
       <Login
         onLogin={(u, t) => {
-          setUser(u);
-          setCsrf(t);
+          setSession({ status: "authenticated", user: u, csrf: t, error: "" });
         }}
       />
     );
+  const user = session.user;
+  const csrf = session.csrf;
   const logout = async () => {
     let token = csrf;
     if (!token) {
@@ -1745,14 +2038,13 @@ function PlatformShell() {
         method: "POST",
       });
       token = refreshed.csrf_token;
-      setCsrf(token);
+      setSession((current) => ({ ...current, csrf: token }));
     }
     await api("/auth/logout", {
       method: "POST",
       headers: { "x-csrf-token": token },
     }).catch(() => undefined);
-    setUser(null);
-    setCsrf("");
+    setSession({ status: "anonymous", user: null, csrf: "", error: "" });
   };
   return (
     <div className="shell">
@@ -1787,7 +2079,14 @@ function PlatformShell() {
             </button>
           </section>
         )}
-        {page === "projects" && <ProjectsPage csrf={csrf} onCsrf={setCsrf} />}
+        {page === "projects" && (
+          <ProjectsPage
+            csrf={csrf}
+            onCsrf={(token) =>
+              setSession((current) => ({ ...current, csrf: token }))
+            }
+          />
+        )}
         {page === "new" && <NewTranscription />}
         {page === "jobs" && (
           <section className="grid">
@@ -1805,8 +2104,11 @@ function PlatformShell() {
           <SettingsPage
             user={user}
             csrf={csrf}
-            onCsrf={setCsrf}
+            onCsrf={(token) =>
+              setSession((current) => ({ ...current, csrf: token }))
+            }
             onLogout={logout}
+            oauthMessage={oauthResult ? googleOauthMessages[oauthResult] : ""}
           />
         )}
       </main>
