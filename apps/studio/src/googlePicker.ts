@@ -17,6 +17,7 @@ type PickerView = {
   setIncludeFolders?: (value: boolean) => PickerView;
   setSelectFolderEnabled?: (value: boolean) => PickerView;
   setMimeTypes?: (value: string) => PickerView;
+  setMode: (mode: string) => PickerView;
 };
 type PickerBuilder = {
   addView: (view: PickerView) => PickerBuilder;
@@ -25,6 +26,12 @@ type PickerBuilder = {
   setDeveloperKey: (key: string) => PickerBuilder;
   setAppId: (id: string) => PickerBuilder;
   setCallback: (cb: PickerCallback) => PickerBuilder;
+  setLocale: (locale: string) => PickerBuilder;
+  setSize: (width: number, height: number) => PickerBuilder;
+  setTitle: (title: string) => PickerBuilder;
+  setOrigin: (origin: string) => PickerBuilder;
+  setMaxItems: (maxItems: number) => PickerBuilder;
+  setSelectableMimeTypes: (mimeTypes: string) => PickerBuilder;
   build: () => PickerInstance;
 };
 type PickerApi = {
@@ -32,6 +39,7 @@ type PickerApi = {
   DocsView: new (viewId: string) => PickerView;
   PickerBuilder: new () => PickerBuilder;
   ViewId: { DOCS: string; FOLDERS: string };
+  DocsViewMode: { LIST: string };
   Feature: { MULTISELECT_ENABLED: string; NAV_HIDDEN?: string };
 };
 
@@ -44,6 +52,16 @@ declare global {
 
 const SCRIPT_SELECTOR = 'script[data-studio-google-picker="true"]';
 const SCRIPT_TIMEOUT_MS = 10000;
+const PICKER_LOCALE = "ru";
+const SOURCE_PICKER_TITLE = "Выберите аудио или видео";
+const OUTPUT_FOLDER_PICKER_TITLE = "Выберите папку для результатов";
+const SOURCE_SELECTABLE_MIME_TYPES = "audio/*,video/*,application/ogg";
+const FOLDER_MIME_TYPE = "application/vnd.google-apps.folder";
+const PICKER_MIN_WIDTH = 566;
+const PICKER_MIN_HEIGHT = 350;
+const PICKER_VIEWPORT_MARGIN = 48;
+const PICKER_DESKTOP_MAX_WIDTH = 1051;
+const PICKER_DESKTOP_MAX_HEIGHT = 650;
 let loader: Promise<void> | null = null;
 
 export function resetGooglePickerLoaderForTests() {
@@ -60,6 +78,15 @@ function clearFailedPickerScript() {
 
 function normalizedLoadError(): Error {
   return new Error("Google Picker не загрузился. Повторите попытку.");
+}
+
+export function computeGooglePickerSize(viewportWidth: number, viewportHeight: number): { width: number; height: number } {
+  const availableWidth = Math.max(PICKER_MIN_WIDTH, Math.floor(viewportWidth - PICKER_VIEWPORT_MARGIN));
+  const availableHeight = Math.max(PICKER_MIN_HEIGHT, Math.floor(viewportHeight - PICKER_VIEWPORT_MARGIN));
+  return {
+    width: Math.max(PICKER_MIN_WIDTH, Math.min(PICKER_DESKTOP_MAX_WIDTH, availableWidth)),
+    height: Math.max(PICKER_MIN_HEIGHT, Math.min(PICKER_DESKTOP_MAX_HEIGHT, availableHeight)),
+  };
 }
 
 export function loadGooglePicker(): Promise<void> {
@@ -155,14 +182,23 @@ export async function openGooglePicker(
       const view = new pickerApi.DocsView(
         mode === "output-folder" ? pickerApi.ViewId.FOLDERS : pickerApi.ViewId.DOCS,
       );
+      view.setMode(pickerApi.DocsViewMode.LIST);
       view.setIncludeFolders?.(true);
       if (mode === "output-folder") {
+        view.setMimeTypes?.(FOLDER_MIME_TYPE);
         view.setSelectFolderEnabled?.(true);
       } else {
-        view.setMimeTypes?.("audio/*,video/*,application/ogg");
+        view.setMimeTypes?.(SOURCE_SELECTABLE_MIME_TYPES);
       }
+      const { width, height } = computeGooglePickerSize(window.innerWidth, window.innerHeight);
       const builder = new pickerApi.PickerBuilder();
       builder.addView(view);
+      builder.setLocale(PICKER_LOCALE);
+      builder.setSize(width, height);
+      builder.setTitle(mode === "output-folder" ? OUTPUT_FOLDER_PICKER_TITLE : SOURCE_PICKER_TITLE);
+      builder.setOrigin(window.location.origin);
+      builder.setMaxItems(mode === "output-folder" ? 1 : 50);
+      builder.setSelectableMimeTypes(mode === "output-folder" ? FOLDER_MIME_TYPE : SOURCE_SELECTABLE_MIME_TYPES);
       if (mode === "sources") {
         builder.enableFeature(pickerApi.Feature.MULTISELECT_ENABLED);
       }

@@ -10,6 +10,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import * as googlePicker from "./googlePicker";
+import { computeGooglePickerSize } from "./googlePicker";
 import { buildSegmentPlan, parseTimeToSeconds } from "./segments";
 const json = (body: unknown, ok = true, status = 200) =>
   Promise.resolve({
@@ -26,21 +27,33 @@ function installFakeGooglePicker() {
   googlePicker.resetGooglePickerLoaderForTests();
   let callback: ((data: unknown) => void) | null = null;
   const viewIds: string[] = [];
+  const viewModes: string[] = [];
+  const includeFolders: boolean[] = [];
+  const selectFolderEnabled: boolean[] = [];
+  const viewMimeTypes: string[] = [];
+  const builderCalls: { method: string; args: unknown[] }[] = [];
   const setVisible = vi.fn();
   class FakeView {
     constructor(viewId: string) {
       viewIds.push(viewId);
     }
-    setIncludeFolders() { return this; }
-    setSelectFolderEnabled() { return this; }
-    setMimeTypes() { return this; }
+    setIncludeFolders(value: boolean) { includeFolders.push(value); return this; }
+    setSelectFolderEnabled(value: boolean) { selectFolderEnabled.push(value); return this; }
+    setMimeTypes(value: string) { viewMimeTypes.push(value); return this; }
+    setMode(mode: string) { viewModes.push(mode); return this; }
   }
   class FakeBuilder {
-    addView() { return this; }
-    enableFeature() { return this; }
+    addView() { builderCalls.push({ method: "addView", args: [] }); return this; }
+    enableFeature(feature: string) { builderCalls.push({ method: "enableFeature", args: [feature] }); return this; }
     setOAuthToken() { return this; }
     setDeveloperKey() { return this; }
     setAppId() { return this; }
+    setLocale(locale: string) { builderCalls.push({ method: "setLocale", args: [locale] }); return this; }
+    setSize(width: number, height: number) { builderCalls.push({ method: "setSize", args: [width, height] }); return this; }
+    setTitle(title: string) { builderCalls.push({ method: "setTitle", args: [title] }); return this; }
+    setOrigin(origin: string) { builderCalls.push({ method: "setOrigin", args: [origin] }); return this; }
+    setMaxItems(maxItems: number) { builderCalls.push({ method: "setMaxItems", args: [maxItems] }); return this; }
+    setSelectableMimeTypes(mimeTypes: string) { builderCalls.push({ method: "setSelectableMimeTypes", args: [mimeTypes] }); return this; }
     setCallback(cb: (data: unknown) => void) { callback = cb; return this; }
     build() { return { setVisible }; }
   }
@@ -51,6 +64,7 @@ function installFakeGooglePicker() {
       DocsView: FakeView,
       PickerBuilder: FakeBuilder,
       ViewId: { DOCS: "docs", FOLDERS: "folders" },
+      DocsViewMode: { LIST: "list" },
       Feature: { MULTISELECT_ENABLED: "multi" },
     },
   };
@@ -70,6 +84,11 @@ function installFakeGooglePicker() {
     waitForCallback: () => waitFor(() => expect(callback).not.toBeNull()),
     setVisible,
     viewIds,
+    viewModes,
+    includeFolders,
+    selectFolderEnabled,
+    viewMimeTypes,
+    builderCalls,
   };
 }
 
@@ -547,6 +566,7 @@ describe("Studio PWA", () => {
       setIncludeFolders() { return this; }
       setSelectFolderEnabled() { return this; }
       setMimeTypes() { return this; }
+      setMode() { return this; }
     }
     class FakeBuilder {
       addView() { return this; }
@@ -554,10 +574,16 @@ describe("Studio PWA", () => {
       setOAuthToken() { return this; }
       setDeveloperKey() { return this; }
       setAppId() { return this; }
+      setLocale() { return this; }
+      setSize() { return this; }
+      setTitle() { return this; }
+      setOrigin() { return this; }
+      setMaxItems() { return this; }
+      setSelectableMimeTypes() { return this; }
       setCallback(cb: (data: unknown) => void) { callback = cb; return this; }
       build() { return { setVisible: vi.fn() }; }
     }
-    window.google = { picker: { Action: { PICKED: "picked", CANCEL: "cancel", ERROR: "error" }, DocsView: FakeView, PickerBuilder: FakeBuilder, ViewId: { DOCS: "docs", FOLDERS: "folders" }, Feature: { MULTISELECT_ENABLED: "multi" } } };
+    window.google = { picker: { Action: { PICKED: "picked", CANCEL: "cancel", ERROR: "error" }, DocsView: FakeView, PickerBuilder: FakeBuilder, ViewId: { DOCS: "docs", FOLDERS: "folders" }, DocsViewMode: { LIST: "list" }, Feature: { MULTISELECT_ENABLED: "multi" } } };
     const pickedPromise = googlePicker.openGooglePicker("sources", { access_token: "ya29.secret", api_key: "public", app_id: "app", scope_ready: true });
     document.head.querySelector<HTMLScriptElement>('script[data-studio-google-picker="true"]')?.onload?.(new Event("load"));
     await waitFor(() => expect(callback).not.toBeNull());
@@ -581,6 +607,87 @@ describe("Studio PWA", () => {
     await expect(errorPromise).resolves.toEqual({ action: "error", message: "Google Picker вернул ошибку. Повторите попытку." });
     expect(document.body.textContent).not.toContain("raw-google-payload");
   });
+
+  it("computes deterministic Google Picker sizes within viewport and minimum constraints", () => {
+    expect(computeGooglePickerSize(1920, 1080)).toEqual({ width: 1051, height: 650 });
+    expect(computeGooglePickerSize(1366, 768)).toEqual({ width: 1051, height: 650 });
+    expect(computeGooglePickerSize(800, 600)).toEqual({ width: 752, height: 552 });
+    expect(computeGooglePickerSize(480, 320)).toEqual({ width: 566, height: 350 });
+    const computed = computeGooglePickerSize(1024.8, 700.2);
+    expect(Number.isInteger(computed.width)).toBe(true);
+    expect(Number.isInteger(computed.height)).toBe(true);
+  });
+
+  it("configures Google Picker source and output-folder presentation separately", async () => {
+    googlePicker.resetGooglePickerLoaderForTests();
+    const originalInnerWidth = window.innerWidth;
+    const originalInnerHeight = window.innerHeight;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1366 });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 768 });
+    let callback: ((data: unknown) => void) | null = null;
+    const viewIds: string[] = [];
+    const viewModes: string[] = [];
+    const includeFolders: boolean[] = [];
+    const selectFolderEnabled: boolean[] = [];
+    const viewMimeTypes: string[] = [];
+    const builderCalls: { method: string; args: unknown[] }[] = [];
+    class FakeView {
+      constructor(viewId: string) { viewIds.push(viewId); }
+      setIncludeFolders(value: boolean) { includeFolders.push(value); return this; }
+      setSelectFolderEnabled(value: boolean) { selectFolderEnabled.push(value); return this; }
+      setMimeTypes(value: string) { viewMimeTypes.push(value); return this; }
+      setMode(mode: string) { viewModes.push(mode); return this; }
+    }
+    class FakeBuilder {
+      addView() { return this; }
+      enableFeature(feature: string) { builderCalls.push({ method: "enableFeature", args: [feature] }); return this; }
+      setOAuthToken() { return this; }
+      setDeveloperKey() { return this; }
+      setAppId() { return this; }
+      setLocale(locale: string) { builderCalls.push({ method: "setLocale", args: [locale] }); return this; }
+      setSize(width: number, height: number) { builderCalls.push({ method: "setSize", args: [width, height] }); return this; }
+      setTitle(title: string) { builderCalls.push({ method: "setTitle", args: [title] }); return this; }
+      setOrigin(origin: string) { builderCalls.push({ method: "setOrigin", args: [origin] }); return this; }
+      setMaxItems(maxItems: number) { builderCalls.push({ method: "setMaxItems", args: [maxItems] }); return this; }
+      setSelectableMimeTypes(mimeTypes: string) { builderCalls.push({ method: "setSelectableMimeTypes", args: [mimeTypes] }); return this; }
+      setCallback(cb: (data: unknown) => void) { callback = cb; return this; }
+      build() { return { setVisible: vi.fn() }; }
+    }
+    window.gapi = { load: vi.fn((_name: string, cb: () => void) => cb()) };
+    window.google = { picker: { Action: { PICKED: "picked", CANCEL: "cancel", ERROR: "error" }, DocsView: FakeView, PickerBuilder: FakeBuilder, ViewId: { DOCS: "docs", FOLDERS: "folders" }, DocsViewMode: { LIST: "list" }, Feature: { MULTISELECT_ENABLED: "multi" } } };
+
+    const sourcePromise = googlePicker.openGooglePicker("sources", { access_token: "ya29.source", api_key: "public", app_id: "app", scope_ready: true });
+    document.head.querySelector<HTMLScriptElement>('script[data-studio-google-picker="true"]')?.onload?.(new Event("load"));
+    await waitFor(() => expect(callback).not.toBeNull());
+    callback?.({ action: "cancel" });
+    await expect(sourcePromise).resolves.toEqual({ action: "cancel" });
+
+    callback = null;
+    const folderPromise = googlePicker.openGooglePicker("output-folder", { access_token: "ya29.folder", api_key: "public", app_id: "app", scope_ready: true });
+    await waitFor(() => expect(callback).not.toBeNull());
+    callback?.({ action: "cancel" });
+    await expect(folderPromise).resolves.toEqual({ action: "cancel" });
+
+    expect(viewIds).toEqual(["docs", "folders"]);
+    expect(viewModes).toEqual(["list", "list"]);
+    expect(includeFolders).toEqual([true, true]);
+    expect(selectFolderEnabled).toEqual([true]);
+    expect(viewMimeTypes).toEqual(["audio/*,video/*,application/ogg", "application/vnd.google-apps.folder"]);
+    expect(builderCalls).toContainEqual({ method: "setLocale", args: ["ru"] });
+    expect(builderCalls).toContainEqual({ method: "setTitle", args: ["Выберите аудио или видео"] });
+    expect(builderCalls).toContainEqual({ method: "setTitle", args: ["Выберите папку для результатов"] });
+    expect(builderCalls).toContainEqual({ method: "setSize", args: [1051, 650] });
+    expect(builderCalls).toContainEqual({ method: "setOrigin", args: [window.location.origin] });
+    expect(builderCalls).toContainEqual({ method: "setMaxItems", args: [50] });
+    expect(builderCalls).toContainEqual({ method: "setMaxItems", args: [1] });
+    expect(builderCalls).toContainEqual({ method: "setSelectableMimeTypes", args: ["audio/*,video/*,application/ogg"] });
+    expect(builderCalls).toContainEqual({ method: "setSelectableMimeTypes", args: ["application/vnd.google-apps.folder"] });
+    expect(builderCalls.filter((call) => call.method === "enableFeature")).toEqual([{ method: "enableFeature", args: ["multi"] }]);
+    expect(builderCalls.some((call) => call.args.includes("support_drives"))).toBe(false);
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: originalInnerWidth });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: originalInnerHeight });
+  });
+
   it("platform mode refreshes in-memory CSRF and renders settings without browser storage secrets", async () => {
     renderApp("platform");
     await screen.findByText(/Панель аккаунта готова/);
