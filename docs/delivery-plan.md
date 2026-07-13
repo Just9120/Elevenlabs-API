@@ -74,28 +74,30 @@ Capability/status snapshot:
 - ✅ **PWA-GOOGLE-PICKER-POLISH-01 — Improve Google Picker navigation and presentation** — source-done/merged into main via PR #134 (head `cad5df98392b6761354f6988476d019fe50990b4`, merge `9849c7f045b9883baacb6e9de8d0ec2e9e8f3332`): polished the official Picker with list mode, Russian locale, mode-specific titles, viewport-aware sizing, explicit origin, and selection limits without backend, OAuth, deployment, or production processing changes.
 - ✅ **PWA-GOOGLE-PICKER-ROOT-01 — Start Google Picker navigation at My Drive root** — source-done/merged into main via PR #135 (head `09828da42abdaa87488bd8260631c56ecae04672`, merge `79d11be53308614a4ee69b5c76554f59795a3ee2`): configured both official Picker modes with `DocsView.setParent("root")` after manual post-deployment production observation found the output-folder view still showed folders from across Drive as one flat global list. Root-based Picker production navigation is not claimed without separate operator evidence.
 - ✅ **PWA-AUTH-OAUTH-UX-01 — Smooth session bootstrap and return from Google OAuth** — source-done/merged via PR #136 (head `e8ecf2fea7548c4f13914f94d1096763e27714d6`, merge `6745d45834c98c037b7000ebd5ccf6c921b4a8ef`); CI #327 and Studio PWA CI #152 passed.
-- 👉 **PWA-UX-UI-01 — Consolidate Studio workspace UX and restore source-file selection** — current focused frontend/docs item: address manually observed source Picker file-visibility failure and platform UX fragmentation while preserving backend contracts and keeping worker startup / controlled production processing smoke as separate operator actions.
+- ✅ **PWA-UX-UI-01 — Consolidate Studio workspace UX and restore source-file selection** — source-done/merged via PR #137 (head `ea44439625c36e8dc2cd0c6b5bd9c7c2435486b4`, merge `a0d4d7a3752b01de88349c0172655c9e642bda1b`); CI #330 passed and Studio PWA CI #155 passed. Manual production screenshots confirm the new platform navigation, project workspace tabs, and consolidated Settings UI are visible; the same screenshots exposed visual polish defects now addressed by PWA-UX-UI-POLISH-01. Source Picker media-file visibility is not claimed as manually validated without separate operator evidence.
+- 👉 **PWA-UX-UI-POLISH-01 — Polish the Studio workspace layout and high-friction forms** — current focused frontend/docs item: polish the production-visible Studio workspace layout, summary cards, project list, source-add cards, job creation form, Google Drive settings disclosure, security log disclosure, and responsive typography without backend, worker, runtime, deployment, production processing, Picker behavior, OAuth scope, or manifest changes.
 - 📝 **PWA-AUTH-OAUTH-UX-01 note** — superseded line retained below for context: current focused frontend/backend UX item: fix two manually observed production defects where the Login form flashes while `/api/auth/session` is still being checked and Google OAuth callback leaves the browser on an API status/JSON page instead of returning to the PWA.
 - ⛔ **PWA-PROCESSING-ROLLOUT-01A — Manual Studio processing rollout and controlled smoke validation** — paused before production job creation: worker startup and production processing smoke remain separate and paused until root-based Picker navigation is manually validated; this source PR must not claim production navigation or production processing validation.
 - 📋 **RUNTIME-01 — Batch source picker / manifest skip / Google Docs output smoke-check** — deferred by current product priority; still planned manual Colab/Drive/Docs validation without claiming pass/fail.
 
-## Last completed item: PWA-GOOGLE-PICKER-POLISH-01 — Improve Google Picker navigation and presentation
+## Last completed item: PWA-UX-UI-01 — Consolidate Studio workspace UX and restore source-file selection
 
-Status: source-done/merged into main via PR #134 (head `cad5df98392b6761354f6988476d019fe50990b4`, merge `9849c7f045b9883baacb6e9de8d0ec2e9e8f3332`).
+Status: source-done/merged into main via PR #137 (head `ea44439625c36e8dc2cd0c6b5bd9c7c2435486b4`, merge `a0d4d7a3752b01de88349c0172655c9e642bda1b`). CI #330 passed and Studio PWA CI #155 passed.
 
-Scope:
+Manual production evidence:
 
-- Polished the official Google Picker with list mode, Russian locale, mode-specific titles, viewport-aware sizing, explicit origin, and selection limits.
-- Preserved server-side verification, current mutation endpoints, Shared Drives-disabled behavior, and `drive.file` scope.
-- Did not claim production processing smoke success.
+- The new platform navigation (`Обзор / Проекты / Настройки`) is visible.
+- The project workspace tabs (`Обзор / Источники / Задачи`) are visible.
+- The consolidated Settings UI for provider keys and Google Drive is visible.
+- Production screenshots also showed layout defects in summary cards, the nested project list, source-add controls, task creation, Google Drive settings details, security-log disclosure, and page spacing; these are the focused scope of **PWA-UX-UI-POLISH-01**.
+- Source Picker media-file visibility is not yet claimed as manually validated unless separate operator evidence is supplied.
 
 Rollout boundary:
 
-- After automatic deployment of PR #134, manual production observation found the official Picker was localized, larger, and list-based, but the output-folder view still displayed folders from across Drive as one flat global list.
-- **PWA-GOOGLE-PICKER-ROOT-01** is the current focused frontend item to start both Picker modes at My Drive root with `DocsView.setParent("root")`.
-- Worker startup and production processing smoke remain separate and paused until root-based Picker navigation is manually validated.
-- No production deployment, production worker start, job creation, smoke job, Google document creation, production-live processing claim, or production navigation validation is recorded for this source follow-up.
-- **RUNTIME-01** remains deferred.
+- Worker startup remains a separate operator action.
+- Controlled production processing smoke remains separate.
+- No production processing claim is made.
+- No manifest parity claim is made.
 
 ## Current checkpoint
 
@@ -107,7 +109,7 @@ Current confirmed realtime evidence is partial: one display+microphone run confi
 
 ## Active recommended next item
 
-**PWA-UX-UI-01 — Consolidate Studio workspace UX and restore source-file selection** is the active focused source item. It consolidates platform navigation to Overview/Projects/Settings, makes Projects the source/output-folder/job workspace, removes source Picker MIME filters so Drive files are visible, and keeps backend validation authoritative. PWA-AUTH-OAUTH-UX-01 is source-done/merged via PR #136 (head `e8ecf2fea7548c4f13914f94d1096763e27714d6`, merge `6745d45834c98c037b7000ebd5ccf6c921b4a8ef`) with CI #327 and Studio PWA CI #152 passed.
+**PWA-UX-UI-POLISH-01 — Polish the Studio workspace layout and high-friction forms** is the active focused frontend/docs item. It preserves the PR #137 information architecture and backend contracts while correcting the production-observed visual defects in the Studio sidebar selector scoping, Overview summary cards, compact project list, Drive/device source actions, task creation layout and source recovery action, Google Drive technical-details disclosure, security-log summary row, account/provider-key spacing, and responsive typography. It does not change source Picker behavior, output-folder Picker behavior, OAuth scopes, credential contracts, job lifecycle, backend, worker, runtime, deployment, production worker startup, production processing smoke, or manifest behavior.
 
 PWA-AUTH-OAUTH-UX-01 was the active focused source item. It is limited to frontend/backend UX around platform session bootstrap and expected Google OAuth callback outcomes: introduce an explicit checking/authenticated/anonymous/error session state, render Login only after confirmed anonymous state, redirect expected callback outcomes back to the fixed trusted `STUDIO_APP_ORIGIN` PWA URL, open Settings after OAuth return, refresh Google connection state, show safe allowlisted messages, and remove the temporary `google_oauth` URL parameter. It does not execute production preflight, deployment, worker start, smoke job creation, production Picker validation, or production processing validation. **PWA-GOOGLE-PICKER-ROOT-01** is source-done/merged via PR #135 (head `09828da42abdaa87488bd8260631c56ecae04672`, merge `79d11be53308614a4ee69b5c76554f59795a3ee2`), but root-based Picker production navigation is not claimed without separate operator evidence. **PWA-PROCESSING-ROLLOUT-01A — Manual Studio processing rollout and controlled smoke validation** remains blocked/separate because production operator environment/access was unavailable. The two read-only preflight attempts were made only from a non-production coding workspace; that workspace was not the documented production checkout, and `/opt/elevenlabs-studio` was unavailable there. Phase 0 production identity and runtime gates were not executed, and all later production checks are `not-run`.
 
