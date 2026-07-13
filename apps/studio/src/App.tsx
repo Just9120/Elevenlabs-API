@@ -203,7 +203,8 @@ function isUsableJobSource(source: Source) {
 }
 function unusableJobSourceReason(source: Source) {
   if (source.deleted_at) return "Удалённый файл нельзя добавить в задачу";
-  if (source.upload_status !== "uploaded") return "Файл ещё не готов для задачи";
+  if (source.upload_status !== "uploaded")
+    return "Файл ещё не готов для задачи";
   return "Тип файла не поддерживается для задачи";
 }
 function isSafeDisplayUrl(value: string | null) {
@@ -454,11 +455,11 @@ function StaticShell() {
   const [page, setPage] = useState<Page>("dashboard");
   return (
     <div className="shell">
-      <aside>
+      <aside className="app-sidebar">
         <div className="brand">
           Studio PWA<span>UI foundation</span>
         </div>
-        <nav aria-label="Основная навигация">
+        <nav className="app-nav" aria-label="Основная навигация">
           {staticNav.map(({ id, label, icon: Icon }) => (
             <button
               className={page === id ? "active" : ""}
@@ -644,6 +645,7 @@ function SourcesPanel({
   onError: (message: string) => void;
 }) {
   const [uploadState, setUploadState] = useState("");
+  const [uploadFileName, setUploadFileName] = useState("");
   const [pickerState, setPickerState] = useState("");
   const [pickerError, setPickerError] = useState("");
   const sourcePickerOpeningRef = useRef(false);
@@ -712,6 +714,7 @@ function SourcesPanel({
     const file = e.target.files?.[0] ?? null;
     e.target.value = "";
     if (!file) return onError("Выберите аудио- или видеофайл для загрузки.");
+    setUploadFileName(file.name);
     if (!isSupportedMediaFile(file))
       return onError("Поддерживаются только аудио, видео или OGG.");
     if (file.size <= 0) return onError("Файл пустой. Выберите другой файл.");
@@ -780,7 +783,9 @@ function SourcesPanel({
         <article className="source-card" key={source.id}>
           <b>{source.original_filename}</b>
           <span>
-            {source.source_type === "google_drive" ? "Google Drive" : "С устройства"}
+            {source.source_type === "google_drive"
+              ? "Google Drive"
+              : "С устройства"}
           </span>
           <span>Статус: {sourceСтатусLabel(source.upload_status)}</span>
           <span>Размер: {formatBytes(source.size_bytes)}</span>
@@ -798,51 +803,69 @@ function SourcesPanel({
             <span>Загружен: {formatTime(source.uploaded_at)}</span>
             <span>Истекает: {formatTime(source.expires_at)}</span>
             <span>Удалён: {formatTime(source.deleted_at)}</span>
-            {source.delete_reason && <span>Причина: {source.delete_reason}</span>}
-            {source.drive_file_id && <span>Drive ID: {source.drive_file_id}</span>}
+            {source.delete_reason && (
+              <span>Причина: {source.delete_reason}</span>
+            )}
+            {source.drive_file_id && (
+              <span>Drive ID: {source.drive_file_id}</span>
+            )}
           </details>
         </article>
       ))}
-      <section className="source-form" aria-label="Выбор файлов Google Drive">
-        <h5>Google Drive</h5>
-        {!googleConnection?.connected && (
-          <p className="notice">Google Drive не подключён.</p>
-        )}
-        {googleConnection?.connected && googleConnection.reconnect_required && (
+      <div className="source-add-grid">
+        <section className="source-add-card" aria-label="Google Drive">
+          <h5>Google Drive</h5>
+          {!googleConnection?.connected && (
+            <p className="notice">Google Drive не подключён.</p>
+          )}
+          {googleConnection?.connected &&
+            googleConnection.reconnect_required && (
+              <p className="notice">
+                Переподключите Google Drive в настройках, чтобы выбрать файлы.
+              </p>
+            )}
+          {googleConnection?.connected &&
+            !googleConnection.picker_configured && (
+              <p className="notice">Выбор файлов временно недоступен.</p>
+            )}
+          {pickerReady && (
+            <p className="notice">
+              Выберите один или несколько аудио- или видеофайлов.
+            </p>
+          )}
+          <button
+            type="button"
+            className="primary"
+            disabled={!pickerReady || pickerBusy}
+            onClick={chooseDriveSources}
+          >
+            Выбрать файлы
+          </button>
+          {pickerState && <p role="status">{pickerState}</p>}
+          {pickerError && <p className="error">{pickerError}</p>}
+        </section>
+        <section className="source-add-card" aria-label="С устройства">
+          <h5>С устройства</h5>
           <p className="notice">
-            Переподключите Google Drive в настройках, чтобы выбрать файлы.
+            Загрузите временный аудио- или видеофайл до 512 МБ.
           </p>
-        )}
-        {googleConnection?.connected && !googleConnection.picker_configured && (
-          <p className="notice">
-            Выбор файлов временно недоступен.
+          <label className="button-like primary" htmlFor="local-source-upload">
+            Выбрать файл
+          </label>
+          <input
+            id="local-source-upload"
+            className="visually-hidden"
+            type="file"
+            accept="audio/*,video/*,.ogg,.oga,application/ogg"
+            onChange={uploadLocal}
+          />
+          <p role="status" className="muted">
+            {uploadFileName
+              ? `${uploadFileName} — ${uploadState || "выбран"}`
+              : "Файл не выбран"}
           </p>
-        )}
-        {pickerReady && (
-          <p className="notice">
-            Выберите один или несколько аудио- или видеофайлов.
-          </p>
-        )}
-        <button
-          type="button"
-          className="primary"
-          disabled={!pickerReady || pickerBusy}
-          onClick={chooseDriveSources}
-        >
-          Выбрать файлы
-        </button>
-        {pickerState && <p role="status">{pickerState}</p>}
-        {pickerError && <p className="error">{pickerError}</p>}
-      </section>
-      <label className="drop compact">
-        Выбрать файл
-        <input
-          type="file"
-          accept="audio/*,video/*,.ogg,.oga,application/ogg"
-          onChange={uploadLocal}
-        />
-      </label>
-      {uploadState && <p role="status">{uploadState}</p>}
+        </section>
+      </div>
     </section>
   );
 }
@@ -855,6 +878,7 @@ function JobsPanel({
   sources,
   onLoadSources,
   onReloadJobs,
+  onGoToSources,
 }: {
   project: Project;
   csrf: string;
@@ -863,6 +887,7 @@ function JobsPanel({
   sources: typeof emptySourceState;
   onLoadSources: (projectId: string) => void;
   onReloadJobs: (projectId: string) => void;
+  onGoToSources: () => void;
 }) {
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
   const [selectedCredentialId, setSelectedCredentialId] = useState("");
@@ -1033,7 +1058,7 @@ function JobsPanel({
         <p className="notice">Задачи пока не созданы.</p>
       )}
       <section
-        className="source-form"
+        className="job-readiness"
         aria-label="Project job readiness checklist"
       >
         <h5>Готовность</h5>
@@ -1041,7 +1066,9 @@ function JobsPanel({
           <li>
             Готовые файлы:{" "}
             {sources.loaded ? usableSourceCount : "файлы ещё не загружены"}
-            {sources.loaded && usableSourceCount === 0 && " — нет готовых файлов."}
+            {sources.loaded &&
+              usableSourceCount === 0 &&
+              " — нет готовых файлов."}
           </li>
           <li>
             Ключ провайдера:{" "}
@@ -1057,82 +1084,103 @@ function JobsPanel({
               ? `выбрана (${project.output_drive_folder_name || "Google Drive"})`
               : "не выбрана"}
           </li>
-
         </ul>
-
       </section>
-      <form className="source-form" onSubmit={createJob}>
-        <h5>Новая задача</h5>
-        {!sources.loaded ? (
-          <p className="notice">
-            Сначала загрузите файлы проекта, затем выберите готовые записи.
-          </p>
-        ) : (
-          sourceItems.map((source) => {
-            const usable = isUsableJobSource(source);
-            return (
-              <label key={source.id}>
-                <input
-                  type="checkbox"
-                  disabled={!usable}
-                  checked={selectedSourceIds.includes(source.id)}
-                  onChange={(e) =>
-                    setSelectedSourceIds((current) =>
-                      e.target.checked
-                        ? [...current, source.id]
-                        : current.filter((id) => id !== source.id),
-                    )
-                  }
-                />
-                {source.original_filename} · {sourceСтатусLabel(source.upload_status)}
-                {!usable && <span> — {unusableJobSourceReason(source)}</span>}
-              </label>
-            );
-          })
-        )}
-        {!sources.loaded && (
-          <button type="button" onClick={() => onLoadSources(project.id)}>
-            Загрузить файлы
+      {sources.loaded && usableSourceCount === 0 ? (
+        <section className="empty-state">
+          <p>Сначала добавьте хотя бы один готовый файл.</p>
+          <button type="button" className="primary" onClick={onGoToSources}>
+            Перейти к источникам
           </button>
-        )}
-        <input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Название задачи"
-          aria-label="Название задачи"
-          maxLength={160}
-        />
-        <label>
-          Ключ провайдера
-          <select
-            aria-label="Ключ провайдера"
-            value={selectedCredentialId}
-            onChange={(e) => setSelectedCredentialId(e.target.value)}
+        </section>
+      ) : (
+        <form className="job-creator" onSubmit={createJob}>
+          <h5>Новая задача</h5>
+          <fieldset className="job-source-list">
+            <legend>Файлы для обработки</legend>
+            {!sources.loaded ? (
+              <p className="notice">
+                Сначала загрузите файлы проекта, затем выберите готовые записи.
+              </p>
+            ) : (
+              sourceItems.map((source) => {
+                const usable = isUsableJobSource(source);
+                return (
+                  <label key={source.id}>
+                    <input
+                      type="checkbox"
+                      disabled={!usable}
+                      checked={selectedSourceIds.includes(source.id)}
+                      onChange={(e) =>
+                        setSelectedSourceIds((current) =>
+                          e.target.checked
+                            ? [...current, source.id]
+                            : current.filter((id) => id !== source.id),
+                        )
+                      }
+                    />
+                    {source.original_filename} ·{" "}
+                    {sourceСтатусLabel(source.upload_status)}
+                    {!usable && (
+                      <span> — {unusableJobSourceReason(source)}</span>
+                    )}
+                  </label>
+                );
+              })
+            )}
+            {!sources.loaded && (
+              <button type="button" onClick={() => onLoadSources(project.id)}>
+                Загрузить файлы
+              </button>
+            )}
+          </fieldset>
+          <div className="job-fields">
+            <label>
+              Название задачи
+              <input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Название задачи"
+                aria-label="Название задачи"
+                maxLength={160}
+              />
+            </label>
+            <label>
+              Ключ провайдера
+              <select
+                aria-label="Ключ провайдера"
+                value={selectedCredentialId}
+                onChange={(e) => setSelectedCredentialId(e.target.value)}
+              >
+                <option value="">Без ключа</option>
+                {activeCredentials.map((credential) => (
+                  <option key={credential.id} value={credential.id}>
+                    {credentialDisplay(credential)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {credentialsLoading && <p role="status">Загрузка ключей…</p>}
+            {!credentialsLoading && credentialsError && (
+              <p className="notice">{credentialsError}</p>
+            )}
+            {!credentialsLoading &&
+              !credentialsError &&
+              activeCredentials.length === 0 && (
+                <p className="notice">
+                  Активных ключей провайдера нет. Задача будет создана без
+                  выбранного ключа.
+                </p>
+              )}
+          </div>
+          <button
+            className="primary full-width"
+            disabled={!sources.loaded || usableSelected.length === 0}
           >
-            <option value="">Без ключа</option>
-            {activeCredentials.map((credential) => (
-              <option key={credential.id} value={credential.id}>
-                {credentialDisplay(credential)}
-              </option>
-            ))}
-          </select>
-        </label>
-        {credentialsLoading && <p role="status">Загрузка ключей…</p>}
-        {!credentialsLoading && credentialsError && (
-          <p className="notice">{credentialsError}</p>
-        )}
-        {!credentialsLoading &&
-          !credentialsError &&
-          activeCredentials.length === 0 && (
-            <p className="notice">
-              Активных ключей провайдера нет. Задача будет создана без
-              выбранного ключа.
-            </p>
-          )}
-        <button className="primary" disabled={!sources.loaded}>
-          Создать задачу
-        </button>
-      </form>
+            Создать задачу
+          </button>
+        </form>
+      )}
       {message && (
         <p className={message.startsWith("Не удалось") ? "error" : "notice"}>
           {message}
@@ -1216,12 +1264,10 @@ function JobsPanel({
                         Тип результата: {output.output_kind || "не указан"}
                       </span>
                       <span>
-                        Формат:{" "}
-                        {output.transcript_standard || "не указан"}
+                        Формат: {output.transcript_standard || "не указан"}
                       </span>
                       <span>
-                        Символов:{" "}
-                        {output.document_character_count ?? "—"}
+                        Символов: {output.document_character_count ?? "—"}
                       </span>
                       <span>
                         Создан: {formatTime(output.document_created_at)}
@@ -1293,24 +1339,24 @@ function OverviewPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
   return (
     <section className="page">
       <header className="page-header">
-        <h1>Studio</h1>
+        <h1 className="page-title">Studio</h1>
         <p>
           Создайте проект, добавьте аудио или видео, выберите папку результатов
           и создайте задачу.
         </p>
       </header>
       <div className="summary-grid">
-        <article className="card">
-          <span className="tag">Проекты</span>
-          <strong>{projectsCount}</strong>
+        <article className="card summary-card" aria-label="Проекты">
+          <span className="summary-label">Проекты</span>
+          <strong className="summary-value">{projectsCount}</strong>
         </article>
-        <article className="card">
-          <span className="tag">Google Drive</span>
-          <strong>{driveState}</strong>
+        <article className="card summary-card" aria-label="Google Drive">
+          <span className="summary-label">Google Drive</span>
+          <strong className="summary-value">{driveState}</strong>
         </article>
-        <article className="card">
-          <span className="tag">Ключи провайдеров</span>
-          <strong>{credentialsState}</strong>
+        <article className="card summary-card" aria-label="Ключи провайдеров">
+          <span className="summary-label">Ключи провайдеров</span>
+          <strong className="summary-value">{credentialsState}</strong>
         </article>
       </div>
       <article className="card">
@@ -1605,7 +1651,7 @@ function ProjectsPage({
     <section className="page">
       <header className="page-header split">
         <div>
-          <h1>Проекты</h1>
+          <h1 className="page-title">Проекты</h1>
           <p>
             Создавайте проекты, добавляйте файлы, выбирайте папку результатов и
             запускайте задачи.
@@ -1645,7 +1691,7 @@ function ProjectsPage({
         <p className="notice">Пока нет проектов. Создайте первый проект.</p>
       )}
       <div className="workspace-layout">
-        <aside className="project-list" aria-label="Список проектов">
+        <section className="project-list" aria-label="Список проектов">
           {projects.map((project) => (
             <button
               key={project.id}
@@ -1668,7 +1714,7 @@ function ProjectsPage({
               </small>
             </button>
           ))}
-        </aside>
+        </section>
         <div className="project-detail">
           {selectedProject ? (
             <article className="card workspace-card">
@@ -1878,6 +1924,7 @@ function ProjectsPage({
                         sources={selectedSources}
                         onLoadSources={loadSources}
                         onReloadJobs={loadJobs}
+                        onGoToSources={() => openTab("sources")}
                       />
                     </section>
                   )}
@@ -2050,10 +2097,15 @@ function SettingsPage({
           {oauthMessage}
         </p>
       )}
-      <p>
-        Аккаунт: <b>{user.email}</b> ({user.role})
-      </p>
-      <button onClick={onLogout}>Выйти</button>
+      <section className="account-card">
+        <div>
+          <b>{user.email}</b>
+          <span className="muted">{user.role}</span>
+        </div>
+        <button className="secondary" onClick={onLogout}>
+          Выйти
+        </button>
+      </section>
       <h3>Ключи провайдеров</h3>
       <p className="notice">
         Ключи не сохраняются в браузере и никогда не отображаются обратно.
@@ -2103,18 +2155,23 @@ function SettingsPage({
             <p>
               {c.status} · v{c.active_version ?? "—"} · {c.masked_value}
             </p>
-            <button
-              type="button"
-              onClick={() => setReplacingCredentialId(c.id)}
-            >
-              Заменить
-            </button>
-            <button onClick={() => action(`/credentials/${c.id}/revoke`)}>
-              Отозвать
-            </button>
-            <button onClick={() => action(`/credentials/${c.id}`, "DELETE")}>
-              Удалить
-            </button>
+            <div className="credential-actions">
+              <button
+                type="button"
+                onClick={() => setReplacingCredentialId(c.id)}
+              >
+                Заменить
+              </button>
+              <button onClick={() => action(`/credentials/${c.id}/revoke`)}>
+                Отозвать
+              </button>
+              <button
+                className="danger"
+                onClick={() => action(`/credentials/${c.id}`, "DELETE")}
+              >
+                Удалить
+              </button>
+            </div>
             {replacingCredentialId === c.id && (
               <form
                 className="inline"
@@ -2155,25 +2212,30 @@ function SettingsPage({
           <p>Проверяем статус подключения…</p>
         ) : googleConnection?.connected ? (
           <>
-            <h3>Drive подключён</h3>
-            <dl className="meta">
-              <dt>Email Google</dt>
-              <dd>{googleConnection.google_email ?? "—"}</dd>
-              <dt>Статус</dt>
-              <dd>{googleConnection.status ?? "—"}</dd>
-              <dt>Разрешения</dt>
-              <dd>{googleConnection.scopes ?? "—"}</dd>
-              <dt>Подключено</dt>
-              <dd>{formatTime(googleConnection.connected_at)}</dd>
-              <dt>Отключено</dt>
-              <dd>{formatTime(googleConnection.revoked_at)}</dd>
-            </dl>
+            <h3>Google Drive подключён</h3>
+            <p>
+              <b>{googleConnection.google_email ?? "—"}</b>
+            </p>
+            <p className="muted">
+              Подключён {formatTime(googleConnection.connected_at)}
+            </p>
+            <details className="technical-details">
+              <summary>Технические сведения</summary>
+              <dl className="meta technical-meta">
+                <dt>Статус</dt>
+                <dd>{googleConnection.status ?? "—"}</dd>
+                <dt>Разрешения</dt>
+                <dd>{googleConnection.scopes ?? "—"}</dd>
+                <dt>Отключено</dt>
+                <dd>{formatTime(googleConnection.revoked_at)}</dd>
+                <dt>Требуется переподключение</dt>
+                <dd>{googleConnection.reconnect_required ? "да" : "нет"}</dd>
+              </dl>
+            </details>
             {googleConnection.reconnect_required && (
               <div className="notice" role="status">
-                Google Drive подключён, но для выбора файлов через Picker нужно
-                повторно авторизовать доступ с правом drive.file. Текущее
-                подключение будет сохранено до успешного завершения нового OAuth
-                callback.
+                Для выбора файлов и папок нужно обновить подключение Google
+                Drive.
               </div>
             )}
             {googleConnection.reconnect_required && (
@@ -2189,13 +2251,13 @@ function SettingsPage({
           </>
         ) : googleConnection ? (
           <>
-            <h3>Drive не подключён</h3>
-            <p>
-              Статус: {googleConnection.status ?? "disconnected"}
-              {googleConnection.revoked_at
-                ? ` · revoked ${formatTime(googleConnection.revoked_at)}`
-                : ""}
-            </p>
+            <h3>Google Drive не подключён</h3>
+            <p>Подключите аккаунт, чтобы выбирать файлы и папку результатов.</p>
+            {googleConnection.revoked_at && (
+              <p className="muted">
+                Статус: {googleConnection.status ?? "revoked"}
+              </p>
+            )}
             <button
               className="primary"
               disabled={googleStarting}
@@ -2213,8 +2275,8 @@ function SettingsPage({
         {googleMessage && <p className="error">{googleMessage}</p>}
       </article>
       <details className="card security-log">
-        <summary>
-          <h3>Журнал безопасности</h3>
+        <summary className="summary-row">
+          <span>Журнал безопасности</span>
         </summary>
         <ul>
           {events
@@ -2329,11 +2391,11 @@ function PlatformShell() {
   };
   return (
     <div className="shell">
-      <aside>
+      <aside className="app-sidebar">
         <div className="brand">
           Studio PWA<span>Транскрибация</span>
         </div>
-        <nav aria-label="Основная навигация">
+        <nav className="app-nav" aria-label="Основная навигация">
           {platformNav.map(({ id, label, icon: Icon }) => (
             <button
               className={page === id ? "active" : ""}
