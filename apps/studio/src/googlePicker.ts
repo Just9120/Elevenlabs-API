@@ -57,7 +57,6 @@ const PICKER_LOCALE = "ru";
 const MY_DRIVE_ROOT_PARENT = "root";
 const SOURCE_PICKER_TITLE = "Выберите аудио или видео";
 const OUTPUT_FOLDER_PICKER_TITLE = "Выберите папку для результатов";
-const FOLDER_MIME_TYPE = "application/vnd.google-apps.folder";
 const PICKER_MIN_WIDTH = 566;
 const PICKER_MIN_HEIGHT = 350;
 const PICKER_VIEWPORT_MARGIN = 48;
@@ -212,7 +211,6 @@ export async function openGooglePicker(
       view.setParent(MY_DRIVE_ROOT_PARENT);
       view.setIncludeFolders?.(true);
       if (mode === "output-folder") {
-        view.setMimeTypes?.(FOLDER_MIME_TYPE);
         view.setSelectFolderEnabled?.(true);
       }
       const { width, height } = computeGooglePickerSize(
@@ -230,9 +228,6 @@ export async function openGooglePicker(
       );
       builder.setOrigin(window.location.origin);
       builder.setMaxItems(mode === "output-folder" ? 1 : 50);
-      if (mode === "output-folder") {
-        builder.setSelectableMimeTypes(FOLDER_MIME_TYPE);
-      }
       if (mode === "sources") {
         builder.enableFeature(pickerApi.Feature.MULTISELECT_ENABLED);
       }
