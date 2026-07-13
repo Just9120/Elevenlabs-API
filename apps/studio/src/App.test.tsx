@@ -28,6 +28,7 @@ function installFakeGooglePicker() {
   let callback: ((data: unknown) => void) | null = null;
   const viewIds: string[] = [];
   const viewModes: string[] = [];
+  const viewParents: string[] = [];
   const includeFolders: boolean[] = [];
   const selectFolderEnabled: boolean[] = [];
   const viewMimeTypes: string[] = [];
@@ -41,6 +42,7 @@ function installFakeGooglePicker() {
     setSelectFolderEnabled(value: boolean) { selectFolderEnabled.push(value); return this; }
     setMimeTypes(value: string) { viewMimeTypes.push(value); return this; }
     setMode(mode: string) { viewModes.push(mode); return this; }
+    setParent(parentId: string) { viewParents.push(parentId); return this; }
   }
   class FakeBuilder {
     addView() { builderCalls.push({ method: "addView", args: [] }); return this; }
@@ -85,6 +87,7 @@ function installFakeGooglePicker() {
     setVisible,
     viewIds,
     viewModes,
+    viewParents,
     includeFolders,
     selectFolderEnabled,
     viewMimeTypes,
@@ -567,6 +570,7 @@ describe("Studio PWA", () => {
       setSelectFolderEnabled() { return this; }
       setMimeTypes() { return this; }
       setMode() { return this; }
+      setParent() { return this; }
     }
     class FakeBuilder {
       addView() { return this; }
@@ -627,6 +631,7 @@ describe("Studio PWA", () => {
     let callback: ((data: unknown) => void) | null = null;
     const viewIds: string[] = [];
     const viewModes: string[] = [];
+    const viewParents: string[] = [];
     const includeFolders: boolean[] = [];
     const selectFolderEnabled: boolean[] = [];
     const viewMimeTypes: string[] = [];
@@ -637,6 +642,7 @@ describe("Studio PWA", () => {
       setSelectFolderEnabled(value: boolean) { selectFolderEnabled.push(value); return this; }
       setMimeTypes(value: string) { viewMimeTypes.push(value); return this; }
       setMode(mode: string) { viewModes.push(mode); return this; }
+      setParent(parentId: string) { viewParents.push(parentId); return this; }
     }
     class FakeBuilder {
       addView() { return this; }
@@ -670,6 +676,7 @@ describe("Studio PWA", () => {
 
     expect(viewIds).toEqual(["docs", "folders"]);
     expect(viewModes).toEqual(["list", "list"]);
+    expect(viewParents).toEqual(["root", "root"]);
     expect(includeFolders).toEqual([true, true]);
     expect(selectFolderEnabled).toEqual([true]);
     expect(viewMimeTypes).toEqual(["audio/*,video/*,application/ogg", "application/vnd.google-apps.folder"]);

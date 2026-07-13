@@ -18,6 +18,7 @@ type PickerView = {
   setSelectFolderEnabled?: (value: boolean) => PickerView;
   setMimeTypes?: (value: string) => PickerView;
   setMode: (mode: string) => PickerView;
+  setParent: (parentId: string) => PickerView;
 };
 type PickerBuilder = {
   addView: (view: PickerView) => PickerBuilder;
@@ -53,6 +54,7 @@ declare global {
 const SCRIPT_SELECTOR = 'script[data-studio-google-picker="true"]';
 const SCRIPT_TIMEOUT_MS = 10000;
 const PICKER_LOCALE = "ru";
+const MY_DRIVE_ROOT_PARENT = "root";
 const SOURCE_PICKER_TITLE = "Выберите аудио или видео";
 const OUTPUT_FOLDER_PICKER_TITLE = "Выберите папку для результатов";
 const SOURCE_SELECTABLE_MIME_TYPES = "audio/*,video/*,application/ogg";
@@ -183,6 +185,7 @@ export async function openGooglePicker(
         mode === "output-folder" ? pickerApi.ViewId.FOLDERS : pickerApi.ViewId.DOCS,
       );
       view.setMode(pickerApi.DocsViewMode.LIST);
+      view.setParent(MY_DRIVE_ROOT_PARENT);
       view.setIncludeFolders?.(true);
       if (mode === "output-folder") {
         view.setMimeTypes?.(FOLDER_MIME_TYPE);

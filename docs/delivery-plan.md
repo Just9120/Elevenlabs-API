@@ -71,25 +71,27 @@ Capability/status snapshot:
 - ✅ **Blocked preflight reconciliation** — source-done/merged via PR #131 (head `5412a2c14f50fe6cb08cf1cb14be7174aaab283d`, merge `d5adc5b14a2f2abc4dca6e22280477702e4964a1`); Backend CI #312 passed.
 - ✅ **PWA-PROCESSING-PREFLIGHT-01A — Read-only Studio production host preflight workflow** — source-done/merged via PR #132; it did not execute production preflight and does not claim production processing smoke success.
 - ✅ **PWA-GOOGLE-PICKER-01 — Native Google Drive Picker navigation for Studio PWA** — source-done/merged into main via PR #133 (`096a6a40ad96789af990d4fbf05087d2f1c74bd3`): replaced manual Drive file/folder ID UX with official Google Picker modal, server-side verified source persistence, and server-side verified output-folder selection while preserving `drive.file` only.
-- 👉 **PWA-GOOGLE-PICKER-POLISH-01 — Improve Google Picker navigation and presentation** — current focused frontend UX item: polish the official Picker with list mode, Russian locale, mode-specific titles, viewport-aware sizing, explicit origin, and selection limits without backend, OAuth, deployment, or production processing changes.
-- ⛔ **PWA-PROCESSING-ROLLOUT-01A — Manual Studio processing rollout and controlled smoke validation** — paused before production job creation: production processing smoke remains separate and is not claimed by the Picker source merge or Picker polish work.
+- ✅ **PWA-GOOGLE-PICKER-POLISH-01 — Improve Google Picker navigation and presentation** — source-done/merged into main via PR #134 (head `cad5df98392b6761354f6988476d019fe50990b4`, merge `9849c7f045b9883baacb6e9de8d0ec2e9e8f3332`): polished the official Picker with list mode, Russian locale, mode-specific titles, viewport-aware sizing, explicit origin, and selection limits without backend, OAuth, deployment, or production processing changes.
+- 👉 **PWA-GOOGLE-PICKER-ROOT-01 — Start Google Picker navigation at My Drive root** — current focused frontend item: configure both official Picker modes with `DocsView.setParent("root")` because manual post-deployment production observation found the output-folder view still showed folders from across Drive as one flat global list.
+- ⛔ **PWA-PROCESSING-ROLLOUT-01A — Manual Studio processing rollout and controlled smoke validation** — paused before production job creation: worker startup and production processing smoke remain separate and paused until root-based Picker navigation is manually validated; this source PR must not claim production navigation or production processing validation.
 - 📋 **RUNTIME-01 — Batch source picker / manifest skip / Google Docs output smoke-check** — deferred by current product priority; still planned manual Colab/Drive/Docs validation without claiming pass/fail.
 
-## Last completed item: PWA-GOOGLE-PICKER-01 — Native Google Drive Picker navigation for Studio PWA
+## Last completed item: PWA-GOOGLE-PICKER-POLISH-01 — Improve Google Picker navigation and presentation
 
-Status: source-done/merged into main via PR #133 (`096a6a40ad96789af990d4fbf05087d2f1c74bd3`).
+Status: source-done/merged into main via PR #134 (head `cad5df98392b6761354f6988476d019fe50990b4`, merge `9849c7f045b9883baacb6e9de8d0ec2e9e8f3332`).
 
 Scope:
 
-- Replaced manual Drive file/folder ID UX with the official Google Picker modal for source-file and output-folder selection.
-- Preserved server-side verification, current mutation endpoints, and `drive.file` scope.
+- Polished the official Google Picker with list mode, Russian locale, mode-specific titles, viewport-aware sizing, explicit origin, and selection limits.
+- Preserved server-side verification, current mutation endpoints, Shared Drives-disabled behavior, and `drive.file` scope.
 - Did not claim production processing smoke success.
 
 Rollout boundary:
 
-- Production processing smoke remains a separate operator-controlled validation item.
-- **PWA-GOOGLE-PICKER-POLISH-01** is the current focused frontend UX item before any resumed worker/smoke rollout.
-- No production deployment, production worker start, job creation, smoke job, Google document creation, or production-live processing claim is recorded here.
+- After automatic deployment of PR #134, manual production observation found the official Picker was localized, larger, and list-based, but the output-folder view still displayed folders from across Drive as one flat global list.
+- **PWA-GOOGLE-PICKER-ROOT-01** is the current focused frontend item to start both Picker modes at My Drive root with `DocsView.setParent("root")`.
+- Worker startup and production processing smoke remain separate and paused until root-based Picker navigation is manually validated.
+- No production deployment, production worker start, job creation, smoke job, Google document creation, production-live processing claim, or production navigation validation is recorded for this source follow-up.
 - **RUNTIME-01** remains deferred.
 
 ## Current checkpoint
@@ -102,11 +104,11 @@ Current confirmed realtime evidence is partial: one display+microphone run confi
 
 ## Active recommended next item
 
-**PWA-GOOGLE-PICKER-POLISH-01 — Improve Google Picker navigation and presentation** is the active focused source item. It is limited to frontend presentation/configuration of the official Google Picker and does not execute production preflight, deployment, worker start, smoke job creation, or production processing validation. **PWA-PROCESSING-ROLLOUT-01A — Manual Studio processing rollout and controlled smoke validation** remains blocked/separate because production operator environment/access was unavailable. The two read-only preflight attempts were made only from a non-production coding workspace; that workspace was not the documented production checkout, and `/opt/elevenlabs-studio` was unavailable there. Phase 0 production identity and runtime gates were not executed, and all later production checks are `not-run`.
+**PWA-GOOGLE-PICKER-ROOT-01 — Start Google Picker navigation at My Drive root** is the active focused source item. It is limited to frontend configuration of the official Google Picker with `DocsView.setParent("root")` for both source and output-folder modes after manual production observation found the output-folder view still showed a flat global folder list. It does not execute production preflight, deployment, worker start, smoke job creation, production Picker validation, or production processing validation. **PWA-PROCESSING-ROLLOUT-01A — Manual Studio processing rollout and controlled smoke validation** remains blocked/separate because production operator environment/access was unavailable. The two read-only preflight attempts were made only from a non-production coding workspace; that workspace was not the documented production checkout, and `/opt/elevenlabs-studio` was unavailable there. Phase 0 production identity and runtime gates were not executed, and all later production checks are `not-run`.
 
 This blocked state is not a failed production validation. No production repository identity, runtime files, services, database revision, smoke-account prerequisites, migration state, worker state, or production health were inspected, so no conclusion about actual production health, configuration, migration revision, worker state, or smoke readiness is supported. No production mutation occurred: no backup, migration, deploy, worker start, job creation, provider call, Google API call, cleanup, rollback, source edit, commit, or production PR action occurred.
 
-The next source action is the focused Picker polish item above; it does not complete the blocked operator rollout or claim production processing smoke success.
+The next source action is the focused Picker root-navigation item above; it does not complete the blocked operator rollout, prove production Picker navigation, or claim production processing smoke success.
 
 **RUNTIME-01** remains deferred.
 
