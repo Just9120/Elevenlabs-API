@@ -328,6 +328,12 @@ def test_create_job_from_google_drive_and_local_sources_preserves_order_and_safe
     detail = c.get(f"/api/jobs/{body['id']}")
     assert detail.status_code == 200
     assert [s["id"] for s in detail.json()["sources"]] == [sid1, sid2]
+    assert c.delete(f"/api/sources/{sid1}", headers=headers).status_code == 200
+    assert sid1 not in [s["id"] for s in c.get(f"/api/projects/{pid}/sources").json()["sources"]]
+    historical = c.get(f"/api/jobs/{body['id']}")
+    assert historical.status_code == 200
+    assert [s["id"] for s in historical.json()["sources"]] == [sid1, sid2]
+    assert historical.json()["sources"][0]["upload_status"] == "deleted"
     listed = c.get(f"/api/projects/{pid}/jobs")
     assert listed.status_code == 200 and listed.json()["jobs"][0]["id"] == body["id"]
 
@@ -477,15 +483,44 @@ def test_project_drive_folder_binding_update_and_clear():
     assert c.patch(f"/api/projects/{pid}", json={"output_drive_folder_url": "https://evil.test/x"}, headers=headers).status_code == 422
 
 
-def test_google_drive_source_metadata_lifecycle_owner_scoped():
+
+
+def test_source_display_filename_normalization_preserves_unicode_and_extension():
+    from studio_api.source_storage import normalize_source_display_filename
+    cyrillic = "Лекция 1. Личность как психологическое явление.flac"
+    assert normalize_source_display_filename(cyrillic) == cyrillic
+    assert normalize_source_display_filename(" Mix Лекция-01_(draft).mp3 ") == "Mix Лекция-01_(draft).mp3"
+    assert normalize_source_display_filename("../дир/файл.mp3") == ".._дир_файл.mp3"
+    assert normalize_source_display_filename("bad\nname\r\x00.mp3") == "badname.mp3"
+    assert normalize_source_display_filename("\x00\n") == "source"
+    long_name = "Л" * 300 + ".flac"
+    normalized = normalize_source_display_filename(long_name)
+    assert len(normalized) == 255
+    assert normalized.endswith(".flac")
+
+def test_google_drive_source_metadata_lifecycle_owner_scoped(monkeypatch):
+    import studio_api.main as main_mod
+    def fail_storage(*_args, **_kwargs):
+        raise AssertionError("Google Drive source removal must not delete Studio storage")
+    monkeypatch.setattr(main_mod, "get_source_storage", fail_storage)
     c, headers, pid = create_logged_in_project("gdrive@example.com")
-    r = c.post(f"/api/projects/{pid}/sources/google-drive", json={"drive_file_id":"file_123", "drive_file_url":"https://drive.google.com/file/d/file_123/view", "original_filename":"meeting.mp4", "mime_type":"video/mp4", "size_bytes":42}, headers=headers)
+    r = c.post(f"/api/projects/{pid}/sources/google-drive", json={"drive_file_id":"file_123", "drive_file_url":"https://drive.google.com/file/d/file_123/view", "original_filename":"Лекция 1. Личность как психологическое явление.flac", "mime_type":"video/mp4", "size_bytes":42}, headers=headers)
     assert r.status_code == 200
     sid = r.json()["id"]
     assert r.json()["source_type"] == "google_drive"
+    assert r.json()["original_filename"] == "Лекция 1. Личность как психологическое явление.flac"
     assert "s3" not in r.text.lower()
-    assert c.get(f"/api/projects/{pid}/sources").json()["sources"][0]["id"] == sid
+    r2 = c.post(f"/api/projects/{pid}/sources/google-drive", json={"drive_file_id":"file_456", "drive_file_url":"https://drive.google.com/file/d/file_456/view", "original_filename":"active.mp4", "mime_type":"video/mp4", "size_bytes":43}, headers=headers)
+    assert r2.status_code == 200
+    active_sid = r2.json()["id"]
+    assert [s["id"] for s in c.get(f"/api/projects/{pid}/sources").json()["sources"]] == [active_sid, sid]
     assert c.delete(f"/api/sources/{sid}", headers=headers).status_code == 200
+    assert [s["id"] for s in c.get(f"/api/projects/{pid}/sources").json()["sources"]] == [active_sid]
+    db = SessionLocal(); src = db.get(Source, sid); db.close()
+    assert src is not None
+    assert src.deleted_at is not None
+    assert src.upload_status == SourceUploadStatus.deleted
+    assert src.drive_file_id == "file_123"
     assert c.delete(f"/api/sources/{sid}", headers=headers).status_code == 200
 
 
@@ -504,9 +539,15 @@ def test_local_upload_initiate_requires_auth_ownership_and_validates(monkeypatch
     assert "/secret%20song" not in r.text and "secret song.mp3" not in r.text and "secret%20song.mp3" not in r.text
     assert "no-secret-id" not in r.text and "no-secret-key" not in r.text
     db = SessionLocal(); src = db.get(Source, body["source_id"]); object_key = src.s3_object_key; source_id = src.id; original_filename = src.original_filename; db.close()
-    assert original_filename == "secret song.mp3"
+    assert original_filename == ".._secret song.mp3"
     assert object_key.endswith(f"/projects/{pid}/sources/{source_id}/source")
     assert original_filename not in object_key
+
+    unicode_name = "Лекция 1. Личность как психологическое явление.flac"
+    r = c.post(f"/api/projects/{pid}/sources/local-upload/initiate", json={"original_filename": unicode_name,"mime_type":"audio/mpeg","size_bytes":10}, headers=headers)
+    assert r.status_code == 200
+    db = SessionLocal(); src = db.get(Source, r.json()["source_id"]); db.close()
+    assert src.original_filename == unicode_name
 
 
 def test_local_upload_initiate_fails_closed_without_storage(monkeypatch):
@@ -1883,6 +1924,15 @@ def test_google_picker_source_and_output_selection_revalidates_server_metadata(m
     r = c.post(f"/api/projects/{pid}/sources/google-picker", json={"file_ids": ["file-b", "file-a"]}, headers=headers)
     assert r.status_code == 200
     assert [s["original_filename"] for s in r.json()["sources"]] == ["Backend B.mp4", "Backend A.mp3"]
+    metas["file-c"] = GoogleDriveMetadata("file-c", "Лекция 1. Личность как психологическое явление.flac", "audio/flac", 30, "https://drive.google.com/file/d/file-c/view", None, None, False)
+    r = c.post(f"/api/projects/{pid}/sources/google-picker", json={"file_ids": ["file-c"]}, headers=headers)
+    assert r.status_code == 200
+    body = r.json()["sources"][0]
+    assert body["original_filename"] == "Лекция 1. Личность как психологическое явление.flac"
+    assert body["drive_file_id"] == "file-c"
+    assert body["drive_file_url"] == "https://drive.google.com/file/d/file-c/view"
+    assert body["mime_type"] == "audio/flac"
+    assert body["size_bytes"] == 30
     assert "client" not in r.text.lower()
     assert c.post(f"/api/projects/{pid}/output-folder/google-picker", json={"folder_id":"file-a"}, headers=headers).status_code == 422
     r = c.post(f"/api/projects/{pid}/output-folder/google-picker", json={"folder_id":"folder"}, headers=headers)

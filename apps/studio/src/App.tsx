@@ -202,7 +202,7 @@ function isUsableJobSource(source: Source) {
   );
 }
 function unusableJobSourceReason(source: Source) {
-  if (source.deleted_at) return "Удалённый файл нельзя добавить в задачу";
+  if (source.deleted_at) return "Убранный из проекта файл нельзя добавить в задачу";
   if (source.upload_status !== "uploaded")
     return "Файл ещё не готов для задачи";
   return "Тип файла не поддерживается для задачи";
@@ -267,7 +267,7 @@ function sourceСтатусLabel(status: Source["upload_status"]) {
   const labels: Record<Source["upload_status"], string> = {
     pending: "Загружается",
     uploaded: "Готов",
-    deleted: "Удалён",
+    deleted: "Убран из проекта",
     expired: "Срок истёк",
     failed: "Ошибка",
   };
@@ -793,8 +793,8 @@ function SourcesPanel({
         method: "DELETE",
       });
       onReload(project.id);
-    } catch (err) {
-      onError(err instanceof Error ? err.message : "Не удалось удалить файл.");
+    } catch {
+      onError("Не удалось убрать файл из проекта.");
     }
   }
   return (
@@ -823,8 +823,17 @@ function SourcesPanel({
                 ariaLabel="Открыть файл в Google Drive в новой вкладке"
               />
             )}
-            <button type="button" onClick={() => deleteSource(source.id)}>
-              Удалить
+            <div className="source-removal-note">
+              {source.source_type === "google_drive"
+                ? "Файл останется на Google Drive."
+                : "Временная копия будет удалена из хранилища Studio."}
+            </div>
+            <button
+              type="button"
+              onClick={() => deleteSource(source.id)}
+              aria-label={`Убрать из проекта: ${source.original_filename}`}
+            >
+              Убрать из проекта
             </button>
           </div>
           <details>
