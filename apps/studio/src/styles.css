@@ -48,6 +48,10 @@ code { display: inline-block; max-width: 100%; overflow-wrap: anywhere; backgrou
 .muted { color: var(--studio-muted); font-size: .9rem; }
 .eyebrow, .tag, .summary-label { color: #6d28d9; text-transform: uppercase; letter-spacing: .08em; font-weight: 800; font-size: .78rem; }
 .actions, .credential-actions { display: flex; flex-wrap: wrap; gap: .65rem; align-items: center; }
+.resource-actions { display: flex; flex-wrap: wrap; gap: .65rem; align-items: center; }
+.resource-actions > button, .resource-actions > .button-like { flex: 0 1 auto; width: auto; max-width: 100%; }
+.resource-link { overflow-wrap: anywhere; text-align: left; }
+.resource-link span:first-child { min-width: 0; }
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; }
 .wide { max-width: 980px; }
 .full-width { width: 100%; }
