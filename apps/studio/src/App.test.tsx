@@ -108,6 +108,7 @@ function installFakeGooglePicker() {
       return this;
     }
     setCallback(cb: (data: unknown) => void) {
+      builderCalls.push({ method: "setCallback", args: [cb] });
       callback = cb;
       return this;
     }
@@ -907,13 +908,16 @@ describe("Studio PWA", () => {
         builderCalls.push({ method: "enableFeature", args: [feature] });
         return this;
       }
-      setOAuthToken() {
+      setOAuthToken(token: string) {
+        builderCalls.push({ method: "setOAuthToken", args: [token] });
         return this;
       }
-      setDeveloperKey() {
+      setDeveloperKey(key: string) {
+        builderCalls.push({ method: "setDeveloperKey", args: [key] });
         return this;
       }
-      setAppId() {
+      setAppId(appId: string) {
+        builderCalls.push({ method: "setAppId", args: [appId] });
         return this;
       }
       setLocale(locale: string) {
@@ -944,6 +948,7 @@ describe("Studio PWA", () => {
         return this;
       }
       setCallback(cb: (data: unknown) => void) {
+        builderCalls.push({ method: "setCallback", args: [cb] });
         callback = cb;
         return this;
       }
@@ -994,7 +999,7 @@ describe("Studio PWA", () => {
     expect(viewParents).toEqual(["root", "root"]);
     expect(includeFolders).toEqual([true, true]);
     expect(selectFolderEnabled).toEqual([true]);
-    expect(viewMimeTypes).toEqual(["application/vnd.google-apps.folder"]);
+    expect(viewMimeTypes).toEqual([]);
     expect(builderCalls).toContainEqual({ method: "setLocale", args: ["ru"] });
     expect(builderCalls).toContainEqual({
       method: "setTitle",
@@ -1012,19 +1017,30 @@ describe("Studio PWA", () => {
       method: "setOrigin",
       args: [window.location.origin],
     });
+    expect(builderCalls).toContainEqual({
+      method: "setOAuthToken",
+      args: ["ya29.source"],
+    });
+    expect(builderCalls).toContainEqual({
+      method: "setOAuthToken",
+      args: ["ya29.folder"],
+    });
+    expect(builderCalls).toContainEqual({
+      method: "setDeveloperKey",
+      args: ["public"],
+    });
+    expect(builderCalls).toContainEqual({ method: "setAppId", args: ["app"] });
     expect(builderCalls).toContainEqual({ method: "setMaxItems", args: [50] });
     expect(builderCalls).toContainEqual({ method: "setMaxItems", args: [1] });
     expect(
       builderCalls.filter((call) => call.method === "setSelectableMimeTypes"),
-    ).toEqual([
-      {
-        method: "setSelectableMimeTypes",
-        args: ["application/vnd.google-apps.folder"],
-      },
-    ]);
+    ).toEqual([]);
     expect(
       builderCalls.filter((call) => call.method === "enableFeature"),
     ).toEqual([{ method: "enableFeature", args: ["multi"] }]);
+    expect(
+      builderCalls.filter((call) => call.method === "setCallback"),
+    ).toHaveLength(2);
     expect(
       builderCalls.some((call) => call.args.includes("support_drives")),
     ).toBe(false);
@@ -2092,6 +2108,23 @@ describe("Studio PWA", () => {
     await picker.loadScript();
     await picker.waitForCallback();
     expect(picker.viewIds).toContain("folders");
+    expect(picker.viewModes).toContain("list");
+    expect(picker.viewParents).toContain("root");
+    expect(picker.includeFolders).toContain(true);
+    expect(picker.selectFolderEnabled).toEqual([true]);
+    expect(picker.viewMimeTypes).toEqual([]);
+    expect(
+      picker.builderCalls.filter((call) => call.method === "enableFeature"),
+    ).toEqual([]);
+    expect(
+      picker.builderCalls.filter(
+        (call) => call.method === "setSelectableMimeTypes",
+      ),
+    ).toEqual([]);
+    expect(picker.builderCalls).toContainEqual({
+      method: "setMaxItems",
+      args: [1],
+    });
     expect(
       (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(
         ([url]) => url === "/api/google/picker/session",
@@ -2122,8 +2155,25 @@ describe("Studio PWA", () => {
     expect(JSON.parse(String(folderCall?.[1]?.body))).toEqual({
       folder_id: "folder-picked",
     });
+    expect(folderCall?.[1]?.headers).toEqual(
+      expect.objectContaining({ "x-csrf-token": "csrf-after-refresh" }),
+    );
     expect(String(folderCall?.[1]?.body)).not.toContain("Folder Name");
+    expect(String(folderCall?.[1]?.body)).not.toContain(
+      "application/vnd.google-apps.folder",
+    );
+    expect(String(folderCall?.[1]?.body)).not.toContain("raw-google-payload");
     expect(String(folderCall?.[1]?.body)).not.toContain("ya29");
+    await waitFor(() =>
+      expect(
+        (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(
+          ([url]) => url === "/api/projects",
+        ).length,
+      ).toBeGreaterThan(1),
+    );
+    expect(document.body.textContent).not.toContain("Folder Name");
+    expect(document.body.textContent).not.toContain("ya29");
+    expect(document.body.textContent).not.toContain("raw-google-payload");
   });
 
   it("output-folder Picker cancel/error does not mutate folder and source/folder cannot open simultaneously", async () => {
@@ -2172,6 +2222,27 @@ describe("Studio PWA", () => {
       ),
     ).toBe(false);
     expect(document.body.textContent).not.toContain("raw-google-payload");
+
+    cleanup();
+    vi.clearAllMocks();
+    picker = installFakeGooglePicker();
+    renderApp("platform");
+    await openProjectsPage();
+    await userEvent.click(await screen.findByRole("tab", { name: "Обзор" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Изменить|Выбрать папку/ }),
+    );
+    await picker.loadScript();
+    await picker.waitForCallback();
+    picker.trigger({ action: "picked", docs: [] });
+    expect(
+      await screen.findByText("Выберите одну папку Google Drive."),
+    ).toBeInTheDocument();
+    expect(
+      (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
+        ([url]) => url === "/api/projects/p1/output-folder/google-picker",
+      ),
+    ).toBe(false);
   });
 
   it("reconnect-required state provides a Settings recovery action", async () => {
@@ -2965,6 +3036,13 @@ describe("Studio PWA", () => {
     const css = readFileSync(join(process.cwd(), "src/styles.css"), "utf8");
     expect(css.match(/:root\s*\{/g)).toHaveLength(1);
     expect(css).toContain(".app-sidebar");
+    expect(css).not.toContain("button:not(.primary):not(.danger)");
+    expect(css).toMatch(/button:where\(\s*:not\(\.primary\):not\(\.danger\)\s*\)/);
+    expect(css).not.toContain("!important");
+    expect(css).toContain(".app-nav button");
+    expect(css).toContain(".tabs button");
+    expect(css).toContain(".project-list-item");
+    expect(css).toContain(".project-list-item.active");
     expect(css).toContain(".file-picker-control:focus-within .button-like");
     expect(css).toMatch(
       /\.file-picker-control:focus-within \.button-like\s*\{[^}]*outline:/s,

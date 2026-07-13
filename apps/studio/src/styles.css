@@ -19,7 +19,7 @@ html, body, #root { min-height: 100%; }
 body { margin: 0; background: var(--studio-bg); color: var(--studio-text); }
 button, input, select, textarea { font: inherit; }
 button, .button-like { border: 1px solid transparent; border-radius: 14px; padding: .8rem 1rem; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: .5rem; }
-button:not(.primary):not(.danger), .secondary { background: #eef2ff; color: #1e293b; border-color: var(--studio-border); }
+button:where(:not(.primary):not(.danger)), .secondary { background: #eef2ff; color: #1e293b; border-color: var(--studio-border); }
 button:disabled { cursor: not-allowed; opacity: .65; }
 button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible, .button-like:focus-visible { outline: 3px solid rgba(49,94,251,.35); outline-offset: 2px; }
 input, select, textarea { min-width: 0; border: 1px solid #cbd5e1; border-radius: 12px; padding: .75rem; background: white; }
