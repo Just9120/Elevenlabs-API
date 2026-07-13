@@ -609,8 +609,8 @@ describe("Studio PWA", () => {
   });
 
   it("computes deterministic Google Picker sizes within viewport and minimum constraints", () => {
-    expect(computeGooglePickerSize(1920, 1080)).toEqual({ width: 1200, height: 760 });
-    expect(computeGooglePickerSize(1366, 768)).toEqual({ width: 1200, height: 720 });
+    expect(computeGooglePickerSize(1920, 1080)).toEqual({ width: 1051, height: 650 });
+    expect(computeGooglePickerSize(1366, 768)).toEqual({ width: 1051, height: 650 });
     expect(computeGooglePickerSize(800, 600)).toEqual({ width: 752, height: 552 });
     expect(computeGooglePickerSize(480, 320)).toEqual({ width: 566, height: 350 });
     const computed = computeGooglePickerSize(1024.8, 700.2);
@@ -676,7 +676,7 @@ describe("Studio PWA", () => {
     expect(builderCalls).toContainEqual({ method: "setLocale", args: ["ru"] });
     expect(builderCalls).toContainEqual({ method: "setTitle", args: ["Выберите аудио или видео"] });
     expect(builderCalls).toContainEqual({ method: "setTitle", args: ["Выберите папку для результатов"] });
-    expect(builderCalls).toContainEqual({ method: "setSize", args: [1200, 720] });
+    expect(builderCalls).toContainEqual({ method: "setSize", args: [1051, 650] });
     expect(builderCalls).toContainEqual({ method: "setOrigin", args: [window.location.origin] });
     expect(builderCalls).toContainEqual({ method: "setMaxItems", args: [50] });
     expect(builderCalls).toContainEqual({ method: "setMaxItems", args: [1] });

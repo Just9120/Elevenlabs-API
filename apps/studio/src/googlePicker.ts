@@ -60,8 +60,8 @@ const FOLDER_MIME_TYPE = "application/vnd.google-apps.folder";
 const PICKER_MIN_WIDTH = 566;
 const PICKER_MIN_HEIGHT = 350;
 const PICKER_VIEWPORT_MARGIN = 48;
-const PICKER_DESKTOP_MAX_WIDTH = 1200;
-const PICKER_DESKTOP_MAX_HEIGHT = 760;
+const PICKER_DESKTOP_MAX_WIDTH = 1051;
+const PICKER_DESKTOP_MAX_HEIGHT = 650;
 let loader: Promise<void> | null = null;
 
 export function resetGooglePickerLoaderForTests() {
