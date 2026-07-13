@@ -656,6 +656,39 @@ describe("Studio PWA", () => {
       }),
     );
   });
+  it("opens approved Drive resource links in new tabs with compact action labels", async () => {
+    renderApp("platform");
+    await openProjectsPage();
+
+    const folderLink = await screen.findByRole("link", {
+      name: "Открыть папку в Google Drive в новой вкладке",
+    });
+    expect(folderLink).toHaveAttribute(
+      "href",
+      "https://drive.example/folders/folder-123",
+    );
+    expect(folderLink).toHaveAttribute("target", "_blank");
+    expect(folderLink).toHaveAttribute("rel", "noopener noreferrer");
+    expect(folderLink).toHaveClass("button-like", "secondary", "resource-link");
+    expect(folderLink.closest(".resource-actions")).not.toBeNull();
+
+    await userEvent.click(screen.getByRole("tab", { name: "Источники" }));
+    const sourceLink = await screen.findByRole("link", {
+      name: "Открыть файл в Google Drive в новой вкладке",
+    });
+    expect(sourceLink).toHaveAttribute("href", "https://drive.example/file/1");
+    expect(sourceLink).toHaveAttribute("target", "_blank");
+    expect(sourceLink).toHaveAttribute("rel", "noopener noreferrer");
+    expect(sourceLink).toHaveClass("button-like", "secondary", "resource-link");
+    expect(sourceLink.closest(".resource-actions")).not.toBeNull();
+    expect(sourceLink).toHaveTextContent("↗");
+    expect(
+      screen
+        .getByRole("button", { name: "Удалить" })
+        .closest(".resource-actions"),
+    ).not.toBeNull();
+  });
+
   it("static-only mode renders public UI and makes no /api requests", async () => {
     renderApp("static");
     expect(screen.getByText("Панель готова к установке")).toBeInTheDocument();
@@ -1741,7 +1774,7 @@ describe("Studio PWA", () => {
                 mime_type: "video/mp4",
                 size_bytes: 2048,
                 drive_file_id: "drive-file-1",
-                drive_file_url: null,
+                drive_file_url: "https://drive.example/file/job-source",
                 upload_status: "uploaded",
                 uploaded_at: "2026-07-01T00:01:00",
                 expires_at: null,
@@ -1890,9 +1923,16 @@ describe("Studio PWA", () => {
     expect(within(detail).getByText("1. ready-drive.mp4")).toBeInTheDocument();
     expect(within(detail).getByText("2. ready-local.ogg")).toBeInTheDocument();
     expect(within(detail).getAllByText("Статус файла: queued")).toHaveLength(2);
-    expect(
-      within(detail).queryByRole("link", { name: "Открыть в Google Drive" }),
-    ).not.toBeInTheDocument();
+    const jobSourceLink = within(detail).getByRole("link", {
+      name: "Открыть файл в Google Drive в новой вкладке",
+    });
+    expect(jobSourceLink).toHaveAttribute(
+      "href",
+      "https://drive.example/file/job-source",
+    );
+    expect(jobSourceLink).toHaveAttribute("target", "_blank");
+    expect(jobSourceLink).toHaveAttribute("rel", "noopener noreferrer");
+    expect(jobSourceLink.closest(".resource-actions")).not.toBeNull();
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
         "/api/jobs/job-1/outputs",
@@ -3037,7 +3077,9 @@ describe("Studio PWA", () => {
     expect(css.match(/:root\s*\{/g)).toHaveLength(1);
     expect(css).toContain(".app-sidebar");
     expect(css).not.toContain("button:not(.primary):not(.danger)");
-    expect(css).toMatch(/button:where\(\s*:not\(\.primary\):not\(\.danger\)\s*\)/);
+    expect(css).toMatch(
+      /button:where\(\s*:not\(\.primary\):not\(\.danger\)\s*\)/,
+    );
     expect(css).not.toContain("!important");
     expect(css).toContain(".app-nav button");
     expect(css).toContain(".tabs button");

@@ -214,6 +214,30 @@ function isSafeDisplayUrl(value: string | null) {
     !/\s|token|secret|cipher|presigned|s3:|r2:|key/i.test(value),
   );
 }
+
+function ResourceExternalLink({
+  href,
+  label,
+  ariaLabel,
+}: {
+  href: string;
+  label: string;
+  ariaLabel: string;
+}) {
+  return (
+    <a
+      className="button-like secondary resource-link"
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={ariaLabel}
+    >
+      <span>{label}</span>
+      <span aria-hidden="true">↗</span>
+    </a>
+  );
+}
+
 function jobTitle(job: TranscriptionJob) {
   return job.title?.trim() || `Задача ${job.id}`;
 }
@@ -791,14 +815,18 @@ function SourcesPanel({
           </span>
           <span>Статус: {sourceСтатусLabel(source.upload_status)}</span>
           <span>Размер: {formatBytes(source.size_bytes)}</span>
-          {isSafeDisplayUrl(source.drive_file_url) && (
-            <a href={source.drive_file_url ?? undefined}>
-              Открыть в Google Drive
-            </a>
-          )}
-          <button type="button" onClick={() => deleteSource(source.id)}>
-            Удалить
-          </button>
+          <div className="resource-actions">
+            {isSafeDisplayUrl(source.drive_file_url) && (
+              <ResourceExternalLink
+                href={source.drive_file_url ?? ""}
+                label="Открыть файл в Google Drive"
+                ariaLabel="Открыть файл в Google Drive в новой вкладке"
+              />
+            )}
+            <button type="button" onClick={() => deleteSource(source.id)}>
+              Удалить
+            </button>
+          </div>
           <details>
             <summary>Технические сведения</summary>
             <span>MIME: {source.mime_type || "не указан"}</span>
@@ -1282,11 +1310,13 @@ function JobsPanel({
                       <span>Сохранён: {formatTime(output.persisted_at)}</span>
                       {approvedLink ? (
                         <a
+                          className="button-like secondary resource-link"
                           href={output.web_view_url ?? undefined}
                           target="_blank"
                           rel="noopener noreferrer"
                         >
-                          Открыть документ
+                          <span>Открыть документ</span>
+                          <span aria-hidden="true">↗</span>
                         </a>
                       ) : (
                         <span>Ссылка недоступна</span>
@@ -1310,9 +1340,13 @@ function JobsPanel({
                     <span>Статус файла: {source.job_source_status}</span>
                     <span>Размер: {formatBytes(source.size_bytes)}</span>
                     {isSafeDisplayUrl(source.drive_file_url) && (
-                      <a href={source.drive_file_url ?? undefined}>
-                        Открыть в Google Drive
-                      </a>
+                      <div className="resource-actions">
+                        <ResourceExternalLink
+                          href={source.drive_file_url ?? ""}
+                          label="Открыть файл в Google Drive"
+                          ariaLabel="Открыть файл в Google Drive в новой вкладке"
+                        />
+                      </div>
                     )}
                   </article>
                 ))}
@@ -1825,19 +1859,18 @@ function ProjectsPage({
                             {selectedProject.output_drive_folder_name ||
                               "Папка Google Drive"}
                           </p>
-                          {isSafeDisplayUrl(
-                            selectedProject.output_drive_folder_url,
-                          ) && (
-                            <a
-                              href={
-                                selectedProject.output_drive_folder_url ??
-                                undefined
-                              }
-                            >
-                              Открыть в Google Drive
-                            </a>
-                          )}
-                          <div className="actions">
+                          <div className="resource-actions">
+                            {isSafeDisplayUrl(
+                              selectedProject.output_drive_folder_url,
+                            ) && (
+                              <ResourceExternalLink
+                                href={
+                                  selectedProject.output_drive_folder_url ?? ""
+                                }
+                                label="Открыть папку в Google Drive"
+                                ariaLabel="Открыть папку в Google Drive в новой вкладке"
+                              />
+                            )}
                             <button
                               className="primary"
                               type="button"
