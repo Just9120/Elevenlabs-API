@@ -218,6 +218,16 @@ The first smoke validation, if performed by the future operator item, is limited
 
 Residual limitations remain product constraints: no exactly-once Google document creation, no automatic reconciliation, no automatic retry, no background lease heartbeat during one long materialization/provider stage, one continuous materialization/provider stage must fit the configured worker lease TTL, no Studio manifest mutation, no OpenAI processing rollout in this item, no multi-worker production validation, no production-live claim from documentation or CI alone, and Colab remains the fallback production contour until factual Studio runtime evidence exists.
 
+### PWA-UX-UI-01 Studio workspace UX contract
+
+Studio platform navigation is project-centric: normal platform mode exposes `Обзор`, `Проекты`, and `Настройки`. Demo-only New Transcription and global demo Jobs pages must not be presented as real platform product functionality.
+
+Projects owns the real source, output-folder, and job workflow. A selected project workspace contains `Обзор`, `Источники`, and `Задачи`; source and job tools should be visible as workspace tabs rather than hidden behind implementation-oriented show/hide buttons.
+
+For source selection, the Google Picker may display all Drive file types in `ViewId.DOCS` list mode without source MIME filters. Backend source validation remains authoritative, and the client may reject clearly unsupported explicit MIME values only with safe Russian copy. Output-folder selection remains folder-only.
+
+Normal user-facing platform copy is Russian-first and should avoid implementation or delivery terminology such as Platform API, Platform core, metadata, worker rollout, provider processing, lifecycle, source/job/output jargon, and BYOK wording when a plain product phrase exists.
+
 ### PWA-GOOGLE-PICKER-01 Studio Drive Picker contract
 
 Platform-mode Studio source selection now uses the official Google Picker modal for Drive navigation and search. The browser receives only a short-lived access token through an authenticated same-origin CSRF-protected Picker-session endpoint; Google refresh tokens, encrypted token material, credential ids, key ids, raw OAuth responses, and raw Google errors remain server-only. Studio continues to request only `openid`, `email`, and `https://www.googleapis.com/auth/drive.file`; restricted Drive scopes such as `drive`, `drive.readonly`, `drive.metadata`, and `drive.metadata.readonly` are out of scope.

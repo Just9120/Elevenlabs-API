@@ -57,7 +57,6 @@ const PICKER_LOCALE = "ru";
 const MY_DRIVE_ROOT_PARENT = "root";
 const SOURCE_PICKER_TITLE = "Выберите аудио или видео";
 const OUTPUT_FOLDER_PICKER_TITLE = "Выберите папку для результатов";
-const SOURCE_SELECTABLE_MIME_TYPES = "audio/*,video/*,application/ogg";
 const FOLDER_MIME_TYPE = "application/vnd.google-apps.folder";
 const PICKER_MIN_WIDTH = 566;
 const PICKER_MIN_HEIGHT = 350;
@@ -71,23 +70,40 @@ export function resetGooglePickerLoaderForTests() {
 }
 
 function clearFailedPickerScript() {
-  document.querySelectorAll<HTMLScriptElement>(SCRIPT_SELECTOR).forEach((script) => {
-    if (script.dataset.studioGooglePickerLoaded !== "true") {
-      script.remove();
-    }
-  });
+  document
+    .querySelectorAll<HTMLScriptElement>(SCRIPT_SELECTOR)
+    .forEach((script) => {
+      if (script.dataset.studioGooglePickerLoaded !== "true") {
+        script.remove();
+      }
+    });
 }
 
 function normalizedLoadError(): Error {
   return new Error("Google Picker не загрузился. Повторите попытку.");
 }
 
-export function computeGooglePickerSize(viewportWidth: number, viewportHeight: number): { width: number; height: number } {
-  const availableWidth = Math.max(PICKER_MIN_WIDTH, Math.floor(viewportWidth - PICKER_VIEWPORT_MARGIN));
-  const availableHeight = Math.max(PICKER_MIN_HEIGHT, Math.floor(viewportHeight - PICKER_VIEWPORT_MARGIN));
+export function computeGooglePickerSize(
+  viewportWidth: number,
+  viewportHeight: number,
+): { width: number; height: number } {
+  const availableWidth = Math.max(
+    PICKER_MIN_WIDTH,
+    Math.floor(viewportWidth - PICKER_VIEWPORT_MARGIN),
+  );
+  const availableHeight = Math.max(
+    PICKER_MIN_HEIGHT,
+    Math.floor(viewportHeight - PICKER_VIEWPORT_MARGIN),
+  );
   return {
-    width: Math.max(PICKER_MIN_WIDTH, Math.min(PICKER_DESKTOP_MAX_WIDTH, availableWidth)),
-    height: Math.max(PICKER_MIN_HEIGHT, Math.min(PICKER_DESKTOP_MAX_HEIGHT, availableHeight)),
+    width: Math.max(
+      PICKER_MIN_WIDTH,
+      Math.min(PICKER_DESKTOP_MAX_WIDTH, availableWidth),
+    ),
+    height: Math.max(
+      PICKER_MIN_HEIGHT,
+      Math.min(PICKER_DESKTOP_MAX_HEIGHT, availableHeight),
+    ),
   };
 }
 
@@ -120,7 +136,10 @@ export function loadGooglePicker(): Promise<void> {
         finish(normalizedLoadError());
       }
     };
-    const timeout = window.setTimeout(() => finish(normalizedLoadError()), SCRIPT_TIMEOUT_MS);
+    const timeout = window.setTimeout(
+      () => finish(normalizedLoadError()),
+      SCRIPT_TIMEOUT_MS,
+    );
     if (script?.dataset.studioGooglePickerLoaded === "true") {
       loadPickerApi();
       return;
@@ -177,12 +196,17 @@ export async function openGooglePicker(
       } else if (action === pickerApi.Action.CANCEL) {
         finish({ action: "cancel" });
       } else if (action === pickerApi.Action.ERROR) {
-        finish({ action: "error", message: "Google Picker вернул ошибку. Повторите попытку." });
+        finish({
+          action: "error",
+          message: "Google Picker вернул ошибку. Повторите попытку.",
+        });
       }
     };
     try {
       const view = new pickerApi.DocsView(
-        mode === "output-folder" ? pickerApi.ViewId.FOLDERS : pickerApi.ViewId.DOCS,
+        mode === "output-folder"
+          ? pickerApi.ViewId.FOLDERS
+          : pickerApi.ViewId.DOCS,
       );
       view.setMode(pickerApi.DocsViewMode.LIST);
       view.setParent(MY_DRIVE_ROOT_PARENT);
@@ -190,18 +214,25 @@ export async function openGooglePicker(
       if (mode === "output-folder") {
         view.setMimeTypes?.(FOLDER_MIME_TYPE);
         view.setSelectFolderEnabled?.(true);
-      } else {
-        view.setMimeTypes?.(SOURCE_SELECTABLE_MIME_TYPES);
       }
-      const { width, height } = computeGooglePickerSize(window.innerWidth, window.innerHeight);
+      const { width, height } = computeGooglePickerSize(
+        window.innerWidth,
+        window.innerHeight,
+      );
       const builder = new pickerApi.PickerBuilder();
       builder.addView(view);
       builder.setLocale(PICKER_LOCALE);
       builder.setSize(width, height);
-      builder.setTitle(mode === "output-folder" ? OUTPUT_FOLDER_PICKER_TITLE : SOURCE_PICKER_TITLE);
+      builder.setTitle(
+        mode === "output-folder"
+          ? OUTPUT_FOLDER_PICKER_TITLE
+          : SOURCE_PICKER_TITLE,
+      );
       builder.setOrigin(window.location.origin);
       builder.setMaxItems(mode === "output-folder" ? 1 : 50);
-      builder.setSelectableMimeTypes(mode === "output-folder" ? FOLDER_MIME_TYPE : SOURCE_SELECTABLE_MIME_TYPES);
+      if (mode === "output-folder") {
+        builder.setSelectableMimeTypes(FOLDER_MIME_TYPE);
+      }
       if (mode === "sources") {
         builder.enableFeature(pickerApi.Feature.MULTISELECT_ENABLED);
       }
