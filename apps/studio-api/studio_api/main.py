@@ -14,7 +14,7 @@ from .deps import current_session, get_client_ip, require_csrf, require_same_ori
 from .models import *
 from .rate_limit import RateLimiter
 from .security import *
-from .source_storage import get_source_storage, safe_filename
+from .source_storage import get_source_storage, normalize_source_display_filename
 from .source_policy import is_supported_source_mime_type, normalize_source_mime_type, validate_source_size
 from .google_connection_access import GoogleConnectionAccessError, GoogleConnectionAccessReason, active_google_connection_for_user, google_token_aad, refresh_user_google_drive_access_token, require_drive_file_scope
 from .google_scopes import has_drive_file_scope
@@ -307,7 +307,7 @@ def owned_source_or_404(db: Session, user: User, source_id: str) -> Source:
 @app.get("/api/projects/{project_id}/sources")
 def list_sources(project_id: str, pair=Depends(current_session), db: Session=Depends(get_db)):
     _,user=pair; p=owned_project_or_404(db,user,project_id)
-    rows=db.query(Source).filter(Source.project_id==p.id).order_by(Source.created_at.desc()).all()
+    rows=db.query(Source).filter(Source.project_id==p.id, Source.deleted_at.is_(None)).order_by(Source.created_at.desc()).all()
     return {"sources":[source_payload(r) for r in rows]}
 
 def _picker_cache_headers(response: Response):
@@ -366,7 +366,7 @@ def create_google_picker_sources(project_id: str, data: GooglePickerSourceSelect
     now=utcnow(); created=[]
     try:
         for meta,mime in metas:
-            src=Source(project_id=p.id, source_type=SourceType.google_drive, original_filename=safe_filename(meta.name or f"Google Drive source {meta.id}"), mime_type=mime, size_bytes=meta.size_bytes, drive_file_id=clean_drive_id(meta.id, "ID файла Google Drive"), drive_file_url=clean_drive_url(meta.web_view_link), upload_status=SourceUploadStatus.uploaded, uploaded_at=now)
+            src=Source(project_id=p.id, source_type=SourceType.google_drive, original_filename=normalize_source_display_filename(meta.name or f"Google Drive source {meta.id}"), mime_type=mime, size_bytes=meta.size_bytes, drive_file_id=clean_drive_id(meta.id, "ID файла Google Drive"), drive_file_url=clean_drive_url(meta.web_view_link), upload_status=SourceUploadStatus.uploaded, uploaded_at=now)
             db.add(src); created.append(src)
         audit(db,"source.google_picker.created",actor_user_id=user.id,subject_user_id=user.id,project_id=p.id,source_count=len(created)); db.commit()
     except Exception:
@@ -388,7 +388,7 @@ def set_google_picker_output_folder(project_id: str, data: GooglePickerOutputFol
 @app.post("/api/projects/{project_id}/sources/google-drive")
 def create_google_drive_source(project_id: str, data: GoogleDriveSourceIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     _,user=pair; limiter.check("source:gdrive:create:"+user.id, 120, 3600); p=owned_project_or_404(db,user,project_id)
-    src=Source(project_id=p.id, source_type=SourceType.google_drive, original_filename=safe_filename(data.original_filename), mime_type=data.mime_type.strip() if data.mime_type else None, size_bytes=data.size_bytes, drive_file_id=clean_drive_id(data.drive_file_id, "ID файла Google Drive"), drive_file_url=clean_drive_url(data.drive_file_url), upload_status=SourceUploadStatus.uploaded, uploaded_at=utcnow())
+    src=Source(project_id=p.id, source_type=SourceType.google_drive, original_filename=normalize_source_display_filename(data.original_filename), mime_type=data.mime_type.strip() if data.mime_type else None, size_bytes=data.size_bytes, drive_file_id=clean_drive_id(data.drive_file_id, "ID файла Google Drive"), drive_file_url=clean_drive_url(data.drive_file_url), upload_status=SourceUploadStatus.uploaded, uploaded_at=utcnow())
     db.add(src); audit(db,"source.google_drive.created",actor_user_id=user.id,subject_user_id=user.id); db.commit(); return source_payload(src)
 
 @app.post("/api/projects/{project_id}/sources/local-upload/initiate")
@@ -396,7 +396,7 @@ def initiate_local_upload(project_id: str, data: LocalUploadInitiateIn, pair=Dep
     _,user=pair; limiter.check("source:local:initiate:"+user.id, 60, 3600); p=owned_project_or_404(db,user,project_id)
     mime=validate_upload(data.mime_type, data.size_bytes)
     if not settings.source_storage_configured(): raise HTTPException(503, "Временное хранилище источников не настроено")
-    now=utcnow(); src=Source(project_id=p.id, source_type=SourceType.local_upload, original_filename=safe_filename(data.original_filename), mime_type=mime, size_bytes=data.size_bytes, upload_status=SourceUploadStatus.pending, expires_at=now+timedelta(seconds=settings.source_upload_ttl_seconds))
+    now=utcnow(); src=Source(project_id=p.id, source_type=SourceType.local_upload, original_filename=normalize_source_display_filename(data.original_filename), mime_type=mime, size_bytes=data.size_bytes, upload_status=SourceUploadStatus.pending, expires_at=now+timedelta(seconds=settings.source_upload_ttl_seconds))
     db.add(src); db.flush(); src.s3_bucket=settings.source_s3_bucket; src.s3_object_key=f"users/{user.id}/projects/{p.id}/sources/{src.id}/source"
     storage=get_source_storage(settings); url=storage.presigned_put_url(src.s3_object_key, mime, settings.source_presign_ttl_seconds)
     audit(db,"source.local_upload.initiated",actor_user_id=user.id,subject_user_id=user.id); db.commit()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -108,6 +109,32 @@ class S3SourceStorage:
 
 def get_source_storage(settings: Settings) -> S3SourceStorage:
     return S3SourceStorage(settings)
+
+
+SOURCE_DISPLAY_FILENAME_MAX_LENGTH = 255
+
+
+def _truncate_preserving_extension(value: str, max_length: int) -> str:
+    if len(value) <= max_length:
+        return value
+    stem, dot, extension = value.rpartition(".")
+    if dot and stem and 1 < len(extension) <= 24 and len(extension) + 1 < max_length:
+        return f"{stem[: max_length - len(extension) - 1].rstrip()} .{extension}".replace(" .", ".")
+    return value[:max_length].rstrip()
+
+
+def normalize_source_display_filename(name: str, max_length: int = SOURCE_DISPLAY_FILENAME_MAX_LENGTH) -> str:
+    value = unicodedata.normalize("NFC", name or "")
+    cleaned = []
+    for char in value.replace("\\", "_").replace("/", "_"):
+        category = unicodedata.category(char)
+        if char in {"\n", "\r", "\x00"} or category.startswith("C"):
+            continue
+        cleaned.append(char)
+    value = "".join(cleaned).strip()
+    value = re.sub(r"[ 	]+", " ", value)
+    value = _truncate_preserving_extension(value or "source", max_length).strip()
+    return value or "source"
 
 
 def safe_filename(name: str) -> str:
