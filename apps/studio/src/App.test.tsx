@@ -746,9 +746,10 @@ describe("Studio PWA", () => {
                 created_at: "2026-07-01T00:00:00",
                 updated_at: "2026-07-01T00:00:00",
                 archived_at: null,
-                output_drive_folder_id: null,
-                output_drive_folder_url: null,
-                output_drive_folder_name: null,
+                output_drive_folder_id: "folder-default",
+                output_drive_folder_url:
+                  "https://drive.google.com/drive/folders/folder-default",
+                output_drive_folder_name: "Default folder",
               },
             ],
           });
@@ -1707,7 +1708,7 @@ describe("Studio PWA", () => {
     ).toHaveTextContent("Папка по умолчанию: выбрана (Transcripts)");
   });
 
-  it.skip("creates, lists, details, and cancels project jobs safely with CSRF", async () => {
+  it("creates, lists, details, and cancels project jobs safely with CSRF", async () => {
     const secretLike =
       "sk-live-raw-token refresh_token encrypted_ciphertext s3://secret-key https://upload.example/leak";
     (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
@@ -1761,9 +1762,9 @@ describe("Studio PWA", () => {
                 created_at: "2026-07-01T00:00:00",
                 updated_at: "2026-07-01T00:00:00",
                 archived_at: null,
-                output_drive_folder_id: null,
-                output_drive_folder_url: null,
-                output_drive_folder_name: null,
+                output_drive_folder_id: "folder-default",
+                output_drive_folder_url: "https://drive.google.com/drive/folders/folder-default",
+                output_drive_folder_name: "Default folder",
               },
             ],
           });
@@ -1899,23 +1900,39 @@ describe("Studio PWA", () => {
               },
             ],
           });
-        if (url.endsWith("/api/projects/p1/jobs") && init?.method === "POST")
+        if (
+          url.endsWith("/api/projects/p1/jobs/batch") &&
+          init?.method === "POST"
+        )
           return json({
-            id: "job-created",
-            project_id: "p1",
-            status: "queued",
-            title: "Created from UI",
-            provider: null,
-            provider_credential_id: null,
-            source_count: 2,
-            sources: [],
-            created_at: "2026-07-04T00:00:00Z",
-            updated_at: "2026-07-04T00:00:00Z",
-            cancelled_at: null,
-            started_at: null,
-            finished_at: null,
-            error_code: null,
-            error_message: null,
+            jobs: [
+              {
+                id: "job-created",
+                project_id: "p1",
+                status: "queued",
+                title: "Created from UI",
+                provider: null,
+                provider_credential_id: null,
+                source_count: 1,
+                sources: [],
+                output_folder: {
+                  name: "Default folder",
+                  web_view_url:
+                    "https://drive.google.com/drive/folders/folder-default",
+                },
+                created_at: "2026-07-04T00:00:00Z",
+                updated_at: "2026-07-04T00:00:00Z",
+                cancelled_at: null,
+                cancel_requested_at: null,
+                attempt_count: 0,
+                started_at: null,
+                finished_at: null,
+                error_code: null,
+                error_message: null,
+              },
+            ],
+            created_count: 1,
+            replayed: false,
           });
         if (url.endsWith("/api/jobs/job-1/outputs"))
           return json({
@@ -2077,7 +2094,7 @@ describe("Studio PWA", () => {
     ).toHaveTextContent("Ключ провайдера: не выбран");
     expect(
       screen.getByLabelText("Project job readiness checklist"),
-    ).toHaveTextContent("Папка по умолчанию: не выбрана");
+    ).toHaveTextContent("Папка по умолчанию: выбрана (Default folder)");
     expect(document.body.textContent).not.toContain("worker/provider");
     expect(screen.getByText("Задача job-2")).toBeInTheDocument();
     expect(screen.getByText("Статус: В очереди")).toBeInTheDocument();
@@ -2091,7 +2108,7 @@ describe("Studio PWA", () => {
     expect(screen.queryByText("Error code: SAFE_CODE")).not.toBeInTheDocument();
     expect(screen.getByText("Ошибка: Safe visible error")).toBeInTheDocument();
 
-    expect(await screen.findByLabelText(/ready-drive/)).toBeInTheDocument();
+    expect((await screen.findAllByText(/ready-drive/))[0]).toBeInTheDocument();
     expect(
       screen.getByLabelText("Project job readiness checklist"),
     ).toHaveTextContent("Готовые файлы: 2");
@@ -2101,12 +2118,28 @@ describe("Studio PWA", () => {
     expect(
       screen.getByText(/Убранный из проекта файл нельзя добавить в задачу/),
     ).toBeInTheDocument();
-    expect(screen.getByLabelText(/pending-local/)).toBeDisabled();
-    expect(screen.getByLabelText(/deleted-drive/)).toBeDisabled();
-    await userEvent.click(screen.getByLabelText(/ready-drive/));
-    await userEvent.click(screen.getByLabelText(/ready-local/));
+    expect(
+      screen.queryByRole("button", {
+        name: "Добавить строку для pending-local.ogg",
+      }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", {
+        name: "Добавить строку для deleted-drive.mp4",
+      }),
+    ).not.toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Добавить строку для ready-drive.mp4",
+      }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Добавить строку для ready-local.ogg",
+      }),
+    );
     await userEvent.type(
-      screen.getByLabelText("Название задачи"),
+      screen.getByLabelText("Название задачи для строки 1"),
       "Created from UI",
     );
     const credentialSelect = screen.getByLabelText("Ключ провайдера");
@@ -2129,11 +2162,11 @@ describe("Studio PWA", () => {
       screen.getByLabelText("Project job readiness checklist"),
     ).toHaveTextContent("openai · Primary STT · ••••1234 · v2");
     await userEvent.click(
-      screen.getByRole("button", { name: "Создать задачу" }),
+      screen.getByRole("button", { name: "Создать пакет задач" }),
     );
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
-        "/api/projects/p1/jobs",
+        "/api/projects/p1/jobs/batch",
         expect.objectContaining({ method: "POST" }),
       ),
     );
@@ -2141,19 +2174,27 @@ describe("Studio PWA", () => {
       fetch as unknown as ReturnType<typeof vi.fn>
     ).mock.calls.find(
       ([url, init]) =>
-        url === "/api/projects/p1/jobs" && init?.method === "POST",
+        url === "/api/projects/p1/jobs/batch" && init?.method === "POST",
     );
     expect(createCall?.[1]?.headers).toMatchObject({
       "x-csrf-token": "csrf-after-refresh",
     });
     expect(JSON.parse(String(createCall?.[1]?.body))).toEqual({
-      source_ids: ["s1", "s2"],
-      title: "Created from UI",
       provider_credential_id: "cred-active",
+      items: [
+        {
+          source_id: "s1",
+          output_folder_id: "folder-default",
+          title: "Created from UI",
+        },
+        { source_id: "s2", output_folder_id: "folder-default", title: null },
+      ],
     });
 
+    const queuedJobCard = screen.getByText("Queued review").closest("article");
+    expect(queuedJobCard).not.toBeNull();
     await userEvent.click(
-      screen.getAllByRole("button", { name: "Открыть" })[0],
+      within(queuedJobCard as HTMLElement).getByRole("button", { name: "Открыть" }),
     );
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
@@ -2211,7 +2252,9 @@ describe("Studio PWA", () => {
     expect(document.body.textContent).not.toContain("storage/private/key");
     expect(document.body.textContent).not.toContain("internal-source-id");
 
-    await userEvent.click(screen.getByRole("button", { name: "Отменить" }));
+    await userEvent.click(
+      within(queuedJobCard as HTMLElement).getByRole("button", { name: "Отменить" }),
+    );
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
         "/api/jobs/job-1/cancel",
@@ -2610,7 +2653,7 @@ describe("Studio PWA", () => {
     );
   });
 
-  it.skip("allows creating a job without credential when credential loading fails", async () => {
+  it("allows creating a job without credential when credential loading fails", async () => {
     (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       (url: string, init?: RequestInit) => {
         if (url.endsWith("/api/auth/session"))
@@ -2632,9 +2675,10 @@ describe("Studio PWA", () => {
                 created_at: "2026-07-01T00:00:00",
                 updated_at: "2026-07-01T00:00:00",
                 archived_at: null,
-                output_drive_folder_id: null,
-                output_drive_folder_url: null,
-                output_drive_folder_name: null,
+                output_drive_folder_id: "folder-default",
+                output_drive_folder_url:
+                  "https://drive.google.com/drive/folders/folder-default",
+                output_drive_folder_name: "Default folder",
               },
             ],
           });
@@ -2662,23 +2706,39 @@ describe("Studio PWA", () => {
               },
             ],
           });
-        if (url.endsWith("/api/projects/p1/jobs") && init?.method === "POST")
+        if (
+          url.endsWith("/api/projects/p1/jobs/batch") &&
+          init?.method === "POST"
+        )
           return json({
-            id: "job-created",
-            project_id: "p1",
-            status: "queued",
-            title: null,
-            provider: null,
-            provider_credential_id: null,
-            source_count: 1,
-            sources: [],
-            created_at: "2026-07-04T00:00:00Z",
-            updated_at: "2026-07-04T00:00:00Z",
-            cancelled_at: null,
-            started_at: null,
-            finished_at: null,
-            error_code: null,
-            error_message: null,
+            jobs: [
+              {
+                id: "job-created",
+                project_id: "p1",
+                status: "queued",
+                title: null,
+                provider: null,
+                provider_credential_id: null,
+                source_count: 1,
+                sources: [],
+                output_folder: {
+                  name: "Default folder",
+                  web_view_url:
+                    "https://drive.google.com/drive/folders/folder-default",
+                },
+                created_at: "2026-07-04T00:00:00Z",
+                updated_at: "2026-07-04T00:00:00Z",
+                cancelled_at: null,
+                cancel_requested_at: null,
+                attempt_count: 0,
+                started_at: null,
+                finished_at: null,
+                error_code: null,
+                error_message: null,
+              },
+            ],
+            created_count: 1,
+            replayed: false,
           });
         return json({});
       },
@@ -2700,24 +2760,34 @@ describe("Studio PWA", () => {
       screen.queryByText("raw backend detail ignored"),
     ).not.toBeInTheDocument();
 
-    await userEvent.click(await screen.findByLabelText(/ready-local/));
     await userEvent.click(
-      screen.getByRole("button", { name: "Создать задачу" }),
+      await screen.findByRole("button", {
+        name: "Добавить строку для ready-local.ogg",
+      }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Создать пакет задач" }),
     );
     const createCall = await waitFor(() => {
       const call = (
         fetch as unknown as ReturnType<typeof vi.fn>
       ).mock.calls.find(
         ([url, init]) =>
-          url === "/api/projects/p1/jobs" && init?.method === "POST",
+          url === "/api/projects/p1/jobs/batch" && init?.method === "POST",
       );
       expect(call).toBeTruthy();
       return call;
     });
+    expect(createCall?.[1]?.headers).toEqual(
+      expect.objectContaining({
+        "Idempotency-Key": expect.stringMatching(/^batch-[0-9a-f-]{36}$/),
+      }),
+    );
     expect(JSON.parse(String(createCall?.[1]?.body))).toEqual({
-      source_ids: ["s1"],
-      title: null,
       provider_credential_id: null,
+      items: [
+        { source_id: "s1", output_folder_id: "folder-default", title: null },
+      ],
     });
     expect(window.localStorage.length).toBe(0);
     expect(window.sessionStorage.length).toBe(0);
@@ -3287,11 +3357,11 @@ describe("Studio PWA", () => {
       await screen.findByRole("tab", { name: "Подготовка" }),
     );
     expect(
-      await screen.findByText("Сначала добавьте хотя бы один готовый файл."),
+      await screen.findByText(/Сначала добавьте хотя бы один готовый файл/),
     ).toBeInTheDocument();
-    await userEvent.click(
-      screen.getByRole("button", { name: "Перейти к источникам" }),
-    );
+    expect(
+      screen.queryByRole("button", { name: "Перейти к источникам" }),
+    ).not.toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Подготовка" })).toHaveAttribute(
       "aria-selected",
       "true",

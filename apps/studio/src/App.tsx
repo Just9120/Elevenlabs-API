@@ -214,6 +214,13 @@ function isUsableJobSource(source: Source) {
       source.source_type === "local_upload")
   );
 }
+function unusableJobSourceReason(source: Source) {
+  if (source.deleted_at)
+    return "Убранный из проекта файл нельзя добавить в задачу";
+  if (source.upload_status !== "uploaded")
+    return "Файл ещё не готов для задачи";
+  return "Тип файла не поддерживается для задачи";
+}
 function isSafeDisplayUrl(value: string | null) {
   return Boolean(
     value &&
@@ -355,6 +362,57 @@ async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
     );
   return res.json();
 }
+
+async function apiWithCsrfNoRetry<T>(
+  path: string,
+  csrf: string,
+  options: RequestInit,
+): Promise<T> {
+  const res = await fetch(`/api${path}`, {
+    ...options,
+    credentials: "same-origin",
+    headers: {
+      "content-type": "application/json",
+      "x-csrf-token": csrf,
+      ...(options.headers ?? {}),
+    },
+  });
+  if (!res.ok) {
+    throw new ApiError(
+      res.status,
+      res.status === 429
+        ? "Слишком много попыток. Попробуйте позже."
+        : "Операция не выполнена. Проверьте данные и повторите.",
+    );
+  }
+  return res.json();
+}
+
+function isCsrfRejection(err: unknown) {
+  return (
+    err instanceof ApiError &&
+    (err.status === 401 || err.status === 403 || err.status === 419)
+  );
+}
+
+async function batchMutateWithCsrfRetry<T>(
+  path: string,
+  csrf: string,
+  onCsrf: (csrf: string) => void,
+  options: RequestInit,
+): Promise<T> {
+  try {
+    return await apiWithCsrfNoRetry<T>(path, csrf, options);
+  } catch (err) {
+    if (!isCsrfRejection(err)) throw err;
+    const refreshed = await api<{ csrf_token: string }>("/auth/csrf", {
+      method: "POST",
+    });
+    onCsrf(refreshed.csrf_token);
+    return apiWithCsrfNoRetry<T>(path, refreshed.csrf_token, options);
+  }
+}
+
 async function bootstrapSession(): Promise<{
   user: User;
   csrf: string;
@@ -821,6 +879,9 @@ function SourcesPanel({
               : "С устройства"}
           </span>
           <span>Статус: {sourceСтатусLabel(source.upload_status)}</span>
+          {!isUsableJobSource(source) && (
+            <span>{unusableJobSourceReason(source)}</span>
+          )}
           <span>Размер: {formatBytes(source.size_bytes)}</span>
           <div className="resource-actions">
             {isSafeDisplayUrl(source.drive_file_url) && (
@@ -954,6 +1015,14 @@ type BatchCreateResponse = {
   created_count: number;
   replayed: boolean;
 };
+function mergeJobsWithBatchOrder(
+  jobs: TranscriptionJob[],
+  batchJobs: TranscriptionJob[],
+) {
+  if (batchJobs.length === 0) return jobs;
+  const batchIds = new Set(batchJobs.map((job) => job.id));
+  return [...batchJobs, ...jobs.filter((job) => !batchIds.has(job.id))];
+}
 
 function PreparationPanel({
   project,
@@ -1030,6 +1099,7 @@ function PreparationPanel({
   );
   const sourceItems = Array.isArray(sources.items) ? sources.items : [];
   const usableSources = sourceItems.filter(isUsableJobSource);
+  const usableSourceIds = new Set(usableSources.map((source) => source.id));
   const selectedCredential = activeCredentials.find(
     (credential) => credential.id === selectedCredentialId,
   );
@@ -1039,6 +1109,11 @@ function PreparationPanel({
       current && current.signature !== signature ? null : current,
     );
   }, [signature]);
+  const invalidSourceRowIds = new Set(
+    rows
+      .filter((row) => row.source_id && !usableSourceIds.has(row.source_id))
+      .map((row) => row.id),
+  );
   const duplicatePairs = new Set<string>();
   const seenPairs = new Set<string>();
   rows.forEach((row) => {
@@ -1136,6 +1211,12 @@ function PreparationPanel({
       setMessage("В каждой строке выберите готовый файл и папку результата.");
       return;
     }
+    if (invalidSourceRowIds.size > 0) {
+      setMessage(
+        "Одна или несколько строк ссылаются на файл, который уже недоступен. Выберите готовый файл заново.",
+      );
+      return;
+    }
     if (duplicatePairs.size > 0) {
       setMessage(
         "Одинаковые пары файла и папки результата нельзя отправить дважды.",
@@ -1149,7 +1230,7 @@ function PreparationPanel({
     setPendingKey({ signature, key });
     setSubmitting(true);
     try {
-      const response = await csrfMutate<BatchCreateResponse>(
+      const response = await batchMutateWithCsrfRetry<BatchCreateResponse>(
         `/projects/${project.id}/jobs/batch`,
         csrf,
         onCsrf,
@@ -1177,14 +1258,19 @@ function PreparationPanel({
       );
       onReloadJobs(project.id);
     } catch (err) {
-      if (err instanceof ApiError && err.status === 409)
+      if (err instanceof ApiError && err.status === 409) {
         setMessage(
           "Конфликт повторной отправки. Проверьте строки и отправьте заново без автоматического повтора.",
         );
-      else
+      } else if (err instanceof ApiError && err.status === 422) {
         setMessage(
-          "Не удалось создать пакет задач. Строки сохранены — проверьте файлы и папки.",
+          "Пакет не прошёл проверку. Строки сохранены — исправьте файлы или папки и отправьте снова.",
         );
+      } else {
+        setMessage(
+          "Не удалось создать пакет задач. Строки и ключ повтора сохранены — можно повторить отправку без изменений.",
+        );
+      }
     } finally {
       setSubmitting(false);
     }
@@ -1254,7 +1340,7 @@ function PreparationPanel({
       setMessage("Не удалось отменить задачу. Повторите позже.");
     }
   }
-  const displayJobs = batchJobs.length > 0 ? batchJobs : (jobs.items ?? []);
+  const displayJobs = mergeJobsWithBatchOrder(jobs.items ?? [], batchJobs);
   return (
     <section className="preparation" aria-label={`Подготовка ${project.title}`}>
       <SourcesPanel
@@ -1327,8 +1413,10 @@ function PreparationPanel({
           )}
           {sources.loaded && usableSources.length === 0 && (
             <section className="empty-state">
-              <p>Сначала добавьте хотя бы один готовый файл.</p>
-              <button type="button">Перейти к источникам</button>
+              <p>
+                Сначала добавьте хотя бы один готовый файл через блок источников
+                выше.
+              </p>
             </section>
           )}
           {rows.length === 0 && (
@@ -1398,6 +1486,12 @@ function PreparationPanel({
                       aria-label={`Название задачи для строки ${index + 1}`}
                     />
                   </label>
+                  {invalidSourceRowIds.has(row.id) && (
+                    <p className="error">
+                      Выбранный файл больше недоступен. Выберите готовый файл
+                      заново.
+                    </p>
+                  )}
                   {duplicate && (
                     <p className="error">Такая пара файла и папки уже есть.</p>
                   )}
@@ -1451,13 +1545,18 @@ function PreparationPanel({
               onClick={() => addRow(source.id)}
               aria-label={`Добавить строку для ${source.original_filename}`}
             >
-              + {source.original_filename}
+              Добавить
             </button>
           ))}
         </div>
         <button
           className="primary full-width"
-          disabled={submitting || rows.length === 0 || duplicatePairs.size > 0}
+          disabled={
+            submitting ||
+            rows.length === 0 ||
+            duplicatePairs.size > 0 ||
+            invalidSourceRowIds.size > 0
+          }
         >
           {submitting ? "Создание…" : "Создать пакет задач"}
         </button>
@@ -1504,6 +1603,11 @@ function PreparationPanel({
                     ariaLabel="Открыть папку результата в Google Drive в новой вкладке"
                   />
                 )}
+              {job.status === "processing" && job.cancel_requested_at && (
+                <span>
+                  Отмена запрошена: {formatTime(job.cancel_requested_at)}
+                </span>
+              )}
               {job.error_message && <span>Ошибка: {job.error_message}</span>}
               <button type="button" onClick={() => void loadDetail(job.id)}>
                 Открыть
@@ -1516,6 +1620,11 @@ function PreparationPanel({
               {job.status === "processing" && !job.cancel_requested_at && (
                 <button type="button" onClick={() => void cancelJob(job.id)}>
                   Запросить отмену
+                </button>
+              )}
+              {job.status === "processing" && job.cancel_requested_at && (
+                <button type="button" disabled>
+                  Отмена запрошена
                 </button>
               )}
               {currentDetail?.loading && (
@@ -2207,6 +2316,7 @@ function ProjectsPage({
                       className="tab-panel"
                     >
                       <PreparationPanel
+                        key={selectedProject.id}
                         project={selectedProject}
                         csrf={csrf}
                         onCsrf={onCsrf}
