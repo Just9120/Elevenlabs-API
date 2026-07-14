@@ -730,3 +730,12 @@ The rollout contract preserves these limitations:
 - Colab remains the fallback production contour until factual Studio runtime evidence exists.
 
 `PWA-PROCESSING-ROLLOUT-01A` is operator-run; it may apply the reviewed migration and start one worker only after prerequisites and backup confirmation, may collect the safe evidence above, must not be represented as completed by a coding agent, must not change source unless the rollout exposes a separately scoped defect, and must stop without improvising when the stop conditions occur.
+
+
+## Job output-folder snapshot authority
+
+Processing no longer treats the mutable project output folder as runtime authority. The project folder is the default for future job creation only. Legacy `POST /api/projects/{project_id}/jobs` copies the current project default into the new job snapshot and preserves multi-source legacy job behavior. Batch `POST /api/projects/{project_id}/jobs/batch` creates several independent queued jobs atomically, with exactly one source relation at position 0 for each item.
+
+For every job, `TranscriptionJob.output_drive_folder_id` is the authoritative destination for preflight, claim readiness, processing-time verification, final provider pre-call revalidation, Google Docs output creation, and output persistence. Project archive/ownership checks, source availability, credential access, lease ownership/generation, cancellation, output uncertainty, and exactly-once output reconciliation remain unchanged.
+
+Persisted outputs must match the verified artifact folder, the current job snapshot folder, and the active lease generation. A later project default change must not redirect a queued or processing job, and a job snapshot change detected during processing fails closed or preserves the existing uncertainty/reconciliation behavior after irreversible side effects.

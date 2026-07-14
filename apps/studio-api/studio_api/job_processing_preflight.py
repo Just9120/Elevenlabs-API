@@ -69,7 +69,7 @@ def build_processing_preflight(job: Any) -> ProcessingPreflightSummary:
         "blocking_reasons": blocking_reasons,
         "sources": source_summaries,
         "provider_credential_present": bool(job.provider_credential_id),
-        "output_folder_configured": _project_output_folder_configured(job),
+        "output_folder_configured": _job_output_folder_configured(job),
     }
 
 
@@ -129,11 +129,8 @@ def _source_has_required_identity(source: Any, source_type: str) -> bool:
     return False
 
 
-def _project_output_folder_configured(job: Any) -> bool:
-    project = job.project
-    if project is None:
-        return False
-    return bool(getattr(project, "output_drive_folder_id", None))
+def _job_output_folder_configured(job: Any) -> bool:
+    return bool(getattr(job, "output_drive_folder_id", None))
 
 
 def _enum_value(value: Any) -> str:

@@ -1,9 +1,10 @@
-import json
+import hashlib, json, re
 from datetime import timedelta
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy import text, func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from alembic.config import Config
 from alembic.script import ScriptDirectory
@@ -21,6 +22,7 @@ from .google_scopes import has_drive_file_scope
 from .job_lifecycle import safe_failure_metadata_value
 from .job_processing_lifecycle import request_job_cancellation
 from .job_output_read import browser_job_output_payload, load_browser_job_output_rows
+from .job_output_folder_selection import VerifiedOutputFolderSelection, verify_output_folder_selection
 
 settings=get_settings()
 app=FastAPI(docs_url="/docs" if settings.enable_api_docs else None, redoc_url=None, openapi_url="/openapi.json" if settings.enable_api_docs else None)
@@ -68,6 +70,17 @@ class LocalUploadInitiateIn(BaseModel):
     original_filename: str=Field(min_length=1,max_length=255)
     mime_type: str=Field(min_length=1,max_length=255)
     size_bytes: int=Field(ge=1)
+
+class BatchJobItemIn(BaseModel):
+    source_id: str=Field(min_length=1,max_length=36)
+    output_folder_id: str=Field(min_length=1,max_length=256)
+    title: str|None=Field(default=None,max_length=160)
+
+class TranscriptionJobBatchCreateIn(BaseModel):
+    provider_credential_id: str|None=Field(default=None, max_length=36)
+    language: str|None=Field(default=None, max_length=40)
+    options: dict|None=None
+    items: list[BatchJobItemIn]=Field(min_length=1,max_length=50)
 
 class TranscriptionJobCreateIn(BaseModel):
     source_ids: list[str]=Field(min_length=1, max_length=50)
@@ -228,8 +241,17 @@ def job_source_payload(js: TranscriptionJobSource):
     data["job_source_status"]=js.status.value
     return data
 
+def safe_job_output_folder_payload(job: TranscriptionJob):
+    if not job.output_drive_folder_id:
+        return None
+    try:
+        url=clean_drive_url(job.output_drive_folder_url)
+    except HTTPException:
+        url=None
+    return {"name": clean_optional_name(job.output_drive_folder_name) or "Папка Google Drive", "web_view_url": url}
+
 def job_payload(job: TranscriptionJob, include_sources=False):
-    payload={"id": job.id, "project_id": job.project_id, "status": job.status.value, "title": job.title, "provider": job.provider, "provider_credential_id": job.provider_credential_id, "source_count": len(job.sources), "created_at": job.created_at.isoformat(), "updated_at": job.updated_at.isoformat(), "cancelled_at": job.cancelled_at.isoformat() if job.cancelled_at else None, "cancel_requested_at": job.cancel_requested_at.isoformat() if job.cancel_requested_at else None, "attempt_count": job.attempt_count or 0, "started_at": job.started_at.isoformat() if job.started_at else None, "finished_at": job.finished_at.isoformat() if job.finished_at else None, "error_code": safe_failure_metadata_value(job.error_code), "error_message": safe_failure_metadata_value(job.error_message)}
+    payload={"id": job.id, "project_id": job.project_id, "status": job.status.value, "title": job.title, "provider": job.provider, "provider_credential_id": job.provider_credential_id, "source_count": len(job.sources), "created_at": job.created_at.isoformat(), "updated_at": job.updated_at.isoformat(), "cancelled_at": job.cancelled_at.isoformat() if job.cancelled_at else None, "cancel_requested_at": job.cancel_requested_at.isoformat() if job.cancel_requested_at else None, "attempt_count": job.attempt_count or 0, "started_at": job.started_at.isoformat() if job.started_at else None, "finished_at": job.finished_at.isoformat() if job.finished_at else None, "error_code": safe_failure_metadata_value(job.error_code), "error_message": safe_failure_metadata_value(job.error_message), "output_folder": safe_job_output_folder_payload(job)}
     if include_sources: payload["sources"]=[job_source_payload(s) for s in sorted(job.sources, key=lambda item: item.position)]
     return payload
 
@@ -376,14 +398,86 @@ def create_google_picker_sources(project_id: str, data: GooglePickerSourceSelect
 @app.post("/api/projects/{project_id}/output-folder/google-picker")
 def set_google_picker_output_folder(project_id: str, data: GooglePickerOutputFolderIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     _,user=pair; limiter.check("project:gpicker:folder:"+user.id, 60, 3600); p=owned_project_or_404(db,user,project_id)
-    meta=_validated_drive_metadata_for_picker(db, user, data.folder_id)
-    if not meta.is_folder:
-        raise HTTPException(422, "Выберите папку Google Drive для результатов")
-    p.output_drive_folder_id=clean_drive_id(meta.id, "ID папки Google Drive")
-    p.output_drive_folder_url=clean_drive_url(meta.web_view_link)
-    p.output_drive_folder_name=clean_optional_name(meta.name)
+    access_token=refreshed_google_drive_access_token(db, user)
+    verified=verify_output_folder_selection(access_token, data.folder_id)
+    p.output_drive_folder_id=verified.id
+    p.output_drive_folder_url=verified.web_view_url
+    p.output_drive_folder_name=verified.name
     p.updated_at=utcnow(); audit(db,"project.output_folder.google_picker_set",actor_user_id=user.id,subject_user_id=user.id,project_id=p.id); db.commit(); db.refresh(p)
     return project_payload(p)
+
+
+@app.post("/api/projects/{project_id}/output-folders/google-picker/verify")
+def verify_google_picker_output_folder(project_id: str, data: GooglePickerOutputFolderIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("project:gpicker:folder:verify:"+user.id, 120, 3600); owned_project_or_404(db,user,project_id)
+    access_token=refreshed_google_drive_access_token(db, user)
+    verified=verify_output_folder_selection(access_token, data.folder_id)
+    return {"name": verified.name or "Папка Google Drive", "web_view_url": verified.web_view_url}
+
+_IDEMPOTENCY_RE=re.compile(r"^[A-Za-z0-9_.-]{8,128}$")
+def _clean_idempotency_key(value: str|None) -> str:
+    key=(value or "").strip()
+    if not _IDEMPOTENCY_RE.fullmatch(key):
+        raise HTTPException(422, "Некорректный Idempotency-Key")
+    return key
+
+def _load_existing_batch(db, user_id, project_id, key):
+    return db.query(TranscriptionJob).filter(TranscriptionJob.owner_user_id==user_id, TranscriptionJob.project_id==project_id, TranscriptionJob.batch_idempotency_key==key).order_by(TranscriptionJob.batch_position.asc(), TranscriptionJob.id.asc()).all()
+
+def _batch_hash(project_id, provider_credential_id, language, options_json, items):
+    canonical={"project_id":project_id,"provider_credential_id":provider_credential_id,"language":language,"options":json.loads(options_json) if options_json else None,"items":items}
+    return hashlib.sha256(json.dumps(canonical, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+def _existing_batch_is_complete(existing, request_hash: str, expected_count: int) -> bool:
+    if len(existing) != expected_count:
+        return False
+    positions=[job.batch_position for job in existing]
+    return positions == list(range(expected_count)) and all(job.batch_request_hash == request_hash for job in existing)
+
+@app.post("/api/projects/{project_id}/jobs/batch")
+def create_transcription_jobs_batch(project_id: str, data: TranscriptionJobBatchCreateIn, request: Request, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("job:batch:create:"+user.id, 30, 3600); p=owned_project_or_404(db,user,project_id)
+    key=_clean_idempotency_key(request.headers.get("Idempotency-Key"))
+    language=clean_job_language(data.language); options_json=safe_job_options(data.options)
+    provider_credential_id=data.provider_credential_id.strip() if isinstance(data.provider_credential_id, str) and data.provider_credential_id.strip() else None
+    pairs=set(); duplicate_pair_found=False; source_ids=[]; folder_ids=[]; titles=[]
+    for item in data.items:
+        sid=item.source_id.strip(); fid=clean_drive_id(item.output_folder_id, "ID папки Google Drive")
+        pair_key=(sid,fid)
+        if pair_key in pairs: duplicate_pair_found=True
+        pairs.add(pair_key); source_ids.append(sid); folder_ids.append(fid); titles.append(clean_job_title(item.title))
+    hash_items=[{"source_id": sid, "output_folder_id": fid, "title": title} for sid,fid,title in zip(source_ids,folder_ids,titles)]
+    request_hash=_batch_hash(p.id, provider_credential_id, language, options_json, hash_items)
+    existing=_load_existing_batch(db,user.id,p.id,key)
+    if existing:
+        if not _existing_batch_is_complete(existing, request_hash, len(data.items)):
+            raise HTTPException(409, "Idempotency-Key already used with a different request")
+        return {"jobs":[job_payload(j, include_sources=True) for j in existing], "created_count": len(existing), "replayed": True}
+    if duplicate_pair_found:
+        raise HTTPException(422, "Повторяющиеся source/folder пары не допускаются")
+    if provider_credential_id:
+        cred=db.get(ProviderCredential, provider_credential_id)
+        if not cred or cred.user_id!=user.id or cred.status!=CredentialStatus.active: raise HTTPException(422, "Учетные данные провайдера недоступны")
+    sources=validate_job_sources(db, p.id, source_ids)
+    unique_folders=list(dict.fromkeys(folder_ids))
+    access_token=refreshed_google_drive_access_token(db, user)
+    verified_by_id={fid: verify_output_folder_selection(access_token, fid) for fid in unique_folders}
+    try:
+        jobs=[]
+        for idx,(src,fid,title) in enumerate(zip(sources,folder_ids,titles)):
+            vf=verified_by_id[fid]
+            job=TranscriptionJob(project_id=p.id, owner_user_id=user.id, status=JobStatus.queued, provider_credential_id=provider_credential_id, title=title, language=language, options_json=options_json, batch_idempotency_key=key, batch_request_hash=request_hash, batch_position=idx)
+            job.apply_output_folder_snapshot(folder_id=vf.id, folder_url=vf.web_view_url, folder_name=vf.name)
+            db.add(job); db.flush(); db.add(TranscriptionJobSource(job_id=job.id, source_id=src.id, position=0, status=JobSourceStatus.queued)); jobs.append(job)
+        audit(db,"job.batch_created",actor_user_id=user.id,subject_user_id=user.id,project_id=p.id,created_count=len(jobs))
+        db.commit()
+    except IntegrityError:
+        db.rollback(); existing=_load_existing_batch(db,user.id,p.id,key)
+        if _existing_batch_is_complete(existing, request_hash, len(data.items)):
+            return {"jobs":[job_payload(j, include_sources=True) for j in existing], "created_count": len(existing), "replayed": True}
+        raise HTTPException(409, "Idempotency-Key already used with a different request")
+    for job in jobs: db.refresh(job)
+    return {"jobs":[job_payload(j, include_sources=True) for j in sorted(jobs, key=lambda j: j.batch_position or 0)], "created_count": len(jobs), "replayed": False}
 
 @app.post("/api/projects/{project_id}/sources/google-drive")
 def create_google_drive_source(project_id: str, data: GoogleDriveSourceIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
@@ -441,6 +535,7 @@ def create_transcription_job(project_id: str, data: TranscriptionJobCreateIn, pa
         cred=db.get(ProviderCredential, data.provider_credential_id)
         if not cred or cred.user_id!=user.id or cred.status!=CredentialStatus.active: raise HTTPException(422, "Учетные данные провайдера недоступны")
     job=TranscriptionJob(project_id=p.id, owner_user_id=user.id, status=JobStatus.queued, provider_credential_id=data.provider_credential_id, title=clean_job_title(data.title), language=clean_job_language(data.language), options_json=safe_job_options(data.options))
+    job.apply_output_folder_snapshot(folder_id=p.output_drive_folder_id, folder_url=p.output_drive_folder_url, folder_name=p.output_drive_folder_name)
     db.add(job); db.flush()
     for idx, src in enumerate(sources):
         db.add(TranscriptionJobSource(job_id=job.id, source_id=src.id, position=idx, status=JobSourceStatus.queued))

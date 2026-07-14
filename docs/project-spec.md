@@ -233,3 +233,14 @@ Normal user-facing platform copy is Russian-first and should avoid implementatio
 Platform-mode Studio source selection now uses the official Google Picker modal for Drive navigation and search. The browser receives only a short-lived access token through an authenticated same-origin CSRF-protected Picker-session endpoint; Google refresh tokens, encrypted token material, credential ids, key ids, raw OAuth responses, and raw Google errors remain server-only. Studio continues to request only `openid`, `email`, and `https://www.googleapis.com/auth/drive.file`; restricted Drive scopes such as `drive`, `drive.readonly`, `drive.metadata`, and `drive.metadata.readonly` are out of scope.
 
 Picker callbacks are display hints only. Persisted source and output-folder metadata must be re-fetched and validated server-side with the active owner-scoped Google connection before Studio mutates project records. Source selection accepts one to fifty unique files, rejects folders and unsupported media, and stores backend-normalized safe metadata. Output-folder selection is a separate single-folder Picker flow and stores only normalized folder id, safe approved web-view URL, and display name. Static Studio mode must not call `/api`, load Google Picker scripts, or expose Picker configuration.
+
+
+## PWA job output destination contract
+
+The project Google Drive output folder is an editable default for future jobs only. Legacy single-job creation snapshots the current project default into the new job; if no default exists, the job keeps a null destination snapshot and processing readiness fails closed until a job destination exists.
+
+Each transcription job owns immutable `output_drive_folder_id`, `output_drive_folder_url`, and `output_drive_folder_name` snapshot fields. The job snapshot is the runtime authority for readiness, claiming, processing revalidation, Google Docs creation, output persistence, and browser-safe job metadata. Changing or clearing the project default never redirects existing jobs and never mutates persisted outputs.
+
+The future composer model remains deferred: one row represents one source mapped to one output folder, one row creates one independent job, and several rows are created atomically through the batch endpoint. Manifest behavior remains deferred and unchanged.
+
+`POST /api/projects/{project_id}/jobs/batch` creates several one-source jobs atomically. It stores bounded idempotency metadata and a SHA-256 canonical request hash without storing unredacted request JSON, access tokens, URLs from Google verification, folder names in the hash, secrets, timestamps, or unredacted Google responses.

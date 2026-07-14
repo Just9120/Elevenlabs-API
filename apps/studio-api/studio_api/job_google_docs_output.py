@@ -200,9 +200,9 @@ def _load_output_job_snapshot(db: Session, job_id: str, owner: str, generation: 
     project = db.get(Project, job.project_id)
     if project is None or project.owner_user_id != job.owner_user_id or project.archived_at is not None:
         raise JobGoogleDocsOutputError(JobGoogleDocsOutputReason.project_unavailable)
-    if not project.output_drive_folder_id:
+    if not job.output_drive_folder_id:
         raise JobGoogleDocsOutputError(JobGoogleDocsOutputReason.output_folder_missing)
-    return _OutputJobSnapshot(job.id, job.owner_user_id, project.id, job.title, job.language, project.output_drive_folder_id, job.lease_owner_id, job.lease_generation, job.lease_expires_at, job.cancel_requested_at, project.archived_at, project.owner_user_id)
+    return _OutputJobSnapshot(job.id, job.owner_user_id, project.id, job.title, job.language, job.output_drive_folder_id, job.lease_owner_id, job.lease_generation, job.lease_expires_at, job.cancel_requested_at, project.archived_at, project.owner_user_id)
 
 
 def _load_source_snapshot(db, job_id, job_source_id, owner, generation, now, settings):

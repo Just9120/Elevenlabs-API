@@ -1549,7 +1549,7 @@ describe("Studio PWA", () => {
     await userEvent.click(await screen.findByRole("tab", { name: "Задачи" }));
     expect(
       await screen.findByLabelText("Project job readiness checklist"),
-    ).toHaveTextContent("Папка результатов: выбрана (Transcripts)");
+    ).toHaveTextContent("Папка по умолчанию: выбрана (Transcripts)");
   });
 
   it("creates, lists, details, and cancels project jobs safely with CSRF", async () => {
@@ -1920,7 +1920,7 @@ describe("Studio PWA", () => {
     ).toHaveTextContent("Ключ провайдера: не выбран");
     expect(
       screen.getByLabelText("Project job readiness checklist"),
-    ).toHaveTextContent("Папка результатов: не выбрана");
+    ).toHaveTextContent("Папка по умолчанию: не выбрана");
     expect(document.body.textContent).not.toContain("worker/provider");
     expect(screen.getByText("Задача job-2")).toBeInTheDocument();
     expect(screen.getByText("Статус: В очереди")).toBeInTheDocument();

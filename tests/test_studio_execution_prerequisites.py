@@ -55,7 +55,7 @@ def make_job(db, m, provider="elevenlabs"):
     version = m.ProviderCredentialVersion(credential_id=cred.id, version=1, ciphertext=b"ct", nonce=b"nonce", key_id="credential-key-v1", masked_value="masked-value", fingerprint="digest")
     db.add(version); db.flush()
     cred.active_version_id = version.id
-    job = m.TranscriptionJob(project_id=project.id, owner_user_id=user.id, status=m.JobStatus.processing, provider=provider, provider_credential_id=cred.id, lease_owner_id="worker", lease_generation=7, lease_expires_at=now + timedelta(minutes=5))
+    job = m.TranscriptionJob(project_id=project.id, owner_user_id=user.id, status=m.JobStatus.processing, provider=provider, provider_credential_id=cred.id, output_drive_folder_id="configured-folder", output_drive_folder_url="https://drive.google.com/drive/folders/configured-folder", output_drive_folder_name="Configured", lease_owner_id="worker", lease_generation=7, lease_expires_at=now + timedelta(minutes=5))
     db.add(job); db.flush()
     return user, project, cred, version, job, now
 
@@ -160,7 +160,7 @@ def test_output_destination_revalidates_after_io(db, models):
     from studio_api.job_output_destination import DriveFolderAuthorizationMetadata, OutputDestinationError, verify_processing_job_output_destination
     user, project, cred, version, job, now = make_job(db, models)
     def fetcher(token, folder):
-        project.output_drive_folder_id = "changed-private-id"; db.flush()
+        job.output_drive_folder_id = "changed-private-id"; db.flush()
         return DriveFolderAuthorizationMetadata(folder, GOOGLE_FOLDER_MIME_TYPE, False, True)
     with pytest.raises(OutputDestinationError) as exc:
         verify_processing_job_output_destination(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), now=now, token_resolver=lambda *a, **k: "token", metadata_fetcher=fetcher)

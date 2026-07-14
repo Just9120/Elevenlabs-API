@@ -215,3 +215,14 @@ The first smoke validation remains intentionally single-worker and single-job: o
 Platform-mode Studio now separates Google Drive selection into an official in-browser Google Picker boundary and a server-authoritative persistence boundary. The API issues a narrow Picker session only for authenticated same-origin CSRF-protected users with an active Google connection whose stored granted scopes include the exact `https://www.googleapis.com/auth/drive.file` scope and with public Picker runtime config present. The response is no-store, contains only the browser-visible Picker bootstrap fields plus a short-lived access token, and never includes refresh-token material or internal credential metadata.
 
 The frontend loads `https://apis.google.com/js/api.js` only after an explicit Picker button click, keeps the Picker access token in memory, and clears its reference on picked/cancel/error paths. Source-file selection and output-folder selection are separate Picker modes. Picker-returned metadata is never persistence authority: the API re-fetches Drive metadata with the owner-scoped server connection before creating source records or updating output-folder metadata.
+
+
+## Studio job destination authority
+
+Projects keep `output_drive_folder_*` as the editable default folder used when creating future legacy jobs. Transcription jobs keep nullable immutable `output_drive_folder_id`, `output_drive_folder_url`, and `output_drive_folder_name` snapshots; processing and output persistence read the job snapshot rather than the mutable project default.
+
+Batch-created jobs additionally store nullable `batch_idempotency_key`, `batch_request_hash`, and `batch_position`. A database check constraint keeps these fields all-null for legacy jobs or all-present with a non-negative position for batch jobs, and a uniqueness constraint scopes replay positions to owner, project, key, and position.
+
+`studio_api.job_output_folder_selection` is the server-side folder verification boundary. It refreshes or receives a Google Drive token, requests a closed metadata field set, verifies identity, folder MIME type, trashed state, and `canAddChildren`, and returns only redacted safe folder display metadata for persistence or responses.
+
+Runtime authority flow: creation snapshots a verified/default folder into `TranscriptionJob`; readiness and claim inspect the job snapshot; processing verifies the job snapshot immediately before side effects; provider, Google Docs, and persistence revalidate against the same job snapshot and active lease generation.

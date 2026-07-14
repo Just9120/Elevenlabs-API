@@ -58,7 +58,7 @@ def make_job(db, m, *, provider="elevenlabs", language="en"):
     db.add(version); db.flush(); cred.active_version_id = version.id
     src = m.Source(project_id=project.id, source_type=m.SourceType.local_upload, original_filename="secret meeting.mp3", mime_type="audio/mpeg", size_bytes=5, s3_bucket="bucket", s3_object_key="private/object", upload_status=m.SourceUploadStatus.uploaded, uploaded_at=now, expires_at=now + timedelta(hours=1))
     db.add(src); db.flush()
-    job = m.TranscriptionJob(project_id=project.id, owner_user_id=user.id, status=m.JobStatus.processing, provider=provider, provider_credential_id=cred.id, language=language, lease_owner_id="worker", lease_generation=7, claimed_at=now, lease_expires_at=now + timedelta(minutes=5), started_at=now)
+    job = m.TranscriptionJob(project_id=project.id, owner_user_id=user.id, status=m.JobStatus.processing, provider=provider, provider_credential_id=cred.id, language=language, output_drive_folder_id="folder-private", output_drive_folder_url="https://drive.google.com/drive/folders/folder-private", output_drive_folder_name="Private", lease_owner_id="worker", lease_generation=7, claimed_at=now, lease_expires_at=now + timedelta(minutes=5), started_at=now)
     db.add(job); db.flush()
     rel = m.TranscriptionJobSource(job_id=job.id, source_id=src.id, position=0)
     db.add(rel); db.commit()
@@ -165,7 +165,7 @@ def test_successful_single_source_flow_lifetime_and_one_call(db, models):
     (lambda m, project, cred, version, src, job, rel, now: setattr(job, "lease_owner_id", "other"), "lifecycle_changed_before_provider_call"),
     (lambda m, project, cred, version, src, job, rel, now: setattr(job, "cancel_requested_at", now), "lifecycle_changed_before_provider_call"),
     (lambda m, project, cred, version, src, job, rel, now: setattr(cred, "active_version_id", "replaced"), "credential_or_output_identity_changed_before_provider_call"),
-    (lambda m, project, cred, version, src, job, rel, now: setattr(project, "output_drive_folder_id", "changed"), "credential_or_output_identity_changed_before_provider_call"),
+    (lambda m, project, cred, version, src, job, rel, now: setattr(job, "output_drive_folder_id", "changed"), "credential_or_output_identity_changed_before_provider_call"),
     (lambda m, project, cred, version, src, job, rel, now: setattr(rel, "status", m.JobSourceStatus.skipped), "lifecycle_changed_before_provider_call"),
 ])
 def test_pre_provider_revalidation_blocks_transport(db, models, mutate, reason):
