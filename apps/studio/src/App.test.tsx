@@ -1763,7 +1763,8 @@ describe("Studio PWA", () => {
                 updated_at: "2026-07-01T00:00:00",
                 archived_at: null,
                 output_drive_folder_id: "folder-default",
-                output_drive_folder_url: "https://drive.google.com/drive/folders/folder-default",
+                output_drive_folder_url:
+                  "https://drive.google.com/drive/folders/folder-default",
                 output_drive_folder_name: "Default folder",
               },
             ],
@@ -2194,7 +2195,9 @@ describe("Studio PWA", () => {
     const queuedJobCard = screen.getByText("Queued review").closest("article");
     expect(queuedJobCard).not.toBeNull();
     await userEvent.click(
-      within(queuedJobCard as HTMLElement).getByRole("button", { name: "Открыть" }),
+      within(queuedJobCard as HTMLElement).getByRole("button", {
+        name: "Открыть",
+      }),
     );
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
@@ -2253,7 +2256,9 @@ describe("Studio PWA", () => {
     expect(document.body.textContent).not.toContain("internal-source-id");
 
     await userEvent.click(
-      within(queuedJobCard as HTMLElement).getByRole("button", { name: "Отменить" }),
+      within(queuedJobCard as HTMLElement).getByRole("button", {
+        name: "Отменить",
+      }),
     );
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
@@ -2364,6 +2369,581 @@ describe("Studio PWA", () => {
     expect(window.localStorage.length).toBe(0);
     expect(window.sessionStorage.length).toBe(0);
     expect(document.body.textContent).not.toContain("ya29.test-access-token");
+  });
+
+  it("renders refreshed authoritative job data for returned batch IDs before existing history", async () => {
+    let jobListCalls = 0;
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (url: string, init?: RequestInit) => {
+        if (url.endsWith("/api/auth/session"))
+          return json({
+            authenticated: true,
+            user: { email: "user@example.com", role: "admin" },
+          });
+        if (url.endsWith("/api/auth/csrf"))
+          return json({ csrf_token: "csrf-after-refresh" });
+        if (url.endsWith("/api/google/connection"))
+          return json({
+            connected: true,
+            status: "active",
+            google_email: "safe.user@example.com",
+            scopes: "drive.file",
+            connected_at: "2026-07-01T00:00:00Z",
+            revoked_at: null,
+            picker_configured: true,
+            picker_scope_ready: true,
+            picker_ready: true,
+            reconnect_required: false,
+          });
+        if (url.endsWith("/api/credentials")) return json({ credentials: [] });
+        if (url.endsWith("/api/projects"))
+          return json({
+            projects: [
+              {
+                id: "p1",
+                title: "Research calls",
+                description: null,
+                created_at: "2026-07-01T00:00:00Z",
+                updated_at: "2026-07-01T00:00:00Z",
+                archived_at: null,
+                output_drive_folder_id: "folder-default",
+                output_drive_folder_url:
+                  "https://drive.google.com/drive/folders/folder-default",
+                output_drive_folder_name: "Default folder",
+              },
+            ],
+          });
+        if (url.endsWith("/api/projects/p1/sources") && !init?.method)
+          return json({
+            sources: [
+              {
+                id: "s1",
+                project_id: "p1",
+                source_type: "local_upload",
+                original_filename: "ready-local.ogg",
+                mime_type: "audio/ogg",
+                size_bytes: 10,
+                drive_file_id: null,
+                drive_file_url: null,
+                upload_status: "uploaded",
+                uploaded_at: "2026-07-01T00:00:00Z",
+                expires_at: null,
+                deleted_at: null,
+                delete_reason: null,
+                created_at: "2026-07-01T00:00:00Z",
+                updated_at: "2026-07-01T00:00:00Z",
+              },
+            ],
+          });
+        if (url.endsWith("/api/projects/p1/jobs") && !init?.method) {
+          jobListCalls += 1;
+          return json({
+            jobs:
+              jobListCalls < 2
+                ? [
+                    {
+                      id: "job-existing",
+                      project_id: "p1",
+                      status: "failed",
+                      title: "Existing history",
+                      provider: null,
+                      provider_credential_id: null,
+                      source_count: 1,
+                      created_at: "2026-07-01T00:00:00Z",
+                      updated_at: "2026-07-01T00:01:00Z",
+                      cancelled_at: null,
+                      cancel_requested_at: null,
+                      attempt_count: 0,
+                      started_at: null,
+                      finished_at: null,
+                      error_code: "SAFE",
+                      error_message: "Still visible",
+                    },
+                  ]
+                : [
+                    {
+                      id: "job-created",
+                      project_id: "p1",
+                      status: "completed",
+                      title: "Fresh authoritative",
+                      provider: null,
+                      provider_credential_id: null,
+                      source_count: 1,
+                      output_folder: {
+                        name: "Fresh folder",
+                        web_view_url:
+                          "https://drive.google.com/drive/folders/fresh",
+                      },
+                      created_at: "2026-07-02T00:00:00Z",
+                      updated_at: "2026-07-02T00:05:00Z",
+                      cancelled_at: null,
+                      cancel_requested_at: null,
+                      attempt_count: 1,
+                      started_at: "2026-07-02T00:01:00Z",
+                      finished_at: "2026-07-02T00:04:00Z",
+                      error_code: null,
+                      error_message: null,
+                    },
+                    {
+                      id: "job-existing",
+                      project_id: "p1",
+                      status: "failed",
+                      title: "Existing history",
+                      provider: null,
+                      provider_credential_id: null,
+                      source_count: 1,
+                      created_at: "2026-07-01T00:00:00Z",
+                      updated_at: "2026-07-01T00:01:00Z",
+                      cancelled_at: null,
+                      cancel_requested_at: null,
+                      attempt_count: 0,
+                      started_at: null,
+                      finished_at: null,
+                      error_code: "SAFE",
+                      error_message: "Still visible",
+                    },
+                  ],
+          });
+        }
+        if (
+          url.endsWith("/api/projects/p1/jobs/batch") &&
+          init?.method === "POST"
+        )
+          return json({
+            jobs: [
+              {
+                id: "job-created",
+                project_id: "p1",
+                status: "queued",
+                title: "Stale create",
+                provider: null,
+                provider_credential_id: null,
+                source_count: 1,
+                output_folder: { name: "Stale folder", web_view_url: null },
+                created_at: "2026-07-02T00:00:00Z",
+                updated_at: "2026-07-02T00:00:00Z",
+                cancelled_at: null,
+                cancel_requested_at: null,
+                attempt_count: 0,
+                started_at: null,
+                finished_at: null,
+                error_code: null,
+                error_message: null,
+              },
+            ],
+            created_count: 1,
+            replayed: true,
+          });
+        return json({ ok: true });
+      },
+    );
+    renderApp("platform");
+    await openSelectedProjectJobs();
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: "Добавить строку для ready-local.ogg",
+      }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Создать пакет задач" }),
+    );
+    expect(await screen.findByText("Fresh authoritative")).toBeInTheDocument();
+    expect(screen.getByText("Статус: Завершена")).toBeInTheDocument();
+    expect(
+      screen.getByText("Папка результата: Fresh folder"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Stale create")).not.toBeInTheDocument();
+    expect(screen.getByText("Existing history")).toBeInTheDocument();
+    expect(
+      document.body.textContent?.indexOf("Fresh authoritative"),
+    ).toBeLessThan(document.body.textContent?.indexOf("Existing history") ?? 0);
+  });
+
+  it("blocks removed sources immediately while source reload is still pending", async () => {
+    let resolveReload: (value: Response) => void = () => undefined;
+    let sourceListCalls = 0;
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (url: string, init?: RequestInit) => {
+        if (url.endsWith("/api/auth/session"))
+          return json({
+            authenticated: true,
+            user: { email: "user@example.com", role: "admin" },
+          });
+        if (url.endsWith("/api/auth/csrf"))
+          return json({ csrf_token: "csrf-after-refresh" });
+        if (url.endsWith("/api/google/connection"))
+          return json({
+            connected: true,
+            status: "active",
+            google_email: "safe.user@example.com",
+            scopes: "drive.file",
+            connected_at: "2026-07-01T00:00:00Z",
+            revoked_at: null,
+            picker_configured: true,
+            picker_scope_ready: true,
+            picker_ready: true,
+            reconnect_required: false,
+          });
+        if (url.endsWith("/api/credentials")) return json({ credentials: [] });
+        if (url.endsWith("/api/projects"))
+          return json({
+            projects: [
+              {
+                id: "p1",
+                title: "Research calls",
+                description: null,
+                created_at: "2026-07-01T00:00:00Z",
+                updated_at: "2026-07-01T00:00:00Z",
+                archived_at: null,
+                output_drive_folder_id: "folder-default",
+                output_drive_folder_url:
+                  "https://drive.google.com/drive/folders/folder-default",
+                output_drive_folder_name: "Default folder",
+              },
+            ],
+          });
+        if (url.endsWith("/api/projects/p1/jobs") && !init?.method)
+          return json({ jobs: [] });
+        if (url.endsWith("/api/projects/p1/sources") && !init?.method) {
+          sourceListCalls += 1;
+          if (sourceListCalls > 1)
+            return new Promise((resolve) => {
+              resolveReload = resolve;
+            });
+          return json({
+            sources: [
+              {
+                id: "s1",
+                project_id: "p1",
+                source_type: "local_upload",
+                original_filename: "remove-me.ogg",
+                mime_type: "audio/ogg",
+                size_bytes: 10,
+                drive_file_id: null,
+                drive_file_url: null,
+                upload_status: "uploaded",
+                uploaded_at: "2026-07-01T00:00:00Z",
+                expires_at: null,
+                deleted_at: null,
+                delete_reason: null,
+                created_at: "2026-07-01T00:00:00Z",
+                updated_at: "2026-07-01T00:00:00Z",
+              },
+            ],
+          });
+        }
+        if (url.endsWith("/api/sources/s1") && init?.method === "DELETE")
+          return json({ ok: true });
+        if (
+          url.endsWith("/api/projects/p1/jobs/batch") &&
+          init?.method === "POST"
+        )
+          return json({ jobs: [], created_count: 0, replayed: false });
+        return json({ ok: true });
+      },
+    );
+    renderApp("platform");
+    await openSelectedProjectJobs();
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: "Добавить строку для remove-me.ogg",
+      }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Убрать из проекта: remove-me.ogg" }),
+    );
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/sources/s1",
+        expect.objectContaining({ method: "DELETE" }),
+      ),
+    );
+    expect(
+      screen.queryByRole("button", {
+        name: "Добавить строку для remove-me.ogg",
+      }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/Выбранный файл больше недоступен/),
+    ).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Создать пакет задач" }),
+    );
+    expect(
+      (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
+        ([url, init]) =>
+          url === "/api/projects/p1/jobs/batch" && init?.method === "POST",
+      ),
+    ).toBe(false);
+    resolveReload(
+      await json({
+        sources: [
+          {
+            id: "s1",
+            project_id: "p1",
+            source_type: "local_upload",
+            original_filename: "remove-me.ogg",
+            mime_type: "audio/ogg",
+            size_bytes: 10,
+            drive_file_id: null,
+            drive_file_url: null,
+            upload_status: "uploaded",
+            uploaded_at: "2026-07-01T00:00:00Z",
+            expires_at: null,
+            deleted_at: null,
+            delete_reason: null,
+            created_at: "2026-07-01T00:00:00Z",
+            updated_at: "2026-07-01T00:00:00Z",
+          },
+        ],
+      }),
+    );
+    await waitFor(() => expect(sourceListCalls).toBeGreaterThan(1));
+    expect(
+      screen.queryByRole("button", {
+        name: "Добавить строку для remove-me.ogg",
+      }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("row folder verification retries only CSRF rejections and never ordinary failures", async () => {
+    const scenarios: Array<{
+      name: string;
+      response: "422" | "500" | "502" | "network";
+    }> = [
+      { name: "422", response: "422" },
+      { name: "500", response: "500" },
+      { name: "502", response: "502" },
+      { name: "network", response: "network" },
+    ];
+    for (const scenario of scenarios) {
+      cleanup();
+      googlePicker.resetGooglePickerLoaderForTests();
+      vi.restoreAllMocks();
+      let verifyCalls = 0;
+      vi.spyOn(googlePicker, "openGooglePicker").mockResolvedValue({
+        action: "picked",
+        docs: [{ id: `folder-${scenario.name}` }],
+      } as Awaited<ReturnType<typeof googlePicker.openGooglePicker>>);
+      (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+        (url: string, init?: RequestInit) => {
+          if (url.endsWith("/api/auth/session"))
+            return json({
+              authenticated: true,
+              user: { email: "user@example.com", role: "admin" },
+            });
+          if (url.endsWith("/api/auth/csrf"))
+            return json({ csrf_token: "csrf-after-refresh" });
+          if (url.endsWith("/api/google/connection"))
+            return json({
+              connected: true,
+              status: "active",
+              google_email: "safe.user@example.com",
+              scopes: "drive.file",
+              connected_at: "2026-07-01T00:00:00Z",
+              revoked_at: null,
+              picker_configured: true,
+              picker_scope_ready: true,
+              picker_ready: true,
+              reconnect_required: false,
+            });
+          if (url.endsWith("/api/google/picker/session"))
+            return json({
+              access_token: "picker-token",
+              api_key: "public",
+              app_id: "app",
+              scope_ready: true,
+            });
+          if (url.endsWith("/api/credentials"))
+            return json({ credentials: [] });
+          if (url.endsWith("/api/projects"))
+            return json({
+              projects: [
+                {
+                  id: "p1",
+                  title: "Research calls",
+                  description: null,
+                  created_at: "2026-07-01T00:00:00Z",
+                  updated_at: "2026-07-01T00:00:00Z",
+                  archived_at: null,
+                  output_drive_folder_id: null,
+                  output_drive_folder_url: null,
+                  output_drive_folder_name: null,
+                },
+              ],
+            });
+          if (url.endsWith("/api/projects/p1/jobs") && !init?.method)
+            return json({ jobs: [] });
+          if (url.endsWith("/api/projects/p1/sources") && !init?.method)
+            return json({
+              sources: [
+                {
+                  id: "s1",
+                  project_id: "p1",
+                  source_type: "local_upload",
+                  original_filename: "ready-local.ogg",
+                  mime_type: "audio/ogg",
+                  size_bytes: 10,
+                  drive_file_id: null,
+                  drive_file_url: null,
+                  upload_status: "uploaded",
+                  uploaded_at: "2026-07-01T00:00:00Z",
+                  expires_at: null,
+                  deleted_at: null,
+                  delete_reason: null,
+                  created_at: "2026-07-01T00:00:00Z",
+                  updated_at: "2026-07-01T00:00:00Z",
+                },
+              ],
+            });
+          if (
+            url.endsWith(
+              "/api/projects/p1/output-folders/google-picker/verify",
+            ) &&
+            init?.method === "POST"
+          ) {
+            verifyCalls += 1;
+            if (scenario.response === "network")
+              return Promise.reject(new Error("network down"));
+            return json(
+              { detail: "safe failure" },
+              false,
+              Number(scenario.response),
+            );
+          }
+          return json({ ok: true });
+        },
+      );
+      renderApp("platform");
+      await openSelectedProjectJobs();
+      await userEvent.click(
+        await screen.findByRole("button", { name: "Добавить строку" }),
+      );
+      await userEvent.click(
+        screen.getByRole("button", {
+          name: "Выбрать папку результата для строки 1",
+        }),
+      );
+      await waitFor(() => expect(verifyCalls).toBe(1));
+      expect(screen.getByText("Папка не выбрана")).toBeInTheDocument();
+    }
+
+    cleanup();
+    googlePicker.resetGooglePickerLoaderForTests();
+    vi.restoreAllMocks();
+    let verifyCalls = 0;
+    const verifyBodies: string[] = [];
+    vi.spyOn(googlePicker, "openGooglePicker").mockResolvedValue({
+      action: "picked",
+      docs: [{ id: "folder-csrf" }],
+    } as Awaited<ReturnType<typeof googlePicker.openGooglePicker>>);
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (url: string, init?: RequestInit) => {
+        if (url.endsWith("/api/auth/session"))
+          return json({
+            authenticated: true,
+            user: { email: "user@example.com", role: "admin" },
+          });
+        if (url.endsWith("/api/auth/csrf"))
+          return json({
+            csrf_token: verifyCalls > 0 ? "csrf-refreshed" : "csrf-initial",
+          });
+        if (url.endsWith("/api/google/connection"))
+          return json({
+            connected: true,
+            status: "active",
+            google_email: "safe.user@example.com",
+            scopes: "drive.file",
+            connected_at: "2026-07-01T00:00:00Z",
+            revoked_at: null,
+            picker_configured: true,
+            picker_scope_ready: true,
+            picker_ready: true,
+            reconnect_required: false,
+          });
+        if (url.endsWith("/api/google/picker/session"))
+          return json({
+            access_token: "picker-token",
+            api_key: "public",
+            app_id: "app",
+            scope_ready: true,
+          });
+        if (url.endsWith("/api/credentials")) return json({ credentials: [] });
+        if (url.endsWith("/api/projects"))
+          return json({
+            projects: [
+              {
+                id: "p1",
+                title: "Research calls",
+                description: null,
+                created_at: "2026-07-01T00:00:00Z",
+                updated_at: "2026-07-01T00:00:00Z",
+                archived_at: null,
+                output_drive_folder_id: null,
+                output_drive_folder_url: null,
+                output_drive_folder_name: null,
+              },
+            ],
+          });
+        if (url.endsWith("/api/projects/p1/jobs") && !init?.method)
+          return json({ jobs: [] });
+        if (url.endsWith("/api/projects/p1/sources") && !init?.method)
+          return json({
+            sources: [
+              {
+                id: "s1",
+                project_id: "p1",
+                source_type: "local_upload",
+                original_filename: "ready-local.ogg",
+                mime_type: "audio/ogg",
+                size_bytes: 10,
+                drive_file_id: null,
+                drive_file_url: null,
+                upload_status: "uploaded",
+                uploaded_at: "2026-07-01T00:00:00Z",
+                expires_at: null,
+                deleted_at: null,
+                delete_reason: null,
+                created_at: "2026-07-01T00:00:00Z",
+                updated_at: "2026-07-01T00:00:00Z",
+              },
+            ],
+          });
+        if (
+          url.endsWith(
+            "/api/projects/p1/output-folders/google-picker/verify",
+          ) &&
+          init?.method === "POST"
+        ) {
+          verifyCalls += 1;
+          verifyBodies.push(String(init.body));
+          return verifyCalls === 1
+            ? json({ detail: "csrf" }, false, 403)
+            : json({
+                name: "Verified folder",
+                web_view_url:
+                  "https://drive.google.com/drive/folders/folder-csrf",
+              });
+        }
+        return json({ ok: true });
+      },
+    );
+    renderApp("platform");
+    await openSelectedProjectJobs();
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Добавить строку" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Выбрать папку результата для строки 1",
+      }),
+    );
+    expect(await screen.findByText("Verified folder")).toBeInTheDocument();
+    expect(verifyCalls).toBe(2);
+    expect(verifyBodies).toEqual([
+      JSON.stringify({ folder_id: "folder-csrf" }),
+      JSON.stringify({ folder_id: "folder-csrf" }),
+    ]);
   });
 
   it("source Picker cancel/error and duplicate clicks do not create source mutations", async () => {

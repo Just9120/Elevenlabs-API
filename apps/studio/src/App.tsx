@@ -716,6 +716,7 @@ function SourcesPanel({
   pickerBusy,
   setPickerBusy,
   onReload,
+  onSourceRemoved,
   onError,
 }: {
   project: Project;
@@ -731,6 +732,7 @@ function SourcesPanel({
   pickerBusy: boolean;
   setPickerBusy: (busy: boolean) => void;
   onReload: (projectId: string) => void;
+  onSourceRemoved?: (sourceId: string) => void;
   onError: (message: string) => void;
 }) {
   const [uploadState, setUploadState] = useState("");
@@ -857,6 +859,7 @@ function SourcesPanel({
       await csrfMutate<{ ok: boolean }>(`/sources/${id}`, csrf, onCsrf, {
         method: "DELETE",
       });
+      onSourceRemoved?.(id);
       onReload(project.id);
     } catch {
       onError("Не удалось убрать файл из проекта.");
@@ -1020,8 +1023,12 @@ function mergeJobsWithBatchOrder(
   batchJobs: TranscriptionJob[],
 ) {
   if (batchJobs.length === 0) return jobs;
+  const freshById = new Map(jobs.map((job) => [job.id, job]));
   const batchIds = new Set(batchJobs.map((job) => job.id));
-  return [...batchJobs, ...jobs.filter((job) => !batchIds.has(job.id))];
+  return [
+    ...batchJobs.map((job) => freshById.get(job.id) ?? job),
+    ...jobs.filter((job) => !batchIds.has(job.id)),
+  ];
 }
 
 function PreparationPanel({
@@ -1070,6 +1077,9 @@ function PreparationPanel({
     >
   >({});
   const [outputs, setOutputs] = useState<Record<string, JobOutputsState>>({});
+  const [removedSourceIds, setRemovedSourceIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const rowFolderPickerRef = useRef(false);
   useEffect(() => {
     let cancelled = false;
@@ -1097,7 +1107,10 @@ function PreparationPanel({
   const activeCredentials = credentials.filter(
     (credential) => credential.status === "active",
   );
-  const sourceItems = Array.isArray(sources.items) ? sources.items : [];
+  const sourceItems = (
+    Array.isArray(sources.items) ? sources.items : []
+  ).filter((source) => !removedSourceIds.has(source.id));
+  const visibleSources = { ...sources, items: sourceItems };
   const usableSources = sourceItems.filter(isUsableJobSource);
   const usableSourceIds = new Set(usableSources.map((source) => source.id));
   const selectedCredential = activeCredentials.find(
@@ -1168,7 +1181,7 @@ function PreparationPanel({
         setMessage("Выберите одну папку Google Drive.");
         return;
       }
-      const verified = await csrfMutate<{
+      const verified = await batchMutateWithCsrfRetry<{
         name: string;
         web_view_url: string | null;
       }>(
@@ -1347,11 +1360,17 @@ function PreparationPanel({
         project={project}
         csrf={csrf}
         onCsrf={onCsrf}
-        sources={sources}
+        sources={visibleSources}
         googleConnection={googleConnection}
         pickerBusy={pickerBusy}
         setPickerBusy={setPickerBusy}
         onReload={onReloadSources}
+        onSourceRemoved={(sourceId) => {
+          setRemovedSourceIds((current) => new Set(current).add(sourceId));
+          setMessage(
+            "Файл убран из проекта. Строки с этим файлом нужно исправить перед отправкой.",
+          );
+        }}
         onError={onError}
       />
       <form

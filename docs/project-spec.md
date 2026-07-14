@@ -212,7 +212,7 @@ The current Studio platform boundary includes account/session/BYOK plus project/
 
 The future `PWA-PROCESSING-ROLLOUT-01A — Manual Studio processing rollout and controlled smoke validation` is the only approved follow-up after this PREP item. It is operator-run and may apply the reviewed migration and start exactly one worker only after prerequisites, explicit confirmation, and tagged pre-migration backup evidence. It must collect only secret-free runtime evidence and must not be represented as completed by a coding agent.
 
-Product state terms remain strict: `source-done/merged`, `CI-verified`, `deployed`, `migration-applied`, `worker-running`, and `production-live` are distinct. No production-live Studio claim is allowed without factual operator evidence. The current Alembic head for the Studio processing/output schema is `0008_transcription_job_outputs`; production migration rollout remains manual/operator-scoped and must not run at API startup or through standard CD. Standard Studio Platform CD deploys only `web` or `api`; it does not deploy `studio-worker` or execute migrations.
+Product state terms remain strict: `source-done/merged`, `CI-verified`, `deployed`, `migration-applied`, `worker-running`, and `production-live` are distinct. No production-live Studio claim is allowed without factual operator evidence. The current Alembic head for the Studio processing/output schema is `0009_job_output_destinations`; production migration rollout remains manual/operator-scoped and must not run at API startup or through standard CD. Standard Studio Platform CD deploys only `web` or `api`; it does not deploy `studio-worker` or execute migrations.
 
 The first smoke validation, if performed by the future operator item, is limited to one operator-approved test account/project, exactly one small supported source, the existing ElevenLabs path only, one active owner-scoped BYOK credential, one authenticated Google connection, one selected writable output folder, one queued job, safe UI/API lifecycle observation, and manual confirmation that the validated Google link opens the expected Google document in the selected folder. Evidence must not include transcript text, document ids/URLs, source bytes, tokens, credential values, private paths, raw provider responses, or raw Google responses.
 
@@ -222,7 +222,7 @@ Residual limitations remain product constraints: no exactly-once Google document
 
 Studio platform navigation is project-centric: normal platform mode exposes `Обзор`, `Проекты`, and `Настройки`. Demo-only New Transcription and global demo Jobs pages must not be presented as real platform product functionality.
 
-Projects owns the real source, output-folder, and job workflow. A selected project workspace contains `Обзор`, `Источники`, and `Задачи`; source and job tools should be visible as workspace tabs rather than hidden behind implementation-oriented show/hide buttons.
+Projects owns the real source, output-folder, and job workflow. A selected project workspace contains `Обзор` and the combined `Подготовка` tab; source intake, the ordered source→output-folder composer, and current/recent job history are visible together instead of split across separate `Источники` and `Задачи` tabs.
 
 For source selection, the Google Picker may display all Drive file types in `ViewId.DOCS` list mode without source MIME filters. Backend source validation remains authoritative, and the client may reject clearly unsupported explicit MIME values only with safe Russian copy. Output-folder selection remains folder-only.
 
