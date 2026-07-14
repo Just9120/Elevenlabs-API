@@ -360,7 +360,7 @@ async function openProjectsPage() {
 
 async function openSelectedProjectJobs() {
   await openProjectsPage();
-  await userEvent.click(await screen.findByRole("tab", { name: "Задачи" }));
+  await userEvent.click(await screen.findByRole("tab", { name: "Подготовка" }));
 }
 
 async function openSettingsPage() {
@@ -525,7 +525,8 @@ describe("Studio PWA", () => {
                 id: "s1",
                 project_id: "p1",
                 source_type: "google_drive",
-                original_filename: "Лекция 1. Личность как психологическое явление.flac",
+                original_filename:
+                  "Лекция 1. Личность как психологическое явление.flac",
                 mime_type: "video/mp4",
                 size_bytes: 2048,
                 drive_file_id: "drive-file-1",
@@ -689,7 +690,7 @@ describe("Studio PWA", () => {
     expect(folderLink).toHaveClass("button-like", "secondary", "resource-link");
     expect(folderLink.closest(".resource-actions")).not.toBeNull();
 
-    await userEvent.click(screen.getByRole("tab", { name: "Источники" }));
+    await userEvent.click(screen.getByRole("tab", { name: "Подготовка" }));
     const sourceLink = await screen.findByRole("link", {
       name: "Открыть файл в Google Drive в новой вкладке",
     });
@@ -707,32 +708,97 @@ describe("Studio PWA", () => {
         .closest(".resource-actions"),
     ).not.toBeNull();
     expect(screen.getAllByText("Убрать из проекта")).toHaveLength(2);
-    expect(screen.queryByRole("button", { name: "Удалить" })).not.toBeInTheDocument();
-    expect(screen.getByText("Файл останется на Google Drive.")).toBeInTheDocument();
-    expect(screen.getByText("Временная копия будет удалена из хранилища Studio.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Убрать из проекта: local-temp.ogg" })).toBeInTheDocument();
-    expect(screen.getByText("Лекция 1. Личность как психологическое явление.flac")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Удалить" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText("Файл останется на Google Drive."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Временная копия будет удалена из хранилища Studio."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Убрать из проекта: local-temp.ogg" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Лекция 1. Личность как психологическое явление.flac"),
+    ).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("______");
   });
-
 
   it("removes a Drive source only from the active project list", async () => {
     let sourceLoads = 0;
     (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       (url: string, init?: RequestInit) => {
         if (url.endsWith("/api/auth/session"))
-          return json({ authenticated: true, user: { email: "user@example.com", role: "admin" } });
+          return json({
+            authenticated: true,
+            user: { email: "user@example.com", role: "admin" },
+          });
         if (url.endsWith("/api/auth/csrf")) return json({ csrf_token: "csrf" });
         if (url.endsWith("/api/projects"))
-          return json({ projects: [{ id: "p1", title: "Research calls", description: null, created_at: "2026-07-01T00:00:00", updated_at: "2026-07-01T00:00:00", archived_at: null, output_drive_folder_id: null, output_drive_folder_url: null, output_drive_folder_name: null }] });
-        if (url.endsWith("/api/projects/p1/jobs") && !init?.method) return json({ jobs: [] });
+          return json({
+            projects: [
+              {
+                id: "p1",
+                title: "Research calls",
+                description: null,
+                created_at: "2026-07-01T00:00:00",
+                updated_at: "2026-07-01T00:00:00",
+                archived_at: null,
+                output_drive_folder_id: "folder-default",
+                output_drive_folder_url:
+                  "https://drive.google.com/drive/folders/folder-default",
+                output_drive_folder_name: "Default folder",
+              },
+            ],
+          });
+        if (url.endsWith("/api/projects/p1/jobs") && !init?.method)
+          return json({ jobs: [] });
         if (url.endsWith("/api/projects/p1/sources") && !init?.method) {
           sourceLoads += 1;
-          return json({ sources: sourceLoads === 1 ? [{ id: "s1", project_id: "p1", source_type: "google_drive", original_filename: "Лекция 1. Личность как психологическое явление.flac", mime_type: "audio/flac", size_bytes: 2048, drive_file_id: "drive-file-1", drive_file_url: "https://drive.google.com/file/d/drive-file-1/view", upload_status: "uploaded", uploaded_at: "2026-07-01T00:01:00", expires_at: null, deleted_at: null, delete_reason: null, created_at: "2026-07-01T00:00:00", updated_at: "2026-07-01T00:00:00" }] : [] });
+          return json({
+            sources:
+              sourceLoads === 1
+                ? [
+                    {
+                      id: "s1",
+                      project_id: "p1",
+                      source_type: "google_drive",
+                      original_filename:
+                        "Лекция 1. Личность как психологическое явление.flac",
+                      mime_type: "audio/flac",
+                      size_bytes: 2048,
+                      drive_file_id: "drive-file-1",
+                      drive_file_url:
+                        "https://drive.google.com/file/d/drive-file-1/view",
+                      upload_status: "uploaded",
+                      uploaded_at: "2026-07-01T00:01:00",
+                      expires_at: null,
+                      deleted_at: null,
+                      delete_reason: null,
+                      created_at: "2026-07-01T00:00:00",
+                      updated_at: "2026-07-01T00:00:00",
+                    },
+                  ]
+                : [],
+          });
         }
-        if (url.endsWith("/api/sources/s1") && init?.method === "DELETE") return json({ ok: true });
+        if (url.endsWith("/api/sources/s1") && init?.method === "DELETE")
+          return json({ ok: true });
         if (url.endsWith("/api/google/connection"))
-          return json({ connected: true, status: "active", google_email: "safe.user@example.com", scopes: "openid email https://www.googleapis.com/auth/drive.file", connected_at: "2026-07-01T00:00:00", revoked_at: null, picker_configured: true, picker_scope_ready: true, picker_ready: true, reconnect_required: false });
+          return json({
+            connected: true,
+            status: "active",
+            google_email: "safe.user@example.com",
+            scopes: "openid email https://www.googleapis.com/auth/drive.file",
+            connected_at: "2026-07-01T00:00:00",
+            revoked_at: null,
+            picker_configured: true,
+            picker_scope_ready: true,
+            picker_ready: true,
+            reconnect_required: false,
+          });
         if (url.endsWith("/api/credentials")) return json({ credentials: [] });
         if (url.endsWith("/api/audit-events")) return json({ events: [] });
         return json({ ok: true });
@@ -740,36 +806,124 @@ describe("Studio PWA", () => {
     );
     renderApp("platform");
     await openProjectsPage();
-    await userEvent.click(await screen.findByRole("tab", { name: "Источники" }));
-    const removeButton = await screen.findByRole("button", { name: "Убрать из проекта: Лекция 1. Личность как психологическое явление.flac" });
+    await userEvent.click(
+      await screen.findByRole("tab", { name: "Подготовка" }),
+    );
+    const removeButton = await screen.findByRole("button", {
+      name: "Убрать из проекта: Лекция 1. Личность как психологическое явление.flac",
+    });
     await userEvent.click(removeButton);
-    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/sources/s1", expect.objectContaining({ method: "DELETE" })));
-    expect((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(([url, init]) => String(url).includes("google") && ["DELETE", "PATCH", "PUT", "POST"].includes(String(init?.method)))).toBe(false);
-    expect(await screen.findByText("Источники пока не добавлены.")).toBeInTheDocument();
-    expect(screen.queryByText("Лекция 1. Личность как психологическое явление.flac")).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Открыть файл в Google Drive в новой вкладке" })).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("tab", { name: "Задачи" }));
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/sources/s1",
+        expect.objectContaining({ method: "DELETE" }),
+      ),
+    );
+    expect(
+      (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
+        ([url, init]) =>
+          String(url).includes("google") &&
+          ["DELETE", "PATCH", "PUT", "POST"].includes(String(init?.method)),
+      ),
+    ).toBe(false);
+    expect(
+      await screen.findByText("Источники пока не добавлены."),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Лекция 1. Личность как психологическое явление.flac"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", {
+        name: "Открыть файл в Google Drive в новой вкладке",
+      }),
+    ).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("tab", { name: "Подготовка" }));
     expect(screen.queryByText(/Лекция 1\. Личность/)).not.toBeInTheDocument();
   });
 
   it("keeps the source card and shows a safe project-removal error on failed removal", async () => {
-    (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation((url: string, init?: RequestInit) => {
-      if (url.endsWith("/api/auth/session")) return json({ authenticated: true, user: { email: "user@example.com", role: "admin" } });
-      if (url.endsWith("/api/auth/csrf")) return json({ csrf_token: "csrf" });
-      if (url.endsWith("/api/projects")) return json({ projects: [{ id: "p1", title: "Research calls", description: null, created_at: "2026-07-01T00:00:00", updated_at: "2026-07-01T00:00:00", archived_at: null, output_drive_folder_id: null, output_drive_folder_url: null, output_drive_folder_name: null }] });
-      if (url.endsWith("/api/projects/p1/jobs") && !init?.method) return json({ jobs: [] });
-      if (url.endsWith("/api/projects/p1/sources") && !init?.method) return json({ sources: [{ id: "s1", project_id: "p1", source_type: "google_drive", original_filename: "safe-drive.mp4", mime_type: "video/mp4", size_bytes: 2048, drive_file_id: "drive-file-1", drive_file_url: "https://drive.google.com/file/d/drive-file-1/view", upload_status: "uploaded", uploaded_at: "2026-07-01T00:01:00", expires_at: null, deleted_at: null, delete_reason: null, created_at: "2026-07-01T00:00:00", updated_at: "2026-07-01T00:00:00" }] });
-      if (url.endsWith("/api/sources/s1") && init?.method === "DELETE") return json({}, false, 500);
-      if (url.endsWith("/api/google/connection")) return json({ connected: true, status: "active", google_email: "safe.user@example.com", scopes: "openid email", connected_at: "2026-07-01T00:00:00", revoked_at: null, picker_configured: false, picker_scope_ready: false, picker_ready: false, reconnect_required: false });
-      if (url.endsWith("/api/credentials")) return json({ credentials: [] });
-      if (url.endsWith("/api/audit-events")) return json({ events: [] });
-      return json({ ok: true });
-    });
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (url: string, init?: RequestInit) => {
+        if (url.endsWith("/api/auth/session"))
+          return json({
+            authenticated: true,
+            user: { email: "user@example.com", role: "admin" },
+          });
+        if (url.endsWith("/api/auth/csrf")) return json({ csrf_token: "csrf" });
+        if (url.endsWith("/api/projects"))
+          return json({
+            projects: [
+              {
+                id: "p1",
+                title: "Research calls",
+                description: null,
+                created_at: "2026-07-01T00:00:00",
+                updated_at: "2026-07-01T00:00:00",
+                archived_at: null,
+                output_drive_folder_id: null,
+                output_drive_folder_url: null,
+                output_drive_folder_name: null,
+              },
+            ],
+          });
+        if (url.endsWith("/api/projects/p1/jobs") && !init?.method)
+          return json({ jobs: [] });
+        if (url.endsWith("/api/projects/p1/sources") && !init?.method)
+          return json({
+            sources: [
+              {
+                id: "s1",
+                project_id: "p1",
+                source_type: "google_drive",
+                original_filename: "safe-drive.mp4",
+                mime_type: "video/mp4",
+                size_bytes: 2048,
+                drive_file_id: "drive-file-1",
+                drive_file_url:
+                  "https://drive.google.com/file/d/drive-file-1/view",
+                upload_status: "uploaded",
+                uploaded_at: "2026-07-01T00:01:00",
+                expires_at: null,
+                deleted_at: null,
+                delete_reason: null,
+                created_at: "2026-07-01T00:00:00",
+                updated_at: "2026-07-01T00:00:00",
+              },
+            ],
+          });
+        if (url.endsWith("/api/sources/s1") && init?.method === "DELETE")
+          return json({}, false, 500);
+        if (url.endsWith("/api/google/connection"))
+          return json({
+            connected: true,
+            status: "active",
+            google_email: "safe.user@example.com",
+            scopes: "openid email",
+            connected_at: "2026-07-01T00:00:00",
+            revoked_at: null,
+            picker_configured: false,
+            picker_scope_ready: false,
+            picker_ready: false,
+            reconnect_required: false,
+          });
+        if (url.endsWith("/api/credentials")) return json({ credentials: [] });
+        if (url.endsWith("/api/audit-events")) return json({ events: [] });
+        return json({ ok: true });
+      },
+    );
     renderApp("platform");
     await openProjectsPage();
-    await userEvent.click(await screen.findByRole("tab", { name: "Источники" }));
-    await userEvent.click(await screen.findByRole("button", { name: "Убрать из проекта: safe-drive.mp4" }));
-    expect(await screen.findByText("Не удалось убрать файл из проекта.")).toBeInTheDocument();
+    await userEvent.click(
+      await screen.findByRole("tab", { name: "Подготовка" }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: "Убрать из проекта: safe-drive.mp4",
+      }),
+    );
+    expect(
+      await screen.findByText("Не удалось убрать файл из проекта."),
+    ).toBeInTheDocument();
     expect(screen.getByText("safe-drive.mp4")).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("удален с Google Drive");
   });
@@ -1546,7 +1700,9 @@ describe("Studio PWA", () => {
   it("shows configured output folder in job readiness checklist", async () => {
     renderApp("platform");
     await openProjectsPage();
-    await userEvent.click(await screen.findByRole("tab", { name: "Задачи" }));
+    await userEvent.click(
+      await screen.findByRole("tab", { name: "Подготовка" }),
+    );
     expect(
       await screen.findByLabelText("Project job readiness checklist"),
     ).toHaveTextContent("Папка по умолчанию: выбрана (Transcripts)");
@@ -1606,9 +1762,10 @@ describe("Studio PWA", () => {
                 created_at: "2026-07-01T00:00:00",
                 updated_at: "2026-07-01T00:00:00",
                 archived_at: null,
-                output_drive_folder_id: null,
-                output_drive_folder_url: null,
-                output_drive_folder_name: null,
+                output_drive_folder_id: "folder-default",
+                output_drive_folder_url:
+                  "https://drive.google.com/drive/folders/folder-default",
+                output_drive_folder_name: "Default folder",
               },
             ],
           });
@@ -1744,23 +1901,39 @@ describe("Studio PWA", () => {
               },
             ],
           });
-        if (url.endsWith("/api/projects/p1/jobs") && init?.method === "POST")
+        if (
+          url.endsWith("/api/projects/p1/jobs/batch") &&
+          init?.method === "POST"
+        )
           return json({
-            id: "job-created",
-            project_id: "p1",
-            status: "queued",
-            title: "Created from UI",
-            provider: null,
-            provider_credential_id: null,
-            source_count: 2,
-            sources: [],
-            created_at: "2026-07-04T00:00:00Z",
-            updated_at: "2026-07-04T00:00:00Z",
-            cancelled_at: null,
-            started_at: null,
-            finished_at: null,
-            error_code: null,
-            error_message: null,
+            jobs: [
+              {
+                id: "job-created",
+                project_id: "p1",
+                status: "queued",
+                title: "Created from UI",
+                provider: null,
+                provider_credential_id: null,
+                source_count: 1,
+                sources: [],
+                output_folder: {
+                  name: "Default folder",
+                  web_view_url:
+                    "https://drive.google.com/drive/folders/folder-default",
+                },
+                created_at: "2026-07-04T00:00:00Z",
+                updated_at: "2026-07-04T00:00:00Z",
+                cancelled_at: null,
+                cancel_requested_at: null,
+                attempt_count: 0,
+                started_at: null,
+                finished_at: null,
+                error_code: null,
+                error_message: null,
+              },
+            ],
+            created_count: 1,
+            replayed: false,
           });
         if (url.endsWith("/api/jobs/job-1/outputs"))
           return json({
@@ -1895,7 +2068,9 @@ describe("Studio PWA", () => {
     );
     renderApp("platform");
     await openProjectsPage();
-    await userEvent.click(await screen.findByRole("tab", { name: "Задачи" }));
+    await userEvent.click(
+      await screen.findByRole("tab", { name: "Подготовка" }),
+    );
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
         "/api/projects/p1/jobs",
@@ -1920,7 +2095,7 @@ describe("Studio PWA", () => {
     ).toHaveTextContent("Ключ провайдера: не выбран");
     expect(
       screen.getByLabelText("Project job readiness checklist"),
-    ).toHaveTextContent("Папка по умолчанию: не выбрана");
+    ).toHaveTextContent("Папка по умолчанию: выбрана (Default folder)");
     expect(document.body.textContent).not.toContain("worker/provider");
     expect(screen.getByText("Задача job-2")).toBeInTheDocument();
     expect(screen.getByText("Статус: В очереди")).toBeInTheDocument();
@@ -1934,7 +2109,7 @@ describe("Studio PWA", () => {
     expect(screen.queryByText("Error code: SAFE_CODE")).not.toBeInTheDocument();
     expect(screen.getByText("Ошибка: Safe visible error")).toBeInTheDocument();
 
-    expect(await screen.findByLabelText(/ready-drive/)).toBeInTheDocument();
+    expect((await screen.findAllByText(/ready-drive/))[0]).toBeInTheDocument();
     expect(
       screen.getByLabelText("Project job readiness checklist"),
     ).toHaveTextContent("Готовые файлы: 2");
@@ -1944,12 +2119,28 @@ describe("Studio PWA", () => {
     expect(
       screen.getByText(/Убранный из проекта файл нельзя добавить в задачу/),
     ).toBeInTheDocument();
-    expect(screen.getByLabelText(/pending-local/)).toBeDisabled();
-    expect(screen.getByLabelText(/deleted-drive/)).toBeDisabled();
-    await userEvent.click(screen.getByLabelText(/ready-drive/));
-    await userEvent.click(screen.getByLabelText(/ready-local/));
+    expect(
+      screen.queryByRole("button", {
+        name: "Добавить строку для pending-local.ogg",
+      }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", {
+        name: "Добавить строку для deleted-drive.mp4",
+      }),
+    ).not.toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Добавить строку для ready-drive.mp4",
+      }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Добавить строку для ready-local.ogg",
+      }),
+    );
     await userEvent.type(
-      screen.getByLabelText("Название задачи"),
+      screen.getByLabelText("Название задачи для строки 1"),
       "Created from UI",
     );
     const credentialSelect = screen.getByLabelText("Ключ провайдера");
@@ -1972,11 +2163,11 @@ describe("Studio PWA", () => {
       screen.getByLabelText("Project job readiness checklist"),
     ).toHaveTextContent("openai · Primary STT · ••••1234 · v2");
     await userEvent.click(
-      screen.getByRole("button", { name: "Создать задачу" }),
+      screen.getByRole("button", { name: "Создать пакет задач" }),
     );
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
-        "/api/projects/p1/jobs",
+        "/api/projects/p1/jobs/batch",
         expect.objectContaining({ method: "POST" }),
       ),
     );
@@ -1984,19 +2175,29 @@ describe("Studio PWA", () => {
       fetch as unknown as ReturnType<typeof vi.fn>
     ).mock.calls.find(
       ([url, init]) =>
-        url === "/api/projects/p1/jobs" && init?.method === "POST",
+        url === "/api/projects/p1/jobs/batch" && init?.method === "POST",
     );
     expect(createCall?.[1]?.headers).toMatchObject({
       "x-csrf-token": "csrf-after-refresh",
     });
     expect(JSON.parse(String(createCall?.[1]?.body))).toEqual({
-      source_ids: ["s1", "s2"],
-      title: "Created from UI",
       provider_credential_id: "cred-active",
+      items: [
+        {
+          source_id: "s1",
+          output_folder_id: "folder-default",
+          title: "Created from UI",
+        },
+        { source_id: "s2", output_folder_id: "folder-default", title: null },
+      ],
     });
 
+    const queuedJobCard = screen.getByText("Queued review").closest("article");
+    expect(queuedJobCard).not.toBeNull();
     await userEvent.click(
-      screen.getAllByRole("button", { name: "Открыть" })[0],
+      within(queuedJobCard as HTMLElement).getByRole("button", {
+        name: "Открыть",
+      }),
     );
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
@@ -2054,7 +2255,11 @@ describe("Studio PWA", () => {
     expect(document.body.textContent).not.toContain("storage/private/key");
     expect(document.body.textContent).not.toContain("internal-source-id");
 
-    await userEvent.click(screen.getByRole("button", { name: "Отменить" }));
+    await userEvent.click(
+      within(queuedJobCard as HTMLElement).getByRole("button", {
+        name: "Отменить",
+      }),
+    );
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
         "/api/jobs/job-1/cancel",
@@ -2096,7 +2301,7 @@ describe("Studio PWA", () => {
     renderApp("platform");
     await openProjectsPage();
     await userEvent.click(
-      await screen.findByRole("tab", { name: "Источники" }),
+      await screen.findByRole("tab", { name: "Подготовка" }),
     );
     expect(
       screen.getByRole("button", { name: "Выбрать файлы" }),
@@ -2116,7 +2321,7 @@ describe("Studio PWA", () => {
     renderApp("platform");
     await openProjectsPage();
     await userEvent.click(
-      await screen.findByRole("tab", { name: "Источники" }),
+      await screen.findByRole("tab", { name: "Подготовка" }),
     );
     await userEvent.click(
       screen.getByRole("button", { name: "Выбрать файлы" }),
@@ -2166,12 +2371,908 @@ describe("Studio PWA", () => {
     expect(document.body.textContent).not.toContain("ya29.test-access-token");
   });
 
+  it("renders refreshed authoritative job data for returned batch IDs before existing history", async () => {
+    let jobListCalls = 0;
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (url: string, init?: RequestInit) => {
+        if (url.endsWith("/api/auth/session"))
+          return json({
+            authenticated: true,
+            user: { email: "user@example.com", role: "admin" },
+          });
+        if (url.endsWith("/api/auth/csrf"))
+          return json({ csrf_token: "csrf-after-refresh" });
+        if (url.endsWith("/api/google/connection"))
+          return json({
+            connected: true,
+            status: "active",
+            google_email: "safe.user@example.com",
+            scopes: "drive.file",
+            connected_at: "2026-07-01T00:00:00Z",
+            revoked_at: null,
+            picker_configured: true,
+            picker_scope_ready: true,
+            picker_ready: true,
+            reconnect_required: false,
+          });
+        if (url.endsWith("/api/credentials")) return json({ credentials: [] });
+        if (url.endsWith("/api/projects"))
+          return json({
+            projects: [
+              {
+                id: "p1",
+                title: "Research calls",
+                description: null,
+                created_at: "2026-07-01T00:00:00Z",
+                updated_at: "2026-07-01T00:00:00Z",
+                archived_at: null,
+                output_drive_folder_id: "folder-default",
+                output_drive_folder_url:
+                  "https://drive.google.com/drive/folders/folder-default",
+                output_drive_folder_name: "Default folder",
+              },
+            ],
+          });
+        if (url.endsWith("/api/projects/p1/sources") && !init?.method)
+          return json({
+            sources: [
+              {
+                id: "s1",
+                project_id: "p1",
+                source_type: "local_upload",
+                original_filename: "ready-local.ogg",
+                mime_type: "audio/ogg",
+                size_bytes: 10,
+                drive_file_id: null,
+                drive_file_url: null,
+                upload_status: "uploaded",
+                uploaded_at: "2026-07-01T00:00:00Z",
+                expires_at: null,
+                deleted_at: null,
+                delete_reason: null,
+                created_at: "2026-07-01T00:00:00Z",
+                updated_at: "2026-07-01T00:00:00Z",
+              },
+            ],
+          });
+        if (url.endsWith("/api/projects/p1/jobs") && !init?.method) {
+          jobListCalls += 1;
+          return json({
+            jobs:
+              jobListCalls < 2
+                ? [
+                    {
+                      id: "job-existing",
+                      project_id: "p1",
+                      status: "failed",
+                      title: "Existing history",
+                      provider: null,
+                      provider_credential_id: null,
+                      source_count: 1,
+                      created_at: "2026-07-01T00:00:00Z",
+                      updated_at: "2026-07-01T00:01:00Z",
+                      cancelled_at: null,
+                      cancel_requested_at: null,
+                      attempt_count: 0,
+                      started_at: null,
+                      finished_at: null,
+                      error_code: "SAFE",
+                      error_message: "Still visible",
+                    },
+                  ]
+                : [
+                    {
+                      id: "job-created",
+                      project_id: "p1",
+                      status: "completed",
+                      title: "Fresh authoritative",
+                      provider: null,
+                      provider_credential_id: null,
+                      source_count: 1,
+                      output_folder: {
+                        name: "Fresh folder",
+                        web_view_url:
+                          "https://drive.google.com/drive/folders/fresh",
+                      },
+                      created_at: "2026-07-02T00:00:00Z",
+                      updated_at: "2026-07-02T00:05:00Z",
+                      cancelled_at: null,
+                      cancel_requested_at: null,
+                      attempt_count: 1,
+                      started_at: "2026-07-02T00:01:00Z",
+                      finished_at: "2026-07-02T00:04:00Z",
+                      error_code: null,
+                      error_message: null,
+                    },
+                    {
+                      id: "job-existing",
+                      project_id: "p1",
+                      status: "failed",
+                      title: "Existing history",
+                      provider: null,
+                      provider_credential_id: null,
+                      source_count: 1,
+                      created_at: "2026-07-01T00:00:00Z",
+                      updated_at: "2026-07-01T00:01:00Z",
+                      cancelled_at: null,
+                      cancel_requested_at: null,
+                      attempt_count: 0,
+                      started_at: null,
+                      finished_at: null,
+                      error_code: "SAFE",
+                      error_message: "Still visible",
+                    },
+                  ],
+          });
+        }
+        if (
+          url.endsWith("/api/projects/p1/jobs/batch") &&
+          init?.method === "POST"
+        )
+          return json({
+            jobs: [
+              {
+                id: "job-created",
+                project_id: "p1",
+                status: "queued",
+                title: "Stale create",
+                provider: null,
+                provider_credential_id: null,
+                source_count: 1,
+                output_folder: { name: "Stale folder", web_view_url: null },
+                created_at: "2026-07-02T00:00:00Z",
+                updated_at: "2026-07-02T00:00:00Z",
+                cancelled_at: null,
+                cancel_requested_at: null,
+                attempt_count: 0,
+                started_at: null,
+                finished_at: null,
+                error_code: null,
+                error_message: null,
+              },
+            ],
+            created_count: 1,
+            replayed: true,
+          });
+        return json({ ok: true });
+      },
+    );
+    renderApp("platform");
+    await openSelectedProjectJobs();
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: "Добавить строку для ready-local.ogg",
+      }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Создать пакет задач" }),
+    );
+    expect(await screen.findByText("Fresh authoritative")).toBeInTheDocument();
+    expect(screen.getByText("Статус: Завершена")).toBeInTheDocument();
+    expect(
+      screen.getByText("Папка результата: Fresh folder"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Stale create")).not.toBeInTheDocument();
+    expect(screen.getByText("Existing history")).toBeInTheDocument();
+    expect(
+      document.body.textContent?.indexOf("Fresh authoritative"),
+    ).toBeLessThan(document.body.textContent?.indexOf("Existing history") ?? 0);
+  });
+
+  it("blocks removed sources immediately while source reload is still pending", async () => {
+    let resolveReload: (value: Response) => void = () => undefined;
+    let sourceListCalls = 0;
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (url: string, init?: RequestInit) => {
+        if (url.endsWith("/api/auth/session"))
+          return json({
+            authenticated: true,
+            user: { email: "user@example.com", role: "admin" },
+          });
+        if (url.endsWith("/api/auth/csrf"))
+          return json({ csrf_token: "csrf-after-refresh" });
+        if (url.endsWith("/api/google/connection"))
+          return json({
+            connected: true,
+            status: "active",
+            google_email: "safe.user@example.com",
+            scopes: "drive.file",
+            connected_at: "2026-07-01T00:00:00Z",
+            revoked_at: null,
+            picker_configured: true,
+            picker_scope_ready: true,
+            picker_ready: true,
+            reconnect_required: false,
+          });
+        if (url.endsWith("/api/credentials")) return json({ credentials: [] });
+        if (url.endsWith("/api/projects"))
+          return json({
+            projects: [
+              {
+                id: "p1",
+                title: "Research calls",
+                description: null,
+                created_at: "2026-07-01T00:00:00Z",
+                updated_at: "2026-07-01T00:00:00Z",
+                archived_at: null,
+                output_drive_folder_id: "folder-default",
+                output_drive_folder_url:
+                  "https://drive.google.com/drive/folders/folder-default",
+                output_drive_folder_name: "Default folder",
+              },
+            ],
+          });
+        if (url.endsWith("/api/projects/p1/jobs") && !init?.method)
+          return json({ jobs: [] });
+        if (url.endsWith("/api/projects/p1/sources") && !init?.method) {
+          sourceListCalls += 1;
+          if (sourceListCalls > 1)
+            return new Promise((resolve) => {
+              resolveReload = resolve;
+            });
+          return json({
+            sources: [
+              {
+                id: "s1",
+                project_id: "p1",
+                source_type: "local_upload",
+                original_filename: "remove-me.ogg",
+                mime_type: "audio/ogg",
+                size_bytes: 10,
+                drive_file_id: null,
+                drive_file_url: null,
+                upload_status: "uploaded",
+                uploaded_at: "2026-07-01T00:00:00Z",
+                expires_at: null,
+                deleted_at: null,
+                delete_reason: null,
+                created_at: "2026-07-01T00:00:00Z",
+                updated_at: "2026-07-01T00:00:00Z",
+              },
+            ],
+          });
+        }
+        if (url.endsWith("/api/sources/s1") && init?.method === "DELETE")
+          return json({ ok: true });
+        if (
+          url.endsWith("/api/projects/p1/jobs/batch") &&
+          init?.method === "POST"
+        )
+          return json({ jobs: [], created_count: 0, replayed: false });
+        return json({ ok: true });
+      },
+    );
+    renderApp("platform");
+    await openSelectedProjectJobs();
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: "Добавить строку для remove-me.ogg",
+      }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Убрать из проекта: remove-me.ogg" }),
+    );
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/sources/s1",
+        expect.objectContaining({ method: "DELETE" }),
+      ),
+    );
+    expect(
+      screen.queryByRole("button", {
+        name: "Добавить строку для remove-me.ogg",
+      }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/Выбранный файл больше недоступен/),
+    ).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Создать пакет задач" }),
+    );
+    expect(
+      (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
+        ([url, init]) =>
+          url === "/api/projects/p1/jobs/batch" && init?.method === "POST",
+      ),
+    ).toBe(false);
+    resolveReload(
+      await json({
+        sources: [
+          {
+            id: "s1",
+            project_id: "p1",
+            source_type: "local_upload",
+            original_filename: "remove-me.ogg",
+            mime_type: "audio/ogg",
+            size_bytes: 10,
+            drive_file_id: null,
+            drive_file_url: null,
+            upload_status: "uploaded",
+            uploaded_at: "2026-07-01T00:00:00Z",
+            expires_at: null,
+            deleted_at: null,
+            delete_reason: null,
+            created_at: "2026-07-01T00:00:00Z",
+            updated_at: "2026-07-01T00:00:00Z",
+          },
+        ],
+      }),
+    );
+    await waitFor(() => expect(sourceListCalls).toBeGreaterThan(1));
+    expect(
+      screen.queryByRole("button", {
+        name: "Добавить строку для remove-me.ogg",
+      }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("row folder verification retries only CSRF rejections and never ordinary failures", async () => {
+    const scenarios: Array<{
+      name: string;
+      response: "422" | "500" | "502" | "network";
+    }> = [
+      { name: "422", response: "422" },
+      { name: "500", response: "500" },
+      { name: "502", response: "502" },
+      { name: "network", response: "network" },
+    ];
+    for (const scenario of scenarios) {
+      cleanup();
+      googlePicker.resetGooglePickerLoaderForTests();
+      vi.restoreAllMocks();
+      let verifyCalls = 0;
+      vi.spyOn(googlePicker, "openGooglePicker").mockResolvedValue({
+        action: "picked",
+        docs: [{ id: `folder-${scenario.name}` }],
+      } as Awaited<ReturnType<typeof googlePicker.openGooglePicker>>);
+      (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+        (url: string, init?: RequestInit) => {
+          if (url.endsWith("/api/auth/session"))
+            return json({
+              authenticated: true,
+              user: { email: "user@example.com", role: "admin" },
+            });
+          if (url.endsWith("/api/auth/csrf"))
+            return json({ csrf_token: "csrf-after-refresh" });
+          if (url.endsWith("/api/google/connection"))
+            return json({
+              connected: true,
+              status: "active",
+              google_email: "safe.user@example.com",
+              scopes: "drive.file",
+              connected_at: "2026-07-01T00:00:00Z",
+              revoked_at: null,
+              picker_configured: true,
+              picker_scope_ready: true,
+              picker_ready: true,
+              reconnect_required: false,
+            });
+          if (url.endsWith("/api/google/picker/session"))
+            return json({
+              access_token: "picker-token",
+              api_key: "public",
+              app_id: "app",
+              scope_ready: true,
+            });
+          if (url.endsWith("/api/credentials"))
+            return json({ credentials: [] });
+          if (url.endsWith("/api/projects"))
+            return json({
+              projects: [
+                {
+                  id: "p1",
+                  title: "Research calls",
+                  description: null,
+                  created_at: "2026-07-01T00:00:00Z",
+                  updated_at: "2026-07-01T00:00:00Z",
+                  archived_at: null,
+                  output_drive_folder_id: null,
+                  output_drive_folder_url: null,
+                  output_drive_folder_name: null,
+                },
+              ],
+            });
+          if (url.endsWith("/api/projects/p1/jobs") && !init?.method)
+            return json({ jobs: [] });
+          if (url.endsWith("/api/projects/p1/sources") && !init?.method)
+            return json({
+              sources: [
+                {
+                  id: "s1",
+                  project_id: "p1",
+                  source_type: "local_upload",
+                  original_filename: "ready-local.ogg",
+                  mime_type: "audio/ogg",
+                  size_bytes: 10,
+                  drive_file_id: null,
+                  drive_file_url: null,
+                  upload_status: "uploaded",
+                  uploaded_at: "2026-07-01T00:00:00Z",
+                  expires_at: null,
+                  deleted_at: null,
+                  delete_reason: null,
+                  created_at: "2026-07-01T00:00:00Z",
+                  updated_at: "2026-07-01T00:00:00Z",
+                },
+              ],
+            });
+          if (
+            url.endsWith(
+              "/api/projects/p1/output-folders/google-picker/verify",
+            ) &&
+            init?.method === "POST"
+          ) {
+            verifyCalls += 1;
+            if (scenario.response === "network")
+              return Promise.reject(new Error("network down"));
+            return json(
+              { detail: "safe failure" },
+              false,
+              Number(scenario.response),
+            );
+          }
+          return json({ ok: true });
+        },
+      );
+      renderApp("platform");
+      await openSelectedProjectJobs();
+      await userEvent.click(
+        await screen.findByRole("button", { name: "Добавить строку" }),
+      );
+      await userEvent.click(
+        screen.getByRole("button", {
+          name: "Выбрать папку результата для строки 1",
+        }),
+      );
+      await waitFor(() => expect(verifyCalls).toBe(1));
+      expect(screen.getByText("Папка не выбрана")).toBeInTheDocument();
+    }
+
+    cleanup();
+    googlePicker.resetGooglePickerLoaderForTests();
+    vi.restoreAllMocks();
+    let verifyCalls = 0;
+    const verifyBodies: string[] = [];
+    vi.spyOn(googlePicker, "openGooglePicker").mockResolvedValue({
+      action: "picked",
+      docs: [{ id: "folder-csrf" }],
+    } as Awaited<ReturnType<typeof googlePicker.openGooglePicker>>);
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (url: string, init?: RequestInit) => {
+        if (url.endsWith("/api/auth/session"))
+          return json({
+            authenticated: true,
+            user: { email: "user@example.com", role: "admin" },
+          });
+        if (url.endsWith("/api/auth/csrf"))
+          return json({
+            csrf_token: verifyCalls > 0 ? "csrf-refreshed" : "csrf-initial",
+          });
+        if (url.endsWith("/api/google/connection"))
+          return json({
+            connected: true,
+            status: "active",
+            google_email: "safe.user@example.com",
+            scopes: "drive.file",
+            connected_at: "2026-07-01T00:00:00Z",
+            revoked_at: null,
+            picker_configured: true,
+            picker_scope_ready: true,
+            picker_ready: true,
+            reconnect_required: false,
+          });
+        if (url.endsWith("/api/google/picker/session"))
+          return json({
+            access_token: "picker-token",
+            api_key: "public",
+            app_id: "app",
+            scope_ready: true,
+          });
+        if (url.endsWith("/api/credentials")) return json({ credentials: [] });
+        if (url.endsWith("/api/projects"))
+          return json({
+            projects: [
+              {
+                id: "p1",
+                title: "Research calls",
+                description: null,
+                created_at: "2026-07-01T00:00:00Z",
+                updated_at: "2026-07-01T00:00:00Z",
+                archived_at: null,
+                output_drive_folder_id: null,
+                output_drive_folder_url: null,
+                output_drive_folder_name: null,
+              },
+            ],
+          });
+        if (url.endsWith("/api/projects/p1/jobs") && !init?.method)
+          return json({ jobs: [] });
+        if (url.endsWith("/api/projects/p1/sources") && !init?.method)
+          return json({
+            sources: [
+              {
+                id: "s1",
+                project_id: "p1",
+                source_type: "local_upload",
+                original_filename: "ready-local.ogg",
+                mime_type: "audio/ogg",
+                size_bytes: 10,
+                drive_file_id: null,
+                drive_file_url: null,
+                upload_status: "uploaded",
+                uploaded_at: "2026-07-01T00:00:00Z",
+                expires_at: null,
+                deleted_at: null,
+                delete_reason: null,
+                created_at: "2026-07-01T00:00:00Z",
+                updated_at: "2026-07-01T00:00:00Z",
+              },
+            ],
+          });
+        if (
+          url.endsWith(
+            "/api/projects/p1/output-folders/google-picker/verify",
+          ) &&
+          init?.method === "POST"
+        ) {
+          verifyCalls += 1;
+          verifyBodies.push(String(init.body));
+          return verifyCalls === 1
+            ? json({ detail: "csrf" }, false, 403)
+            : json({
+                name: "Verified folder",
+                web_view_url:
+                  "https://drive.google.com/drive/folders/folder-csrf",
+              });
+        }
+        return json({ ok: true });
+      },
+    );
+    renderApp("platform");
+    await openSelectedProjectJobs();
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Добавить строку" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Выбрать папку результата для строки 1",
+      }),
+    );
+    expect(await screen.findByText("Verified folder")).toBeInTheDocument();
+    expect(verifyCalls).toBe(2);
+    expect(verifyBodies).toEqual([
+      JSON.stringify({ folder_id: "folder-csrf" }),
+      JSON.stringify({ folder_id: "folder-csrf" }),
+    ]);
+  });
+
+  it("isolates composer rows, messages, retry state, details, and outputs when switching projects", async () => {
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (url: string, init?: RequestInit) => {
+        if (url.endsWith("/api/auth/session"))
+          return json({
+            authenticated: true,
+            user: { email: "user@example.com", role: "admin" },
+          });
+        if (url.endsWith("/api/auth/csrf"))
+          return json({ csrf_token: "csrf-after-refresh" });
+        if (url.endsWith("/api/google/connection"))
+          return json({
+            connected: true,
+            status: "active",
+            google_email: "safe.user@example.com",
+            scopes: "drive.file",
+            connected_at: "2026-07-01T00:00:00Z",
+            revoked_at: null,
+            picker_configured: true,
+            picker_scope_ready: true,
+            picker_ready: true,
+            reconnect_required: false,
+          });
+        if (url.endsWith("/api/credentials")) return json({ credentials: [] });
+        if (url.endsWith("/api/projects"))
+          return json({
+            projects: [
+              {
+                id: "pA",
+                title: "Project A",
+                description: null,
+                created_at: "2026-07-01T00:00:00Z",
+                updated_at: "2026-07-01T00:00:00Z",
+                archived_at: null,
+                output_drive_folder_id: "folder-a",
+                output_drive_folder_url:
+                  "https://drive.google.com/drive/folders/folder-a",
+                output_drive_folder_name: "A default",
+              },
+              {
+                id: "pB",
+                title: "Project B",
+                description: null,
+                created_at: "2026-07-02T00:00:00Z",
+                updated_at: "2026-07-02T00:00:00Z",
+                archived_at: null,
+                output_drive_folder_id: "folder-b",
+                output_drive_folder_url:
+                  "https://drive.google.com/drive/folders/folder-b",
+                output_drive_folder_name: "B default",
+              },
+            ],
+          });
+        if (url.endsWith("/api/projects/pA/sources") && !init?.method)
+          return json({
+            sources: [
+              {
+                id: "source-a",
+                project_id: "pA",
+                source_type: "local_upload",
+                original_filename: "project-a-source.ogg",
+                mime_type: "audio/ogg",
+                size_bytes: 10,
+                drive_file_id: null,
+                drive_file_url: null,
+                upload_status: "uploaded",
+                uploaded_at: "2026-07-01T00:00:00Z",
+                expires_at: null,
+                deleted_at: null,
+                delete_reason: null,
+                created_at: "2026-07-01T00:00:00Z",
+                updated_at: "2026-07-01T00:00:00Z",
+              },
+            ],
+          });
+        if (url.endsWith("/api/projects/pB/sources") && !init?.method)
+          return json({
+            sources: [
+              {
+                id: "source-b",
+                project_id: "pB",
+                source_type: "local_upload",
+                original_filename: "project-b-source.ogg",
+                mime_type: "audio/ogg",
+                size_bytes: 20,
+                drive_file_id: null,
+                drive_file_url: null,
+                upload_status: "uploaded",
+                uploaded_at: "2026-07-02T00:00:00Z",
+                expires_at: null,
+                deleted_at: null,
+                delete_reason: null,
+                created_at: "2026-07-02T00:00:00Z",
+                updated_at: "2026-07-02T00:00:00Z",
+              },
+            ],
+          });
+        if (url.endsWith("/api/projects/pA/jobs") && !init?.method)
+          return json({
+            jobs: [
+              {
+                id: "job-a",
+                project_id: "pA",
+                status: "completed",
+                title: "A completed job",
+                provider: null,
+                provider_credential_id: null,
+                source_count: 1,
+                output_folder: {
+                  name: "A result folder",
+                  web_view_url:
+                    "https://drive.google.com/drive/folders/a-result",
+                },
+                created_at: "2026-07-01T01:00:00Z",
+                updated_at: "2026-07-01T01:05:00Z",
+                cancelled_at: null,
+                cancel_requested_at: null,
+                attempt_count: 1,
+                started_at: "2026-07-01T01:01:00Z",
+                finished_at: "2026-07-01T01:04:00Z",
+                error_code: null,
+                error_message: null,
+              },
+            ],
+          });
+        if (url.endsWith("/api/projects/pB/jobs") && !init?.method)
+          return json({ jobs: [] });
+        if (url.endsWith("/api/jobs/job-a"))
+          return json({
+            id: "job-a",
+            project_id: "pA",
+            status: "completed",
+            title: "A completed job",
+            provider: null,
+            provider_credential_id: null,
+            source_count: 1,
+            created_at: "2026-07-01T01:00:00Z",
+            updated_at: "2026-07-01T01:05:00Z",
+            cancelled_at: null,
+            cancel_requested_at: null,
+            attempt_count: 1,
+            started_at: "2026-07-01T01:01:00Z",
+            finished_at: "2026-07-01T01:04:00Z",
+            error_code: null,
+            error_message: null,
+            sources: [
+              {
+                id: "source-a",
+                project_id: "pA",
+                position: 0,
+                job_source_status: "completed",
+                source_type: "local_upload",
+                original_filename: "project-a-source.ogg",
+                mime_type: "audio/ogg",
+                size_bytes: 10,
+                drive_file_id: null,
+                drive_file_url: null,
+                upload_status: "uploaded",
+                uploaded_at: "2026-07-01T00:00:00Z",
+                expires_at: null,
+                deleted_at: null,
+                delete_reason: null,
+                created_at: "2026-07-01T00:00:00Z",
+                updated_at: "2026-07-01T00:00:00Z",
+              },
+            ],
+          });
+        if (url.endsWith("/api/jobs/job-a/outputs"))
+          return json({
+            job_id: "job-a",
+            job_status: "completed",
+            output_count: 1,
+            outputs: [
+              {
+                source_id: "source-a",
+                source_position: 0,
+                source_name: "project-a-output",
+                source_type: "local_upload",
+                output_kind: "transcript",
+                transcript_standard: "plain",
+                web_view_url: null,
+                link_available: false,
+                document_character_count: 10,
+                document_created_at: "2026-07-01T01:03:00Z",
+                persisted_at: "2026-07-01T01:04:00Z",
+              },
+            ],
+          });
+        if (
+          url.endsWith("/api/projects/pA/jobs/batch") &&
+          init?.method === "POST"
+        )
+          return Promise.reject(new Error("temporary batch outage"));
+        if (
+          url.endsWith("/api/projects/pB/jobs/batch") &&
+          init?.method === "POST"
+        )
+          return json({
+            jobs: [
+              {
+                id: "job-b-created",
+                project_id: "pB",
+                status: "queued",
+                title: "B clean submit",
+                provider: null,
+                provider_credential_id: null,
+                source_count: 1,
+                created_at: "2026-07-02T01:00:00Z",
+                updated_at: "2026-07-02T01:00:00Z",
+                cancelled_at: null,
+                cancel_requested_at: null,
+                attempt_count: 0,
+                started_at: null,
+                finished_at: null,
+                error_code: null,
+                error_message: null,
+              },
+            ],
+            created_count: 1,
+            replayed: false,
+          });
+        return json({ ok: true });
+      },
+    );
+
+    renderApp("platform");
+    await openProjectsPage();
+    await userEvent.click(
+      await screen.findByRole("tab", { name: "Подготовка" }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: "Добавить строку для project-a-source.ogg",
+      }),
+    );
+    await userEvent.type(
+      screen.getByLabelText("Название задачи для строки 1"),
+      "Project A row title",
+    );
+    await userEvent.click(
+      within(
+        screen.getByText("A completed job").closest("article") as HTMLElement,
+      ).getByRole("button", { name: "Открыть" }),
+    );
+    expect(
+      await screen.findByLabelText("Job detail job-a"),
+    ).toBeInTheDocument();
+    expect(await screen.findByLabelText("Результаты job-a")).toHaveTextContent(
+      "project-a-output",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Создать пакет задач" }),
+    );
+    expect(
+      await screen.findByText(/ключ повтора сохранены/),
+    ).toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Project B .*02\.07\.2026/ }),
+    );
+    await userEvent.click(
+      await screen.findByRole("tab", { name: "Подготовка" }),
+    );
+
+    expect(
+      screen.queryByDisplayValue("Project A row title"),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("A default")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/ключ повтора сохранены/),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("A completed job")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Job detail job-a")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Результаты job-a")).not.toBeInTheDocument();
+    expect(screen.queryByText("project-a-output")).not.toBeInTheDocument();
+    expect(
+      screen.getByLabelText("Project job readiness checklist"),
+    ).toHaveTextContent("Папка по умолчанию: выбрана (B default)");
+    expect(
+      await screen.findByRole("button", {
+        name: "Добавить строку для project-b-source.ogg",
+      }),
+    ).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Добавить строку для project-b-source.ogg",
+      }),
+    );
+    await userEvent.type(
+      screen.getByLabelText("Название задачи для строки 1"),
+      "B clean submit",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Создать пакет задач" }),
+    );
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/projects/pB/jobs/batch",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+    const bCreateCall = (
+      fetch as unknown as ReturnType<typeof vi.fn>
+    ).mock.calls.find(
+      ([url, init]) =>
+        url === "/api/projects/pB/jobs/batch" && init?.method === "POST",
+    );
+    expect(JSON.parse(String(bCreateCall?.[1]?.body))).toEqual({
+      provider_credential_id: null,
+      items: [
+        {
+          source_id: "source-b",
+          output_folder_id: "folder-b",
+          title: "B clean submit",
+        },
+      ],
+    });
+    expect(window.localStorage.length).toBe(0);
+    expect(window.sessionStorage.length).toBe(0);
+  });
+
   it("source Picker cancel/error and duplicate clicks do not create source mutations", async () => {
     let picker = installFakeGooglePicker();
     renderApp("platform");
     await openProjectsPage();
     await userEvent.click(
-      await screen.findByRole("tab", { name: "Источники" }),
+      await screen.findByRole("tab", { name: "Подготовка" }),
     );
     const button = screen.getByRole("button", {
       name: "Выбрать файлы",
@@ -2199,7 +3300,7 @@ describe("Studio PWA", () => {
     renderApp("platform");
     await openProjectsPage();
     await userEvent.click(
-      await screen.findByRole("tab", { name: "Источники" }),
+      await screen.findByRole("tab", { name: "Подготовка" }),
     );
     await userEvent.click(
       screen.getByRole("button", { name: "Выбрать файлы" }),
@@ -2306,7 +3407,7 @@ describe("Studio PWA", () => {
     renderApp("platform");
     await openProjectsPage();
     await userEvent.click(
-      await screen.findByRole("tab", { name: "Источники" }),
+      await screen.findByRole("tab", { name: "Подготовка" }),
     );
     await userEvent.click(
       screen.getByRole("button", { name: "Выбрать файлы" }),
@@ -2428,7 +3529,7 @@ describe("Studio PWA", () => {
     renderApp("platform");
     await openProjectsPage();
     await userEvent.click(
-      await screen.findByRole("tab", { name: "Источники" }),
+      await screen.findByRole("tab", { name: "Подготовка" }),
     );
     await waitFor(() =>
       expect(document.body.textContent).toContain(
@@ -2475,9 +3576,10 @@ describe("Studio PWA", () => {
                 created_at: "2026-07-01T00:00:00",
                 updated_at: "2026-07-01T00:00:00",
                 archived_at: null,
-                output_drive_folder_id: null,
-                output_drive_folder_url: null,
-                output_drive_folder_name: null,
+                output_drive_folder_id: "folder-default",
+                output_drive_folder_url:
+                  "https://drive.google.com/drive/folders/folder-default",
+                output_drive_folder_name: "Default folder",
               },
             ],
           });
@@ -2505,30 +3607,48 @@ describe("Studio PWA", () => {
               },
             ],
           });
-        if (url.endsWith("/api/projects/p1/jobs") && init?.method === "POST")
+        if (
+          url.endsWith("/api/projects/p1/jobs/batch") &&
+          init?.method === "POST"
+        )
           return json({
-            id: "job-created",
-            project_id: "p1",
-            status: "queued",
-            title: null,
-            provider: null,
-            provider_credential_id: null,
-            source_count: 1,
-            sources: [],
-            created_at: "2026-07-04T00:00:00Z",
-            updated_at: "2026-07-04T00:00:00Z",
-            cancelled_at: null,
-            started_at: null,
-            finished_at: null,
-            error_code: null,
-            error_message: null,
+            jobs: [
+              {
+                id: "job-created",
+                project_id: "p1",
+                status: "queued",
+                title: null,
+                provider: null,
+                provider_credential_id: null,
+                source_count: 1,
+                sources: [],
+                output_folder: {
+                  name: "Default folder",
+                  web_view_url:
+                    "https://drive.google.com/drive/folders/folder-default",
+                },
+                created_at: "2026-07-04T00:00:00Z",
+                updated_at: "2026-07-04T00:00:00Z",
+                cancelled_at: null,
+                cancel_requested_at: null,
+                attempt_count: 0,
+                started_at: null,
+                finished_at: null,
+                error_code: null,
+                error_message: null,
+              },
+            ],
+            created_count: 1,
+            replayed: false,
           });
         return json({});
       },
     );
     renderApp("platform");
     await openProjectsPage();
-    await userEvent.click(await screen.findByRole("tab", { name: "Задачи" }));
+    await userEvent.click(
+      await screen.findByRole("tab", { name: "Подготовка" }),
+    );
     expect(
       await screen.findByText(
         "Ключи сейчас недоступны. Задачу можно создать без выбранного ключа.",
@@ -2541,24 +3661,34 @@ describe("Studio PWA", () => {
       screen.queryByText("raw backend detail ignored"),
     ).not.toBeInTheDocument();
 
-    await userEvent.click(await screen.findByLabelText(/ready-local/));
     await userEvent.click(
-      screen.getByRole("button", { name: "Создать задачу" }),
+      await screen.findByRole("button", {
+        name: "Добавить строку для ready-local.ogg",
+      }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Создать пакет задач" }),
     );
     const createCall = await waitFor(() => {
       const call = (
         fetch as unknown as ReturnType<typeof vi.fn>
       ).mock.calls.find(
         ([url, init]) =>
-          url === "/api/projects/p1/jobs" && init?.method === "POST",
+          url === "/api/projects/p1/jobs/batch" && init?.method === "POST",
       );
       expect(call).toBeTruthy();
       return call;
     });
+    expect(createCall?.[1]?.headers).toEqual(
+      expect.objectContaining({
+        "Idempotency-Key": expect.stringMatching(/^batch-[0-9a-f-]{36}$/),
+      }),
+    );
     expect(JSON.parse(String(createCall?.[1]?.body))).toEqual({
-      source_ids: ["s1"],
-      title: null,
       provider_credential_id: null,
+      items: [
+        { source_id: "s1", output_folder_id: "folder-default", title: null },
+      ],
     });
     expect(window.localStorage.length).toBe(0);
     expect(window.sessionStorage.length).toBe(0);
@@ -2582,7 +3712,7 @@ describe("Studio PWA", () => {
       ),
     ).toBe(false);
 
-    await userEvent.click(screen.getByRole("tab", { name: "Задачи" }));
+    await userEvent.click(screen.getByRole("tab", { name: "Подготовка" }));
     expect(await screen.findByText("Focused output job")).toBeInTheDocument();
     expect(
       (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(([url]) =>
@@ -3041,7 +4171,7 @@ describe("Studio PWA", () => {
     renderApp("platform");
     await openProjectsPage();
     await userEvent.click(
-      await screen.findByRole("tab", { name: "Источники" }),
+      await screen.findByRole("tab", { name: "Подготовка" }),
     );
     expect(await screen.findByLabelText("Google Drive")).toBeInTheDocument();
     expect(screen.getByLabelText("С устройства")).toBeInTheDocument();
@@ -3064,7 +4194,7 @@ describe("Studio PWA", () => {
     renderApp("platform");
     await openProjectsPage();
     await userEvent.click(
-      await screen.findByRole("tab", { name: "Источники" }),
+      await screen.findByRole("tab", { name: "Подготовка" }),
     );
     const deviceCard = await screen.findByLabelText("С устройства");
     const input = within(deviceCard).getByLabelText(
@@ -3124,14 +4254,16 @@ describe("Studio PWA", () => {
     });
     renderApp("platform");
     await openProjectsPage();
-    await userEvent.click(await screen.findByRole("tab", { name: "Задачи" }));
-    expect(
-      await screen.findByText("Сначала добавьте хотя бы один готовый файл."),
-    ).toBeInTheDocument();
     await userEvent.click(
-      screen.getByRole("button", { name: "Перейти к источникам" }),
+      await screen.findByRole("tab", { name: "Подготовка" }),
     );
-    expect(screen.getByRole("tab", { name: "Источники" })).toHaveAttribute(
+    expect(
+      await screen.findByText(/Сначала добавьте хотя бы один готовый файл/),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Перейти к источникам" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Подготовка" })).toHaveAttribute(
       "aria-selected",
       "true",
     );
