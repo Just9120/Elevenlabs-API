@@ -32,7 +32,7 @@ from studio_api.config import Settings
 from studio_api.db import SessionLocal, engine
 from studio_api.deps import get_client_ip
 from studio_api.main import app, limiter
-from studio_api.models import AuditEvent, JobStatus, LocalIdentity, Project, ProviderCredentialVersion, Source, SourceType, SourceUploadStatus, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, User, UserRole, UserStatus
+from studio_api.models import AuditEvent, CredentialProvider, CredentialStatus, JobStatus, LocalIdentity, Project, ProviderCredential, ProviderCredentialVersion, Source, SourceType, SourceUploadStatus, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, User, UserRole, UserStatus
 from studio_api.security import aad, decrypt, encrypt, hash_password, master_key_from_b64, utcnow, verify_password
 from studio_api.job_claim_lease import JobLeaseError, JobLeaseFailureReason, acquire_job_lease, acquire_next_ready_job_lease, is_lease_active, release_job_lease, renew_job_lease
 from studio_api.job_processing_lifecycle import JobProcessingError, JobProcessingFailureReason, acknowledge_job_cancellation, begin_job_processing, fail_job_processing, recover_expired_processing_job
@@ -1039,7 +1039,7 @@ def lease_test_job(status=JobStatus.queued, ready=True):
         else:
             source = Source(project_id=project.id, source_type=SourceType.google_drive, original_filename="a.mp3", upload_status=SourceUploadStatus.pending)
         db.add(source); db.flush()
-        job = TranscriptionJob(project_id=project.id, owner_user_id=user.id, status=status, title="Lease Job")
+        job = TranscriptionJob(project_id=project.id, owner_user_id=user.id, status=status, title="Lease Job", output_drive_folder_id="folder-1", output_drive_folder_url="https://drive.google.com/drive/folders/folder-1", output_drive_folder_name="Lease folder")
         db.add(job); db.flush()
         db.add(TranscriptionJobSource(job_id=job.id, source_id=source.id, position=0))
         db.commit()
@@ -1146,7 +1146,7 @@ def output_persistence_artifact(doc_id="doc-fresh"):
     (lambda job, project, rel, source: setattr(job, "cancel_requested_at", LEASE_TEST_NOW), JobOutputPersistenceReason.cancellation_requested),
     (lambda job, project, rel, source: setattr(job, "lease_owner_id", "other-owner"), JobOutputPersistenceReason.lease_not_owned),
     (lambda job, project, rel, source: setattr(job, "lease_generation", job.lease_generation + 1), JobOutputPersistenceReason.lease_not_owned),
-    (lambda job, project, rel, source: setattr(project, "output_drive_folder_id", "folder-changed"), JobOutputPersistenceReason.output_folder_changed),
+    (lambda job, project, rel, source: setattr(job, "output_drive_folder_id", "folder-changed"), JobOutputPersistenceReason.output_folder_changed),
     (lambda job, project, rel, source: setattr(project, "archived_at", LEASE_TEST_NOW), JobOutputPersistenceReason.project_unavailable),
 ])
 def test_output_persistence_refreshes_stale_identity_map_before_authorizing(mutate, reason):
@@ -1199,7 +1199,7 @@ def test_output_persistence_refreshes_stale_identity_map_before_authorizing(muta
 
 
 @pytest.mark.parametrize("mutate", [
-    lambda job, project, rel, source: setattr(project, "output_drive_folder_id", "folder-blocked"),
+    lambda job, project, rel, source: setattr(job, "output_drive_folder_id", "folder-blocked"),
     lambda job, project, rel, source: setattr(project, "archived_at", LEASE_TEST_NOW),
     lambda job, project, rel, source: (setattr(source, "deleted_at", LEASE_TEST_NOW), setattr(source, "upload_status", SourceUploadStatus.deleted)),
 ])
@@ -1905,6 +1905,7 @@ def test_google_picker_session_csrf_scope_config_and_safe_response(monkeypatch):
 def test_google_picker_source_and_output_selection_revalidates_server_metadata(monkeypatch):
     import studio_api.main as main
     from studio_api.google_drive import GoogleDriveMetadata, GOOGLE_FOLDER_MIME_TYPE
+    from studio_api.job_output_destination import DriveFolderAuthorizationMetadata
     pw = admin(); c = TestClient(app); csrf = login(c, pw)
     db = SessionLocal(); uid = db.query(User).first().id; db.close(); _connect_google_for_test(uid)
     monkeypatch.setattr(main, "refresh_user_google_drive_access_token", lambda *a, **k: "access")
@@ -1915,6 +1916,14 @@ def test_google_picker_source_and_output_selection_revalidates_server_metadata(m
         "bad": GoogleDriveMetadata("bad", "Doc", "application/pdf", 5, "https://drive.google.com/file/d/bad/view", None, None, False),
     }
     monkeypatch.setattr("studio_api.google_drive.fetch_drive_file_metadata", lambda token, did: metas[did])
+    folder_metas = {
+        "folder": DriveFolderAuthorizationMetadata("folder", GOOGLE_FOLDER_MIME_TYPE, False, True, "Results", "https://drive.google.com/drive/folders/folder"),
+        "file-a": DriveFolderAuthorizationMetadata("file-a", "audio/mpeg", False, True, "Backend A.mp3", "https://drive.google.com/file/d/file-a/view"),
+        "mismatch": DriveFolderAuthorizationMetadata("other-folder", GOOGLE_FOLDER_MIME_TYPE, False, True, "Mismatch", "https://drive.google.com/drive/folders/other-folder"),
+        "trashed": DriveFolderAuthorizationMetadata("trashed", GOOGLE_FOLDER_MIME_TYPE, True, True, "Trashed", "https://drive.google.com/drive/folders/trashed"),
+        "readonly": DriveFolderAuthorizationMetadata("readonly", GOOGLE_FOLDER_MIME_TYPE, False, False, "Read only", "https://drive.google.com/drive/folders/readonly"),
+    }
+    monkeypatch.setattr("studio_api.job_output_folder_selection._fetch_drive_folder_authorization_metadata", lambda token, did: folder_metas[did])
     headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
     pid = c.post("/api/projects", json={"title":"Picker"}, headers=headers).json()["id"]
     assert c.post(f"/api/projects/{pid}/sources/google-picker", json={"file_ids": []}, headers=headers).status_code == 422
@@ -1935,7 +1944,237 @@ def test_google_picker_source_and_output_selection_revalidates_server_metadata(m
     assert body["size_bytes"] == 30
     assert "client" not in r.text.lower()
     assert c.post(f"/api/projects/{pid}/output-folder/google-picker", json={"folder_id":"file-a"}, headers=headers).status_code == 422
+    assert c.post(f"/api/projects/{pid}/output-folder/google-picker", json={"folder_id":"mismatch"}, headers=headers).status_code == 422
+    assert c.post(f"/api/projects/{pid}/output-folder/google-picker", json={"folder_id":"trashed"}, headers=headers).status_code == 422
+    assert c.post(f"/api/projects/{pid}/output-folder/google-picker", json={"folder_id":"readonly"}, headers=headers).status_code == 422
     r = c.post(f"/api/projects/{pid}/output-folder/google-picker", json={"folder_id":"folder"}, headers=headers)
     assert r.status_code == 200
     assert r.json()["output_drive_folder_id"] == "folder"
     assert r.json()["output_drive_folder_name"] == "Results"
+    assert r.json()["output_drive_folder_url"] == "https://drive.google.com/drive/folders/folder"
+    assert "access" not in r.text and "canAddChildren" not in r.text and "capabilities" not in r.text
+
+
+def _batch_headers(csrf):
+    return {"origin": "https://studio.test", "x-csrf-token": csrf, "Idempotency-Key": "batch-key-1"}
+
+
+def _create_uploaded_source(db, project_id, name="source.mp3"):
+    src = Source(project_id=project_id, source_type=SourceType.local_upload, original_filename=name, mime_type="audio/mpeg", size_bytes=12, s3_bucket="bucket", s3_object_key=f"objects/{name}", upload_status=SourceUploadStatus.uploaded, uploaded_at=utcnow())
+    db.add(src); db.flush(); return src
+
+
+def _create_active_credential(db, user_id, label="main"):
+    cred = ProviderCredential(user_id=user_id, provider=CredentialProvider.elevenlabs, label=label, status=CredentialStatus.active)
+    db.add(cred); db.flush(); return cred
+
+
+def _batch_setup(email="batch@example.com"):
+    pw = admin(email); c = TestClient(app); csrf = login(c, pw, email)
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter_by(email=email).one()
+        project = Project(owner_user_id=user.id, title="Batch project")
+        db.add(project); db.flush()
+        source_a = _create_uploaded_source(db, project.id, "a.mp3")
+        source_b = _create_uploaded_source(db, project.id, "b.mp3")
+        cred = _create_active_credential(db, user.id)
+        db.commit()
+        return c, csrf, user.id, project.id, source_a.id, source_b.id, cred.id
+    finally:
+        db.close()
+
+
+def _install_batch_folder_mocks(monkeypatch, calls=None, invalid=None):
+    import studio_api.main as main
+    from studio_api.google_drive import GOOGLE_FOLDER_MIME_TYPE
+    from studio_api.job_output_destination import DriveFolderAuthorizationMetadata
+    calls = calls if calls is not None else []
+    invalid = invalid or {}
+    monkeypatch.setattr(main, "refreshed_google_drive_access_token", lambda db, user: calls.append(("token", user.id)) or "access")
+    def fetch(token, folder_id):
+        calls.append(("folder", folder_id))
+        if folder_id in invalid:
+            kind = invalid[folder_id]
+            if kind == "missing":
+                raise RuntimeError("missing")
+            if kind == "file":
+                return DriveFolderAuthorizationMetadata(folder_id, "audio/mpeg", False, True, "Not folder", "https://drive.google.com/file/d/x/view")
+            if kind == "trashed":
+                return DriveFolderAuthorizationMetadata(folder_id, GOOGLE_FOLDER_MIME_TYPE, True, True, "Trashed", "https://drive.google.com/drive/folders/trashed")
+            if kind == "readonly":
+                return DriveFolderAuthorizationMetadata(folder_id, GOOGLE_FOLDER_MIME_TYPE, False, False, "Read only", "https://drive.google.com/drive/folders/readonly")
+        return DriveFolderAuthorizationMetadata(folder_id, GOOGLE_FOLDER_MIME_TYPE, False, True, f"Folder {folder_id}", f"https://drive.google.com/drive/folders/{folder_id}")
+    monkeypatch.setattr("studio_api.job_output_folder_selection._fetch_drive_folder_authorization_metadata", fetch)
+    return calls
+
+
+def _batch_body(source_a, source_b=None, folder_a="folder-a", folder_b="folder-b", credential_id=None):
+    items = [{"source_id": source_a, "output_folder_id": folder_a, "title": "First"}]
+    if source_b is not None:
+        items.append({"source_id": source_b, "output_folder_id": folder_b, "title": "Second"})
+    body = {"language": "EN", "options": {"diarize": True}, "items": items}
+    if credential_id:
+        body["provider_credential_id"] = credential_id
+    return body
+
+
+def test_batch_jobs_create_two_one_source_jobs_safe_payload_and_same_source_different_folders(monkeypatch):
+    calls = _install_batch_folder_mocks(monkeypatch)
+    c, csrf, user_id, pid, source_a, source_b, cred_id = _batch_setup("batch-happy@example.com")
+    body = _batch_body(source_a, source_b, credential_id=cred_id)
+    r = c.post(f"/api/projects/{pid}/jobs/batch", json=body, headers=_batch_headers(csrf))
+    assert r.status_code == 200
+    data = r.json(); assert data["created_count"] == 2 and data["replayed"] is False
+    assert [job["title"] for job in data["jobs"]] == ["First", "Second"]
+    assert "output_drive_folder_id" not in r.text and "batch-key-1" not in r.text and "batch_request_hash" not in r.text and "batch_position" not in r.text
+    assert data["jobs"][0]["output_folder"] == {"name": "Folder folder-a", "web_view_url": "https://drive.google.com/drive/folders/folder-a"}
+    db = SessionLocal()
+    try:
+        jobs = db.query(TranscriptionJob).filter_by(project_id=pid).order_by(TranscriptionJob.batch_position).all()
+        assert len(jobs) == 2
+        assert [j.output_drive_folder_id for j in jobs] == ["folder-a", "folder-b"]
+        assert all(len(j.sources) == 1 and j.sources[0].position == 0 for j in jobs)
+    finally:
+        db.close()
+    same_source_body = _batch_body(source_a, source_a, folder_a="folder-c", folder_b="folder-d")
+    headers = _batch_headers(csrf) | {"Idempotency-Key": "batch-key-2"}
+    r = c.post(f"/api/projects/{pid}/jobs/batch", json=same_source_body, headers=headers)
+    assert r.status_code == 200 and r.json()["created_count"] == 2
+    assert calls.count(("folder", "folder-c")) == 1 and calls.count(("folder", "folder-d")) == 1
+
+
+def test_batch_jobs_duplicate_pair_and_atomic_validation_failures(monkeypatch):
+    _install_batch_folder_mocks(monkeypatch, invalid={"bad-folder": "file", "trashed": "trashed", "readonly": "readonly", "missing": "missing"})
+    c, csrf, user_id, pid, source_a, source_b, cred_id = _batch_setup("batch-fail@example.com")
+    headers = _batch_headers(csrf)
+    dup = {"items": [{"source_id": source_a, "output_folder_id": "folder-a"}, {"source_id": source_a, "output_folder_id": "folder-a"}]}
+    assert c.post(f"/api/projects/{pid}/jobs/batch", json=dup, headers=headers).status_code == 422
+    cases = [
+        ({"items": [{"source_id": "missing-source", "output_folder_id": "folder-a"}]}, "bad-key-1"),
+        ({"provider_credential_id": "missing-cred", "items": [{"source_id": source_a, "output_folder_id": "folder-a"}]}, "bad-key-2"),
+        ({"items": [{"source_id": source_a, "output_folder_id": "bad-folder"}]}, "bad-key-3"),
+        ({"items": [{"source_id": source_a, "output_folder_id": "trashed"}]}, "bad-key-4"),
+        ({"items": [{"source_id": source_a, "output_folder_id": "readonly"}]}, "bad-key-5"),
+        ({"items": [{"source_id": source_a, "output_folder_id": "folder-a"}, {"source_id": source_b, "output_folder_id": "missing"}]}, "bad-key-6"),
+    ]
+    db = SessionLocal();
+    try:
+        db.get(Source, source_b).deleted_at = utcnow(); db.commit()
+    finally:
+        db.close()
+    cases.append(({"items": [{"source_id": source_b, "output_folder_id": "folder-a"}]}, "bad-key-7"))
+    for payload, key in cases:
+        before = SessionLocal(); job_count = before.query(TranscriptionJob).count(); rel_count = before.query(TranscriptionJobSource).count(); before.close()
+        r = c.post(f"/api/projects/{pid}/jobs/batch", json=payload, headers=headers | {"Idempotency-Key": key})
+        assert r.status_code in {422, 502}
+        after = SessionLocal();
+        try:
+            assert after.query(TranscriptionJob).count() == job_count
+            assert after.query(TranscriptionJobSource).count() == rel_count
+        finally:
+            after.close()
+
+
+def test_batch_jobs_exact_replay_skips_current_validation_and_conflicts_skip_google(monkeypatch):
+    calls = _install_batch_folder_mocks(monkeypatch)
+    c, csrf, user_id, pid, source_a, source_b, cred_id = _batch_setup("batch-replay@example.com")
+    body = _batch_body(source_a, source_b, folder_a="shared", folder_b="shared", credential_id=cred_id)
+    r1 = c.post(f"/api/projects/{pid}/jobs/batch", json=body, headers=_batch_headers(csrf))
+    assert r1.status_code == 200 and r1.json()["replayed"] is False
+    assert [call for call in calls if call == ("folder", "shared")] == [("folder", "shared")]
+    first_ids = [j["id"] for j in r1.json()["jobs"]]
+    db = SessionLocal()
+    try:
+        db.get(ProviderCredential, cred_id).status = CredentialStatus.revoked
+        db.get(Source, source_a).deleted_at = utcnow()
+        db.commit()
+    finally:
+        db.close()
+    calls.clear()
+    r2 = c.post(f"/api/projects/{pid}/jobs/batch", json=body, headers=_batch_headers(csrf))
+    assert r2.status_code == 200 and r2.json()["replayed"] is True
+    assert [j["id"] for j in r2.json()["jobs"]] == first_ids
+    assert calls == []
+    db = SessionLocal()
+    try:
+        assert db.query(TranscriptionJob).filter_by(project_id=pid).count() == 2
+        assert db.query(TranscriptionJobSource).join(TranscriptionJob).filter(TranscriptionJob.project_id == pid).count() == 2
+        assert db.query(AuditEvent).filter_by(event_type="job.batch_created").count() == 1
+    finally:
+        db.close()
+    conflict_bodies = [
+        _batch_body(source_b, source_b, folder_a="shared", folder_b="shared", credential_id=cred_id),
+        _batch_body(source_a, source_b, folder_a="changed", folder_b="shared", credential_id=cred_id),
+        _batch_body(source_a, source_b, folder_a="shared", folder_b="shared", credential_id=None),
+        {**body, "language": "fr"},
+        {**body, "options": {"diarize": False}},
+        {**body, "items": list(reversed(body["items"]))},
+        {**body, "items": [{**body["items"][0], "title": "Changed"}, body["items"][1]]},
+    ]
+    for idx, conflict in enumerate(conflict_bodies):
+        calls.clear()
+        r = c.post(f"/api/projects/{pid}/jobs/batch", json=conflict, headers=_batch_headers(csrf))
+        assert r.status_code == 409, idx
+        assert calls == []
+
+
+def test_batch_jobs_key_scoped_by_project_and_integrity_replay_guards(monkeypatch):
+    _install_batch_folder_mocks(monkeypatch)
+    c, csrf, user_id, pid, source_a, source_b, cred_id = _batch_setup("batch-scope@example.com")
+    body = _batch_body(source_a, None, folder_a="folder-a")
+    assert c.post(f"/api/projects/{pid}/jobs/batch", json=body, headers=_batch_headers(csrf)).status_code == 200
+    db = SessionLocal()
+    try:
+        user = db.get(User, user_id)
+        p2 = Project(owner_user_id=user.id, title="Second")
+        db.add(p2); db.flush(); s2 = _create_uploaded_source(db, p2.id, "second.mp3"); db.commit(); p2_id = p2.id; s2_id = s2.id
+    finally:
+        db.close()
+    assert c.post(f"/api/projects/{p2_id}/jobs/batch", json=_batch_body(s2_id, None, folder_a="folder-a"), headers=_batch_headers(csrf)).status_code == 200
+    from studio_api.main import _existing_batch_is_complete, _batch_hash
+    db = SessionLocal()
+    try:
+        existing = db.query(TranscriptionJob).filter_by(project_id=pid, batch_idempotency_key="batch-key-1").order_by(TranscriptionJob.batch_position).all()
+        request_hash = existing[0].batch_request_hash
+        assert _existing_batch_is_complete(existing, request_hash, 1) is True
+        assert _existing_batch_is_complete(existing, "bad", 1) is False
+        existing[0].batch_position = 2
+        assert _existing_batch_is_complete(existing, request_hash, 1) is False
+    finally:
+        db.rollback(); db.close()
+
+
+def test_job_destination_migration_0009_columns_constraints_and_backfill():
+    inspector = inspect(engine)
+    cols = {c["name"]: c for c in inspector.get_columns("transcription_jobs")}
+    assert {"output_drive_folder_id", "output_drive_folder_url", "output_drive_folder_name", "batch_idempotency_key", "batch_request_hash", "batch_position"}.issubset(cols)
+    constraints = {c["name"] for c in inspector.get_check_constraints("transcription_jobs")} | {c["name"] for c in inspector.get_unique_constraints("transcription_jobs")}
+    assert "ck_transcription_jobs_batch_fields_all_or_none" in constraints
+    assert "uq_transcription_jobs_batch_position" in constraints
+    db = SessionLocal()
+    try:
+        user = User(email="migration-0009@example.com", role=UserRole.user, status=UserStatus.active); db.add(user); db.flush()
+        p1 = Project(owner_user_id=user.id, title="With folder", output_drive_folder_id="folder-m", output_drive_folder_url="https://drive.google.com/drive/folders/folder-m", output_drive_folder_name="Migrated")
+        p2 = Project(owner_user_id=user.id, title="Without folder")
+        db.add_all([p1, p2]); db.flush()
+        j1 = TranscriptionJob(project_id=p1.id, owner_user_id=user.id, status=JobStatus.queued)
+        j1.apply_output_folder_snapshot(folder_id=p1.output_drive_folder_id, folder_url=p1.output_drive_folder_url, folder_name=p1.output_drive_folder_name)
+        j2 = TranscriptionJob(project_id=p2.id, owner_user_id=user.id, status=JobStatus.queued)
+        batch_ok = TranscriptionJob(project_id=p1.id, owner_user_id=user.id, status=JobStatus.queued, batch_idempotency_key="key", batch_request_hash="a"*64, batch_position=0)
+        db.add_all([j1, j2, batch_ok]); db.flush(); db.commit()
+        assert j1.output_drive_folder_id == "folder-m" and j1.batch_idempotency_key is None
+        assert j2.output_drive_folder_id is None and j2.batch_idempotency_key is None
+        db.add(TranscriptionJob(project_id=p1.id, owner_user_id=user.id, status=JobStatus.queued, batch_idempotency_key="partial"));
+        with pytest.raises(Exception): db.commit()
+        db.rollback()
+        db.add(TranscriptionJob(project_id=p1.id, owner_user_id=user.id, status=JobStatus.queued, batch_idempotency_key="neg", batch_request_hash="b"*64, batch_position=-1));
+        with pytest.raises(Exception): db.commit()
+        db.rollback()
+        db.add(TranscriptionJob(project_id=p1.id, owner_user_id=user.id, status=JobStatus.queued, batch_idempotency_key="key", batch_request_hash="c"*64, batch_position=0));
+        with pytest.raises(Exception): db.commit()
+        db.rollback()
+        db.add_all([TranscriptionJob(project_id=p1.id, owner_user_id=user.id, status=JobStatus.queued), TranscriptionJob(project_id=p1.id, owner_user_id=user.id, status=JobStatus.queued)])
+        db.commit()
+    finally:
+        db.close()

@@ -13,7 +13,7 @@ from .job_claim_lease import is_lease_active
 from .models import JobStatus, Project, TranscriptionJob
 from .security import utcnow
 
-DRIVE_FOLDER_CAPABILITY_FIELDS = "id,mimeType,trashed,capabilities/canAddChildren"
+DRIVE_FOLDER_CAPABILITY_FIELDS = "id,name,mimeType,trashed,webViewLink,capabilities/canAddChildren"
 
 
 class OutputDestinationReason(str, Enum):
@@ -55,6 +55,8 @@ class DriveFolderAuthorizationMetadata:
     mime_type: str | None
     trashed: bool | None
     can_add_children: bool | None
+    name: str | None = None
+    web_view_link: str | None = None
 
 
 @dataclass(frozen=True)
@@ -162,4 +164,6 @@ def _fetch_drive_folder_authorization_metadata(access_token: str, folder_id: str
         mime_type=payload.get("mimeType") if isinstance(payload.get("mimeType"), str) else None,
         trashed=payload.get("trashed") if isinstance(payload.get("trashed"), bool) else None,
         can_add_children=caps.get("canAddChildren") if isinstance(caps, dict) and isinstance(caps.get("canAddChildren"), bool) else None,
+        name=payload.get("name") if isinstance(payload.get("name"), str) else None,
+        web_view_link=payload.get("webViewLink") if isinstance(payload.get("webViewLink"), str) else None,
     )

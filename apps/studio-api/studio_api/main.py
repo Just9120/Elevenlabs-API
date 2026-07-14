@@ -422,11 +422,17 @@ def _clean_idempotency_key(value: str|None) -> str:
     return key
 
 def _load_existing_batch(db, user_id, project_id, key):
-    return db.query(TranscriptionJob).filter(TranscriptionJob.owner_user_id==user_id, TranscriptionJob.project_id==project_id, TranscriptionJob.batch_idempotency_key==key).order_by(TranscriptionJob.batch_position.asc()).all()
+    return db.query(TranscriptionJob).filter(TranscriptionJob.owner_user_id==user_id, TranscriptionJob.project_id==project_id, TranscriptionJob.batch_idempotency_key==key).order_by(TranscriptionJob.batch_position.asc(), TranscriptionJob.id.asc()).all()
 
 def _batch_hash(project_id, provider_credential_id, language, options_json, items):
     canonical={"project_id":project_id,"provider_credential_id":provider_credential_id,"language":language,"options":json.loads(options_json) if options_json else None,"items":items}
     return hashlib.sha256(json.dumps(canonical, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+def _existing_batch_is_complete(existing, request_hash: str, expected_count: int) -> bool:
+    if len(existing) != expected_count:
+        return False
+    positions=[job.batch_position for job in existing]
+    return positions == list(range(expected_count)) and all(job.batch_request_hash == request_hash for job in existing)
 
 @app.post("/api/projects/{project_id}/jobs/batch")
 def create_transcription_jobs_batch(project_id: str, data: TranscriptionJobBatchCreateIn, request: Request, pair=Depends(require_csrf), db: Session=Depends(get_db)):
@@ -434,26 +440,26 @@ def create_transcription_jobs_batch(project_id: str, data: TranscriptionJobBatch
     key=_clean_idempotency_key(request.headers.get("Idempotency-Key"))
     language=clean_job_language(data.language); options_json=safe_job_options(data.options)
     provider_credential_id=data.provider_credential_id.strip() if isinstance(data.provider_credential_id, str) and data.provider_credential_id.strip() else None
-    if provider_credential_id:
-        cred=db.get(ProviderCredential, provider_credential_id)
-        if not cred or cred.user_id!=user.id or cred.status!=CredentialStatus.active: raise HTTPException(422, "Учетные данные провайдера недоступны")
     pairs=set(); source_ids=[]; folder_ids=[]; titles=[]
     for item in data.items:
         sid=item.source_id.strip(); fid=clean_drive_id(item.output_folder_id, "ID папки Google Drive")
         pair_key=(sid,fid)
         if pair_key in pairs: raise HTTPException(422, "Повторяющиеся source/folder пары не допускаются")
         pairs.add(pair_key); source_ids.append(sid); folder_ids.append(fid); titles.append(clean_job_title(item.title))
-    sources=validate_job_sources(db, p.id, source_ids)
+    hash_items=[{"source_id": sid, "output_folder_id": fid, "title": title} for sid,fid,title in zip(source_ids,folder_ids,titles)]
+    request_hash=_batch_hash(p.id, provider_credential_id, language, options_json, hash_items)
     existing=_load_existing_batch(db,user.id,p.id,key)
+    if existing:
+        if not _existing_batch_is_complete(existing, request_hash, len(data.items)):
+            raise HTTPException(409, "Idempotency-Key already used with a different request")
+        return {"jobs":[job_payload(j, include_sources=True) for j in existing], "created_count": len(existing), "replayed": True}
+    if provider_credential_id:
+        cred=db.get(ProviderCredential, provider_credential_id)
+        if not cred or cred.user_id!=user.id or cred.status!=CredentialStatus.active: raise HTTPException(422, "Учетные данные провайдера недоступны")
+    sources=validate_job_sources(db, p.id, source_ids)
     unique_folders=list(dict.fromkeys(folder_ids))
     access_token=refreshed_google_drive_access_token(db, user)
     verified_by_id={fid: verify_output_folder_selection(access_token, fid) for fid in unique_folders}
-    hash_items=[{"source_id": sid, "output_folder_id": fid, "title": title} for sid,fid,title in zip(source_ids,folder_ids,titles)]
-    request_hash=_batch_hash(p.id, provider_credential_id, language, options_json, hash_items)
-    if existing:
-        if any(j.batch_request_hash != request_hash for j in existing) or len(existing)!=len(data.items):
-            raise HTTPException(409, "Idempotency-Key already used with a different request")
-        return {"jobs":[job_payload(j, include_sources=True) for j in existing], "created_count": len(existing), "replayed": True}
     try:
         jobs=[]
         for idx,(src,fid,title) in enumerate(zip(sources,folder_ids,titles)):
@@ -465,7 +471,7 @@ def create_transcription_jobs_batch(project_id: str, data: TranscriptionJobBatch
         db.commit()
     except IntegrityError:
         db.rollback(); existing=_load_existing_batch(db,user.id,p.id,key)
-        if existing and all(j.batch_request_hash == request_hash for j in existing) and len(existing)==len(data.items):
+        if _existing_batch_is_complete(existing, request_hash, len(data.items)):
             return {"jobs":[job_payload(j, include_sources=True) for j in existing], "created_count": len(existing), "replayed": True}
         raise HTTPException(409, "Idempotency-Key already used with a different request")
     for job in jobs: db.refresh(job)
