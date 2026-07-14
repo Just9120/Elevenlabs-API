@@ -2049,7 +2049,15 @@ def test_batch_jobs_duplicate_pair_and_atomic_validation_failures(monkeypatch):
     c, csrf, user_id, pid, source_a, source_b, cred_id = _batch_setup("batch-fail@example.com")
     headers = _batch_headers(csrf)
     dup = {"items": [{"source_id": source_a, "output_folder_id": "folder-a"}, {"source_id": source_a, "output_folder_id": "folder-a"}]}
+    before = SessionLocal(); job_count = before.query(TranscriptionJob).count(); rel_count = before.query(TranscriptionJobSource).count(); audit_count = before.query(AuditEvent).filter_by(event_type="job.batch_created").count(); before.close()
     assert c.post(f"/api/projects/{pid}/jobs/batch", json=dup, headers=headers).status_code == 422
+    after = SessionLocal()
+    try:
+        assert after.query(TranscriptionJob).count() == job_count
+        assert after.query(TranscriptionJobSource).count() == rel_count
+        assert after.query(AuditEvent).filter_by(event_type="job.batch_created").count() == audit_count
+    finally:
+        after.close()
     cases = [
         ({"items": [{"source_id": "missing-source", "output_folder_id": "folder-a"}]}, "bad-key-1"),
         ({"provider_credential_id": "missing-cred", "items": [{"source_id": source_a, "output_folder_id": "folder-a"}]}, "bad-key-2"),
@@ -2104,6 +2112,7 @@ def test_batch_jobs_exact_replay_skips_current_validation_and_conflicts_skip_goo
     finally:
         db.close()
     conflict_bodies = [
+        {**body, "items": [{"source_id": source_b, "output_folder_id": "shared", "title": "Dup"}, {"source_id": source_b, "output_folder_id": "shared", "title": "Dup"}]},
         _batch_body(source_b, source_b, folder_a="shared", folder_b="shared", credential_id=cred_id),
         _batch_body(source_a, source_b, folder_a="changed", folder_b="shared", credential_id=cred_id),
         _batch_body(source_a, source_b, folder_a="shared", folder_b="shared", credential_id=None),
@@ -2145,7 +2154,165 @@ def test_batch_jobs_key_scoped_by_project_and_integrity_replay_guards(monkeypatc
         db.rollback(); db.close()
 
 
-def test_job_destination_migration_0009_columns_constraints_and_backfill():
+
+def test_batch_jobs_integrity_error_replays_concurrent_winner(monkeypatch):
+    calls = _install_batch_folder_mocks(monkeypatch)
+    c, csrf, user_id, pid, source_a, source_b, cred_id = _batch_setup("batch-race@example.com")
+    body = _batch_body(source_a, source_b, credential_id=cred_id)
+    import studio_api.main as main
+    from sqlalchemy.exc import IntegrityError
+    from sqlalchemy.orm import Session as OrmSession
+    original_flush = OrmSession.flush
+    injected = {"done": False}
+
+    def fake_flush(self, *args, **kwargs):
+        if not injected["done"] and any(isinstance(obj, TranscriptionJob) and obj.batch_idempotency_key == "batch-key-1" for obj in self.new):
+            injected["done"] = True
+            options_json = main.safe_job_options(body["options"])
+            language = main.clean_job_language(body["language"])
+            hash_items = [{"source_id": item["source_id"], "output_folder_id": item["output_folder_id"], "title": main.clean_job_title(item.get("title"))} for item in body["items"]]
+            request_hash = main._batch_hash(pid, cred_id, language, options_json, hash_items)
+            winner = SessionLocal()
+            try:
+                for idx, item in enumerate(body["items"]):
+                    job = TranscriptionJob(project_id=pid, owner_user_id=user_id, status=JobStatus.queued, provider_credential_id=cred_id, language=language, options_json=options_json, batch_idempotency_key="batch-key-1", batch_request_hash=request_hash, batch_position=idx)
+                    job.apply_output_folder_snapshot(folder_id=item["output_folder_id"], folder_url=f"https://drive.google.com/drive/folders/{item['output_folder_id']}", folder_name=f"Folder {item['output_folder_id']}")
+                    winner.add(job); original_flush(winner)
+                    winner.add(TranscriptionJobSource(job_id=job.id, source_id=item["source_id"], position=0, status=JobSourceStatus.queued)); original_flush(winner)
+                winner.add(AuditEvent(actor_user_id=user_id, subject_user_id=user_id, event_type="job.batch_created", metadata_json='{"count":2}'))
+                winner.commit()
+            finally:
+                winner.close()
+            raise IntegrityError("insert", {}, Exception("duplicate"))
+        return original_flush(self, *args, **kwargs)
+
+    monkeypatch.setattr(OrmSession, "flush", fake_flush)
+    r = c.post(f"/api/projects/{pid}/jobs/batch", json=body, headers=_batch_headers(csrf))
+    assert r.status_code == 200
+    assert r.json()["replayed"] is True
+    assert r.json()["created_count"] == 2
+    assert calls.count(("folder", "folder-a")) == 1 and calls.count(("folder", "folder-b")) == 1
+    db = SessionLocal()
+    try:
+        assert db.query(TranscriptionJob).filter_by(project_id=pid).count() == 2
+        assert db.query(TranscriptionJobSource).join(TranscriptionJob).filter(TranscriptionJob.project_id == pid).count() == 2
+        assert db.query(AuditEvent).filter_by(event_type="job.batch_created").count() == 1
+    finally:
+        db.close()
+
+
+def test_job_destination_migration_0008_0009_upgrade_downgrade_backfill(tmp_path):
+    from sqlalchemy import create_engine
+    from sqlalchemy.engine import make_url
+    import uuid
+
+    temp_db = f"studio_migration_0009_{uuid.uuid4().hex}"
+    base_url = make_url(engine.url)
+    admin_url = base_url.set(database="postgres")
+    temp_url = base_url.set(database=temp_db)
+    admin_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
+    try:
+        with admin_engine.connect() as conn:
+            conn.execute(text(f'CREATE DATABASE "{temp_db}"'))
+    except OperationalError as exc:
+        pytest.skip(f"PostgreSQL database creation unavailable for isolated migration test: {exc}")
+    finally:
+        admin_engine.dispose()
+
+    env = os.environ.copy()
+    env.pop("STUDIO_DATABASE_URL", None)
+    env["STUDIO_DATABASE_NAME"] = temp_db
+    temp_engine = create_engine(temp_url)
+    try:
+        subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "upgrade", "0008_transcription_job_outputs"], cwd=ROOT, env=env, check=True)
+        with temp_engine.begin() as conn:
+            # The repository's 0001 baseline reflects current metadata, so strip
+            # the 0009 additions to create a genuine revision-0008 shape before
+            # inserting legacy rows and upgrading through 0009.
+            conn.execute(text("ALTER TABLE transcription_jobs DROP CONSTRAINT IF EXISTS uq_transcription_jobs_batch_position"))
+            conn.execute(text("ALTER TABLE transcription_jobs DROP CONSTRAINT IF EXISTS ck_transcription_jobs_batch_fields_all_or_none"))
+            for col in ["batch_position", "batch_request_hash", "batch_idempotency_key", "output_drive_folder_name", "output_drive_folder_url", "output_drive_folder_id"]:
+                conn.execute(text(f"ALTER TABLE transcription_jobs DROP COLUMN IF EXISTS {col}"))
+            conn.execute(text("UPDATE alembic_version SET version_num='0008_transcription_job_outputs'"))
+            conn.execute(text("""
+                INSERT INTO users (id, email, role, status, created_at, updated_at)
+                VALUES ('user-0009', 'migration-0009-isolated@example.com', 'user', 'active', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')
+            """))
+            conn.execute(text("""
+                INSERT INTO projects (id, owner_user_id, title, description, created_at, updated_at, archived_at, output_drive_folder_id, output_drive_folder_url, output_drive_folder_name)
+                VALUES
+                ('project-with-folder', 'user-0009', 'With folder', NULL, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', NULL, 'folder-0009', 'https://drive.google.com/drive/folders/folder-0009', 'Migration folder'),
+                ('project-without-folder', 'user-0009', 'Without folder', NULL, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', NULL, NULL, NULL, NULL)
+            """))
+            conn.execute(text("""
+                INSERT INTO sources (id, project_id, source_type, original_filename, mime_type, size_bytes, drive_file_id, drive_file_url, s3_bucket, s3_object_key, upload_status, uploaded_at, expires_at, deleted_at, delete_reason, created_at, updated_at)
+                VALUES
+                ('source-with-folder', 'project-with-folder', 'local_upload', 'with.mp3', 'audio/mpeg', 10, NULL, NULL, 'bucket', 'objects/with', 'uploaded', '2026-01-01T00:00:00Z', NULL, NULL, NULL, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'),
+                ('source-without-folder', 'project-without-folder', 'local_upload', 'without.mp3', 'audio/mpeg', 10, NULL, NULL, 'bucket', 'objects/without', 'uploaded', '2026-01-01T00:00:00Z', NULL, NULL, NULL, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')
+            """))
+            conn.execute(text("""
+                INSERT INTO transcription_jobs (id, project_id, owner_user_id, status, provider, provider_credential_id, title, language, options_json, created_at, updated_at, cancelled_at, started_at, finished_at, error_code, error_message, lease_owner_id, lease_generation, claimed_at, lease_expires_at, attempt_count, cancel_requested_at)
+                VALUES
+                ('job-with-folder', 'project-with-folder', 'user-0009', 'queued', NULL, NULL, 'Job with folder', 'en', NULL, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', NULL, NULL, NULL, NULL, NULL, NULL, 0, NULL, NULL, 0, NULL),
+                ('job-without-folder', 'project-without-folder', 'user-0009', 'queued', NULL, NULL, 'Job without folder', 'en', NULL, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', NULL, NULL, NULL, NULL, NULL, NULL, 0, NULL, NULL, 0, NULL)
+            """))
+            conn.execute(text("""
+                INSERT INTO transcription_job_sources (id, job_id, source_id, position, status, created_at)
+                VALUES
+                ('rel-with-folder', 'job-with-folder', 'source-with-folder', 0, 'queued', '2026-01-01T00:00:00Z'),
+                ('rel-without-folder', 'job-without-folder', 'source-without-folder', 0, 'queued', '2026-01-01T00:00:00Z')
+            """))
+            conn.execute(text("""
+                INSERT INTO transcription_job_outputs (id, job_id, job_source_id, document_id, web_view_url, output_drive_folder_id, output_kind, transcript_standard, document_character_count, document_created_at, persisted_at, lease_generation)
+                VALUES ('output-with-folder', 'job-with-folder', 'rel-with-folder', 'doc-0009', 'https://docs.google.com/document/d/doc-0009/edit', 'folder-0009', 'google_docs_transcript', 'transcript_doc_v1.2', 12, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 0)
+            """))
+
+        subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "upgrade", "0009_job_output_destinations"], cwd=ROOT, env=env, check=True)
+        with temp_engine.begin() as conn:
+            cols = {c["name"] for c in inspect(conn).get_columns("transcription_jobs")}
+            assert {"output_drive_folder_id", "output_drive_folder_url", "output_drive_folder_name", "batch_idempotency_key", "batch_request_hash", "batch_position"}.issubset(cols)
+            rows = conn.execute(text("SELECT id, project_id, owner_user_id, status, output_drive_folder_id, output_drive_folder_url, output_drive_folder_name, batch_idempotency_key, batch_request_hash, batch_position FROM transcription_jobs ORDER BY id")).mappings().all()
+            by_id = {row["id"]: row for row in rows}
+            assert by_id["job-with-folder"]["output_drive_folder_id"] == "folder-0009"
+            assert by_id["job-with-folder"]["output_drive_folder_url"] == "https://drive.google.com/drive/folders/folder-0009"
+            assert by_id["job-with-folder"]["output_drive_folder_name"] == "Migration folder"
+            assert by_id["job-without-folder"]["output_drive_folder_id"] is None
+            assert all(row["batch_idempotency_key"] is None and row["batch_request_hash"] is None and row["batch_position"] is None for row in rows)
+            assert conn.execute(text("SELECT count(*) FROM transcription_job_sources WHERE id IN ('rel-with-folder', 'rel-without-folder')")).scalar_one() == 2
+            assert conn.execute(text("SELECT output_drive_folder_id, web_view_url FROM transcription_job_outputs WHERE id='output-with-folder'")).one() == ("folder-0009", "https://docs.google.com/document/d/doc-0009/edit")
+            conn.execute(text("INSERT INTO transcription_jobs (id, project_id, owner_user_id, status, created_at, updated_at, lease_generation, attempt_count) VALUES ('legacy-null-batch', 'project-with-folder', 'user-0009', 'queued', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 0, 0)"))
+            conn.execute(text("INSERT INTO transcription_jobs (id, project_id, owner_user_id, status, created_at, updated_at, lease_generation, attempt_count, batch_idempotency_key, batch_request_hash, batch_position) VALUES ('batch-valid', 'project-with-folder', 'user-0009', 'queued', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 0, 0, 'key', :hash, 0)"), {"hash": "a"*64})
+        invalid_inserts = [
+            ("INSERT INTO transcription_jobs (id, project_id, owner_user_id, status, created_at, updated_at, lease_generation, attempt_count, batch_idempotency_key) VALUES ('batch-partial', 'project-with-folder', 'user-0009', 'queued', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 0, 0, 'partial')", {}),
+            ("INSERT INTO transcription_jobs (id, project_id, owner_user_id, status, created_at, updated_at, lease_generation, attempt_count, batch_idempotency_key, batch_request_hash, batch_position) VALUES ('batch-negative', 'project-with-folder', 'user-0009', 'queued', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 0, 0, 'neg', :hash, -1)", {"hash": "b"*64}),
+            ("INSERT INTO transcription_jobs (id, project_id, owner_user_id, status, created_at, updated_at, lease_generation, attempt_count, batch_idempotency_key, batch_request_hash, batch_position) VALUES ('batch-duplicate', 'project-with-folder', 'user-0009', 'queued', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 0, 0, 'key', :hash, 0)", {"hash": "c"*64}),
+        ]
+        for stmt, params in invalid_inserts:
+            with pytest.raises(Exception):
+                with temp_engine.begin() as conn:
+                    conn.execute(text(stmt), params)
+        subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "downgrade", "0008_transcription_job_outputs"], cwd=ROOT, env=env, check=True)
+        with temp_engine.begin() as conn:
+            cols = {c["name"] for c in inspect(conn).get_columns("transcription_jobs")}
+            assert not {"output_drive_folder_id", "output_drive_folder_url", "output_drive_folder_name", "batch_idempotency_key", "batch_request_hash", "batch_position"} & cols
+            constraints = {c["name"] for c in inspect(conn).get_check_constraints("transcription_jobs")} | {c["name"] for c in inspect(conn).get_unique_constraints("transcription_jobs")}
+            assert "ck_transcription_jobs_batch_fields_all_or_none" not in constraints
+            assert "uq_transcription_jobs_batch_position" not in constraints
+            assert conn.execute(text("SELECT count(*) FROM transcription_jobs WHERE id IN ('job-with-folder', 'job-without-folder')")).scalar_one() == 2
+            assert conn.execute(text("SELECT count(*) FROM transcription_job_sources WHERE id IN ('rel-with-folder', 'rel-without-folder')")).scalar_one() == 2
+            assert conn.execute(text("SELECT count(*) FROM transcription_job_outputs WHERE id='output-with-folder'")).scalar_one() == 1
+        subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "upgrade", "0009_job_output_destinations"], cwd=ROOT, env=env, check=True)
+        cfg = Config(str(ALEMBIC)); assert ScriptDirectory.from_config(cfg).get_heads() == ["0009_job_output_destinations"]
+    finally:
+        temp_engine.dispose()
+        cleanup_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
+        try:
+            with cleanup_engine.connect() as conn:
+                conn.execute(text(f'DROP DATABASE IF EXISTS "{temp_db}" WITH (FORCE)'))
+        finally:
+            cleanup_engine.dispose()
+
+def test_job_destination_0009_current_schema_constraints():
     inspector = inspect(engine)
     cols = {c["name"]: c for c in inspector.get_columns("transcription_jobs")}
     assert {"output_drive_folder_id", "output_drive_folder_url", "output_drive_folder_name", "batch_idempotency_key", "batch_request_hash", "batch_position"}.issubset(cols)

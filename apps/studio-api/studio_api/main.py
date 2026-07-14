@@ -440,11 +440,11 @@ def create_transcription_jobs_batch(project_id: str, data: TranscriptionJobBatch
     key=_clean_idempotency_key(request.headers.get("Idempotency-Key"))
     language=clean_job_language(data.language); options_json=safe_job_options(data.options)
     provider_credential_id=data.provider_credential_id.strip() if isinstance(data.provider_credential_id, str) and data.provider_credential_id.strip() else None
-    pairs=set(); source_ids=[]; folder_ids=[]; titles=[]
+    pairs=set(); duplicate_pair_found=False; source_ids=[]; folder_ids=[]; titles=[]
     for item in data.items:
         sid=item.source_id.strip(); fid=clean_drive_id(item.output_folder_id, "ID папки Google Drive")
         pair_key=(sid,fid)
-        if pair_key in pairs: raise HTTPException(422, "Повторяющиеся source/folder пары не допускаются")
+        if pair_key in pairs: duplicate_pair_found=True
         pairs.add(pair_key); source_ids.append(sid); folder_ids.append(fid); titles.append(clean_job_title(item.title))
     hash_items=[{"source_id": sid, "output_folder_id": fid, "title": title} for sid,fid,title in zip(source_ids,folder_ids,titles)]
     request_hash=_batch_hash(p.id, provider_credential_id, language, options_json, hash_items)
@@ -453,6 +453,8 @@ def create_transcription_jobs_batch(project_id: str, data: TranscriptionJobBatch
         if not _existing_batch_is_complete(existing, request_hash, len(data.items)):
             raise HTTPException(409, "Idempotency-Key already used with a different request")
         return {"jobs":[job_payload(j, include_sources=True) for j in existing], "created_count": len(existing), "replayed": True}
+    if duplicate_pair_found:
+        raise HTTPException(422, "Повторяющиеся source/folder пары не допускаются")
     if provider_credential_id:
         cred=db.get(ProviderCredential, provider_credential_id)
         if not cred or cred.user_id!=user.id or cred.status!=CredentialStatus.active: raise HTTPException(422, "Учетные данные провайдера недоступны")
