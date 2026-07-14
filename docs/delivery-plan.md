@@ -123,7 +123,7 @@ PWA-AUTH-OAUTH-UX-01 was the active focused source item. It is limited to fronte
 
 This blocked state is not a failed production validation. No production repository identity, runtime files, services, database revision, smoke-account prerequisites, migration state, worker state, or production health were inspected, so no conclusion about actual production health, configuration, migration revision, worker state, or smoke readiness is supported. No production mutation occurred: no backup, migration, deploy, worker start, job creation, provider call, Google API call, cleanup, rollback, source edit, commit, or production PR action occurred.
 
-The next source action is the focused Picker root-navigation item above; it does not complete the blocked operator rollout, prove production Picker navigation, or claim production processing smoke success.
+The next source action is to finish review and merge of PWA-BATCH-COMPOSER-01; operator runtime smoke becomes the next item only after that review and merge are complete.
 
 **RUNTIME-01** remains deferred.
 

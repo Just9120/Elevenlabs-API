@@ -2946,6 +2946,327 @@ describe("Studio PWA", () => {
     ]);
   });
 
+  it("isolates composer rows, messages, retry state, details, and outputs when switching projects", async () => {
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (url: string, init?: RequestInit) => {
+        if (url.endsWith("/api/auth/session"))
+          return json({
+            authenticated: true,
+            user: { email: "user@example.com", role: "admin" },
+          });
+        if (url.endsWith("/api/auth/csrf"))
+          return json({ csrf_token: "csrf-after-refresh" });
+        if (url.endsWith("/api/google/connection"))
+          return json({
+            connected: true,
+            status: "active",
+            google_email: "safe.user@example.com",
+            scopes: "drive.file",
+            connected_at: "2026-07-01T00:00:00Z",
+            revoked_at: null,
+            picker_configured: true,
+            picker_scope_ready: true,
+            picker_ready: true,
+            reconnect_required: false,
+          });
+        if (url.endsWith("/api/credentials")) return json({ credentials: [] });
+        if (url.endsWith("/api/projects"))
+          return json({
+            projects: [
+              {
+                id: "pA",
+                title: "Project A",
+                description: null,
+                created_at: "2026-07-01T00:00:00Z",
+                updated_at: "2026-07-01T00:00:00Z",
+                archived_at: null,
+                output_drive_folder_id: "folder-a",
+                output_drive_folder_url:
+                  "https://drive.google.com/drive/folders/folder-a",
+                output_drive_folder_name: "A default",
+              },
+              {
+                id: "pB",
+                title: "Project B",
+                description: null,
+                created_at: "2026-07-02T00:00:00Z",
+                updated_at: "2026-07-02T00:00:00Z",
+                archived_at: null,
+                output_drive_folder_id: "folder-b",
+                output_drive_folder_url:
+                  "https://drive.google.com/drive/folders/folder-b",
+                output_drive_folder_name: "B default",
+              },
+            ],
+          });
+        if (url.endsWith("/api/projects/pA/sources") && !init?.method)
+          return json({
+            sources: [
+              {
+                id: "source-a",
+                project_id: "pA",
+                source_type: "local_upload",
+                original_filename: "project-a-source.ogg",
+                mime_type: "audio/ogg",
+                size_bytes: 10,
+                drive_file_id: null,
+                drive_file_url: null,
+                upload_status: "uploaded",
+                uploaded_at: "2026-07-01T00:00:00Z",
+                expires_at: null,
+                deleted_at: null,
+                delete_reason: null,
+                created_at: "2026-07-01T00:00:00Z",
+                updated_at: "2026-07-01T00:00:00Z",
+              },
+            ],
+          });
+        if (url.endsWith("/api/projects/pB/sources") && !init?.method)
+          return json({
+            sources: [
+              {
+                id: "source-b",
+                project_id: "pB",
+                source_type: "local_upload",
+                original_filename: "project-b-source.ogg",
+                mime_type: "audio/ogg",
+                size_bytes: 20,
+                drive_file_id: null,
+                drive_file_url: null,
+                upload_status: "uploaded",
+                uploaded_at: "2026-07-02T00:00:00Z",
+                expires_at: null,
+                deleted_at: null,
+                delete_reason: null,
+                created_at: "2026-07-02T00:00:00Z",
+                updated_at: "2026-07-02T00:00:00Z",
+              },
+            ],
+          });
+        if (url.endsWith("/api/projects/pA/jobs") && !init?.method)
+          return json({
+            jobs: [
+              {
+                id: "job-a",
+                project_id: "pA",
+                status: "completed",
+                title: "A completed job",
+                provider: null,
+                provider_credential_id: null,
+                source_count: 1,
+                output_folder: {
+                  name: "A result folder",
+                  web_view_url:
+                    "https://drive.google.com/drive/folders/a-result",
+                },
+                created_at: "2026-07-01T01:00:00Z",
+                updated_at: "2026-07-01T01:05:00Z",
+                cancelled_at: null,
+                cancel_requested_at: null,
+                attempt_count: 1,
+                started_at: "2026-07-01T01:01:00Z",
+                finished_at: "2026-07-01T01:04:00Z",
+                error_code: null,
+                error_message: null,
+              },
+            ],
+          });
+        if (url.endsWith("/api/projects/pB/jobs") && !init?.method)
+          return json({ jobs: [] });
+        if (url.endsWith("/api/jobs/job-a"))
+          return json({
+            id: "job-a",
+            project_id: "pA",
+            status: "completed",
+            title: "A completed job",
+            provider: null,
+            provider_credential_id: null,
+            source_count: 1,
+            created_at: "2026-07-01T01:00:00Z",
+            updated_at: "2026-07-01T01:05:00Z",
+            cancelled_at: null,
+            cancel_requested_at: null,
+            attempt_count: 1,
+            started_at: "2026-07-01T01:01:00Z",
+            finished_at: "2026-07-01T01:04:00Z",
+            error_code: null,
+            error_message: null,
+            sources: [
+              {
+                id: "source-a",
+                project_id: "pA",
+                position: 0,
+                job_source_status: "completed",
+                source_type: "local_upload",
+                original_filename: "project-a-source.ogg",
+                mime_type: "audio/ogg",
+                size_bytes: 10,
+                drive_file_id: null,
+                drive_file_url: null,
+                upload_status: "uploaded",
+                uploaded_at: "2026-07-01T00:00:00Z",
+                expires_at: null,
+                deleted_at: null,
+                delete_reason: null,
+                created_at: "2026-07-01T00:00:00Z",
+                updated_at: "2026-07-01T00:00:00Z",
+              },
+            ],
+          });
+        if (url.endsWith("/api/jobs/job-a/outputs"))
+          return json({
+            job_id: "job-a",
+            job_status: "completed",
+            output_count: 1,
+            outputs: [
+              {
+                source_id: "source-a",
+                source_position: 0,
+                source_name: "project-a-output",
+                source_type: "local_upload",
+                output_kind: "transcript",
+                transcript_standard: "plain",
+                web_view_url: null,
+                link_available: false,
+                document_character_count: 10,
+                document_created_at: "2026-07-01T01:03:00Z",
+                persisted_at: "2026-07-01T01:04:00Z",
+              },
+            ],
+          });
+        if (
+          url.endsWith("/api/projects/pA/jobs/batch") &&
+          init?.method === "POST"
+        )
+          return Promise.reject(new Error("temporary batch outage"));
+        if (
+          url.endsWith("/api/projects/pB/jobs/batch") &&
+          init?.method === "POST"
+        )
+          return json({
+            jobs: [
+              {
+                id: "job-b-created",
+                project_id: "pB",
+                status: "queued",
+                title: "B clean submit",
+                provider: null,
+                provider_credential_id: null,
+                source_count: 1,
+                created_at: "2026-07-02T01:00:00Z",
+                updated_at: "2026-07-02T01:00:00Z",
+                cancelled_at: null,
+                cancel_requested_at: null,
+                attempt_count: 0,
+                started_at: null,
+                finished_at: null,
+                error_code: null,
+                error_message: null,
+              },
+            ],
+            created_count: 1,
+            replayed: false,
+          });
+        return json({ ok: true });
+      },
+    );
+
+    renderApp("platform");
+    await openProjectsPage();
+    await userEvent.click(
+      await screen.findByRole("tab", { name: "Подготовка" }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: "Добавить строку для project-a-source.ogg",
+      }),
+    );
+    await userEvent.type(
+      screen.getByLabelText("Название задачи для строки 1"),
+      "Project A row title",
+    );
+    await userEvent.click(
+      within(
+        screen.getByText("A completed job").closest("article") as HTMLElement,
+      ).getByRole("button", { name: "Открыть" }),
+    );
+    expect(
+      await screen.findByLabelText("Job detail job-a"),
+    ).toBeInTheDocument();
+    expect(await screen.findByLabelText("Результаты job-a")).toHaveTextContent(
+      "project-a-output",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Создать пакет задач" }),
+    );
+    expect(
+      await screen.findByText(/ключ повтора сохранены/),
+    ).toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Project B .*02\.07\.2026/ }),
+    );
+    await userEvent.click(
+      await screen.findByRole("tab", { name: "Подготовка" }),
+    );
+
+    expect(
+      screen.queryByDisplayValue("Project A row title"),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("A default")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/ключ повтора сохранены/),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("A completed job")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Job detail job-a")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Результаты job-a")).not.toBeInTheDocument();
+    expect(screen.queryByText("project-a-output")).not.toBeInTheDocument();
+    expect(
+      screen.getByLabelText("Project job readiness checklist"),
+    ).toHaveTextContent("Папка по умолчанию: выбрана (B default)");
+    expect(
+      await screen.findByRole("button", {
+        name: "Добавить строку для project-b-source.ogg",
+      }),
+    ).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Добавить строку для project-b-source.ogg",
+      }),
+    );
+    await userEvent.type(
+      screen.getByLabelText("Название задачи для строки 1"),
+      "B clean submit",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Создать пакет задач" }),
+    );
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/projects/pB/jobs/batch",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+    const bCreateCall = (
+      fetch as unknown as ReturnType<typeof vi.fn>
+    ).mock.calls.find(
+      ([url, init]) =>
+        url === "/api/projects/pB/jobs/batch" && init?.method === "POST",
+    );
+    expect(JSON.parse(String(bCreateCall?.[1]?.body))).toEqual({
+      provider_credential_id: null,
+      items: [
+        {
+          source_id: "source-b",
+          output_folder_id: "folder-b",
+          title: "B clean submit",
+        },
+      ],
+    });
+    expect(window.localStorage.length).toBe(0);
+    expect(window.sessionStorage.length).toBe(0);
+  });
+
   it("source Picker cancel/error and duplicate clicks do not create source mutations", async () => {
     let picker = installFakeGooglePicker();
     renderApp("platform");
