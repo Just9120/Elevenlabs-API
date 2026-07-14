@@ -797,13 +797,6 @@ function SourcesPanel({
           </details>
         </article>
       ))}
-      <section className="source-add-grid visually-hidden" aria-label="Google Drive">
-        <button type="button">Выбрать файлы</button>
-      </section>
-      <section className="source-add-grid visually-hidden" aria-label="С устройства">
-        <label htmlFor="legacy-local-source-upload">Выбрать файл</label>
-        <input id="legacy-local-source-upload" type="file" />
-      </section>
       <p className="notice">
         Добавление файлов выполняется в строках подготовки выше. Этот раздел —
         только для просмотра безопасных метаданных и удаления файлов из проекта.
@@ -979,6 +972,19 @@ function PreparationPanel({
     if (seenPairs.has(pair)) duplicatePairs.add(pair);
     seenPairs.add(pair);
   });
+  const googlePickerGuidance = (() => {
+    if (!googleConnection?.connected) return "Google Drive не подключён.";
+    if (googleConnection.reconnect_required)
+      return "Переподключите Google Drive в настройках, чтобы выбрать файлы.";
+    if (!googleConnection.picker_configured)
+      return "Выбор файлов Google Drive временно недоступен.";
+    if (!googleConnection.picker_scope_ready)
+      return "Разрешение Google Drive для выбора файлов недоступно. Переподключите Google Drive.";
+    return "";
+  })();
+  const driveSourcePickerEnabled = Boolean(
+    googleConnection?.picker_ready && !googlePickerGuidance,
+  );
 
   function sourceById(sourceId: string) {
     return sourceItems.find((source) => source.id === sourceId) ?? null;
@@ -1053,8 +1059,21 @@ function PreparationPanel({
         onCsrf,
         { method: "POST", body: JSON.stringify({ file_ids: fileIds }) },
       );
-      placeSourcesInRows(rowId, created.sources);
-      setRowIntakeStatus((current) => ({ ...current, [rowId]: `Добавлено файлов: ${created.sources.length}.` }));
+      const createdByDriveId = new Map(
+        created.sources
+          .filter((source) => source.drive_file_id)
+          .map((source) => [source.drive_file_id, source]),
+      );
+      const orderedSources = fileIds.map((fileId) =>
+        createdByDriveId.get(fileId),
+      );
+      if (orderedSources.some((source) => !source)) {
+        throw new Error(
+          "Не удалось сопоставить выбранные файлы с созданными источниками. Обновите файлы проекта и повторите выбор.",
+        );
+      }
+      placeSourcesInRows(rowId, orderedSources as Source[]);
+      setRowIntakeStatus((current) => ({ ...current, [rowId]: `Добавлено файлов: ${orderedSources.length}.` }));
       onReloadSources(project.id);
     } catch (err) {
       setRowIntakeStatus((current) => ({ ...current, [rowId]: "" }));
@@ -1111,10 +1130,20 @@ function PreparationPanel({
     );
   }
   function addRow(sourceId = "") {
-    setRows((current) => [
-      ...current,
-      { ...newComposerRow(project), source_id: sourceId },
-    ]);
+    setRows((current) => {
+      if (sourceId) {
+        const emptyIndex = current.findIndex((row) => !row.source_id);
+        if (emptyIndex >= 0) {
+          return current.map((row, index) =>
+            index === emptyIndex ? { ...row, source_id: sourceId } : row,
+          );
+        }
+      }
+      return [
+        ...current,
+        { ...newComposerRow(project), source_id: sourceId },
+      ];
+    });
   }
   function moveRow(index: number, direction: -1 | 1) {
     setRows((current) => {
@@ -1182,10 +1211,6 @@ function PreparationPanel({
     e.preventDefault();
     setMessage("");
     if (submitting) return;
-    if (!sources.loaded) {
-      setMessage("Сначала загрузите файлы проекта.");
-      return;
-    }
     if (rows.length === 0) {
       setMessage("Добавьте хотя бы одну строку подготовки.");
       return;
@@ -1341,7 +1366,7 @@ function PreparationPanel({
           <ul>
             <li>
               Готовые файлы:{" "}
-              {sources.loaded ? usableSources.length : "файлы ещё не загружены"}
+              {usableSources.length}
             </li>
             <li>
               Ключ провайдера:{" "}
@@ -1422,11 +1447,14 @@ function PreparationPanel({
                     <div className="row-source-actions">
                       <button
                         type="button"
-                        disabled={!googleConnection?.picker_ready || pickerBusy}
+                        disabled={!driveSourcePickerEnabled || pickerBusy}
                         onClick={() => void chooseRowDriveSources(row.id)}
                       >
                         Выбрать файлы Google Drive
                       </button>
+                      {googlePickerGuidance && (
+                        <p className="notice">{googlePickerGuidance}</p>
+                      )}
                       <label className="button-like secondary" htmlFor={`local-source-upload-${row.id}`}>
                         Выбрать файлы с устройства
                       </label>
@@ -1535,7 +1563,6 @@ function PreparationPanel({
           <button
             type="button"
             onClick={() => addRow()}
-            disabled={!sources.loaded}
           >
             Добавить строку
           </button>
@@ -1583,14 +1610,25 @@ function PreparationPanel({
           onReload={onReloadSources}
           onSourceRemoved={(sourceId) => {
             setRemovedSourceIds((current) => new Set(current).add(sourceId));
-            setRows((current) =>
-              current.map((row) =>
+            setRows((current) => {
+              const affectedRowIds = current
+                .filter((row) => row.source_id === sourceId)
+                .map((row) => row.id);
+              if (affectedRowIds.length > 0) {
+                setRowIntakeErrors((errors) => {
+                  const next = { ...errors };
+                  affectedRowIds.forEach((rowId) => {
+                    next[rowId] =
+                      "Источник удалён из проекта. Выберите новый файл для этой строки.";
+                  });
+                  return next;
+                });
+              }
+              return current.map((row) =>
                 row.source_id === sourceId ? { ...row, source_id: "" } : row,
-              ),
-            );
-            setMessage(
-              "Файл убран из проекта. Строки с этим файлом нужно исправить перед отправкой.",
-            );
+              );
+            });
+            setMessage("Файл убран из проекта.");
           }}
           onError={onError}
         />

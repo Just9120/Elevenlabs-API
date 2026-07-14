@@ -572,7 +572,44 @@ describe("Studio PWA", () => {
           url.endsWith("/api/projects/p1/sources/google-picker") &&
           init?.method === "POST"
         )
-          return json({ sources: [{ id: "s-picker" }] });
+          return json({
+            sources: [
+              {
+                id: "s-picker-2",
+                project_id: "p1",
+                source_type: "google_drive",
+                original_filename: "picked-second.mp4",
+                mime_type: "video/mp4",
+                size_bytes: 20,
+                drive_file_id: "file-2",
+                drive_file_url: "https://drive.example/file-2",
+                upload_status: "uploaded",
+                uploaded_at: "2026-07-01T00:00:00Z",
+                expires_at: null,
+                deleted_at: null,
+                delete_reason: null,
+                created_at: "2026-07-01T00:00:00Z",
+                updated_at: "2026-07-01T00:00:00Z",
+              },
+              {
+                id: "s-picker-1",
+                project_id: "p1",
+                source_type: "google_drive",
+                original_filename: "picked-first.mp4",
+                mime_type: "video/mp4",
+                size_bytes: 10,
+                drive_file_id: "file-1",
+                drive_file_url: "https://drive.example/file-1",
+                upload_status: "uploaded",
+                uploaded_at: "2026-07-01T00:00:00Z",
+                expires_at: null,
+                deleted_at: null,
+                delete_reason: null,
+                created_at: "2026-07-01T00:00:00Z",
+                updated_at: "2026-07-01T00:00:00Z",
+              },
+            ],
+          });
         if (
           url.endsWith("/api/projects/p1/output-folder/google-picker") &&
           init?.method === "POST"
@@ -2304,7 +2341,7 @@ describe("Studio PWA", () => {
       await screen.findByRole("tab", { name: "Подготовка" }),
     );
     expect(
-      screen.getByRole("button", { name: "Выбрать файлы" }),
+      screen.getByRole("button", { name: "Выбрать файлы Google Drive" }),
     ).toBeInTheDocument();
     expect(
       screen.queryByPlaceholderText("Drive file/folder ID"),
@@ -2324,7 +2361,7 @@ describe("Studio PWA", () => {
       await screen.findByRole("tab", { name: "Подготовка" }),
     );
     await userEvent.click(
-      screen.getByRole("button", { name: "Выбрать файлы" }),
+      screen.getByRole("button", { name: "Выбрать файлы Google Drive" }),
     );
     await picker.loadScript();
     await picker.waitForCallback();
@@ -2366,6 +2403,13 @@ describe("Studio PWA", () => {
     expect(String(mutationCall?.[1]?.body)).not.toContain("video/mp4");
     expect(String(mutationCall?.[1]?.body)).not.toContain("drive.example");
     expect(String(mutationCall?.[1]?.body)).not.toContain("ya29");
+    await waitFor(() =>
+      expect(screen.getAllByText("picked-first.mp4").length).toBeGreaterThan(0),
+    );
+    expect(screen.getAllByText("picked-second.mp4").length).toBeGreaterThan(0);
+    expect(
+      document.body.textContent?.indexOf("picked-first.mp4"),
+    ).toBeLessThan(document.body.textContent?.indexOf("picked-second.mp4") ?? 0);
     expect(window.localStorage.length).toBe(0);
     expect(window.sessionStorage.length).toBe(0);
     expect(document.body.textContent).not.toContain("ya29.test-access-token");
@@ -2664,7 +2708,7 @@ describe("Studio PWA", () => {
       }),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByText(/Выбранный файл больше недоступен/),
+      screen.getByText(/Источник удалён из проекта/),
     ).toBeInTheDocument();
     await userEvent.click(
       screen.getByRole("button", { name: "Создать пакет задач" }),
@@ -2825,7 +2869,7 @@ describe("Studio PWA", () => {
         }),
       );
       await waitFor(() => expect(verifyCalls).toBe(1));
-      expect(screen.getByText("Папка не выбрана")).toBeInTheDocument();
+      expect(screen.getAllByText("Папка не выбрана")[0]).toBeInTheDocument();
     }
 
     cleanup();
@@ -3275,7 +3319,7 @@ describe("Studio PWA", () => {
       await screen.findByRole("tab", { name: "Подготовка" }),
     );
     const button = screen.getByRole("button", {
-      name: "Выбрать файлы",
+      name: "Выбрать файлы Google Drive",
     });
     fireEvent.click(button);
     fireEvent.click(button);
@@ -3303,7 +3347,7 @@ describe("Studio PWA", () => {
       await screen.findByRole("tab", { name: "Подготовка" }),
     );
     await userEvent.click(
-      screen.getByRole("button", { name: "Выбрать файлы" }),
+      screen.getByRole("button", { name: "Выбрать файлы Google Drive" }),
     );
     await picker.loadScript();
     await picker.waitForCallback();
@@ -3410,10 +3454,10 @@ describe("Studio PWA", () => {
       await screen.findByRole("tab", { name: "Подготовка" }),
     );
     await userEvent.click(
-      screen.getByRole("button", { name: "Выбрать файлы" }),
+      screen.getByRole("button", { name: "Выбрать файлы Google Drive" }),
     );
     expect(
-      screen.getByRole("button", { name: "Выбрать файлы" }),
+      screen.getByRole("button", { name: "Выбрать файлы Google Drive" }),
     ).toBeDisabled();
     await picker.loadScript();
     await picker.waitForCallback();
@@ -3537,7 +3581,7 @@ describe("Studio PWA", () => {
       ),
     );
     expect(
-      screen.getByRole("button", { name: "Выбрать файлы" }),
+      screen.getByRole("button", { name: "Выбрать файлы Google Drive" }),
     ).toBeDisabled();
     await openSettingsPage();
     await userEvent.click(
@@ -4173,18 +4217,21 @@ describe("Studio PWA", () => {
     await userEvent.click(
       await screen.findByRole("tab", { name: "Подготовка" }),
     );
-    expect(await screen.findByLabelText("Google Drive")).toBeInTheDocument();
-    expect(screen.getByLabelText("С устройства")).toBeInTheDocument();
-    const input = screen.getByLabelText("Выбрать файл") as HTMLInputElement;
+    const row = await screen.findByLabelText("Источник строки 1");
+    expect(
+      within(row).getByRole("button", { name: "Выбрать файлы Google Drive" }),
+    ).toBeInTheDocument();
+    const input = within(row).getByLabelText(
+      "Выбрать файлы с устройства",
+    ) as HTMLInputElement;
     expect(input.tagName.toLowerCase()).toBe("input");
     expect(input).toHaveAttribute("type", "file");
+    expect(input).toHaveAttribute("multiple");
     expect(input).toHaveClass("visually-hidden");
     expect(input).toHaveAttribute(
       "accept",
       "audio/*,video/*,.ogg,.oga,application/ogg",
     );
-    expect(input.closest(".file-picker-control")).not.toBeNull();
-    expect(screen.getByText("Файл не выбран")).toBeInTheDocument();
     expect(document.body).not.toHaveTextContent(
       "https://upload.example/presigned",
     );
@@ -4196,9 +4243,9 @@ describe("Studio PWA", () => {
     await userEvent.click(
       await screen.findByRole("tab", { name: "Подготовка" }),
     );
-    const deviceCard = await screen.findByLabelText("С устройства");
+    const deviceCard = await screen.findByLabelText("Источник строки 1");
     const input = within(deviceCard).getByLabelText(
-      "Выбрать файл",
+      "Выбрать файлы с устройства",
     ) as HTMLInputElement;
     const validFile = new File(["valid audio"], "valid.ogg", {
       type: "audio/ogg",
@@ -4206,7 +4253,7 @@ describe("Studio PWA", () => {
 
     await userEvent.upload(input, validFile);
 
-    await within(deviceCard).findByText("valid.ogg — Файл загружен и готов.");
+    await within(deviceCard).findByText("Загружено файлов: 1.");
     const uploadInitiationsBeforeInvalid = (
       fetch as unknown as ReturnType<typeof vi.fn>
     ).mock.calls.filter(
@@ -4222,17 +4269,13 @@ describe("Studio PWA", () => {
     });
     await userEvent.upload(input, unsupportedFile, { applyAccept: false });
 
-    await screen.findByText("Поддерживаются только аудио, видео или OGG.");
+    await screen.findByText(/unsupported\.exe: поддерживаются только аудио, видео или OGG\./);
     expect(
       within(deviceCard).queryByText(/valid\.ogg/),
     ).not.toBeInTheDocument();
     expect(
-      within(deviceCard).queryByText(/Файл загружен и готов\./),
+      within(deviceCard).queryByText(/Загружено файлов: 1\./),
     ).not.toBeInTheDocument();
-    expect(
-      within(deviceCard).queryByText(/unsupported\.exe/),
-    ).not.toBeInTheDocument();
-    expect(within(deviceCard).getByText("Файл не выбран")).toBeInTheDocument();
     const uploadInitiationsAfterInvalid = (
       fetch as unknown as ReturnType<typeof vi.fn>
     ).mock.calls.filter(
