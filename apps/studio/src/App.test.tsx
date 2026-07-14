@@ -363,6 +363,12 @@ async function openSelectedProjectJobs() {
   await userEvent.click(await screen.findByRole("tab", { name: "Подготовка" }));
 }
 
+async function chooseExistingSource(rowNumber: number, sourceName: string) {
+  const select = await screen.findByLabelText(`Существующий файл для строки ${rowNumber}`);
+  const option = within(select).getByRole("option", { name: new RegExp(sourceName) });
+  await userEvent.selectOptions(select, option);
+}
+
 async function openSettingsPage() {
   await openPlatformNavPage("Настройки");
   expect(
@@ -392,6 +398,7 @@ describe("Studio PWA", () => {
       .forEach((node) => node.remove());
     localStorage.clear();
     sessionStorage.clear();
+    let localUploadIndex = 0;
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string, init?: RequestInit) => {
@@ -634,23 +641,45 @@ describe("Studio PWA", () => {
         if (
           url.endsWith("/api/projects/p1/sources/local-upload/initiate") &&
           init?.method === "POST"
-        )
+        ) {
+          localUploadIndex += 1;
+          const sourceId = `local-source-${localUploadIndex}`;
           return json({
-            source_id: "local-source-1",
+            source_id: sourceId,
             upload: {
               method: "PUT",
-              url: "https://upload.example/presigned",
+              url: `https://upload.example/presigned-${localUploadIndex}`,
               headers: { "Content-Type": "audio/ogg" },
               expires_in: 3600,
             },
           });
-        if (url === "https://upload.example/presigned")
+        }
+        if (url.startsWith("https://upload.example/presigned"))
           return json({}, true, 200);
         if (
-          url.endsWith("/api/sources/local-source-1/local-upload/complete") &&
+          url.includes("/api/sources/local-source-") &&
+          url.endsWith("/local-upload/complete") &&
           init?.method === "POST"
-        )
-          return json({ id: "local-source-1" });
+        ) {
+          const sourceId = url.match(/local-source-\d+/)?.[0] ?? "local-source-1";
+          return json({
+            id: sourceId,
+            project_id: "p1",
+            source_type: "local_upload",
+            original_filename: `${sourceId}.ogg`,
+            mime_type: "audio/ogg",
+            size_bytes: 11,
+            drive_file_id: null,
+            drive_file_url: null,
+            upload_status: "uploaded",
+            uploaded_at: "2026-07-01T00:00:00Z",
+            expires_at: null,
+            deleted_at: null,
+            delete_reason: null,
+            created_at: "2026-07-01T00:00:00Z",
+            updated_at: "2026-07-01T00:00:00Z",
+          });
+        }
         if (url.endsWith("/api/sources/s1") && init?.method === "DELETE")
           return json({ ok: true });
         if (url.endsWith("/api/credentials") && init?.method === "POST")
@@ -707,6 +736,11 @@ describe("Studio PWA", () => {
               "https://accounts.google.com/o/oauth2/v2/auth?state=secret-state",
             expires_at: "2026-07-01T00:10:00",
           });
+        if (
+          url.endsWith("/api/projects/p1/jobs/batch") &&
+          init?.method === "POST"
+        )
+          return json({ jobs: [], created_count: 0, replayed: false });
         return json({ ok: true });
       }),
     );
@@ -2157,25 +2191,20 @@ describe("Studio PWA", () => {
       screen.getByText(/Убранный из проекта файл нельзя добавить в задачу/),
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", {
-        name: "Добавить строку для pending-local.ogg",
-      }),
-    ).not.toBeInTheDocument();
+      within(screen.getByLabelText("Существующий файл для строки 1")).getByRole(
+        "option",
+        { name: /pending-local\.ogg/ },
+      ),
+    ).toBeDisabled();
     expect(
-      screen.queryByRole("button", {
-        name: "Добавить строку для deleted-drive.mp4",
-      }),
-    ).not.toBeInTheDocument();
-    await userEvent.click(
-      screen.getByRole("button", {
-        name: "Добавить строку для ready-drive.mp4",
-      }),
-    );
-    await userEvent.click(
-      screen.getByRole("button", {
-        name: "Добавить строку для ready-local.ogg",
-      }),
-    );
+      within(screen.getByLabelText("Существующий файл для строки 1")).getByRole(
+        "option",
+        { name: /deleted-drive\.mp4/ },
+      ),
+    ).toBeDisabled();
+    await chooseExistingSource(1, "ready-drive.mp4");
+    await userEvent.click(screen.getByRole("button", { name: "Добавить строку" }));
+    await chooseExistingSource(2, "ready-local.ogg");
     await userEvent.type(
       screen.getByLabelText("Название задачи для строки 1"),
       "Created from UI",
@@ -2353,7 +2382,7 @@ describe("Studio PWA", () => {
     expect(window.sessionStorage.length).toBe(0);
   });
 
-  it("source Picker sends only selected file IDs and reloads sources", async () => {
+  it("Google multiselect creates one ordered row per source with independent folder selectors", async () => {
     const picker = installFakeGooglePicker();
     renderApp("platform");
     await openProjectsPage();
@@ -2410,6 +2439,37 @@ describe("Studio PWA", () => {
     expect(
       document.body.textContent?.indexOf("picked-first.mp4"),
     ).toBeLessThan(document.body.textContent?.indexOf("picked-second.mp4") ?? 0);
+    expect(screen.getByLabelText("Источник строки 1")).toHaveTextContent(
+      "picked-first.mp4",
+    );
+    expect(screen.getByLabelText("Источник строки 2")).toHaveTextContent(
+      "picked-second.mp4",
+    );
+    expect(
+      screen.getByRole("button", {
+        name: "Выбрать папку результата для строки 1",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "Выбрать папку результата для строки 2",
+      }),
+    ).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Создать пакет задач" }),
+    );
+    const batchCall = await waitFor(() => {
+      const call = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.find(
+        ([url, init]) =>
+          url === "/api/projects/p1/jobs/batch" && init?.method === "POST",
+      );
+      expect(call).toBeTruthy();
+      return call;
+    });
+    expect(JSON.parse(String(batchCall?.[1]?.body)).items).toMatchObject([
+      { source_id: "s-picker-1", output_folder_id: "folder-123" },
+      { source_id: "s-picker-2", output_folder_id: "folder-123" },
+    ]);
     expect(window.localStorage.length).toBe(0);
     expect(window.sessionStorage.length).toBe(0);
     expect(document.body.textContent).not.toContain("ya29.test-access-token");
@@ -2583,11 +2643,7 @@ describe("Studio PWA", () => {
     );
     renderApp("platform");
     await openSelectedProjectJobs();
-    await userEvent.click(
-      await screen.findByRole("button", {
-        name: "Добавить строку для ready-local.ogg",
-      }),
-    );
+    await chooseExistingSource(1, "ready-local.ogg");
     await userEvent.click(
       screen.getByRole("button", { name: "Создать пакет задач" }),
     );
@@ -2673,6 +2729,23 @@ describe("Studio PWA", () => {
                 created_at: "2026-07-01T00:00:00Z",
                 updated_at: "2026-07-01T00:00:00Z",
               },
+              {
+                id: "s2",
+                project_id: "p1",
+                source_type: "local_upload",
+                original_filename: "replacement.ogg",
+                mime_type: "audio/ogg",
+                size_bytes: 12,
+                drive_file_id: null,
+                drive_file_url: null,
+                upload_status: "uploaded",
+                uploaded_at: "2026-07-01T00:00:00Z",
+                expires_at: null,
+                deleted_at: null,
+                delete_reason: null,
+                created_at: "2026-07-01T00:00:00Z",
+                updated_at: "2026-07-01T00:00:00Z",
+              },
             ],
           });
         }
@@ -2688,11 +2761,12 @@ describe("Studio PWA", () => {
     );
     renderApp("platform");
     await openSelectedProjectJobs();
-    await userEvent.click(
-      await screen.findByRole("button", {
-        name: "Добавить строку для remove-me.ogg",
-      }),
+    await chooseExistingSource(1, "remove-me.ogg");
+    await userEvent.type(
+      screen.getByLabelText("Название задачи для строки 1"),
+      "Keep title",
     );
+    expect(screen.getByText("Default folder")).toBeInTheDocument();
     await userEvent.click(
       screen.getByRole("button", { name: "Убрать из проекта: remove-me.ogg" }),
     );
@@ -2703,13 +2777,22 @@ describe("Studio PWA", () => {
       ),
     );
     expect(
-      screen.queryByRole("button", {
-        name: "Добавить строку для remove-me.ogg",
-      }),
+      within(screen.getByLabelText("Существующий файл для строки 1")).queryByRole(
+        "option",
+        { name: /remove-me.ogg/ },
+      ),
     ).not.toBeInTheDocument();
     expect(
       screen.getByText(/Источник удалён из проекта/),
     ).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Keep title")).toBeInTheDocument();
+    expect(screen.getByText("Default folder")).toBeInTheDocument();
+    await chooseExistingSource(1, "replacement.ogg");
+    expect(screen.queryByText(/Источник удалён из проекта/)).not.toBeInTheDocument();
+    await userEvent.selectOptions(
+      screen.getByLabelText("Существующий файл для строки 1"),
+      "",
+    );
     await userEvent.click(
       screen.getByRole("button", { name: "Создать пакет задач" }),
     );
@@ -2744,9 +2827,10 @@ describe("Studio PWA", () => {
     );
     await waitFor(() => expect(sourceListCalls).toBeGreaterThan(1));
     expect(
-      screen.queryByRole("button", {
-        name: "Добавить строку для remove-me.ogg",
-      }),
+      within(screen.getByLabelText("Существующий файл для строки 1")).queryByRole(
+        "option",
+        { name: /remove-me.ogg/ },
+      ),
     ).not.toBeInTheDocument();
   });
 
@@ -3220,11 +3304,7 @@ describe("Studio PWA", () => {
     await userEvent.click(
       await screen.findByRole("tab", { name: "Подготовка" }),
     );
-    await userEvent.click(
-      await screen.findByRole("button", {
-        name: "Добавить строку для project-a-source.ogg",
-      }),
-    );
+    await chooseExistingSource(1, "project-a-source.ogg");
     await userEvent.type(
       screen.getByLabelText("Название задачи для строки 1"),
       "Project A row title",
@@ -3268,16 +3348,7 @@ describe("Studio PWA", () => {
     expect(
       screen.getByLabelText("Project job readiness checklist"),
     ).toHaveTextContent("Папка по умолчанию: выбрана (B default)");
-    expect(
-      await screen.findByRole("button", {
-        name: "Добавить строку для project-b-source.ogg",
-      }),
-    ).toBeInTheDocument();
-    await userEvent.click(
-      screen.getByRole("button", {
-        name: "Добавить строку для project-b-source.ogg",
-      }),
-    );
+    await chooseExistingSource(1, "project-b-source.ogg");
     await userEvent.type(
       screen.getByLabelText("Название задачи для строки 1"),
       "B clean submit",
@@ -3705,11 +3776,7 @@ describe("Studio PWA", () => {
       screen.queryByText("raw backend detail ignored"),
     ).not.toBeInTheDocument();
 
-    await userEvent.click(
-      await screen.findByRole("button", {
-        name: "Добавить строку для ready-local.ogg",
-      }),
-    );
+    await chooseExistingSource(1, "ready-local.ogg");
     await userEvent.click(
       screen.getByRole("button", { name: "Создать пакет задач" }),
     );
@@ -4211,6 +4278,26 @@ describe("Studio PWA", () => {
     expect(within(projectList).getByText("Research calls")).toBeInTheDocument();
   });
 
+
+  it("removing a composer row does not remove its project source", async () => {
+    renderApp("platform");
+    await openProjectsPage();
+    await userEvent.click(
+      await screen.findByRole("tab", { name: "Подготовка" }),
+    );
+    await chooseExistingSource(1, "Лекция 1");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Удалить строку 1" }),
+    );
+    expect(
+      (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
+        ([url, init]) =>
+          String(url).startsWith("/api/sources/") && init?.method === "DELETE",
+      ),
+    ).toBe(false);
+    expect(screen.getByText(/Лекция 1/)).toBeInTheDocument();
+  });
+
   it("renders balanced Drive and device source cards with an accessible hidden file input", async () => {
     renderApp("platform");
     await openProjectsPage();
@@ -4221,6 +4308,7 @@ describe("Studio PWA", () => {
     expect(
       within(row).getByRole("button", { name: "Выбрать файлы Google Drive" }),
     ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Добавить строку для/ })).not.toBeInTheDocument();
     const input = within(row).getByLabelText(
       "Выбрать файлы с устройства",
     ) as HTMLInputElement;
@@ -4235,6 +4323,50 @@ describe("Studio PWA", () => {
     expect(document.body).not.toHaveTextContent(
       "https://upload.example/presigned",
     );
+  });
+
+
+  it("local multi-file selection creates rows and partial failure preserves successful rows", async () => {
+    renderApp("platform");
+    await openProjectsPage();
+    await userEvent.click(
+      await screen.findByRole("tab", { name: "Подготовка" }),
+    );
+    const row = await screen.findByLabelText("Источник строки 1");
+    const input = within(row).getByLabelText(
+      "Выбрать файлы с устройства",
+    ) as HTMLInputElement;
+
+    await userEvent.upload(
+      input,
+      [
+        new File(["one"], "one.ogg", { type: "audio/ogg" }),
+        new File(["bad"], "bad.exe", { type: "application/x-msdownload" }),
+        new File(["two"], "two.ogg", { type: "audio/ogg" }),
+      ],
+      { applyAccept: false },
+    );
+
+    await screen.findByText("Загружено файлов: 2.");
+    expect(screen.getByLabelText("Источник строки 1")).toHaveTextContent(
+      "local-source-1.ogg",
+    );
+    expect(screen.getByLabelText("Источник строки 2")).toHaveTextContent(
+      "local-source-2.ogg",
+    );
+    expect(
+      screen.getByText(/bad\.exe: поддерживаются только аудио, видео или OGG\./),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "Выбрать папку результата для строки 1",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "Выбрать папку результата для строки 2",
+      }),
+    ).toBeInTheDocument();
   });
 
   it("clears stale local upload status before rejecting a new invalid file", async () => {

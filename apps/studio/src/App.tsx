@@ -989,6 +989,14 @@ function PreparationPanel({
   function sourceById(sourceId: string) {
     return sourceItems.find((source) => source.id === sourceId) ?? null;
   }
+  function clearRowIntakeError(rowId: string) {
+    setRowIntakeErrors((current) => {
+      if (!current[rowId]) return current;
+      const next = { ...current };
+      delete next[rowId];
+      return next;
+    });
+  }
   function placeSourcesInRows(targetRowId: string, selected: Source[]) {
     if (selected.length === 0) return;
     setCreatedSources((current) => {
@@ -1004,6 +1012,7 @@ function PreparationPanel({
       const sourcesToAppend = canFillTarget ? rest : selected;
       if (canFillTarget && first) {
         next[targetIndex] = { ...next[targetIndex], source_id: first.id };
+        clearRowIntakeError(next[targetIndex].id);
       }
       next.push(
         ...sourcesToAppend.map((source) => ({
@@ -1428,9 +1437,10 @@ function PreparationPanel({
                       <select
                         aria-label={`Существующий файл для строки ${index + 1}`}
                         value={row.source_id}
-                        onChange={(e) =>
-                          updateRow(row.id, { source_id: e.target.value })
-                        }
+                        onChange={(e) => {
+                          updateRow(row.id, { source_id: e.target.value });
+                          if (e.target.value) clearRowIntakeError(row.id);
+                        }}
                       >
                         <option value="">Выберите существующий файл</option>
                         {sourceItems.map((source) => (
@@ -1566,16 +1576,6 @@ function PreparationPanel({
           >
             Добавить строку
           </button>
-          {usableSources.map((source) => (
-            <button
-              type="button"
-              key={source.id}
-              onClick={() => addRow(source.id)}
-              aria-label={`Добавить строку для ${source.original_filename}`}
-            >
-              Добавить
-            </button>
-          ))}
         </div>
         <button
           className="primary full-width"
