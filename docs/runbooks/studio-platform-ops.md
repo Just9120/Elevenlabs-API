@@ -163,9 +163,9 @@ Before rollout, confirm without printing values:
 
 1. Stop or keep stopped `studio-worker` while migration readiness is uncertain.
 2. Create and confirm a tagged pre-migration PostgreSQL backup using the reviewed backup boundary.
-3. Compare production database revision with repository Alembic head `0008_transcription_job_outputs`.
+3. Compare production database revision with repository Alembic head `0009_job_output_destinations`.
 4. Require explicit operator confirmation, then run the existing manual migration script if needed.
-5. Verify production database revision equals `0008_transcription_job_outputs` before processing.
+5. Verify production database revision equals `0009_job_output_destinations` before processing.
 6. Deploy `web` and `api` through the existing isolated component deployment model only after migration equality is confirmed; standard CD must not run migrations and does not deploy the worker.
 7. Verify intended commit, built image identity, running image identity, localhost health, public routing health, authenticated login/session behavior, and output endpoint availability without exposing another owner's output data.
 8. Manually start exactly one `studio-worker` using the intended `studio-api` image, with no HTTP port published.
