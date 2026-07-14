@@ -45,7 +45,7 @@ def make_job(db, m, *, sources=1, skipped=()):
     db.add(user); db.flush()
     project = m.Project(owner_user_id=user.id, title="p", output_drive_folder_id="folder-private")
     db.add(project); db.flush()
-    job = m.TranscriptionJob(project_id=project.id, owner_user_id=user.id, status=m.JobStatus.processing, provider="elevenlabs", title="Job", language="en", lease_owner_id="worker", lease_generation=7, claimed_at=now, lease_expires_at=now + timedelta(minutes=5), started_at=now, error_code="old", error_message="old")
+    job = m.TranscriptionJob(project_id=project.id, owner_user_id=user.id, status=m.JobStatus.processing, provider="elevenlabs", title="Job", language="en", output_drive_folder_id="folder-private", output_drive_folder_url="https://drive.google.com/drive/folders/folder-private", output_drive_folder_name="Private", lease_owner_id="worker", lease_generation=7, claimed_at=now, lease_expires_at=now + timedelta(minutes=5), started_at=now, error_code="old", error_message="old")
     db.add(job); db.flush()
     rels=[]
     for i in range(sources):
@@ -108,7 +108,7 @@ def test_multi_source_completion_and_skipped_coverage(db):
     (lambda m,p,j,r,n: setattr(j,"cancel_requested_at",n), "cancellation_requested"),
     (lambda m,p,j,r,n: setattr(p,"archived_at",n), "project_unavailable"),
     (lambda m,p,j,r,n: setattr(p,"owner_user_id","other"), "project_unavailable"),
-    (lambda m,p,j,r,n: setattr(p,"output_drive_folder_id","changed"), "output_folder_changed"),
+    (lambda m,p,j,r,n: setattr(j,"output_drive_folder_id","changed"), "output_folder_changed"),
     (lambda m,p,j,r,n: setattr(r[0],"status",m.JobSourceStatus.skipped), "job_source_not_processable"),
 ])
 def test_invalid_boundaries_do_not_persist(db, mutate, reason):

@@ -117,9 +117,9 @@ def _load_snapshot(db: Session, job_id: str, owner: str, generation: int, now: d
     project = db.get(Project, job.project_id)
     if project is None or project.owner_user_id != job.owner_user_id or project.archived_at is not None:
         raise OutputDestinationError(OutputDestinationReason.project_unavailable)
-    if not project.output_drive_folder_id:
+    if not job.output_drive_folder_id:
         raise OutputDestinationError(OutputDestinationReason.output_folder_missing)
-    return _OutputSnapshot(job.id, job.owner_user_id, project.id, project.output_drive_folder_id, job.lease_owner_id, job.lease_generation, job.lease_expires_at, job.cancel_requested_at, project.archived_at)
+    return _OutputSnapshot(job.id, job.owner_user_id, project.id, job.output_drive_folder_id, job.lease_owner_id, job.lease_generation, job.lease_expires_at, job.cancel_requested_at, project.archived_at)
 
 
 def _validate_metadata(meta: DriveFolderAuthorizationMetadata, expected_id: str) -> None:

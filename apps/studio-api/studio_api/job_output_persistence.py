@@ -158,9 +158,9 @@ def _load_locked_output_authority(
     _require_job_boundary(db, job, lease_owner_id, lease_generation, now)
 
     project = db.execute(select(Project).where(Project.id == job.project_id).with_for_update().execution_options(populate_existing=True)).scalar_one_or_none()
-    if project is None or project.owner_user_id != job.owner_user_id or project.archived_at is not None or not project.output_drive_folder_id:
+    if project is None or project.owner_user_id != job.owner_user_id or project.archived_at is not None or not job.output_drive_folder_id:
         raise JobOutputPersistenceError(JobOutputPersistenceReason.project_unavailable)
-    if project.output_drive_folder_id != output_folder_id:
+    if job.output_drive_folder_id != output_folder_id:
         raise JobOutputPersistenceError(JobOutputPersistenceReason.output_folder_changed)
 
     relations = tuple(

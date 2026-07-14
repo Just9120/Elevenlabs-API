@@ -92,6 +92,7 @@ type JobOutputsState = {
   error: string;
   data: JobOutputsResponse | null;
 };
+type JobOutputFolder = { name: string; web_view_url: string | null };
 type TranscriptionJob = {
   id: string;
   project_id: string;
@@ -110,6 +111,7 @@ type TranscriptionJob = {
   finished_at: string | null;
   error_code: string | null;
   error_message: string | null;
+  output_folder?: JobOutputFolder | null;
 };
 type JobState = {
   loading: boolean;
@@ -1123,7 +1125,7 @@ function JobsPanel({
                 : "Активных ключей провайдера нет"}
           </li>
           <li>
-            Папка результатов:{" "}
+            Папка по умолчанию:{" "}
             {project.output_drive_folder_id
               ? `выбрана (${project.output_drive_folder_name || "Google Drive"})`
               : "не выбрана"}
@@ -1337,6 +1339,21 @@ function JobsPanel({
             )}
             {detailedJob && (
               <section aria-label={`Job detail ${detailedJob.id}`}>
+                <h5>Папка результата</h5>
+                {detailedJob.output_folder ? (
+                  <p>
+                    {detailedJob.output_folder.name || "Папка Google Drive"}{" "}
+                    {isSafeDisplayUrl(detailedJob.output_folder.web_view_url) && (
+                      <ResourceExternalLink
+                        href={detailedJob.output_folder.web_view_url ?? ""}
+                        label="Открыть папку результата"
+                        ariaLabel="Открыть папку результата в Google Drive в новой вкладке"
+                      />
+                    )}
+                  </p>
+                ) : (
+                  <p className="notice">Папка результата не задана.</p>
+                )}
                 <h5>Файлы задачи</h5>
                 {safeJobSources(detailedJob).map((source) => (
                   <article
@@ -1391,7 +1408,7 @@ function OverviewPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
       <header className="page-header">
         <h1 className="page-title">Studio</h1>
         <p>
-          Создайте проект, добавьте аудио или видео, выберите папку результатов
+          Создайте проект, добавьте аудио или видео, выберите папку по умолчанию
           и создайте задачу.
         </p>
       </header>
@@ -1414,7 +1431,7 @@ function OverviewPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
         <ol className="workflow">
           <li>1. Проект</li>
           <li>2. Источники</li>
-          <li>3. Папка результатов</li>
+          <li>3. Папка по умолчанию</li>
           <li>4. Задача</li>
         </ol>
         <div className="actions">
@@ -1861,7 +1878,8 @@ function ProjectsPage({
                       aria-labelledby="project-tab-overview"
                       className="tab-panel"
                     >
-                      <h3>Папка результатов</h3>
+                      <h3>Папка по умолчанию</h3>
+                      <p className="muted">Используется для новых задач. Уже созданные задачи сохраняют свою папку.</p>
                       {selectedProject.output_drive_folder_id ? (
                         <>
                           <p>

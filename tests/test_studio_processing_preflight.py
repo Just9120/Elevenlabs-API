@@ -85,7 +85,7 @@ esac
         "studio-worker": state.get("worker", "missing"),
     }
     worker_count = int(state.get("worker_count", "0"))
-    current = state.get("current", "0008_transcription_job_outputs")
+    current = state.get("current", "0009_job_output_destinations")
     _write_exe(bin_dir / "docker", f"""#!/usr/bin/env bash
 set -euo pipefail
 printf 'docker %s\n' "$*" >> {str(log)!r}
@@ -225,8 +225,8 @@ def test_revision_safety_cases(tmp_path: Path) -> None:
     for name, edit in [("nohead", "revision = '0008_alt'"), ("multi", "down_revision = None")]:
         case = tmp_path / name
         proc, calls, repo = run_preflight(case)
-        f = repo / "apps/studio-api/alembic/versions/0008_transcription_job_outputs.py"
-        f.write_text(f.read_text().replace('revision = "0008_transcription_job_outputs"', edit.replace(chr(39), chr(34))), encoding="utf-8")
+        f = repo / "apps/studio-api/alembic/versions/0009_job_output_destinations.py"
+        f.write_text(f.read_text().replace('revision = "0009_job_output_destinations"', edit.replace(chr(39), chr(34))), encoding="utf-8")
         proc = subprocess.run(["bash", str(SCRIPT), str(repo), "main", "Just9120/Elevenlabs-API", SHA], cwd=repo, env={**os.environ, "PATH": f"{case/'bin'}:{os.environ['PATH']}"}, text=True, capture_output=True, timeout=15)
         assert proc.returncode != 0
     for current in ["", "abc\ndef", "0007_job_processing_lifecycle"]:

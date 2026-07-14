@@ -55,7 +55,7 @@ def make_job(db, m, *, title="Job Title", language="en"):
     db.add(project); db.flush()
     src = m.Source(project_id=project.id, source_type=m.SourceType.local_upload, original_filename="тайна meeting.mp3", mime_type="audio/mpeg", size_bytes=5, s3_bucket="bucket", s3_object_key="private/object", upload_status=m.SourceUploadStatus.uploaded, uploaded_at=now, expires_at=now + timedelta(hours=1))
     db.add(src); db.flush()
-    job = m.TranscriptionJob(project_id=project.id, owner_user_id=user.id, status=m.JobStatus.processing, provider="elevenlabs", title=title, language=language, lease_owner_id="worker", lease_generation=7, claimed_at=now, lease_expires_at=now + timedelta(minutes=5), started_at=now)
+    job = m.TranscriptionJob(project_id=project.id, owner_user_id=user.id, status=m.JobStatus.processing, provider="elevenlabs", title=title, language=language, output_drive_folder_id="folder-private", output_drive_folder_url="https://drive.google.com/drive/folders/folder-private", output_drive_folder_name="Private", lease_owner_id="worker", lease_generation=7, claimed_at=now, lease_expires_at=now + timedelta(minutes=5), started_at=now)
     db.add(job); db.flush()
     rel = m.TranscriptionJobSource(job_id=job.id, source_id=src.id, position=0)
     db.add(rel); db.commit()
@@ -173,7 +173,7 @@ def test_success_job_boundary_one_token_one_create_lifetime_and_no_mutation(db, 
     (lambda m,p,s,j,r,n: setattr(j,"cancel_requested_at",n), "cancellation_requested"),
     (lambda m,p,s,j,r,n: setattr(p,"archived_at",n), "project_unavailable"),
     (lambda m,p,s,j,r,n: setattr(p,"owner_user_id","other"), "project_unavailable"),
-    (lambda m,p,s,j,r,n: setattr(p,"output_drive_folder_id","changed"), "output_identity_changed_before_output_creation"),
+    (lambda m,p,s,j,r,n: setattr(j,"output_drive_folder_id","changed"), "output_identity_changed_before_output_creation"),
     (lambda m,p,s,j,r,n: setattr(r,"status",m.JobSourceStatus.skipped), "job_source_not_processable"),
     (lambda m,p,s,j,r,n: setattr(s,"project_id","other"), "job_source_not_processable"),
     (lambda m,p,s,j,r,n: setattr(s,"upload_status",m.SourceUploadStatus.pending), "job_source_not_processable"),
@@ -207,7 +207,7 @@ def test_transcript_closed_folder_failure_and_token_unavailable_block_create(db,
 def test_post_create_mutation_safe_no_retry_no_success(db, models):
     from studio_api.job_google_docs_output import JobGoogleDocsOutputError, create_processing_job_google_doc_from_transcript
     user, project, src, job, rel, now = make_job(db, models)
-    transport = FakeTransport(mutate=lambda: (setattr(project, "output_drive_folder_id", "changed"), db.flush()))
+    transport = FakeTransport(mutate=lambda: (setattr(job, "output_drive_folder_id", "changed"), db.flush()))
     with pytest.raises(JobGoogleDocsOutputError) as exc:
         with create_processing_job_google_doc_from_transcript(db, job_id=job.id, job_source_id=rel.id, lease_owner_id="worker", lease_generation=7, transcript=Transcript(), settings=Settings(), now=now, clock=lambda: now, token_resolver=lambda *a, **k: "token-secret", metadata_fetcher=good_meta, google_docs_transport=transport): pass
     assert str(exc.value) == "lifecycle_changed_after_output_creation"

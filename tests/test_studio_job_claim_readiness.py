@@ -41,6 +41,7 @@ class JobStub:
     status: str = "queued"
     provider_credential_id: str | None = None
     project: ProjectStub | None = None
+    output_drive_folder_id: str | None = None
     sources: list[JobSourceStub] = field(default_factory=list)
 
 
@@ -62,6 +63,7 @@ def job_with_sources(*sources, status="queued", credential_id=None, output_folde
         status=status,
         provider_credential_id=credential_id,
         project=ProjectStub(output_drive_folder_id=output_folder_id),
+        output_drive_folder_id=output_folder_id,
         sources=[JobSourceStub(source=src, position=position) for position, src in enumerate(sources)],
     )
 
