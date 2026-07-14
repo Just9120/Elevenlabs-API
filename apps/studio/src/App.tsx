@@ -23,7 +23,7 @@ const platformMode = import.meta.env.VITE_STUDIO_PLATFORM_MODE === "platform";
 const appUrl =
   import.meta.env.VITE_APP_PUBLIC_URL ?? "https://studio.librechat.online";
 type Page = "dashboard" | "projects" | "new" | "jobs" | "settings";
-type ProjectTab = "overview" | "sources" | "jobs";
+type ProjectTab = "overview" | "preparation";
 type User = { email: string; role: string };
 type Credential = {
   id: string;
@@ -93,6 +93,17 @@ type JobOutputsState = {
   data: JobOutputsResponse | null;
 };
 type JobOutputFolder = { name: string; web_view_url: string | null };
+type VerifiedOutputFolder = {
+  folder_id: string;
+  name: string;
+  web_view_url: string | null;
+};
+type ComposerRow = {
+  id: string;
+  source_id: string;
+  output_folder: VerifiedOutputFolder | null;
+  title: string;
+};
 type TranscriptionJob = {
   id: string;
   project_id: string;
@@ -202,12 +213,6 @@ function isUsableJobSource(source: Source) {
     (source.source_type === "google_drive" ||
       source.source_type === "local_upload")
   );
-}
-function unusableJobSourceReason(source: Source) {
-  if (source.deleted_at) return "Убранный из проекта файл нельзя добавить в задачу";
-  if (source.upload_status !== "uploaded")
-    return "Файл ещё не готов для задачи";
-  return "Тип файла не поддерживается для задачи";
 }
 function isSafeDisplayUrl(value: string | null) {
   return Boolean(
@@ -916,32 +921,79 @@ function SourcesPanel({
   );
 }
 
-function JobsPanel({
+function newComposerRow(project: Project): ComposerRow {
+  return {
+    id: crypto.randomUUID(),
+    source_id: "",
+    output_folder: project.output_drive_folder_id
+      ? {
+          folder_id: project.output_drive_folder_id,
+          name: project.output_drive_folder_name || "Папка Google Drive",
+          web_view_url: project.output_drive_folder_url,
+        }
+      : null,
+    title: "",
+  };
+}
+function composerSignature(rows: ComposerRow[], credentialId: string) {
+  return JSON.stringify({
+    provider_credential_id: credentialId || null,
+    items: rows.map((row) => ({
+      source_id: row.source_id,
+      output_folder_id: row.output_folder?.folder_id ?? "",
+      title: row.title.trim() || null,
+    })),
+  });
+}
+function makeIdempotencyKey() {
+  return `batch-${crypto.randomUUID()}`;
+}
+
+type BatchCreateResponse = {
+  jobs: TranscriptionJob[];
+  created_count: number;
+  replayed: boolean;
+};
+
+function PreparationPanel({
   project,
   csrf,
   onCsrf,
   jobs,
   sources,
+  googleConnection,
+  pickerBusy,
+  setPickerBusy,
   onLoadSources,
+  onReloadSources,
   onReloadJobs,
-  onGoToSources,
+  onError,
 }: {
   project: Project;
   csrf: string;
   onCsrf: (csrf: string) => void;
   jobs: JobState;
   sources: typeof emptySourceState;
+  googleConnection: GoogleConnection | null;
+  pickerBusy: boolean;
+  setPickerBusy: (busy: boolean) => void;
   onLoadSources: (projectId: string) => void;
+  onReloadSources: (projectId: string) => void;
   onReloadJobs: (projectId: string) => void;
-  onGoToSources: () => void;
+  onError: (message: string) => void;
 }) {
-  const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
+  const [rows, setRows] = useState<ComposerRow[]>([]);
   const [selectedCredentialId, setSelectedCredentialId] = useState("");
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [credentialsLoading, setCredentialsLoading] = useState(true);
   const [credentialsError, setCredentialsError] = useState("");
-  const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [batchJobs, setBatchJobs] = useState<TranscriptionJob[]>([]);
+  const [pendingKey, setPendingKey] = useState<{
+    signature: string;
+    key: string;
+  } | null>(null);
   const [detail, setDetail] = useState<
     Record<
       string,
@@ -949,6 +1001,7 @@ function JobsPanel({
     >
   >({});
   const [outputs, setOutputs] = useState<Record<string, JobOutputsState>>({});
+  const rowFolderPickerRef = useRef(false);
   useEffect(() => {
     let cancelled = false;
     setCredentialsLoading(true);
@@ -976,55 +1029,164 @@ function JobsPanel({
     (credential) => credential.status === "active",
   );
   const sourceItems = Array.isArray(sources.items) ? sources.items : [];
-  const usableSourceCount = sources.loaded
-    ? sourceItems.filter(isUsableJobSource).length
-    : 0;
+  const usableSources = sourceItems.filter(isUsableJobSource);
   const selectedCredential = activeCredentials.find(
     (credential) => credential.id === selectedCredentialId,
   );
-  const usableSelected = selectedSourceIds.filter((id) =>
-    sourceItems.some((source) => source.id === id && isUsableJobSource(source)),
-  );
-  async function createJob(e: FormEvent<HTMLFormElement>) {
+  const signature = composerSignature(rows, selectedCredentialId);
+  useEffect(() => {
+    setPendingKey((current) =>
+      current && current.signature !== signature ? null : current,
+    );
+  }, [signature]);
+  const duplicatePairs = new Set<string>();
+  const seenPairs = new Set<string>();
+  rows.forEach((row) => {
+    if (!row.source_id || !row.output_folder?.folder_id) return;
+    const pair = `${row.source_id}\u0000${row.output_folder.folder_id}`;
+    if (seenPairs.has(pair)) duplicatePairs.add(pair);
+    seenPairs.add(pair);
+  });
+  function updateRow(rowId: string, patch: Partial<ComposerRow>) {
+    setRows((current) =>
+      current.map((row) => (row.id === rowId ? { ...row, ...patch } : row)),
+    );
+  }
+  function addRow(sourceId = "") {
+    setRows((current) => [
+      ...current,
+      { ...newComposerRow(project), source_id: sourceId },
+    ]);
+  }
+  function moveRow(index: number, direction: -1 | 1) {
+    setRows((current) => {
+      const next = [...current];
+      const target = index + direction;
+      if (target < 0 || target >= next.length) return current;
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  }
+  async function chooseRowFolder(rowId: string) {
+    if (pickerBusy || rowFolderPickerRef.current) return;
+    rowFolderPickerRef.current = true;
+    setPickerBusy(true);
+    setMessage("");
+    try {
+      const session = await csrfMutate<PickerSession>(
+        "/google/picker/session",
+        csrf,
+        onCsrf,
+        { method: "POST" },
+      );
+      const result = await googlePicker.openGooglePicker(
+        "output-folder",
+        session,
+      );
+      if (result.action === "cancel") return;
+      if (result.action === "error") {
+        setMessage(result.message);
+        return;
+      }
+      const folderId = result.docs[0]?.id;
+      if (!folderId) {
+        setMessage("Выберите одну папку Google Drive.");
+        return;
+      }
+      const verified = await csrfMutate<{
+        name: string;
+        web_view_url: string | null;
+      }>(
+        `/projects/${project.id}/output-folders/google-picker/verify`,
+        csrf,
+        onCsrf,
+        { method: "POST", body: JSON.stringify({ folder_id: folderId }) },
+      );
+      updateRow(rowId, {
+        output_folder: {
+          folder_id: folderId,
+          name: verified.name || "Папка Google Drive",
+          web_view_url: verified.web_view_url,
+        },
+      });
+    } catch (err) {
+      setMessage(
+        err instanceof Error
+          ? err.message
+          : "Не удалось проверить папку результата.",
+      );
+    } finally {
+      rowFolderPickerRef.current = false;
+      setPickerBusy(false);
+    }
+  }
+  async function createBatch(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setMessage("");
+    if (submitting) return;
     if (!sources.loaded) {
       setMessage("Сначала загрузите файлы проекта.");
       return;
     }
-    if (usableSelected.length === 0) {
-      setMessage("Выберите хотя бы один готовый файл.");
+    if (rows.length === 0) {
+      setMessage("Добавьте хотя бы одну строку подготовки.");
       return;
     }
+    if (rows.some((row) => !row.source_id || !row.output_folder?.folder_id)) {
+      setMessage("В каждой строке выберите готовый файл и папку результата.");
+      return;
+    }
+    if (duplicatePairs.size > 0) {
+      setMessage(
+        "Одинаковые пары файла и папки результата нельзя отправить дважды.",
+      );
+      return;
+    }
+    const key =
+      pendingKey?.signature === signature
+        ? pendingKey.key
+        : makeIdempotencyKey();
+    setPendingKey({ signature, key });
+    setSubmitting(true);
     try {
-      const created = await csrfMutate<TranscriptionJob>(
-        `/projects/${project.id}/jobs`,
+      const response = await csrfMutate<BatchCreateResponse>(
+        `/projects/${project.id}/jobs/batch`,
         csrf,
         onCsrf,
         {
           method: "POST",
+          headers: { "Idempotency-Key": key },
           body: JSON.stringify({
-            source_ids: usableSelected,
-            title: title.trim() || null,
             provider_credential_id: selectedCredentialId || null,
+            items: rows.map((row) => ({
+              source_id: row.source_id,
+              output_folder_id: row.output_folder?.folder_id,
+              title: row.title.trim() || null,
+            })),
           }),
         },
       );
-      setTitle("");
-      setSelectedSourceIds([]);
+      setBatchJobs(response.jobs);
+      setRows([]);
       setSelectedCredentialId("");
-      setDetail((current) => ({
-        ...current,
-        [created.id]: { loading: false, error: "", job: created },
-      }));
+      setPendingKey(null);
       setMessage(
-        "Задача создана. Результаты появятся, когда обработка будет выполнена.",
+        response.replayed
+          ? `Повтор подтверждён: создано независимых задач: ${response.created_count}.`
+          : `Создано независимых задач: ${response.created_count}.`,
       );
       onReloadJobs(project.id);
-    } catch {
-      setMessage(
-        "Не удалось создать задачу. Проверьте выбранные файлы и повторите.",
-      );
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409)
+        setMessage(
+          "Конфликт повторной отправки. Проверьте строки и отправьте заново без автоматического повтора.",
+        );
+      else
+        setMessage(
+          "Не удалось создать пакет задач. Строки сохранены — проверьте файлы и папки.",
+        );
+    } finally {
+      setSubmitting(false);
     }
   }
   async function loadDetail(jobId: string) {
@@ -1037,13 +1199,13 @@ function JobsPanel({
       [jobId]: { loading: true, error: "", data: current[jobId]?.data ?? null },
     }));
     void api<TranscriptionJob>(`/jobs/${jobId}`)
-      .then((loaded) => {
+      .then((loaded) =>
         setDetail((current) => ({
           ...current,
           [jobId]: { loading: false, error: "", job: loaded },
-        }));
-      })
-      .catch(() => {
+        })),
+      )
+      .catch(() =>
         setDetail((current) => ({
           ...current,
           [jobId]: {
@@ -1051,16 +1213,16 @@ function JobsPanel({
             error: "Не удалось загрузить детали задачи.",
             job: current[jobId]?.job ?? null,
           },
-        }));
-      });
+        })),
+      );
     void api<JobOutputsResponse>(`/jobs/${jobId}/outputs`)
-      .then((data) => {
+      .then((data) =>
         setOutputs((current) => ({
           ...current,
           [jobId]: { loading: false, error: "", data },
-        }));
-      })
-      .catch(() => {
+        })),
+      )
+      .catch(() =>
         setOutputs((current) => ({
           ...current,
           [jobId]: {
@@ -1068,8 +1230,8 @@ function JobsPanel({
             error: "Не удалось загрузить результаты.",
             data: current[jobId]?.data ?? null,
           },
-        }));
-      });
+        })),
+      );
   }
   async function cancelJob(jobId: string) {
     setMessage("");
@@ -1092,295 +1254,382 @@ function JobsPanel({
       setMessage("Не удалось отменить задачу. Повторите позже.");
     }
   }
+  const displayJobs = batchJobs.length > 0 ? batchJobs : (jobs.items ?? []);
   return (
-    <section className="sources" aria-label={`Задачи ${project.title}`}>
-      <h4>Задачи</h4>
-      {jobs.loading && <p role="status">Загрузка задач…</p>}
-      {jobs.error && <p className="error">{jobs.error}</p>}
-      <div className="notice" aria-label="Описание задач">
-        <p>Создайте задачу из готовых файлов проекта.</p>
-      </div>
-      {jobs.loaded && !jobs.loading && jobs.items.length === 0 && (
-        <p className="notice">Задачи пока не созданы.</p>
-      )}
-      <section
-        className="job-readiness"
-        aria-label="Project job readiness checklist"
+    <section className="preparation" aria-label={`Подготовка ${project.title}`}>
+      <SourcesPanel
+        project={project}
+        csrf={csrf}
+        onCsrf={onCsrf}
+        sources={sources}
+        googleConnection={googleConnection}
+        pickerBusy={pickerBusy}
+        setPickerBusy={setPickerBusy}
+        onReload={onReloadSources}
+        onError={onError}
+      />
+      <form
+        className="job-creator composer"
+        onSubmit={createBatch}
+        aria-label="Композитор пакетных задач"
       >
-        <h5>Готовность</h5>
-        <ul>
-          <li>
-            Готовые файлы:{" "}
-            {sources.loaded ? usableSourceCount : "файлы ещё не загружены"}
-            {sources.loaded &&
-              usableSourceCount === 0 &&
-              " — нет готовых файлов."}
-          </li>
-          <li>
-            Ключ провайдера:{" "}
-            {selectedCredential
-              ? credentialDisplay(selectedCredential)
-              : activeCredentials.length > 0
-                ? "не выбран"
-                : "Активных ключей провайдера нет"}
-          </li>
-          <li>
-            Папка по умолчанию:{" "}
-            {project.output_drive_folder_id
-              ? `выбрана (${project.output_drive_folder_name || "Google Drive"})`
-              : "не выбрана"}
-          </li>
-        </ul>
-      </section>
-      {sources.loaded && usableSourceCount === 0 ? (
-        <section className="empty-state">
-          <p>Сначала добавьте хотя бы один готовый файл.</p>
-          <button type="button" className="primary" onClick={onGoToSources}>
-            Перейти к источникам
-          </button>
+        <h4>Композитор задач</h4>
+        <p className="notice">Создайте задачу из готовых файлов проекта.</p>
+        <section
+          className="job-readiness"
+          aria-label="Project job readiness checklist"
+        >
+          <h5>Готовность</h5>
+          <ul>
+            <li>
+              Готовые файлы:{" "}
+              {sources.loaded ? usableSources.length : "файлы ещё не загружены"}
+            </li>
+            <li>
+              Ключ провайдера:{" "}
+              {selectedCredential
+                ? credentialDisplay(selectedCredential)
+                : activeCredentials.length > 0
+                  ? "не выбран"
+                  : "Активных ключей провайдера нет"}
+            </li>
+            <li>
+              Папка по умолчанию:{" "}
+              {project.output_drive_folder_id
+                ? `выбрана (${project.output_drive_folder_name || "Google Drive"})`
+                : "не выбрана"}
+            </li>
+          </ul>
         </section>
-      ) : (
-        <form className="job-creator" onSubmit={createJob}>
-          <h5>Новая задача</h5>
-          <fieldset className="job-source-list">
-            <legend>Файлы для обработки</legend>
-            {!sources.loaded ? (
-              <p className="notice">
-                Сначала загрузите файлы проекта, затем выберите готовые записи.
-              </p>
-            ) : (
-              sourceItems.map((source) => {
-                const usable = isUsableJobSource(source);
-                return (
-                  <label key={source.id}>
-                    <input
-                      type="checkbox"
-                      disabled={!usable}
-                      checked={selectedSourceIds.includes(source.id)}
+        <label>
+          Общий ключ провайдера
+          <select
+            aria-label="Ключ провайдера"
+            value={selectedCredentialId}
+            onChange={(e) => setSelectedCredentialId(e.target.value)}
+          >
+            <option value="">Без ключа</option>
+            {activeCredentials.map((credential) => (
+              <option key={credential.id} value={credential.id}>
+                {credentialDisplay(credential)}
+              </option>
+            ))}
+          </select>
+        </label>
+        {credentialsLoading && <p role="status">Загрузка ключей…</p>}
+        {credentialsError && <p className="notice">{credentialsError}</p>}
+        <fieldset className="composer-rows">
+          <legend>Строки: один файл → одна папка результата</legend>
+          {!sources.loaded && (
+            <button type="button" onClick={() => onLoadSources(project.id)}>
+              Загрузить файлы
+            </button>
+          )}
+          {sources.loaded && usableSources.length === 0 && (
+            <section className="empty-state">
+              <p>Сначала добавьте хотя бы один готовый файл.</p>
+              <button type="button">Перейти к источникам</button>
+            </section>
+          )}
+          {rows.length === 0 && (
+            <p className="notice">
+              Добавьте строки. Каждая строка создаст одну независимую задачу.
+            </p>
+          )}
+          <ol>
+            {rows.map((row, index) => {
+              const pairKey =
+                row.source_id && row.output_folder?.folder_id
+                  ? `${row.source_id}\u0000${row.output_folder.folder_id}`
+                  : "";
+              const duplicate = pairKey && duplicatePairs.has(pairKey);
+              return (
+                <li className="composer-row" key={row.id}>
+                  <label>
+                    Файл
+                    <select
+                      aria-label={`Файл для строки ${index + 1}`}
+                      value={row.source_id}
                       onChange={(e) =>
-                        setSelectedSourceIds((current) =>
-                          e.target.checked
-                            ? [...current, source.id]
-                            : current.filter((id) => id !== source.id),
+                        updateRow(row.id, { source_id: e.target.value })
+                      }
+                    >
+                      <option value="">Выберите готовый файл</option>
+                      {sourceItems.map((source) => (
+                        <option
+                          key={source.id}
+                          value={source.id}
+                          disabled={!isUsableJobSource(source)}
+                        >
+                          {source.original_filename} ·{" "}
+                          {sourceСтатусLabel(source.upload_status)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="folder-cell">
+                    <span>{row.output_folder?.name || "Папка не выбрана"}</span>
+                    {row.output_folder?.web_view_url &&
+                      isApprovedOutputUrl(row.output_folder.web_view_url) && (
+                        <ResourceExternalLink
+                          href={row.output_folder.web_view_url}
+                          label="Открыть папку"
+                          ariaLabel={`Открыть папку результата строки ${index + 1} в Google Drive`}
+                        />
+                      )}
+                    <button
+                      type="button"
+                      disabled={!googleConnection?.picker_ready || pickerBusy}
+                      onClick={() => void chooseRowFolder(row.id)}
+                      aria-label={`Выбрать папку результата для строки ${index + 1}`}
+                    >
+                      Выбрать папку
+                    </button>
+                  </div>
+                  <label>
+                    Название задачи
+                    <input
+                      value={row.title}
+                      onChange={(e) =>
+                        updateRow(row.id, { title: e.target.value })
+                      }
+                      maxLength={160}
+                      placeholder="Необязательно"
+                      aria-label={`Название задачи для строки ${index + 1}`}
+                    />
+                  </label>
+                  {duplicate && (
+                    <p className="error">Такая пара файла и папки уже есть.</p>
+                  )}
+                  <div className="row-actions">
+                    <button
+                      type="button"
+                      onClick={() => moveRow(index, -1)}
+                      disabled={index === 0}
+                      aria-label={`Поднять строку ${index + 1}`}
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => moveRow(index, 1)}
+                      disabled={index === rows.length - 1}
+                      aria-label={`Опустить строку ${index + 1}`}
+                    >
+                      ↓
+                    </button>
+                    <button
+                      type="button"
+                      className="danger"
+                      onClick={() =>
+                        setRows((current) =>
+                          current.filter((item) => item.id !== row.id),
                         )
                       }
-                    />
-                    {source.original_filename} ·{" "}
-                    {sourceСтатусLabel(source.upload_status)}
-                    {!usable && (
-                      <span> — {unusableJobSourceReason(source)}</span>
-                    )}
-                  </label>
-                );
-              })
-            )}
-            {!sources.loaded && (
-              <button type="button" onClick={() => onLoadSources(project.id)}>
-                Загрузить файлы
-              </button>
-            )}
-          </fieldset>
-          <div className="job-fields">
-            <label>
-              Название задачи
-              <input
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="Название задачи"
-                aria-label="Название задачи"
-                maxLength={160}
-              />
-            </label>
-            <label>
-              Ключ провайдера
-              <select
-                aria-label="Ключ провайдера"
-                value={selectedCredentialId}
-                onChange={(e) => setSelectedCredentialId(e.target.value)}
-              >
-                <option value="">Без ключа</option>
-                {activeCredentials.map((credential) => (
-                  <option key={credential.id} value={credential.id}>
-                    {credentialDisplay(credential)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {credentialsLoading && <p role="status">Загрузка ключей…</p>}
-            {!credentialsLoading && credentialsError && (
-              <p className="notice">{credentialsError}</p>
-            )}
-            {!credentialsLoading &&
-              !credentialsError &&
-              activeCredentials.length === 0 && (
-                <p className="notice">
-                  Активных ключей провайдера нет. Задача будет создана без
-                  выбранного ключа.
-                </p>
-              )}
-          </div>
+                      aria-label={`Удалить строку ${index + 1}`}
+                    >
+                      Удалить
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+        </fieldset>
+        <div className="actions composer-add-actions">
           <button
-            className="primary full-width"
-            disabled={!sources.loaded || usableSelected.length === 0}
+            type="button"
+            onClick={() => addRow()}
+            disabled={!sources.loaded}
           >
-            Создать задачу
+            Добавить строку
           </button>
-        </form>
-      )}
+          {usableSources.map((source) => (
+            <button
+              type="button"
+              key={source.id}
+              onClick={() => addRow(source.id)}
+              aria-label={`Добавить строку для ${source.original_filename}`}
+            >
+              + {source.original_filename}
+            </button>
+          ))}
+        </div>
+        <button
+          className="primary full-width"
+          disabled={submitting || rows.length === 0 || duplicatePairs.size > 0}
+        >
+          {submitting ? "Создание…" : "Создать пакет задач"}
+        </button>
+      </form>
       {message && (
-        <p className={message.startsWith("Не удалось") ? "error" : "notice"}>
+        <p
+          className={
+            message.startsWith("Не удалось") || message.startsWith("Конфликт")
+              ? "error"
+              : "notice"
+          }
+        >
           {message}
         </p>
       )}
-      {jobs.items.map((job) => {
-        const currentDetail = detail[job.id];
-        const currentOutputs = outputs[job.id];
-        const detailedJob = currentDetail?.job;
-        return (
-          <article className="source-card" key={job.id}>
-            <b>{jobTitle(job)}</b>
-            <span>Статус: {jobСтатусLabel(job.status)}</span>
-            <span>Файлов: {job.source_count}</span>
-            <span>Создана: {formatTime(job.created_at)}</span>
-            {(job.attempt_count ?? 0) > 0 && (
-              <span>Попыток: {job.attempt_count}</span>
-            )}
-            {job.status === "processing" && job.cancel_requested_at && (
-              <span>
-                Отмена запрошена: {formatTime(job.cancel_requested_at)}
-              </span>
-            )}
-            {job.error_message && <span>Ошибка: {job.error_message}</span>}
-            <button type="button" onClick={() => void loadDetail(job.id)}>
-              Открыть
-            </button>
-            {job.status === "queued" && (
-              <button type="button" onClick={() => void cancelJob(job.id)}>
-                Отменить
-              </button>
-            )}
-            {job.status === "processing" && !job.cancel_requested_at && (
-              <button type="button" onClick={() => void cancelJob(job.id)}>
-                Запросить отмену
-              </button>
-            )}
-            {job.status === "processing" && job.cancel_requested_at && (
-              <button type="button" disabled>
-                Отмена запрошена
-              </button>
-            )}
-            {currentDetail?.loading && (
-              <p role="status">Загрузка деталей задачи…</p>
-            )}
-            {currentDetail?.error && (
-              <p className="error">{currentDetail.error}</p>
-            )}
-            {currentOutputs?.loading && (
-              <p role="status">Загрузка результатов…</p>
-            )}
-            {currentOutputs?.error && (
-              <p className="error">{currentOutputs.error}</p>
-            )}
-            {currentOutputs?.data && (
-              <section aria-label={`Результаты ${currentOutputs.data.job_id}`}>
-                <h5>Результаты</h5>
-                <p>
-                  Состояние задачи:
-                  {jobСтатусLabel(currentOutputs.data.job_status)}
-                </p>
-                <p>Результатов: {currentOutputs.data.output_count}</p>
-
-                {currentOutputs.data.output_count === 0 && (
-                  <p className="notice">Результаты пока не созданы.</p>
+      <section className="sources" aria-label="Текущие и недавние задачи">
+        <h4>Текущие и недавние задачи</h4>
+        {jobs.loading && <p role="status">Загрузка задач…</p>}
+        {jobs.error && <p className="error">{jobs.error}</p>}
+        {jobs.loaded && !jobs.loading && displayJobs.length === 0 && (
+          <p className="notice">Задачи пока не созданы.</p>
+        )}
+        {displayJobs.map((job) => {
+          const currentDetail = detail[job.id];
+          const currentOutputs = outputs[job.id];
+          const detailedJob = currentDetail?.job;
+          return (
+            <article className="source-card" key={job.id}>
+              <b>{jobTitle(job)}</b>
+              <span>Статус: {jobСтатусLabel(job.status)}</span>
+              <span>Файлов: {job.source_count}</span>
+              <span>Создана: {formatTime(job.created_at)}</span>
+              {job.output_folder && (
+                <span>
+                  Папка результата:{" "}
+                  {job.output_folder.name || "Папка Google Drive"}
+                </span>
+              )}
+              {job.output_folder?.web_view_url &&
+                isApprovedOutputUrl(job.output_folder.web_view_url) && (
+                  <ResourceExternalLink
+                    href={job.output_folder.web_view_url}
+                    label="Открыть папку результата"
+                    ariaLabel="Открыть папку результата в Google Drive в новой вкладке"
+                  />
                 )}
-                {currentOutputs.data.outputs.map((output, index) => {
-                  const approvedLink =
-                    output.link_available === true &&
-                    isApprovedOutputUrl(output.web_view_url);
-                  return (
+              {job.error_message && <span>Ошибка: {job.error_message}</span>}
+              <button type="button" onClick={() => void loadDetail(job.id)}>
+                Открыть
+              </button>
+              {job.status === "queued" && (
+                <button type="button" onClick={() => void cancelJob(job.id)}>
+                  Отменить
+                </button>
+              )}
+              {job.status === "processing" && !job.cancel_requested_at && (
+                <button type="button" onClick={() => void cancelJob(job.id)}>
+                  Запросить отмену
+                </button>
+              )}
+              {currentDetail?.loading && (
+                <p role="status">Загрузка деталей задачи…</p>
+              )}
+              {currentDetail?.error && (
+                <p className="error">{currentDetail.error}</p>
+              )}
+              {currentOutputs?.loading && (
+                <p role="status">Загрузка результатов…</p>
+              )}
+              {currentOutputs?.error && (
+                <p className="error">{currentOutputs.error}</p>
+              )}
+              {currentOutputs?.data && (
+                <section
+                  aria-label={`Результаты ${currentOutputs.data.job_id}`}
+                >
+                  <h5>Результаты</h5>
+                  <p>
+                    Состояние задачи:{" "}
+                    {jobСтатусLabel(currentOutputs.data.job_status)}
+                  </p>
+                  <p>Результатов: {currentOutputs.data.output_count}</p>
+                  {currentOutputs.data.output_count === 0 && (
+                    <p className="notice">Результаты пока не созданы.</p>
+                  )}
+                  {currentOutputs.data.outputs.map((output, index) => {
+                    const approvedLink =
+                      output.link_available === true &&
+                      isApprovedOutputUrl(output.web_view_url);
+                    return (
+                      <article
+                        className="source-card"
+                        key={`${job.id}-output-${index}`}
+                      >
+                        <b>{outputSourceLabel(output)}</b>
+                        <span>
+                          Тип файла: {output.source_type || "не указан"}
+                        </span>
+                        <span>
+                          Тип результата: {output.output_kind || "не указан"}
+                        </span>
+                        <span>
+                          Формат: {output.transcript_standard || "не указан"}
+                        </span>
+                        <span>
+                          Символов: {output.document_character_count ?? "—"}
+                        </span>
+                        <span>
+                          Создан: {formatTime(output.document_created_at)}
+                        </span>
+                        <span>Сохранён: {formatTime(output.persisted_at)}</span>
+                        {approvedLink ? (
+                          <ResourceExternalLink
+                            href={output.web_view_url ?? ""}
+                            label="Открыть документ"
+                            ariaLabel="Открыть документ"
+                          />
+                        ) : (
+                          <span>Ссылка недоступна</span>
+                        )}
+                      </article>
+                    );
+                  })}
+                </section>
+              )}
+              {detailedJob && (
+                <section aria-label={`Job detail ${detailedJob.id}`}>
+                  <h5>Папка результата</h5>
+                  {detailedJob.output_folder ? (
+                    <p>
+                      {detailedJob.output_folder.name || "Папка Google Drive"}{" "}
+                      {isSafeDisplayUrl(
+                        detailedJob.output_folder.web_view_url,
+                      ) && (
+                        <ResourceExternalLink
+                          href={detailedJob.output_folder.web_view_url ?? ""}
+                          label="Открыть папку результата"
+                          ariaLabel="Открыть папку результата в Google Drive в новой вкладке"
+                        />
+                      )}
+                    </p>
+                  ) : (
+                    <p className="notice">Папка результата не задана.</p>
+                  )}
+                  <h5>Файлы задачи</h5>
+                  {safeJobSources(detailedJob).map((source) => (
                     <article
                       className="source-card"
-                      key={`${job.id}-output-${index}`}
+                      key={`${detailedJob.id}-${source.id}`}
                     >
-                      <b>{outputSourceLabel(output)}</b>
-                      <span>
-                        Тип файла: {output.source_type || "не указан"}
-                      </span>
-                      <span>
-                        Тип результата: {output.output_kind || "не указан"}
-                      </span>
-                      <span>
-                        Формат: {output.transcript_standard || "не указан"}
-                      </span>
-                      <span>
-                        Символов: {output.document_character_count ?? "—"}
-                      </span>
-                      <span>
-                        Создан: {formatTime(output.document_created_at)}
-                      </span>
-                      <span>Сохранён: {formatTime(output.persisted_at)}</span>
-                      {approvedLink ? (
-                        <a
-                          className="button-like secondary resource-link"
-                          href={output.web_view_url ?? undefined}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          <span>Открыть документ</span>
-                          <span aria-hidden="true">↗</span>
-                        </a>
-                      ) : (
-                        <span>Ссылка недоступна</span>
+                      <b>
+                        {source.position + 1}. {source.original_filename}
+                      </b>
+                      <span>Статус файла: {source.job_source_status}</span>
+                      <span>Размер: {formatBytes(source.size_bytes)}</span>
+                      {isSafeDisplayUrl(source.drive_file_url) && (
+                        <div className="resource-actions">
+                          <ResourceExternalLink
+                            href={source.drive_file_url ?? ""}
+                            label="Открыть файл в Google Drive"
+                            ariaLabel="Открыть файл в Google Drive в новой вкладке"
+                          />
+                        </div>
                       )}
                     </article>
-                  );
-                })}
-              </section>
-            )}
-            {detailedJob && (
-              <section aria-label={`Job detail ${detailedJob.id}`}>
-                <h5>Папка результата</h5>
-                {detailedJob.output_folder ? (
-                  <p>
-                    {detailedJob.output_folder.name || "Папка Google Drive"}{" "}
-                    {isSafeDisplayUrl(detailedJob.output_folder.web_view_url) && (
-                      <ResourceExternalLink
-                        href={detailedJob.output_folder.web_view_url ?? ""}
-                        label="Открыть папку результата"
-                        ariaLabel="Открыть папку результата в Google Drive в новой вкладке"
-                      />
-                    )}
-                  </p>
-                ) : (
-                  <p className="notice">Папка результата не задана.</p>
-                )}
-                <h5>Файлы задачи</h5>
-                {safeJobSources(detailedJob).map((source) => (
-                  <article
-                    className="source-card"
-                    key={`${detailedJob.id}-${source.id}`}
-                  >
-                    <b>
-                      {source.position + 1}. {source.original_filename}
-                    </b>
-                    <span>Статус файла: {source.job_source_status}</span>
-                    <span>Размер: {formatBytes(source.size_bytes)}</span>
-                    {isSafeDisplayUrl(source.drive_file_url) && (
-                      <div className="resource-actions">
-                        <ResourceExternalLink
-                          href={source.drive_file_url ?? ""}
-                          label="Открыть файл в Google Drive"
-                          ariaLabel="Открыть файл в Google Drive в новой вкладке"
-                        />
-                      </div>
-                    )}
-                  </article>
-                ))}
-              </section>
-            )}
-          </article>
-        );
-      })}
+                  ))}
+                </section>
+              )}
+            </article>
+          );
+        })}
+      </section>
     </section>
   );
 }
@@ -1707,9 +1956,7 @@ function ProjectsPage({
   const openTab = (tab: ProjectTab) => {
     setActiveTab(tab);
     if (!selectedProject) return;
-    if (tab === "sources" && !sources[selectedProject.id]?.loaded)
-      loadSources(selectedProject.id);
-    if (tab === "jobs") {
+    if (tab === "preparation") {
       if (!sources[selectedProject.id]?.loaded) loadSources(selectedProject.id);
       if (!jobs[selectedProject.id]?.loaded) loadJobs(selectedProject.id);
     }
@@ -1854,8 +2101,7 @@ function ProjectsPage({
                     {(
                       [
                         ["overview", "Обзор"],
-                        ["sources", "Источники"],
-                        ["jobs", "Задачи"],
+                        ["preparation", "Подготовка"],
                       ] as [ProjectTab, string][]
                     ).map(([id, label]) => (
                       <button
@@ -1879,7 +2125,10 @@ function ProjectsPage({
                       className="tab-panel"
                     >
                       <h3>Папка по умолчанию</h3>
-                      <p className="muted">Используется для новых задач. Уже созданные задачи сохраняют свою папку.</p>
+                      <p className="muted">
+                        Используется для новых задач. Уже созданные задачи
+                        сохраняют свою папку.
+                      </p>
                       {selectedProject.output_drive_folder_id ? (
                         <>
                           <p>
@@ -1917,12 +2166,6 @@ function ProjectsPage({
                               Очистить
                             </button>
                           </div>
-                          <details>
-                            <summary>Технические сведения</summary>
-                            <p>
-                              ID папки: {selectedProject.output_drive_folder_id}
-                            </p>
-                          </details>
                         </>
                       ) : (
                         <>
@@ -1956,42 +2199,26 @@ function ProjectsPage({
                         )}
                     </section>
                   )}
-                  {activeTab === "sources" && (
+                  {activeTab === "preparation" && (
                     <section
                       role="tabpanel"
-                      id="project-panel-sources"
-                      aria-labelledby="project-tab-sources"
+                      id="project-panel-preparation"
+                      aria-labelledby="project-tab-preparation"
                       className="tab-panel"
                     >
-                      <SourcesPanel
-                        project={selectedProject}
-                        csrf={csrf}
-                        onCsrf={onCsrf}
-                        sources={selectedSources}
-                        googleConnection={googleConnection}
-                        pickerBusy={activePicker}
-                        setPickerBusy={setPickerBusy}
-                        onReload={loadSources}
-                        onError={setError}
-                      />
-                    </section>
-                  )}
-                  {activeTab === "jobs" && (
-                    <section
-                      role="tabpanel"
-                      id="project-panel-jobs"
-                      aria-labelledby="project-tab-jobs"
-                      className="tab-panel"
-                    >
-                      <JobsPanel
+                      <PreparationPanel
                         project={selectedProject}
                         csrf={csrf}
                         onCsrf={onCsrf}
                         jobs={selectedJobs}
                         sources={selectedSources}
+                        googleConnection={googleConnection}
+                        pickerBusy={activePicker}
+                        setPickerBusy={setPickerBusy}
                         onLoadSources={loadSources}
+                        onReloadSources={loadSources}
                         onReloadJobs={loadJobs}
-                        onGoToSources={() => openTab("sources")}
+                        onError={setError}
                       />
                     </section>
                   )}

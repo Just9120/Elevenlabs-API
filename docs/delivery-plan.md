@@ -242,5 +242,6 @@ The current PR replaces the unsafe legacy-only automatic CD contour with isolate
 ## Current delivery update — PWA-JOB-DESTINATION-01
 
 - ✅ PWA-SOURCE-SELECTION-UX-01 — source-done / merged via PR #144. Source head `9b375439e85a48b98cd6d4a1fe3367abf83a15c9`; merge commit `c921bcf3b20743c0e6177e479f2a2db38d5a6dcb`; CI #341 passed; Studio PWA CI #166 passed. Manual production evidence recorded without private filenames, IDs, URLs, emails, or tokens: Unicode filenames display correctly, `Убрать из проекта` wording is visible, the Drive-preservation explanation is visible, and active source selection works. Worker startup and production processing smoke remain not performed.
-- 👉 PWA-JOB-DESTINATION-01 — Freeze output destination per job and add atomic batch API — active item for this PR.
-- 📋 PWA-BATCH-COMPOSER-01 — Combine preparation UX and create source-to-folder rows — immediate next item after this PR.
+- ✅ PWA-JOB-DESTINATION-01 — Freeze output destination per job and add atomic batch API — done / merged as PR #145.
+- 👉 PWA-BATCH-COMPOSER-01 — Combine preparation UX and create source-to-folder rows — implemented in this PR.
+- 📋 PWA-RUNTIME-SMOKE-01 — Operator-scoped platform runtime smoke for one queued job remains the next recommended item after review/merge; no worker, deploy, or production smoke is part of this PR.
