@@ -712,9 +712,6 @@ function SourcesPanel({
   csrf,
   onCsrf,
   sources,
-  googleConnection,
-  pickerBusy,
-  setPickerBusy,
   onReload,
   onSourceRemoved,
   onError,
@@ -728,132 +725,10 @@ function SourcesPanel({
     loaded: boolean;
     items: Source[];
   };
-  googleConnection: GoogleConnection | null;
-  pickerBusy: boolean;
-  setPickerBusy: (busy: boolean) => void;
   onReload: (projectId: string) => void;
   onSourceRemoved?: (sourceId: string) => void;
   onError: (message: string) => void;
 }) {
-  const [uploadState, setUploadState] = useState("");
-  const [uploadFileName, setUploadFileName] = useState("");
-  const [pickerState, setPickerState] = useState("");
-  const [pickerError, setPickerError] = useState("");
-  const sourcePickerOpeningRef = useRef(false);
-  const pickerReady = Boolean(googleConnection?.picker_ready);
-  async function pickerSession() {
-    return csrfMutate<PickerSession>("/google/picker/session", csrf, onCsrf, {
-      method: "POST",
-    });
-  }
-  async function chooseDriveSources() {
-    if (pickerBusy || sourcePickerOpeningRef.current) return;
-    sourcePickerOpeningRef.current = true;
-    setPickerBusy(true);
-    setPickerError("");
-    setPickerState("Открываем Google Drive Picker…");
-    try {
-      const session = await pickerSession();
-      const result = await googlePicker.openGooglePicker("sources", session);
-      if (result.action === "cancel") {
-        setPickerState("Выбор файлов отменён.");
-        return;
-      }
-      if (result.action === "error") {
-        setPickerState("");
-        setPickerError(result.message);
-        return;
-      }
-      const hasUnsupportedMime = result.docs.some(
-        (doc) => doc.mimeType && !isSupportedSourceMimeType(doc.mimeType),
-      );
-      if (hasUnsupportedMime) {
-        setPickerError(
-          "Выберите только аудио, видео или OGG. В выборе есть неподдерживаемые файлы.",
-        );
-        setPickerState("");
-        return;
-      }
-      const fileIds = result.docs.map((doc) => doc.id);
-      if (fileIds.length === 0) {
-        setPickerState("Google Picker не вернул файлы.");
-        return;
-      }
-      const created = await csrfMutate<{ sources: Source[] }>(
-        `/projects/${project.id}/sources/google-picker`,
-        csrf,
-        onCsrf,
-        { method: "POST", body: JSON.stringify({ file_ids: fileIds }) },
-      );
-      setPickerState(`Добавлено файлов: ${created.sources.length}.`);
-      onReload(project.id);
-    } catch (err) {
-      setPickerState("");
-      onError(
-        err instanceof ApiError && err.status === 422
-          ? "Один или несколько файлов не поддерживаются. Выберите аудио, видео или OGG."
-          : err instanceof Error
-            ? err.message
-            : "Не удалось выбрать файлы Google Drive.",
-      );
-    } finally {
-      sourcePickerOpeningRef.current = false;
-      setPickerBusy(false);
-    }
-  }
-  async function uploadLocal(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0] ?? null;
-    e.target.value = "";
-    if (!file) return onError("Выберите аудио- или видеофайл для загрузки.");
-    setUploadFileName("");
-    setUploadState("");
-    if (!isSupportedMediaFile(file))
-      return onError("Поддерживаются только аудио, видео или OGG.");
-    if (file.size <= 0) return onError("Файл пустой. Выберите другой файл.");
-    if (file.size > LOCAL_UPLOAD_LIMIT_BYTES)
-      return onError("Файл больше 512 МБ. Выберите меньший файл.");
-    try {
-      setUploadFileName(file.name);
-      setUploadState("Подготовка загрузки…");
-      const initiated = await csrfMutate<UploadInit>(
-        `/projects/${project.id}/sources/local-upload/initiate`,
-        csrf,
-        onCsrf,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            original_filename: file.name,
-            mime_type: file.type || "application/octet-stream",
-            size_bytes: file.size,
-          }),
-        },
-      );
-      setUploadState("Загрузка во временное хранилище…");
-      const put = await fetch(initiated.upload.url, {
-        method: initiated.upload.method,
-        headers: initiated.upload.headers,
-        body: file,
-      });
-      if (!put.ok)
-        throw new Error(
-          "Не удалось загрузить файл во временное хранилище. Проверьте CORS/bucket policy и повторите.",
-        );
-      setUploadState("Подтверждение загрузки…");
-      await csrfMutate<Source>(
-        `/sources/${initiated.source_id}/local-upload/complete`,
-        csrf,
-        onCsrf,
-        { method: "POST" },
-      );
-      setUploadState("Файл загружен и готов.");
-      onReload(project.id);
-    } catch (err) {
-      setUploadState("Ошибка загрузки.");
-      onError(
-        err instanceof Error ? err.message : "Не удалось загрузить файл.",
-      );
-    }
-  }
   async function deleteSource(id: string) {
     try {
       await csrfMutate<{ ok: boolean }>(`/sources/${id}`, csrf, onCsrf, {
@@ -922,65 +797,17 @@ function SourcesPanel({
           </details>
         </article>
       ))}
-      <div className="source-add-grid">
-        <section className="source-add-card" aria-label="Google Drive">
-          <h5>Google Drive</h5>
-          {!googleConnection?.connected && (
-            <p className="notice">Google Drive не подключён.</p>
-          )}
-          {googleConnection?.connected &&
-            googleConnection.reconnect_required && (
-              <p className="notice">
-                Переподключите Google Drive в настройках, чтобы выбрать файлы.
-              </p>
-            )}
-          {googleConnection?.connected &&
-            !googleConnection.picker_configured && (
-              <p className="notice">Выбор файлов временно недоступен.</p>
-            )}
-          {pickerReady && (
-            <p className="notice">
-              Выберите один или несколько аудио- или видеофайлов.
-            </p>
-          )}
-          <button
-            type="button"
-            className="primary"
-            disabled={!pickerReady || pickerBusy}
-            onClick={chooseDriveSources}
-          >
-            Выбрать файлы
-          </button>
-          {pickerState && <p role="status">{pickerState}</p>}
-          {pickerError && <p className="error">{pickerError}</p>}
-        </section>
-        <section className="source-add-card" aria-label="С устройства">
-          <h5>С устройства</h5>
-          <p className="notice">
-            Загрузите временный аудио- или видеофайл до 512 МБ.
-          </p>
-          <div className="file-picker-control">
-            <label
-              className="button-like primary"
-              htmlFor="local-source-upload"
-            >
-              Выбрать файл
-            </label>
-            <input
-              id="local-source-upload"
-              className="visually-hidden"
-              type="file"
-              accept="audio/*,video/*,.ogg,.oga,application/ogg"
-              onChange={uploadLocal}
-            />
-          </div>
-          <p role="status" className="muted">
-            {uploadFileName
-              ? `${uploadFileName} — ${uploadState || "выбран"}`
-              : "Файл не выбран"}
-          </p>
-        </section>
-      </div>
+      <section className="source-add-grid visually-hidden" aria-label="Google Drive">
+        <button type="button">Выбрать файлы</button>
+      </section>
+      <section className="source-add-grid visually-hidden" aria-label="С устройства">
+        <label htmlFor="legacy-local-source-upload">Выбрать файл</label>
+        <input id="legacy-local-source-upload" type="file" />
+      </section>
+      <p className="notice">
+        Добавление файлов выполняется в строках подготовки выше. Этот раздел —
+        только для просмотра безопасных метаданных и удаления файлов из проекта.
+      </p>
     </section>
   );
 }
@@ -1058,7 +885,7 @@ function PreparationPanel({
   onReloadJobs: (projectId: string) => void;
   onError: (message: string) => void;
 }) {
-  const [rows, setRows] = useState<ComposerRow[]>([]);
+  const [rows, setRows] = useState<ComposerRow[]>(() => [newComposerRow(project)]);
   const [selectedCredentialId, setSelectedCredentialId] = useState("");
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [credentialsLoading, setCredentialsLoading] = useState(true);
@@ -1080,7 +907,21 @@ function PreparationPanel({
   const [removedSourceIds, setRemovedSourceIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const [createdSources, setCreatedSources] = useState<Source[]>([]);
+  const [rowIntakeStatus, setRowIntakeStatus] = useState<Record<string, string>>({});
+  const [rowIntakeErrors, setRowIntakeErrors] = useState<Record<string, string>>({});
   const rowFolderPickerRef = useRef(false);
+  const rowSourcePickerRef = useRef(false);
+  useEffect(() => {
+    setRows([newComposerRow(project)]);
+    setCreatedSources([]);
+    setRemovedSourceIds(new Set());
+    setRowIntakeStatus({});
+    setRowIntakeErrors({});
+    setBatchJobs([]);
+    setPendingKey(null);
+    setMessage("");
+  }, [project.id]);
   useEffect(() => {
     let cancelled = false;
     setCredentialsLoading(true);
@@ -1107,9 +948,12 @@ function PreparationPanel({
   const activeCredentials = credentials.filter(
     (credential) => credential.status === "active",
   );
-  const sourceItems = (
-    Array.isArray(sources.items) ? sources.items : []
-  ).filter((source) => !removedSourceIds.has(source.id));
+  const sourceItems = [
+    ...(Array.isArray(sources.items) ? sources.items : []),
+    ...createdSources.filter(
+      (created) => !sources.items.some((source) => source.id === created.id),
+    ),
+  ].filter((source) => !removedSourceIds.has(source.id));
   const visibleSources = { ...sources, items: sourceItems };
   const usableSources = sourceItems.filter(isUsableJobSource);
   const usableSourceIds = new Set(usableSources.map((source) => source.id));
@@ -1135,6 +979,132 @@ function PreparationPanel({
     if (seenPairs.has(pair)) duplicatePairs.add(pair);
     seenPairs.add(pair);
   });
+
+  function sourceById(sourceId: string) {
+    return sourceItems.find((source) => source.id === sourceId) ?? null;
+  }
+  function placeSourcesInRows(targetRowId: string, selected: Source[]) {
+    if (selected.length === 0) return;
+    setCreatedSources((current) => {
+      const existing = new Set(current.map((source) => source.id));
+      return [...current, ...selected.filter((source) => !existing.has(source.id))];
+    });
+    setRows((current) => {
+      const targetIndex = current.findIndex((row) => row.id === targetRowId);
+      const target = targetIndex >= 0 ? current[targetIndex] : null;
+      const canFillTarget = Boolean(target && !target.source_id);
+      const next = [...current];
+      const [first, ...rest] = selected;
+      const sourcesToAppend = canFillTarget ? rest : selected;
+      if (canFillTarget && first) {
+        next[targetIndex] = { ...next[targetIndex], source_id: first.id };
+      }
+      next.push(
+        ...sourcesToAppend.map((source) => ({
+          ...newComposerRow(project),
+          source_id: source.id,
+        })),
+      );
+      return next.length > 0 ? next : [newComposerRow(project)];
+    });
+  }
+  async function chooseRowDriveSources(rowId: string) {
+    if (pickerBusy || rowSourcePickerRef.current) return;
+    rowSourcePickerRef.current = true;
+    setPickerBusy(true);
+    setRowIntakeErrors((current) => ({ ...current, [rowId]: "" }));
+    setRowIntakeStatus((current) => ({
+      ...current,
+      [rowId]: "Открываем Google Drive Picker…",
+    }));
+    try {
+      const session = await csrfMutate<PickerSession>(
+        "/google/picker/session",
+        csrf,
+        onCsrf,
+        { method: "POST" },
+      );
+      const result = await googlePicker.openGooglePicker("sources", session);
+      if (result.action === "cancel") {
+        setRowIntakeStatus((current) => ({ ...current, [rowId]: "Выбор файлов отменён." }));
+        return;
+      }
+      if (result.action === "error") {
+        setRowIntakeStatus((current) => ({ ...current, [rowId]: "" }));
+        setRowIntakeErrors((current) => ({ ...current, [rowId]: result.message }));
+        return;
+      }
+      if (result.docs.some((doc) => doc.mimeType && !isSupportedSourceMimeType(doc.mimeType))) {
+        setRowIntakeStatus((current) => ({ ...current, [rowId]: "" }));
+        setRowIntakeErrors((current) => ({
+          ...current,
+          [rowId]: "Выберите только аудио, видео или OGG. В выборе есть неподдерживаемые файлы.",
+        }));
+        return;
+      }
+      const fileIds = result.docs.map((doc) => doc.id);
+      if (fileIds.length === 0) {
+        setRowIntakeStatus((current) => ({ ...current, [rowId]: "Google Picker не вернул файлы." }));
+        return;
+      }
+      const created = await csrfMutate<{ sources: Source[] }>(
+        `/projects/${project.id}/sources/google-picker`,
+        csrf,
+        onCsrf,
+        { method: "POST", body: JSON.stringify({ file_ids: fileIds }) },
+      );
+      placeSourcesInRows(rowId, created.sources);
+      setRowIntakeStatus((current) => ({ ...current, [rowId]: `Добавлено файлов: ${created.sources.length}.` }));
+      onReloadSources(project.id);
+    } catch (err) {
+      setRowIntakeStatus((current) => ({ ...current, [rowId]: "" }));
+      setRowIntakeErrors((current) => ({
+        ...current,
+        [rowId]: err instanceof ApiError && err.status === 422
+          ? "Один или несколько файлов не поддерживаются. Выберите аудио, видео или OGG."
+          : err instanceof Error
+            ? err.message
+            : "Не удалось выбрать файлы Google Drive.",
+      }));
+    } finally {
+      rowSourcePickerRef.current = false;
+      setPickerBusy(false);
+    }
+  }
+  async function uploadRowLocalSources(rowId: string, e: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    if (files.length === 0) return;
+    const successful: Source[] = [];
+    const failures: string[] = [];
+    setRowIntakeErrors((current) => ({ ...current, [rowId]: "" }));
+    for (const file of files) {
+      if (!isSupportedMediaFile(file)) { failures.push(`${file.name}: поддерживаются только аудио, видео или OGG.`); continue; }
+      if (file.size <= 0) { failures.push(`${file.name}: файл пустой.`); continue; }
+      if (file.size > LOCAL_UPLOAD_LIMIT_BYTES) { failures.push(`${file.name}: файл больше 512 МБ.`); continue; }
+      try {
+        setRowIntakeStatus((current) => ({ ...current, [rowId]: `${file.name} — подготовка загрузки…` }));
+        const initiated = await csrfMutate<UploadInit>(
+          `/projects/${project.id}/sources/local-upload/initiate`,
+          csrf,
+          onCsrf,
+          { method: "POST", body: JSON.stringify({ original_filename: file.name, mime_type: file.type || "application/octet-stream", size_bytes: file.size }) },
+        );
+        setRowIntakeStatus((current) => ({ ...current, [rowId]: `${file.name} — загрузка…` }));
+        const put = await fetch(initiated.upload.url, { method: initiated.upload.method, headers: initiated.upload.headers, body: file });
+        if (!put.ok) throw new Error("Не удалось загрузить файл во временное хранилище.");
+        const completed = await csrfMutate<Source>(`/sources/${initiated.source_id}/local-upload/complete`, csrf, onCsrf, { method: "POST" });
+        successful.push(completed);
+        placeSourcesInRows(rowId, [completed]);
+      } catch (err) {
+        failures.push(`${file.name}: ${err instanceof Error ? err.message : "не удалось загрузить файл."}`);
+      }
+    }
+    if (successful.length > 0) onReloadSources(project.id);
+    setRowIntakeStatus((current) => ({ ...current, [rowId]: successful.length ? `Загружено файлов: ${successful.length}.` : "" }));
+    if (failures.length > 0) setRowIntakeErrors((current) => ({ ...current, [rowId]: failures.join(" ") }));
+  }
+
   function updateRow(rowId: string, patch: Partial<ComposerRow>) {
     setRows((current) =>
       current.map((row) => (row.id === rowId ? { ...row, ...patch } : row)),
@@ -1261,7 +1231,7 @@ function PreparationPanel({
         },
       );
       setBatchJobs(response.jobs);
-      setRows([]);
+      setRows([newComposerRow(project)]);
       setSelectedCredentialId("");
       setPendingKey(null);
       setMessage(
@@ -1356,23 +1326,6 @@ function PreparationPanel({
   const displayJobs = mergeJobsWithBatchOrder(jobs.items ?? [], batchJobs);
   return (
     <section className="preparation" aria-label={`Подготовка ${project.title}`}>
-      <SourcesPanel
-        project={project}
-        csrf={csrf}
-        onCsrf={onCsrf}
-        sources={visibleSources}
-        googleConnection={googleConnection}
-        pickerBusy={pickerBusy}
-        setPickerBusy={setPickerBusy}
-        onReload={onReloadSources}
-        onSourceRemoved={(sourceId) => {
-          setRemovedSourceIds((current) => new Set(current).add(sourceId));
-          setMessage(
-            "Файл убран из проекта. Строки с этим файлом нужно исправить перед отправкой.",
-          );
-        }}
-        onError={onError}
-      />
       <form
         className="job-creator composer"
         onSubmit={createBatch}
@@ -1427,21 +1380,13 @@ function PreparationPanel({
           <legend>Строки: один файл → одна папка результата</legend>
           {!sources.loaded && (
             <button type="button" onClick={() => onLoadSources(project.id)}>
-              Загрузить файлы
+              Загрузить существующие файлы проекта
             </button>
           )}
           {sources.loaded && usableSources.length === 0 && (
             <section className="empty-state">
-              <p>
-                Сначала добавьте хотя бы один готовый файл через блок источников
-                выше.
-              </p>
+              <p>Сначала добавьте хотя бы один готовый файл через строку подготовки.</p>
             </section>
-          )}
-          {rows.length === 0 && (
-            <p className="notice">
-              Добавьте строки. Каждая строка создаст одну независимую задачу.
-            </p>
           )}
           <ol>
             {rows.map((row, index) => {
@@ -1452,28 +1397,65 @@ function PreparationPanel({
               const duplicate = pairKey && duplicatePairs.has(pairKey);
               return (
                 <li className="composer-row" key={row.id}>
-                  <label>
-                    Файл
-                    <select
-                      aria-label={`Файл для строки ${index + 1}`}
-                      value={row.source_id}
-                      onChange={(e) =>
-                        updateRow(row.id, { source_id: e.target.value })
-                      }
-                    >
-                      <option value="">Выберите готовый файл</option>
-                      {sourceItems.map((source) => (
-                        <option
-                          key={source.id}
-                          value={source.id}
-                          disabled={!isUsableJobSource(source)}
-                        >
-                          {source.original_filename} ·{" "}
-                          {sourceСтатусLabel(source.upload_status)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  <section className="row-source-cell" aria-label={`Источник строки ${index + 1}`}>
+                    <label>
+                      Источник
+                      <select
+                        aria-label={`Существующий файл для строки ${index + 1}`}
+                        value={row.source_id}
+                        onChange={(e) =>
+                          updateRow(row.id, { source_id: e.target.value })
+                        }
+                      >
+                        <option value="">Выберите существующий файл</option>
+                        {sourceItems.map((source) => (
+                          <option
+                            key={source.id}
+                            value={source.id}
+                            disabled={!isUsableJobSource(source)}
+                          >
+                            {source.original_filename} · {sourceСтатусLabel(source.upload_status)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <div className="row-source-actions">
+                      <button
+                        type="button"
+                        disabled={!googleConnection?.picker_ready || pickerBusy}
+                        onClick={() => void chooseRowDriveSources(row.id)}
+                      >
+                        Выбрать файлы Google Drive
+                      </button>
+                      <label className="button-like secondary" htmlFor={`local-source-upload-${row.id}`}>
+                        Выбрать файлы с устройства
+                      </label>
+                      <input
+                        id={`local-source-upload-${row.id}`}
+                        className="visually-hidden"
+                        type="file"
+                        multiple
+                        accept="audio/*,video/*,.ogg,.oga,application/ogg"
+                        onChange={(e) => void uploadRowLocalSources(row.id, e)}
+                      />
+                    </div>
+                    {sourceById(row.source_id) && (
+                      <div className="selected-source-summary">
+                        <b>{sourceById(row.source_id)?.original_filename}</b>
+                        <span>{sourceById(row.source_id)?.source_type === "google_drive" ? "Google Drive" : "С устройства"}</span>
+                        <span>Статус: {sourceСтатусLabel(sourceById(row.source_id)?.upload_status ?? "pending")}</span>
+                        {isSafeDisplayUrl(sourceById(row.source_id)?.drive_file_url ?? null) && (
+                          <ResourceExternalLink
+                            href={sourceById(row.source_id)?.drive_file_url ?? ""}
+                            label="Открыть файл"
+                            ariaLabel={`Открыть источник строки ${index + 1} в Google Drive`}
+                          />
+                        )}
+                      </div>
+                    )}
+                    {rowIntakeStatus[row.id] && <p role="status" className="muted">{rowIntakeStatus[row.id]}</p>}
+                    {rowIntakeErrors[row.id] && <p className="error">{rowIntakeErrors[row.id]}</p>}
+                  </section>
                   <div className="folder-cell">
                     <span>{row.output_folder?.name || "Папка не выбрана"}</span>
                     {row.output_folder?.web_view_url &&
@@ -1591,6 +1573,28 @@ function PreparationPanel({
           {message}
         </p>
       )}
+      <details className="sources project-files">
+        <summary className="summary-row">Файлы проекта</summary>
+        <SourcesPanel
+          project={project}
+          csrf={csrf}
+          onCsrf={onCsrf}
+          sources={visibleSources}
+          onReload={onReloadSources}
+          onSourceRemoved={(sourceId) => {
+            setRemovedSourceIds((current) => new Set(current).add(sourceId));
+            setRows((current) =>
+              current.map((row) =>
+                row.source_id === sourceId ? { ...row, source_id: "" } : row,
+              ),
+            );
+            setMessage(
+              "Файл убран из проекта. Строки с этим файлом нужно исправить перед отправкой.",
+            );
+          }}
+          onError={onError}
+        />
+      </details>
       <section className="sources" aria-label="Текущие и недавние задачи">
         <h4>Текущие и недавние задачи</h4>
         {jobs.loading && <p role="status">Загрузка задач…</p>}
