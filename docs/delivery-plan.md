@@ -85,23 +85,22 @@ Capability/status snapshot:
 - 📝 **PWA-AUTH-OAUTH-UX-01 note** — superseded line retained below for context: current focused frontend/backend UX item: fix two manually observed production defects where the Login form flashes while `/api/auth/session` is still being checked and Google OAuth callback leaves the browser on an API status/JSON page instead of returning to the PWA.
 - ✅ **PWA-BATCH-COMPOSER-ROW-UX-01 — Inline source and destination selection inside repeatable composer rows** — source-done/merged through PR #148 (source head `f9ba5203c70185370eb539828b7dcaa911977549`, merge commit `d49400ffbdbf7eef139aa07a4eb3f363f022fb15`); Backend CI #359 passed and Studio PWA CI #184 passed. This is a source/CI statement only; worker revalidation, controlled smoke, and production-live processing remain unverified.
 - ✅ **PWA-BATCH-COMPOSER-TAB-STATE-01 — Preserve preparation draft across project tabs** — merged through PR #150. Post-merge production browser evidence confirms the unsent preparation draft is preserved: two unsent rows survive the previously failing navigation scenario, and the row-first composer remains visible and functional. No controlled processing smoke was run, worker state/image revalidation was not performed, no provider request or Google Docs creation occurred, and no production-live processing claim is made.
-- 👉 **PWA-DASHBOARD-PROJECT-NAV-UX-01 — Make the global overview actionable and remove the redundant project overview tab** — active item. Scope: turn global `Обзор` into an actionable dashboard using only existing safe frontend APIs; allow in-memory recent-project navigation to `Проекты`; remove nested project `Обзор`/`Подготовка` tabs so selecting a project opens directly into preparation; move default output-folder controls into the project header area.
-- 📋 **PWA-BATCH-COMPOSER-UX-POLISH-02 — Composer row visual polish** — next UX item after this PR; do not include its visual redesign in PWA-DASHBOARD-PROJECT-NAV-UX-01.
+- ✅ **PWA-DASHBOARD-PROJECT-NAV-UX-01 — Make the global overview actionable and remove the redundant project overview tab** — source-done/merged through PR #151 (source head `4bfe4166ee204b4bcf42419e8a71da28f692e269`, merge commit `d995b4a11dc774c5b5d3fecd161fc261355186ec`); CI #368 passed and Studio PWA CI #191 passed. No separate post-PR-151 browser acceptance or deployment evidence is recorded here.
+- 👉 **PWA-BATCH-COMPOSER-UX-POLISH-02 — Composer row visual polish** — active UX item: simplify the preparation composer hierarchy, compact readiness, coherent source controls, row cards, and row-count submit behavior without changing batch, Picker, state-isolation, safety, or idempotency contracts.
 - 📋 **PWA-DIAGNOSTICS-01-PREP — Diagnostics sequencing contract** — planned after both UX items as a docs-first product-contract item. The diagnostics contract must first be anchored in `docs/project-spec.md`; active implementation sequencing is then reflected in `docs/delivery-plan.md`. Diagnostic report export will use one Markdown `.md` format only; a separate `.txt` export is not planned.
 - ⏸️ **PWA-PROCESSING-ROLLOUT-01A — Manual Studio processing rollout and controlled smoke validation** — paused until both UX PRs are merged and browser-accepted, the diagnostics sequencing decision is reconciled, and worker revalidation plus bounded smoke are explicitly resumed. Worker-running now, worker image parity now, controlled smoke, provider execution, Google Docs creation, and production-live processing are not claimed.
 - 📋 **RUNTIME-01 — Batch source picker / manifest skip / Google Docs output smoke-check** — deferred by current product priority; still planned manual Colab/Drive/Docs validation without claiming pass/fail.
 
-## Active item: PWA-DASHBOARD-PROJECT-NAV-UX-01 — Make overview actionable and simplify projects
+## Active item: PWA-BATCH-COMPOSER-UX-POLISH-02 — Simplify and polish the preparation composer
 
-Status: active. PR #150 is reconciled as merged. Factual post-merge operator/browser evidence says the production draft-preservation scenario passed: adding two rows, switching away, and returning no longer resets the unsent preparation draft. The row-first composer is visible and functional. This evidence does not include a CD run id, deploy marker, current worker state, current worker image parity, provider execution, Google Docs creation, controlled processing smoke, or production-live processing.
+Status: active. `PWA-DASHBOARD-PROJECT-NAV-UX-01` is source-done/merged through PR #151 (source head `4bfe4166ee204b4bcf42419e8a71da28f692e269`, merge commit `d995b4a11dc774c5b5d3fecd161fc261355186ec`); CI #368 passed and Studio PWA CI #191 passed. No separate post-PR-151 browser acceptance or deployment evidence is recorded here. This active item is frontend UX polish over the existing row-first composer and must preserve source, folder, batch, state-isolation, security, and idempotency behavior.
 
 Required sequence after the two UX items:
 
-1. Complete and merge `PWA-DASHBOARD-PROJECT-NAV-UX-01`.
-2. Complete and merge/browser-accept `PWA-BATCH-COMPOSER-UX-POLISH-02`.
-3. Prepare `PWA-DIAGNOSTICS-01-PREP` as a docs-first product-contract item anchored first in `docs/project-spec.md`; backend/frontend diagnostics implementation slices will be defined by that contract and then sequenced in `docs/delivery-plan.md`.
-4. Keep diagnostic report export to one Markdown `.md` format only; a separate `.txt` export is not planned.
-5. Reconcile diagnostics sequencing before explicitly resuming worker state/image revalidation and the single bounded controlled smoke under `PWA-PROCESSING-ROLLOUT-01A`.
+1. Complete and merge/browser-accept `PWA-BATCH-COMPOSER-UX-POLISH-02`.
+2. Prepare `PWA-DIAGNOSTICS-01-PREP` as a docs-first product-contract item anchored first in `docs/project-spec.md`; backend/frontend diagnostics implementation slices will be defined by that contract and then sequenced in `docs/delivery-plan.md`.
+3. Keep diagnostic report export to one Markdown `.md` format only; a separate `.txt` export is not planned.
+4. Reconcile diagnostics sequencing before explicitly resuming worker state/image revalidation and the single bounded controlled smoke under `PWA-PROCESSING-ROLLOUT-01A`.
 
 ## Current checkpoint
 
@@ -113,14 +112,13 @@ Current confirmed realtime evidence is partial: one display+microphone run confi
 
 ## Active recommended next item
 
-**PWA-DASHBOARD-PROJECT-NAV-UX-01 — Make the global overview actionable and remove the redundant project overview tab** is the active recommended next item. **PWA-BATCH-COMPOSER-UX-POLISH-02** is the next UX item. PWA-PROCESSING-ROLLOUT-01A is paused behind both UX PRs, browser acceptance, diagnostics sequencing reconciliation, and explicit worker/smoke resumption. The required sequence is:
+**PWA-BATCH-COMPOSER-UX-POLISH-02 — Simplify and polish the preparation composer** is the active recommended next item. PWA-PROCESSING-ROLLOUT-01A is paused behind both UX PRs, browser acceptance, diagnostics sequencing reconciliation, and explicit worker/smoke resumption. The required sequence is:
 
-1. Complete and merge/browser-accept `PWA-DASHBOARD-PROJECT-NAV-UX-01`.
-2. Complete and merge/browser-accept `PWA-BATCH-COMPOSER-UX-POLISH-02`.
-3. Prepare `PWA-DIAGNOSTICS-01-PREP` as a docs-first product-contract item anchored first in `docs/project-spec.md`; backend/frontend diagnostics slices will be defined by that contract and then sequenced in `docs/delivery-plan.md`.
-4. Keep diagnostic report export to one Markdown `.md` format only; a separate `.txt` export is not planned.
-5. Reconcile the diagnostics sequencing decision.
-6. Only then explicitly resume worker state/image revalidation and the single bounded controlled smoke under `PWA-PROCESSING-ROLLOUT-01A`.
+1. Complete and merge/browser-accept `PWA-BATCH-COMPOSER-UX-POLISH-02`.
+2. Prepare `PWA-DIAGNOSTICS-01-PREP` as a docs-first product-contract item anchored first in `docs/project-spec.md`; backend/frontend diagnostics slices will be defined by that contract and then sequenced in `docs/delivery-plan.md`.
+3. Keep diagnostic report export to one Markdown `.md` format only; a separate `.txt` export is not planned.
+4. Reconcile the diagnostics sequencing decision.
+5. Only then explicitly resume worker state/image revalidation and the single bounded controlled smoke under `PWA-PROCESSING-ROLLOUT-01A`.
 
 Latest factual browser evidence after PR #150 merge confirms the unsent preparation draft is preserved and two unsent rows survive the previously failing navigation scenario. Worker state/image revalidation has not been performed, controlled smoke has not been run, no provider request or Google document creation occurred, and no production-live processing claim is made. This UX item does not deploy, dispatch deployment workflows, start or stop workers, inspect production workers, access production hosts, create jobs, call providers, call Google APIs, perform production smoke, create or delete Google documents, perform cleanup, perform rollback, retry/requeue/reset jobs, run another migration, modify secrets, downgrade the database, remove volumes, or perform destructive Docker Compose operations.
 

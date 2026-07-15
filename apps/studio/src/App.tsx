@@ -877,7 +877,9 @@ function PreparationPanel({
   onReloadJobs: (projectId: string) => void;
   onError: (message: string) => void;
 }) {
-  const [rows, setRows] = useState<ComposerRow[]>(() => [newComposerRow(project)]);
+  const [rows, setRows] = useState<ComposerRow[]>(() => [
+    newComposerRow(project),
+  ]);
   const [selectedCredentialId, setSelectedCredentialId] = useState("");
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [credentialsLoading, setCredentialsLoading] = useState(true);
@@ -900,8 +902,12 @@ function PreparationPanel({
     () => new Set(),
   );
   const [createdSources, setCreatedSources] = useState<Source[]>([]);
-  const [rowIntakeStatus, setRowIntakeStatus] = useState<Record<string, string>>({});
-  const [rowIntakeErrors, setRowIntakeErrors] = useState<Record<string, string>>({});
+  const [rowIntakeStatus, setRowIntakeStatus] = useState<
+    Record<string, string>
+  >({});
+  const [rowIntakeErrors, setRowIntakeErrors] = useState<
+    Record<string, string>
+  >({});
   const rowFolderPickerRef = useRef(false);
   const rowSourcePickerRef = useRef(false);
   useEffect(() => {
@@ -949,9 +955,6 @@ function PreparationPanel({
   const visibleSources = { ...sources, items: sourceItems };
   const usableSources = sourceItems.filter(isUsableJobSource);
   const usableSourceIds = new Set(usableSources.map((source) => source.id));
-  const selectedCredential = activeCredentials.find(
-    (credential) => credential.id === selectedCredentialId,
-  );
   const signature = composerSignature(rows, selectedCredentialId);
   useEffect(() => {
     setPendingKey((current) =>
@@ -985,6 +988,35 @@ function PreparationPanel({
     googleConnection?.picker_ready && !googlePickerGuidance,
   );
 
+  const completeRowCount = rows.filter(
+    (row) =>
+      row.source_id &&
+      row.output_folder?.folder_id &&
+      usableSourceIds.has(row.source_id),
+  ).length;
+  const readinessReasons = rows.flatMap((row, index) => {
+    const rowNumber = index + 1;
+    if (!row.source_id) return [`Строка ${rowNumber}: выберите источник`];
+    if (!usableSourceIds.has(row.source_id)) {
+      return [`Строка ${rowNumber}: выбранный файл больше недоступен`];
+    }
+    if (!row.output_folder?.folder_id) {
+      return [`Строка ${rowNumber}: выберите папку результата`];
+    }
+    const pair = `${row.source_id}\u0000${row.output_folder.folder_id}`;
+    if (duplicatePairs.has(pair)) {
+      return [`Строка ${rowNumber}: такая пара файла и папки уже добавлена`];
+    }
+    return [];
+  });
+  const submitBlocker = submitting
+    ? "Создание задач…"
+    : rows.length === 0
+      ? "Добавьте хотя бы одну строку"
+      : (readinessReasons[0] ?? "");
+  const canSubmit =
+    !submitting && rows.length > 0 && readinessReasons.length === 0;
+
   function sourceById(sourceId: string) {
     return sourceItems.find((source) => source.id === sourceId) ?? null;
   }
@@ -1001,7 +1033,10 @@ function PreparationPanel({
     clearRowIntakeError(targetRowId);
     setCreatedSources((current) => {
       const existing = new Set(current.map((source) => source.id));
-      return [...current, ...selected.filter((source) => !existing.has(source.id))];
+      return [
+        ...current,
+        ...selected.filter((source) => !existing.has(source.id)),
+      ];
     });
     setRows((current) => {
       const targetIndex = current.findIndex((row) => row.id === targetRowId);
@@ -1040,25 +1075,39 @@ function PreparationPanel({
       );
       const result = await googlePicker.openGooglePicker("sources", session);
       if (result.action === "cancel") {
-        setRowIntakeStatus((current) => ({ ...current, [rowId]: "Выбор файлов отменён." }));
+        setRowIntakeStatus((current) => ({
+          ...current,
+          [rowId]: "Выбор файлов отменён.",
+        }));
         return;
       }
       if (result.action === "error") {
         setRowIntakeStatus((current) => ({ ...current, [rowId]: "" }));
-        setRowIntakeErrors((current) => ({ ...current, [rowId]: result.message }));
+        setRowIntakeErrors((current) => ({
+          ...current,
+          [rowId]: result.message,
+        }));
         return;
       }
-      if (result.docs.some((doc) => doc.mimeType && !isSupportedSourceMimeType(doc.mimeType))) {
+      if (
+        result.docs.some(
+          (doc) => doc.mimeType && !isSupportedSourceMimeType(doc.mimeType),
+        )
+      ) {
         setRowIntakeStatus((current) => ({ ...current, [rowId]: "" }));
         setRowIntakeErrors((current) => ({
           ...current,
-          [rowId]: "Выберите только аудио, видео или OGG. В выборе есть неподдерживаемые файлы.",
+          [rowId]:
+            "Выберите только аудио, видео или OGG. В выборе есть неподдерживаемые файлы.",
         }));
         return;
       }
       const fileIds = result.docs.map((doc) => doc.id);
       if (fileIds.length === 0) {
-        setRowIntakeStatus((current) => ({ ...current, [rowId]: "Google Picker не вернул файлы." }));
+        setRowIntakeStatus((current) => ({
+          ...current,
+          [rowId]: "Google Picker не вернул файлы.",
+        }));
         return;
       }
       const created = await csrfMutate<{ sources: Source[] }>(
@@ -1081,24 +1130,31 @@ function PreparationPanel({
         );
       }
       placeSourcesInRows(rowId, orderedSources as Source[]);
-      setRowIntakeStatus((current) => ({ ...current, [rowId]: `Добавлено файлов: ${orderedSources.length}.` }));
+      setRowIntakeStatus((current) => ({
+        ...current,
+        [rowId]: `Добавлено файлов: ${orderedSources.length}.`,
+      }));
       onReloadSources(project.id);
     } catch (err) {
       setRowIntakeStatus((current) => ({ ...current, [rowId]: "" }));
       setRowIntakeErrors((current) => ({
         ...current,
-        [rowId]: err instanceof ApiError && err.status === 422
-          ? "Один или несколько файлов не поддерживаются. Выберите аудио, видео или OGG."
-          : err instanceof Error
-            ? err.message
-            : "Не удалось выбрать файлы Google Drive.",
+        [rowId]:
+          err instanceof ApiError && err.status === 422
+            ? "Один или несколько файлов не поддерживаются. Выберите аудио, видео или OGG."
+            : err instanceof Error
+              ? err.message
+              : "Не удалось выбрать файлы Google Drive.",
       }));
     } finally {
       rowSourcePickerRef.current = false;
       setPickerBusy(false);
     }
   }
-  async function uploadRowLocalSources(rowId: string, e: ChangeEvent<HTMLInputElement>) {
+  async function uploadRowLocalSources(
+    rowId: string,
+    e: ChangeEvent<HTMLInputElement>,
+  ) {
     const files = Array.from(e.target.files ?? []);
     e.target.value = "";
     if (files.length === 0) return;
@@ -1106,30 +1162,75 @@ function PreparationPanel({
     const failures: string[] = [];
     setRowIntakeErrors((current) => ({ ...current, [rowId]: "" }));
     for (const file of files) {
-      if (!isSupportedMediaFile(file)) { failures.push(`${file.name}: поддерживаются только аудио, видео или OGG.`); continue; }
-      if (file.size <= 0) { failures.push(`${file.name}: файл пустой.`); continue; }
-      if (file.size > LOCAL_UPLOAD_LIMIT_BYTES) { failures.push(`${file.name}: файл больше 512 МБ.`); continue; }
+      if (!isSupportedMediaFile(file)) {
+        failures.push(
+          `${file.name}: поддерживаются только аудио, видео или OGG.`,
+        );
+        continue;
+      }
+      if (file.size <= 0) {
+        failures.push(`${file.name}: файл пустой.`);
+        continue;
+      }
+      if (file.size > LOCAL_UPLOAD_LIMIT_BYTES) {
+        failures.push(`${file.name}: файл больше 512 МБ.`);
+        continue;
+      }
       try {
-        setRowIntakeStatus((current) => ({ ...current, [rowId]: `${file.name} — подготовка загрузки…` }));
+        setRowIntakeStatus((current) => ({
+          ...current,
+          [rowId]: `${file.name} — подготовка загрузки…`,
+        }));
         const initiated = await csrfMutate<UploadInit>(
           `/projects/${project.id}/sources/local-upload/initiate`,
           csrf,
           onCsrf,
-          { method: "POST", body: JSON.stringify({ original_filename: file.name, mime_type: file.type || "application/octet-stream", size_bytes: file.size }) },
+          {
+            method: "POST",
+            body: JSON.stringify({
+              original_filename: file.name,
+              mime_type: file.type || "application/octet-stream",
+              size_bytes: file.size,
+            }),
+          },
         );
-        setRowIntakeStatus((current) => ({ ...current, [rowId]: `${file.name} — загрузка…` }));
-        const put = await fetch(initiated.upload.url, { method: initiated.upload.method, headers: initiated.upload.headers, body: file });
-        if (!put.ok) throw new Error("Не удалось загрузить файл во временное хранилище.");
-        const completed = await csrfMutate<Source>(`/sources/${initiated.source_id}/local-upload/complete`, csrf, onCsrf, { method: "POST" });
+        setRowIntakeStatus((current) => ({
+          ...current,
+          [rowId]: `${file.name} — загрузка…`,
+        }));
+        const put = await fetch(initiated.upload.url, {
+          method: initiated.upload.method,
+          headers: initiated.upload.headers,
+          body: file,
+        });
+        if (!put.ok)
+          throw new Error("Не удалось загрузить файл во временное хранилище.");
+        const completed = await csrfMutate<Source>(
+          `/sources/${initiated.source_id}/local-upload/complete`,
+          csrf,
+          onCsrf,
+          { method: "POST" },
+        );
         successful.push(completed);
         placeSourcesInRows(rowId, [completed]);
       } catch (err) {
-        failures.push(`${file.name}: ${err instanceof Error ? err.message : "не удалось загрузить файл."}`);
+        failures.push(
+          `${file.name}: ${err instanceof Error ? err.message : "не удалось загрузить файл."}`,
+        );
       }
     }
     if (successful.length > 0) onReloadSources(project.id);
-    setRowIntakeStatus((current) => ({ ...current, [rowId]: successful.length ? `Загружено файлов: ${successful.length}.` : "" }));
-    if (failures.length > 0) setRowIntakeErrors((current) => ({ ...current, [rowId]: failures.join(" ") }));
+    setRowIntakeStatus((current) => ({
+      ...current,
+      [rowId]: successful.length
+        ? `Загружено файлов: ${successful.length}.`
+        : "",
+    }));
+    if (failures.length > 0)
+      setRowIntakeErrors((current) => ({
+        ...current,
+        [rowId]: failures.join(" "),
+      }));
   }
 
   function updateRow(rowId: string, patch: Partial<ComposerRow>) {
@@ -1147,10 +1248,7 @@ function PreparationPanel({
           );
         }
       }
-      return [
-        ...current,
-        { ...newComposerRow(project), source_id: sourceId },
-      ];
+      return [...current, { ...newComposerRow(project), source_id: sourceId }];
     });
   }
   function moveRow(index: number, direction: -1 | 1) {
@@ -1364,53 +1462,56 @@ function PreparationPanel({
         onSubmit={createBatch}
         aria-label="Композитор пакетных задач"
       >
-        <h4>Композитор задач</h4>
-        <p className="notice">Создайте задачу из готовых файлов проекта.</p>
-        <section
-          className="job-readiness"
+        <div className="composer-header">
+          <div>
+            <h4>Подготовка задач</h4>
+            <p className="muted">
+              Одна строка создаёт одну независимую задачу: один файл → одна
+              папка результата.
+            </p>
+          </div>
+          <button type="button" className="secondary" onClick={() => addRow()}>
+            Добавить строку
+          </button>
+        </div>
+        <div className="composer-settings-row">
+          <label>
+            Ключ провайдера
+            <select
+              aria-label="Ключ провайдера"
+              value={selectedCredentialId}
+              onChange={(e) => setSelectedCredentialId(e.target.value)}
+            >
+              <option value="">Без ключа</option>
+              {activeCredentials.map((credential) => (
+                <option key={credential.id} value={credential.id}>
+                  {credentialDisplay(credential)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="composer-credential-status">
+            {credentialsLoading && <p role="status">Загрузка ключей…</p>}
+            {credentialsError && <p className="notice">{credentialsError}</p>}
+          </div>
+        </div>
+        <div
+          className="composer-status"
+          role="status"
+          aria-live="polite"
           aria-label="Project job readiness checklist"
         >
-          <h5>Готовность</h5>
-          <ul>
-            <li>
-              Готовые файлы:{" "}
-              {usableSources.length}
-            </li>
-            <li>
-              Ключ провайдера:{" "}
-              {selectedCredential
-                ? credentialDisplay(selectedCredential)
-                : activeCredentials.length > 0
-                  ? "не выбран"
-                  : "Активных ключей провайдера нет"}
-            </li>
-            <li>
-              Папка по умолчанию:{" "}
-              {project.output_drive_folder_id
-                ? `выбрана (${project.output_drive_folder_name || "Google Drive"})`
-                : "не выбрана"}
-            </li>
-          </ul>
-        </section>
-        <label>
-          Общий ключ провайдера
-          <select
-            aria-label="Ключ провайдера"
-            value={selectedCredentialId}
-            onChange={(e) => setSelectedCredentialId(e.target.value)}
-          >
-            <option value="">Без ключа</option>
-            {activeCredentials.map((credential) => (
-              <option key={credential.id} value={credential.id}>
-                {credentialDisplay(credential)}
-              </option>
-            ))}
-          </select>
-        </label>
-        {credentialsLoading && <p role="status">Загрузка ключей…</p>}
-        {credentialsError && <p className="notice">{credentialsError}</p>}
+          <b>
+            Готово: {completeRowCount} из {rows.length}
+          </b>
+          <span>
+            {readinessReasons.length === 0
+              ? "Все строки готовы"
+              : readinessReasons[0]}
+          </span>
+        </div>
         <fieldset className="composer-rows">
-          <legend>Строки: один файл → одна папка результата</legend>
+          <legend>Строки подготовки</legend>
           {!sources.loaded && (
             <button type="button" onClick={() => onLoadSources(project.id)}>
               Загрузить существующие файлы проекта
@@ -1418,112 +1519,202 @@ function PreparationPanel({
           )}
           {sources.loaded && usableSources.length === 0 && (
             <section className="empty-state">
-              <p>Сначала добавьте хотя бы один готовый файл через строку подготовки.</p>
+              <p>
+                Сначала добавьте хотя бы один готовый файл через строку
+                подготовки.
+              </p>
             </section>
           )}
           <ol>
             {rows.map((row, index) => {
+              const selectedSource = sourceById(row.source_id);
               const pairKey =
                 row.source_id && row.output_folder?.folder_id
                   ? `${row.source_id}\u0000${row.output_folder.folder_id}`
                   : "";
               const duplicate = pairKey && duplicatePairs.has(pairKey);
+              const rowReady = Boolean(
+                row.source_id &&
+                row.output_folder?.folder_id &&
+                !invalidSourceRowIds.has(row.id) &&
+                !duplicate,
+              );
               return (
-                <li className="composer-row" key={row.id}>
-                  <section className="row-source-cell" aria-label={`Источник строки ${index + 1}`}>
-                    <label>
-                      Источник
-                      <select
-                        aria-label={`Существующий файл для строки ${index + 1}`}
-                        value={row.source_id}
-                        onChange={(e) => {
-                          updateRow(row.id, { source_id: e.target.value });
-                          if (e.target.value) clearRowIntakeError(row.id);
-                        }}
-                      >
-                        <option value="">Выберите существующий файл</option>
-                        {sourceItems.map((source) => (
-                          <option
-                            key={source.id}
-                            value={source.id}
-                            disabled={!isUsableJobSource(source)}
-                          >
-                            {source.original_filename} · {sourceСтатусLabel(source.upload_status)}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <div className="row-source-actions">
-                      <button
-                        type="button"
-                        disabled={!driveSourcePickerEnabled || pickerBusy}
-                        onClick={() => void chooseRowDriveSources(row.id)}
-                      >
-                        Выбрать файлы Google Drive
-                      </button>
+                <li
+                  className="composer-row"
+                  key={row.id}
+                  aria-label={`Задача ${index + 1}`}
+                >
+                  <div className="composer-row-header">
+                    <div>
+                      <b>Задача {index + 1}</b>
+                      <span>{rowReady ? "Готова" : "Нужно заполнить"}</span>
+                    </div>
+                    {rows.length > 1 && (
+                      <div className="row-actions">
+                        <button
+                          type="button"
+                          onClick={() => moveRow(index, -1)}
+                          disabled={index === 0}
+                          aria-label={`Поднять строку ${index + 1}`}
+                        >
+                          Выше
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => moveRow(index, 1)}
+                          disabled={index === rows.length - 1}
+                          aria-label={`Опустить строку ${index + 1}`}
+                        >
+                          Ниже
+                        </button>
+                        <button
+                          type="button"
+                          className="secondary danger"
+                          onClick={() =>
+                            setRows((current) =>
+                              current.length > 1
+                                ? current.filter((item) => item.id !== row.id)
+                                : current,
+                            )
+                          }
+                          aria-label={`Удалить строку ${index + 1}`}
+                        >
+                          Удалить
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  <div className="composer-row-grid">
+                    <section
+                      className="row-source-cell"
+                      aria-label={`Источник строки ${index + 1}`}
+                    >
+                      <label>
+                        Источник
+                        <select
+                          aria-label={`Существующий файл для строки ${index + 1}`}
+                          value={row.source_id}
+                          onChange={(e) => {
+                            updateRow(row.id, { source_id: e.target.value });
+                            if (e.target.value) clearRowIntakeError(row.id);
+                          }}
+                        >
+                          <option value="">Выберите существующий файл</option>
+                          {sourceItems.map((source) => (
+                            <option
+                              key={source.id}
+                              value={source.id}
+                              disabled={!isUsableJobSource(source)}
+                            >
+                              {source.original_filename} ·{" "}
+                              {sourceСтатусLabel(source.upload_status)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="row-source-actions">
+                        <button
+                          type="button"
+                          className="secondary"
+                          aria-label="Выбрать файлы Google Drive"
+                          disabled={!driveSourcePickerEnabled || pickerBusy}
+                          onClick={() => void chooseRowDriveSources(row.id)}
+                        >
+                          Из Google Drive
+                        </button>
+                        <label
+                          className="button-like secondary"
+                          htmlFor={`local-source-upload-${row.id}`}
+                        >
+                          <span aria-hidden="true">С устройства</span>
+                          <span className="visually-hidden">
+                            Выбрать файлы с устройства
+                          </span>
+                        </label>
+                        <input
+                          id={`local-source-upload-${row.id}`}
+                          className="visually-hidden"
+                          aria-label="Выбрать файлы с устройства"
+                          type="file"
+                          multiple
+                          accept="audio/*,video/*,.ogg,.oga,application/ogg"
+                          onChange={(e) =>
+                            void uploadRowLocalSources(row.id, e)
+                          }
+                        />
+                      </div>
                       {googlePickerGuidance && (
                         <p className="notice">{googlePickerGuidance}</p>
                       )}
-                      <label className="button-like secondary" htmlFor={`local-source-upload-${row.id}`}>
-                        Выбрать файлы с устройства
-                      </label>
-                      <input
-                        id={`local-source-upload-${row.id}`}
-                        className="visually-hidden"
-                        type="file"
-                        multiple
-                        accept="audio/*,video/*,.ogg,.oga,application/ogg"
-                        onChange={(e) => void uploadRowLocalSources(row.id, e)}
-                      />
-                    </div>
-                    {sourceById(row.source_id) && (
-                      <div className="selected-source-summary">
-                        <b>{sourceById(row.source_id)?.original_filename}</b>
-                        <span>{sourceById(row.source_id)?.source_type === "google_drive" ? "Google Drive" : "С устройства"}</span>
-                        <span>Статус: {sourceСтатусLabel(sourceById(row.source_id)?.upload_status ?? "pending")}</span>
-                        {isSafeDisplayUrl(sourceById(row.source_id)?.drive_file_url ?? null) && (
+                      {selectedSource && (
+                        <div className="selected-source-summary">
+                          <b>{selectedSource.original_filename}</b>
+                          <span>
+                            {selectedSource.source_type === "google_drive"
+                              ? "Google Drive"
+                              : "С устройства"}
+                          </span>
+                          <span>
+                            Статус:{" "}
+                            {sourceСтатусLabel(selectedSource.upload_status)}
+                          </span>
+                          {isSafeDisplayUrl(
+                            selectedSource.drive_file_url ?? null,
+                          ) && (
+                            <ResourceExternalLink
+                              href={selectedSource.drive_file_url ?? ""}
+                              label="Открыть файл"
+                              ariaLabel={`Открыть источник строки ${index + 1} в Google Drive`}
+                            />
+                          )}
+                        </div>
+                      )}
+                      {rowIntakeStatus[row.id] && (
+                        <p role="status" className="muted">
+                          {rowIntakeStatus[row.id]}
+                        </p>
+                      )}
+                      {rowIntakeErrors[row.id] && (
+                        <p className="error">{rowIntakeErrors[row.id]}</p>
+                      )}
+                    </section>
+                    <div className="folder-cell">
+                      <span className="field-label">Папка результата</span>
+                      <span>
+                        {row.output_folder?.name || "Папка не выбрана"}
+                      </span>
+                      {row.output_folder?.web_view_url &&
+                        isApprovedOutputUrl(row.output_folder.web_view_url) && (
                           <ResourceExternalLink
-                            href={sourceById(row.source_id)?.drive_file_url ?? ""}
-                            label="Открыть файл"
-                            ariaLabel={`Открыть источник строки ${index + 1} в Google Drive`}
+                            href={row.output_folder.web_view_url}
+                            label="Открыть папку"
+                            ariaLabel={`Открыть папку результата строки ${index + 1} в Google Drive`}
                           />
                         )}
-                      </div>
-                    )}
-                    {rowIntakeStatus[row.id] && <p role="status" className="muted">{rowIntakeStatus[row.id]}</p>}
-                    {rowIntakeErrors[row.id] && <p className="error">{rowIntakeErrors[row.id]}</p>}
-                  </section>
-                  <div className="folder-cell">
-                    <span>{row.output_folder?.name || "Папка не выбрана"}</span>
-                    {row.output_folder?.web_view_url &&
-                      isApprovedOutputUrl(row.output_folder.web_view_url) && (
-                        <ResourceExternalLink
-                          href={row.output_folder.web_view_url}
-                          label="Открыть папку"
-                          ariaLabel={`Открыть папку результата строки ${index + 1} в Google Drive`}
-                        />
-                      )}
-                    <button
-                      type="button"
-                      disabled={!googleConnection?.picker_ready || pickerBusy}
-                      onClick={() => void chooseRowFolder(row.id)}
-                      aria-label={`Выбрать папку результата для строки ${index + 1}`}
-                    >
-                      Выбрать папку
-                    </button>
+                      <button
+                        type="button"
+                        className="secondary"
+                        disabled={!googleConnection?.picker_ready || pickerBusy}
+                        onClick={() => void chooseRowFolder(row.id)}
+                        aria-label={`Выбрать папку результата для строки ${index + 1}`}
+                      >
+                        {row.output_folder?.folder_id ? "Изменить" : "Выбрать"}
+                      </button>
+                    </div>
+                    <label>
+                      Название
+                      <input
+                        value={row.title}
+                        onChange={(e) =>
+                          updateRow(row.id, { title: e.target.value })
+                        }
+                        maxLength={160}
+                        placeholder="Необязательно"
+                        aria-label={`Название задачи для строки ${index + 1}`}
+                      />
+                    </label>
                   </div>
-                  <label>
-                    Название задачи
-                    <input
-                      value={row.title}
-                      onChange={(e) =>
-                        updateRow(row.id, { title: e.target.value })
-                      }
-                      maxLength={160}
-                      placeholder="Необязательно"
-                      aria-label={`Название задачи для строки ${index + 1}`}
-                    />
-                  </label>
                   {invalidSourceRowIds.has(row.id) && (
                     <p className="error">
                       Выбранный файл больше недоступен. Выберите готовый файл
@@ -1531,62 +1722,31 @@ function PreparationPanel({
                     </p>
                   )}
                   {duplicate && (
-                    <p className="error">Такая пара файла и папки уже есть.</p>
+                    <p className="error">
+                      Такая пара файла и папки уже добавлена.
+                    </p>
                   )}
-                  <div className="row-actions">
-                    <button
-                      type="button"
-                      onClick={() => moveRow(index, -1)}
-                      disabled={index === 0}
-                      aria-label={`Поднять строку ${index + 1}`}
-                    >
-                      ↑
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => moveRow(index, 1)}
-                      disabled={index === rows.length - 1}
-                      aria-label={`Опустить строку ${index + 1}`}
-                    >
-                      ↓
-                    </button>
-                    <button
-                      type="button"
-                      className="danger"
-                      onClick={() =>
-                        setRows((current) =>
-                          current.filter((item) => item.id !== row.id),
-                        )
-                      }
-                      aria-label={`Удалить строку ${index + 1}`}
-                    >
-                      Удалить
-                    </button>
-                  </div>
                 </li>
               );
             })}
           </ol>
         </fieldset>
-        <div className="actions composer-add-actions">
+        <div className="composer-footer">
+          <div role="status" aria-live="polite">
+            <b>Строк: {rows.length}</b>
+            <span>
+              Готово: {completeRowCount} из {rows.length}
+            </span>
+            {submitBlocker && <span>{submitBlocker}</span>}
+          </div>
           <button
-            type="button"
-            onClick={() => addRow()}
+            className="primary"
+            aria-label="Создать пакет задач"
+            disabled={!canSubmit}
           >
-            Добавить строку
+            {submitting ? "Создание задач…" : `Создать задачи (${rows.length})`}
           </button>
         </div>
-        <button
-          className="primary full-width"
-          disabled={
-            submitting ||
-            rows.length === 0 ||
-            duplicatePairs.size > 0 ||
-            invalidSourceRowIds.size > 0
-          }
-        >
-          {submitting ? "Создание…" : "Создать пакет задач"}
-        </button>
       </form>
       {message && (
         <p
@@ -1815,7 +1975,8 @@ function OverviewPage({
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [projectsError, setProjectsError] = useState(false);
-  const [googleConnection, setGoogleConnection] = useState<GoogleConnection | null>(null);
+  const [googleConnection, setGoogleConnection] =
+    useState<GoogleConnection | null>(null);
   const [googleLoading, setGoogleLoading] = useState(true);
   const [googleError, setGoogleError] = useState(false);
   const [credentials, setCredentials] = useState<Credential[]>([]);
@@ -1823,7 +1984,11 @@ function OverviewPage({
   const [credentialsError, setCredentialsError] = useState(false);
   useEffect(() => {
     api<{ projects: Project[] }>("/projects")
-      .then((r) => setProjects((r.projects ?? []).filter((project) => !project.archived_at)))
+      .then((r) =>
+        setProjects(
+          (r.projects ?? []).filter((project) => !project.archived_at),
+        ),
+      )
       .catch(() => setProjectsError(true))
       .finally(() => setProjectsLoading(false));
     api<GoogleConnection>("/google/connection")
@@ -1835,9 +2000,14 @@ function OverviewPage({
       .catch(() => setCredentialsError(true))
       .finally(() => setCredentialsLoading(false));
   }, []);
-  const activeCredentials = credentials.filter((credential) => credential.status === "active");
+  const activeCredentials = credentials.filter(
+    (credential) => credential.status === "active",
+  );
   const recentProjects = [...projects]
-    .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+    .sort(
+      (a, b) =>
+        new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
+    )
     .slice(0, 5);
   const googleStatus = googleLoading
     ? "Загрузка…"
@@ -1864,24 +2034,111 @@ function OverviewPage({
       <header className="page-header split">
         <div>
           <h1 className="page-title">Studio</h1>
-          <p>Рабочая панель аккаунта: проекты, подключение Drive и готовность ключей.</p>
+          <p>
+            Рабочая панель аккаунта: проекты, подключение Drive и готовность
+            ключей.
+          </p>
         </div>
         <div className="actions">
-          <button className="primary" onClick={onCreateProject}>Новый проект</button>
-          {projects.length > 0 && <button onClick={() => onNavigate("projects")}>Открыть проекты</button>}
+          <button className="primary" onClick={onCreateProject}>
+            Новый проект
+          </button>
+          {projects.length > 0 && (
+            <button onClick={() => onNavigate("projects")}>
+              Открыть проекты
+            </button>
+          )}
         </div>
       </header>
       <div className="summary-grid dashboard-summary">
-        <article className="card summary-card" aria-label="Проекты"><span className="summary-label">Проекты</span><strong className="summary-value">{projectsLoading ? "Загрузка…" : projectsError ? "Недоступно" : projects.length}</strong></article>
-        <article className="card summary-card" aria-label="Google Drive"><span className="summary-label">Google Drive</span><strong className="summary-value">{googleStatus}</strong></article>
-        <article className="card summary-card" aria-label="Активные ключи"><span className="summary-label">Активные ключи</span><strong className="summary-value">{credentialsLoading ? "Загрузка…" : credentialsError ? "Недоступно" : activeCredentials.length}</strong></article>
+        <article className="card summary-card" aria-label="Проекты">
+          <span className="summary-label">Проекты</span>
+          <strong className="summary-value">
+            {projectsLoading
+              ? "Загрузка…"
+              : projectsError
+                ? "Недоступно"
+                : projects.length}
+          </strong>
+        </article>
+        <article className="card summary-card" aria-label="Google Drive">
+          <span className="summary-label">Google Drive</span>
+          <strong className="summary-value">{googleStatus}</strong>
+        </article>
+        <article className="card summary-card" aria-label="Активные ключи">
+          <span className="summary-label">Активные ключи</span>
+          <strong className="summary-value">
+            {credentialsLoading
+              ? "Загрузка…"
+              : credentialsError
+                ? "Недоступно"
+                : activeCredentials.length}
+          </strong>
+        </article>
       </div>
-      {(projectsError || googleError || credentialsError) && <p className="notice">Часть данных панели сейчас недоступна. Остальные сведения показаны ниже.</p>}
-      {needsAttention.length > 0 && <article className="card attention-card"><h2>Требует внимания</h2><ul>{needsAttention.map((item) => <li key={item}>{item}</li>)}</ul></article>}
+      {(projectsError || googleError || credentialsError) && (
+        <p className="notice">
+          Часть данных панели сейчас недоступна. Остальные сведения показаны
+          ниже.
+        </p>
+      )}
+      {needsAttention.length > 0 && (
+        <article className="card attention-card">
+          <h2>Требует внимания</h2>
+          <ul>
+            {needsAttention.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </article>
+      )}
       {projects.length > 0 ? (
-        <article className="card recent-projects-card"><h2>Последние проекты</h2><div className="recent-project-list">{recentProjects.map((project) => <button type="button" className="recent-project-item" key={project.id} onClick={() => onOpenProject(project.id)}><span><strong>{project.title}</strong>{project.description && <small>{project.description}</small>}</span><span className="muted">Обновлено: {new Date(project.updated_at).toLocaleString("ru-RU")}</span>{project.output_drive_folder_name && <span className="tag">{project.output_drive_folder_name}</span>}</button>)}</div></article>
-      ) : !projectsLoading && !projectsError && (
-        <article className="card"><h2>Рабочий процесс</h2><ol className="workflow"><li>1. Проект</li><li>2. Источники</li><li>3. Папка по умолчанию</li><li>4. Задача</li></ol><div className="actions"><button className="primary" onClick={onCreateProject}>Новый проект</button><button onClick={() => onNavigate("settings")}>Настройки</button></div></article>
+        <article className="card recent-projects-card">
+          <h2>Последние проекты</h2>
+          <div className="recent-project-list">
+            {recentProjects.map((project) => (
+              <button
+                type="button"
+                className="recent-project-item"
+                key={project.id}
+                onClick={() => onOpenProject(project.id)}
+              >
+                <span>
+                  <strong>{project.title}</strong>
+                  {project.description && <small>{project.description}</small>}
+                </span>
+                <span className="muted">
+                  Обновлено:{" "}
+                  {new Date(project.updated_at).toLocaleString("ru-RU")}
+                </span>
+                {project.output_drive_folder_name && (
+                  <span className="tag">
+                    {project.output_drive_folder_name}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        </article>
+      ) : (
+        !projectsLoading &&
+        !projectsError && (
+          <article className="card">
+            <h2>Рабочий процесс</h2>
+            <ol className="workflow">
+              <li>1. Проект</li>
+              <li>2. Источники</li>
+              <li>3. Папка по умолчанию</li>
+              <li>4. Задача</li>
+            </ol>
+            <div className="actions">
+              <button className="primary" onClick={onCreateProject}>
+                Новый проект
+              </button>
+              <button onClick={() => onNavigate("settings")}>Настройки</button>
+            </div>
+          </article>
+        )
       )}
     </section>
   );
@@ -1931,7 +2188,10 @@ function ProjectsPage({
         setSelectedProjectId((current) => {
           if (current && r.projects.some((project) => project.id === current))
             return current;
-          return requestedProjectId && r.projects.some((project) => project.id === requestedProjectId) ? requestedProjectId : (r.projects[0]?.id ?? null);
+          return requestedProjectId &&
+            r.projects.some((project) => project.id === requestedProjectId)
+            ? requestedProjectId
+            : (r.projects[0]?.id ?? null);
         });
         if (r.projects.length === 0) setCreateOpen(true);
       })
@@ -2167,8 +2427,13 @@ function ProjectsPage({
     : emptyJobState;
   useEffect(() => {
     if (!selectedProject) return;
-    if (!sources[selectedProject.id]?.loaded && !sources[selectedProject.id]?.loading) loadSources(selectedProject.id);
-    if (!jobs[selectedProject.id]?.loaded && !jobs[selectedProject.id]?.loading) loadJobs(selectedProject.id);
+    if (
+      !sources[selectedProject.id]?.loaded &&
+      !sources[selectedProject.id]?.loading
+    )
+      loadSources(selectedProject.id);
+    if (!jobs[selectedProject.id]?.loaded && !jobs[selectedProject.id]?.loading)
+      loadJobs(selectedProject.id);
   }, [selectedProject?.id]);
   return (
     <section className="page">
@@ -2274,11 +2539,10 @@ function ProjectsPage({
                   <div>
                     <h2>{selectedProject.title}</h2>
                     <p>
-                      {selectedProject.description ||
-                        "Описание не добавлено."}
+                      {selectedProject.description || "Описание не добавлено."}
                     </p>
                     <p className="muted">
-                      Обновлено: {" "}
+                      Обновлено:{" "}
                       {new Date(selectedProject.updated_at).toLocaleString(
                         "ru-RU",
                       )}
@@ -2301,23 +2565,73 @@ function ProjectsPage({
                   </div>
                 </header>
               )}
-              <section className="project-folder-panel" aria-label="Папка по умолчанию проекта">
+              <section
+                className="project-folder-panel"
+                aria-label="Папка по умолчанию проекта"
+              >
                 <div>
                   <h3>Папка по умолчанию</h3>
-                  <p className="muted">Используется для новых строк подготовки. Уже созданные задачи сохраняют свою папку.</p>
+                  <p className="muted">
+                    Используется для новых строк подготовки. Уже созданные
+                    задачи сохраняют свою папку.
+                  </p>
                   {selectedProject.output_drive_folder_id ? (
-                    <p><strong>{selectedProject.output_drive_folder_name || "Папка Google Drive"}</strong></p>
+                    <p>
+                      <strong>
+                        {selectedProject.output_drive_folder_name ||
+                          "Папка Google Drive"}
+                      </strong>
+                    </p>
                   ) : (
                     <p className="notice">Папка не выбрана</p>
                   )}
-                  {googleConnection?.connected && googleConnection.reconnect_required && <p className="notice">Переподключите Google Drive в настройках, чтобы выбрать папку.</p>}
-                  {googleConnection?.connected && !googleConnection.picker_configured && <p className="notice">Выбор Google Drive временно недоступен.</p>}
-                  {!googleConnection?.connected && <p className="notice">Подключите Google Drive в настройках, чтобы выбрать папку.</p>}
+                  {googleConnection?.connected &&
+                    googleConnection.reconnect_required && (
+                      <p className="notice">
+                        Переподключите Google Drive в настройках, чтобы выбрать
+                        папку.
+                      </p>
+                    )}
+                  {googleConnection?.connected &&
+                    !googleConnection.picker_configured && (
+                      <p className="notice">
+                        Выбор Google Drive временно недоступен.
+                      </p>
+                    )}
+                  {!googleConnection?.connected && (
+                    <p className="notice">
+                      Подключите Google Drive в настройках, чтобы выбрать папку.
+                    </p>
+                  )}
                 </div>
                 <div className="resource-actions folder-actions">
-                  {isSafeDisplayUrl(selectedProject.output_drive_folder_url) && <ResourceExternalLink href={selectedProject.output_drive_folder_url ?? ""} label="Открыть папку" ariaLabel="Открыть папку в Google Drive в новой вкладке" />}
-                  <button className="primary" type="button" disabled={!googleConnection?.picker_ready || activePicker} onClick={() => chooseOutputFolder(selectedProject.id)}>{selectedProject.output_drive_folder_id ? "Изменить" : "Выбрать папку"}</button>
-                  {selectedProject.output_drive_folder_id && <button type="button" onClick={() => clearFolder(selectedProject.id)}>Очистить</button>}
+                  {isSafeDisplayUrl(
+                    selectedProject.output_drive_folder_url,
+                  ) && (
+                    <ResourceExternalLink
+                      href={selectedProject.output_drive_folder_url ?? ""}
+                      label="Открыть папку"
+                      ariaLabel="Открыть папку в Google Drive в новой вкладке"
+                    />
+                  )}
+                  <button
+                    className="primary"
+                    type="button"
+                    disabled={!googleConnection?.picker_ready || activePicker}
+                    onClick={() => chooseOutputFolder(selectedProject.id)}
+                  >
+                    {selectedProject.output_drive_folder_id
+                      ? "Изменить"
+                      : "Выбрать папку"}
+                  </button>
+                  {selectedProject.output_drive_folder_id && (
+                    <button
+                      type="button"
+                      onClick={() => clearFolder(selectedProject.id)}
+                    >
+                      Очистить
+                    </button>
+                  )}
                 </div>
               </section>
               <PreparationPanel
@@ -2715,7 +3029,9 @@ function PlatformShell() {
   const [page, setPage] = useState<Page>(
     oauthResult ? "settings" : "dashboard",
   );
-  const [requestedProjectId, setRequestedProjectId] = useState<string | null>(null);
+  const [requestedProjectId, setRequestedProjectId] = useState<string | null>(
+    null,
+  );
   const [requestedCreateProject, setRequestedCreateProject] = useState(false);
   const [projectsOpened, setProjectsOpened] = useState(false);
   const navigate = (nextPage: Page) => {
@@ -2853,7 +3169,9 @@ function PlatformShell() {
               requestedProjectId={requestedProjectId}
               onRequestedProjectHandled={() => setRequestedProjectId(null)}
               requestedCreateProject={requestedCreateProject}
-              onRequestedCreateProjectHandled={() => setRequestedCreateProject(false)}
+              onRequestedCreateProjectHandled={() =>
+                setRequestedCreateProject(false)
+              }
             />
           </div>
         )}

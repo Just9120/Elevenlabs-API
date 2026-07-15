@@ -364,8 +364,12 @@ async function openSelectedProjectJobs() {
 }
 
 async function chooseExistingSource(rowNumber: number, sourceName: string) {
-  const select = await screen.findByLabelText(`Существующий файл для строки ${rowNumber}`);
-  const option = within(select).getByRole("option", { name: new RegExp(sourceName) });
+  const select = await screen.findByLabelText(
+    `Существующий файл для строки ${rowNumber}`,
+  );
+  const option = within(select).getByRole("option", {
+    name: new RegExp(sourceName),
+  });
   await userEvent.selectOptions(select, option);
 }
 
@@ -661,7 +665,8 @@ describe("Studio PWA", () => {
           url.endsWith("/local-upload/complete") &&
           init?.method === "POST"
         ) {
-          const sourceId = url.match(/local-source-\d+/)?.[0] ?? "local-source-1";
+          const sourceId =
+            url.match(/local-source-\d+/)?.[0] ?? "local-source-1";
           return json({
             id: sourceId,
             project_id: "p1",
@@ -995,29 +1000,79 @@ describe("Studio PWA", () => {
     expect(document.body.textContent).not.toContain("удален с Google Drive");
   });
 
-
   it("renders actionable dashboard summaries, recent projects, and no permanent onboarding", async () => {
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = baseFetch.getMockImplementation();
     baseFetch.mockImplementation((url: string, init?: RequestInit) => {
       if (url.endsWith("/api/projects") && !init?.method)
-        return json({ projects: [
-          { id: "older", title: "Older", description: null, created_at: "2026-07-01T00:00:00Z", updated_at: "2026-07-01T00:00:00Z", archived_at: null, output_drive_folder_id: null, output_drive_folder_url: null, output_drive_folder_name: null },
-          { id: "newer", title: "Newer", description: "Latest notes", created_at: "2026-07-02T00:00:00Z", updated_at: "2026-07-03T00:00:00Z", archived_at: null, output_drive_folder_id: "folder-new", output_drive_folder_url: "https://drive.example/folders/new", output_drive_folder_name: "Ready folder" },
-        ] });
+        return json({
+          projects: [
+            {
+              id: "older",
+              title: "Older",
+              description: null,
+              created_at: "2026-07-01T00:00:00Z",
+              updated_at: "2026-07-01T00:00:00Z",
+              archived_at: null,
+              output_drive_folder_id: null,
+              output_drive_folder_url: null,
+              output_drive_folder_name: null,
+            },
+            {
+              id: "newer",
+              title: "Newer",
+              description: "Latest notes",
+              created_at: "2026-07-02T00:00:00Z",
+              updated_at: "2026-07-03T00:00:00Z",
+              archived_at: null,
+              output_drive_folder_id: "folder-new",
+              output_drive_folder_url: "https://drive.example/folders/new",
+              output_drive_folder_name: "Ready folder",
+            },
+          ],
+        });
       if (url.endsWith("/api/google/connection"))
-        return json({ connected: true, status: "active", google_email: "user@example.com", scopes: "openid email", connected_at: "2026-07-01T00:00:00Z", revoked_at: null, picker_ready: true, picker_configured: true, picker_scope_ready: true, reconnect_required: false });
+        return json({
+          connected: true,
+          status: "active",
+          google_email: "user@example.com",
+          scopes: "openid email",
+          connected_at: "2026-07-01T00:00:00Z",
+          revoked_at: null,
+          picker_ready: true,
+          picker_configured: true,
+          picker_scope_ready: true,
+          reconnect_required: false,
+        });
       if (url.endsWith("/api/credentials"))
-        return json({ credentials: [{ id: "c1", provider: "elevenlabs", label: "main", status: "active", masked_value: "••••1234", active_version: 1 }] });
+        return json({
+          credentials: [
+            {
+              id: "c1",
+              provider: "elevenlabs",
+              label: "main",
+              status: "active",
+              masked_value: "••••1234",
+              active_version: 1,
+            },
+          ],
+        });
       return defaultFetch?.(url, init) ?? json({ ok: true });
     });
     renderApp("platform");
     await waitForPlatformOverview();
     expect(await screen.findByText("Последние проекты")).toBeInTheDocument();
     expect(screen.getByLabelText("Проекты")).toHaveTextContent("2");
-    expect(screen.getByLabelText("Google Drive")).toHaveTextContent("Подключён");
+    expect(screen.getByLabelText("Google Drive")).toHaveTextContent(
+      "Подключён",
+    );
     expect(screen.getByLabelText("Активные ключи")).toHaveTextContent("1");
-    expect(screen.getByText("Newer").compareDocumentPosition(screen.getByText("Older")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      screen
+        .getByText("Newer")
+        .compareDocumentPosition(screen.getByText("Older")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(screen.queryByText("Рабочий процесс")).not.toBeInTheDocument();
     expect(screen.queryByText("Требует внимания")).not.toBeInTheDocument();
   });
@@ -1026,13 +1081,16 @@ describe("Studio PWA", () => {
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = baseFetch.getMockImplementation();
     baseFetch.mockImplementation((url: string, init?: RequestInit) => {
-      if (url.endsWith("/api/projects") && !init?.method) return json({ projects: [] });
+      if (url.endsWith("/api/projects") && !init?.method)
+        return json({ projects: [] });
       return defaultFetch?.(url, init) ?? json({ ok: true });
     });
     renderApp("platform");
     await waitForPlatformOverview();
     expect(await screen.findByText("Рабочий процесс")).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "Новый проект" }).length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByRole("button", { name: "Новый проект" }).length,
+    ).toBeGreaterThan(0);
   });
 
   it("keeps successful dashboard data when one dashboard request fails without raw errors", async () => {
@@ -1060,11 +1118,15 @@ describe("Studio PWA", () => {
     await waitForPlatformOverview();
     expect(await screen.findByText("Последние проекты")).toBeInTheDocument();
     expect(screen.getByLabelText("Проекты")).toHaveTextContent("1");
-    expect(screen.getByLabelText("Google Drive")).toHaveTextContent("Недоступно");
+    expect(screen.getByLabelText("Google Drive")).toHaveTextContent(
+      "Недоступно",
+    );
     expect(screen.getByLabelText("Активные ключи")).toHaveTextContent("1");
     expect(screen.getByText(/Часть данных панели/)).toBeInTheDocument();
     expect(
-      screen.queryByText("Подключите или обновите Google Drive для выбора файлов и папок."),
+      screen.queryByText(
+        "Подключите или обновите Google Drive для выбора файлов и папок.",
+      ),
     ).not.toBeInTheDocument();
     expect(document.body.textContent).not.toContain("Traceback raw stack");
   });
@@ -1072,8 +1134,12 @@ describe("Studio PWA", () => {
   it("opens the project creation form only for the dashboard new-project action", async () => {
     renderApp("platform");
     await waitForPlatformOverview();
-    await userEvent.click(await screen.findByRole("button", { name: "Открыть проекты" }));
-    expect(await screen.findByRole("heading", { name: "Проекты" })).toBeInTheDocument();
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Открыть проекты" }),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Проекты" }),
+    ).toBeInTheDocument();
     expect(screen.queryByLabelText("Название проекта")).not.toBeInTheDocument();
 
     await openPlatformNavPage("Обзор");
@@ -1082,17 +1148,29 @@ describe("Studio PWA", () => {
         name: "Новый проект",
       }),
     );
-    expect(await screen.findByRole("heading", { name: "Проекты" })).toBeInTheDocument();
-    expect(await screen.findByLabelText("Название проекта")).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Проекты" }),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByLabelText("Название проекта"),
+    ).toBeInTheDocument();
   });
 
   it("opens a recent project directly in the preparation workspace", async () => {
     renderApp("platform");
     await waitForPlatformOverview();
-    await userEvent.click(await screen.findByRole("button", { name: /Research calls/ }));
-    expect(await screen.findByRole("heading", { name: "Проекты" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Research calls" })).toBeInTheDocument();
-    expect(await screen.findByRole("form", { name: "Композитор пакетных задач" })).toBeInTheDocument();
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Research calls/ }),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Проекты" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Research calls" }),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByRole("form", { name: "Композитор пакетных задач" }),
+    ).toBeInTheDocument();
   });
 
   it("static-only mode renders public UI and makes no /api requests", async () => {
@@ -1864,13 +1942,18 @@ describe("Studio PWA", () => {
     );
   });
 
-  it("shows configured output folder in job readiness checklist", async () => {
+  it("shows compact preparation readiness status", async () => {
     renderApp("platform");
     await openProjectsPage();
-    await screen.findByRole("form", { name: "Композитор пакетных задач" });
+    await screen.findByRole("heading", { name: "Подготовка задач" });
+    const status = await screen.findByLabelText(
+      "Project job readiness checklist",
+    );
+    expect(status).toHaveTextContent("Готово: 0 из 1");
+    expect(status).toHaveTextContent("Строка 1: выберите источник");
     expect(
-      await screen.findByLabelText("Project job readiness checklist"),
-    ).toHaveTextContent("Папка по умолчанию: выбрана (Transcripts)");
+      screen.queryByRole("heading", { name: "Готовность" }),
+    ).not.toBeInTheDocument();
   });
 
   it("creates, lists, details, and cancels project jobs safely with CSRF", async () => {
@@ -2248,17 +2331,15 @@ describe("Studio PWA", () => {
     );
     expect(await screen.findByText("Queued review")).toBeInTheDocument();
     expect(
-      screen.getByText("Создайте задачу из готовых файлов проекта."),
+      screen.getByRole("heading", { name: "Подготовка задач" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByLabelText("Project job readiness checklist"),
-    ).toHaveTextContent("Готовые файлы: 2");
+      screen.queryByText("Создайте задачу из готовых файлов проекта."),
+    ).not.toBeInTheDocument();
     expect(
       screen.getByLabelText("Project job readiness checklist"),
-    ).toHaveTextContent("Ключ провайдера: не выбран");
-    expect(
-      screen.getByLabelText("Project job readiness checklist"),
-    ).toHaveTextContent("Папка по умолчанию: выбрана (Default folder)");
+    ).toHaveTextContent("Готово: 0 из 1");
+    expect(screen.getByLabelText("Ключ провайдера")).toHaveValue("");
     expect(document.body.textContent).not.toContain("worker/provider");
     expect(screen.getByText("Задача job-2")).toBeInTheDocument();
     expect(screen.getByText("Статус: В очереди")).toBeInTheDocument();
@@ -2275,7 +2356,7 @@ describe("Studio PWA", () => {
     expect((await screen.findAllByText(/ready-drive/))[0]).toBeInTheDocument();
     expect(
       screen.getByLabelText("Project job readiness checklist"),
-    ).toHaveTextContent("Готовые файлы: 2");
+    ).toHaveTextContent("Готово:");
     expect(
       screen.getByText(/Файл ещё не готов для задачи/),
     ).toBeInTheDocument();
@@ -2295,7 +2376,9 @@ describe("Studio PWA", () => {
       ),
     ).toBeDisabled();
     await chooseExistingSource(1, "ready-drive.mp4");
-    await userEvent.click(screen.getByRole("button", { name: "Добавить строку" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Добавить строку" }),
+    );
     await chooseExistingSource(2, "ready-local.ogg");
     await userEvent.type(
       screen.getByLabelText("Название задачи для строки 1"),
@@ -2317,9 +2400,7 @@ describe("Studio PWA", () => {
       within(credentialSelect).queryByRole("option", { name: /Deleted STT/ }),
     ).not.toBeInTheDocument();
     await userEvent.selectOptions(credentialSelect, "cred-active");
-    expect(
-      screen.getByLabelText("Project job readiness checklist"),
-    ).toHaveTextContent("openai · Primary STT · ••••1234 · v2");
+    expect(screen.getByLabelText("Ключ провайдера")).toHaveValue("cred-active");
     await userEvent.click(
       screen.getByRole("button", { name: "Создать пакет задач" }),
     );
@@ -2524,9 +2605,9 @@ describe("Studio PWA", () => {
       expect(screen.getAllByText("picked-first.mp4").length).toBeGreaterThan(0),
     );
     expect(screen.getAllByText("picked-second.mp4").length).toBeGreaterThan(0);
-    expect(
-      document.body.textContent?.indexOf("picked-first.mp4"),
-    ).toBeLessThan(document.body.textContent?.indexOf("picked-second.mp4") ?? 0);
+    expect(document.body.textContent?.indexOf("picked-first.mp4")).toBeLessThan(
+      document.body.textContent?.indexOf("picked-second.mp4") ?? 0,
+    );
     expect(screen.getByLabelText("Источник строки 1")).toHaveTextContent(
       "picked-first.mp4",
     );
@@ -2547,7 +2628,9 @@ describe("Studio PWA", () => {
       screen.getByRole("button", { name: "Создать пакет задач" }),
     );
     const batchCall = await waitFor(() => {
-      const call = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.find(
+      const call = (
+        fetch as unknown as ReturnType<typeof vi.fn>
+      ).mock.calls.find(
         ([url, init]) =>
           url === "/api/projects/p1/jobs/batch" && init?.method === "POST",
       );
@@ -2865,18 +2948,17 @@ describe("Studio PWA", () => {
       ),
     );
     expect(
-      within(screen.getByLabelText("Существующий файл для строки 1")).queryByRole(
-        "option",
-        { name: /remove-me.ogg/ },
-      ),
+      within(
+        screen.getByLabelText("Существующий файл для строки 1"),
+      ).queryByRole("option", { name: /remove-me.ogg/ }),
     ).not.toBeInTheDocument();
-    expect(
-      screen.getByText(/Источник удалён из проекта/),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Источник удалён из проекта/)).toBeInTheDocument();
     expect(screen.getByDisplayValue("Keep title")).toBeInTheDocument();
     expect(screen.getAllByText("Default folder").length).toBeGreaterThan(0);
     await chooseExistingSource(1, "replacement.ogg");
-    expect(screen.queryByText(/Источник удалён из проекта/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/Источник удалён из проекта/),
+    ).not.toBeInTheDocument();
     await userEvent.selectOptions(
       screen.getByLabelText("Существующий файл для строки 1"),
       "",
@@ -2915,10 +2997,9 @@ describe("Studio PWA", () => {
     );
     await waitFor(() => expect(sourceListCalls).toBeGreaterThan(1));
     expect(
-      within(screen.getByLabelText("Существующий файл для строки 1")).queryByRole(
-        "option",
-        { name: /remove-me.ogg/ },
-      ),
+      within(
+        screen.getByLabelText("Существующий файл для строки 1"),
+      ).queryByRole("option", { name: /remove-me.ogg/ }),
     ).not.toBeInTheDocument();
   });
 
@@ -3172,7 +3253,9 @@ describe("Studio PWA", () => {
       screen.getByLabelText("Название задачи для строки 1"),
       "First draft title",
     );
-    await userEvent.click(screen.getByRole("button", { name: "Добавить строку" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Добавить строку" }),
+    );
     await chooseExistingSource(2, "local-temp.ogg");
     await userEvent.type(
       screen.getByLabelText("Название задачи для строки 2"),
@@ -3183,9 +3266,9 @@ describe("Studio PWA", () => {
     await openPlatformNavPage("Проекты");
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
 
-    const rows = screen.getAllByRole("listitem").filter((item) =>
-      item.classList.contains("composer-row"),
-    );
+    const rows = screen
+      .getAllByRole("listitem")
+      .filter((item) => item.classList.contains("composer-row"));
     expect(rows).toHaveLength(2);
     expect(rows[0]).toHaveTextContent(
       "Лекция 1. Личность как психологическое явление.flac",
@@ -3261,7 +3344,9 @@ describe("Studio PWA", () => {
               {
                 id: "p1",
                 title: saved ? "Renamed Project One" : "Project One",
-                description: saved ? "Updated description" : "Original description",
+                description: saved
+                  ? "Updated description"
+                  : "Original description",
                 created_at: "2026-07-01T00:00:00Z",
                 updated_at: saved
                   ? "2026-07-03T00:00:00Z"
@@ -3367,15 +3452,21 @@ describe("Studio PWA", () => {
       screen.getByLabelText("Название задачи для строки 1"),
       "Alpha draft",
     );
-    await userEvent.click(screen.getByRole("button", { name: "Добавить строку" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Добавить строку" }),
+    );
     await chooseExistingSource(2, "p1-beta.ogg");
     await userEvent.type(
       screen.getByLabelText("Название задачи для строки 2"),
       "Beta draft",
     );
 
-    await userEvent.click(screen.getByRole("button", { name: "Редактировать" }));
-    expect(screen.getByRole("form", { name: "Композитор пакетных задач" })).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Редактировать" }),
+    );
+    expect(
+      screen.getByRole("form", { name: "Композитор пакетных задач" }),
+    ).toBeInTheDocument();
     expect(screen.getByLabelText("Ключ провайдера")).toHaveValue("cred-1");
     expect(screen.getByDisplayValue("Alpha draft")).toBeInTheDocument();
     expect(screen.getByDisplayValue("Beta draft")).toBeInTheDocument();
@@ -3386,7 +3477,9 @@ describe("Studio PWA", () => {
     expect(screen.getByDisplayValue("Beta draft")).toBeInTheDocument();
     expect(screen.getByLabelText("Ключ провайдера")).toHaveValue("cred-1");
 
-    await userEvent.click(screen.getByRole("button", { name: "Редактировать" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Редактировать" }),
+    );
     await userEvent.clear(screen.getByLabelText("Название проекта"));
     await userEvent.type(
       screen.getByLabelText("Название проекта"),
@@ -3678,9 +3771,7 @@ describe("Studio PWA", () => {
     expect(screen.queryByLabelText("Job detail job-a")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Результаты job-a")).not.toBeInTheDocument();
     expect(screen.queryByText("project-a-output")).not.toBeInTheDocument();
-    expect(
-      screen.getByLabelText("Project job readiness checklist"),
-    ).toHaveTextContent("Папка по умолчанию: выбрана (B default)");
+    expect(screen.getAllByText("B default").length).toBeGreaterThan(0);
     await chooseExistingSource(1, "project-b-source.ogg");
     await userEvent.type(
       screen.getByLabelText("Название задачи для строки 1"),
@@ -3770,7 +3861,9 @@ describe("Studio PWA", () => {
     renderApp("platform");
     await openProjectsPage();
     await screen.findByRole("heading", { name: "Папка по умолчанию" });
-    const button = within(screen.getByRole("region", { name: "Папка по умолчанию проекта" })).getByRole("button", { name: /Изменить|Выбрать папку/ });
+    const button = within(
+      screen.getByRole("region", { name: "Папка по умолчанию проекта" }),
+    ).getByRole("button", { name: /Изменить|Выбрать папку/ });
     fireEvent.click(button);
     fireEvent.click(button);
     await picker.loadScript();
@@ -3872,7 +3965,9 @@ describe("Studio PWA", () => {
     await openProjectsPage();
     await screen.findByRole("heading", { name: "Папка по умолчанию" });
     await userEvent.click(
-      within(screen.getByRole("region", { name: "Папка по умолчанию проекта" })).getByRole("button", { name: /Изменить|Выбрать папку/ }),
+      within(
+        screen.getByRole("region", { name: "Папка по умолчанию проекта" }),
+      ).getByRole("button", { name: /Изменить|Выбрать папку/ }),
     );
     await picker.loadScript();
     await picker.waitForCallback();
@@ -3896,7 +3991,9 @@ describe("Studio PWA", () => {
     await openProjectsPage();
     await screen.findByRole("heading", { name: "Папка по умолчанию" });
     await userEvent.click(
-      within(screen.getByRole("region", { name: "Папка по умолчанию проекта" })).getByRole("button", { name: /Изменить|Выбрать папку/ }),
+      within(
+        screen.getByRole("region", { name: "Папка по умолчанию проекта" }),
+      ).getByRole("button", { name: /Изменить|Выбрать папку/ }),
     );
     await picker.loadScript();
     await picker.waitForCallback();
@@ -4091,8 +4188,10 @@ describe("Studio PWA", () => {
       ),
     ).toBeInTheDocument();
     expect(
-      screen.getByLabelText("Project job readiness checklist"),
-    ).toHaveTextContent("Активных ключей провайдера нет");
+      screen.getByText(
+        "Ключи сейчас недоступны. Задачу можно создать без выбранного ключа.",
+      ),
+    ).toBeInTheDocument();
     expect(
       screen.queryByText("raw backend detail ignored"),
     ).not.toBeInTheDocument();
@@ -4599,22 +4698,21 @@ describe("Studio PWA", () => {
     expect(within(projectList).getByText("Research calls")).toBeInTheDocument();
   });
 
-
-  it("removing a composer row does not remove its project source", async () => {
+  it("keeps the final composer row and does not remove its project source", async () => {
     renderApp("platform");
     await openProjectsPage();
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
     await chooseExistingSource(1, "Лекция 1");
-    await userEvent.click(
-      screen.getByRole("button", { name: "Удалить строку 1" }),
-    );
+    expect(
+      screen.queryByRole("button", { name: "Удалить строку 1" }),
+    ).not.toBeInTheDocument();
     expect(
       (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
         ([url, init]) =>
           String(url).startsWith("/api/sources/") && init?.method === "DELETE",
       ),
     ).toBe(false);
-    expect(screen.getByText(/Лекция 1/)).toBeInTheDocument();
+    expect(screen.getAllByText(/Лекция 1/).length).toBeGreaterThan(0);
   });
 
   it("renders balanced Drive and device source cards with an accessible hidden file input", async () => {
@@ -4625,7 +4723,9 @@ describe("Studio PWA", () => {
     expect(
       within(row).getByRole("button", { name: "Выбрать файлы Google Drive" }),
     ).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Добавить строку для/ })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Добавить строку для/ }),
+    ).not.toBeInTheDocument();
     const input = within(row).getByLabelText(
       "Выбрать файлы с устройства",
     ) as HTMLInputElement;
@@ -4641,7 +4741,6 @@ describe("Studio PWA", () => {
       "https://upload.example/presigned",
     );
   });
-
 
   it("local multi-file selection creates rows and partial failure preserves successful rows", async () => {
     renderApp("platform");
@@ -4670,7 +4769,9 @@ describe("Studio PWA", () => {
       "local-source-2.ogg",
     );
     expect(
-      screen.getByText(/bad\.exe: поддерживаются только аудио, видео или OGG\./),
+      screen.getByText(
+        /bad\.exe: поддерживаются только аудио, видео или OGG\./,
+      ),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", {
@@ -4714,7 +4815,9 @@ describe("Studio PWA", () => {
     });
     await userEvent.upload(input, unsupportedFile, { applyAccept: false });
 
-    await screen.findByText(/unsupported\.exe: поддерживаются только аудио, видео или OGG\./);
+    await screen.findByText(
+      /unsupported\.exe: поддерживаются только аудио, видео или OGG\./,
+    );
     expect(
       within(deviceCard).queryByText(/valid\.ogg/),
     ).not.toBeInTheDocument();
@@ -4749,7 +4852,9 @@ describe("Studio PWA", () => {
     expect(
       screen.queryByRole("button", { name: "Перейти к источникам" }),
     ).not.toBeInTheDocument();
-    expect(screen.queryByRole("tab", { name: "Подготовка" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("tab", { name: "Подготовка" }),
+    ).not.toBeInTheDocument();
   });
 
   it("places Google Drive technical values in a closed details block and repairs security summary markup", async () => {
