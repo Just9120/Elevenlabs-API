@@ -666,3 +666,23 @@ code {
     grid-template-columns: 1fr;
   }
 }
+.row-source-cell,
+.selected-source-summary {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+}
+.row-source-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+.selected-source-summary {
+  border: 1px solid var(--studio-border);
+  border-radius: 12px;
+  padding: 0.65rem;
+  background: var(--studio-soft);
+}
+.project-files > .sources {
+  margin-top: 0.75rem;
+}
