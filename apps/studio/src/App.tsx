@@ -23,7 +23,6 @@ const platformMode = import.meta.env.VITE_STUDIO_PLATFORM_MODE === "platform";
 const appUrl =
   import.meta.env.VITE_APP_PUBLIC_URL ?? "https://studio.librechat.online";
 type Page = "dashboard" | "projects" | "new" | "jobs" | "settings";
-type ProjectTab = "overview" | "preparation";
 type User = { email: string; role: string };
 type Credential = {
   id: string;
@@ -1804,62 +1803,86 @@ function PreparationPanel({
   );
 }
 
-function OverviewPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
-  const [projectsCount, setProjectsCount] = useState<string>("Загрузка…");
-  const [driveState, setDriveState] = useState<string>("Загрузка…");
-  const [credentialsState, setCredentialsState] = useState<string>("Загрузка…");
+function OverviewPage({
+  onNavigate,
+  onCreateProject,
+  onOpenProject,
+}: {
+  onNavigate: (page: Page) => void;
+  onCreateProject: () => void;
+  onOpenProject: (projectId: string) => void;
+}) {
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(true);
+  const [projectsError, setProjectsError] = useState(false);
+  const [googleConnection, setGoogleConnection] = useState<GoogleConnection | null>(null);
+  const [googleLoading, setGoogleLoading] = useState(true);
+  const [googleError, setGoogleError] = useState(false);
+  const [credentials, setCredentials] = useState<Credential[]>([]);
+  const [credentialsLoading, setCredentialsLoading] = useState(true);
+  const [credentialsError, setCredentialsError] = useState(false);
   useEffect(() => {
     api<{ projects: Project[] }>("/projects")
-      .then((r) => setProjectsCount(String(r.projects.length)))
-      .catch(() => setProjectsCount("Не удалось загрузить"));
+      .then((r) => setProjects((r.projects ?? []).filter((project) => !project.archived_at)))
+      .catch(() => setProjectsError(true))
+      .finally(() => setProjectsLoading(false));
     api<GoogleConnection>("/google/connection")
-      .then((r) => setDriveState(r.connected ? "Подключён" : "Не подключён"))
-      .catch(() => setDriveState("Не подключён"));
+      .then(setGoogleConnection)
+      .catch(() => setGoogleError(true))
+      .finally(() => setGoogleLoading(false));
     api<{ credentials: Credential[] }>("/credentials")
-      .then((r) => {
-        const count = r.credentials.filter((c) => c.status === "active").length;
-        setCredentialsState(count > 0 ? String(count) : "Ключ не настроен");
-      })
-      .catch(() => setCredentialsState("Не удалось загрузить"));
+      .then((r) => setCredentials(r.credentials ?? []))
+      .catch(() => setCredentialsError(true))
+      .finally(() => setCredentialsLoading(false));
   }, []);
+  const activeCredentials = credentials.filter((credential) => credential.status === "active");
+  const recentProjects = [...projects]
+    .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+    .slice(0, 5);
+  const googleStatus = googleLoading
+    ? "Загрузка…"
+    : googleError
+      ? "Недоступно"
+      : googleConnection?.connected && !googleConnection.reconnect_required
+        ? "Подключён"
+        : "Нужна настройка";
+  const needsAttention = [
+    !projectsLoading && !projectsError && projects.length === 0
+      ? "Создайте первый проект, чтобы подготовить пакет задач."
+      : "",
+    !googleLoading &&
+    !googleError &&
+    (!googleConnection?.connected || googleConnection.reconnect_required)
+      ? "Подключите или обновите Google Drive для выбора файлов и папок."
+      : "",
+    !credentialsLoading && !credentialsError && activeCredentials.length === 0
+      ? "Добавьте активный ключ провайдера в настройках."
+      : "",
+  ].filter(Boolean);
   return (
-    <section className="page">
-      <header className="page-header">
-        <h1 className="page-title">Studio</h1>
-        <p>
-          Создайте проект, добавьте аудио или видео, выберите папку по умолчанию
-          и создайте задачу.
-        </p>
-      </header>
-      <div className="summary-grid">
-        <article className="card summary-card" aria-label="Проекты">
-          <span className="summary-label">Проекты</span>
-          <strong className="summary-value">{projectsCount}</strong>
-        </article>
-        <article className="card summary-card" aria-label="Google Drive">
-          <span className="summary-label">Google Drive</span>
-          <strong className="summary-value">{driveState}</strong>
-        </article>
-        <article className="card summary-card" aria-label="Ключи провайдеров">
-          <span className="summary-label">Ключи провайдеров</span>
-          <strong className="summary-value">{credentialsState}</strong>
-        </article>
-      </div>
-      <article className="card">
-        <h2>Рабочий процесс</h2>
-        <ol className="workflow">
-          <li>1. Проект</li>
-          <li>2. Источники</li>
-          <li>3. Папка по умолчанию</li>
-          <li>4. Задача</li>
-        </ol>
-        <div className="actions">
-          <button className="primary" onClick={() => onNavigate("projects")}>
-            Открыть проекты
-          </button>
-          <button onClick={() => onNavigate("settings")}>Настройки</button>
+    <section className="page dashboard-page">
+      <header className="page-header split">
+        <div>
+          <h1 className="page-title">Studio</h1>
+          <p>Рабочая панель аккаунта: проекты, подключение Drive и готовность ключей.</p>
         </div>
-      </article>
+        <div className="actions">
+          <button className="primary" onClick={onCreateProject}>Новый проект</button>
+          {projects.length > 0 && <button onClick={() => onNavigate("projects")}>Открыть проекты</button>}
+        </div>
+      </header>
+      <div className="summary-grid dashboard-summary">
+        <article className="card summary-card" aria-label="Проекты"><span className="summary-label">Проекты</span><strong className="summary-value">{projectsLoading ? "Загрузка…" : projectsError ? "Недоступно" : projects.length}</strong></article>
+        <article className="card summary-card" aria-label="Google Drive"><span className="summary-label">Google Drive</span><strong className="summary-value">{googleStatus}</strong></article>
+        <article className="card summary-card" aria-label="Активные ключи"><span className="summary-label">Активные ключи</span><strong className="summary-value">{credentialsLoading ? "Загрузка…" : credentialsError ? "Недоступно" : activeCredentials.length}</strong></article>
+      </div>
+      {(projectsError || googleError || credentialsError) && <p className="notice">Часть данных панели сейчас недоступна. Остальные сведения показаны ниже.</p>}
+      {needsAttention.length > 0 && <article className="card attention-card"><h2>Требует внимания</h2><ul>{needsAttention.map((item) => <li key={item}>{item}</li>)}</ul></article>}
+      {projects.length > 0 ? (
+        <article className="card recent-projects-card"><h2>Последние проекты</h2><div className="recent-project-list">{recentProjects.map((project) => <button type="button" className="recent-project-item" key={project.id} onClick={() => onOpenProject(project.id)}><span><strong>{project.title}</strong>{project.description && <small>{project.description}</small>}</span><span className="muted">Обновлено: {new Date(project.updated_at).toLocaleString("ru-RU")}</span>{project.output_drive_folder_name && <span className="tag">{project.output_drive_folder_name}</span>}</button>)}</div></article>
+      ) : !projectsLoading && !projectsError && (
+        <article className="card"><h2>Рабочий процесс</h2><ol className="workflow"><li>1. Проект</li><li>2. Источники</li><li>3. Папка по умолчанию</li><li>4. Задача</li></ol><div className="actions"><button className="primary" onClick={onCreateProject}>Новый проект</button><button onClick={() => onNavigate("settings")}>Настройки</button></div></article>
+      )}
     </section>
   );
 }
@@ -1867,9 +1890,17 @@ function OverviewPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
 function ProjectsPage({
   csrf,
   onCsrf,
+  requestedProjectId,
+  onRequestedProjectHandled,
+  requestedCreateProject,
+  onRequestedCreateProjectHandled,
 }: {
   csrf: string;
   onCsrf: (csrf: string) => void;
+  requestedProjectId: string | null;
+  onRequestedProjectHandled: () => void;
+  requestedCreateProject: boolean;
+  onRequestedCreateProjectHandled: () => void;
 }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [sources, setSources] = useState<
@@ -1879,7 +1910,6 @@ function ProjectsPage({
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
     null,
   );
-  const [activeTab, setActiveTab] = useState<ProjectTab>("overview");
   const [createOpen, setCreateOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -1901,7 +1931,7 @@ function ProjectsPage({
         setSelectedProjectId((current) => {
           if (current && r.projects.some((project) => project.id === current))
             return current;
-          return r.projects[0]?.id ?? null;
+          return requestedProjectId && r.projects.some((project) => project.id === requestedProjectId) ? requestedProjectId : (r.projects[0]?.id ?? null);
         });
         if (r.projects.length === 0) setCreateOpen(true);
       })
@@ -1913,6 +1943,18 @@ function ProjectsPage({
       .finally(() => setLoading(false));
   };
   useEffect(load, []);
+  useEffect(() => {
+    if (!requestedProjectId) return;
+    if (projects.some((project) => project.id === requestedProjectId)) {
+      setSelectedProjectId(requestedProjectId);
+      onRequestedProjectHandled();
+    }
+  }, [requestedProjectId, projects, onRequestedProjectHandled]);
+  useEffect(() => {
+    if (!requestedCreateProject) return;
+    setCreateOpen(true);
+    onRequestedCreateProjectHandled();
+  }, [requestedCreateProject, onRequestedCreateProjectHandled]);
   useEffect(() => {
     api<GoogleConnection>("/google/connection")
       .then(setGoogleConnection)
@@ -2123,14 +2165,11 @@ function ProjectsPage({
   const selectedJobs = selectedProject
     ? (jobs[selectedProject.id] ?? emptyJobState)
     : emptyJobState;
-  const openTab = (tab: ProjectTab) => {
-    setActiveTab(tab);
+  useEffect(() => {
     if (!selectedProject) return;
-    if (tab === "preparation") {
-      if (!sources[selectedProject.id]?.loaded) loadSources(selectedProject.id);
-      if (!jobs[selectedProject.id]?.loaded) loadJobs(selectedProject.id);
-    }
-  };
+    if (!sources[selectedProject.id]?.loaded && !sources[selectedProject.id]?.loading) loadSources(selectedProject.id);
+    if (!jobs[selectedProject.id]?.loaded && !jobs[selectedProject.id]?.loading) loadJobs(selectedProject.id);
+  }, [selectedProject?.id]);
   return (
     <section className="page">
       <header className="page-header split">
@@ -2187,7 +2226,6 @@ function ProjectsPage({
               }
               onClick={() => {
                 setSelectedProjectId(project.id);
-                setActiveTab("overview");
               }}
             >
               <strong>{project.title}</strong>
@@ -2232,168 +2270,71 @@ function ProjectsPage({
                   </div>
                 </form>
               ) : (
-                <>
-                  <header className="workspace-header split">
-                    <div>
-                      <h2>{selectedProject.title}</h2>
-                      <p>
-                        {selectedProject.description ||
-                          "Описание не добавлено."}
-                      </p>
-                      <p className="muted">
-                        Обновлено:{" "}
-                        {new Date(selectedProject.updated_at).toLocaleString(
-                          "ru-RU",
-                        )}
-                      </p>
-                    </div>
-                    <div className="actions">
-                      <button
-                        type="button"
-                        onClick={() => setEditing(selectedProject.id)}
-                      >
-                        Редактировать
-                      </button>
-                      <button
-                        className="danger"
-                        type="button"
-                        onClick={() => archive(selectedProject.id)}
-                      >
-                        Архивировать
-                      </button>
-                    </div>
-                  </header>
-                  <div
-                    className="tabs"
-                    role="tablist"
-                    aria-label="Рабочее пространство проекта"
-                  >
-                    {(
-                      [
-                        ["overview", "Обзор"],
-                        ["preparation", "Подготовка"],
-                      ] as [ProjectTab, string][]
-                    ).map(([id, label]) => (
-                      <button
-                        key={id}
-                        role="tab"
-                        aria-selected={activeTab === id}
-                        aria-controls={`project-panel-${id}`}
-                        id={`project-tab-${id}`}
-                        className={activeTab === id ? "active" : ""}
-                        onClick={() => openTab(id)}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                  {activeTab === "overview" && (
-                    <section
-                      role="tabpanel"
-                      id="project-panel-overview"
-                      aria-labelledby="project-tab-overview"
-                      className="tab-panel"
-                    >
-                      <h3>Папка по умолчанию</h3>
-                      <p className="muted">
-                        Используется для новых задач. Уже созданные задачи
-                        сохраняют свою папку.
-                      </p>
-                      {selectedProject.output_drive_folder_id ? (
-                        <>
-                          <p>
-                            {selectedProject.output_drive_folder_name ||
-                              "Папка Google Drive"}
-                          </p>
-                          <div className="resource-actions">
-                            {isSafeDisplayUrl(
-                              selectedProject.output_drive_folder_url,
-                            ) && (
-                              <ResourceExternalLink
-                                href={
-                                  selectedProject.output_drive_folder_url ?? ""
-                                }
-                                label="Открыть папку в Google Drive"
-                                ariaLabel="Открыть папку в Google Drive в новой вкладке"
-                              />
-                            )}
-                            <button
-                              className="primary"
-                              type="button"
-                              disabled={
-                                !googleConnection?.picker_ready || activePicker
-                              }
-                              onClick={() =>
-                                chooseOutputFolder(selectedProject.id)
-                              }
-                            >
-                              Изменить
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => clearFolder(selectedProject.id)}
-                            >
-                              Очистить
-                            </button>
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <p className="notice">Папка не выбрана</p>
-                          <button
-                            className="primary"
-                            type="button"
-                            disabled={
-                              !googleConnection?.picker_ready || activePicker
-                            }
-                            onClick={() =>
-                              chooseOutputFolder(selectedProject.id)
-                            }
-                          >
-                            Выбрать папку
-                          </button>
-                        </>
+                <header className="workspace-header split">
+                  <div>
+                    <h2>{selectedProject.title}</h2>
+                    <p>
+                      {selectedProject.description ||
+                        "Описание не добавлено."}
+                    </p>
+                    <p className="muted">
+                      Обновлено: {" "}
+                      {new Date(selectedProject.updated_at).toLocaleString(
+                        "ru-RU",
                       )}
-                      {googleConnection?.connected &&
-                        googleConnection.reconnect_required && (
-                          <p className="notice">
-                            Переподключите Google Drive в настройках, чтобы
-                            выбрать папку.
-                          </p>
-                        )}
-                      {googleConnection?.connected &&
-                        !googleConnection.picker_configured && (
-                          <p className="notice">
-                            Выбор Google Drive временно недоступен.
-                          </p>
-                        )}
-                    </section>
-                  )}
-                  <section
-                    role="tabpanel"
-                    id="project-panel-preparation"
-                    aria-labelledby="project-tab-preparation"
-                    className="tab-panel"
-                    hidden={activeTab !== "preparation"}
-                  >
-                    <PreparationPanel
-                      key={selectedProject.id}
-                      project={selectedProject}
-                      csrf={csrf}
-                      onCsrf={onCsrf}
-                      jobs={selectedJobs}
-                      sources={selectedSources}
-                      googleConnection={googleConnection}
-                      pickerBusy={activePicker}
-                      setPickerBusy={setPickerBusy}
-                      onLoadSources={loadSources}
-                      onReloadSources={loadSources}
-                      onReloadJobs={loadJobs}
-                      onError={setError}
-                    />
-                  </section>
-                </>
+                    </p>
+                  </div>
+                  <div className="actions">
+                    <button
+                      type="button"
+                      onClick={() => setEditing(selectedProject.id)}
+                    >
+                      Редактировать
+                    </button>
+                    <button
+                      className="danger"
+                      type="button"
+                      onClick={() => archive(selectedProject.id)}
+                    >
+                      Архивировать
+                    </button>
+                  </div>
+                </header>
               )}
+              <section className="project-folder-panel" aria-label="Папка по умолчанию проекта">
+                <div>
+                  <h3>Папка по умолчанию</h3>
+                  <p className="muted">Используется для новых строк подготовки. Уже созданные задачи сохраняют свою папку.</p>
+                  {selectedProject.output_drive_folder_id ? (
+                    <p><strong>{selectedProject.output_drive_folder_name || "Папка Google Drive"}</strong></p>
+                  ) : (
+                    <p className="notice">Папка не выбрана</p>
+                  )}
+                  {googleConnection?.connected && googleConnection.reconnect_required && <p className="notice">Переподключите Google Drive в настройках, чтобы выбрать папку.</p>}
+                  {googleConnection?.connected && !googleConnection.picker_configured && <p className="notice">Выбор Google Drive временно недоступен.</p>}
+                  {!googleConnection?.connected && <p className="notice">Подключите Google Drive в настройках, чтобы выбрать папку.</p>}
+                </div>
+                <div className="resource-actions folder-actions">
+                  {isSafeDisplayUrl(selectedProject.output_drive_folder_url) && <ResourceExternalLink href={selectedProject.output_drive_folder_url ?? ""} label="Открыть папку" ariaLabel="Открыть папку в Google Drive в новой вкладке" />}
+                  <button className="primary" type="button" disabled={!googleConnection?.picker_ready || activePicker} onClick={() => chooseOutputFolder(selectedProject.id)}>{selectedProject.output_drive_folder_id ? "Изменить" : "Выбрать папку"}</button>
+                  {selectedProject.output_drive_folder_id && <button type="button" onClick={() => clearFolder(selectedProject.id)}>Очистить</button>}
+                </div>
+              </section>
+              <PreparationPanel
+                key={selectedProject.id}
+                project={selectedProject}
+                csrf={csrf}
+                onCsrf={onCsrf}
+                jobs={selectedJobs}
+                sources={selectedSources}
+                googleConnection={googleConnection}
+                pickerBusy={activePicker}
+                setPickerBusy={setPickerBusy}
+                onLoadSources={loadSources}
+                onReloadSources={loadSources}
+                onReloadJobs={loadJobs}
+                onError={setError}
+              />
             </article>
           ) : (
             <p className="notice">Выберите проект.</p>
@@ -2774,6 +2715,13 @@ function PlatformShell() {
   const [page, setPage] = useState<Page>(
     oauthResult ? "settings" : "dashboard",
   );
+  const [requestedProjectId, setRequestedProjectId] = useState<string | null>(null);
+  const [requestedCreateProject, setRequestedCreateProject] = useState(false);
+  const [projectsOpened, setProjectsOpened] = useState(false);
+  const navigate = (nextPage: Page) => {
+    if (nextPage === "projects") setProjectsOpened(true);
+    setPage(nextPage);
+  };
   const [session, setSession] = useState<SessionBootstrapState>({
     status: "checking",
     user: null,
@@ -2864,7 +2812,13 @@ function PlatformShell() {
             <button
               className={page === id ? "active" : ""}
               aria-current={page === id ? "page" : undefined}
-              onClick={() => setPage(id)}
+              onClick={() => {
+                navigate(id);
+                if (id === "projects") {
+                  setRequestedProjectId(null);
+                  setRequestedCreateProject(false);
+                }
+              }}
               key={id}
             >
               <Icon size={18} />
@@ -2874,14 +2828,34 @@ function PlatformShell() {
         </nav>
       </aside>
       <main>
-        {page === "dashboard" && <OverviewPage onNavigate={setPage} />}
-        {page === "projects" && (
-          <ProjectsPage
-            csrf={csrf}
-            onCsrf={(token) =>
-              setSession((current) => ({ ...current, csrf: token }))
-            }
+        {page === "dashboard" && (
+          <OverviewPage
+            onNavigate={navigate}
+            onCreateProject={() => {
+              setRequestedCreateProject(true);
+              setRequestedProjectId(null);
+              navigate("projects");
+            }}
+            onOpenProject={(projectId) => {
+              setRequestedCreateProject(false);
+              setRequestedProjectId(projectId);
+              navigate("projects");
+            }}
           />
+        )}
+        {projectsOpened && (
+          <div hidden={page !== "projects"}>
+            <ProjectsPage
+              csrf={csrf}
+              onCsrf={(token) =>
+                setSession((current) => ({ ...current, csrf: token }))
+              }
+              requestedProjectId={requestedProjectId}
+              onRequestedProjectHandled={() => setRequestedProjectId(null)}
+              requestedCreateProject={requestedCreateProject}
+              onRequestedCreateProjectHandled={() => setRequestedCreateProject(false)}
+            />
+          </div>
         )}
         {page === "new" && <NewTranscription />}
         {page === "jobs" && (
