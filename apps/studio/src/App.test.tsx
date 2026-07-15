@@ -3203,6 +3203,214 @@ describe("Studio PWA", () => {
     expect(window.sessionStorage.length).toBe(0);
   });
 
+  it("preserves the same-project composer draft while editing and saving metadata", async () => {
+    let saved = false;
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (url: string, init?: RequestInit) => {
+        if (url.endsWith("/api/auth/session"))
+          return json({
+            authenticated: true,
+            user: { email: "user@example.com", role: "admin" },
+          });
+        if (url.endsWith("/api/auth/csrf"))
+          return json({ csrf_token: "csrf-after-refresh" });
+        if (url.endsWith("/api/google/connection"))
+          return json({
+            connected: true,
+            status: "active",
+            google_email: "safe.user@example.com",
+            scopes: "drive.file",
+            connected_at: "2026-07-01T00:00:00Z",
+            revoked_at: null,
+            picker_configured: true,
+            picker_scope_ready: true,
+            picker_ready: true,
+            reconnect_required: false,
+          });
+        if (url.endsWith("/api/credentials"))
+          return json({
+            credentials: [
+              {
+                id: "cred-1",
+                provider: "elevenlabs",
+                label: "Main key",
+                status: "active",
+                masked_value: "••••1234",
+                active_version: 1,
+              },
+            ],
+          });
+        if (url.endsWith("/api/projects/p1") && init?.method === "PATCH") {
+          saved = true;
+          return json({
+            id: "p1",
+            title: "Renamed Project One",
+            description: "Updated description",
+            created_at: "2026-07-01T00:00:00Z",
+            updated_at: "2026-07-03T00:00:00Z",
+            archived_at: null,
+            output_drive_folder_id: "folder-one",
+            output_drive_folder_url:
+              "https://drive.google.com/drive/folders/folder-one",
+            output_drive_folder_name: "One default",
+          });
+        }
+        if (url.endsWith("/api/projects"))
+          return json({
+            projects: [
+              {
+                id: "p1",
+                title: saved ? "Renamed Project One" : "Project One",
+                description: saved ? "Updated description" : "Original description",
+                created_at: "2026-07-01T00:00:00Z",
+                updated_at: saved
+                  ? "2026-07-03T00:00:00Z"
+                  : "2026-07-01T00:00:00Z",
+                archived_at: null,
+                output_drive_folder_id: "folder-one",
+                output_drive_folder_url:
+                  "https://drive.google.com/drive/folders/folder-one",
+                output_drive_folder_name: "One default",
+              },
+              {
+                id: "p2",
+                title: "Project Two",
+                description: null,
+                created_at: "2026-07-02T00:00:00Z",
+                updated_at: "2026-07-02T00:00:00Z",
+                archived_at: null,
+                output_drive_folder_id: "folder-two",
+                output_drive_folder_url:
+                  "https://drive.google.com/drive/folders/folder-two",
+                output_drive_folder_name: "Two default",
+              },
+            ],
+          });
+        if (url.endsWith("/api/projects/p1/sources") && !init?.method)
+          return json({
+            sources: [
+              {
+                id: "p1-source-a",
+                project_id: "p1",
+                source_type: "local_upload",
+                original_filename: "p1-alpha.ogg",
+                mime_type: "audio/ogg",
+                size_bytes: 10,
+                drive_file_id: null,
+                drive_file_url: null,
+                upload_status: "uploaded",
+                uploaded_at: "2026-07-01T00:00:00Z",
+                expires_at: null,
+                deleted_at: null,
+                delete_reason: null,
+                created_at: "2026-07-01T00:00:00Z",
+                updated_at: "2026-07-01T00:00:00Z",
+              },
+              {
+                id: "p1-source-b",
+                project_id: "p1",
+                source_type: "local_upload",
+                original_filename: "p1-beta.ogg",
+                mime_type: "audio/ogg",
+                size_bytes: 20,
+                drive_file_id: null,
+                drive_file_url: null,
+                upload_status: "uploaded",
+                uploaded_at: "2026-07-01T00:00:00Z",
+                expires_at: null,
+                deleted_at: null,
+                delete_reason: null,
+                created_at: "2026-07-01T00:00:00Z",
+                updated_at: "2026-07-01T00:00:00Z",
+              },
+            ],
+          });
+        if (url.endsWith("/api/projects/p2/sources") && !init?.method)
+          return json({
+            sources: [
+              {
+                id: "p2-source-a",
+                project_id: "p2",
+                source_type: "local_upload",
+                original_filename: "p2-clean.ogg",
+                mime_type: "audio/ogg",
+                size_bytes: 30,
+                drive_file_id: null,
+                drive_file_url: null,
+                upload_status: "uploaded",
+                uploaded_at: "2026-07-02T00:00:00Z",
+                expires_at: null,
+                deleted_at: null,
+                delete_reason: null,
+                created_at: "2026-07-02T00:00:00Z",
+                updated_at: "2026-07-02T00:00:00Z",
+              },
+            ],
+          });
+        if (url.endsWith("/api/projects/p1/jobs") && !init?.method)
+          return json({ jobs: [] });
+        if (url.endsWith("/api/projects/p2/jobs") && !init?.method)
+          return json({ jobs: [] });
+        return json({ ok: true });
+      },
+    );
+
+    renderApp("platform");
+    await openProjectsPage();
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
+    await userEvent.selectOptions(
+      await screen.findByLabelText("Ключ провайдера"),
+      "cred-1",
+    );
+    await chooseExistingSource(1, "p1-alpha.ogg");
+    await userEvent.type(
+      screen.getByLabelText("Название задачи для строки 1"),
+      "Alpha draft",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Добавить строку" }));
+    await chooseExistingSource(2, "p1-beta.ogg");
+    await userEvent.type(
+      screen.getByLabelText("Название задачи для строки 2"),
+      "Beta draft",
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Редактировать" }));
+    expect(screen.getByRole("form", { name: "Композитор пакетных задач" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Ключ провайдера")).toHaveValue("cred-1");
+    expect(screen.getByDisplayValue("Alpha draft")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Beta draft")).toBeInTheDocument();
+    expect(screen.getAllByText("One default").length).toBeGreaterThan(0);
+
+    await userEvent.click(screen.getByRole("button", { name: "Отмена" }));
+    expect(screen.getByDisplayValue("Alpha draft")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Beta draft")).toBeInTheDocument();
+    expect(screen.getByLabelText("Ключ провайдера")).toHaveValue("cred-1");
+
+    await userEvent.click(screen.getByRole("button", { name: "Редактировать" }));
+    await userEvent.clear(screen.getByLabelText("Название проекта"));
+    await userEvent.type(
+      screen.getByLabelText("Название проекта"),
+      "Renamed Project One",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+    expect(
+      await screen.findByRole("heading", { name: "Renamed Project One" }),
+    ).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Alpha draft")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Beta draft")).toBeInTheDocument();
+    expect(screen.getByLabelText("Ключ провайдера")).toHaveValue("cred-1");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Project Two .*02\.07\.2026/ }),
+    );
+    await screen.findByText("p2-clean.ogg");
+    expect(screen.queryByDisplayValue("Alpha draft")).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue("Beta draft")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Ключ провайдера")).toHaveValue("");
+    expect(window.localStorage.length).toBe(0);
+    expect(window.sessionStorage.length).toBe(0);
+  });
+
   it("isolates composer rows, messages, retry state, details, and outputs when switching projects", async () => {
     (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       (url: string, init?: RequestInit) => {

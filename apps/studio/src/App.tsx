@@ -2270,73 +2270,71 @@ function ProjectsPage({
                   </div>
                 </form>
               ) : (
-                <>
-                  <header className="workspace-header split">
-                    <div>
-                      <h2>{selectedProject.title}</h2>
-                      <p>
-                        {selectedProject.description ||
-                          "Описание не добавлено."}
-                      </p>
-                      <p className="muted">
-                        Обновлено:{" "}
-                        {new Date(selectedProject.updated_at).toLocaleString(
-                          "ru-RU",
-                        )}
-                      </p>
-                    </div>
-                    <div className="actions">
-                      <button
-                        type="button"
-                        onClick={() => setEditing(selectedProject.id)}
-                      >
-                        Редактировать
-                      </button>
-                      <button
-                        className="danger"
-                        type="button"
-                        onClick={() => archive(selectedProject.id)}
-                      >
-                        Архивировать
-                      </button>
-                    </div>
-                  </header>
-                  <section className="project-folder-panel" aria-label="Папка по умолчанию проекта">
-                    <div>
-                      <h3>Папка по умолчанию</h3>
-                      <p className="muted">Используется для новых строк подготовки. Уже созданные задачи сохраняют свою папку.</p>
-                      {selectedProject.output_drive_folder_id ? (
-                        <p><strong>{selectedProject.output_drive_folder_name || "Папка Google Drive"}</strong></p>
-                      ) : (
-                        <p className="notice">Папка не выбрана</p>
+                <header className="workspace-header split">
+                  <div>
+                    <h2>{selectedProject.title}</h2>
+                    <p>
+                      {selectedProject.description ||
+                        "Описание не добавлено."}
+                    </p>
+                    <p className="muted">
+                      Обновлено: {" "}
+                      {new Date(selectedProject.updated_at).toLocaleString(
+                        "ru-RU",
                       )}
-                      {googleConnection?.connected && googleConnection.reconnect_required && <p className="notice">Переподключите Google Drive в настройках, чтобы выбрать папку.</p>}
-                      {googleConnection?.connected && !googleConnection.picker_configured && <p className="notice">Выбор Google Drive временно недоступен.</p>}
-                      {!googleConnection?.connected && <p className="notice">Подключите Google Drive в настройках, чтобы выбрать папку.</p>}
-                    </div>
-                    <div className="resource-actions folder-actions">
-                      {isSafeDisplayUrl(selectedProject.output_drive_folder_url) && <ResourceExternalLink href={selectedProject.output_drive_folder_url ?? ""} label="Открыть папку" ariaLabel="Открыть папку в Google Drive в новой вкладке" />}
-                      <button className="primary" type="button" disabled={!googleConnection?.picker_ready || activePicker} onClick={() => chooseOutputFolder(selectedProject.id)}>{selectedProject.output_drive_folder_id ? "Изменить" : "Выбрать папку"}</button>
-                      {selectedProject.output_drive_folder_id && <button type="button" onClick={() => clearFolder(selectedProject.id)}>Очистить</button>}
-                    </div>
-                  </section>
-                  <PreparationPanel
-                    key={selectedProject.id}
-                    project={selectedProject}
-                    csrf={csrf}
-                    onCsrf={onCsrf}
-                    jobs={selectedJobs}
-                    sources={selectedSources}
-                    googleConnection={googleConnection}
-                    pickerBusy={activePicker}
-                    setPickerBusy={setPickerBusy}
-                    onLoadSources={loadSources}
-                    onReloadSources={loadSources}
-                    onReloadJobs={loadJobs}
-                    onError={setError}
-                  />
-                </>
+                    </p>
+                  </div>
+                  <div className="actions">
+                    <button
+                      type="button"
+                      onClick={() => setEditing(selectedProject.id)}
+                    >
+                      Редактировать
+                    </button>
+                    <button
+                      className="danger"
+                      type="button"
+                      onClick={() => archive(selectedProject.id)}
+                    >
+                      Архивировать
+                    </button>
+                  </div>
+                </header>
               )}
+              <section className="project-folder-panel" aria-label="Папка по умолчанию проекта">
+                <div>
+                  <h3>Папка по умолчанию</h3>
+                  <p className="muted">Используется для новых строк подготовки. Уже созданные задачи сохраняют свою папку.</p>
+                  {selectedProject.output_drive_folder_id ? (
+                    <p><strong>{selectedProject.output_drive_folder_name || "Папка Google Drive"}</strong></p>
+                  ) : (
+                    <p className="notice">Папка не выбрана</p>
+                  )}
+                  {googleConnection?.connected && googleConnection.reconnect_required && <p className="notice">Переподключите Google Drive в настройках, чтобы выбрать папку.</p>}
+                  {googleConnection?.connected && !googleConnection.picker_configured && <p className="notice">Выбор Google Drive временно недоступен.</p>}
+                  {!googleConnection?.connected && <p className="notice">Подключите Google Drive в настройках, чтобы выбрать папку.</p>}
+                </div>
+                <div className="resource-actions folder-actions">
+                  {isSafeDisplayUrl(selectedProject.output_drive_folder_url) && <ResourceExternalLink href={selectedProject.output_drive_folder_url ?? ""} label="Открыть папку" ariaLabel="Открыть папку в Google Drive в новой вкладке" />}
+                  <button className="primary" type="button" disabled={!googleConnection?.picker_ready || activePicker} onClick={() => chooseOutputFolder(selectedProject.id)}>{selectedProject.output_drive_folder_id ? "Изменить" : "Выбрать папку"}</button>
+                  {selectedProject.output_drive_folder_id && <button type="button" onClick={() => clearFolder(selectedProject.id)}>Очистить</button>}
+                </div>
+              </section>
+              <PreparationPanel
+                key={selectedProject.id}
+                project={selectedProject}
+                csrf={csrf}
+                onCsrf={onCsrf}
+                jobs={selectedJobs}
+                sources={selectedSources}
+                googleConnection={googleConnection}
+                pickerBusy={activePicker}
+                setPickerBusy={setPickerBusy}
+                onLoadSources={loadSources}
+                onReloadSources={loadSources}
+                onReloadJobs={loadJobs}
+                onError={setError}
+              />
             </article>
           ) : (
             <p className="notice">Выберите проект.</p>
