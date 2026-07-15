@@ -3074,6 +3074,51 @@ describe("Studio PWA", () => {
     ]);
   });
 
+  it("preserves the preparation composer draft across project tab switches", async () => {
+    renderApp("platform");
+    await openProjectsPage();
+    await userEvent.click(
+      await screen.findByRole("tab", { name: "Подготовка" }),
+    );
+
+    await chooseExistingSource(1, "Лекция 1");
+    await userEvent.type(
+      screen.getByLabelText("Название задачи для строки 1"),
+      "First draft title",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Добавить строку" }));
+    await chooseExistingSource(2, "local-temp.ogg");
+    await userEvent.type(
+      screen.getByLabelText("Название задачи для строки 2"),
+      "Second draft title",
+    );
+
+    await userEvent.click(screen.getByRole("tab", { name: "Обзор" }));
+    expect(
+      screen.getByRole("tabpanel", { name: "Обзор" }),
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("tab", { name: "Подготовка" }));
+
+    const rows = screen.getAllByRole("listitem").filter((item) =>
+      item.classList.contains("composer-row"),
+    );
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent(
+      "Лекция 1. Личность как психологическое явление.flac",
+    );
+    expect(rows[0]).toHaveTextContent("Transcripts");
+    expect(
+      within(rows[0]).getByLabelText("Название задачи для строки 1"),
+    ).toHaveValue("First draft title");
+    expect(rows[1]).toHaveTextContent("local-temp.ogg");
+    expect(rows[1]).toHaveTextContent("Transcripts");
+    expect(
+      within(rows[1]).getByLabelText("Название задачи для строки 2"),
+    ).toHaveValue("Second draft title");
+    expect(window.localStorage.length).toBe(0);
+    expect(window.sessionStorage.length).toBe(0);
+  });
+
   it("isolates composer rows, messages, retry state, details, and outputs when switching projects", async () => {
     (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       (url: string, init?: RequestInit) => {

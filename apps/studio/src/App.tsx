@@ -2369,30 +2369,29 @@ function ProjectsPage({
                         )}
                     </section>
                   )}
-                  {activeTab === "preparation" && (
-                    <section
-                      role="tabpanel"
-                      id="project-panel-preparation"
-                      aria-labelledby="project-tab-preparation"
-                      className="tab-panel"
-                    >
-                      <PreparationPanel
-                        key={selectedProject.id}
-                        project={selectedProject}
-                        csrf={csrf}
-                        onCsrf={onCsrf}
-                        jobs={selectedJobs}
-                        sources={selectedSources}
-                        googleConnection={googleConnection}
-                        pickerBusy={activePicker}
-                        setPickerBusy={setPickerBusy}
-                        onLoadSources={loadSources}
-                        onReloadSources={loadSources}
-                        onReloadJobs={loadJobs}
-                        onError={setError}
-                      />
-                    </section>
-                  )}
+                  <section
+                    role="tabpanel"
+                    id="project-panel-preparation"
+                    aria-labelledby="project-tab-preparation"
+                    className="tab-panel"
+                    hidden={activeTab !== "preparation"}
+                  >
+                    <PreparationPanel
+                      key={selectedProject.id}
+                      project={selectedProject}
+                      csrf={csrf}
+                      onCsrf={onCsrf}
+                      jobs={selectedJobs}
+                      sources={selectedSources}
+                      googleConnection={googleConnection}
+                      pickerBusy={activePicker}
+                      setPickerBusy={setPickerBusy}
+                      onLoadSources={loadSources}
+                      onReloadSources={loadSources}
+                      onReloadJobs={loadJobs}
+                      onError={setError}
+                    />
+                  </section>
                 </>
               )}
             </article>
