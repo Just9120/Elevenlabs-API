@@ -360,7 +360,7 @@ async function openProjectsPage() {
 
 async function openSelectedProjectJobs() {
   await openProjectsPage();
-  await userEvent.click(await screen.findByRole("tab", { name: "Подготовка" }));
+  await screen.findByRole("form", { name: "Композитор пакетных задач" });
 }
 
 async function chooseExistingSource(rowNumber: number, sourceName: string) {
@@ -761,7 +761,7 @@ describe("Studio PWA", () => {
     expect(folderLink).toHaveClass("button-like", "secondary", "resource-link");
     expect(folderLink.closest(".resource-actions")).not.toBeNull();
 
-    await userEvent.click(screen.getByRole("tab", { name: "Подготовка" }));
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
     const sourceLink = await screen.findByRole("link", {
       name: "Открыть файл в Google Drive в новой вкладке",
     });
@@ -877,9 +877,7 @@ describe("Studio PWA", () => {
     );
     renderApp("platform");
     await openProjectsPage();
-    await userEvent.click(
-      await screen.findByRole("tab", { name: "Подготовка" }),
-    );
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
     const removeButton = await screen.findByRole("button", {
       name: "Убрать из проекта: Лекция 1. Личность как психологическое явление.flac",
     });
@@ -908,7 +906,7 @@ describe("Studio PWA", () => {
         name: "Открыть файл в Google Drive в новой вкладке",
       }),
     ).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("tab", { name: "Подготовка" }));
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
     expect(screen.queryByText(/Лекция 1\. Личность/)).not.toBeInTheDocument();
   });
 
@@ -984,9 +982,7 @@ describe("Studio PWA", () => {
     );
     renderApp("platform");
     await openProjectsPage();
-    await userEvent.click(
-      await screen.findByRole("tab", { name: "Подготовка" }),
-    );
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
     await userEvent.click(
       await screen.findByRole("button", {
         name: "Убрать из проекта: safe-drive.mp4",
@@ -997,6 +993,70 @@ describe("Studio PWA", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("safe-drive.mp4")).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("удален с Google Drive");
+  });
+
+
+  it("renders actionable dashboard summaries, recent projects, and no permanent onboarding", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/projects") && !init?.method)
+        return json({ projects: [
+          { id: "older", title: "Older", description: null, created_at: "2026-07-01T00:00:00Z", updated_at: "2026-07-01T00:00:00Z", archived_at: null, output_drive_folder_id: null, output_drive_folder_url: null, output_drive_folder_name: null },
+          { id: "newer", title: "Newer", description: "Latest notes", created_at: "2026-07-02T00:00:00Z", updated_at: "2026-07-03T00:00:00Z", archived_at: null, output_drive_folder_id: "folder-new", output_drive_folder_url: "https://drive.example/folders/new", output_drive_folder_name: "Ready folder" },
+        ] });
+      if (url.endsWith("/api/google/connection"))
+        return json({ connected: true, status: "active", google_email: "user@example.com", scopes: "openid email", connected_at: "2026-07-01T00:00:00Z", revoked_at: null, picker_ready: true, picker_configured: true, picker_scope_ready: true, reconnect_required: false });
+      if (url.endsWith("/api/credentials"))
+        return json({ credentials: [{ id: "c1", provider: "elevenlabs", label: "main", status: "active", masked_value: "••••1234", active_version: 1 }] });
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    renderApp("platform");
+    await waitForPlatformOverview();
+    expect(await screen.findByText("Последние проекты")).toBeInTheDocument();
+    expect(screen.getByLabelText("Проекты")).toHaveTextContent("2");
+    expect(screen.getByLabelText("Google Drive")).toHaveTextContent("Подключён");
+    expect(screen.getByLabelText("Активные ключи")).toHaveTextContent("1");
+    expect(screen.getByText("Newer").compareDocumentPosition(screen.getByText("Older")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByText("Рабочий процесс")).not.toBeInTheDocument();
+    expect(screen.queryByText("Требует внимания")).not.toBeInTheDocument();
+  });
+
+  it("renders empty dashboard onboarding and primary project action", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/projects") && !init?.method) return json({ projects: [] });
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    renderApp("platform");
+    await waitForPlatformOverview();
+    expect(await screen.findByText("Рабочий процесс")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Новый проект" }).length).toBeGreaterThan(0);
+  });
+
+  it("keeps successful dashboard data when one dashboard request fails without raw errors", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/google/connection")) return json({ detail: "Traceback raw stack" }, false, 500);
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    renderApp("platform");
+    await waitForPlatformOverview();
+    expect(await screen.findByText("Последние проекты")).toBeInTheDocument();
+    expect(screen.getByLabelText("Проекты")).toHaveTextContent("1");
+    expect(screen.getByText(/Часть данных панели/)).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("Traceback raw stack");
+  });
+
+  it("opens a recent project directly in the preparation workspace", async () => {
+    renderApp("platform");
+    await waitForPlatformOverview();
+    await userEvent.click(await screen.findByRole("button", { name: /Research calls/ }));
+    expect(await screen.findByRole("heading", { name: "Проекты" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Research calls" })).toBeInTheDocument();
+    expect(await screen.findByRole("form", { name: "Композитор пакетных задач" })).toBeInTheDocument();
   });
 
   it("static-only mode renders public UI and makes no /api requests", async () => {
@@ -1771,9 +1831,7 @@ describe("Studio PWA", () => {
   it("shows configured output folder in job readiness checklist", async () => {
     renderApp("platform");
     await openProjectsPage();
-    await userEvent.click(
-      await screen.findByRole("tab", { name: "Подготовка" }),
-    );
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
     expect(
       await screen.findByLabelText("Project job readiness checklist"),
     ).toHaveTextContent("Папка по умолчанию: выбрана (Transcripts)");
@@ -2139,9 +2197,7 @@ describe("Studio PWA", () => {
     );
     renderApp("platform");
     await openProjectsPage();
-    await userEvent.click(
-      await screen.findByRole("tab", { name: "Подготовка" }),
-    );
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
         "/api/projects/p1/jobs",
@@ -2366,9 +2422,7 @@ describe("Studio PWA", () => {
   it("uses Google Picker actions instead of manual Drive ID forms in platform projects", async () => {
     renderApp("platform");
     await openProjectsPage();
-    await userEvent.click(
-      await screen.findByRole("tab", { name: "Подготовка" }),
-    );
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
     expect(
       screen.getByRole("button", { name: "Выбрать файлы Google Drive" }),
     ).toBeInTheDocument();
@@ -2386,9 +2440,7 @@ describe("Studio PWA", () => {
     const picker = installFakeGooglePicker();
     renderApp("platform");
     await openProjectsPage();
-    await userEvent.click(
-      await screen.findByRole("tab", { name: "Подготовка" }),
-    );
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
     await userEvent.click(
       screen.getByRole("button", { name: "Выбрать файлы Google Drive" }),
     );
@@ -2766,7 +2818,7 @@ describe("Studio PWA", () => {
       screen.getByLabelText("Название задачи для строки 1"),
       "Keep title",
     );
-    expect(screen.getByText("Default folder")).toBeInTheDocument();
+    expect(screen.getAllByText("Default folder").length).toBeGreaterThan(0);
     await userEvent.click(
       screen.getByRole("button", { name: "Убрать из проекта: remove-me.ogg" }),
     );
@@ -2786,7 +2838,7 @@ describe("Studio PWA", () => {
       screen.getByText(/Источник удалён из проекта/),
     ).toBeInTheDocument();
     expect(screen.getByDisplayValue("Keep title")).toBeInTheDocument();
-    expect(screen.getByText("Default folder")).toBeInTheDocument();
+    expect(screen.getAllByText("Default folder").length).toBeGreaterThan(0);
     await chooseExistingSource(1, "replacement.ogg");
     expect(screen.queryByText(/Источник удалён из проекта/)).not.toBeInTheDocument();
     await userEvent.selectOptions(
@@ -3077,9 +3129,7 @@ describe("Studio PWA", () => {
   it("preserves the preparation composer draft across project tab switches", async () => {
     renderApp("platform");
     await openProjectsPage();
-    await userEvent.click(
-      await screen.findByRole("tab", { name: "Подготовка" }),
-    );
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
 
     await chooseExistingSource(1, "Лекция 1");
     await userEvent.type(
@@ -3093,11 +3143,9 @@ describe("Studio PWA", () => {
       "Second draft title",
     );
 
-    await userEvent.click(screen.getByRole("tab", { name: "Обзор" }));
-    expect(
-      screen.getByRole("tabpanel", { name: "Обзор" }),
-    ).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("tab", { name: "Подготовка" }));
+    await openPlatformNavPage("Обзор");
+    await openPlatformNavPage("Проекты");
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
 
     const rows = screen.getAllByRole("listitem").filter((item) =>
       item.classList.contains("composer-row"),
@@ -3346,9 +3394,7 @@ describe("Studio PWA", () => {
 
     renderApp("platform");
     await openProjectsPage();
-    await userEvent.click(
-      await screen.findByRole("tab", { name: "Подготовка" }),
-    );
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
     await chooseExistingSource(1, "project-a-source.ogg");
     await userEvent.type(
       screen.getByLabelText("Название задачи для строки 1"),
@@ -3375,9 +3421,7 @@ describe("Studio PWA", () => {
     await userEvent.click(
       screen.getByRole("button", { name: /Project B .*02\.07\.2026/ }),
     );
-    await userEvent.click(
-      await screen.findByRole("tab", { name: "Подготовка" }),
-    );
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
 
     expect(
       screen.queryByDisplayValue("Project A row title"),
@@ -3431,9 +3475,7 @@ describe("Studio PWA", () => {
     let picker = installFakeGooglePicker();
     renderApp("platform");
     await openProjectsPage();
-    await userEvent.click(
-      await screen.findByRole("tab", { name: "Подготовка" }),
-    );
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
     const button = screen.getByRole("button", {
       name: "Выбрать файлы Google Drive",
     });
@@ -3459,9 +3501,7 @@ describe("Studio PWA", () => {
     picker = installFakeGooglePicker();
     renderApp("platform");
     await openProjectsPage();
-    await userEvent.click(
-      await screen.findByRole("tab", { name: "Подготовка" }),
-    );
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
     await userEvent.click(
       screen.getByRole("button", { name: "Выбрать файлы Google Drive" }),
     );
@@ -3485,10 +3525,8 @@ describe("Studio PWA", () => {
     const picker = installFakeGooglePicker();
     renderApp("platform");
     await openProjectsPage();
-    await userEvent.click(await screen.findByRole("tab", { name: "Обзор" }));
-    const button = await screen.findByRole("button", {
-      name: /Изменить|Выбрать папку/,
-    });
+    await screen.findByRole("heading", { name: "Папка по умолчанию" });
+    const button = within(screen.getByRole("region", { name: "Папка по умолчанию проекта" })).getByRole("button", { name: /Изменить|Выбрать папку/ });
     fireEvent.click(button);
     fireEvent.click(button);
     await picker.loadScript();
@@ -3566,9 +3604,7 @@ describe("Studio PWA", () => {
     let picker = installFakeGooglePicker();
     renderApp("platform");
     await openProjectsPage();
-    await userEvent.click(
-      await screen.findByRole("tab", { name: "Подготовка" }),
-    );
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
     await userEvent.click(
       screen.getByRole("button", { name: "Выбрать файлы Google Drive" }),
     );
@@ -3590,9 +3626,9 @@ describe("Studio PWA", () => {
     picker = installFakeGooglePicker();
     renderApp("platform");
     await openProjectsPage();
-    await userEvent.click(await screen.findByRole("tab", { name: "Обзор" }));
+    await screen.findByRole("heading", { name: "Папка по умолчанию" });
     await userEvent.click(
-      await screen.findByRole("button", { name: /Изменить|Выбрать папку/ }),
+      within(screen.getByRole("region", { name: "Папка по умолчанию проекта" })).getByRole("button", { name: /Изменить|Выбрать папку/ }),
     );
     await picker.loadScript();
     await picker.waitForCallback();
@@ -3614,9 +3650,9 @@ describe("Studio PWA", () => {
     picker = installFakeGooglePicker();
     renderApp("platform");
     await openProjectsPage();
-    await userEvent.click(await screen.findByRole("tab", { name: "Обзор" }));
+    await screen.findByRole("heading", { name: "Папка по умолчанию" });
     await userEvent.click(
-      await screen.findByRole("button", { name: /Изменить|Выбрать папку/ }),
+      within(screen.getByRole("region", { name: "Папка по умолчанию проекта" })).getByRole("button", { name: /Изменить|Выбрать папку/ }),
     );
     await picker.loadScript();
     await picker.waitForCallback();
@@ -3688,9 +3724,7 @@ describe("Studio PWA", () => {
     });
     renderApp("platform");
     await openProjectsPage();
-    await userEvent.click(
-      await screen.findByRole("tab", { name: "Подготовка" }),
-    );
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
     await waitFor(() =>
       expect(document.body.textContent).toContain(
         "Переподключите Google Drive",
@@ -3806,9 +3840,7 @@ describe("Studio PWA", () => {
     );
     renderApp("platform");
     await openProjectsPage();
-    await userEvent.click(
-      await screen.findByRole("tab", { name: "Подготовка" }),
-    );
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
     expect(
       await screen.findByText(
         "Ключи сейчас недоступны. Задачу можно создать без выбранного ключа.",
@@ -3868,7 +3900,7 @@ describe("Studio PWA", () => {
       ),
     ).toBe(false);
 
-    await userEvent.click(screen.getByRole("tab", { name: "Подготовка" }));
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
     expect(await screen.findByText("Focused output job")).toBeInTheDocument();
     expect(
       (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(([url]) =>
@@ -4327,9 +4359,7 @@ describe("Studio PWA", () => {
   it("removing a composer row does not remove its project source", async () => {
     renderApp("platform");
     await openProjectsPage();
-    await userEvent.click(
-      await screen.findByRole("tab", { name: "Подготовка" }),
-    );
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
     await chooseExistingSource(1, "Лекция 1");
     await userEvent.click(
       screen.getByRole("button", { name: "Удалить строку 1" }),
@@ -4346,9 +4376,7 @@ describe("Studio PWA", () => {
   it("renders balanced Drive and device source cards with an accessible hidden file input", async () => {
     renderApp("platform");
     await openProjectsPage();
-    await userEvent.click(
-      await screen.findByRole("tab", { name: "Подготовка" }),
-    );
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
     const row = await screen.findByLabelText("Источник строки 1");
     expect(
       within(row).getByRole("button", { name: "Выбрать файлы Google Drive" }),
@@ -4374,9 +4402,7 @@ describe("Studio PWA", () => {
   it("local multi-file selection creates rows and partial failure preserves successful rows", async () => {
     renderApp("platform");
     await openProjectsPage();
-    await userEvent.click(
-      await screen.findByRole("tab", { name: "Подготовка" }),
-    );
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
     const row = await screen.findByLabelText("Источник строки 1");
     const input = within(row).getByLabelText(
       "Выбрать файлы с устройства",
@@ -4417,9 +4443,7 @@ describe("Studio PWA", () => {
   it("clears stale local upload status before rejecting a new invalid file", async () => {
     renderApp("platform");
     await openProjectsPage();
-    await userEvent.click(
-      await screen.findByRole("tab", { name: "Подготовка" }),
-    );
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
     const deviceCard = await screen.findByLabelText("Источник строки 1");
     const input = within(deviceCard).getByLabelText(
       "Выбрать файлы с устройства",
@@ -4474,19 +4498,14 @@ describe("Studio PWA", () => {
     });
     renderApp("platform");
     await openProjectsPage();
-    await userEvent.click(
-      await screen.findByRole("tab", { name: "Подготовка" }),
-    );
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
     expect(
       await screen.findByText(/Сначала добавьте хотя бы один готовый файл/),
     ).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Перейти к источникам" }),
     ).not.toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Подготовка" })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
+    expect(screen.queryByRole("tab", { name: "Подготовка" })).not.toBeInTheDocument();
   });
 
   it("places Google Drive technical values in a closed details block and repairs security summary markup", async () => {

@@ -686,3 +686,85 @@ code {
 .project-files > .sources {
   margin-top: 0.75rem;
 }
+
+.dashboard-page {
+  gap: 1rem;
+}
+
+.dashboard-summary {
+  margin-bottom: 0;
+}
+
+.attention-card ul,
+.recent-project-list {
+  margin: 0;
+}
+
+.attention-card li + li {
+  margin-top: 0.35rem;
+}
+
+.recent-project-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.recent-project-item {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  color: inherit;
+  cursor: pointer;
+  display: grid;
+  gap: 0.35rem;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  padding: 0.85rem 1rem;
+  text-align: left;
+}
+
+.recent-project-item:hover,
+.recent-project-item:focus-visible {
+  border-color: var(--accent);
+}
+
+.recent-project-item small {
+  display: block;
+  margin-top: 0.25rem;
+}
+
+.project-folder-panel {
+  align-items: flex-start;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  margin: 1rem 0;
+  padding: 1rem;
+}
+
+.project-folder-panel h3,
+.project-folder-panel p {
+  margin-top: 0;
+}
+
+.folder-actions {
+  justify-content: flex-end;
+}
+
+@media (max-width: 760px) {
+  .recent-project-item,
+  .project-folder-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .project-folder-panel {
+    display: block;
+  }
+
+  .folder-actions {
+    justify-content: flex-start;
+  }
+}
