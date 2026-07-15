@@ -712,7 +712,7 @@ code {
 .recent-project-item {
   align-items: center;
   background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--border);
+  border: 1px solid var(--studio-border);
   border-radius: 1rem;
   color: inherit;
   cursor: pointer;
@@ -725,7 +725,7 @@ code {
 
 .recent-project-item:hover,
 .recent-project-item:focus-visible {
-  border-color: var(--accent);
+  border-color: var(--studio-primary);
 }
 
 .recent-project-item small {
@@ -736,7 +736,7 @@ code {
 .project-folder-panel {
   align-items: flex-start;
   background: rgba(255, 255, 255, 0.035);
-  border: 1px solid var(--border);
+  border: 1px solid var(--studio-border);
   border-radius: 1rem;
   display: flex;
   gap: 1rem;

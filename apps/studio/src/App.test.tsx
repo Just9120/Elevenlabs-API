@@ -1039,15 +1039,51 @@ describe("Studio PWA", () => {
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = baseFetch.getMockImplementation();
     baseFetch.mockImplementation((url: string, init?: RequestInit) => {
-      if (url.endsWith("/api/google/connection")) return json({ detail: "Traceback raw stack" }, false, 500);
+      if (url.endsWith("/api/google/connection"))
+        return json({ detail: "Traceback raw stack" }, false, 500);
+      if (url.endsWith("/api/credentials"))
+        return json({
+          credentials: [
+            {
+              id: "c1",
+              provider: "elevenlabs",
+              label: "main",
+              status: "active",
+              masked_value: "••••1234",
+              active_version: 1,
+            },
+          ],
+        });
       return defaultFetch?.(url, init) ?? json({ ok: true });
     });
     renderApp("platform");
     await waitForPlatformOverview();
     expect(await screen.findByText("Последние проекты")).toBeInTheDocument();
     expect(screen.getByLabelText("Проекты")).toHaveTextContent("1");
+    expect(screen.getByLabelText("Google Drive")).toHaveTextContent("Недоступно");
+    expect(screen.getByLabelText("Активные ключи")).toHaveTextContent("1");
     expect(screen.getByText(/Часть данных панели/)).toBeInTheDocument();
+    expect(
+      screen.queryByText("Подключите или обновите Google Drive для выбора файлов и папок."),
+    ).not.toBeInTheDocument();
     expect(document.body.textContent).not.toContain("Traceback raw stack");
+  });
+
+  it("opens the project creation form only for the dashboard new-project action", async () => {
+    renderApp("platform");
+    await waitForPlatformOverview();
+    await userEvent.click(await screen.findByRole("button", { name: "Открыть проекты" }));
+    expect(await screen.findByRole("heading", { name: "Проекты" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Название проекта")).not.toBeInTheDocument();
+
+    await openPlatformNavPage("Обзор");
+    await userEvent.click(
+      within(await screen.findByRole("banner")).getByRole("button", {
+        name: "Новый проект",
+      }),
+    );
+    expect(await screen.findByRole("heading", { name: "Проекты" })).toBeInTheDocument();
+    expect(await screen.findByLabelText("Название проекта")).toBeInTheDocument();
   });
 
   it("opens a recent project directly in the preparation workspace", async () => {

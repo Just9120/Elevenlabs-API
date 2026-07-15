@@ -1805,9 +1805,11 @@ function PreparationPanel({
 
 function OverviewPage({
   onNavigate,
+  onCreateProject,
   onOpenProject,
 }: {
   onNavigate: (page: Page) => void;
+  onCreateProject: () => void;
   onOpenProject: (projectId: string) => void;
 }) {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -1837,10 +1839,25 @@ function OverviewPage({
   const recentProjects = [...projects]
     .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
     .slice(0, 5);
+  const googleStatus = googleLoading
+    ? "Загрузка…"
+    : googleError
+      ? "Недоступно"
+      : googleConnection?.connected && !googleConnection.reconnect_required
+        ? "Подключён"
+        : "Нужна настройка";
   const needsAttention = [
-    !projectsLoading && !projectsError && projects.length === 0 ? "Создайте первый проект, чтобы подготовить пакет задач." : "",
-    !googleLoading && (googleError || !googleConnection?.connected || googleConnection.reconnect_required) ? "Подключите или обновите Google Drive для выбора файлов и папок." : "",
-    !credentialsLoading && !credentialsError && activeCredentials.length === 0 ? "Добавьте активный ключ провайдера в настройках." : "",
+    !projectsLoading && !projectsError && projects.length === 0
+      ? "Создайте первый проект, чтобы подготовить пакет задач."
+      : "",
+    !googleLoading &&
+    !googleError &&
+    (!googleConnection?.connected || googleConnection.reconnect_required)
+      ? "Подключите или обновите Google Drive для выбора файлов и папок."
+      : "",
+    !credentialsLoading && !credentialsError && activeCredentials.length === 0
+      ? "Добавьте активный ключ провайдера в настройках."
+      : "",
   ].filter(Boolean);
   return (
     <section className="page dashboard-page">
@@ -1850,13 +1867,13 @@ function OverviewPage({
           <p>Рабочая панель аккаунта: проекты, подключение Drive и готовность ключей.</p>
         </div>
         <div className="actions">
-          <button className="primary" onClick={() => onNavigate("projects")}>Новый проект</button>
+          <button className="primary" onClick={onCreateProject}>Новый проект</button>
           {projects.length > 0 && <button onClick={() => onNavigate("projects")}>Открыть проекты</button>}
         </div>
       </header>
       <div className="summary-grid dashboard-summary">
         <article className="card summary-card" aria-label="Проекты"><span className="summary-label">Проекты</span><strong className="summary-value">{projectsLoading ? "Загрузка…" : projectsError ? "Недоступно" : projects.length}</strong></article>
-        <article className="card summary-card" aria-label="Google Drive"><span className="summary-label">Google Drive</span><strong className="summary-value">{googleLoading ? "Загрузка…" : googleConnection?.connected && !googleConnection.reconnect_required ? "Подключён" : "Нужна настройка"}</strong></article>
+        <article className="card summary-card" aria-label="Google Drive"><span className="summary-label">Google Drive</span><strong className="summary-value">{googleStatus}</strong></article>
         <article className="card summary-card" aria-label="Активные ключи"><span className="summary-label">Активные ключи</span><strong className="summary-value">{credentialsLoading ? "Загрузка…" : credentialsError ? "Недоступно" : activeCredentials.length}</strong></article>
       </div>
       {(projectsError || googleError || credentialsError) && <p className="notice">Часть данных панели сейчас недоступна. Остальные сведения показаны ниже.</p>}
@@ -1864,7 +1881,7 @@ function OverviewPage({
       {projects.length > 0 ? (
         <article className="card recent-projects-card"><h2>Последние проекты</h2><div className="recent-project-list">{recentProjects.map((project) => <button type="button" className="recent-project-item" key={project.id} onClick={() => onOpenProject(project.id)}><span><strong>{project.title}</strong>{project.description && <small>{project.description}</small>}</span><span className="muted">Обновлено: {new Date(project.updated_at).toLocaleString("ru-RU")}</span>{project.output_drive_folder_name && <span className="tag">{project.output_drive_folder_name}</span>}</button>)}</div></article>
       ) : !projectsLoading && !projectsError && (
-        <article className="card"><h2>Рабочий процесс</h2><ol className="workflow"><li>1. Проект</li><li>2. Источники</li><li>3. Папка по умолчанию</li><li>4. Задача</li></ol><div className="actions"><button className="primary" onClick={() => onNavigate("projects")}>Новый проект</button><button onClick={() => onNavigate("settings")}>Настройки</button></div></article>
+        <article className="card"><h2>Рабочий процесс</h2><ol className="workflow"><li>1. Проект</li><li>2. Источники</li><li>3. Папка по умолчанию</li><li>4. Задача</li></ol><div className="actions"><button className="primary" onClick={onCreateProject}>Новый проект</button><button onClick={() => onNavigate("settings")}>Настройки</button></div></article>
       )}
     </section>
   );
@@ -1875,11 +1892,15 @@ function ProjectsPage({
   onCsrf,
   requestedProjectId,
   onRequestedProjectHandled,
+  requestedCreateProject,
+  onRequestedCreateProjectHandled,
 }: {
   csrf: string;
   onCsrf: (csrf: string) => void;
   requestedProjectId: string | null;
   onRequestedProjectHandled: () => void;
+  requestedCreateProject: boolean;
+  onRequestedCreateProjectHandled: () => void;
 }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [sources, setSources] = useState<
@@ -1929,6 +1950,11 @@ function ProjectsPage({
       onRequestedProjectHandled();
     }
   }, [requestedProjectId, projects, onRequestedProjectHandled]);
+  useEffect(() => {
+    if (!requestedCreateProject) return;
+    setCreateOpen(true);
+    onRequestedCreateProjectHandled();
+  }, [requestedCreateProject, onRequestedCreateProjectHandled]);
   useEffect(() => {
     api<GoogleConnection>("/google/connection")
       .then(setGoogleConnection)
@@ -2692,6 +2718,7 @@ function PlatformShell() {
     oauthResult ? "settings" : "dashboard",
   );
   const [requestedProjectId, setRequestedProjectId] = useState<string | null>(null);
+  const [requestedCreateProject, setRequestedCreateProject] = useState(false);
   const [projectsOpened, setProjectsOpened] = useState(false);
   const navigate = (nextPage: Page) => {
     if (nextPage === "projects") setProjectsOpened(true);
@@ -2787,7 +2814,13 @@ function PlatformShell() {
             <button
               className={page === id ? "active" : ""}
               aria-current={page === id ? "page" : undefined}
-              onClick={() => { navigate(id); if (id === "projects") setRequestedProjectId(null); }}
+              onClick={() => {
+                navigate(id);
+                if (id === "projects") {
+                  setRequestedProjectId(null);
+                  setRequestedCreateProject(false);
+                }
+              }}
               key={id}
             >
               <Icon size={18} />
@@ -2797,7 +2830,21 @@ function PlatformShell() {
         </nav>
       </aside>
       <main>
-        {page === "dashboard" && <OverviewPage onNavigate={navigate} onOpenProject={(projectId) => { setRequestedProjectId(projectId); navigate("projects"); }} />}
+        {page === "dashboard" && (
+          <OverviewPage
+            onNavigate={navigate}
+            onCreateProject={() => {
+              setRequestedCreateProject(true);
+              setRequestedProjectId(null);
+              navigate("projects");
+            }}
+            onOpenProject={(projectId) => {
+              setRequestedCreateProject(false);
+              setRequestedProjectId(projectId);
+              navigate("projects");
+            }}
+          />
+        )}
         {projectsOpened && (
           <div hidden={page !== "projects"}>
             <ProjectsPage
@@ -2807,6 +2854,8 @@ function PlatformShell() {
               }
               requestedProjectId={requestedProjectId}
               onRequestedProjectHandled={() => setRequestedProjectId(null)}
+              requestedCreateProject={requestedCreateProject}
+              onRequestedCreateProjectHandled={() => setRequestedCreateProject(false)}
             />
           </div>
         )}
