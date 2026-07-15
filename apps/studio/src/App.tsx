@@ -999,6 +999,7 @@ function PreparationPanel({
   }
   function placeSourcesInRows(targetRowId: string, selected: Source[]) {
     if (selected.length === 0) return;
+    clearRowIntakeError(targetRowId);
     setCreatedSources((current) => {
       const existing = new Set(current.map((source) => source.id));
       return [...current, ...selected.filter((source) => !existing.has(source.id))];
@@ -1012,7 +1013,6 @@ function PreparationPanel({
       const sourcesToAppend = canFillTarget ? rest : selected;
       if (canFillTarget && first) {
         next[targetIndex] = { ...next[targetIndex], source_id: first.id };
-        clearRowIntakeError(next[targetIndex].id);
       }
       next.push(
         ...sourcesToAppend.map((source) => ({
@@ -1610,24 +1610,24 @@ function PreparationPanel({
           onReload={onReloadSources}
           onSourceRemoved={(sourceId) => {
             setRemovedSourceIds((current) => new Set(current).add(sourceId));
-            setRows((current) => {
-              const affectedRowIds = current
-                .filter((row) => row.source_id === sourceId)
-                .map((row) => row.id);
-              if (affectedRowIds.length > 0) {
-                setRowIntakeErrors((errors) => {
-                  const next = { ...errors };
-                  affectedRowIds.forEach((rowId) => {
-                    next[rowId] =
-                      "Источник удалён из проекта. Выберите новый файл для этой строки.";
-                  });
-                  return next;
+            const affectedRowIds = rows
+              .filter((row) => row.source_id === sourceId)
+              .map((row) => row.id);
+            if (affectedRowIds.length > 0) {
+              setRowIntakeErrors((errors) => {
+                const next = { ...errors };
+                affectedRowIds.forEach((rowId) => {
+                  next[rowId] =
+                    "Источник удалён из проекта. Выберите новый файл для этой строки.";
                 });
-              }
-              return current.map((row) =>
+                return next;
+              });
+            }
+            setRows((current) =>
+              current.map((row) =>
                 row.source_id === sourceId ? { ...row, source_id: "" } : row,
-              );
-            });
+              ),
+            );
             setMessage("Файл убран из проекта.");
           }}
           onError={onError}
