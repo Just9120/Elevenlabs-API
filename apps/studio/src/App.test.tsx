@@ -5574,6 +5574,10 @@ describe("settings diagnostics", () => {
     expect(screen.getByText("api-build")).toBeInTheDocument();
     expect(screen.getByText("worker-build")).toBeInTheDocument();
     expect(screen.getByText("JOB_FAILED")).toBeInTheDocument();
+    expect(screen.getAllByText("Ошибка").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("API").length).toBeGreaterThan(0);
+    expect(screen.getByText("неактивна")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("JOB_FAILEDERROR");
     expect(screen.getByText("boundary")).toBeInTheDocument();
     expect(screen.getByText("error_code")).toBeInTheDocument();
     expect(screen.getByText("retryable")).toBeInTheDocument();
@@ -5678,6 +5682,9 @@ describe("settings diagnostics", () => {
     renderApp("platform");
     await openDiagnosticsSettings();
     await screen.findByText("JOB_CREATED");
+    expect(screen.getAllByText("Информация").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Фоновая обработка").length).toBeGreaterThan(0);
+    expect(document.body.textContent).not.toContain("JOB_CREATEDINFO");
     diagnosticsEventUrls.length = 0;
 
     await userEvent.selectOptions(screen.getByLabelText("Период"), "7");
@@ -5913,6 +5920,121 @@ describe("settings diagnostics", () => {
     ]) {
       expect(screen.queryByText(unsupportedKey, { exact: true })).toBeNull();
     }
+  });
+
+  it("localizes unconfigured build identities and inactive DEBUG display state", async () => {
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url.endsWith("/api/auth/session"))
+        return json({
+          authenticated: true,
+          user: { email: "user@example.com", role: "admin" },
+        });
+      if (url.endsWith("/api/auth/csrf"))
+        return json({ csrf_token: "csrf-after-refresh" });
+      if (url.endsWith("/api/credentials")) return json({ credentials: [] });
+      if (url.endsWith("/api/google/connection"))
+        return json({ connected: false, status: null });
+      if (url.endsWith("/api/audit-events")) return json({ events: [] });
+      if (url.endsWith("/api/diagnostics/system"))
+        return json({
+          build: { web: "unknown", api: "", worker: undefined },
+          diagnostics: { debug_recording: "inactive" },
+          google_drive: {},
+          provider_credentials: {},
+          report_limits: {},
+        });
+      if (url.includes("/api/diagnostics/events"))
+        return json({ events: [], next_cursor: null, period: null });
+      return json({ ok: true });
+    });
+
+    renderApp("platform");
+    await openDiagnosticsSettings();
+
+    expect(await screen.findAllByText("не настроено")).toHaveLength(3);
+    expect(screen.getByText("неактивна")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("unknown");
+    expect(localStorage.length).toBe(0);
+    expect(sessionStorage.length).toBe(0);
+  });
+
+  it("uses Russian labels for known audit events and safe fallback for unknown events", async () => {
+    const knownTypes = [
+      "admin.bootstrap_created",
+      "auth.login_failed",
+      "auth.sessions_revoked",
+      "credential.created",
+      "credential.replaced",
+      "credential.revoked",
+      "credential.deleted",
+      "google.connected",
+      "google.disconnected",
+      "google.oauth_started",
+      "google.oauth_failed",
+      "project.created",
+      "project.updated",
+      "project.archived",
+      "project.output_folder.google_picker_set",
+      "source.google_drive.created",
+      "source.google_picker.created",
+      "source.local_upload.initiated",
+      "source.local_upload.completed",
+      "unknown.private_event",
+    ];
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url.endsWith("/api/auth/session"))
+        return json({
+          authenticated: true,
+          user: { email: "user@example.com", role: "admin" },
+        });
+      if (url.endsWith("/api/auth/csrf"))
+        return json({ csrf_token: "csrf-after-refresh" });
+      if (url.endsWith("/api/credentials")) return json({ credentials: [] });
+      if (url.endsWith("/api/google/connection"))
+        return json({ connected: false, status: null });
+      if (url.endsWith("/api/audit-events"))
+        return json({
+          events: knownTypes.map((type, index) => ({
+            id: `audit-${index}`,
+            type,
+            created_at: "2026-07-16T10:00:00Z",
+          })),
+        });
+      if (url.endsWith("/api/diagnostics/system"))
+        return json({ build: {}, diagnostics: {}, google_drive: {}, provider_credentials: {}, report_limits: {} });
+      if (url.includes("/api/diagnostics/events"))
+        return json({ events: [], next_cursor: null, period: null });
+      return json({ ok: true });
+    });
+
+    renderApp("platform");
+    await openDiagnosticsSettings();
+
+    for (const label of [
+      "Администратор создан",
+      "Неудачная попытка входа",
+      "Другие сеансы завершены",
+      "Ключ создан",
+      "Ключ заменён",
+      "Ключ отозван",
+      "Ключ удалён",
+      "Google Drive подключён",
+      "Google Drive отключён",
+      "Начато подключение Google Drive",
+      "Подключение Google Drive не удалось",
+      "Проект создан",
+      "Проект обновлён",
+      "Проект архивирован",
+      "Папка проекта выбрана через Google Drive",
+      "Источник Google Drive добавлен",
+      "Источники выбраны через Google Drive",
+      "Загрузка локального источника начата",
+      "Локальный источник загружен",
+    ]) {
+      expect(screen.getAllByText(new RegExp(label)).length).toBeGreaterThan(0);
+    }
+    expect(screen.getByText(/Событие безопасности/)).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("unknown.private_event");
   });
 
   it("shows loading, empty, error, and retry states", async () => {
