@@ -804,17 +804,11 @@ function SourcesPanel({
   );
 }
 
-function newComposerRow(project: Project): ComposerRow {
+function newComposerRow(): ComposerRow {
   return {
     id: crypto.randomUUID(),
     source_id: "",
-    output_folder: project.output_drive_folder_id
-      ? {
-          folder_id: project.output_drive_folder_id,
-          name: project.output_drive_folder_name || "Папка Google Drive",
-          web_view_url: project.output_drive_folder_url,
-        }
-      : null,
+    output_folder: null,
     title: "",
   };
 }
@@ -878,7 +872,7 @@ function PreparationPanel({
   onError: (message: string) => void;
 }) {
   const [rows, setRows] = useState<ComposerRow[]>(() => [
-    newComposerRow(project),
+    newComposerRow(),
   ]);
   const [selectedCredentialId, setSelectedCredentialId] = useState("");
   const [credentials, setCredentials] = useState<Credential[]>([]);
@@ -911,7 +905,7 @@ function PreparationPanel({
   const rowFolderPickerRef = useRef(false);
   const rowSourcePickerRef = useRef(false);
   useEffect(() => {
-    setRows([newComposerRow(project)]);
+    setRows([newComposerRow()]);
     setCreatedSources([]);
     setRemovedSourceIds(new Set());
     setRowIntakeStatus({});
@@ -1062,11 +1056,11 @@ function PreparationPanel({
       }
       next.push(
         ...sourcesToAppend.map((source) => ({
-          ...newComposerRow(project),
+          ...newComposerRow(),
           source_id: source.id,
         })),
       );
-      return next.length > 0 ? next : [newComposerRow(project)];
+      return next.length > 0 ? next : [newComposerRow()];
     });
   }
   async function chooseRowDriveSources(rowId: string) {
@@ -1260,7 +1254,7 @@ function PreparationPanel({
           );
         }
       }
-      return [...current, { ...newComposerRow(project), source_id: sourceId }];
+      return [...current, { ...newComposerRow(), source_id: sourceId }];
     });
   }
   function moveRow(index: number, direction: -1 | 1) {
@@ -1273,7 +1267,12 @@ function PreparationPanel({
     });
   }
   async function chooseRowFolder(rowId: string) {
-    if (pickerBusy || rowFolderPickerRef.current) return;
+    if (
+      googleConnection?.picker_ready !== true ||
+      pickerBusy ||
+      rowFolderPickerRef.current
+    )
+      return;
     rowFolderPickerRef.current = true;
     setPickerBusy(true);
     setMessage("");
@@ -1374,7 +1373,7 @@ function PreparationPanel({
         },
       );
       setBatchJobs(response.jobs);
-      setRows([newComposerRow(project)]);
+      setRows([newComposerRow()]);
       setSelectedCredentialId("");
       setPendingKey(null);
       setMessage(
@@ -2117,11 +2116,6 @@ function OverviewPage({
                   Обновлено:{" "}
                   {new Date(project.updated_at).toLocaleString("ru-RU")}
                 </span>
-                {project.output_drive_folder_name && (
-                  <span className="tag">
-                    {project.output_drive_folder_name}
-                  </span>
-                )}
               </button>
             ))}
           </div>
@@ -2134,8 +2128,7 @@ function OverviewPage({
             <ol className="workflow">
               <li>1. Проект</li>
               <li>2. Источники</li>
-              <li>3. Папка по умолчанию</li>
-              <li>4. Задача</li>
+              <li>3. Задача</li>
             </ol>
             <div className="actions">
               <button className="primary" onClick={onCreateProject}>
@@ -2178,9 +2171,7 @@ function ProjectsPage({
   const [error, setError] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
   const [activePicker, setActivePicker] = useState(false);
-  const activePickerRef = useRef(false);
   const setPickerBusy = (busy: boolean) => {
-    activePickerRef.current = busy;
     setActivePicker(busy);
   };
   const [googleConnection, setGoogleConnection] =
@@ -2336,74 +2327,6 @@ function ProjectsPage({
       setError(
         err instanceof Error ? err.message : "Не удалось сохранить проект.",
       );
-    }
-  }
-  async function patchFolder(
-    id: string,
-    body: Record<string, FormDataEntryValue | null>,
-  ) {
-    setError("");
-    try {
-      await csrfMutate<Project>(`/projects/${id}`, csrf, onCsrf, {
-        method: "PATCH",
-        body: JSON.stringify(body),
-      });
-      load();
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Не удалось сохранить Drive folder metadata.",
-      );
-    }
-  }
-  async function clearFolder(id: string) {
-    await patchFolder(id, {
-      output_drive_folder_id: null,
-      output_drive_folder_url: null,
-      output_drive_folder_name: null,
-    });
-  }
-  async function chooseOutputFolder(id: string) {
-    if (activePickerRef.current) return;
-    setPickerBusy(true);
-    setError("");
-    try {
-      const session = await csrfMutate<PickerSession>(
-        "/google/picker/session",
-        csrf,
-        onCsrf,
-        { method: "POST" },
-      );
-      const result = await googlePicker.openGooglePicker(
-        "output-folder",
-        session,
-      );
-      if (result.action === "cancel") return;
-      if (result.action === "error") {
-        setError(result.message);
-        return;
-      }
-      const folderId = result.docs[0]?.id;
-      if (!folderId) {
-        setError("Выберите одну папку Google Drive.");
-        return;
-      }
-      await csrfMutate<Project>(
-        `/projects/${id}/output-folder/google-picker`,
-        csrf,
-        onCsrf,
-        { method: "POST", body: JSON.stringify({ folder_id: folderId }) },
-      );
-      load();
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Не удалось выбрать папку результатов.",
-      );
-    } finally {
-      setPickerBusy(false);
     }
   }
   async function archive(id: string) {
@@ -2571,75 +2494,6 @@ function ProjectsPage({
                   </div>
                 </header>
               )}
-              <section
-                className="project-folder-panel"
-                aria-label="Папка по умолчанию проекта"
-              >
-                <div>
-                  <h3>Папка по умолчанию</h3>
-                  <p className="muted">
-                    Используется для новых строк подготовки. Уже созданные
-                    задачи сохраняют свою папку.
-                  </p>
-                  {selectedProject.output_drive_folder_id ? (
-                    <p>
-                      <strong>
-                        {selectedProject.output_drive_folder_name ||
-                          "Папка Google Drive"}
-                      </strong>
-                    </p>
-                  ) : (
-                    <p className="notice">Папка не выбрана</p>
-                  )}
-                  {googleConnection?.connected &&
-                    googleConnection.reconnect_required && (
-                      <p className="notice">
-                        Переподключите Google Drive в настройках, чтобы выбрать
-                        папку.
-                      </p>
-                    )}
-                  {googleConnection?.connected &&
-                    !googleConnection.picker_configured && (
-                      <p className="notice">
-                        Выбор Google Drive временно недоступен.
-                      </p>
-                    )}
-                  {!googleConnection?.connected && (
-                    <p className="notice">
-                      Подключите Google Drive в настройках, чтобы выбрать папку.
-                    </p>
-                  )}
-                </div>
-                <div className="resource-actions folder-actions">
-                  {isSafeDisplayUrl(
-                    selectedProject.output_drive_folder_url,
-                  ) && (
-                    <ResourceExternalLink
-                      href={selectedProject.output_drive_folder_url ?? ""}
-                      label="Открыть папку"
-                      ariaLabel="Открыть папку в Google Drive в новой вкладке"
-                    />
-                  )}
-                  <button
-                    className="primary"
-                    type="button"
-                    disabled={!googleConnection?.picker_ready || activePicker}
-                    onClick={() => chooseOutputFolder(selectedProject.id)}
-                  >
-                    {selectedProject.output_drive_folder_id
-                      ? "Изменить"
-                      : "Выбрать папку"}
-                  </button>
-                  {selectedProject.output_drive_folder_id && (
-                    <button
-                      type="button"
-                      onClick={() => clearFolder(selectedProject.id)}
-                    >
-                      Очистить
-                    </button>
-                  )}
-                </div>
-              </section>
               <PreparationPanel
                 key={selectedProject.id}
                 project={selectedProject}

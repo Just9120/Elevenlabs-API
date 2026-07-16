@@ -792,38 +792,8 @@ code {
   margin-top: 0.25rem;
 }
 
-.project-folder-panel {
-  align-items: flex-start;
-  background: rgba(255, 255, 255, 0.035);
-  border: 1px solid var(--studio-border);
-  border-radius: 1rem;
-  display: flex;
-  gap: 1rem;
-  justify-content: space-between;
-  margin: 1rem 0;
-  padding: 1rem;
-}
-
-.project-folder-panel h3,
-.project-folder-panel p {
-  margin-top: 0;
-}
-
-.folder-actions {
-  justify-content: flex-end;
-}
-
 @media (max-width: 760px) {
-  .recent-project-item,
-  .project-folder-panel {
+  .recent-project-item {
     grid-template-columns: 1fr;
-  }
-
-  .project-folder-panel {
-    display: block;
-  }
-
-  .folder-actions {
-    justify-content: flex-start;
   }
 }
