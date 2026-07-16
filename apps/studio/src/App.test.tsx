@@ -5537,8 +5537,10 @@ describe("settings diagnostics", () => {
                 correlation_id: "corr_should_not_render",
                 request_id: "req_should_not_render",
                 metadata: {
-                  boundary: "provider",
+                  boundary: "provider_transport",
+                  error_code: "provider_timeout",
                   retryable: true,
+                  http_status_category: "5xx",
                   filename: "forbidden.mp3",
                   transcript: "forbidden transcript",
                   safe_count: 3,
@@ -5573,8 +5575,9 @@ describe("settings diagnostics", () => {
     expect(screen.getByText("worker-build")).toBeInTheDocument();
     expect(screen.getByText("JOB_FAILED")).toBeInTheDocument();
     expect(screen.getByText("boundary")).toBeInTheDocument();
+    expect(screen.getByText("error_code")).toBeInTheDocument();
     expect(screen.getByText("retryable")).toBeInTheDocument();
-    expect(screen.getByText("safe_count")).toBeInTheDocument();
+    expect(screen.getByText("http_status_category")).toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: "Диагностика PWA" }),
     ).toBeInTheDocument();
@@ -5589,11 +5592,12 @@ describe("settings diagnostics", () => {
     expect(document.body.textContent).not.toContain("/secret/path/forbidden");
     expect(document.body.textContent).not.toContain("forbidden.mp3");
     expect(document.body.textContent).not.toContain("forbidden transcript");
+    expect(document.body.textContent).not.toContain("safe_count");
     expect(localStorage.length).toBe(0);
     expect(sessionStorage.length).toBe(0);
   });
 
-  it("supports filters, cursor pagination without persistence, and Markdown Blob download with CSRF and URL revocation", async () => {
+  it("sends selected filters on the first diagnostics request and cursor only for the second page", async () => {
     const originalURL = URL;
     const createObjectURL = vi.fn(() => "blob:diagnostics-report");
     const revokeObjectURL = vi.fn();
@@ -5602,7 +5606,7 @@ describe("settings diagnostics", () => {
     const clickSpy = vi
       .spyOn(HTMLAnchorElement.prototype, "click")
       .mockImplementation(() => undefined);
-    let eventsCalls = 0;
+    const diagnosticsEventUrls: string[] = [];
     (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       (url: string, init?: RequestInit) => {
         if (url.endsWith("/api/auth/session"))
@@ -5632,20 +5636,30 @@ describe("settings diagnostics", () => {
             report_limits: {},
           });
         if (url.includes("/api/diagnostics/events")) {
-          eventsCalls += 1;
+          diagnosticsEventUrls.push(url);
+          const query = new URL(url, "http://localhost").searchParams;
+          const isCursorRequest = query.has("cursor");
           return json({
             events: [
               {
-                id: `evt-${eventsCalls}`,
-                occurred_at: "2026-07-16T09:00:00Z",
+                id: isCursorRequest ? "evt-second-page" : "evt-first-page",
+                occurred_at: isCursorRequest
+                  ? "2026-07-16T09:05:00Z"
+                  : "2026-07-16T09:00:00Z",
                 level: "INFO",
                 component: "worker",
-                event_code: eventsCalls > 1 ? "JOB_COMPLETED" : "JOB_CREATED",
-                metadata: { attempt: eventsCalls },
+                event_code: isCursorRequest ? "JOB_COMPLETED" : "JOB_CREATED",
+                metadata: isCursorRequest
+                  ? { output_count: 1, final_job_status: "completed" }
+                  : {
+                      source_count: 2,
+                      batch_position: 1,
+                      credential_selected: true,
+                    },
                 occurrence_count: 1,
               },
             ],
-            next_cursor: eventsCalls === 1 ? "opaque-cursor" : null,
+            next_cursor: isCursorRequest ? null : "opaque-cursor",
             period: {
               start: "2026-07-15T00:00:00Z",
               end: "2026-07-16T00:00:00Z",
@@ -5664,26 +5678,42 @@ describe("settings diagnostics", () => {
     renderApp("platform");
     await openDiagnosticsSettings();
     await screen.findByText("JOB_CREATED");
-    await userEvent.click(screen.getByRole("button", { name: "Показать ещё" }));
-    await waitFor(() =>
-      expect(fetch).toHaveBeenCalledWith(
-        expect.stringContaining("cursor=opaque-cursor"),
-        expect.anything(),
-      ),
-    );
+    diagnosticsEventUrls.length = 0;
+
     await userEvent.selectOptions(screen.getByLabelText("Период"), "7");
     await userEvent.selectOptions(screen.getByLabelText("Уровень"), "INFO");
     await userEvent.selectOptions(screen.getByLabelText("Компонент"), "worker");
-    await userEvent.type(screen.getByLabelText("Код события"), "JOB_COMPLETED");
+    await userEvent.type(screen.getByLabelText("Код события"), "JOB_CREATED");
     await userEvent.click(
       screen.getByRole("button", { name: "Применить фильтры" }),
     );
-    await waitFor(() =>
-      expect(fetch).toHaveBeenCalledWith(
-        expect.stringContaining("level=INFO"),
-        expect.anything(),
-      ),
-    );
+    await waitFor(() => expect(diagnosticsEventUrls).toHaveLength(1));
+    const firstParams = new URL(diagnosticsEventUrls[0], "http://localhost")
+      .searchParams;
+    expect(firstParams.get("page_size")).toBe("25");
+    expect(firstParams.get("start")).toBeTruthy();
+    expect(firstParams.get("end")).toBeTruthy();
+    expect(firstParams.get("level")).toBe("INFO");
+    expect(firstParams.get("component")).toBe("worker");
+    expect(firstParams.get("event_code")).toBe("JOB_CREATED");
+    expect(firstParams.has("cursor")).toBe(false);
+
+    await userEvent.click(screen.getByRole("button", { name: "Показать ещё" }));
+    await waitFor(() => expect(diagnosticsEventUrls).toHaveLength(2));
+    const secondParams = new URL(diagnosticsEventUrls[1], "http://localhost")
+      .searchParams;
+    expect([...secondParams.keys()].sort()).toEqual(["cursor", "page_size"]);
+    expect(secondParams.get("page_size")).toBe("25");
+    expect(secondParams.get("cursor")).toBe("opaque-cursor");
+    expect(secondParams.has("start")).toBe(false);
+    expect(secondParams.has("end")).toBe(false);
+    expect(secondParams.has("level")).toBe(false);
+    expect(secondParams.has("component")).toBe(false);
+    expect(secondParams.has("event_code")).toBe(false);
+    expect(secondParams.has("project_id")).toBe(false);
+    expect(secondParams.has("job_id")).toBe(false);
+    expect(screen.getByText("JOB_CREATED")).toBeInTheDocument();
+    expect(screen.getByText("JOB_COMPLETED")).toBeInTheDocument();
     expect(localStorage.length).toBe(0);
     expect(sessionStorage.length).toBe(0);
 
@@ -5709,6 +5739,180 @@ describe("settings diagnostics", () => {
     expect(document.body.innerHTML).not.toContain("application/json");
     expect(document.body.innerHTML).not.toContain("https://");
     clickSpy.mockRestore();
+  });
+
+  it("renders backend-registered diagnostic metadata keys and rejects arbitrary sensitive metadata", async () => {
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (url: string, init?: RequestInit) => {
+        if (url.endsWith("/api/auth/session"))
+          return json({
+            authenticated: true,
+            user: { email: "user@example.com", role: "admin" },
+          });
+        if (url.endsWith("/api/auth/csrf"))
+          return json({ csrf_token: "csrf-after-refresh" });
+        if (url.endsWith("/api/credentials")) return json({ credentials: [] });
+        if (url.endsWith("/api/google/connection"))
+          return json({
+            connected: false,
+            status: null,
+            google_email: null,
+            scopes: null,
+            connected_at: null,
+            revoked_at: null,
+          });
+        if (url.endsWith("/api/audit-events")) return json({ events: [] });
+        if (url.endsWith("/api/diagnostics/system"))
+          return json({
+            build: {},
+            diagnostics: {},
+            google_drive: {},
+            provider_credentials: {},
+            report_limits: {},
+          });
+        if (url.includes("/api/diagnostics/events"))
+          return json({
+            events: [
+              {
+                id: "created",
+                occurred_at: "2026-07-16T09:00:00Z",
+                level: "INFO",
+                component: "api",
+                event_code: "JOB_CREATED",
+                metadata: {
+                  source_count: 2,
+                  batch_position: 0,
+                  credential_selected: true,
+                  filename: "forbidden-source.mp3",
+                  url: "https://forbidden.example/report",
+                  attempt: 99,
+                },
+                occurrence_count: 1,
+              },
+              {
+                id: "provider-failed",
+                occurred_at: "2026-07-16T09:01:00Z",
+                level: "ERROR",
+                component: "worker",
+                event_code: "PROVIDER_REQUEST_FAILED",
+                metadata: {
+                  attempt_number: 3,
+                  boundary: "provider_transport",
+                  duration_ms: 1200,
+                  error_code: "provider_timeout",
+                  retryable: true,
+                  http_status_category: "5xx",
+                  transcript: "forbidden transcript",
+                  secret: "forbidden-secret",
+                  duration_seconds: 2,
+                },
+                occurrence_count: 1,
+              },
+              {
+                id: "completed",
+                occurred_at: "2026-07-16T09:02:00Z",
+                level: "INFO",
+                component: "worker",
+                event_code: "JOB_COMPLETED",
+                metadata: {
+                  output_count: 1,
+                  final_job_status: "completed",
+                  attempt_number: 3,
+                  request_id: "req_should_not_render",
+                },
+                occurrence_count: 1,
+              },
+              {
+                id: "cancelled",
+                occurred_at: "2026-07-16T09:03:00Z",
+                level: "INFO",
+                component: "api",
+                event_code: "JOB_CANCELLED",
+                metadata: {
+                  final_job_status: "cancelled",
+                  correlation_id: "corr_should_not_render",
+                },
+                occurrence_count: 1,
+              },
+              {
+                id: "api-failure",
+                occurred_at: "2026-07-16T09:04:00Z",
+                level: "WARNING",
+                component: "api",
+                event_code: "API_REQUEST_FAILED",
+                metadata: {
+                  endpoint_group: "jobs",
+                  http_status_category: "4xx",
+                  arbitrary: "forbidden arbitrary value",
+                  status_category: "4xx",
+                  safe_count: 12,
+                },
+                occurrence_count: 1,
+              },
+            ],
+            next_cursor: null,
+            period: {
+              start: "2026-07-15T00:00:00Z",
+              end: "2026-07-16T00:00:00Z",
+            },
+          });
+        if (
+          url.endsWith("/api/diagnostics/report.md") &&
+          init?.method === "POST"
+        )
+          return json(new Blob(["# Markdown"], { type: "text/markdown" }));
+        return json({ ok: true });
+      },
+    );
+
+    renderApp("platform");
+    await openDiagnosticsSettings();
+    await screen.findByText("JOB_CREATED");
+    for (const text of [
+      "PROVIDER_REQUEST_FAILED",
+      "JOB_COMPLETED",
+      "JOB_CANCELLED",
+      "API_REQUEST_FAILED",
+      "source_count",
+      "batch_position",
+      "credential_selected",
+      "attempt_number",
+      "boundary",
+      "duration_ms",
+      "error_code",
+      "retryable",
+      "http_status_category",
+      "output_count",
+      "final_job_status",
+      "endpoint_group",
+    ]) {
+      expect(screen.queryAllByText(text).length).toBeGreaterThan(0);
+    }
+    for (const forbidden of [
+      "forbidden-source.mp3",
+      "https://forbidden.example/report",
+      "forbidden transcript",
+      "forbidden-secret",
+      "req_should_not_render",
+      "corr_should_not_render",
+      "forbidden arbitrary value",
+      "filename",
+      "transcript",
+      "secret",
+      "request_id",
+      "correlation_id",
+      "arbitrary",
+    ]) {
+      expect(document.body.textContent).not.toContain(forbidden);
+    }
+    for (const unsupportedKey of [
+      "attempt",
+      "duration_seconds",
+      "status_category",
+      "safe_count",
+    ]) {
+      expect(screen.queryByText(unsupportedKey, { exact: true })).toBeNull();
+    }
   });
 
   it("shows loading, empty, error, and retry states", async () => {

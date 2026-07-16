@@ -2616,17 +2616,18 @@ function reportPayload(filters: DiagnosticsFilters) {
   };
 }
 const diagnosticsMetadataKeys = new Set([
+  "source_count",
+  "batch_position",
+  "credential_selected",
+  "attempt_number",
   "boundary",
+  "duration_ms",
   "error_code",
   "retryable",
-  "attempt",
-  "attempt_number",
-  "duration_ms",
-  "duration_seconds",
-  "status_category",
-  "source_count",
-  "credential_selected",
-  "safe_count",
+  "http_status_category",
+  "output_count",
+  "final_job_status",
+  "endpoint_group",
 ]);
 function auditLabel(type: string) {
   const labels: Record<string, string> = {
@@ -3061,18 +3062,19 @@ function DiagnosticsSettings({
   const [exportState, setExportState] = useState("");
   const loadEvents = (cursor?: string) => {
     setEventsState("loading");
-    const payload = reportPayload(filters);
-    const params = new URLSearchParams({
-      page_size: "25",
-      start: payload.start,
-      end: payload.end,
-    });
-    if (payload.level) params.set("level", payload.level);
-    if (payload.component) params.set("component", payload.component);
-    if (payload.event_code) params.set("event_code", payload.event_code);
-    if (payload.project_id) params.set("project_id", payload.project_id);
-    if (payload.job_id) params.set("job_id", payload.job_id);
-    if (cursor) params.set("cursor", cursor);
+    const params = new URLSearchParams({ page_size: "25" });
+    if (cursor) {
+      params.set("cursor", cursor);
+    } else {
+      const payload = reportPayload(filters);
+      params.set("start", payload.start);
+      params.set("end", payload.end);
+      if (payload.level) params.set("level", payload.level);
+      if (payload.component) params.set("component", payload.component);
+      if (payload.event_code) params.set("event_code", payload.event_code);
+      if (payload.project_id) params.set("project_id", payload.project_id);
+      if (payload.job_id) params.set("job_id", payload.job_id);
+    }
     api<DiagnosticsEventsResponse>(`/diagnostics/events?${params.toString()}`)
       .then((r) => {
         setTimeline((current) =>
