@@ -2302,7 +2302,10 @@ def test_job_destination_migration_0008_0009_upgrade_downgrade_backfill(tmp_path
             assert conn.execute(text("SELECT count(*) FROM transcription_job_sources WHERE id IN ('rel-with-folder', 'rel-without-folder')")).scalar_one() == 2
             assert conn.execute(text("SELECT count(*) FROM transcription_job_outputs WHERE id='output-with-folder'")).scalar_one() == 1
         subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "upgrade", "0009_job_output_destinations"], cwd=ROOT, env=env, check=True)
-        cfg = Config(str(ALEMBIC)); assert ScriptDirectory.from_config(cfg).get_heads() == ["0009_job_output_destinations"]
+        with temp_engine.begin() as conn:
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0009_job_output_destinations"
+        cfg = Config(str(ALEMBIC))
+        assert ScriptDirectory.from_config(cfg).get_current_head() == "0010_diagnostic_events"
     finally:
         temp_engine.dispose()
         cleanup_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")

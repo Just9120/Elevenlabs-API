@@ -120,12 +120,7 @@ Current confirmed realtime evidence is partial: one display+microphone run confi
 
 Current recommended work is completing the open PR scope for `PWA-DIAGNOSTICS-01A`. `PWA-BATCH-COMPOSER-UX-POLISH-02` is already source-done/merged through PR #152 and is not the active next item. `PWA-DIAGNOSTICS-01B` remains the planned follow-up after the backend foundation PR.
 
-After PR #153 is merged and folder-removal browser acceptance is complete, the planned diagnostics implementation sequence remains:
-
-1. `PWA-DIAGNOSTICS-01A` — planned backend foundation only after an explicit follow-up task.
-2. `PWA-DIAGNOSTICS-01B` — planned PWA and Settings work only after an explicit follow-up task.
-
-`PWA-PROCESSING-ROLLOUT-01A` stays paused until PR #153 is merged, folder-removal browser acceptance is complete, diagnostics implementation sequencing is explicitly approved, and worker revalidation plus bounded smoke are explicitly resumed. Worker-running now, worker image parity now, controlled smoke, provider execution, Google Docs creation, and production-live processing are not claimed.
+`PWA-DIAGNOSTICS-01A` is active in the current open PR #154. `PWA-DIAGNOSTICS-01B` remains planned for the PWA and Settings diagnostics UI after the backend foundation PR. `PWA-PROCESSING-ROLLOUT-01A` stays paused until worker revalidation plus bounded smoke are explicitly resumed. Worker-running now, worker image parity now, controlled smoke, provider execution, Google Docs creation, and production-live processing are not claimed.
 
 **RUNTIME-01** remains deferred.
 

@@ -1,7 +1,7 @@
 import hashlib, json, re
 from datetime import datetime, timedelta, timezone
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
-from fastapi.responses import RedirectResponse, Response as FastAPIResponse
+from fastapi.responses import JSONResponse, RedirectResponse, Response as FastAPIResponse
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy import text, func
 from sqlalchemy.exc import IntegrityError
@@ -21,7 +21,7 @@ from .google_connection_access import GoogleConnectionAccessError, GoogleConnect
 from .google_scopes import has_drive_file_scope
 from .job_lifecycle import safe_failure_metadata_value
 from .job_processing_lifecycle import request_job_cancellation
-from .diagnostics import REGISTRY, cleanup_expired_diagnostics, decode_cursor, encode_cursor, markdown_escape, new_opaque_id, sanitize_build_id, valid_opaque_id, write_diagnostic_event
+from .diagnostics import REGISTRY, cleanup_expired_diagnostics, cursor_context, decode_cursor, encode_cursor, markdown_escape, new_correlation_id, new_request_id, sanitize_build_id, sanitize_inbound_correlation, valid_uuid, write_diagnostic_event
 from .job_output_read import browser_job_output_payload, load_browser_job_output_rows
 from .job_output_folder_selection import VerifiedOutputFolderSelection, verify_output_folder_selection
 
@@ -31,15 +31,14 @@ limiter=RateLimiter()
 
 @app.middleware("http")
 async def request_correlation_middleware(request: Request, call_next):
-    request_id = new_opaque_id("req")
-    incoming = request.headers.get("x-correlation-id")
-    correlation_id = incoming.strip() if incoming and valid_opaque_id(incoming.strip()) else new_opaque_id("corr")
+    request_id = new_request_id()
+    correlation_id = sanitize_inbound_correlation(request.headers.get("x-correlation-id"))
     request.state.request_id = request_id
     request.state.correlation_id = correlation_id
     try:
         response = await call_next(request)
     except Exception:
-        raise
+        response = JSONResponse({"detail": "Internal server error"}, status_code=500)
     response.headers["X-Request-ID"] = request_id
     response.headers["X-Correlation-ID"] = correlation_id
     return response
@@ -102,11 +101,11 @@ class TranscriptionJobBatchCreateIn(BaseModel):
 class DiagnosticReportIn(BaseModel):
     start: datetime|None=None
     end: datetime|None=None
-    level: str|None=Field(default=None, max_length=10)
-    component: str|None=Field(default=None, max_length=20)
-    event_code: str|None=Field(default=None, max_length=80)
-    project_id: str|None=Field(default=None, max_length=128)
-    job_id: str|None=Field(default=None, max_length=128)
+    level: str|None=Field(default=None, min_length=1, max_length=10)
+    component: str|None=Field(default=None, min_length=1, max_length=20)
+    event_code: str|None=Field(default=None, min_length=1, max_length=80)
+    project_id: str|None=Field(default=None, min_length=36, max_length=36)
+    job_id: str|None=Field(default=None, min_length=36, max_length=36)
 
 class TranscriptionJobCreateIn(BaseModel):
     source_ids: list[str]=Field(min_length=1, max_length=50)
@@ -595,7 +594,7 @@ def cancel_transcription_job(job_id: str, request: Request, pair=Depends(require
     _, changed, event_type = request_job_cancellation(db, job_id=job.id, now=utcnow())
     if changed and event_type:
         audit(db,event_type,actor_user_id=user.id,subject_user_id=user.id,project_id=job.project_id,job_id=job.id)
-        db.commit(); write_diagnostic_event(owner_user_id=user.id, component="api", event_code="JOB_CANCEL_REQUESTED", project_id=job.project_id, job_id=job.id, request_id=getattr(request.state,"request_id",None), correlation_id=getattr(request.state,"correlation_id",None), metadata={"final_job_status": job.status.value}); db.refresh(job)
+        db.commit(); db.refresh(job); event_code="JOB_CANCELLED" if job.status==JobStatus.cancelled else "JOB_CANCEL_REQUESTED"; write_diagnostic_event(owner_user_id=user.id, component="api", event_code=event_code, project_id=job.project_id, job_id=job.id, request_id=getattr(request.state,"request_id",None), correlation_id=getattr(request.state,"correlation_id",None), metadata={"final_job_status": job.status.value})
     return job_payload(job, include_sources=True)
 
 
@@ -611,13 +610,16 @@ def _diag_filters(db: Session, user: User, *, start=None, end=None, level=None, 
     if level and level not in DiagnosticLevel.__members__: raise HTTPException(422, "Invalid diagnostic level")
     if component and component not in {c.value for c in DiagnosticComponent}: raise HTTPException(422, "Invalid diagnostic component")
     if event_code and event_code not in REGISTRY: raise HTTPException(422, "Invalid diagnostic event code")
+    if project_id and not valid_uuid(project_id): raise HTTPException(422, "Invalid project id")
+    if job_id and not valid_uuid(job_id): raise HTTPException(422, "Invalid job id")
     if project_id:
         p=db.get(Project, project_id)
         if not p or p.owner_user_id!=user.id: raise HTTPException(404, "Не найдено")
     if job_id:
         j=db.get(TranscriptionJob, job_id)
         if not j or j.owner_user_id!=user.id: raise HTTPException(404, "Не найдено")
-    q=db.query(DiagnosticEvent).filter(DiagnosticEvent.owner_user_id==user.id, DiagnosticEvent.first_occurred_at>=start_dt, DiagnosticEvent.first_occurred_at<=end_dt)
+        if project_id and j.project_id != project_id: raise HTTPException(404, "Не найдено")
+    q=db.query(DiagnosticEvent).filter(DiagnosticEvent.owner_user_id==user.id, DiagnosticEvent.first_occurred_at>=start_dt, DiagnosticEvent.first_occurred_at<=end_dt, DiagnosticEvent.expires_at>now_dt)
     if level: q=q.filter(DiagnosticEvent.level==DiagnosticLevel[level])
     if component: q=q.filter(DiagnosticEvent.component==DiagnosticComponent(component))
     if event_code: q=q.filter(DiagnosticEvent.event_code==event_code)
@@ -634,17 +636,18 @@ def _system_summary(db: Session, user: User):
     return {"environment": sanitize_build_id(settings.environment), "build": {"web": sanitize_build_id(settings.diagnostic_web_build_id), "api": sanitize_build_id(settings.diagnostic_api_build_id), "worker": sanitize_build_id(settings.diagnostic_worker_build_id)}, "google_drive": {"connected": bool(conn and conn.status==GoogleConnectionStatus.active), "scope_ready": bool(conn and conn.status==GoogleConnectionStatus.active and has_drive_file_scope(conn.scopes))}, "provider_credentials": {"active_count": int(active_creds), "ready": int(active_creds)>0}, "diagnostics": {"recording_enabled": True, "debug_recording": "inactive", "retention_days": settings.diagnostic_retention_days, "debug_retention_hours": settings.diagnostic_debug_retention_hours}, "report_limits": {"max_days": 7, "max_timeline_events": settings.diagnostic_report_max_events}}
 
 @app.get("/api/diagnostics/events")
-def diagnostics_events(start: datetime|None=None, end: datetime|None=None, level: str|None=None, component: str|None=None, event_code: str|None=None, project_id: str|None=None, job_id: str|None=None, cursor: str|None=None, page_size: int=Query(50, ge=1, le=200), pair=Depends(current_session), db: Session=Depends(get_db)):
-    _,user=pair; limiter.check("diagnostics:events:"+user.id, 120, 3600); cleanup_expired_diagnostics()
+def diagnostics_events(start: datetime|None=Query(None), end: datetime|None=Query(None), level: str|None=Query(None, min_length=1, max_length=10), component: str|None=Query(None, min_length=1, max_length=20), event_code: str|None=Query(None, min_length=1, max_length=80), project_id: str|None=Query(None, min_length=36, max_length=36), job_id: str|None=Query(None, min_length=36, max_length=36), cursor: str|None=Query(None, max_length=1200), page_size: int=Query(50, ge=1, le=200), pair=Depends(current_session), db: Session=Depends(get_db)):
+    sess,user=pair; limiter.check("diagnostics:events:"+user.id, 120, 3600); cleanup_expired_diagnostics()
     q,start_dt,end_dt=_diag_filters(db,user,start=start,end=end,level=level,component=component,event_code=event_code,project_id=project_id,job_id=job_id)
     if cursor:
-        decoded=decode_cursor(cursor)
+        ctx=cursor_context(owner_user_id=user.id, start=start_dt, end=end_dt, level=level, component=component, event_code=event_code, project_id=project_id, job_id=job_id)
+        decoded=decode_cursor(cursor, ctx, sess.csrf_hash)
         if not decoded: raise HTTPException(422, "Invalid diagnostic cursor")
         cdt,cid=decoded; q=q.filter((DiagnosticEvent.first_occurred_at < cdt) | ((DiagnosticEvent.first_occurred_at == cdt) & (DiagnosticEvent.id < cid)))
     rows=q.order_by(DiagnosticEvent.first_occurred_at.desc(), DiagnosticEvent.id.desc()).limit(page_size+1).all()
     next_cursor=None
     if len(rows)>page_size:
-        last=rows[page_size-1]; next_cursor=encode_cursor(last.first_occurred_at,last.id); rows=rows[:page_size]
+        last=rows[page_size-1]; ctx=cursor_context(owner_user_id=user.id, start=start_dt, end=end_dt, level=level, component=component, event_code=event_code, project_id=project_id, job_id=job_id); next_cursor=encode_cursor(last.first_occurred_at,last.id,ctx,sess.csrf_hash); rows=rows[:page_size]
     return {"events": [_diag_payload(r) for r in rows], "next_cursor": next_cursor, "period": {"start": start_dt.isoformat(), "end": end_dt.isoformat()}}
 
 @app.get("/api/diagnostics/system")

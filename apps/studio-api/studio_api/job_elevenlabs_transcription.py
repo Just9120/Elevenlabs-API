@@ -29,7 +29,7 @@ from .job_source_materialization import (
 )
 from .models import CredentialStatus, JobStatus, Project, ProviderCredential, ProviderCredentialVersion, TranscriptionJob
 from .security import utcnow
-from .diagnostics import write_diagnostic_event
+from .diagnostics import resolve_job_correlation_id, write_diagnostic_event
 from .source_storage import safe_filename
 
 
@@ -105,6 +105,7 @@ def transcribe_processing_job_source_with_elevenlabs(
             if prereq.provider != "elevenlabs":
                 raise JobElevenLabsTranscriptionError(JobElevenLabsTranscriptionReason.provider_mismatch)
             try:
+                _emit_provider(db, job_id, "SOURCE_VALIDATION_STARTED", {"attempt_number": _attempt(db, job_id)})
                 source_cm = source_materializer(
                     db,
                     job_id=job_id,
@@ -121,6 +122,7 @@ def transcribe_processing_job_source_with_elevenlabs(
                 raise JobElevenLabsTranscriptionError(JobElevenLabsTranscriptionReason.source_materialization_unavailable) from exc
             try:
                 language = _final_pre_provider_revalidate(db, job_id, job_source_id, lease_owner_id, lease_generation, settings, clock(), prereq, source)
+                _emit_provider(db, job_id, "SOURCE_READY", {"attempt_number": _attempt(db, job_id)})
                 try:
                     _emit_provider(db, job_id, "PROVIDER_REQUEST_STARTED", {"attempt_number": _attempt(db, job_id)})
                     result = _call_transport(
@@ -133,9 +135,16 @@ def transcribe_processing_job_source_with_elevenlabs(
                     )
                 except ElevenLabsTranscriptionError as exc:
                     mapped=_map_provider_reason(exc.reason)
-                    _emit_provider(db, job_id, "PROVIDER_REQUEST_FAILED", {"error_code": mapped.value, "retryable": mapped.value in {"provider_rate_limited","provider_unavailable","provider_timeout"}, "attempt_number": _attempt(db, job_id)})
+                    _emit_provider(db, job_id, "PROVIDER_REQUEST_FAILED", {"boundary": "provider_transport", "error_code": mapped.value if mapped.value in {"provider_authentication_rejected","provider_request_rejected","provider_rate_limited","provider_unavailable","provider_timeout","malformed_provider_response"} else "unknown", "retryable": mapped.value in {"provider_rate_limited","provider_unavailable","provider_timeout"}, "attempt_number": _attempt(db, job_id)})
                     raise JobElevenLabsTranscriptionError(mapped) from exc
-                _post_provider_lifecycle_revalidate(db, job_id, lease_owner_id, lease_generation, clock())
+                except Exception as exc:
+                    _emit_provider(db, job_id, "PROVIDER_REQUEST_FAILED", {"boundary": "provider_transport", "error_code": "unknown", "retryable": False, "attempt_number": _attempt(db, job_id)})
+                    raise JobElevenLabsTranscriptionError(JobElevenLabsTranscriptionReason.provider_unavailable) from exc
+                try:
+                    _post_provider_lifecycle_revalidate(db, job_id, lease_owner_id, lease_generation, clock())
+                except JobElevenLabsTranscriptionError:
+                    _emit_provider(db, job_id, "PROVIDER_REQUEST_FAILED", {"boundary": "post_provider_lifecycle", "error_code": "lifecycle_changed_after_provider_call", "retryable": False, "attempt_number": _attempt(db, job_id)})
+                    raise
                 _emit_provider(db, job_id, "PROVIDER_REQUEST_COMPLETED", {"attempt_number": _attempt(db, job_id)})
                 yield result
             finally:
@@ -277,6 +286,6 @@ def _emit_provider(db, job_id, event_code, metadata):
     try:
         job = db.get(TranscriptionJob, job_id)
         if job is not None:
-            write_diagnostic_event(owner_user_id=job.owner_user_id, component="worker", event_code=event_code, project_id=job.project_id, job_id=job.id, metadata=metadata)
+            write_diagnostic_event(owner_user_id=job.owner_user_id, component="worker", event_code=event_code, project_id=job.project_id, job_id=job.id, correlation_id=resolve_job_correlation_id(owner_user_id=job.owner_user_id, job_id=job.id), metadata=metadata)
     except Exception:
         pass
