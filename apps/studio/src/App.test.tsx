@@ -1,4 +1,5 @@
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -1946,14 +1947,139 @@ describe("Studio PWA", () => {
     renderApp("platform");
     await openProjectsPage();
     await screen.findByRole("heading", { name: "Подготовка задач" });
-    const status = await screen.findByLabelText(
-      "Project job readiness checklist",
-    );
+    const status = await screen.findByLabelText("Готовность строк подготовки");
     expect(status).toHaveTextContent("Готово: 0 из 1");
     expect(status).toHaveTextContent("Строка 1: выберите источник");
     expect(
       screen.queryByRole("heading", { name: "Готовность" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("derives readiness, blockers, and submit state from row readiness", async () => {
+    renderApp("platform");
+    await openProjectsPage();
+
+    const readiness = await screen.findByLabelText(
+      "Готовность строк подготовки",
+    );
+    expect(readiness).toHaveTextContent("Готово: 0 из 1");
+    expect(readiness).toHaveTextContent("Строка 1: выберите источник");
+    expect(
+      screen.queryByRole("button", { name: "Поднять строку 1" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Удалить строку 1" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Создать задачи (1)" }),
+    ).toBeDisabled();
+
+    await chooseExistingSource(1, "Лекция 1");
+    expect(readiness).toHaveTextContent("Готово: 1 из 1");
+    expect(
+      screen.getByRole("button", { name: "Создать задачи (1)" }),
+    ).toBeEnabled();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Добавить строку" }),
+    );
+    await chooseExistingSource(2, "Лекция 1");
+    expect(readiness).toHaveTextContent("Готово: 0 из 2");
+    expect(readiness).toHaveTextContent(
+      "Строка 1: такая пара файла и папки уже добавлена",
+    );
+    expect(
+      screen.getAllByText("Такая пара файла и папки уже добавлена.").length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getByRole("button", { name: "Создать задачи (2)" }),
+    ).toBeDisabled();
+
+    await chooseExistingSource(2, "local-temp");
+    expect(readiness).toHaveTextContent("Готово: 2 из 2");
+    expect(readiness).toHaveTextContent("Все строки готовы");
+    expect(
+      screen.getByRole("button", { name: "Создать задачи (2)" }),
+    ).toBeEnabled();
+  });
+
+  it("keeps rows incomplete when a selected source has no row result folder", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/projects") && !init?.method)
+        return json({
+          projects: [
+            {
+              id: "p1",
+              title: "Research calls",
+              description: "Customer interview notes",
+              created_at: "2026-07-01T00:00:00",
+              updated_at: "2026-07-01T00:00:00",
+              archived_at: null,
+              output_drive_folder_id: null,
+              output_drive_folder_url: null,
+              output_drive_folder_name: null,
+            },
+          ],
+        });
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp("platform");
+    await openProjectsPage();
+    await chooseExistingSource(1, "Лекция 1");
+
+    const readiness = screen.getByLabelText("Готовность строк подготовки");
+    expect(readiness).toHaveTextContent("Готово: 0 из 1");
+    expect(readiness).toHaveTextContent("Строка 1: выберите папку результата");
+    expect(
+      screen.getByRole("button", { name: "Создать задачи (1)" }),
+    ).toBeDisabled();
+  });
+
+  it("exposes submitting progress as the submit button accessible name", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let resolveBatch: ((value: Response) => void) | null = null;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        url.endsWith("/api/projects/p1/jobs/batch") &&
+        init?.method === "POST"
+      ) {
+        return new Promise<Response>((resolve) => {
+          resolveBatch = resolve;
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp("platform");
+    await openProjectsPage();
+    await chooseExistingSource(1, "Лекция 1");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Создать задачи (1)" }),
+    );
+
+    expect(
+      await screen.findByRole("button", { name: "Создание задач…" }),
+    ).toBeDisabled();
+    await act(async () => {
+      resolveBatch?.({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({ jobs: [], created_count: 1, replayed: false }),
+        text: () => Promise.resolve("{}"),
+      } as Response);
+    });
+    resolveBatch?.({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({ jobs: [], created_count: 1, replayed: false }),
+      text: () => Promise.resolve("{}"),
+    } as Response);
   });
 
   it("creates, lists, details, and cancels project jobs safely with CSRF", async () => {
@@ -2337,7 +2463,7 @@ describe("Studio PWA", () => {
       screen.queryByText("Создайте задачу из готовых файлов проекта."),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByLabelText("Project job readiness checklist"),
+      screen.getByLabelText("Готовность строк подготовки"),
     ).toHaveTextContent("Готово: 0 из 1");
     expect(screen.getByLabelText("Ключ провайдера")).toHaveValue("");
     expect(document.body.textContent).not.toContain("worker/provider");
@@ -2355,7 +2481,7 @@ describe("Studio PWA", () => {
 
     expect((await screen.findAllByText(/ready-drive/))[0]).toBeInTheDocument();
     expect(
-      screen.getByLabelText("Project job readiness checklist"),
+      screen.getByLabelText("Готовность строк подготовки"),
     ).toHaveTextContent("Готово:");
     expect(
       screen.getByText(/Файл ещё не готов для задачи/),
@@ -2402,7 +2528,7 @@ describe("Studio PWA", () => {
     await userEvent.selectOptions(credentialSelect, "cred-active");
     expect(screen.getByLabelText("Ключ провайдера")).toHaveValue("cred-active");
     await userEvent.click(
-      screen.getByRole("button", { name: "Создать пакет задач" }),
+      screen.getByRole("button", { name: /Создать задачи \(\d+\)/ }),
     );
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
@@ -2625,7 +2751,7 @@ describe("Studio PWA", () => {
       }),
     ).toBeInTheDocument();
     await userEvent.click(
-      screen.getByRole("button", { name: "Создать пакет задач" }),
+      screen.getByRole("button", { name: /Создать задачи \(\d+\)/ }),
     );
     const batchCall = await waitFor(() => {
       const call = (
@@ -2816,7 +2942,7 @@ describe("Studio PWA", () => {
     await openSelectedProjectJobs();
     await chooseExistingSource(1, "ready-local.ogg");
     await userEvent.click(
-      screen.getByRole("button", { name: "Создать пакет задач" }),
+      screen.getByRole("button", { name: /Создать задачи \(\d+\)/ }),
     );
     expect(await screen.findByText("Fresh authoritative")).toBeInTheDocument();
     expect(screen.getByText("Статус: Завершена")).toBeInTheDocument();
@@ -2964,7 +3090,7 @@ describe("Studio PWA", () => {
       "",
     );
     await userEvent.click(
-      screen.getByRole("button", { name: "Создать пакет задач" }),
+      screen.getByRole("button", { name: /Создать задачи \(\d+\)/ }),
     );
     expect(
       (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
@@ -3749,7 +3875,7 @@ describe("Studio PWA", () => {
       "project-a-output",
     );
     await userEvent.click(
-      screen.getByRole("button", { name: "Создать пакет задач" }),
+      screen.getByRole("button", { name: /Создать задачи \(\d+\)/ }),
     );
     expect(
       await screen.findByText(/ключ повтора сохранены/),
@@ -3778,7 +3904,7 @@ describe("Studio PWA", () => {
       "B clean submit",
     );
     await userEvent.click(
-      screen.getByRole("button", { name: "Создать пакет задач" }),
+      screen.getByRole("button", { name: /Создать задачи \(\d+\)/ }),
     );
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
@@ -4198,7 +4324,7 @@ describe("Studio PWA", () => {
 
     await chooseExistingSource(1, "ready-local.ogg");
     await userEvent.click(
-      screen.getByRole("button", { name: "Создать пакет задач" }),
+      screen.getByRole("button", { name: /Создать задачи \(\d+\)/ }),
     );
     const createCall = await waitFor(() => {
       const call = (
@@ -4727,12 +4853,16 @@ describe("Studio PWA", () => {
       screen.queryByRole("button", { name: /Добавить строку для/ }),
     ).not.toBeInTheDocument();
     const input = within(row).getByLabelText(
-      "Выбрать файлы с устройства",
+      "Выбрать файлы с устройства для строки 1",
     ) as HTMLInputElement;
     expect(input.tagName.toLowerCase()).toBe("input");
     expect(input).toHaveAttribute("type", "file");
     expect(input).toHaveAttribute("multiple");
     expect(input).toHaveClass("visually-hidden");
+    expect(input.closest(".file-picker-control")).not.toBeNull();
+    expect(
+      input.closest(".file-picker-control")?.querySelector("label"),
+    ).toHaveTextContent("С устройства");
     expect(input).toHaveAttribute(
       "accept",
       "audio/*,video/*,.ogg,.oga,application/ogg",
@@ -4748,7 +4878,7 @@ describe("Studio PWA", () => {
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
     const row = await screen.findByLabelText("Источник строки 1");
     const input = within(row).getByLabelText(
-      "Выбрать файлы с устройства",
+      "Выбрать файлы с устройства для строки 1",
     ) as HTMLInputElement;
 
     await userEvent.upload(
@@ -4791,7 +4921,7 @@ describe("Studio PWA", () => {
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
     const deviceCard = await screen.findByLabelText("Источник строки 1");
     const input = within(deviceCard).getByLabelText(
-      "Выбрать файлы с устройства",
+      "Выбрать файлы с устройства для строки 1",
     ) as HTMLInputElement;
     const validFile = new File(["valid audio"], "valid.ogg", {
       type: "audio/ogg",

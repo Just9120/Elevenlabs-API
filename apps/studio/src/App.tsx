@@ -988,34 +988,46 @@ function PreparationPanel({
     googleConnection?.picker_ready && !googlePickerGuidance,
   );
 
-  const completeRowCount = rows.filter(
-    (row) =>
-      row.source_id &&
-      row.output_folder?.folder_id &&
-      usableSourceIds.has(row.source_id),
-  ).length;
-  const readinessReasons = rows.flatMap((row, index) => {
+  const rowReadinessResults = rows.map((row, index) => {
     const rowNumber = index + 1;
-    if (!row.source_id) return [`Строка ${rowNumber}: выберите источник`];
+    if (!row.source_id) {
+      return { ready: false, reason: `Строка ${rowNumber}: выберите источник` };
+    }
     if (!usableSourceIds.has(row.source_id)) {
-      return [`Строка ${rowNumber}: выбранный файл больше недоступен`];
+      return {
+        ready: false,
+        reason: `Строка ${rowNumber}: выбранный файл больше недоступен`,
+      };
     }
     if (!row.output_folder?.folder_id) {
-      return [`Строка ${rowNumber}: выберите папку результата`];
+      return {
+        ready: false,
+        reason: `Строка ${rowNumber}: выберите папку результата`,
+      };
     }
     const pair = `${row.source_id}\u0000${row.output_folder.folder_id}`;
     if (duplicatePairs.has(pair)) {
-      return [`Строка ${rowNumber}: такая пара файла и папки уже добавлена`];
+      return {
+        ready: false,
+        reason: `Строка ${rowNumber}: такая пара файла и папки уже добавлена`,
+      };
     }
-    return [];
+    return { ready: true, reason: "" };
   });
+  const completeRowCount = rowReadinessResults.filter(
+    (result) => result.ready,
+  ).length;
+  const firstReadinessBlocker =
+    rowReadinessResults.find((result) => !result.ready)?.reason ?? "";
   const submitBlocker = submitting
     ? "Создание задач…"
     : rows.length === 0
       ? "Добавьте хотя бы одну строку"
-      : (readinessReasons[0] ?? "");
+      : firstReadinessBlocker;
   const canSubmit =
-    !submitting && rows.length > 0 && readinessReasons.length === 0;
+    !submitting &&
+    rows.length > 0 &&
+    rowReadinessResults.every((result) => result.ready);
 
   function sourceById(sourceId: string) {
     return sourceItems.find((source) => source.id === sourceId) ?? null;
@@ -1499,15 +1511,15 @@ function PreparationPanel({
           className="composer-status"
           role="status"
           aria-live="polite"
-          aria-label="Project job readiness checklist"
+          aria-label="Готовность строк подготовки"
         >
           <b>
             Готово: {completeRowCount} из {rows.length}
           </b>
           <span>
-            {readinessReasons.length === 0
-              ? "Все строки готовы"
-              : readinessReasons[0]}
+            {firstReadinessBlocker
+              ? firstReadinessBlocker
+              : "Все строки готовы"}
           </span>
         </div>
         <fieldset className="composer-rows">
@@ -1533,12 +1545,8 @@ function PreparationPanel({
                   ? `${row.source_id}\u0000${row.output_folder.folder_id}`
                   : "";
               const duplicate = pairKey && duplicatePairs.has(pairKey);
-              const rowReady = Boolean(
-                row.source_id &&
-                row.output_folder?.folder_id &&
-                !invalidSourceRowIds.has(row.id) &&
-                !duplicate,
-              );
+              const rowReadiness = rowReadinessResults[index];
+              const rowReady = rowReadiness.ready;
               return (
                 <li
                   className="composer-row"
@@ -1623,26 +1631,28 @@ function PreparationPanel({
                         >
                           Из Google Drive
                         </button>
-                        <label
-                          className="button-like secondary"
-                          htmlFor={`local-source-upload-${row.id}`}
-                        >
-                          <span aria-hidden="true">С устройства</span>
-                          <span className="visually-hidden">
-                            Выбрать файлы с устройства
-                          </span>
-                        </label>
-                        <input
-                          id={`local-source-upload-${row.id}`}
-                          className="visually-hidden"
-                          aria-label="Выбрать файлы с устройства"
-                          type="file"
-                          multiple
-                          accept="audio/*,video/*,.ogg,.oga,application/ogg"
-                          onChange={(e) =>
-                            void uploadRowLocalSources(row.id, e)
-                          }
-                        />
+                        <span className="file-picker-control">
+                          <label
+                            className="button-like secondary"
+                            htmlFor={`local-source-upload-${row.id}`}
+                          >
+                            <span aria-hidden="true">С устройства</span>
+                            <span className="visually-hidden">
+                              Выбрать файлы с устройства для строки {index + 1}
+                            </span>
+                          </label>
+                          <input
+                            id={`local-source-upload-${row.id}`}
+                            className="visually-hidden"
+                            aria-label={`Выбрать файлы с устройства для строки ${index + 1}`}
+                            type="file"
+                            multiple
+                            accept="audio/*,video/*,.ogg,.oga,application/ogg"
+                            onChange={(e) =>
+                              void uploadRowLocalSources(row.id, e)
+                            }
+                          />
+                        </span>
                       </div>
                       {googlePickerGuidance && (
                         <p className="notice">{googlePickerGuidance}</p>
@@ -1732,18 +1742,14 @@ function PreparationPanel({
           </ol>
         </fieldset>
         <div className="composer-footer">
-          <div role="status" aria-live="polite">
+          <div>
             <b>Строк: {rows.length}</b>
             <span>
               Готово: {completeRowCount} из {rows.length}
             </span>
             {submitBlocker && <span>{submitBlocker}</span>}
           </div>
-          <button
-            className="primary"
-            aria-label="Создать пакет задач"
-            disabled={!canSubmit}
-          >
+          <button className="primary" disabled={!canSubmit}>
             {submitting ? "Создание задач…" : `Создать задачи (${rows.length})`}
           </button>
         </div>
