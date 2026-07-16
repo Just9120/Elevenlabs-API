@@ -42,6 +42,14 @@ class Settings(BaseSettings):
     worker_poll_interval_seconds: int = Field(default=5, ge=1, le=60)
     worker_error_backoff_seconds: int = Field(default=5, ge=1, le=300)
     worker_lease_ttl_seconds: int = Field(default=3600, ge=300, le=86400)
+    diagnostic_retention_days: int = Field(default=14, ge=1, le=30)
+    diagnostic_debug_retention_hours: int = Field(default=24, ge=1, le=24)
+    diagnostic_cleanup_interval_seconds: int = Field(default=3600, ge=60, le=86400)
+    diagnostic_cleanup_batch_size: int = Field(default=500, ge=1, le=1000)
+    diagnostic_web_build_id: str = Field(default="unknown", max_length=120)
+    diagnostic_api_build_id: str = Field(default="unknown", max_length=120)
+    diagnostic_worker_build_id: str = Field(default="unknown", max_length=120)
+    diagnostic_report_max_events: int = Field(default=5000, ge=1, le=5000)
 
     def master_key_b64(self) -> str:
         return Path(self.credential_master_key_file).read_text(encoding="utf-8").strip()

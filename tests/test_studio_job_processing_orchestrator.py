@@ -464,15 +464,22 @@ def test_two_missing_sources_receive_exact_four_renewals_without_duplicate_bound
     assert len(renewer.calls) == 4
 
 
-def test_queued_single_source_success_commits_before_external_and_completes(db):
+def test_queued_single_source_success_commits_before_external_and_completes(db, monkeypatch):
     from studio_api import models as m
+    import studio_api.job_processing_orchestrator as orch
     from studio_api.job_processing_orchestrator import orchestrate_processing_job
     job, rels = make_job(db, m)
+    diag=[]
+    monkeypatch.setattr(orch, "resolve_job_correlation_id", lambda **kw: "corr_abcdefghijklmnop")
+    monkeypatch.setattr(orch, "write_diagnostic_event", lambda **kw: diag.append((kw, db.get(m.TranscriptionJob, kw["job_id"]).status)) or None)
     events=[]; transcriber, googler = fakes(events); persister = persist_real(db, m, 1)
     r = orchestrate_processing_job(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), clock=Clock(), lease_ttl=timedelta(minutes=5), transcription_opener=transcriber, google_docs_opener=googler, output_persister=persister)
     assert events[:2] == [("transcribe", rels[0].id), "transcript_enter"]
     assert r.final_job_status == m.JobStatus.completed and r.completion_occurred and r.processed_source_count == 1
     assert db.get(m.TranscriptionJob, job.id).lease_owner_id is None and db.get(m.TranscriptionJob, job.id).attempt_count == 1
+    assert [d[0]["event_code"] for d in diag] == ["PROCESSING_STARTED", "OUTPUT_CREATION_STARTED", "OUTPUT_PERSISTED", "JOB_COMPLETED"]
+    assert diag[0][1] == m.JobStatus.processing and diag[-1][1] == m.JobStatus.completed
+    assert all(d[0]["correlation_id"] == "corr_abcdefghijklmnop" and d[0].get("request_id") is None for d in diag)
 
 
 def test_already_processing_does_not_increment_attempt(db):
@@ -530,12 +537,14 @@ def test_cancellation_after_transcription_before_google_closes_transcript(db):
 
 
 @pytest.mark.parametrize("boundary", ["transcription", "google_definite"])
-def test_pre_output_failures_are_normalized_safe_and_no_retry(db, boundary):
+def test_pre_output_failures_are_normalized_safe_and_no_retry(db, boundary, monkeypatch):
     from studio_api import models as m
     from studio_api.job_elevenlabs_transcription import JobElevenLabsTranscriptionError, JobElevenLabsTranscriptionReason
     from studio_api.job_google_docs_output import JobGoogleDocsOutputError, JobGoogleDocsOutputReason
+    import studio_api.job_processing_orchestrator as orch
     from studio_api.job_processing_orchestrator import JobProcessingOrchestrationError, orchestrate_processing_job
     job, _ = make_job(db, m, status=m.JobStatus.processing); events=[]
+    diag=[]; monkeypatch.setattr(orch, "write_diagnostic_event", lambda **kw: diag.append(kw) or None)
     exc = JobElevenLabsTranscriptionError(JobElevenLabsTranscriptionReason.provider_timeout) if boundary == "transcription" else None
     gexc = JobGoogleDocsOutputError(JobGoogleDocsOutputReason.google_docs_request_rejected) if boundary == "google_definite" else None
     t,g=fakes(events, transcribe_exc=exc, google_exc=gexc)
@@ -544,6 +553,7 @@ def test_pre_output_failures_are_normalized_safe_and_no_retry(db, boundary):
     j=db.get(m.TranscriptionJob, job.id)
     assert j.status == m.JobStatus.failed and "SECRET" not in (j.error_message or "")
     assert len([e for e in events if isinstance(e, tuple) and e[0] == "transcribe"]) == 1
+    assert [d["event_code"] for d in diag if d["event_code"] == "JOB_FAILED"] == ["JOB_FAILED"]
 
 
 @pytest.mark.parametrize("mode", ["uncertain_google", "persistence", "commit"])
