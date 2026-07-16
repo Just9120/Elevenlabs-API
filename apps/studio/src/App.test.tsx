@@ -4824,6 +4824,159 @@ describe("Studio PWA", () => {
     expect(within(projectList).getByText("Research calls")).toBeInTheDocument();
   });
 
+  it("preserves multi-row associations while moving and deleting composer rows", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const folderNames: Record<string, string> = {
+      "folder-alpha": "Folder Alpha",
+      "folder-bravo": "Folder Bravo",
+      "folder-charlie": "Folder Charlie",
+    };
+    const folderIds = ["folder-alpha", "folder-bravo", "folder-charlie"];
+    vi.spyOn(googlePicker, "openGooglePicker").mockImplementation(
+      async (kind) => {
+        expect(kind).toBe("output-folder");
+        const folderId = folderIds.shift() ?? "folder-fallback";
+        return {
+          action: "picked",
+          docs: [{ id: folderId }],
+        } as Awaited<ReturnType<typeof googlePicker.openGooglePicker>>;
+      },
+    );
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        url.endsWith("/api/projects/p1/output-folders/google-picker/verify") &&
+        init?.method === "POST"
+      ) {
+        const body = JSON.parse(String(init.body)) as { folder_id?: string };
+        const folderId = body.folder_id ?? "folder-fallback";
+        const name = folderNames[folderId] ?? "Folder Fallback";
+        return json({
+          id: folderId,
+          name,
+          web_view_url: `https://drive.example/folders/${folderId}`,
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    const getComposerRows = () =>
+      screen
+        .getAllByRole("listitem")
+        .filter((item) => item.classList.contains("composer-row"));
+    const expectRow = async (
+      position: number,
+      sourceText: string,
+      folderText: string,
+      title: string,
+    ) => {
+      const row = getComposerRows()[position - 1];
+      expect(row).toHaveAccessibleName(`Задача ${position}`);
+      expect(within(row).getByText(`Задача ${position}`)).toBeInTheDocument();
+      expect(row).toHaveTextContent(sourceText);
+      expect(row).toHaveTextContent(folderText);
+      await waitFor(() =>
+        expect(
+          within(row).getByLabelText(`Название задачи для строки ${position}`),
+        ).toHaveValue(title),
+      );
+    };
+
+    renderApp("platform");
+    await openProjectsPage();
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
+
+    await chooseExistingSource(1, "Лекция 1");
+    await userEvent.type(
+      screen.getByLabelText("Название задачи для строки 1"),
+      "Alpha title",
+    );
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Выбрать папку результата для строки 1",
+      }),
+    );
+    await screen.findByText("Folder Alpha");
+
+    await userEvent.click(screen.getByRole("button", { name: "Добавить строку" }));
+    await chooseExistingSource(2, "local-temp");
+    await userEvent.type(
+      screen.getByLabelText("Название задачи для строки 2"),
+      "Bravo title",
+    );
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: /папку результата для строки 2/,
+      }),
+    );
+    await screen.findByText("Folder Bravo");
+
+    await userEvent.click(screen.getByRole("button", { name: "Добавить строку" }));
+    const row3 = await screen.findByLabelText("Источник строки 3");
+    await userEvent.upload(
+      within(row3).getByLabelText(
+        "Выбрать файлы с устройства для строки 3",
+      ) as HTMLInputElement,
+      new File(["charlie"], "charlie.ogg", { type: "audio/ogg" }),
+    );
+    await screen.findByText("Загружено файлов: 1.");
+    await userEvent.type(
+      screen.getByLabelText("Название задачи для строки 3"),
+      "Charlie title",
+    );
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: /папку результата для строки 3/,
+      }),
+    );
+    await screen.findByText("Folder Charlie");
+
+    await expectRow(1, "Лекция 1", "Folder Alpha", "Alpha title");
+    await expectRow(2, "local-temp.ogg", "Folder Bravo", "Bravo title");
+    await expectRow(3, "local-source-1.ogg", "Folder Charlie", "Charlie title");
+
+    await userEvent.click(screen.getByRole("button", { name: "Поднять строку 3" }));
+
+    await expectRow(1, "Лекция 1", "Folder Alpha", "Alpha title");
+    await expectRow(2, "local-source-1.ogg", "Folder Charlie", "Charlie title");
+    await expectRow(3, "local-temp.ogg", "Folder Bravo", "Bravo title");
+    expect(screen.getByRole("button", { name: "Поднять строку 1" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Поднять строку 2" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Опустить строку 2" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Удалить строку 2" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Опустить строку 3" })).toBeDisabled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Удалить строку 2" }));
+
+    expect(getComposerRows()).toHaveLength(2);
+    const rowTextAfterDelete = getComposerRows()
+      .map((row) => row.textContent ?? "")
+      .join(" ");
+    expect(rowTextAfterDelete).not.toContain("Folder Charlie");
+    expect(screen.queryByDisplayValue("Charlie title")).not.toBeInTheDocument();
+    await expectRow(1, "Лекция 1", "Folder Alpha", "Alpha title");
+    await expectRow(2, "local-temp.ogg", "Folder Bravo", "Bravo title");
+
+    await userEvent.click(screen.getByRole("button", { name: "Удалить строку 2" }));
+
+    expect(getComposerRows()).toHaveLength(1);
+    await expectRow(1, "Лекция 1", "Folder Alpha", "Alpha title");
+    expect(
+      screen.queryByRole("button", { name: /Поднять строку/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Опустить строку/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Удалить строку/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      baseFetch.mock.calls.some(
+        ([url, init]) =>
+          String(url).startsWith("/api/sources/") && init?.method === "DELETE",
+      ),
+    ).toBe(false);
+  });
+
   it("keeps the final composer row and does not remove its project source", async () => {
     renderApp("platform");
     await openProjectsPage();
