@@ -20,7 +20,8 @@ Capability/status snapshot:
 - Studio PWA is the current development contour intended to duplicate Google Colab product scope with PWA/platform adaptations.
 - Studio PWA source has many platform foundations merged: account/session/BYOK, projects, sources, Google Drive OAuth/metadata/folder-child selection, local temporary upload intake, persisted job records, job UI, preflight/claim-readiness guardrails, and the combined normal-workspace `Подготовка` composer.
 - Studio PWA production processing is not claimed: current source has a dedicated `studio-worker` polling process entrypoint and Compose source wiring, plus internal processing/provider/output boundary slices through safe output persistence, fenced completion, a synchronous single-job orchestrator, an internal one-shot explicit-job claim-and-orchestrate boundary, an internal single-iteration claim-next boundary, and the atomic `/jobs/batch` normal creation path. This source and partial operator evidence still do not prove production-live processing or manifest mutation.
-- Studio job persistence migration rollout remains manual/operator-scoped unless runtime/operator evidence exists; current operator evidence records production database migration `0009_job_output_destinations` as applied.
+- Studio diagnostics backend foundation is source-done/merged and CI-verified through PR #155 (source head `d44c12fa47bc2087d4bc91f6d9bc55dc9ae48434`, merge `ef4b265d9bbb641dfb78d719780ec0a0cfe61440`); operator evidence records production migration `0010_diagnostic_events` applied, API deployed, migrations current/readiness passed, and a scheduled post-migration backup created. This does not claim worker-running or production-live processing.
+- Restic retention isolation fix is source-done/merged through PR #156, and the production checkout was updated to `3bf47ade331f26197b5b878c5c1f4bdb9bd96a87`.
 
 - ✅ **DOCS-REF-01 — Documentation reconciliation and architecture baseline** — merged/completed docs-only reconciliation; no runtime behavior change.
 - ✅ **RT-REF-01 — Refactor realtime frontend boundaries and harden permission-cancellation lifecycle** — merged into main via PR #65; static/generated-JS coverage added; manual permission-cancellation validation remains pending under LIVE-COLAB-PROXY-01.
@@ -89,24 +90,25 @@ Capability/status snapshot:
 - ✅ **PWA-BATCH-COMPOSER-UX-POLISH-02 — Composer row visual polish** — source-done/merged through PR #152 (source head `40f04475214d2a0bb16c2859070db35e4e59218a`, merge commit `c0fda9c41463b90807ad6b881d2f1c063fd61eef`); CI #372 passed and Studio PWA CI #195 passed. Post-merge screenshots factually show the actionable global dashboard, direct project preparation workspace, compact row-first composer, compact readiness, and adding a second row. The same screenshots show project-level `Папка по умолчанию` remains visible and conflicts with the user's many-folder workflow; complete post-PR-152 browser acceptance is not claimed.
 - ✅ **PWA-PROJECT-DEFAULT-FOLDER-REMOVE-01 — Remove project-level default output folder from active Studio workflow** — source-done/merged through PR #153 (source head `ba254de24601caf8d9fc7344ede6ca3556b2f0af`, merge commit `03dc8df7457c75499b83fc63867322a8c7bcc2c3`); CI #375 passed and Studio PWA CI #198 passed. No post-PR-153 deployment or browser acceptance is claimed.
 - ✅ **PWA-DIAGNOSTICS-01-PREP — Diagnostics sequencing contract** — source-done/merged through PR #153 (source head `ba254de24601caf8d9fc7344ede6ca3556b2f0af`, merge commit `03dc8df7457c75499b83fc63867322a8c7bcc2c3`); CI #375 passed and Studio PWA CI #198 passed. This was contract/prep only and did not implement diagnostics runtime surfaces.
-- 👉 **PWA-DIAGNOSTICS-01A — Diagnostics backend foundation** — active in the current PR: separate diagnostic event storage and migration, safe allowlisted writer, request/correlation ids, authenticated owner-scoped query/system/report APIs, retention/deduplication, and normalized API/worker lifecycle events. Do not mark complete or merged while this PR remains open.
-- 📋 **PWA-DIAGNOSTICS-01B — PWA and Settings diagnostics** — planned after 01A: Diagnostics page, bounded DEBUG session control, safe browser/client events, sanitized browser error capture, frontend export action, and accessibility/security tests.
-- ⏸️ **PWA-PROCESSING-ROLLOUT-01A — Manual Studio processing rollout and controlled smoke validation** — paused. Worker-running now, worker image parity now, controlled smoke, provider execution, Google Docs creation, production migration application, deployment, and production-live processing are not claimed.
+- ✅ **PWA-DIAGNOSTICS-01A — Diagnostics backend foundation** — source-done/merged through PR #155 (source head `d44c12fa47bc2087d4bc91f6d9bc55dc9ae48434`, merge `ef4b265d9bbb641dfb78d719780ec0a0cfe61440`); Backend CI #380 and Studio PWA CI #203 passed. Operator evidence records migration `0010_diagnostic_events` applied, production API deployed, readiness/migrations-current passed, and a scheduled post-migration backup created; worker-running and production-live processing are not claimed.
+- 👉 **PWA-DIAGNOSTICS-01B-A — Read-only Settings diagnostics UI and Markdown export** — active item: `Настройки → Диагностика`, safe system state, transcription diagnostics filters/pagination, separate audit section, planned/empty PWA diagnostics copy, Markdown `.md` download, and focused frontend tests.
+- 📋 **PWA-DIAGNOSTICS-01B-B — PWA diagnostics ingestion and bounded DEBUG controls** — planned follow-up: browser/client event capture, global error and unhandled-rejection handling, React error persistence, route/endpoint/service-worker telemetry, and bounded DEBUG session controls.
+- ⏸️ **PWA-PROCESSING-ROLLOUT-01A — Manual Studio processing rollout and controlled smoke validation** — paused. Worker-running now, worker image parity now, controlled smoke, provider execution, Google Docs creation, deployment, and production-live processing are not claimed.
 - 📋 **RUNTIME-01 — Batch source picker / manifest skip / Google Docs output smoke-check** — deferred by current product priority; still planned manual Colab/Drive/Docs validation without claiming pass/fail.
 
-## Active item: PWA-DIAGNOSTICS-01A
+## Active item: PWA-DIAGNOSTICS-01B-A
 
-Status: current open PR. PR #153 is source-done/merged for `PWA-PROJECT-DEFAULT-FOLDER-REMOVE-01` and `PWA-DIAGNOSTICS-01-PREP` with source head `ba254de24601caf8d9fc7344ede6ca3556b2f0af`, merge commit `03dc8df7457c75499b83fc63867322a8c7bcc2c3`, CI #375 passed, and Studio PWA CI #198 passed. No post-PR-153 deployment or browser acceptance is claimed.
+Status: active for the current focused PR. Implement the read-only Settings diagnostics UI and Markdown export against the existing authenticated diagnostics/audit endpoints only.
 
 Current PR scope:
 
-- `PWA-DIAGNOSTICS-01A`: active in this open PR to implement backend-only diagnostic persistence, safe allowlisted server/worker event writing, request/correlation identifiers, owner-scoped diagnostics event querying, safe system summary, finite retention, bounded deduplication, Markdown `.md` report API, and normalized API/worker transcription lifecycle events.
+- `PWA-DIAGNOSTICS-01B-A`: add `Настройки → Диагностика`; render safe system state from `/api/diagnostics/system`; render transcription diagnostics from `/api/diagnostics/events` with bounded filters, loading/empty/error/retry states, and cursor pagination; download Markdown `.md` reports through the CSRF-protected `/api/diagnostics/report.md` endpoint; keep audit records separate; show a planned/empty PWA diagnostics section.
 
 Planned follow-up, not active in this PR:
 
-1. `PWA-DIAGNOSTICS-01B` — PWA and Settings diagnostics page, bounded DEBUG UI/control, safe browser event capture, sanitized browser error handling, frontend export action, and related UI/accessibility/security coverage.
+1. `PWA-DIAGNOSTICS-01B-B` — client/PWA diagnostic ingestion and bounded DEBUG controls, including browser event capture, global error or unhandled-rejection handlers, React error persistence, route/endpoint/service-worker telemetry, and DEBUG session controls.
 
-`PWA-PROCESSING-ROLLOUT-01A` remains paused. `RUNTIME-01` remains deferred. This plan does not claim production migration applied for `0010_diagnostic_events`, diagnostics UI availability, DEBUG control availability, frontend event collection, deployment, current worker-running state, current worker image parity, controlled smoke, provider execution, Google Docs creation, or production-live processing.
+`PWA-PROCESSING-ROLLOUT-01A` remains paused. `RUNTIME-01` remains deferred. This plan does not claim diagnostics client ingestion, DEBUG control availability, deployment, current worker-running state, current worker image parity, controlled smoke, provider execution, Google Docs creation, or production-live processing.
 
 ## Current checkpoint
 
@@ -118,9 +120,13 @@ Current confirmed realtime evidence is partial: one display+microphone run confi
 
 ## Active recommended next item
 
-Current recommended work is completing the open PR scope for `PWA-DIAGNOSTICS-01A`. `PWA-BATCH-COMPOSER-UX-POLISH-02` is already source-done/merged through PR #152 and is not the active next item. `PWA-DIAGNOSTICS-01B` remains the planned follow-up after the backend foundation PR.
+Current recommended work is `PWA-DIAGNOSTICS-01B-A — Read-only Settings diagnostics UI and Markdown export`. It uses the merged diagnostics backend endpoints to add `Настройки → Диагностика`, safe system state, transcription timeline filters/pagination, separate security audit display, planned/empty PWA diagnostics copy, and Markdown `.md` download.
 
-`PWA-DIAGNOSTICS-01A` is active in the current open PR #154. `PWA-DIAGNOSTICS-01B` remains planned for the PWA and Settings diagnostics UI after the backend foundation PR. `PWA-PROCESSING-ROLLOUT-01A` stays paused until worker revalidation plus bounded smoke are explicitly resumed. Worker-running now, worker image parity now, controlled smoke, provider execution, Google Docs creation, and production-live processing are not claimed.
+`PWA-DIAGNOSTICS-01A` is source-done/merged through PR #155 and CI-verified: Backend CI #380 and Studio PWA CI #203 passed. Operator evidence records production migration `0010_diagnostic_events` applied, production API deployed with migrations current/readiness passed, and a scheduled post-migration backup created. Do not claim worker-running or production-live processing from this evidence.
+
+`PWA-DIAGNOSTICS-01B-B` is the remaining diagnostics follow-up for client/PWA diagnostic ingestion and bounded DEBUG controls. It remains separate from 01B-A and must cover any browser event capture, global error or unhandled-rejection handlers, React error persistence, route/endpoint/service-worker telemetry, and DEBUG session controls.
+
+`PWA-PROCESSING-ROLLOUT-01A` stays paused until worker revalidation plus bounded smoke are explicitly resumed. Worker-running now, worker image parity now, controlled smoke, provider execution, Google Docs creation, and production-live processing are not claimed.
 
 **RUNTIME-01** remains deferred.
 

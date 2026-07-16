@@ -23,6 +23,7 @@ const platformMode = import.meta.env.VITE_STUDIO_PLATFORM_MODE === "platform";
 const appUrl =
   import.meta.env.VITE_APP_PUBLIC_URL ?? "https://studio.librechat.online";
 type Page = "dashboard" | "projects" | "new" | "jobs" | "settings";
+type SettingsSection = "account" | "diagnostics";
 type User = { email: string; role: string };
 type Credential = {
   id: string;
@@ -33,6 +34,37 @@ type Credential = {
   active_version?: number;
 };
 type Audit = { id: string; type: string; created_at: string };
+type DiagnosticsSystem = {
+  environment?: string;
+  pwa_mode?: string;
+  build?: { web?: string; api?: string; worker?: string };
+  google_drive?: { connected?: boolean; scope_ready?: boolean };
+  provider_credentials?: { active_count?: number; ready?: boolean };
+  diagnostics?: {
+    recording_enabled?: boolean;
+    debug_recording?: string;
+    retention_days?: number;
+    debug_retention_hours?: number;
+  };
+  report_limits?: { max_days?: number; max_timeline_events?: number };
+};
+type DiagnosticsEvent = {
+  id: string;
+  occurred_at: string;
+  last_occurred_at?: string;
+  level: "ERROR" | "WARNING" | "INFO" | "DEBUG";
+  component: "web" | "api" | "worker";
+  event_code: string;
+  project_id?: string | null;
+  job_id?: string | null;
+  metadata?: Record<string, string | number | boolean | null>;
+  occurrence_count?: number;
+};
+type DiagnosticsEventsResponse = {
+  events: DiagnosticsEvent[];
+  next_cursor?: string | null;
+  period: { start: string; end: string };
+};
 type Project = {
   id: string;
   title: string;
@@ -871,9 +903,7 @@ function PreparationPanel({
   onReloadJobs: (projectId: string) => void;
   onError: (message: string) => void;
 }) {
-  const [rows, setRows] = useState<ComposerRow[]>(() => [
-    newComposerRow(),
-  ]);
+  const [rows, setRows] = useState<ComposerRow[]>(() => [newComposerRow()]);
   const [selectedCredentialId, setSelectedCredentialId] = useState("");
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [credentialsLoading, setCredentialsLoading] = useState(true);
@@ -2519,6 +2549,85 @@ function ProjectsPage({
   );
 }
 
+function boolText(value: boolean | undefined) {
+  if (value === true) return "да";
+  if (value === false) return "нет";
+  return "—";
+}
+function safeText(value: unknown) {
+  if (value === null || value === undefined || value === "") return "—";
+  if (typeof value === "boolean") return value ? "да" : "нет";
+  if (typeof value === "number")
+    return Number.isFinite(value) ? String(value) : "—";
+  return String(value).slice(0, 120);
+}
+function reportFileName() {
+  const stamp = new Date().toISOString().slice(0, 10);
+  return `studio-diagnostics-${stamp}.md`;
+}
+async function diagnosticsReportBlob(
+  filters: DiagnosticsFilters,
+  csrf: string,
+  onCsrf: (csrf: string) => void,
+): Promise<Blob> {
+  const body = JSON.stringify(reportPayload(filters));
+  const send = (token: string) =>
+    fetch(`/api/diagnostics/report.md`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "content-type": "application/json", "x-csrf-token": token },
+      body,
+    });
+  let res = await send(csrf);
+  if (
+    !res.ok &&
+    (res.status === 401 || res.status === 403 || res.status === 419)
+  ) {
+    const refreshed = await api<{ csrf_token: string }>("/auth/csrf", {
+      method: "POST",
+    });
+    onCsrf(refreshed.csrf_token);
+    res = await send(refreshed.csrf_token);
+  }
+  if (!res.ok)
+    throw new Error("Не удалось подготовить Markdown-отчёт. Повторите позже.");
+  return res.blob();
+}
+type DiagnosticsFilters = {
+  days: string;
+  level: string;
+  component: string;
+  eventCode: string;
+  projectId: string;
+  jobId: string;
+};
+function reportPayload(filters: DiagnosticsFilters) {
+  const end = new Date();
+  const days = Math.min(Math.max(Number(filters.days) || 1, 1), 7);
+  const start = new Date(end.getTime() - days * 24 * 60 * 60 * 1000);
+  return {
+    start: start.toISOString(),
+    end: end.toISOString(),
+    level: filters.level || undefined,
+    component: filters.component || undefined,
+    event_code: filters.eventCode.trim() || undefined,
+    project_id: filters.projectId.trim() || undefined,
+    job_id: filters.jobId.trim() || undefined,
+  };
+}
+const diagnosticsMetadataKeys = new Set([
+  "boundary",
+  "error_code",
+  "retryable",
+  "attempt",
+  "attempt_number",
+  "duration_ms",
+  "duration_seconds",
+  "status_category",
+  "source_count",
+  "credential_selected",
+  "safe_count",
+]);
 function auditLabel(type: string) {
   const labels: Record<string, string> = {
     "google.connected": "Google Drive подключён",
@@ -2539,13 +2648,16 @@ function SettingsPage({
   onCsrf,
   onLogout,
   oauthResult,
+  initialSection = "account",
 }: {
   user: User;
   csrf: string;
   onCsrf: (csrf: string) => void;
   onLogout: () => void;
   oauthResult: GoogleOauthResult | null;
+  initialSection?: SettingsSection;
 }) {
+  const [section, setSection] = useState<SettingsSection>(initialSection);
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [events, setEvents] = useState<Audit[]>([]);
   const [googleConnection, setGoogleConnection] =
@@ -2670,216 +2782,539 @@ function SettingsPage({
         : "";
   return (
     <section className="card wide">
-      <h2>Настройки аккаунта</h2>
-      {oauthMessage && (
-        <p className="notice" role="status">
-          {oauthMessage}
-        </p>
-      )}
-      <section className="account-card">
-        <div>
-          <b>{user.email}</b>
-          <span className="muted">{user.role}</span>
-        </div>
-        <button className="secondary" onClick={onLogout}>
-          Выйти
+      <h2>Настройки</h2>
+      <div className="tabs" role="tablist" aria-label="Разделы настроек">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={section === "account"}
+          className={section === "account" ? "active" : ""}
+          onClick={() => setSection("account")}
+        >
+          Аккаунт
         </button>
-      </section>
-      <h3>Ключи провайдеров</h3>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={section === "diagnostics"}
+          className={section === "diagnostics" ? "active" : ""}
+          onClick={() => setSection("diagnostics")}
+        >
+          Диагностика
+        </button>
+      </div>
+      {section === "diagnostics" ? (
+        <DiagnosticsSettings csrf={csrf} onCsrf={onCsrf} auditEvents={events} />
+      ) : (
+        <>
+          <h2>Настройки аккаунта</h2>
+          {oauthMessage && (
+            <p className="notice" role="status">
+              {oauthMessage}
+            </p>
+          )}
+          <section className="account-card">
+            <div>
+              <b>{user.email}</b>
+              <span className="muted">{user.role}</span>
+            </div>
+            <button className="secondary" onClick={onLogout}>
+              Выйти
+            </button>
+          </section>
+          <h3>Ключи провайдеров</h3>
+          <p className="notice">
+            Ключи не сохраняются в браузере и никогда не отображаются обратно.
+          </p>
+          <button
+            type="button"
+            aria-expanded={createCredentialOpen}
+            onClick={() => setCreateCredentialOpen((open) => !open)}
+          >
+            Добавить ключ
+          </button>
+          {createCredentialOpen && (
+            <form className="inline" onSubmit={save} autoComplete="off">
+              <select name="provider" aria-label="Провайдер">
+                <option value="elevenlabs">ElevenLabs</option>
+                <option value="openai">OpenAI</option>
+              </select>
+              <input
+                name="credential_label"
+                autoComplete="off"
+                placeholder="Метка"
+                required
+              />
+              <input
+                name="credential_raw_value"
+                type="password"
+                autoComplete="new-password"
+                spellCheck={false}
+                data-1p-ignore="true"
+                data-lpignore="true"
+                data-bwignore="true"
+                placeholder="Новый ключ"
+                required
+              />
+              <button className="primary">Создать</button>
+              <button
+                type="button"
+                onClick={() => setCreateCredentialOpen(false)}
+              >
+                Отмена
+              </button>
+            </form>
+          )}
+          {error && <p className="error">{error}</p>}
+          <div className="grid">
+            {credentials.map((c) => (
+              <article className="card" key={c.id}>
+                <span className="tag">{c.provider}</span>
+                <h3>{c.label}</h3>
+                <p>
+                  {c.status} · v{c.active_version ?? "—"} · {c.masked_value}
+                </p>
+                <div className="credential-actions">
+                  <button
+                    type="button"
+                    onClick={() => setReplacingCredentialId(c.id)}
+                  >
+                    Заменить
+                  </button>
+                  <button onClick={() => action(`/credentials/${c.id}/revoke`)}>
+                    Отозвать
+                  </button>
+                  <button
+                    className="danger"
+                    onClick={() => action(`/credentials/${c.id}`, "DELETE")}
+                  >
+                    Удалить
+                  </button>
+                </div>
+                {replacingCredentialId === c.id && (
+                  <form
+                    className="inline"
+                    onSubmit={(event) => replace(event, c.id)}
+                    aria-label={`Заменить ключ ${c.label}`}
+                    autoComplete="off"
+                  >
+                    <input
+                      name="replacement_credential_raw_value"
+                      type="password"
+                      autoComplete="new-password"
+                      spellCheck={false}
+                      data-1p-ignore="true"
+                      data-lpignore="true"
+                      data-bwignore="true"
+                      placeholder="Новый ключ для замены"
+                      required
+                    />
+                    <button className="primary">Сохранить</button>
+                    <button
+                      type="button"
+                      onClick={() => setReplacingCredentialId(null)}
+                    >
+                      Отмена
+                    </button>
+                  </form>
+                )}
+              </article>
+            ))}
+          </div>
+          <h3>Google Drive</h3>
+          <p className="notice">
+            Подключите Google Drive, чтобы выбирать файлы и папку результатов.
+          </p>
+          <article className="card">
+            <span className="tag">Google Drive</span>
+            {googleLoading ? (
+              <p>Проверяем статус подключения…</p>
+            ) : googleConnection?.connected ? (
+              <>
+                <h3>Google Drive подключён</h3>
+                <p>
+                  <b>{googleConnection.google_email ?? "—"}</b>
+                </p>
+                <p className="muted">
+                  Подключён {formatTime(googleConnection.connected_at)}
+                </p>
+                <details className="technical-details">
+                  <summary>Технические сведения</summary>
+                  <dl className="meta technical-meta">
+                    <dt>Статус</dt>
+                    <dd>{googleConnection.status ?? "—"}</dd>
+                    <dt>Разрешения</dt>
+                    <dd>{googleConnection.scopes ?? "—"}</dd>
+                    <dt>Отключено</dt>
+                    <dd>{formatTime(googleConnection.revoked_at)}</dd>
+                    <dt>Требуется переподключение</dt>
+                    <dd>
+                      {googleConnection.reconnect_required ? "да" : "нет"}
+                    </dd>
+                  </dl>
+                </details>
+                {googleConnection.reconnect_required && (
+                  <div className="notice" role="status">
+                    Для выбора файлов и папок нужно обновить подключение Google
+                    Drive.
+                  </div>
+                )}
+                {googleConnection.reconnect_required && (
+                  <button
+                    className="primary"
+                    type="button"
+                    disabled={googleStarting}
+                    onClick={connectGoogle}
+                  >
+                    Переподключить Google Drive
+                  </button>
+                )}
+              </>
+            ) : googleConnection ? (
+              <>
+                <h3>Google Drive не подключён</h3>
+                <p>
+                  Подключите аккаунт, чтобы выбирать файлы и папку результатов.
+                </p>
+                {googleConnection.revoked_at && (
+                  <p className="muted">
+                    Статус: {googleConnection.status ?? "revoked"}
+                  </p>
+                )}
+                <button
+                  className="primary"
+                  disabled={googleStarting}
+                  onClick={connectGoogle}
+                >
+                  Подключить Google Drive
+                </button>
+              </>
+            ) : (
+              <p>Google Drive недоступен.</p>
+            )}
+            {googleCanDisconnect && (
+              <button onClick={disconnectGoogle}>Отключить Google Drive</button>
+            )}
+            {googleMessage && <p className="error">{googleMessage}</p>}
+          </article>
+          <details className="card security-log">
+            <summary className="summary-row">
+              <span>Журнал безопасности</span>
+            </summary>
+            <ul>
+              {events
+                .filter((e) => e.type !== "auth.csrf_refreshed")
+                .slice(0, 20)
+                .map((e) => (
+                  <li key={e.id}>
+                    {auditLabel(e.type)} ·{" "}
+                    {new Date(e.created_at).toLocaleString("ru-RU")}
+                  </li>
+                ))}
+            </ul>
+            <details>
+              <summary>Технические события</summary>
+              <ul>
+                {events.slice(0, 20).map((e) => (
+                  <li key={e.id}>
+                    {e.type} · {new Date(e.created_at).toLocaleString("ru-RU")}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          </details>
+        </>
+      )}
+    </section>
+  );
+}
+
+function DiagnosticsSettings({
+  csrf,
+  onCsrf,
+  auditEvents,
+}: {
+  csrf: string;
+  onCsrf: (csrf: string) => void;
+  auditEvents: Audit[];
+}) {
+  const [system, setSystem] = useState<DiagnosticsSystem | null>(null);
+  const [systemState, setSystemState] = useState<"loading" | "ready" | "error">(
+    "loading",
+  );
+  const [filters, setFilters] = useState<DiagnosticsFilters>({
+    days: "1",
+    level: "",
+    component: "",
+    eventCode: "",
+    projectId: "",
+    jobId: "",
+  });
+  const [timeline, setTimeline] = useState<DiagnosticsEvent[]>([]);
+  const [period, setPeriod] = useState<{ start: string; end: string } | null>(
+    null,
+  );
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [eventsState, setEventsState] = useState<"loading" | "ready" | "error">(
+    "loading",
+  );
+  const [exportState, setExportState] = useState("");
+  const loadEvents = (cursor?: string) => {
+    setEventsState("loading");
+    const payload = reportPayload(filters);
+    const params = new URLSearchParams({
+      page_size: "25",
+      start: payload.start,
+      end: payload.end,
+    });
+    if (payload.level) params.set("level", payload.level);
+    if (payload.component) params.set("component", payload.component);
+    if (payload.event_code) params.set("event_code", payload.event_code);
+    if (payload.project_id) params.set("project_id", payload.project_id);
+    if (payload.job_id) params.set("job_id", payload.job_id);
+    if (cursor) params.set("cursor", cursor);
+    api<DiagnosticsEventsResponse>(`/diagnostics/events?${params.toString()}`)
+      .then((r) => {
+        setTimeline((current) =>
+          cursor ? [...current, ...r.events] : r.events,
+        );
+        setPeriod(r.period);
+        setNextCursor(r.next_cursor ?? null);
+        setEventsState("ready");
+      })
+      .catch(() => {
+        if (!cursor) setTimeline([]);
+        setEventsState("error");
+      });
+  };
+  useEffect(() => {
+    api<DiagnosticsSystem>("/diagnostics/system")
+      .then((r) => {
+        setSystem(r);
+        setSystemState("ready");
+      })
+      .catch(() => setSystemState("error"));
+    loadEvents();
+  }, []);
+  const applyFilters = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setTimeline([]);
+    setNextCursor(null);
+    loadEvents();
+  };
+  const updateFilter =
+    (name: keyof DiagnosticsFilters) =>
+    (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+      setFilters((current) => ({ ...current, [name]: event.target.value }));
+  const exportReport = async () => {
+    setExportState("Готовим Markdown-отчёт…");
+    try {
+      const blob = await diagnosticsReportBlob(filters, csrf, onCsrf);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = reportFileName();
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setExportState("Markdown-отчёт скачан.");
+    } catch (err) {
+      setExportState(
+        err instanceof Error
+          ? err.message
+          : "Не удалось скачать Markdown-отчёт.",
+      );
+    }
+  };
+  return (
+    <div className="diagnostics-page">
+      <h2>Диагностика</h2>
       <p className="notice">
-        Ключи не сохраняются в браузере и никогда не отображаются обратно.
+        Раздел показывает только безопасные сведения для вашего аккаунта.
       </p>
-      <button
-        type="button"
-        aria-expanded={createCredentialOpen}
-        onClick={() => setCreateCredentialOpen((open) => !open)}
-      >
-        Добавить ключ
-      </button>
-      {createCredentialOpen && (
-        <form className="inline" onSubmit={save} autoComplete="off">
-          <select name="provider" aria-label="Провайдер">
-            <option value="elevenlabs">ElevenLabs</option>
-            <option value="openai">OpenAI</option>
-          </select>
-          <input
-            name="credential_label"
-            autoComplete="off"
-            placeholder="Метка"
-            required
-          />
-          <input
-            name="credential_raw_value"
-            type="password"
-            autoComplete="new-password"
-            spellCheck={false}
-            data-1p-ignore="true"
-            data-lpignore="true"
-            data-bwignore="true"
-            placeholder="Новый ключ"
-            required
-          />
-          <button className="primary">Создать</button>
-          <button type="button" onClick={() => setCreateCredentialOpen(false)}>
-            Отмена
+      <section className="card" aria-labelledby="system-diagnostics-title">
+        <h3 id="system-diagnostics-title">Состояние системы</h3>
+        {systemState === "loading" && <p role="status">Загружаем состояние…</p>}
+        {systemState === "error" && (
+          <p className="error">
+            Не удалось загрузить состояние. Повторите позже.
+          </p>
+        )}
+        {systemState === "ready" && system && (
+          <dl className="meta">
+            <dt>Сборка веб-приложения</dt>
+            <dd>{safeText(system.build?.web)}</dd>
+            <dt>Сборка API</dt>
+            <dd>{safeText(system.build?.api)}</dd>
+            <dt>Сборка фоновой обработки</dt>
+            <dd>{safeText(system.build?.worker)}</dd>
+            <dt>Среда</dt>
+            <dd>{safeText(system.environment ?? system.pwa_mode)}</dd>
+            <dt>Google Drive подключён</dt>
+            <dd>{boolText(system.google_drive?.connected)}</dd>
+            <dt>Google Drive готов</dt>
+            <dd>{boolText(system.google_drive?.scope_ready)}</dd>
+            <dt>Ключи готовы</dt>
+            <dd>{boolText(system.provider_credentials?.ready)}</dd>
+            <dt>Активных ключей</dt>
+            <dd>{safeText(system.provider_credentials?.active_count)}</dd>
+            <dt>Запись диагностики</dt>
+            <dd>{boolText(system.diagnostics?.recording_enabled)}</dd>
+            <dt>DEBUG-запись</dt>
+            <dd>{safeText(system.diagnostics?.debug_recording)}</dd>
+            <dt>Хранение обычных событий</dt>
+            <dd>{safeText(system.diagnostics?.retention_days)} дней</dd>
+            <dt>Хранение DEBUG</dt>
+            <dd>{safeText(system.diagnostics?.debug_retention_hours)} часов</dd>
+            <dt>Максимум дней в отчёте</dt>
+            <dd>{safeText(system.report_limits?.max_days)}</dd>
+            <dt>Максимум событий в отчёте</dt>
+            <dd>{safeText(system.report_limits?.max_timeline_events)}</dd>
+          </dl>
+        )}
+      </section>
+      <section className="card" aria-labelledby="timeline-title">
+        <h3 id="timeline-title">Диагностика транскрибации</h3>
+        <form className="diagnostics-filters" onSubmit={applyFilters}>
+          <label>
+            Период
+            <select value={filters.days} onChange={updateFilter("days")}>
+              <option value="1">1 день</option>
+              <option value="3">3 дня</option>
+              <option value="7">7 дней</option>
+            </select>
+          </label>
+          <label>
+            Уровень
+            <select value={filters.level} onChange={updateFilter("level")}>
+              <option value="">Все</option>
+              <option value="ERROR">Ошибка</option>
+              <option value="WARNING">Предупреждение</option>
+              <option value="INFO">Информация</option>
+              <option value="DEBUG">DEBUG</option>
+            </select>
+          </label>
+          <label>
+            Компонент
+            <select
+              value={filters.component}
+              onChange={updateFilter("component")}
+            >
+              <option value="">Все</option>
+              <option value="web">Веб</option>
+              <option value="api">API</option>
+              <option value="worker">Фоновая обработка</option>
+            </select>
+          </label>
+          <label>
+            Код события
+            <input
+              value={filters.eventCode}
+              onChange={updateFilter("eventCode")}
+              placeholder="Например JOB_CREATED"
+            />
+          </label>
+          <label>
+            Проект
+            <input
+              value={filters.projectId}
+              onChange={updateFilter("projectId")}
+              placeholder="необязательно"
+            />
+          </label>
+          <label>
+            Задача
+            <input
+              value={filters.jobId}
+              onChange={updateFilter("jobId")}
+              placeholder="необязательно"
+            />
+          </label>
+          <button type="submit">Применить фильтры</button>
+          <button type="button" className="secondary" onClick={exportReport}>
+            Скачать Markdown
           </button>
         </form>
-      )}
-      {error && <p className="error">{error}</p>}
-      <div className="grid">
-        {credentials.map((c) => (
-          <article className="card" key={c.id}>
-            <span className="tag">{c.provider}</span>
-            <h3>{c.label}</h3>
-            <p>
-              {c.status} · v{c.active_version ?? "—"} · {c.masked_value}
-            </p>
-            <div className="credential-actions">
-              <button
-                type="button"
-                onClick={() => setReplacingCredentialId(c.id)}
-              >
-                Заменить
-              </button>
-              <button onClick={() => action(`/credentials/${c.id}/revoke`)}>
-                Отозвать
-              </button>
-              <button
-                className="danger"
-                onClick={() => action(`/credentials/${c.id}`, "DELETE")}
-              >
-                Удалить
-              </button>
-            </div>
-            {replacingCredentialId === c.id && (
-              <form
-                className="inline"
-                onSubmit={(event) => replace(event, c.id)}
-                aria-label={`Заменить ключ ${c.label}`}
-                autoComplete="off"
-              >
-                <input
-                  name="replacement_credential_raw_value"
-                  type="password"
-                  autoComplete="new-password"
-                  spellCheck={false}
-                  data-1p-ignore="true"
-                  data-lpignore="true"
-                  data-bwignore="true"
-                  placeholder="Новый ключ для замены"
-                  required
-                />
-                <button className="primary">Сохранить</button>
-                <button
-                  type="button"
-                  onClick={() => setReplacingCredentialId(null)}
-                >
-                  Отмена
-                </button>
-              </form>
-            )}
-          </article>
-        ))}
-      </div>
-      <h3>Google Drive</h3>
-      <p className="notice">
-        Подключите Google Drive, чтобы выбирать файлы и папку результатов.
-      </p>
-      <article className="card">
-        <span className="tag">Google Drive</span>
-        {googleLoading ? (
-          <p>Проверяем статус подключения…</p>
-        ) : googleConnection?.connected ? (
-          <>
-            <h3>Google Drive подключён</h3>
-            <p>
-              <b>{googleConnection.google_email ?? "—"}</b>
-            </p>
-            <p className="muted">
-              Подключён {formatTime(googleConnection.connected_at)}
-            </p>
-            <details className="technical-details">
-              <summary>Технические сведения</summary>
-              <dl className="meta technical-meta">
-                <dt>Статус</dt>
-                <dd>{googleConnection.status ?? "—"}</dd>
-                <dt>Разрешения</dt>
-                <dd>{googleConnection.scopes ?? "—"}</dd>
-                <dt>Отключено</dt>
-                <dd>{formatTime(googleConnection.revoked_at)}</dd>
-                <dt>Требуется переподключение</dt>
-                <dd>{googleConnection.reconnect_required ? "да" : "нет"}</dd>
-              </dl>
-            </details>
-            {googleConnection.reconnect_required && (
-              <div className="notice" role="status">
-                Для выбора файлов и папок нужно обновить подключение Google
-                Drive.
-              </div>
-            )}
-            {googleConnection.reconnect_required && (
-              <button
-                className="primary"
-                type="button"
-                disabled={googleStarting}
-                onClick={connectGoogle}
-              >
-                Переподключить Google Drive
-              </button>
-            )}
-          </>
-        ) : googleConnection ? (
-          <>
-            <h3>Google Drive не подключён</h3>
-            <p>Подключите аккаунт, чтобы выбирать файлы и папку результатов.</p>
-            {googleConnection.revoked_at && (
-              <p className="muted">
-                Статус: {googleConnection.status ?? "revoked"}
-              </p>
-            )}
-            <button
-              className="primary"
-              disabled={googleStarting}
-              onClick={connectGoogle}
-            >
-              Подключить Google Drive
+        {exportState && <p role="status">{exportState}</p>}
+        {period && (
+          <p className="muted">
+            Период: {formatTime(period.start)} — {formatTime(period.end)}
+          </p>
+        )}
+        {eventsState === "loading" && timeline.length === 0 && (
+          <p role="status">Загружаем события…</p>
+        )}
+        {eventsState === "error" && (
+          <div className="error">
+            <p>Не удалось загрузить события.</p>
+            <button type="button" onClick={() => loadEvents()}>
+              Повторить
             </button>
-          </>
-        ) : (
-          <p>Google Drive недоступен.</p>
+          </div>
         )}
-        {googleCanDisconnect && (
-          <button onClick={disconnectGoogle}>Отключить Google Drive</button>
+        {eventsState === "ready" && timeline.length === 0 && (
+          <p className="notice">За выбранный период событий нет.</p>
         )}
-        {googleMessage && <p className="error">{googleMessage}</p>}
-      </article>
-      <details className="card security-log">
-        <summary className="summary-row">
-          <span>Журнал безопасности</span>
-        </summary>
+        <ul className="diagnostics-events">
+          {timeline.map((event) => (
+            <li key={event.id} className="diagnostics-event">
+              <strong>{event.event_code}</strong>
+              <span>
+                {event.level} · {event.component} ·{" "}
+                {formatTime(event.occurred_at)} · повторов:{" "}
+                {event.occurrence_count ?? 1}
+              </span>
+              {event.metadata && (
+                <dl className="meta compact">
+                  {Object.entries(event.metadata)
+                    .filter(([key]) => diagnosticsMetadataKeys.has(key))
+                    .slice(0, 8)
+                    .map(([key, value]) => (
+                      <div key={key}>
+                        <dt>{safeText(key)}</dt>
+                        <dd>{safeText(value)}</dd>
+                      </div>
+                    ))}
+                </dl>
+              )}
+            </li>
+          ))}
+        </ul>
+        {nextCursor && (
+          <button type="button" onClick={() => loadEvents(nextCursor)}>
+            Показать ещё
+          </button>
+        )}
+      </section>
+      <section className="card" aria-labelledby="pwa-diagnostics-title">
+        <h3 id="pwa-diagnostics-title">Диагностика PWA</h3>
+        <p className="notice">
+          Сбор PWA-диагностики пока не включён. Здесь появятся безопасные
+          события приложения после отдельного включения.
+        </p>
+      </section>
+      <section
+        className="card security-log"
+        aria-labelledby="security-audit-title"
+      >
+        <h3 id="security-audit-title">Аудит безопасности</h3>
+        <p className="muted">Аудит отделён от диагностики транскрибации.</p>
         <ul>
-          {events
+          {auditEvents
             .filter((e) => e.type !== "auth.csrf_refreshed")
             .slice(0, 20)
             .map((e) => (
               <li key={e.id}>
-                {auditLabel(e.type)} ·{" "}
-                {new Date(e.created_at).toLocaleString("ru-RU")}
+                {auditLabel(e.type)} · {formatTime(e.created_at)}
               </li>
             ))}
         </ul>
-        <details>
-          <summary>Технические события</summary>
-          <ul>
-            {events.slice(0, 20).map((e) => (
-              <li key={e.id}>
-                {e.type} · {new Date(e.created_at).toLocaleString("ru-RU")}
-              </li>
-            ))}
-          </ul>
-        </details>
-      </details>
-    </section>
+        {auditEvents.length === 0 && (
+          <p className="notice">Событий аудита нет.</p>
+        )}
+      </section>
+    </div>
   );
 }
 function PlatformShell() {

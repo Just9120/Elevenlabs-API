@@ -214,7 +214,7 @@ Every API response receives a generated opaque `X-Request-ID`; an inbound `X-Cor
 
 The normalized server/worker lifecycle event allowlist covers job creation, claim, processing start, source validation/readiness, provider request start/completion/failure, output creation/persistence, job completion/failure/cancellation, and tightly scoped API/worker failure summaries. Diagnostic metadata must not include arbitrary messages, raw exceptions, stack traces, request/response bodies, URLs, filenames, transcript text, source bytes, tokens, credentials, Google document ids/URLs, environment values, project titles, task titles, or user email. Normal INFO/WARNING/ERROR diagnostics retain for 14 days by default; DEBUG retention is capped at 24 hours.
 
-`PWA-DIAGNOSTICS-01A` does not implement the Settings diagnostics page, frontend export button, browser/PWA event capture, browser error handlers, service-worker diagnostics, bounded DEBUG UI/control, arbitrary client ingestion, remote telemetry, third-party analytics, public report URLs, `.txt` reports, or HTML reports. Those remain in `PWA-DIAGNOSTICS-01B`.
+`PWA-DIAGNOSTICS-01A` does not implement the Settings diagnostics page, frontend export button, browser/PWA event capture, browser error handlers, service-worker diagnostics, bounded DEBUG UI/control, arbitrary client ingestion, remote telemetry, third-party analytics, public report URLs, `.txt` reports, or HTML reports. The read-only Settings diagnostics UI and Markdown export are split into `PWA-DIAGNOSTICS-01B-A`; client/PWA event ingestion and bounded DEBUG controls remain in `PWA-DIAGNOSTICS-01B-B`.
 
 ### Studio processing rollout contract
 

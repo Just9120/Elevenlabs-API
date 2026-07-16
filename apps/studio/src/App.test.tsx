@@ -22,6 +22,12 @@ const json = (body: unknown, ok = true, status = 200) =>
     status,
     json: () => Promise.resolve(body),
     text: () => Promise.resolve(JSON.stringify(body)),
+    blob: () =>
+      Promise.resolve(
+        body instanceof Blob
+          ? body
+          : new Blob([JSON.stringify(body)], { type: "application/json" }),
+      ),
   } as Response);
 function renderApp(mode: "static" | "platform") {
   render(<App mode={mode} />);
@@ -649,7 +655,9 @@ describe("Studio PWA", () => {
             ],
           });
         if (
-          url.endsWith("/api/projects/p1/output-folders/google-picker/verify") &&
+          url.endsWith(
+            "/api/projects/p1/output-folders/google-picker/verify",
+          ) &&
           init?.method === "POST"
         )
           return json({
@@ -732,6 +740,34 @@ describe("Studio PWA", () => {
               },
             ],
           });
+        if (url.endsWith("/api/diagnostics/system"))
+          return json({
+            environment: "production",
+            build: { web: "web-safe", api: "api-safe", worker: "worker-safe" },
+            google_drive: { connected: true, scope_ready: true },
+            provider_credentials: { active_count: 1, ready: true },
+            diagnostics: {
+              recording_enabled: true,
+              debug_recording: "inactive",
+              retention_days: 14,
+              debug_retention_hours: 24,
+            },
+            report_limits: { max_days: 7, max_timeline_events: 5000 },
+          });
+        if (url.includes("/api/diagnostics/events"))
+          return json({
+            events: [],
+            next_cursor: null,
+            period: {
+              start: "2026-07-15T00:00:00",
+              end: "2026-07-16T00:00:00",
+            },
+          });
+        if (
+          url.endsWith("/api/diagnostics/report.md") &&
+          init?.method === "POST"
+        )
+          return json(new Blob(["# Safe report"], { type: "text/markdown" }));
         if (url.endsWith("/api/google/connection") && init?.method === "DELETE")
           return json({
             connected: false,
@@ -1738,6 +1774,34 @@ describe("Studio PWA", () => {
           return json({ csrf_token: "csrf-after-refresh" });
         if (url.endsWith("/api/credentials")) return json({ credentials: [] });
         if (url.endsWith("/api/audit-events")) return json({ events: [] });
+        if (url.endsWith("/api/diagnostics/system"))
+          return json({
+            environment: "production",
+            build: { web: "web-safe", api: "api-safe", worker: "worker-safe" },
+            google_drive: { connected: true, scope_ready: true },
+            provider_credentials: { active_count: 1, ready: true },
+            diagnostics: {
+              recording_enabled: true,
+              debug_recording: "inactive",
+              retention_days: 14,
+              debug_retention_hours: 24,
+            },
+            report_limits: { max_days: 7, max_timeline_events: 5000 },
+          });
+        if (url.includes("/api/diagnostics/events"))
+          return json({
+            events: [],
+            next_cursor: null,
+            period: {
+              start: "2026-07-15T00:00:00",
+              end: "2026-07-16T00:00:00",
+            },
+          });
+        if (
+          url.endsWith("/api/diagnostics/report.md") &&
+          init?.method === "POST"
+        )
+          return json(new Blob(["# Safe report"], { type: "text/markdown" }));
         if (url.endsWith("/api/google/connection") && init?.method === "DELETE")
           return json({
             connected: false,
@@ -2784,17 +2848,23 @@ describe("Studio PWA", () => {
       }),
     ).toBeInTheDocument();
     await userEvent.click(
-      screen.getByRole("button", { name: "Выбрать папку результата для строки 1" }),
+      screen.getByRole("button", {
+        name: "Выбрать папку результата для строки 1",
+      }),
     );
     await picker.waitForCallback();
     picker.trigger({ action: "picked", docs: [{ id: "folder-1" }] });
     await screen.findByText("Default folder");
     await userEvent.click(
-      screen.getByRole("button", { name: "Выбрать папку результата для строки 2" }),
+      screen.getByRole("button", {
+        name: "Выбрать папку результата для строки 2",
+      }),
     );
     await picker.waitForCallback();
     picker.trigger({ action: "picked", docs: [{ id: "folder-2" }] });
-    await waitFor(() => expect(screen.getAllByText("Default folder").length).toBeGreaterThan(1));
+    await waitFor(() =>
+      expect(screen.getAllByText("Default folder").length).toBeGreaterThan(1),
+    );
     await userEvent.click(
       screen.getByRole("button", { name: /Создать задачи \(\d+\)/ }),
     );
@@ -4071,9 +4141,21 @@ describe("Studio PWA", () => {
 
   it("keeps row folder selection unavailable for reconnect or Picker readiness problems", async () => {
     const scenarios = [
-      { reconnect_required: true, picker_scope_ready: true, picker_configured: true },
-      { reconnect_required: false, picker_scope_ready: false, picker_configured: true },
-      { reconnect_required: false, picker_scope_ready: true, picker_configured: false },
+      {
+        reconnect_required: true,
+        picker_scope_ready: true,
+        picker_configured: true,
+      },
+      {
+        reconnect_required: false,
+        picker_scope_ready: false,
+        picker_configured: true,
+      },
+      {
+        reconnect_required: false,
+        picker_scope_ready: true,
+        picker_configured: false,
+      },
     ];
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = baseFetch.getMockImplementation();
@@ -4204,7 +4286,8 @@ describe("Studio PWA", () => {
     await screen.findByText("Выбор файлов отменён.");
     expect(
       (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
-        ([url]) => url === "/api/projects/p1/output-folders/google-picker/verify",
+        ([url]) =>
+          url === "/api/projects/p1/output-folders/google-picker/verify",
       ),
     ).toBe(false);
 
@@ -4229,7 +4312,8 @@ describe("Studio PWA", () => {
     ).toBeInTheDocument();
     expect(
       (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
-        ([url]) => url === "/api/projects/p1/output-folders/google-picker/verify",
+        ([url]) =>
+          url === "/api/projects/p1/output-folders/google-picker/verify",
       ),
     ).toBe(false);
     expect(document.body.textContent).not.toContain("raw-google-payload");
@@ -4253,7 +4337,8 @@ describe("Studio PWA", () => {
     ).toBeInTheDocument();
     expect(
       (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
-        ([url]) => url === "/api/projects/p1/output-folders/google-picker/verify",
+        ([url]) =>
+          url === "/api/projects/p1/output-folders/google-picker/verify",
       ),
     ).toBe(false);
   });
@@ -4481,9 +4566,7 @@ describe("Studio PWA", () => {
     );
     expect(JSON.parse(String(createCall?.[1]?.body))).toEqual({
       provider_credential_id: null,
-      items: [
-        { source_id: "s1", output_folder_id: "folder-123", title: null },
-      ],
+      items: [{ source_id: "s1", output_folder_id: "folder-123", title: null }],
     });
     expect(window.localStorage.length).toBe(0);
     expect(window.sessionStorage.length).toBe(0);
@@ -5036,7 +5119,9 @@ describe("Studio PWA", () => {
     );
     await screen.findByText("Folder Alpha");
 
-    await userEvent.click(screen.getByRole("button", { name: "Добавить строку" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Добавить строку" }),
+    );
     await chooseExistingSource(2, "local-temp");
     await userEvent.type(
       screen.getByLabelText("Название задачи для строки 2"),
@@ -5049,7 +5134,9 @@ describe("Studio PWA", () => {
     );
     await screen.findByText("Folder Bravo");
 
-    await userEvent.click(screen.getByRole("button", { name: "Добавить строку" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Добавить строку" }),
+    );
     const row3 = await screen.findByLabelText("Источник строки 3");
     await userEvent.upload(
       within(row3).getByLabelText(
@@ -5073,18 +5160,32 @@ describe("Studio PWA", () => {
     await expectRow(2, "local-temp.ogg", "Folder Bravo", "Bravo title");
     await expectRow(3, "local-source-1.ogg", "Folder Charlie", "Charlie title");
 
-    await userEvent.click(screen.getByRole("button", { name: "Поднять строку 3" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Поднять строку 3" }),
+    );
 
     await expectRow(1, "Лекция 1", "Folder Alpha", "Alpha title");
     await expectRow(2, "local-source-1.ogg", "Folder Charlie", "Charlie title");
     await expectRow(3, "local-temp.ogg", "Folder Bravo", "Bravo title");
-    expect(screen.getByRole("button", { name: "Поднять строку 1" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Поднять строку 2" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Опустить строку 2" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Удалить строку 2" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Опустить строку 3" })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Поднять строку 1" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Поднять строку 2" }),
+    ).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "Опустить строку 2" }),
+    ).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "Удалить строку 2" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Опустить строку 3" }),
+    ).toBeDisabled();
 
-    await userEvent.click(screen.getByRole("button", { name: "Удалить строку 2" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Удалить строку 2" }),
+    );
 
     expect(getComposerRows()).toHaveLength(2);
     const rowTextAfterDelete = getComposerRows()
@@ -5095,7 +5196,9 @@ describe("Studio PWA", () => {
     await expectRow(1, "Лекция 1", "Folder Alpha", "Alpha title");
     await expectRow(2, "local-temp.ogg", "Folder Bravo", "Bravo title");
 
-    await userEvent.click(screen.getByRole("button", { name: "Удалить строку 2" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Удалить строку 2" }),
+    );
 
     expect(getComposerRows()).toHaveLength(1);
     await expectRow(1, "Лекция 1", "Folder Alpha", "Alpha title");
@@ -5340,5 +5443,309 @@ describe("Studio PWA", () => {
     ]);
     expect(plan[1].error).toMatch(/позже/);
     expect(plan[2].endLabel).toBe("До конца записи");
+  });
+});
+
+describe("settings diagnostics", () => {
+  beforeEach(() => {
+    cleanup();
+    localStorage.clear();
+    sessionStorage.clear();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => json({ ok: true })),
+    );
+  });
+
+  async function openDiagnosticsSettings() {
+    await openSettingsPage();
+    await userEvent.click(screen.getByRole("tab", { name: "Диагностика" }));
+    await screen.findByRole("heading", { name: "Диагностика" });
+  }
+
+  it("static mode performs zero diagnostics or audit API calls", async () => {
+    renderApp("static");
+    await screen.findByRole("heading", { name: "Панель готова к установке" });
+    expect(fetch).not.toHaveBeenCalledWith(
+      expect.stringContaining("/api/diagnostics"),
+      expect.anything(),
+    );
+    expect(fetch).not.toHaveBeenCalledWith(
+      expect.stringContaining("/api/audit-events"),
+      expect.anything(),
+    );
+  });
+
+  it("opens platform Settings diagnostics and renders safe system, timeline, PWA, and separate audit sections", async () => {
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (url: string, init?: RequestInit) => {
+        if (url.endsWith("/api/auth/session"))
+          return json({
+            authenticated: true,
+            user: { email: "user@example.com", role: "admin" },
+          });
+        if (url.endsWith("/api/auth/csrf"))
+          return json({ csrf_token: "csrf-after-refresh" });
+        if (url.endsWith("/api/credentials")) return json({ credentials: [] });
+        if (url.endsWith("/api/google/connection"))
+          return json({
+            connected: false,
+            status: null,
+            google_email: null,
+            scopes: null,
+            connected_at: null,
+            revoked_at: null,
+          });
+        if (url.endsWith("/api/audit-events"))
+          return json({
+            events: [
+              {
+                id: "audit-1",
+                type: "auth.login",
+                created_at: "2026-07-16T10:00:00Z",
+              },
+            ],
+          });
+        if (url.endsWith("/api/diagnostics/system"))
+          return json({
+            environment: "production",
+            build: {
+              web: "web-build",
+              api: "api-build",
+              worker: "worker-build",
+            },
+            google_drive: { connected: true, scope_ready: false },
+            provider_credentials: { active_count: 2, ready: true },
+            diagnostics: {
+              recording_enabled: true,
+              debug_recording: "inactive",
+              retention_days: 14,
+              debug_retention_hours: 24,
+            },
+            report_limits: { max_days: 7, max_timeline_events: 5000 },
+            secret_path: "/secret/path/forbidden",
+          });
+        if (url.includes("/api/diagnostics/events"))
+          return json({
+            events: [
+              {
+                id: "evt-1",
+                occurred_at: "2026-07-16T09:00:00Z",
+                level: "ERROR",
+                component: "api",
+                event_code: "JOB_FAILED",
+                correlation_id: "corr_should_not_render",
+                request_id: "req_should_not_render",
+                metadata: {
+                  boundary: "provider",
+                  retryable: true,
+                  filename: "forbidden.mp3",
+                  transcript: "forbidden transcript",
+                  safe_count: 3,
+                },
+                occurrence_count: 2,
+              },
+            ],
+            next_cursor: "cursor-secret",
+            period: {
+              start: "2026-07-15T00:00:00Z",
+              end: "2026-07-16T00:00:00Z",
+            },
+          });
+        if (
+          url.endsWith("/api/diagnostics/report.md") &&
+          init?.method === "POST"
+        )
+          return json(new Blob(["# report"], { type: "text/markdown" }));
+        return json({ ok: true });
+      },
+    );
+
+    renderApp("platform");
+    await openDiagnosticsSettings();
+
+    expect(screen.getByRole("tab", { name: "Диагностика" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(await screen.findByText("web-build")).toBeInTheDocument();
+    expect(screen.getByText("api-build")).toBeInTheDocument();
+    expect(screen.getByText("worker-build")).toBeInTheDocument();
+    expect(screen.getByText("JOB_FAILED")).toBeInTheDocument();
+    expect(screen.getByText("boundary")).toBeInTheDocument();
+    expect(screen.getByText("retryable")).toBeInTheDocument();
+    expect(screen.getByText("safe_count")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Диагностика PWA" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/пока не включён/)).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Аудит безопасности" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Вход выполнен/)).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("corr_should_not_render");
+    expect(document.body.textContent).not.toContain("req_should_not_render");
+    expect(document.body.textContent).not.toContain("cursor-secret");
+    expect(document.body.textContent).not.toContain("/secret/path/forbidden");
+    expect(document.body.textContent).not.toContain("forbidden.mp3");
+    expect(document.body.textContent).not.toContain("forbidden transcript");
+    expect(localStorage.length).toBe(0);
+    expect(sessionStorage.length).toBe(0);
+  });
+
+  it("supports filters, cursor pagination without persistence, and Markdown Blob download with CSRF and URL revocation", async () => {
+    const originalURL = URL;
+    const createObjectURL = vi.fn(() => "blob:diagnostics-report");
+    const revokeObjectURL = vi.fn();
+    originalURL.createObjectURL = createObjectURL;
+    originalURL.revokeObjectURL = revokeObjectURL;
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => undefined);
+    let eventsCalls = 0;
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (url: string, init?: RequestInit) => {
+        if (url.endsWith("/api/auth/session"))
+          return json({
+            authenticated: true,
+            user: { email: "user@example.com", role: "admin" },
+          });
+        if (url.endsWith("/api/auth/csrf"))
+          return json({ csrf_token: "csrf-after-refresh" });
+        if (url.endsWith("/api/credentials")) return json({ credentials: [] });
+        if (url.endsWith("/api/google/connection"))
+          return json({
+            connected: false,
+            status: null,
+            google_email: null,
+            scopes: null,
+            connected_at: null,
+            revoked_at: null,
+          });
+        if (url.endsWith("/api/audit-events")) return json({ events: [] });
+        if (url.endsWith("/api/diagnostics/system"))
+          return json({
+            build: {},
+            diagnostics: {},
+            google_drive: {},
+            provider_credentials: {},
+            report_limits: {},
+          });
+        if (url.includes("/api/diagnostics/events")) {
+          eventsCalls += 1;
+          return json({
+            events: [
+              {
+                id: `evt-${eventsCalls}`,
+                occurred_at: "2026-07-16T09:00:00Z",
+                level: "INFO",
+                component: "worker",
+                event_code: eventsCalls > 1 ? "JOB_COMPLETED" : "JOB_CREATED",
+                metadata: { attempt: eventsCalls },
+                occurrence_count: 1,
+              },
+            ],
+            next_cursor: eventsCalls === 1 ? "opaque-cursor" : null,
+            period: {
+              start: "2026-07-15T00:00:00Z",
+              end: "2026-07-16T00:00:00Z",
+            },
+          });
+        }
+        if (
+          url.endsWith("/api/diagnostics/report.md") &&
+          init?.method === "POST"
+        )
+          return json(new Blob(["# Markdown"], { type: "text/markdown" }));
+        return json({ ok: true });
+      },
+    );
+
+    renderApp("platform");
+    await openDiagnosticsSettings();
+    await screen.findByText("JOB_CREATED");
+    await userEvent.click(screen.getByRole("button", { name: "Показать ещё" }));
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining("cursor=opaque-cursor"),
+        expect.anything(),
+      ),
+    );
+    await userEvent.selectOptions(screen.getByLabelText("Период"), "7");
+    await userEvent.selectOptions(screen.getByLabelText("Уровень"), "INFO");
+    await userEvent.selectOptions(screen.getByLabelText("Компонент"), "worker");
+    await userEvent.type(screen.getByLabelText("Код события"), "JOB_COMPLETED");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Применить фильтры" }),
+    );
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining("level=INFO"),
+        expect.anything(),
+      ),
+    );
+    expect(localStorage.length).toBe(0);
+    expect(sessionStorage.length).toBe(0);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Скачать Markdown" }),
+    );
+    const reportCall = (
+      fetch as unknown as ReturnType<typeof vi.fn>
+    ).mock.calls.find(([url]) =>
+      String(url).endsWith("/api/diagnostics/report.md"),
+    );
+    expect(reportCall?.[1]?.headers).toMatchObject({
+      "x-csrf-token": "csrf-after-refresh",
+    });
+    expect(reportCall?.[1]?.body).toContain('"level":"INFO"');
+    await waitFor(() =>
+      expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob)),
+    );
+    expect(clickSpy).toHaveBeenCalled();
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:diagnostics-report");
+    expect(document.body.innerHTML).not.toContain(".txt");
+    expect(document.body.innerHTML).not.toContain("text/html");
+    expect(document.body.innerHTML).not.toContain("application/json");
+    expect(document.body.innerHTML).not.toContain("https://");
+    clickSpy.mockRestore();
+  });
+
+  it("shows loading, empty, error, and retry states", async () => {
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (url: string) => {
+        if (url.endsWith("/api/auth/session"))
+          return json({
+            authenticated: true,
+            user: { email: "user@example.com", role: "admin" },
+          });
+        if (url.endsWith("/api/auth/csrf"))
+          return json({ csrf_token: "csrf-after-refresh" });
+        if (url.endsWith("/api/credentials")) return json({ credentials: [] });
+        if (url.endsWith("/api/google/connection"))
+          return json({
+            connected: false,
+            status: null,
+            google_email: null,
+            scopes: null,
+            connected_at: null,
+            revoked_at: null,
+          });
+        if (url.endsWith("/api/audit-events")) return json({ events: [] });
+        if (url.endsWith("/api/diagnostics/system"))
+          return json({}, false, 500);
+        if (url.includes("/api/diagnostics/events"))
+          return json({}, false, 500);
+        return json({ ok: true });
+      },
+    );
+    renderApp("platform");
+    await openDiagnosticsSettings();
+    expect(
+      screen.getByText(/Не удалось загрузить состояние/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Повторить" }),
+    ).toBeInTheDocument();
   });
 });
