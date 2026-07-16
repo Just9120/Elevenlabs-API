@@ -1267,7 +1267,12 @@ function PreparationPanel({
     });
   }
   async function chooseRowFolder(rowId: string) {
-    if (pickerBusy || rowFolderPickerRef.current) return;
+    if (
+      googleConnection?.picker_ready !== true ||
+      pickerBusy ||
+      rowFolderPickerRef.current
+    )
+      return;
     rowFolderPickerRef.current = true;
     setPickerBusy(true);
     setMessage("");
@@ -1699,7 +1704,7 @@ function PreparationPanel({
                       <button
                         type="button"
                         className="secondary"
-                        disabled={pickerBusy}
+                        disabled={!googleConnection?.picker_ready || pickerBusy}
                         onClick={() => void chooseRowFolder(row.id)}
                         aria-label={`Выбрать папку результата для строки ${index + 1}`}
                       >
