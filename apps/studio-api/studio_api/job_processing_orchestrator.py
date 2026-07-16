@@ -26,6 +26,7 @@ from .job_processing_lifecycle import (
     fail_job_processing,
 )
 from .models import JobSourceStatus, JobStatus, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource
+from .diagnostics import write_diagnostic_event
 from .security import utcnow
 
 
@@ -110,6 +111,7 @@ def orchestrate_processing_job(
         google_entered = False
         try:
             try:
+                _emit(db, job_id, "SOURCE_VALIDATION_STARTED", metadata={"attempt_number": _attempt(db, job_id)})
                 transcript_cm = transcription_opener(
                     db,
                     job_id=job_id,
@@ -122,6 +124,7 @@ def orchestrate_processing_job(
                 )
                 transcript = transcript_cm.__enter__()
                 transcript_entered = True
+                _emit(db, job_id, "SOURCE_READY", metadata={"attempt_number": _attempt(db, job_id)})
             except Exception as exc:
                 result = _handle_pre_output_failure(
                     db,
@@ -142,6 +145,7 @@ def orchestrate_processing_job(
                 return before_google
             _renew_and_commit(db, job_id, lease_owner_id, lease_generation, lease_ttl, clock, lease_renewer)
             try:
+                _emit(db, job_id, "OUTPUT_CREATION_STARTED", metadata={"attempt_number": _attempt(db, job_id)})
                 google_cm = google_docs_opener(
                     db,
                     job_id=job_id,
@@ -198,6 +202,9 @@ def orchestrate_processing_job(
                 )
                 try:
                     _commit(db, JobProcessingOrchestrationReason.output_reconciliation_required)
+                    _emit(db, job_id, "OUTPUT_PERSISTED", metadata={"output_count": persisted.persisted_output_count, "attempt_number": _attempt(db, job_id)})
+                    if persisted.completed:
+                        _emit(db, job_id, "JOB_COMPLETED", metadata={"final_job_status": "completed", "output_count": persisted.persisted_output_count})
                 except JobProcessingOrchestrationError as exc:
                     _record_output_uncertainty(db, job_id, lease_owner_id, lease_generation, clock, "commit_failed")
                     raise
@@ -276,6 +283,7 @@ def _enter_processing(db, job_id, owner, generation, clock) -> None:
         try:
             begin_job_processing(db, job_id=job_id, lease_owner_id=owner, lease_generation=generation, now=clock())
             _commit(db, JobProcessingOrchestrationReason.processing_start_failed)
+            _emit(db, job_id, "PROCESSING_STARTED", metadata={"attempt_number": _attempt(db, job_id)})
         except JobProcessingOrchestrationError:
             raise
         except Exception as exc:
@@ -306,6 +314,7 @@ def _checkpoint(db, job_id, owner, generation, clock, processed):
         try:
             acknowledge_job_cancellation(db, job_id=job_id, lease_owner_id=owner, lease_generation=generation, now=clock())
             _commit(db, JobProcessingOrchestrationReason.commit_failed)
+            _emit(db, job_id, "JOB_CANCELLED", metadata={"final_job_status": "cancelled"})
         except Exception as exc:
             db.rollback()
             raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.commit_failed) from exc
@@ -380,6 +389,7 @@ def _handle_pre_output_failure(db, job_id, owner, generation, clock, processed, 
 def _safe_fail(db, job_id, owner, generation, clock, code, message):
     fail_job_processing(db, job_id=job_id, lease_owner_id=owner, lease_generation=generation, now=clock(), error_code=code, error_message=message)
     _commit(db, JobProcessingOrchestrationReason.commit_failed)
+    _emit(db, job_id, "JOB_FAILED", metadata={"final_job_status": "failed", "error_code": str(code)[:80] if code else "unknown"})
 
 
 def _record_output_uncertainty(db, job_id, owner, generation, clock, message):
@@ -407,3 +417,19 @@ def _commit(db, reason):
     except Exception as exc:
         db.rollback()
         raise JobProcessingOrchestrationError(reason) from exc
+
+
+def _attempt(db, job_id) -> int:
+    try:
+        job = db.get(TranscriptionJob, job_id)
+        return int(job.attempt_count or 0) if job else 0
+    except Exception:
+        return 0
+
+def _emit(db, job_id, event_code, metadata=None, level=None):
+    try:
+        job = db.get(TranscriptionJob, job_id)
+        if job is not None:
+            write_diagnostic_event(owner_user_id=job.owner_user_id, component="worker", event_code=event_code, level=level, project_id=job.project_id, job_id=job.id, metadata=metadata or {})
+    except Exception:
+        pass

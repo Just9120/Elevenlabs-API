@@ -15,6 +15,8 @@ class SourceType(str, enum.Enum): local_upload="local_upload"; google_drive="goo
 class SourceUploadStatus(str, enum.Enum): pending="pending"; uploaded="uploaded"; deleted="deleted"; expired="expired"; failed="failed"
 class JobStatus(str, enum.Enum): queued="queued"; processing="processing"; cancelled="cancelled"; failed="failed"; completed="completed"
 class JobSourceStatus(str, enum.Enum): queued="queued"; skipped="skipped"
+class DiagnosticLevel(str, enum.Enum): ERROR="ERROR"; WARNING="WARNING"; INFO="INFO"; DEBUG="DEBUG"
+class DiagnosticComponent(str, enum.Enum): web="web"; api="api"; worker="worker"
 
 class User(Base):
     __tablename__="users"
@@ -229,3 +231,33 @@ class AuditEvent(Base):
     event_type: Mapped[str]=mapped_column(String(80), index=True)
     metadata_json: Mapped[str]=mapped_column(Text, default="{}")
     created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now)
+
+
+class DiagnosticEvent(Base):
+    __tablename__="diagnostic_events"
+    id: Mapped[str]=mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_user_id: Mapped[str]=mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    project_id: Mapped[str|None]=mapped_column(ForeignKey("projects.id"), nullable=True)
+    job_id: Mapped[str|None]=mapped_column(ForeignKey("transcription_jobs.id"), nullable=True)
+    level: Mapped[DiagnosticLevel]=mapped_column(Enum(DiagnosticLevel), nullable=False)
+    component: Mapped[DiagnosticComponent]=mapped_column(Enum(DiagnosticComponent), nullable=False)
+    event_code: Mapped[str]=mapped_column(String(80), nullable=False)
+    correlation_id: Mapped[str|None]=mapped_column(String(128))
+    request_id: Mapped[str|None]=mapped_column(String(128))
+    metadata_json: Mapped[str]=mapped_column(Text, nullable=False, default="{}")
+    first_occurred_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now)
+    last_occurred_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now)
+    occurrence_count: Mapped[int]=mapped_column(Integer, nullable=False, default=1, server_default=text("1"))
+    dedup_fingerprint: Mapped[str]=mapped_column(String(64), nullable=False, unique=True)
+    dedup_bucket: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False)
+    __table_args__=(
+        CheckConstraint("level IN ('ERROR','WARNING','INFO','DEBUG')", name="ck_diagnostic_events_level"),
+        CheckConstraint("component IN ('web','api','worker')", name="ck_diagnostic_events_component"),
+        CheckConstraint("occurrence_count >= 1", name="ck_diagnostic_events_occurrence_count"),
+        Index("ix_diagnostic_events_owner_time", "owner_user_id", "first_occurred_at"),
+        Index("ix_diagnostic_events_owner_project_time", "owner_user_id", "project_id", "first_occurred_at"),
+        Index("ix_diagnostic_events_owner_job_time", "owner_user_id", "job_id", "first_occurred_at"),
+        Index("ix_diagnostic_events_owner_component_level_time", "owner_user_id", "component", "level", "first_occurred_at"),
+        Index("ix_diagnostic_events_expires_at", "expires_at"),
+    )

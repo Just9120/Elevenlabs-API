@@ -29,6 +29,7 @@ from .job_source_materialization import (
 )
 from .models import CredentialStatus, JobStatus, Project, ProviderCredential, ProviderCredentialVersion, TranscriptionJob
 from .security import utcnow
+from .diagnostics import write_diagnostic_event
 from .source_storage import safe_filename
 
 
@@ -121,6 +122,7 @@ def transcribe_processing_job_source_with_elevenlabs(
             try:
                 language = _final_pre_provider_revalidate(db, job_id, job_source_id, lease_owner_id, lease_generation, settings, clock(), prereq, source)
                 try:
+                    _emit_provider(db, job_id, "PROVIDER_REQUEST_STARTED", {"attempt_number": _attempt(db, job_id)})
                     result = _call_transport(
                         transport,
                         api_key=prereq.raw_credential_secret,
@@ -130,8 +132,11 @@ def transcribe_processing_job_source_with_elevenlabs(
                         language_code=language,
                     )
                 except ElevenLabsTranscriptionError as exc:
-                    raise JobElevenLabsTranscriptionError(_map_provider_reason(exc.reason)) from exc
+                    mapped=_map_provider_reason(exc.reason)
+                    _emit_provider(db, job_id, "PROVIDER_REQUEST_FAILED", {"error_code": mapped.value, "retryable": mapped.value in {"provider_rate_limited","provider_unavailable","provider_timeout"}, "attempt_number": _attempt(db, job_id)})
+                    raise JobElevenLabsTranscriptionError(mapped) from exc
                 _post_provider_lifecycle_revalidate(db, job_id, lease_owner_id, lease_generation, clock())
+                _emit_provider(db, job_id, "PROVIDER_REQUEST_COMPLETED", {"attempt_number": _attempt(db, job_id)})
                 yield result
             finally:
                 source_cm.__exit__(None, None, None)
@@ -259,3 +264,19 @@ def _load_lifecycle(db, job_id, owner, generation, now) -> _LifecycleSnapshot:
 
 def _map_provider_reason(reason: ElevenLabsTranscriptionReason) -> JobElevenLabsTranscriptionReason:
     return JobElevenLabsTranscriptionReason(reason.value)
+
+
+def _attempt(db, job_id) -> int:
+    try:
+        job = db.get(TranscriptionJob, job_id)
+        return int(job.attempt_count or 0) if job else 0
+    except Exception:
+        return 0
+
+def _emit_provider(db, job_id, event_code, metadata):
+    try:
+        job = db.get(TranscriptionJob, job_id)
+        if job is not None:
+            write_diagnostic_event(owner_user_id=job.owner_user_id, component="worker", event_code=event_code, project_id=job.project_id, job_id=job.id, metadata=metadata)
+    except Exception:
+        pass

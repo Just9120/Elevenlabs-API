@@ -1,7 +1,7 @@
 import hashlib, json, re
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response as FastAPIResponse
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy import text, func
 from sqlalchemy.exc import IntegrityError
@@ -21,12 +21,29 @@ from .google_connection_access import GoogleConnectionAccessError, GoogleConnect
 from .google_scopes import has_drive_file_scope
 from .job_lifecycle import safe_failure_metadata_value
 from .job_processing_lifecycle import request_job_cancellation
+from .diagnostics import REGISTRY, cleanup_expired_diagnostics, decode_cursor, encode_cursor, markdown_escape, new_opaque_id, sanitize_build_id, valid_opaque_id, write_diagnostic_event
 from .job_output_read import browser_job_output_payload, load_browser_job_output_rows
 from .job_output_folder_selection import VerifiedOutputFolderSelection, verify_output_folder_selection
 
 settings=get_settings()
 app=FastAPI(docs_url="/docs" if settings.enable_api_docs else None, redoc_url=None, openapi_url="/openapi.json" if settings.enable_api_docs else None)
 limiter=RateLimiter()
+
+@app.middleware("http")
+async def request_correlation_middleware(request: Request, call_next):
+    request_id = new_opaque_id("req")
+    incoming = request.headers.get("x-correlation-id")
+    correlation_id = incoming.strip() if incoming and valid_opaque_id(incoming.strip()) else new_opaque_id("corr")
+    request.state.request_id = request_id
+    request.state.correlation_id = correlation_id
+    try:
+        response = await call_next(request)
+    except Exception:
+        raise
+    response.headers["X-Request-ID"] = request_id
+    response.headers["X-Correlation-ID"] = correlation_id
+    return response
+
 
 class LoginIn(BaseModel): email: EmailStr; password: str; login_csrf_token: str
 class CredentialIn(BaseModel): provider: CredentialProvider; label: str=Field(min_length=1,max_length=120); raw_value: str=Field(min_length=8,max_length=4096)
@@ -81,6 +98,15 @@ class TranscriptionJobBatchCreateIn(BaseModel):
     language: str|None=Field(default=None, max_length=40)
     options: dict|None=None
     items: list[BatchJobItemIn]=Field(min_length=1,max_length=50)
+
+class DiagnosticReportIn(BaseModel):
+    start: datetime|None=None
+    end: datetime|None=None
+    level: str|None=Field(default=None, max_length=10)
+    component: str|None=Field(default=None, max_length=20)
+    event_code: str|None=Field(default=None, max_length=80)
+    project_id: str|None=Field(default=None, max_length=128)
+    job_id: str|None=Field(default=None, max_length=128)
 
 class TranscriptionJobCreateIn(BaseModel):
     source_ids: list[str]=Field(min_length=1, max_length=50)
@@ -471,6 +497,8 @@ def create_transcription_jobs_batch(project_id: str, data: TranscriptionJobBatch
             db.add(job); db.flush(); db.add(TranscriptionJobSource(job_id=job.id, source_id=src.id, position=0, status=JobSourceStatus.queued)); jobs.append(job)
         audit(db,"job.batch_created",actor_user_id=user.id,subject_user_id=user.id,project_id=p.id,created_count=len(jobs))
         db.commit()
+        for job in jobs:
+            write_diagnostic_event(owner_user_id=user.id, component="api", event_code="JOB_CREATED", project_id=p.id, job_id=job.id, request_id=getattr(request.state,"request_id",None), correlation_id=getattr(request.state,"correlation_id",None), metadata={"source_count": 1, "batch_position": job.batch_position or 0, "credential_selected": bool(provider_credential_id)})
     except IntegrityError:
         db.rollback(); existing=_load_existing_batch(db,user.id,p.id,key)
         if _existing_batch_is_complete(existing, request_hash, len(data.items)):
@@ -528,7 +556,7 @@ def list_project_jobs(project_id: str, pair=Depends(current_session), db: Sessio
     return {"jobs":[job_payload(r) for r in rows]}
 
 @app.post("/api/projects/{project_id}/jobs")
-def create_transcription_job(project_id: str, data: TranscriptionJobCreateIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+def create_transcription_job(project_id: str, data: TranscriptionJobCreateIn, request: Request, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     _,user=pair; limiter.check("job:create:"+user.id, 60, 3600); p=owned_project_or_404(db,user,project_id)
     sources=validate_job_sources(db, p.id, data.source_ids)
     if data.provider_credential_id:
@@ -540,7 +568,7 @@ def create_transcription_job(project_id: str, data: TranscriptionJobCreateIn, pa
     for idx, src in enumerate(sources):
         db.add(TranscriptionJobSource(job_id=job.id, source_id=src.id, position=idx, status=JobSourceStatus.queued))
     audit(db,"job.created",actor_user_id=user.id,subject_user_id=user.id,project_id=p.id,job_id=job.id,source_count=len(sources))
-    db.commit(); db.refresh(job)
+    db.commit(); write_diagnostic_event(owner_user_id=user.id, component="api", event_code="JOB_CREATED", project_id=p.id, job_id=job.id, request_id=getattr(request.state,"request_id",None), correlation_id=getattr(request.state,"correlation_id",None), metadata={"source_count": len(sources), "credential_selected": bool(data.provider_credential_id)}); db.refresh(job)
     return job_payload(job, include_sources=True)
 
 @app.get("/api/jobs/{job_id}")
@@ -562,13 +590,84 @@ def get_transcription_job_outputs(job_id: str, pair=Depends(current_session), db
     return {"job_id": job.id, "job_status": job.status.value, "output_count": len(outputs), "outputs": outputs}
 
 @app.post("/api/jobs/{job_id}/cancel")
-def cancel_transcription_job(job_id: str, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+def cancel_transcription_job(job_id: str, request: Request, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     _,user=pair; limiter.check("job:cancel:"+user.id, 120, 3600); job=owned_job_or_404(db,user,job_id)
     _, changed, event_type = request_job_cancellation(db, job_id=job.id, now=utcnow())
     if changed and event_type:
         audit(db,event_type,actor_user_id=user.id,subject_user_id=user.id,project_id=job.project_id,job_id=job.id)
-        db.commit(); db.refresh(job)
+        db.commit(); write_diagnostic_event(owner_user_id=user.id, component="api", event_code="JOB_CANCEL_REQUESTED", project_id=job.project_id, job_id=job.id, request_id=getattr(request.state,"request_id",None), correlation_id=getattr(request.state,"correlation_id",None), metadata={"final_job_status": job.status.value}); db.refresh(job)
     return job_payload(job, include_sources=True)
+
+
+def _diag_dt(value: datetime | None, default: datetime) -> datetime:
+    if value is None: return default
+    if value.tzinfo is not None:
+        value = value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value
+
+def _diag_filters(db: Session, user: User, *, start=None, end=None, level=None, component=None, event_code=None, project_id=None, job_id=None):
+    now_dt=utcnow().replace(tzinfo=None); end_dt=_diag_dt(end, now_dt); start_dt=_diag_dt(start, end_dt-timedelta(days=1))
+    if end_dt < start_dt or end_dt - start_dt > timedelta(days=7): raise HTTPException(422, "Diagnostic range must be at most 7 days")
+    if level and level not in DiagnosticLevel.__members__: raise HTTPException(422, "Invalid diagnostic level")
+    if component and component not in {c.value for c in DiagnosticComponent}: raise HTTPException(422, "Invalid diagnostic component")
+    if event_code and event_code not in REGISTRY: raise HTTPException(422, "Invalid diagnostic event code")
+    if project_id:
+        p=db.get(Project, project_id)
+        if not p or p.owner_user_id!=user.id: raise HTTPException(404, "Не найдено")
+    if job_id:
+        j=db.get(TranscriptionJob, job_id)
+        if not j or j.owner_user_id!=user.id: raise HTTPException(404, "Не найдено")
+    q=db.query(DiagnosticEvent).filter(DiagnosticEvent.owner_user_id==user.id, DiagnosticEvent.first_occurred_at>=start_dt, DiagnosticEvent.first_occurred_at<=end_dt)
+    if level: q=q.filter(DiagnosticEvent.level==DiagnosticLevel[level])
+    if component: q=q.filter(DiagnosticEvent.component==DiagnosticComponent(component))
+    if event_code: q=q.filter(DiagnosticEvent.event_code==event_code)
+    if project_id: q=q.filter(DiagnosticEvent.project_id==project_id)
+    if job_id: q=q.filter(DiagnosticEvent.job_id==job_id)
+    return q, start_dt, end_dt
+
+def _diag_payload(e: DiagnosticEvent):
+    return {"id": e.id, "occurred_at": e.first_occurred_at.isoformat(), "last_occurred_at": e.last_occurred_at.isoformat(), "level": e.level.value, "component": e.component.value, "event_code": e.event_code, "correlation_id": e.correlation_id, "request_id": e.request_id, "project_id": e.project_id, "job_id": e.job_id, "metadata": json.loads(e.metadata_json or "{}"), "occurrence_count": e.occurrence_count}
+
+def _system_summary(db: Session, user: User):
+    conn=current_google_connection(db, user)
+    active_creds=db.query(func.count(ProviderCredential.id)).filter(ProviderCredential.user_id==user.id, ProviderCredential.status==CredentialStatus.active, ProviderCredential.deleted_at.is_(None)).scalar() or 0
+    return {"environment": sanitize_build_id(settings.environment), "build": {"web": sanitize_build_id(settings.diagnostic_web_build_id), "api": sanitize_build_id(settings.diagnostic_api_build_id), "worker": sanitize_build_id(settings.diagnostic_worker_build_id)}, "google_drive": {"connected": bool(conn and conn.status==GoogleConnectionStatus.active), "scope_ready": bool(conn and conn.status==GoogleConnectionStatus.active and has_drive_file_scope(conn.scopes))}, "provider_credentials": {"active_count": int(active_creds), "ready": int(active_creds)>0}, "diagnostics": {"recording_enabled": True, "debug_recording": "inactive", "retention_days": settings.diagnostic_retention_days, "debug_retention_hours": settings.diagnostic_debug_retention_hours}, "report_limits": {"max_days": 7, "max_timeline_events": settings.diagnostic_report_max_events}}
+
+@app.get("/api/diagnostics/events")
+def diagnostics_events(start: datetime|None=None, end: datetime|None=None, level: str|None=None, component: str|None=None, event_code: str|None=None, project_id: str|None=None, job_id: str|None=None, cursor: str|None=None, page_size: int=Query(50, ge=1, le=200), pair=Depends(current_session), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("diagnostics:events:"+user.id, 120, 3600); cleanup_expired_diagnostics()
+    q,start_dt,end_dt=_diag_filters(db,user,start=start,end=end,level=level,component=component,event_code=event_code,project_id=project_id,job_id=job_id)
+    if cursor:
+        decoded=decode_cursor(cursor)
+        if not decoded: raise HTTPException(422, "Invalid diagnostic cursor")
+        cdt,cid=decoded; q=q.filter((DiagnosticEvent.first_occurred_at < cdt) | ((DiagnosticEvent.first_occurred_at == cdt) & (DiagnosticEvent.id < cid)))
+    rows=q.order_by(DiagnosticEvent.first_occurred_at.desc(), DiagnosticEvent.id.desc()).limit(page_size+1).all()
+    next_cursor=None
+    if len(rows)>page_size:
+        last=rows[page_size-1]; next_cursor=encode_cursor(last.first_occurred_at,last.id); rows=rows[:page_size]
+    return {"events": [_diag_payload(r) for r in rows], "next_cursor": next_cursor, "period": {"start": start_dt.isoformat(), "end": end_dt.isoformat()}}
+
+@app.get("/api/diagnostics/system")
+def diagnostics_system(pair=Depends(current_session), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("diagnostics:system:"+user.id, 120, 3600); return _system_summary(db,user)
+
+@app.post("/api/diagnostics/report.md")
+def diagnostics_report(data: DiagnosticReportIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("diagnostics:report:"+user.id, 10, 3600)
+    q,start_dt,end_dt=_diag_filters(db,user,start=data.start,end=data.end,level=data.level,component=data.component,event_code=data.event_code,project_id=data.project_id,job_id=data.job_id)
+    limit=settings.diagnostic_report_max_events
+    rows=q.order_by(DiagnosticEvent.first_occurred_at.asc(), DiagnosticEvent.id.asc()).limit(limit+1).all(); truncated=len(rows)>limit; rows=rows[:limit]
+    by_level={k:0 for k in DiagnosticLevel.__members__}; by_comp={c.value:0 for c in DiagnosticComponent}
+    for r in rows: by_level[r.level.value]+=r.occurrence_count; by_comp[r.component.value]+=r.occurrence_count
+    summary=_system_summary(db,user); generated=utcnow().replace(tzinfo=None).isoformat()
+    lines=["# Studio diagnostics report", "", f"Generated: {markdown_escape(generated)}", f"Selected period: {markdown_escape(start_dt.isoformat())} to {markdown_escape(end_dt.isoformat())}", "Redaction: report excludes secrets, URLs, filenames, raw JSON, transcript text, request/response bodies, stack traces, and user email.", "", "## Build identities", f"- Web: {markdown_escape(summary['build']['web'])}", f"- API: {markdown_escape(summary['build']['api'])}", f"- Worker: {markdown_escape(summary['build']['worker'])}", "", "## Environment summary", f"- Environment: {markdown_escape(summary['environment'])}", f"- Google Drive connected: {summary['google_drive']['connected']}", f"- Google Drive scope ready: {summary['google_drive']['scope_ready']}", f"- Active provider credentials: {summary['provider_credentials']['active_count']}", f"- Diagnostics recording enabled: {summary['diagnostics']['recording_enabled']}", f"- DEBUG recording: {markdown_escape(summary['diagnostics']['debug_recording'])}", "", "## Scope", f"- Project ID: {markdown_escape(data.project_id or 'all')}", f"- Job ID: {markdown_escape(data.job_id or 'all')}", "", "## Event counts by level"]
+    lines += [f"- {k}: {v}" for k,v in by_level.items()] + ["", "## Event counts by component"] + [f"- {k}: {v}" for k,v in by_comp.items()] + ["", "## Chronological diagnostic timeline"]
+    for r in rows:
+        meta=", ".join(f"{markdown_escape(k)}={markdown_escape(v)}" for k,v in json.loads(r.metadata_json or '{}').items())
+        lines.append(f"- {markdown_escape(r.first_occurred_at.isoformat())} | {r.level.value} | {r.component.value} | {markdown_escape(r.event_code)} | project={markdown_escape(r.project_id or '')} job={markdown_escape(r.job_id or '')} corr={markdown_escape(r.correlation_id or '')} req={markdown_escape(r.request_id or '')} occurrences={r.occurrence_count} metadata={meta}")
+    lines += ["", "## Occurrence and deduplication counts", f"- Timeline rows: {len(rows)}", f"- Total occurrences: {sum(r.occurrence_count for r in rows)}", "", "## Truncation", f"- Truncated: {truncated}", "", "## Fields intentionally excluded", "- Security audit events, emails, titles, filenames, URLs, source bytes, transcript text, provider payloads, request/response bodies, stack traces, secrets, internal expiry, and deduplication fingerprints."]
+    body="\n".join(lines)+"\n"
+    return FastAPIResponse(content=body, media_type="text/markdown; charset=utf-8", headers={"Content-Disposition": 'attachment; filename="studio-diagnostics-report.md"', "Cache-Control": "no-store"})
 
 def google_connection_payload(c: GoogleConnection|None):
     picker_configured=settings.google_picker_configured()
