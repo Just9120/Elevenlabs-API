@@ -13,6 +13,8 @@ from .job_processing_orchestrator import (
     orchestrate_processing_job,
 )
 from .security import utcnow
+from .diagnostics import resolve_job_correlation_id, write_diagnostic_event
+from .models import TranscriptionJob
 
 
 class JobProcessingRunnerReason(str, Enum):
@@ -123,6 +125,12 @@ def _commit_and_orchestrate(
 ) -> JobProcessingOrchestrationResult:
     try:
         db.commit()
+        try:
+            job = db.get(TranscriptionJob, handle.job_id)
+            if job:
+                write_diagnostic_event(owner_user_id=job.owner_user_id, component="worker", event_code="JOB_CLAIMED", project_id=job.project_id, job_id=job.id, correlation_id=resolve_job_correlation_id(owner_user_id=job.owner_user_id, job_id=job.id), metadata={})
+        except Exception:
+            pass
     except Exception as exc:
         db.rollback()
         raise JobProcessingRunnerError(JobProcessingRunnerReason.claim_commit_failed) from exc
