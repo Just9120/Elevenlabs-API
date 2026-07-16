@@ -374,6 +374,28 @@ async function chooseExistingSource(rowNumber: number, sourceName: string) {
   await userEvent.selectOptions(select, option);
 }
 
+async function chooseResultFolder(
+  rowNumber = 1,
+  folderId = "folder-123",
+) {
+  vi.spyOn(googlePicker, "openGooglePicker").mockResolvedValueOnce({
+    action: "picked",
+    docs: [{ id: folderId }],
+  } as Awaited<ReturnType<typeof googlePicker.openGooglePicker>>);
+  await userEvent.click(
+    await screen.findByRole("button", {
+      name: `Выбрать папку результата для строки ${rowNumber}`,
+    }),
+  );
+  await waitFor(() =>
+    expect(
+      screen.getByRole("button", {
+        name: `Выбрать папку результата для строки ${rowNumber}`,
+      }),
+    ).toHaveTextContent("Изменить"),
+  );
+}
+
 async function openSettingsPage() {
   await openPlatformNavPage("Настройки");
   expect(
@@ -623,20 +645,12 @@ describe("Studio PWA", () => {
             ],
           });
         if (
-          url.endsWith("/api/projects/p1/output-folder/google-picker") &&
+          url.endsWith("/api/projects/p1/output-folders/google-picker/verify") &&
           init?.method === "POST"
         )
           return json({
-            id: "p1",
-            title: "Research calls",
-            description: "Customer interview notes",
-            created_at: "2026-07-01T00:00:00",
-            updated_at: "2026-07-01T00:02:00",
-            archived_at: null,
-            output_drive_folder_id: "folder-picked",
-            output_drive_folder_url:
-              "https://drive.google.com/drive/folders/folder-picked",
-            output_drive_folder_name: "Picked folder",
+            name: "Default folder",
+            web_view_url: "https://drive.example/folders/folder-123",
           });
         if (
           url.endsWith("/api/projects/p1/sources/google-drive") &&
@@ -755,17 +769,12 @@ describe("Studio PWA", () => {
     renderApp("platform");
     await openProjectsPage();
 
-    const folderLink = await screen.findByRole("link", {
-      name: "Открыть папку в Google Drive в новой вкладке",
-    });
-    expect(folderLink).toHaveAttribute(
-      "href",
-      "https://drive.example/folders/folder-123",
-    );
-    expect(folderLink).toHaveAttribute("target", "_blank");
-    expect(folderLink).toHaveAttribute("rel", "noopener noreferrer");
-    expect(folderLink).toHaveClass("button-like", "secondary", "resource-link");
-    expect(folderLink.closest(".resource-actions")).not.toBeNull();
+    expect(screen.queryByText("Папка по умолчанию")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", {
+        name: "Открыть папку в Google Drive в новой вкладке",
+      }),
+    ).not.toBeInTheDocument();
 
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
     const sourceLink = await screen.findByRole("link", {
@@ -1975,6 +1984,9 @@ describe("Studio PWA", () => {
     ).toBeDisabled();
 
     await chooseExistingSource(1, "Лекция 1");
+    expect(readiness).toHaveTextContent("Готово: 0 из 1");
+    expect(readiness).toHaveTextContent("Строка 1: выберите папку результата");
+    await chooseResultFolder(1);
     expect(readiness).toHaveTextContent("Готово: 1 из 1");
     expect(
       screen.getByRole("button", { name: "Создать задачи (1)" }),
@@ -1984,6 +1996,7 @@ describe("Studio PWA", () => {
       screen.getByRole("button", { name: "Добавить строку" }),
     );
     await chooseExistingSource(2, "Лекция 1");
+    await chooseResultFolder(2);
     expect(readiness).toHaveTextContent("Готово: 0 из 2");
     expect(readiness).toHaveTextContent(
       "Строка 1: такая пара файла и папки уже добавлена",
@@ -2057,6 +2070,7 @@ describe("Studio PWA", () => {
     renderApp("platform");
     await openProjectsPage();
     await chooseExistingSource(1, "Лекция 1");
+    await chooseResultFolder(1);
     await userEvent.click(
       screen.getByRole("button", { name: "Создать задачи (1)" }),
     );
@@ -2502,10 +2516,12 @@ describe("Studio PWA", () => {
       ),
     ).toBeDisabled();
     await chooseExistingSource(1, "ready-drive.mp4");
+    await chooseResultFolder(1);
     await userEvent.click(
       screen.getByRole("button", { name: "Добавить строку" }),
     );
     await chooseExistingSource(2, "ready-local.ogg");
+    await chooseResultFolder(2);
     await userEvent.type(
       screen.getByLabelText("Название задачи для строки 1"),
       "Created from UI",
@@ -2550,10 +2566,10 @@ describe("Studio PWA", () => {
       items: [
         {
           source_id: "s1",
-          output_folder_id: "folder-default",
+          output_folder_id: "folder-123",
           title: "Created from UI",
         },
-        { source_id: "s2", output_folder_id: "folder-default", title: null },
+        { source_id: "s2", output_folder_id: "folder-123", title: null },
       ],
     });
 
@@ -2751,6 +2767,18 @@ describe("Studio PWA", () => {
       }),
     ).toBeInTheDocument();
     await userEvent.click(
+      screen.getByRole("button", { name: "Выбрать папку результата для строки 1" }),
+    );
+    await picker.waitForCallback();
+    picker.trigger({ action: "picked", docs: [{ id: "folder-1" }] });
+    await screen.findByText("Default folder");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Выбрать папку результата для строки 2" }),
+    );
+    await picker.waitForCallback();
+    picker.trigger({ action: "picked", docs: [{ id: "folder-2" }] });
+    await waitFor(() => expect(screen.getAllByText("Default folder").length).toBeGreaterThan(1));
+    await userEvent.click(
       screen.getByRole("button", { name: /Создать задачи \(\d+\)/ }),
     );
     const batchCall = await waitFor(() => {
@@ -2764,8 +2792,8 @@ describe("Studio PWA", () => {
       return call;
     });
     expect(JSON.parse(String(batchCall?.[1]?.body)).items).toMatchObject([
-      { source_id: "s-picker-1", output_folder_id: "folder-123" },
-      { source_id: "s-picker-2", output_folder_id: "folder-123" },
+      { source_id: "s-picker-1", output_folder_id: "folder-1" },
+      { source_id: "s-picker-2", output_folder_id: "folder-2" },
     ]);
     expect(window.localStorage.length).toBe(0);
     expect(window.sessionStorage.length).toBe(0);
@@ -2941,6 +2969,7 @@ describe("Studio PWA", () => {
     renderApp("platform");
     await openSelectedProjectJobs();
     await chooseExistingSource(1, "ready-local.ogg");
+    await chooseResultFolder(1);
     await userEvent.click(
       screen.getByRole("button", { name: /Создать задачи \(\d+\)/ }),
     );
@@ -3059,11 +3088,12 @@ describe("Studio PWA", () => {
     renderApp("platform");
     await openSelectedProjectJobs();
     await chooseExistingSource(1, "remove-me.ogg");
+    await chooseResultFolder(1, "folder-default", "Папка Google Drive");
     await userEvent.type(
       screen.getByLabelText("Название задачи для строки 1"),
       "Keep title",
     );
-    expect(screen.getAllByText("Default folder").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Папка Google Drive").length).toBeGreaterThan(0);
     await userEvent.click(
       screen.getByRole("button", { name: "Убрать из проекта: remove-me.ogg" }),
     );
@@ -3080,7 +3110,7 @@ describe("Studio PWA", () => {
     ).not.toBeInTheDocument();
     expect(screen.getByText(/Источник удалён из проекта/)).toBeInTheDocument();
     expect(screen.getByDisplayValue("Keep title")).toBeInTheDocument();
-    expect(screen.getAllByText("Default folder").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Папка Google Drive").length).toBeGreaterThan(0);
     await chooseExistingSource(1, "replacement.ogg");
     expect(
       screen.queryByText(/Источник удалён из проекта/),
@@ -3375,6 +3405,7 @@ describe("Studio PWA", () => {
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
 
     await chooseExistingSource(1, "Лекция 1");
+    await chooseResultFolder(1, "folder-one", "Папка Google Drive");
     await userEvent.type(
       screen.getByLabelText("Название задачи для строки 1"),
       "First draft title",
@@ -3383,6 +3414,7 @@ describe("Studio PWA", () => {
       screen.getByRole("button", { name: "Добавить строку" }),
     );
     await chooseExistingSource(2, "local-temp.ogg");
+    await chooseResultFolder(2, "folder-two", "Папка Google Drive");
     await userEvent.type(
       screen.getByLabelText("Название задачи для строки 2"),
       "Second draft title",
@@ -3399,12 +3431,12 @@ describe("Studio PWA", () => {
     expect(rows[0]).toHaveTextContent(
       "Лекция 1. Личность как психологическое явление.flac",
     );
-    expect(rows[0]).toHaveTextContent("Transcripts");
+    expect(rows[0]).toHaveTextContent("Default folder");
     expect(
       within(rows[0]).getByLabelText("Название задачи для строки 1"),
     ).toHaveValue("First draft title");
     expect(rows[1]).toHaveTextContent("local-temp.ogg");
-    expect(rows[1]).toHaveTextContent("Transcripts");
+    expect(rows[1]).toHaveTextContent("Default folder");
     expect(
       within(rows[1]).getByLabelText("Название задачи для строки 2"),
     ).toHaveValue("Second draft title");
@@ -3574,6 +3606,7 @@ describe("Studio PWA", () => {
       "cred-1",
     );
     await chooseExistingSource(1, "p1-alpha.ogg");
+    await chooseResultFolder(1, "folder-one", "Папка Google Drive");
     await userEvent.type(
       screen.getByLabelText("Название задачи для строки 1"),
       "Alpha draft",
@@ -3582,6 +3615,7 @@ describe("Studio PWA", () => {
       screen.getByRole("button", { name: "Добавить строку" }),
     );
     await chooseExistingSource(2, "p1-beta.ogg");
+    await chooseResultFolder(2, "folder-two", "Папка Google Drive");
     await userEvent.type(
       screen.getByLabelText("Название задачи для строки 2"),
       "Beta draft",
@@ -3596,7 +3630,7 @@ describe("Studio PWA", () => {
     expect(screen.getByLabelText("Ключ провайдера")).toHaveValue("cred-1");
     expect(screen.getByDisplayValue("Alpha draft")).toBeInTheDocument();
     expect(screen.getByDisplayValue("Beta draft")).toBeInTheDocument();
-    expect(screen.getAllByText("One default").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Папка Google Drive").length).toBeGreaterThan(0);
 
     await userEvent.click(screen.getByRole("button", { name: "Отмена" }));
     expect(screen.getByDisplayValue("Alpha draft")).toBeInTheDocument();
@@ -3859,6 +3893,7 @@ describe("Studio PWA", () => {
     await openProjectsPage();
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
     await chooseExistingSource(1, "project-a-source.ogg");
+    await chooseResultFolder(1, "folder-a", "Папка Google Drive");
     await userEvent.type(
       screen.getByLabelText("Название задачи для строки 1"),
       "Project A row title",
@@ -3897,8 +3932,9 @@ describe("Studio PWA", () => {
     expect(screen.queryByLabelText("Job detail job-a")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Результаты job-a")).not.toBeInTheDocument();
     expect(screen.queryByText("project-a-output")).not.toBeInTheDocument();
-    expect(screen.getAllByText("B default").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Папка не выбрана").length).toBeGreaterThan(0);
     await chooseExistingSource(1, "project-b-source.ogg");
+    await chooseResultFolder(1, "folder-b", "Папка Google Drive");
     await userEvent.type(
       screen.getByLabelText("Название задачи для строки 1"),
       "B clean submit",
@@ -3982,14 +4018,14 @@ describe("Studio PWA", () => {
     expect(document.body.textContent).not.toContain("raw-google-payload");
   });
 
-  it("output-folder Picker sends only folder ID and guards duplicate opens", async () => {
+  it("row output-folder Picker verifies only folder ID and guards duplicate opens", async () => {
     const picker = installFakeGooglePicker();
     renderApp("platform");
     await openProjectsPage();
-    await screen.findByRole("heading", { name: "Папка по умолчанию" });
-    const button = within(
-      screen.getByRole("region", { name: "Папка по умолчанию проекта" }),
-    ).getByRole("button", { name: /Изменить|Выбрать папку/ });
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
+    const button = screen.getByRole("button", {
+      name: "Выбрать папку результата для строки 1",
+    });
     fireEvent.click(button);
     fireEvent.click(button);
     await picker.loadScript();
@@ -4033,7 +4069,7 @@ describe("Studio PWA", () => {
         fetch as unknown as ReturnType<typeof vi.fn>
       ).mock.calls.find(
         ([url, init]) =>
-          url === "/api/projects/p1/output-folder/google-picker" &&
+          url === "/api/projects/p1/output-folders/google-picker/verify" &&
           init?.method === "POST",
       );
       expect(call).toBeTruthy();
@@ -4051,19 +4087,12 @@ describe("Studio PWA", () => {
     );
     expect(String(folderCall?.[1]?.body)).not.toContain("raw-google-payload");
     expect(String(folderCall?.[1]?.body)).not.toContain("ya29");
-    await waitFor(() =>
-      expect(
-        (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(
-          ([url]) => url === "/api/projects",
-        ).length,
-      ).toBeGreaterThan(1),
-    );
     expect(document.body.textContent).not.toContain("Folder Name");
     expect(document.body.textContent).not.toContain("ya29");
     expect(document.body.textContent).not.toContain("raw-google-payload");
   });
 
-  it("output-folder Picker cancel/error does not mutate folder and source/folder cannot open simultaneously", async () => {
+  it("row output-folder Picker cancel/error does not mutate project folder and source/folder cannot open simultaneously", async () => {
     let picker = installFakeGooglePicker();
     renderApp("platform");
     await openProjectsPage();
@@ -4080,7 +4109,7 @@ describe("Studio PWA", () => {
     await screen.findByText("Выбор файлов отменён.");
     expect(
       (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
-        ([url]) => url === "/api/projects/p1/output-folder/google-picker",
+        ([url]) => url === "/api/projects/p1/output-folders/google-picker/verify",
       ),
     ).toBe(false);
 
@@ -4089,11 +4118,11 @@ describe("Studio PWA", () => {
     picker = installFakeGooglePicker();
     renderApp("platform");
     await openProjectsPage();
-    await screen.findByRole("heading", { name: "Папка по умолчанию" });
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
     await userEvent.click(
-      within(
-        screen.getByRole("region", { name: "Папка по умолчанию проекта" }),
-      ).getByRole("button", { name: /Изменить|Выбрать папку/ }),
+      screen.getByRole("button", {
+        name: "Выбрать папку результата для строки 1",
+      }),
     );
     await picker.loadScript();
     await picker.waitForCallback();
@@ -4105,7 +4134,7 @@ describe("Studio PWA", () => {
     ).toBeInTheDocument();
     expect(
       (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
-        ([url]) => url === "/api/projects/p1/output-folder/google-picker",
+        ([url]) => url === "/api/projects/p1/output-folders/google-picker/verify",
       ),
     ).toBe(false);
     expect(document.body.textContent).not.toContain("raw-google-payload");
@@ -4115,11 +4144,11 @@ describe("Studio PWA", () => {
     picker = installFakeGooglePicker();
     renderApp("platform");
     await openProjectsPage();
-    await screen.findByRole("heading", { name: "Папка по умолчанию" });
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
     await userEvent.click(
-      within(
-        screen.getByRole("region", { name: "Папка по умолчанию проекта" }),
-      ).getByRole("button", { name: /Изменить|Выбрать папку/ }),
+      screen.getByRole("button", {
+        name: "Выбрать папку результата для строки 1",
+      }),
     );
     await picker.loadScript();
     await picker.waitForCallback();
@@ -4129,7 +4158,7 @@ describe("Studio PWA", () => {
     ).toBeInTheDocument();
     expect(
       (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
-        ([url]) => url === "/api/projects/p1/output-folder/google-picker",
+        ([url]) => url === "/api/projects/p1/output-folders/google-picker/verify",
       ),
     ).toBe(false);
   });
@@ -4323,6 +4352,7 @@ describe("Studio PWA", () => {
     ).not.toBeInTheDocument();
 
     await chooseExistingSource(1, "ready-local.ogg");
+    await chooseResultFolder(1);
     await userEvent.click(
       screen.getByRole("button", { name: /Создать задачи \(\d+\)/ }),
     );
@@ -4344,7 +4374,7 @@ describe("Studio PWA", () => {
     expect(JSON.parse(String(createCall?.[1]?.body))).toEqual({
       provider_credential_id: null,
       items: [
-        { source_id: "s1", output_folder_id: "folder-default", title: null },
+        { source_id: "s1", output_folder_id: "folder-123", title: null },
       ],
     });
     expect(window.localStorage.length).toBe(0);
@@ -4886,6 +4916,7 @@ describe("Studio PWA", () => {
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
 
     await chooseExistingSource(1, "Лекция 1");
+    await chooseResultFolder(1, "folder-one", "Папка Google Drive");
     await userEvent.type(
       screen.getByLabelText("Название задачи для строки 1"),
       "Alpha title",
