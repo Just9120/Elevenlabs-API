@@ -111,6 +111,28 @@ def test_real_lease_integration_commits_before_fake_orchestrator(engine, db):
     assert seen == {"owner": "worker", "generation": 1, "status": m.JobStatus.queued}
 
 
+def test_job_claimed_diagnostic_after_lease_commit_with_correlation(monkeypatch, engine, db):
+    from studio_api import models as m
+    import studio_api.job_processing_runner as runner
+    from studio_api.job_processing_runner import claim_and_orchestrate_processing_job
+    job_id = make_ready_job(db); SessionLocal = sessionmaker(bind=engine, expire_on_commit=False); events = []
+    monkeypatch.setattr(runner, "resolve_job_correlation_id", lambda **kw: "corr_abcdefghijklmnop")
+    def capture(**kw):
+        fresh = SessionLocal()
+        try:
+            job = fresh.get(m.TranscriptionJob, job_id)
+            events.append((kw, job.lease_owner_id, job.lease_generation))
+        finally:
+            fresh.close()
+    monkeypatch.setattr(runner, "write_diagnostic_event", capture)
+    result = claim_and_orchestrate_processing_job(db, job_id=job_id, lease_owner_id="worker", lease_ttl=timedelta(minutes=5), settings=Settings(), clock=Clock(), orchestrator=lambda *a, **k: safe_result(job_id))
+    assert result.job_id == job_id
+    assert events[0][0]["event_code"] == "JOB_CLAIMED"
+    assert events[0][0]["metadata"] == {}
+    assert events[0][0]["correlation_id"] == "corr_abcdefghijklmnop"
+    assert events[0][1:] == ("worker", 1)
+
+
 def test_known_lease_error_rolls_back_preserves_type_and_skips_orchestrator(db):
     from studio_api.job_claim_lease import JobLeaseError, JobLeaseFailureReason
     from studio_api.job_processing_runner import claim_and_orchestrate_processing_job

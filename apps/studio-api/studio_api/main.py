@@ -21,7 +21,7 @@ from .google_connection_access import GoogleConnectionAccessError, GoogleConnect
 from .google_scopes import has_drive_file_scope
 from .job_lifecycle import safe_failure_metadata_value
 from .job_processing_lifecycle import request_job_cancellation
-from .diagnostics import REGISTRY, cleanup_expired_diagnostics, cursor_context, decode_cursor, encode_cursor, markdown_escape, new_correlation_id, new_request_id, sanitize_build_id, sanitize_inbound_correlation, valid_uuid, write_diagnostic_event
+from .diagnostics import REGISTRY, cleanup_expired_diagnostics, cursor_context, decode_cursor_payload, encode_cursor, markdown_escape, new_correlation_id, new_request_id, sanitize_build_id, sanitize_inbound_correlation, valid_uuid, write_diagnostic_event
 from .job_output_read import browser_job_output_payload, load_browser_job_output_rows
 from .job_output_folder_selection import VerifiedOutputFolderSelection, verify_output_folder_selection
 
@@ -638,12 +638,33 @@ def _system_summary(db: Session, user: User):
 @app.get("/api/diagnostics/events")
 def diagnostics_events(start: datetime|None=Query(None), end: datetime|None=Query(None), level: str|None=Query(None, min_length=1, max_length=10), component: str|None=Query(None, min_length=1, max_length=20), event_code: str|None=Query(None, min_length=1, max_length=80), project_id: str|None=Query(None, min_length=36, max_length=36), job_id: str|None=Query(None, min_length=36, max_length=36), cursor: str|None=Query(None, max_length=1200), page_size: int=Query(50, ge=1, le=200), pair=Depends(current_session), db: Session=Depends(get_db)):
     sess,user=pair; limiter.check("diagnostics:events:"+user.id, 120, 3600); cleanup_expired_diagnostics()
-    q,start_dt,end_dt=_diag_filters(db,user,start=start,end=end,level=level,component=component,event_code=event_code,project_id=project_id,job_id=job_id)
+    cursor_position = None
     if cursor:
-        ctx=cursor_context(owner_user_id=user.id, start=start_dt, end=end_dt, level=level, component=component, event_code=event_code, project_id=project_id, job_id=job_id)
-        decoded=decode_cursor(cursor, ctx, sess.csrf_hash)
+        decoded=decode_cursor_payload(cursor, sess.csrf_hash)
         if not decoded: raise HTTPException(422, "Invalid diagnostic cursor")
-        cdt,cid=decoded; q=q.filter((DiagnosticEvent.first_occurred_at < cdt) | ((DiagnosticEvent.first_occurred_at == cdt) & (DiagnosticEvent.id < cid)))
+        cdt,cid,signed_ctx=decoded
+        if signed_ctx.get("owner") != user.id: raise HTTPException(422, "Invalid diagnostic cursor")
+        for name, supplied in {"level": level, "component": component, "event_code": event_code, "project_id": project_id, "job_id": job_id}.items():
+            if supplied is not None and supplied != signed_ctx.get(name):
+                raise HTTPException(422, "Invalid diagnostic cursor")
+        if start is not None and _diag_dt(start, start).isoformat() != signed_ctx.get("start"):
+            raise HTTPException(422, "Invalid diagnostic cursor")
+        if end is not None and _diag_dt(end, end).isoformat() != signed_ctx.get("end"):
+            raise HTTPException(422, "Invalid diagnostic cursor")
+        start = datetime.fromisoformat(signed_ctx["start"]) if start is None else start
+        end = datetime.fromisoformat(signed_ctx["end"]) if end is None else end
+        level = signed_ctx.get("level") if level is None else level
+        component = signed_ctx.get("component") if component is None else component
+        event_code = signed_ctx.get("event_code") if event_code is None else event_code
+        project_id = signed_ctx.get("project_id") if project_id is None else project_id
+        job_id = signed_ctx.get("job_id") if job_id is None else job_id
+        cursor_position = (cdt, cid, signed_ctx)
+    q,start_dt,end_dt=_diag_filters(db,user,start=start,end=end,level=level,component=component,event_code=event_code,project_id=project_id,job_id=job_id)
+    if cursor_position:
+        cdt,cid,signed_ctx=cursor_position
+        ctx=cursor_context(owner_user_id=user.id, start=start_dt, end=end_dt, level=level, component=component, event_code=event_code, project_id=project_id, job_id=job_id)
+        if ctx != signed_ctx: raise HTTPException(422, "Invalid diagnostic cursor")
+        q=q.filter((DiagnosticEvent.first_occurred_at < cdt) | ((DiagnosticEvent.first_occurred_at == cdt) & (DiagnosticEvent.id < cid)))
     rows=q.order_by(DiagnosticEvent.first_occurred_at.desc(), DiagnosticEvent.id.desc()).limit(page_size+1).all()
     next_cursor=None
     if len(rows)>page_size:

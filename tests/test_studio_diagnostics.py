@@ -39,6 +39,12 @@ def user_project_job(db):
     j=m.TranscriptionJob(project_id=p.id, owner_user_id=u.id, status=m.JobStatus.queued); db.add(j); db.commit()
     return u,p,j
 
+def uploaded_source(db, project_id):
+    from studio_api import models as m
+    src=m.Source(project_id=project_id, source_type=m.SourceType.local_upload, original_filename="secret.mp3", mime_type="audio/mpeg", size_bytes=1, s3_bucket="bucket", s3_object_key="private/key", upload_status=m.SourceUploadStatus.uploaded, uploaded_at=datetime(2026,7,16), expires_at=datetime(2026,7,17))
+    db.add(src); db.commit()
+    return src
+
 def test_model_table_constraints_and_audit_separate(db):
     from studio_api import models as m
     names=set(inspect(db.bind).get_table_names())
@@ -61,6 +67,19 @@ def test_writer_sanitizes_retains_and_deduplicates(db):
     assert timedelta(days=13, hours=23) < row.expires_at - now <= timedelta(days=14)
     from studio_api.diagnostics import expiry_for
     assert expiry_for("DEBUG", now) - now <= timedelta(hours=24)
+
+def test_secret_like_request_and_correlation_ids_are_rejected(db):
+    from studio_api import models as m
+    from studio_api.diagnostics import valid_correlation_id, valid_request_id, write_diagnostic_event
+    u,p,j=user_project_job(db)
+    Session=sessionmaker(bind=db.bind, expire_on_commit=False)
+    bad_corr = ["corr_sk_live_secret_1234567890", "corr_access_token_abcdefghijklmnop", "corr_refresh_token_abcdefghijklmnop"]
+    for value in bad_corr:
+        assert not valid_correlation_id(value)
+        assert write_diagnostic_event(owner_user_id=u.id, component="api", event_code="JOB_CREATED", project_id=p.id, job_id=j.id, correlation_id=value, metadata={"source_count": 1, "credential_selected": False}, session_factory=Session).accepted is False
+    assert not valid_request_id("req_sk_live_secret_1234567890")
+    assert write_diagnostic_event(owner_user_id=u.id, component="api", event_code="JOB_CREATED", project_id=p.id, job_id=j.id, request_id="req_sk_live_secret_1234567890", metadata={"source_count": 1, "credential_selected": False}, session_factory=Session).accepted is False
+    assert db.query(m.DiagnosticEvent).count() == 0
 
 def test_event_registry_is_event_specific_and_redacts_values(db):
     from studio_api.diagnostics import sanitize_metadata, write_diagnostic_event
@@ -151,6 +170,10 @@ def test_request_ids_headers(monkeypatch, db):
     good="corr_Abcdefgh1234567890"
     r=client.get("/api/auth/bootstrap-status", headers={"X-Correlation-ID":good})
     assert r.headers["X-Correlation-ID"] == good
+    for bad in ["corr_sk_live_secret_1234567890", "corr_access_token_abcdefghijklmnop", "corr_refresh_token_abcdefghijklmnop"]:
+        r=client.get("/api/auth/bootstrap-status", headers={"X-Correlation-ID":bad})
+        assert r.headers["X-Correlation-ID"].startswith("corr_") and r.headers["X-Correlation-ID"] != bad
+        assert "sk_live" not in r.headers["X-Correlation-ID"] and "access_token" not in r.headers["X-Correlation-ID"] and "refresh_token" not in r.headers["X-Correlation-ID"]
     r=client.get("/api/diagnostics/events?page_size=999", headers={"X-Correlation-ID":"Bearer abc"})
     assert r.status_code in {401, 422}
     assert r.headers["X-Request-ID"].startswith("req_")
@@ -163,6 +186,40 @@ def test_request_ids_headers(monkeypatch, db):
     assert r.status_code == 500 and r.json() == {"detail": "Internal server error"}
     assert r.headers["X-Request-ID"].startswith("req_") and r.headers["X-Correlation-ID"].startswith("corr_")
     assert "secret" not in r.text
+    main.app.dependency_overrides.clear()
+
+def test_default_period_signed_cursor_can_be_used_without_repeating_period(db, monkeypatch):
+    from fastapi.testclient import TestClient
+    import studio_api.main as main
+    from studio_api import models as m
+    from studio_api.diagnostics import write_diagnostic_event
+    u,p,j=user_project_job(db)
+    other=m.User(email="cursor-other@example.com", role=m.UserRole.user, status=m.UserStatus.active); db.add(other); db.commit()
+    Session=sessionmaker(bind=db.bind, expire_on_commit=False)
+    for i in range(4):
+        write_diagnostic_event(owner_user_id=u.id, component="api", event_code="JOB_CREATED", project_id=p.id, job_id=j.id, metadata={"source_count": i+1, "credential_selected": False}, session_factory=Session, now=datetime(2026,7,16,12,i,0))
+    sess=m.Session(user_id=u.id, token_hash="hash", csrf_hash="csrf", expires_at=datetime(2027,1,1)); db.add(sess); db.commit()
+    def override_db(): yield db
+    def override_current(): return sess,u
+    main.app.dependency_overrides[main.get_db]=override_db
+    main.app.dependency_overrides[main.current_session]=override_current
+    monkeypatch.setattr(main, "utcnow", lambda: datetime(2026,7,16,13,0,0))
+    monkeypatch.setattr(main.limiter, "check", lambda *a, **k: None)
+    monkeypatch.setattr(main, "cleanup_expired_diagnostics", lambda *a, **k: None)
+    client=TestClient(main.app)
+    first=client.get("/api/diagnostics/events?page_size=2")
+    assert first.status_code == 200 and len(first.json()["events"]) == 2 and first.json()["next_cursor"]
+    cursor=first.json()["next_cursor"]
+    second=client.get(f"/api/diagnostics/events?page_size=2&cursor={cursor}")
+    assert second.status_code == 200 and len(second.json()["events"]) == 2
+    assert {e["id"] for e in first.json()["events"]}.isdisjoint({e["id"] for e in second.json()["events"]})
+    explicit=client.get(f"/api/diagnostics/events?page_size=2&start={first.json()['period']['start']}&end={first.json()['period']['end']}&cursor={cursor}")
+    assert explicit.status_code == 200
+    assert client.get(f"/api/diagnostics/events?page_size=2&level=ERROR&cursor={cursor}").status_code == 422
+    assert client.get(f"/api/diagnostics/events?page_size=2&cursor={cursor}A").status_code == 422
+    other_sess=m.Session(user_id=other.id, token_hash="otherhash", csrf_hash="csrf", expires_at=datetime(2027,1,1)); db.add(other_sess); db.commit()
+    main.app.dependency_overrides[main.current_session]=lambda: (other_sess, other)
+    assert client.get(f"/api/diagnostics/events?page_size=2&cursor={cursor}").status_code == 422
     main.app.dependency_overrides.clear()
 
 def test_query_cursor_system_and_markdown_report(db, monkeypatch):
@@ -226,4 +283,50 @@ def test_report_requires_real_same_origin_and_csrf(db, monkeypatch):
     assert ok.status_code == 200
     assert ok.headers["content-type"] == "text/markdown; charset=utf-8"
     assert ok.headers["cache-control"] == "no-store"
+    main.app.dependency_overrides.clear()
+
+def test_api_job_create_batch_replay_and_cancel_diagnostics(monkeypatch, db):
+    from fastapi.testclient import TestClient
+    import studio_api.main as main
+    from studio_api import models as m
+    u,p,_=user_project_job(db)
+    s1=uploaded_source(db, p.id); s2=uploaded_source(db, p.id)
+    sess=m.Session(user_id=u.id, token_hash="hash", csrf_hash="csrf", expires_at=datetime(2027,1,1)); db.add(sess); db.commit()
+    def override_db(): yield db
+    def override_current(): return sess,u
+    main.app.dependency_overrides[main.get_db]=override_db
+    main.app.dependency_overrides[main.current_session]=override_current
+    main.app.dependency_overrides[main.require_csrf]=override_current
+    monkeypatch.setattr(main.limiter, "check", lambda *a, **k: None)
+    events=[]
+    def capture(**kw):
+        assert db.get(m.TranscriptionJob, kw["job_id"]) is not None
+        events.append(kw)
+        return SimpleNamespace(accepted=True, persisted=True)
+    monkeypatch.setattr(main, "write_diagnostic_event", capture)
+    client=TestClient(main.app)
+    r=client.post(f"/api/projects/{p.id}/jobs", json={"source_ids":[s1.id]}, headers={"X-Correlation-ID":"corr_abcdefghijklmnop"})
+    assert r.status_code == 200
+    assert [e["event_code"] for e in events] == ["JOB_CREATED"]
+    monkeypatch.setattr(main, "refreshed_google_drive_access_token", lambda db_, user_: "token")
+    monkeypatch.setattr(main, "verify_output_folder_selection", lambda token, fid: SimpleNamespace(id=fid, web_view_url=f"https://drive.google.com/drive/folders/{fid}", name="Folder"))
+    events.clear()
+    batch_body={"items":[{"source_id":s1.id,"output_folder_id":"folder-a"},{"source_id":s2.id,"output_folder_id":"folder-b"}]}
+    r=client.post(f"/api/projects/{p.id}/jobs/batch", json=batch_body, headers={"Idempotency-Key":"batch-key"})
+    assert r.status_code == 200 and [e["event_code"] for e in events] == ["JOB_CREATED","JOB_CREATED"]
+    events.clear()
+    r=client.post(f"/api/projects/{p.id}/jobs/batch", json=batch_body, headers={"Idempotency-Key":"batch-key"})
+    assert r.status_code == 200 and r.json()["replayed"] is True and events == []
+    queued=m.TranscriptionJob(project_id=p.id, owner_user_id=u.id, status=m.JobStatus.queued); db.add(queued)
+    processing=m.TranscriptionJob(project_id=p.id, owner_user_id=u.id, status=m.JobStatus.processing, lease_owner_id="worker", lease_generation=1); db.add(processing)
+    done=m.TranscriptionJob(project_id=p.id, owner_user_id=u.id, status=m.JobStatus.completed); db.add(done); db.commit()
+    events.clear(); assert client.post(f"/api/jobs/{queued.id}/cancel").status_code == 200
+    assert [e["event_code"] for e in events] == ["JOB_CANCELLED"]
+    events.clear(); assert client.post(f"/api/jobs/{processing.id}/cancel").status_code == 200
+    assert [e["event_code"] for e in events] == ["JOB_CANCEL_REQUESTED"]
+    events.clear(); assert client.post(f"/api/jobs/{done.id}/cancel").status_code == 200
+    assert events == []
+    monkeypatch.setattr(main, "write_diagnostic_event", lambda **kw: SimpleNamespace(accepted=True, persisted=False))
+    s3=uploaded_source(db, p.id)
+    assert client.post(f"/api/projects/{p.id}/jobs", json={"source_ids":[s3.id]}).status_code == 200
     main.app.dependency_overrides.clear()

@@ -22,10 +22,10 @@ SAFE_TOKEN_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,80}$")
 BAD_KEY_RE = re.compile(r"token|secret|password|authorization|cookie|csrf|credential|oauth|code|state|key", re.I)
 BAD_VALUE_RES = [
     re.compile(p, re.I) for p in [
-        r"\bsk[-_][A-Za-z0-9_-]+",
-        r"\bbearer\s+",
+        r"(^|[_\-\s:])sk[-_][A-Za-z0-9_-]+",
+        r"(^|[_\-\s:])bearer(\s+|[_\-])",
         r"authorization\s*[:=]",
-        r"\b(?:access|refresh|csrf|oauth)[-_ ]?token\b",
+        r"(^|[_\-\s:])(?:access|refresh|csrf|oauth)[-_ ]?token([_\-\s:]|$)",
         r"\b(?:oauth[-_ ]?)?(?:code|state)\s*[:=]",
         r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b",
         r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
@@ -99,10 +99,10 @@ def _safe_fail(reason: str = "persistence_failed") -> DiagnosticWriteResult:
     return DiagnosticWriteResult(True, False, reason=reason)
 
 def new_request_id() -> str:
-    return f"req_{secrets.token_urlsafe(24).rstrip('=')}"
+    return f"req_{secrets.token_hex(16)}"
 
 def new_correlation_id() -> str:
-    return f"corr_{secrets.token_urlsafe(24).rstrip('=')}"
+    return f"corr_{secrets.token_hex(16)}"
 
 def new_opaque_id(prefix: str = "dg") -> str:
     return new_request_id() if prefix == "req" else new_correlation_id() if prefix == "corr" else f"{prefix}_{secrets.token_urlsafe(24).rstrip('=')}"
@@ -319,6 +319,13 @@ def encode_cursor(dt: datetime, event_id: str, context: dict[str, Any], secret: 
     return base64.urlsafe_b64encode(raw + sig).decode().rstrip("=")
 
 def decode_cursor(cursor: str, context: dict[str, Any], secret: str) -> tuple[datetime, str] | None:
+    decoded = decode_cursor_payload(cursor, secret)
+    if not decoded:
+        return None
+    dt, eid, signed_context = decoded
+    return (dt, eid) if signed_context == context else None
+
+def decode_cursor_payload(cursor: str, secret: str) -> tuple[datetime, str, dict[str, Any]] | None:
     try:
         if not isinstance(cursor, str) or len(cursor) > 1200 or not re.fullmatch(r"[A-Za-z0-9_-]+", cursor): return None
         data = base64.urlsafe_b64decode((cursor + "=" * (-len(cursor) % 4)).encode())
@@ -327,9 +334,10 @@ def decode_cursor(cursor: str, context: dict[str, Any], secret: str) -> tuple[da
         expected = hmac.new(_cursor_key(secret), raw, hashlib.sha256).digest()
         if not hmac.compare_digest(sig, expected): return None
         payload = json.loads(raw)
-        if payload.get("v") != 1 or payload.get("c") != context: return None
+        signed_context = payload.get("c")
+        if payload.get("v") != 1 or not isinstance(signed_context, dict): return None
         dt = datetime.fromisoformat(payload["t"]); eid = payload["i"]
-        return (_as_utc_naive(dt), eid) if isinstance(eid, str) and len(eid) <= 64 else None
+        return (_as_utc_naive(dt), eid, signed_context) if isinstance(eid, str) and len(eid) <= 64 else None
     except Exception:
         return None
 

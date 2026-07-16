@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -159,6 +160,47 @@ def test_successful_single_source_flow_lifetime_and_one_call(db, models):
         word.text
     assert transport.calls[0]["language_code"] == "en"
     assert transport.calls[0]["filename"] == "secret meeting.mp3"
+
+
+def test_diagnostics_source_provider_success_order_and_correlation(monkeypatch, db, models):
+    import studio_api.job_elevenlabs_transcription as mod
+    *_, job, rel, now = make_job(db, models)
+    job.attempt_count = 1; db.commit()
+    events = []
+    monkeypatch.setattr(mod, "resolve_job_correlation_id", lambda **kw: "corr_abcdefghijklmnop")
+    monkeypatch.setattr(mod, "write_diagnostic_event", lambda **kw: events.append(kw) or SimpleNamespace(accepted=True, persisted=True))
+    with run_boundary(db, models, job, rel, CaptureTransport(), now):
+        pass
+    assert [e["event_code"] for e in events] == ["SOURCE_VALIDATION_STARTED", "SOURCE_READY", "PROVIDER_REQUEST_STARTED", "PROVIDER_REQUEST_COMPLETED"]
+    assert all(e["correlation_id"] == "corr_abcdefghijklmnop" and e.get("request_id") is None for e in events)
+
+
+def test_diagnostics_provider_mapped_and_unexpected_failures(monkeypatch, db, models):
+    import studio_api.job_elevenlabs_transcription as mod
+    from studio_api.elevenlabs_transcription import ElevenLabsTranscriptionError, ElevenLabsTranscriptionReason
+    from studio_api.job_elevenlabs_transcription import JobElevenLabsTranscriptionError
+    *_, job, rel, now = make_job(db, models)
+    job.attempt_count = 1; db.commit()
+    events = []
+    monkeypatch.setattr(mod, "resolve_job_correlation_id", lambda **kw: "corr_abcdefghijklmnop")
+    monkeypatch.setattr(mod, "write_diagnostic_event", lambda **kw: events.append(kw) or SimpleNamespace(accepted=True, persisted=True))
+    class MappedFailure:
+        def transcribe(self, **kwargs):
+            raise ElevenLabsTranscriptionError(ElevenLabsTranscriptionReason.provider_timeout)
+    with pytest.raises(JobElevenLabsTranscriptionError, match="provider_timeout"):
+        with run_boundary(db, models, job, rel, MappedFailure(), now):
+            pass
+    assert [e["event_code"] for e in events] == ["SOURCE_VALIDATION_STARTED", "SOURCE_READY", "PROVIDER_REQUEST_STARTED", "PROVIDER_REQUEST_FAILED"]
+    assert events[-1]["metadata"] == {"boundary": "provider_transport", "error_code": "provider_timeout", "retryable": True, "attempt_number": job.attempt_count or 0}
+    events.clear()
+    class UnexpectedFailure:
+        def transcribe(self, **kwargs):
+            raise RuntimeError("raw secret provider payload")
+    with pytest.raises(JobElevenLabsTranscriptionError, match="provider_unavailable"):
+        with run_boundary(db, models, job, rel, UnexpectedFailure(), now):
+            pass
+    assert [e["event_code"] for e in events] == ["SOURCE_VALIDATION_STARTED", "SOURCE_READY", "PROVIDER_REQUEST_STARTED", "PROVIDER_REQUEST_FAILED"]
+    assert events[-1]["metadata"]["error_code"] == "unknown"
 
 
 @pytest.mark.parametrize("mutate,reason", [
