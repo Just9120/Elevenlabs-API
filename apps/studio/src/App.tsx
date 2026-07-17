@@ -3421,9 +3421,9 @@ function DiagnosticsSettings({
         >
           <h4 id="diagnostics-export-title">Экспорт диагностики</h4>
           <p className="muted">
-            Markdown-отчёт включает безопасные события PWA, API и фоновой
-            обработки согласно выбранным фильтрам. Аудит безопасности
-            экспортируется отдельно и сюда не входит.
+            Markdown-отчёт может включать безопасные события PWA, API и фоновой
+            обработки согласно выбранным фильтрам. Аудит безопасности остаётся
+            отдельным разделом и в этот отчёт не входит.
           </p>
           <button type="button" className="secondary" onClick={exportReport}>
             Скачать Markdown

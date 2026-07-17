@@ -5519,7 +5519,8 @@ describe("settings diagnostics", () => {
     expect(screen.getByRole("heading", { name: "События диагностики" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Экспорт диагностики" })).toBeInTheDocument();
     expect(screen.getByText(/PWA, API и фоновой обработки/)).toBeInTheDocument();
-    expect(screen.getByText(/Аудит безопасности экспортируется отдельно/)).toBeInTheDocument();
+    expect(screen.getByText(/Аудит безопасности остаётся/)).toBeInTheDocument();
+    expect(screen.getByText(/в этот отчёт не входит/)).toBeInTheDocument();
 
     await userEvent.selectOptions(screen.getByLabelText("Период"), "7");
     await userEvent.selectOptions(screen.getByLabelText("Уровень"), "INFO");
