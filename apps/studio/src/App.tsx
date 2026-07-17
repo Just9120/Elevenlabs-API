@@ -16,6 +16,12 @@ import {
 import { buildSegmentPlan, hasSegmentErrors, type Segment } from "./segments";
 import * as googlePicker from "./googlePicker";
 import type { PickerSession } from "./googlePicker";
+import {
+  clearPwaDiagnosticsSession,
+  configurePwaDiagnosticsDebugState,
+  emitPwaDiagnostic,
+  updatePwaDiagnosticsCsrf,
+} from "./pwaDiagnostics";
 import "./styles.css";
 
 // Platform mode is selected at build time by VITE_STUDIO_PLATFORM_MODE.
@@ -64,6 +70,12 @@ type DiagnosticsEventsResponse = {
   events: DiagnosticsEvent[];
   next_cursor?: string | null;
   period: { start: string; end: string };
+};
+type DiagnosticsDebugSession = {
+  active: boolean;
+  started_at?: string | null;
+  expires_at?: string | null;
+  server_time?: string | null;
 };
 type Project = {
   id: string;
@@ -378,33 +390,46 @@ class ApiError extends Error {
     this.status = status;
   }
 }
-async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const res = await fetch(`/api${path}`, {
-    ...options,
-    credentials: "same-origin",
-    headers: { "content-type": "application/json", ...(options.headers ?? {}) },
+function diagnosticEndpointGroup(path: string) {
+  if (path.startsWith("/auth")) return "auth";
+  if (path.startsWith("/projects")) return "projects";
+  if (path.startsWith("/sources")) return "sources";
+  if (path.startsWith("/jobs")) return "jobs";
+  if (path.startsWith("/google")) return "google";
+  if (path.startsWith("/credentials")) return "credentials";
+  if (path.startsWith("/diagnostics")) return "diagnostics";
+  return "unknown";
+}
+function statusCategory(status?: number) {
+  if (!status || status < 100 || status > 599) return "unknown";
+  return `${Math.floor(status / 100)}xx`;
+}
+function isRetryableApiFailure(status?: number) {
+  return !status || status === 408 || status === 429 || status >= 500;
+}
+function emitApiFailure(path: string, startedAt: number, status?: number) {
+  if (path.startsWith("/diagnostics/pwa-events")) return;
+  emitPwaDiagnostic("PWA_API_REQUEST_FAILED", {
+    boundary: "api_request",
+    error_code: "api_request_failed",
+    endpoint_group: diagnosticEndpointGroup(path),
+    http_status_category: statusCategory(status),
+    duration_ms: performance.now() - startedAt,
+    retryable: isRetryableApiFailure(status),
   });
-  if (!res.ok)
-    throw new ApiError(
-      res.status,
-      res.status === 429
-        ? "Слишком много попыток. Попробуйте позже."
-        : "Операция не выполнена. Проверьте данные и повторите.",
-    );
-  return res.json();
 }
 
-async function apiWithCsrfNoRetry<T>(
+async function requestJson<T>(
   path: string,
-  csrf: string,
-  options: RequestInit,
+  options: RequestInit = {},
+  csrf?: string,
 ): Promise<T> {
   const res = await fetch(`/api${path}`, {
     ...options,
     credentials: "same-origin",
     headers: {
       "content-type": "application/json",
-      "x-csrf-token": csrf,
+      ...(csrf ? { "x-csrf-token": csrf } : {}),
       ...(options.headers ?? {}),
     },
   });
@@ -419,11 +444,60 @@ async function apiWithCsrfNoRetry<T>(
   return res.json();
 }
 
+async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const startedAt = performance.now();
+  try {
+    return await requestJson<T>(path, options);
+  } catch (err) {
+    emitApiFailure(
+      path,
+      startedAt,
+      err instanceof ApiError ? err.status : undefined,
+    );
+    throw err;
+  }
+}
+
 function isCsrfRejection(err: unknown) {
   return (
     err instanceof ApiError &&
     (err.status === 401 || err.status === 403 || err.status === 419)
   );
+}
+
+async function mutateWithCsrfRetry<T>(
+  path: string,
+  csrf: string,
+  onCsrf: (csrf: string) => void,
+  options: RequestInit,
+): Promise<T> {
+  const startedAt = performance.now();
+  try {
+    return await requestJson<T>(path, options, csrf);
+  } catch (err) {
+    if (!isCsrfRejection(err)) {
+      emitApiFailure(
+        path,
+        startedAt,
+        err instanceof ApiError ? err.status : undefined,
+      );
+      throw err;
+    }
+    try {
+      const refreshed = await requestJson<{ csrf_token: string }>("/auth/csrf", {
+        method: "POST",
+      });
+      onCsrf(refreshed.csrf_token);
+      return await requestJson<T>(path, options, refreshed.csrf_token);
+    } catch (retryErr) {
+      emitApiFailure(
+        path,
+        startedAt,
+        retryErr instanceof ApiError ? retryErr.status : undefined,
+      );
+      throw retryErr;
+    }
+  }
 }
 
 async function batchMutateWithCsrfRetry<T>(
@@ -432,16 +506,7 @@ async function batchMutateWithCsrfRetry<T>(
   onCsrf: (csrf: string) => void,
   options: RequestInit,
 ): Promise<T> {
-  try {
-    return await apiWithCsrfNoRetry<T>(path, csrf, options);
-  } catch (err) {
-    if (!isCsrfRejection(err)) throw err;
-    const refreshed = await api<{ csrf_token: string }>("/auth/csrf", {
-      method: "POST",
-    });
-    onCsrf(refreshed.csrf_token);
-    return apiWithCsrfNoRetry<T>(path, refreshed.csrf_token, options);
-  }
+  return mutateWithCsrfRetry<T>(path, csrf, onCsrf, options);
 }
 
 async function bootstrapSession(): Promise<{
@@ -719,25 +784,9 @@ async function csrfMutate<T>(
   onCsrf: (csrf: string) => void,
   options: RequestInit,
 ): Promise<T> {
-  try {
-    return await api<T>(path, {
-      ...options,
-      headers: { "x-csrf-token": csrf, ...(options.headers ?? {}) },
-    });
-  } catch {
-    const refreshed = await api<{ csrf_token: string }>("/auth/csrf", {
-      method: "POST",
-    });
-    onCsrf(refreshed.csrf_token);
-    return api<T>(path, {
-      ...options,
-      headers: {
-        "x-csrf-token": refreshed.csrf_token,
-        ...(options.headers ?? {}),
-      },
-    });
-  }
+  return mutateWithCsrfRetry<T>(path, csrf, onCsrf, options);
 }
+export const __appDiagnosticsTest = { api, csrfMutate };
 function SourcesPanel({
   project,
   csrf,
@@ -2657,6 +2706,35 @@ const diagnosticsMetadataKeys = new Set([
   "final_job_status",
   "endpoint_group",
 ]);
+const pwaEventLabels: Record<string, string> = {
+  PWA_APP_ERROR: "Ошибка веб-приложения",
+  PWA_UNHANDLED_REJECTION: "Необработанная ошибка операции",
+  PWA_API_REQUEST_FAILED: "Ошибка запроса к API",
+  PWA_ROUTE_ERROR: "Ошибка раздела приложения",
+  PWA_SERVICE_WORKER_ERROR: "Ошибка сервис-воркера",
+};
+const diagnosticsMetadataLabels: Record<string, string> = {
+  boundary: "граница",
+  duration_ms: "длительность, мс",
+  error_code: "код ошибки",
+  retryable: "повтор возможен",
+  http_status_category: "категория HTTP",
+  endpoint_group: "группа API",
+};
+function pwaEventLabel(code: string) {
+  return pwaEventLabels[code] ?? null;
+}
+function diagnosticsMetadataLabel(key: string) {
+  return diagnosticsMetadataLabels[key] ?? null;
+}
+function debugRemainingText(expiresAt?: string | null) {
+  if (!expiresAt) return "—";
+  const remaining = Math.max(0, Date.parse(expiresAt) - Date.now());
+  const minutes = Math.floor(remaining / 60000);
+  const seconds = Math.floor((remaining % 60000) / 1000);
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
 function auditLabel(type: string) {
   const labels: Record<string, string> = {
     "google.connected": "Google Drive подключён",
@@ -3106,6 +3184,13 @@ function DiagnosticsSettings({
     "loading",
   );
   const [exportState, setExportState] = useState("");
+  const [debugSession, setDebugSession] = useState<DiagnosticsDebugSession | null>(null);
+  const [debugState, setDebugState] = useState<"loading" | "ready" | "error">("loading");
+  const [debugActionState, setDebugActionState] = useState("");
+  const [debugDuration, setDebugDuration] = useState("10");
+  const [debugTick, setDebugTick] = useState(0);
+  const debugRefreshInFlight = useRef(false);
+  const expiredDebugRefreshRequested = useRef(false);
   const loadEvents = (cursor?: string) => {
     setEventsState("loading");
     const params = new URLSearchParams({ page_size: "25" });
@@ -3154,6 +3239,76 @@ function DiagnosticsSettings({
     (name: keyof DiagnosticsFilters) =>
     (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
       setFilters((current) => ({ ...current, [name]: event.target.value }));
+  const loadDebugSession = (options: { keepReady?: boolean } = {}) => {
+    if (debugRefreshInFlight.current) return;
+    debugRefreshInFlight.current = true;
+    if (!options.keepReady) setDebugState("loading");
+    api<DiagnosticsDebugSession>("/diagnostics/debug-session")
+      .then((status) => {
+        expiredDebugRefreshRequested.current = false;
+        setDebugSession(status);
+        configurePwaDiagnosticsDebugState({ active: status.active, expiresAt: status.expires_at });
+        setDebugState("ready");
+      })
+      .catch(() => {
+        configurePwaDiagnosticsDebugState({ active: false });
+        setDebugState("error");
+      })
+      .finally(() => {
+        debugRefreshInFlight.current = false;
+      });
+  };
+  useEffect(loadDebugSession, [csrf]);
+  useEffect(() => {
+    const timer = window.setInterval(() => setDebugTick((value) => value + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const debugLocallyActive = Boolean(
+    debugSession?.active &&
+      debugSession.expires_at &&
+      Date.parse(debugSession.expires_at) > Date.now(),
+  );
+  const activeDebugSession = debugLocallyActive ? debugSession : null;
+  useEffect(() => {
+    if (!debugSession?.active || !debugSession.expires_at) return;
+    if (Date.parse(debugSession.expires_at) > Date.now()) return;
+    configurePwaDiagnosticsDebugState({ active: false });
+    setDebugSession((current) => current ? { ...current, active: false } : current);
+    if (expiredDebugRefreshRequested.current) return;
+    expiredDebugRefreshRequested.current = true;
+    loadDebugSession({ keepReady: true });
+  }, [debugTick, debugSession?.active, debugSession?.expires_at, csrf]);
+  const startDebug = async () => {
+    setDebugActionState("Включаем DEBUG…");
+    try {
+      const status = await csrfMutate<DiagnosticsDebugSession>("/diagnostics/debug-session", csrf, onCsrf, {
+        method: "POST",
+        body: JSON.stringify({ duration_minutes: Number(debugDuration) }),
+      });
+      setDebugSession(status);
+      configurePwaDiagnosticsDebugState({ active: status.active, expiresAt: status.expires_at });
+      setDebugActionState("DEBUG включена.");
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        loadDebugSession();
+        setDebugActionState("DEBUG уже активна в другой вкладке. Статус обновлён.");
+        return;
+      }
+      setDebugActionState("Не удалось включить DEBUG.");
+    }
+  };
+  const stopDebug = async () => {
+    setDebugActionState("Останавливаем DEBUG…");
+    try {
+      await csrfMutate<DiagnosticsDebugSession>("/diagnostics/debug-session", csrf, onCsrf, { method: "DELETE" });
+      configurePwaDiagnosticsDebugState({ active: false });
+      loadDebugSession();
+      setDebugActionState("DEBUG остановлена.");
+    } catch {
+      setDebugActionState("Не удалось остановить DEBUG.");
+    }
+  };
+
   const exportReport = async () => {
     setExportState("Готовим Markdown-отчёт…");
     try {
@@ -3311,6 +3466,9 @@ function DiagnosticsSettings({
             <li key={event.id} className="diagnostics-event">
               <div className="diagnostics-event-header">
                 <strong>{event.event_code}</strong>
+                {pwaEventLabel(event.event_code) && (
+                  <span className="pwa-event-label">{pwaEventLabel(event.event_code)}</span>
+                )}
                 <span>·</span>
                 <span>{diagnosticsLevelLabel(event.level)}</span>
                 <span>·</span>
@@ -3329,7 +3487,7 @@ function DiagnosticsSettings({
                     .slice(0, 8)
                     .map(([key, value]) => (
                       <div key={key}>
-                        <dt>{safeText(key)}</dt>
+                        <dt><span>{safeText(key)}</span>{diagnosticsMetadataLabel(key) && <span className="metadata-local-label"> · {diagnosticsMetadataLabel(key)}</span>}</dt>
                         <dd>{safeText(value)}</dd>
                       </div>
                     ))}
@@ -3344,12 +3502,43 @@ function DiagnosticsSettings({
           </button>
         )}
       </section>
-      <section className="card" aria-labelledby="pwa-diagnostics-title">
+      <section className="card pwa-diagnostics-card" aria-labelledby="pwa-diagnostics-title">
         <h3 id="pwa-diagnostics-title">Диагностика PWA</h3>
         <p className="notice">
-          Сбор PWA-диагностики пока не включён. Здесь появятся безопасные
-          события приложения после отдельного включения.
+          Сбор DEBUG пока не включён по умолчанию. Браузер отправляет только закрытые безопасные события: ошибки приложения, необработанные операции, ошибки API, разделов и сервис-воркера.
         </p>
+        {debugState === "loading" && <p role="status">Проверяем DEBUG…</p>}
+        {debugState === "error" && (
+          <div className="error">
+            <p>Не удалось загрузить статус DEBUG.</p>
+            <button type="button" onClick={() => loadDebugSession()}>Повторить</button>
+          </div>
+        )}
+        {debugState === "ready" && activeDebugSession ? (
+          <div className="debug-panel debug-active" role="status">
+            <strong>DEBUG активна</strong>
+            <p>Начало: {formatTime(activeDebugSession.started_at ?? null)}</p>
+            <p>Истекает: {formatTime(activeDebugSession.expires_at ?? null)}</p>
+            <p className="debug-countdown">Осталось: {debugRemainingText(activeDebugSession.expires_at)}</p>
+            <button type="button" className="danger" disabled={debugActionState.endsWith("…")} onClick={stopDebug}>Остановить DEBUG</button>
+          </div>
+        ) : debugState === "ready" ? (
+          <div className="debug-panel" role="status">
+            <strong>DEBUG не активна</strong>
+            <p className="muted">DEBUG временная, серверная и автоматически истекает. Браузер не продлевает срок.</p>
+            <label className="debug-duration-label">
+              Длительность DEBUG
+              <select value={debugDuration} onChange={(event) => setDebugDuration(event.target.value)}>
+                <option value="5">5 минут</option>
+                <option value="10">10 минут</option>
+                <option value="15">15 минут</option>
+                <option value="30">30 минут</option>
+              </select>
+            </label>
+            <button type="button" className="primary" disabled={debugActionState.endsWith("…")} onClick={startDebug}>Включить DEBUG</button>
+          </div>
+        ) : null}
+        {debugActionState && <p role="status" className={debugActionState.includes("Не удалось") ? "error" : "muted"}>{debugActionState}</p>}
       </section>
       <section
         className="card security-log"
@@ -3410,6 +3599,8 @@ function PlatformShell() {
           csrf: result.csrf,
           error: "",
         });
+        updatePwaDiagnosticsCsrf(result.csrf);
+        configurePwaDiagnosticsDebugState({ active: false });
       })
       .catch((err) => {
         if (err instanceof ApiError && err.status === 401) {
@@ -3449,6 +3640,8 @@ function PlatformShell() {
       <Login
         onLogin={(u, t) => {
           setSession({ status: "authenticated", user: u, csrf: t, error: "" });
+          updatePwaDiagnosticsCsrf(t);
+          configurePwaDiagnosticsDebugState({ active: false });
         }}
       />
     );
@@ -3457,17 +3650,20 @@ function PlatformShell() {
   const logout = async () => {
     let token = csrf;
     if (!token) {
-      const refreshed = await api<{ csrf_token: string }>("/auth/csrf", {
+      const refreshed = await requestJson<{ csrf_token: string }>("/auth/csrf", {
         method: "POST",
       });
       token = refreshed.csrf_token;
       setSession((current) => ({ ...current, csrf: token }));
+      updatePwaDiagnosticsCsrf(token);
+      configurePwaDiagnosticsDebugState({ active: false });
     }
     await api("/auth/logout", {
       method: "POST",
       headers: { "x-csrf-token": token },
     }).catch(() => undefined);
     setSession({ status: "anonymous", user: null, csrf: "", error: "" });
+    clearPwaDiagnosticsSession();
   };
   return (
     <div className="shell">
@@ -3515,9 +3711,10 @@ function PlatformShell() {
           <div hidden={page !== "projects"}>
             <ProjectsPage
               csrf={csrf}
-              onCsrf={(token) =>
-                setSession((current) => ({ ...current, csrf: token }))
-              }
+              onCsrf={(token) => {
+                setSession((current) => ({ ...current, csrf: token }));
+                updatePwaDiagnosticsCsrf(token);
+              }}
               requestedProjectId={requestedProjectId}
               onRequestedProjectHandled={() => setRequestedProjectId(null)}
               requestedCreateProject={requestedCreateProject}
@@ -3544,9 +3741,10 @@ function PlatformShell() {
           <SettingsPage
             user={user}
             csrf={csrf}
-            onCsrf={(token) =>
-              setSession((current) => ({ ...current, csrf: token }))
-            }
+            onCsrf={(token) => {
+              setSession((current) => ({ ...current, csrf: token }));
+              updatePwaDiagnosticsCsrf(token);
+            }}
             onLogout={logout}
             oauthResult={oauthResult}
           />
