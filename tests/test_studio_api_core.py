@@ -32,7 +32,7 @@ from studio_api.config import Settings
 from studio_api.db import SessionLocal, engine
 from studio_api.deps import get_client_ip
 from studio_api.main import app, limiter
-from studio_api.models import AuditEvent, CredentialProvider, CredentialStatus, JobSourceStatus, JobStatus, LocalIdentity, Project, ProviderCredential, ProviderCredentialVersion, Source, SourceType, SourceUploadStatus, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, User, UserRole, UserStatus
+from studio_api.models import AuditEvent, DiagnosticDebugSession, DiagnosticEvent, CredentialProvider, CredentialStatus, JobSourceStatus, JobStatus, LocalIdentity, Project, ProviderCredential, ProviderCredentialVersion, Source, SourceType, SourceUploadStatus, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, User, UserRole, UserStatus
 from studio_api.security import aad, decrypt, encrypt, hash_password, master_key_from_b64, utcnow, verify_password
 from studio_api.job_claim_lease import JobLeaseError, JobLeaseFailureReason, acquire_job_lease, acquire_next_ready_job_lease, is_lease_active, release_job_lease, renew_job_lease
 from studio_api.job_processing_lifecycle import JobProcessingError, JobProcessingFailureReason, acknowledge_job_cancellation, begin_job_processing, fail_job_processing, recover_expired_processing_job
@@ -53,7 +53,7 @@ def clean_state(migrated_database):
     except Exception as exc:
         pytest.skip(f"Redis unavailable for platform tests: {exc}")
     with engine.begin() as conn:
-        tables = ["audit_events", "google_oauth_states", "google_connections", "provider_credential_versions", "provider_credentials", "transcription_job_outputs", "transcription_job_sources", "transcription_jobs", "sources", "projects", "sessions", "login_contexts", "local_identities", "users"]
+        tables = ["diagnostic_debug_sessions", "diagnostic_events", "audit_events", "google_oauth_states", "google_connections", "provider_credential_versions", "provider_credentials", "transcription_job_outputs", "transcription_job_sources", "transcription_jobs", "sources", "projects", "sessions", "login_contexts", "local_identities", "users"]
         conn.execute(text("TRUNCATE " + ", ".join(tables) + " RESTART IDENTITY CASCADE"))
     yield
 
@@ -2305,7 +2305,7 @@ def test_job_destination_migration_0008_0009_upgrade_downgrade_backfill(tmp_path
         with temp_engine.begin() as conn:
             assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0009_job_output_destinations"
         cfg = Config(str(ALEMBIC))
-        assert ScriptDirectory.from_config(cfg).get_current_head() == "0010_diagnostic_events"
+        assert ScriptDirectory.from_config(cfg).get_current_head() == "0011_diagnostic_debug_sessions"
     finally:
         temp_engine.dispose()
         cleanup_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
@@ -2348,3 +2348,75 @@ def test_job_destination_0009_current_schema_constraints():
         db.commit()
     finally:
         db.close()
+
+
+def test_diagnostics_debug_session_auth_csrf_bounds_conflict_and_stop_idempotent():
+    pw = admin("debug-owner@example.com"); c = TestClient(app)
+    assert c.get("/api/diagnostics/debug-session").status_code == 401
+    csrf = login(c, pw, "debug-owner@example.com")
+    assert c.post("/api/diagnostics/debug-session", json={"duration_minutes": 5}, headers={"origin": "https://evil.test", "x-csrf-token": csrf}).status_code == 403
+    assert c.delete("/api/diagnostics/debug-session", headers={"origin": "https://evil.test", "x-csrf-token": csrf}).status_code == 403
+    assert c.post("/api/diagnostics/debug-session", json={"duration_minutes": 5}, headers={"origin": "https://studio.test", "x-csrf-token": "bad"}).status_code == 403
+    assert c.post("/api/diagnostics/debug-session", json={"duration_minutes": 0}, headers={"origin": "https://studio.test", "x-csrf-token": csrf}).status_code == 422
+    assert c.post("/api/diagnostics/debug-session", json={"duration_minutes": 31}, headers={"origin": "https://studio.test", "x-csrf-token": csrf}).status_code == 422
+    r = c.post("/api/diagnostics/debug-session", json={"duration_minutes": 5}, headers={"origin": "https://studio.test", "x-csrf-token": csrf})
+    assert r.status_code == 200
+    body = r.json(); assert body["active"] is True and body["max_duration_minutes"] == 30 and "id" not in body
+    first_expiry = body["expires_at"]
+    conflict = c.post("/api/diagnostics/debug-session", json={"duration_minutes": 30}, headers={"origin": "https://studio.test", "x-csrf-token": csrf})
+    assert conflict.status_code == 409 and conflict.json()["detail"]["expires_at"] == first_expiry
+    assert c.delete("/api/diagnostics/debug-session", headers={"origin": "https://studio.test", "x-csrf-token": csrf}).json() == {"active": False, "max_duration_minutes": 30}
+    assert c.delete("/api/diagnostics/debug-session", headers={"origin": "https://studio.test", "x-csrf-token": csrf}).json() == {"active": False, "max_duration_minutes": 30}
+
+
+def test_diagnostics_debug_session_owner_scope_and_expired_inactive():
+    pw1 = admin("debug-a@example.com"); pw2 = admin("debug-b@example.com")
+    c1 = TestClient(app); c2 = TestClient(app)
+    csrf1 = login(c1, pw1, "debug-a@example.com"); login(c2, pw2, "debug-b@example.com")
+    r = c1.post("/api/diagnostics/debug-session", json={"duration_minutes": 1}, headers={"origin": "https://studio.test", "x-csrf-token": csrf1})
+    assert r.status_code == 200
+    assert c2.get("/api/diagnostics/debug-session").json() == {"active": False, "max_duration_minutes": 30}
+    db = SessionLocal(); row = db.query(DiagnosticDebugSession).one(); row.expires_at = datetime(2026, 1, 1); db.commit(); db.close()
+    assert c1.get("/api/diagnostics/debug-session").json() == {"active": False, "max_duration_minutes": 30}
+
+
+def test_pwa_diagnostics_ingestion_security_validation_and_visibility():
+    pw = admin("pwa@example.com"); c = TestClient(app); csrf = login(c, pw, "pwa@example.com")
+    payload = {"events": [{"event_code": "PWA_API_REQUEST_FAILED", "metadata": {"endpoint_group": "jobs", "http_status_category": "5xx", "duration_ms": 123, "retryable": True}}]}
+    assert TestClient(app).post("/api/diagnostics/pwa-events", json=payload).status_code == 401
+    assert c.post("/api/diagnostics/pwa-events", json=payload, headers={"origin": "https://evil.test", "x-csrf-token": csrf}).status_code == 403
+    assert c.post("/api/diagnostics/pwa-events", json=payload, headers={"origin": "https://studio.test", "x-csrf-token": "bad"}).status_code == 403
+    ok = c.post("/api/diagnostics/pwa-events", json=payload, headers={"origin": "https://studio.test", "x-csrf-token": csrf})
+    assert ok.status_code == 200 and ok.json()["accepted"] == 1
+    db = SessionLocal(); row = db.query(DiagnosticEvent).one(); assert row.owner_user_id and row.component.value == "web" and row.event_code == "PWA_API_REQUEST_FAILED" and row.level.value == "WARNING" and row.request_id.startswith("req_"); db.close()
+    events = c.get("/api/diagnostics/events?component=web&event_code=PWA_API_REQUEST_FAILED").json()["events"]
+    assert len(events) == 1 and events[0]["metadata"]["endpoint_group"] == "jobs"
+    assert c.get("/api/audit-events").json() == {"events": []}
+
+
+def test_pwa_diagnostics_rejects_unknown_nested_oversized_forbidden_and_debug_without_session():
+    pw = admin("pwa-reject@example.com"); c = TestClient(app); csrf = login(c, pw, "pwa-reject@example.com")
+    headers={"origin": "https://studio.test", "x-csrf-token": csrf}
+    bad_payloads = [
+        {"events": [{"event_code": "NOPE", "metadata": {}}]},
+        {"events": [{"event_code": "PWA_APP_ERROR", "metadata": {"unknown": "x"}}]},
+        {"events": [{"event_code": "PWA_APP_ERROR", "metadata": {"error_code": {"nested": "x"}}}]},
+        {"events": [{"event_code": "PWA_APP_ERROR", "metadata": {"duration_ms": 86400001}}]},
+        {"events": [{"event_code": "PWA_APP_ERROR", "metadata": {"error_code": "https://example.test/file.mp3?token=value"}}]},
+        {"events": [{"event_code": "PWA_APP_ERROR", "level": "DEBUG", "metadata": {"error_code": "unknown"}}]},
+    ]
+    for payload in bad_payloads:
+        assert c.post("/api/diagnostics/pwa-events", json=payload, headers=headers).status_code in {403, 422}
+    db=SessionLocal(); assert db.query(DiagnosticEvent).count() == 0; db.close()
+
+
+def test_pwa_debug_ingestion_requires_active_session_and_does_not_extend_expiry():
+    pw = admin("pwa-debug@example.com"); c = TestClient(app); csrf = login(c, pw, "pwa-debug@example.com")
+    headers={"origin": "https://studio.test", "x-csrf-token": csrf}
+    payload={"events": [{"event_code": "PWA_APP_ERROR", "level": "DEBUG", "metadata": {"error_code": "unknown"}}]}
+    assert c.post("/api/diagnostics/pwa-events", json=payload, headers=headers).status_code == 403
+    started=c.post("/api/diagnostics/debug-session", json={"duration_minutes": 10}, headers=headers).json(); expiry=started["expires_at"]
+    assert c.post("/api/diagnostics/pwa-events", json=payload, headers=headers).status_code == 200
+    assert c.get("/api/diagnostics/debug-session").json()["expires_at"] == expiry
+    db=SessionLocal(); row=db.query(DiagnosticDebugSession).one(); row.expires_at=datetime(2026,1,1); db.commit(); db.close()
+    assert c.post("/api/diagnostics/pwa-events", json=payload, headers=headers).status_code == 403

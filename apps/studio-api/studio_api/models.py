@@ -233,6 +233,19 @@ class AuditEvent(Base):
     created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now)
 
 
+class DiagnosticDebugSession(Base):
+    __tablename__="diagnostic_debug_sessions"
+    id: Mapped[str]=mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_user_id: Mapped[str]=mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    started_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now)
+    expires_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False)
+    ended_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True), nullable=True)
+    __table_args__=(
+        CheckConstraint("expires_at > started_at", name="ck_diagnostic_debug_sessions_expires_after_start"),
+        Index("ix_diagnostic_debug_sessions_owner_active", "owner_user_id", "ended_at", "expires_at"),
+    )
+
+
 class DiagnosticEvent(Base):
     __tablename__="diagnostic_events"
     id: Mapped[str]=mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
