@@ -2372,17 +2372,21 @@ def test_diagnostics_debug_session_auth_csrf_bounds_conflict_and_stop_idempotent
 def test_diagnostics_debug_session_owner_scope_and_expired_inactive():
     pw1 = admin("debug-a@example.com"); pw2 = admin("debug-b@example.com")
     c1 = TestClient(app); c2 = TestClient(app)
-    csrf1 = login(c1, pw1, "debug-a@example.com"); login(c2, pw2, "debug-b@example.com")
+    csrf1 = login(c1, pw1, "debug-a@example.com"); csrf2 = login(c2, pw2, "debug-b@example.com")
     r = c1.post("/api/diagnostics/debug-session", json={"duration_minutes": 1}, headers={"origin": "https://studio.test", "x-csrf-token": csrf1})
     assert r.status_code == 200
     assert c2.get("/api/diagnostics/debug-session").json() == {"active": False, "max_duration_minutes": 30}
-    db = SessionLocal(); row = db.query(DiagnosticDebugSession).one(); row.expires_at = datetime(2026, 1, 1); db.commit(); db.close()
+    assert c2.post("/api/diagnostics/debug-session", json={"duration_minutes": 1}, headers={"origin": "https://studio.test", "x-csrf-token": csrf2}).status_code == 200
+    db = SessionLocal(); owner = db.query(User).filter_by(email="debug-a@example.com").one(); assert db.query(DiagnosticDebugSession).count() == 2; row = db.query(DiagnosticDebugSession).filter_by(owner_user_id=owner.id).one(); row.expires_at = utcnow() - timedelta(minutes=1); db.commit(); db.close()
     assert c1.get("/api/diagnostics/debug-session").json() == {"active": False, "max_duration_minutes": 30}
+    assert c1.post("/api/diagnostics/debug-session", json={"duration_minutes": 2}, headers={"origin": "https://studio.test", "x-csrf-token": csrf1}).status_code == 200
+    db = SessionLocal(); assert db.query(DiagnosticDebugSession).count() == 2; db.close()
 
 
 def test_pwa_diagnostics_ingestion_security_validation_and_visibility():
     pw = admin("pwa@example.com"); c = TestClient(app); csrf = login(c, pw, "pwa@example.com")
     payload = {"events": [{"event_code": "PWA_API_REQUEST_FAILED", "metadata": {"endpoint_group": "jobs", "http_status_category": "5xx", "duration_ms": 123, "retryable": True}}]}
+    db = SessionLocal(); audit_count = db.query(AuditEvent).count(); db.close()
     assert TestClient(app).post("/api/diagnostics/pwa-events", json=payload).status_code == 401
     assert c.post("/api/diagnostics/pwa-events", json=payload, headers={"origin": "https://evil.test", "x-csrf-token": csrf}).status_code == 403
     assert c.post("/api/diagnostics/pwa-events", json=payload, headers={"origin": "https://studio.test", "x-csrf-token": "bad"}).status_code == 403
@@ -2391,12 +2395,15 @@ def test_pwa_diagnostics_ingestion_security_validation_and_visibility():
     db = SessionLocal(); row = db.query(DiagnosticEvent).one(); assert row.owner_user_id and row.component.value == "web" and row.event_code == "PWA_API_REQUEST_FAILED" and row.level.value == "WARNING" and row.request_id.startswith("req_"); db.close()
     events = c.get("/api/diagnostics/events?component=web&event_code=PWA_API_REQUEST_FAILED").json()["events"]
     assert len(events) == 1 and events[0]["metadata"]["endpoint_group"] == "jobs"
-    assert c.get("/api/audit-events").json() == {"events": []}
+    db = SessionLocal(); audit_rows = db.query(AuditEvent).all(); assert len(audit_rows) == audit_count; assert all("PWA_" not in row.event_type and "PWA_" not in row.metadata_json for row in audit_rows); db.close()
 
 
 def test_pwa_diagnostics_rejects_unknown_nested_oversized_forbidden_and_debug_without_session():
     pw = admin("pwa-reject@example.com"); c = TestClient(app); csrf = login(c, pw, "pwa-reject@example.com")
     headers={"origin": "https://studio.test", "x-csrf-token": csrf}
+    from studio_api.diagnostics import write_diagnostic_event
+    db = SessionLocal(); user = db.query(User).filter_by(email="pwa-reject@example.com").one(); user_id = user.id; db.close()
+    assert write_diagnostic_event(owner_user_id=user_id, component="web", event_code="PWA_APP_ERROR", level="DEBUG", metadata={"error_code": "unknown"}).accepted is False
     bad_payloads = [
         {"events": [{"event_code": "NOPE", "metadata": {}}]},
         {"events": [{"event_code": "PWA_APP_ERROR", "metadata": {"unknown": "x"}}]},
@@ -2418,5 +2425,5 @@ def test_pwa_debug_ingestion_requires_active_session_and_does_not_extend_expiry(
     started=c.post("/api/diagnostics/debug-session", json={"duration_minutes": 10}, headers=headers).json(); expiry=started["expires_at"]
     assert c.post("/api/diagnostics/pwa-events", json=payload, headers=headers).status_code == 200
     assert c.get("/api/diagnostics/debug-session").json()["expires_at"] == expiry
-    db=SessionLocal(); row=db.query(DiagnosticDebugSession).one(); row.expires_at=datetime(2026,1,1); db.commit(); db.close()
+    db=SessionLocal(); row=db.query(DiagnosticDebugSession).one(); row.expires_at=utcnow() - timedelta(minutes=1); db.commit(); db.close()
     assert c.post("/api/diagnostics/pwa-events", json=payload, headers=headers).status_code == 403

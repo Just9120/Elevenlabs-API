@@ -655,19 +655,27 @@ PWA_EVENT_CODES = frozenset({"PWA_APP_ERROR", "PWA_UNHANDLED_REJECTION", "PWA_AP
 PWA_METADATA_KEYS = frozenset({"boundary", "duration_ms", "error_code", "retryable", "http_status_category", "endpoint_group"})
 
 def _debug_now() -> datetime:
-    return utcnow().replace(tzinfo=None)
+    return utcnow()
+
+def _debug_aware(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 def _active_debug_session(db: Session, user: User, now_dt: datetime | None = None) -> DiagnosticDebugSession | None:
     now_dt = now_dt or _debug_now()
-    return db.query(DiagnosticDebugSession).filter(DiagnosticDebugSession.owner_user_id==user.id, DiagnosticDebugSession.ended_at.is_(None), DiagnosticDebugSession.expires_at>now_dt).order_by(DiagnosticDebugSession.expires_at.desc()).first()
+    row = db.query(DiagnosticDebugSession).filter(DiagnosticDebugSession.owner_user_id==user.id).first()
+    if not row or row.ended_at is not None:
+        return None
+    return row if _debug_aware(row.expires_at) > now_dt else None
 
 def _debug_session_payload(row: DiagnosticDebugSession | None, now_dt: datetime | None = None):
     now_dt = now_dt or _debug_now()
-    active = bool(row and row.ended_at is None and row.expires_at > now_dt)
+    active = bool(row and row.ended_at is None and _debug_aware(row.expires_at) > now_dt)
     payload={"active": active, "max_duration_minutes": DEBUG_SESSION_MAX_MINUTES}
     if active:
-        payload["started_at"] = row.started_at.isoformat()
-        payload["expires_at"] = row.expires_at.isoformat()
+        payload["started_at"] = _debug_aware(row.started_at).isoformat()
+        payload["expires_at"] = _debug_aware(row.expires_at).isoformat()
     return payload
 
 @app.get("/api/diagnostics/debug-session")
@@ -678,8 +686,19 @@ def diagnostics_debug_session(pair=Depends(current_session), db: Session=Depends
 def start_diagnostics_debug_session(data: DiagnosticDebugSessionIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     _,user=pair; limiter.check("diagnostics:debug-session:start:"+user.id, 10, 3600); now_dt=_debug_now(); existing=_active_debug_session(db,user,now_dt)
     if existing: raise HTTPException(409, _debug_session_payload(existing, now_dt))
-    row=DiagnosticDebugSession(owner_user_id=user.id, started_at=now_dt, expires_at=now_dt+timedelta(minutes=data.duration_minutes))
-    db.add(row); db.commit(); db.refresh(row); return _debug_session_payload(row, now_dt)
+    row=db.query(DiagnosticDebugSession).filter(DiagnosticDebugSession.owner_user_id==user.id).first()
+    if row:
+        row.started_at=now_dt; row.expires_at=now_dt+timedelta(minutes=data.duration_minutes); row.ended_at=None
+    else:
+        row=DiagnosticDebugSession(owner_user_id=user.id, started_at=now_dt, expires_at=now_dt+timedelta(minutes=data.duration_minutes))
+        db.add(row)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        conflict=_active_debug_session(db,user,now_dt)
+        raise HTTPException(409, _debug_session_payload(conflict, now_dt))
+    db.refresh(row); return _debug_session_payload(row, now_dt)
 
 @app.delete("/api/diagnostics/debug-session")
 def stop_diagnostics_debug_session(pair=Depends(require_csrf), db: Session=Depends(get_db)):
@@ -711,7 +730,7 @@ def ingest_pwa_diagnostics(data: PwaDiagnosticsIn, request: Request, pair=Depend
         if level != REGISTRY[event.event_code].level and level != "DEBUG": raise HTTPException(422, "Invalid diagnostic level")
         _validate_pwa_scope(db,user,event)
         corr = event.correlation_id if event.correlation_id and valid_correlation_id(event.correlation_id) else None
-        result=write_diagnostic_event(owner_user_id=user.id, component="web", event_code=event.event_code, level=level, project_id=event.project_id, job_id=event.job_id, correlation_id=corr, request_id=getattr(request.state,"request_id",None), metadata=event.metadata or {}, now=now_dt)
+        result=write_diagnostic_event(owner_user_id=user.id, component="web", event_code=event.event_code, level=level, project_id=event.project_id, job_id=event.job_id, correlation_id=corr, request_id=getattr(request.state,"request_id",None), metadata=event.metadata or {}, now=now_dt, allow_debug_override=(level == "DEBUG" and active_debug))
         if not result.accepted: raise HTTPException(422, "Invalid diagnostic event")
         if result.event_id: persisted.append(result.event_id)
     return {"accepted": len(data.events), "persisted": len(persisted)}

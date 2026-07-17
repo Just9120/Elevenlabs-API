@@ -26,6 +26,7 @@ def upgrade():
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("ended_at", sa.DateTime(timezone=True), nullable=True),
         sa.CheckConstraint("expires_at > started_at", name="ck_diagnostic_debug_sessions_expires_after_start"),
+        sa.UniqueConstraint("owner_user_id", name="uq_diagnostic_debug_sessions_owner_user_id"),
     )
     op.create_index("ix_diagnostic_debug_sessions_owner_user_id", "diagnostic_debug_sessions", ["owner_user_id"])
     op.create_index("ix_diagnostic_debug_sessions_owner_active", "diagnostic_debug_sessions", ["owner_user_id", "ended_at", "expires_at"])

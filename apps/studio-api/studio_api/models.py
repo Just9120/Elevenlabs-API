@@ -236,7 +236,7 @@ class AuditEvent(Base):
 class DiagnosticDebugSession(Base):
     __tablename__="diagnostic_debug_sessions"
     id: Mapped[str]=mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    owner_user_id: Mapped[str]=mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    owner_user_id: Mapped[str]=mapped_column(ForeignKey("users.id"), nullable=False, unique=True, index=True)
     started_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now)
     expires_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False)
     ended_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True), nullable=True)

@@ -244,13 +244,13 @@ def _upsert_event(db, row_values: dict[str, Any], fp: str):
             raise
         return db.query(DiagnosticEvent.id).filter_by(dedup_fingerprint=fp).scalar()
 
-def write_diagnostic_event(*, owner_user_id: str, component: str, event_code: str, level: str | None = None, project_id: str | None = None, job_id: str | None = None, correlation_id: str | None = None, request_id: str | None = None, metadata: dict[str, Any] | None = None, session_factory=SessionLocal, now: datetime | None = None) -> DiagnosticWriteResult:
+def write_diagnostic_event(*, owner_user_id: str, component: str, event_code: str, level: str | None = None, project_id: str | None = None, job_id: str | None = None, correlation_id: str | None = None, request_id: str | None = None, metadata: dict[str, Any] | None = None, session_factory=SessionLocal, now: datetime | None = None, allow_debug_override: bool = False) -> DiagnosticWriteResult:
     db = None
     try:
         definition = REGISTRY.get(event_code)
         if not definition: return DiagnosticWriteResult(False, reason="unknown_event_code")
         component = getattr(component, "value", component); level = level or definition.level
-        debug_override = event_code.startswith("PWA_") and level == "DEBUG"
+        debug_override = bool(allow_debug_override and event_code.startswith("PWA_") and level == "DEBUG")
         if component not in definition.components or (level != definition.level and not debug_override) or level not in DiagnosticLevel.__members__:
             return DiagnosticWriteResult(False, reason="invalid_scope")
         if not valid_uuid(owner_user_id) or not valid_db_id(project_id) or not valid_db_id(job_id) or not valid_correlation_id(correlation_id) or not valid_request_id(request_id):
