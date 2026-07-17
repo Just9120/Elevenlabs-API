@@ -5875,6 +5875,27 @@ describe("settings diagnostics", () => {
     renderApp("platform");
     await openDiagnosticsSettings();
     await screen.findByText("JOB_CREATED");
+    const headers = Array.from(
+      document.querySelectorAll<HTMLElement>(".diagnostics-event-header"),
+    );
+    const createdHeader = headers.find((header) =>
+      header.textContent?.includes("JOB_CREATED"),
+    );
+    const cancelledHeader = headers.find((header) =>
+      header.textContent?.includes("JOB_CANCELLED"),
+    );
+    expect(createdHeader?.textContent).toContain("JOB_CREATED·Информация");
+    expect(cancelledHeader?.textContent).toContain("JOB_CANCELLED·Информация");
+    expect(createdHeader?.textContent).not.toContain("JOB_CREATEDИнформация");
+    expect(cancelledHeader?.textContent).not.toContain(
+      "JOB_CANCELLEDИнформация",
+    );
+    for (const separator of document.querySelectorAll(
+      ".diagnostics-event-header span",
+    )) {
+      if (separator.textContent === "·")
+        expect(separator).not.toHaveAttribute("aria-hidden");
+    }
     for (const text of [
       "PROVIDER_REQUEST_FAILED",
       "JOB_COMPLETED",

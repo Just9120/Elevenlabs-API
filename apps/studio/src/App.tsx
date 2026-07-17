@@ -3309,15 +3309,15 @@ function DiagnosticsSettings({
             <li key={event.id} className="diagnostics-event">
               <div className="diagnostics-event-header">
                 <strong>{event.event_code}</strong>
-                <span aria-hidden="true">·</span>
+                <span>·</span>
                 <span>{diagnosticsLevelLabel(event.level)}</span>
-                <span aria-hidden="true">·</span>
+                <span>·</span>
                 <span>{diagnosticsComponentLabel(event.component)}</span>
-                <span aria-hidden="true">·</span>
+                <span>·</span>
                 <time dateTime={event.occurred_at}>
                   {formatTime(event.occurred_at)}
                 </time>
-                <span aria-hidden="true">·</span>
+                <span>·</span>
                 <span>повторов: {event.occurrence_count ?? 1}</span>
               </div>
               {event.metadata && (
