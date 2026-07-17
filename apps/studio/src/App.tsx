@@ -2561,6 +2561,34 @@ function safeText(value: unknown) {
     return Number.isFinite(value) ? String(value) : "—";
   return String(value).slice(0, 120);
 }
+function buildIdentityText(value: unknown) {
+  if (value === null || value === undefined || value === "")
+    return "не настроено";
+  if (typeof value === "string" && value.trim().toLowerCase() === "unknown")
+    return "не настроено";
+  return safeText(value);
+}
+function diagnosticsDebugStateText(value: unknown) {
+  if (value === "inactive") return "неактивна";
+  return safeText(value);
+}
+function diagnosticsLevelLabel(level: string) {
+  const labels: Record<string, string> = {
+    ERROR: "Ошибка",
+    WARNING: "Предупреждение",
+    INFO: "Информация",
+    DEBUG: "DEBUG",
+  };
+  return labels[level] ?? safeText(level);
+}
+function diagnosticsComponentLabel(component: string) {
+  const labels: Record<string, string> = {
+    web: "Веб-приложение",
+    api: "API",
+    worker: "Фоновая обработка",
+  };
+  return labels[component] ?? safeText(component);
+}
 function reportFileName() {
   const stamp = new Date().toISOString().slice(0, 10);
   return `studio-diagnostics-${stamp}.md`;
@@ -2638,8 +2666,24 @@ function auditLabel(type: string) {
     "credential.replaced": "Ключ заменён",
     "credential.revoked": "Ключ отозван",
     "credential.deleted": "Ключ удалён",
+    "admin.bootstrap_created": "Администратор создан",
     "auth.login": "Вход выполнен",
+    "auth.login_failed": "Неудачная попытка входа",
     "auth.logout": "Выход выполнен",
+    "auth.sessions_revoked": "Другие сеансы завершены",
+    "project.created": "Проект создан",
+    "project.updated": "Проект обновлён",
+    "project.archived": "Проект архивирован",
+    "project.output_folder.google_picker_set":
+      "Папка проекта выбрана через Google Drive",
+    "source.google_drive.created": "Источник Google Drive добавлен",
+    "source.google_picker.created": "Источники выбраны через Google Drive",
+    "source.local_upload.initiated": "Загрузка локального источника начата",
+    "source.local_upload.completed": "Локальный источник загружен",
+    "source.deleted": "Источник удалён",
+    "job.created": "Задача создана",
+    "job.batch_created": "Пакет задач создан",
+    "google.oauth_failed": "Подключение Google Drive не удалось",
   };
   return labels[type] ?? "Событие безопасности";
 }
@@ -3146,11 +3190,11 @@ function DiagnosticsSettings({
         {systemState === "ready" && system && (
           <dl className="meta">
             <dt>Сборка веб-приложения</dt>
-            <dd>{safeText(system.build?.web)}</dd>
+            <dd>{buildIdentityText(system.build?.web)}</dd>
             <dt>Сборка API</dt>
-            <dd>{safeText(system.build?.api)}</dd>
+            <dd>{buildIdentityText(system.build?.api)}</dd>
             <dt>Сборка фоновой обработки</dt>
-            <dd>{safeText(system.build?.worker)}</dd>
+            <dd>{buildIdentityText(system.build?.worker)}</dd>
             <dt>Среда</dt>
             <dd>{safeText(system.environment ?? system.pwa_mode)}</dd>
             <dt>Google Drive подключён</dt>
@@ -3164,7 +3208,9 @@ function DiagnosticsSettings({
             <dt>Запись диагностики</dt>
             <dd>{boolText(system.diagnostics?.recording_enabled)}</dd>
             <dt>DEBUG-запись</dt>
-            <dd>{safeText(system.diagnostics?.debug_recording)}</dd>
+            <dd>
+              {diagnosticsDebugStateText(system.diagnostics?.debug_recording)}
+            </dd>
             <dt>Хранение обычных событий</dt>
             <dd>{safeText(system.diagnostics?.retention_days)} дней</dd>
             <dt>Хранение DEBUG</dt>
@@ -3261,14 +3307,21 @@ function DiagnosticsSettings({
         <ul className="diagnostics-events">
           {timeline.map((event) => (
             <li key={event.id} className="diagnostics-event">
-              <strong>{event.event_code}</strong>
-              <span>
-                {event.level} · {event.component} ·{" "}
-                {formatTime(event.occurred_at)} · повторов:{" "}
-                {event.occurrence_count ?? 1}
-              </span>
+              <div className="diagnostics-event-header">
+                <strong>{event.event_code}</strong>
+                <span>·</span>
+                <span>{diagnosticsLevelLabel(event.level)}</span>
+                <span>·</span>
+                <span>{diagnosticsComponentLabel(event.component)}</span>
+                <span>·</span>
+                <time dateTime={event.occurred_at}>
+                  {formatTime(event.occurred_at)}
+                </time>
+                <span>·</span>
+                <span>повторов: {event.occurrence_count ?? 1}</span>
+              </div>
               {event.metadata && (
-                <dl className="meta compact">
+                <dl className="diagnostics-metadata">
                   {Object.entries(event.metadata)
                     .filter(([key]) => diagnosticsMetadataKeys.has(key))
                     .slice(0, 8)
