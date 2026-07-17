@@ -2683,6 +2683,8 @@ function auditLabel(type: string) {
     "source.deleted": "Источник удалён",
     "job.created": "Задача создана",
     "job.batch_created": "Пакет задач создан",
+    "job.cancelled": "Задача отменена",
+    "job.cancel_requested": "Запрошена отмена задачи",
     "google.oauth_failed": "Подключение Google Drive не удалось",
   };
   return labels[type] ?? "Событие безопасности";
