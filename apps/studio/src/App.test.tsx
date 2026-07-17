@@ -11,10 +11,11 @@ import userEvent from "@testing-library/user-event";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import App from "./App";
+import App, { __appDiagnosticsTest } from "./App";
 import * as googlePicker from "./googlePicker";
 import { computeGooglePickerSize } from "./googlePicker";
 import { buildSegmentPlan, parseTimeToSeconds } from "./segments";
+import { clearPwaDiagnosticsSession, configurePwaDiagnosticsSession } from "./pwaDiagnostics";
 const originalLocation = window.location;
 const json = (body: unknown, ok = true, status = 200) =>
   Promise.resolve({
@@ -6096,5 +6097,207 @@ describe("settings diagnostics", () => {
     expect(
       screen.getByRole("button", { name: "Повторить" }),
     ).toBeInTheDocument();
+  });
+});
+
+describe("PWA API diagnostics instrumentation", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    clearPwaDiagnosticsSession();
+    configurePwaDiagnosticsSession({ csrf: "csrf-safe", debugActive: false });
+  });
+
+  function postedPwaEvents(fetchMock: ReturnType<typeof vi.fn>) {
+    return fetchMock.mock.calls
+      .filter(([url]) => String(url).endsWith("/api/diagnostics/pwa-events"))
+      .flatMap(([, init]) => JSON.parse(String((init as RequestInit).body)).events);
+  }
+
+  it("emits no event for successful requests", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(json({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    await __appDiagnosticsTest.api("/projects");
+    expect(postedPwaEvents(fetchMock)).toHaveLength(0);
+  });
+
+  it("emits one safe event for direct network failure and omits raw path", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("synthetic-network-detail"))
+      .mockResolvedValue(json({ accepted: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(__appDiagnosticsTest.api("/jobs/synthetic-id")).rejects.toThrow();
+    await waitFor(() => expect(postedPwaEvents(fetchMock)).toHaveLength(1));
+    const payload = JSON.stringify(postedPwaEvents(fetchMock));
+    expect(payload).toContain("jobs");
+    expect(payload).not.toContain("synthetic-id");
+    expect(payload).not.toContain("synthetic-network-detail");
+  });
+
+  it("emits one safe event for direct 5xx", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(json({ ok: false }, false, 503))
+      .mockResolvedValue(json({ accepted: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(__appDiagnosticsTest.api("/sources/synthetic-id")).rejects.toThrow();
+    await waitFor(() => expect(postedPwaEvents(fetchMock)).toHaveLength(1));
+    expect(postedPwaEvents(fetchMock)[0].metadata).toMatchObject({ endpoint_group: "sources", http_status_category: "5xx", retryable: true });
+  });
+
+  it("emits nothing for recovered CSRF retry", async () => {
+    const onCsrf = vi.fn();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(json({ ok: false }, false, 403))
+      .mockResolvedValueOnce(json({ csrf_token: "csrf-new" }))
+      .mockResolvedValueOnce(json({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    await __appDiagnosticsTest.csrfMutate("/projects", "csrf-old", onCsrf, { method: "POST", body: "{}" });
+    expect(onCsrf).toHaveBeenCalledWith("csrf-new");
+    expect(postedPwaEvents(fetchMock)).toHaveLength(0);
+  });
+
+  it("emits exactly one for final failed CSRF retry and does not retry non-CSRF failures", async () => {
+    const onCsrf = vi.fn();
+    let fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(json({ ok: false }, false, 419))
+      .mockResolvedValueOnce(json({ csrf_token: "csrf-new" }))
+      .mockResolvedValueOnce(json({ ok: false }, false, 500))
+      .mockResolvedValue(json({ accepted: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(__appDiagnosticsTest.csrfMutate("/credentials", "csrf-old", onCsrf, { method: "POST", body: "{}" })).rejects.toThrow();
+    await waitFor(() => expect(postedPwaEvents(fetchMock)).toHaveLength(1));
+
+    fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(json({ ok: false }, false, 400))
+      .mockResolvedValue(json({ accepted: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(__appDiagnosticsTest.csrfMutate("/projects", "csrf-old", onCsrf, { method: "POST", body: "{}" })).rejects.toThrow();
+    await waitFor(() => expect(postedPwaEvents(fetchMock)).toHaveLength(1));
+    expect(fetchMock.mock.calls.map(([url]) => String(url)).filter((url) => url.endsWith("/api/auth/csrf"))).toHaveLength(0);
+  });
+
+  it("does not recursively emit when diagnostics ingestion fails", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(json({ ok: false }, false, 500))
+      .mockRejectedValueOnce(new Error("synthetic-ingestion-failure"));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(__appDiagnosticsTest.api("/diagnostics/events")).rejects.toThrow();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/api/diagnostics/pwa-events"))).toHaveLength(1);
+  });
+});
+
+describe("Settings DEBUG session controls", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    clearPwaDiagnosticsSession();
+  });
+
+  function installSettingsFetch(debugResponses: Array<{ active: boolean; started_at?: string | null; expires_at?: string | null } | Response>) {
+    const debugGets: string[] = [];
+    const posts: unknown[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/auth/session")) return json({ authenticated: true, user: { email: "safe@example.test", role: "owner" } });
+      if (url.endsWith("/api/auth/csrf")) return json({ csrf_token: "csrf-safe" });
+      if (url.endsWith("/api/audit-events")) return json({ events: [] });
+      if (url.endsWith("/api/credentials")) return json({ credentials: [] });
+      if (url.endsWith("/api/google/connection")) return json({ connected: false });
+      if (url.endsWith("/api/diagnostics/system")) return json({ build: {}, diagnostics: {}, google_drive: {}, provider_credentials: {}, report_limits: {} });
+      if (url.includes("/api/diagnostics/events")) return json({ events: [], next_cursor: null, period: { start: "2026-07-16T00:00:00Z", end: "2026-07-17T00:00:00Z" } });
+      if (url.endsWith("/api/diagnostics/debug-session") && (!init?.method || init.method === "GET")) {
+        debugGets.push(url);
+        const next = debugResponses.shift() ?? { active: false, started_at: null, expires_at: null };
+        return next instanceof Response ? next : json(next);
+      }
+      if (url.endsWith("/api/diagnostics/debug-session") && init?.method === "POST") {
+        posts.push(JSON.parse(String(init.body)));
+        return json({ active: true, started_at: new Date(Date.now()).toISOString(), expires_at: new Date(Date.now() + 600000).toISOString() });
+      }
+      if (url.endsWith("/api/diagnostics/debug-session") && init?.method === "DELETE") return json({ active: false, started_at: null, expires_at: null });
+      if (url.endsWith("/api/diagnostics/pwa-events")) return json({ accepted: true });
+      return json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return { fetchMock, debugGets, posts };
+  }
+
+  async function openDiagnostics() {
+    renderApp("platform");
+    await screen.findByText("Настройки");
+    await userEvent.click(screen.getAllByRole("button", { name: "Настройки" })[0]);
+    await userEvent.click(screen.getByRole("tab", { name: "Диагностика" }));
+  }
+
+  it("renders loading, inactive defaults, active status, start and stop flows without browser storage", async () => {
+    const storageSpy = vi.spyOn(Storage.prototype, "setItem");
+    const { posts } = installSettingsFetch([{ active: false, started_at: null, expires_at: null }, { active: false, started_at: null, expires_at: null }]);
+    await openDiagnostics();
+    expect(await screen.findByText("DEBUG не активна")).toBeInTheDocument();
+    const duration = screen.getByLabelText("Длительность DEBUG") as HTMLSelectElement;
+    expect(duration.value).toBe("10");
+    expect(within(duration).getByRole("option", { name: "5 минут" })).toBeInTheDocument();
+    expect(within(duration).getByRole("option", { name: "30 минут" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Включить DEBUG" }));
+    expect(await screen.findByText("DEBUG активна")).toBeInTheDocument();
+    expect(posts).toEqual([{ duration_minutes: 10 }]);
+    await userEvent.click(screen.getByRole("button", { name: "Остановить DEBUG" }));
+    expect(await screen.findByText("DEBUG не активна")).toBeInTheDocument();
+    expect(storageSpy).not.toHaveBeenCalled();
+  });
+
+  it("refreshes on 409 conflict without issuing a second POST", async () => {
+    const debugGets: string[] = [];
+    let postCount = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/auth/session")) return json({ authenticated: true, user: { email: "safe@example.test", role: "owner" } });
+      if (url.endsWith("/api/auth/csrf")) return json({ csrf_token: "csrf-safe" });
+      if (url.endsWith("/api/audit-events")) return json({ events: [] });
+      if (url.endsWith("/api/credentials")) return json({ credentials: [] });
+      if (url.endsWith("/api/google/connection")) return json({ connected: false });
+      if (url.endsWith("/api/diagnostics/system")) return json({ build: {}, diagnostics: {}, google_drive: {}, provider_credentials: {}, report_limits: {} });
+      if (url.includes("/api/diagnostics/events")) return json({ events: [], next_cursor: null, period: { start: "2026-07-16T00:00:00Z", end: "2026-07-17T00:00:00Z" } });
+      if (url.endsWith("/api/diagnostics/debug-session") && (!init?.method || init.method === "GET")) {
+        debugGets.push(url);
+        return debugGets.length === 1
+          ? json({ active: false, started_at: null, expires_at: null })
+          : json({ active: true, started_at: new Date(Date.now()).toISOString(), expires_at: new Date(Date.now() + 600000).toISOString() });
+      }
+      if (url.endsWith("/api/diagnostics/debug-session") && init?.method === "POST") {
+        postCount += 1;
+        return json({ detail: "conflict" }, false, 409);
+      }
+      if (url.endsWith("/api/diagnostics/pwa-events")) return json({ accepted: true });
+      return json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await openDiagnostics();
+    await userEvent.click(await screen.findByRole("button", { name: "Включить DEBUG" }));
+    await screen.findByText("DEBUG уже активна в другой вкладке. Статус обновлён.");
+    expect(postCount).toBe(1);
+    expect(debugGets).toHaveLength(2);
+  });
+
+  it("expires local DEBUG once and failed refresh does not poll every second", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const expiresAt = new Date(Date.now() + 1000).toISOString();
+    const { debugGets } = installSettingsFetch([
+      { active: true, started_at: new Date(Date.now()).toISOString(), expires_at: expiresAt },
+      new Response("{}", { status: 500 }),
+    ]);
+    await openDiagnostics();
+    expect(await screen.findByText("DEBUG активна")).toBeInTheDocument();
+    await act(async () => { vi.advanceTimersByTime(5000); });
+    expect(await screen.findByText("Не удалось загрузить статус DEBUG.")).toBeInTheDocument();
+    const afterExpiryGets = debugGets.length;
+    await act(async () => { vi.advanceTimersByTime(5000); });
+    expect(debugGets).toHaveLength(afterExpiryGets);
+    vi.useRealTimers();
   });
 });

@@ -97,3 +97,50 @@ describe("pwa diagnostics client", () => {
     cleanup();
   });
 });
+
+describe("pwa diagnostics flush draining", () => {
+  it("drains events queued during an in-flight request without retrying a failed batch", async () => {
+    vi.useFakeTimers();
+    let rejectFirst: (() => void) | null = null;
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectFirst = () => reject(new Error("synthetic-ingest-fail"));
+          }),
+      )
+      .mockResolvedValue(new Response("{}", { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+    configurePwaDiagnosticsSession({ csrf: "csrf-safe", debugActive: false });
+    emitPwaDiagnostic("PWA_APP_ERROR", { boundary: "app", error_code: "app_error", retryable: false }, { dedupe: false });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    emitPwaDiagnostic("PWA_SERVICE_WORKER_ERROR", { boundary: "service_worker", error_code: "service_worker_error", retryable: true }, { dedupe: false });
+    rejectFirst?.();
+    await vi.runAllTimersAsync();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const first = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body));
+    const second = JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body));
+    expect(first.events[0].event_code).toBe("PWA_APP_ERROR");
+    expect(second.events[0].event_code).toBe("PWA_SERVICE_WORKER_ERROR");
+    vi.useRealTimers();
+  });
+
+  it("clears previous DEBUG authority when expiry is missing, invalid, or expired", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+    configurePwaDiagnosticsSession({ csrf: "csrf-safe", debugActive: true, expiresAt: new Date(Date.now() + 60000).toISOString() });
+    emitPwaDiagnostic("PWA_API_REQUEST_FAILED", { boundary: "api_request", error_code: "api_request_failed", retryable: true }, { dedupe: false });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(lastBody(fetchMock).events[0].level).toBe("DEBUG");
+
+    fetchMock.mockClear();
+    for (const expiresAt of [undefined, "not-a-date", new Date(Date.now() - 1000).toISOString()]) {
+      configurePwaDiagnosticsSession({ csrf: "csrf-safe", debugActive: true, expiresAt });
+      emitPwaDiagnostic("PWA_API_REQUEST_FAILED", { boundary: "api_request", error_code: "api_request_failed", retryable: true }, { dedupe: false });
+      await vi.waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThan(0));
+      expect(lastBody(fetchMock).events[0].level).toBeUndefined();
+      fetchMock.mockClear();
+    }
+  });
+});

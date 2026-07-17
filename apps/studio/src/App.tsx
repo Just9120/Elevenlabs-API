@@ -418,21 +418,21 @@ function emitApiFailure(path: string, startedAt: number, status?: number) {
   });
 }
 
-async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const startedAt = performance.now();
-  let res: Response;
-  try {
-    res = await fetch(`/api${path}`, {
+async function requestJson<T>(
+  path: string,
+  options: RequestInit = {},
+  csrf?: string,
+): Promise<T> {
+  const res = await fetch(`/api${path}`, {
     ...options,
     credentials: "same-origin",
-    headers: { "content-type": "application/json", ...(options.headers ?? {}) },
+    headers: {
+      "content-type": "application/json",
+      ...(csrf ? { "x-csrf-token": csrf } : {}),
+      ...(options.headers ?? {}),
+    },
   });
-  } catch (err) {
-    emitApiFailure(path, startedAt);
-    throw err;
-  }
   if (!res.ok) {
-    emitApiFailure(path, startedAt, res.status);
     throw new ApiError(
       res.status,
       res.status === 429
@@ -443,38 +443,18 @@ async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   return res.json();
 }
 
-async function apiWithCsrfNoRetry<T>(
-  path: string,
-  csrf: string,
-  options: RequestInit,
-  instrumentFailure = true,
-): Promise<T> {
+async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const startedAt = performance.now();
-  let res: Response;
   try {
-    res = await fetch(`/api${path}`, {
-      ...options,
-      credentials: "same-origin",
-      headers: {
-        "content-type": "application/json",
-        "x-csrf-token": csrf,
-        ...(options.headers ?? {}),
-      },
-    });
+    return await requestJson<T>(path, options);
   } catch (err) {
-    if (instrumentFailure) emitApiFailure(path, startedAt);
+    emitApiFailure(
+      path,
+      startedAt,
+      err instanceof ApiError ? err.status : undefined,
+    );
     throw err;
   }
-  if (!res.ok) {
-    if (instrumentFailure) emitApiFailure(path, startedAt, res.status);
-    throw new ApiError(
-      res.status,
-      res.status === 429
-        ? "Слишком много попыток. Попробуйте позже."
-        : "Операция не выполнена. Проверьте данные и повторите.",
-    );
-  }
-  return res.json();
 }
 
 function isCsrfRejection(err: unknown) {
@@ -484,22 +464,48 @@ function isCsrfRejection(err: unknown) {
   );
 }
 
+async function mutateWithCsrfRetry<T>(
+  path: string,
+  csrf: string,
+  onCsrf: (csrf: string) => void,
+  options: RequestInit,
+): Promise<T> {
+  const startedAt = performance.now();
+  try {
+    return await requestJson<T>(path, options, csrf);
+  } catch (err) {
+    if (!isCsrfRejection(err)) {
+      emitApiFailure(
+        path,
+        startedAt,
+        err instanceof ApiError ? err.status : undefined,
+      );
+      throw err;
+    }
+    try {
+      const refreshed = await api<{ csrf_token: string }>("/auth/csrf", {
+        method: "POST",
+      });
+      onCsrf(refreshed.csrf_token);
+      return await requestJson<T>(path, options, refreshed.csrf_token);
+    } catch (retryErr) {
+      emitApiFailure(
+        path,
+        startedAt,
+        retryErr instanceof ApiError ? retryErr.status : undefined,
+      );
+      throw retryErr;
+    }
+  }
+}
+
 async function batchMutateWithCsrfRetry<T>(
   path: string,
   csrf: string,
   onCsrf: (csrf: string) => void,
   options: RequestInit,
 ): Promise<T> {
-  try {
-    return await apiWithCsrfNoRetry<T>(path, csrf, options, false);
-  } catch (err) {
-    if (!isCsrfRejection(err)) throw err;
-    const refreshed = await api<{ csrf_token: string }>("/auth/csrf", {
-      method: "POST",
-    });
-    onCsrf(refreshed.csrf_token);
-    return apiWithCsrfNoRetry<T>(path, refreshed.csrf_token, options);
-  }
+  return mutateWithCsrfRetry<T>(path, csrf, onCsrf, options);
 }
 
 async function bootstrapSession(): Promise<{
@@ -777,25 +783,9 @@ async function csrfMutate<T>(
   onCsrf: (csrf: string) => void,
   options: RequestInit,
 ): Promise<T> {
-  try {
-    return await api<T>(path, {
-      ...options,
-      headers: { "x-csrf-token": csrf, ...(options.headers ?? {}) },
-    });
-  } catch {
-    const refreshed = await api<{ csrf_token: string }>("/auth/csrf", {
-      method: "POST",
-    });
-    onCsrf(refreshed.csrf_token);
-    return api<T>(path, {
-      ...options,
-      headers: {
-        "x-csrf-token": refreshed.csrf_token,
-        ...(options.headers ?? {}),
-      },
-    });
-  }
+  return mutateWithCsrfRetry<T>(path, csrf, onCsrf, options);
 }
+export const __appDiagnosticsTest = { api, csrfMutate };
 function SourcesPanel({
   project,
   csrf,
@@ -3198,6 +3188,8 @@ function DiagnosticsSettings({
   const [debugActionState, setDebugActionState] = useState("");
   const [debugDuration, setDebugDuration] = useState("10");
   const [debugTick, setDebugTick] = useState(0);
+  const debugRefreshInFlight = useRef(false);
+  const expiredDebugRefreshRequested = useRef(false);
   const loadEvents = (cursor?: string) => {
     setEventsState("loading");
     const params = new URLSearchParams({ page_size: "25" });
@@ -3246,10 +3238,13 @@ function DiagnosticsSettings({
     (name: keyof DiagnosticsFilters) =>
     (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
       setFilters((current) => ({ ...current, [name]: event.target.value }));
-  const loadDebugSession = () => {
-    setDebugState("loading");
+  const loadDebugSession = (options: { keepReady?: boolean } = {}) => {
+    if (debugRefreshInFlight.current) return;
+    debugRefreshInFlight.current = true;
+    if (!options.keepReady) setDebugState("loading");
     api<DiagnosticsDebugSession>("/diagnostics/debug-session")
       .then((status) => {
+        expiredDebugRefreshRequested.current = false;
         setDebugSession(status);
         configurePwaDiagnosticsSession({ csrf, debugActive: status.active, expiresAt: status.expires_at });
         setDebugState("ready");
@@ -3257,6 +3252,9 @@ function DiagnosticsSettings({
       .catch(() => {
         configurePwaDiagnosticsSession({ csrf, debugActive: false });
         setDebugState("error");
+      })
+      .finally(() => {
+        debugRefreshInFlight.current = false;
       });
   };
   useEffect(loadDebugSession, [csrf]);
@@ -3264,12 +3262,20 @@ function DiagnosticsSettings({
     const timer = window.setInterval(() => setDebugTick((value) => value + 1), 1000);
     return () => window.clearInterval(timer);
   }, []);
+  const debugLocallyActive = Boolean(
+    debugSession?.active &&
+      debugSession.expires_at &&
+      Date.parse(debugSession.expires_at) > Date.now(),
+  );
+  const activeDebugSession = debugLocallyActive ? debugSession : null;
   useEffect(() => {
     if (!debugSession?.active || !debugSession.expires_at) return;
-    if (Date.parse(debugSession.expires_at) <= Date.now()) {
-      configurePwaDiagnosticsSession({ csrf, debugActive: false });
-      loadDebugSession();
-    }
+    if (Date.parse(debugSession.expires_at) > Date.now()) return;
+    configurePwaDiagnosticsSession({ csrf, debugActive: false });
+    setDebugSession((current) => current ? { ...current, active: false } : current);
+    if (expiredDebugRefreshRequested.current) return;
+    expiredDebugRefreshRequested.current = true;
+    loadDebugSession({ keepReady: true });
   }, [debugTick, debugSession?.active, debugSession?.expires_at, csrf]);
   const startDebug = async () => {
     setDebugActionState("Включаем DEBUG…");
@@ -3501,13 +3507,18 @@ function DiagnosticsSettings({
           Сбор DEBUG пока не включён по умолчанию. Браузер отправляет только закрытые безопасные события: ошибки приложения, необработанные операции, ошибки API, разделов и сервис-воркера.
         </p>
         {debugState === "loading" && <p role="status">Проверяем DEBUG…</p>}
-        {debugState === "error" && <p className="error">Не удалось загрузить статус DEBUG.</p>}
-        {debugState === "ready" && debugSession?.active ? (
+        {debugState === "error" && (
+          <div className="error">
+            <p>Не удалось загрузить статус DEBUG.</p>
+            <button type="button" onClick={() => loadDebugSession()}>Повторить</button>
+          </div>
+        )}
+        {debugState === "ready" && activeDebugSession ? (
           <div className="debug-panel debug-active" role="status">
             <strong>DEBUG активна</strong>
-            <p>Начало: {formatTime(debugSession.started_at ?? null)}</p>
-            <p>Истекает: {formatTime(debugSession.expires_at ?? null)}</p>
-            <p className="debug-countdown">Осталось: {debugRemainingText(debugSession.expires_at)}</p>
+            <p>Начало: {formatTime(activeDebugSession.started_at ?? null)}</p>
+            <p>Истекает: {formatTime(activeDebugSession.expires_at ?? null)}</p>
+            <p className="debug-countdown">Осталось: {debugRemainingText(activeDebugSession.expires_at)}</p>
             <button type="button" className="danger" disabled={debugActionState.endsWith("…")} onClick={stopDebug}>Остановить DEBUG</button>
           </div>
         ) : debugState === "ready" ? (

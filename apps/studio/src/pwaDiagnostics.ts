@@ -80,7 +80,7 @@ export function configurePwaDiagnosticsSession({ csrf, debugActive, expiresAt }:
   if (debugActive && expiresAt) {
     const expiry = Date.parse(expiresAt);
     debugActiveUntil = Number.isFinite(expiry) && expiry > now() ? expiry : 0;
-  } else if (!debugActive) {
+  } else {
     debugActiveUntil = 0;
   }
   void flushPwaDiagnostics();
@@ -118,8 +118,13 @@ export async function flushPwaDiagnostics() {
       headers: { "content-type": "application/json", "x-csrf-token": csrfToken },
       body: JSON.stringify({ events: batch }),
     });
-  } catch { /* best effort */ }
-  finally { flushing = false; }
+  } catch { /* best effort: failed batch is not retried */ }
+  finally {
+    flushing = false;
+    if (csrfToken && queue.length > 0) {
+      window.setTimeout(() => { void flushPwaDiagnostics(); }, 0);
+    }
+  }
 }
 export function installPwaGlobalErrorHandlers() {
   if (handlersInstalled || typeof window === "undefined") return () => undefined;

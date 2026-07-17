@@ -5,17 +5,30 @@ import App from "./App";
 import { PwaErrorBoundary } from "./PwaErrorBoundary";
 import { emitPwaServiceWorkerError, installPwaGlobalErrorHandlers } from "./pwaDiagnostics";
 
-installPwaGlobalErrorHandlers();
+let pwaRuntimeInitialized = false;
+let appRendered = false;
 
-if (import.meta.env.PROD && "serviceWorker" in navigator) {
+export function initializePwaRuntime(enableServiceWorker = import.meta.env.PROD && "serviceWorker" in navigator) {
+  installPwaGlobalErrorHandlers();
+  if (pwaRuntimeInitialized || !enableServiceWorker) return;
+  pwaRuntimeInitialized = true;
   registerSW({ immediate: true, onRegisterError: () => emitPwaServiceWorkerError() });
   navigator.serviceWorker?.addEventListener?.("messageerror", () => emitPwaServiceWorkerError());
 }
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <PwaErrorBoundary>
-      <App />
-    </PwaErrorBoundary>
-  </React.StrictMode>,
-);
+export function renderStudioApp() {
+  if (appRendered) return;
+  const root = document.getElementById("root");
+  if (!root) return;
+  appRendered = true;
+  ReactDOM.createRoot(root).render(
+    <React.StrictMode>
+      <PwaErrorBoundary>
+        <App />
+      </PwaErrorBoundary>
+    </React.StrictMode>,
+  );
+}
+
+initializePwaRuntime();
+renderStudioApp();
