@@ -75,15 +75,23 @@ function sanitizeMetadata(input: unknown): SafeMetadata {
   return out;
 }
 
-export function configurePwaDiagnosticsSession({ csrf, debugActive, expiresAt }: { csrf: string; debugActive?: boolean; expiresAt?: string | null }) {
+export function updatePwaDiagnosticsCsrf(csrf: string) {
   csrfToken = csrf;
-  if (debugActive && expiresAt) {
+  void flushPwaDiagnostics();
+}
+export function configurePwaDiagnosticsDebugState({ active, expiresAt }: { active: boolean; expiresAt?: string | null }) {
+  if (active && expiresAt) {
     const expiry = Date.parse(expiresAt);
     debugActiveUntil = Number.isFinite(expiry) && expiry > now() ? expiry : 0;
   } else {
     debugActiveUntil = 0;
   }
-  void flushPwaDiagnostics();
+}
+export function configurePwaDiagnosticsSession({ csrf, debugActive, expiresAt }: { csrf: string; debugActive?: boolean; expiresAt?: string | null }) {
+  updatePwaDiagnosticsCsrf(csrf);
+  if (typeof debugActive === "boolean") {
+    configurePwaDiagnosticsDebugState({ active: debugActive, expiresAt });
+  }
 }
 export function clearPwaDiagnosticsSession() {
   csrfToken = "";

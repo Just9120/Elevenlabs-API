@@ -18,8 +18,9 @@ import * as googlePicker from "./googlePicker";
 import type { PickerSession } from "./googlePicker";
 import {
   clearPwaDiagnosticsSession,
-  configurePwaDiagnosticsSession,
+  configurePwaDiagnosticsDebugState,
   emitPwaDiagnostic,
+  updatePwaDiagnosticsCsrf,
 } from "./pwaDiagnostics";
 import "./styles.css";
 
@@ -483,7 +484,7 @@ async function mutateWithCsrfRetry<T>(
       throw err;
     }
     try {
-      const refreshed = await api<{ csrf_token: string }>("/auth/csrf", {
+      const refreshed = await requestJson<{ csrf_token: string }>("/auth/csrf", {
         method: "POST",
       });
       onCsrf(refreshed.csrf_token);
@@ -3246,11 +3247,11 @@ function DiagnosticsSettings({
       .then((status) => {
         expiredDebugRefreshRequested.current = false;
         setDebugSession(status);
-        configurePwaDiagnosticsSession({ csrf, debugActive: status.active, expiresAt: status.expires_at });
+        configurePwaDiagnosticsDebugState({ active: status.active, expiresAt: status.expires_at });
         setDebugState("ready");
       })
       .catch(() => {
-        configurePwaDiagnosticsSession({ csrf, debugActive: false });
+        configurePwaDiagnosticsDebugState({ active: false });
         setDebugState("error");
       })
       .finally(() => {
@@ -3271,7 +3272,7 @@ function DiagnosticsSettings({
   useEffect(() => {
     if (!debugSession?.active || !debugSession.expires_at) return;
     if (Date.parse(debugSession.expires_at) > Date.now()) return;
-    configurePwaDiagnosticsSession({ csrf, debugActive: false });
+    configurePwaDiagnosticsDebugState({ active: false });
     setDebugSession((current) => current ? { ...current, active: false } : current);
     if (expiredDebugRefreshRequested.current) return;
     expiredDebugRefreshRequested.current = true;
@@ -3285,7 +3286,7 @@ function DiagnosticsSettings({
         body: JSON.stringify({ duration_minutes: Number(debugDuration) }),
       });
       setDebugSession(status);
-      configurePwaDiagnosticsSession({ csrf, debugActive: status.active, expiresAt: status.expires_at });
+      configurePwaDiagnosticsDebugState({ active: status.active, expiresAt: status.expires_at });
       setDebugActionState("DEBUG включена.");
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
@@ -3300,7 +3301,7 @@ function DiagnosticsSettings({
     setDebugActionState("Останавливаем DEBUG…");
     try {
       await csrfMutate<DiagnosticsDebugSession>("/diagnostics/debug-session", csrf, onCsrf, { method: "DELETE" });
-      configurePwaDiagnosticsSession({ csrf, debugActive: false });
+      configurePwaDiagnosticsDebugState({ active: false });
       loadDebugSession();
       setDebugActionState("DEBUG остановлена.");
     } catch {
@@ -3598,7 +3599,8 @@ function PlatformShell() {
           csrf: result.csrf,
           error: "",
         });
-        configurePwaDiagnosticsSession({ csrf: result.csrf, debugActive: false });
+        updatePwaDiagnosticsCsrf(result.csrf);
+        configurePwaDiagnosticsDebugState({ active: false });
       })
       .catch((err) => {
         if (err instanceof ApiError && err.status === 401) {
@@ -3638,7 +3640,8 @@ function PlatformShell() {
       <Login
         onLogin={(u, t) => {
           setSession({ status: "authenticated", user: u, csrf: t, error: "" });
-          configurePwaDiagnosticsSession({ csrf: t, debugActive: false });
+          updatePwaDiagnosticsCsrf(t);
+          configurePwaDiagnosticsDebugState({ active: false });
         }}
       />
     );
@@ -3647,12 +3650,13 @@ function PlatformShell() {
   const logout = async () => {
     let token = csrf;
     if (!token) {
-      const refreshed = await api<{ csrf_token: string }>("/auth/csrf", {
+      const refreshed = await requestJson<{ csrf_token: string }>("/auth/csrf", {
         method: "POST",
       });
       token = refreshed.csrf_token;
       setSession((current) => ({ ...current, csrf: token }));
-      configurePwaDiagnosticsSession({ csrf: token, debugActive: false });
+      updatePwaDiagnosticsCsrf(token);
+      configurePwaDiagnosticsDebugState({ active: false });
     }
     await api("/auth/logout", {
       method: "POST",
@@ -3709,7 +3713,7 @@ function PlatformShell() {
               csrf={csrf}
               onCsrf={(token) => {
                 setSession((current) => ({ ...current, csrf: token }));
-                configurePwaDiagnosticsSession({ csrf: token });
+                updatePwaDiagnosticsCsrf(token);
               }}
               requestedProjectId={requestedProjectId}
               onRequestedProjectHandled={() => setRequestedProjectId(null)}
@@ -3739,7 +3743,7 @@ function PlatformShell() {
             csrf={csrf}
             onCsrf={(token) => {
               setSession((current) => ({ ...current, csrf: token }));
-              configurePwaDiagnosticsSession({ csrf: token });
+              updatePwaDiagnosticsCsrf(token);
             }}
             onLogout={logout}
             oauthResult={oauthResult}

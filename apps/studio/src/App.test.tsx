@@ -15,7 +15,7 @@ import App, { __appDiagnosticsTest } from "./App";
 import * as googlePicker from "./googlePicker";
 import { computeGooglePickerSize } from "./googlePicker";
 import { buildSegmentPlan, parseTimeToSeconds } from "./segments";
-import { clearPwaDiagnosticsSession, configurePwaDiagnosticsSession } from "./pwaDiagnostics";
+import { clearPwaDiagnosticsSession, configurePwaDiagnosticsSession, emitPwaDiagnostic } from "./pwaDiagnostics";
 const originalLocation = window.location;
 const json = (body: unknown, ok = true, status = 200) =>
   Promise.resolve({
@@ -32,6 +32,11 @@ const json = (body: unknown, ok = true, status = 200) =>
   } as Response);
 function renderApp(mode: "static" | "platform") {
   render(<App mode={mode} />);
+}
+function postedPwaEventsFrom(fetchMock: ReturnType<typeof vi.fn>) {
+  return fetchMock.mock.calls
+    .filter(([url]) => String(url).endsWith("/api/diagnostics/pwa-events"))
+    .flatMap(([, init]) => JSON.parse(String((init as RequestInit).body)).events);
 }
 
 function installFakeGooglePicker() {
@@ -6180,6 +6185,35 @@ describe("PWA API diagnostics instrumentation", () => {
     expect(fetchMock.mock.calls.map(([url]) => String(url)).filter((url) => url.endsWith("/api/auth/csrf"))).toHaveLength(0);
   });
 
+
+
+  it("emits one original-operation event when CSRF refresh fails", async () => {
+    for (const refreshFailure of [
+      { response: Promise.reject(new Error("synthetic-refresh-network")), category: "unknown" },
+      { response: json({ ok: false }, false, 503), category: "5xx" },
+    ]) {
+      clearPwaDiagnosticsSession();
+      configurePwaDiagnosticsSession({ csrf: "csrf-safe", debugActive: false });
+      const onCsrf = vi.fn();
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(json({ ok: false }, false, 419))
+        .mockImplementationOnce(() => refreshFailure.response)
+        .mockResolvedValue(json({ accepted: true }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(__appDiagnosticsTest.csrfMutate("/projects", "csrf-old", onCsrf, { method: "POST", body: "{}" })).rejects.toThrow();
+      await waitFor(() => expect(postedPwaEvents(fetchMock)).toHaveLength(1));
+      expect(postedPwaEvents(fetchMock)[0].metadata).toMatchObject({
+        endpoint_group: "projects",
+        http_status_category: refreshFailure.category,
+      });
+      expect(JSON.stringify(postedPwaEvents(fetchMock))).not.toContain("auth");
+      expect(JSON.stringify(postedPwaEvents(fetchMock))).not.toContain("synthetic-refresh-network");
+      expect(onCsrf).not.toHaveBeenCalled();
+    }
+  });
+
   it("does not recursively emit when diagnostics ingestion fails", async () => {
     const fetchMock = vi
       .fn()
@@ -6282,6 +6316,61 @@ describe("Settings DEBUG session controls", () => {
     await screen.findByText("DEBUG уже активна в другой вкладке. Статус обновлён.");
     expect(postCount).toBe(1);
     expect(debugGets).toHaveLength(2);
+  });
+
+
+
+  it("uses refreshed CSRF for ingestion after DEBUG start retry", async () => {
+    const oldToken = "csrf-old-safe";
+    const newToken = "csrf-new-safe";
+    const expiresAt = new Date(Date.now() + 600000).toISOString();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/auth/session")) return json({ authenticated: true, user: { email: "safe@example.test", role: "owner" } });
+      if (url.endsWith("/api/auth/csrf") && init?.method === "POST") return json({ csrf_token: newToken });
+      if (url.endsWith("/api/auth/csrf")) return json({ csrf_token: oldToken });
+      if (url.endsWith("/api/audit-events")) return json({ events: [] });
+      if (url.endsWith("/api/credentials")) return json({ credentials: [] });
+      if (url.endsWith("/api/google/connection")) return json({ connected: false });
+      if (url.endsWith("/api/diagnostics/system")) return json({ build: {}, diagnostics: {}, google_drive: {}, provider_credentials: {}, report_limits: {} });
+      if (url.includes("/api/diagnostics/events")) return json({ events: [], next_cursor: null, period: { start: "2026-07-16T00:00:00Z", end: "2026-07-17T00:00:00Z" } });
+      if (url.endsWith("/api/diagnostics/debug-session") && (!init?.method || init.method === "GET")) return json({ active: false, started_at: null, expires_at: null });
+      if (url.endsWith("/api/diagnostics/debug-session") && init?.method === "POST" && (init.headers as Record<string, string>)["x-csrf-token"] === oldToken) return json({ ok: false }, false, 419);
+      if (url.endsWith("/api/diagnostics/debug-session") && init?.method === "POST") return json({ active: true, started_at: new Date(Date.now()).toISOString(), expires_at: expiresAt });
+      if (url.endsWith("/api/diagnostics/pwa-events")) return json({ accepted: true });
+      return json({});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await openDiagnostics();
+    await userEvent.click(await screen.findByRole("button", { name: "Включить DEBUG" }));
+    expect(await screen.findByText("DEBUG активна")).toBeInTheDocument();
+
+    emitPwaDiagnostic("PWA_API_REQUEST_FAILED", { boundary: "api_request", error_code: "api_request_failed", retryable: true }, { dedupe: false });
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/api/diagnostics/pwa-events"))).toBe(true));
+    const ingestion = fetchMock.mock.calls.find(([url]) => String(url).endsWith("/api/diagnostics/pwa-events"))?.[1] as RequestInit;
+    expect(ingestion.headers).toMatchObject({ "x-csrf-token": newToken });
+    expect(JSON.stringify(ingestion)).not.toContain(oldToken);
+  });
+
+  it("CSRF refresh during another mutation preserves DEBUG until inactive server status clears it", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(json({ ok: false }, false, 403))
+      .mockResolvedValueOnce(json({ csrf_token: "csrf-rotated" }))
+      .mockResolvedValueOnce(json({ ok: true }))
+      .mockResolvedValue(json({ accepted: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    clearPwaDiagnosticsSession();
+    configurePwaDiagnosticsSession({ csrf: "csrf-old", debugActive: true, expiresAt: new Date(Date.now() + 60000).toISOString() });
+    await __appDiagnosticsTest.csrfMutate("/projects", "csrf-old", (token) => configurePwaDiagnosticsSession({ csrf: token }), { method: "POST", body: "{}" });
+    emitPwaDiagnostic("PWA_API_REQUEST_FAILED", { boundary: "api_request", error_code: "api_request_failed", retryable: true }, { dedupe: false });
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/api/diagnostics/pwa-events"))).toBe(true));
+    expect(postedPwaEventsFrom(fetchMock).at(-1)?.level).toBe("DEBUG");
+
+    configurePwaDiagnosticsSession({ csrf: "csrf-rotated", debugActive: false });
+    emitPwaDiagnostic("PWA_API_REQUEST_FAILED", { boundary: "api_request", error_code: "api_request_failed", retryable: true }, { dedupe: false });
+    await waitFor(() => expect(postedPwaEventsFrom(fetchMock)).toHaveLength(2));
+    expect(postedPwaEventsFrom(fetchMock).at(-1)?.level).toBeUndefined();
   });
 
   it("expires local DEBUG once and failed refresh does not poll every second", async () => {

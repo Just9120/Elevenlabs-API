@@ -2,10 +2,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   __pwaDiagnosticsTest,
   clearPwaDiagnosticsSession,
+  configurePwaDiagnosticsDebugState,
   configurePwaDiagnosticsSession,
   emitPwaDiagnostic,
   flushPwaDiagnostics,
   installPwaGlobalErrorHandlers,
+  updatePwaDiagnosticsCsrf,
 } from "./pwaDiagnostics";
 
 afterEach(() => {
@@ -73,6 +75,29 @@ describe("pwa diagnostics client", () => {
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     expect(lastBody(fetchMock).events[0].level).toBeUndefined();
     configurePwaDiagnosticsSession({ csrf: "csrf-safe", debugActive: true, expiresAt: new Date(Date.now() - 1000).toISOString() });
+    emitPwaDiagnostic("PWA_API_REQUEST_FAILED", { boundary: "api_request", error_code: "api_request_failed", retryable: true }, { dedupe: false });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    expect(lastBody(fetchMock).events[0].level).toBeUndefined();
+  });
+
+
+  it("rotating CSRF preserves active DEBUG until explicit inactive or expired status", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+    updatePwaDiagnosticsCsrf("csrf-old");
+    configurePwaDiagnosticsDebugState({ active: true, expiresAt: new Date(Date.now() + 60000).toISOString() });
+    updatePwaDiagnosticsCsrf("csrf-new");
+    emitPwaDiagnostic("PWA_API_REQUEST_FAILED", { boundary: "api_request", error_code: "api_request_failed", retryable: true }, { dedupe: false });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect((fetchMock.mock.calls[0][1] as RequestInit).headers).toMatchObject({ "x-csrf-token": "csrf-new" });
+    expect(lastBody(fetchMock).events[0].level).toBe("DEBUG");
+
+    configurePwaDiagnosticsDebugState({ active: false });
+    emitPwaDiagnostic("PWA_API_REQUEST_FAILED", { boundary: "api_request", error_code: "api_request_failed", retryable: true }, { dedupe: false });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(lastBody(fetchMock).events[0].level).toBeUndefined();
+
+    configurePwaDiagnosticsDebugState({ active: true, expiresAt: "not-a-date" });
     emitPwaDiagnostic("PWA_API_REQUEST_FAILED", { boundary: "api_request", error_code: "api_request_failed", retryable: true }, { dedupe: false });
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
     expect(lastBody(fetchMock).events[0].level).toBeUndefined();
