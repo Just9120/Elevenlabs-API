@@ -66,6 +66,8 @@ ERROR_CODES = frozenset({
 HTTP_STATUS_CATEGORIES = frozenset({"1xx", "2xx", "3xx", "4xx", "5xx", "unknown"})
 FINAL_STATUSES = frozenset({"processing", "cancelled", "failed", "completed"})
 ENDPOINT_GROUPS = frozenset({"diagnostics", "jobs", "sources", "google", "credentials", "projects", "auth", "unknown"})
+PWA_BOUNDARIES = frozenset({"app", "react_boundary", "route", "api_request", "service_worker", "unknown"})
+PWA_ERROR_CODES = frozenset({"app_error", "unhandled_rejection", "api_request_failed", "route_error", "service_worker_error", "unknown"})
 
 def R(kind: str, *, min: int | None = None, max: int | None = None, choices: frozenset[str] | None = None, required: bool = False) -> MetaRule:
     return MetaRule(kind, min, max, choices, required)
@@ -86,6 +88,11 @@ REGISTRY: dict[str, EventDef] = {
     "JOB_CANCEL_REQUESTED": EventDef(frozenset({"api"}), "INFO", {"final_job_status": R("enum", choices=frozenset({"processing"}), required=True)}),
     "JOB_CANCELLED": EventDef(frozenset({"api", "worker"}), "INFO", {"final_job_status": R("enum", choices=frozenset({"cancelled"}), required=True)}),
     "API_REQUEST_FAILED": EventDef(frozenset({"api"}), "WARNING", {"endpoint_group": R("enum", choices=ENDPOINT_GROUPS, required=True), "http_status_category": R("enum", choices=HTTP_STATUS_CATEGORIES, required=True)}),
+    "PWA_APP_ERROR": EventDef(frozenset({"web"}), "ERROR", {"boundary": R("enum", choices=PWA_BOUNDARIES), "error_code": R("enum", choices=PWA_ERROR_CODES), "retryable": R("bool"), "duration_ms": R("int", min=0, max=86400000), "http_status_category": R("enum", choices=HTTP_STATUS_CATEGORIES), "endpoint_group": R("enum", choices=ENDPOINT_GROUPS)}),
+    "PWA_UNHANDLED_REJECTION": EventDef(frozenset({"web"}), "ERROR", {"boundary": R("enum", choices=PWA_BOUNDARIES), "error_code": R("enum", choices=PWA_ERROR_CODES), "retryable": R("bool"), "duration_ms": R("int", min=0, max=86400000), "http_status_category": R("enum", choices=HTTP_STATUS_CATEGORIES), "endpoint_group": R("enum", choices=ENDPOINT_GROUPS)}),
+    "PWA_API_REQUEST_FAILED": EventDef(frozenset({"web"}), "WARNING", {"boundary": R("enum", choices=PWA_BOUNDARIES), "error_code": R("enum", choices=PWA_ERROR_CODES), "retryable": R("bool"), "duration_ms": R("int", min=0, max=86400000), "http_status_category": R("enum", choices=HTTP_STATUS_CATEGORIES, required=True), "endpoint_group": R("enum", choices=ENDPOINT_GROUPS, required=True)}),
+    "PWA_ROUTE_ERROR": EventDef(frozenset({"web"}), "ERROR", {"boundary": R("enum", choices=PWA_BOUNDARIES), "error_code": R("enum", choices=PWA_ERROR_CODES), "retryable": R("bool"), "duration_ms": R("int", min=0, max=86400000), "http_status_category": R("enum", choices=HTTP_STATUS_CATEGORIES), "endpoint_group": R("enum", choices=ENDPOINT_GROUPS)}),
+    "PWA_SERVICE_WORKER_ERROR": EventDef(frozenset({"web"}), "WARNING", {"boundary": R("enum", choices=PWA_BOUNDARIES), "error_code": R("enum", choices=PWA_ERROR_CODES), "retryable": R("bool"), "duration_ms": R("int", min=0, max=86400000), "http_status_category": R("enum", choices=HTTP_STATUS_CATEGORIES), "endpoint_group": R("enum", choices=ENDPOINT_GROUPS)}),
 }
 
 @dataclass(frozen=True)
@@ -237,13 +244,14 @@ def _upsert_event(db, row_values: dict[str, Any], fp: str):
             raise
         return db.query(DiagnosticEvent.id).filter_by(dedup_fingerprint=fp).scalar()
 
-def write_diagnostic_event(*, owner_user_id: str, component: str, event_code: str, level: str | None = None, project_id: str | None = None, job_id: str | None = None, correlation_id: str | None = None, request_id: str | None = None, metadata: dict[str, Any] | None = None, session_factory=SessionLocal, now: datetime | None = None) -> DiagnosticWriteResult:
+def write_diagnostic_event(*, owner_user_id: str, component: str, event_code: str, level: str | None = None, project_id: str | None = None, job_id: str | None = None, correlation_id: str | None = None, request_id: str | None = None, metadata: dict[str, Any] | None = None, session_factory=SessionLocal, now: datetime | None = None, allow_debug_override: bool = False) -> DiagnosticWriteResult:
     db = None
     try:
         definition = REGISTRY.get(event_code)
         if not definition: return DiagnosticWriteResult(False, reason="unknown_event_code")
         component = getattr(component, "value", component); level = level or definition.level
-        if component not in definition.components or level != definition.level or level not in DiagnosticLevel.__members__:
+        debug_override = bool(allow_debug_override and event_code.startswith("PWA_") and level == "DEBUG")
+        if component not in definition.components or (level != definition.level and not debug_override) or level not in DiagnosticLevel.__members__:
             return DiagnosticWriteResult(False, reason="invalid_scope")
         if not valid_uuid(owner_user_id) or not valid_db_id(project_id) or not valid_db_id(job_id) or not valid_correlation_id(correlation_id) or not valid_request_id(request_id):
             return DiagnosticWriteResult(False, reason="invalid_identifier")

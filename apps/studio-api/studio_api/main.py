@@ -21,7 +21,7 @@ from .google_connection_access import GoogleConnectionAccessError, GoogleConnect
 from .google_scopes import has_drive_file_scope
 from .job_lifecycle import safe_failure_metadata_value
 from .job_processing_lifecycle import request_job_cancellation
-from .diagnostics import REGISTRY, cleanup_expired_diagnostics, cursor_context, decode_cursor_payload, encode_cursor, markdown_escape, new_correlation_id, new_request_id, sanitize_build_id, sanitize_inbound_correlation, valid_uuid, write_diagnostic_event
+from .diagnostics import REGISTRY, cleanup_expired_diagnostics, cursor_context, decode_cursor_payload, encode_cursor, markdown_escape, new_correlation_id, new_request_id, sanitize_build_id, sanitize_inbound_correlation, valid_correlation_id, valid_uuid, write_diagnostic_event
 from .job_output_read import browser_job_output_payload, load_browser_job_output_rows
 from .job_output_folder_selection import VerifiedOutputFolderSelection, verify_output_folder_selection
 
@@ -97,6 +97,20 @@ class TranscriptionJobBatchCreateIn(BaseModel):
     language: str|None=Field(default=None, max_length=40)
     options: dict|None=None
     items: list[BatchJobItemIn]=Field(min_length=1,max_length=50)
+
+class DiagnosticDebugSessionIn(BaseModel):
+    duration_minutes: int=Field(ge=1, le=30)
+
+class PwaDiagnosticEventIn(BaseModel):
+    event_code: str=Field(min_length=1, max_length=80)
+    level: str|None=Field(default=None, min_length=1, max_length=10)
+    correlation_id: str|None=Field(default=None, max_length=128)
+    project_id: str|None=Field(default=None, min_length=36, max_length=36)
+    job_id: str|None=Field(default=None, min_length=36, max_length=36)
+    metadata: dict|None=Field(default=None)
+
+class PwaDiagnosticsIn(BaseModel):
+    events: list[PwaDiagnosticEventIn]=Field(min_length=1, max_length=20)
 
 class DiagnosticReportIn(BaseModel):
     start: datetime|None=None
@@ -634,6 +648,92 @@ def _system_summary(db: Session, user: User):
     conn=current_google_connection(db, user)
     active_creds=db.query(func.count(ProviderCredential.id)).filter(ProviderCredential.user_id==user.id, ProviderCredential.status==CredentialStatus.active, ProviderCredential.deleted_at.is_(None)).scalar() or 0
     return {"environment": sanitize_build_id(settings.environment), "build": {"web": sanitize_build_id(settings.diagnostic_web_build_id), "api": sanitize_build_id(settings.diagnostic_api_build_id), "worker": sanitize_build_id(settings.diagnostic_worker_build_id)}, "google_drive": {"connected": bool(conn and conn.status==GoogleConnectionStatus.active), "scope_ready": bool(conn and conn.status==GoogleConnectionStatus.active and has_drive_file_scope(conn.scopes))}, "provider_credentials": {"active_count": int(active_creds), "ready": int(active_creds)>0}, "diagnostics": {"recording_enabled": True, "debug_recording": "inactive", "retention_days": settings.diagnostic_retention_days, "debug_retention_hours": settings.diagnostic_debug_retention_hours}, "report_limits": {"max_days": 7, "max_timeline_events": settings.diagnostic_report_max_events}}
+
+
+DEBUG_SESSION_MAX_MINUTES = 30
+PWA_EVENT_CODES = frozenset({"PWA_APP_ERROR", "PWA_UNHANDLED_REJECTION", "PWA_API_REQUEST_FAILED", "PWA_ROUTE_ERROR", "PWA_SERVICE_WORKER_ERROR"})
+PWA_METADATA_KEYS = frozenset({"boundary", "duration_ms", "error_code", "retryable", "http_status_category", "endpoint_group"})
+
+def _debug_now() -> datetime:
+    return utcnow()
+
+def _debug_aware(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+def _active_debug_session(db: Session, user: User, now_dt: datetime | None = None) -> DiagnosticDebugSession | None:
+    now_dt = now_dt or _debug_now()
+    row = db.query(DiagnosticDebugSession).filter(DiagnosticDebugSession.owner_user_id==user.id).first()
+    if not row or row.ended_at is not None:
+        return None
+    return row if _debug_aware(row.expires_at) > now_dt else None
+
+def _debug_session_payload(row: DiagnosticDebugSession | None, now_dt: datetime | None = None):
+    now_dt = now_dt or _debug_now()
+    active = bool(row and row.ended_at is None and _debug_aware(row.expires_at) > now_dt)
+    payload={"active": active, "max_duration_minutes": DEBUG_SESSION_MAX_MINUTES}
+    if active:
+        payload["started_at"] = _debug_aware(row.started_at).isoformat()
+        payload["expires_at"] = _debug_aware(row.expires_at).isoformat()
+    return payload
+
+@app.get("/api/diagnostics/debug-session")
+def diagnostics_debug_session(pair=Depends(current_session), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("diagnostics:debug-session:"+user.id, 120, 3600); return _debug_session_payload(_active_debug_session(db,user))
+
+@app.post("/api/diagnostics/debug-session")
+def start_diagnostics_debug_session(data: DiagnosticDebugSessionIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("diagnostics:debug-session:start:"+user.id, 10, 3600); now_dt=_debug_now(); existing=_active_debug_session(db,user,now_dt)
+    if existing: raise HTTPException(409, _debug_session_payload(existing, now_dt))
+    row=db.query(DiagnosticDebugSession).filter(DiagnosticDebugSession.owner_user_id==user.id).first()
+    if row:
+        row.started_at=now_dt; row.expires_at=now_dt+timedelta(minutes=data.duration_minutes); row.ended_at=None
+    else:
+        row=DiagnosticDebugSession(owner_user_id=user.id, started_at=now_dt, expires_at=now_dt+timedelta(minutes=data.duration_minutes))
+        db.add(row)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        conflict=_active_debug_session(db,user,now_dt)
+        raise HTTPException(409, _debug_session_payload(conflict, now_dt))
+    db.refresh(row); return _debug_session_payload(row, now_dt)
+
+@app.delete("/api/diagnostics/debug-session")
+def stop_diagnostics_debug_session(pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("diagnostics:debug-session:stop:"+user.id, 30, 3600); now_dt=_debug_now(); row=_active_debug_session(db,user,now_dt)
+    if row:
+        row.ended_at=now_dt; db.commit()
+    return _debug_session_payload(None, now_dt)
+
+def _validate_pwa_scope(db: Session, user: User, event: PwaDiagnosticEventIn):
+    if event.project_id and not valid_uuid(event.project_id): raise HTTPException(422, "Invalid project id")
+    if event.job_id and not valid_uuid(event.job_id): raise HTTPException(422, "Invalid job id")
+    if event.project_id:
+        p=db.get(Project,event.project_id)
+        if not p or p.owner_user_id != user.id: raise HTTPException(404, "Не найдено")
+    if event.job_id:
+        j=db.get(TranscriptionJob,event.job_id)
+        if not j or j.owner_user_id != user.id: raise HTTPException(404, "Не найдено")
+        if event.project_id and j.project_id != event.project_id: raise HTTPException(404, "Не найдено")
+
+@app.post("/api/diagnostics/pwa-events")
+def ingest_pwa_diagnostics(data: PwaDiagnosticsIn, request: Request, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("diagnostics:pwa-ingest:"+user.id, 120, 3600); now_dt=_debug_now(); persisted=[]
+    active_debug = _active_debug_session(db,user,now_dt) is not None
+    for event in data.events:
+        if event.event_code not in PWA_EVENT_CODES: raise HTTPException(422, "Invalid diagnostic event code")
+        if event.metadata and (set(event.metadata) - PWA_METADATA_KEYS): raise HTTPException(422, "Invalid diagnostic metadata")
+        level = event.level or REGISTRY[event.event_code].level
+        if level == "DEBUG" and not active_debug: raise HTTPException(403, "DEBUG diagnostics session is not active")
+        if level != REGISTRY[event.event_code].level and level != "DEBUG": raise HTTPException(422, "Invalid diagnostic level")
+        _validate_pwa_scope(db,user,event)
+        corr = event.correlation_id if event.correlation_id and valid_correlation_id(event.correlation_id) else None
+        result=write_diagnostic_event(owner_user_id=user.id, component="web", event_code=event.event_code, level=level, project_id=event.project_id, job_id=event.job_id, correlation_id=corr, request_id=getattr(request.state,"request_id",None), metadata=event.metadata or {}, now=now_dt, allow_debug_override=(level == "DEBUG" and active_debug))
+        if not result.accepted: raise HTTPException(422, "Invalid diagnostic event")
+        if result.event_id: persisted.append(result.event_id)
+    return {"accepted": len(data.events), "persisted": len(persisted)}
 
 @app.get("/api/diagnostics/events")
 def diagnostics_events(start: datetime|None=Query(None), end: datetime|None=Query(None), level: str|None=Query(None, min_length=1, max_length=10), component: str|None=Query(None, min_length=1, max_length=20), event_code: str|None=Query(None, min_length=1, max_length=80), project_id: str|None=Query(None, min_length=36, max_length=36), job_id: str|None=Query(None, min_length=36, max_length=36), cursor: str|None=Query(None, max_length=1200), page_size: int=Query(50, ge=1, le=200), pair=Depends(current_session), db: Session=Depends(get_db)):
