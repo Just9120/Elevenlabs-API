@@ -2377,7 +2377,7 @@ def test_diagnostics_debug_session_owner_scope_and_expired_inactive():
     assert r.status_code == 200
     assert c2.get("/api/diagnostics/debug-session").json() == {"active": False, "max_duration_minutes": 30}
     assert c2.post("/api/diagnostics/debug-session", json={"duration_minutes": 1}, headers={"origin": "https://studio.test", "x-csrf-token": csrf2}).status_code == 200
-    db = SessionLocal(); owner = db.query(User).filter_by(email="debug-a@example.com").one(); assert db.query(DiagnosticDebugSession).count() == 2; row = db.query(DiagnosticDebugSession).filter_by(owner_user_id=owner.id).one(); row.expires_at = utcnow() - timedelta(minutes=1); db.commit(); db.close()
+    db = SessionLocal(); owner = db.query(User).filter_by(email="debug-a@example.com").one(); assert db.query(DiagnosticDebugSession).count() == 2; row = db.query(DiagnosticDebugSession).filter_by(owner_user_id=owner.id).one(); past_start = utcnow() - timedelta(minutes=2); row.started_at = past_start; row.expires_at = past_start + timedelta(minutes=1); db.commit(); db.close()
     assert c1.get("/api/diagnostics/debug-session").json() == {"active": False, "max_duration_minutes": 30}
     assert c1.post("/api/diagnostics/debug-session", json={"duration_minutes": 2}, headers={"origin": "https://studio.test", "x-csrf-token": csrf1}).status_code == 200
     db = SessionLocal(); assert db.query(DiagnosticDebugSession).count() == 2; db.close()
@@ -2425,5 +2425,5 @@ def test_pwa_debug_ingestion_requires_active_session_and_does_not_extend_expiry(
     started=c.post("/api/diagnostics/debug-session", json={"duration_minutes": 10}, headers=headers).json(); expiry=started["expires_at"]
     assert c.post("/api/diagnostics/pwa-events", json=payload, headers=headers).status_code == 200
     assert c.get("/api/diagnostics/debug-session").json()["expires_at"] == expiry
-    db=SessionLocal(); row=db.query(DiagnosticDebugSession).one(); row.expires_at=utcnow() - timedelta(minutes=1); db.commit(); db.close()
+    db=SessionLocal(); row=db.query(DiagnosticDebugSession).one(); past_start=utcnow() - timedelta(minutes=2); row.started_at=past_start; row.expires_at=past_start + timedelta(minutes=1); db.commit(); db.close()
     assert c.post("/api/diagnostics/pwa-events", json=payload, headers=headers).status_code == 403
