@@ -5998,8 +5998,8 @@ describe("settings diagnostics", () => {
       "project.output_folder.google_picker_set",
       "source.google_drive.created",
       "source.google_picker.created",
-      "source.local_upload.initiated",
-      "source.local_upload.completed",
+      "job.cancelled",
+      "job.cancel_requested",
       "unknown.private_event",
     ];
     (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
@@ -6049,13 +6049,15 @@ describe("settings diagnostics", () => {
       "Папка проекта выбрана через Google Drive",
       "Источник Google Drive добавлен",
       "Источники выбраны через Google Drive",
-      "Загрузка локального источника начата",
-      "Локальный источник загружен",
+      "Задача отменена",
+      "Запрошена отмена задачи",
     ]) {
       expect(screen.getAllByText(new RegExp(label)).length).toBeGreaterThan(0);
     }
     expect(screen.getByText(/Событие безопасности/)).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("unknown.private_event");
+    expect(document.body.textContent).not.toContain("job.cancelled");
+    expect(document.body.textContent).not.toContain("job.cancel_requested");
   });
 
   it("shows loading, empty, error, and retry states", async () => {
