@@ -297,8 +297,9 @@ function ResourceExternalLink({
 }
 
 function jobTitle(job: TranscriptionJob) {
-  return job.title?.trim() || `Задача ${job.id}`;
+  return job.title?.trim() || `Транскрибация от ${formatTime(job.created_at)}`;
 }
+const elevenlabsCredentialStorageKey = "studio.elevenlabsCredentialId";
 function safeJobSources(job: TranscriptionJob) {
   return [...(job.sources ?? [])].sort((a, b) => a.position - b.position);
 }
@@ -485,9 +486,12 @@ async function mutateWithCsrfRetry<T>(
       throw err;
     }
     try {
-      const refreshed = await requestJson<{ csrf_token: string }>("/auth/csrf", {
-        method: "POST",
-      });
+      const refreshed = await requestJson<{ csrf_token: string }>(
+        "/auth/csrf",
+        {
+          method: "POST",
+        },
+      );
       onCsrf(refreshed.csrf_token);
       return await requestJson<T>(path, options, refreshed.csrf_token);
     } catch (retryErr) {
@@ -523,7 +527,9 @@ async function bootstrapSession(): Promise<{
   });
   return { user: session.user, csrf: csrf.csrf_token };
 }
-function parsePlatformRoute(pathname = window.location.pathname): PlatformRoute {
+function parsePlatformRoute(
+  pathname = window.location.pathname,
+): PlatformRoute {
   switch (pathname) {
     case "/projects":
       return { page: "projects", settingsSection: "account" };
@@ -542,7 +548,9 @@ function platformPathFor(
 ) {
   if (page === "projects") return "/projects";
   if (page === "settings") {
-    return settingsSection === "diagnostics" ? "/settings/diagnostics" : "/settings";
+    return settingsSection === "diagnostics"
+      ? "/settings/diagnostics"
+      : "/settings";
   }
   return "/";
 }
@@ -971,6 +979,7 @@ function PreparationPanel({
   onReloadSources,
   onReloadJobs,
   onError,
+  onOpenSettings,
 }: {
   project: Project;
   csrf: string;
@@ -984,6 +993,7 @@ function PreparationPanel({
   onReloadSources: (projectId: string) => void;
   onReloadJobs: (projectId: string) => void;
   onError: (message: string) => void;
+  onOpenSettings: () => void;
 }) {
   const [rows, setRows] = useState<ComposerRow[]>(() => [newComposerRow()]);
   const [selectedCredentialId, setSelectedCredentialId] = useState("");
@@ -1038,7 +1048,7 @@ function PreparationPanel({
         if (!cancelled) {
           setCredentials([]);
           setCredentialsError(
-            "Ключи сейчас недоступны. Задачу можно создать без выбранного ключа.",
+            "Ключи сейчас недоступны. Создание задач временно заблокировано.",
           );
         }
       })
@@ -1049,9 +1059,42 @@ function PreparationPanel({
       cancelled = true;
     };
   }, []);
-  const activeCredentials = credentials.filter(
-    (credential) => credential.status === "active",
+  const activeCredentials = useMemo(
+    () =>
+      credentials.filter(
+        (credential) =>
+          credential.status === "active" &&
+          credential.provider === "elevenlabs",
+      ),
+    [credentials],
   );
+  useEffect(() => {
+    if (credentialsLoading || credentialsError) return;
+    if (activeCredentials.length === 1) {
+      const onlyId = activeCredentials[0].id;
+      setSelectedCredentialId(onlyId);
+      sessionStorage.removeItem(elevenlabsCredentialStorageKey);
+      return;
+    }
+    if (activeCredentials.length > 1) {
+      const activeIds = new Set(
+        activeCredentials.map((credential) => credential.id),
+      );
+      const storedId =
+        sessionStorage.getItem(elevenlabsCredentialStorageKey) ?? "";
+      setSelectedCredentialId((current) => {
+        if (current && activeIds.has(current)) return current;
+        if (storedId && activeIds.has(storedId)) return storedId;
+        return "";
+      });
+      if (storedId && !activeIds.has(storedId)) {
+        sessionStorage.removeItem(elevenlabsCredentialStorageKey);
+      }
+      return;
+    }
+    setSelectedCredentialId("");
+    sessionStorage.removeItem(elevenlabsCredentialStorageKey);
+  }, [credentialsLoading, credentialsError, activeCredentials]);
   const sourceItems = [
     ...(Array.isArray(sources.items) ? sources.items : []),
     ...createdSources.filter(
@@ -1125,13 +1168,25 @@ function PreparationPanel({
   ).length;
   const firstReadinessBlocker =
     rowReadinessResults.find((result) => !result.ready)?.reason ?? "";
+  const credentialBlocker = credentialsLoading
+    ? "Проверяем подключение ElevenLabs…"
+    : credentialsError
+      ? "Не удалось загрузить ключи ElevenLabs."
+      : activeCredentials.length === 0
+        ? "Добавьте активный ключ ElevenLabs в настройках, чтобы создавать задачи."
+        : !selectedCredentialId
+          ? "Выберите профиль подключения ElevenLabs."
+          : "";
   const submitBlocker = submitting
     ? "Создание задач…"
     : rows.length === 0
       ? "Добавьте хотя бы одну строку"
-      : firstReadinessBlocker;
+      : firstReadinessBlocker || credentialBlocker;
   const canSubmit =
     !submitting &&
+    !credentialsLoading &&
+    !credentialsError &&
+    Boolean(selectedCredentialId) &&
     rows.length > 0 &&
     rowReadinessResults.every((result) => result.ready);
 
@@ -1460,6 +1515,10 @@ function PreparationPanel({
       );
       return;
     }
+    if (credentialsLoading || credentialsError || !selectedCredentialId) {
+      setMessage(credentialBlocker || "Выберите активный ключ ElevenLabs.");
+      return;
+    }
     const key =
       pendingKey?.signature === signature
         ? pendingKey.key
@@ -1486,7 +1545,6 @@ function PreparationPanel({
       );
       setBatchJobs(response.jobs);
       setRows([newComposerRow()]);
-      setSelectedCredentialId("");
       setPendingKey(null);
       setMessage(
         response.replayed
@@ -1597,26 +1655,65 @@ function PreparationPanel({
             Добавить строку
           </button>
         </div>
-        <div className="composer-settings-row">
-          <label>
-            Ключ провайдера
-            <select
-              aria-label="Ключ провайдера"
-              value={selectedCredentialId}
-              onChange={(e) => setSelectedCredentialId(e.target.value)}
-            >
-              <option value="">Без ключа</option>
-              {activeCredentials.map((credential) => (
-                <option key={credential.id} value={credential.id}>
-                  {credentialDisplay(credential)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="composer-credential-status">
-            {credentialsLoading && <p role="status">Загрузка ключей…</p>}
+        <div className="provider-card">
+          <div>
+            <span className="eyebrow">Провайдер транскрибации</span>
+            <h5>ElevenLabs</h5>
+            {credentialsLoading && <p role="status">Проверяем подключение…</p>}
+            {!credentialsLoading &&
+              !credentialsError &&
+              activeCredentials.length > 0 && (
+                <p className="provider-ready">Подключён и готов</p>
+              )}
+            {!credentialsLoading &&
+              !credentialsError &&
+              activeCredentials.length === 0 && (
+                <p className="notice">
+                  Добавьте активный ключ ElevenLabs в настройках, чтобы
+                  создавать задачи.
+                </p>
+              )}
             {credentialsError && <p className="notice">{credentialsError}</p>}
           </div>
+          {(activeCredentials.length === 0 || credentialsError) && (
+            <button
+              type="button"
+              className="secondary"
+              onClick={onOpenSettings}
+            >
+              Перейти в настройки
+            </button>
+          )}
+          {activeCredentials.length > 1 && (
+            <label className="profile-selector">
+              Профиль подключения
+              <select
+                aria-label="Профиль подключения"
+                value={selectedCredentialId}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setSelectedCredentialId(value);
+                  if (value)
+                    sessionStorage.setItem(
+                      elevenlabsCredentialStorageKey,
+                      value,
+                    );
+                  else
+                    sessionStorage.removeItem(elevenlabsCredentialStorageKey);
+                }}
+              >
+                <option value="">Выберите профиль</option>
+                {activeCredentials.map((credential) => (
+                  <option key={credential.id} value={credential.id}>
+                    {credential.label}
+                    {credential.active_version
+                      ? ` · v${credential.active_version}`
+                      : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
         <div
           className="composer-status"
@@ -1909,19 +2006,31 @@ function PreparationPanel({
           onError={onError}
         />
       </details>
-      <section className="sources" aria-label="Текущие и недавние задачи">
-        <h4>Текущие и недавние задачи</h4>
+      <section className="sources" aria-label="Текущие задачи">
+        <h4>Текущие задачи</h4>
         {jobs.loading && <p role="status">Загрузка задач…</p>}
         {jobs.error && <p className="error">{jobs.error}</p>}
-        {jobs.loaded && !jobs.loading && displayJobs.length === 0 && (
-          <p className="notice">Задачи пока не созданы.</p>
-        )}
-        {displayJobs.map((job) => {
+        {jobs.loaded &&
+          !jobs.loading &&
+          displayJobs.filter(
+            (job) => job.status === "queued" || job.status === "processing",
+          ).length === 0 && <p className="notice">Текущих задач нет.</p>}
+        {(
+          displayJobs.filter(
+            (job) => job.status === "queued" || job.status === "processing",
+          ) as TranscriptionJob[]
+        ).map((job) => {
           const currentDetail = detail[job.id];
           const currentOutputs = outputs[job.id];
           const detailedJob = currentDetail?.job;
+          const terminal = ["completed", "failed", "cancelled"].includes(
+            job.status,
+          );
           return (
-            <article className="source-card" key={job.id}>
+            <article
+              className={`source-card job-card${terminal ? " terminal-job" : ""}`}
+              key={job.id}
+            >
               <b>{jobTitle(job)}</b>
               <span>Статус: {jobСтатусLabel(job.status)}</span>
               <span>Файлов: {job.source_count}</span>
@@ -1946,24 +2055,22 @@ function PreparationPanel({
                 </span>
               )}
               {job.error_message && <span>Ошибка: {job.error_message}</span>}
-              <button type="button" onClick={() => void loadDetail(job.id)}>
-                Открыть
-              </button>
-              {job.status === "queued" && (
-                <button type="button" onClick={() => void cancelJob(job.id)}>
-                  Отменить
+              <div className="job-actions">
+                <button type="button" onClick={() => void loadDetail(job.id)}>
+                  Открыть
                 </button>
-              )}
-              {job.status === "processing" && !job.cancel_requested_at && (
-                <button type="button" onClick={() => void cancelJob(job.id)}>
-                  Запросить отмену
-                </button>
-              )}
-              {job.status === "processing" && job.cancel_requested_at && (
-                <button type="button" disabled>
-                  Отмена запрошена
-                </button>
-              )}
+                {job.status === "queued" && (
+                  <button type="button" onClick={() => void cancelJob(job.id)}>
+                    Отменить
+                  </button>
+                )}
+                {job.status === "processing" && !job.cancel_requested_at && (
+                  <button type="button" onClick={() => void cancelJob(job.id)}>
+                    Запросить отмену
+                  </button>
+                )}
+                {job.status === "processing" && job.cancel_requested_at && null}
+              </div>
               {currentDetail?.loading && (
                 <p role="status">Загрузка деталей задачи…</p>
               )}
@@ -2031,6 +2138,8 @@ function PreparationPanel({
               )}
               {detailedJob && (
                 <section aria-label={`Job detail ${detailedJob.id}`}>
+                  <h5>Детали задачи</h5>
+                  <p>UUID: {detailedJob.id}</p>
                   <h5>Папка результата</h5>
                   {detailedJob.output_folder ? (
                     <p>
@@ -2076,6 +2185,185 @@ function PreparationPanel({
           );
         })}
       </section>
+      <details className="sources recent-jobs">
+        <summary>
+          Недавние задачи ·{" "}
+          {
+            displayJobs.filter((job) =>
+              ["completed", "failed", "cancelled"].includes(job.status),
+            ).length
+          }
+        </summary>
+        {(
+          displayJobs.filter((job) =>
+            ["completed", "failed", "cancelled"].includes(job.status),
+          ) as TranscriptionJob[]
+        ).map((job) => {
+          const currentDetail = detail[job.id];
+          const currentOutputs = outputs[job.id];
+          const detailedJob = currentDetail?.job;
+          const terminal = ["completed", "failed", "cancelled"].includes(
+            job.status,
+          );
+          return (
+            <article
+              className={`source-card job-card${terminal ? " terminal-job" : ""}`}
+              key={job.id}
+            >
+              <b>{jobTitle(job)}</b>
+              <span>Статус: {jobСтатусLabel(job.status)}</span>
+              <span>Файлов: {job.source_count}</span>
+              <span>Создана: {formatTime(job.created_at)}</span>
+              {job.output_folder && (
+                <span>
+                  Папка результата:{" "}
+                  {job.output_folder.name || "Папка Google Drive"}
+                </span>
+              )}
+              {job.output_folder?.web_view_url &&
+                isApprovedOutputUrl(job.output_folder.web_view_url) && (
+                  <ResourceExternalLink
+                    href={job.output_folder.web_view_url}
+                    label="Открыть папку результата"
+                    ariaLabel="Открыть папку результата в Google Drive в новой вкладке"
+                  />
+                )}
+              {job.status === "processing" && job.cancel_requested_at && (
+                <span>
+                  Отмена запрошена: {formatTime(job.cancel_requested_at)}
+                </span>
+              )}
+              {job.error_message && <span>Ошибка: {job.error_message}</span>}
+              <div className="job-actions">
+                <button type="button" onClick={() => void loadDetail(job.id)}>
+                  Открыть
+                </button>
+                {job.status === "queued" && (
+                  <button type="button" onClick={() => void cancelJob(job.id)}>
+                    Отменить
+                  </button>
+                )}
+                {job.status === "processing" && !job.cancel_requested_at && (
+                  <button type="button" onClick={() => void cancelJob(job.id)}>
+                    Запросить отмену
+                  </button>
+                )}
+                {job.status === "processing" && job.cancel_requested_at && null}
+              </div>
+              {currentDetail?.loading && (
+                <p role="status">Загрузка деталей задачи…</p>
+              )}
+              {currentDetail?.error && (
+                <p className="error">{currentDetail.error}</p>
+              )}
+              {currentOutputs?.loading && (
+                <p role="status">Загрузка результатов…</p>
+              )}
+              {currentOutputs?.error && (
+                <p className="error">{currentOutputs.error}</p>
+              )}
+              {currentOutputs?.data && (
+                <section
+                  aria-label={`Результаты ${currentOutputs.data.job_id}`}
+                >
+                  <h5>Результаты</h5>
+                  <p>
+                    Состояние задачи:{" "}
+                    {jobСтатусLabel(currentOutputs.data.job_status)}
+                  </p>
+                  <p>Результатов: {currentOutputs.data.output_count}</p>
+                  {currentOutputs.data.output_count === 0 && (
+                    <p className="notice">Результаты пока не созданы.</p>
+                  )}
+                  {currentOutputs.data.outputs.map((output, index) => {
+                    const approvedLink =
+                      output.link_available === true &&
+                      isApprovedOutputUrl(output.web_view_url);
+                    return (
+                      <article
+                        className="source-card"
+                        key={`${job.id}-output-${index}`}
+                      >
+                        <b>{outputSourceLabel(output)}</b>
+                        <span>
+                          Тип файла: {output.source_type || "не указан"}
+                        </span>
+                        <span>
+                          Тип результата: {output.output_kind || "не указан"}
+                        </span>
+                        <span>
+                          Формат: {output.transcript_standard || "не указан"}
+                        </span>
+                        <span>
+                          Символов: {output.document_character_count ?? "—"}
+                        </span>
+                        <span>
+                          Создан: {formatTime(output.document_created_at)}
+                        </span>
+                        <span>Сохранён: {formatTime(output.persisted_at)}</span>
+                        {approvedLink ? (
+                          <ResourceExternalLink
+                            href={output.web_view_url ?? ""}
+                            label="Открыть документ"
+                            ariaLabel="Открыть документ"
+                          />
+                        ) : (
+                          <span>Ссылка недоступна</span>
+                        )}
+                      </article>
+                    );
+                  })}
+                </section>
+              )}
+              {detailedJob && (
+                <section aria-label={`Job detail ${detailedJob.id}`}>
+                  <h5>Детали задачи</h5>
+                  <p>UUID: {detailedJob.id}</p>
+                  <h5>Папка результата</h5>
+                  {detailedJob.output_folder ? (
+                    <p>
+                      {detailedJob.output_folder.name || "Папка Google Drive"}{" "}
+                      {isSafeDisplayUrl(
+                        detailedJob.output_folder.web_view_url,
+                      ) && (
+                        <ResourceExternalLink
+                          href={detailedJob.output_folder.web_view_url ?? ""}
+                          label="Открыть папку результата"
+                          ariaLabel="Открыть папку результата в Google Drive в новой вкладке"
+                        />
+                      )}
+                    </p>
+                  ) : (
+                    <p className="notice">Папка результата не задана.</p>
+                  )}
+                  <h5>Файлы задачи</h5>
+                  {safeJobSources(detailedJob).map((source) => (
+                    <article
+                      className="source-card"
+                      key={`${detailedJob.id}-${source.id}`}
+                    >
+                      <b>
+                        {source.position + 1}. {source.original_filename}
+                      </b>
+                      <span>Статус файла: {source.job_source_status}</span>
+                      <span>Размер: {formatBytes(source.size_bytes)}</span>
+                      {isSafeDisplayUrl(source.drive_file_url) && (
+                        <div className="resource-actions">
+                          <ResourceExternalLink
+                            href={source.drive_file_url ?? ""}
+                            label="Открыть файл в Google Drive"
+                            ariaLabel="Открыть файл в Google Drive в новой вкладке"
+                          />
+                        </div>
+                      )}
+                    </article>
+                  ))}
+                </section>
+              )}
+            </article>
+          );
+        })}
+      </details>
     </section>
   );
 }
@@ -2117,8 +2405,14 @@ function OverviewPage({
       .catch(() => setCredentialsError(true))
       .finally(() => setCredentialsLoading(false));
   }, []);
-  const activeCredentials = credentials.filter(
-    (credential) => credential.status === "active",
+  const activeCredentials = useMemo(
+    () =>
+      credentials.filter(
+        (credential) =>
+          credential.status === "active" &&
+          credential.provider === "elevenlabs",
+      ),
+    [credentials],
   );
   const recentProjects = [...projects]
     .sort(
@@ -2262,6 +2556,7 @@ function ProjectsPage({
   onRequestedProjectHandled,
   requestedCreateProject,
   onRequestedCreateProjectHandled,
+  onNavigate,
 }: {
   csrf: string;
   onCsrf: (csrf: string) => void;
@@ -2269,6 +2564,7 @@ function ProjectsPage({
   onRequestedProjectHandled: () => void;
   requestedCreateProject: boolean;
   onRequestedCreateProjectHandled: () => void;
+  onNavigate: (page: Page) => void;
 }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [sources, setSources] = useState<
@@ -2620,6 +2916,7 @@ function ProjectsPage({
                 onReloadSources={loadSources}
                 onReloadJobs={loadJobs}
                 onError={setError}
+                onOpenSettings={() => onNavigate("settings")}
               />
             </article>
           ) : (
@@ -3218,8 +3515,11 @@ function DiagnosticsSettings({
     "loading",
   );
   const [exportState, setExportState] = useState("");
-  const [debugSession, setDebugSession] = useState<DiagnosticsDebugSession | null>(null);
-  const [debugState, setDebugState] = useState<"loading" | "ready" | "error">("loading");
+  const [debugSession, setDebugSession] =
+    useState<DiagnosticsDebugSession | null>(null);
+  const [debugState, setDebugState] = useState<"loading" | "ready" | "error">(
+    "loading",
+  );
   const [debugActionState, setDebugActionState] = useState("");
   const [debugDuration, setDebugDuration] = useState("10");
   const [debugTick, setDebugTick] = useState(0);
@@ -3281,7 +3581,10 @@ function DiagnosticsSettings({
       .then((status) => {
         expiredDebugRefreshRequested.current = false;
         setDebugSession(status);
-        configurePwaDiagnosticsDebugState({ active: status.active, expiresAt: status.expires_at });
+        configurePwaDiagnosticsDebugState({
+          active: status.active,
+          expiresAt: status.expires_at,
+        });
         setDebugState("ready");
       })
       .catch(() => {
@@ -3294,20 +3597,25 @@ function DiagnosticsSettings({
   };
   useEffect(loadDebugSession, [csrf]);
   useEffect(() => {
-    const timer = window.setInterval(() => setDebugTick((value) => value + 1), 1000);
+    const timer = window.setInterval(
+      () => setDebugTick((value) => value + 1),
+      1000,
+    );
     return () => window.clearInterval(timer);
   }, []);
   const debugLocallyActive = Boolean(
     debugSession?.active &&
-      debugSession.expires_at &&
-      Date.parse(debugSession.expires_at) > Date.now(),
+    debugSession.expires_at &&
+    Date.parse(debugSession.expires_at) > Date.now(),
   );
   const activeDebugSession = debugLocallyActive ? debugSession : null;
   useEffect(() => {
     if (!debugSession?.active || !debugSession.expires_at) return;
     if (Date.parse(debugSession.expires_at) > Date.now()) return;
     configurePwaDiagnosticsDebugState({ active: false });
-    setDebugSession((current) => current ? { ...current, active: false } : current);
+    setDebugSession((current) =>
+      current ? { ...current, active: false } : current,
+    );
     if (expiredDebugRefreshRequested.current) return;
     expiredDebugRefreshRequested.current = true;
     loadDebugSession({ keepReady: true });
@@ -3315,17 +3623,27 @@ function DiagnosticsSettings({
   const startDebug = async () => {
     setDebugActionState("Включаем DEBUG…");
     try {
-      const status = await csrfMutate<DiagnosticsDebugSession>("/diagnostics/debug-session", csrf, onCsrf, {
-        method: "POST",
-        body: JSON.stringify({ duration_minutes: Number(debugDuration) }),
-      });
+      const status = await csrfMutate<DiagnosticsDebugSession>(
+        "/diagnostics/debug-session",
+        csrf,
+        onCsrf,
+        {
+          method: "POST",
+          body: JSON.stringify({ duration_minutes: Number(debugDuration) }),
+        },
+      );
       setDebugSession(status);
-      configurePwaDiagnosticsDebugState({ active: status.active, expiresAt: status.expires_at });
+      configurePwaDiagnosticsDebugState({
+        active: status.active,
+        expiresAt: status.expires_at,
+      });
       setDebugActionState("DEBUG включена.");
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
         loadDebugSession();
-        setDebugActionState("DEBUG уже активна в другой вкладке. Статус обновлён.");
+        setDebugActionState(
+          "DEBUG уже активна в другой вкладке. Статус обновлён.",
+        );
         return;
       }
       setDebugActionState("Не удалось включить DEBUG.");
@@ -3334,7 +3652,12 @@ function DiagnosticsSettings({
   const stopDebug = async () => {
     setDebugActionState("Останавливаем DEBUG…");
     try {
-      await csrfMutate<DiagnosticsDebugSession>("/diagnostics/debug-session", csrf, onCsrf, { method: "DELETE" });
+      await csrfMutate<DiagnosticsDebugSession>(
+        "/diagnostics/debug-session",
+        csrf,
+        onCsrf,
+        { method: "DELETE" },
+      );
       configurePwaDiagnosticsDebugState({ active: false });
       loadDebugSession();
       setDebugActionState("DEBUG остановлена.");
@@ -3512,7 +3835,9 @@ function DiagnosticsSettings({
               <div className="diagnostics-event-header">
                 <strong>{event.event_code}</strong>
                 {pwaEventLabel(event.event_code) && (
-                  <span className="pwa-event-label">{pwaEventLabel(event.event_code)}</span>
+                  <span className="pwa-event-label">
+                    {pwaEventLabel(event.event_code)}
+                  </span>
                 )}
                 <span>·</span>
                 <span>{diagnosticsLevelLabel(event.level)}</span>
@@ -3532,7 +3857,15 @@ function DiagnosticsSettings({
                     .slice(0, 8)
                     .map(([key, value]) => (
                       <div key={key}>
-                        <dt><span>{safeText(key)}</span>{diagnosticsMetadataLabel(key) && <span className="metadata-local-label"> · {diagnosticsMetadataLabel(key)}</span>}</dt>
+                        <dt>
+                          <span>{safeText(key)}</span>
+                          {diagnosticsMetadataLabel(key) && (
+                            <span className="metadata-local-label">
+                              {" "}
+                              · {diagnosticsMetadataLabel(key)}
+                            </span>
+                          )}
+                        </dt>
                         <dd>{safeText(value)}</dd>
                       </div>
                     ))}
@@ -3547,16 +3880,23 @@ function DiagnosticsSettings({
           </button>
         )}
       </section>
-      <section className="card pwa-diagnostics-card" aria-labelledby="pwa-diagnostics-title">
+      <section
+        className="card pwa-diagnostics-card"
+        aria-labelledby="pwa-diagnostics-title"
+      >
         <h3 id="pwa-diagnostics-title">Диагностика PWA</h3>
         <p className="notice">
-          Сбор DEBUG пока не включён по умолчанию. Браузер отправляет только закрытые безопасные события: ошибки приложения, необработанные операции, ошибки API, разделов и сервис-воркера.
+          Сбор DEBUG пока не включён по умолчанию. Браузер отправляет только
+          закрытые безопасные события: ошибки приложения, необработанные
+          операции, ошибки API, разделов и сервис-воркера.
         </p>
         {debugState === "loading" && <p role="status">Проверяем DEBUG…</p>}
         {debugState === "error" && (
           <div className="error">
             <p>Не удалось загрузить статус DEBUG.</p>
-            <button type="button" onClick={() => loadDebugSession()}>Повторить</button>
+            <button type="button" onClick={() => loadDebugSession()}>
+              Повторить
+            </button>
           </div>
         )}
         {debugState === "ready" && activeDebugSession ? (
@@ -3564,26 +3904,57 @@ function DiagnosticsSettings({
             <strong>DEBUG активна</strong>
             <p>Начало: {formatTime(activeDebugSession.started_at ?? null)}</p>
             <p>Истекает: {formatTime(activeDebugSession.expires_at ?? null)}</p>
-            <p className="debug-countdown">Осталось: {debugRemainingText(activeDebugSession.expires_at)}</p>
-            <button type="button" className="danger" disabled={debugActionState.endsWith("…")} onClick={stopDebug}>Остановить DEBUG</button>
+            <p className="debug-countdown">
+              Осталось: {debugRemainingText(activeDebugSession.expires_at)}
+            </p>
+            <button
+              type="button"
+              className="danger"
+              disabled={debugActionState.endsWith("…")}
+              onClick={stopDebug}
+            >
+              Остановить DEBUG
+            </button>
           </div>
         ) : debugState === "ready" ? (
           <div className="debug-panel" role="status">
             <strong>DEBUG не активна</strong>
-            <p className="muted">DEBUG временная, серверная и автоматически истекает. Браузер не продлевает срок.</p>
+            <p className="muted">
+              DEBUG временная, серверная и автоматически истекает. Браузер не
+              продлевает срок.
+            </p>
             <label className="debug-duration-label">
               Длительность DEBUG
-              <select value={debugDuration} onChange={(event) => setDebugDuration(event.target.value)}>
+              <select
+                value={debugDuration}
+                onChange={(event) => setDebugDuration(event.target.value)}
+              >
                 <option value="5">5 минут</option>
                 <option value="10">10 минут</option>
                 <option value="15">15 минут</option>
                 <option value="30">30 минут</option>
               </select>
             </label>
-            <button type="button" className="primary" disabled={debugActionState.endsWith("…")} onClick={startDebug}>Включить DEBUG</button>
+            <button
+              type="button"
+              className="primary"
+              disabled={debugActionState.endsWith("…")}
+              onClick={startDebug}
+            >
+              Включить DEBUG
+            </button>
           </div>
         ) : null}
-        {debugActionState && <p role="status" className={debugActionState.includes("Не удалось") ? "error" : "muted"}>{debugActionState}</p>}
+        {debugActionState && (
+          <p
+            role="status"
+            className={
+              debugActionState.includes("Не удалось") ? "error" : "muted"
+            }
+          >
+            {debugActionState}
+          </p>
+        )}
       </section>
       <section
         className="card security-log"
@@ -3632,7 +4003,8 @@ function PlatformShell() {
     if (nextPage === "projects") setProjectsOpened(true);
     const nextRoute = {
       page: nextPage,
-      settingsSection: nextPage === "settings" ? nextSettingsSection : "account",
+      settingsSection:
+        nextPage === "settings" ? nextSettingsSection : "account",
     };
     setRoute(nextRoute);
     pushPlatformRoute(nextRoute.page, nextRoute.settingsSection);
@@ -3720,9 +4092,12 @@ function PlatformShell() {
   const logout = async () => {
     let token = csrf;
     if (!token) {
-      const refreshed = await requestJson<{ csrf_token: string }>("/auth/csrf", {
-        method: "POST",
-      });
+      const refreshed = await requestJson<{ csrf_token: string }>(
+        "/auth/csrf",
+        {
+          method: "POST",
+        },
+      );
       token = refreshed.csrf_token;
       setSession((current) => ({ ...current, csrf: token }));
       updatePwaDiagnosticsCsrf(token);
@@ -3791,6 +4166,7 @@ function PlatformShell() {
               onRequestedCreateProjectHandled={() =>
                 setRequestedCreateProject(false)
               }
+              onNavigate={navigate}
             />
           </div>
         )}

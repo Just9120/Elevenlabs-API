@@ -2115,7 +2115,6 @@ def test_batch_jobs_exact_replay_skips_current_validation_and_conflicts_skip_goo
         {**body, "items": [{"source_id": source_b, "output_folder_id": "shared", "title": "Dup"}, {"source_id": source_b, "output_folder_id": "shared", "title": "Dup"}]},
         _batch_body(source_b, source_b, folder_a="shared", folder_b="shared", credential_id=cred_id),
         _batch_body(source_a, source_b, folder_a="changed", folder_b="shared", credential_id=cred_id),
-        _batch_body(source_a, source_b, folder_a="shared", folder_b="shared", credential_id=None),
         {**body, "language": "fr"},
         {**body, "options": {"diarize": False}},
         {**body, "items": list(reversed(body["items"]))},
@@ -2427,3 +2426,98 @@ def test_pwa_debug_ingestion_requires_active_session_and_does_not_extend_expiry(
     assert c.get("/api/diagnostics/debug-session").json()["expires_at"] == expiry
     db=SessionLocal(); row=db.query(DiagnosticDebugSession).one(); past_start=utcnow() - timedelta(minutes=2); row.started_at=past_start; row.expires_at=past_start + timedelta(minutes=1); db.commit(); db.close()
     assert c.post("/api/diagnostics/pwa-events", json=payload, headers=headers).status_code == 403
+
+def _count_batch_rows(project_id):
+    db = SessionLocal()
+    try:
+        return (
+            db.query(TranscriptionJob).filter_by(project_id=project_id).count(),
+            db.query(TranscriptionJobSource).join(TranscriptionJob).filter(TranscriptionJob.project_id == project_id).count(),
+        )
+    finally:
+        db.close()
+
+
+def test_batch_resolves_active_owner_elevenlabs_credential_and_hash(monkeypatch):
+    _install_batch_folder_mocks(monkeypatch)
+    c, csrf, user_id, pid, source_a, source_b, cred_id = _batch_setup("batch-credential-explicit@example.com")
+    body = _batch_body(source_a, None, credential_id=cred_id)
+    r = c.post(f"/api/projects/{pid}/jobs/batch", json=body, headers=_batch_headers(csrf))
+    assert r.status_code == 200
+    job = r.json()["jobs"][0]
+    assert job["provider_credential_id"] == cred_id
+    db = SessionLocal()
+    try:
+        stored = db.get(TranscriptionJob, job["id"])
+        assert stored.provider_credential_id == cred_id
+        from studio_api.main import _batch_hash
+        expected_hash = _batch_hash(
+            pid,
+            cred_id,
+            "en",
+            '{"diarize": true}',
+            [{"source_id": source_a, "output_folder_id": "folder-a", "title": "First"}],
+        )
+        assert stored.batch_request_hash == expected_hash
+    finally:
+        db.close()
+
+
+def test_batch_auto_selects_single_active_elevenlabs_when_null(monkeypatch):
+    _install_batch_folder_mocks(monkeypatch)
+    c, csrf, user_id, pid, source_a, source_b, cred_id = _batch_setup("batch-credential-auto@example.com")
+    body = _batch_body(source_a, None, credential_id=None)
+    body["provider_credential_id"] = None
+    r = c.post(f"/api/projects/{pid}/jobs/batch", json=body, headers=_batch_headers(csrf))
+    assert r.status_code == 200
+    assert r.json()["jobs"][0]["provider_credential_id"] == cred_id
+
+
+def test_batch_rejects_missing_or_multiple_credentials_without_partial_rows(monkeypatch):
+    _install_batch_folder_mocks(monkeypatch)
+    c, csrf, user_id, pid, source_a, source_b, cred_id = _batch_setup("batch-credential-missing@example.com")
+    db = SessionLocal()
+    try:
+        db.get(ProviderCredential, cred_id).status = CredentialStatus.deleted
+        db.commit()
+    finally:
+        db.close()
+    before = _count_batch_rows(pid)
+    r = c.post(f"/api/projects/{pid}/jobs/batch", json=_batch_body(source_a, None), headers=_batch_headers(csrf))
+    assert r.status_code == 422
+    assert _count_batch_rows(pid) == before
+
+    db = SessionLocal()
+    try:
+        _create_active_credential(db, user_id, "one")
+        _create_active_credential(db, user_id, "two")
+        db.commit()
+    finally:
+        db.close()
+    before = _count_batch_rows(pid)
+    r = c.post(f"/api/projects/{pid}/jobs/batch", json=_batch_body(source_a, None), headers=_batch_headers(csrf) | {"Idempotency-Key": "batch-key-multiple"})
+    assert r.status_code == 422
+    assert "профиль" in r.text
+    assert _count_batch_rows(pid) == before
+
+
+def test_batch_rejects_invalid_explicit_credentials_without_partial_rows(monkeypatch):
+    _install_batch_folder_mocks(monkeypatch)
+    c, csrf, user_id, pid, source_a, source_b, cred_id = _batch_setup("batch-credential-invalid@example.com")
+    other_c, other_csrf, other_user_id, other_pid, *_ = _batch_setup("batch-credential-foreign@example.com")
+    cases = []
+    db = SessionLocal()
+    try:
+        inactive = _create_active_credential(db, user_id, "inactive"); inactive.status = CredentialStatus.revoked
+        deleted = _create_active_credential(db, user_id, "deleted"); deleted.status = CredentialStatus.deleted
+        openai = ProviderCredential(user_id=user_id, provider=CredentialProvider.openai, label="openai", status=CredentialStatus.active); db.add(openai)
+        foreign = _create_active_credential(db, other_user_id, "foreign")
+        db.flush(); cases = [inactive.id, deleted.id, openai.id, foreign.id, "missing-credential-id"]
+        db.commit()
+    finally:
+        db.close()
+    for idx, bad_id in enumerate(cases):
+        before = _count_batch_rows(pid)
+        r = c.post(f"/api/projects/{pid}/jobs/batch", json=_batch_body(source_a, None, credential_id=bad_id), headers=_batch_headers(csrf) | {"Idempotency-Key": f"batch-key-invalid-{idx}"})
+        assert r.status_code == 422, bad_id
+        assert _count_batch_rows(pid) == before

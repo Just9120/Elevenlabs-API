@@ -892,3 +892,46 @@ code {
     width: 100%;
   }
 }
+.provider-card {
+  display: grid;
+  gap: 0.75rem;
+  align-items: start;
+  background: var(--studio-soft);
+  border: 1px solid var(--studio-border);
+  border-radius: 14px;
+  padding: 1rem;
+}
+.provider-card h5 {
+  margin: 0.2rem 0;
+}
+.provider-ready {
+  color: #166534;
+  font-weight: 800;
+  margin: 0;
+}
+.profile-selector {
+  display: grid;
+  gap: 0.4rem;
+  max-width: 420px;
+}
+.job-card {
+  gap: 0.45rem;
+}
+.terminal-job {
+  background: #fbfdff;
+  box-shadow: none;
+}
+.job-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+.job-actions > button {
+  width: auto;
+  padding: 0.55rem 0.8rem;
+}
+.recent-jobs > summary {
+  cursor: pointer;
+  font-weight: 800;
+}

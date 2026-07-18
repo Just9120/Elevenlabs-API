@@ -124,7 +124,7 @@ Current confirmed realtime evidence is partial: one display+microphone run confi
 
 ## Active recommended next item
 
-Current recommended work is `PWA-DIAGNOSTICS-01B-B-B — frontend PWA diagnostics capture and DEBUG controls`. It follows completed `PWA-DIAGNOSTICS-01B-B-A` backend ingestion/debug-session foundation and remains source-only until PR #161 is merged, deployed, and accepted. It must not claim worker state, provider calls, Google calls, deployment, migration application, backups, smoke, or production processing.
+Current recommended work is `PWA-PROCESSING-COMPOSER-UX-01 — Studio preparation provider selection and current/recent jobs UX fix`. It keeps processing rollout paused until this UX fix is merged, deployed, and browser-accepted. It must not claim worker state, provider calls, Google calls, deployment, migration application, backups, smoke, worker-running, or production-live processing.
 
 `PWA-DIAGNOSTICS-01B-A` is source-done/merged through PR #157 and CI-verified: Backend CI #385 and Studio PWA CI #208 passed. Production Studio web deployment evidence for merge commit `c60a88834d25b62df505d0678056f2c5e22cde9c` recorded `STUDIO_PLATFORM_WEB_DEPLOY_OK`, localhost health passed, and public `/healthz` returned HTTP 200. Manual browser acceptance confirmed diagnostics page, system summary, transcription timeline, Markdown download, planned PWA diagnostics state, and separate security audit. Build identities remain unconfigured/unknown; do not claim worker-running or production-live processing from this evidence.
 
@@ -138,9 +138,11 @@ Current recommended work is `PWA-DIAGNOSTICS-01B-B-B — frontend PWA diagnostic
 
 `PWA-DIAGNOSTICS-01B-B-B` is source-done/merged through PR #161 and CI-verified: source head `fa7dcd06469c32c1e7b39de93c71703ce04ff237`, merge commit `de4b89cd80b02932da0daef6576b710ac4c71280`, CI #398 passed, and Studio PWA CI #221 passed. Production web deployment evidence records `STUDIO_PLATFORM_WEB_DEPLOY_OK`, checkout `de4b89cd80b02932da0daef6576b710ac4c71280`, localhost health ok, and public `/healthz` HTTP 200. Partial browser acceptance confirmed the PWA diagnostics card, DEBUG active state, start/expiry/countdown display, and stop action. Remaining UX issues are shared diagnostics export clarity and reload-stable navigation.
 
-`PWA-DIAGNOSTICS-01B-B-B-UX` is the active UX polish follow-up for clarifying that Markdown export uses the selected common diagnostics filters and for preserving dashboard/projects/settings/diagnostics navigation across direct open, reload, back, and forward. It must not change backend diagnostics report behavior, add a PWA-specific export endpoint, include the security audit in diagnostics export, change DEBUG authority, change telemetry allowlists, deploy, or claim complete browser acceptance until this follow-up is deployed and accepted.
+`PWA-DIAGNOSTICS-01B-B-B-UX` is complete through PR #162. It clarified that Markdown export uses the selected common diagnostics filters and preserved dashboard/projects/settings/diagnostics navigation across direct open, reload, back, and forward without changing backend diagnostics report behavior, DEBUG authority, telemetry allowlists, worker state, provider calls, Google calls, deployment, or production processing claims.
 
-`PWA-PROCESSING-ROLLOUT-01A` stays paused until worker revalidation plus bounded smoke are explicitly resumed. Worker-running now, worker image parity now, controlled smoke, provider execution, Google Docs creation, and production-live processing are not claimed.
+`PWA-PROCESSING-COMPOSER-UX-01` is the current item for fixing Studio PreparationPanel ElevenLabs provider selection, fail-closed batch credential handling, and current/recent job list separation. Processing rollout remains paused until this UX fix is merged, deployed, and browser-accepted.
+
+`PWA-PROCESSING-ROLLOUT-01A` stays paused until PR #162 is complete and `PWA-PROCESSING-COMPOSER-UX-01` is merged/deployed/browser-accepted, then worker revalidation plus bounded smoke are explicitly resumed. Worker-running now, worker image parity now, controlled smoke, provider execution, Google Docs creation, and production-live processing are not claimed.
 
 **RUNTIME-01** remains deferred.
 
