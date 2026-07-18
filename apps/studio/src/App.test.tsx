@@ -5469,6 +5469,145 @@ describe("settings diagnostics", () => {
     await screen.findByRole("heading", { name: "Диагностика" });
   }
 
+
+  function installBasicPlatformSettingsFixture() {
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url.endsWith("/api/auth/session"))
+        return json({ authenticated: true, user: { email: "user@example.com", role: "admin" } });
+      if (url.endsWith("/api/auth/csrf")) return json({ csrf_token: "csrf-after-refresh" });
+      if (url.endsWith("/api/credentials")) return json({ credentials: [] });
+      if (url.endsWith("/api/google/connection"))
+        return json({ connected: false, status: null, google_email: null, scopes: null, connected_at: null, revoked_at: null });
+      if (url.endsWith("/api/audit-events")) return json({ events: [] });
+      if (url.endsWith("/api/diagnostics/system"))
+        return json({ build: {}, diagnostics: {}, google_drive: {}, provider_credentials: {}, report_limits: {} });
+      if (url.includes("/api/diagnostics/events"))
+        return json({ events: [], next_cursor: null, period: { start: "2026-07-15T00:00:00Z", end: "2026-07-16T00:00:00Z" } });
+      if (url.endsWith("/api/projects")) return json({ projects: [] });
+      return json({ ok: true });
+    });
+  }
+
+  it("uses broad diagnostics export copy while preserving the common Markdown report endpoint", async () => {
+    const originalURL = URL;
+    const createObjectURL = vi.fn(() => "blob:diagnostics-report");
+    const revokeObjectURL = vi.fn();
+    originalURL.createObjectURL = createObjectURL;
+    originalURL.revokeObjectURL = revokeObjectURL;
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    const calledUrls: string[] = [];
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation((url: string, init?: RequestInit) => {
+      calledUrls.push(url);
+      if (url.endsWith("/api/auth/session"))
+        return json({ authenticated: true, user: { email: "user@example.com", role: "admin" } });
+      if (url.endsWith("/api/auth/csrf")) return json({ csrf_token: "csrf-after-refresh" });
+      if (url.endsWith("/api/credentials")) return json({ credentials: [] });
+      if (url.endsWith("/api/google/connection"))
+        return json({ connected: false, status: null, google_email: null, scopes: null, connected_at: null, revoked_at: null });
+      if (url.endsWith("/api/audit-events")) return json({ events: [] });
+      if (url.endsWith("/api/diagnostics/system"))
+        return json({ build: {}, diagnostics: {}, google_drive: {}, provider_credentials: {}, report_limits: {} });
+      if (url.includes("/api/diagnostics/events"))
+        return json({ events: [], next_cursor: null, period: { start: "2026-07-15T00:00:00Z", end: "2026-07-16T00:00:00Z" } });
+      if (url.endsWith("/api/diagnostics/report.md") && init?.method === "POST")
+        return json(new Blob(["# Markdown"], { type: "text/markdown" }));
+      return json({ ok: true });
+    });
+
+    renderApp("platform");
+    await openDiagnosticsSettings();
+    expect(screen.getByRole("heading", { name: "События диагностики" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Экспорт диагностики" })).toBeInTheDocument();
+    expect(screen.getByText(/PWA, API и фоновой обработки/)).toBeInTheDocument();
+    expect(screen.getByText(/Аудит безопасности остаётся/)).toBeInTheDocument();
+    expect(screen.getByText(/в этот отчёт не входит/)).toBeInTheDocument();
+
+    await userEvent.selectOptions(screen.getByLabelText("Период"), "7");
+    await userEvent.selectOptions(screen.getByLabelText("Уровень"), "INFO");
+    await userEvent.selectOptions(screen.getByLabelText("Компонент"), "api");
+    await userEvent.type(screen.getByLabelText("Код события"), "api.request_failed");
+    await userEvent.click(screen.getByRole("button", { name: "Скачать Markdown" }));
+    const reportCalls = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(([url]) =>
+      String(url).endsWith("/api/diagnostics/report.md"),
+    );
+    expect(reportCalls).toHaveLength(1);
+    expect(reportCalls[0][1]?.body).toContain('"level":"INFO"');
+    expect(reportCalls[0][1]?.body).toContain('"component":"api"');
+    expect(reportCalls[0][1]?.body).toContain('"event_code":"api.request_failed"');
+    expect(calledUrls.some((url) => url.includes("/api/diagnostics/pwa") && !url.endsWith("/api/diagnostics/pwa-events"))).toBe(false);
+    expect(clickSpy.mock.instances[0]?.download ?? "studio-diagnostics.md").toMatch(/\.md$/);
+    clickSpy.mockRestore();
+    cleanup();
+    window.history.replaceState({}, "", "/");
+  });
+
+  it("restores and updates URL-backed platform navigation without browser storage", async () => {
+    const addSpy = vi.spyOn(window, "addEventListener");
+    const removeSpy = vi.spyOn(window, "removeEventListener");
+    const localGet = vi.spyOn(Storage.prototype, "getItem");
+    const localSet = vi.spyOn(Storage.prototype, "setItem");
+    installBasicPlatformSettingsFixture();
+    window.history.replaceState({}, "", "/");
+
+    renderApp("platform");
+    await waitForPlatformOverview();
+    expect(window.location.pathname).toBe("/");
+    await userEvent.click(screen.getByRole("button", { name: "Проекты" }));
+    expect(await screen.findByRole("heading", { name: "Проекты" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/projects");
+    await userEvent.click(screen.getByRole("button", { name: "Настройки" }));
+    expect(await screen.findByRole("heading", { name: "Настройки аккаунта" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/settings");
+    await userEvent.click(screen.getByRole("tab", { name: "Диагностика" }));
+    expect(await screen.findByRole("heading", { name: "Диагностика" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/settings/diagnostics");
+    await userEvent.click(screen.getByRole("tab", { name: "Аккаунт" }));
+    expect(await screen.findByRole("heading", { name: "Настройки аккаунта" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/settings");
+    cleanup();
+    expect(removeSpy.mock.calls.filter(([type]) => type === "popstate")).toHaveLength(1);
+
+    window.history.replaceState({}, "", "/settings/diagnostics");
+    renderApp("platform");
+    expect(await screen.findByRole("heading", { name: "Диагностика" })).toBeInTheDocument();
+    window.history.pushState({}, "", "/settings");
+    fireEvent.popState(window);
+    expect(await screen.findByRole("heading", { name: "Настройки аккаунта" })).toBeInTheDocument();
+    cleanup();
+
+    window.history.replaceState({}, "", "/unknown");
+    renderApp("platform");
+    await waitForPlatformOverview();
+    cleanup();
+
+    window.history.replaceState({}, "", "/projects");
+    renderApp("platform");
+    expect(await screen.findByRole("heading", { name: "Проекты" })).toBeInTheDocument();
+    cleanup();
+
+    window.history.replaceState({}, "", "/settings");
+    renderApp("platform");
+    expect(await screen.findByRole("heading", { name: "Настройки аккаунта" })).toBeInTheDocument();
+    expect(addSpy.mock.calls.filter(([type]) => type === "popstate")).toHaveLength(5);
+    expect(localGet).not.toHaveBeenCalled();
+    expect(localSet).not.toHaveBeenCalled();
+    cleanup();
+    window.history.replaceState({}, "", "/");
+  });
+
+  it("direct settings OAuth cleanup preserves the intended settings route", async () => {
+    installBasicPlatformSettingsFixture();
+    const replaceSpy = vi.spyOn(window.history, "replaceState");
+    window.history.replaceState({}, "", "/settings/diagnostics?google_oauth=connected&keep=1");
+    renderApp("platform");
+    expect(await screen.findByRole("heading", { name: "Диагностика" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/settings/diagnostics");
+    expect(window.location.search).toBe("?keep=1");
+    expect(replaceSpy).toHaveBeenCalledWith(expect.anything(), "", "/settings/diagnostics?keep=1");
+    cleanup();
+    window.history.replaceState({}, "", "/");
+  });
+
   it("static mode performs zero diagnostics or audit API calls", async () => {
     renderApp("static");
     await screen.findByRole("heading", { name: "Панель готова к установке" });
@@ -6228,8 +6367,10 @@ describe("PWA API diagnostics instrumentation", () => {
 
 describe("Settings DEBUG session controls", () => {
   beforeEach(() => {
+    cleanup();
     vi.restoreAllMocks();
     clearPwaDiagnosticsSession();
+    window.history.replaceState({}, "", "/");
   });
 
   function installSettingsFetch(debugResponses: Array<{ active: boolean; started_at?: string | null; expires_at?: string | null } | Response>) {

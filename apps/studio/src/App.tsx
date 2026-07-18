@@ -30,6 +30,7 @@ const appUrl =
   import.meta.env.VITE_APP_PUBLIC_URL ?? "https://studio.librechat.online";
 type Page = "dashboard" | "projects" | "new" | "jobs" | "settings";
 type SettingsSection = "account" | "diagnostics";
+type PlatformRoute = { page: Page; settingsSection: SettingsSection };
 type User = { email: string; role: string };
 type Credential = {
   id: string;
@@ -521,6 +522,38 @@ async function bootstrapSession(): Promise<{
     method: "POST",
   });
   return { user: session.user, csrf: csrf.csrf_token };
+}
+function parsePlatformRoute(pathname = window.location.pathname): PlatformRoute {
+  switch (pathname) {
+    case "/projects":
+      return { page: "projects", settingsSection: "account" };
+    case "/settings":
+      return { page: "settings", settingsSection: "account" };
+    case "/settings/diagnostics":
+      return { page: "settings", settingsSection: "diagnostics" };
+    case "/":
+    default:
+      return { page: "dashboard", settingsSection: "account" };
+  }
+}
+function platformPathFor(
+  page: Page,
+  settingsSection: SettingsSection = "account",
+) {
+  if (page === "projects") return "/projects";
+  if (page === "settings") {
+    return settingsSection === "diagnostics" ? "/settings/diagnostics" : "/settings";
+  }
+  return "/";
+}
+function pushPlatformRoute(
+  page: Page,
+  settingsSection: SettingsSection = "account",
+) {
+  const path = platformPathFor(page, settingsSection);
+  if (window.location.pathname !== path) {
+    window.history.pushState(window.history.state, "", path);
+  }
 }
 function consumeGoogleOauthResult(): GoogleOauthResult | null {
   const current = `${window.location.pathname ?? "/"}${window.location.search ?? ""}${window.location.hash ?? ""}`;
@@ -2773,16 +2806,17 @@ function SettingsPage({
   onCsrf,
   onLogout,
   oauthResult,
-  initialSection = "account",
+  section,
+  onSectionChange,
 }: {
   user: User;
   csrf: string;
   onCsrf: (csrf: string) => void;
   onLogout: () => void;
   oauthResult: GoogleOauthResult | null;
-  initialSection?: SettingsSection;
+  section: SettingsSection;
+  onSectionChange: (section: SettingsSection) => void;
 }) {
-  const [section, setSection] = useState<SettingsSection>(initialSection);
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [events, setEvents] = useState<Audit[]>([]);
   const [googleConnection, setGoogleConnection] =
@@ -2914,7 +2948,7 @@ function SettingsPage({
           role="tab"
           aria-selected={section === "account"}
           className={section === "account" ? "active" : ""}
-          onClick={() => setSection("account")}
+          onClick={() => onSectionChange("account")}
         >
           Аккаунт
         </button>
@@ -2923,7 +2957,7 @@ function SettingsPage({
           role="tab"
           aria-selected={section === "diagnostics"}
           className={section === "diagnostics" ? "active" : ""}
-          onClick={() => setSection("diagnostics")}
+          onClick={() => onSectionChange("diagnostics")}
         >
           Диагностика
         </button>
@@ -3380,7 +3414,22 @@ function DiagnosticsSettings({
         )}
       </section>
       <section className="card" aria-labelledby="timeline-title">
-        <h3 id="timeline-title">Диагностика транскрибации</h3>
+        <h3 id="timeline-title">События диагностики</h3>
+        <div
+          className="diagnostics-export"
+          aria-labelledby="diagnostics-export-title"
+        >
+          <h4 id="diagnostics-export-title">Экспорт диагностики</h4>
+          <p className="muted">
+            Markdown-отчёт может включать безопасные события PWA, API и фоновой
+            обработки согласно выбранным фильтрам. Аудит безопасности остаётся
+            отдельным разделом и в этот отчёт не входит.
+          </p>
+          <button type="button" className="secondary" onClick={exportReport}>
+            Скачать Markdown
+          </button>
+          {exportState && <p role="status">{exportState}</p>}
+        </div>
         <form className="diagnostics-filters" onSubmit={applyFilters}>
           <label>
             Период
@@ -3437,11 +3486,7 @@ function DiagnosticsSettings({
             />
           </label>
           <button type="submit">Применить фильтры</button>
-          <button type="button" className="secondary" onClick={exportReport}>
-            Скачать Markdown
-          </button>
         </form>
-        {exportState && <p role="status">{exportState}</p>}
         {period && (
           <p className="muted">
             Период: {formatTime(period.start)} — {formatTime(period.end)}
@@ -3567,18 +3612,43 @@ function PlatformShell() {
   const [oauthResult] = useState<GoogleOauthResult | null>(() =>
     consumeGoogleOauthResult(),
   );
-  const [page, setPage] = useState<Page>(
-    oauthResult ? "settings" : "dashboard",
+  const initialRoute = parsePlatformRoute();
+  const [route, setRoute] = useState<PlatformRoute>(() =>
+    oauthResult && initialRoute.page === "dashboard"
+      ? { page: "settings", settingsSection: "account" }
+      : initialRoute,
   );
+  const page = route.page;
+  const settingsSection = route.settingsSection;
   const [requestedProjectId, setRequestedProjectId] = useState<string | null>(
     null,
   );
   const [requestedCreateProject, setRequestedCreateProject] = useState(false);
   const [projectsOpened, setProjectsOpened] = useState(false);
-  const navigate = (nextPage: Page) => {
+  const navigate = (
+    nextPage: Page,
+    nextSettingsSection: SettingsSection = "account",
+  ) => {
     if (nextPage === "projects") setProjectsOpened(true);
-    setPage(nextPage);
+    const nextRoute = {
+      page: nextPage,
+      settingsSection: nextPage === "settings" ? nextSettingsSection : "account",
+    };
+    setRoute(nextRoute);
+    pushPlatformRoute(nextRoute.page, nextRoute.settingsSection);
   };
+  useEffect(() => {
+    const handlePopState = () => {
+      const nextRoute = parsePlatformRoute();
+      if (nextRoute.page === "projects") setProjectsOpened(true);
+      setRoute(nextRoute);
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+  useEffect(() => {
+    if (page === "projects") setProjectsOpened(true);
+  }, [page]);
   const [session, setSession] = useState<SessionBootstrapState>({
     status: "checking",
     user: null,
@@ -3747,6 +3817,8 @@ function PlatformShell() {
             }}
             onLogout={logout}
             oauthResult={oauthResult}
+            section={settingsSection}
+            onSectionChange={(section) => navigate("settings", section)}
           />
         )}
       </main>
