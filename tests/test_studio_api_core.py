@@ -2019,6 +2019,122 @@ def _batch_body(source_a, source_b=None, folder_a="folder-a", folder_b="folder-b
     return body
 
 
+
+def _count_batch_rows():
+    db = SessionLocal()
+    try:
+        return db.query(TranscriptionJob).count(), db.query(TranscriptionJobSource).count()
+    finally:
+        db.close()
+
+
+def test_batch_explicit_active_owner_elevenlabs_credential_saved(monkeypatch):
+    _install_batch_folder_mocks(monkeypatch)
+    c, csrf, user_id, pid, source_a, source_b, cred_id = _batch_setup("batch-explicit-eleven@example.com")
+    r = c.post(f"/api/projects/{pid}/jobs/batch", json=_batch_body(source_a, credential_id=cred_id), headers=_batch_headers(csrf))
+    assert r.status_code == 200
+    db = SessionLocal()
+    try:
+        job = db.query(TranscriptionJob).filter_by(project_id=pid).one()
+        assert job.provider_credential_id == cred_id
+    finally:
+        db.close()
+
+
+def test_batch_null_credential_auto_resolves_single_active_elevenlabs(monkeypatch):
+    _install_batch_folder_mocks(monkeypatch)
+    c, csrf, user_id, pid, source_a, source_b, cred_id = _batch_setup("batch-auto-eleven@example.com")
+    r = c.post(f"/api/projects/{pid}/jobs/batch", json=_batch_body(source_a), headers=_batch_headers(csrf))
+    assert r.status_code == 200
+    db = SessionLocal()
+    try:
+        job = db.query(TranscriptionJob).filter_by(project_id=pid).one()
+        assert job.provider_credential_id == cred_id
+    finally:
+        db.close()
+
+
+def test_batch_null_credential_rejects_zero_active_elevenlabs_without_partial_rows(monkeypatch):
+    _install_batch_folder_mocks(monkeypatch)
+    c, csrf, user_id, pid, source_a, source_b, cred_id = _batch_setup("batch-zero-eleven@example.com")
+    db = SessionLocal()
+    try:
+        db.get(ProviderCredential, cred_id).status = CredentialStatus.revoked
+        db.commit()
+    finally:
+        db.close()
+    before = _count_batch_rows()
+    r = c.post(f"/api/projects/{pid}/jobs/batch", json=_batch_body(source_a), headers=_batch_headers(csrf))
+    assert r.status_code == 422
+    assert _count_batch_rows() == before
+
+
+def test_batch_null_credential_rejects_multiple_active_elevenlabs_without_partial_rows(monkeypatch):
+    _install_batch_folder_mocks(monkeypatch)
+    c, csrf, user_id, pid, source_a, source_b, cred_id = _batch_setup("batch-multi-eleven@example.com")
+    db = SessionLocal()
+    try:
+        _create_active_credential(db, user_id, "second")
+        db.commit()
+    finally:
+        db.close()
+    before = _count_batch_rows()
+    r = c.post(f"/api/projects/{pid}/jobs/batch", json=_batch_body(source_a), headers=_batch_headers(csrf))
+    assert r.status_code == 422
+    assert _count_batch_rows() == before
+
+
+@pytest.mark.parametrize("case", ["inactive", "deleted", "foreign", "openai", "missing"])
+def test_batch_explicit_credential_rejections_without_partial_rows(monkeypatch, case):
+    _install_batch_folder_mocks(monkeypatch)
+    c, csrf, user_id, pid, source_a, source_b, cred_id = _batch_setup(f"batch-reject-{case}@example.com")
+    requested = cred_id
+    db = SessionLocal()
+    try:
+        if case == "inactive":
+            db.get(ProviderCredential, cred_id).status = CredentialStatus.revoked
+        elif case == "deleted":
+            cred = db.get(ProviderCredential, cred_id)
+            cred.status = CredentialStatus.active
+            cred.deleted_at = utcnow()
+        elif case == "foreign":
+            other = User(email=f"foreign-{case}@example.com", role=UserRole.admin, status=UserStatus.active)
+            db.add(other); db.flush()
+            requested = _create_active_credential(db, other.id, "foreign").id
+        elif case == "openai":
+            cred = db.get(ProviderCredential, cred_id)
+            cred.provider = CredentialProvider.openai
+        elif case == "missing":
+            requested = "00000000-0000-0000-0000-000000000000"
+        db.commit()
+    finally:
+        db.close()
+    before = _count_batch_rows()
+    r = c.post(f"/api/projects/{pid}/jobs/batch", json=_batch_body(source_a, credential_id=requested), headers=_batch_headers(csrf))
+    assert r.status_code == 422
+    assert _count_batch_rows() == before
+
+
+def test_batch_exact_replay_with_missing_request_credential_uses_existing_id_and_skips_validation(monkeypatch):
+    calls = _install_batch_folder_mocks(monkeypatch)
+    c, csrf, user_id, pid, source_a, source_b, cred_id = _batch_setup("batch-replay-auto-existing@example.com")
+    body = _batch_body(source_a)
+    r1 = c.post(f"/api/projects/{pid}/jobs/batch", json=body, headers=_batch_headers(csrf))
+    assert r1.status_code == 200 and r1.json()["replayed"] is False
+    first_ids = [job["id"] for job in r1.json()["jobs"]]
+    db = SessionLocal()
+    try:
+        db.get(ProviderCredential, cred_id).status = CredentialStatus.revoked
+        db.commit()
+    finally:
+        db.close()
+    calls.clear()
+    r2 = c.post(f"/api/projects/{pid}/jobs/batch", json=body, headers=_batch_headers(csrf))
+    assert r2.status_code == 200 and r2.json()["replayed"] is True
+    assert [job["id"] for job in r2.json()["jobs"]] == first_ids
+    assert calls == []
+
+
 def test_batch_jobs_create_two_one_source_jobs_safe_payload_and_same_source_different_folders(monkeypatch):
     calls = _install_batch_folder_mocks(monkeypatch)
     c, csrf, user_id, pid, source_a, source_b, cred_id = _batch_setup("batch-happy@example.com")
@@ -2115,7 +2231,6 @@ def test_batch_jobs_exact_replay_skips_current_validation_and_conflicts_skip_goo
         {**body, "items": [{"source_id": source_b, "output_folder_id": "shared", "title": "Dup"}, {"source_id": source_b, "output_folder_id": "shared", "title": "Dup"}]},
         _batch_body(source_b, source_b, folder_a="shared", folder_b="shared", credential_id=cred_id),
         _batch_body(source_a, source_b, folder_a="changed", folder_b="shared", credential_id=cred_id),
-        _batch_body(source_a, source_b, folder_a="shared", folder_b="shared", credential_id=None),
         {**body, "language": "fr"},
         {**body, "options": {"diarize": False}},
         {**body, "items": list(reversed(body["items"]))},
