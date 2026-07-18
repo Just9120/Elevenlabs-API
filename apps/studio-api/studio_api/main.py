@@ -467,6 +467,32 @@ def _batch_hash(project_id, provider_credential_id, language, options_json, item
     canonical={"project_id":project_id,"provider_credential_id":provider_credential_id,"language":language,"options":json.loads(options_json) if options_json else None,"items":items}
     return hashlib.sha256(json.dumps(canonical, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
+
+def _resolve_batch_elevenlabs_credential_id(db, user, requested_credential_id) -> str:
+    requested = requested_credential_id.strip() if isinstance(requested_credential_id, str) and requested_credential_id.strip() else None
+    if requested:
+        credential = db.get(ProviderCredential, requested)
+        if (
+            not credential
+            or credential.user_id != user.id
+            or credential.provider != CredentialProvider.elevenlabs
+            or credential.status != CredentialStatus.active
+            or credential.deleted_at is not None
+        ):
+            raise HTTPException(422, "Выберите активный профиль ElevenLabs.")
+        return credential.id
+    credentials = db.query(ProviderCredential).filter(
+        ProviderCredential.user_id == user.id,
+        ProviderCredential.provider == CredentialProvider.elevenlabs,
+        ProviderCredential.status == CredentialStatus.active,
+        ProviderCredential.deleted_at.is_(None),
+    ).all()
+    if len(credentials) == 1:
+        return credentials[0].id
+    if len(credentials) == 0:
+        raise HTTPException(422, "Добавьте активный ключ ElevenLabs в настройках.")
+    raise HTTPException(422, "Выберите профиль подключения ElevenLabs.")
+
 def _existing_batch_is_complete(existing, request_hash: str, expected_count: int) -> bool:
     if len(existing) != expected_count:
         return False
@@ -478,7 +504,7 @@ def create_transcription_jobs_batch(project_id: str, data: TranscriptionJobBatch
     _,user=pair; limiter.check("job:batch:create:"+user.id, 30, 3600); p=owned_project_or_404(db,user,project_id)
     key=_clean_idempotency_key(request.headers.get("Idempotency-Key"))
     language=clean_job_language(data.language); options_json=safe_job_options(data.options)
-    provider_credential_id=data.provider_credential_id.strip() if isinstance(data.provider_credential_id, str) and data.provider_credential_id.strip() else None
+    explicit_provider_credential_id=data.provider_credential_id.strip() if isinstance(data.provider_credential_id, str) and data.provider_credential_id.strip() else None
     pairs=set(); duplicate_pair_found=False; source_ids=[]; folder_ids=[]; titles=[]
     for item in data.items:
         sid=item.source_id.strip(); fid=clean_drive_id(item.output_folder_id, "ID папки Google Drive")
@@ -486,17 +512,17 @@ def create_transcription_jobs_batch(project_id: str, data: TranscriptionJobBatch
         if pair_key in pairs: duplicate_pair_found=True
         pairs.add(pair_key); source_ids.append(sid); folder_ids.append(fid); titles.append(clean_job_title(item.title))
     hash_items=[{"source_id": sid, "output_folder_id": fid, "title": title} for sid,fid,title in zip(source_ids,folder_ids,titles)]
-    request_hash=_batch_hash(p.id, provider_credential_id, language, options_json, hash_items)
     existing=_load_existing_batch(db,user.id,p.id,key)
     if existing:
+        replay_credential_id = explicit_provider_credential_id or existing[0].provider_credential_id
+        request_hash=_batch_hash(p.id, replay_credential_id, language, options_json, hash_items)
         if not _existing_batch_is_complete(existing, request_hash, len(data.items)):
             raise HTTPException(409, "Idempotency-Key already used with a different request")
         return {"jobs":[job_payload(j, include_sources=True) for j in existing], "created_count": len(existing), "replayed": True}
+    provider_credential_id=_resolve_batch_elevenlabs_credential_id(db, user, explicit_provider_credential_id)
+    request_hash=_batch_hash(p.id, provider_credential_id, language, options_json, hash_items)
     if duplicate_pair_found:
         raise HTTPException(422, "Повторяющиеся source/folder пары не допускаются")
-    if provider_credential_id:
-        cred=db.get(ProviderCredential, provider_credential_id)
-        if not cred or cred.user_id!=user.id or cred.status!=CredentialStatus.active: raise HTTPException(422, "Учетные данные провайдера недоступны")
     sources=validate_job_sources(db, p.id, source_ids)
     unique_folders=list(dict.fromkeys(folder_ids))
     access_token=refreshed_google_drive_access_token(db, user)

@@ -305,6 +305,15 @@ def test_api_job_create_batch_replay_and_cancel_diagnostics(monkeypatch, db):
     import studio_api.main as main
     from studio_api import models as m
     u,p,_=user_project_job(db)
+    cred = m.ProviderCredential(
+        user_id=u.id,
+        provider=m.CredentialProvider.elevenlabs,
+        label="diagnostics-test",
+        status=m.CredentialStatus.active,
+    )
+    db.add(cred)
+    db.commit()
+    db.refresh(cred)
     s1=uploaded_source(db, p.id); s2=uploaded_source(db, p.id)
     sess=m.Session(user_id=u.id, token_hash="hash", csrf_hash="csrf", expires_at=datetime(2027,1,1)); db.add(sess); db.commit()
     def override_db(): yield db
@@ -326,7 +335,7 @@ def test_api_job_create_batch_replay_and_cancel_diagnostics(monkeypatch, db):
     monkeypatch.setattr(main, "refreshed_google_drive_access_token", lambda db_, user_: "token")
     monkeypatch.setattr(main, "verify_output_folder_selection", lambda token, fid: SimpleNamespace(id=fid, web_view_url=f"https://drive.google.com/drive/folders/{fid}", name="Folder"))
     events.clear()
-    batch_body={"items":[{"source_id":s1.id,"output_folder_id":"folder-a"},{"source_id":s2.id,"output_folder_id":"folder-b"}]}
+    batch_body={"provider_credential_id":cred.id,"items":[{"source_id":s1.id,"output_folder_id":"folder-a"},{"source_id":s2.id,"output_folder_id":"folder-b"}]}
     r=client.post(f"/api/projects/{p.id}/jobs/batch", json=batch_body, headers={"Idempotency-Key":"batch-key"})
     assert r.status_code == 200 and [e["event_code"] for e in events] == ["JOB_CREATED","JOB_CREATED"]
     events.clear()
