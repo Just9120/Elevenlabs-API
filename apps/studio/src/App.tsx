@@ -1802,7 +1802,7 @@ function PreparationPanel({
               <span className="provider-ready">Подключён и готов</span>
             )}
             <p className="muted">
-              Ключи создаются и изменяются только в Settings.
+              Ключи создаются и изменяются только в настройках.
             </p>
           </div>
           {credentialsLoading && <p role="status">Загрузка подключения…</p>}
