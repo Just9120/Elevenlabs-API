@@ -1,29 +1,50 @@
-# Elevenlabs-API
+# ElevenLabs API / VoiceOps Studio
 
-Russian-first repository for a quality-first transcription product. The primary working contour is still the Google Colab batch workflow: users select local or Google Drive sources, run provider transcription, create Google Docs transcripts, and rely on `manifest` progress/skip protection.
+This repository contains two related transcription contours:
 
-Studio PWA is the current development contour. Its target is to duplicate the Google Colab product scope with PWA/platform adaptations, but source-merged Studio work does not automatically mean production rollout, production processing, worker execution, provider calls, Google Docs output, or manifest mutation.
+- **Stable Google Colab contour** — the current ready baseline used in real operation for batch transcription and Google Docs delivery.
+- **Studio PWA contour** — a platform/PWA implementation in development at source level, intended to move the Colab workflow into a web product without changing the Colab baseline.
 
-## Current contours
+## Current status
 
-- **Google Colab batch workflow** — primary working contour and current stable/fallback production workflow through `notebooks/elevenlabs_api_colab.ipynb` and `elevenlabs_api.py`.
-- **Studio PWA** — development/platform contour for `studio.librechat.online`; current source foundations include account/session/BYOK, projects, sources, Google Drive OAuth/metadata/folder-child selection, local temporary upload intake, persisted job records, job UI, and preflight/readiness guardrails. Studio jobs remain record-only until a separately scoped worker/provider/output pipeline exists.
-- **Realtime Colab prototype / proxy** — experimental browser-capture validation contour using single-use token semantics; it does not replace batch Colab, has no Google Docs save/output, has no manifest mutation, and still requires manual Colab runtime validation.
+The Colab workflow is stable, ready, and remains the behavioral baseline for future PWA parity. Do not refactor or change the Colab contour unless a task explicitly asks for it.
 
-## Main documents
+The Studio PWA is not a blank or record-only prototype. Source currently present in the repository includes authentication/sessions, projects/sources, BYOK credentials, Google OAuth/Drive integration, persisted batches/jobs, a worker entrypoint, processing orchestration, the ElevenLabs provider path, Google Docs output, diagnostics, Alembic migrations, and tests.
 
-- `docs/project-spec.md` — active product contract, contours, requirements, durable boundaries, and safety rules.
-- `docs/delivery-plan.md` — current delivery dashboard, active item, near backlog, blockers, and status vocabulary.
-- `docs/ai-coding-workflow.md` — AI-assisted development workflow and focused-task rules.
-- `docs/ci-cd-rules.md` — CI/CD, deployment, runtime, migration, stateful-service, and secret-safety boundaries.
-- `docs/architecture.md` — supporting observed component map and runtime/data-flow boundaries.
-- `AGENTS.md` — first-read routing guide for coding agents.
+That source-level implementation is **not yet confirmed production-live**. Worker production deployment and a controlled end-to-end canary with exactly one output still require operator validation. Retry/recovery, lease heartbeat during long external calls, and automated output reconciliation remain unfinished capabilities.
 
-## Minimal run and check guidance
+## Minimal commands
 
-- Colab runtime validation: launch `notebooks/elevenlabs_api_colab.ipynb` in Google Colab.
-- Lightweight repository check: `python scripts/ci_checks.py`.
-- Whitespace/diff check: `git diff --check`.
-- Full local tests, when appropriate: `pytest -q` (may require services such as PostgreSQL/Redis/Alembic depending on touched areas).
+```bash
+# Lightweight repository checks
+python scripts/ci_checks.py
 
-Do not commit or print real secrets, tokens, environment values, private source bytes, transcript bodies, Google Docs body content, provider payloads, OAuth responses, presigned URLs, or file-mounted secret contents.
+# Python tests
+pytest -q
+
+# Documentation/whitespace diff check
+git diff --check
+```
+
+Runtime validation for the stable batch path is manual in Google Colab via `notebooks/elevenlabs_api_colab.ipynb`. Studio deployment and rollout validation must follow the Studio operations runbook.
+
+## Main documentation map
+
+| Document | Role |
+| --- | --- |
+| `AGENTS.md` | Lightweight routing rules for coding agents. |
+| `docs/ai-coding-workflow.md` | AI-assisted development workflow and PR boundaries. |
+| `docs/project-spec.md` | Current product/project contract and backlog authority. |
+| `docs/delivery-plan.md` | Compact current delivery dashboard. |
+| `docs/delivery-plan-archive.md` | Historical delivery archive; not current authority. |
+| `docs/architecture.md` | Architecture map and runtime boundaries. |
+| `docs/ci-cd-rules.md` | CI/CD, deployment, migration, and runtime safety rules. |
+| `docs/runbooks/studio-platform-ops.md` | Main Studio operations and rollout runbook. |
+| `docs/runbooks/validation.md` | Unified validation checklist and commands. |
+| `docs/runbooks/realtime-colab.md` | Realtime Colab experimental validation guide. |
+
+## Scope reminders
+
+- Colab is stable and must remain available as the fallback/baseline contour.
+- Studio PWA source can be ahead of production evidence; documentation must distinguish implemented-at-source-level from deployed or production-live.
+- Do not claim ready Studio processing without factual controlled rollout evidence.
