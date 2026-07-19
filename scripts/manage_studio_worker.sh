@@ -18,8 +18,24 @@ require_runtime() {
   [[ -f "$ENV_FILE" && -f "$COMPOSE_FILE" ]] || fail "missing compose or env file"
 }
 
-container_id_any() { compose ps -a -q "$WORKER_SERVICE" 2>/dev/null | head -n1 || true; }
-container_id_running() { compose ps -q "$WORKER_SERVICE" 2>/dev/null | head -n1 || true; }
+worker_container_ids() { compose ps -a -q "$WORKER_SERVICE" 2>/dev/null | sed '/^$/d' || true; }
+worker_running_container_ids() { compose ps -q "$WORKER_SERVICE" 2>/dev/null | sed '/^$/d' || true; }
+require_single_worker_container_or_absent() {
+  mapfile -t worker_container_ids < <(worker_container_ids)
+  if [[ "${#worker_container_ids[@]}" -gt 1 ]]; then
+    fail "STUDIO_WORKER_OP_BLOCKED reason=multiple_worker_containers"
+  fi
+  if [[ "${#worker_container_ids[@]}" -eq 1 ]]; then printf '%s\n' "${worker_container_ids[0]}"; fi
+  return 0
+}
+require_single_running_worker_container_or_absent() {
+  mapfile -t worker_running_ids < <(worker_running_container_ids)
+  if [[ "${#worker_running_ids[@]}" -gt 1 ]]; then
+    fail "STUDIO_WORKER_OP_BLOCKED reason=multiple_worker_containers"
+  fi
+  if [[ "${#worker_running_ids[@]}" -eq 1 ]]; then printf '%s\n' "${worker_running_ids[0]}"; fi
+  return 0
+}
 inspect_field() { docker inspect --format "$1" "$2" 2>/dev/null || true; }
 health_of() { local id="$1"; [[ -z "$id" ]] && { echo not-applicable; return; }; inspect_field '{{if .State.Health}}{{.State.Health.Status}}{{else}}not-applicable{{end}}' "$id"; }
 state_of() { local id="$1"; [[ -z "$id" ]] && { echo absent; return; }; inspect_field '{{.State.Status}}' "$id"; }
@@ -48,7 +64,7 @@ drain_state_for() {
 
 require_gracefully_drained_or_absent() {
   local id state code dstate
-  id="$(container_id_any)"
+  id="$(require_single_worker_container_or_absent)"
   [[ -z "$id" ]] && return 0
   state="$(state_of "$id")"; code="$(exit_code_of "$id")"; dstate="$(drain_state_for "$state" "$code")"
   [[ "$dstate" == gracefully-drained ]] || fail "worker previous exit was abnormal; operator review required"
@@ -57,7 +73,7 @@ require_gracefully_drained_or_absent() {
 wait_healthy() {
   local expected_image="$1" id hs running
   for _ in $(seq 1 60); do
-    id="$(container_id_running)"
+    id="$(require_single_running_worker_container_or_absent)"
     if [[ -n "$id" ]]; then
       running="$(image_of "$id")"
       [[ "$running" == "$expected_image" ]] || fail "running image identity mismatch"
@@ -90,7 +106,7 @@ blocked_for_exit() {
 cmd_status() {
   require_runtime
   local id state code health image tag tag_state commit_image identity rollback dstate
-  id="$(container_id_any)"
+  id="$(require_single_worker_container_or_absent)"
   state="$(state_of "$id")"; code="$(exit_code_of "$id")"; health="$(health_of "$id")"; image="$(image_of "$id")"
   tag="$(commit_tag_name)"; commit_image="unavailable"; tag_state="absent"; identity="unknown"
   if [[ "$tag" != unavailable ]] && image_exists "$tag"; then
@@ -107,12 +123,25 @@ cmd_status() {
 
 cmd_drain() {
   require_runtime
-  local running before after code timeout reason
-  running="$(container_id_running)"
-  if [[ -z "$running" ]]; then
+  local id state code running before after timeout reason image_after
+  id="$(require_single_worker_container_or_absent)"
+  if [[ -z "$id" ]]; then
     echo STUDIO_WORKER_DRAINED
     return 0
   fi
+  state="$(state_of "$id")"; code="$(exit_code_of "$id")"
+  if [[ "$state" == exited ]]; then
+    if [[ "$code" == "0" ]]; then echo STUDIO_WORKER_DRAINED; return 0; fi
+    reason="$(blocked_for_exit "$code")"
+    fail "$reason"
+  fi
+  case "$state" in
+    created) fail "STUDIO_WORKER_DRAIN_BLOCKED reason=created_not_validated lease_output_reconciliation_review_required" ;;
+    dead|removing|restarting|unknown|"") fail "STUDIO_WORKER_DRAIN_BLOCKED reason=state_${state:-unknown} lease_output_reconciliation_review_required" ;;
+    running) ;;
+    *) fail "STUDIO_WORKER_DRAIN_BLOCKED reason=state_unknown lease_output_reconciliation_review_required" ;;
+  esac
+  running="$id"
   timeout="$(drain_timeout)"
   before="$(image_of "$running")"
   log "sending SIGTERM via docker stop with timeout ${timeout}s"
@@ -120,7 +149,9 @@ cmd_drain() {
   after="$(state_of "$running")"
   code="$(exit_code_of "$running")"
   [[ "$after" != running && "$after" != restarting ]] || fail "STUDIO_WORKER_DRAIN_BLOCKED reason=still_running lease_output_reconciliation_review_required"
-  [[ "$before" == "$(image_of "$running")" ]] || fail "worker image changed during drain"
+  image_after="$(image_of "$running")"
+  [[ "$before" == "$image_after" ]] || fail "worker image changed during drain"
+  [[ "$after" == exited ]] || fail "STUDIO_WORKER_DRAIN_BLOCKED reason=state_${after:-unknown} lease_output_reconciliation_review_required"
   if [[ "$code" != "0" ]]; then
     reason="$(blocked_for_exit "$code")"
     fail "$reason"
@@ -132,13 +163,22 @@ cmd_pause() { cmd_drain; echo STUDIO_WORKER_PAUSED; }
 
 cmd_resume() {
   require_runtime
-  local id state code image
-  id="$(container_id_any)"; [[ -n "$id" ]] || fail "worker container absent; use official worker deploy path"
+  local id state code image head current
+  local -a head_revisions current_revisions
+  id="$(require_single_worker_container_or_absent)"; [[ -n "$id" ]] || fail "worker container absent; use official worker deploy path"
   state="$(state_of "$id")"; code="$(exit_code_of "$id")"
   [[ "$state" != running && "$state" != restarting ]] || fail "worker already running"
   [[ "$state" == exited && "$code" == "0" ]] || fail "worker previous exit was abnormal; operator review required"
   image="$(image_of "$id")"; [[ -n "$image" && "$image" != unavailable ]] || fail "stopped worker image identity unavailable"
+  mapfile -t head_revisions < <(stopped_image_head_revision "$image")
+  [[ "${#head_revisions[@]}" -eq 1 && -n "${head_revisions[0]:-}" ]] || fail "STUDIO_WORKER_RESUME_BLOCKED reason=schema_mismatch"
+  head="${head_revisions[0]}"
+  mapfile -t current_revisions < <(current_revision)
+  [[ "${#current_revisions[@]}" -eq 1 && -n "${current_revisions[0]:-}" ]] || fail "STUDIO_WORKER_RESUME_BLOCKED reason=schema_mismatch"
+  current="${current_revisions[0]}"
+  [[ "$current" == "$head" ]] || fail "STUDIO_WORKER_RESUME_BLOCKED reason=schema_mismatch"
   docker start "$id" >/dev/null
+  [[ "$(image_of "$id")" == "$image" ]] || fail "running image identity mismatch"
   wait_healthy "$image"
   echo STUDIO_WORKER_RESUMED
 }
@@ -147,6 +187,7 @@ capture_revision_ids() { awk '$1 ~ /^[[:alnum:]_]+$/ && (NF == 1 || $2 ~ /^\(/) 
 require_one_revision() { local label="$1"; shift; [[ "$#" -eq 1 && -n "${1:-}" ]] || fail "schema check failed: expected exactly one $label revision"; }
 rollback_head_revision() { docker run --rm --entrypoint alembic "$ROLLBACK_TAG" heads </dev/null 2>/dev/null | capture_revision_ids; }
 current_revision() { compose run --rm --no-deps -T --entrypoint alembic studio-api current </dev/null 2>/dev/null | capture_revision_ids; }
+stopped_image_head_revision() { local stopped_image_id="$1"; docker run --rm --entrypoint alembic "$stopped_image_id" heads </dev/null 2>/dev/null | capture_revision_ids; }
 
 cmd_rollback() {
   require_runtime
@@ -163,7 +204,7 @@ cmd_rollback() {
   [[ "$current" == "$head" ]] || fail "schema mismatch; downgrade is not allowed"
   docker tag "$ROLLBACK_TAG" "$WORKER_LOCAL_TAG" || fail "could not prepare worker rollback image"
   compose up -d --no-deps --force-recreate "$WORKER_SERVICE"
-  new_id="$(container_id_running)"; running="$(image_of "$new_id")"
+  new_id="$(require_single_running_worker_container_or_absent)"; running="$(image_of "$new_id")"
   [[ "$running" == "$rollback_image" ]] || fail "running rollback image identity mismatch"
   wait_healthy "$rollback_image"
   echo STUDIO_WORKER_ROLLBACK_OK

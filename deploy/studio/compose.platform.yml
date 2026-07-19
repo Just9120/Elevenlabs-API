@@ -98,7 +98,7 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
-    stop_grace_period: 3700s
+    stop_grace_period: 86460s
   postgres:
     image: postgres:17
     restart: unless-stopped
