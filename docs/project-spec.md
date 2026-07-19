@@ -103,6 +103,17 @@ Manual segmentation:
 - The Drive workspace is `VoiceOps Workspace/`; legacy `_transcription_state` history must not be deleted before reconciliation.
 - Analytics JSONL is best-effort aggregate evidence and must not include transcript body, secrets, raw provider payloads, raw Google/Drive payloads, Google Docs body content, raw Drive URLs, or full local paths.
 
+### Colab maintenance workflows
+
+Existing Colab maintenance workflows are explicit operator actions, not new transcription runs:
+
+- Existing Google Docs transcripts may be standardized to `transcript_doc_v1.2` through an explicit dry-run/apply maintenance workflow.
+- Existing manifest records may be reconciled or refreshed without calling a transcription provider.
+- Maintenance workflows must not call STT/LLM APIs and must not register a new transcription output as the result of a new provider run.
+- Speaker-project rename is a manual post-transcription workflow that maps `Speaker N` or provider speaker labels to project speaker names.
+- Speaker-project rename does not perform voice identification, speaker verification, biometric matching, voiceprint extraction, embeddings, or automatic identity assignment from voice.
+- The speaker roster is runtime Colab state normalized by the speaker-project helpers and contains only safe project/speaker display data, not transcript samples or voice data.
+
 ## Studio PWA current source-level state
 
 Studio PWA is in development. It must not be described as only record-only, because the repository already contains source-level processing foundations.
@@ -166,6 +177,11 @@ The Studio PWA may render implemented source-level output metadata for explicitl
 
 - Job claim/lease fields are internal server-side fencing metadata and must not be exposed to browsers.
 - Claiming work must be atomic and owner/generation fenced.
+- Lease expiry comparisons use normalized UTC semantics; equality at the expiry instant means expired.
+- Each prepared batch row owns its selected output destination.
+- Job creation copies that destination into a per-job output-folder snapshot.
+- Processing uses the job snapshot as the runtime output authority.
+- Later changes to a mutable project default output folder must not redirect an existing queued, processing, failed, cancelled, or completed job.
 - Cancellation before processing is terminal and safe.
 - Cancellation or lease loss during processing must fail closed and must not automatically duplicate provider calls or Google document creation.
 - Terminal completion requires persisted safe output evidence for every non-skipped relation.

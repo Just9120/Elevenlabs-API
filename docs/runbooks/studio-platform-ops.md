@@ -48,6 +48,18 @@ Bootstrap boundary:
 6. Verify nginx routes browser traffic to the web component and `/api/*` traffic to the API component.
 7. Verify localhost and public health endpoints for the intended components.
 
+After migrations and successful API/database configuration, bootstrap the first admin with the approved interactive command:
+
+```bash
+docker compose \
+  --env-file deploy/studio/.env \
+  -f deploy/studio/compose.platform.yml \
+  run --rm studio-api \
+  python -m studio_api.cli admin@example.com
+```
+
+Replace `admin@example.com` with the approved admin email. The admin password is entered interactively; never pass it through shell arguments, environment variables, documentation, or logs. The command refuses to create a second active admin. For a restored database, first check whether an active admin already exists instead of running bootstrap automatically.
+
 Health evidence should include only safe status booleans/markers, component names, and revision labels.
 
 ## Backup and migration order
@@ -60,6 +72,27 @@ Manual migration rollout order is strict:
 4. Run the manual migration command/script only after explicit operator confirmation.
 5. Verify production database revision equals repository Alembic head `0011_diagnostic_debug_sessions` where the deployment is expected to be current.
 6. Deploy or restart only the intended components.
+
+Operator-safe tagged backup command:
+
+```bash
+cd /opt/elevenlabs-studio
+
+STUDIO_BACKUP_TAG=pre-migration \
+  scripts/backup_studio_postgres_r2.sh
+```
+
+Only documented backup tags are allowed by the script: `scheduled` and `pre-migration`. Confirm backup success before setting migration confirmation.
+
+Operator-safe migration command after backup confirmation:
+
+```bash
+STUDIO_DEPLOY_DIR=/opt/elevenlabs-studio \
+STUDIO_PRE_MIGRATION_BACKUP_CONFIRMED=yes \
+  scripts/migrate_studio_platform.sh
+```
+
+The migration script requires explicit `STUDIO_PRE_MIGRATION_BACKUP_CONFIRMED=yes`; it does not create a backup automatically. These commands must not print secret values. Backup/restore remains operator-scoped, and standard CD must not perform these steps.
 
 Do not claim or implement automatic migrations. Standard CD must not run migrations.
 
@@ -88,9 +121,11 @@ Configuration requirements:
 
 Google OAuth runtime config is fail-closed. OAuth endpoints must remain unavailable or reject safely until required non-secret settings and a non-empty client secret file are present.
 
-Required settings include client ID, redirect URI, scopes, state TTL, and the client-secret file path. The client secret itself stays in an operator-managed file. Google Picker also requires browser-safe API key/app ID configuration when that feature is in scope; do not record key values.
+Required settings include client ID, redirect URI, scopes, state TTL, and the client-secret file path. The client secret itself stays in an operator-managed file. Current Drive/Picker integration requires `openid`, `email`, and `https://www.googleapis.com/auth/drive.file`; do not invent broader scopes. If OAuth scopes change, existing Google connections may require disconnect/reconnect before validation.
 
-Roll out OAuth config through API deployment only when runtime files are ready. Validate with authenticated owner-scoped flows and confirm unauthenticated connection/status endpoints still reject as expected.
+Picker readiness is separate from OAuth readiness. `STUDIO_GOOGLE_PICKER_API_KEY` and `STUDIO_GOOGLE_PICKER_APP_ID` must be configured, non-empty, and not placeholder values. OAuth connection, Picker configuration, and writable output folder selection are three different preconditions. Do not record Picker key/app ID values in validation evidence.
+
+Roll out OAuth/Picker config through API deployment only when runtime files are ready. Validate with authenticated owner-scoped flows and confirm unauthenticated connection/status endpoints still reject as expected.
 
 ## Component deployment
 
@@ -112,6 +147,8 @@ Before any processing rollout or canary, verify without printing sensitive value
 - PostgreSQL and Redis health;
 - source-upload storage config is complete;
 - Google OAuth config is complete and authenticated for the smoke account;
+- Picker runtime config has non-placeholder `STUDIO_GOOGLE_PICKER_API_KEY` and `STUDIO_GOOGLE_PICKER_APP_ID` values without recording them;
+- OAuth scopes include `https://www.googleapis.com/auth/drive.file` where required, and changed scopes have been handled by disconnect/reconnect if needed;
 - credential master key and encrypted BYOK records are usable;
 - exactly one intended active ElevenLabs BYOK credential exists for the smoke account;
 - writable Google output folder selection exists;

@@ -16,6 +16,10 @@ This is the current Studio processing contract. It is not a delivery plan, PR hi
 - Active processing requires an active unexpired lease owned by the exact owner/generation.
 - Stale owners, stale generations, expired leases, terminal jobs, cancellation conflicts, or ownership ambiguity fail closed.
 - Lease owner, generation, claim timestamp, and lease expiration are internal server-side metadata.
+- Lease timestamps are normalized to timezone-aware UTC before comparison.
+- A naive datetime value is interpreted as UTC.
+- A lease is active only when `lease_expires_at > now`.
+- `lease_expires_at == now` means the lease is expired.
 - Background heartbeat during one long external call is not implemented.
 - One continuous materialization/provider/output stage must complete within the configured lease TTL.
 - Lease renewal may happen only at documented safe checkpoints, never as an implicit Redis heartbeat or unbounded background loop.
@@ -31,6 +35,9 @@ This is the current Studio processing contract. It is not a delivery plan, PR hi
 ## Transaction and commit ownership
 
 - Row locks must not be held across source storage, Drive, provider, or Google Docs external I/O.
+- Output authorization and Google Docs creation use the persisted per-job output-folder snapshot.
+- The mutable project default output folder must not replace the destination of an existing job.
+- Changing a job output-folder snapshot after creation is prohibited except through a separately designed migration/reconciliation operation; no such operation exists now.
 - Output persistence is a dedicated transaction boundary.
 - The worker commits after each per-source output persistence boundary.
 - A commit failure after Google Docs creation is a reconciliation risk.
