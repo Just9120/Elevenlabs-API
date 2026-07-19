@@ -327,7 +327,7 @@ def test_health_failure_after_matching_identity_fails_without_success(tmp_path: 
     assert_no_forbidden_mutation(calls)
 
 
-def run_worker_deploy_state(tmp_path: Path, *, worker_state: str = "absent", worker_exit: str = "0", postgres_health: str = "healthy", redis_health: str = "healthy", head: str = "abc123", current: str = "abc123", tag_exit: str = "0", running_image: str = "sha256:built", health: str = "healthy"):
+def run_worker_deploy_state(tmp_path: Path, *, worker_state: str = "absent", worker_exit: str = "0", worker_ids: str = "worker-old", postgres_health: str = "healthy", redis_health: str = "healthy", head: str = "abc123", current: str = "abc123", tag_exit: str = "0", running_image: str = "sha256:built", health: str = "healthy"):
     log = tmp_path / "calls.log"; bin_dir = tmp_path / "bin"; bin_dir.mkdir(parents=True)
     deployed = tmp_path / "deployed"; deployed.write_text("0")
     _write_exe(bin_dir / "git", f"""#!/usr/bin/env bash
@@ -354,7 +354,7 @@ if [[ "$1" == compose ]]; then
     ps)
       all=false; for a in "$@"; do [[ "$a" == -a ]] && all=true; done; svc="${{@: -1}}"
       if [[ "$svc" == studio-worker ]]; then
-        if [[ "$(cat {str(deployed)!r})" == 1 ]]; then echo worker-new; elif [[ {worker_state!r} != absent && ( "$all" == true || {worker_state!r} == running || {worker_state!r} == restarting ) ]]; then echo worker-old; fi
+        if [[ "$(cat {str(deployed)!r})" == 1 ]]; then echo worker-new; elif [[ {worker_state!r} != absent && ( "$all" == true || {worker_state!r} == running || {worker_state!r} == restarting ) ]]; then for id in {worker_ids}; do echo "$id"; done; fi
       elif [[ "$svc" == postgres ]]; then echo postgres-container
       elif [[ "$svc" == redis ]]; then [[ {redis_health!r} == absent ]] || echo redis-container
       else echo container-new; fi ;;
@@ -419,3 +419,13 @@ def test_worker_deploy_postgres_only_dependency_and_failure_gates(tmp_path: Path
     assert proc.returncode != 0 and "STUDIO_PLATFORM_WORKER_DEPLOY_OK" not in proc.stdout
     proc, calls = run_worker_deploy_state(tmp_path / "imagemismatch", running_image="sha256:old")
     assert proc.returncode != 0 and "does not match built image identity" in proc.stderr
+
+
+def test_worker_deploy_multiple_containers_blocks_before_build_without_mutation(tmp_path: Path) -> None:
+    proc, calls = run_worker_deploy_state(tmp_path / "multi", worker_state="exited", worker_exit="0", worker_ids="worker-old worker-extra")
+    assert proc.returncode != 0
+    assert "multiple_worker_containers" in proc.stderr
+    assert "STUDIO_PLATFORM_WORKER_DEPLOY_OK" not in proc.stdout
+    assert not any("build studio-worker" in c for c in calls)
+    assert not any("docker tag" in c for c in calls)
+    assert not any("compose-up-args" in c for c in calls)

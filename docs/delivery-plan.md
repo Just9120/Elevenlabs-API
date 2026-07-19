@@ -25,7 +25,7 @@ Validation boundary:
 
 ### `PWA-WORKER-OPS-01`
 
-Source-level worker operations are done in this PR: worker health, manual-only worker deploy, image/commit identity checks, drain/pause/resume, explicit worker-only rollback, workflow boundary, and operator runbook are present. No production deployment or canary was run.
+Source-level worker operations are source-complete in this PR after the final safety follow-up: worker health, manual-only worker deploy, image/commit identity checks, single-worker topology guard, drain/pause/resume, schema-gated resume, max-lease-aligned Compose grace, explicit worker-only rollback, workflow boundary, and operator runbook are present. No production deployment or canary was run.
 
 ## Active coding item / next item
 

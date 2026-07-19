@@ -264,7 +264,7 @@ cd /opt/elevenlabs-studio
 STUDIO_DEPLOY_DIR=/opt/elevenlabs-studio scripts/manage_studio_worker.sh status
 ```
 
-The status command reports only safe container state, exit code, drain state, Docker health, running/stopped container image ID, current commit tag presence, commit tag image ID, identity match, and rollback-candidate presence. Only `container_state=exited` with `exit_code=0` is `drain_state=gracefully-drained`; non-zero exits, including `137` and `143`, are `abnormal-exit` and are not paused/drained. It prints `STUDIO_WORKER_STATUS_OK` when the read-only status check completes, even when the worker state itself requires operator review.
+The status command reports only safe container state, exit code, drain state, Docker health, running/stopped container image ID, current commit tag presence, commit tag image ID, identity match, and rollback-candidate presence. Any worker lifecycle operation, including status, drain, pause, resume, deploy, and rollback, blocks fail-closed with `STUDIO_WORKER_OP_BLOCKED reason=multiple_worker_containers` (or the deploy equivalent) if more than one `studio-worker` container is discovered; multiple containers are an invalid topology, not a supported mode. Only `container_state=exited` with `exit_code=0` is `drain_state=gracefully-drained`; non-zero exits, including `137` and `143`, are `abnormal-exit` and are not paused/drained. It prints `STUDIO_WORKER_STATUS_OK` when the read-only status check completes, even when the worker state itself requires operator review.
 
 ### Initial worker deploy
 
@@ -285,9 +285,9 @@ STUDIO_DEPLOY_DIR=/opt/elevenlabs-studio scripts/manage_studio_worker.sh drain
 STUDIO_DEPLOY_DIR=/opt/elevenlabs-studio scripts/manage_studio_worker.sh pause
 ```
 
-Drain uses normal Docker stop/SIGTERM with a timeout derived from `STUDIO_WORKER_LEASE_TTL_SECONDS` plus a safety buffer. After SIGTERM, the worker stop flag prevents new claims; the current synchronous iteration finishes or fails normally before exit. `pause` is an idempotent safe-drain wrapper. Paused means stopped/drained container, never `docker pause`, `SIGSTOP`, or a frozen active process. A graceful drain prints `STUDIO_WORKER_DRAINED`; pause also prints `STUDIO_WORKER_PAUSED`.
+Drain uses normal Docker stop/SIGTERM with a timeout derived from the actual configured `STUDIO_WORKER_LEASE_TTL_SECONDS` plus a safety buffer. Compose `stop_grace_period: 86460s` covers the maximum supported lease TTL (`86400` seconds) plus a 60-second safety buffer as a fallback, but normal operator updates must still use explicit `status → drain → deploy`; the large Compose grace is not a replacement for operator drain. After SIGTERM, the worker stop flag prevents new claims; the current synchronous iteration finishes or fails normally before exit. `pause` is an idempotent safe-drain wrapper. Paused means stopped/drained container, never `docker pause`, `SIGSTOP`, or a frozen active process. A graceful drain prints `STUDIO_WORKER_DRAINED`; pause also prints `STUDIO_WORKER_PAUSED`. Repeated drain/pause is safe only when the worker is absent or the single existing container is already `exited` with `exit_code=0`.
 
-If Docker forced-kills the worker, the process exits `143`, another non-zero exit occurs, or the container remains running/restarting, automation stops with a blocked reason and the operator must perform lease/output reconciliation review. Only exit code `0` is a graceful drain; `137` is forced kill, `143` is abnormal SIGTERM termination, and any other non-zero code is abnormal termination. Do not automatically resume, redeploy, retry providers, clear leases, reset jobs, or delete/recreate Google documents.
+If Docker forced-kills the worker, the process exits `143`, another non-zero exit occurs, the container is already stopped abnormally, or the container remains running/restarting, automation stops with a blocked reason and the operator must perform lease/output reconciliation review. Only exit code `0` is a graceful drain; `137` is forced kill, `143` is abnormal SIGTERM termination, and any other non-zero code is abnormal termination. Already stopped abnormal workers are not drained and are not paused; `pause` must not print `STUDIO_WORKER_PAUSED` after a failed drain. Do not automatically resume, redeploy, retry providers, clear leases, reset jobs, or delete/recreate Google documents.
 
 ### Worker resume
 
@@ -296,7 +296,7 @@ cd /opt/elevenlabs-studio
 STUDIO_DEPLOY_DIR=/opt/elevenlabs-studio scripts/manage_studio_worker.sh resume
 ```
 
-Resume only starts an existing `exited` worker container with `exit_code=0` and verifies the same image identity becomes healthy. It refuses absent, running/restarting, created, dead/unknown, `137`, `143`, or any other non-zero previous exit. It does not build, pull, fast-forward code, retag images, or recreate API/web/PostgreSQL/Redis. If the container is absent, use the official worker deploy path instead.
+Resume only starts an existing single `exited` worker container with `exit_code=0` after checking schema compatibility for that exact stopped image ID. Before `docker start`, it reads the Alembic head from the stopped container image, reads the current production database revision non-interactively through the Compose/API operational boundary, requires exactly one revision on each side, and requires an exact match; schema mismatch prints `STUDIO_WORKER_RESUME_BLOCKED reason=schema_mismatch` and does not start the container. It then verifies the same image identity becomes healthy. It refuses absent, running/restarting, created, dead/unknown, `137`, `143`, or any other non-zero previous exit. It does not build, pull, fast-forward code, retag images, run migrations/downgrades, or recreate API/web/PostgreSQL/Redis. If the container is absent, use the official worker deploy path instead.
 
 ### Worker update sequence
 
@@ -313,7 +313,7 @@ status
 → operator separately decides whether to run controlled canary
 ```
 
-Source merge does not deploy the worker. A successful worker deploy does not prove production-live processing; `PWA-PROCESSING-ROLLOUT-01A` remains a separate controlled canary decision.
+Source merge does not deploy the worker. A successful worker deploy does not prove production-live processing; `PWA-PROCESSING-ROLLOUT-01A` remains a separate controlled canary decision and is still not-run until operator evidence exists.
 
 ### Worker rollback
 

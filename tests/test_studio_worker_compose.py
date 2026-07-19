@@ -22,7 +22,7 @@ def test_studio_worker_compose_contract():
     assert "restart: unless-stopped" in worker
     assert "ports:" not in worker and "healthcheck:" in worker
     assert 'test: ["CMD", "python", "-m", "studio_api.worker_health"]' in worker
-    assert "stop_grace_period: 3700s" in worker
+    assert "stop_grace_period: 86460s" in worker
     assert "postgres: { condition: service_healthy }" in worker
     deps = worker.split("depends_on:", 1)[1]
     assert "redis:" not in deps and "studio-api:" not in deps
