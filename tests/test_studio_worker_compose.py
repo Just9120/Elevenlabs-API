@@ -16,7 +16,8 @@ def test_studio_worker_compose_contract():
     text=COMPOSE.read_text(); worker=service_block("studio-worker"); api=service_block("studio-api")
     assert text.count("  studio-worker:") == 1
     assert "build: ../../apps/studio-api" in worker and "build: ../../apps/studio-api" in api
-    assert "image: elevenlabs-studio-api:local" in worker and "image: elevenlabs-studio-api:local" in api
+    assert "image: elevenlabs-studio-api:local" in api
+    assert "image: elevenlabs-studio-worker:local" in worker
     assert 'command: ["python", "-m", "studio_api.worker"]' in worker
     assert "restart: unless-stopped" in worker
     assert "ports:" not in worker and "healthcheck:" in worker

@@ -264,7 +264,7 @@ cd /opt/elevenlabs-studio
 STUDIO_DEPLOY_DIR=/opt/elevenlabs-studio scripts/manage_studio_worker.sh status
 ```
 
-The status command reports only safe container state, Docker health, image identity, intended commit tag when available, rollback-candidate presence, and whether the worker is in the stopped/drained paused state. It prints `STUDIO_WORKER_STATUS_OK` when the read-only status check completes.
+The status command reports only safe container state, exit code, drain state, Docker health, running/stopped container image ID, current commit tag presence, commit tag image ID, identity match, and rollback-candidate presence. Only `container_state=exited` with `exit_code=0` is `drain_state=gracefully-drained`; non-zero exits, including `137` and `143`, are `abnormal-exit` and are not paused/drained. It prints `STUDIO_WORKER_STATUS_OK` when the read-only status check completes, even when the worker state itself requires operator review.
 
 ### Initial worker deploy
 
@@ -275,7 +275,7 @@ cd /opt/elevenlabs-studio
 STUDIO_DEPLOY_DIR=/opt/elevenlabs-studio scripts/deploy_studio_platform_component.sh worker
 ```
 
-The deploy script fast-forwards the trusted branch, builds only `studio-worker`, verifies PostgreSQL health, compares current database revision with the new worker image Alembic head, preserves the previous worker image as `elevenlabs-studio-worker:rollback-candidate` when one exists, tags the new worker image with the current commit, recreates only `studio-worker` with `--no-deps`, verifies the exact running image identity, waits for Docker health `healthy`, and only then prints `STUDIO_PLATFORM_WORKER_DEPLOY_OK`. It does not run migrations, recreate API/web/PostgreSQL/Redis, drain an active worker, run a canary, or perform automatic rollback.
+The deploy script fast-forwards the trusted branch, preserves a previous stopped `exit_code=0` worker image as `elevenlabs-studio-worker:rollback-candidate` before building, builds only `studio-worker`, verifies PostgreSQL health without requiring Redis, compares current database revision with the new worker image Alembic head, tags the new worker image with the current commit, recreates only `studio-worker` with `--no-deps`, verifies the exact running image identity, waits for Docker health `healthy`, and only then prints `STUDIO_PLATFORM_WORKER_DEPLOY_OK`. API and worker use separate local image tags: `elevenlabs-studio-api:local` and `elevenlabs-studio-worker:local`. Worker operations must not retag or overwrite the API local image. It does not run migrations, recreate API/web/PostgreSQL/Redis, drain an active worker, run a canary, or perform automatic rollback.
 
 ### Worker drain and paused state
 
@@ -287,7 +287,7 @@ STUDIO_DEPLOY_DIR=/opt/elevenlabs-studio scripts/manage_studio_worker.sh pause
 
 Drain uses normal Docker stop/SIGTERM with a timeout derived from `STUDIO_WORKER_LEASE_TTL_SECONDS` plus a safety buffer. After SIGTERM, the worker stop flag prevents new claims; the current synchronous iteration finishes or fails normally before exit. `pause` is an idempotent safe-drain wrapper. Paused means stopped/drained container, never `docker pause`, `SIGSTOP`, or a frozen active process. A graceful drain prints `STUDIO_WORKER_DRAINED`; pause also prints `STUDIO_WORKER_PAUSED`.
 
-If Docker forced-kills the worker or the container remains running, automation stops with a blocked reason and the operator must perform lease/output reconciliation review. Do not automatically resume, redeploy, retry providers, clear leases, reset jobs, or delete/recreate Google documents.
+If Docker forced-kills the worker, the process exits `143`, another non-zero exit occurs, or the container remains running/restarting, automation stops with a blocked reason and the operator must perform lease/output reconciliation review. Only exit code `0` is a graceful drain; `137` is forced kill, `143` is abnormal SIGTERM termination, and any other non-zero code is abnormal termination. Do not automatically resume, redeploy, retry providers, clear leases, reset jobs, or delete/recreate Google documents.
 
 ### Worker resume
 
@@ -296,7 +296,7 @@ cd /opt/elevenlabs-studio
 STUDIO_DEPLOY_DIR=/opt/elevenlabs-studio scripts/manage_studio_worker.sh resume
 ```
 
-Resume only starts an existing stopped worker container and verifies the same image identity becomes healthy. It does not build, pull, fast-forward code, or recreate API/web/PostgreSQL/Redis. If the container is absent, use the official worker deploy path instead.
+Resume only starts an existing `exited` worker container with `exit_code=0` and verifies the same image identity becomes healthy. It refuses absent, running/restarting, created, dead/unknown, `137`, `143`, or any other non-zero previous exit. It does not build, pull, fast-forward code, retag images, or recreate API/web/PostgreSQL/Redis. If the container is absent, use the official worker deploy path instead.
 
 ### Worker update sequence
 
@@ -324,11 +324,11 @@ cd /opt/elevenlabs-studio
 STUDIO_DEPLOY_DIR=/opt/elevenlabs-studio scripts/manage_studio_worker.sh rollback
 ```
 
-Rollback requires `elevenlabs-studio-worker:rollback-candidate`, verifies image identity, compares rollback image Alembic head with the current database revision, refuses schema mismatch, performs no downgrade, recreates only `studio-worker`, waits for health, verifies the running rollback image, and prints `STUDIO_WORKER_ROLLBACK_OK`. Automatic rollback is prohibited.
+Rollback requires the current worker to be absent or `exited` with `exit_code=0`. It requires `elevenlabs-studio-worker:rollback-candidate`, verifies image identity, reads Alembic head directly from the rollback candidate image, compares it with the current database revision, and refuses schema mismatch before changing the worker local tag. It performs no downgrade, does not touch `elevenlabs-studio-api:local`, recreates only `studio-worker`, waits for health, verifies the running rollback image, and prints `STUDIO_WORKER_ROLLBACK_OK`. Automatic rollback is prohibited.
 
 ### Image/commit identity evidence
 
-Safe evidence may include the intended repository commit SHA, the commit-specific worker tag `elevenlabs-studio-worker:<commit>`, the built Docker image ID, the running container image ID, and rollback candidate presence. Do not print `.env`, secret-file contents, provider payloads, Google payloads, transcript bodies, document IDs, source names, or job/output records.
+Safe evidence may include the intended repository commit SHA, the commit-specific worker tag `elevenlabs-studio-worker:<commit>`, whether that tag exists, the commit tag image ID, the running/stopped container image ID, explicit `identity_match=yes|no|unknown`, and rollback candidate presence. Do not print `.env`, secret-file contents, provider payloads, Google payloads, transcript bodies, document IDs, source names, or job/output records.
 
 ### Manual-only workflow dispatch
 

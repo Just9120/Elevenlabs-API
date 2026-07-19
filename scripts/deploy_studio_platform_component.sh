@@ -26,7 +26,7 @@ case "$1" in
     ;;
   worker)
     SERVICE="studio-worker"
-    IMAGE_REF="elevenlabs-studio-api:local"
+    IMAGE_REF="elevenlabs-studio-worker:local"
     HEALTH_URL="docker-health"
     SUCCESS_MARKER="STUDIO_PLATFORM_WORKER_DEPLOY_OK"
     ;;
@@ -68,9 +68,12 @@ require_exactly_one_revision() {
 
 verify_database_revision_matches_new_image() {
   local revision_service="${1:-studio-api}"
-  log "verifying stateful dependencies are already healthy"
+  local require_redis="${2:-yes}"
+  log "verifying required stateful dependencies are already healthy"
   require_service_healthy postgres
-  require_service_healthy redis
+  if [[ "$require_redis" == "yes" ]]; then
+    require_service_healthy redis
+  fi
 
   log "comparing database revision with Alembic head from the newly built API image"
   local -a head_revisions current_revisions
@@ -163,14 +166,35 @@ git merge --ff-only "origin/$EXPECTED_BRANCH"
 [[ -z "$(git status --porcelain --untracked-files=no)" ]] || fail "tracked working tree changed unexpectedly"
 
 if [[ "$SERVICE" == "studio-worker" ]]; then
-  existing_worker="$(compose ps -q studio-worker || true)"
+  existing_worker="$(compose ps -a -q studio-worker || true)"
+  if [[ "$(printf '%s\n' "$existing_worker" | sed '/^$/d' | wc -l | tr -d ' ')" -gt 1 ]]; then
+    fail "STUDIO_WORKER_DEPLOY_BLOCKED reason=multiple_worker_containers"
+  fi
   if [[ -n "$existing_worker" ]]; then
-    worker_state="$(docker inspect --format '{{.State.Status}}' "$existing_worker")"
-    [[ "$worker_state" != "running" ]] || fail "studio-worker is running; drain/stop it before worker deploy"
-    previous_image="$(docker inspect --format '{{.Image}}' "$existing_worker" || true)"
-    if [[ -n "$previous_image" ]]; then
-      docker tag "$previous_image" elevenlabs-studio-worker:rollback-candidate || fail "could not preserve previous worker rollback candidate"
-    fi
+    worker_state="$(docker inspect --format '{{.State.Status}}' "$existing_worker" 2>/dev/null || true)"
+    worker_exit_code="$(docker inspect --format '{{.State.ExitCode}}' "$existing_worker" 2>/dev/null || true)"
+    case "$worker_state" in
+      running|restarting)
+        fail "STUDIO_WORKER_DEPLOY_BLOCKED reason=previous_worker_active drain_required"
+        ;;
+      exited)
+        if [[ "$worker_exit_code" != "0" ]]; then
+          fail "STUDIO_WORKER_DEPLOY_BLOCKED reason=previous_worker_exit_abnormal lease_output_reconciliation_review_required"
+        fi
+        previous_image="$(docker inspect --format '{{.Image}}' "$existing_worker" 2>/dev/null || true)"
+        [[ -n "$previous_image" ]] || fail "STUDIO_WORKER_DEPLOY_BLOCKED reason=previous_worker_image_unavailable"
+        docker tag "$previous_image" elevenlabs-studio-worker:rollback-candidate || fail "STUDIO_WORKER_DEPLOY_BLOCKED reason=rollback_candidate_preserve_failed"
+        ;;
+      created)
+        fail "STUDIO_WORKER_DEPLOY_BLOCKED reason=previous_worker_created_not_validated"
+        ;;
+      dead|unknown|"")
+        fail "STUDIO_WORKER_DEPLOY_BLOCKED reason=previous_worker_state_unknown"
+        ;;
+      *)
+        fail "STUDIO_WORKER_DEPLOY_BLOCKED reason=previous_worker_state_unknown"
+        ;;
+    esac
   fi
 fi
 
@@ -181,9 +205,9 @@ log "capturing built image identity for $SERVICE"
 BUILT_IMAGE_ID="$(inspect_image_id "$IMAGE_REF")"
 
 if [[ "$SERVICE" == "studio-api" ]]; then
-  verify_database_revision_matches_new_image studio-api
+  verify_database_revision_matches_new_image studio-api yes
 elif [[ "$SERVICE" == "studio-worker" ]]; then
-  verify_database_revision_matches_new_image studio-worker
+  verify_database_revision_matches_new_image studio-worker no
   commit_sha="$(git rev-parse HEAD)"
   docker tag "$IMAGE_REF" "elevenlabs-studio-worker:${commit_sha}" || fail "could not create commit-specific worker image tag"
 fi

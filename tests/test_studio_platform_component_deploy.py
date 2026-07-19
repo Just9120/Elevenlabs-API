@@ -215,7 +215,7 @@ def test_successful_worker_deployment_is_worker_only_and_manual_identity(tmp_pat
     assert "STUDIO_PLATFORM_WORKER_DEPLOY_OK" in proc.stdout
     assert any("build studio-worker" in line for line in calls)
     assert not any("build studio-web" in line or "build studio-api" in line for line in calls)
-    assert any("docker tag elevenlabs-studio-api:local elevenlabs-studio-worker:" in line for line in calls)
+    assert any("docker tag elevenlabs-studio-worker:local elevenlabs-studio-worker:" in line for line in calls)
     assert any("compose-up-args -d --no-deps --force-recreate studio-worker" in line for line in calls)
     assert not any("compose-up-args" in line and ("postgres" in line or "redis" in line or "studio-api" in line or "studio-web" in line) for line in calls)
     assert_no_forbidden_mutation(calls)
@@ -325,3 +325,97 @@ def test_health_failure_after_matching_identity_fails_without_success(tmp_path: 
     assert "STUDIO_PLATFORM_WEB_DEPLOY_OK" not in proc.stdout
     assert index_of(calls, "docker inspect --format {{.Image}} container-new") < index_of(calls, "curl -fsS http://127.0.0.1:8181/healthz")
     assert_no_forbidden_mutation(calls)
+
+
+def run_worker_deploy_state(tmp_path: Path, *, worker_state: str = "absent", worker_exit: str = "0", postgres_health: str = "healthy", redis_health: str = "healthy", head: str = "abc123", current: str = "abc123", tag_exit: str = "0", running_image: str = "sha256:built", health: str = "healthy"):
+    log = tmp_path / "calls.log"; bin_dir = tmp_path / "bin"; bin_dir.mkdir(parents=True)
+    deployed = tmp_path / "deployed"; deployed.write_text("0")
+    _write_exe(bin_dir / "git", f"""#!/usr/bin/env bash
+set -euo pipefail
+printf 'git %s\n' "$*" >> {str(log)!r}
+case "$*" in
+  "rev-parse --abbrev-ref HEAD") echo main ;;
+  "rev-parse HEAD") echo {('b'*40)!r} ;;
+  "config --get remote.origin.url") echo git@github.com:Just9120/Elevenlabs-API.git ;;
+  "status --porcelain --untracked-files=no") ;;
+  "fetch --prune origin main") ;;
+  "merge --ff-only origin/main") ;;
+  *) exit 44 ;;
+esac
+""")
+    _write_exe(bin_dir / "sleep", f"#!/usr/bin/env bash\nprintf 'sleep %s\\n' \"$*\" >> {str(log)!r}\n")
+    _write_exe(bin_dir / "docker", f"""#!/usr/bin/env bash
+set -euo pipefail
+printf 'docker %s\n' "$*" >> {str(log)!r}
+if [[ "$1" == compose ]]; then
+  shift; while [[ "$1" == --env-file || "$1" == -f ]]; do shift 2; done
+  cmd="$1"; shift
+  case "$cmd" in
+    ps)
+      all=false; for a in "$@"; do [[ "$a" == -a ]] && all=true; done; svc="${{@: -1}}"
+      if [[ "$svc" == studio-worker ]]; then
+        if [[ "$(cat {str(deployed)!r})" == 1 ]]; then echo worker-new; elif [[ {worker_state!r} != absent && ( "$all" == true || {worker_state!r} == running || {worker_state!r} == restarting ) ]]; then echo worker-old; fi
+      elif [[ "$svc" == postgres ]]; then echo postgres-container
+      elif [[ "$svc" == redis ]]; then [[ {redis_health!r} == absent ]] || echo redis-container
+      else echo container-new; fi ;;
+    build) [[ "$1" == studio-worker ]] || exit 45 ;;
+    run) last="${{@: -1}}"; [[ "$last" == heads ]] && echo {head!r} || echo {current!r} ;;
+    up) printf 'compose-up-args %s\n' "$*" >> {str(log)!r}; printf 1 > {str(deployed)!r} ;;
+    down|config) exit 49 ;;
+  esac
+elif [[ "$1" == inspect ]]; then
+  target="${{@: -1}}"
+  if [[ "$*" == *State.Health* ]]; then
+    case "$target" in postgres-container) echo {postgres_health!r} ;; redis-container) echo {redis_health!r} ;; worker-new) echo {health!r} ;; *) echo {health!r} ;; esac
+  elif [[ "$*" == *State.Status* ]]; then
+    case "$target" in postgres-container) echo running ;; redis-container) echo running ;; worker-new) echo running ;; *) echo {worker_state!r} ;; esac
+  elif [[ "$*" == *State.ExitCode* ]]; then echo {worker_exit!r}
+  else
+    case "$target" in worker-old) echo sha256:old ;; worker-new) echo {running_image!r} ;; *) echo sha256:built ;; esac
+  fi
+elif [[ "$1 $2" == "image inspect" ]]; then
+  [[ "$3" == --format ]] || exit 0
+  [[ "$5" == elevenlabs-studio-worker:local || "$5" == elevenlabs-studio-worker:* ]] && echo sha256:built || echo sha256:built
+elif [[ "$1" == tag ]]; then
+  [[ "$3" != elevenlabs-studio-api:local ]] || exit 98
+  exit {tag_exit}
+else exit 52; fi
+""")
+    env_file = ROOT / "deploy/studio/.env"; created = not env_file.exists()
+    if created: env_file.write_text("# fake\n", encoding="utf-8")
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "STUDIO_DEPLOY_DIR": str(ROOT)}
+    try:
+        proc = subprocess.run(["bash", str(SCRIPT), "worker"], cwd=ROOT, env=env, text=True, capture_output=True, timeout=10)
+    finally:
+        if created: env_file.unlink()
+    return proc, log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+
+
+def test_worker_deploy_previous_state_safety_and_candidate_order(tmp_path: Path) -> None:
+    proc, calls = run_worker_deploy_state(tmp_path / "running", worker_state="running")
+    assert proc.returncode != 0 and "previous_worker_active" in proc.stderr
+    assert not any("build studio-worker" in c or "docker tag" in c for c in calls)
+    proc, calls = run_worker_deploy_state(tmp_path / "ok", worker_state="exited", worker_exit="0")
+    assert proc.returncode == 0, proc.stderr + proc.stdout
+    assert index_of(calls, "docker inspect --format {{.Image}} worker-old") < index_of(calls, "docker tag sha256:old elevenlabs-studio-worker:rollback-candidate") < index_of(calls, "build studio-worker")
+    assert any("docker image inspect --format {{.Id}} elevenlabs-studio-worker:local" in c for c in calls)
+    assert "elevenlabs-studio-api:local" not in "\n".join(calls)
+    for code in ("137", "143", "1"):
+        proc, calls = run_worker_deploy_state(tmp_path / f"bad{code}", worker_state="exited", worker_exit=code)
+        assert proc.returncode != 0 and "previous_worker_exit_abnormal" in proc.stderr
+        assert not any("build studio-worker" in c or "rollback-candidate" in c for c in calls)
+
+
+def test_worker_deploy_postgres_only_dependency_and_failure_gates(tmp_path: Path) -> None:
+    proc, calls = run_worker_deploy_state(tmp_path / "pgbad", postgres_health="unhealthy")
+    assert proc.returncode != 0 and not any("compose-up-args" in c for c in calls)
+    proc, calls = run_worker_deploy_state(tmp_path / "redisbad", redis_health="unhealthy")
+    assert proc.returncode == 0, proc.stderr + proc.stdout
+    assert not any("ps -q redis" in c for c in calls)
+    proc, calls = run_worker_deploy_state(tmp_path / "mismatch", head="new", current="old")
+    assert proc.returncode != 0 and "manual migration required" in proc.stderr
+    assert not any("compose-up-args" in c for c in calls)
+    proc, calls = run_worker_deploy_state(tmp_path / "healthbad", health="unhealthy")
+    assert proc.returncode != 0 and "STUDIO_PLATFORM_WORKER_DEPLOY_OK" not in proc.stdout
+    proc, calls = run_worker_deploy_state(tmp_path / "imagemismatch", running_image="sha256:old")
+    assert proc.returncode != 0 and "does not match built image identity" in proc.stderr
