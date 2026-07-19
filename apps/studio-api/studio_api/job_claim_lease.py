@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 
 from sqlalchemy import or_, select
@@ -42,7 +42,15 @@ class JobLeaseHandle:
 
 
 def is_lease_active(job: TranscriptionJob, now: datetime) -> bool:
-    return bool(job.lease_owner_id and job.lease_expires_at and job.lease_expires_at > now)
+    if not job.lease_owner_id or not job.lease_expires_at:
+        return False
+    return _as_utc_aware(job.lease_expires_at) > _as_utc_aware(now)
+
+
+def _as_utc_aware(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 def acquire_next_ready_job_lease(

@@ -1512,7 +1512,41 @@ def test_active_lease_helper():
         job = db.get(TranscriptionJob, job_id)
         acquire_job_lease(db, job_id=job.id, lease_owner_id="owner", now=LEASE_TEST_NOW, lease_ttl=LEASE_TEST_TTL)
         assert is_lease_active(job, LEASE_TEST_NOW + timedelta(minutes=14)) is True
+        assert is_lease_active(job, (LEASE_TEST_NOW + timedelta(minutes=14)).replace(tzinfo=None)) is True
+        assert is_lease_active(job, (LEASE_TEST_NOW + timedelta(minutes=14)).astimezone(timezone(timedelta(hours=3)))) is True
         assert is_lease_active(job, LEASE_TEST_NOW + timedelta(minutes=15)) is False
+        assert is_lease_active(job, (LEASE_TEST_NOW + timedelta(minutes=15)).astimezone(timezone(timedelta(hours=3)))) is False
+        assert is_lease_active(job, LEASE_TEST_NOW + timedelta(minutes=16)) is False
+
+        job.lease_owner_id = None
+        assert is_lease_active(job, LEASE_TEST_NOW + timedelta(minutes=14)) is False
+        job.lease_owner_id = "owner"
+        job.lease_expires_at = None
+        assert is_lease_active(job, LEASE_TEST_NOW + timedelta(minutes=14)) is False
+    finally:
+        db.close()
+
+
+def test_reloaded_aware_lease_accepts_naive_worker_clock_for_processing():
+    _, job_id = lease_test_job(status=JobStatus.queued, ready=True)
+    naive_now = LEASE_TEST_NOW.replace(tzinfo=None)
+    db = SessionLocal()
+    try:
+        handle = acquire_job_lease(db, job_id=job_id, lease_owner_id="owner", now=naive_now, lease_ttl=LEASE_TEST_TTL)
+        assert handle.lease_expires_at.tzinfo is None
+        db.commit()
+        db.expire_all()
+
+        reloaded_job = db.get(TranscriptionJob, job_id)
+        assert reloaded_job.lease_expires_at.tzinfo is not None
+        assert reloaded_job.lease_expires_at.utcoffset() == timedelta(0)
+        assert is_lease_active(reloaded_job, naive_now) is True
+
+        result = begin_job_processing(db, job_id=job_id, lease_owner_id="owner", lease_generation=handle.lease_generation, now=naive_now)
+        assert result.status == JobStatus.processing
+        assert reloaded_job.status == JobStatus.processing
+        assert result.attempt_count == 1
+        assert reloaded_job.attempt_count == 1
     finally:
         db.close()
 
