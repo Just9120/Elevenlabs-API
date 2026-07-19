@@ -15,14 +15,15 @@ For broad source-of-truth, planning, archive, or reconciliation tasks, read the 
 
 ## Source priority
 
-1. Current explicit user task.
-2. `docs/project-spec.md` for product scope, durable requirements, constraints, and acceptance criteria.
+1. Current explicit user instruction/task.
+2. `docs/project-spec.md` for product scope, requirements, durable constraints, business rules, and acceptance criteria.
 3. `docs/ai-coding-workflow.md` for AI-assisted development process.
 4. `docs/ci-cd-rules.md` for CI/CD, deployment, migrations, secrets, and runtime safety.
 5. `docs/delivery-plan.md` for the current delivery dashboard.
-6. `docs/architecture.md` for component and runtime maps.
-7. Current code/configuration as evidence of implementation, not automatic product authority.
-8. Historical/supporting documents only as non-authoritative context.
+6. `docs/architecture.md` for supporting component/runtime map.
+7. Current code/configuration as implementation evidence, not automatic product authority.
+8. Tests/CI as verification evidence.
+9. Runbooks, archive, and historical/supporting docs as subordinate context.
 
 If sources conflict, report the conflict and do not silently rewrite product scope to match code or history.
 
@@ -49,11 +50,13 @@ Use existing commands where relevant:
 
 ```text
 Install: not standardized; inspect requirements files for the target environment.
-Lightweight CI checks: python scripts/ci_checks.py
-Test: pytest -q
-Whitespace/diff check: git diff --check
-Build: not applicable for the current Colab/script workflow.
-Run: launch notebooks/elevenlabs_api_colab.ipynb in Google Colab for runtime validation.
+Lightweight checks: python scripts/ci_checks.py
+Python tests: pytest -q
+Docs diff check: git diff --check
+Colab runtime: manually run notebooks/elevenlabs_api_colab.ipynb in Google Colab.
+Studio frontend: inspect apps/studio/package.json; existing scripts are dev, lint, test, and build.
+Studio backend: use existing pytest/config commands for apps/studio-api scope.
+Studio deploy/runtime: follow docs/ci-cd-rules.md and the relevant runbook.
 ```
 
 For docs-only changes, prefer `git diff --check`, available markdown/link checks, and targeted `rg` searches over runtime integration tests.

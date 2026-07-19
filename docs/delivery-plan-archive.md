@@ -37,23 +37,24 @@ Useful validation commands and evidence rules were moved to `docs/runbooks/valid
 
 Durable guarantees were moved to current authority documents:
 
-- Product rules and processing guarantees: `docs/project-spec.md`.
+- Product rules and readiness criteria: `docs/project-spec.md`.
+- Current processing invariants: `docs/studio-processing-contract.md`.
 - State machine, data flow, provider/output boundaries, and trust boundaries: `docs/architecture.md`.
 - Operator rollout, stop conditions, and recovery procedures: `docs/runbooks/studio-platform-ops.md`.
 
-Historical details from earlier job phases remain non-authoritative here: queued job records, readiness/preflight helpers, claim/lease design, internal synchronous orchestration, one-shot explicit job processing, claim-next iteration, worker source entrypoint, and browser-safe output discovery were all implemented progressively as source-level slices.
+Historical details from earlier job phases remain non-authoritative here. Current rules are not duplicated in this archive.
 
 ### Provider transcription contract
 
-Provider boundaries were consolidated into `docs/project-spec.md` and `docs/architecture.md`: ElevenLabs is the present source-level Studio provider path; OpenAI Studio processing parity remains unfinished.
+Provider boundaries were consolidated into `docs/project-spec.md`, `docs/provider-transcription-contract.md`, and `docs/architecture.md`: ElevenLabs is the present source-level Studio provider path; OpenAI Studio processing parity remains unfinished.
 
 ### Studio platform prep
 
 Preparation decisions that still matter were consolidated into current product, architecture, CI/CD, and operations docs. The old prep document is historical and no longer source authority.
 
-### Studio deploy runbook
+### Studio deploy runbooks
 
-The old deploy runbook content was collapsed into `docs/runbooks/studio-platform-ops.md` and `docs/ci-cd-rules.md`. Legacy/stateless deployment paths are not hidden; `PWA-LEGACY-AUTHORITY-01` remains a near-backlog item for formal cleanup or marking.
+Current platform operations live in `docs/runbooks/studio-platform-ops.md` and CI/CD safety remains in `docs/ci-cd-rules.md`. The legacy stateless web-only path remains visible in `docs/runbooks/legacy-studio-web-deploy.md` until `PWA-LEGACY-AUTHORITY-01` removes or formally supersedes that runtime code.
 
 ## Archived closed items and PR-chain categories
 

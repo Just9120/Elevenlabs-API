@@ -36,10 +36,9 @@ When no dedicated markdown link checker exists, a repository-local script may pa
 Useful checks for documentation authority work:
 
 ```bash
-rg -n "record-only|record only" .
-rg -n "TECHNICAL_SPECIFICATION.md|VALIDATION_MATRIX.md|VOICEOPS_RUNTIME_VALIDATION_CHECKLIST.md" .
-rg -n "studio-jobs-processing-contract.md|provider-transcription-contract.md|studio-platform-01-prep.md" .
-rg -n "studio-deploy.md" .
+rg -n "record-only|record only" README.md AGENTS.md docs
+rg -n "studio-processing-contract.md" README.md AGENTS.md docs
+rg -n "legacy-studio-web-deploy.md" README.md AGENTS.md docs
 rg -n "production-live|production ready|production-ready" README.md AGENTS.md docs
 rg -n "active item|Active item|ACTIVE" docs/delivery-plan.md
 ```
@@ -67,9 +66,70 @@ Failure, uncertainty, duplicate output, wrong folder, missing persisted output a
 
 - [ ] Launch `notebooks/elevenlabs_api_colab.ipynb` in Google Colab from the intended revision.
 - [ ] Confirm required secrets are available without printing values.
-- [ ] Run the existing batch workflow with an approved source.
-- [ ] Confirm provider transcription and Google Docs delivery according to the stable Colab workflow.
+- [ ] Run only approved safe sources.
+- [ ] Confirm provider transcription, Google Docs delivery, manifest update/skip behavior, and analytics hygiene.
 - [ ] Record only safe pass/fail metadata, not transcript content or raw provider/Google responses.
+
+### Source-mode smoke
+
+Validate each supported source contour when safe fixtures are available:
+
+- [ ] computer single file;
+- [ ] computer multiple files;
+- [ ] Google Drive single file;
+- [ ] Google Drive folder.
+
+### Manifest and Drive workspace
+
+- [ ] `VoiceOps Workspace/` exists.
+- [ ] `VoiceOps Workspace/manifest/elevenlabs_transcription_manifest.json` exists.
+- [ ] Legacy `_transcription_state` migration preserves existing history when legacy state is present.
+- [ ] A repeated controlled run confirms manifest skip behavior and does not repeat paid transcription without a valid reason.
+- [ ] Old state files are not manually deleted before reconciliation when legacy/current manifest conflict is observed.
+
+### Analytics JSONL
+
+Check `VoiceOps Workspace/analytics/elevenlabs_transcription_runs.jsonl`:
+
+- [ ] file exists after a successful or best-effort analytics run;
+- [ ] latest line is valid JSON;
+- [ ] expected aggregate fields are present;
+- [ ] no secrets or API keys;
+- [ ] no transcript text;
+- [ ] no Google Docs body;
+- [ ] no raw provider payload;
+- [ ] no raw Drive URLs;
+- [ ] no full local paths.
+
+### Provider matrix
+
+Use non-sensitive fixtures only:
+
+- [ ] ElevenLabs short file;
+- [ ] OpenAI short file;
+- [ ] OpenAI long-but-small file over the safe duration target of 1320 seconds;
+- [ ] OpenAI oversized file exercising the 25 MB hard upload limit / 20 MB safe target split behavior;
+- [ ] OpenAI diarization with a copied non-sensitive fixture.
+
+### Manual segmentation
+
+- [ ] segmentation is available only in one-source modes;
+- [ ] segment order is deterministic;
+- [ ] labels/titles are unique according to the UI rules;
+- [ ] one output is created or skipped for each intended segment;
+- [ ] provider settings remain unchanged per segment;
+- [ ] OpenAI technical split can still run inside a segment when required.
+
+### Colab stop conditions
+
+Stop validation and investigate before repeating paid work on:
+
+- manifest history missing after migration;
+- unexpected paid retranscription on a repeated controlled run;
+- duplicate or missing Google Docs output;
+- unsafe analytics content;
+- provider success without Google Docs and manifest success;
+- unresolved legacy/current manifest conflict.
 
 ## Realtime Colab validation
 

@@ -1,6 +1,6 @@
 # Studio platform operations runbook
 
-This is the main Studio operations runbook. It covers safe operator validation, deployment-state vocabulary, worker rollout boundaries, and recovery stop conditions. It does not authorize coding agents to deploy, run migrations, start workers, call providers, or mutate production.
+This is the main Studio operations runbook. It covers platform bootstrap, runtime files, secrets, backups, migrations, component deployment, source storage, Google OAuth, worker rollout, and recovery stop conditions. Processing invariants live in `docs/studio-processing-contract.md`. It does not authorize coding agents to deploy, run migrations, start workers, call providers, or mutate production.
 
 ## State vocabulary
 
@@ -15,29 +15,94 @@ Keep these states separate in every report:
 
 Do not claim production-live Studio processing without a controlled canary proving exactly one intended output and no unsafe evidence.
 
-## Secrets and evidence boundary
+## Runtime files and secrets
 
-Never record secret values, tokens, refresh tokens, document IDs/URLs, folder IDs, account data, source bytes, transcript bodies, document bodies, raw provider responses, raw Google responses, private paths, or sensitive runtime values.
+Studio platform runtime configuration uses operator-managed files and runtime environment paths. Values ending in `_FILE` must contain host file paths, not secret contents.
 
-Safe evidence can include pass/fail status, intended commit, component names, redacted image identity confirmation, database revision label, health booleans, worker count, safe job status, output count, and confirmation that the expected document opened in the selected folder without copying the link or content.
+Required secret-file classes include:
 
-## Component deployment boundary
+- PostgreSQL password secret file;
+- Studio credential master key file;
+- Google OAuth client secret file when OAuth is enabled;
+- source-storage access-key files for the private S3/R2-compatible upload bucket;
+- backup/restic repository/password/access secret files when backup automation is used.
 
-Studio has separate web, API, database/migration, and worker concerns.
+Rules:
 
-- Standard CI must not deploy.
-- Standard Studio CD must not run migrations, deploy/start/recreate workers, perform stateful-service maintenance, prune volumes/images, or claim processing readiness.
-- API/web deployment does not prove worker-running.
-- Worker-running does not prove provider execution or Google Docs output.
-- Migration equality does not prove processing success.
+- Secret files must be readable only by the deployment operator/runtime boundary, normally `0600`.
+- Do not print, `cat`, copy into prompts, or commit secret file contents.
+- Do not use unsafe `docker compose config` output as evidence because it can resolve and expose secret values.
+- Runtime `.env` review may record variable presence and path shape, but never secret values.
 
-Follow `docs/ci-cd-rules.md` for CI/CD, deployment, backup, migration, rollback, secrets, and stateful-service safety.
+## Platform bootstrap
 
-## Legacy deployment path note
+Canonical stateful platform deployment uses the platform Compose stack under `deploy/studio/` and the approved platform scripts/runbooks, not the legacy stateless web-only path.
 
-Legacy web/API deployment paths may still exist in `deploy/studio/` or workflows. Do not hide or reinterpret them as worker-capable processing rollout paths. Treat legacy/stateless deployment behavior as legacy until a focused `PWA-LEGACY-AUTHORITY-01` task removes it or marks it formally. This docs task does not change deployment code.
+Bootstrap boundary:
 
-## Manual preflight
+1. Verify the intended deploy checkout, branch, remote, and clean/reviewed tracked tree.
+2. Start or verify PostgreSQL and Redis as stateful platform services without recreating volumes unless a separate maintenance task authorizes it.
+3. Prepare runtime `.env` and secret files before API startup.
+4. Start API and web components separately.
+5. Bootstrap the initial admin only through the approved server-side bootstrap admin command and without printing credentials.
+6. Verify nginx routes browser traffic to the web component and `/api/*` traffic to the API component.
+7. Verify localhost and public health endpoints for the intended components.
+
+Health evidence should include only safe status booleans/markers, component names, and revision labels.
+
+## Backup and migration order
+
+Manual migration rollout order is strict:
+
+1. Verify PostgreSQL and Redis health/stateful-service identity.
+2. Create a tagged pre-migration PostgreSQL backup through the approved backup boundary.
+3. Confirm the backup completed and record only safe snapshot metadata.
+4. Run the manual migration command/script only after explicit operator confirmation.
+5. Verify production database revision equals repository Alembic head `0011_diagnostic_debug_sessions` where the deployment is expected to be current.
+6. Deploy or restart only the intended components.
+
+Do not claim or implement automatic migrations. Standard CD must not run migrations.
+
+## Backup and restore rehearsal
+
+Backup/restore rehearsal is manual and isolated:
+
+- restore only into a separate temporary PostgreSQL database/target;
+- invalidate restored sessions before any access test;
+- run read-only smoke checks only;
+- destroy only the temporary target after verification;
+- never delete, overwrite, prune, or reset live production data from the rehearsal path.
+
+## Source-upload storage
+
+Temporary local-computer Studio source uploads use a private dedicated S3/R2-compatible bucket scoped to input objects only. Transcript outputs remain in Google Drive/Docs, not in this bucket.
+
+Configuration requirements:
+
+- endpoint URL, region, bucket, upload TTL, presign TTL, and maximum upload bytes are non-secret runtime settings;
+- access key ID and secret access key are provided through operator-managed secret files;
+- browser payloads must never expose object keys, private bucket names when sensitive, presigned URLs, secret-file paths, or source bytes;
+- rollout of source-storage config is API-only unless another component is explicitly in scope.
+
+## Google OAuth runtime configuration
+
+Google OAuth runtime config is fail-closed. OAuth endpoints must remain unavailable or reject safely until required non-secret settings and a non-empty client secret file are present.
+
+Required settings include client ID, redirect URI, scopes, state TTL, and the client-secret file path. The client secret itself stays in an operator-managed file. Google Picker also requires browser-safe API key/app ID configuration when that feature is in scope; do not record key values.
+
+Roll out OAuth config through API deployment only when runtime files are ready. Validate with authenticated owner-scoped flows and confirm unauthenticated connection/status endpoints still reject as expected.
+
+## Component deployment
+
+Web and API are separate deployable components.
+
+- Web deployment rebuilds/recreates only the web component, verifies image identity, then checks localhost health.
+- API deployment rebuilds/recreates only the API component, verifies image identity, then checks localhost API health and migration readiness.
+- A migration mismatch blocks API deploy success/readiness.
+- Standard CD does not deploy/start/recreate `studio-worker` and does not maintain PostgreSQL, Redis, migrations, backups, restores, nginx, volumes, runtime secrets, or stateful services.
+- Failed component health checks fail loudly and must not trigger unreviewed destructive rollback.
+
+## Manual processing preflight
 
 Before any processing rollout or canary, verify without printing sensitive values:
 
@@ -45,27 +110,27 @@ Before any processing rollout or canary, verify without printing sensitive value
 - tracked working tree state is clean or explicitly reviewed;
 - runtime env/secret files exist where expected, without displaying values;
 - PostgreSQL and Redis health;
-- source-upload object storage configuration is present;
-- Google OAuth configuration and smoke-account connection are usable;
-- credential master key is usable and exactly one intended active ElevenLabs BYOK credential exists for the smoke account;
+- source-upload storage config is complete;
+- Google OAuth config is complete and authenticated for the smoke account;
+- credential master key and encrypted BYOK records are usable;
+- exactly one intended active ElevenLabs BYOK credential exists for the smoke account;
 - writable Google output folder selection exists;
 - production database revision is known and compared to repository Alembic head `0011_diagnostic_debug_sessions`;
 - exactly one worker instance is intended for the canary.
 
-## Controlled rollout sequence
+## Controlled worker rollout sequence
 
 1. Keep `studio-worker` stopped until migration and runtime readiness are confirmed.
-2. Create/confirm a tagged pre-migration database backup through the approved operator boundary.
-3. If needed, apply migrations manually according to `docs/ci-cd-rules.md`; standard CD must not do this.
-4. Verify production database revision equals repository head `0011_diagnostic_debug_sessions` where the deployment is expected to be current.
-5. Deploy web/API only through the approved isolated component deployment model.
-6. Verify intended commit/image identity, running component identity, localhost health, public health, authenticated session behavior, and output endpoint availability without exposing another owner’s data.
-7. Start exactly one `studio-worker` from the intended image with no public HTTP port.
-8. Verify worker configuration, bounded opaque process identity, and idle polling without creating or mutating jobs.
+2. Create/confirm the tagged pre-migration database backup if a migration or stateful rollout is involved.
+3. Verify production database revision equals repository head `0011_diagnostic_debug_sessions` where the deployment is expected to be current.
+4. Deploy web/API only through the approved isolated component deployment model.
+5. Verify intended commit/image identity, running component identity, localhost health, public health, authenticated session behavior, and output endpoint availability without exposing another owner’s data.
+6. Start exactly one `studio-worker` from the intended image with no public HTTP port.
+7. Verify worker configuration, bounded opaque process identity, and idle polling without creating or mutating jobs.
 
 Starting or deploying the API does not prove the worker was recreated or that processing is production-live.
 
-## Controlled smoke
+## Controlled canary
 
 Run exactly one bounded canary:
 
@@ -103,6 +168,10 @@ Any exception between claim commit and transition to `processing` blocks the smo
 Stopping the worker must not automatically requeue, delete, retry, downgrade, remove output rows, or delete Google documents. Do not clear leases with direct SQL during smoke recovery. Do not run destructive Docker Compose `down`, prune, volume removal, automatic downgrade, automatic job reset, provider retry, Google document deletion/recreation, or output-row deletion.
 
 Output-side-effect uncertainty requires a separate reconciliation item. API/web rollback requires an explicitly reviewed database-compatible operator decision.
+
+## Legacy deployment pointer
+
+The legacy stateless web-only path remains documented separately in `docs/runbooks/legacy-studio-web-deploy.md` until `PWA-LEGACY-AUTHORITY-01` removes or formally supersedes that runtime code. Do not use the legacy path for platform API, worker, processing, PostgreSQL, Redis, migrations, or production processing rollout.
 
 ## Residual limitations
 

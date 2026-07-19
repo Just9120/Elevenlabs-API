@@ -34,6 +34,75 @@ Durable Colab invariants:
 
 Realtime Colab is a separate experimental validation path. Its current runbook is `docs/runbooks/realtime-colab.md`; it does not replace the stable batch Colab workflow.
 
+
+## Stable Colab product contract
+
+The stable Colab contract is product behavior, not historical implementation detail.
+
+### Source modes
+
+Supported batch source modes are:
+
+- local/computer single file;
+- local/computer multiple files;
+- Google Drive single file;
+- Google Drive folder.
+
+Manual user segmentation is available only in one-source modes where one source can be split deterministically before transcription.
+
+### Provider paths
+
+- ElevenLabs `scribe_v2` is the default and primary batch provider path.
+- OpenAI `gpt-4o-transcribe` is the standard OpenAI batch path.
+- OpenAI `gpt-4o-transcribe-diarize` is the speaker-aware OpenAI path.
+
+### ElevenLabs batch defaults
+
+Current batch defaults are:
+
+- `model_id=scribe_v2`;
+- Russian selected by default, with provider auto-detection available when no runtime language code is supplied;
+- `no_verbatim=false`;
+- `temperature=0`;
+- `tag_audio_events=false`;
+- optional keyterms;
+- optional speaker separation in the Colab batch path.
+
+The Studio source-level ElevenLabs subset is more conservative: one already-materialized source for one already-leased job, synchronous `scribe_v2`, `no_verbatim=false`, `temperature=0`, `tag_audio_events=false`, `diarize=false`, no multi-channel mode, and provider auto-detection when job language is absent.
+
+### OpenAI long-media behavior
+
+OpenAI batch inputs are prepared as mono AAC M4A before upload. Splitting happens before the first provider request and is based on both prepared file size and prepared audio duration.
+
+Current constraints:
+
+- provider hard upload limit: 25 MB;
+- safe per-part size target: 20 MB;
+- observed hard duration boundary: 1400 seconds;
+- safe per-part duration target: 1320 seconds;
+- diarization/chunk merging remains a quality-risk area because speaker labels and segment boundaries may be inconsistent across chunks.
+
+### Manual segmentation
+
+Manual segmentation:
+
+- is available only in one-source modes;
+- runs before provider transcription;
+- creates one temporary audio input per user segment;
+- preserves the selected provider request/payload contract for each segment;
+- may allow OpenAI technical splitting inside an OpenAI segment;
+- creates one intended Google Doc output per segment unless manifest/docs skip protection determines that the output already exists;
+- uses deterministic segment order and unique user-facing labels/titles.
+
+### Output, manifest, and analytics
+
+- The primary product artifact is a Google Docs transcript.
+- The current transcript document standard is `transcript_doc_v1.2`.
+- Colab manifest state remains the authority for progress, skip protection, and source/document synchronization.
+- Re-running a controlled batch must not repeat paid transcription without a manifest/source/settings reason.
+- The Drive workspace is `VoiceOps Workspace/`; legacy `_transcription_state` history must not be deleted before reconciliation.
+- Analytics JSONL is best-effort aggregate evidence and must not include transcript body, secrets, raw provider payloads, raw Google/Drive payloads, Google Docs body content, raw Drive URLs, or full local paths.
+
 ## Studio PWA current source-level state
 
 Studio PWA is in development. It must not be described as only record-only, because the repository already contains source-level processing foundations.
@@ -150,6 +219,7 @@ Current delivery sequencing is in `docs/delivery-plan.md`. Product backlog items
 - `docs/delivery-plan.md` — current delivery dashboard.
 - `docs/delivery-plan-archive.md` — historical archive only.
 - `docs/architecture.md` — architecture and runtime map.
+- `docs/studio-processing-contract.md` — current Studio processing rules.
 - `docs/ci-cd-rules.md` — deployment and stateful-service safety.
 - `docs/runbooks/studio-platform-ops.md` — Studio operations and rollout runbook.
 - `docs/runbooks/validation.md` — validation commands/checklists.

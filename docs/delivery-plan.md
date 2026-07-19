@@ -60,6 +60,7 @@ Goal: define and implement safe reconciliation for cases where Google Docs creat
 ## Latest validation notes
 
 - Documentation authority reset is docs-only and must not change product code, runtime behavior, CI/CD, deployment, migrations, or notebooks.
+- Use `docs/studio-processing-contract.md` for current Studio processing rules.
 - Use `docs/runbooks/studio-platform-ops.md` for Studio operator rollout/smoke validation.
 - Use `docs/runbooks/validation.md` for repository documentation and lightweight validation commands.
 
