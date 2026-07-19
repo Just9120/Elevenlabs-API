@@ -87,3 +87,9 @@ Lease loss, cancellation uncertainty, provider/Google errors, output-side-effect
 The repository contains Studio deployment and workflow files, but architecture does not authorize deployment behavior. CI/CD and runtime safety rules are in `docs/ci-cd-rules.md`; operator procedures are in `docs/runbooks/studio-platform-ops.md`.
 
 Current important distinction: web/API deployment, migration application, worker-running, and production-live processing are separate states. Standard CD must not silently run migrations, start workers, or claim Studio processing readiness. Current processing invariants are in `docs/studio-processing-contract.md`.
+
+## Worker operational boundary
+
+The `studio-worker` is a distinct manual-only runtime component that uses the Studio API source image family but has its own process command and Docker healthcheck. Worker health means only worker PID shape, configuration load, and PostgreSQL read-only `SELECT 1`; it is not a job-progress authority, provider/Google readiness check, lease-correctness proof, canary result, or production-live processing claim.
+
+Worker image identity is verified separately from mutable local tags by comparing the intended commit-specific worker image identity with the running container image ID. Pause means a gracefully drained/stopped container, not a frozen process. The worker remains one-job-per-process and PostgreSQL remains the processing authority; Redis is not introduced as a queue, lease, retry, or heartbeat authority.

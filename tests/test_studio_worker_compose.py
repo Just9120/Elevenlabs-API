@@ -19,7 +19,9 @@ def test_studio_worker_compose_contract():
     assert "image: elevenlabs-studio-api:local" in worker and "image: elevenlabs-studio-api:local" in api
     assert 'command: ["python", "-m", "studio_api.worker"]' in worker
     assert "restart: unless-stopped" in worker
-    assert "ports:" not in worker and "healthcheck:" not in worker
+    assert "ports:" not in worker and "healthcheck:" in worker
+    assert 'test: ["CMD", "python", "-m", "studio_api.worker_health"]' in worker
+    assert "stop_grace_period: 3700s" in worker
     assert "postgres: { condition: service_healthy }" in worker
     deps = worker.split("depends_on:", 1)[1]
     assert "redis:" not in deps and "studio-api:" not in deps

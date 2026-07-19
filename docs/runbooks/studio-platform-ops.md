@@ -242,3 +242,94 @@ Stop condition triggered:
 Production-live claim allowed: yes/no
 Notes:
 ```
+
+## Official worker lifecycle operations (`PWA-WORKER-OPS-01`)
+
+The `studio-worker` is an explicit manual-only component. Worker deployment success is operational evidence for a started process and image identity only; it is not queue progress, provider readiness, Google readiness, production-live processing, or canary success. An idle healthy worker is not processing proof.
+
+### Worker operational health meaning
+
+The worker healthcheck runs inside the worker container with:
+
+```bash
+python -m studio_api.worker_health
+```
+
+It verifies PID 1 has the worker process shape, worker configuration loads, and PostgreSQL answers a read-only `SELECT 1`. It does not claim jobs, read jobs, mutate the database, call providers, call Google, use Redis as queue logic, or check object storage.
+
+### Worker status
+
+```bash
+cd /opt/elevenlabs-studio
+STUDIO_DEPLOY_DIR=/opt/elevenlabs-studio scripts/manage_studio_worker.sh status
+```
+
+The status command reports only safe container state, Docker health, image identity, intended commit tag when available, rollback-candidate presence, and whether the worker is in the stopped/drained paused state. It prints `STUDIO_WORKER_STATUS_OK` when the read-only status check completes.
+
+### Initial worker deploy
+
+A worker deploy is manual-only and must be run only when the worker is absent or already drained/stopped:
+
+```bash
+cd /opt/elevenlabs-studio
+STUDIO_DEPLOY_DIR=/opt/elevenlabs-studio scripts/deploy_studio_platform_component.sh worker
+```
+
+The deploy script fast-forwards the trusted branch, builds only `studio-worker`, verifies PostgreSQL health, compares current database revision with the new worker image Alembic head, preserves the previous worker image as `elevenlabs-studio-worker:rollback-candidate` when one exists, tags the new worker image with the current commit, recreates only `studio-worker` with `--no-deps`, verifies the exact running image identity, waits for Docker health `healthy`, and only then prints `STUDIO_PLATFORM_WORKER_DEPLOY_OK`. It does not run migrations, recreate API/web/PostgreSQL/Redis, drain an active worker, run a canary, or perform automatic rollback.
+
+### Worker drain and paused state
+
+```bash
+cd /opt/elevenlabs-studio
+STUDIO_DEPLOY_DIR=/opt/elevenlabs-studio scripts/manage_studio_worker.sh drain
+STUDIO_DEPLOY_DIR=/opt/elevenlabs-studio scripts/manage_studio_worker.sh pause
+```
+
+Drain uses normal Docker stop/SIGTERM with a timeout derived from `STUDIO_WORKER_LEASE_TTL_SECONDS` plus a safety buffer. After SIGTERM, the worker stop flag prevents new claims; the current synchronous iteration finishes or fails normally before exit. `pause` is an idempotent safe-drain wrapper. Paused means stopped/drained container, never `docker pause`, `SIGSTOP`, or a frozen active process. A graceful drain prints `STUDIO_WORKER_DRAINED`; pause also prints `STUDIO_WORKER_PAUSED`.
+
+If Docker forced-kills the worker or the container remains running, automation stops with a blocked reason and the operator must perform lease/output reconciliation review. Do not automatically resume, redeploy, retry providers, clear leases, reset jobs, or delete/recreate Google documents.
+
+### Worker resume
+
+```bash
+cd /opt/elevenlabs-studio
+STUDIO_DEPLOY_DIR=/opt/elevenlabs-studio scripts/manage_studio_worker.sh resume
+```
+
+Resume only starts an existing stopped worker container and verifies the same image identity becomes healthy. It does not build, pull, fast-forward code, or recreate API/web/PostgreSQL/Redis. If the container is absent, use the official worker deploy path instead.
+
+### Worker update sequence
+
+Recommended operator sequence:
+
+```text
+status
+→ drain
+→ confirm stopped
+→ deploy worker manually
+→ verify image/commit identity
+→ verify healthy
+→ leave idle
+→ operator separately decides whether to run controlled canary
+```
+
+Source merge does not deploy the worker. A successful worker deploy does not prove production-live processing; `PWA-PROCESSING-ROLLOUT-01A` remains a separate controlled canary decision.
+
+### Worker rollback
+
+Rollback is an explicit worker-only operator action and requires the worker to be drained/stopped first:
+
+```bash
+cd /opt/elevenlabs-studio
+STUDIO_DEPLOY_DIR=/opt/elevenlabs-studio scripts/manage_studio_worker.sh rollback
+```
+
+Rollback requires `elevenlabs-studio-worker:rollback-candidate`, verifies image identity, compares rollback image Alembic head with the current database revision, refuses schema mismatch, performs no downgrade, recreates only `studio-worker`, waits for health, verifies the running rollback image, and prints `STUDIO_WORKER_ROLLBACK_OK`. Automatic rollback is prohibited.
+
+### Image/commit identity evidence
+
+Safe evidence may include the intended repository commit SHA, the commit-specific worker tag `elevenlabs-studio-worker:<commit>`, the built Docker image ID, the running container image ID, and rollback candidate presence. Do not print `.env`, secret-file contents, provider payloads, Google payloads, transcript bodies, document IDs, source names, or job/output records.
+
+### Manual-only workflow dispatch
+
+GitHub Actions supports manual `workflow_dispatch(component=worker)` using the same SSH access model and a materialized trusted deploy script. Push events never auto-deploy the worker, including worker-only source changes. The workflow does not automatically drain, run migrations, run backups, run canaries, or run rollback.

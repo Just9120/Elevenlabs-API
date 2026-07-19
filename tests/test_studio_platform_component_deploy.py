@@ -44,6 +44,7 @@ set -euo pipefail
 printf 'git %s\\n' "$*" >> {str(log)!r}
 case "$*" in
   "rev-parse --abbrev-ref HEAD") echo main ;;
+  "rev-parse HEAD") echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ;;
   "config --get remote.origin.url") echo git@github.com:Just9120/Elevenlabs-API.git ;;
   "status --porcelain --untracked-files=no") ;;
   "fetch --prune origin main") ;;
@@ -71,13 +72,13 @@ if [[ "$1" == "compose" ]]; then
   cmd="$1"; shift
   case "$cmd" in
     build)
-      [[ "$1" == "studio-api" || "$1" == "studio-web" ]] || exit 45
+      [[ "$1" == "studio-api" || "$1" == "studio-web" || "$1" == "studio-worker" ]] || exit 45
       exit {state['build_exit']}
       ;;
     ps)
       [[ "$1" == "-q" ]] || exit 45
       case "$2" in
-        studio-api|studio-web) printf '%s\\n' {state['container_id']!r} ;;
+        studio-api|studio-web|studio-worker) printf '%s\\n' {state['container_id']!r} ;;
         postgres) printf '%s\\n' {state['postgres_id']!r} ;;
         redis) printf '%s\\n' {state['redis_id']!r} ;;
         *) exit 46 ;;
@@ -105,18 +106,22 @@ if [[ "$1" == "compose" ]]; then
     down|config) exit 49 ;;
     *) echo "unexpected compose $cmd $*" >&2; exit 50 ;;
   esac
+elif [[ "$1" == "tag" ]]; then
+  exit 0
 elif [[ "$1" == "image" && "$2" == "inspect" ]]; then
   [[ "$3" == "--format" && "$4" == "{{{{.Id}}}}" ]] || exit 51
   exit_code={state['tagged_inspect_exit']}
   [[ "$exit_code" == "0" ]] || exit "$exit_code"
   [[ {state['tagged_inspect_empty']!r} == "1" ]] || printf '%s\\n' {state['built_image_id']!r}
 elif [[ "$1" == "inspect" ]]; then
-  if [[ "$4" == "postgres-container" || "$4" == "redis-container" ]]; then
-    printf '%s\\n' {state['health_status']!r}
+  if [[ "$*" == *State.Health* ]]; then
+    printf '%s\n' {state['health_status']!r}
+  elif [[ "$4" == "postgres-container" || "$4" == "redis-container" ]]; then
+    printf '%s\n' {state['health_status']!r}
   else
     exit_code={state['running_inspect_exit']}
     [[ "$exit_code" == "0" ]] || exit "$exit_code"
-    [[ {state['running_inspect_empty']!r} == "1" ]] || printf '%s\\n' {state['running_image_id']!r}
+    [[ {state['running_inspect_empty']!r} == "1" ]] || printf '%s\n' {state['running_image_id']!r}
   fi
 else
   echo "unexpected docker $*" >&2; exit 52
@@ -143,7 +148,7 @@ fi
 
 def assert_no_forbidden_mutation(calls: list[str]) -> None:
     joined = "\n".join(calls)
-    forbidden = ["compose down", " prune", " volume rm", "compose config", "rollback"]
+    forbidden = ["compose down", " prune", " volume rm", "compose config"]
     for text in forbidden:
         assert text not in joined
     up_lines = [line for line in calls if line.startswith("compose-up-args ")]
@@ -202,6 +207,29 @@ def test_studio_platform_cd_materializes_deploy_script_for_both_components() -> 
         )
         assert pattern.search(workflow), f"{component} deploy does not execute a materialized temporary script"
 
+
+
+def test_successful_worker_deployment_is_worker_only_and_manual_identity(tmp_path: Path) -> None:
+    proc, calls = run_deploy(tmp_path, "worker")
+    assert proc.returncode == 0, proc.stderr + proc.stdout
+    assert "STUDIO_PLATFORM_WORKER_DEPLOY_OK" in proc.stdout
+    assert any("build studio-worker" in line for line in calls)
+    assert not any("build studio-web" in line or "build studio-api" in line for line in calls)
+    assert any("docker tag elevenlabs-studio-api:local elevenlabs-studio-worker:" in line for line in calls)
+    assert any("compose-up-args -d --no-deps --force-recreate studio-worker" in line for line in calls)
+    assert not any("compose-up-args" in line and ("postgres" in line or "redis" in line or "studio-api" in line or "studio-web" in line) for line in calls)
+    assert_no_forbidden_mutation(calls)
+
+
+def test_workflow_worker_is_manual_only_and_materialized() -> None:
+    workflow = (ROOT / ".github/workflows/studio-platform-cd.yml").read_text(encoding="utf-8")
+    assert "- worker" in workflow
+    assert "deploy-worker:" in workflow
+    assert "github.event_name == 'workflow_dispatch'" in workflow
+    assert 'bash "$deploy_script" worker' in workflow
+    assert "worker=true" not in workflow.split('elif [[ "${{ vars.STUDIO_PLATFORM_CD_ENABLED }}" == "true" ]]', 1)[1].split('echo "web=$web"',1)[0]
+    assert "manage_studio_worker.sh drain" not in workflow
+    assert "alembic upgrade" not in workflow
 
 def test_successful_web_deployment_has_no_api_dependency_gates(tmp_path: Path) -> None:
     proc, calls = run_deploy(tmp_path, "web")
