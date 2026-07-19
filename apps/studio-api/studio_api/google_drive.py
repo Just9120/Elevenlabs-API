@@ -219,3 +219,42 @@ def _content_length(value) -> int | None:
     except (TypeError, ValueError):
         return None
     return parsed if parsed >= 0 else None
+
+RECONCILIATION_DRIVE_FIELDS = "nextPageToken,files(id,mimeType,webViewLink,parents,createdTime,appProperties)"
+
+class GoogleDriveReconciliationReason(str, Enum):
+    unavailable = "unavailable"
+    malformed = "malformed"
+    authentication_rejected = "authentication_rejected"
+
+class GoogleDriveReconciliationError(RuntimeError):
+    def __init__(self, reason: GoogleDriveReconciliationReason):
+        self.reason = reason; super().__init__(reason.value)
+
+def list_reconciliation_candidates(access_token: str, *, folder_id: str, app_property_key: str, token: str):
+    from datetime import datetime, timezone
+    from .job_output_reconciliation import DriveReconciliationCandidate
+    escaped_key = app_property_key.replace("'", "\\'")
+    escaped_token = token.replace("'", "\\'")
+    q = f"'{folder_id}' in parents and appProperties has {{ key='{escaped_key}' and value='{escaped_token}' }} and trashed = false"
+    params = {"q": q, "fields": RECONCILIATION_DRIVE_FIELDS, "pageSize": "10", "supportsAllDrives": "true", "includeItemsFromAllDrives": "true"}
+    req = Request(f"{DRIVE_FILES_URL}?{urlencode(params)}", headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"})
+    try:
+        with urlopen(req, timeout=10) as resp:  # nosec - Google Drive endpoint; tests monkeypatch.
+            payload = json.loads(resp.read().decode("utf-8"))
+    except HTTPError as exc:
+        if exc.code in {401,403}: raise GoogleDriveReconciliationError(GoogleDriveReconciliationReason.authentication_rejected) from exc
+        raise GoogleDriveReconciliationError(GoogleDriveReconciliationReason.unavailable) from exc
+    except (URLError, OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise GoogleDriveReconciliationError(GoogleDriveReconciliationReason.unavailable) from exc
+    files = payload.get("files") if isinstance(payload, dict) else None
+    if not isinstance(files, list): raise GoogleDriveReconciliationError(GoogleDriveReconciliationReason.malformed)
+    out=[]
+    for item in files:
+        if not isinstance(item, dict): raise GoogleDriveReconciliationError(GoogleDriveReconciliationReason.malformed)
+        created=item.get("createdTime")
+        try: created_dt=datetime.fromisoformat(created.replace("Z","+00:00")).astimezone(timezone.utc).replace(tzinfo=None) if isinstance(created,str) else datetime.now(timezone.utc).replace(tzinfo=None)
+        except Exception: raise GoogleDriveReconciliationError(GoogleDriveReconciliationReason.malformed)
+        props=item.get("appProperties") if isinstance(item.get("appProperties"), dict) else {}
+        out.append(DriveReconciliationCandidate(str(item.get("id") or ""), str(item.get("mimeType") or ""), str(item.get("webViewLink") or ""), tuple(p for p in (item.get("parents") or []) if isinstance(p,str)), created_dt, {str(k):str(v) for k,v in props.items()}))
+    return out

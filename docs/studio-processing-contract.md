@@ -84,10 +84,16 @@ If cancellation, lease loss, owner/generation mismatch, project/source mutation,
 
 ## Known limitations
 
-- No automated output reconciliation.
+- Output reconciliation is source-level and explicit owner-driven; runtime rollout still requires operator migration/deployment evidence.
 - No safe stage-specific retry/recovery system.
 - No background lease heartbeat for long external calls.
 - No OpenAI Studio processing path.
 - No Studio manifest mutation.
 - No multi-worker production validation.
 - No production-live processing claim without controlled rollout validation.
+
+## Output reconciliation
+
+Studio output reconciliation is an explicit owner action for uncertain Google Docs side effects. Processing must prepare and commit a durable reconciliation case before Google Docs creation, then pass an opaque random token to Drive `appProperties`. When Google creation response, lifecycle, context close, or output persistence is uncertain, the job records `output_reconciliation_required` where lifecycle permits and does not retry provider work or create a second Google Doc.
+
+The reconciliation path performs exact Drive lookup using the opaque appProperty token and the job output-folder snapshot. It does not read transcript text, Google document body, raw provider responses, or raw Google responses. Zero matches remain unresolved; multiple matches become conflict; exactly one verified match may persist one missing output row. Reconciliation does not require an active worker lease and does not mutate lease owner, lease generation, attempt count, source bytes, or job output-folder snapshot.

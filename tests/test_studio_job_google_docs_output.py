@@ -264,3 +264,16 @@ def test_output_inserted_before_final_check_blocks_google_create(db, models):
     with pytest.raises(JobGoogleDocsOutputError, match="output_already_persisted"):
         with create_processing_job_google_doc_from_transcript(db, job_id=job.id, job_source_id=rel.id, lease_owner_id="worker", lease_generation=7, transcript=T(), settings=Settings(), now=now, clock=lambda: now, token_resolver=lambda *a, **k: "token", metadata_fetcher=good_meta, google_docs_transport=transport): pass
     assert transport.calls == []
+
+def test_transport_adds_reconciliation_app_property_without_visible_token():
+    from studio_api.google_docs_output import GoogleDocsTranscriptTransport, OUTPUT_RECONCILIATION_APP_PROPERTY
+    calls=[]
+    def post(url, **kwargs):
+        calls.append(kwargs); return httpx.Response(200, json={"id":"doc-private","name":"Title","mimeType":"application/vnd.google-apps.document","webViewLink":"https://docs.example/private","parents":["folder-private"]})
+    token="or_opaqueRandomOnly"
+    GoogleDocsTranscriptTransport(post=post).create_transcript_document(access_token="access", folder_id="folder-private", title="Title", document_text="Body", reconciliation_token=token)
+    body=calls[0]["content"]
+    assert f'"appProperties":{{"{OUTPUT_RECONCILIATION_APP_PROPERTY}":"{token}"}}'.encode() in body
+    assert body.count(token.encode()) == 1
+    text_part = body.split(b"text/plain; charset=UTF-8", 1)[1]
+    assert token.encode() not in text_part

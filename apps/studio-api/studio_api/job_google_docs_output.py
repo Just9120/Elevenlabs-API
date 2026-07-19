@@ -23,6 +23,7 @@ from .job_output_destination import DriveFolderAuthorizationMetadata, OutputDest
 from .job_source_materialization import SourceMaterializationError, _load_selected_snapshot
 from .models import JobStatus, Project, TranscriptionJob, TranscriptionJobOutput
 from .security import utcnow
+from .job_output_reconciliation import prepare_output_reconciliation_case, mark_reconciliation_creation_returned
 
 
 class TranscriptResultProtocol(Protocol):
@@ -144,9 +145,15 @@ def create_processing_job_google_doc_from_transcript(
         _compare_or_before(_load_output_job_snapshot(db, job_id, lease_owner_id, lease_generation, clock()), snap)
         _compare_source_or_before(_load_source_snapshot(db, job_id, job_source_id, lease_owner_id, lease_generation, clock(), settings), source_snap)
         _require_no_persisted_output(db, job_source_id)
+        case = prepare_output_reconciliation_case(db, job_id=job_id, job_source_id=job_source_id, lease_owner_id=lease_owner_id, lease_generation=lease_generation, document_title=formatted.title, character_count=len(formatted.body), now=clock())
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise JobGoogleDocsOutputError(JobGoogleDocsOutputReason.output_already_persisted)
         transport = google_docs_transport or GoogleDocsTranscriptTransport()
         try:
-            result = _call_transport(transport, access_token=token, folder_id=snap.output_drive_folder_id, title=formatted.title, document_text=formatted.body)
+            result = _call_transport(transport, access_token=token, folder_id=snap.output_drive_folder_id, title=formatted.title, document_text=formatted.body, reconciliation_token=case.reconciliation_token)
         except GoogleDocsOutputError as exc:
             raise JobGoogleDocsOutputError(_map_docs_reason(exc.reason)) from exc
         # PWA-OUTPUT-01B intentionally owns persistence/reconciliation of this irreversible output side effect.
@@ -154,6 +161,12 @@ def create_processing_job_google_doc_from_transcript(
             _compare_or_after(_load_output_job_snapshot(db, job_id, lease_owner_id, lease_generation, clock()), snap)
             _compare_source_or_after(_load_source_snapshot(db, job_id, job_source_id, lease_owner_id, lease_generation, clock(), settings), source_snap)
         except Exception as exc:
+            raise JobGoogleDocsOutputError(JobGoogleDocsOutputReason.lifecycle_changed_after_output_creation) from exc
+        try:
+            mark_reconciliation_creation_returned(db, job_source_id=job_source_id, document_id=result.document_id, web_view_url=result.web_view_link, document_created_at=clock(), now=clock())
+            db.commit()
+        except Exception as exc:
+            db.rollback()
             raise JobGoogleDocsOutputError(JobGoogleDocsOutputReason.lifecycle_changed_after_output_creation) from exc
         artifact = new_google_docs_transcript_artifact(result=result, created_at=clock(), character_count=len(formatted.body))
         yield artifact

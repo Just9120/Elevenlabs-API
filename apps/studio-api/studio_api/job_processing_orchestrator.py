@@ -20,6 +20,7 @@ from .job_google_docs_output import (
     create_processing_job_google_doc_from_transcript,
 )
 from .job_output_persistence import persist_processing_job_source_output_and_maybe_complete
+from .job_output_reconciliation import mark_reconciliation_required
 from .job_processing_lifecycle import (
     acknowledge_job_cancellation,
     begin_job_processing,
@@ -401,7 +402,8 @@ def _record_output_uncertainty(db, job_id, owner, generation, clock, message):
         db.expire_all()
         job = db.get(TranscriptionJob, job_id)
         if job is not None and job.status == JobStatus.processing and job.cancel_requested_at is None and job.lease_owner_id == owner and job.lease_generation == generation and is_lease_active(job, clock()):
-            fail_job_processing(db, job_id=job_id, lease_owner_id=owner, lease_generation=generation, now=clock(), error_code="output_reconciliation_required", error_message=message)
+            mark_reconciliation_required(db, job_id=job_id, lease_generation=generation, reason=message, now=clock())
+            fail_job_processing(db, job_id=job_id, lease_owner_id=owner, lease_generation=generation, now=clock(), error_code="output_reconciliation_required", error_message=message if message in {"google_docs_timeout","google_docs_unavailable","malformed_google_docs_response","lifecycle_changed_after_output_creation","commit_failed","context_closed","unknown","job_not_processable","lease_not_owned","lease_not_active","cancellation_requested"} else "unknown")
             db.commit()
             _emit(db, job_id, "JOB_FAILED", metadata={"final_job_status": "failed", "error_code": "output_reconciliation_required", "boundary": "output_persistence", "attempt_number": _attempt(db, job_id)})
     except Exception:
