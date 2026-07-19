@@ -21,20 +21,13 @@ Validation boundary:
 - Do not create multiple smoke jobs or retry automatically.
 - Do not claim production-live processing unless factual operator evidence shows one successful controlled canary with exactly one persisted output and no unsafe evidence.
 
-## Active coding item
+## Completed/source-complete item
 
 ### `PWA-WORKER-OPS-01`
 
-Goal: make the worker an official deployable component with health, identity, pause/drain/resume, and rollback contract.
+Source-level worker operations are done in this PR: worker health, manual-only worker deploy, image/commit identity checks, drain/pause/resume, explicit worker-only rollback, workflow boundary, and operator runbook are present. No production deployment or canary was run.
 
-Acceptance focus:
-
-- Worker deployment is explicit and separable from web/API deployment.
-- Operators can identify the intended worker image/version without exposing secrets.
-- Pause/drain/resume and rollback boundaries preserve leases, output evidence, and stateful-service safety.
-- The design does not add unsafe automatic retries or output duplication.
-
-## Next item
+## Active coding item / next item
 
 ### `PWA-OUTPUT-RECONCILIATION-01`
 

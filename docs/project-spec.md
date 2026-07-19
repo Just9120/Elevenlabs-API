@@ -240,3 +240,9 @@ Current delivery sequencing is in `docs/delivery-plan.md`. Product backlog items
 - `docs/runbooks/studio-platform-ops.md` — Studio operations and rollout runbook.
 - `docs/runbooks/validation.md` — validation commands/checklists.
 - `docs/runbooks/realtime-colab.md` — experimental realtime Colab validation.
+
+## Studio worker deployment operations boundary
+
+`PWA-WORKER-OPS-01` permits explicit manual-only worker deployment after the existing worker is absent or drained/stopped. The worker deploy path must verify image/commit identity, PostgreSQL health, database revision compatibility with the worker image Alembic head, and Docker worker health before reporting source-level deploy success.
+
+This does not permit automatic worker deployment on push, migrations from standard CD, automatic rollback, retries, reconciliation, or production-live claims without a separate controlled canary. Worker deploy success, healthy idle state, and image identity evidence are operational prerequisites only, not proof of production processing.

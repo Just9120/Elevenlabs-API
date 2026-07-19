@@ -60,7 +60,7 @@ services:
       retries: 5
   studio-worker:
     build: ../../apps/studio-api
-    image: elevenlabs-studio-api:local
+    image: elevenlabs-studio-worker:local
     command: ["python", "-m", "studio_api.worker"]
     restart: unless-stopped
     environment:
@@ -92,6 +92,13 @@ services:
       - studio_google_oauth_client_secret
     depends_on:
       postgres: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-m", "studio_api.worker_health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    stop_grace_period: 3700s
   postgres:
     image: postgres:17
     restart: unless-stopped
