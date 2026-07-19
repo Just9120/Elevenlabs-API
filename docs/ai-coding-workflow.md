@@ -286,18 +286,17 @@ If the PR completes, changes, blocks, splits, supersedes, defers, or otherwise c
 
 When sources conflict:
 
-1. Current explicit user instruction.
-2. `docs/project-spec.md` for product intent, requirements, business rules, durable constraints, and acceptance criteria.
-3. `docs/delivery-plan.md` for current delivery state and active item.
-4. `AGENTS.md` and `docs/ai-coding-workflow.md` for AI-assisted workflow and coding-agent behavior.
-5. `docs/ci-cd-rules.md` for CI/CD and deployment boundaries.
-6. Devtool specifications only for their own devtool scope.
-7. `docs/architecture.md` as supporting architecture reference where it does not conflict with the product spec.
-8. Current code/configuration as implementation evidence.
-9. Tests and CI as verification evidence.
-10. Runbooks, supporting docs, generated bundles, exports, old notes, and `docs/delivery-plan-archive.md`.
+1. Current explicit user instruction/task.
+2. `docs/project-spec.md` for product scope, requirements, durable constraints, business rules, and acceptance criteria.
+3. `docs/ai-coding-workflow.md` for AI-assisted development process.
+4. `docs/ci-cd-rules.md` for CI/CD, deployment, migrations, secrets, and runtime safety.
+5. `docs/delivery-plan.md` for the current delivery dashboard.
+6. `docs/architecture.md` for supporting component/runtime map.
+7. Current code/configuration as implementation evidence, not automatic product authority.
+8. Tests/CI as verification evidence.
+9. Runbooks, archive, and historical/supporting docs as subordinate context.
 
-If sources conflict, report the drift. Do not silently choose code, tests, old notes, generated context, or delivery archive content over current requirements.
+If sources conflict, report the drift. Do not silently choose code, tests, runbooks, old notes, generated context, or delivery archive content over current requirements.
 
 ---
 

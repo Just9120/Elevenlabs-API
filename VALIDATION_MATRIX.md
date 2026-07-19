@@ -1,74 +1,11 @@
-# Validation matrix
+# Historical validation matrix
 
-## Легенда
+This file is a historical pointer page kept for repository compatibility. It is not current validation authority.
 
-Этот файл — evidence/status truth table. Он фиксирует CI/static/manual evidence и не заменяет product spec, delivery plan или operator guides.
+Current validation guidance lives in `docs/runbooks/validation.md`. Current product status lives in `docs/project-spec.md`, and current delivery state lives in `docs/delivery-plan.md`.
 
-- **CI validated** — проверено локальными/CI командами, без live Colab/Drive/Docs/browser доказательств.
-- **Unit/static-tested** — покрыто тестами или static/source checks, но не доказывает runtime provider/browser/API behavior.
-- **Partial manual evidence** — вручную подтверждён конкретный ограниченный path; нельзя расширять claim на весь contour.
-- **Needs runtime validation** — требуется ручная проверка в Colab/Drive/Docs/browser/provider.
-- **Experimental** — путь существует, но E2E уверенность недостаточна.
-- **High risk** — известный риск требует отдельной validation plan.
-- **Not supported** — scenario intentionally out of scope.
+The previous matrix contained obsolete statements about missing Studio backend/auth/database/worker foundations. Those statements are superseded: Studio PWA source-level authentication, persistence, worker, processing, output, diagnostics, migrations, and tests are present in the repository, but Studio processing is not yet confirmed production-live.
 
-## Evidence table
+## Realtime Colab compatibility notes
 
-| Область | Статус | Evidence / notes |
-| --- | --- | --- |
-| Thin batch Colab launcher | CI validated | `scripts/ci_checks.py` проверяет notebook hygiene: thin launcher, no committed outputs/execution counts. |
-| Batch runtime helper guardrails | Unit/static-tested | Existing tests/source checks cover helper logic, safety guards and selected UI behavior; live Colab/Drive/Docs smoke validation still required for E2E claims. |
-| Raw provider body logging guard | CI validated | CI guard rejects obvious `resp.text` / `response.text` logging patterns. |
-| Temporary cleanup safety | CI validated | CI guard rejects broad `/tmp` cleanup patterns. |
-| README/docs synchronization | Docs-only / CI validated | Docs are maintained as source-of-truth/navigation/evidence files. This does not change runtime behavior. |
-| Source folder vs output folder wording | Unit/static-tested / needs runtime validation | UI/docs distinguish source folder and result/output folder. Real Colab UX remains part of RUNTIME-01. |
-| Google Drive picker buttons primary path | Unit/static-tested / needs runtime validation | Buttons are documented as reliable primary path; browser confirmation in Colab remains needed. |
-| Drive picker double-click | Unit/static-tested / needs runtime validation | Double-click is convenience only. `drive_multi` remains explicit/button-based and must not become folder scan. |
-| Google Docs transcript creation | Unit/static-tested helpers / needs E2E validation | Real Google Doc creation from a provider run requires RUNTIME-01. |
-| Manifest skip protection | Unit-tested / needs E2E validation | Current-format source/document behavior is helper-tested; controlled rerun must confirm safe skip without repeat provider call. |
-| Docs-only standardization | Unit-tested / needs E2E validation | Dry-run/apply logic and no-provider boundaries have test coverage; real Google Docs rewrite requires manual validation. |
-| Manifest maintenance | Unit-tested / needs E2E validation | Reconciliation/refresh helpers are covered; real Drive backup/write behavior requires manual validation. |
-| No transcript body / Docs body in `manifest` or analytics | Unit/static-tested guardrails / ongoing review | Safety requirement remains active for future fields and reports. |
-| No provider/STT/LLM calls in docs-only workflows | Unit/static-tested | Runtime observation should still verify no unexpected calls during manual validation. |
-| Analytics JSONL and startup timing | Unit/static-tested / needs runtime collection | Diagnostics exist; PERF-RUNTIME-01 must collect real Colab timing before performance claims. |
-| Optional speaker project workflow | Unit/static-tested / manual validation required | Label detection, mapping, preview and safety guardrails are tested. Live workflow must be tested on copied diarized Google Doc; current apply may rewrite as plain text. |
-| Speaker projects are not voice identification | Safety requirement / ongoing review | Manual text-label mapping only; no voice samples, voiceprints, embeddings or biometric matching. |
-| LIVE-COLAB-01 output-cell UI | Blocked | Tested Colab runtime did not attach active JS for inline `display(HTML(...))`, `IPython.display.Javascript(...)`, or `iframe srcdoc`. |
-| LIVE-COLAB-PROXY-01 standalone page | Partial manual evidence / more validation pending | One manual run confirmed standalone page boot, display+microphone capture, WebSocket open, `session_started`, partial transcript, committed transcript, user Stop, media-track release and WebSocket close. After RT-TOKEN-01, one same-page sequential Start → Stop → Start path was manually confirmed without reload: both sessions reached WebSocket open and `session_started`, both stopped cleanly, and the final close was user-initiated with code 1000. This is not full realtime E2E validation. |
-| Realtime generated frontend/static behavior | Unit/static-tested | Static/generated-JS checks cover local server/page builder, `/realtime.js` syntax, proxy-link output, source controls, one-time token exposure boundaries, attempt-scoped cancellation guards, Stop status preservation, permission-denial cleanup before WebSocket creation, stale mixed-capture cleanup, Russian-first UI copy and browser-only `realtime_live_transcript_v1` committed segments. |
-| Realtime microphone/input-only capture | Pending runtime validation | Requires real browser permissions and input device; not manually confirmed. |
-| Realtime tab/screen-audio-only capture | Pending runtime validation | Browser may not provide audio track; expected Russian no-audio-track behavior must be validated. |
-| Realtime display+microphone capture | Partial manual evidence / more validation pending | One run confirmed the basic path; echo/double-audio behavior, other devices and other browsers remain pending. |
-| Realtime loopback/virtual input route | Pending runtime validation | Treated as `Микрофон / аудиовход`; OS/browser exposure remains unvalidated. |
-| Realtime permission-cancellation behavior | Partial manual evidence / more validation pending | Ordinary browser denial/cancel before WebSocket creation manually returned the safe retry diagnostic, created no WebSocket for that attempt and left the UI usable for retry. Explicit Stop while a browser permission prompt remains open remains pending manual validation. |
-| Realtime refreshed-device UX | Pending runtime validation | Device refresh behavior and label handling need manual confirmation. |
-| Realtime structured live presentation | Pending focused validation | `realtime_live_transcript_v1` rendering is static-tested; manual verification of copy/download/clear behavior remains pending. |
-| Realtime cross-browser coverage | Pending runtime validation | Current evidence must not be generalized across browsers. |
-| ElevenLabs realtime WebSocket | Partial manual evidence / more validation pending | URL/config helpers are static-tested; one display+microphone run observed open, `session_started`, partial and committed events. After RT-TOKEN-01, repeated sequential sessions in one standalone page reached WebSocket open and `session_started` on both Starts and stopped cleanly. Other source combinations remain pending. |
-| Realtime single-use token safety | Static-reviewed / runtime pending | Browser should not receive `ELEVEN_API_KEY` or `ELEVENLABS_API_KEY`. The RT-TOKEN-01 repeat-session evidence confirms fresh per-Start token behavior for sequential Start → Stop → Start in one page, but does not prove absence of key/token exposure; live token creation/log review remains pending across validation paths. |
-| Realtime Google Docs save / manifest mutation / speaker integration | Not supported | Not part of current realtime contour. Any future save path requires separate scope and validation. |
-| OpenAI provider paths | Experimental | Manual alternative paths require separate E2E validation, especially diarization and chunking. |
-| OpenAI batch duration-plus-size split decisions | Unit/static-tested / partial manual evidence | Focused tests cover no-split, duration-only, size-only, combined split reasons, duration target clamping and unchanged request-path contracts. One long duration-triggered OpenAI batch run completed with Google Doc output and local timing evidence; oversized-file and diarization validation remain pending. |
-| OpenAI safe per-chunk timing diagnostics | Unit/static-tested / pending manual review | Local-only diagnostics cover per-part index/count, duration, size, preparation time, provider request time, and aggregate split/prepare/provider/merge totals without transcript, key, path, Doc, payload, or raw response details. Manual review should be repeated on a long OpenAI run. |
-| Manual pre-transcription project segmentation | Visual-builder/parser/static/unit-tested / needs runtime validation | Visual builder defaults, hidden disabled state, one-card initial plan, inherited starts, add/remove/re-add behavior, full-chain add validation from `00:00`, correct-card add errors, malformed/non-monotonic/duration-boundary rejection, defensive canonical segment construction, final `До конца записи`, automatic/manual document names, duplicate requested-title rejection when suffixes are disabled, deterministic numeric suffix allocation when enabled, segmented routing before parent manifest/conflict checks, safe source-check preview, exact audio re-encode splitting, title-independent/range-dependent manifest identity, temp cleanup path and provider-contract static checks are covered without provider calls. Manual Colab validation is still required and not yet performed. |
-| Title-preserving Google Docs standardization | Unit-tested / needs runtime validation | Docs-only standardization coverage verifies that existing segment-generated Drive titles, including custom titles and `(1)`/`(2)` suffixes, remain the structured heading and that segment metadata lines are preserved without creating or renaming Google Docs. |
-| Parallel notebooks / two Colab tabs | Not supported | Manifest model is single-user/single-runtime. |
-| GitHub Actions CI | Must be checked per PR | Local checks are necessary but not identical to hosted CI. |
-| Studio PWA static foundation | CI/static/unit/build validated before PR #77 merge | `apps/studio` covers Russian-first installable app shell, client-only prototype data, local file metadata display, local segment validation, settings public URL, PWA manifest/service worker and static nginx image build. Existing Python CI and Studio PWA CI passed before merge; first public app-shell deployment evidence is recorded separately below. |
-| Studio manual first deployment | Manual VPS/network/PWA artifact evidence recorded | Confirmed isolated operator-managed deployment checkout on branch `main`, stateless `studio-web` built/started healthy with bind only to `127.0.0.1:8181`, host nginx proxy for `studio.librechat.online`, Let's Encrypt HTTPS, `https://studio.librechat.online/healthz` HTTP 200, HTTP-to-HTTPS redirect, public `manifest.webmanifest`, and public `sw.js` that precaches the app shell. |
-| Studio browser/PWA behavior | User-reported manual confirmation | Studio UI opened in a normal desktop browser, the browser offered PWA installation, the installed app opened in a separate window, and after a successful online visit the app shell appeared to reopen offline. Browser/version were not recorded. This does not prove offline transcription, provider execution, Google integration, authentication, credentials, uploads, or job processing. |
-| Studio production integrations | Not implemented / not runtime-validated | Backend API, authentication, Google OAuth, Google Drive, Google Docs, provider processing, uploads, queues, job execution, database, workers and persistence are intentionally absent from current Studio runtime and have no runtime validation. |
-| Studio platform preparation (PWA-PLATFORM-01-PREP) | Design/acceptance criteria only | `docs/studio-platform-01-prep.md` defines supporting implementation contract, release slicing, security boundaries, validation categories, and open decisions. It does not validate or implement any stateful runtime, authentication, persistence, encryption, Google OAuth, uploads, provider calls, workers, database, Redis, or queue. |
-
-## Runtime validation backlog
-
-- **OPENAI-BATCH-DURATION-01 manual validation** — one long-but-small file above 1320 seconds has partial manual evidence with Google Doc output; OpenAI short file, oversized file and diarization on a copied non-sensitive recording remain pending.
-- **OPENAI-BATCH-TIMING-01 manual validation** — rerun one long OpenAI file and compare split, preparation, provider request and merge totals in local diagnostics.
-- **USER-SEGMENTS-01 manual validation** — local one-file with two segments; Google Drive one-file with two segments; OpenAI segment that internally triggers smart split; conflict-mode behavior per segment.
-- **RUNTIME-01** — source picker / `manifest` skip / Google Docs output smoke-check in real Colab.
-- **SPEAKER-RUNTIME-01** — speaker project workflow on a copied diarized Google Doc, including formatting caveat.
-- **PERF-RUNTIME-01** — collect startup timing summary from clean Colab runtime without treating it as transcription success.
-- **LIVE-COLAB-PROXY-01** — continue realtime manual validation for microphone-only, display-only, loopback/virtual input, explicit Stop-during-prompt cancellation, refreshed-device UX, structured live presentation and cross-browser behavior; ordinary browser denial/cancel before WebSocket creation has partial manual evidence only.
-| Studio platform core source | Unit/static-tested / pending manual deployment | Tests and static checks cover API auth/session/CSRF, credential encryption/masking lifecycle, frontend login/settings flow, Docker buildability, and Compose configuration. No production runtime validation is claimed. |
-| Studio platform manual operations | Needs runtime validation | Pending operator work: secret provisioning, PostgreSQL/Redis/API deployment, migration, bootstrap admin, nginx `/api/` rollout, R2/restic repository initialization, 10-hour timer installation, backup/restore rehearsal, and browser acceptance. |
-| Studio platform hardening follow-up | CI-targeted / manual runtime pending | Hosted CI is configured to use ephemeral PostgreSQL 17 and Redis 7 with generated fixture secret files, run Alembic upgrade, execute platform API tests, validate static/platform PWA modes, build API Docker image, and validate Compose config without deployment or external providers. |
+Realtime Colab prototype status is experimental. It has no Google Docs output, no manifest mutation, uses a single-use realtime token boundary, and still requires manual Colab runtime validation before any broader claim.
