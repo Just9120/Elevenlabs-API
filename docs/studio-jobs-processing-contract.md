@@ -581,6 +581,10 @@ It must not modify the database schema, add migrations, change output persistenc
 
 Source-done, CI-verified, deployed, migration-applied, worker-running, and production-live are separate states. No production-live Studio processing claim is allowed from documentation, repository source, CI, or frontend/source availability alone; factual operator evidence is required.
 
+Lease datetime invariant: every lease datetime must be normalized to timezone-aware UTC before comparison. Naive values are treated as UTC; aware values are converted to UTC. A lease is active only when `lease_expires_at > now`; equality means expired. This rule applies after PostgreSQL round-trips and across lifecycle, renewal, and recovery boundaries.
+
+Observability/progress contract: frontend progress must not be computed from elapsed time. Displayed stages must be derived from persisted job state or safe processing events. Existing processing events that are suitable foundations for this follow-up are `JOB_CLAIMED`, `PROCESSING_STARTED`, `SOURCE_VALIDATION_STARTED`, `SOURCE_READY`, `PROVIDER_REQUEST_STARTED`, `PROVIDER_REQUEST_COMPLETED`, `OUTPUT_CREATION_STARTED`, `OUTPUT_PERSISTED`, `JOB_COMPLETED`, and `JOB_FAILED`. This is a documented follow-up requirement, not a claim that a progress API has been implemented.
+
 The only approved follow-up after this PREP contract is `PWA-PROCESSING-ROLLOUT-01A — Manual Studio processing rollout and controlled smoke validation`.
 
 ### Secret-free preconditions
