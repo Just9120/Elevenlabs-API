@@ -1151,7 +1151,7 @@ def test_job_lease_migration_real_0005_shape_upgrades_to_head():
             assert {"lease_owner_id", "lease_generation", "claimed_at", "lease_expires_at", "attempt_count", "cancel_requested_at"}.issubset(cols)
             indexes = [idx["name"] for idx in inspector.get_indexes("transcription_jobs")]
             assert indexes.count("ix_transcription_jobs_status_lease_expires_created") == 1
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0013_job_retry_recovery"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0014_source_deletion_retention"
 
 
 
@@ -1186,7 +1186,7 @@ def test_job_output_migration_clean_chain_constraints_and_0007_roundtrip():
         run_alembic("head", env=env)
         with temp_engine.begin() as conn:
             assert "transcription_job_outputs" in inspect(conn).get_table_names()
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0013_job_retry_recovery"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0014_source_deletion_retention"
 
 
 
@@ -2588,24 +2588,24 @@ def test_job_retry_recovery_0013_upgrade_downgrade_roundtrip_and_metadata_table(
             assert "transcription_output_reconciliations" in inspect(conn).get_table_names()
             assert "transcription_job_source_attempts" not in inspect(conn).get_table_names()
             _assert_attempt_enums_absent(conn)
-        run_alembic("0013_job_retry_recovery", env=env)
+        run_alembic("0014_source_deletion_retention", env=env)
         with temp_engine.begin() as conn:
             _assert_job_retry_recovery_schema(inspect(conn), conn)
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0013_job_retry_recovery"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0014_source_deletion_retention"
         run_alembic("0012_output_reconciliation_cases", env=env, command="downgrade")
         with temp_engine.begin() as conn:
             assert "transcription_job_source_attempts" not in inspect(conn).get_table_names()
             assert "transcription_output_reconciliations" in inspect(conn).get_table_names()
             _assert_attempt_enums_absent(conn)
             assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0012_output_reconciliation_cases"
-        run_alembic("0013_job_retry_recovery", env=env)
+        run_alembic("0014_source_deletion_retention", env=env)
         with temp_engine.begin() as conn:
             _assert_job_retry_recovery_schema(inspect(conn), conn)
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0013_job_retry_recovery"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0014_source_deletion_retention"
 
     with isolated_migration_database("studio_migration_0013_metadata") as (temp_engine, env):
         Base.metadata.create_all(temp_engine)
-        run_alembic("0013_job_retry_recovery", env=env, command="stamp")
+        run_alembic("0014_source_deletion_retention", env=env, command="stamp")
         run_alembic("0012_output_reconciliation_cases", env=env, command="downgrade")
         with temp_engine.begin() as conn:
             assert "transcription_job_source_attempts" not in inspect(conn).get_table_names()
@@ -2718,7 +2718,7 @@ def test_job_destination_migration_0008_0009_upgrade_downgrade_backfill(tmp_path
         with temp_engine.begin() as conn:
             assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0009_job_output_destinations"
         cfg = Config(str(ALEMBIC))
-        assert ScriptDirectory.from_config(cfg).get_current_head() == "0013_job_retry_recovery"
+        assert ScriptDirectory.from_config(cfg).get_current_head() == "0014_source_deletion_retention"
     finally:
         temp_engine.dispose()
         cleanup_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")

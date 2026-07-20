@@ -96,7 +96,6 @@ type Source = {
   original_filename: string;
   mime_type: string | null;
   size_bytes: number | null;
-  drive_file_id: string | null;
   drive_file_url: string | null;
   upload_status: "pending" | "uploaded" | "deleted" | "expired" | "failed";
   uploaded_at: string | null;
@@ -256,9 +255,11 @@ function formatTime(value: string | null) {
   return value ? new Date(value).toLocaleString("ru-RU") : "—";
 }
 function isUsableJobSource(source: Source) {
+  const expiresAt = source.expires_at ? new Date(source.expires_at).getTime() : null;
   return (
     source.upload_status === "uploaded" &&
     !source.deleted_at &&
+    (expiresAt == null || expiresAt > Date.now()) &&
     (source.source_type === "google_drive" ||
       source.source_type === "local_upload")
   );
@@ -266,6 +267,8 @@ function isUsableJobSource(source: Source) {
 function unusableJobSourceReason(source: Source) {
   if (source.deleted_at)
     return "Убранный из проекта файл нельзя добавить в задачу";
+  if (source.expires_at && new Date(source.expires_at).getTime() <= Date.now())
+    return "Срок хранения временной копии истёк";
   if (source.upload_status !== "uploaded")
     return "Файл ещё не готов для задачи";
   return "Тип файла не поддерживается для задачи";
@@ -276,6 +279,14 @@ function isSafeDisplayUrl(value: string | null) {
     /^https?:\/\//i.test(value) &&
     !/\s|token|secret|cipher|presigned|s3:|r2:|key/i.test(value),
   );
+}
+
+function safeConfirm(message: string) {
+  try {
+    return window.confirm(message) !== false;
+  } catch {
+    return true;
+  }
 }
 
 function ResourceExternalLink({
@@ -385,9 +396,11 @@ const demoJobs = [
 ];
 class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  data?: unknown;
+  constructor(status: number, message: string, data?: unknown) {
     super(message);
     this.status = status;
+    this.data = data;
   }
 }
 function diagnosticEndpointGroup(path: string) {
@@ -434,11 +447,18 @@ async function requestJson<T>(
     },
   });
   if (!res.ok) {
+    let data: unknown = null;
+    try {
+      data = await res.clone().json();
+    } catch {
+      data = null;
+    }
     throw new ApiError(
       res.status,
       res.status === 429
         ? "Слишком много попыток. Попробуйте позже."
         : "Операция не выполнена. Проверьте данные и повторите.",
+      data,
     );
   }
   return res.json();
@@ -849,14 +869,36 @@ function SourcesPanel({
   onError: (message: string) => void;
 }) {
   async function deleteSource(id: string) {
+    const source = sources.items.find((item) => item.id === id);
+    const message =
+      source?.source_type === "google_drive"
+        ? "Источник будет убран только из Studio. Файл останется на Google Drive."
+        : "Источник будет убран из Studio. Временная копия будет удалена из хранилища после безопасной проверки связанных задач.";
+    if (!safeConfirm(message)) return;
     try {
       await csrfMutate<{ ok: boolean }>(`/sources/${id}`, csrf, onCsrf, {
         method: "DELETE",
       });
       onSourceRemoved?.(id);
       onReload(project.id);
-    } catch {
-      onError("Не удалось убрать файл из проекта.");
+    } catch (error) {
+      const detail =
+        error instanceof ApiError &&
+        error.data &&
+        typeof error.data === "object" &&
+        "detail" in error.data
+          ? (error.data as { detail?: unknown }).detail
+          : null;
+      const reason =
+        detail && typeof detail === "object" && "reason" in detail
+          ? (detail as { reason?: string }).reason
+          : null;
+      const messages: Record<string, string> = {
+        queued_job_uses_source: "Сначала отмените ожидающие задачи, использующие этот файл.",
+        processing_job_uses_source: "Дождитесь завершения или отмены текущей обработки.",
+        retryable_failed_job_uses_source: "Источник нужен для доступного безопасного повтора задачи.",
+      };
+      onError(reason && messages[reason] ? messages[reason] : "Не удалось убрать файл из проекта.");
     }
   }
   return (
@@ -909,9 +951,6 @@ function SourcesPanel({
             <span>Удалён: {formatTime(source.deleted_at)}</span>
             {source.delete_reason && (
               <span>Причина: {source.delete_reason}</span>
-            )}
-            {source.drive_file_id && (
-              <span>Drive ID: {source.drive_file_id}</span>
             )}
           </details>
         </article>
@@ -1281,14 +1320,7 @@ function PreparationPanel({
         onCsrf,
         { method: "POST", body: JSON.stringify({ file_ids: fileIds }) },
       );
-      const createdByDriveId = new Map(
-        created.sources
-          .filter((source) => source.drive_file_id)
-          .map((source) => [source.drive_file_id, source]),
-      );
-      const orderedSources = fileIds.map((fileId) =>
-        createdByDriveId.get(fileId),
-      );
+      const orderedSources = created.sources;
       if (orderedSources.some((source) => !source)) {
         throw new Error(
           "Не удалось сопоставить выбранные файлы с созданными источниками. Обновите файлы проекта и повторите выбор.",

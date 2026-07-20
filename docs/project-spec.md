@@ -134,7 +134,7 @@ Source currently present in the repository includes:
 - safe output persistence and browser-safe output read path;
 - diagnostics, diagnostic debug sessions, migrations, and tests.
 
-The current Alembic migration head in the repository is `0013_job_retry_recovery` under `apps/studio-api/alembic/versions/`.
+The current Alembic migration head in the repository is `0014_source_deletion_retention` under `apps/studio-api/alembic/versions/`.
 
 ## Studio production status and unfinished capabilities
 
@@ -205,7 +205,7 @@ The Studio PWA may render implemented source-level output metadata for explicitl
 Studio processing can be considered production-live only after all of the following have factual operator evidence:
 
 1. Repository source and CI are verified for the intended commit.
-2. Production database migration head matches repository head `0013_job_retry_recovery` where required.
+2. Production database migration head matches repository head `0014_source_deletion_retention` where required.
 3. Web/API deployment identity and health are verified.
 4. Exactly one intended worker instance is deployed from the intended image and shown idle before the smoke.
 5. One controlled operator-approved job uses one small supported source, one owner-scoped ElevenLabs BYOK credential, one valid Google connection, and one writable output folder.
@@ -256,3 +256,11 @@ Reconciliation is not processing retry, not provider retry, not automatic recove
 Owner-scoped reconciliation is available only through an explicit Studio API/PWA action. It queries Google Drive by the exact opaque appProperty token plus the exact persisted job output-folder snapshot and `trashed = false`; it verifies Google Doc MIME type, exact parent folder, exact appProperty, safe Google web URL, relation/job ownership, and uniqueness before persisting missing output evidence. It never calls the transcription provider, never creates or deletes Google Docs, never reads or exports document body, never uses title-only/time-only/folder-wide guessing, and never returns the token, document ID, folder ID, raw Google payloads, transcript body, or document body to browsers.
 
 After successful reconciliation persistence, cancelled jobs remain cancelled, actively queued/processing jobs are not reconciled, attempt counts and leases are not recreated or reset, unrelated failed jobs are not completed, and only a failed job with `error_code=output_reconciliation_required` can become completed when all non-skipped relations have persisted output coverage.
+
+### Studio source deletion, retention, and cleanup
+
+Studio source removal is logical, owner-scoped, and durable in PostgreSQL. Source rows are never hard-deleted by the source lifecycle; display metadata, job-source relations, historical jobs, persisted outputs, attempt evidence, and reconciliation cases remain available for history. Google Drive source removal only removes the Studio reference: Studio must not delete, trash, update, or otherwise mutate the external Drive file, and Google Docs outputs are not removed by this flow.
+
+Local-upload bytes use an asynchronous, idempotent cleanup lifecycle stored on `sources`. S3/R2 delete is allowed only after durable logical deletion or retention expiry state exists. A missing object is treated as successful physical cleanup; storage failures do not roll back logical deletion and are retried through durable cleanup state. Object storage identity is cleared only after successful cleanup finalization; browser payloads must not expose bucket/object keys, cleanup owners, cleanup generations, cleanup leases, cleanup attempt counts, cleanup errors, or internal job references.
+
+Local sources expire when `expires_at <= now`. Expiry blocks new jobs, claims, explicit retries, expired-lease recovery, upload completion, and processing-time source access. Retention expiry may mark a local source `expired` with `delete_reason=retention_expired` without setting `deleted_at`, so unavailable metadata may remain visible. A referencing `processing` job defers physical cleanup until terminal/recovered state; cleanup never calls the provider, Google Drive, Google Docs, output reconciliation, or attempt-ledger mutation. Completed, cancelled, non-retryable failed, provider-uncertain/result-lost, and unresolved-reconciliation history does not block user source deletion; queued, processing, and actually retryable failed jobs do block deletion.

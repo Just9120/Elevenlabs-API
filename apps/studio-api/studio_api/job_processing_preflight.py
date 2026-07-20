@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, TypedDict
 
 
@@ -8,6 +9,7 @@ GOOGLE_DRIVE_SOURCE_TYPE = "google_drive"
 LOCAL_UPLOAD_SOURCE_TYPE = "local_upload"
 UPLOADED_SOURCE_STATUS = "uploaded"
 DELETED_SOURCE_STATUS = "deleted"
+EXPIRED_SOURCE_STATUS = "expired"
 
 
 class PreflightSourceSummary(TypedDict):
@@ -33,7 +35,7 @@ class ProcessingPreflightSummary(TypedDict):
     output_folder_configured: bool
 
 
-def build_processing_preflight(job: Any) -> ProcessingPreflightSummary:
+def build_processing_preflight(job: Any, *, now: datetime | None = None) -> ProcessingPreflightSummary:
     """Build a read-only, safe metadata snapshot for future job processing.
 
     The snapshot is deliberately conservative. It does not claim, mutate, or
@@ -55,7 +57,7 @@ def build_processing_preflight(job: Any) -> ProcessingPreflightSummary:
     if not ordered_job_sources:
         blocking_reasons.append("job_has_no_sources")
 
-    source_summaries = [_summarize_source(job, job_source) for job_source in ordered_job_sources]
+    source_summaries = [_summarize_source(job, job_source, now=now) for job_source in ordered_job_sources]
     for source_summary in source_summaries:
         for reason in source_summary["blocking_reasons"]:
             if reason not in blocking_reasons:
@@ -73,7 +75,7 @@ def build_processing_preflight(job: Any) -> ProcessingPreflightSummary:
     }
 
 
-def _summarize_source(job: Any, job_source: Any) -> PreflightSourceSummary:
+def _summarize_source(job: Any, job_source: Any, *, now: datetime | None = None) -> PreflightSourceSummary:
     source = job_source.source
     blocking_reasons: list[str] = []
 
@@ -99,6 +101,8 @@ def _summarize_source(job: Any, job_source: Any) -> PreflightSourceSummary:
     is_deleted = source.deleted_at is not None or upload_status == DELETED_SOURCE_STATUS
     if is_deleted:
         blocking_reasons.append("source_deleted")
+    if _source_expired(source, now) or upload_status == EXPIRED_SOURCE_STATUS:
+        blocking_reasons.append("source_expired")
 
     is_uploaded = upload_status == UPLOADED_SOURCE_STATUS
     if not is_uploaded:
@@ -135,3 +139,14 @@ def _job_output_folder_configured(job: Any) -> bool:
 
 def _enum_value(value: Any) -> str:
     return str(getattr(value, "value", value))
+
+
+def _source_expired(source: Any, now: datetime | None) -> bool:
+    if now is None or getattr(source, "expires_at", None) is None:
+        return False
+    expires_at = source.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    return expires_at <= now

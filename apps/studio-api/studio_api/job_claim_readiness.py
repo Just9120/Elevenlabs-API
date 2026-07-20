@@ -25,7 +25,7 @@ class ClaimReadinessSummary(TypedDict):
     output_folder_configured: bool
 
 
-def build_claim_readiness(job: Any) -> ClaimReadinessSummary:
+def build_claim_readiness(job: Any, *, now=None) -> ClaimReadinessSummary:
     """Build a non-mutating future claim-readiness plan from a job object.
 
     This helper is deliberately planning-only. It reuses the read-only
@@ -33,7 +33,7 @@ def build_claim_readiness(job: Any) -> ClaimReadinessSummary:
     access source bytes, call providers, create output, or persist anything.
     """
 
-    return build_claim_readiness_from_preflight(build_processing_preflight(job))
+    return build_claim_readiness_from_preflight(build_processing_preflight(job, now=now))
 
 
 def build_claim_readiness_from_preflight(

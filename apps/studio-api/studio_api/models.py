@@ -13,6 +13,7 @@ class GoogleConnectionStatus(str, enum.Enum): active="active"; revoked="revoked"
 class GoogleProvider(str, enum.Enum): google="google"
 class SourceType(str, enum.Enum): local_upload="local_upload"; google_drive="google_drive"
 class SourceUploadStatus(str, enum.Enum): pending="pending"; uploaded="uploaded"; deleted="deleted"; expired="expired"; failed="failed"
+class SourceStorageCleanupStatus(str, enum.Enum): not_requested="not_requested"; not_applicable="not_applicable"; pending="pending"; completed="completed"; failed="failed"
 class JobStatus(str, enum.Enum): queued="queued"; processing="processing"; cancelled="cancelled"; failed="failed"; completed="completed"
 class JobSourceStatus(str, enum.Enum): queued="queued"; skipped="skipped"
 class OutputReconciliationStatus(str, enum.Enum): prepared="prepared"; creation_returned="creation_returned"; reconciliation_required="reconciliation_required"; resolved="resolved"; conflict="conflict"
@@ -149,10 +150,20 @@ class Source(Base):
     expires_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True), index=True)
     deleted_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True), index=True)
     delete_reason: Mapped[str|None]=mapped_column(String(80))
+    storage_cleanup_status: Mapped[SourceStorageCleanupStatus]=mapped_column(Enum(SourceStorageCleanupStatus), default=SourceStorageCleanupStatus.not_requested, server_default=text("'not_requested'"), index=True)
+    storage_cleanup_requested_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    storage_cleanup_not_before_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True), index=True)
+    storage_cleanup_completed_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    storage_cleanup_attempt_count: Mapped[int]=mapped_column(Integer, default=0, server_default=text("0"))
+    storage_cleanup_error_code: Mapped[str|None]=mapped_column(String(80))
+    storage_cleanup_owner_id: Mapped[str|None]=mapped_column(String(128))
+    storage_cleanup_generation: Mapped[int]=mapped_column(Integer, default=0, server_default=text("0"))
+    storage_cleanup_claimed_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    storage_cleanup_lease_expires_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now)
     updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now, onupdate=now)
     project: Mapped[Project]=relationship("Project", back_populates="sources")
-    __table_args__=(Index("ix_sources_project_status", "project_id", "upload_status", "created_at"),)
+    __table_args__=(Index("ix_sources_project_status", "project_id", "upload_status", "created_at"), Index("ix_sources_storage_cleanup_selection", "storage_cleanup_status", "storage_cleanup_not_before_at", "storage_cleanup_lease_expires_at"), CheckConstraint("storage_cleanup_attempt_count >= 0", name="ck_sources_storage_cleanup_attempt_count_nonnegative"), CheckConstraint("storage_cleanup_generation >= 0", name="ck_sources_storage_cleanup_generation_nonnegative"),)
 
 class TranscriptionJob(Base):
     __tablename__="transcription_jobs"

@@ -108,6 +108,22 @@ def run_worker_loop(
         if result is not None:
             _safe_log_result(logger, result)
             continue
+        if not stop_event.is_set():
+            cleanup_db = session_factory()
+            try:
+                from datetime import datetime, timezone
+                from .source_deletion import run_one_source_cleanup
+
+                if run_one_source_cleanup(cleanup_db, settings=settings, owner_id=f"{owner_id}:source-cleanup", now=datetime.now(timezone.utc)):
+                    logger.info("studio_worker_source_cleanup_processed", extra={"event": "studio_worker_source_cleanup_processed"})
+            except Exception:
+                _safe_rollback(cleanup_db, logger)
+                logger.warning("studio_worker_source_cleanup_failed", extra={"event": "studio_worker_source_cleanup_failed", "reason": "source_cleanup_failed"})
+            finally:
+                try:
+                    cleanup_db.close()
+                except Exception:
+                    logger.warning("worker_session_close_failed")
         stop_event.wait(wait_seconds if wait_seconds is not None else poll_interval)
     return 0
 

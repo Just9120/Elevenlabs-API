@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse, RedirectResponse, Response as FastAPIResponse
 from pydantic import BaseModel, EmailStr, Field, field_validator
-from sqlalchemy import text, func
+from sqlalchemy import text, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from alembic.config import Config
@@ -28,6 +28,7 @@ from .job_retry_recovery import compute_explicit_retry_readiness, queue_retry
 from .google_docs_output import OUTPUT_RECONCILIATION_APP_PROPERTY
 from .google_drive import GoogleDriveReconciliationError, list_reconciliation_candidates
 from .job_output_folder_selection import VerifiedOutputFolderSelection, verify_output_folder_selection
+from .source_deletion import SourceDeletionReason, is_source_expired, request_source_deletion, run_one_source_cleanup
 
 settings=get_settings()
 app=FastAPI(docs_url="/docs" if settings.enable_api_docs else None, redoc_url=None, openapi_url="/openapi.json" if settings.enable_api_docs else None)
@@ -221,7 +222,7 @@ def project_payload(p: Project):
     return {"id": p.id, "owner_user_id": p.owner_user_id, "title": p.title, "description": p.description, "output_drive_folder_id": p.output_drive_folder_id, "output_drive_folder_url": p.output_drive_folder_url, "output_drive_folder_name": p.output_drive_folder_name, "created_at": p.created_at.isoformat(), "updated_at": p.updated_at.isoformat(), "archived_at": p.archived_at.isoformat() if p.archived_at else None}
 
 def source_payload(s: Source):
-    return {"id": s.id, "project_id": s.project_id, "source_type": s.source_type.value, "original_filename": s.original_filename, "mime_type": s.mime_type, "size_bytes": s.size_bytes, "drive_file_id": s.drive_file_id, "drive_file_url": s.drive_file_url, "upload_status": s.upload_status.value, "uploaded_at": s.uploaded_at.isoformat() if s.uploaded_at else None, "expires_at": s.expires_at.isoformat() if s.expires_at else None, "deleted_at": s.deleted_at.isoformat() if s.deleted_at else None, "delete_reason": s.delete_reason, "created_at": s.created_at.isoformat(), "updated_at": s.updated_at.isoformat()}
+    return {"id": s.id, "project_id": s.project_id, "source_type": s.source_type.value, "original_filename": s.original_filename, "mime_type": s.mime_type, "size_bytes": s.size_bytes, "drive_file_url": s.drive_file_url, "upload_status": s.upload_status.value, "uploaded_at": s.uploaded_at.isoformat() if s.uploaded_at else None, "expires_at": s.expires_at.isoformat() if s.expires_at else None, "deleted_at": s.deleted_at.isoformat() if s.deleted_at else None, "delete_reason": s.delete_reason, "created_at": s.created_at.isoformat(), "updated_at": s.updated_at.isoformat()}
 
 def clean_project_title(title: str) -> str:
     value=title.strip()
@@ -303,10 +304,14 @@ def owned_job_or_404(db: Session, user: User, job_id: str) -> TranscriptionJob:
     if not job or job.owner_user_id!=user.id: raise HTTPException(404, "Не найдено")
     return job
 
-def validate_job_sources(db: Session, project_id: str, source_ids: list[str]) -> list[Source]:
-    rows=db.query(Source).filter(Source.id.in_(source_ids), Source.project_id==project_id).all()
+def validate_job_sources(db: Session, project_id: str, source_ids: list[str], *, lock: bool=False, now: datetime|None=None) -> list[Source]:
+    stmt=select(Source).where(Source.id.in_(source_ids), Source.project_id==project_id)
+    if lock:
+        stmt=stmt.order_by(Source.id.asc()).with_for_update()
+    rows=list(db.execute(stmt).scalars().all())
     by_id={r.id:r for r in rows}
     ordered=[]
+    now=now or utcnow()
     for sid in source_ids:
         src=by_id.get(sid)
         if not src or src.deleted_at is not None:
@@ -316,6 +321,8 @@ def validate_job_sources(db: Session, project_id: str, source_ids: list[str]) ->
         elif src.source_type==SourceType.local_upload:
             usable=src.upload_status==SourceUploadStatus.uploaded and src.s3_object_key is not None
         else:
+            usable=False
+        if is_source_expired(src, now):
             usable=False
         if not usable:
             raise HTTPException(422, "Один или несколько источников недоступны для задания")
@@ -431,7 +438,7 @@ def create_google_picker_sources(project_id: str, data: GooglePickerSourceSelect
     now=utcnow(); created=[]
     try:
         for meta,mime in metas:
-            src=Source(project_id=p.id, source_type=SourceType.google_drive, original_filename=normalize_source_display_filename(meta.name or f"Google Drive source {meta.id}"), mime_type=mime, size_bytes=meta.size_bytes, drive_file_id=clean_drive_id(meta.id, "ID файла Google Drive"), drive_file_url=clean_drive_url(meta.web_view_link), upload_status=SourceUploadStatus.uploaded, uploaded_at=now)
+            src=Source(project_id=p.id, source_type=SourceType.google_drive, original_filename=normalize_source_display_filename(meta.name or f"Google Drive source {meta.id}"), mime_type=mime, size_bytes=meta.size_bytes, drive_file_id=clean_drive_id(meta.id, "ID файла Google Drive"), drive_file_url=clean_drive_url(meta.web_view_link), upload_status=SourceUploadStatus.uploaded, uploaded_at=now, storage_cleanup_status=SourceStorageCleanupStatus.not_applicable)
             db.add(src); created.append(src)
         audit(db,"source.google_picker.created",actor_user_id=user.id,subject_user_id=user.id,project_id=p.id,source_count=len(created)); db.commit()
     except Exception:
@@ -533,6 +540,7 @@ def create_transcription_jobs_batch(project_id: str, data: TranscriptionJobBatch
     verified_by_id={fid: verify_output_folder_selection(access_token, fid) for fid in unique_folders}
     try:
         jobs=[]
+        sources=validate_job_sources(db, p.id, source_ids, lock=True)
         for idx,(src,fid,title) in enumerate(zip(sources,folder_ids,titles)):
             vf=verified_by_id[fid]
             job=TranscriptionJob(project_id=p.id, owner_user_id=user.id, status=JobStatus.queued, provider_credential_id=provider_credential_id, title=title, language=language, options_json=options_json, batch_idempotency_key=key, batch_request_hash=request_hash, batch_position=idx)
@@ -553,7 +561,7 @@ def create_transcription_jobs_batch(project_id: str, data: TranscriptionJobBatch
 @app.post("/api/projects/{project_id}/sources/google-drive")
 def create_google_drive_source(project_id: str, data: GoogleDriveSourceIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     _,user=pair; limiter.check("source:gdrive:create:"+user.id, 120, 3600); p=owned_project_or_404(db,user,project_id)
-    src=Source(project_id=p.id, source_type=SourceType.google_drive, original_filename=normalize_source_display_filename(data.original_filename), mime_type=data.mime_type.strip() if data.mime_type else None, size_bytes=data.size_bytes, drive_file_id=clean_drive_id(data.drive_file_id, "ID файла Google Drive"), drive_file_url=clean_drive_url(data.drive_file_url), upload_status=SourceUploadStatus.uploaded, uploaded_at=utcnow())
+    src=Source(project_id=p.id, source_type=SourceType.google_drive, original_filename=normalize_source_display_filename(data.original_filename), mime_type=data.mime_type.strip() if data.mime_type else None, size_bytes=data.size_bytes, drive_file_id=clean_drive_id(data.drive_file_id, "ID файла Google Drive"), drive_file_url=clean_drive_url(data.drive_file_url), upload_status=SourceUploadStatus.uploaded, uploaded_at=utcnow(), storage_cleanup_status=SourceStorageCleanupStatus.not_applicable)
     db.add(src); audit(db,"source.google_drive.created",actor_user_id=user.id,subject_user_id=user.id); db.commit(); return source_payload(src)
 
 @app.post("/api/projects/{project_id}/sources/local-upload/initiate")
@@ -571,24 +579,34 @@ def initiate_local_upload(project_id: str, data: LocalUploadInitiateIn, pair=Dep
 def complete_local_upload(source_id: str, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     _,user=pair; src=owned_source_or_404(db,user,source_id)
     if src.source_type!=SourceType.local_upload or src.upload_status!=SourceUploadStatus.pending or src.deleted_at is not None: raise HTTPException(404,"Не найдено")
+    key=src.s3_object_key
     try:
-        head=get_source_storage(settings).head_object(src.s3_object_key)
+        head=get_source_storage(settings).head_object(key)
     except FileNotFoundError:
         raise HTTPException(409, "Загруженный объект источника не найден")
     if head.size_bytes is not None and src.size_bytes is not None and head.size_bytes > settings.source_max_upload_bytes: raise HTTPException(422, "Файл слишком большой")
     if head.content_type and not is_supported_source_mime_type(head.content_type): raise HTTPException(422, "Неподдерживаемый тип файла")
-    src.upload_status=SourceUploadStatus.uploaded; src.uploaded_at=utcnow(); src.updated_at=utcnow(); audit(db,"source.local_upload.completed",actor_user_id=user.id,subject_user_id=user.id); db.commit(); return source_payload(src)
+    src=db.execute(select(Source).where(Source.id==source_id).with_for_update()).scalar_one_or_none()
+    now=utcnow()
+    if not src or src.project.owner_user_id!=user.id or src.source_type!=SourceType.local_upload or src.upload_status!=SourceUploadStatus.pending or src.deleted_at is not None or is_source_expired(src, now):
+        raise HTTPException(404,"Не найдено")
+    src.upload_status=SourceUploadStatus.uploaded; src.uploaded_at=now; src.updated_at=now; audit(db,"source.local_upload.completed",actor_user_id=user.id,subject_user_id=user.id); db.commit(); return source_payload(src)
 
 @app.delete("/api/sources/{source_id}")
-def delete_source(source_id: str, pair=Depends(require_csrf), db: Session=Depends(get_db)):
-    _,user=pair; src=owned_source_or_404(db,user,source_id)
-    if src.deleted_at is None:
-        if src.source_type==SourceType.local_upload and src.s3_object_key:
-            get_source_storage(settings).delete_object(src.s3_object_key)
-        src.upload_status=SourceUploadStatus.deleted; src.deleted_at=utcnow(); src.delete_reason="user_deleted"; src.updated_at=src.deleted_at
-        audit(db,"source.deleted",actor_user_id=user.id,subject_user_id=user.id)
+def delete_source(source_id: str, request: Request, pair=Depends(require_csrf), db: Session=Depends(get_db), _=Depends(require_same_origin)):
+    _,user=pair; limiter.check("source:delete:"+user.id, 60, 3600)
+    result=request_source_deletion(db, owner_user_id=user.id, source_id=source_id, now=utcnow())
+    if result is None:
+        raise HTTPException(404,"Не найдено")
+    if not result.ok:
         db.commit()
-    return {"ok": True}
+        raise HTTPException(status_code=409, detail={"reason": result.reason.value})
+    db.commit()
+    try:
+        run_one_source_cleanup(db, settings=settings, owner_id=f"api-cleanup-{user.id}", now=utcnow())
+    except Exception:
+        db.rollback()
+    return {"ok": True, "source_state": result.source_state, "storage_cleanup": result.storage_cleanup}
 
 
 
@@ -601,7 +619,7 @@ def list_project_jobs(project_id: str, pair=Depends(current_session), db: Sessio
 @app.post("/api/projects/{project_id}/jobs")
 def create_transcription_job(project_id: str, data: TranscriptionJobCreateIn, request: Request, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     _,user=pair; limiter.check("job:create:"+user.id, 60, 3600); p=owned_project_or_404(db,user,project_id)
-    sources=validate_job_sources(db, p.id, data.source_ids)
+    sources=validate_job_sources(db, p.id, data.source_ids, lock=True)
     if data.provider_credential_id:
         cred=db.get(ProviderCredential, data.provider_credential_id)
         if not cred or cred.user_id!=user.id or cred.status!=CredentialStatus.active: raise HTTPException(422, "Учетные данные провайдера недоступны")

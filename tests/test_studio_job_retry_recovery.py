@@ -60,8 +60,8 @@ def test_retry_recovery_model_metadata_contract(studio_model_modules):
 def test_alembic_single_head_is_retry_recovery():
     cfg = Config("apps/studio-api/alembic.ini")
     script = ScriptDirectory.from_config(cfg)
-    assert script.get_heads() == ["0013_job_retry_recovery"]
-    assert script.get_current_head() == "0013_job_retry_recovery"
+    assert script.get_heads() == ["0014_source_deletion_retention"]
+    assert script.get_current_head() == "0014_source_deletion_retention"
 
 from datetime import datetime, timedelta
 from sqlalchemy import create_engine
