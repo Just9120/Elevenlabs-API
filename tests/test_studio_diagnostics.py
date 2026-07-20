@@ -41,7 +41,7 @@ def user_project_job(db):
 
 def uploaded_source(db, project_id):
     from studio_api import models as m
-    src=m.Source(project_id=project_id, source_type=m.SourceType.local_upload, original_filename="secret.mp3", mime_type="audio/mpeg", size_bytes=1, s3_bucket="bucket", s3_object_key="private/key", upload_status=m.SourceUploadStatus.uploaded, uploaded_at=datetime(2026,7,16), expires_at=datetime(2026,7,17))
+    src=m.Source(project_id=project_id, source_type=m.SourceType.local_upload, original_filename="secret.mp3", mime_type="audio/mpeg", size_bytes=1, s3_bucket="bucket", s3_object_key="private/key", upload_status=m.SourceUploadStatus.uploaded, uploaded_at=datetime(2026,7,16), expires_at=None)
     db.add(src); db.commit()
     return src
 

@@ -35,7 +35,7 @@ from studio_api.config import Settings
 from studio_api.db import SessionLocal, engine
 from studio_api.deps import get_client_ip
 from studio_api.main import app, limiter
-from studio_api.models import AuditEvent, DiagnosticDebugSession, DiagnosticEvent, TranscriptionOutputReconciliation, TranscriptionJobSourceAttempt, OutputReconciliationStatus, SourceAttemptRetryDisposition, SourceAttemptStage, CredentialProvider, CredentialStatus, JobSourceStatus, JobStatus, LocalIdentity, Project, ProviderCredential, ProviderCredentialVersion, Source, SourceType, SourceUploadStatus, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, User, UserRole, UserStatus
+from studio_api.models import AuditEvent, DiagnosticDebugSession, DiagnosticEvent, TranscriptionOutputReconciliation, TranscriptionJobSourceAttempt, OutputReconciliationStatus, SourceAttemptRetryDisposition, SourceAttemptStage, CredentialProvider, CredentialStatus, JobSourceStatus, JobStatus, LocalIdentity, Project, ProviderCredential, ProviderCredentialVersion, Source, SourceStorageCleanupStatus, SourceType, SourceUploadStatus, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, User, UserRole, UserStatus
 from studio_api.security import aad, decrypt, encrypt, hash_password, master_key_from_b64, utcnow, verify_password
 from studio_api.job_claim_lease import JobLeaseError, JobLeaseFailureReason, acquire_job_lease, acquire_next_ready_job_lease, invalidate_job_lease, is_lease_active, release_job_lease, renew_job_lease
 from studio_api.job_processing_lifecycle import JobProcessingError, JobProcessingFailureReason, acknowledge_job_cancellation, begin_job_processing, fail_job_processing, recover_expired_processing_job
@@ -272,8 +272,8 @@ class FakeStorage:
             raise FileNotFoundError(key)
         from studio_api.source_storage import ObjectHead
         return ObjectHead(size_bytes=self.head_size, content_type=self.head_type)
-    def delete_object(self, key):
-        self.deleted.append(key)
+    def delete_object(self, key, *, bucket=None):
+        self.deleted.append((bucket, key))
 
 
 def enable_fake_storage(monkeypatch):
@@ -641,8 +641,8 @@ def test_expired_local_upload_cleanup_marks_deleted_and_deletes(monkeypatch):
         assert source_cleanup.cleanup_expired_local_uploads(db, __import__("studio_api.main", fromlist=["settings"]).settings) == 1
         db.refresh(src)
         assert src.upload_status == SourceUploadStatus.expired
-        assert src.deleted_at is not None and src.delete_reason == "expired"
-        assert fake.deleted == ["old/key"]
+        assert src.deleted_at is None and src.delete_reason == "retention_expired"
+        assert fake.deleted == [("studio-temp", "old/key")]
     finally:
         db.close()
 
@@ -2158,7 +2158,11 @@ def test_google_picker_source_and_output_selection_revalidates_server_metadata(m
     assert r.status_code == 200
     body = r.json()["sources"][0]
     assert body["original_filename"] == "Лекция 1. Личность как психологическое явление.flac"
-    assert body["drive_file_id"] == "file-c"
+    assert "drive_file_id" not in body
+    assert "s3_bucket" not in body
+    assert "s3_object_key" not in body
+    for private_key in ["storage_cleanup_owner_id", "storage_cleanup_generation", "storage_cleanup_claimed_at", "storage_cleanup_lease_expires_at", "storage_cleanup_attempt_count", "storage_cleanup_error_code"]:
+        assert private_key not in body
     assert body["drive_file_url"] == "https://drive.google.com/file/d/file-c/view"
     assert body["mime_type"] == "audio/flac"
     assert body["size_bytes"] == 30
@@ -2571,6 +2575,122 @@ def _assert_job_retry_recovery_schema(inspector, conn):
     assert fks[("job_source_id",)] == "transcription_job_sources"
     assert _attempt_enum_values(conn, "sourceattemptstage") == [e.value for e in SourceAttemptStage]
     assert _attempt_enum_values(conn, "sourceattemptretrydisposition") == [e.value for e in SourceAttemptRetryDisposition]
+
+
+
+def _source_cleanup_enum_values(conn) -> list[str]:
+    return conn.execute(text(
+        "SELECT e.enumlabel FROM pg_enum e "
+        "JOIN pg_type t ON t.oid = e.enumtypid "
+        "WHERE t.typname = 'sourcestoragecleanupstatus' "
+        "ORDER BY e.enumsortorder"
+    )).scalars().all()
+
+
+def _strip_0014_source_cleanup_schema(conn) -> None:
+    conn.execute(text("DROP INDEX IF EXISTS ix_sources_storage_cleanup_selection"))
+    conn.execute(text("ALTER TABLE sources DROP CONSTRAINT IF EXISTS ck_sources_storage_cleanup_attempt_count_nonnegative"))
+    conn.execute(text("ALTER TABLE sources DROP CONSTRAINT IF EXISTS ck_sources_storage_cleanup_generation_nonnegative"))
+    for col in [
+        "storage_cleanup_status",
+        "storage_cleanup_requested_at",
+        "storage_cleanup_not_before_at",
+        "storage_cleanup_completed_at",
+        "storage_cleanup_attempt_count",
+        "storage_cleanup_error_code",
+        "storage_cleanup_owner_id",
+        "storage_cleanup_generation",
+        "storage_cleanup_claimed_at",
+        "storage_cleanup_lease_expires_at",
+    ]:
+        conn.execute(text(f"ALTER TABLE sources DROP COLUMN IF EXISTS {col}"))
+    conn.execute(text("DROP TYPE IF EXISTS sourcestoragecleanupstatus"))
+
+
+def _assert_source_deletion_0014_schema(inspector, conn):
+    cols = {c["name"]: c for c in inspector.get_columns("sources")}
+    expected = {
+        "storage_cleanup_status",
+        "storage_cleanup_requested_at",
+        "storage_cleanup_not_before_at",
+        "storage_cleanup_completed_at",
+        "storage_cleanup_attempt_count",
+        "storage_cleanup_error_code",
+        "storage_cleanup_owner_id",
+        "storage_cleanup_generation",
+        "storage_cleanup_claimed_at",
+        "storage_cleanup_lease_expires_at",
+    }
+    assert expected.issubset(cols)
+    assert cols["storage_cleanup_status"]["nullable"] is False
+    assert cols["storage_cleanup_attempt_count"]["nullable"] is False
+    assert cols["storage_cleanup_generation"]["nullable"] is False
+    assert str(cols["storage_cleanup_status"].get("default", "")).strip("'::character varying")
+    assert str(cols["storage_cleanup_attempt_count"].get("default", "")).startswith("0")
+    assert str(cols["storage_cleanup_generation"].get("default", "")).startswith("0")
+    checks = {c["name"] for c in inspector.get_check_constraints("sources")}
+    assert "ck_sources_storage_cleanup_attempt_count_nonnegative" in checks
+    assert "ck_sources_storage_cleanup_generation_nonnegative" in checks
+    indexes = {idx["name"]: tuple(idx["column_names"]) for idx in inspector.get_indexes("sources")}
+    assert indexes["ix_sources_storage_cleanup_selection"] == ("storage_cleanup_status", "storage_cleanup_not_before_at", "storage_cleanup_lease_expires_at")
+    assert _source_cleanup_enum_values(conn) == [e.value for e in SourceStorageCleanupStatus]
+    model_cols = Source.__table__.c
+    for name in expected:
+        assert name in model_cols
+        assert model_cols[name].nullable == cols[name]["nullable"]
+
+
+def _assert_source_deletion_0014_absent(inspector, conn):
+    cols = {c["name"] for c in inspector.get_columns("sources")}
+    assert not {
+        "storage_cleanup_status",
+        "storage_cleanup_requested_at",
+        "storage_cleanup_not_before_at",
+        "storage_cleanup_completed_at",
+        "storage_cleanup_attempt_count",
+        "storage_cleanup_error_code",
+        "storage_cleanup_owner_id",
+        "storage_cleanup_generation",
+        "storage_cleanup_claimed_at",
+        "storage_cleanup_lease_expires_at",
+    } & cols
+    indexes = {idx["name"] for idx in inspector.get_indexes("sources")}
+    assert "ix_sources_storage_cleanup_selection" not in indexes
+    checks = {c["name"] for c in inspector.get_check_constraints("sources")}
+    assert "ck_sources_storage_cleanup_attempt_count_nonnegative" not in checks
+    assert "ck_sources_storage_cleanup_generation_nonnegative" not in checks
+    assert conn.execute(text("SELECT count(*) FROM pg_type WHERE typname = 'sourcestoragecleanupstatus'")).scalar_one() == 0
+
+
+def test_source_deletion_0014_upgrade_downgrade_roundtrip_and_metadata_table(tmp_path):
+    from studio_api.db import Base
+
+    with isolated_migration_database("studio_migration_0014") as (temp_engine, env):
+        run_alembic("0013_job_retry_recovery", env=env)
+        with temp_engine.begin() as conn:
+            _strip_0014_source_cleanup_schema(conn)
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0013_job_retry_recovery"
+        run_alembic("0014_source_deletion_retention", env=env)
+        with temp_engine.begin() as conn:
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0014_source_deletion_retention"
+            _assert_source_deletion_0014_schema(inspect(conn), conn)
+        run_alembic("0013_job_retry_recovery", env=env, command="downgrade")
+        with temp_engine.begin() as conn:
+            _assert_source_deletion_0014_absent(inspect(conn), conn)
+            assert "sources" in inspect(conn).get_table_names()
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0013_job_retry_recovery"
+        run_alembic("0014_source_deletion_retention", env=env)
+        with temp_engine.begin() as conn:
+            _assert_source_deletion_0014_schema(inspect(conn), conn)
+
+    with isolated_migration_database("studio_migration_0014_metadata") as (temp_engine, env):
+        Base.metadata.create_all(temp_engine)
+        run_alembic("0014_source_deletion_retention", env=env, command="stamp")
+        run_alembic("0013_job_retry_recovery", env=env, command="downgrade")
+        with temp_engine.begin() as conn:
+            _assert_source_deletion_0014_absent(inspect(conn), conn)
+            assert "sources" in inspect(conn).get_table_names()
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0013_job_retry_recovery"
 
 
 def test_job_retry_recovery_0013_upgrade_downgrade_roundtrip_and_metadata_table(tmp_path):

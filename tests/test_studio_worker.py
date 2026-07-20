@@ -75,8 +75,8 @@ def test_idle_closes_session_then_waits_poll_interval(caplog):
     events=[]; stop=StopEvent(); caplog.set_level(logging.WARNING)
     def sf(): events.append("session"); return Session(events)
     def iteration(db, **kw): events.append(("iteration", kw["lease_owner_id"], kw["lease_ttl"])); return None
-    assert run_worker_loop(settings=FakeSettings(), session_factory=sf, stop_event=stop, iteration=iteration, owner_id_factory=lambda:"owner") == 0
-    assert events == ["session", ("iteration", "owner", timedelta(seconds=3600)), "close"]
+    assert run_worker_loop(settings=FakeSettings(), session_factory=sf, stop_event=stop, iteration=iteration, owner_id_factory=lambda:"owner", source_cleanup_runner=lambda db, **kw: events.append("cleanup") and False) == 0
+    assert events == ["session", ("iteration", "owner", timedelta(seconds=3600)), "close", "session", "cleanup", "close"]
     assert stop.waits == [5]
     assert caplog.text == ""
 
@@ -91,7 +91,7 @@ def test_success_logs_safe_result_and_uses_new_session(caplog):
         calls["n"]+=1
         if calls["n"]==1: return SimpleNamespace(job_id="job", final_job_status="completed", attempt_count=1, required_source_count=2, persisted_output_count=2, processed_source_count=2, completion_occurred=True)
         stop.set(); return None
-    run_worker_loop(settings=FakeSettings(), session_factory=sf, stop_event=stop, iteration=iteration, owner_id_factory=lambda:"owner")
+    run_worker_loop(settings=FakeSettings(), session_factory=sf, stop_event=stop, iteration=iteration, owner_id_factory=lambda:"owner", source_cleanup_runner=lambda db, **kw: False)
     assert events.count("session") == 2 and events.count("close") == 2
     assert stop.waits == []
     assert "studio_worker_job_processed" in caplog.text and "SECRET" not in caplog.text
@@ -112,7 +112,7 @@ def test_known_and_unexpected_errors_are_redacted_and_continue(caplog):
                 if unexpected: raise RuntimeError("SECRET token traceback")
                 raise JobProcessingRunnerError()
             stop.set(); return None
-        run_worker_loop(settings=FakeSettings(worker_error_backoff_seconds=7), session_factory=sf, stop_event=stop, iteration=iteration, owner_id_factory=lambda:"owner")
+        run_worker_loop(settings=FakeSettings(worker_error_backoff_seconds=7), session_factory=sf, stop_event=stop, iteration=iteration, owner_id_factory=lambda:"owner", source_cleanup_runner=lambda db, **kw: False)
         assert stop.waits == [7]
         assert "SECRET" not in caplog.text and "traceback" not in caplog.text
         assert ("worker_iteration_failed" in caplog.text) is unexpected
@@ -133,5 +133,19 @@ def test_stop_during_active_iteration_no_second_claim():
     from studio_api.worker import run_worker_loop
     stop=StopEvent(); calls=[]
     def iteration(db, **kw): calls.append("iteration"); stop.set(); return None
-    run_worker_loop(settings=FakeSettings(), session_factory=lambda: Session([]), stop_event=stop, iteration=iteration, owner_id_factory=lambda:"owner")
+    run_worker_loop(settings=FakeSettings(), session_factory=lambda: Session([]), stop_event=stop, iteration=iteration, owner_id_factory=lambda:"owner", source_cleanup_runner=lambda db, **kw: False)
     assert calls == ["iteration"] and stop.waits == []
+
+
+def test_stop_between_idle_job_noop_and_source_cleanup_claim_prevents_claim():
+    from studio_api.worker import run_worker_loop
+    events=[]; stop=StopEvent()
+    def sf(): events.append("session"); return Session(events)
+    def iteration(db, **kw): events.append("iteration"); return None
+    def cleanup_runner(db, **kw):
+        stop.set()
+        events.append(("cleanup_should_stop", kw["should_stop"]()))
+        return False
+    run_worker_loop(settings=FakeSettings(), session_factory=sf, stop_event=stop, iteration=iteration, owner_id_factory=lambda:"owner", source_cleanup_runner=cleanup_runner)
+    assert events == ["session", "iteration", "close", "session", ("cleanup_should_stop", True), "close"]
+    assert stop.waits == []

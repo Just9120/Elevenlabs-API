@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from uuid import uuid4
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from .audit import audit
@@ -50,6 +50,7 @@ class SourceCleanupClaim:
     source_id: str
     owner_id: str
     generation: int
+    s3_bucket: str | None
     s3_object_key: str
     attempt_count: int
 
@@ -115,6 +116,7 @@ def request_source_deletion(db: Session, *, owner_user_id: str, source_id: str, 
     if project is None or project.owner_user_id != owner_user_id or project.archived_at is not None:
         return None
     jobs = _referencing_jobs(db, source.id, lock=True)
+    already_deleted = source.deleted_at is not None or source.upload_status == SourceUploadStatus.deleted
     reason = deletion_readiness(db, source, now=now, locked_jobs=jobs)
     if reason not in {SourceDeletionReason.available, SourceDeletionReason.source_already_deleted}:
         audit(db, "source.deletion_blocked", actor_user_id=owner_user_id, subject_user_id=owner_user_id, project_id=project.id, blocker=reason.value)
@@ -122,11 +124,13 @@ def request_source_deletion(db: Session, *, owner_user_id: str, source_id: str, 
         db.flush()
         return SourceDeletionResult(False, reason, source.upload_status.value, browser_cleanup_status(source))
     prior_upload_status = source.upload_status
-    if source.deleted_at is None:
+    if not already_deleted:
         source.deleted_at = now
         source.delete_reason = "user_deleted"
-    source.upload_status = SourceUploadStatus.deleted
-    source.updated_at = now
+        source.upload_status = SourceUploadStatus.deleted
+        source.updated_at = now
+    elif source.delete_reason is None:
+        source.delete_reason = "user_deleted"
     if source.source_type == SourceType.google_drive:
         source.storage_cleanup_status = SourceStorageCleanupStatus.not_applicable
         source.storage_cleanup_not_before_at = None
@@ -138,22 +142,31 @@ def request_source_deletion(db: Session, *, owner_user_id: str, source_id: str, 
             not_before = max(_aware(now), _aware(source.expires_at)).replace(tzinfo=now.tzinfo)
         source.storage_cleanup_not_before_at = source.storage_cleanup_not_before_at or not_before
         source.storage_cleanup_error_code = None
-    audit(db, "source.deletion_requested", actor_user_id=owner_user_id, subject_user_id=owner_user_id, project_id=project.id, deletion_reason="user_deleted")
-    audit(db, "source.deleted", actor_user_id=owner_user_id, subject_user_id=owner_user_id, project_id=project.id, deletion_reason="user_deleted")
-    write_diagnostic_event(owner_user_id=owner_user_id, component="api", event_code="SOURCE_DELETION_COMPLETED", project_id=project.id, metadata={"source_type": source.source_type.value, "deletion_reason": "user_deleted", "cleanup_outcome": browser_cleanup_status(source), "boundary": "source_deletion"})
+    if not already_deleted:
+        audit(db, "source.deletion_requested", actor_user_id=owner_user_id, subject_user_id=owner_user_id, project_id=project.id, deletion_reason="user_deleted")
+        audit(db, "source.deleted", actor_user_id=owner_user_id, subject_user_id=owner_user_id, project_id=project.id, deletion_reason="user_deleted")
+        write_diagnostic_event(owner_user_id=owner_user_id, component="api", event_code="SOURCE_DELETION_REQUESTED", project_id=project.id, metadata={"source_type": source.source_type.value, "deletion_reason": "user_deleted", "boundary": "source_deletion"})
+        write_diagnostic_event(owner_user_id=owner_user_id, component="api", event_code="SOURCE_DELETION_COMPLETED", project_id=project.id, metadata={"source_type": source.source_type.value, "deletion_reason": "user_deleted", "cleanup_outcome": browser_cleanup_status(source), "boundary": "source_deletion"})
     db.flush()
     return SourceDeletionResult(True, SourceDeletionReason.available, source.upload_status.value, browser_cleanup_status(source))
 
 
-def mark_one_expired_source_for_cleanup(db: Session, *, now: datetime) -> bool:
-    src = db.execute(
-        select(Source)
-        .where(Source.source_type == SourceType.local_upload, Source.deleted_at.is_(None), Source.expires_at.is_not(None), Source.expires_at <= now, Source.upload_status != SourceUploadStatus.expired)
-        .order_by(Source.expires_at.asc(), Source.id.asc())
-        .limit(1)
-        .with_for_update(skip_locked=True)
-    ).scalar_one_or_none()
-    if src is None or any(job.status == JobStatus.processing for job in _referencing_jobs(db, src.id, lock=True)):
+def mark_one_expired_source_for_cleanup(db: Session, *, now: datetime, max_scan: int = 50) -> bool:
+    excluded: set[str] = set()
+    src = None
+    for _ in range(max_scan):
+        filters = [Source.source_type == SourceType.local_upload, Source.deleted_at.is_(None), Source.expires_at.is_not(None), Source.expires_at <= now, Source.upload_status != SourceUploadStatus.expired]
+        if excluded:
+            filters.append(Source.id.not_in(excluded))
+        candidate = db.execute(select(Source).where(*filters).order_by(Source.expires_at.asc(), Source.id.asc()).limit(1).with_for_update(skip_locked=True)).scalar_one_or_none()
+        if candidate is None:
+            return False
+        if any(job.status == JobStatus.processing for job in _referencing_jobs(db, candidate.id, lock=True)):
+            excluded.add(candidate.id)
+            continue
+        src = candidate
+        break
+    if src is None:
         return False
     src.upload_status = SourceUploadStatus.expired
     src.delete_reason = "retention_expired"
@@ -172,23 +185,27 @@ def mark_one_expired_source_for_cleanup(db: Session, *, now: datetime) -> bool:
 def claim_next_source_cleanup(db: Session, *, owner_id: str, now: datetime) -> SourceCleanupClaim | None:
     owner = (owner_id or "")[:128] or f"source-cleanup-{uuid4().hex}"
     stale = or_(Source.storage_cleanup_owner_id.is_(None), Source.storage_cleanup_lease_expires_at.is_(None), Source.storage_cleanup_lease_expires_at <= now)
-    src = db.execute(
-        select(Source)
-        .where(
+    excluded: set[str] = set()
+    src = None
+    for _ in range(50):
+        filters = [
             Source.source_type == SourceType.local_upload,
-            Source.s3_object_key.is_not(None),
             Source.storage_cleanup_status.in_([SourceStorageCleanupStatus.pending, SourceStorageCleanupStatus.failed]),
             Source.storage_cleanup_not_before_at <= now,
             stale,
             or_(Source.deleted_at.is_not(None), Source.expires_at <= now),
-        )
-        .order_by(Source.storage_cleanup_not_before_at.asc(), Source.created_at.asc(), Source.id.asc())
-        .limit(1)
-        .with_for_update(skip_locked=True)
-    ).scalar_one_or_none()
+        ]
+        if excluded:
+            filters.append(Source.id.not_in(excluded))
+        candidate = db.execute(select(Source).where(*filters).order_by(Source.storage_cleanup_not_before_at.asc(), Source.created_at.asc(), Source.id.asc()).limit(1).with_for_update(skip_locked=True)).scalar_one_or_none()
+        if candidate is None:
+            return None
+        if any(job.status == JobStatus.processing for job in _referencing_jobs(db, candidate.id, lock=True)):
+            excluded.add(candidate.id)
+            continue
+        src = candidate
+        break
     if src is None:
-        return None
-    if any(job.status == JobStatus.processing for job in _referencing_jobs(db, src.id, lock=True)):
         return None
     src.storage_cleanup_generation = int(src.storage_cleanup_generation or 0) + 1
     src.storage_cleanup_owner_id = owner
@@ -201,7 +218,7 @@ def claim_next_source_cleanup(db: Session, *, owner_id: str, now: datetime) -> S
     if owner_user_id:
         write_diagnostic_event(owner_user_id=owner_user_id, component="worker", event_code="SOURCE_STORAGE_CLEANUP_STARTED", project_id=src.project_id, metadata={"source_type": src.source_type.value, "cleanup_attempt": src.storage_cleanup_attempt_count, "boundary": "source_cleanup"})
     db.flush()
-    return SourceCleanupClaim(src.id, owner, src.storage_cleanup_generation, src.s3_object_key, src.storage_cleanup_attempt_count)
+    return SourceCleanupClaim(src.id, owner, src.storage_cleanup_generation, src.s3_bucket, src.s3_object_key or "", src.storage_cleanup_attempt_count)
 
 
 def finalize_source_cleanup(db: Session, *, claim: SourceCleanupClaim, now: datetime, success: bool, error_code: str | None = None) -> bool:
@@ -234,9 +251,13 @@ def finalize_source_cleanup(db: Session, *, claim: SourceCleanupClaim, now: date
     return True
 
 
-def run_one_source_cleanup(db: Session, *, settings, owner_id: str, now: datetime, storage_factory=None) -> bool:
+def run_one_source_cleanup(db: Session, *, settings, owner_id: str, now: datetime, storage_factory=None, should_stop=None) -> bool:
+    if should_stop and should_stop():
+        return False
     mark_one_expired_source_for_cleanup(db, now=now)
     db.commit()
+    if should_stop and should_stop():
+        return False
     claim = claim_next_source_cleanup(db, owner_id=owner_id, now=now)
     if claim is None:
         db.rollback()
@@ -245,7 +266,8 @@ def run_one_source_cleanup(db: Session, *, settings, owner_id: str, now: datetim
     ok = True
     code = None
     try:
-        (storage_factory or __import__("studio_api.source_storage", fromlist=["get_source_storage"]).get_source_storage)(settings).delete_object(claim.s3_object_key)
+        if claim.s3_bucket and claim.s3_object_key:
+            (storage_factory or __import__("studio_api.source_storage", fromlist=["get_source_storage"]).get_source_storage)(settings).delete_object(claim.s3_object_key, bucket=claim.s3_bucket)
     except Exception as exc:
         ok = False
         code = "storage_unavailable" if type(exc).__name__ in {"SourceStorageError", "EndpointConnectionError"} else "storage_delete_failed"

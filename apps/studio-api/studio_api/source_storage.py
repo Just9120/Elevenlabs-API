@@ -97,9 +97,9 @@ class S3SourceStorage:
             raise SourceObjectReadError(SourceObjectReadReason.unavailable) from exc
         return SourceObjectStream(result["Body"], result.get("ContentType"), result.get("ContentLength"))
 
-    def delete_object(self, key: str) -> None:
+    def delete_object(self, key: str, *, bucket: str | None = None) -> None:
         try:
-            self.client.delete_object(Bucket=self.bucket, Key=key)
+            self.client.delete_object(Bucket=bucket or self.bucket, Key=key)
         except ClientError as exc:
             code = exc.response.get("Error", {}).get("Code")
             if code in {"404", "NoSuchKey", "NotFound"}:

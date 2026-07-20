@@ -68,6 +68,7 @@ def run_worker_loop(
     iteration: Callable | None = None,
     logger: logging.Logger = LOGGER,
     owner_id_factory: Callable[[], str] = build_worker_owner_id,
+    source_cleanup_runner: Callable | None = None,
 ) -> int:
     if iteration is None:
         from .job_processing_runner import claim_next_and_orchestrate_processing_job
@@ -112,9 +113,12 @@ def run_worker_loop(
             cleanup_db = session_factory()
             try:
                 from datetime import datetime, timezone
-                from .source_deletion import run_one_source_cleanup
+                if source_cleanup_runner is None:
+                    from .source_deletion import run_one_source_cleanup as cleanup_runner
+                else:
+                    cleanup_runner = source_cleanup_runner
 
-                if run_one_source_cleanup(cleanup_db, settings=settings, owner_id=f"{owner_id}:source-cleanup", now=datetime.now(timezone.utc)):
+                if cleanup_runner(cleanup_db, settings=settings, owner_id=f"{owner_id}:source-cleanup", now=datetime.now(timezone.utc), should_stop=stop_event.is_set):
                     logger.info("studio_worker_source_cleanup_processed", extra={"event": "studio_worker_source_cleanup_processed"})
             except Exception:
                 _safe_rollback(cleanup_db, logger)
@@ -124,6 +128,8 @@ def run_worker_loop(
                     cleanup_db.close()
                 except Exception:
                     logger.warning("worker_session_close_failed")
+        if stop_event.is_set():
+            break
         stop_event.wait(wait_seconds if wait_seconds is not None else poll_interval)
     return 0
 
