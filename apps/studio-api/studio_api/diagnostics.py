@@ -54,7 +54,7 @@ class EventDef:
     level: str
     metadata: dict[str, MetaRule]
 
-BOUNDARIES = frozenset({"source_validation", "provider_transport", "provider_response", "post_provider_lifecycle", "google_docs", "output_persistence", "orchestration", "lease_heartbeat", "unknown"})
+BOUNDARIES = frozenset({"source_validation", "provider_transport", "provider_response", "post_provider_lifecycle", "google_docs", "output_persistence", "orchestration", "lease_heartbeat", "retry_api", "retry_state", "unknown"})
 ERROR_CODES = frozenset({
     "unknown", "provider_authentication_rejected", "provider_request_rejected", "provider_rate_limited",
     "provider_unavailable", "provider_timeout", "malformed_provider_response", "lifecycle_changed_after_provider_call",
@@ -62,7 +62,7 @@ ERROR_CODES = frozenset({
     "source_materialization_unavailable", "prerequisites_unavailable", "provider_mismatch", "pipeline_transcription_failed",
     "pipeline_google_docs_failed", "output_reconciliation_required", "incomplete_output_coverage", "commit_failed",
     "no_required_sources", "cancellation_requested", "google_docs_failed", "transcription_failed", "lease_heartbeat_failed", "lease_heartbeat_not_owned",
-    "lease_heartbeat_expired", "lease_heartbeat_commit_failed", "lease_heartbeat_stop_timeout",
+    "lease_heartbeat_expired", "lease_heartbeat_commit_failed", "lease_heartbeat_stop_timeout", "pipeline_retry_state_prepare_failed", "pipeline_retry_state_persistence_failed", "retry_attempt_limit_reached", "retry_recovery_state_unknown",
 })
 HTTP_STATUS_CATEGORIES = frozenset({"1xx", "2xx", "3xx", "4xx", "5xx", "unknown"})
 RECONCILIATION_CASE_STATUSES = frozenset({"prepared","creation_returned","reconciliation_required","resolved","conflict"})
@@ -94,6 +94,13 @@ REGISTRY: dict[str, EventDef] = {
     "JOB_CANCEL_REQUESTED": EventDef(frozenset({"api"}), "INFO", {"final_job_status": R("enum", choices=frozenset({"processing"}), required=True)}),
     "JOB_CANCELLED": EventDef(frozenset({"api", "worker"}), "INFO", {"final_job_status": R("enum", choices=frozenset({"cancelled"}), required=True)}),
 
+    "JOB_RETRY_REQUESTED": EventDef(frozenset({"api"}), "INFO", {"attempt_number": R("int", min=0, max=1000), "retry_available": R("bool"), "boundary": R("enum", choices=BOUNDARIES)}),
+    "JOB_RETRY_QUEUED": EventDef(frozenset({"api"}), "INFO", {"retry_reason": R("token"), "retry_available": R("bool"), "retry_safe_source_count": R("int", min=0, max=50), "missing_output_count": R("int", min=0, max=50), "final_job_status": R("enum", choices=FINAL_STATUSES), "boundary": R("enum", choices=BOUNDARIES)}),
+    "JOB_RETRY_BLOCKED": EventDef(frozenset({"api"}), "WARNING", {"retry_reason": R("token"), "retry_available": R("bool"), "retry_safe_source_count": R("int", min=0, max=50), "missing_output_count": R("int", min=0, max=50), "boundary": R("enum", choices=BOUNDARIES)}),
+    "JOB_EXPIRED_LEASE_RECOVERED": EventDef(frozenset({"worker", "api"}), "INFO", {"retry_reason": R("token"), "final_job_status": R("enum", choices=FINAL_STATUSES), "missing_output_count": R("int", min=0, max=50)}),
+    "JOB_EXPIRED_LEASE_RECOVERY_BLOCKED": EventDef(frozenset({"worker", "api"}), "WARNING", {"retry_reason": R("token"), "final_job_status": R("enum", choices=FINAL_STATUSES), "missing_output_count": R("int", min=0, max=50)}),
+    "SOURCE_ATTEMPT_PREPARED": EventDef(frozenset({"worker"}), "INFO", {"attempt_number": R("int", min=1, max=1000, required=True), "boundary": R("enum", choices=BOUNDARIES)}),
+    "SOURCE_ATTEMPT_RETRY_CLASSIFIED": EventDef(frozenset({"worker"}), "INFO", {"attempt_number": R("int", min=1, max=1000), "retry_reason": R("token"), "boundary": R("enum", choices=BOUNDARIES)}),
     "OUTPUT_RECONCILIATION_REQUIRED": EventDef(frozenset({"worker"}), "WARNING", {"case_status": R("enum", choices=RECONCILIATION_CASE_STATUSES, required=True), "attempt_number": R("int", min=0, max=1000)}),
     "OUTPUT_RECONCILIATION_CHECK_STARTED": EventDef(frozenset({"api"}), "INFO", {"case_status": R("enum", choices=RECONCILIATION_CASE_STATUSES, required=True)}),
     "OUTPUT_RECONCILIATION_NOT_FOUND": EventDef(frozenset({"api"}), "INFO", {"case_status": R("enum", choices=RECONCILIATION_CASE_STATUSES, required=True), "resolved": R("bool"), "aggregate_count": R("int", min=0, max=50)}),

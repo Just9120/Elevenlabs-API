@@ -134,7 +134,7 @@ Source currently present in the repository includes:
 - safe output persistence and browser-safe output read path;
 - diagnostics, diagnostic debug sessions, migrations, and tests.
 
-The current Alembic migration head in the repository is `0012_output_reconciliation_cases` under `apps/studio-api/alembic/versions/`.
+The current Alembic migration head in the repository is `0013_job_retry_recovery` under `apps/studio-api/alembic/versions/`.
 
 ## Studio production status and unfinished capabilities
 
@@ -205,7 +205,7 @@ The Studio PWA may render implemented source-level output metadata for explicitl
 Studio processing can be considered production-live only after all of the following have factual operator evidence:
 
 1. Repository source and CI are verified for the intended commit.
-2. Production database migration head matches repository head `0012_output_reconciliation_cases` where required.
+2. Production database migration head matches repository head `0013_job_retry_recovery` where required.
 3. Web/API deployment identity and health are verified.
 4. Exactly one intended worker instance is deployed from the intended image and shown idle before the smoke.
 5. One controlled operator-approved job uses one small supported source, one owner-scoped ElevenLabs BYOK credential, one valid Google connection, and one writable output folder.

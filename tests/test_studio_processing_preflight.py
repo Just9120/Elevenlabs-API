@@ -88,7 +88,7 @@ esac
         "studio-worker": state.get("worker", "missing"),
     }
     worker_count = int(state.get("worker_count", "0"))
-    current = state.get("current", "0012_output_reconciliation_cases")
+    current = state.get("current", "0013_job_retry_recovery")
     _write_exe(bin_dir / "docker", f"""#!/usr/bin/env bash
 set -euo pipefail
 printf 'docker %s\n' "$*" >> {str(log)!r}
@@ -225,13 +225,30 @@ def test_revision_safety_cases(tmp_path: Path) -> None:
     # no/multiple repository heads by changing down_revision graph in copied files
     proc, _, repo = run_preflight(tmp_path / "ok")
     assert proc.returncode == 0
-    for name, edit in [("nohead", "revision = '0008_alt'"), ("multi", "down_revision = None")]:
-        case = tmp_path / name
-        proc, calls, repo = run_preflight(case)
-        f = repo / "apps/studio-api/alembic/versions/0012_output_reconciliation_cases.py"
-        f.write_text(f.read_text().replace('revision = "0012_output_reconciliation_cases"', edit.replace(chr(39), chr(34))), encoding="utf-8")
-        proc = subprocess.run(["bash", str(SCRIPT), str(repo), "main", "Just9120/Elevenlabs-API", SHA], cwd=repo, env={**os.environ, "PATH": f"{case/'bin'}:{os.environ['PATH']}"}, text=True, capture_output=True, timeout=15)
-        assert proc.returncode != 0
+    case = tmp_path / "nohead"
+    proc, calls, repo = run_preflight(case)
+    f = repo / "apps/studio-api/alembic/versions/0013_job_retry_recovery.py"
+    f.write_text(f.read_text().replace('revision = "0013_job_retry_recovery"', 'revision = "0013_wrong_head"'), encoding="utf-8")
+    proc = subprocess.run(["bash", str(SCRIPT), str(repo), "main", "Just9120/Elevenlabs-API", SHA], cwd=repo, env={**os.environ, "PATH": f"{case/'bin'}:{os.environ['PATH']}"}, text=True, capture_output=True, timeout=15)
+    assert proc.returncode != 0
+
+    case = tmp_path / "multi"
+    proc, calls, repo = run_preflight(case)
+    alt = repo / "apps/studio-api/alembic/versions/0013_alt_head.py"
+    alt.write_text('''"""alternate 0013 head for preflight test"""
+revision = "0013_alt_head"
+down_revision = "0012_output_reconciliation_cases"
+branch_labels = None
+depends_on = None
+
+def upgrade():
+    pass
+
+def downgrade():
+    pass
+''', encoding="utf-8")
+    proc = subprocess.run(["bash", str(SCRIPT), str(repo), "main", "Just9120/Elevenlabs-API", SHA], cwd=repo, env={**os.environ, "PATH": f"{case/'bin'}:{os.environ['PATH']}"}, text=True, capture_output=True, timeout=15)
+    assert proc.returncode != 0
     for current in ["", "abc\ndef", "0007_job_processing_lifecycle"]:
         proc, calls, _ = run_preflight(tmp_path / ("cur" + (current or "empty").replace("\n", "_")), current=current)
         assert proc.returncode != 0

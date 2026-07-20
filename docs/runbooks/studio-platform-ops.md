@@ -70,7 +70,7 @@ Manual migration rollout order is strict:
 2. Create a tagged pre-migration PostgreSQL backup through the approved backup boundary.
 3. Confirm the backup completed and record only safe snapshot metadata.
 4. Run the manual migration command/script only after explicit operator confirmation.
-5. Verify production database revision equals repository Alembic head `0012_output_reconciliation_cases` where the deployment is expected to be current.
+5. Verify production database revision equals repository Alembic head `0013_job_retry_recovery` where the deployment is expected to be current.
 6. Deploy or restart only the intended components.
 
 Operator-safe tagged backup command:
@@ -152,14 +152,14 @@ Before any processing rollout or canary, verify without printing sensitive value
 - credential master key and encrypted BYOK records are usable;
 - exactly one intended active ElevenLabs BYOK credential exists for the smoke account;
 - writable Google output folder selection exists;
-- production database revision is known and compared to repository Alembic head `0012_output_reconciliation_cases`;
+- production database revision is known and compared to repository Alembic head `0013_job_retry_recovery`;
 - exactly one worker instance is intended for the canary.
 
 ## Controlled worker rollout sequence
 
 1. Keep `studio-worker` stopped until migration and runtime readiness are confirmed.
 2. Create/confirm the tagged pre-migration database backup if a migration or stateful rollout is involved.
-3. Verify production database revision equals repository head `0012_output_reconciliation_cases` where the deployment is expected to be current.
+3. Verify production database revision equals repository head `0013_job_retry_recovery` where the deployment is expected to be current.
 4. Deploy web/API only through the approved isolated component deployment model.
 5. Verify intended commit/image identity, running component identity, localhost health, public health, authenticated session behavior, and output endpoint availability without exposing another owner’s data.
 6. Start exactly one `studio-worker` from the intended image with no public HTTP port.
@@ -335,7 +335,7 @@ GitHub Actions supports manual `workflow_dispatch(component=worker)` using the s
 
 ## Output reconciliation operations boundary
 
-`PWA-OUTPUT-RECONCILIATION-01` is source-level only until an operator manually applies migration `0012_output_reconciliation_cases` in the target database and verifies API/worker image compatibility. Standard CD must not run this migration automatically.
+`PWA-OUTPUT-RECONCILIATION-01` is source-level only until an operator manually applies migration `0013_job_retry_recovery` in the target database and verifies API/worker image compatibility. Standard CD must not run this migration automatically.
 
 When a job fails with `output_reconciliation_required`, the owner may use the Studio PWA action or API check endpoint to query Drive by the internal opaque appProperty token and the job output-folder snapshot. Operators must not ask users for raw Google document IDs, must not create duplicate Google Docs, must not delete possible duplicates, must not retry provider processing as reconciliation, and must not inspect transcript/document bodies as evidence. Zero matches remain unresolved for later explicit checks. Multiple matches are a conflict requiring manual investigation outside the automated path.
 

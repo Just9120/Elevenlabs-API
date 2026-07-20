@@ -190,7 +190,7 @@ def test_first_source_renewal_commits_before_transcription_with_exact_context(db
         "job_id": job.id,
         "lease_owner_id": "worker",
         "lease_generation": 7,
-        "now": datetime(2026, 1, 2, 3, 4, 8),
+        "now": datetime(2026, 1, 2, 3, 4, 9),
         "lease_ttl": lease_ttl,
     }
     assert events.index("commit") < events.index(("transcribe", rels[0].id))
@@ -478,7 +478,7 @@ def test_queued_single_source_success_commits_before_external_and_completes(db, 
     assert events[:2] == [("transcribe", rels[0].id), "transcript_enter"]
     assert r.final_job_status == m.JobStatus.completed and r.completion_occurred and r.processed_source_count == 1
     assert db.get(m.TranscriptionJob, job.id).lease_owner_id is None and db.get(m.TranscriptionJob, job.id).attempt_count == 1
-    assert [d[0]["event_code"] for d in diag] == ["PROCESSING_STARTED", "OUTPUT_CREATION_STARTED", "OUTPUT_PERSISTED", "JOB_COMPLETED"]
+    assert [d[0]["event_code"] for d in diag] == ["PROCESSING_STARTED", "SOURCE_ATTEMPT_PREPARED", "OUTPUT_CREATION_STARTED", "OUTPUT_PERSISTED", "JOB_COMPLETED"]
     assert diag[0][1] == m.JobStatus.processing and diag[-1][1] == m.JobStatus.completed
     assert all(d[0]["correlation_id"] == "corr_abcdefghijklmnop" and d[0].get("request_id") is None for d in diag)
 

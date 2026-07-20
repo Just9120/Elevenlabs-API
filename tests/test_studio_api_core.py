@@ -3,6 +3,8 @@ import os
 import subprocess
 import sys
 import tempfile
+import uuid
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -26,15 +28,16 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 from fastapi.testclient import TestClient
 from starlette.requests import Request
-from sqlalchemy import inspect, select, text
+from sqlalchemy import create_engine, inspect, select, text
+from sqlalchemy.engine import make_url
 from sqlalchemy.exc import OperationalError
 from studio_api.config import Settings
 from studio_api.db import SessionLocal, engine
 from studio_api.deps import get_client_ip
 from studio_api.main import app, limiter
-from studio_api.models import AuditEvent, DiagnosticDebugSession, DiagnosticEvent, TranscriptionOutputReconciliation, OutputReconciliationStatus, CredentialProvider, CredentialStatus, JobSourceStatus, JobStatus, LocalIdentity, Project, ProviderCredential, ProviderCredentialVersion, Source, SourceType, SourceUploadStatus, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, User, UserRole, UserStatus
+from studio_api.models import AuditEvent, DiagnosticDebugSession, DiagnosticEvent, TranscriptionOutputReconciliation, TranscriptionJobSourceAttempt, OutputReconciliationStatus, SourceAttemptRetryDisposition, SourceAttemptStage, CredentialProvider, CredentialStatus, JobSourceStatus, JobStatus, LocalIdentity, Project, ProviderCredential, ProviderCredentialVersion, Source, SourceType, SourceUploadStatus, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, User, UserRole, UserStatus
 from studio_api.security import aad, decrypt, encrypt, hash_password, master_key_from_b64, utcnow, verify_password
-from studio_api.job_claim_lease import JobLeaseError, JobLeaseFailureReason, acquire_job_lease, acquire_next_ready_job_lease, is_lease_active, release_job_lease, renew_job_lease
+from studio_api.job_claim_lease import JobLeaseError, JobLeaseFailureReason, acquire_job_lease, acquire_next_ready_job_lease, invalidate_job_lease, is_lease_active, release_job_lease, renew_job_lease
 from studio_api.job_processing_lifecycle import JobProcessingError, JobProcessingFailureReason, acknowledge_job_cancellation, begin_job_processing, fail_job_processing, recover_expired_processing_job
 from studio_api.google_docs_output import GoogleDocsCreateResult, new_google_docs_transcript_artifact
 from studio_api.job_output_persistence import JobOutputPersistenceError, JobOutputPersistenceReason, _load_locked_output_authority, persist_processing_job_source_output_and_maybe_complete
@@ -53,9 +56,48 @@ def clean_state(migrated_database):
     except Exception as exc:
         pytest.skip(f"Redis unavailable for platform tests: {exc}")
     with engine.begin() as conn:
-        tables = ["transcription_output_reconciliations", "diagnostic_debug_sessions", "diagnostic_events", "audit_events", "google_oauth_states", "google_connections", "provider_credential_versions", "provider_credentials", "transcription_job_outputs", "transcription_job_sources", "transcription_jobs", "sources", "projects", "sessions", "login_contexts", "local_identities", "users"]
+        tables = ["transcription_job_source_attempts", "transcription_output_reconciliations", "diagnostic_debug_sessions", "diagnostic_events", "audit_events", "google_oauth_states", "google_connections", "provider_credential_versions", "provider_credentials", "transcription_job_outputs", "transcription_job_sources", "transcription_jobs", "sources", "projects", "sessions", "login_contexts", "local_identities", "users"]
+        required_tables = set(tables)
+        missing = required_tables - set(inspect(conn).get_table_names())
+        assert not missing, f"shared test database schema is not at current head: {sorted(missing)}"
         conn.execute(text("TRUNCATE " + ", ".join(tables) + " RESTART IDENTITY CASCADE"))
     yield
+
+
+@contextmanager
+def isolated_migration_database(prefix: str):
+    temp_db = f"{prefix}_{uuid.uuid4().hex}"
+    base_url = make_url(engine.url)
+    admin_url = base_url.set(database="postgres")
+    temp_url = base_url.set(database=temp_db)
+    admin_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
+    try:
+        with admin_engine.connect() as conn:
+            conn.execute(text(f'CREATE DATABASE "{temp_db}"'))
+    except OperationalError as exc:
+        admin_engine.dispose()
+        pytest.skip(f"PostgreSQL database creation unavailable for isolated migration test: {exc}")
+    finally:
+        admin_engine.dispose()
+
+    env = os.environ.copy()
+    env.pop("STUDIO_DATABASE_URL", None)
+    env["STUDIO_DATABASE_NAME"] = temp_db
+    temp_engine = create_engine(temp_url)
+    try:
+        yield temp_engine, env
+    finally:
+        temp_engine.dispose()
+        cleanup_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
+        try:
+            with cleanup_engine.connect() as conn:
+                conn.execute(text(f'DROP DATABASE IF EXISTS "{temp_db}" WITH (FORCE)'))
+        finally:
+            cleanup_engine.dispose()
+
+
+def run_alembic(target: str, *, env: dict[str, str], command: str = "upgrade") -> None:
+    subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), command, target], cwd=ROOT, env=env, check=True)
 
 
 def admin(email="a@example.com", password="correct horse battery"):
@@ -1091,19 +1133,25 @@ def test_job_lease_migration_clean_chain_shape_and_defaults():
 
 
 def test_job_lease_migration_real_0005_shape_upgrades_to_head():
-    subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "downgrade", "0005_transcription_jobs"], cwd=ROOT, check=True)
-    try:
-        cols_at_0005 = {c["name"] for c in inspect(engine).get_columns("transcription_jobs")}
-        assert "lease_owner_id" not in cols_at_0005
-        subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "upgrade", "head"], cwd=ROOT, check=True)
-        inspector = inspect(engine)
-        cols = {c["name"] for c in inspector.get_columns("transcription_jobs")}
-        assert {"lease_owner_id", "lease_generation", "claimed_at", "lease_expires_at", "attempt_count", "cancel_requested_at"}.issubset(cols)
-        indexes = [idx["name"] for idx in inspector.get_indexes("transcription_jobs")]
-        assert indexes.count("ix_transcription_jobs_status_lease_expires_created") == 1
-        assert_jobstatus_enum_order()
-    finally:
-        subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "upgrade", "head"], cwd=ROOT, check=True)
+    with isolated_migration_database("studio_migration_0005") as (temp_engine, env):
+        run_alembic("0005_transcription_jobs", env=env)
+        with temp_engine.begin() as conn:
+            # 0001 reflects current metadata; strip 0006-owned lease fields to
+            # create a genuine 0005 shape before upgrading through head.
+            conn.execute(text("DROP INDEX IF EXISTS ix_transcription_jobs_status_lease_expires_created"))
+            for col in ["lease_owner_id", "lease_generation", "claimed_at", "lease_expires_at", "attempt_count", "cancel_requested_at"]:
+                conn.execute(text(f"ALTER TABLE transcription_jobs DROP COLUMN IF EXISTS {col}"))
+            conn.execute(text("UPDATE alembic_version SET version_num='0005_transcription_jobs'"))
+            cols_at_0005 = {c["name"] for c in inspect(conn).get_columns("transcription_jobs")}
+            assert "lease_owner_id" not in cols_at_0005
+        run_alembic("head", env=env)
+        with temp_engine.begin() as conn:
+            inspector = inspect(conn)
+            cols = {c["name"] for c in inspector.get_columns("transcription_jobs")}
+            assert {"lease_owner_id", "lease_generation", "claimed_at", "lease_expires_at", "attempt_count", "cancel_requested_at"}.issubset(cols)
+            indexes = [idx["name"] for idx in inspector.get_indexes("transcription_jobs")]
+            assert indexes.count("ix_transcription_jobs_status_lease_expires_created") == 1
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0013_job_retry_recovery"
 
 
 
@@ -1118,14 +1166,27 @@ def test_job_output_migration_clean_chain_constraints_and_0007_roundtrip():
     assert "ix_transcription_job_outputs_job_id" in indexes
     fks = {tuple(fk["constrained_columns"]): fk["referred_table"] for fk in inspector.get_foreign_keys("transcription_job_outputs")}
     assert fks[("job_id",)] == "transcription_jobs" and fks[("job_source_id",)] == "transcription_job_sources"
-    subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "downgrade", "0007_job_processing_lifecycle"], cwd=ROOT, check=True)
-    try:
-        assert "transcription_job_outputs" not in inspect(engine).get_table_names()
-        assert "transcription_job_sources" in inspect(engine).get_table_names()
-        subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "upgrade", "head"], cwd=ROOT, check=True)
-        assert "transcription_job_outputs" in inspect(engine).get_table_names()
-    finally:
-        subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "upgrade", "head"], cwd=ROOT, check=True)
+    with isolated_migration_database("studio_migration_0007") as (temp_engine, env):
+        run_alembic("0007_job_processing_lifecycle", env=env)
+        with temp_engine.begin() as conn:
+            # 0001 reflects current metadata; strip post-0007 dependent
+            # objects in dependency order to create a genuine 0007 shape.
+            conn.execute(text("DROP TABLE IF EXISTS transcription_job_source_attempts"))
+            conn.execute(text("DROP TABLE IF EXISTS transcription_output_reconciliations"))
+            conn.execute(text("DROP TABLE IF EXISTS transcription_job_outputs"))
+            conn.execute(text("DROP TYPE IF EXISTS sourceattemptretrydisposition"))
+            conn.execute(text("DROP TYPE IF EXISTS sourceattemptstage"))
+            conn.execute(text("DROP TYPE IF EXISTS outputreconciliationstatus"))
+            conn.execute(text("UPDATE alembic_version SET version_num='0007_job_processing_lifecycle'"))
+            tables = set(inspect(conn).get_table_names())
+            assert "transcription_job_outputs" not in tables
+            assert "transcription_output_reconciliations" not in tables
+            assert "transcription_job_source_attempts" not in tables
+            assert "transcription_job_sources" in tables
+        run_alembic("head", env=env)
+        with temp_engine.begin() as conn:
+            assert "transcription_job_outputs" in inspect(conn).get_table_names()
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0013_job_retry_recovery"
 
 
 
@@ -1160,63 +1221,39 @@ def test_output_reconciliation_current_schema_indexes_match_migration():
 
 
 def test_output_reconciliation_0012_upgrade_downgrade_roundtrip_and_metadata_table(tmp_path):
-    from sqlalchemy import create_engine
-    from sqlalchemy.engine import make_url
     from studio_api.db import Base
-    import uuid
 
-    temp_db = f"studio_migration_0012_{uuid.uuid4().hex}"
-    base_url = make_url(engine.url)
-    admin_url = base_url.set(database="postgres")
-    temp_url = base_url.set(database=temp_db)
-    admin_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
-    try:
-        with admin_engine.connect() as conn:
-            conn.execute(text(f'CREATE DATABASE "{temp_db}"'))
-    except OperationalError as exc:
-        pytest.skip(f"PostgreSQL database creation unavailable for isolated migration test: {exc}")
-    finally:
-        admin_engine.dispose()
-
-    env = os.environ.copy()
-    env.pop("STUDIO_DATABASE_URL", None)
-    env["STUDIO_DATABASE_NAME"] = temp_db
-    temp_engine = create_engine(temp_url)
-    try:
-        subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "upgrade", "0011_diagnostic_debug_sessions"], cwd=ROOT, env=env, check=True)
+    with isolated_migration_database("studio_migration_0012") as (temp_engine, env):
+        run_alembic("0011_diagnostic_debug_sessions", env=env)
         with temp_engine.begin() as conn:
             # 0001 uses the current SQLAlchemy metadata baseline, so strip
-            # 0012-only reconciliation objects to create a genuine historical
+            # 0012-owned reconciliation objects to create a genuine historical
             # revision-0011 shape before testing the 0012 migration itself.
             conn.execute(text("DROP TABLE IF EXISTS transcription_output_reconciliations"))
             conn.execute(text("DROP TYPE IF EXISTS outputreconciliationstatus"))
             assert "transcription_output_reconciliations" not in inspect(conn).get_table_names()
             assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0011_diagnostic_debug_sessions"
-        subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "upgrade", "head"], cwd=ROOT, env=env, check=True)
+        run_alembic("0012_output_reconciliation_cases", env=env)
         with temp_engine.begin() as conn:
             _assert_output_reconciliation_schema(inspect(conn))
             assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0012_output_reconciliation_cases"
-        subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "downgrade", "0011_diagnostic_debug_sessions"], cwd=ROOT, env=env, check=True)
+        run_alembic("0011_diagnostic_debug_sessions", env=env, command="downgrade")
         with temp_engine.begin() as conn:
             assert "transcription_output_reconciliations" not in inspect(conn).get_table_names()
             assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0011_diagnostic_debug_sessions"
-        subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "upgrade", "head"], cwd=ROOT, env=env, check=True)
+        run_alembic("0012_output_reconciliation_cases", env=env)
         with temp_engine.begin() as conn:
             _assert_output_reconciliation_schema(inspect(conn))
-        subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "downgrade", "base"], cwd=ROOT, env=env, check=True)
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0012_output_reconciliation_cases"
+
+    with isolated_migration_database("studio_migration_0012_metadata") as (temp_engine, env):
         Base.metadata.create_all(temp_engine)
-        subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "stamp", "head"], cwd=ROOT, env=env, check=True)
-        subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "downgrade", "0011_diagnostic_debug_sessions"], cwd=ROOT, env=env, check=True)
+        run_alembic("0012_output_reconciliation_cases", env=env, command="stamp")
+        run_alembic("0011_diagnostic_debug_sessions", env=env, command="downgrade")
         with temp_engine.begin() as conn:
             assert "transcription_output_reconciliations" not in inspect(conn).get_table_names()
-    finally:
-        temp_engine.dispose()
-        cleanup_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
-        try:
-            with cleanup_engine.connect() as conn:
-                conn.execute(text(f'DROP DATABASE IF EXISTS "{temp_db}" WITH (FORCE)'))
-        finally:
-            cleanup_engine.dispose()
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0011_diagnostic_debug_sessions"
+
 
 def output_persistence_artifact(doc_id="doc-fresh"):
     return new_google_docs_transcript_artifact(
@@ -1595,6 +1632,28 @@ def test_cancel_clears_lease_and_public_payloads_are_safe():
         db.close()
 
 
+def test_invalidate_job_lease_preserves_claim_history_and_generation():
+    _, job_id = lease_test_job()
+    db = SessionLocal()
+    try:
+        job = db.get(TranscriptionJob, job_id)
+        handle = acquire_job_lease(db, job_id=job.id, lease_owner_id="owner", now=LEASE_TEST_NOW, lease_ttl=LEASE_TEST_TTL)
+        original_claimed_at = job.claimed_at
+        original_generation = job.lease_generation
+        assert original_claimed_at == handle.claimed_at
+        assert original_generation == handle.lease_generation
+
+        invalidate_job_lease(job)
+        db.flush()
+
+        assert job.lease_owner_id is None
+        assert job.lease_expires_at is None
+        assert job.claimed_at == original_claimed_at
+        assert job.lease_generation == original_generation
+    finally:
+        db.close()
+
+
 def test_active_lease_helper():
     _, job_id = lease_test_job()
     db = SessionLocal()
@@ -1710,6 +1769,8 @@ def test_processing_failure_and_expired_recovery_paths():
     finally:
         db.close()
 
+
+def test_expired_processing_recovery_fails_closed_without_current_attempt_evidence():
     _, recover_id = lease_test_job()
     db = SessionLocal()
     try:
@@ -1717,19 +1778,54 @@ def test_processing_failure_and_expired_recovery_paths():
         h = acquire_job_lease(db, job_id=job.id, lease_owner_id="owner", now=LEASE_TEST_NOW, lease_ttl=timedelta(minutes=1))
         begin_job_processing(db, job_id=job.id, lease_owner_id="owner", lease_generation=h.lease_generation, now=LEASE_TEST_NOW)
         started_at = job.started_at
+        original_claimed_at = job.claimed_at
+        original_generation = job.lease_generation
         with pytest.raises(JobProcessingError) as exc:
             recover_expired_processing_job(db, job_id=job.id, now=LEASE_TEST_NOW + timedelta(seconds=30))
         assert exc.value.reason == JobProcessingFailureReason.lease_active
         recover_expired_processing_job(db, job_id=job.id, now=LEASE_TEST_NOW + timedelta(minutes=2))
-        assert job.status == JobStatus.queued
+        assert job.status == JobStatus.failed
+        assert job.error_code == "retry_recovery_state_unknown"
+        assert job.error_message == "retry_recovery_state_unknown"
+        assert job.lease_owner_id is None
+        assert job.lease_expires_at is None
+        assert job.claimed_at == original_claimed_at
+        assert job.lease_generation == original_generation
         assert job.attempt_count == 1 and job.started_at == started_at
-        next_handle = acquire_job_lease(db, job_id=job.id, lease_owner_id="owner-2", now=LEASE_TEST_NOW + timedelta(minutes=3), lease_ttl=LEASE_TEST_TTL)
+    finally:
+        db.close()
+
+
+def test_expired_processing_recovery_requeues_with_current_prepared_attempt_evidence():
+    _, recover_id = lease_test_job()
+    db = SessionLocal()
+    try:
+        job = db.get(TranscriptionJob, recover_id)
+        h = acquire_job_lease(db, job_id=job.id, lease_owner_id="owner", now=LEASE_TEST_NOW, lease_ttl=timedelta(minutes=1))
+        begin_job_processing(db, job_id=job.id, lease_owner_id="owner", lease_generation=h.lease_generation, now=LEASE_TEST_NOW)
+        rel = db.query(TranscriptionJobSource).filter_by(job_id=job.id).one()
+        db.add(TranscriptionJobSourceAttempt(owner_user_id=job.owner_user_id, project_id=job.project_id, job_id=job.id, job_source_id=rel.id, attempt_number=1, stage=SourceAttemptStage.prepared, retry_disposition=SourceAttemptRetryDisposition.undetermined, created_at=LEASE_TEST_NOW, updated_at=LEASE_TEST_NOW))
+        db.commit()
+        started_at = job.started_at
+        original_claimed_at = job.claimed_at
+        original_generation = job.lease_generation
+        recover_expired_processing_job(db, job_id=job.id, now=LEASE_TEST_NOW + timedelta(minutes=2))
+        assert job.status == JobStatus.queued
+        assert job.finished_at is None and job.error_code is None and job.error_message is None
+        assert job.lease_owner_id is None
+        assert job.lease_expires_at is None
+        assert job.claimed_at == original_claimed_at
+        assert job.lease_generation == original_generation
+        assert job.attempt_count == 1 and job.started_at == started_at
+        next_claimed_at = LEASE_TEST_NOW + timedelta(minutes=3)
+        next_handle = acquire_job_lease(db, job_id=job.id, lease_owner_id="owner-2", now=next_claimed_at, lease_ttl=LEASE_TEST_TTL)
+        assert job.claimed_at == next_claimed_at
+        assert job.claimed_at != original_claimed_at
+        assert job.lease_owner_id == "owner-2"
+        assert job.lease_expires_at == next_claimed_at + LEASE_TEST_TTL
+        assert job.lease_generation == original_generation + 1
         begin_job_processing(db, job_id=job.id, lease_owner_id="owner-2", lease_generation=next_handle.lease_generation, now=LEASE_TEST_NOW + timedelta(minutes=4))
         assert job.attempt_count == 2 and job.started_at == started_at
-        job.cancel_requested_at = LEASE_TEST_NOW + timedelta(minutes=5)
-        job.lease_expires_at = LEASE_TEST_NOW + timedelta(minutes=5)
-        recover_expired_processing_job(db, job_id=job.id, now=LEASE_TEST_NOW + timedelta(minutes=6))
-        assert job.status == JobStatus.cancelled and job.finished_at == LEASE_TEST_NOW + timedelta(minutes=6)
     finally:
         db.close()
 
@@ -2440,6 +2536,84 @@ def test_batch_jobs_integrity_error_replays_concurrent_winner(monkeypatch):
         db.close()
 
 
+def _attempt_enum_values(conn, enum_name: str) -> list[str]:
+    return conn.execute(text(
+        "SELECT e.enumlabel FROM pg_enum e "
+        "JOIN pg_type t ON t.oid = e.enumtypid "
+        "WHERE t.typname = :enum_name "
+        "ORDER BY e.enumsortorder"
+    ), {"enum_name": enum_name}).scalars().all()
+
+
+def _assert_attempt_enums_absent(conn):
+    assert conn.execute(text("SELECT count(*) FROM pg_type WHERE typname IN ('sourceattemptretrydisposition', 'sourceattemptstage')")).scalar_one() == 0
+
+
+def _assert_job_retry_recovery_schema(inspector, conn):
+    assert "transcription_job_source_attempts" in inspector.get_table_names()
+    assert "transcription_output_reconciliations" in inspector.get_table_names()
+    cols = {c["name"]: c for c in inspector.get_columns("transcription_job_source_attempts")}
+    assert set(TranscriptionJobSourceAttempt.__table__.c.keys()).issubset(cols)
+    assert {"id", "owner_user_id", "project_id", "job_id", "job_source_id", "attempt_number", "stage", "retry_disposition", "failure_code", "provider_request_started_at", "provider_response_returned_at", "failed_at", "completed_at", "created_at", "updated_at"}.issubset(cols)
+    uniques = {tuple(u["column_names"]) for u in inspector.get_unique_constraints("transcription_job_source_attempts")}
+    assert ("job_source_id", "attempt_number") in uniques
+    checks = {c["name"] for c in inspector.get_check_constraints("transcription_job_source_attempts")}
+    assert "ck_source_attempt_attempt_number_positive" in checks
+    indexes = {idx["name"]: tuple(idx["column_names"]) for idx in inspector.get_indexes("transcription_job_source_attempts")}
+    assert indexes["ix_source_attempts_job_id"] == ("job_id",)
+    assert indexes["ix_source_attempts_job_source_id"] == ("job_source_id",)
+    assert indexes["ix_source_attempts_retry_disposition"] == ("retry_disposition",)
+    assert indexes["ix_source_attempts_job_retry_disposition"] == ("job_id", "retry_disposition")
+    fks = {tuple(fk["constrained_columns"]): fk["referred_table"] for fk in inspector.get_foreign_keys("transcription_job_source_attempts")}
+    assert fks[("owner_user_id",)] == "users"
+    assert fks[("project_id",)] == "projects"
+    assert fks[("job_id",)] == "transcription_jobs"
+    assert fks[("job_source_id",)] == "transcription_job_sources"
+    assert _attempt_enum_values(conn, "sourceattemptstage") == [e.value for e in SourceAttemptStage]
+    assert _attempt_enum_values(conn, "sourceattemptretrydisposition") == [e.value for e in SourceAttemptRetryDisposition]
+
+
+def test_job_retry_recovery_0013_upgrade_downgrade_roundtrip_and_metadata_table(tmp_path):
+    from studio_api.db import Base
+
+    with isolated_migration_database("studio_migration_0013") as (temp_engine, env):
+        run_alembic("0012_output_reconciliation_cases", env=env)
+        with temp_engine.begin() as conn:
+            # 0001 uses current metadata, so strip only 0013-owned objects to
+            # create a genuine historical 0012 shape.
+            conn.execute(text("DROP TABLE IF EXISTS transcription_job_source_attempts"))
+            conn.execute(text("DROP TYPE IF EXISTS sourceattemptretrydisposition"))
+            conn.execute(text("DROP TYPE IF EXISTS sourceattemptstage"))
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0012_output_reconciliation_cases"
+            assert "transcription_output_reconciliations" in inspect(conn).get_table_names()
+            assert "transcription_job_source_attempts" not in inspect(conn).get_table_names()
+            _assert_attempt_enums_absent(conn)
+        run_alembic("0013_job_retry_recovery", env=env)
+        with temp_engine.begin() as conn:
+            _assert_job_retry_recovery_schema(inspect(conn), conn)
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0013_job_retry_recovery"
+        run_alembic("0012_output_reconciliation_cases", env=env, command="downgrade")
+        with temp_engine.begin() as conn:
+            assert "transcription_job_source_attempts" not in inspect(conn).get_table_names()
+            assert "transcription_output_reconciliations" in inspect(conn).get_table_names()
+            _assert_attempt_enums_absent(conn)
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0012_output_reconciliation_cases"
+        run_alembic("0013_job_retry_recovery", env=env)
+        with temp_engine.begin() as conn:
+            _assert_job_retry_recovery_schema(inspect(conn), conn)
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0013_job_retry_recovery"
+
+    with isolated_migration_database("studio_migration_0013_metadata") as (temp_engine, env):
+        Base.metadata.create_all(temp_engine)
+        run_alembic("0013_job_retry_recovery", env=env, command="stamp")
+        run_alembic("0012_output_reconciliation_cases", env=env, command="downgrade")
+        with temp_engine.begin() as conn:
+            assert "transcription_job_source_attempts" not in inspect(conn).get_table_names()
+            assert "transcription_output_reconciliations" in inspect(conn).get_table_names()
+            _assert_attempt_enums_absent(conn)
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0012_output_reconciliation_cases"
+
+
 def test_job_destination_migration_0008_0009_upgrade_downgrade_backfill(tmp_path):
     from sqlalchemy import create_engine
     from sqlalchemy.engine import make_url
@@ -2544,7 +2718,7 @@ def test_job_destination_migration_0008_0009_upgrade_downgrade_backfill(tmp_path
         with temp_engine.begin() as conn:
             assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0009_job_output_destinations"
         cfg = Config(str(ALEMBIC))
-        assert ScriptDirectory.from_config(cfg).get_current_head() == "0012_output_reconciliation_cases"
+        assert ScriptDirectory.from_config(cfg).get_current_head() == "0013_job_retry_recovery"
     finally:
         temp_engine.dispose()
         cleanup_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
