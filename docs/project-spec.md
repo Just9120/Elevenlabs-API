@@ -146,7 +146,7 @@ Unfinished or unproven capabilities:
 - controlled end-to-end canary after the latest fix with exactly one persisted output;
 - automated output reconciliation for uncertain Google Docs side effects;
 - safe stage-specific retries/recovery;
-- lease renewal/heartbeat during long external materialization/provider/output calls;
+- safe stage-specific retries/recovery;
 - OpenAI PWA processing parity;
 - long-media splitting parity with Colab;
 - Studio manifest authority/update behavior;
@@ -183,7 +183,7 @@ The Studio PWA may render implemented source-level output metadata for explicitl
 - Processing uses the job snapshot as the runtime output authority.
 - Later changes to a mutable project default output folder must not redirect an existing queued, processing, failed, cancelled, or completed job.
 - Cancellation before processing is terminal and safe.
-- Cancellation or lease loss during processing must fail closed and must not automatically duplicate provider calls or Google document creation.
+- Cancellation, lease loss, or lease heartbeat failure during processing must fail closed and must not automatically duplicate provider calls or Google document creation.
 - Terminal completion requires persisted safe output evidence for every non-skipped relation.
 - Output-side-effect uncertainty must preserve evidence and require reconciliation rather than automatic duplicate output creation or deletion.
 
@@ -221,7 +221,7 @@ Current delivery sequencing is in `docs/delivery-plan.md`. Product backlog items
 - `PWA-PROCESSING-ROLLOUT-01A` — operator validation for fixed worker rollout and one controlled end-to-end canary.
 - `PWA-WORKER-OPS-01` — official worker deployable component with health, identity, pause/drain/resume, and rollback contract.
 - `PWA-OUTPUT-RECONCILIATION-01` — reconcile uncertain or missing Google Docs output evidence without unsafe duplication.
-- `PWA-LEASE-HEARTBEAT-01` — lease renewal/heartbeat for long external calls.
+- `PWA-LEASE-HEARTBEAT-01` — source-complete PostgreSQL-backed bounded heartbeat for long source/provider and Google output calls; rollout evidence remains separate.
 - `PWA-RETRY-RECOVERY-01` — safe stage-specific retry and recovery design.
 - `PWA-SOURCE-DELETION-01` — source deletion and retention behavior.
 - `PWA-LEGACY-AUTHORITY-01` — remove or formally mark legacy deployment/runtime paths after review.

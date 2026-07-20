@@ -217,8 +217,7 @@ Current known limitations remain:
 - no exactly-once Google document creation guarantee;
 - no automated output reconciliation;
 - no safe automatic retry/recovery;
-- no background lease heartbeat during one long external call;
-- one continuous materialization/provider/output stage must fit the worker lease TTL;
+- bounded PostgreSQL lease heartbeat is source-level only until deployed/validated; it is not a retry system and does not prove production-live processing;
 - no Studio manifest mutation;
 - no OpenAI Studio processing parity;
 - no multi-worker production validation;
@@ -285,7 +284,7 @@ STUDIO_DEPLOY_DIR=/opt/elevenlabs-studio scripts/manage_studio_worker.sh drain
 STUDIO_DEPLOY_DIR=/opt/elevenlabs-studio scripts/manage_studio_worker.sh pause
 ```
 
-Drain uses normal Docker stop/SIGTERM with a timeout derived from the actual configured `STUDIO_WORKER_LEASE_TTL_SECONDS` plus a safety buffer. Compose `stop_grace_period: 86460s` covers the maximum supported lease TTL (`86400` seconds) plus a 60-second safety buffer as a fallback, but normal operator updates must still use explicit `status → drain → deploy`; the large Compose grace is not a replacement for operator drain. After SIGTERM, the worker stop flag prevents new claims; the current synchronous iteration finishes or fails normally before exit. `pause` is an idempotent safe-drain wrapper. Paused means stopped/drained container, never `docker pause`, `SIGSTOP`, or a frozen active process. A graceful drain prints `STUDIO_WORKER_DRAINED`; pause also prints `STUDIO_WORKER_PAUSED`. Repeated drain/pause is safe only when the worker is absent or the single existing container is already `exited` with `exit_code=0`.
+Drain uses normal Docker stop/SIGTERM with a timeout derived from the actual configured `STUDIO_WORKER_LEASE_TTL_SECONDS` plus a safety buffer. Compose `stop_grace_period: 86460s` covers the maximum supported lease TTL (`86400` seconds) plus a 60-second safety buffer as a fallback, but normal operator updates must still use explicit `status → drain → deploy`; the large Compose grace is not a replacement for operator drain. After SIGTERM, the worker stop flag prevents new claims; the current synchronous iteration and any stage-scoped heartbeat stop/join path finish or fail normally before exit. Heartbeat renewal sessions use transaction-local database timeouts and bounded stop joins; the heartbeat thread is daemon as a final process-exit safety net if a driver/network operation ignores the database timeout. `pause` is an idempotent safe-drain wrapper. Paused means stopped/drained container, never `docker pause`, `SIGSTOP`, or a frozen active process. A graceful drain prints `STUDIO_WORKER_DRAINED`; pause also prints `STUDIO_WORKER_PAUSED`. Repeated drain/pause is safe only when the worker is absent or the single existing container is already `exited` with `exit_code=0`.
 
 If Docker forced-kills the worker, the process exits `143`, another non-zero exit occurs, the container is already stopped abnormally, or the container remains running/restarting, automation stops with a blocked reason and the operator must perform lease/output reconciliation review. Only exit code `0` is a graceful drain; `137` is forced kill, `143` is abnormal SIGTERM termination, and any other non-zero code is abnormal termination. Already stopped abnormal workers are not drained and are not paused; `pause` must not print `STUDIO_WORKER_PAUSED` after a failed drain. Do not automatically resume, redeploy, retry providers, clear leases, reset jobs, or delete/recreate Google documents.
 

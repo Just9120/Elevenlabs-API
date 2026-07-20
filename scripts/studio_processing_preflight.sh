@@ -68,6 +68,9 @@ validate_runtime_values() {
   in_range "${ENV_VALUES[STUDIO_WORKER_POLL_INTERVAL_SECONDS]}" 1 60 || return 1
   in_range "${ENV_VALUES[STUDIO_WORKER_ERROR_BACKOFF_SECONDS]}" 1 300 || return 1
   in_range "${ENV_VALUES[STUDIO_WORKER_LEASE_TTL_SECONDS]}" 300 86400 || return 1
+  local heartbeat_interval="${ENV_VALUES[STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS]-60}"
+  in_range "$heartbeat_interval" 5 28800 || return 1
+  (( heartbeat_interval * 3 <= ENV_VALUES[STUDIO_WORKER_LEASE_TTL_SECONDS] )) || return 1
 }
 
 service_status() {

@@ -20,9 +20,10 @@ This is the current Studio processing contract. It is not a delivery plan, PR hi
 - A naive datetime value is interpreted as UTC.
 - A lease is active only when `lease_expires_at > now`.
 - `lease_expires_at == now` means the lease is expired.
-- Background heartbeat during one long external call is not implemented.
-- One continuous materialization/provider/output stage must complete within the configured lease TTL.
-- Lease renewal may happen only at documented safe checkpoints, never as an implicit Redis heartbeat or unbounded background loop.
+- A bounded PostgreSQL-backed heartbeat may run only around one documented long external stage: source materialization/provider work or Google output authorization/metadata/create flow.
+- Each heartbeat renewal uses its own database session, applies transaction-local PostgreSQL statement/lock timeouts before the fenced renewal, renews only `lease_expires_at` through exact owner/generation fencing, commits only if stop has not already been requested, and closes; the main orchestration session is never shared across threads.
+- Heartbeat is stage-scoped and stops with a strictly bounded two-phase join after the external call; a production heartbeat thread is daemon as a final shutdown safety net, and failure or stop timeout has priority over any simultaneous provider/Google exception, fails closed with normalized `lease_heartbeat_*` reasons, and does not retry provider or Google work.
+- `lease_expires_at` is mutable heartbeat state and must not be treated as immutable source/output snapshot identity; lease owner, generation, status, cancellation, project/source/output identity, and active-lease checks remain authoritative. Lease renewal may happen only at documented safe checkpoints or through this bounded PostgreSQL heartbeat, never as Redis, implicit lease recovery, or an unbounded background loop.
 
 ## Deterministic processing
 
@@ -60,7 +61,7 @@ Processing must re-check lifecycle, lease, ownership, and cancellation at safe b
 2. before provider submission;
 3. after provider completion and before exposing transcript text to the next stage;
 4. before Google Docs creation;
-5. after Google creation and before output persistence;
+5. after Google creation and before output persistence, including heartbeat result validation;
 6. after output persistence and before the next source;
 7. before final completion.
 
@@ -86,7 +87,7 @@ If cancellation, lease loss, owner/generation mismatch, project/source mutation,
 
 - Output reconciliation is source-level and explicit owner-driven; runtime rollout still requires operator migration/deployment evidence.
 - No safe stage-specific retry/recovery system.
-- No background lease heartbeat for long external calls.
+- No generic retry/recovery scheduler for failed long external calls.
 - No OpenAI Studio processing path.
 - No Studio manifest mutation.
 - No multi-worker production validation.
@@ -94,7 +95,7 @@ If cancellation, lease loss, owner/generation mismatch, project/source mutation,
 
 ## Output reconciliation
 
-Studio output reconciliation is an explicit owner action for uncertain Google Docs side effects. Processing must prepare and commit a durable reconciliation case before Google Docs creation, then pass an opaque random token to Drive `appProperties`. When Google creation response, lifecycle, context close, or output persistence is uncertain, the job records `output_reconciliation_required` where lifecycle permits and does not retry provider work or create a second Google Doc.
+Studio output reconciliation is an explicit owner action for uncertain Google Docs side effects. Processing must prepare and commit a durable reconciliation case before Google Docs creation, then pass an opaque random token to Drive `appProperties`. When Google creation response, lifecycle, heartbeat state, context close, or output persistence is uncertain, the job records `output_reconciliation_required` where lifecycle permits and does not retry provider work or create a second Google Doc.
 
 The reconciliation path performs exact Drive lookup using the opaque appProperty token and the job output-folder snapshot. It does not read transcript text, Google document body, raw provider responses, or raw Google responses. Zero matches remain unresolved; multiple matches become conflict; exactly one verified match may persist one missing output row. Reconciliation does not require an active worker lease, live source bytes, uploaded source status, object-storage availability, or source restoration, and it does not mutate lease owner, lease generation, attempt count, source bytes, or job output-folder snapshot.
 

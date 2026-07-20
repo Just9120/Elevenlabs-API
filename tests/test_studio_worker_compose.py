@@ -26,7 +26,7 @@ def test_studio_worker_compose_contract():
     assert "postgres: { condition: service_healthy }" in worker
     deps = worker.split("depends_on:", 1)[1]
     assert "redis:" not in deps and "studio-api:" not in deps
-    for key in ["STUDIO_WORKER_POLL_INTERVAL_SECONDS", "STUDIO_WORKER_ERROR_BACKOFF_SECONDS", "STUDIO_WORKER_LEASE_TTL_SECONDS"]:
+    for key in ["STUDIO_WORKER_POLL_INTERVAL_SECONDS", "STUDIO_WORKER_ERROR_BACKOFF_SECONDS", "STUDIO_WORKER_LEASE_TTL_SECONDS", "STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS"]:
         assert key in worker
     for secret in ["studio_postgres_password", "studio_credential_master_key", "studio_source_s3_access_key_id", "studio_source_s3_secret_access_key", "studio_google_oauth_client_secret"]:
         assert secret in worker
@@ -37,3 +37,17 @@ def test_env_example_worker_defaults_once():
     text=ENV.read_text()
     for line in ["STUDIO_WORKER_POLL_INTERVAL_SECONDS=5", "STUDIO_WORKER_ERROR_BACKOFF_SECONDS=5", "STUDIO_WORKER_LEASE_TTL_SECONDS=3600"]:
         assert text.count(line) == 1
+
+
+def test_heartbeat_config_is_worker_only():
+    worker=service_block("studio-worker"); api=service_block("studio-api"); web=service_block("studio-web")
+    assert "STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS" in worker
+    assert "STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS: ${STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS:-60}" in worker
+    assert "STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS" not in api
+    assert "STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS" not in web
+
+
+def test_compose_worker_heartbeat_default_supports_old_env():
+    worker=service_block("studio-worker")
+    assert "STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS is required" not in worker
+    assert "${STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS:-60}" in worker

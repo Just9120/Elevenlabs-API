@@ -286,3 +286,35 @@ def test_caller_exception_propagates_unchanged_and_stream_closes(sqlite_session,
     assert str(err.value) == "caller sentinel"
     assert yielded_stream is not None
     assert yielded_stream.closed
+
+
+def test_heartbeat_only_lease_expiry_change_does_not_trip_source_snapshot(sqlite_session, models):
+    from datetime import timedelta
+    job, _, rel, _, now, _ = make_job(sqlite_session, models)
+    def heartbeat_only():
+        job.lease_expires_at = now + timedelta(minutes=10)
+        sqlite_session.flush()
+    body = FakeBody([b"a" * 100], before_eof=heartbeat_only)
+    storage = FakeStorage(FakeStream(body))
+    with materialize(sqlite_session, job, rel, storage=storage, now=now, drive_meta=fake_drive_meta) as handle:
+        assert handle.byte_count == 100
+
+
+@pytest.mark.parametrize("mutate,reason", [
+    (lambda m,j,r,s,n: setattr(j, "lease_owner_id", "other"), "lease_not_owned"),
+    (lambda m,j,r,s,n: setattr(j, "lease_generation", 2), "lease_not_owned"),
+    (lambda m,j,r,s,n: setattr(j, "lease_expires_at", n - timedelta(seconds=1)), "lease_not_active"),
+    (lambda m,j,r,s,n: setattr(j, "cancel_requested_at", n), "cancellation_requested"),
+    (lambda m,j,r,s,n: setattr(s, "s3_object_key", "changed"), "selected_source_changed"),
+])
+def test_source_snapshot_still_fails_closed_for_authority_mutations(sqlite_session, models, mutate, reason):
+    from studio_api.job_source_materialization import SourceMaterializationError
+    job, src, rel, _, now, _ = make_job(sqlite_session, models)
+    def mutation():
+        mutate(models, job, rel, src, now)
+        sqlite_session.flush()
+    storage = FakeStorage(FakeStream(FakeBody([b"a" * 100], before_eof=mutation)))
+    with pytest.raises(SourceMaterializationError) as exc:
+        with materialize(sqlite_session, job, rel, storage=storage, now=now):
+            pass
+    assert exc.value.reason.value == reason
