@@ -85,6 +85,7 @@ def run_worker_loop(
         db = session_factory()
         result = None
         wait_seconds = None
+        iteration_failed = False
         try:
             result = iteration(db, lease_owner_id=owner_id, lease_ttl=lease_ttl, settings=settings, heartbeat_session_factory=session_factory)
         except Exception as exc:
@@ -92,12 +93,14 @@ def run_worker_loop(
                 _safe_rollback(db, logger)
                 logger.error("worker_iteration_failed", extra={"event": "worker_iteration_failed"})
                 wait_seconds = error_backoff
+                iteration_failed = True
             else:
                 logger.warning(
                     "studio_worker_iteration_error",
                     extra={"event": "studio_worker_iteration_error", "error_type": type(exc).__name__, "reason": _reason(exc)},
                 )
                 wait_seconds = error_backoff
+                iteration_failed = True
         finally:
             try:
                 db.close()
@@ -108,6 +111,9 @@ def run_worker_loop(
             break
         if result is not None:
             _safe_log_result(logger, result)
+            continue
+        if iteration_failed:
+            stop_event.wait(wait_seconds if wait_seconds is not None else poll_interval)
             continue
         if not stop_event.is_set():
             cleanup_db = session_factory()

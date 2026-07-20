@@ -61,6 +61,13 @@ def _local_source(db, m, project, now, *, key="k", bucket="b", status=None, expi
     return src
 
 
+class FakeStorageSettings:
+    source_s3_bucket = "persisted-bucket"
+
+    def source_storage_configured(self):
+        return True
+
+
 def _job_for_source(db, m, user, project, src, *, status, relation_status=None, attempt_count=1):
     job = m.TranscriptionJob(project_id=project.id, owner_user_id=user.id, status=status, provider="elevenlabs", provider_credential_id="cred", output_drive_folder_id="folder", attempt_count=attempt_count)
     db.add(job)
@@ -219,7 +226,7 @@ def test_cleanup_lease_fencing_reclaim_failure_and_missing_identity(sqlite_db):
     second = claim_next_source_cleanup(sqlite_db, owner_id="worker-b", now=now)
     assert second and second.generation == first.generation + 1
     storage = Storage(fail=True)
-    assert run_one_source_cleanup(sqlite_db, settings=object(), owner_id="worker-c", now=now, storage_factory=lambda _: storage) is False or src.s3_object_key == "k"
+    assert run_one_source_cleanup(sqlite_db, settings=FakeStorageSettings(), owner_id="worker-c", now=now, storage_factory=lambda _: storage) is False or src.s3_object_key == "k"
     # Direct failure finalization preserves identity.
     finalize_source_cleanup(sqlite_db, claim=second, now=now, success=False, error_code="storage_delete_failed")
     assert src.s3_bucket == "old-bucket" and src.s3_object_key == "k"
@@ -250,20 +257,44 @@ def test_run_one_cleanup_uses_persisted_bucket_and_missing_identity_success(sqli
     src.storage_cleanup_not_before_at = now
     sqlite_db.commit()
     storage = Storage()
-    assert run_one_source_cleanup(sqlite_db, settings=object(), owner_id="worker", now=now, storage_factory=lambda _: storage)
+    assert run_one_source_cleanup(sqlite_db, settings=FakeStorageSettings(), owner_id="worker", now=now, storage_factory=lambda _: storage)
     assert storage.calls == [("persisted-bucket", "persisted-key")]
     assert src.s3_bucket is None and src.s3_object_key is None
+
+
+
+def test_cleanup_bucket_mismatch_fails_without_delete_and_missing_identity_is_unclaimed(sqlite_db):
+    from studio_api.source_deletion import claim_next_source_cleanup, run_one_source_cleanup
+
+    class Storage:
+        def __init__(self):
+            self.calls = []
+
+        def delete_object(self, key, *, bucket=None):
+            self.calls.append((bucket, key))
+
+    m, user, project = _owner_project(sqlite_db)
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    mismatch = _local_source(sqlite_db, m, project, now, key="persisted-key", bucket="other-bucket", cleanup_status=m.SourceStorageCleanupStatus.pending)
+    mismatch.deleted_at = now
+    mismatch.storage_cleanup_not_before_at = now
+    sqlite_db.commit()
+    storage = Storage()
+    assert run_one_source_cleanup(sqlite_db, settings=FakeStorageSettings(), owner_id="worker", now=now, storage_factory=lambda _: storage)
+    assert storage.calls == []
+    assert mismatch.storage_cleanup_status == m.SourceStorageCleanupStatus.failed
+    assert mismatch.storage_cleanup_error_code == "storage_identity_mismatch"
+    assert mismatch.s3_bucket == "other-bucket" and mismatch.s3_object_key == "persisted-key"
 
     missing = _local_source(sqlite_db, m, project, now, key=None, bucket=None, cleanup_status=m.SourceStorageCleanupStatus.pending)
     missing.deleted_at = now
     missing.s3_bucket = None
     missing.s3_object_key = None
     missing.storage_cleanup_not_before_at = now
+    mismatch.storage_cleanup_not_before_at = now + timedelta(days=1)
     sqlite_db.commit()
-    storage2 = Storage()
-    assert run_one_source_cleanup(sqlite_db, settings=object(), owner_id="worker", now=now, storage_factory=lambda _: storage2)
-    assert storage2.calls == []
-    assert missing.storage_cleanup_status == m.SourceStorageCleanupStatus.completed
+    assert claim_next_source_cleanup(sqlite_db, owner_id="worker", now=now) is None
+    assert missing.storage_cleanup_status == m.SourceStorageCleanupStatus.pending
 
 
 def test_repeated_delete_is_idempotent_for_audit_and_diagnostics(sqlite_db, monkeypatch):

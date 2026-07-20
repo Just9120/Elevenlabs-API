@@ -27,6 +27,9 @@ SOURCE_CLEANUP_LEASE_TTL = timedelta(minutes=5)
 SOURCE_CLEANUP_RETRY_DELAY = timedelta(minutes=10)
 
 
+STORAGE_CLEANUP_ERROR_CODES = {"storage_unavailable", "storage_delete_failed", "storage_identity_mismatch"}
+
+
 class SourceDeletionReason(str, Enum):
     available = "available"
     queued_job_uses_source = "queued_job_uses_source"
@@ -50,7 +53,7 @@ class SourceCleanupClaim:
     source_id: str
     owner_id: str
     generation: int
-    s3_bucket: str | None
+    s3_bucket: str
     s3_object_key: str
     attempt_count: int
 
@@ -192,6 +195,10 @@ def claim_next_source_cleanup(db: Session, *, owner_id: str, now: datetime) -> S
             Source.source_type == SourceType.local_upload,
             Source.storage_cleanup_status.in_([SourceStorageCleanupStatus.pending, SourceStorageCleanupStatus.failed]),
             Source.storage_cleanup_not_before_at <= now,
+            Source.s3_bucket.is_not(None),
+            Source.s3_bucket != "",
+            Source.s3_object_key.is_not(None),
+            Source.s3_object_key != "",
             stale,
             or_(Source.deleted_at.is_not(None), Source.expires_at <= now),
         ]
@@ -218,7 +225,7 @@ def claim_next_source_cleanup(db: Session, *, owner_id: str, now: datetime) -> S
     if owner_user_id:
         write_diagnostic_event(owner_user_id=owner_user_id, component="worker", event_code="SOURCE_STORAGE_CLEANUP_STARTED", project_id=src.project_id, metadata={"source_type": src.source_type.value, "cleanup_attempt": src.storage_cleanup_attempt_count, "boundary": "source_cleanup"})
     db.flush()
-    return SourceCleanupClaim(src.id, owner, src.storage_cleanup_generation, src.s3_bucket, src.s3_object_key or "", src.storage_cleanup_attempt_count)
+    return SourceCleanupClaim(src.id, owner, src.storage_cleanup_generation, src.s3_bucket or "", src.s3_object_key or "", src.storage_cleanup_attempt_count)
 
 
 def finalize_source_cleanup(db: Session, *, claim: SourceCleanupClaim, now: datetime, success: bool, error_code: str | None = None) -> bool:
@@ -237,7 +244,7 @@ def finalize_source_cleanup(db: Session, *, claim: SourceCleanupClaim, now: date
             write_diagnostic_event(owner_user_id=owner_user_id, component="worker", event_code="SOURCE_STORAGE_CLEANUP_COMPLETED", project_id=src.project_id, metadata={"cleanup_outcome": "completed", "cleanup_attempt": src.storage_cleanup_attempt_count, "boundary": "source_cleanup"})
     else:
         src.storage_cleanup_status = SourceStorageCleanupStatus.failed
-        src.storage_cleanup_error_code = error_code if error_code in {"storage_unavailable", "storage_delete_failed"} else "storage_delete_failed"
+        src.storage_cleanup_error_code = error_code if error_code in STORAGE_CLEANUP_ERROR_CODES else "storage_delete_failed"
         src.storage_cleanup_not_before_at = now + SOURCE_CLEANUP_RETRY_DELAY
         audit(db, "source.storage_cleanup_failed", project_id=src.project_id, cleanup_outcome="failed", cleanup_attempt=src.storage_cleanup_attempt_count)
         owner_user_id = _project_owner_id(db, src.project_id)
@@ -266,7 +273,15 @@ def run_one_source_cleanup(db: Session, *, settings, owner_id: str, now: datetim
     ok = True
     code = None
     try:
-        if claim.s3_bucket and claim.s3_object_key:
+        configured_bucket = getattr(settings, "source_s3_bucket", None)
+        configured = bool(getattr(settings, "source_storage_configured", lambda: False)())
+        if not configured:
+            ok = False
+            code = "storage_unavailable"
+        elif claim.s3_bucket != configured_bucket:
+            ok = False
+            code = "storage_identity_mismatch"
+        else:
             (storage_factory or __import__("studio_api.source_storage", fromlist=["get_source_storage"]).get_source_storage)(settings).delete_object(claim.s3_object_key, bucket=claim.s3_bucket)
     except Exception as exc:
         ok = False

@@ -51,6 +51,10 @@ def upgrade():
             op.add_column("sources", sa.Column(name, typ, nullable=nullable, server_default=sa.text(default) if default is not None else None))
     inspector = sa.inspect(bind)
     indexes = {i["name"] for i in inspector.get_indexes("sources")}
+    for redundant in ("ix_sources_storage_cleanup_status", "ix_sources_storage_cleanup_not_before_at"):
+        if redundant in indexes:
+            op.drop_index(redundant, table_name="sources")
+            indexes.remove(redundant)
     if "ix_sources_storage_cleanup_selection" not in indexes:
         op.create_index("ix_sources_storage_cleanup_selection", "sources", ["storage_cleanup_status", "storage_cleanup_not_before_at", "storage_cleanup_lease_expires_at"])
     checks = _checks(sa.inspect(bind))
@@ -72,8 +76,9 @@ def downgrade():
     if "sources" not in inspector.get_table_names():
         return
     indexes = {i["name"] for i in inspector.get_indexes("sources")}
-    if "ix_sources_storage_cleanup_selection" in indexes:
-        op.drop_index("ix_sources_storage_cleanup_selection", table_name="sources")
+    for cleanup_index in ("ix_sources_storage_cleanup_selection", "ix_sources_storage_cleanup_status", "ix_sources_storage_cleanup_not_before_at"):
+        if cleanup_index in indexes:
+            op.drop_index(cleanup_index, table_name="sources")
     checks = _checks(inspector)
     if "ck_sources_storage_cleanup_attempt_count_nonnegative" in checks:
         op.drop_constraint("ck_sources_storage_cleanup_attempt_count_nonnegative", "sources", type_="check")

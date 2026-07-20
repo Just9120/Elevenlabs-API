@@ -28,7 +28,7 @@ from .job_retry_recovery import compute_explicit_retry_readiness, queue_retry
 from .google_docs_output import OUTPUT_RECONCILIATION_APP_PROPERTY
 from .google_drive import GoogleDriveReconciliationError, list_reconciliation_candidates
 from .job_output_folder_selection import VerifiedOutputFolderSelection, verify_output_folder_selection
-from .source_deletion import SourceDeletionReason, is_source_expired, request_source_deletion, run_one_source_cleanup
+from .source_deletion import SourceDeletionReason, is_source_expired, request_source_deletion
 
 settings=get_settings()
 app=FastAPI(docs_url="/docs" if settings.enable_api_docs else None, redoc_url=None, openapi_url="/openapi.json" if settings.enable_api_docs else None)
@@ -602,10 +602,6 @@ def delete_source(source_id: str, request: Request, pair=Depends(require_csrf), 
         db.commit()
         raise HTTPException(status_code=409, detail={"reason": result.reason.value})
     db.commit()
-    try:
-        run_one_source_cleanup(db, settings=settings, owner_id=f"api-cleanup-{user.id}", now=utcnow())
-    except Exception:
-        db.rollback()
     return {"ok": True, "source_state": result.source_state, "storage_cleanup": result.storage_cleanup}
 
 
