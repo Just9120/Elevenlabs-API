@@ -6,6 +6,8 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Callable
 
+from sqlalchemy import text
+
 from .security import utcnow
 
 LEASE_HEARTBEAT_STAGE_SOURCE_PROVIDER = "source_provider"
@@ -58,6 +60,8 @@ class LeaseHeartbeat:
         event_factory: Callable[[], threading.Event] = threading.Event,
         thread_factory: Callable[..., threading.Thread] = threading.Thread,
         join_timeout: float = 5.0,
+        db_operation_timeout: float = 3.0,
+        timeout_configurator: Callable | None = None,
     ):
         if stage not in LEASE_HEARTBEAT_STAGES:
             raise ValueError("invalid heartbeat stage")
@@ -73,6 +77,8 @@ class LeaseHeartbeat:
         self._stop_event = event_factory()
         self._thread_factory = thread_factory
         self._join_timeout = join_timeout
+        self._db_operation_timeout = max(0.1, min(float(db_operation_timeout), max(0.1, float(join_timeout) - 0.1)))
+        self._timeout_configurator = timeout_configurator or configure_heartbeat_renewal_timeout
         self._thread = None
         self._renewal_count = 0
         self._failed_reason: LeaseHeartbeatFailureReason | None = None
@@ -107,6 +113,9 @@ class LeaseHeartbeat:
             self._thread.join(timeout=self._join_timeout)
             if self._thread.is_alive():
                 self._set_failed(LeaseHeartbeatFailureReason.lease_heartbeat_stop_timeout)
+                self._thread.join(timeout=self._db_operation_timeout + 1.0)
+                while self._thread.is_alive():
+                    self._thread.join(timeout=0.1)
         return self.result()
 
     def stop_and_join(self) -> LeaseHeartbeatResult:
@@ -117,6 +126,10 @@ class LeaseHeartbeat:
         reason = self.failure_reason
         if reason:
             raise LeaseHeartbeatError(LeaseHeartbeatFailureReason(reason))
+
+    @property
+    def thread_alive(self) -> bool:
+        return bool(self._thread is not None and self._thread.is_alive())
 
     def result(self) -> LeaseHeartbeatResult:
         return LeaseHeartbeatResult(self.stage, self.renewal_count, self.failed, self.failure_reason)
@@ -134,6 +147,7 @@ class LeaseHeartbeat:
         db = None
         try:
             db = self.session_factory()
+            self._timeout_configurator(db, self._db_operation_timeout)
             self.lease_renewer(
                 db,
                 job_id=self.job_id,
@@ -163,6 +177,14 @@ class LeaseHeartbeat:
         with self._lock:
             if self._failed_reason is None:
                 self._failed_reason = reason
+
+
+def configure_heartbeat_renewal_timeout(db, timeout_seconds: float) -> None:
+    if not hasattr(db, "execute"):
+        return
+    timeout_ms = max(1, int(timeout_seconds * 1000))
+    db.execute(text(f"SET LOCAL statement_timeout = '{timeout_ms}ms'"))
+    db.execute(text(f"SET LOCAL lock_timeout = '{timeout_ms}ms'"))
 
 
 def _rollback(db) -> None:
@@ -198,5 +220,10 @@ class lease_heartbeat_stage:
         return self.heartbeat
 
     def __exit__(self, exc_type, exc, tb) -> bool:
-        self.heartbeat.stop_and_join()
+        result = self.heartbeat.stop_and_join()
+        if result.failed:
+            heartbeat_error = LeaseHeartbeatError(LeaseHeartbeatFailureReason(result.reason or LeaseHeartbeatFailureReason.lease_heartbeat_failed.value))
+            if exc is not None:
+                raise heartbeat_error from exc
+            raise heartbeat_error
         return False

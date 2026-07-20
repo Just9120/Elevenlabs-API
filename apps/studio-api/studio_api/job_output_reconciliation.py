@@ -16,7 +16,7 @@ from .models import JobSourceStatus, JobStatus, OutputReconciliationStatus, Proj
 from .security import utcnow
 
 OUTPUT_RECONCILIATION_ERROR_CODE = "output_reconciliation_required"
-SAFE_REASONS = {"google_docs_timeout","google_docs_unavailable","malformed_google_docs_response","lifecycle_changed_after_output_creation","commit_failed","context_closed","unknown","job_not_processable","lease_not_owned","lease_not_active","cancellation_requested","existing_reconciliation_case"}
+SAFE_REASONS = {"google_docs_timeout","google_docs_unavailable","malformed_google_docs_response","lifecycle_changed_after_output_creation","commit_failed","context_closed","unknown","job_not_processable","lease_not_owned","lease_not_active","cancellation_requested","existing_reconciliation_case","lease_heartbeat_failed","lease_heartbeat_not_owned","lease_heartbeat_expired","lease_heartbeat_commit_failed","lease_heartbeat_stop_timeout"}
 
 class OutputReconciliationReason(str, Enum):
     unavailable="unavailable"; not_found="not_found"; conflict="conflict"; invalid_candidate="invalid_candidate"; not_allowed="not_allowed"; missing_case="missing_case"; output_conflict="output_conflict"; google_connection_unavailable="google_connection_unavailable"; existing_reconciliation_case="existing_reconciliation_case"

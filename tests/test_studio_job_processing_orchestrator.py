@@ -18,6 +18,7 @@ sys.path.insert(0, str(ROOT / "apps/studio-api"))
 class Settings:
     source_max_upload_bytes: int = 1000
     source_s3_bucket: str = "bucket"
+    worker_lease_heartbeat_interval_seconds: int = 60
 
 
 @pytest.fixture(autouse=True)
@@ -887,3 +888,121 @@ def test_recovered_unresolved_case_blocks_provider_and_google_create(db):
     assert not any(isinstance(e, tuple) and e[0] in {"transcribe", "google"} for e in events)
     j=db.get(m.TranscriptionJob, job.id)
     assert j.status == m.JobStatus.failed and j.error_code == "output_reconciliation_required"
+
+
+class HeartbeatResult:
+    def __init__(self, stage, failed=False, reason=None):
+        self.stage=stage; self.renewal_count=0; self.failed=failed; self.reason=reason
+
+class FakeHeartbeatController:
+    failures = {}
+    starts = []
+    stopped = []
+    def __init__(self, *, stage, **kwargs):
+        self.stage=stage; self.failed_reason=self.failures.get(stage); self.renewal_count=0
+    def start(self): self.starts.append(self.stage)
+    def stop_and_join(self):
+        self.stopped.append(self.stage)
+        return HeartbeatResult(self.stage, self.failed_reason is not None, self.failed_reason)
+    def check(self):
+        if self.failed_reason:
+            from studio_api.job_lease_heartbeat import LeaseHeartbeatError, LeaseHeartbeatFailureReason
+            raise LeaseHeartbeatError(LeaseHeartbeatFailureReason(self.failed_reason))
+
+
+def heartbeat_factory_for(failures):
+    class Controller(FakeHeartbeatController):
+        pass
+    Controller.failures=failures; Controller.starts=[]; Controller.stopped=[]
+    return Controller
+
+
+def test_transcription_exception_and_heartbeat_failure_prefers_heartbeat_and_blocks_google(db):
+    from studio_api import models as m
+    from studio_api.job_elevenlabs_transcription import JobElevenLabsTranscriptionError, JobElevenLabsTranscriptionReason
+    from studio_api.job_lease_heartbeat import LEASE_HEARTBEAT_STAGE_SOURCE_PROVIDER
+    from studio_api.job_processing_orchestrator import JobProcessingOrchestrationError, orchestrate_processing_job
+    job, _ = make_job(db, m, status=m.JobStatus.processing); events=[]; persister=persist_real(db,m,1)
+    def transcriber(*args, **kwargs):
+        events.append(("transcribe", kwargs["job_source_id"]))
+        raise JobElevenLabsTranscriptionError(JobElevenLabsTranscriptionReason.provider_timeout)
+    def googler(*args, **kwargs): events.append(("google", kwargs["job_source_id"])); return FakeCM(Artifact(), events, "google_enter", "google_exit")
+    controller=heartbeat_factory_for({LEASE_HEARTBEAT_STAGE_SOURCE_PROVIDER:"lease_heartbeat_expired"})
+    with pytest.raises(JobProcessingOrchestrationError) as excinfo:
+        orchestrate_processing_job(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), clock=Clock(), lease_ttl=timedelta(minutes=5), transcription_opener=transcriber, google_docs_opener=googler, output_persister=persister, heartbeat_session_factory=lambda: object(), heartbeat_controller_factory=controller)
+    assert excinfo.value.reason.value == "lease_heartbeat_failed"
+    assert [e for e in events if isinstance(e, tuple) and e[0] == "google"] == []
+    assert persister.calls == []
+    assert db.get(m.TranscriptionJob, job.id).error_code == "lease_heartbeat_failed"
+
+
+def test_transcription_exception_with_healthy_heartbeat_preserves_existing_failure(db):
+    from studio_api import models as m
+    from studio_api.job_elevenlabs_transcription import JobElevenLabsTranscriptionError, JobElevenLabsTranscriptionReason
+    from studio_api.job_processing_orchestrator import JobProcessingOrchestrationError, orchestrate_processing_job
+    job, _ = make_job(db, m, status=m.JobStatus.processing); events=[]
+    def transcriber(*args, **kwargs):
+        raise JobElevenLabsTranscriptionError(JobElevenLabsTranscriptionReason.provider_unavailable)
+    controller=heartbeat_factory_for({})
+    with pytest.raises(JobProcessingOrchestrationError) as excinfo:
+        orchestrate_processing_job(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), clock=Clock(), lease_ttl=timedelta(minutes=5), transcription_opener=transcriber, google_docs_opener=fakes(events)[1], output_persister=persist_real(db,m,1), heartbeat_session_factory=lambda: object(), heartbeat_controller_factory=controller)
+    assert excinfo.value.reason.value == "transcription_failed"
+    assert db.get(m.TranscriptionJob, job.id).status == m.JobStatus.failed
+
+
+def _prepared_case(db, m, job, rel, reason="unknown"):
+    now=Clock()()
+    case=m.TranscriptionOutputReconciliation(owner_user_id=job.owner_user_id,project_id=job.project_id,job_id=job.id,job_source_id=rel.id,reconciliation_token="or_heartbeat",lease_generation=7,attempt_number=2,status=m.OutputReconciliationStatus.prepared,uncertainty_reason=reason,expected_output_drive_folder_id="SECRET_FOLDER",expected_document_title="Title",expected_document_title_hash="h",expected_document_character_count=1,prepared_at=now,creation_started_at=now,created_at=now,updated_at=now)
+    db.add(case); db.commit(); return case
+
+
+@pytest.mark.parametrize("google_reason", ["google_docs_request_rejected", "google_docs_timeout"])
+def test_google_exception_and_heartbeat_failure_prefers_heartbeat_marks_reconciliation(db, google_reason):
+    from studio_api import models as m
+    from studio_api.job_google_docs_output import JobGoogleDocsOutputError, JobGoogleDocsOutputReason
+    from studio_api.job_lease_heartbeat import LEASE_HEARTBEAT_STAGE_GOOGLE_OUTPUT
+    from studio_api.job_processing_orchestrator import JobProcessingOrchestrationError, orchestrate_processing_job
+    job, rels = make_job(db, m, status=m.JobStatus.processing); events=[]; persister=persist_real(db,m,1)
+    case_holder={}
+    t,_=fakes(events)
+    def googler(*args, **kwargs):
+        events.append(("google", kwargs["job_source_id"]))
+        case_holder["case"] = _prepared_case(db, m, job, rels[0])
+        raise JobGoogleDocsOutputError(JobGoogleDocsOutputReason(google_reason))
+    controller=heartbeat_factory_for({LEASE_HEARTBEAT_STAGE_GOOGLE_OUTPUT:"lease_heartbeat_stop_timeout"})
+    with pytest.raises(JobProcessingOrchestrationError) as excinfo:
+        orchestrate_processing_job(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), clock=Clock(), lease_ttl=timedelta(minutes=5), transcription_opener=t, google_docs_opener=googler, output_persister=persister, heartbeat_session_factory=lambda: object(), heartbeat_controller_factory=controller)
+    case = case_holder["case"]
+    db.refresh(case)
+    assert excinfo.value.reason.value == "lease_heartbeat_failed"
+    assert case.status == m.OutputReconciliationStatus.reconciliation_required
+    assert case.uncertainty_reason == "lease_heartbeat_stop_timeout"
+    assert [e for e in events if isinstance(e, tuple) and e[0] == "google"] == [("google", rels[0].id)]
+    assert persister.calls == [] and db.query(m.TranscriptionJobOutput).count() == 0
+
+
+def test_google_exception_with_healthy_heartbeat_preserves_existing_google_semantics(db):
+    from studio_api import models as m
+    from studio_api.job_google_docs_output import JobGoogleDocsOutputError, JobGoogleDocsOutputReason
+    from studio_api.job_processing_orchestrator import JobProcessingOrchestrationError, orchestrate_processing_job
+    job, _ = make_job(db, m, status=m.JobStatus.processing); events=[]; t,_=fakes(events)
+    def googler(*args, **kwargs):
+        raise JobGoogleDocsOutputError(JobGoogleDocsOutputReason.google_docs_request_rejected)
+    controller=heartbeat_factory_for({})
+    with pytest.raises(JobProcessingOrchestrationError) as excinfo:
+        orchestrate_processing_job(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), clock=Clock(), lease_ttl=timedelta(minutes=5), transcription_opener=t, google_docs_opener=googler, output_persister=persist_real(db,m,1), heartbeat_session_factory=lambda: object(), heartbeat_controller_factory=controller)
+    assert excinfo.value.reason.value == "google_docs_failed"
+    assert db.get(m.TranscriptionJob, job.id).error_code == "pipeline_google_docs_failed"
+
+
+def test_source_heartbeat_stop_timeout_before_google_blocks_google(db):
+    from studio_api import models as m
+    from studio_api.job_lease_heartbeat import LEASE_HEARTBEAT_STAGE_SOURCE_PROVIDER
+    from studio_api.job_processing_orchestrator import JobProcessingOrchestrationError, orchestrate_processing_job
+    job, _ = make_job(db, m, status=m.JobStatus.processing); events=[]; persister=persist_real(db,m,1); t,g=fakes(events)
+    controller=heartbeat_factory_for({LEASE_HEARTBEAT_STAGE_SOURCE_PROVIDER:"lease_heartbeat_stop_timeout"})
+    with pytest.raises(JobProcessingOrchestrationError) as excinfo:
+        orchestrate_processing_job(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), clock=Clock(), lease_ttl=timedelta(minutes=5), transcription_opener=t, google_docs_opener=g, output_persister=persister, heartbeat_session_factory=lambda: object(), heartbeat_controller_factory=controller)
+    assert excinfo.value.reason.value == "lease_heartbeat_failed"
+    assert [e for e in events if isinstance(e, tuple) and e[0] == "google"] == []
+    assert persister.calls == []

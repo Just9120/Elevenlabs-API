@@ -24,6 +24,7 @@ from .job_lease_heartbeat import (
     LEASE_HEARTBEAT_STAGE_SOURCE_PROVIDER,
     LeaseHeartbeat,
     LeaseHeartbeatError,
+    LeaseHeartbeatFailureReason,
 )
 from .job_output_persistence import persist_processing_job_source_output_and_maybe_complete
 from .job_output_reconciliation import mark_reconciliation_required
@@ -327,8 +328,14 @@ class _HeartbeatContext:
         result = self.heartbeat.stop_and_join()
         meta = {"stage": result.stage, "renewal_count": result.renewal_count, "attempt_number": _attempt(self.db, self.job_id)}
         if result.failed:
-            _emit(self.db, self.job_id, "LEASE_HEARTBEAT_FAILED", metadata={**meta, "reason": result.reason or "lease_heartbeat_failed"})
+            reason = result.reason or "lease_heartbeat_failed"
+            _emit(self.db, self.job_id, "LEASE_HEARTBEAT_FAILED", metadata={**meta, "reason": reason})
         _emit(self.db, self.job_id, "LEASE_HEARTBEAT_STOPPED", metadata={**meta, "success": not result.failed})
+        if result.failed:
+            heartbeat_error = LeaseHeartbeatError(LeaseHeartbeatFailureReason(reason))
+            if exc is not None:
+                raise heartbeat_error from exc
+            raise heartbeat_error
         return False
 
 def _heartbeat_for_stage(db, job_id, owner, generation, lease_ttl, clock, lease_renewer, session_factory, factory, stage, settings):

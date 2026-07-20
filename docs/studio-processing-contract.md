@@ -21,8 +21,8 @@ This is the current Studio processing contract. It is not a delivery plan, PR hi
 - A lease is active only when `lease_expires_at > now`.
 - `lease_expires_at == now` means the lease is expired.
 - A bounded PostgreSQL-backed heartbeat may run only around one documented long external stage: source materialization/provider work or Google output authorization/metadata/create flow.
-- Each heartbeat renewal uses its own database session, renews only `lease_expires_at` through exact owner/generation fencing, commits, and closes; the main orchestration session is never shared across threads.
-- Heartbeat is stage-scoped and stops with a bounded join after the external call; failure or stop timeout fails closed with normalized `lease_heartbeat_*` reasons and does not retry provider or Google work.
+- Each heartbeat renewal uses its own database session, applies transaction-local PostgreSQL statement/lock timeouts before the fenced renewal, renews only `lease_expires_at` through exact owner/generation fencing, commits, and closes; the main orchestration session is never shared across threads.
+- Heartbeat is stage-scoped and stops with a bounded join after the external call; failure or stop timeout has priority over any simultaneous provider/Google exception, fails closed with normalized `lease_heartbeat_*` reasons, and does not retry provider or Google work.
 - Lease renewal may happen only at documented safe checkpoints or through this bounded PostgreSQL heartbeat, never as Redis, implicit lease recovery, or an unbounded background loop.
 
 ## Deterministic processing
