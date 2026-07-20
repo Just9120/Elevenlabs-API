@@ -32,7 +32,7 @@ from studio_api.config import Settings
 from studio_api.db import SessionLocal, engine
 from studio_api.deps import get_client_ip
 from studio_api.main import app, limiter
-from studio_api.models import AuditEvent, DiagnosticDebugSession, DiagnosticEvent, CredentialProvider, CredentialStatus, JobSourceStatus, JobStatus, LocalIdentity, Project, ProviderCredential, ProviderCredentialVersion, Source, SourceType, SourceUploadStatus, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, User, UserRole, UserStatus
+from studio_api.models import AuditEvent, DiagnosticDebugSession, DiagnosticEvent, TranscriptionOutputReconciliation, OutputReconciliationStatus, CredentialProvider, CredentialStatus, JobSourceStatus, JobStatus, LocalIdentity, Project, ProviderCredential, ProviderCredentialVersion, Source, SourceType, SourceUploadStatus, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, User, UserRole, UserStatus
 from studio_api.security import aad, decrypt, encrypt, hash_password, master_key_from_b64, utcnow, verify_password
 from studio_api.job_claim_lease import JobLeaseError, JobLeaseFailureReason, acquire_job_lease, acquire_next_ready_job_lease, is_lease_active, release_job_lease, renew_job_lease
 from studio_api.job_processing_lifecycle import JobProcessingError, JobProcessingFailureReason, acknowledge_job_cancellation, begin_job_processing, fail_job_processing, recover_expired_processing_job
@@ -53,7 +53,7 @@ def clean_state(migrated_database):
     except Exception as exc:
         pytest.skip(f"Redis unavailable for platform tests: {exc}")
     with engine.begin() as conn:
-        tables = ["diagnostic_debug_sessions", "diagnostic_events", "audit_events", "google_oauth_states", "google_connections", "provider_credential_versions", "provider_credentials", "transcription_job_outputs", "transcription_job_sources", "transcription_jobs", "sources", "projects", "sessions", "login_contexts", "local_identities", "users"]
+        tables = ["transcription_output_reconciliations", "diagnostic_debug_sessions", "diagnostic_events", "audit_events", "google_oauth_states", "google_connections", "provider_credential_versions", "provider_credentials", "transcription_job_outputs", "transcription_job_sources", "transcription_jobs", "sources", "projects", "sessions", "login_contexts", "local_identities", "users"]
         conn.execute(text("TRUNCATE " + ", ".join(tables) + " RESTART IDENTITY CASCADE"))
     yield
 
@@ -1127,6 +1127,96 @@ def test_job_output_migration_clean_chain_constraints_and_0007_roundtrip():
     finally:
         subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "upgrade", "head"], cwd=ROOT, check=True)
 
+
+
+def _assert_output_reconciliation_schema(inspector):
+    assert "transcription_output_reconciliations" in inspector.get_table_names()
+    cols = {c["name"]: c for c in inspector.get_columns("transcription_output_reconciliations")}
+    assert {"id", "owner_user_id", "project_id", "job_id", "job_source_id", "reconciliation_token", "lease_generation", "attempt_number", "status", "uncertainty_reason", "expected_output_drive_folder_id", "expected_document_title", "expected_document_title_hash", "expected_document_character_count", "prepared_at", "creation_started_at", "returned_document_id", "returned_web_view_url", "returned_document_created_at", "last_checked_at", "resolved_output_id", "resolved_at", "created_at", "updated_at"}.issubset(cols)
+    uniques = {tuple(u["column_names"]) for u in inspector.get_unique_constraints("transcription_output_reconciliations")}
+    assert ("job_source_id",) in uniques
+    assert ("reconciliation_token",) in uniques
+    assert ("returned_document_id",) in uniques
+    assert ("resolved_output_id",) in uniques
+    assert ("owner_user_id", "project_id", "job_id", "job_source_id") in uniques
+    checks = {c["name"] for c in inspector.get_check_constraints("transcription_output_reconciliations")}
+    assert "ck_output_reconciliations_character_count_nonnegative" in checks
+    indexes = {idx["name"]: tuple(idx["column_names"]) for idx in inspector.get_indexes("transcription_output_reconciliations")}
+    assert indexes["ix_output_reconciliations_owner_user_id"] == ("owner_user_id",)
+    assert indexes["ix_output_reconciliations_project_id"] == ("project_id",)
+    assert indexes["ix_output_reconciliations_job_id"] == ("job_id",)
+    assert indexes["ix_output_reconciliations_status"] == ("status",)
+    assert indexes["ix_output_reconciliations_job_status"] == ("job_id", "status")
+    fks = {tuple(fk["constrained_columns"]): fk["referred_table"] for fk in inspector.get_foreign_keys("transcription_output_reconciliations")}
+    assert fks[("owner_user_id",)] == "users"
+    assert fks[("project_id",)] == "projects"
+    assert fks[("job_id",)] == "transcription_jobs"
+    assert fks[("job_source_id",)] == "transcription_job_sources"
+    assert fks[("resolved_output_id",)] == "transcription_job_outputs"
+
+
+def test_output_reconciliation_current_schema_indexes_match_migration():
+    _assert_output_reconciliation_schema(inspect(engine))
+
+
+def test_output_reconciliation_0012_upgrade_downgrade_roundtrip_and_metadata_table(tmp_path):
+    from sqlalchemy import create_engine
+    from sqlalchemy.engine import make_url
+    from studio_api.db import Base
+    import uuid
+
+    temp_db = f"studio_migration_0012_{uuid.uuid4().hex}"
+    base_url = make_url(engine.url)
+    admin_url = base_url.set(database="postgres")
+    temp_url = base_url.set(database=temp_db)
+    admin_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
+    try:
+        with admin_engine.connect() as conn:
+            conn.execute(text(f'CREATE DATABASE "{temp_db}"'))
+    except OperationalError as exc:
+        pytest.skip(f"PostgreSQL database creation unavailable for isolated migration test: {exc}")
+    finally:
+        admin_engine.dispose()
+
+    env = os.environ.copy()
+    env.pop("STUDIO_DATABASE_URL", None)
+    env["STUDIO_DATABASE_NAME"] = temp_db
+    temp_engine = create_engine(temp_url)
+    try:
+        subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "upgrade", "0011_diagnostic_debug_sessions"], cwd=ROOT, env=env, check=True)
+        with temp_engine.begin() as conn:
+            # 0001 uses the current SQLAlchemy metadata baseline, so strip
+            # 0012-only reconciliation objects to create a genuine historical
+            # revision-0011 shape before testing the 0012 migration itself.
+            conn.execute(text("DROP TABLE IF EXISTS transcription_output_reconciliations"))
+            conn.execute(text("DROP TYPE IF EXISTS outputreconciliationstatus"))
+            assert "transcription_output_reconciliations" not in inspect(conn).get_table_names()
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0011_diagnostic_debug_sessions"
+        subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "upgrade", "head"], cwd=ROOT, env=env, check=True)
+        with temp_engine.begin() as conn:
+            _assert_output_reconciliation_schema(inspect(conn))
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0012_output_reconciliation_cases"
+        subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "downgrade", "0011_diagnostic_debug_sessions"], cwd=ROOT, env=env, check=True)
+        with temp_engine.begin() as conn:
+            assert "transcription_output_reconciliations" not in inspect(conn).get_table_names()
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0011_diagnostic_debug_sessions"
+        subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "upgrade", "head"], cwd=ROOT, env=env, check=True)
+        with temp_engine.begin() as conn:
+            _assert_output_reconciliation_schema(inspect(conn))
+        subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "downgrade", "base"], cwd=ROOT, env=env, check=True)
+        Base.metadata.create_all(temp_engine)
+        subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "stamp", "head"], cwd=ROOT, env=env, check=True)
+        subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "downgrade", "0011_diagnostic_debug_sessions"], cwd=ROOT, env=env, check=True)
+        with temp_engine.begin() as conn:
+            assert "transcription_output_reconciliations" not in inspect(conn).get_table_names()
+    finally:
+        temp_engine.dispose()
+        cleanup_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
+        try:
+            with cleanup_engine.connect() as conn:
+                conn.execute(text(f'DROP DATABASE IF EXISTS "{temp_db}" WITH (FORCE)'))
+        finally:
+            cleanup_engine.dispose()
 
 def output_persistence_artifact(doc_id="doc-fresh"):
     return new_google_docs_transcript_artifact(
@@ -2454,7 +2544,7 @@ def test_job_destination_migration_0008_0009_upgrade_downgrade_backfill(tmp_path
         with temp_engine.begin() as conn:
             assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0009_job_output_destinations"
         cfg = Config(str(ALEMBIC))
-        assert ScriptDirectory.from_config(cfg).get_current_head() == "0011_diagnostic_debug_sessions"
+        assert ScriptDirectory.from_config(cfg).get_current_head() == "0012_output_reconciliation_cases"
     finally:
         temp_engine.dispose()
         cleanup_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")

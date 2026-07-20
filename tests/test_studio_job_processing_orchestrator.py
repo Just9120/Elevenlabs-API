@@ -837,3 +837,53 @@ def test_processed_count_preserved_when_later_transcription_failure_observes_can
     assert db.query(m.TranscriptionJobOutput).count() == 1
     assert len([e for e in events if isinstance(e, tuple) and e[0] == "transcribe"]) == 2
     assert len([e for e in events if isinstance(e, tuple) and e[0] == "google"]) == 1
+
+
+def test_existing_reconciliation_case_fails_required_without_continue(db):
+    from studio_api import models as m
+    from studio_api.job_google_docs_output import JobGoogleDocsOutputError, JobGoogleDocsOutputReason
+    from studio_api.job_processing_orchestrator import JobProcessingOrchestrationError, orchestrate_processing_job
+    job, rels = make_job(db, m, status=m.JobStatus.processing, sources=2); events=[]
+    t,_=fakes(events)
+    def googler(*args, **kwargs):
+        events.append(("google", kwargs["job_source_id"]))
+        raise JobGoogleDocsOutputError(JobGoogleDocsOutputReason.existing_reconciliation_case)
+    with pytest.raises(JobProcessingOrchestrationError) as excinfo:
+        orchestrate_processing_job(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), clock=Clock(), lease_ttl=timedelta(minutes=5), transcription_opener=t, google_docs_opener=googler, output_persister=persist_real(db,m,2))
+    j=db.get(m.TranscriptionJob, job.id)
+    assert excinfo.value.reason.value == "output_reconciliation_required"
+    assert j.status == m.JobStatus.failed and j.error_code == "output_reconciliation_required"
+    assert [e for e in events if isinstance(e, tuple) and e[0] == "google"] == [("google", rels[0].id)]
+
+
+def test_reconciliation_case_commit_failure_is_not_existing_output_continue(db):
+    from studio_api import models as m
+    from studio_api.job_google_docs_output import JobGoogleDocsOutputError, JobGoogleDocsOutputReason
+    from studio_api.job_processing_orchestrator import JobProcessingOrchestrationError, orchestrate_processing_job
+    job, rels = make_job(db, m, status=m.JobStatus.processing, sources=2); events=[]
+    t,_=fakes(events)
+    def googler(*args, **kwargs):
+        events.append(("google", kwargs["job_source_id"]))
+        raise JobGoogleDocsOutputError(JobGoogleDocsOutputReason.reconciliation_case_persistence_failed)
+    with pytest.raises(JobProcessingOrchestrationError) as excinfo:
+        orchestrate_processing_job(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), clock=Clock(), lease_ttl=timedelta(minutes=5), transcription_opener=t, google_docs_opener=googler, output_persister=persist_real(db,m,2))
+    j=db.get(m.TranscriptionJob, job.id)
+    assert excinfo.value.reason.value == "output_reconciliation_prepare_failed"
+    assert j.status == m.JobStatus.failed
+    assert j.error_code == "pipeline_output_reconciliation_prepare_failed"
+    assert j.error_message == "reconciliation_case_persistence_failed"
+    assert [e for e in events if isinstance(e, tuple) and e[0] == "google"] == [("google", rels[0].id)]
+
+
+def test_recovered_unresolved_case_blocks_provider_and_google_create(db):
+    from studio_api import models as m
+    from studio_api.job_processing_orchestrator import JobProcessingOrchestrationError, orchestrate_processing_job
+    job, rels = make_job(db, m, status=m.JobStatus.processing); now=Clock()()
+    db.add(m.TranscriptionOutputReconciliation(owner_user_id=job.owner_user_id,project_id=job.project_id,job_id=job.id,job_source_id=rels[0].id,reconciliation_token="or_existing",lease_generation=7,attempt_number=1,status=m.OutputReconciliationStatus.reconciliation_required,uncertainty_reason="existing_reconciliation_case",expected_output_drive_folder_id="SECRET_FOLDER",expected_document_title="Title",expected_document_title_hash="h",expected_document_character_count=1,prepared_at=now,creation_started_at=now,created_at=now,updated_at=now)); db.commit()
+    events=[]; t,g=fakes(events)
+    with pytest.raises(JobProcessingOrchestrationError) as excinfo:
+        orchestrate_processing_job(db, job_id=job.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), clock=Clock(), lease_ttl=timedelta(minutes=5), transcription_opener=t, google_docs_opener=g, output_persister=persist_real(db,m,1))
+    assert excinfo.value.reason.value == "output_reconciliation_required"
+    assert not any(isinstance(e, tuple) and e[0] in {"transcribe", "google"} for e in events)
+    j=db.get(m.TranscriptionJob, job.id)
+    assert j.status == m.JobStatus.failed and j.error_code == "output_reconciliation_required"

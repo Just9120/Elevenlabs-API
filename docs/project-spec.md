@@ -134,7 +134,7 @@ Source currently present in the repository includes:
 - safe output persistence and browser-safe output read path;
 - diagnostics, diagnostic debug sessions, migrations, and tests.
 
-The current Alembic migration head in the repository is `0011_diagnostic_debug_sessions` under `apps/studio-api/alembic/versions/`.
+The current Alembic migration head in the repository is `0012_output_reconciliation_cases` under `apps/studio-api/alembic/versions/`.
 
 ## Studio production status and unfinished capabilities
 
@@ -205,7 +205,7 @@ The Studio PWA may render implemented source-level output metadata for explicitl
 Studio processing can be considered production-live only after all of the following have factual operator evidence:
 
 1. Repository source and CI are verified for the intended commit.
-2. Production database migration head matches repository head `0011_diagnostic_debug_sessions` where required.
+2. Production database migration head matches repository head `0012_output_reconciliation_cases` where required.
 3. Web/API deployment identity and health are verified.
 4. Exactly one intended worker instance is deployed from the intended image and shown idle before the smoke.
 5. One controlled operator-approved job uses one small supported source, one owner-scoped ElevenLabs BYOK credential, one valid Google connection, and one writable output folder.
@@ -246,3 +246,13 @@ Current delivery sequencing is in `docs/delivery-plan.md`. Product backlog items
 `PWA-WORKER-OPS-01` permits explicit manual-only worker deployment after the existing worker is absent or drained/stopped. The worker deploy path must verify image/commit identity, PostgreSQL health, database revision compatibility with the worker image Alembic head, and Docker worker health before reporting source-level deploy success.
 
 This does not permit automatic worker deployment on push, migrations from standard CD, automatic rollback, retries, reconciliation, or production-live claims without a separate controlled canary. Worker deploy success, healthy idle state, and image identity evidence are operational prerequisites only, not proof of production processing.
+
+## Studio output reconciliation source contract
+
+`PWA-OUTPUT-RECONCILIATION-01` is implemented at source level to reconcile uncertain Google Docs output side effects. Before the first irreversible Google Docs create request, Studio prepares a durable PostgreSQL reconciliation case with an opaque random token, the job output-folder snapshot, deterministic document metadata, and character count. The token is written only to Google Drive `appProperties` under an internal key and must not contain owner, project, job, source, filename, email, title, or other domain identifiers.
+
+Reconciliation is not processing retry, not provider retry, not automatic recovery, and not an exactly-once Google Docs creation claim. PostgreSQL remains the durable authority for output rows and completion. If Google creation or output persistence becomes uncertain, the case remains unresolved and the eligible processing job may fail with `output_reconciliation_required`; zero Drive matches do not permit a second document creation, and multiple or conflicting matches block resolution fail-closed.
+
+Owner-scoped reconciliation is available only through an explicit Studio API/PWA action. It queries Google Drive by the exact opaque appProperty token plus the exact persisted job output-folder snapshot and `trashed = false`; it verifies Google Doc MIME type, exact parent folder, exact appProperty, safe Google web URL, relation/job ownership, and uniqueness before persisting missing output evidence. It never calls the transcription provider, never creates or deletes Google Docs, never reads or exports document body, never uses title-only/time-only/folder-wide guessing, and never returns the token, document ID, folder ID, raw Google payloads, transcript body, or document body to browsers.
+
+After successful reconciliation persistence, cancelled jobs remain cancelled, actively queued/processing jobs are not reconciled, attempt counts and leases are not recreated or reset, unrelated failed jobs are not completed, and only a failed job with `error_code=output_reconciliation_required` can become completed when all non-skipped relations have persisted output coverage.

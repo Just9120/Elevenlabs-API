@@ -264,3 +264,73 @@ def test_output_inserted_before_final_check_blocks_google_create(db, models):
     with pytest.raises(JobGoogleDocsOutputError, match="output_already_persisted"):
         with create_processing_job_google_doc_from_transcript(db, job_id=job.id, job_source_id=rel.id, lease_owner_id="worker", lease_generation=7, transcript=T(), settings=Settings(), now=now, clock=lambda: now, token_resolver=lambda *a, **k: "token", metadata_fetcher=good_meta, google_docs_transport=transport): pass
     assert transport.calls == []
+
+def test_transport_adds_reconciliation_app_property_without_visible_token():
+    from studio_api.google_docs_output import GoogleDocsTranscriptTransport, OUTPUT_RECONCILIATION_APP_PROPERTY
+    calls=[]
+    def post(url, **kwargs):
+        calls.append(kwargs); return httpx.Response(200, json={"id":"doc-private","name":"Title","mimeType":"application/vnd.google-apps.document","webViewLink":"https://docs.example/private","parents":["folder-private"]})
+    token="or_opaqueRandomOnly"
+    GoogleDocsTranscriptTransport(post=post).create_transcript_document(access_token="access", folder_id="folder-private", title="Title", document_text="Body", reconciliation_token=token)
+    body=calls[0]["content"]
+    assert f'"appProperties":{{"{OUTPUT_RECONCILIATION_APP_PROPERTY}":"{token}"}}'.encode() in body
+    assert body.count(token.encode()) == 1
+    text_part = body.split(b"text/plain; charset=UTF-8", 1)[1]
+    assert token.encode() not in text_part
+
+
+@pytest.mark.parametrize("status,expected_reason", [
+    ("prepared", "existing_reconciliation_case"),
+    ("creation_returned", "existing_reconciliation_case"),
+    ("reconciliation_required", "existing_reconciliation_case"),
+    ("conflict", "output_reconciliation_conflict"),
+])
+def test_existing_reconciliation_case_blocks_second_google_create(db, models, status, expected_reason):
+    from studio_api.job_google_docs_output import JobGoogleDocsOutputError, create_processing_job_google_doc_from_transcript
+    user, project, src, job, rel, now = make_job(db, models)
+    case = models.TranscriptionOutputReconciliation(
+        owner_user_id=user.id,
+        project_id=project.id,
+        job_id=job.id,
+        job_source_id=rel.id,
+        reconciliation_token=f"or_existing_{status}",
+        lease_generation=7,
+        attempt_number=1,
+        status=models.OutputReconciliationStatus(status),
+        uncertainty_reason=None,
+        expected_output_drive_folder_id="folder-private",
+        expected_document_title="Job Title",
+        expected_document_title_hash="h",
+        expected_document_character_count=10,
+        prepared_at=now,
+        creation_started_at=now,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(case); db.commit()
+    transport = FakeTransport()
+    with pytest.raises(JobGoogleDocsOutputError, match=expected_reason):
+        with create_processing_job_google_doc_from_transcript(db, job_id=job.id, job_source_id=rel.id, lease_owner_id="worker", lease_generation=7, transcript=Transcript(), settings=Settings(), now=now, clock=lambda: now, token_resolver=lambda *a, **k: "token", metadata_fetcher=good_meta, google_docs_transport=transport): pass
+    db.refresh(case)
+    if status == "prepared":
+        assert case.status == models.OutputReconciliationStatus.reconciliation_required
+        assert case.uncertainty_reason == "existing_reconciliation_case"
+    assert transport.calls == []
+
+
+def test_reconciliation_case_commit_failure_is_not_output_race(db, models, monkeypatch):
+    from studio_api.job_google_docs_output import JobGoogleDocsOutputError, create_processing_job_google_doc_from_transcript
+    user, project, src, job, rel, now = make_job(db, models)
+    original_commit = db.commit
+    fail = {"enabled": True}
+    def commit():
+        if fail["enabled"]:
+            raise RuntimeError("SECRET database failure")
+        return original_commit()
+    monkeypatch.setattr(db, "commit", commit)
+    transport = FakeTransport()
+    with pytest.raises(JobGoogleDocsOutputError) as excinfo:
+        with create_processing_job_google_doc_from_transcript(db, job_id=job.id, job_source_id=rel.id, lease_owner_id="worker", lease_generation=7, transcript=Transcript(), settings=Settings(), now=now, clock=lambda: now, token_resolver=lambda *a, **k: "token", metadata_fetcher=good_meta, google_docs_transport=transport): pass
+    assert excinfo.value.reason.value == "reconciliation_case_persistence_failed"
+    assert excinfo.value.reason.value != "output_already_persisted"
+    assert transport.calls == []

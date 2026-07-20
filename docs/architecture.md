@@ -28,13 +28,13 @@ Studio PWA is a web platform contour in development. Source-level architecture i
 | --- | --- | --- | --- |
 | Studio frontend | `apps/studio/` | Browser UI for sessions, projects, sources, credentials, Google connection, preparation, jobs, outputs, diagnostics. | Source present; deployment evidence is separate. |
 | Studio API | `apps/studio-api/studio_api/` | FastAPI app, auth/session boundaries, owner-scoped APIs, job/source/credential/output/diagnostic services. | Source present; production API deployment does not imply worker processing. |
-| Database | PostgreSQL via Studio deployment | Durable users/projects/sources/credentials/jobs/outputs/diagnostics state. | Migrations present through `0011_diagnostic_debug_sessions`; production revision requires operator evidence. |
-| Alembic migrations | `apps/studio-api/alembic/versions/` | Schema authority for Studio persistence. | Current repository head is `0011_diagnostic_debug_sessions`. |
+| Database | PostgreSQL via Studio deployment | Durable users/projects/sources/credentials/jobs/outputs/diagnostics state. | Migrations present through `0012_output_reconciliation_cases`; production revision requires operator evidence. |
+| Alembic migrations | `apps/studio-api/alembic/versions/` | Schema authority for Studio persistence. | Current repository head is `0012_output_reconciliation_cases`. |
 | Redis | Studio deployment | Platform support service; not a processing queue/lock/retry authority unless separately designed. | Production health is operator evidence, not source evidence. |
 | Object storage | S3/R2-compatible source storage | Private temporary/local-upload source bytes. | Browser must not receive object keys, presigned URLs, or source bytes. |
 | Worker | `apps/studio-api/studio_api/worker.py` and related runner/orchestrator modules | Poll/claim/process at most bounded work according to lease and lifecycle rules. | Implemented at source level; official production deployable component and canary still require validation. |
 | Provider path | ElevenLabs modules under `apps/studio-api/studio_api/` | Owner-scoped BYOK transcription execution. | ElevenLabs path present; OpenAI Studio parity unfinished. |
-| Google integration | Google OAuth/Drive/Docs modules under `apps/studio-api/studio_api/` | OAuth connection, safe Drive metadata/folder selection, Google Docs output creation. | Source present; exactly-once document creation and output reconciliation unfinished. |
+| Google integration | Google OAuth/Drive/Docs modules under `apps/studio-api/studio_api/` | OAuth connection, safe Drive metadata/folder selection, Google Docs output creation. | Source present; exactly-once document creation is not claimed; source-level output reconciliation is present and runtime evidence is separate. |
 | Diagnostics | API/frontend diagnostic modules and migrations `0010`/`0011` | Safe diagnostic event/report/debug-session foundation. | Source present; evidence must remain redacted. |
 | Deployment | `deploy/studio/`, `.github/workflows/` | Component deployment and preflight automation boundaries. | Deployment changes are governed by `docs/ci-cd-rules.md`; standard CD must not deploy workers or run migrations. Legacy stateless web deploy is documented in `docs/runbooks/legacy-studio-web-deploy.md`. |
 
@@ -93,3 +93,9 @@ Current important distinction: web/API deployment, migration application, worker
 The `studio-worker` is a distinct manual-only runtime component that uses the Studio API source build context but has its own operational image namespace (`elevenlabs-studio-worker:*`), process command, and Docker healthcheck. Worker health means only worker PID shape, configuration load, and PostgreSQL read-only `SELECT 1`; it is not a job-progress authority, provider/Google readiness check, lease-correctness proof, canary result, or production-live processing claim.
 
 Worker image identity is verified separately from mutable local tags by comparing the intended commit-specific worker image identity with the running container image ID. Pause means a gracefully drained/stopped container, not a frozen process. The worker remains one-job-per-process and PostgreSQL remains the processing authority; Redis is not introduced as a queue, lease, retry, or heartbeat authority.
+
+## Studio output reconciliation component
+
+Source-level Studio architecture now includes `TranscriptionOutputReconciliation` PostgreSQL rows, an internal Drive appProperty token on Google Docs creates, a reconciliation Drive lookup helper, a dedicated `job_output_reconciliation` service, owner-scoped API endpoints, safe diagnostics, and a minimal PWA action. The component bridges uncertain external Google Docs side effects back to PostgreSQL output evidence without provider calls, Google Docs create/delete, document-body reads, manual document-ID attachment, or title-only matching.
+
+The API remains the trust boundary: browsers see only aggregate reconciliation status and safe counts. Tokens, document IDs, folder IDs, raw URLs before output persistence, appProperties, raw Google payloads, transcript text, document body, and lease metadata remain server-only.

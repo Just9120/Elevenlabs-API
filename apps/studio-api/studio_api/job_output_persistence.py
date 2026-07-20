@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from .google_docs_output import GoogleDocsOutputError, GoogleDocsOutputReason, GoogleDocsTranscriptArtifact
 from .job_claim_lease import invalidate_job_lease, is_lease_active
-from .models import JobSourceStatus, JobStatus, Project, Source, SourceUploadStatus, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource
+from .models import JobSourceStatus, JobStatus, OutputReconciliationStatus, Project, Source, SourceUploadStatus, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, TranscriptionOutputReconciliation
 
 GOOGLE_DOCS_TRANSCRIPT_OUTPUT_KIND = "google_docs_transcript"
 TRANSCRIPT_STANDARD = "transcript_doc_v1.2"
@@ -115,6 +115,12 @@ def persist_processing_job_source_output_and_maybe_complete(
         if not _same_output(existing, document_id, web_view_url, output_folder_id, artifact, lease_generation):
             raise JobOutputPersistenceError(JobOutputPersistenceReason.output_conflict)
 
+    case = db.execute(select(TranscriptionOutputReconciliation).where(TranscriptionOutputReconciliation.job_source_id == rel.id)).scalar_one_or_none()
+    if case is not None:
+        case.status = OutputReconciliationStatus.resolved
+        case.resolved_output_id = output.id
+        case.resolved_at = now
+        case.updated_at = now
     required_ids = [rel.id for rel in authority.job_source_relations if rel.status != JobSourceStatus.skipped]
     persisted_count = db.execute(select(func.count(TranscriptionJobOutput.id)).where(TranscriptionJobOutput.job_id == job.id, TranscriptionJobOutput.job_source_id.in_(required_ids or ["__none__"]))).scalar_one()
     required_count = len(required_ids)

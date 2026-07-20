@@ -136,6 +136,9 @@ type JobOutputsState = {
   error: string;
   data: JobOutputsResponse | null;
 };
+type OutputReconciliationResponse = { job_id: string; job_status: JobСтатус; available: boolean; counts: Record<string, number>; cases: { job_source_id: string; status: string; reason?: string | null; resolved: boolean; last_checked_at?: string | null }[] };
+type OutputReconciliationCheckResponse = { job_id: string; checked: number; resolved: number; unresolved: number; conflicts: number };
+type OutputReconciliationState = { loading: boolean; checking: boolean; error: string; message: string; data: OutputReconciliationResponse | null };
 type JobOutputFolder = { name: string; web_view_url: string | null };
 type VerifiedOutputFolder = {
   folder_id: string;
@@ -1005,6 +1008,7 @@ function PreparationPanel({
     >
   >({});
   const [outputs, setOutputs] = useState<Record<string, JobOutputsState>>({});
+  const [reconciliations, setReconciliations] = useState<Record<string, OutputReconciliationState>>({});
   const [removedSourceIds, setRemovedSourceIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -1581,6 +1585,9 @@ function PreparationPanel({
           },
         })),
       );
+    void api<OutputReconciliationResponse>(`/jobs/${jobId}/output-reconciliation`)
+      .then((data) => setReconciliations((current) => ({ ...current, [jobId]: { loading: false, checking: false, error: "", message: "", data } })))
+      .catch(() => setReconciliations((current) => ({ ...current, [jobId]: { loading: false, checking: false, error: "", message: "", data: null } })));
     void api<JobOutputsResponse>(`/jobs/${jobId}/outputs`)
       .then((data) =>
         setOutputs((current) => ({
@@ -1598,6 +1605,18 @@ function PreparationPanel({
           },
         })),
       );
+  }
+  async function checkReconciliation(jobId: string) {
+    setReconciliations((current) => ({ ...current, [jobId]: { ...(current[jobId] ?? { loading:false, error:"", message:"", data:null }), checking: true, error: "", message: "" } }));
+    try {
+      const result = await csrfMutate<OutputReconciliationCheckResponse>(`/jobs/${jobId}/output-reconciliation/check`, csrf, onCsrf, { method: "POST" });
+      const message = result.resolved > 0 ? "Документ найден и восстановлен." : result.conflicts > 0 ? "Обнаружено несколько подходящих документов. Автоматическое восстановление заблокировано." : "Документ пока не найден в Google Drive.";
+      setReconciliations((current) => ({ ...current, [jobId]: { ...(current[jobId] ?? { loading:false, error:"", data:null }), checking: false, message } }));
+      await loadDetail(jobId);
+      onReloadJobs(project.id);
+    } catch (err) {
+      setReconciliations((current) => ({ ...current, [jobId]: { ...(current[jobId] ?? { loading:false, message:"", data:null }), checking: false, error: err instanceof ApiError && err.status === 409 ? "Google connection недоступен или reconciliation сейчас невозможен." : "Не удалось проверить Google Drive." } }));
+    }
   }
   async function cancelJob(jobId: string) {
     setMessage("");
@@ -1630,6 +1649,7 @@ function PreparationPanel({
   function renderJobCard(job: TranscriptionJob) {
     const currentDetail = detail[job.id];
     const currentOutputs = outputs[job.id];
+    const currentReconciliation = reconciliations[job.id];
     const detailedJob = currentDetail?.job;
     const terminal = ["completed", "failed", "cancelled"].includes(job.status);
     return (
@@ -1683,6 +1703,17 @@ function PreparationPanel({
         {currentOutputs?.loading && <p role="status">Загрузка результатов…</p>}
         {currentOutputs?.error && (
           <p className="error">{currentOutputs.error}</p>
+        )}
+        {currentReconciliation?.data?.available && (
+          <section className="notice" aria-label={`Output reconciliation ${job.id}`}>
+            <b>Требуется проверка результата Google Docs</b>
+            <p>Reconciliation не создаёт документ заново и запускается только по нажатию.</p>
+            <button type="button" disabled={currentReconciliation.checking} onClick={() => void checkReconciliation(job.id)}>
+              {currentReconciliation.checking ? "Проверяем Google Drive…" : "Проверить созданный документ в Google Drive"}
+            </button>
+            {currentReconciliation.message && <p role="status">{currentReconciliation.message}</p>}
+            {currentReconciliation.error && <p className="error">{currentReconciliation.error}</p>}
+          </section>
         )}
         {currentOutputs?.data && (
           <section aria-label={`Результаты ${currentOutputs.data.job_id}`}>

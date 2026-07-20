@@ -64,6 +64,7 @@ ERROR_CODES = frozenset({
     "no_required_sources", "cancellation_requested", "google_docs_failed", "transcription_failed",
 })
 HTTP_STATUS_CATEGORIES = frozenset({"1xx", "2xx", "3xx", "4xx", "5xx", "unknown"})
+RECONCILIATION_CASE_STATUSES = frozenset({"prepared","creation_returned","reconciliation_required","resolved","conflict"})
 FINAL_STATUSES = frozenset({"processing", "cancelled", "failed", "completed"})
 ENDPOINT_GROUPS = frozenset({"diagnostics", "jobs", "sources", "google", "credentials", "projects", "auth", "unknown"})
 PWA_BOUNDARIES = frozenset({"app", "react_boundary", "route", "api_request", "service_worker", "unknown"})
@@ -87,6 +88,13 @@ REGISTRY: dict[str, EventDef] = {
     "JOB_FAILED": EventDef(frozenset({"worker"}), "ERROR", {"final_job_status": R("enum", choices=frozenset({"failed"}), required=True), "error_code": R("enum", choices=ERROR_CODES, required=True), "boundary": R("enum", choices=BOUNDARIES), "attempt_number": R("int", min=1, max=1000)}),
     "JOB_CANCEL_REQUESTED": EventDef(frozenset({"api"}), "INFO", {"final_job_status": R("enum", choices=frozenset({"processing"}), required=True)}),
     "JOB_CANCELLED": EventDef(frozenset({"api", "worker"}), "INFO", {"final_job_status": R("enum", choices=frozenset({"cancelled"}), required=True)}),
+
+    "OUTPUT_RECONCILIATION_REQUIRED": EventDef(frozenset({"worker"}), "WARNING", {"case_status": R("enum", choices=RECONCILIATION_CASE_STATUSES, required=True), "attempt_number": R("int", min=0, max=1000)}),
+    "OUTPUT_RECONCILIATION_CHECK_STARTED": EventDef(frozenset({"api"}), "INFO", {"case_status": R("enum", choices=RECONCILIATION_CASE_STATUSES, required=True)}),
+    "OUTPUT_RECONCILIATION_NOT_FOUND": EventDef(frozenset({"api"}), "INFO", {"case_status": R("enum", choices=RECONCILIATION_CASE_STATUSES, required=True), "resolved": R("bool"), "aggregate_count": R("int", min=0, max=50)}),
+    "OUTPUT_RECONCILIATION_RESOLVED": EventDef(frozenset({"api"}), "INFO", {"case_status": R("enum", choices=RECONCILIATION_CASE_STATUSES, required=True), "resolved": R("bool", required=True), "aggregate_count": R("int", min=0, max=50)}),
+    "OUTPUT_RECONCILIATION_CONFLICT": EventDef(frozenset({"api"}), "WARNING", {"case_status": R("enum", choices=RECONCILIATION_CASE_STATUSES, required=True), "resolved": R("bool"), "aggregate_count": R("int", min=0, max=50)}),
+    "OUTPUT_RECONCILIATION_FAILED": EventDef(frozenset({"api"}), "WARNING", {"case_status": R("enum", choices=RECONCILIATION_CASE_STATUSES, required=True), "resolved": R("bool")}),
     "API_REQUEST_FAILED": EventDef(frozenset({"api"}), "WARNING", {"endpoint_group": R("enum", choices=ENDPOINT_GROUPS, required=True), "http_status_category": R("enum", choices=HTTP_STATUS_CATEGORIES, required=True)}),
     "PWA_APP_ERROR": EventDef(frozenset({"web"}), "ERROR", {"boundary": R("enum", choices=PWA_BOUNDARIES), "error_code": R("enum", choices=PWA_ERROR_CODES), "retryable": R("bool"), "duration_ms": R("int", min=0, max=86400000), "http_status_category": R("enum", choices=HTTP_STATUS_CATEGORIES), "endpoint_group": R("enum", choices=ENDPOINT_GROUPS)}),
     "PWA_UNHANDLED_REJECTION": EventDef(frozenset({"web"}), "ERROR", {"boundary": R("enum", choices=PWA_BOUNDARIES), "error_code": R("enum", choices=PWA_ERROR_CODES), "retryable": R("bool"), "duration_ms": R("int", min=0, max=86400000), "http_status_category": R("enum", choices=HTTP_STATUS_CATEGORIES), "endpoint_group": R("enum", choices=ENDPOINT_GROUPS)}),

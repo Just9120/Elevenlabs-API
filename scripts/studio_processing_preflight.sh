@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PREFIX="[studio-processing-preflight]"
-EXPECTED_HEAD="0011_diagnostic_debug_sessions"
+EXPECTED_HEAD="0012_output_reconciliation_cases"
 COMPOSE_FILE="deploy/studio/compose.platform.yml"
 ENV_FILE="deploy/studio/.env"
 VERSIONS_DIR="apps/studio-api/alembic/versions"

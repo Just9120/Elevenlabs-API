@@ -15,6 +15,7 @@ class SourceType(str, enum.Enum): local_upload="local_upload"; google_drive="goo
 class SourceUploadStatus(str, enum.Enum): pending="pending"; uploaded="uploaded"; deleted="deleted"; expired="expired"; failed="failed"
 class JobStatus(str, enum.Enum): queued="queued"; processing="processing"; cancelled="cancelled"; failed="failed"; completed="completed"
 class JobSourceStatus(str, enum.Enum): queued="queued"; skipped="skipped"
+class OutputReconciliationStatus(str, enum.Enum): prepared="prepared"; creation_returned="creation_returned"; reconciliation_required="reconciliation_required"; resolved="resolved"; conflict="conflict"
 class DiagnosticLevel(str, enum.Enum): ERROR="ERROR"; WARNING="WARNING"; INFO="INFO"; DEBUG="DEBUG"
 class DiagnosticComponent(str, enum.Enum): web="web"; api="api"; worker="worker"
 
@@ -222,6 +223,45 @@ class TranscriptionJobSource(Base):
     job: Mapped[TranscriptionJob]=relationship("TranscriptionJob", back_populates="sources")
     source: Mapped[Source]=relationship("Source")
     __table_args__=(UniqueConstraint("job_id", "source_id", name="uq_transcription_job_source"), Index("ix_transcription_job_sources_job_position", "job_id", "position"),)
+
+
+
+class TranscriptionOutputReconciliation(Base):
+    __tablename__="transcription_output_reconciliations"
+    id: Mapped[str]=mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_user_id: Mapped[str]=mapped_column(ForeignKey("users.id"), nullable=False)
+    project_id: Mapped[str]=mapped_column(ForeignKey("projects.id"), nullable=False)
+    job_id: Mapped[str]=mapped_column(ForeignKey("transcription_jobs.id"), nullable=False)
+    job_source_id: Mapped[str]=mapped_column(ForeignKey("transcription_job_sources.id"), nullable=False)
+    reconciliation_token: Mapped[str]=mapped_column(String(128), nullable=False, unique=True)
+    lease_generation: Mapped[int]=mapped_column(Integer, nullable=False)
+    attempt_number: Mapped[int]=mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
+    status: Mapped[OutputReconciliationStatus]=mapped_column(Enum(OutputReconciliationStatus), nullable=False, default=OutputReconciliationStatus.prepared)
+    uncertainty_reason: Mapped[str|None]=mapped_column(String(80))
+    expected_output_drive_folder_id: Mapped[str]=mapped_column(String(256), nullable=False)
+    expected_document_title: Mapped[str|None]=mapped_column(String(160))
+    expected_document_title_hash: Mapped[str|None]=mapped_column(String(64))
+    expected_document_character_count: Mapped[int]=mapped_column(Integer, nullable=False)
+    prepared_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now)
+    creation_started_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    returned_document_id: Mapped[str|None]=mapped_column(String(256), unique=True)
+    returned_web_view_url: Mapped[str|None]=mapped_column(Text)
+    returned_document_created_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    last_checked_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    resolved_output_id: Mapped[str|None]=mapped_column(ForeignKey("transcription_job_outputs.id"), unique=True)
+    resolved_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now)
+    updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now, onupdate=now)
+    __table_args__=(
+        UniqueConstraint("job_source_id", name="uq_output_reconciliations_job_source"),
+        UniqueConstraint("owner_user_id","project_id","job_id","job_source_id", name="uq_output_reconciliations_scope"),
+        CheckConstraint("expected_document_character_count >= 0", name="ck_output_reconciliations_character_count_nonnegative"),
+        Index("ix_output_reconciliations_owner_user_id", "owner_user_id"),
+        Index("ix_output_reconciliations_project_id", "project_id"),
+        Index("ix_output_reconciliations_job_id", "job_id"),
+        Index("ix_output_reconciliations_status", "status"),
+        Index("ix_output_reconciliations_job_status", "job_id", "status"),
+    )
 
 class AuditEvent(Base):
     __tablename__="audit_events"

@@ -12,6 +12,7 @@ import httpx
 
 GOOGLE_DOC_MIME_TYPE = "application/vnd.google-apps.document"
 GOOGLE_DRIVE_UPLOAD_URL = "https://www.googleapis.com/upload/drive/v3/files"
+OUTPUT_RECONCILIATION_APP_PROPERTY = "studioOutputReconciliationToken"
 
 
 class GoogleDocsOutputReason(str, Enum):
@@ -103,9 +104,9 @@ class GoogleDocsTranscriptTransport:
     client: httpx.Client | None = field(default=None, repr=False)
     post: Callable[..., httpx.Response] | None = field(default=None, repr=False)
 
-    def create_transcript_document(self, *, access_token: str, folder_id: str, title: str, document_text: str) -> GoogleDocsCreateResult:
+    def create_transcript_document(self, *, access_token: str, folder_id: str, title: str, document_text: str, reconciliation_token: str | None = None) -> GoogleDocsCreateResult:
         boundary = f"studio-doc-{uuid.uuid4().hex}"
-        body = _multipart_body(boundary, title=title, folder_id=folder_id, document_text=document_text)
+        body = _multipart_body(boundary, title=title, folder_id=folder_id, document_text=document_text, reconciliation_token=reconciliation_token)
         params = urlencode({"uploadType": "multipart", "supportsAllDrives": "true", "fields": "id,name,mimeType,webViewLink,parents"})
         url = f"{self.endpoint}?{params}"
         headers = {
@@ -168,8 +169,10 @@ def new_google_docs_transcript_artifact(*, result: GoogleDocsCreateResult, creat
     return GoogleDocsTranscriptArtifact(_RevocableArtifact(result.document_id, result.web_view_link, result.parents[0]), created_at, character_count)
 
 
-def _multipart_body(boundary: str, *, title: str, folder_id: str, document_text: str) -> bytes:
+def _multipart_body(boundary: str, *, title: str, folder_id: str, document_text: str, reconciliation_token: str | None = None) -> bytes:
     metadata = {"name": title, "mimeType": GOOGLE_DOC_MIME_TYPE, "parents": [folder_id]}
+    if reconciliation_token:
+        metadata["appProperties"] = {OUTPUT_RECONCILIATION_APP_PROPERTY: reconciliation_token}
     chunks = [
         f"--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n".encode("utf-8"),
         json.dumps(metadata, ensure_ascii=False, separators=(",", ":")).encode("utf-8"),

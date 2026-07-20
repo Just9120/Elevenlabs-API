@@ -23,6 +23,9 @@ from .job_lifecycle import safe_failure_metadata_value
 from .job_processing_lifecycle import request_job_cancellation
 from .diagnostics import REGISTRY, cleanup_expired_diagnostics, cursor_context, decode_cursor_payload, encode_cursor, markdown_escape, new_correlation_id, new_request_id, sanitize_build_id, sanitize_inbound_correlation, valid_correlation_id, valid_uuid, write_diagnostic_event
 from .job_output_read import browser_job_output_payload, load_browser_job_output_rows
+from .job_output_reconciliation import OutputReconciliationError, OutputReconciliationReason, check_job_output_reconciliation, reconciliation_status_payload
+from .google_docs_output import OUTPUT_RECONCILIATION_APP_PROPERTY
+from .google_drive import GoogleDriveReconciliationError, list_reconciliation_candidates
 from .job_output_folder_selection import VerifiedOutputFolderSelection, verify_output_folder_selection
 
 settings=get_settings()
@@ -627,6 +630,41 @@ def get_transcription_job_outputs(job_id: str, pair=Depends(current_session), db
     except Exception:
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Не удалось загрузить результаты задания") from None
     return {"job_id": job.id, "job_status": job.status.value, "output_count": len(outputs), "outputs": outputs}
+
+
+
+@app.get("/api/jobs/{job_id}/output-reconciliation")
+def get_output_reconciliation(job_id: str, pair=Depends(current_session), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("job:output-reconciliation:get:"+user.id, 120, 3600)
+    try:
+        return reconciliation_status_payload(db, owner_user_id=user.id, job_id=job_id)
+    except OutputReconciliationError:
+        raise HTTPException(404, "Не найдено")
+
+@app.post("/api/jobs/{job_id}/output-reconciliation/check")
+def check_output_reconciliation(job_id: str, request: Request, pair=Depends(require_csrf), db: Session=Depends(get_db), _=Depends(require_same_origin)):
+    _,user=pair; limiter.check("job:output-reconciliation:check:"+user.id, 10, 3600)
+    job=owned_job_or_404(db,user,job_id)
+    try:
+        conn=active_google_connection_for_user(db, user_id=user.id); require_drive_file_scope(conn)
+        access_token=refresh_user_google_drive_access_token(db, user_id=user.id, settings=settings)
+    except GoogleConnectionAccessError as exc:
+        write_diagnostic_event(owner_user_id=user.id, component="api", event_code="OUTPUT_RECONCILIATION_FAILED", project_id=job.project_id, job_id=job.id, request_id=getattr(request.state,"request_id",None), correlation_id=getattr(request.state,"correlation_id",None), metadata={"case_status":"reconciliation_required","resolved":False})
+        raise HTTPException(409, "Google connection unavailable")
+    write_diagnostic_event(owner_user_id=user.id, component="api", event_code="OUTPUT_RECONCILIATION_CHECK_STARTED", project_id=job.project_id, job_id=job.id, request_id=getattr(request.state,"request_id",None), correlation_id=getattr(request.state,"correlation_id",None), metadata={"case_status":"reconciliation_required"})
+    def lookup(token, folder_id):
+        return list_reconciliation_candidates(access_token, folder_id=folder_id, app_property_key=OUTPUT_RECONCILIATION_APP_PROPERTY, token=token)
+    try:
+        result=check_job_output_reconciliation(db, owner_user_id=user.id, job_id=job.id, lookup=lookup, now=utcnow().replace(tzinfo=None))
+        audit(db,"job.output_reconciliation_checked",actor_user_id=user.id,subject_user_id=user.id,project_id=job.project_id,job_id=job.id,checked=result.checked,resolved=result.resolved,unresolved=result.unresolved,conflicts=result.conflicts)
+        db.commit()
+    except GoogleDriveReconciliationError:
+        db.rollback(); raise HTTPException(502, "Google Drive reconciliation unavailable")
+    except OutputReconciliationError as exc:
+        db.rollback(); raise HTTPException(409 if exc.reason!=OutputReconciliationReason.not_found else 404, "Output reconciliation unavailable")
+    code = "OUTPUT_RECONCILIATION_RESOLVED" if result.resolved else "OUTPUT_RECONCILIATION_CONFLICT" if result.conflicts else "OUTPUT_RECONCILIATION_NOT_FOUND"
+    write_diagnostic_event(owner_user_id=user.id, component="api", event_code=code, project_id=job.project_id, job_id=job.id, request_id=getattr(request.state,"request_id",None), correlation_id=getattr(request.state,"correlation_id",None), metadata={"case_status":"resolved" if result.resolved else "conflict" if result.conflicts else "reconciliation_required", "resolved": bool(result.resolved), "aggregate_count": result.checked})
+    return {"job_id":job.id,"checked":result.checked,"resolved":result.resolved,"unresolved":result.unresolved,"conflicts":result.conflicts}
 
 @app.post("/api/jobs/{job_id}/cancel")
 def cancel_transcription_job(job_id: str, request: Request, pair=Depends(require_csrf), db: Session=Depends(get_db)):
