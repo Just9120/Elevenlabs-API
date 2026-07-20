@@ -1185,7 +1185,13 @@ def test_output_reconciliation_0012_upgrade_downgrade_roundtrip_and_metadata_tab
     try:
         subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "upgrade", "0011_diagnostic_debug_sessions"], cwd=ROOT, env=env, check=True)
         with temp_engine.begin() as conn:
+            # 0001 uses the current SQLAlchemy metadata baseline, so strip
+            # 0012-only reconciliation objects to create a genuine historical
+            # revision-0011 shape before testing the 0012 migration itself.
+            conn.execute(text("DROP TABLE IF EXISTS transcription_output_reconciliations"))
+            conn.execute(text("DROP TYPE IF EXISTS outputreconciliationstatus"))
             assert "transcription_output_reconciliations" not in inspect(conn).get_table_names()
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0011_diagnostic_debug_sessions"
         subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "upgrade", "head"], cwd=ROOT, env=env, check=True)
         with temp_engine.begin() as conn:
             _assert_output_reconciliation_schema(inspect(conn))
