@@ -37,7 +37,7 @@ from studio_api.deps import get_client_ip
 from studio_api.main import app, limiter
 from studio_api.models import AuditEvent, DiagnosticDebugSession, DiagnosticEvent, TranscriptionOutputReconciliation, TranscriptionJobSourceAttempt, OutputReconciliationStatus, SourceAttemptRetryDisposition, SourceAttemptStage, CredentialProvider, CredentialStatus, JobSourceStatus, JobStatus, LocalIdentity, Project, ProviderCredential, ProviderCredentialVersion, Source, SourceType, SourceUploadStatus, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, User, UserRole, UserStatus
 from studio_api.security import aad, decrypt, encrypt, hash_password, master_key_from_b64, utcnow, verify_password
-from studio_api.job_claim_lease import JobLeaseError, JobLeaseFailureReason, acquire_job_lease, acquire_next_ready_job_lease, is_lease_active, release_job_lease, renew_job_lease
+from studio_api.job_claim_lease import JobLeaseError, JobLeaseFailureReason, acquire_job_lease, acquire_next_ready_job_lease, invalidate_job_lease, is_lease_active, release_job_lease, renew_job_lease
 from studio_api.job_processing_lifecycle import JobProcessingError, JobProcessingFailureReason, acknowledge_job_cancellation, begin_job_processing, fail_job_processing, recover_expired_processing_job
 from studio_api.google_docs_output import GoogleDocsCreateResult, new_google_docs_transcript_artifact
 from studio_api.job_output_persistence import JobOutputPersistenceError, JobOutputPersistenceReason, _load_locked_output_authority, persist_processing_job_source_output_and_maybe_complete
@@ -1632,6 +1632,28 @@ def test_cancel_clears_lease_and_public_payloads_are_safe():
         db.close()
 
 
+def test_invalidate_job_lease_preserves_claim_history_and_generation():
+    _, job_id = lease_test_job()
+    db = SessionLocal()
+    try:
+        job = db.get(TranscriptionJob, job_id)
+        handle = acquire_job_lease(db, job_id=job.id, lease_owner_id="owner", now=LEASE_TEST_NOW, lease_ttl=LEASE_TEST_TTL)
+        original_claimed_at = job.claimed_at
+        original_generation = job.lease_generation
+        assert original_claimed_at == handle.claimed_at
+        assert original_generation == handle.lease_generation
+
+        invalidate_job_lease(job)
+        db.flush()
+
+        assert job.lease_owner_id is None
+        assert job.lease_expires_at is None
+        assert job.claimed_at == original_claimed_at
+        assert job.lease_generation == original_generation
+    finally:
+        db.close()
+
+
 def test_active_lease_helper():
     _, job_id = lease_test_job()
     db = SessionLocal()
@@ -1756,6 +1778,8 @@ def test_expired_processing_recovery_fails_closed_without_current_attempt_eviden
         h = acquire_job_lease(db, job_id=job.id, lease_owner_id="owner", now=LEASE_TEST_NOW, lease_ttl=timedelta(minutes=1))
         begin_job_processing(db, job_id=job.id, lease_owner_id="owner", lease_generation=h.lease_generation, now=LEASE_TEST_NOW)
         started_at = job.started_at
+        original_claimed_at = job.claimed_at
+        original_generation = job.lease_generation
         with pytest.raises(JobProcessingError) as exc:
             recover_expired_processing_job(db, job_id=job.id, now=LEASE_TEST_NOW + timedelta(seconds=30))
         assert exc.value.reason == JobProcessingFailureReason.lease_active
@@ -1763,7 +1787,10 @@ def test_expired_processing_recovery_fails_closed_without_current_attempt_eviden
         assert job.status == JobStatus.failed
         assert job.error_code == "retry_recovery_state_unknown"
         assert job.error_message == "retry_recovery_state_unknown"
-        assert job.lease_owner_id is None and job.lease_expires_at is None and job.claimed_at is None
+        assert job.lease_owner_id is None
+        assert job.lease_expires_at is None
+        assert job.claimed_at == original_claimed_at
+        assert job.lease_generation == original_generation
         assert job.attempt_count == 1 and job.started_at == started_at
     finally:
         db.close()
@@ -1780,12 +1807,23 @@ def test_expired_processing_recovery_requeues_with_current_prepared_attempt_evid
         db.add(TranscriptionJobSourceAttempt(owner_user_id=job.owner_user_id, project_id=job.project_id, job_id=job.id, job_source_id=rel.id, attempt_number=1, stage=SourceAttemptStage.prepared, retry_disposition=SourceAttemptRetryDisposition.undetermined, created_at=LEASE_TEST_NOW, updated_at=LEASE_TEST_NOW))
         db.commit()
         started_at = job.started_at
+        original_claimed_at = job.claimed_at
+        original_generation = job.lease_generation
         recover_expired_processing_job(db, job_id=job.id, now=LEASE_TEST_NOW + timedelta(minutes=2))
         assert job.status == JobStatus.queued
         assert job.finished_at is None and job.error_code is None and job.error_message is None
-        assert job.lease_owner_id is None and job.lease_expires_at is None and job.claimed_at is None
+        assert job.lease_owner_id is None
+        assert job.lease_expires_at is None
+        assert job.claimed_at == original_claimed_at
+        assert job.lease_generation == original_generation
         assert job.attempt_count == 1 and job.started_at == started_at
-        next_handle = acquire_job_lease(db, job_id=job.id, lease_owner_id="owner-2", now=LEASE_TEST_NOW + timedelta(minutes=3), lease_ttl=LEASE_TEST_TTL)
+        next_claimed_at = LEASE_TEST_NOW + timedelta(minutes=3)
+        next_handle = acquire_job_lease(db, job_id=job.id, lease_owner_id="owner-2", now=next_claimed_at, lease_ttl=LEASE_TEST_TTL)
+        assert job.claimed_at == next_claimed_at
+        assert job.claimed_at != original_claimed_at
+        assert job.lease_owner_id == "owner-2"
+        assert job.lease_expires_at == next_claimed_at + LEASE_TEST_TTL
+        assert job.lease_generation == original_generation + 1
         begin_job_processing(db, job_id=job.id, lease_owner_id="owner-2", lease_generation=next_handle.lease_generation, now=LEASE_TEST_NOW + timedelta(minutes=4))
         assert job.attempt_count == 2 and job.started_at == started_at
     finally:
