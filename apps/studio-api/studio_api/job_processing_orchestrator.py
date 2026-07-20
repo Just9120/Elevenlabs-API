@@ -19,6 +19,12 @@ from .job_google_docs_output import (
     JobGoogleDocsOutputReason,
     create_processing_job_google_doc_from_transcript,
 )
+from .job_lease_heartbeat import (
+    LEASE_HEARTBEAT_STAGE_GOOGLE_OUTPUT,
+    LEASE_HEARTBEAT_STAGE_SOURCE_PROVIDER,
+    LeaseHeartbeat,
+    LeaseHeartbeatError,
+)
 from .job_output_persistence import persist_processing_job_source_output_and_maybe_complete
 from .job_output_reconciliation import mark_reconciliation_required
 from .job_processing_lifecycle import (
@@ -45,6 +51,7 @@ class JobProcessingOrchestrationReason(str, Enum):
     incomplete_output_coverage = "incomplete_output_coverage"
     commit_failed = "commit_failed"
     lease_renewal_failed = "lease_renewal_failed"
+    lease_heartbeat_failed = "lease_heartbeat_failed"
 
 
 class JobProcessingOrchestrationError(RuntimeError):
@@ -85,6 +92,8 @@ def orchestrate_processing_job(
     output_persister: Callable = persist_processing_job_source_output_and_maybe_complete,
     lease_ttl: timedelta,
     lease_renewer: Callable = renew_job_lease,
+    heartbeat_session_factory: Callable | None = None,
+    heartbeat_controller_factory: Callable = LeaseHeartbeat,
 ) -> JobProcessingOrchestrationResult:
     clock = clock or (lambda: utcnow().replace(tzinfo=None))
     processed = 0
@@ -122,18 +131,38 @@ def orchestrate_processing_job(
         google_entered = False
         try:
             try:
-                transcript_cm = transcription_opener(
+                with _heartbeat_for_stage(
+                    db, job_id, lease_owner_id, lease_generation, lease_ttl, clock,
+                    lease_renewer, heartbeat_session_factory, heartbeat_controller_factory,
+                    LEASE_HEARTBEAT_STAGE_SOURCE_PROVIDER, settings,
+                ) as heartbeat:
+                    transcript_cm = transcription_opener(
+                        db,
+                        job_id=job_id,
+                        job_source_id=rel.id,
+                        lease_owner_id=lease_owner_id,
+                        lease_generation=lease_generation,
+                        settings=settings,
+                        now=clock(),
+                        clock=clock,
+                    )
+                    transcript = transcript_cm.__enter__()
+                    transcript_entered = True
+                _check_heartbeat_after_stage(heartbeat)
+            except LeaseHeartbeatError as exc:
+                result = _handle_pre_output_failure(
                     db,
-                    job_id=job_id,
-                    job_source_id=rel.id,
-                    lease_owner_id=lease_owner_id,
-                    lease_generation=lease_generation,
-                    settings=settings,
-                    now=clock(),
-                    clock=clock,
+                    job_id,
+                    lease_owner_id,
+                    lease_generation,
+                    clock,
+                    processed,
+                    "lease_heartbeat_failed",
+                    exc.reason.value,
                 )
-                transcript = transcript_cm.__enter__()
-                transcript_entered = True
+                if result is not None:
+                    return result
+                raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.lease_heartbeat_failed) from exc
             except Exception as exc:
                 result = _handle_pre_output_failure(
                     db,
@@ -155,19 +184,25 @@ def orchestrate_processing_job(
             _renew_and_commit(db, job_id, lease_owner_id, lease_generation, lease_ttl, clock, lease_renewer)
             try:
                 _emit(db, job_id, "OUTPUT_CREATION_STARTED", metadata={"attempt_number": _attempt(db, job_id)})
-                google_cm = google_docs_opener(
-                    db,
-                    job_id=job_id,
-                    job_source_id=rel.id,
-                    lease_owner_id=lease_owner_id,
-                    lease_generation=lease_generation,
-                    transcript=transcript,
-                    settings=settings,
-                    now=clock(),
-                    clock=clock,
-                )
-                artifact = google_cm.__enter__()
-                google_entered = True
+                with _heartbeat_for_stage(
+                    db, job_id, lease_owner_id, lease_generation, lease_ttl, clock,
+                    lease_renewer, heartbeat_session_factory, heartbeat_controller_factory,
+                    LEASE_HEARTBEAT_STAGE_GOOGLE_OUTPUT, settings,
+                ) as heartbeat:
+                    google_cm = google_docs_opener(
+                        db,
+                        job_id=job_id,
+                        job_source_id=rel.id,
+                        lease_owner_id=lease_owner_id,
+                        lease_generation=lease_generation,
+                        transcript=transcript,
+                        settings=settings,
+                        now=clock(),
+                        clock=clock,
+                    )
+                    artifact = google_cm.__enter__()
+                    google_entered = True
+                _check_heartbeat_after_stage(heartbeat)
             except JobGoogleDocsOutputError as exc:
                 if exc.reason == JobGoogleDocsOutputReason.output_already_persisted:
                     db.rollback()
@@ -208,6 +243,9 @@ def orchestrate_processing_job(
                 if result is not None:
                     return result
                 raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.google_docs_failed) from exc
+            except LeaseHeartbeatError as exc:
+                _record_output_uncertainty(db, job_id, lease_owner_id, lease_generation, clock, exc.reason.value)
+                raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.lease_heartbeat_failed) from exc
             except Exception as exc:
                 _record_output_uncertainty(db, job_id, lease_owner_id, lease_generation, clock, "unknown")
                 raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.output_reconciliation_required) from exc
@@ -270,6 +308,44 @@ def orchestrate_processing_job(
         raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.incomplete_output_coverage)
     return final
 
+
+
+class _NullHeartbeat:
+    stage = "source_provider"
+    renewal_count = 0
+    failed = False
+    failure_reason = None
+    def check(self): return None
+
+class _HeartbeatContext:
+    def __init__(self, heartbeat, db, job_id):
+        self.heartbeat = heartbeat; self.db = db; self.job_id = job_id
+    def __enter__(self):
+        _emit(self.db, self.job_id, "LEASE_HEARTBEAT_STARTED", metadata={"stage": self.heartbeat.stage, "attempt_number": _attempt(self.db, self.job_id)})
+        self.heartbeat.start(); return self.heartbeat
+    def __exit__(self, exc_type, exc, tb):
+        result = self.heartbeat.stop_and_join()
+        meta = {"stage": result.stage, "renewal_count": result.renewal_count, "attempt_number": _attempt(self.db, self.job_id)}
+        if result.failed:
+            _emit(self.db, self.job_id, "LEASE_HEARTBEAT_FAILED", metadata={**meta, "reason": result.reason or "lease_heartbeat_failed"})
+        _emit(self.db, self.job_id, "LEASE_HEARTBEAT_STOPPED", metadata={**meta, "success": not result.failed})
+        return False
+
+def _heartbeat_for_stage(db, job_id, owner, generation, lease_ttl, clock, lease_renewer, session_factory, factory, stage, settings):
+    if session_factory is None:
+        class Ctx:
+            def __enter__(self): return _NullHeartbeat()
+            def __exit__(self, *a): return False
+        return Ctx()
+    heartbeat = factory(
+        session_factory=session_factory, job_id=job_id, lease_owner_id=owner, lease_generation=generation,
+        lease_ttl=lease_ttl, heartbeat_interval=timedelta(seconds=settings.worker_lease_heartbeat_interval_seconds),
+        clock=clock, lease_renewer=lease_renewer, stage=stage,
+    )
+    return _HeartbeatContext(heartbeat, db, job_id)
+
+def _check_heartbeat_after_stage(heartbeat) -> None:
+    heartbeat.check()
 
 def _renew_and_commit(db, job_id, owner, generation, lease_ttl, clock, lease_renewer) -> None:
     try:
@@ -434,7 +510,7 @@ def _record_output_uncertainty(db, job_id, owner, generation, clock, message):
         job = db.get(TranscriptionJob, job_id)
         if job is not None and job.status == JobStatus.processing and job.cancel_requested_at is None and job.lease_owner_id == owner and job.lease_generation == generation and is_lease_active(job, clock()):
             mark_reconciliation_required(db, job_id=job_id, lease_generation=generation, reason=message, now=clock())
-            fail_job_processing(db, job_id=job_id, lease_owner_id=owner, lease_generation=generation, now=clock(), error_code="output_reconciliation_required", error_message=message if message in {"google_docs_timeout","google_docs_unavailable","malformed_google_docs_response","lifecycle_changed_after_output_creation","commit_failed","context_closed","unknown","job_not_processable","lease_not_owned","lease_not_active","cancellation_requested","existing_reconciliation_case"} else "unknown")
+            fail_job_processing(db, job_id=job_id, lease_owner_id=owner, lease_generation=generation, now=clock(), error_code="output_reconciliation_required", error_message=message if message in {"google_docs_timeout","google_docs_unavailable","malformed_google_docs_response","lifecycle_changed_after_output_creation","commit_failed","context_closed","unknown","job_not_processable","lease_not_owned","lease_not_active","cancellation_requested","existing_reconciliation_case","lease_heartbeat_failed","lease_heartbeat_not_owned","lease_heartbeat_expired","lease_heartbeat_commit_failed","lease_heartbeat_stop_timeout"} else "unknown")
             db.commit()
             _emit(db, job_id, "JOB_FAILED", metadata={"final_job_status": "failed", "error_code": "output_reconciliation_required", "boundary": "output_persistence", "attempt_number": _attempt(db, job_id)})
     except Exception:

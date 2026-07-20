@@ -38,6 +38,7 @@ def claim_next_and_orchestrate_processing_job(
     clock: Callable[[], datetime] | None = None,
     next_lease_acquirer: Callable = acquire_next_ready_job_lease,
     orchestrator: Callable = orchestrate_processing_job,
+    heartbeat_session_factory: Callable | None = None,
 ) -> JobProcessingOrchestrationResult | None:
     """Claim the next ready queued job, commit the lease, then run the orchestrator once.
 
@@ -71,6 +72,7 @@ def claim_next_and_orchestrate_processing_job(
         clock=clock,
         orchestrator=orchestrator,
         lease_ttl=lease_ttl,
+        heartbeat_session_factory=heartbeat_session_factory,
     )
 
 
@@ -84,6 +86,7 @@ def claim_and_orchestrate_processing_job(
     clock: Callable[[], datetime] | None = None,
     lease_acquirer: Callable = acquire_job_lease,
     orchestrator: Callable = orchestrate_processing_job,
+    heartbeat_session_factory: Callable | None = None,
 ) -> JobProcessingOrchestrationResult:
     """Claim one explicit queued job, commit the lease, then run the orchestrator once."""
 
@@ -111,6 +114,7 @@ def claim_and_orchestrate_processing_job(
         clock=clock,
         orchestrator=orchestrator,
         lease_ttl=lease_ttl,
+        heartbeat_session_factory=heartbeat_session_factory,
     )
 
 
@@ -122,6 +126,7 @@ def _commit_and_orchestrate(
     clock: Callable[[], datetime],
     orchestrator: Callable,
     lease_ttl: timedelta,
+    heartbeat_session_factory: Callable | None,
 ) -> JobProcessingOrchestrationResult:
     try:
         db.commit()
@@ -136,8 +141,7 @@ def _commit_and_orchestrate(
         raise JobProcessingRunnerError(JobProcessingRunnerReason.claim_commit_failed) from exc
 
     try:
-        return orchestrator(
-            db,
+        kwargs = dict(
             job_id=handle.job_id,
             lease_owner_id=handle.lease_owner_id,
             lease_generation=handle.lease_generation,
@@ -145,6 +149,9 @@ def _commit_and_orchestrate(
             clock=clock,
             lease_ttl=lease_ttl,
         )
+        if heartbeat_session_factory is not None:
+            kwargs["heartbeat_session_factory"] = heartbeat_session_factory
+        return orchestrator(db, **kwargs)
     except JobProcessingOrchestrationError:
         db.rollback()
         raise

@@ -57,6 +57,7 @@ STUDIO_GOOGLE_PICKER_APP_ID=123456789012
 STUDIO_WORKER_POLL_INTERVAL_SECONDS=5
 STUDIO_WORKER_ERROR_BACKOFF_SECONDS=5
 STUDIO_WORKER_LEASE_TTL_SECONDS=3600
+STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS=60
 """
     (repo / "deploy/studio/.env").write_text(state.pop("env_text", env_text), encoding="utf-8")
     bin_dir = tmp_path / "bin"
@@ -471,3 +472,33 @@ def test_workflow_cleanup_runs_after_upload_or_execution_failure(tmp_path: Path)
     assert proc.returncode != 0
     assert lines.count("cleanup-path /tmp/studio-processing-preflight.Abc123") == 1
     assert not any("cleanup-path /opt/elevenlabs-studio" in line or "cleanup-path /tmp" == line for line in lines)
+
+
+def test_missing_worker_lease_heartbeat_setting_blocks_preflight(tmp_path: Path) -> None:
+    proc, _, _ = run_preflight(tmp_path, env_text="""APP_PUBLIC_URL=https://secret.example
+STUDIO_SOURCE_S3_ENDPOINT_URL=https://private-r2.invalid
+STUDIO_SOURCE_S3_REGION=auto
+STUDIO_SOURCE_S3_BUCKET=bucket
+STUDIO_SOURCE_UPLOAD_TTL_SECONDS=3600
+STUDIO_SOURCE_PRESIGN_TTL_SECONDS=900
+STUDIO_SOURCE_MAX_UPLOAD_BYTES=10
+STUDIO_GOOGLE_OAUTH_CLIENT_ID=client
+STUDIO_GOOGLE_OAUTH_REDIRECT_URI=https://secret.example/api/google/oauth/callback
+STUDIO_GOOGLE_OAUTH_SCOPES=openid email https://www.googleapis.com/auth/drive.file
+STUDIO_GOOGLE_OAUTH_STATE_TTL_SECONDS=600
+STUDIO_GOOGLE_PICKER_API_KEY=picker
+STUDIO_GOOGLE_PICKER_APP_ID=123
+STUDIO_WORKER_POLL_INTERVAL_SECONDS=5
+STUDIO_WORKER_ERROR_BACKOFF_SECONDS=5
+STUDIO_WORKER_LEASE_TTL_SECONDS=3600
+""")
+    assert proc.returncode != 0
+    assert "runtime setting completeness | blocked" in proc.stdout
+
+def test_worker_lease_heartbeat_too_large_blocks_preflight(tmp_path: Path) -> None:
+    env = (ROOT / "deploy/studio/.env.example").read_text(encoding="utf-8")
+    env = env.replace("__REQUIRED_TEMP_SOURCE_S3_ENDPOINT_URL__", "https://private-r2.invalid").replace("__REQUIRED_TEMP_SOURCE_S3_REGION__", "auto").replace("__REQUIRED_TEMP_SOURCE_S3_BUCKET__", "bucket").replace("__REQUIRED_GOOGLE_OAUTH_CLIENT_ID__", "client").replace("__REQUIRED_PUBLIC_RESTRICTED_PICKER_API_KEY__", "picker").replace("__REQUIRED_GOOGLE_CLOUD_PROJECT_NUMBER__", "123").replace("STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE=", "STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE=/tmp/nonexistent")
+    env = env.replace("STUDIO_WORKER_LEASE_TTL_SECONDS=3600", "STUDIO_WORKER_LEASE_TTL_SECONDS=300").replace("STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS=60", "STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS=101")
+    proc, _, _ = run_preflight(tmp_path, env_text=env)
+    assert proc.returncode != 0
+    assert "runtime setting completeness | blocked" in proc.stdout

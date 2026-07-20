@@ -85,7 +85,7 @@ def run_worker_loop(
         result = None
         wait_seconds = None
         try:
-            result = iteration(db, lease_owner_id=owner_id, lease_ttl=lease_ttl, settings=settings)
+            result = iteration(db, lease_owner_id=owner_id, lease_ttl=lease_ttl, settings=settings, heartbeat_session_factory=session_factory)
         except Exception as exc:
             if type(exc).__name__ not in {"JobLeaseError", "JobProcessingRunnerError", "JobProcessingOrchestrationError"}:
                 _safe_rollback(db, logger)
@@ -119,7 +119,7 @@ def main() -> int:
 
         settings = Settings()
         # Force worker fields to be resolved before the DB module can construct its engine.
-        _ = (settings.worker_poll_interval_seconds, settings.worker_error_backoff_seconds, settings.worker_lease_ttl_seconds)
+        _ = (settings.worker_poll_interval_seconds, settings.worker_error_backoff_seconds, settings.worker_lease_ttl_seconds, settings.worker_lease_heartbeat_interval_seconds)
     except ValidationError:
         LOGGER.error("studio_worker_configuration_invalid")
         return 2

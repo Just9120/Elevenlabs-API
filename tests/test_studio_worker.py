@@ -19,6 +19,7 @@ class FakeSettings:
     worker_poll_interval_seconds: int = 5
     worker_error_backoff_seconds: int = 5
     worker_lease_ttl_seconds: int = 3600
+    worker_lease_heartbeat_interval_seconds: int = 60
 
 
 class StopEvent:
@@ -37,15 +38,16 @@ class Session:
 
 def test_worker_settings_defaults_and_bounds(monkeypatch):
     from studio_api.config import Settings
-    for k in ["STUDIO_WORKER_POLL_INTERVAL_SECONDS", "STUDIO_WORKER_ERROR_BACKOFF_SECONDS", "STUDIO_WORKER_LEASE_TTL_SECONDS"]:
+    for k in ["STUDIO_WORKER_POLL_INTERVAL_SECONDS", "STUDIO_WORKER_ERROR_BACKOFF_SECONDS", "STUDIO_WORKER_LEASE_TTL_SECONDS", "STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS"]:
         monkeypatch.delenv(k, raising=False)
     s=Settings()
-    assert (s.worker_poll_interval_seconds, s.worker_error_backoff_seconds, s.worker_lease_ttl_seconds)==(5,5,3600)
-    assert Settings(worker_poll_interval_seconds=1, worker_error_backoff_seconds=1, worker_lease_ttl_seconds=300)
+    assert (s.worker_poll_interval_seconds, s.worker_error_backoff_seconds, s.worker_lease_ttl_seconds, s.worker_lease_heartbeat_interval_seconds)==(5,5,3600,60)
+    assert Settings(worker_poll_interval_seconds=1, worker_error_backoff_seconds=1, worker_lease_ttl_seconds=300, worker_lease_heartbeat_interval_seconds=100)
     assert Settings(worker_poll_interval_seconds=60, worker_error_backoff_seconds=300, worker_lease_ttl_seconds=86400)
     with pytest.raises(ValidationError): Settings(worker_poll_interval_seconds=0)
     with pytest.raises(ValidationError): Settings(worker_error_backoff_seconds=301)
     with pytest.raises(ValidationError): Settings(worker_lease_ttl_seconds=299)
+    with pytest.raises(ValidationError): Settings(worker_lease_ttl_seconds=300, worker_lease_heartbeat_interval_seconds=101)
 
 
 def test_main_configuration_failure_is_normalized_before_db(monkeypatch, caplog):

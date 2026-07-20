@@ -29,13 +29,18 @@ Source-level worker operations are source-complete in this PR after the final sa
 
 ## Active coding item / next item
 
-### `PWA-OUTPUT-RECONCILIATION-01`
+### `PWA-LEASE-HEARTBEAT-01`
 
-Source-complete: durable output reconciliation cases, exact opaque Google Drive appProperty identity, uncertainty recording, owner-scoped Drive lookup/persistence API, safe diagnostics, and minimal PWA action are present in source. Production migration rollout and controlled canary were not run and remain operator-controlled.
+Source-complete: bounded PostgreSQL-backed stage heartbeat for long source/provider and Google output calls is present in source. Each renewal uses a separate session with exact owner/generation fencing, no Redis, no provider/Google retry, and Google-stage heartbeat uncertainty enters output reconciliation. Production deployment/canary were not run and remain operator-controlled.
+
+## Next coding item
+
+### `PWA-RETRY-RECOVERY-01`
+
+Planned next: design safe stage-specific retry/recovery without duplicate provider or Google side effects.
 
 ## Near backlog
 
-- `PWA-LEASE-HEARTBEAT-01` — renew leases safely during long external calls.
 - `PWA-RETRY-RECOVERY-01` — stage-specific retry/recovery without duplicate provider or Google side effects.
 - `PWA-SOURCE-DELETION-01` — source deletion, retention, and processing-time access semantics.
 - `PWA-LEGACY-AUTHORITY-01` — review legacy deployment/runtime paths and remove or mark them formally.
@@ -46,7 +51,6 @@ Source-complete: durable output reconciliation cases, exact opaque Google Drive 
 
 - No current repository evidence proves a successful production controlled canary after the latest worker fix.
 - Production rollout evidence for source-level output reconciliation does not exist until an operator applies migration `0012_output_reconciliation_cases` and validates it in the target environment.
-- No background lease heartbeat covers one long materialization/provider/output call.
 - Safe retry/recovery behavior remains unfinished.
 - Legacy deployment paths may still exist and must not be hidden by documentation cleanup.
 
