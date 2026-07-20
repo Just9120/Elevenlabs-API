@@ -334,3 +334,29 @@ def test_reconciliation_case_commit_failure_is_not_output_race(db, models, monke
     assert excinfo.value.reason.value == "reconciliation_case_persistence_failed"
     assert excinfo.value.reason.value != "output_already_persisted"
     assert transport.calls == []
+
+
+def test_heartbeat_only_lease_expiry_change_before_create_does_not_trip_lifecycle(db, models):
+    from studio_api.job_google_docs_output import create_processing_job_google_doc_from_transcript
+    user, project, src, job, rel, now = make_job(db, models)
+    transport = FakeTransport()
+    def metadata(token, folder):
+        job.lease_expires_at = now + timedelta(minutes=10)
+        db.flush()
+        return good_meta(token, folder)
+    with create_processing_job_google_doc_from_transcript(db, job_id=job.id, job_source_id=rel.id, lease_owner_id="worker", lease_generation=7, transcript=Transcript(), settings=Settings(), now=now, clock=lambda: now, token_resolver=lambda *a, **k: "token-secret", metadata_fetcher=metadata, google_docs_transport=transport) as artifact:
+        assert artifact.character_count > 0
+    assert len(transport.calls) == 1
+
+
+def test_heartbeat_only_lease_expiry_change_after_create_does_not_require_reconciliation(db, models):
+    from studio_api.job_google_docs_output import create_processing_job_google_doc_from_transcript
+    user, project, src, job, rel, now = make_job(db, models)
+    def mutate_expiry():
+        job.lease_expires_at = now + timedelta(minutes=10)
+        db.flush()
+    transport = FakeTransport(mutate=mutate_expiry)
+    with create_processing_job_google_doc_from_transcript(db, job_id=job.id, job_source_id=rel.id, lease_owner_id="worker", lease_generation=7, transcript=Transcript(), settings=Settings(), now=now, clock=lambda: now, token_resolver=lambda *a, **k: "token-secret", metadata_fetcher=good_meta, google_docs_transport=transport) as artifact:
+        assert artifact.web_view_link == "https://docs.example/private"
+    assert len(transport.calls) == 1
+    assert db.query(models.TranscriptionOutputReconciliation).one().status == models.OutputReconciliationStatus.creation_returned

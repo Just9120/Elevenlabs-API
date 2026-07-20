@@ -59,6 +59,8 @@ STUDIO_WORKER_ERROR_BACKOFF_SECONDS=5
 STUDIO_WORKER_LEASE_TTL_SECONDS=3600
 STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS=60
 """
+    if state.pop("omit_heartbeat", ""):
+        env_text = env_text.replace("STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS=60\n", "")
     (repo / "deploy/studio/.env").write_text(state.pop("env_text", env_text), encoding="utf-8")
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -474,7 +476,7 @@ def test_workflow_cleanup_runs_after_upload_or_execution_failure(tmp_path: Path)
     assert not any("cleanup-path /opt/elevenlabs-studio" in line or "cleanup-path /tmp" == line for line in lines)
 
 
-def test_missing_worker_lease_heartbeat_setting_blocks_preflight(tmp_path: Path) -> None:
+def test_missing_worker_lease_heartbeat_setting_uses_safe_default(tmp_path: Path) -> None:
     proc, _, _ = run_preflight(tmp_path, env_text="""APP_PUBLIC_URL=https://secret.example
 STUDIO_SOURCE_S3_ENDPOINT_URL=https://private-r2.invalid
 STUDIO_SOURCE_S3_REGION=auto
@@ -493,7 +495,8 @@ STUDIO_WORKER_ERROR_BACKOFF_SECONDS=5
 STUDIO_WORKER_LEASE_TTL_SECONDS=3600
 """)
     assert proc.returncode != 0
-    assert "runtime setting completeness | blocked" in proc.stdout
+    assert "runtime setting completeness | pass" in proc.stdout
+    assert "secret-file presence | blocked" in proc.stdout
 
 def test_worker_lease_heartbeat_too_large_blocks_preflight(tmp_path: Path) -> None:
     env = (ROOT / "deploy/studio/.env.example").read_text(encoding="utf-8")
@@ -502,3 +505,13 @@ def test_worker_lease_heartbeat_too_large_blocks_preflight(tmp_path: Path) -> No
     proc, _, _ = run_preflight(tmp_path, env_text=env)
     assert proc.returncode != 0
     assert "runtime setting completeness | blocked" in proc.stdout
+
+
+def test_old_env_without_worker_lease_heartbeat_key_passes_preflight_runtime_validation(tmp_path: Path) -> None:
+    proc, calls, _ = run_preflight(tmp_path, omit_heartbeat="1")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "runtime setting completeness | pass" in proc.stdout
+
+def test_explicit_valid_worker_lease_heartbeat_value_passes_preflight(tmp_path: Path) -> None:
+    proc, _, _ = run_preflight(tmp_path, env_text=None) if False else run_preflight(tmp_path)
+    assert proc.returncode == 0

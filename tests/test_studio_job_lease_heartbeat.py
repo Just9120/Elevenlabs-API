@@ -62,6 +62,7 @@ class ManualEvent:
     def __init__(self): self.set_called=False; self.waits=0
     def wait(self, seconds): self.waits += 1; return self.set_called
     def set(self): self.set_called=True
+    def is_set(self): return self.set_called
 
 class ManualThread:
     def __init__(self, target, name=None): self.target=target; self.alive=False; self.name=name
@@ -92,6 +93,39 @@ def test_join_timeout_fails_closed():
     assert not hb.thread_alive
     with pytest.raises(LeaseHeartbeatError): hb.check()
 
+
+
+def test_production_thread_factory_receives_daemon_true():
+    from studio_api.job_lease_heartbeat import LeaseHeartbeat, LEASE_HEARTBEAT_STAGE_SOURCE_PROVIDER
+    seen=[]
+    class Thread(ManualThread):
+        def __init__(self, target, name=None, daemon=None):
+            super().__init__(target, name); self.daemon=daemon; seen.append(daemon)
+    hb=LeaseHeartbeat(session_factory=lambda: Session([]), job_id="job", lease_owner_id="owner", lease_generation=1, lease_ttl=timedelta(seconds=300), heartbeat_interval=timedelta(seconds=60), stage=LEASE_HEARTBEAT_STAGE_SOURCE_PROVIDER, thread_factory=lambda **kw: Thread(**kw))
+    hb.start(); hb.stop_and_join()
+    assert seen == [True]
+
+def test_blocked_thread_uses_two_bounded_joins_and_returns_timeout():
+    from studio_api.job_lease_heartbeat import LeaseHeartbeat, LEASE_HEARTBEAT_STAGE_GOOGLE_OUTPUT
+    class Blocked(ManualThread):
+        def __init__(self, **kw): super().__init__(**kw); self.join_timeouts=[]
+        def join(self, timeout=None): self.join_timeouts.append(timeout); self.alive=True
+    holder=[]
+    hb=LeaseHeartbeat(session_factory=lambda: Session([]), job_id="job", lease_owner_id="owner", lease_generation=1, lease_ttl=timedelta(seconds=300), heartbeat_interval=timedelta(seconds=60), stage=LEASE_HEARTBEAT_STAGE_GOOGLE_OUTPUT, thread_factory=lambda **kw: holder.append(Blocked(**kw)) or holder[-1], join_timeout=2.0, db_operation_timeout=1.0)
+    hb.start(); hb.stop(); result=hb.join()
+    assert result.failed and result.reason == "lease_heartbeat_stop_timeout"
+    assert holder[0].join_timeouts == [2.0, 2.0]
+    assert hb.thread_alive
+
+def test_stop_set_before_commit_rolls_back_without_counting_renewal():
+    from studio_api.job_lease_heartbeat import LeaseHeartbeat, LEASE_HEARTBEAT_STAGE_SOURCE_PROVIDER
+    events=[]; stop=ManualEvent()
+    def renewer(db, **kw): events.append("renew"); stop.set()
+    hb=LeaseHeartbeat(session_factory=lambda: Session(events), job_id="job", lease_owner_id="owner", lease_generation=1, lease_ttl=timedelta(seconds=300), heartbeat_interval=timedelta(seconds=60), stage=LEASE_HEARTBEAT_STAGE_SOURCE_PROVIDER, event_factory=lambda: stop, lease_renewer=renewer, timeout_configurator=lambda db, seconds: None)
+    hb._renew_once()
+    assert events[0] == "renew"
+    assert [e[0] for e in events if isinstance(e, tuple)] == ["rollback", "close"]
+    assert hb.renewal_count == 0
 
 def test_no_redis_or_lease_lifecycle_calls_in_helper_source():
     text = (ROOT / "apps/studio-api/studio_api/job_lease_heartbeat.py").read_text(encoding="utf-8")

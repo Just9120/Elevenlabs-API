@@ -42,5 +42,12 @@ def test_env_example_worker_defaults_once():
 def test_heartbeat_config_is_worker_only():
     worker=service_block("studio-worker"); api=service_block("studio-api"); web=service_block("studio-web")
     assert "STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS" in worker
+    assert "STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS: ${STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS:-60}" in worker
     assert "STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS" not in api
     assert "STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS" not in web
+
+
+def test_compose_worker_heartbeat_default_supports_old_env():
+    worker=service_block("studio-worker")
+    assert "STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS is required" not in worker
+    assert "${STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS:-60}" in worker

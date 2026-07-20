@@ -102,11 +102,19 @@ class LeaseHeartbeat:
     def start(self) -> None:
         if self._thread is not None:
             raise RuntimeError("heartbeat already started")
-        self._thread = self._thread_factory(target=self._run, name=f"studio-lease-heartbeat-{self.stage}")
+        self._thread = self._new_thread()
         self._thread.start()
 
     def stop(self) -> None:
         self._stop_event.set()
+
+    def _new_thread(self):
+        kwargs = {"target": self._run, "name": f"studio-lease-heartbeat-{self.stage}", "daemon": True}
+        try:
+            return self._thread_factory(**kwargs)
+        except TypeError:
+            kwargs.pop("daemon")
+            return self._thread_factory(**kwargs)
 
     def join(self) -> LeaseHeartbeatResult:
         if self._thread is not None:
@@ -114,8 +122,6 @@ class LeaseHeartbeat:
             if self._thread.is_alive():
                 self._set_failed(LeaseHeartbeatFailureReason.lease_heartbeat_stop_timeout)
                 self._thread.join(timeout=self._db_operation_timeout + 1.0)
-                while self._thread.is_alive():
-                    self._thread.join(timeout=0.1)
         return self.result()
 
     def stop_and_join(self) -> LeaseHeartbeatResult:
@@ -156,6 +162,9 @@ class LeaseHeartbeat:
                 now=self.clock(),
                 lease_ttl=self.lease_ttl,
             )
+            if self._stop_event.is_set():
+                _rollback(db)
+                return
             db.commit()
             with self._lock:
                 self._renewal_count += 1
