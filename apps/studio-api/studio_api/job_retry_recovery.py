@@ -33,6 +33,9 @@ class RetryQueueResult:
 def latest_attempt(db, job_source_id):
     return db.execute(select(TranscriptionJobSourceAttempt).where(TranscriptionJobSourceAttempt.job_source_id==job_source_id).order_by(TranscriptionJobSourceAttempt.attempt_number.desc(), TranscriptionJobSourceAttempt.created_at.desc())).scalars().first()
 
+def current_attempt_for_relation(db, *, job_source_id, attempt_number):
+    return db.execute(select(TranscriptionJobSourceAttempt).where(TranscriptionJobSourceAttempt.job_source_id==job_source_id, TranscriptionJobSourceAttempt.attempt_number==attempt_number)).scalar_one_or_none()
+
 def _required(db, job_id):
     return db.execute(select(TranscriptionJobSource).where(TranscriptionJobSource.job_id==job_id, TranscriptionJobSource.status!=JobSourceStatus.skipped).order_by(TranscriptionJobSource.position, TranscriptionJobSource.id)).scalars().all()
 
@@ -83,6 +86,31 @@ def prepare_source_attempt(db: Session, *, job_id, job_source_id, lease_owner_id
         return row
     row=TranscriptionJobSourceAttempt(owner_user_id=job.owner_user_id, project_id=job.project_id, job_id=job.id, job_source_id=rel.id, attempt_number=n, stage=Stage.prepared, retry_disposition=Disp.undetermined, created_at=now, updated_at=now)
     db.add(row); db.flush(); return row
+
+def prepare_current_attempt_sources(db: Session, *, job_id, lease_owner_id, lease_generation, now: datetime):
+    job=db.get(TranscriptionJob, job_id)
+    if job is None:
+        raise RuntimeError("retry_state_prepare_not_allowed")
+    _require_active_processing(job, lease_owner_id, lease_generation, now)
+    n=int(job.attempt_count or 0)
+    if n < 1:
+        raise RuntimeError("retry_state_invalid_attempt_number")
+    created=[]
+    for rel in _required(db, job.id):
+        if _has_output(db, rel.id):
+            continue
+        if _has_unresolved_reconciliation(db, rel.id):
+            raise RuntimeError("retry_state_reconciliation_exists")
+        row=current_attempt_for_relation(db, job_source_id=rel.id, attempt_number=n)
+        if row is None:
+            row=TranscriptionJobSourceAttempt(owner_user_id=job.owner_user_id, project_id=job.project_id, job_id=job.id, job_source_id=rel.id, attempt_number=n, stage=Stage.prepared, retry_disposition=Disp.undetermined, created_at=now, updated_at=now)
+            db.add(row); created.append(row)
+            continue
+        if row.owner_user_id!=job.owner_user_id or row.project_id!=job.project_id or row.job_id!=job.id:
+            raise RuntimeError("retry_state_scope_conflict")
+        if row.stage != Stage.prepared:
+            raise RuntimeError("retry_state_not_prepared")
+    db.flush(); return tuple(created)
 
 def _transition(row, *, allowed_from, to_stage, disposition, now, idempotent=True):
     if row.stage == to_stage and idempotent:
@@ -174,12 +202,11 @@ def _evaluate(db, job, *, mode: Literal["explicit", "recovery"], now: datetime|N
         if _has_output(db, rel.id): continue
         missing.append(rel)
         if _has_unresolved_reconciliation(db, rel.id): reason=RetryReason.output_reconciliation_required; continue
-        att=latest_attempt(db, rel.id)
-        if mode=="recovery" and att is not None and att.attempt_number != attempts:
-            att=None
+        att=current_attempt_for_relation(db, job_source_id=rel.id, attempt_number=attempts)
         if not att:
             if job.error_code in {"pipeline_retry_state_prepare_failed", "pipeline_retry_state_persistence_failed"}: safe+=1
             else: reason=reason or RetryReason.legacy_or_unknown_execution_state
+        elif att.stage==Stage.prepared and att.provider_request_started_at is None: safe+=1
         elif att.retry_disposition==Disp.retry_safe and (att.provider_request_started_at is None or att.failure_code in SAFE_PROVIDER_FAILURES): safe+=1
         elif att.retry_disposition==Disp.provider_outcome_uncertain or att.stage==Stage.provider_request_started: reason=reason or RetryReason.provider_outcome_uncertain
         elif att.retry_disposition==Disp.provider_result_lost or att.stage in {Stage.provider_response_returned, Stage.google_handoff}: reason=reason or RetryReason.provider_result_lost

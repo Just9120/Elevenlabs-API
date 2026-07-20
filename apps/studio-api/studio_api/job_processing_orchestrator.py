@@ -28,7 +28,7 @@ from .job_lease_heartbeat import (
 )
 from .job_output_persistence import persist_processing_job_source_output_and_maybe_complete
 from .job_output_reconciliation import mark_reconciliation_required
-from .job_retry_recovery import prepare_source_attempt, classify_source_attempt_failure, mark_attempt_provider_started, mark_attempt_provider_returned, mark_attempt_google_handoff, mark_attempt_output_reconciliation_required, mark_attempt_completed
+from .job_retry_recovery import prepare_current_attempt_sources, classify_source_attempt_failure, mark_attempt_provider_started, mark_attempt_provider_returned, mark_attempt_google_handoff, mark_attempt_output_reconciliation_required, mark_attempt_completed
 from .job_processing_lifecycle import (
     acknowledge_job_cancellation,
     begin_job_processing,
@@ -109,6 +109,20 @@ def orchestrate_processing_job(
             raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.no_required_sources) from exc
         raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.no_required_sources)
 
+    try:
+        created_attempts = prepare_current_attempt_sources(db, job_id=job_id, lease_owner_id=lease_owner_id, lease_generation=lease_generation, now=clock())
+        _commit(db, JobProcessingOrchestrationReason.commit_failed)
+        for _created in created_attempts:
+            _emit(db, job_id, "SOURCE_ATTEMPT_PREPARED", metadata={"attempt_number": _attempt(db, job_id), "boundary": "retry_state"})
+    except Exception as exc:
+        db.rollback()
+        if "retry_state_reconciliation_exists" in str(exc):
+            _record_output_uncertainty(db, job_id, lease_owner_id, lease_generation, clock, "existing_reconciliation_case")
+            raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.output_reconciliation_required) from exc
+        result = _handle_pre_output_failure(db, job_id, lease_owner_id, lease_generation, clock, processed, "pipeline_retry_state_prepare_failed", "pipeline_retry_state_prepare_failed")
+        if result is not None: return result
+        raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.transcription_failed)
+
     for rel in required:
         outcome = _checkpoint(db, job_id, lease_owner_id, lease_generation, clock, processed)
         if outcome is not None:
@@ -124,16 +138,6 @@ def orchestrate_processing_job(
             if result is not None:
                 return result
             raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.google_docs_failed)
-
-        try:
-            prepare_source_attempt(db, job_id=job_id, job_source_id=rel.id, lease_owner_id=lease_owner_id, lease_generation=lease_generation, now=clock())
-            _commit(db, JobProcessingOrchestrationReason.commit_failed)
-            _emit(db, job_id, "SOURCE_ATTEMPT_PREPARED", metadata={"attempt_number": _attempt(db, job_id), "boundary": "retry_state"})
-        except Exception:
-            db.rollback()
-            result = _handle_pre_output_failure(db, job_id, lease_owner_id, lease_generation, clock, processed, "pipeline_retry_state_prepare_failed", "pipeline_retry_state_prepare_failed")
-            if result is not None: return result
-            raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.transcription_failed)
 
         _renew_and_commit(db, job_id, lease_owner_id, lease_generation, lease_ttl, clock, lease_renewer)
 

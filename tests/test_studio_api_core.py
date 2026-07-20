@@ -1169,12 +1169,20 @@ def test_job_output_migration_clean_chain_constraints_and_0007_roundtrip():
     with isolated_migration_database("studio_migration_0007") as (temp_engine, env):
         run_alembic("0007_job_processing_lifecycle", env=env)
         with temp_engine.begin() as conn:
-            # 0001 reflects current metadata; strip 0008-owned output table to
-            # create a genuine 0007 shape before upgrading through head.
+            # 0001 reflects current metadata; strip post-0007 dependent
+            # objects in dependency order to create a genuine 0007 shape.
+            conn.execute(text("DROP TABLE IF EXISTS transcription_job_source_attempts"))
+            conn.execute(text("DROP TABLE IF EXISTS transcription_output_reconciliations"))
             conn.execute(text("DROP TABLE IF EXISTS transcription_job_outputs"))
+            conn.execute(text("DROP TYPE IF EXISTS sourceattemptretrydisposition"))
+            conn.execute(text("DROP TYPE IF EXISTS sourceattemptstage"))
+            conn.execute(text("DROP TYPE IF EXISTS outputreconciliationstatus"))
             conn.execute(text("UPDATE alembic_version SET version_num='0007_job_processing_lifecycle'"))
-            assert "transcription_job_outputs" not in inspect(conn).get_table_names()
-            assert "transcription_job_sources" in inspect(conn).get_table_names()
+            tables = set(inspect(conn).get_table_names())
+            assert "transcription_job_outputs" not in tables
+            assert "transcription_output_reconciliations" not in tables
+            assert "transcription_job_source_attempts" not in tables
+            assert "transcription_job_sources" in tables
         run_alembic("head", env=env)
         with temp_engine.begin() as conn:
             assert "transcription_job_outputs" in inspect(conn).get_table_names()
@@ -1739,6 +1747,8 @@ def test_processing_failure_and_expired_recovery_paths():
     finally:
         db.close()
 
+
+def test_expired_processing_recovery_fails_closed_without_current_attempt_evidence():
     _, recover_id = lease_test_job()
     db = SessionLocal()
     try:
@@ -1750,15 +1760,34 @@ def test_processing_failure_and_expired_recovery_paths():
             recover_expired_processing_job(db, job_id=job.id, now=LEASE_TEST_NOW + timedelta(seconds=30))
         assert exc.value.reason == JobProcessingFailureReason.lease_active
         recover_expired_processing_job(db, job_id=job.id, now=LEASE_TEST_NOW + timedelta(minutes=2))
+        assert job.status == JobStatus.failed
+        assert job.error_code == "retry_recovery_state_unknown"
+        assert job.error_message == "retry_recovery_state_unknown"
+        assert job.lease_owner_id is None and job.lease_expires_at is None and job.claimed_at is None
+        assert job.attempt_count == 1 and job.started_at == started_at
+    finally:
+        db.close()
+
+
+def test_expired_processing_recovery_requeues_with_current_prepared_attempt_evidence():
+    _, recover_id = lease_test_job()
+    db = SessionLocal()
+    try:
+        job = db.get(TranscriptionJob, recover_id)
+        h = acquire_job_lease(db, job_id=job.id, lease_owner_id="owner", now=LEASE_TEST_NOW, lease_ttl=timedelta(minutes=1))
+        begin_job_processing(db, job_id=job.id, lease_owner_id="owner", lease_generation=h.lease_generation, now=LEASE_TEST_NOW)
+        rel = db.query(TranscriptionJobSource).filter_by(job_id=job.id).one()
+        db.add(TranscriptionJobSourceAttempt(owner_user_id=job.owner_user_id, project_id=job.project_id, job_id=job.id, job_source_id=rel.id, attempt_number=1, stage=SourceAttemptStage.prepared, retry_disposition=SourceAttemptRetryDisposition.undetermined, created_at=LEASE_TEST_NOW, updated_at=LEASE_TEST_NOW))
+        db.commit()
+        started_at = job.started_at
+        recover_expired_processing_job(db, job_id=job.id, now=LEASE_TEST_NOW + timedelta(minutes=2))
         assert job.status == JobStatus.queued
+        assert job.finished_at is None and job.error_code is None and job.error_message is None
+        assert job.lease_owner_id is None and job.lease_expires_at is None and job.claimed_at is None
         assert job.attempt_count == 1 and job.started_at == started_at
         next_handle = acquire_job_lease(db, job_id=job.id, lease_owner_id="owner-2", now=LEASE_TEST_NOW + timedelta(minutes=3), lease_ttl=LEASE_TEST_TTL)
         begin_job_processing(db, job_id=job.id, lease_owner_id="owner-2", lease_generation=next_handle.lease_generation, now=LEASE_TEST_NOW + timedelta(minutes=4))
         assert job.attempt_count == 2 and job.started_at == started_at
-        job.cancel_requested_at = LEASE_TEST_NOW + timedelta(minutes=5)
-        job.lease_expires_at = LEASE_TEST_NOW + timedelta(minutes=5)
-        recover_expired_processing_job(db, job_id=job.id, now=LEASE_TEST_NOW + timedelta(minutes=6))
-        assert job.status == JobStatus.cancelled and job.finished_at == LEASE_TEST_NOW + timedelta(minutes=6)
     finally:
         db.close()
 
