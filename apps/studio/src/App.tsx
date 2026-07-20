@@ -137,6 +137,8 @@ type JobOutputsState = {
   data: JobOutputsResponse | null;
 };
 type OutputReconciliationResponse = { job_id: string; job_status: JobСтатус; available: boolean; counts: Record<string, number>; cases: { job_source_id: string; status: string; reason?: string | null; resolved: boolean; last_checked_at?: string | null }[] };
+type JobRetryResponse = { job_id: string; job_status: JobСтатус; available: boolean; reason: string; attempt_count: number; max_attempts: number; missing_output_count: number; retry_safe_source_count: number };
+type JobRetryState = { loading: boolean; posting: boolean; error: string; message: string; data: JobRetryResponse | null };
 type OutputReconciliationCheckResponse = { job_id: string; checked: number; resolved: number; unresolved: number; conflicts: number };
 type OutputReconciliationState = { loading: boolean; checking: boolean; error: string; message: string; data: OutputReconciliationResponse | null };
 type JobOutputFolder = { name: string; web_view_url: string | null };
@@ -1009,6 +1011,7 @@ function PreparationPanel({
   >({});
   const [outputs, setOutputs] = useState<Record<string, JobOutputsState>>({});
   const [reconciliations, setReconciliations] = useState<Record<string, OutputReconciliationState>>({});
+  const [retries, setRetries] = useState<Record<string, JobRetryState>>({});
   const [removedSourceIds, setRemovedSourceIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -1585,6 +1588,9 @@ function PreparationPanel({
           },
         })),
       );
+    void api<JobRetryResponse>(`/jobs/${jobId}/retry`)
+      .then((data) => setRetries((current) => ({ ...current, [jobId]: { loading: false, posting: false, error: "", message: "", data } })))
+      .catch(() => setRetries((current) => ({ ...current, [jobId]: { loading: false, posting: false, error: "", message: "", data: null } })));
     void api<OutputReconciliationResponse>(`/jobs/${jobId}/output-reconciliation`)
       .then((data) => setReconciliations((current) => ({ ...current, [jobId]: { loading: false, checking: false, error: "", message: "", data } })))
       .catch(() => setReconciliations((current) => ({ ...current, [jobId]: { loading: false, checking: false, error: "", message: "", data: null } })));
@@ -1618,6 +1624,19 @@ function PreparationPanel({
       setReconciliations((current) => ({ ...current, [jobId]: { ...(current[jobId] ?? { loading:false, message:"", data:null }), checking: false, error: err instanceof ApiError && err.status === 409 ? "Google connection недоступен или reconciliation сейчас невозможен." : "Не удалось проверить Google Drive." } }));
     }
   }
+
+  async function retryJob(jobId: string) {
+    setRetries((current) => ({ ...current, [jobId]: { ...(current[jobId] ?? { loading:false, error:"", message:"", data:null }), posting: true, error: "", message: "" } }));
+    try {
+      const result = await csrfMutate<JobRetryResponse>(`/jobs/${jobId}/retry`, csrf, onCsrf, { method: "POST" });
+      setRetries((current) => ({ ...current, [jobId]: { ...(current[jobId] ?? { loading:false, error:"", data:null }), posting: false, data: result, message: "Безопасный повтор поставлен в очередь." } }));
+      await loadDetail(jobId);
+      onReloadJobs(project.id);
+    } catch {
+      setRetries((current) => ({ ...current, [jobId]: { ...(current[jobId] ?? { loading:false, message:"", data:null }), posting: false, error: "Повтор сейчас недоступен." } }));
+    }
+  }
+
   async function cancelJob(jobId: string) {
     setMessage("");
     try {
@@ -1779,6 +1798,17 @@ function PreparationPanel({
             ) : (
               <p className="notice">Папка результата не задана.</p>
             )}
+
+            {detailedJob.status === "failed" && (() => {
+              const retry = retries[detailedJob.id];
+              const reason = retry?.data?.reason;
+              const unavailable = reason === "provider_outcome_uncertain" ? "Повтор недоступен: результат внешнего вызова не определён" : reason === "output_reconciliation_required" ? "Требуется проверка созданного документа" : reason === "attempt_limit_reached" ? "Достигнут предел попыток" : reason && reason !== "available" ? "Повтор недоступен" : "";
+              return <div className="resource-actions" aria-label="Safe retry action">
+                {retry?.data?.available ? <button type="button" onClick={() => void retryJob(detailedJob.id)} disabled={retry.posting}>Повторить безопасную обработку</button> : unavailable ? <span className="notice">{unavailable}</span> : null}
+                {retry?.message && <span>{retry.message}</span>}
+                {retry?.error && <span className="error">{retry.error}</span>}
+              </div>;
+            })()}
             <h5>Файлы задачи</h5>
             {safeJobSources(detailedJob).map((source) => (
               <article

@@ -28,8 +28,8 @@ Studio PWA is a web platform contour in development. Source-level architecture i
 | --- | --- | --- | --- |
 | Studio frontend | `apps/studio/` | Browser UI for sessions, projects, sources, credentials, Google connection, preparation, jobs, outputs, diagnostics. | Source present; deployment evidence is separate. |
 | Studio API | `apps/studio-api/studio_api/` | FastAPI app, auth/session boundaries, owner-scoped APIs, job/source/credential/output/diagnostic services. | Source present; production API deployment does not imply worker processing. |
-| Database | PostgreSQL via Studio deployment | Durable users/projects/sources/credentials/jobs/outputs/diagnostics state. | Migrations present through `0012_output_reconciliation_cases`; production revision requires operator evidence. |
-| Alembic migrations | `apps/studio-api/alembic/versions/` | Schema authority for Studio persistence. | Current repository head is `0012_output_reconciliation_cases`. |
+| Database | PostgreSQL via Studio deployment | Durable users/projects/sources/credentials/jobs/outputs/diagnostics state. | Migrations present through `0013_job_retry_recovery`; production revision requires operator evidence. |
+| Alembic migrations | `apps/studio-api/alembic/versions/` | Schema authority for Studio persistence. | Current repository head is `0013_job_retry_recovery`. |
 | Redis | Studio deployment | Platform support service; not a processing queue/lock/retry authority unless separately designed. | Production health is operator evidence, not source evidence. |
 | Object storage | S3/R2-compatible source storage | Private temporary/local-upload source bytes. | Browser must not receive object keys, presigned URLs, or source bytes. |
 | Worker | `apps/studio-api/studio_api/worker.py` and related runner/orchestrator modules | Poll/claim/process at most bounded work according to lease and lifecycle rules. | Implemented at source level; official production deployable component and canary still require validation. |

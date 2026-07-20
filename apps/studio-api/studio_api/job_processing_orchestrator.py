@@ -28,6 +28,7 @@ from .job_lease_heartbeat import (
 )
 from .job_output_persistence import persist_processing_job_source_output_and_maybe_complete
 from .job_output_reconciliation import mark_reconciliation_required
+from .job_retry_recovery import prepare_source_attempt, classify_source_attempt_failure, mark_attempt_google_handoff, mark_attempt_output_reconciliation_required, mark_attempt_completed
 from .job_processing_lifecycle import (
     acknowledge_job_cancellation,
     begin_job_processing,
@@ -124,6 +125,16 @@ def orchestrate_processing_job(
                 return result
             raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.google_docs_failed)
 
+        try:
+            prepare_source_attempt(db, job_id=job_id, job_source_id=rel.id, lease_owner_id=lease_owner_id, lease_generation=lease_generation, now=clock())
+            _commit(db, JobProcessingOrchestrationReason.commit_failed)
+            _emit(db, job_id, "SOURCE_ATTEMPT_PREPARED", metadata={"attempt_number": _attempt(db, job_id), "boundary": "retry_state"})
+        except Exception:
+            db.rollback()
+            result = _handle_pre_output_failure(db, job_id, lease_owner_id, lease_generation, clock, processed, "pipeline_retry_state_prepare_failed", "pipeline_retry_state_prepare_failed")
+            if result is not None: return result
+            raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.transcription_failed)
+
         _renew_and_commit(db, job_id, lease_owner_id, lease_generation, lease_ttl, clock, lease_renewer)
 
         transcript_cm = None
@@ -161,6 +172,7 @@ def orchestrate_processing_job(
                     "lease_heartbeat_failed",
                     exc.reason.value,
                 )
+                classify_source_attempt_failure(db, job_source_id=rel.id, failure_code=exc.reason.value, now=clock()); db.commit()
                 if result is not None:
                     return result
                 raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.lease_heartbeat_failed) from exc
@@ -175,6 +187,7 @@ def orchestrate_processing_job(
                     "pipeline_transcription_failed",
                     _safe_reason(exc),
                 )
+                classify_source_attempt_failure(db, job_source_id=rel.id, failure_code=_safe_reason(exc), now=clock()); db.commit()
                 if result is not None:
                     return result
                 raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.transcription_failed) from exc
@@ -184,6 +197,8 @@ def orchestrate_processing_job(
                 return before_google
             _renew_and_commit(db, job_id, lease_owner_id, lease_generation, lease_ttl, clock, lease_renewer)
             try:
+                mark_attempt_google_handoff(db, job_source_id=rel.id, now=clock())
+                db.commit()
                 _emit(db, job_id, "OUTPUT_CREATION_STARTED", metadata={"attempt_number": _attempt(db, job_id)})
                 with _heartbeat_for_stage(
                     db, job_id, lease_owner_id, lease_generation, lease_ttl, clock,
@@ -212,6 +227,7 @@ def orchestrate_processing_job(
                         return existing
                     continue
                 if exc.reason == JobGoogleDocsOutputReason.existing_reconciliation_case:
+                    mark_attempt_output_reconciliation_required(db, job_source_id=rel.id, failure_code=exc.reason.value, now=clock()); db.commit()
                     _record_output_uncertainty(db, job_id, lease_owner_id, lease_generation, clock, exc.reason.value)
                     raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.output_reconciliation_required) from exc
                 if exc.reason == JobGoogleDocsOutputReason.reconciliation_case_persistence_failed:
@@ -229,6 +245,7 @@ def orchestrate_processing_job(
                         return result
                     raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.output_reconciliation_prepare_failed) from exc
                 if exc.reason in _UNCERTAIN_GOOGLE_REASONS:
+                    mark_attempt_output_reconciliation_required(db, job_source_id=rel.id, failure_code=exc.reason.value, now=clock()); db.commit()
                     _record_output_uncertainty(db, job_id, lease_owner_id, lease_generation, clock, exc.reason.value)
                     raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.output_reconciliation_required) from exc
                 result = _handle_pre_output_failure(
@@ -241,6 +258,7 @@ def orchestrate_processing_job(
                     "pipeline_google_docs_failed",
                     exc.reason.value,
                 )
+                classify_source_attempt_failure(db, job_source_id=rel.id, failure_code=exc.reason.value, now=clock()); db.commit()
                 if result is not None:
                     return result
                 raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.google_docs_failed) from exc
@@ -256,6 +274,7 @@ def orchestrate_processing_job(
                 if post_output_reason is not None:
                     _record_output_uncertainty(db, job_id, lease_owner_id, lease_generation, clock, post_output_reason)
                     raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.output_reconciliation_required)
+                mark_attempt_completed(db, job_source_id=rel.id, now=clock())
                 persisted = output_persister(
                     db,
                     job_id=job_id,

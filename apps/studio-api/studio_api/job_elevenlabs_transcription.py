@@ -30,6 +30,7 @@ from .job_source_materialization import (
 from .models import CredentialStatus, JobStatus, Project, ProviderCredential, ProviderCredentialVersion, TranscriptionJob
 from .security import utcnow
 from .diagnostics import resolve_job_correlation_id, write_diagnostic_event
+from .job_retry_recovery import classify_source_attempt_failure, mark_attempt_provider_returned, mark_attempt_provider_started
 from .source_storage import safe_filename
 
 
@@ -125,6 +126,12 @@ def transcribe_processing_job_source_with_elevenlabs(
                 _emit_provider(db, job_id, "SOURCE_READY", {"attempt_number": _attempt(db, job_id)})
                 try:
                     _emit_provider(db, job_id, "PROVIDER_REQUEST_STARTED", {"attempt_number": _attempt(db, job_id)})
+                    try:
+                        mark_attempt_provider_started(db, job_id=job_id, job_source_id=job_source_id, lease_owner_id=lease_owner_id, lease_generation=lease_generation, now=clock())
+                        db.commit()
+                    except Exception as exc:
+                        db.rollback()
+                        raise JobElevenLabsTranscriptionError(JobElevenLabsTranscriptionReason.lifecycle_changed_before_provider_call) from exc
                     result = _call_transport(
                         transport,
                         api_key=prereq.raw_credential_secret,
@@ -136,11 +143,19 @@ def transcribe_processing_job_source_with_elevenlabs(
                 except ElevenLabsTranscriptionError as exc:
                     mapped=_map_provider_reason(exc.reason)
                     _emit_provider(db, job_id, "PROVIDER_REQUEST_FAILED", {"boundary": "provider_transport", "error_code": mapped.value if mapped.value in {"provider_authentication_rejected","provider_request_rejected","provider_rate_limited","provider_unavailable","provider_timeout","malformed_provider_response"} else "unknown", "retryable": mapped.value in {"provider_rate_limited","provider_unavailable","provider_timeout"}, "attempt_number": _attempt(db, job_id)})
+                    classify_source_attempt_failure(db, job_source_id=job_source_id, failure_code=mapped.value, now=clock()); db.commit()
                     raise JobElevenLabsTranscriptionError(mapped) from exc
                 except Exception as exc:
                     _emit_provider(db, job_id, "PROVIDER_REQUEST_FAILED", {"boundary": "provider_transport", "error_code": "unknown", "retryable": False, "attempt_number": _attempt(db, job_id)})
+                    classify_source_attempt_failure(db, job_source_id=job_source_id, failure_code="unknown", now=clock()); db.commit()
                     raise JobElevenLabsTranscriptionError(JobElevenLabsTranscriptionReason.provider_unavailable) from exc
                 try:
+                    try:
+                        mark_attempt_provider_returned(db, job_source_id=job_source_id, now=clock())
+                        db.commit()
+                    except Exception:
+                        db.rollback()
+                        raise JobElevenLabsTranscriptionError(JobElevenLabsTranscriptionReason.provider_unavailable)
                     _post_provider_lifecycle_revalidate(db, job_id, lease_owner_id, lease_generation, clock())
                 except JobElevenLabsTranscriptionError:
                     _emit_provider(db, job_id, "PROVIDER_REQUEST_FAILED", {"boundary": "post_provider_lifecycle", "error_code": "lifecycle_changed_after_provider_call", "retryable": False, "attempt_number": _attempt(db, job_id)})

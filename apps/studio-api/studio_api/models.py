@@ -16,6 +16,8 @@ class SourceUploadStatus(str, enum.Enum): pending="pending"; uploaded="uploaded"
 class JobStatus(str, enum.Enum): queued="queued"; processing="processing"; cancelled="cancelled"; failed="failed"; completed="completed"
 class JobSourceStatus(str, enum.Enum): queued="queued"; skipped="skipped"
 class OutputReconciliationStatus(str, enum.Enum): prepared="prepared"; creation_returned="creation_returned"; reconciliation_required="reconciliation_required"; resolved="resolved"; conflict="conflict"
+class SourceAttemptStage(str, enum.Enum): prepared="prepared"; provider_request_started="provider_request_started"; provider_response_returned="provider_response_returned"; google_handoff="google_handoff"; output_persisted="output_persisted"; failed="failed"
+class SourceAttemptRetryDisposition(str, enum.Enum): undetermined="undetermined"; retry_safe="retry_safe"; provider_outcome_uncertain="provider_outcome_uncertain"; provider_result_lost="provider_result_lost"; output_reconciliation_required="output_reconciliation_required"; non_retryable="non_retryable"; completed="completed"
 class DiagnosticLevel(str, enum.Enum): ERROR="ERROR"; WARNING="WARNING"; INFO="INFO"; DEBUG="DEBUG"
 class DiagnosticComponent(str, enum.Enum): web="web"; api="api"; worker="worker"
 
@@ -225,6 +227,33 @@ class TranscriptionJobSource(Base):
     __table_args__=(UniqueConstraint("job_id", "source_id", name="uq_transcription_job_source"), Index("ix_transcription_job_sources_job_position", "job_id", "position"),)
 
 
+
+
+class TranscriptionJobSourceAttempt(Base):
+    __tablename__="transcription_job_source_attempts"
+    id: Mapped[str]=mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_user_id: Mapped[str]=mapped_column(ForeignKey("users.id"), nullable=False)
+    project_id: Mapped[str]=mapped_column(ForeignKey("projects.id"), nullable=False)
+    job_id: Mapped[str]=mapped_column(ForeignKey("transcription_jobs.id"), nullable=False)
+    job_source_id: Mapped[str]=mapped_column(ForeignKey("transcription_job_sources.id"), nullable=False)
+    attempt_number: Mapped[int]=mapped_column(Integer, nullable=False)
+    stage: Mapped[SourceAttemptStage]=mapped_column(Enum(SourceAttemptStage), nullable=False, default=SourceAttemptStage.prepared)
+    retry_disposition: Mapped[SourceAttemptRetryDisposition]=mapped_column(Enum(SourceAttemptRetryDisposition), nullable=False, default=SourceAttemptRetryDisposition.undetermined)
+    failure_code: Mapped[str|None]=mapped_column(String(80))
+    provider_request_started_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    provider_response_returned_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    failed_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now)
+    updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now, onupdate=now)
+    __table_args__=(
+        UniqueConstraint("job_source_id", "attempt_number", name="uq_source_attempt_job_source_attempt"),
+        CheckConstraint("attempt_number >= 1", name="ck_source_attempt_attempt_number_positive"),
+        Index("ix_source_attempts_job_id", "job_id"),
+        Index("ix_source_attempts_job_source_id", "job_source_id"),
+        Index("ix_source_attempts_retry_disposition", "retry_disposition"),
+        Index("ix_source_attempts_job_retry_disposition", "job_id", "retry_disposition"),
+    )
 
 class TranscriptionOutputReconciliation(Base):
     __tablename__="transcription_output_reconciliations"
