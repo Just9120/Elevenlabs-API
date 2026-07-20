@@ -6,14 +6,15 @@ Create Date: 2026-07-20
 """
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 revision = "0013_job_retry_recovery"
 down_revision = "0012_output_reconciliation_cases"
 branch_labels = None
 depends_on = None
 
-stage_enum = sa.Enum("prepared","provider_request_started","provider_response_returned","google_handoff","output_persisted","failed", name="sourceattemptstage")
-disp_enum = sa.Enum("undetermined","retry_safe","provider_outcome_uncertain","provider_result_lost","output_reconciliation_required","non_retryable","completed", name="sourceattemptretrydisposition")
+stage_enum = postgresql.ENUM("prepared","provider_request_started","provider_response_returned","google_handoff","output_persisted","failed", name="sourceattemptstage", create_type=False)
+disp_enum = postgresql.ENUM("undetermined","retry_safe","provider_outcome_uncertain","provider_result_lost","output_reconciliation_required","non_retryable","completed", name="sourceattemptretrydisposition", create_type=False)
 
 def upgrade():
     bind = op.get_bind(); inspector = sa.inspect(bind)

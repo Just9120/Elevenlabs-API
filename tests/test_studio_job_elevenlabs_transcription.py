@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import timedelta
@@ -49,7 +50,7 @@ def models():
 def make_job(db, m, *, provider="elevenlabs", language="en"):
     from studio_api.security import utcnow
     now = utcnow().replace(tzinfo=None)
-    user = m.User(email=f"{id(db)}-{provider}-{language}@example.com", role=m.UserRole.user, status=m.UserStatus.active)
+    user = m.User(email=f"{uuid.uuid4().hex}-{provider}-{language}@example.com", role=m.UserRole.user, status=m.UserStatus.active)
     db.add(user); db.flush()
     project = m.Project(owner_user_id=user.id, title="p", output_drive_folder_id="folder-private")
     db.add(project); db.flush()
@@ -59,10 +60,12 @@ def make_job(db, m, *, provider="elevenlabs", language="en"):
     db.add(version); db.flush(); cred.active_version_id = version.id
     src = m.Source(project_id=project.id, source_type=m.SourceType.local_upload, original_filename="secret meeting.mp3", mime_type="audio/mpeg", size_bytes=5, s3_bucket="bucket", s3_object_key="private/object", upload_status=m.SourceUploadStatus.uploaded, uploaded_at=now, expires_at=now + timedelta(hours=1))
     db.add(src); db.flush()
-    job = m.TranscriptionJob(project_id=project.id, owner_user_id=user.id, status=m.JobStatus.processing, provider=provider, provider_credential_id=cred.id, language=language, output_drive_folder_id="folder-private", output_drive_folder_url="https://drive.google.com/drive/folders/folder-private", output_drive_folder_name="Private", lease_owner_id="worker", lease_generation=7, claimed_at=now, lease_expires_at=now + timedelta(minutes=5), started_at=now)
+    job = m.TranscriptionJob(project_id=project.id, owner_user_id=user.id, status=m.JobStatus.processing, provider=provider, provider_credential_id=cred.id, language=language, output_drive_folder_id="folder-private", output_drive_folder_url="https://drive.google.com/drive/folders/folder-private", output_drive_folder_name="Private", lease_owner_id="worker", lease_generation=7, claimed_at=now, lease_expires_at=now + timedelta(minutes=5), started_at=now, attempt_count=1)
     db.add(job); db.flush()
     rel = m.TranscriptionJobSource(job_id=job.id, source_id=src.id, position=0)
-    db.add(rel); db.commit()
+    db.add(rel); db.flush()
+    db.add(m.TranscriptionJobSourceAttempt(owner_user_id=user.id, project_id=project.id, job_id=job.id, job_source_id=rel.id, attempt_number=1, stage=m.SourceAttemptStage.prepared, retry_disposition=m.SourceAttemptRetryDisposition.undetermined, created_at=now, updated_at=now))
+    db.commit()
     return user, project, cred, version, src, job, rel, now
 
 
@@ -193,6 +196,7 @@ def test_diagnostics_provider_mapped_and_unexpected_failures(monkeypatch, db, mo
     assert [e["event_code"] for e in events] == ["SOURCE_VALIDATION_STARTED", "SOURCE_READY", "PROVIDER_REQUEST_STARTED", "PROVIDER_REQUEST_FAILED"]
     assert events[-1]["metadata"] == {"boundary": "provider_transport", "error_code": "provider_timeout", "retryable": True, "attempt_number": job.attempt_count or 0}
     events.clear()
+    *_, job, rel, now = make_job(db, models)
     class UnexpectedFailure:
         def transcribe(self, **kwargs):
             raise RuntimeError("raw secret provider payload")

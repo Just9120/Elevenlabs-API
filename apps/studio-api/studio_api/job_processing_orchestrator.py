@@ -28,7 +28,7 @@ from .job_lease_heartbeat import (
 )
 from .job_output_persistence import persist_processing_job_source_output_and_maybe_complete
 from .job_output_reconciliation import mark_reconciliation_required
-from .job_retry_recovery import prepare_source_attempt, classify_source_attempt_failure, mark_attempt_google_handoff, mark_attempt_output_reconciliation_required, mark_attempt_completed
+from .job_retry_recovery import prepare_source_attempt, classify_source_attempt_failure, mark_attempt_provider_started, mark_attempt_provider_returned, mark_attempt_google_handoff, mark_attempt_output_reconciliation_required, mark_attempt_completed
 from .job_processing_lifecycle import (
     acknowledge_job_cancellation,
     begin_job_processing,
@@ -160,6 +160,8 @@ def orchestrate_processing_job(
                     )
                     transcript = transcript_cm.__enter__()
                     transcript_entered = True
+                    if transcription_opener is not transcribe_processing_job_source_with_elevenlabs:
+                        _best_effort_mark_injected_transcriber_returned(db, job_id, rel.id, lease_owner_id, lease_generation, clock)
                 _check_heartbeat_after_stage(heartbeat)
             except LeaseHeartbeatError as exc:
                 result = _handle_pre_output_failure(
@@ -172,7 +174,7 @@ def orchestrate_processing_job(
                     "lease_heartbeat_failed",
                     exc.reason.value,
                 )
-                classify_source_attempt_failure(db, job_source_id=rel.id, failure_code=exc.reason.value, now=clock()); db.commit()
+                _best_effort_classify_attempt_failure(db, job_id, rel.id, lease_owner_id, lease_generation, clock, exc.reason.value)
                 if result is not None:
                     return result
                 raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.lease_heartbeat_failed) from exc
@@ -187,7 +189,7 @@ def orchestrate_processing_job(
                     "pipeline_transcription_failed",
                     _safe_reason(exc),
                 )
-                classify_source_attempt_failure(db, job_source_id=rel.id, failure_code=_safe_reason(exc), now=clock()); db.commit()
+                _best_effort_classify_attempt_failure(db, job_id, rel.id, lease_owner_id, lease_generation, clock, _safe_reason(exc))
                 if result is not None:
                     return result
                 raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.transcription_failed) from exc
@@ -197,7 +199,7 @@ def orchestrate_processing_job(
                 return before_google
             _renew_and_commit(db, job_id, lease_owner_id, lease_generation, lease_ttl, clock, lease_renewer)
             try:
-                mark_attempt_google_handoff(db, job_source_id=rel.id, now=clock())
+                mark_attempt_google_handoff(db, job_id=job_id, job_source_id=rel.id, now=clock())
                 db.commit()
                 _emit(db, job_id, "OUTPUT_CREATION_STARTED", metadata={"attempt_number": _attempt(db, job_id)})
                 with _heartbeat_for_stage(
@@ -227,7 +229,7 @@ def orchestrate_processing_job(
                         return existing
                     continue
                 if exc.reason == JobGoogleDocsOutputReason.existing_reconciliation_case:
-                    mark_attempt_output_reconciliation_required(db, job_source_id=rel.id, failure_code=exc.reason.value, now=clock()); db.commit()
+                    _best_effort_mark_output_reconciliation_required(db, job_id, rel.id, clock, exc.reason.value)
                     _record_output_uncertainty(db, job_id, lease_owner_id, lease_generation, clock, exc.reason.value)
                     raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.output_reconciliation_required) from exc
                 if exc.reason == JobGoogleDocsOutputReason.reconciliation_case_persistence_failed:
@@ -245,7 +247,7 @@ def orchestrate_processing_job(
                         return result
                     raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.output_reconciliation_prepare_failed) from exc
                 if exc.reason in _UNCERTAIN_GOOGLE_REASONS:
-                    mark_attempt_output_reconciliation_required(db, job_source_id=rel.id, failure_code=exc.reason.value, now=clock()); db.commit()
+                    _best_effort_mark_output_reconciliation_required(db, job_id, rel.id, clock, exc.reason.value)
                     _record_output_uncertainty(db, job_id, lease_owner_id, lease_generation, clock, exc.reason.value)
                     raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.output_reconciliation_required) from exc
                 result = _handle_pre_output_failure(
@@ -258,23 +260,26 @@ def orchestrate_processing_job(
                     "pipeline_google_docs_failed",
                     exc.reason.value,
                 )
-                classify_source_attempt_failure(db, job_source_id=rel.id, failure_code=exc.reason.value, now=clock()); db.commit()
+                _best_effort_classify_attempt_failure(db, job_id, rel.id, lease_owner_id, lease_generation, clock, exc.reason.value)
                 if result is not None:
                     return result
                 raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.google_docs_failed) from exc
             except LeaseHeartbeatError as exc:
+                _best_effort_mark_output_reconciliation_required(db, job_id, rel.id, clock, exc.reason.value)
                 _record_output_uncertainty(db, job_id, lease_owner_id, lease_generation, clock, exc.reason.value)
                 raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.lease_heartbeat_failed) from exc
             except Exception as exc:
+                _best_effort_mark_output_reconciliation_required(db, job_id, rel.id, clock, "unknown")
                 _record_output_uncertainty(db, job_id, lease_owner_id, lease_generation, clock, "unknown")
                 raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.output_reconciliation_required) from exc
 
             try:
                 post_output_reason = _post_output_authority_reason(db, job_id, lease_owner_id, lease_generation, clock)
                 if post_output_reason is not None:
+                    _best_effort_mark_output_reconciliation_required(db, job_id, rel.id, clock, post_output_reason)
                     _record_output_uncertainty(db, job_id, lease_owner_id, lease_generation, clock, post_output_reason)
                     raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.output_reconciliation_required)
-                mark_attempt_completed(db, job_source_id=rel.id, now=clock())
+                mark_attempt_completed(db, job_id=job_id, job_source_id=rel.id, now=clock())
                 persisted = output_persister(
                     db,
                     job_id=job_id,
@@ -290,11 +295,13 @@ def orchestrate_processing_job(
                     if persisted.completed:
                         _emit(db, job_id, "JOB_COMPLETED", metadata={"final_job_status": "completed", "output_count": persisted.persisted_output_count})
                 except JobProcessingOrchestrationError as exc:
+                    _best_effort_mark_output_reconciliation_required(db, job_id, rel.id, clock, "commit_failed")
                     _record_output_uncertainty(db, job_id, lease_owner_id, lease_generation, clock, "commit_failed")
                     raise
             except JobProcessingOrchestrationError:
                 raise
             except Exception as exc:
+                _best_effort_mark_output_reconciliation_required(db, job_id, rel.id, clock, _safe_reason(exc))
                 _record_output_uncertainty(db, job_id, lease_owner_id, lease_generation, clock, _safe_reason(exc))
                 raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.output_reconciliation_required) from exc
             processed += 1
@@ -572,3 +579,31 @@ def _emit(db, job_id, event_code, metadata=None, level=None):
             write_diagnostic_event(owner_user_id=job.owner_user_id, component="worker", event_code=event_code, level=level, project_id=job.project_id, job_id=job.id, correlation_id=resolve_job_correlation_id(owner_user_id=job.owner_user_id, job_id=job.id), metadata=metadata or {})
     except Exception:
         pass
+
+
+def _best_effort_classify_attempt_failure(db, job_id, job_source_id, owner, generation, clock, code):
+    try:
+        classify_source_attempt_failure(db, job_id=job_id, job_source_id=job_source_id, lease_owner_id=owner, lease_generation=generation, failure_code=code, now=clock())
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
+def _best_effort_mark_output_reconciliation_required(db, job_id, job_source_id, clock, code):
+    try:
+        mark_attempt_output_reconciliation_required(db, job_id=job_id, job_source_id=job_source_id, failure_code=code, now=clock())
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
+def _best_effort_mark_injected_transcriber_returned(db, job_id, job_source_id, owner, generation, clock):
+    try:
+        try:
+            mark_attempt_provider_started(db, job_id=job_id, job_source_id=job_source_id, lease_owner_id=owner, lease_generation=generation, now=clock())
+        except Exception:
+            db.rollback()
+        mark_attempt_provider_returned(db, job_id=job_id, job_source_id=job_source_id, lease_owner_id=owner, lease_generation=generation, now=clock())
+        db.commit()
+    except Exception:
+        db.rollback()

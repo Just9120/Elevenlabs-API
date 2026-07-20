@@ -48,6 +48,7 @@ class JobElevenLabsTranscriptionReason(str, Enum):
     malformed_provider_response = "malformed_provider_response"
     lifecycle_changed_after_provider_call = "lifecycle_changed_after_provider_call"
     context_closed = "context_closed"
+    retry_state_persistence_failed = "retry_state_persistence_failed"
 
 
 class JobElevenLabsTranscriptionError(RuntimeError):
@@ -124,14 +125,14 @@ def transcribe_processing_job_source_with_elevenlabs(
             try:
                 language = _final_pre_provider_revalidate(db, job_id, job_source_id, lease_owner_id, lease_generation, settings, clock(), prereq, source)
                 _emit_provider(db, job_id, "SOURCE_READY", {"attempt_number": _attempt(db, job_id)})
+                _emit_provider(db, job_id, "PROVIDER_REQUEST_STARTED", {"attempt_number": _attempt(db, job_id)})
                 try:
-                    _emit_provider(db, job_id, "PROVIDER_REQUEST_STARTED", {"attempt_number": _attempt(db, job_id)})
-                    try:
-                        mark_attempt_provider_started(db, job_id=job_id, job_source_id=job_source_id, lease_owner_id=lease_owner_id, lease_generation=lease_generation, now=clock())
-                        db.commit()
-                    except Exception as exc:
-                        db.rollback()
-                        raise JobElevenLabsTranscriptionError(JobElevenLabsTranscriptionReason.lifecycle_changed_before_provider_call) from exc
+                    mark_attempt_provider_started(db, job_id=job_id, job_source_id=job_source_id, lease_owner_id=lease_owner_id, lease_generation=lease_generation, now=clock())
+                    db.commit()
+                except Exception as exc:
+                    db.rollback()
+                    raise JobElevenLabsTranscriptionError(JobElevenLabsTranscriptionReason.retry_state_persistence_failed) from exc
+                try:
                     result = _call_transport(
                         transport,
                         api_key=prereq.raw_credential_secret,
@@ -143,19 +144,19 @@ def transcribe_processing_job_source_with_elevenlabs(
                 except ElevenLabsTranscriptionError as exc:
                     mapped=_map_provider_reason(exc.reason)
                     _emit_provider(db, job_id, "PROVIDER_REQUEST_FAILED", {"boundary": "provider_transport", "error_code": mapped.value if mapped.value in {"provider_authentication_rejected","provider_request_rejected","provider_rate_limited","provider_unavailable","provider_timeout","malformed_provider_response"} else "unknown", "retryable": mapped.value in {"provider_rate_limited","provider_unavailable","provider_timeout"}, "attempt_number": _attempt(db, job_id)})
-                    classify_source_attempt_failure(db, job_source_id=job_source_id, failure_code=mapped.value, now=clock()); db.commit()
+                    _best_effort_classify(db, job_id, job_source_id, lease_owner_id, lease_generation, mapped.value, clock)
                     raise JobElevenLabsTranscriptionError(mapped) from exc
                 except Exception as exc:
                     _emit_provider(db, job_id, "PROVIDER_REQUEST_FAILED", {"boundary": "provider_transport", "error_code": "unknown", "retryable": False, "attempt_number": _attempt(db, job_id)})
-                    classify_source_attempt_failure(db, job_source_id=job_source_id, failure_code="unknown", now=clock()); db.commit()
+                    _best_effort_classify(db, job_id, job_source_id, lease_owner_id, lease_generation, "unknown", clock)
                     raise JobElevenLabsTranscriptionError(JobElevenLabsTranscriptionReason.provider_unavailable) from exc
                 try:
                     try:
-                        mark_attempt_provider_returned(db, job_source_id=job_source_id, now=clock())
+                        mark_attempt_provider_returned(db, job_id=job_id, job_source_id=job_source_id, lease_owner_id=lease_owner_id, lease_generation=lease_generation, now=clock())
                         db.commit()
-                    except Exception:
+                    except Exception as exc:
                         db.rollback()
-                        raise JobElevenLabsTranscriptionError(JobElevenLabsTranscriptionReason.provider_unavailable)
+                        raise JobElevenLabsTranscriptionError(JobElevenLabsTranscriptionReason.provider_unavailable) from exc
                     _post_provider_lifecycle_revalidate(db, job_id, lease_owner_id, lease_generation, clock())
                 except JobElevenLabsTranscriptionError:
                     _emit_provider(db, job_id, "PROVIDER_REQUEST_FAILED", {"boundary": "post_provider_lifecycle", "error_code": "lifecycle_changed_after_provider_call", "retryable": False, "attempt_number": _attempt(db, job_id)})
@@ -304,3 +305,11 @@ def _emit_provider(db, job_id, event_code, metadata):
             write_diagnostic_event(owner_user_id=job.owner_user_id, component="worker", event_code=event_code, project_id=job.project_id, job_id=job.id, correlation_id=resolve_job_correlation_id(owner_user_id=job.owner_user_id, job_id=job.id), metadata=metadata)
     except Exception:
         pass
+
+
+def _best_effort_classify(db, job_id, job_source_id, owner, generation, code, clock):
+    try:
+        classify_source_attempt_failure(db, job_id=job_id, job_source_id=job_source_id, lease_owner_id=owner, lease_generation=generation, failure_code=code, now=clock())
+        db.commit()
+    except Exception:
+        db.rollback()

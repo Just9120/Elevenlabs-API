@@ -24,7 +24,7 @@ from .job_processing_lifecycle import request_job_cancellation
 from .diagnostics import REGISTRY, cleanup_expired_diagnostics, cursor_context, decode_cursor_payload, encode_cursor, markdown_escape, new_correlation_id, new_request_id, sanitize_build_id, sanitize_inbound_correlation, valid_correlation_id, valid_uuid, write_diagnostic_event
 from .job_output_read import browser_job_output_payload, load_browser_job_output_rows
 from .job_output_reconciliation import OutputReconciliationError, OutputReconciliationReason, check_job_output_reconciliation, reconciliation_status_payload
-from .job_retry_recovery import compute_retry_readiness, queue_retry
+from .job_retry_recovery import compute_explicit_retry_readiness, queue_retry
 from .google_docs_output import OUTPUT_RECONCILIATION_APP_PROPERTY
 from .google_drive import GoogleDriveReconciliationError, list_reconciliation_candidates
 from .job_output_folder_selection import VerifiedOutputFolderSelection, verify_output_folder_selection
@@ -623,7 +623,7 @@ def get_transcription_job(job_id: str, pair=Depends(current_session), db: Sessio
 def get_job_retry(job_id: str, pair=Depends(current_session), db: Session=Depends(get_db)):
     _,user=pair; limiter.check("job:retry:get:"+user.id, 120, 3600)
     job=owned_job_or_404(db,user,job_id)
-    return compute_retry_readiness(db, job).payload(job)
+    return compute_explicit_retry_readiness(db, job, now=utcnow().replace(tzinfo=None)).payload(job)
 
 @app.post("/api/jobs/{job_id}/retry")
 def post_job_retry(job_id: str, request: Request, pair=Depends(require_csrf), db: Session=Depends(get_db), _=Depends(require_same_origin)):
@@ -631,17 +631,20 @@ def post_job_retry(job_id: str, request: Request, pair=Depends(require_csrf), db
     job=owned_job_or_404(db,user,job_id)
     write_diagnostic_event(owner_user_id=user.id, component="api", event_code="JOB_RETRY_REQUESTED", project_id=job.project_id, job_id=job.id, request_id=getattr(request.state,"request_id",None), correlation_id=getattr(request.state,"correlation_id",None), metadata={"attempt_number": job.attempt_count or 0, "retry_available": False, "boundary":"retry_api"})
     audit(db,"job.retry_requested",actor_user_id=user.id,subject_user_id=user.id,project_id=job.project_id,job_id=job.id)
-    queued, ready = queue_retry(db, owner_user_id=user.id, job_id=job.id, now=utcnow().replace(tzinfo=None))
-    if queued is None: raise HTTPException(404, "Не найдено")
-    if not ready or not ready.available:
-        audit(db,"job.retry_blocked",actor_user_id=user.id,subject_user_id=user.id,project_id=job.project_id,job_id=job.id,retry_reason=ready.reason.value if ready else "non_retryable")
+    result = queue_retry(db, owner_user_id=user.id, job_id=job.id, now=utcnow().replace(tzinfo=None))
+    if result is None: raise HTTPException(404, "Не найдено")
+    queued, ready = result.job, result.readiness
+    if not ready.available or queued.status != JobStatus.queued:
+        audit(db,"job.retry_blocked",actor_user_id=user.id,subject_user_id=user.id,project_id=job.project_id,job_id=job.id,retry_reason=ready.reason.value)
         db.commit()
-        write_diagnostic_event(owner_user_id=user.id, component="api", event_code="JOB_RETRY_BLOCKED", project_id=job.project_id, job_id=job.id, request_id=getattr(request.state,"request_id",None), correlation_id=getattr(request.state,"correlation_id",None), metadata={"retry_reason": ready.reason.value if ready else "non_retryable", "retry_available": False, "retry_safe_source_count": ready.retry_safe_source_count if ready else 0, "missing_output_count": ready.missing_output_count if ready else 0, "boundary":"retry_api"})
+        write_diagnostic_event(owner_user_id=user.id, component="api", event_code="JOB_RETRY_BLOCKED", project_id=job.project_id, job_id=job.id, request_id=getattr(request.state,"request_id",None), correlation_id=getattr(request.state,"correlation_id",None), metadata={"retry_reason": ready.reason.value, "retry_available": False, "retry_safe_source_count": ready.retry_safe_source_count, "missing_output_count": ready.missing_output_count, "boundary":"retry_api"})
         raise HTTPException(409, "Повтор недоступен")
-    audit(db,"job.retry_queued",actor_user_id=user.id,subject_user_id=user.id,project_id=queued.project_id,job_id=queued.id)
+    if result.transitioned:
+        audit(db,"job.retry_queued",actor_user_id=user.id,subject_user_id=user.id,project_id=queued.project_id,job_id=queued.id)
     db.commit(); db.refresh(queued)
-    write_diagnostic_event(owner_user_id=user.id, component="api", event_code="JOB_RETRY_QUEUED", project_id=queued.project_id, job_id=queued.id, request_id=getattr(request.state,"request_id",None), correlation_id=getattr(request.state,"correlation_id",None), metadata={"retry_reason":"available", "retry_available": True, "retry_safe_source_count": ready.retry_safe_source_count, "missing_output_count": ready.missing_output_count, "final_job_status": queued.status.value, "boundary":"retry_api"})
-    return compute_retry_readiness(db, queued).payload(queued)
+    if result.transitioned:
+        write_diagnostic_event(owner_user_id=user.id, component="api", event_code="JOB_RETRY_QUEUED", project_id=queued.project_id, job_id=queued.id, request_id=getattr(request.state,"request_id",None), correlation_id=getattr(request.state,"correlation_id",None), metadata={"retry_reason":"available", "retry_available": True, "retry_safe_source_count": ready.retry_safe_source_count, "missing_output_count": ready.missing_output_count, "final_job_status": queued.status.value, "boundary":"retry_api"})
+    return compute_explicit_retry_readiness(db, queued, now=utcnow().replace(tzinfo=None)).payload(queued)
 
 
 @app.get("/api/jobs/{job_id}/outputs")

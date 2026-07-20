@@ -14,6 +14,7 @@ from .google_docs_output import GOOGLE_DOC_MIME_TYPE, OUTPUT_RECONCILIATION_APP_
 from .job_output_persistence import GOOGLE_DOCS_TRANSCRIPT_OUTPUT_KIND, TRANSCRIPT_STANDARD
 from .models import JobSourceStatus, JobStatus, OutputReconciliationStatus, Project, Source, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, TranscriptionOutputReconciliation
 from .security import utcnow
+from .job_retry_recovery import mark_latest_attempt_completed_for_output
 
 OUTPUT_RECONCILIATION_ERROR_CODE = "output_reconciliation_required"
 SAFE_REASONS = {"google_docs_timeout","google_docs_unavailable","malformed_google_docs_response","lifecycle_changed_after_output_creation","commit_failed","context_closed","unknown","job_not_processable","lease_not_owned","lease_not_active","cancellation_requested","existing_reconciliation_case","lease_heartbeat_failed","lease_heartbeat_not_owned","lease_heartbeat_expired","lease_heartbeat_commit_failed","lease_heartbeat_stop_timeout"}
@@ -100,11 +101,11 @@ def persist_verified_reconciliation_output(db: Session, *, case: TranscriptionOu
     existing=db.execute(select(TranscriptionJobOutput).where(TranscriptionJobOutput.job_source_id==rel.id)).scalar_one_or_none()
     if existing:
         if existing.document_id==candidate.document_id and existing.output_drive_folder_id==case.expected_output_drive_folder_id:
-            case.status=OutputReconciliationStatus.resolved; case.resolved_output_id=existing.id; case.resolved_at=case.resolved_at or now; case.updated_at=now; return False
+            case.status=OutputReconciliationStatus.resolved; case.resolved_output_id=existing.id; case.resolved_at=case.resolved_at or now; case.updated_at=now; mark_latest_attempt_completed_for_output(db, job_source_id=rel.id, now=now); return False
         raise OutputReconciliationError(OutputReconciliationReason.output_conflict)
     if db.execute(select(TranscriptionJobOutput.id).where(TranscriptionJobOutput.document_id==candidate.document_id)).first(): raise OutputReconciliationError(OutputReconciliationReason.output_conflict)
     output=TranscriptionJobOutput(job_id=job.id, job_source_id=rel.id, document_id=candidate.document_id, web_view_url=candidate.web_view_link, output_drive_folder_id=case.expected_output_drive_folder_id, output_kind=GOOGLE_DOCS_TRANSCRIPT_OUTPUT_KIND, transcript_standard=TRANSCRIPT_STANDARD, document_character_count=case.expected_document_character_count, document_created_at=candidate.created_time, persisted_at=now, lease_generation=case.lease_generation)
-    db.add(output); db.flush(); case.status=OutputReconciliationStatus.resolved; case.resolved_output_id=output.id; case.resolved_at=now; case.updated_at=now
+    db.add(output); db.flush(); case.status=OutputReconciliationStatus.resolved; case.resolved_output_id=output.id; case.resolved_at=now; case.updated_at=now; mark_latest_attempt_completed_for_output(db, job_source_id=rel.id, now=now)
     required=[r.id for r in db.execute(select(TranscriptionJobSource).where(TranscriptionJobSource.job_id==job.id)).scalars().all() if r.status!=JobSourceStatus.skipped]
     count=db.execute(select(func.count(TranscriptionJobOutput.id)).where(TranscriptionJobOutput.job_id==job.id, TranscriptionJobOutput.job_source_id.in_(required or ["__none__"]))).scalar_one()
     if job.status==JobStatus.failed and job.error_code==OUTPUT_RECONCILIATION_ERROR_CODE and required and int(count)==len(required):

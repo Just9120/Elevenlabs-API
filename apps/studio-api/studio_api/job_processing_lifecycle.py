@@ -120,7 +120,7 @@ def fail_job_processing(db: Session, *, job_id: str, lease_owner_id: str, lease_
 
 
 def recover_expired_processing_job(db: Session, *, job_id: str, now: datetime) -> JobProcessingResult:
-    from .job_retry_recovery import compute_retry_readiness
+    from .job_retry_recovery import compute_expired_recovery_readiness
     job = _processing_job(db, job_id)
     if is_lease_active(job, now):
         raise JobProcessingError(JobProcessingFailureReason.lease_active)
@@ -137,7 +137,7 @@ def recover_expired_processing_job(db: Session, *, job_id: str, now: datetime) -
             job.error_code = None
             job.error_message = None
         else:
-            ready = compute_retry_readiness(db, job)
+            ready = compute_expired_recovery_readiness(db, job, now=now)
             if ready.available:
                 job.status = JobStatus.queued
                 job.finished_at = None

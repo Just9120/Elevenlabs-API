@@ -1237,7 +1237,8 @@ def test_output_reconciliation_0012_upgrade_downgrade_roundtrip_and_metadata_tab
         with temp_engine.begin() as conn:
             _assert_output_reconciliation_schema(inspect(conn))
             assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0012_output_reconciliation_cases"
-        run_alembic("base", env=env, command="downgrade")
+
+    with isolated_migration_database("studio_migration_0012_metadata") as (temp_engine, env):
         Base.metadata.create_all(temp_engine)
         run_alembic("0012_output_reconciliation_cases", env=env, command="stamp")
         run_alembic("0011_diagnostic_debug_sessions", env=env, command="downgrade")
@@ -2534,7 +2535,8 @@ def test_job_retry_recovery_0013_upgrade_downgrade_roundtrip_and_metadata_table(
         with temp_engine.begin() as conn:
             _assert_job_retry_recovery_schema(inspect(conn), conn)
             assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0013_job_retry_recovery"
-        run_alembic("base", env=env, command="downgrade")
+
+    with isolated_migration_database("studio_migration_0013_metadata") as (temp_engine, env):
         Base.metadata.create_all(temp_engine)
         run_alembic("0013_job_retry_recovery", env=env, command="stamp")
         run_alembic("0012_output_reconciliation_cases", env=env, command="downgrade")
