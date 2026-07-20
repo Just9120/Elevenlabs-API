@@ -59,10 +59,6 @@ def upgrade():
 
 def downgrade():
     bind = op.get_bind(); inspector = sa.inspect(bind)
-    if "transcription_output_reconciliations" not in inspector.get_table_names():
-        return
-    for name in ["ix_output_reconciliations_job_status","ix_output_reconciliations_status","ix_output_reconciliations_job_id","ix_output_reconciliations_project_id","ix_output_reconciliations_owner_user_id"]:
-        op.drop_index(name, table_name="transcription_output_reconciliations")
-    op.drop_table("transcription_output_reconciliations")
-    try: op.execute("DROP TYPE outputreconciliationstatus")
-    except Exception: pass
+    if "transcription_output_reconciliations" in inspector.get_table_names():
+        op.drop_table("transcription_output_reconciliations")
+    op.execute("DROP TYPE IF EXISTS outputreconciliationstatus")
