@@ -12,14 +12,14 @@ from sqlalchemy.orm import Session
 
 from .google_docs_output import GOOGLE_DOC_MIME_TYPE, OUTPUT_RECONCILIATION_APP_PROPERTY
 from .job_output_persistence import GOOGLE_DOCS_TRANSCRIPT_OUTPUT_KIND, TRANSCRIPT_STANDARD
-from .models import JobSourceStatus, JobStatus, OutputReconciliationStatus, Project, Source, SourceUploadStatus, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, TranscriptionOutputReconciliation
+from .models import JobSourceStatus, JobStatus, OutputReconciliationStatus, Project, Source, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, TranscriptionOutputReconciliation
 from .security import utcnow
 
 OUTPUT_RECONCILIATION_ERROR_CODE = "output_reconciliation_required"
-SAFE_REASONS = {"google_docs_timeout","google_docs_unavailable","malformed_google_docs_response","lifecycle_changed_after_output_creation","commit_failed","context_closed","unknown","job_not_processable","lease_not_owned","lease_not_active","cancellation_requested"}
+SAFE_REASONS = {"google_docs_timeout","google_docs_unavailable","malformed_google_docs_response","lifecycle_changed_after_output_creation","commit_failed","context_closed","unknown","job_not_processable","lease_not_owned","lease_not_active","cancellation_requested","existing_reconciliation_case"}
 
 class OutputReconciliationReason(str, Enum):
-    unavailable="unavailable"; not_found="not_found"; conflict="conflict"; invalid_candidate="invalid_candidate"; not_allowed="not_allowed"; missing_case="missing_case"; output_conflict="output_conflict"; google_connection_unavailable="google_connection_unavailable"
+    unavailable="unavailable"; not_found="not_found"; conflict="conflict"; invalid_candidate="invalid_candidate"; not_allowed="not_allowed"; missing_case="missing_case"; output_conflict="output_conflict"; google_connection_unavailable="google_connection_unavailable"; existing_reconciliation_case="existing_reconciliation_case"
 
 class OutputReconciliationError(RuntimeError):
     def __init__(self, reason: OutputReconciliationReason): self.reason=reason; super().__init__(reason.value)
@@ -52,7 +52,17 @@ def prepare_output_reconciliation_case(db: Session, *, job_id: str, job_source_i
     if case:
         if case.owner_user_id!=job.owner_user_id or case.project_id!=job.project_id or case.job_id!=job.id or case.expected_output_drive_folder_id!=job.output_drive_folder_id:
             raise OutputReconciliationError(OutputReconciliationReason.conflict)
-        return case
+        if case.status==OutputReconciliationStatus.resolved:
+            if case.resolved_output_id and db.get(TranscriptionJobOutput, case.resolved_output_id):
+                raise OutputReconciliationError(OutputReconciliationReason.output_conflict)
+            if db.execute(select(TranscriptionJobOutput.id).where(TranscriptionJobOutput.job_source_id==rel.id)).first():
+                raise OutputReconciliationError(OutputReconciliationReason.output_conflict)
+            raise OutputReconciliationError(OutputReconciliationReason.conflict)
+        if case.status==OutputReconciliationStatus.conflict:
+            raise OutputReconciliationError(OutputReconciliationReason.conflict)
+        if case.status==OutputReconciliationStatus.prepared:
+            case.status=OutputReconciliationStatus.reconciliation_required; case.uncertainty_reason="existing_reconciliation_case"; case.updated_at=now; db.flush()
+        raise OutputReconciliationError(OutputReconciliationReason.existing_reconciliation_case)
     case=TranscriptionOutputReconciliation(owner_user_id=job.owner_user_id, project_id=job.project_id, job_id=job.id, job_source_id=rel.id, reconciliation_token=new_reconciliation_token(), lease_generation=lease_generation, attempt_number=job.attempt_count or 0, status=OutputReconciliationStatus.prepared, expected_output_drive_folder_id=job.output_drive_folder_id, expected_document_title=document_title, expected_document_title_hash=title_hash(document_title), expected_document_character_count=character_count, prepared_at=now, creation_started_at=now, created_at=now, updated_at=now)
     db.add(case); db.flush(); return case
 
@@ -77,7 +87,7 @@ def reconciliation_status_payload(db: Session, *, owner_user_id: str, job_id: st
     cases=db.execute(select(TranscriptionOutputReconciliation).where(TranscriptionOutputReconciliation.job_id==job.id).order_by(TranscriptionOutputReconciliation.prepared_at, TranscriptionOutputReconciliation.id)).scalars().all()
     counts={s.value:0 for s in OutputReconciliationStatus}
     for c in cases: counts[c.status.value]+=1
-    available= job.status in {JobStatus.failed, JobStatus.cancelled} and any(c.status in {OutputReconciliationStatus.reconciliation_required, OutputReconciliationStatus.creation_returned, OutputReconciliationStatus.prepared, OutputReconciliationStatus.conflict} for c in cases)
+    available= job.status in {JobStatus.failed, JobStatus.cancelled} and any(c.status in {OutputReconciliationStatus.reconciliation_required, OutputReconciliationStatus.creation_returned, OutputReconciliationStatus.conflict} for c in cases)
     return {"job_id":job.id,"job_status":job.status.value,"available":available,"counts":counts,"cases":[{"job_source_id":c.job_source_id,"status":c.status.value,"reason":c.uncertainty_reason,"prepared_at":c.prepared_at.isoformat() if c.prepared_at else None,"last_checked_at":c.last_checked_at.isoformat() if c.last_checked_at else None,"resolved":c.status==OutputReconciliationStatus.resolved,"resolved_at":c.resolved_at.isoformat() if c.resolved_at else None} for c in cases]}
 
 def persist_verified_reconciliation_output(db: Session, *, case: TranscriptionOutputReconciliation, candidate: DriveReconciliationCandidate, now: datetime) -> bool:
@@ -86,7 +96,7 @@ def persist_verified_reconciliation_output(db: Session, *, case: TranscriptionOu
     rel=db.execute(select(TranscriptionJobSource).where(TranscriptionJobSource.id==case.job_source_id).with_for_update().execution_options(populate_existing=True)).scalar_one_or_none()
     if not rel or rel.job_id!=job.id or rel.status==JobSourceStatus.skipped or job.output_drive_folder_id!=case.expected_output_drive_folder_id: raise OutputReconciliationError(OutputReconciliationReason.not_allowed)
     source=db.get(Source, rel.source_id)
-    if not source or source.project_id!=job.project_id or source.upload_status!=SourceUploadStatus.uploaded or source.deleted_at is not None: raise OutputReconciliationError(OutputReconciliationReason.not_allowed)
+    if not source or source.project_id!=job.project_id: raise OutputReconciliationError(OutputReconciliationReason.not_allowed)
     existing=db.execute(select(TranscriptionJobOutput).where(TranscriptionJobOutput.job_source_id==rel.id)).scalar_one_or_none()
     if existing:
         if existing.document_id==candidate.document_id and existing.output_drive_folder_id==case.expected_output_drive_folder_id:
@@ -109,10 +119,13 @@ def check_job_output_reconciliation(db: Session, *, owner_user_id: str, job_id: 
     now=now or utcnow().replace(tzinfo=None); job=db.get(TranscriptionJob, job_id)
     if not job or job.owner_user_id!=owner_user_id: raise OutputReconciliationError(OutputReconciliationReason.not_found)
     if job.status in {JobStatus.queued, JobStatus.processing}: raise OutputReconciliationError(OutputReconciliationReason.not_allowed)
-    cases=db.execute(select(TranscriptionOutputReconciliation).where(TranscriptionOutputReconciliation.job_id==job.id, TranscriptionOutputReconciliation.status.in_([OutputReconciliationStatus.reconciliation_required, OutputReconciliationStatus.creation_returned, OutputReconciliationStatus.prepared]))).scalars().all()
+    cases=db.execute(select(TranscriptionOutputReconciliation).where(TranscriptionOutputReconciliation.job_id==job.id, TranscriptionOutputReconciliation.status.in_([OutputReconciliationStatus.reconciliation_required, OutputReconciliationStatus.creation_returned, OutputReconciliationStatus.conflict]))).scalars().all()
     checked=resolved=unresolved=conflicts=unavailable=0
     for case in cases:
-        checked+=1; matches=lookup(case.reconciliation_token, case.expected_output_drive_folder_id)
+        checked+=1
+        if case.status==OutputReconciliationStatus.conflict:
+            conflicts+=1; continue
+        matches=lookup(case.reconciliation_token, case.expected_output_drive_folder_id)
         case.last_checked_at=now; case.updated_at=now
         if len(matches)==0: unresolved+=1; continue
         if len(matches)>1: case.status=OutputReconciliationStatus.conflict; conflicts+=1; continue

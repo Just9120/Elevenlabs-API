@@ -56,3 +56,73 @@ def test_wrong_identity_blocks_without_body_fetch(db):
     m,u,p,j,rels,now=make_failed(db); c=add_case(db,m,u,p,j,rels[0],now)
     res=check_job_output_reconciliation(db, owner_user_id=u.id, job_id=j.id, lookup=lambda t,f: [cand(token="wrong")], now=now)
     assert res.conflicts==1 and db.query(m.TranscriptionJobOutput).count()==0 and c.status==m.OutputReconciliationStatus.conflict
+
+
+@pytest.mark.parametrize("status,expected", [
+    ("reconciliation_required", True),
+    ("creation_returned", True),
+    ("conflict", True),
+    ("prepared", False),
+])
+def test_reconciliation_availability_filters_prepared_case(db, status, expected):
+    from studio_api.job_output_reconciliation import reconciliation_status_payload
+    m,u,p,j,rels,now=make_failed(db); c=add_case(db,m,u,p,j,rels[0],now); c.status=m.OutputReconciliationStatus(status); db.commit()
+    payload=reconciliation_status_payload(db, owner_user_id=u.id, job_id=j.id)
+    assert payload["available"] is expected
+
+
+def test_no_cases_unavailable(db):
+    from studio_api.job_output_reconciliation import reconciliation_status_payload
+    m,u,p,j,rels,now=make_failed(db)
+    assert reconciliation_status_payload(db, owner_user_id=u.id, job_id=j.id)["available"] is False
+
+
+@pytest.mark.parametrize("mutation", ["deleted", "expired"])
+def test_source_retention_states_do_not_block_verified_reconciliation(db, mutation):
+    from studio_api.job_output_reconciliation import check_job_output_reconciliation
+    m,u,p,j,rels,now=make_failed(db); case=add_case(db,m,u,p,j,rels[0],now)
+    source=db.get(m.Source, rels[0].source_id)
+    if mutation == "deleted":
+        source.deleted_at=now; source.upload_status=m.SourceUploadStatus.deleted
+    else:
+        source.expires_at=now-timedelta(days=1); source.upload_status=m.SourceUploadStatus.expired
+    db.commit()
+    res=check_job_output_reconciliation(db, owner_user_id=u.id, job_id=j.id, lookup=lambda token, folder: [cand(token, folder)], now=now)
+    assert (res.checked,res.resolved,res.conflicts)==(1,1,0)
+    assert db.query(m.TranscriptionJobOutput).count()==1
+
+
+def test_wrong_project_source_blocks_reconciliation(db):
+    from studio_api.job_output_reconciliation import OutputReconciliationError, check_job_output_reconciliation
+    m,u,p,j,rels,now=make_failed(db); add_case(db,m,u,p,j,rels[0],now)
+    other=m.Project(owner_user_id=u.id,title="other"); db.add(other); db.flush()
+    db.get(m.Source, rels[0].source_id).project_id=other.id; db.commit()
+    res=check_job_output_reconciliation(db, owner_user_id=u.id, job_id=j.id, lookup=lambda token, folder: [cand(token, folder)], now=now)
+    assert res.conflicts == 1 and db.query(m.TranscriptionJobOutput).count()==0
+
+
+def test_relation_mismatch_blocks_reconciliation(db):
+    from studio_api.job_output_reconciliation import check_job_output_reconciliation
+    m,u,p,j,rels,now=make_failed(db); c=add_case(db,m,u,p,j,rels[0],now)
+    other_job=m.TranscriptionJob(project_id=p.id, owner_user_id=u.id, status=m.JobStatus.failed, output_drive_folder_id="folder-private"); db.add(other_job); db.flush()
+    rels[0].job_id=other_job.id; db.commit()
+    res=check_job_output_reconciliation(db, owner_user_id=u.id, job_id=j.id, lookup=lambda token, folder: [cand(token, folder)], now=now)
+    assert res.conflicts == 1 and db.query(m.TranscriptionJobOutput).count()==0
+
+
+def test_missing_source_row_blocks_reconciliation(db):
+    from studio_api.job_output_reconciliation import check_job_output_reconciliation
+    m,u,p,j,rels,now=make_failed(db); add_case(db,m,u,p,j,rels[0],now)
+    db.delete(db.get(m.Source, rels[0].source_id)); db.commit()
+    res=check_job_output_reconciliation(db, owner_user_id=u.id, job_id=j.id, lookup=lambda token, folder: [cand(token, folder)], now=now)
+    assert res.conflicts == 1 and db.query(m.TranscriptionJobOutput).count()==0
+
+
+def test_existing_conflict_is_stable_without_lookup(db):
+    from studio_api.job_output_reconciliation import check_job_output_reconciliation, reconciliation_status_payload
+    m,u,p,j,rels,now=make_failed(db); c=add_case(db,m,u,p,j,rels[0],now); c.status=m.OutputReconciliationStatus.conflict; db.commit()
+    calls=[]
+    assert reconciliation_status_payload(db, owner_user_id=u.id, job_id=j.id)["available"] is True
+    res=check_job_output_reconciliation(db, owner_user_id=u.id, job_id=j.id, lookup=lambda t,f: calls.append((t,f)) or [], now=now)
+    assert (res.checked,res.resolved,res.unresolved,res.conflicts)==(1,0,0,1)
+    assert calls == [] and db.query(m.TranscriptionJobOutput).count()==0

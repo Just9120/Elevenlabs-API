@@ -341,3 +341,11 @@ GitHub Actions supports manual `workflow_dispatch(component=worker)` using the s
 When a job fails with `output_reconciliation_required`, the owner may use the Studio PWA action or API check endpoint to query Drive by the internal opaque appProperty token and the job output-folder snapshot. Operators must not ask users for raw Google document IDs, must not create duplicate Google Docs, must not delete possible duplicates, must not retry provider processing as reconciliation, and must not inspect transcript/document bodies as evidence. Zero matches remain unresolved for later explicit checks. Multiple matches are a conflict requiring manual investigation outside the automated path.
 
 No production deployment, migration rollout, worker rollout, or controlled canary was performed by the source change.
+
+
+### Studio output reconciliation runtime guardrails
+
+- Existing unresolved reconciliation cases are treated as permanent create blockers for the affected job-source relation; operators must not restart processing to create another Google Doc with the same appProperty token.
+- A `prepared` case alone is internal evidence and should not be interpreted as owner reconciliation availability; pre-create persistence failure is a normal safe processing failure, not output uncertainty.
+- Source retention cleanup does not block reconciliation because the recovery path uses durable case metadata and a verified Drive candidate rather than source bytes or object storage.
+- Conflict is stable and fail-closed: repeated checks may report the conflict, but the system must not choose the first candidate, delete documents, or ask for a manual document ID.

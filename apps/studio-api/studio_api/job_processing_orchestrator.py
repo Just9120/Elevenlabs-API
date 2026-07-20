@@ -26,7 +26,7 @@ from .job_processing_lifecycle import (
     begin_job_processing,
     fail_job_processing,
 )
-from .models import JobSourceStatus, JobStatus, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource
+from .models import JobSourceStatus, JobStatus, OutputReconciliationStatus, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, TranscriptionOutputReconciliation
 from .diagnostics import ERROR_CODES, resolve_job_correlation_id, write_diagnostic_event
 from .security import utcnow
 
@@ -41,6 +41,7 @@ class JobProcessingOrchestrationReason(str, Enum):
     transcription_failed = "transcription_failed"
     google_docs_failed = "google_docs_failed"
     output_reconciliation_required = "output_reconciliation_required"
+    output_reconciliation_prepare_failed = "output_reconciliation_prepare_failed"
     incomplete_output_coverage = "incomplete_output_coverage"
     commit_failed = "commit_failed"
     lease_renewal_failed = "lease_renewal_failed"
@@ -103,6 +104,15 @@ def orchestrate_processing_job(
             return outcome
         if _has_output(db, rel.id):
             continue
+        existing_case_status = _existing_reconciliation_case_status(db, rel.id)
+        if existing_case_status in {OutputReconciliationStatus.prepared, OutputReconciliationStatus.creation_returned, OutputReconciliationStatus.reconciliation_required}:
+            _record_output_uncertainty(db, job_id, lease_owner_id, lease_generation, clock, "existing_reconciliation_case")
+            raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.output_reconciliation_required)
+        if existing_case_status in {OutputReconciliationStatus.conflict, OutputReconciliationStatus.resolved}:
+            result = _handle_pre_output_failure(db, job_id, lease_owner_id, lease_generation, clock, processed, "pipeline_google_docs_failed", "output_reconciliation_conflict")
+            if result is not None:
+                return result
+            raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.google_docs_failed)
 
         _renew_and_commit(db, job_id, lease_owner_id, lease_generation, lease_ttl, clock, lease_renewer)
 
@@ -165,6 +175,23 @@ def orchestrate_processing_job(
                     if existing is not None:
                         return existing
                     continue
+                if exc.reason == JobGoogleDocsOutputReason.existing_reconciliation_case:
+                    _record_output_uncertainty(db, job_id, lease_owner_id, lease_generation, clock, exc.reason.value)
+                    raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.output_reconciliation_required) from exc
+                if exc.reason == JobGoogleDocsOutputReason.reconciliation_case_persistence_failed:
+                    result = _handle_pre_output_failure(
+                        db,
+                        job_id,
+                        lease_owner_id,
+                        lease_generation,
+                        clock,
+                        processed,
+                        "pipeline_output_reconciliation_prepare_failed",
+                        exc.reason.value,
+                    )
+                    if result is not None:
+                        return result
+                    raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.output_reconciliation_prepare_failed) from exc
                 if exc.reason in _UNCERTAIN_GOOGLE_REASONS:
                     _record_output_uncertainty(db, job_id, lease_owner_id, lease_generation, clock, exc.reason.value)
                     raise JobProcessingOrchestrationError(JobProcessingOrchestrationReason.output_reconciliation_required) from exc
@@ -344,6 +371,10 @@ def _has_output(db, rel_id) -> bool:
     return db.execute(select(TranscriptionJobOutput.id).where(TranscriptionJobOutput.job_source_id == rel_id)).first() is not None
 
 
+def _existing_reconciliation_case_status(db, rel_id) -> OutputReconciliationStatus | None:
+    return db.execute(select(TranscriptionOutputReconciliation.status).where(TranscriptionOutputReconciliation.job_source_id == rel_id)).scalar_one_or_none()
+
+
 def _counts(db, job_id):
     required_ids = [r.id for r in _required_relations(db, job_id)]
     if not required_ids:
@@ -403,7 +434,7 @@ def _record_output_uncertainty(db, job_id, owner, generation, clock, message):
         job = db.get(TranscriptionJob, job_id)
         if job is not None and job.status == JobStatus.processing and job.cancel_requested_at is None and job.lease_owner_id == owner and job.lease_generation == generation and is_lease_active(job, clock()):
             mark_reconciliation_required(db, job_id=job_id, lease_generation=generation, reason=message, now=clock())
-            fail_job_processing(db, job_id=job_id, lease_owner_id=owner, lease_generation=generation, now=clock(), error_code="output_reconciliation_required", error_message=message if message in {"google_docs_timeout","google_docs_unavailable","malformed_google_docs_response","lifecycle_changed_after_output_creation","commit_failed","context_closed","unknown","job_not_processable","lease_not_owned","lease_not_active","cancellation_requested"} else "unknown")
+            fail_job_processing(db, job_id=job_id, lease_owner_id=owner, lease_generation=generation, now=clock(), error_code="output_reconciliation_required", error_message=message if message in {"google_docs_timeout","google_docs_unavailable","malformed_google_docs_response","lifecycle_changed_after_output_creation","commit_failed","context_closed","unknown","job_not_processable","lease_not_owned","lease_not_active","cancellation_requested","existing_reconciliation_case"} else "unknown")
             db.commit()
             _emit(db, job_id, "JOB_FAILED", metadata={"final_job_status": "failed", "error_code": "output_reconciliation_required", "boundary": "output_persistence", "attempt_number": _attempt(db, job_id)})
     except Exception:
