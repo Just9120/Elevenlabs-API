@@ -579,16 +579,37 @@ def initiate_local_upload(project_id: str, data: LocalUploadInitiateIn, pair=Dep
 def complete_local_upload(source_id: str, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     _,user=pair; src=owned_source_or_404(db,user,source_id)
     if src.source_type!=SourceType.local_upload or src.upload_status!=SourceUploadStatus.pending or src.deleted_at is not None: raise HTTPException(404,"Не найдено")
-    key=src.s3_object_key
+    initial_project_id=src.project_id
+    initial_type=src.source_type
+    initial_status=src.upload_status
+    initial_bucket=src.s3_bucket
+    initial_key=src.s3_object_key
+    if not initial_bucket or not initial_key:
+        raise HTTPException(404,"Не найдено")
     try:
-        head=get_source_storage(settings).head_object(key)
+        head=get_source_storage(settings).head_object(initial_key)
     except FileNotFoundError:
         raise HTTPException(409, "Загруженный объект источника не найден")
     if head.size_bytes is not None and src.size_bytes is not None and head.size_bytes > settings.source_max_upload_bytes: raise HTTPException(422, "Файл слишком большой")
     if head.content_type and not is_supported_source_mime_type(head.content_type): raise HTTPException(422, "Неподдерживаемый тип файла")
-    src=db.execute(select(Source).where(Source.id==source_id).with_for_update()).scalar_one_or_none()
+    src=db.execute(select(Source).where(Source.id==source_id).with_for_update().execution_options(populate_existing=True)).scalar_one_or_none()
     now=utcnow()
-    if not src or src.project.owner_user_id!=user.id or src.source_type!=SourceType.local_upload or src.upload_status!=SourceUploadStatus.pending or src.deleted_at is not None or is_source_expired(src, now):
+    project=db.get(Project, src.project_id) if src is not None else None
+    if (
+        not src
+        or project is None
+        or src.project_id != initial_project_id
+        or project.owner_user_id != user.id
+        or project.archived_at is not None
+        or src.source_type != initial_type
+        or src.source_type != SourceType.local_upload
+        or src.upload_status != initial_status
+        or src.upload_status != SourceUploadStatus.pending
+        or src.deleted_at is not None
+        or is_source_expired(src, now)
+        or src.s3_bucket != initial_bucket
+        or src.s3_object_key != initial_key
+    ):
         raise HTTPException(404,"Не найдено")
     src.upload_status=SourceUploadStatus.uploaded; src.uploaded_at=now; src.updated_at=now; audit(db,"source.local_upload.completed",actor_user_id=user.id,subject_user_id=user.id); db.commit(); return source_payload(src)
 

@@ -628,6 +628,84 @@ def test_complete_local_upload_and_delete_owner_isolation(monkeypatch):
     assert fake.deleted == []
 
 
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["deleted", "expired", "archived_project", "project_owner", "source_project", "bucket", "key"],
+)
+def test_complete_local_upload_revalidates_after_head_race(monkeypatch, mutation):
+    fake = enable_fake_storage(monkeypatch)
+    from studio_api import models as m
+    from studio_api.source_storage import ObjectHead
+
+    c, headers, pid = create_logged_in_project(f"complete-race-{mutation}@example.com")
+    r = c.post(f"/api/projects/{pid}/sources/local-upload/initiate", json={"original_filename":"race.mp3","mime_type":"audio/mpeg","size_bytes":10}, headers=headers)
+    sid = r.json()["source_id"]
+    db = SessionLocal()
+    try:
+        src = db.get(Source, sid)
+        original_bucket = src.s3_bucket
+        original_key = src.s3_object_key
+        if mutation in {"project_owner", "source_project"}:
+            other = User(email=f"other-{mutation}@example.com", role=UserRole.user, status=UserStatus.active)
+            db.add(other); db.flush()
+            other_project = Project(owner_user_id=other.id, title="Other")
+            db.add(other_project); db.flush()
+            other_project_id = other_project.id
+        else:
+            other_project_id = None
+        db.commit()
+    finally:
+        db.close()
+
+    def mutate_during_head(key):
+        assert key == original_key
+        race_db = SessionLocal()
+        try:
+            src = race_db.get(Source, sid)
+            if mutation == "deleted":
+                src.deleted_at = utcnow(); src.upload_status = SourceUploadStatus.deleted
+            elif mutation == "expired":
+                src.expires_at = utcnow() - timedelta(seconds=1)
+            elif mutation == "archived_project":
+                race_db.get(Project, pid).archived_at = utcnow()
+            elif mutation == "project_owner":
+                race_db.get(Project, pid).owner_user_id = race_db.get(Project, other_project_id).owner_user_id
+            elif mutation == "source_project":
+                src.project_id = other_project_id
+            elif mutation == "bucket":
+                src.s3_bucket = "changed-bucket"
+            elif mutation == "key":
+                src.s3_object_key = "changed-key"
+            race_db.commit()
+        finally:
+            race_db.close()
+        return ObjectHead(size_bytes=10, content_type="audio/mpeg")
+
+    fake.head_object = mutate_during_head
+    response = c.post(f"/api/sources/{sid}/local-upload/complete", headers=headers)
+    assert response.status_code == 404
+    db = SessionLocal()
+    try:
+        src = db.get(Source, sid)
+        assert src.uploaded_at is None
+        if mutation not in {"deleted"}:
+            assert src.upload_status != SourceUploadStatus.uploaded
+    finally:
+        db.close()
+
+
+def test_complete_local_upload_revalidates_successful_unchanged_source(monkeypatch):
+    enable_fake_storage(monkeypatch)
+    c, headers, pid = create_logged_in_project("complete-race-success@example.com")
+    r = c.post(f"/api/projects/{pid}/sources/local-upload/initiate", json={"original_filename":"success.mp3","mime_type":"audio/mpeg","size_bytes":10}, headers=headers)
+    sid = r.json()["source_id"]
+    response = c.post(f"/api/sources/{sid}/local-upload/complete", headers=headers)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["upload_status"] == "uploaded"
+    assert "s3_bucket" not in body and "s3_object_key" not in body
+
 def test_expired_local_upload_cleanup_marks_deleted_and_deletes(monkeypatch):
     fake = enable_fake_storage(monkeypatch)
     from studio_api import source_cleanup

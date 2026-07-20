@@ -392,3 +392,68 @@ def test_source_diagnostics_registry_accepts_only_safe_metadata(sqlite_db):
     )
     assert not forbidden.accepted and forbidden.reason == "invalid_metadata"
     assert sqlite_db.query(m.DiagnosticEvent).count() == 1
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["owner", "generation", "status", "bucket", "key"],
+)
+def test_cleanup_finalization_requires_full_claim_identity(sqlite_db, mutation):
+    from studio_api.source_deletion import SourceCleanupClaim, claim_next_source_cleanup, finalize_source_cleanup
+
+    m, user, project = _owner_project(sqlite_db)
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    src = _local_source(sqlite_db, m, project, now, key="claimed-key", bucket="claimed-bucket", cleanup_status=m.SourceStorageCleanupStatus.pending)
+    src.deleted_at = now
+    src.storage_cleanup_not_before_at = now
+    sqlite_db.commit()
+
+    claim = claim_next_source_cleanup(sqlite_db, owner_id="worker-a", now=now)
+    assert claim is not None
+    bad_claim = claim
+    if mutation == "owner":
+        bad_claim = SourceCleanupClaim(claim.source_id, "other-worker", claim.generation, claim.s3_bucket, claim.s3_object_key, claim.attempt_count)
+    elif mutation == "generation":
+        bad_claim = SourceCleanupClaim(claim.source_id, claim.owner_id, claim.generation + 1, claim.s3_bucket, claim.s3_object_key, claim.attempt_count)
+    elif mutation == "status":
+        src.storage_cleanup_status = m.SourceStorageCleanupStatus.failed
+    elif mutation == "bucket":
+        src.s3_bucket = "changed-bucket"
+    elif mutation == "key":
+        src.s3_object_key = "changed-key"
+    sqlite_db.commit()
+
+    assert not finalize_source_cleanup(sqlite_db, claim=bad_claim, now=now, success=True)
+    assert src.storage_cleanup_completed_at is None
+    assert src.s3_bucket is not None
+    assert src.s3_object_key is not None
+    if mutation not in {"owner", "generation"}:
+        assert src.storage_cleanup_owner_id == claim.owner_id
+        assert src.storage_cleanup_lease_expires_at is not None
+
+
+def test_cleanup_exact_failure_preserves_identity_and_success_clears_identity(sqlite_db):
+    from studio_api.source_deletion import claim_next_source_cleanup, finalize_source_cleanup
+
+    m, user, project = _owner_project(sqlite_db)
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    failing = _local_source(sqlite_db, m, project, now, key="failure-key", bucket="failure-bucket", cleanup_status=m.SourceStorageCleanupStatus.pending)
+    failing.deleted_at = now
+    failing.storage_cleanup_not_before_at = now
+    succeeding = _local_source(sqlite_db, m, project, now, key="success-key", bucket="success-bucket", cleanup_status=m.SourceStorageCleanupStatus.pending)
+    succeeding.deleted_at = now
+    succeeding.storage_cleanup_not_before_at = now + timedelta(seconds=1)
+    sqlite_db.commit()
+
+    failure_claim = claim_next_source_cleanup(sqlite_db, owner_id="worker", now=now)
+    assert failure_claim and failure_claim.source_id == failing.id
+    assert finalize_source_cleanup(sqlite_db, claim=failure_claim, now=now, success=False, error_code="storage_delete_failed")
+    assert failing.storage_cleanup_status == m.SourceStorageCleanupStatus.failed
+    assert failing.s3_bucket == "failure-bucket" and failing.s3_object_key == "failure-key"
+    assert failing.storage_cleanup_owner_id is None
+
+    success_claim = claim_next_source_cleanup(sqlite_db, owner_id="worker", now=now + timedelta(seconds=1))
+    assert success_claim and success_claim.source_id == succeeding.id
+    assert finalize_source_cleanup(sqlite_db, claim=success_claim, now=now + timedelta(seconds=1), success=True)
+    assert succeeding.storage_cleanup_status == m.SourceStorageCleanupStatus.completed
+    assert succeeding.s3_bucket is None and succeeding.s3_object_key is None

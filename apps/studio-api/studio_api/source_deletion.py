@@ -230,7 +230,14 @@ def claim_next_source_cleanup(db: Session, *, owner_id: str, now: datetime) -> S
 
 def finalize_source_cleanup(db: Session, *, claim: SourceCleanupClaim, now: datetime, success: bool, error_code: str | None = None) -> bool:
     src = _lock_source(db, claim.source_id)
-    if src is None or src.storage_cleanup_owner_id != claim.owner_id or src.storage_cleanup_generation != claim.generation:
+    if (
+        src is None
+        or src.storage_cleanup_status != SourceStorageCleanupStatus.pending
+        or src.storage_cleanup_owner_id != claim.owner_id
+        or src.storage_cleanup_generation != claim.generation
+        or src.s3_bucket != claim.s3_bucket
+        or src.s3_object_key != claim.s3_object_key
+    ):
         return False
     if success:
         src.storage_cleanup_status = SourceStorageCleanupStatus.completed

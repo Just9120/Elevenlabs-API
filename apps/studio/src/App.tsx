@@ -285,7 +285,7 @@ function safeConfirm(message: string) {
   try {
     return window.confirm(message) !== false;
   } catch {
-    return true;
+    return false;
   }
 }
 

@@ -1016,6 +1016,23 @@ describe("Studio PWA", () => {
 
 
 
+  it("fails source removal closed when confirmation throws", async () => {
+    vi.spyOn(window, "confirm").mockImplementation(() => {
+      throw new Error("confirm unavailable");
+    });
+    renderApp("platform");
+    await openProjectsPage();
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
+    await userEvent.click(
+      screen.getByRole("button", { name: "Убрать из проекта: local-temp.ogg" }),
+    );
+    expect(
+      (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
+        ([url, init]) => String(url).endsWith("/api/sources/s-local") && init?.method === "DELETE",
+      ),
+    ).toBe(false);
+  });
+
   it("confirms source removal text and sends at most one DELETE", async () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     renderApp("platform");
