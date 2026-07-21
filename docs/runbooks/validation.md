@@ -25,6 +25,26 @@ Use the smallest relevant checks for the task.
 
 For Studio frontend changes, inspect `apps/studio/package.json` and run the relevant existing npm scripts from `apps/studio/` when dependencies are available.
 
+## Reproducible Python dependencies
+
+Repository/CI development installs use the input requirements together with the committed transitive constraints:
+
+```bash
+python -m pip install -r requirements-dev.txt -c constraints-dev.txt
+```
+
+The Studio API container applies `apps/studio-api/constraints.txt` to `apps/studio-api/requirements.txt`. These constraints do not replace `requirements-colab.txt` when installing the stable Colab runtime.
+
+After an intentional Python dependency change, regenerate both constraints with the pinned generator and review the complete diff before testing:
+
+```bash
+python -m pip install pip-tools==7.6.0
+python -m piptools compile --resolver=backtracking --strip-extras --newline=LF --output-file=apps/studio-api/constraints.txt apps/studio-api/requirements.txt
+python -m piptools compile --resolver=backtracking --strip-extras --newline=LF --output-file=constraints-dev.txt requirements-dev.txt
+```
+
+Constraints are installed with `-c`; they are not standalone cross-platform requirements files. This preserves platform-specific dependencies selected by extras while constraining the shared resolution.
+
 For docs-only changes, run `git diff --check`, available markdown/link checks, targeted `rg` searches for stale links/conflicting claims, and a docs-only changed-file review. Runtime integration tests are not required unless the task explicitly asks for them.
 
 ## Markdown link check pattern

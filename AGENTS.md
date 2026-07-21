@@ -49,7 +49,7 @@ If sources conflict, report the conflict and do not silently rewrite product sco
 Use existing commands where relevant:
 
 ```text
-Install: not standardized; inspect requirements files for the target environment.
+Install: `python -m pip install -r requirements-dev.txt -c constraints-dev.txt` for repository checks; Colab keeps its separate runtime requirements.
 Lightweight checks: python scripts/ci_checks.py
 Python tests: pytest -q
 Docs diff check: git diff --check

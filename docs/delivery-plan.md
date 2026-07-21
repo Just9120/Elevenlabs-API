@@ -11,7 +11,8 @@
 - ✅ `PWA-WEB-SECURITY-HEADERS-01` — Add a single host-level Picker-compatible CSP and browser security-header policy — Source-complete in the local stabilization batch; live nginx/TLS validation remains operator evidence.
 - ⛔ `PWA-CD-RECOVERY-01` — Repair component CD old-checkout/new-script ordering and validate the latest `main` deployment — Source fix implemented; live validation is blocked until the batch is merged and CD is run again.
 - ✅ `PWA-DEPENDENCY-SECURITY-01` — Reproduce and remediate actionable Studio Node/Python dependency findings without broad upgrades — Complete in the local batch; current npm and pip audits have zero known vulnerabilities.
-- 👉 `PWA-DEPENDENCY-REPRODUCIBILITY-01` — Add deterministic Python transitive constraints and automated dependency reporting without coupling ordinary CI to advisory-service availability — Current analysis item.
+- ✅ `PWA-DEPENDENCY-REPRODUCIBILITY-01` — Add deterministic Python transitive constraints without changing the Colab runtime install — Source-complete in the local batch.
+- 👉 `PWA-DEPENDENCY-REPORTING-01` — Add automated dependency reporting without coupling ordinary CI to advisory-service availability — Current analysis item.
 - ⛔ `PWA-PROCESSING-ROLLOUT-01A` — Production processing rollout/canary — Operator item not run; production-live claims remain prohibited.
 
 ## Current repository state
@@ -31,13 +32,14 @@
 - The host nginx source now enforces one CSP/HSTS/nosniff/referrer/permissions/framing policy across PWA and API; standard component CD does not apply host config, so production header state is still unproven.
 - Studio frontend build/test tooling now uses the minimum compatible patched Vite 6/Vitest 3 line plus refreshed ESLint tooling; `npm audit`, lint, 111 tests, TypeScript, and the production PWA build pass locally.
 - Studio API now pins a patched FastAPI/Starlette pair and cryptography release, removes the unused multipart parser, and uses `httpx2` only for Starlette TestClient compatibility; the current pip audit has zero known vulnerabilities.
+- Studio API Docker and repository CI now install their input requirements under committed pip-tools constraints; Colab continues to install its independent runtime requirements.
 - `SECURITY.md` is now a repository-wide reporting and routing entry point; it does not duplicate detailed Colab or Studio product contracts.
 - Production migration state for `0014_source_deletion_retention` is not proven by repository evidence.
 - Latest production web/API deployment, worker rollout, and controlled canary are not proven complete.
 
 ## Near backlog
 
-- `PWA-DEPENDENCY-REPRODUCIBILITY-01` — constrain Python transitive resolution and add scheduled/manual advisory reporting with an explicit failure policy.
+- `PWA-DEPENDENCY-REPORTING-01` — add scheduled/manual Node and Python advisory reporting with an explicit failure policy.
 - `PWA-E2E-FOUNDATION-01` — automated end-to-end validation foundation for Studio.
 - OpenAI processing parity, long-media parity, manifest behavior, and golden Colab/PWA parity validation remain product backlog items in `docs/project-spec.md`.
 
@@ -46,7 +48,7 @@
 - The latest component CD failure blocks a claim that current `main` is deployed; the local source fix is not runtime evidence until merged and validated by a new CD run.
 - No current repository evidence proves a successful production controlled canary after the latest worker/source lifecycle work.
 - Browser-bound capabilities increase the impact of frontend injection; the committed host header policy is not production evidence until an operator applies it, runs `nginx -t`, and validates public Picker/upload flows over TLS.
-- Python transitive dependencies still have no committed constraints artifact, and dependency advisory reporting is not automated.
+- Dependency advisory reporting is not automated; current zero-finding results remain manual point-in-time evidence.
 
 ## Sources of truth
 
