@@ -54,7 +54,7 @@ class EventDef:
     level: str
     metadata: dict[str, MetaRule]
 
-BOUNDARIES = frozenset({"source_validation", "provider_transport", "provider_response", "post_provider_lifecycle", "google_docs", "output_persistence", "orchestration", "lease_heartbeat", "retry_api", "retry_state", "unknown"})
+BOUNDARIES = frozenset({"source_validation", "provider_transport", "provider_response", "post_provider_lifecycle", "google_docs", "output_persistence", "orchestration", "lease_heartbeat", "retry_api", "retry_state", "source_deletion", "source_cleanup", "unknown"})
 ERROR_CODES = frozenset({
     "unknown", "provider_authentication_rejected", "provider_request_rejected", "provider_rate_limited",
     "provider_unavailable", "provider_timeout", "malformed_provider_response", "lifecycle_changed_after_provider_call",
@@ -70,11 +70,22 @@ FINAL_STATUSES = frozenset({"processing", "cancelled", "failed", "completed"})
 ENDPOINT_GROUPS = frozenset({"diagnostics", "jobs", "sources", "google", "credentials", "projects", "auth", "unknown"})
 PWA_BOUNDARIES = frozenset({"app", "react_boundary", "route", "api_request", "service_worker", "unknown"})
 PWA_ERROR_CODES = frozenset({"app_error", "unhandled_rejection", "api_request_failed", "route_error", "service_worker_error", "unknown"})
+SOURCE_TYPES = frozenset({"local_upload", "google_drive"})
+SOURCE_DELETION_REASONS = frozenset({"user_deleted", "retention_expired"})
+SOURCE_CLEANUP_OUTCOMES = frozenset({"not_applicable", "pending", "completed", "failed"})
+SOURCE_DELETION_BLOCKERS = frozenset({"queued_job_uses_source", "processing_job_uses_source", "retryable_failed_job_uses_source", "project_unavailable", "source_already_deleted", "unsupported_source_state"})
 
 def R(kind: str, *, min: int | None = None, max: int | None = None, choices: frozenset[str] | None = None, required: bool = False) -> MetaRule:
     return MetaRule(kind, min, max, choices, required)
 
 REGISTRY: dict[str, EventDef] = {
+    "SOURCE_DELETION_REQUESTED": EventDef(frozenset({"api"}), "INFO", {"source_type": R("enum", choices=SOURCE_TYPES, required=True), "deletion_reason": R("enum", choices=SOURCE_DELETION_REASONS, required=True), "boundary": R("enum", choices=BOUNDARIES, required=True)}),
+    "SOURCE_DELETION_BLOCKED": EventDef(frozenset({"api"}), "WARNING", {"source_type": R("enum", choices=SOURCE_TYPES, required=True), "blocker": R("enum", choices=SOURCE_DELETION_BLOCKERS, required=True), "boundary": R("enum", choices=BOUNDARIES, required=True)}),
+    "SOURCE_DELETION_COMPLETED": EventDef(frozenset({"api"}), "INFO", {"source_type": R("enum", choices=SOURCE_TYPES, required=True), "deletion_reason": R("enum", choices=SOURCE_DELETION_REASONS, required=True), "cleanup_outcome": R("enum", choices=SOURCE_CLEANUP_OUTCOMES, required=True), "boundary": R("enum", choices=BOUNDARIES, required=True)}),
+    "SOURCE_RETENTION_EXPIRED": EventDef(frozenset({"worker"}), "INFO", {"source_type": R("enum", choices=SOURCE_TYPES, required=True), "deletion_reason": R("enum", choices=SOURCE_DELETION_REASONS, required=True), "boundary": R("enum", choices=BOUNDARIES, required=True)}),
+    "SOURCE_STORAGE_CLEANUP_STARTED": EventDef(frozenset({"worker"}), "INFO", {"source_type": R("enum", choices=SOURCE_TYPES, required=True), "cleanup_attempt": R("int", min=1, max=100000, required=True), "boundary": R("enum", choices=BOUNDARIES, required=True)}),
+    "SOURCE_STORAGE_CLEANUP_COMPLETED": EventDef(frozenset({"worker"}), "INFO", {"cleanup_outcome": R("enum", choices=SOURCE_CLEANUP_OUTCOMES, required=True), "cleanup_attempt": R("int", min=1, max=100000, required=True), "boundary": R("enum", choices=BOUNDARIES, required=True)}),
+    "SOURCE_STORAGE_CLEANUP_FAILED": EventDef(frozenset({"worker"}), "WARNING", {"cleanup_outcome": R("enum", choices=SOURCE_CLEANUP_OUTCOMES, required=True), "cleanup_attempt": R("int", min=1, max=100000, required=True), "boundary": R("enum", choices=BOUNDARIES, required=True)}),
     "JOB_CREATED": EventDef(frozenset({"api"}), "INFO", {"source_count": R("int", min=1, max=50, required=True), "batch_position": R("int", min=0, max=1000), "credential_selected": R("bool", required=True)}),
     "JOB_CLAIMED": EventDef(frozenset({"worker"}), "INFO", {}),
     "PROCESSING_STARTED": EventDef(frozenset({"worker"}), "INFO", {"attempt_number": R("int", min=1, max=1000, required=True)}),

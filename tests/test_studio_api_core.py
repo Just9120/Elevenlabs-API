@@ -35,7 +35,7 @@ from studio_api.config import Settings
 from studio_api.db import SessionLocal, engine
 from studio_api.deps import get_client_ip
 from studio_api.main import app, limiter
-from studio_api.models import AuditEvent, DiagnosticDebugSession, DiagnosticEvent, TranscriptionOutputReconciliation, TranscriptionJobSourceAttempt, OutputReconciliationStatus, SourceAttemptRetryDisposition, SourceAttemptStage, CredentialProvider, CredentialStatus, JobSourceStatus, JobStatus, LocalIdentity, Project, ProviderCredential, ProviderCredentialVersion, Source, SourceType, SourceUploadStatus, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, User, UserRole, UserStatus
+from studio_api.models import AuditEvent, DiagnosticDebugSession, DiagnosticEvent, TranscriptionOutputReconciliation, TranscriptionJobSourceAttempt, OutputReconciliationStatus, SourceAttemptRetryDisposition, SourceAttemptStage, CredentialProvider, CredentialStatus, JobSourceStatus, JobStatus, LocalIdentity, Project, ProviderCredential, ProviderCredentialVersion, Source, SourceStorageCleanupStatus, SourceType, SourceUploadStatus, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, User, UserRole, UserStatus
 from studio_api.security import aad, decrypt, encrypt, hash_password, master_key_from_b64, utcnow, verify_password
 from studio_api.job_claim_lease import JobLeaseError, JobLeaseFailureReason, acquire_job_lease, acquire_next_ready_job_lease, invalidate_job_lease, is_lease_active, release_job_lease, renew_job_lease
 from studio_api.job_processing_lifecycle import JobProcessingError, JobProcessingFailureReason, acknowledge_job_cancellation, begin_job_processing, fail_job_processing, recover_expired_processing_job
@@ -272,8 +272,8 @@ class FakeStorage:
             raise FileNotFoundError(key)
         from studio_api.source_storage import ObjectHead
         return ObjectHead(size_bytes=self.head_size, content_type=self.head_type)
-    def delete_object(self, key):
-        self.deleted.append(key)
+    def delete_object(self, key, *, bucket=None):
+        self.deleted.append((bucket, key))
 
 
 def enable_fake_storage(monkeypatch):
@@ -370,12 +370,37 @@ def test_create_job_from_google_drive_and_local_sources_preserves_order_and_safe
     detail = c.get(f"/api/jobs/{body['id']}")
     assert detail.status_code == 200
     assert [s["id"] for s in detail.json()["sources"]] == [sid1, sid2]
-    assert c.delete(f"/api/sources/{sid1}", headers=headers).status_code == 200
+    blocked_delete = c.delete(f"/api/sources/{sid1}", headers=headers)
+    assert blocked_delete.status_code == 409
+    assert blocked_delete.json()["detail"]["reason"] == "queued_job_uses_source"
+    active_sources = c.get(f"/api/projects/{pid}/sources")
+    assert active_sources.status_code == 200
+    assert sid1 in [s["id"] for s in active_sources.json()["sources"]]
+    db = SessionLocal()
+    try:
+        src = db.get(Source, sid1)
+        queued = db.get(TranscriptionJob, body["id"])
+        assert src.deleted_at is None
+        assert src.upload_status == SourceUploadStatus.uploaded
+        assert queued.status == JobStatus.queued
+    finally:
+        db.close()
+
+    cancel = c.post(f"/api/jobs/{body['id']}/cancel", headers=headers)
+    assert cancel.status_code == 200
+    assert cancel.json()["status"] == "cancelled"
+    deleted = c.delete(f"/api/sources/{sid1}", headers=headers)
+    assert deleted.status_code == 200
     assert sid1 not in [s["id"] for s in c.get(f"/api/projects/{pid}/sources").json()["sources"]]
     historical = c.get(f"/api/jobs/{body['id']}")
     assert historical.status_code == 200
     assert [s["id"] for s in historical.json()["sources"]] == [sid1, sid2]
-    assert historical.json()["sources"][0]["upload_status"] == "deleted"
+    first_source = historical.json()["sources"][0]
+    assert first_source["upload_status"] == "deleted"
+    assert first_source["original_filename"] == "first.mp4"
+    assert "drive_file_id" not in first_source
+    assert "s3_bucket" not in first_source
+    assert "s3_object_key" not in first_source
     listed = c.get(f"/api/projects/{pid}/jobs")
     assert listed.status_code == 200 and listed.json()["jobs"][0]["id"] == body["id"]
 
@@ -625,14 +650,93 @@ def test_complete_local_upload_and_delete_owner_isolation(monkeypatch):
     assert c2.delete(f"/api/sources/{sid}", headers=h2).status_code == 404
     assert c1.delete(f"/api/sources/{sid}", headers=h1).status_code == 200
     assert c1.delete(f"/api/sources/{sid}", headers=h1).status_code == 200
-    assert fake.deleted
+    assert fake.deleted == []
 
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["deleted", "expired", "archived_project", "project_owner", "source_project", "bucket", "key"],
+)
+def test_complete_local_upload_revalidates_after_head_race(monkeypatch, mutation):
+    fake = enable_fake_storage(monkeypatch)
+    from studio_api import models as m
+    from studio_api.source_storage import ObjectHead
+
+    c, headers, pid = create_logged_in_project(f"complete-race-{mutation}@example.com")
+    r = c.post(f"/api/projects/{pid}/sources/local-upload/initiate", json={"original_filename":"race.mp3","mime_type":"audio/mpeg","size_bytes":10}, headers=headers)
+    sid = r.json()["source_id"]
+    db = SessionLocal()
+    try:
+        src = db.get(Source, sid)
+        original_bucket = src.s3_bucket
+        original_key = src.s3_object_key
+        if mutation in {"project_owner", "source_project"}:
+            other = User(email=f"other-{mutation}@example.com", role=UserRole.user, status=UserStatus.active)
+            db.add(other); db.flush()
+            other_project = Project(owner_user_id=other.id, title="Other")
+            db.add(other_project); db.flush()
+            other_project_id = other_project.id
+        else:
+            other_project_id = None
+        db.commit()
+    finally:
+        db.close()
+
+    def mutate_during_head(key):
+        assert key == original_key
+        race_db = SessionLocal()
+        try:
+            src = race_db.get(Source, sid)
+            if mutation == "deleted":
+                src.deleted_at = utcnow(); src.upload_status = SourceUploadStatus.deleted
+            elif mutation == "expired":
+                src.expires_at = utcnow() - timedelta(seconds=1)
+            elif mutation == "archived_project":
+                race_db.get(Project, pid).archived_at = utcnow()
+            elif mutation == "project_owner":
+                race_db.get(Project, pid).owner_user_id = race_db.get(Project, other_project_id).owner_user_id
+            elif mutation == "source_project":
+                src.project_id = other_project_id
+            elif mutation == "bucket":
+                src.s3_bucket = "changed-bucket"
+            elif mutation == "key":
+                src.s3_object_key = "changed-key"
+            race_db.commit()
+        finally:
+            race_db.close()
+        return ObjectHead(size_bytes=10, content_type="audio/mpeg")
+
+    fake.head_object = mutate_during_head
+    response = c.post(f"/api/sources/{sid}/local-upload/complete", headers=headers)
+    assert response.status_code == 404
+    db = SessionLocal()
+    try:
+        src = db.get(Source, sid)
+        assert src.uploaded_at is None
+        if mutation not in {"deleted"}:
+            assert src.upload_status != SourceUploadStatus.uploaded
+    finally:
+        db.close()
+
+
+def test_complete_local_upload_revalidates_successful_unchanged_source(monkeypatch):
+    enable_fake_storage(monkeypatch)
+    c, headers, pid = create_logged_in_project("complete-race-success@example.com")
+    r = c.post(f"/api/projects/{pid}/sources/local-upload/initiate", json={"original_filename":"success.mp3","mime_type":"audio/mpeg","size_bytes":10}, headers=headers)
+    sid = r.json()["source_id"]
+    response = c.post(f"/api/sources/{sid}/local-upload/complete", headers=headers)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["upload_status"] == "uploaded"
+    assert "s3_bucket" not in body and "s3_object_key" not in body
 
 def test_expired_local_upload_cleanup_marks_deleted_and_deletes(monkeypatch):
     fake = enable_fake_storage(monkeypatch)
     from studio_api import source_cleanup
     from studio_api.models import Source, SourceType, SourceUploadStatus
-    monkeypatch.setattr(source_cleanup, "get_source_storage", lambda settings: fake)
+    import studio_api.source_storage as source_storage
+    monkeypatch.setattr(source_storage, "get_source_storage", lambda settings: fake)
     c, headers, pid = create_logged_in_project("cleanup@example.com")
     db = SessionLocal()
     try:
@@ -641,8 +745,8 @@ def test_expired_local_upload_cleanup_marks_deleted_and_deletes(monkeypatch):
         assert source_cleanup.cleanup_expired_local_uploads(db, __import__("studio_api.main", fromlist=["settings"]).settings) == 1
         db.refresh(src)
         assert src.upload_status == SourceUploadStatus.expired
-        assert src.deleted_at is not None and src.delete_reason == "expired"
-        assert fake.deleted == ["old/key"]
+        assert src.deleted_at is None and src.delete_reason == "retention_expired"
+        assert fake.deleted == [("studio-temp", "old/key")]
     finally:
         db.close()
 
@@ -1151,7 +1255,7 @@ def test_job_lease_migration_real_0005_shape_upgrades_to_head():
             assert {"lease_owner_id", "lease_generation", "claimed_at", "lease_expires_at", "attempt_count", "cancel_requested_at"}.issubset(cols)
             indexes = [idx["name"] for idx in inspector.get_indexes("transcription_jobs")]
             assert indexes.count("ix_transcription_jobs_status_lease_expires_created") == 1
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0013_job_retry_recovery"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0014_source_deletion_retention"
 
 
 
@@ -1186,7 +1290,7 @@ def test_job_output_migration_clean_chain_constraints_and_0007_roundtrip():
         run_alembic("head", env=env)
         with temp_engine.begin() as conn:
             assert "transcription_job_outputs" in inspect(conn).get_table_names()
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0013_job_retry_recovery"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0014_source_deletion_retention"
 
 
 
@@ -2158,7 +2262,11 @@ def test_google_picker_source_and_output_selection_revalidates_server_metadata(m
     assert r.status_code == 200
     body = r.json()["sources"][0]
     assert body["original_filename"] == "Лекция 1. Личность как психологическое явление.flac"
-    assert body["drive_file_id"] == "file-c"
+    assert "drive_file_id" not in body
+    assert "s3_bucket" not in body
+    assert "s3_object_key" not in body
+    for private_key in ["storage_cleanup_owner_id", "storage_cleanup_generation", "storage_cleanup_claimed_at", "storage_cleanup_lease_expires_at", "storage_cleanup_attempt_count", "storage_cleanup_error_code"]:
+        assert private_key not in body
     assert body["drive_file_url"] == "https://drive.google.com/file/d/file-c/view"
     assert body["mime_type"] == "audio/flac"
     assert body["size_bytes"] == 30
@@ -2509,6 +2617,7 @@ def test_batch_jobs_integrity_error_replays_concurrent_winner(monkeypatch):
             request_hash = main._batch_hash(pid, cred_id, language, options_json, hash_items)
             winner = SessionLocal()
             try:
+                winner.execute(text("SET LOCAL lock_timeout = '3s'"))
                 for idx, item in enumerate(body["items"]):
                     job = TranscriptionJob(project_id=pid, owner_user_id=user_id, status=JobStatus.queued, provider_credential_id=cred_id, language=language, options_json=options_json, batch_idempotency_key="batch-key-1", batch_request_hash=request_hash, batch_position=idx)
                     job.apply_output_folder_snapshot(folder_id=item["output_folder_id"], folder_url=f"https://drive.google.com/drive/folders/{item['output_folder_id']}", folder_name=f"Folder {item['output_folder_id']}")
@@ -2573,6 +2682,151 @@ def _assert_job_retry_recovery_schema(inspector, conn):
     assert _attempt_enum_values(conn, "sourceattemptretrydisposition") == [e.value for e in SourceAttemptRetryDisposition]
 
 
+
+def _source_cleanup_enum_values(conn) -> list[str]:
+    return conn.execute(text(
+        "SELECT e.enumlabel FROM pg_enum e "
+        "JOIN pg_type t ON t.oid = e.enumtypid "
+        "WHERE t.typname = 'sourcestoragecleanupstatus' "
+        "ORDER BY e.enumsortorder"
+    )).scalars().all()
+
+
+def _strip_0014_source_cleanup_schema(conn) -> None:
+    conn.execute(text("DROP INDEX IF EXISTS ix_sources_storage_cleanup_selection"))
+    conn.execute(text("ALTER TABLE sources DROP CONSTRAINT IF EXISTS ck_sources_storage_cleanup_attempt_count_nonnegative"))
+    conn.execute(text("ALTER TABLE sources DROP CONSTRAINT IF EXISTS ck_sources_storage_cleanup_generation_nonnegative"))
+    for col in [
+        "storage_cleanup_status",
+        "storage_cleanup_requested_at",
+        "storage_cleanup_not_before_at",
+        "storage_cleanup_completed_at",
+        "storage_cleanup_attempt_count",
+        "storage_cleanup_error_code",
+        "storage_cleanup_owner_id",
+        "storage_cleanup_generation",
+        "storage_cleanup_claimed_at",
+        "storage_cleanup_lease_expires_at",
+    ]:
+        conn.execute(text(f"ALTER TABLE sources DROP COLUMN IF EXISTS {col}"))
+    conn.execute(text("DROP TYPE IF EXISTS sourcestoragecleanupstatus"))
+
+
+def _assert_source_deletion_0014_schema(inspector, conn):
+    cols = {c["name"]: c for c in inspector.get_columns("sources")}
+    expected = {
+        "storage_cleanup_status",
+        "storage_cleanup_requested_at",
+        "storage_cleanup_not_before_at",
+        "storage_cleanup_completed_at",
+        "storage_cleanup_attempt_count",
+        "storage_cleanup_error_code",
+        "storage_cleanup_owner_id",
+        "storage_cleanup_generation",
+        "storage_cleanup_claimed_at",
+        "storage_cleanup_lease_expires_at",
+    }
+    assert expected.issubset(cols)
+    assert cols["storage_cleanup_status"]["nullable"] is False
+    assert cols["storage_cleanup_attempt_count"]["nullable"] is False
+    assert cols["storage_cleanup_generation"]["nullable"] is False
+    assert str(cols["storage_cleanup_status"].get("default", "")).strip("'::character varying")
+    assert str(cols["storage_cleanup_attempt_count"].get("default", "")).startswith("0")
+    assert str(cols["storage_cleanup_generation"].get("default", "")).startswith("0")
+    checks = {c["name"] for c in inspector.get_check_constraints("sources")}
+    assert "ck_sources_storage_cleanup_attempt_count_nonnegative" in checks
+    assert "ck_sources_storage_cleanup_generation_nonnegative" in checks
+    indexes = {idx["name"]: tuple(idx["column_names"]) for idx in inspector.get_indexes("sources")}
+    assert indexes["ix_sources_storage_cleanup_selection"] == ("storage_cleanup_status", "storage_cleanup_not_before_at", "storage_cleanup_lease_expires_at")
+    assert "ix_sources_storage_cleanup_status" not in indexes
+    assert "ix_sources_storage_cleanup_not_before_at" not in indexes
+    assert _source_cleanup_enum_values(conn) == [e.value for e in SourceStorageCleanupStatus]
+    model_cols = Source.__table__.c
+    for name in expected:
+        assert name in model_cols
+        assert model_cols[name].nullable == cols[name]["nullable"]
+
+
+def _assert_source_deletion_0014_absent(inspector, conn):
+    cols = {c["name"] for c in inspector.get_columns("sources")}
+    assert not {
+        "storage_cleanup_status",
+        "storage_cleanup_requested_at",
+        "storage_cleanup_not_before_at",
+        "storage_cleanup_completed_at",
+        "storage_cleanup_attempt_count",
+        "storage_cleanup_error_code",
+        "storage_cleanup_owner_id",
+        "storage_cleanup_generation",
+        "storage_cleanup_claimed_at",
+        "storage_cleanup_lease_expires_at",
+    } & cols
+    indexes = {idx["name"] for idx in inspector.get_indexes("sources")}
+    assert "ix_sources_storage_cleanup_selection" not in indexes
+    checks = {c["name"] for c in inspector.get_check_constraints("sources")}
+    assert "ck_sources_storage_cleanup_attempt_count_nonnegative" not in checks
+    assert "ck_sources_storage_cleanup_generation_nonnegative" not in checks
+    assert conn.execute(text("SELECT count(*) FROM pg_type WHERE typname = 'sourcestoragecleanupstatus'")).scalar_one() == 0
+
+
+def test_source_deletion_0014_upgrade_downgrade_roundtrip_and_metadata_table(tmp_path):
+    from studio_api.db import Base
+
+    with isolated_migration_database("studio_migration_0014") as (temp_engine, env):
+        run_alembic("0013_job_retry_recovery", env=env)
+        with temp_engine.begin() as conn:
+            _strip_0014_source_cleanup_schema(conn)
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0013_job_retry_recovery"
+            conn.execute(text("INSERT INTO users (id, email, role, status, created_at, updated_at) VALUES ('user-0014', 'migration-0014@example.com', 'user', 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"))
+            conn.execute(text("INSERT INTO projects (id, owner_user_id, title, created_at, updated_at) VALUES ('project-0014', 'user-0014', 'Migration 0014', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"))
+            conn.execute(text("""
+                INSERT INTO sources (id, project_id, source_type, original_filename, mime_type, size_bytes, drive_file_id, drive_file_url, s3_bucket, s3_object_key, upload_status, uploaded_at, expires_at, deleted_at, delete_reason, created_at, updated_at)
+                VALUES
+                ('source-active-local', 'project-0014', 'local_upload', 'active.mp3', 'audio/mpeg', 1, NULL, NULL, 'bucket', 'active/key', 'uploaded', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + INTERVAL '1 day', NULL, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+                ('source-deleted-local', 'project-0014', 'local_upload', 'deleted.mp3', 'audio/mpeg', 1, NULL, NULL, 'bucket', 'deleted/key', 'deleted', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + INTERVAL '1 day', CURRENT_TIMESTAMP, 'user_deleted', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+                ('source-expired-local', 'project-0014', 'local_upload', 'expired.mp3', 'audio/mpeg', 1, NULL, NULL, 'bucket', 'expired/key', 'uploaded', CURRENT_TIMESTAMP - INTERVAL '2 days', CURRENT_TIMESTAMP - INTERVAL '1 day', NULL, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+                ('source-pending-deleted-local', 'project-0014', 'local_upload', 'pending.mp3', 'audio/mpeg', 1, NULL, NULL, 'bucket', 'pending/key', 'pending', NULL, CURRENT_TIMESTAMP + INTERVAL '2 days', CURRENT_TIMESTAMP, 'user_deleted', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+                ('source-drive', 'project-0014', 'google_drive', 'drive.mp3', 'audio/mpeg', 1, 'drive-id-0014', 'https://drive.google.com/file/d/drive-id-0014/view', NULL, NULL, 'uploaded', CURRENT_TIMESTAMP, NULL, NULL, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """))
+        run_alembic("0014_source_deletion_retention", env=env)
+        with temp_engine.begin() as conn:
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0014_source_deletion_retention"
+            _assert_source_deletion_0014_schema(inspect(conn), conn)
+            rows = {r["id"]: r for r in conn.execute(text("SELECT id, upload_status, deleted_at, delete_reason, s3_bucket, s3_object_key, storage_cleanup_status, storage_cleanup_requested_at, storage_cleanup_not_before_at, storage_cleanup_completed_at, storage_cleanup_attempt_count, storage_cleanup_generation, expires_at FROM sources WHERE project_id='project-0014' ORDER BY id")).mappings().all()}
+            assert rows["source-drive"]["storage_cleanup_status"] == "not_applicable"
+            assert rows["source-drive"]["storage_cleanup_requested_at"] is None
+            assert rows["source-active-local"]["storage_cleanup_status"] == "not_requested"
+            assert rows["source-deleted-local"]["storage_cleanup_status"] == "pending"
+            assert rows["source-deleted-local"]["s3_bucket"] == "bucket" and rows["source-deleted-local"]["s3_object_key"] == "deleted/key"
+            assert rows["source-expired-local"]["upload_status"] == "expired"
+            assert rows["source-expired-local"]["delete_reason"] == "retention_expired"
+            assert rows["source-expired-local"]["deleted_at"] is None
+            assert rows["source-expired-local"]["storage_cleanup_status"] == "pending"
+            assert rows["source-pending-deleted-local"]["storage_cleanup_status"] == "pending"
+            assert rows["source-pending-deleted-local"]["storage_cleanup_not_before_at"] >= rows["source-pending-deleted-local"]["expires_at"]
+            assert {row["storage_cleanup_attempt_count"] for row in rows.values()} == {0}
+            assert {row["storage_cleanup_generation"] for row in rows.values()} == {0}
+        run_alembic("0013_job_retry_recovery", env=env, command="downgrade")
+        with temp_engine.begin() as conn:
+            _assert_source_deletion_0014_absent(inspect(conn), conn)
+            assert "sources" in inspect(conn).get_table_names()
+            assert conn.execute(text("SELECT count(*) FROM sources WHERE project_id='project-0014'")).scalar_one() == 5
+            assert conn.execute(text("SELECT s3_bucket, s3_object_key FROM sources WHERE id='source-deleted-local'")).one() == ("bucket", "deleted/key")
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0013_job_retry_recovery"
+        run_alembic("0014_source_deletion_retention", env=env)
+        with temp_engine.begin() as conn:
+            _assert_source_deletion_0014_schema(inspect(conn), conn)
+
+    with isolated_migration_database("studio_migration_0014_metadata") as (temp_engine, env):
+        Base.metadata.create_all(temp_engine)
+        run_alembic("0014_source_deletion_retention", env=env, command="stamp")
+        run_alembic("0013_job_retry_recovery", env=env, command="downgrade")
+        with temp_engine.begin() as conn:
+            _assert_source_deletion_0014_absent(inspect(conn), conn)
+            assert "sources" in inspect(conn).get_table_names()
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0013_job_retry_recovery"
+
+
 def test_job_retry_recovery_0013_upgrade_downgrade_roundtrip_and_metadata_table(tmp_path):
     from studio_api.db import Base
 
@@ -2588,24 +2842,24 @@ def test_job_retry_recovery_0013_upgrade_downgrade_roundtrip_and_metadata_table(
             assert "transcription_output_reconciliations" in inspect(conn).get_table_names()
             assert "transcription_job_source_attempts" not in inspect(conn).get_table_names()
             _assert_attempt_enums_absent(conn)
-        run_alembic("0013_job_retry_recovery", env=env)
+        run_alembic("0014_source_deletion_retention", env=env)
         with temp_engine.begin() as conn:
             _assert_job_retry_recovery_schema(inspect(conn), conn)
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0013_job_retry_recovery"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0014_source_deletion_retention"
         run_alembic("0012_output_reconciliation_cases", env=env, command="downgrade")
         with temp_engine.begin() as conn:
             assert "transcription_job_source_attempts" not in inspect(conn).get_table_names()
             assert "transcription_output_reconciliations" in inspect(conn).get_table_names()
             _assert_attempt_enums_absent(conn)
             assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0012_output_reconciliation_cases"
-        run_alembic("0013_job_retry_recovery", env=env)
+        run_alembic("0014_source_deletion_retention", env=env)
         with temp_engine.begin() as conn:
             _assert_job_retry_recovery_schema(inspect(conn), conn)
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0013_job_retry_recovery"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0014_source_deletion_retention"
 
     with isolated_migration_database("studio_migration_0013_metadata") as (temp_engine, env):
         Base.metadata.create_all(temp_engine)
-        run_alembic("0013_job_retry_recovery", env=env, command="stamp")
+        run_alembic("0014_source_deletion_retention", env=env, command="stamp")
         run_alembic("0012_output_reconciliation_cases", env=env, command="downgrade")
         with temp_engine.begin() as conn:
             assert "transcription_job_source_attempts" not in inspect(conn).get_table_names()
@@ -2718,7 +2972,7 @@ def test_job_destination_migration_0008_0009_upgrade_downgrade_backfill(tmp_path
         with temp_engine.begin() as conn:
             assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0009_job_output_destinations"
         cfg = Config(str(ALEMBIC))
-        assert ScriptDirectory.from_config(cfg).get_current_head() == "0013_job_retry_recovery"
+        assert ScriptDirectory.from_config(cfg).get_current_head() == "0014_source_deletion_retention"
     finally:
         temp_engine.dispose()
         cleanup_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")

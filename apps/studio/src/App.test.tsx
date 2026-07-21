@@ -26,6 +26,7 @@ const json = (body: unknown, ok = true, status = 200) =>
     ok,
     status,
     json: () => Promise.resolve(body),
+    clone: () => ({ json: () => Promise.resolve(body) }),
     text: () => Promise.resolve(JSON.stringify(body)),
     blob: () =>
       Promise.resolve(
@@ -451,6 +452,7 @@ describe("Studio PWA", () => {
       configurable: true,
     });
     window.history.replaceState({}, "", "/");
+    vi.spyOn(window, "confirm").mockReturnValue(true);
     googlePicker.resetGooglePickerLoaderForTests();
     delete window.gapi;
     delete window.google;
@@ -631,7 +633,7 @@ describe("Studio PWA", () => {
                 drive_file_url: null,
                 upload_status: "uploaded",
                 uploaded_at: "2026-07-01T00:02:00",
-                expires_at: "2026-07-01T01:02:00",
+                expires_at: null,
                 deleted_at: null,
                 delete_reason: null,
                 created_at: "2026-07-01T00:00:00",
@@ -656,14 +658,13 @@ describe("Studio PWA", () => {
           return json({
             sources: [
               {
-                id: "s-picker-2",
+                id: "s-picker-1",
                 project_id: "p1",
                 source_type: "google_drive",
-                original_filename: "picked-second.mp4",
+                original_filename: "picked-first.mp4",
                 mime_type: "video/mp4",
-                size_bytes: 20,
-                drive_file_id: "file-2",
-                drive_file_url: "https://drive.example/file-2",
+                size_bytes: 10,
+                drive_file_url: "https://drive.example/file-1",
                 upload_status: "uploaded",
                 uploaded_at: "2026-07-01T00:00:00Z",
                 expires_at: null,
@@ -673,14 +674,13 @@ describe("Studio PWA", () => {
                 updated_at: "2026-07-01T00:00:00Z",
               },
               {
-                id: "s-picker-1",
+                id: "s-picker-2",
                 project_id: "p1",
                 source_type: "google_drive",
-                original_filename: "picked-first.mp4",
+                original_filename: "picked-second.mp4",
                 mime_type: "video/mp4",
-                size_bytes: 10,
-                drive_file_id: "file-1",
-                drive_file_url: "https://drive.example/file-1",
+                size_bytes: 20,
+                drive_file_url: "https://drive.example/file-2",
                 upload_status: "uploaded",
                 uploaded_at: "2026-07-01T00:00:00Z",
                 expires_at: null,
@@ -831,7 +831,7 @@ describe("Studio PWA", () => {
           return json({
             authorization_url:
               "https://accounts.google.com/o/oauth2/v2/auth?state=secret-state",
-            expires_at: "2026-07-01T00:10:00",
+            expires_at: null,
           });
         if (
           url.endsWith("/api/projects/p1/jobs/batch") &&
@@ -1012,6 +1012,82 @@ describe("Studio PWA", () => {
     ).not.toBeInTheDocument();
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
     expect(screen.queryByText(/Лекция 1\. Личность/)).not.toBeInTheDocument();
+  });
+
+
+
+  it("fails source removal closed when confirmation throws", async () => {
+    vi.spyOn(window, "confirm").mockImplementation(() => {
+      throw new Error("confirm unavailable");
+    });
+    renderApp("platform");
+    await openProjectsPage();
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
+    await userEvent.click(
+      screen.getByRole("button", { name: "Убрать из проекта: local-temp.ogg" }),
+    );
+    expect(
+      (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
+        ([url, init]) => String(url).endsWith("/api/sources/s-local") && init?.method === "DELETE",
+      ),
+    ).toBe(false);
+  });
+
+  it("confirms source removal text and sends at most one DELETE", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    renderApp("platform");
+    await openProjectsPage();
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Убрать из проекта: Лекция 1. Личность как психологическое явление.flac",
+      }),
+    );
+    expect(confirm).toHaveBeenCalledWith(
+      "Источник будет убран только из Studio. Файл останется на Google Drive.",
+    );
+    expect(
+      (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
+        ([url, init]) => String(url).endsWith("/api/sources/s1") && init?.method === "DELETE",
+      ),
+    ).toBe(false);
+
+    confirm.mockReturnValue(true);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Убрать из проекта: local-temp.ogg" }),
+    );
+    expect(confirm).toHaveBeenLastCalledWith(
+      "Источник будет убран из Studio. Временная копия будет удалена из хранилища после безопасной проверки связанных задач.",
+    );
+    expect(
+      (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(
+        ([url, init]) => String(url).endsWith("/api/sources/s-local") && init?.method === "DELETE",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it.each([
+    ["queued_job_uses_source", "Сначала отмените ожидающие задачи, использующие этот файл."],
+    ["processing_job_uses_source", "Дождитесь завершения или отмены текущей обработки."],
+    ["retryable_failed_job_uses_source", "Источник нужен для доступного безопасного повтора задачи."],
+  ])("shows safe blocked-removal message for %s", async (reason, message) => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/sources/s-local") && init?.method === "DELETE")
+        return json({ detail: { reason } }, false, 409);
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    renderApp("platform");
+    await openProjectsPage();
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
+    await userEvent.click(
+      screen.getByRole("button", { name: "Убрать из проекта: local-temp.ogg" }),
+    );
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("job_");
+    expect(document.body.textContent).not.toContain("cleanup_owner");
+    expect(document.body.textContent).not.toContain("retry_stage");
   });
 
   it("keeps the source card and shows a safe project-removal error on failed removal", async () => {
@@ -2338,7 +2414,7 @@ describe("Studio PWA", () => {
                 drive_file_url: null,
                 upload_status: "uploaded",
                 uploaded_at: "2026-07-01T00:02:00",
-                expires_at: "2026-07-01T01:02:00",
+                expires_at: null,
                 deleted_at: null,
                 delete_reason: null,
                 created_at: "2026-07-01T00:00:00",
@@ -4498,7 +4574,7 @@ describe("Studio PWA", () => {
           return json({
             authorization_url:
               "https://accounts.google.com/o/oauth2/v2/auth?state=safe",
-            expires_at: "2026-07-01T00:10:00",
+            expires_at: null,
           });
         return json({ credentials: [], events: [] });
       },
@@ -4592,7 +4668,7 @@ describe("Studio PWA", () => {
                 drive_file_url: null,
                 upload_status: "uploaded",
                 uploaded_at: "2026-07-01T00:02:00",
-                expires_at: "2026-07-01T01:02:00",
+                expires_at: null,
                 deleted_at: null,
                 delete_reason: null,
                 created_at: "2026-07-01T00:00:00",

@@ -87,7 +87,7 @@ def acquire_next_ready_job_lease(
         if job.status != JobStatus.queued or is_lease_active(job, now):
             excluded_job_ids.add(job.id)
             continue
-        if not build_claim_readiness(job)["ready_for_future_claim"]:
+        if not build_claim_readiness(job, now=now)["ready_for_future_claim"]:
             excluded_job_ids.add(job.id)
             continue
         return _apply_job_lease(db, job=job, owner=owner, claimed_at=now, expires_at=expires_at)
@@ -108,7 +108,7 @@ def acquire_job_lease(
         raise JobLeaseError(JobLeaseFailureReason.job_not_found)
     if job.status != JobStatus.queued:
         raise JobLeaseError(JobLeaseFailureReason.job_not_queued)
-    if not build_claim_readiness(job)["ready_for_future_claim"]:
+    if not build_claim_readiness(job, now=now)["ready_for_future_claim"]:
         raise JobLeaseError(JobLeaseFailureReason.job_not_ready)
     if is_lease_active(job, now):
         raise JobLeaseError(JobLeaseFailureReason.lease_active)

@@ -180,8 +180,8 @@ def mark_latest_attempt_completed_for_output(db, *, job_source_id, now):
         row.stage=Stage.output_persisted; row.retry_disposition=Disp.completed; row.completed_at=row.completed_at or now; row.updated_at=now; db.flush()
     return row
 
-def _projected_queued_ready(job) -> bool:
-    preflight = build_processing_preflight(job)
+def _projected_queued_ready(job, *, now=None) -> bool:
+    preflight = build_processing_preflight(job, now=now)
     projected = dict(preflight); projected["status"] = "queued"; projected["blocking_reasons"] = [r for r in preflight["blocking_reasons"] if r != "job_status_not_queued"]
     projected["eligible"] = not projected["blocking_reasons"]
     return bool(build_claim_readiness_from_preflight(projected)["ready_for_future_claim"])
@@ -214,7 +214,7 @@ def _evaluate(db, job, *, mode: Literal["explicit", "recovery"], now: datetime|N
         else: reason=reason or RetryReason.non_retryable
     if attempts >= MAX_PROCESSING_ATTEMPTS: return RetryReadiness(False, RetryReason.attempt_limit_reached, attempts, MAX_PROCESSING_ATTEMPTS, len(missing), safe)
     if not missing: return RetryReadiness(False, RetryReason.completed, attempts, MAX_PROCESSING_ATTEMPTS, 0, safe)
-    if safe==len(missing) and _projected_queued_ready(job): return RetryReadiness(True, RetryReason.available, attempts, MAX_PROCESSING_ATTEMPTS, len(missing), safe)
+    if safe==len(missing) and _projected_queued_ready(job, now=now): return RetryReadiness(True, RetryReason.available, attempts, MAX_PROCESSING_ATTEMPTS, len(missing), safe)
     return RetryReadiness(False, reason or RetryReason.prerequisites_unavailable, attempts, MAX_PROCESSING_ATTEMPTS, len(missing), safe)
 
 def compute_explicit_retry_readiness(db, job, *, now: datetime|None=None):
