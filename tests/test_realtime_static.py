@@ -872,7 +872,7 @@ def test_proxy_page_assets_do_not_introduce_google_docs_drive_manifest_or_speake
 def test_docs_mention_realtime_experimental_caveats() -> None:
     docs = "\n".join(
         (ROOT / path).read_text(encoding="utf-8")
-        for path in ["README.md", "docs/project-spec.md", "docs/delivery-plan.md", "VALIDATION_MATRIX.md"]
+        for path in ["README.md", "docs/project-spec.md", "docs/delivery-plan.md", "docs/runbooks/realtime-colab.md"]
     )
     for phrase in [
         "Realtime Colab prototype",

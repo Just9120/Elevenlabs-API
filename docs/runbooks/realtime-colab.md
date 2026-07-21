@@ -4,6 +4,8 @@
 
 Realtime Colab/proxy contour — experimental validation path for live browser audio capture + ElevenLabs realtime STT. Он отдельный от stable batch Colab workflow and does not replace `elevenlabs_api.py` or `notebooks/elevenlabs_api_colab.ipynb`.
 
+Realtime Colab prototype status is experimental. It has no Google Docs output, no manifest mutation, uses a single-use realtime token boundary, and requires manual Colab runtime validation before any broader claim.
+
 Output-cell UI path is blocked in the tested Colab runtime: active JavaScript did not attach for inline `display(HTML(...))`, separate `IPython.display.Javascript(...)`, or sandboxed `iframe srcdoc`. Active validation path is the standalone page through Colab proxy/new tab.
 
 ## 2. Confirmed evidence

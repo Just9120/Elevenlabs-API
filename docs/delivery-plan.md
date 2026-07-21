@@ -4,9 +4,9 @@
 
 - ✅ `PWA-RETRY-RECOVERY-01` — Safe stage-specific retry/recovery — Done/source-complete, merged via PR #173.
 - ✅ `PWA-SOURCE-DELETION-01` — Safe Studio source deletion, retention, and storage cleanup — Done/source-complete, merged via PR #174.
-- 👉 `PWA-CD-RECOVERY-01` — Repair component CD old-checkout/new-script ordering and validate the latest `main` deployment — Source fix implemented in the local stabilization batch; merge and live CD validation remain pending.
-- 📋 `DOCS-AUTHORITY-SYNC-02` — Reconcile stale source-complete versus production-rollout claims and consolidate pointer-only documents — Status claims and provider-contract consolidation complete in the local batch; validation pointer consolidation remains pending.
-- 📋 `PWA-LEGACY-AUTHORITY-01` — Review legacy UI, API, deployment, and runtime authority after CD recovery.
+- ✅ `DOCS-AUTHORITY-SYNC-02` — Reconcile stale source-complete versus production-rollout claims and consolidate pointer-only documents — Complete in the local stabilization batch.
+- ⛔ `PWA-CD-RECOVERY-01` — Repair component CD old-checkout/new-script ordering and validate the latest `main` deployment — Source fix implemented; live validation is blocked until the batch is merged and CD is run again.
+- 👉 `PWA-LEGACY-AUTHORITY-01` — Review legacy UI, API, deployment, and runtime authority — Current local coding item.
 - ⛔ `PWA-PROCESSING-ROLLOUT-01A` — Production processing rollout/canary — Operator item not run; production-live claims remain prohibited.
 
 ## Current repository state
@@ -22,7 +22,6 @@
 
 ## Near backlog
 
-- `DOCS-AUTHORITY-SYNC-02` — consolidate the remaining `VALIDATION_MATRIX.md` pointer into the current validation/realtime runbooks; provider rules now live only in their current authorities.
 - `PWA-LEGACY-AUTHORITY-01` — review legacy static UI, permissive compatibility APIs, and deployment/runtime paths; remove, deprecate, or formally mark them.
 - `PWA-BROWSER-INTEGRATION-BOUNDARY-01` — decide and enforce the security contract for Google Picker access tokens and direct presigned uploads.
 - `PWA-DEPENDENCY-SECURITY-01` — remediate audited Node/Python dependency findings with focused upgrades and reproducible constraints.

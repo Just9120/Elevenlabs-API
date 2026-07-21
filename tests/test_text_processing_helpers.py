@@ -637,7 +637,7 @@ def test_drive_source_selected_html_uses_dark_theme_readable_colors() -> None:
 def test_docs_do_not_describe_drive_multi_as_unavailable() -> None:
     docs_text = "\n".join(
         path.read_text(encoding="utf-8")
-        for path in [Path("README.md"), Path("docs/project-spec.md"), Path("VALIDATION_MATRIX.md")]
+        for path in [Path("README.md"), Path("docs/project-spec.md"), Path("docs/runbooks/validation.md")]
     )
 
     stale_phrases = [
