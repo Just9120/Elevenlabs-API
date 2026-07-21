@@ -62,6 +62,8 @@ Dependency evidence:
 - `pip-audit -r requirements-dev.txt` reported 20 advisories across three pinned packages: `cryptography==44.0.0`, `python-multipart==0.0.19`, and the resolved `starlette==0.41.3`.
 - `pytest` and Colab dependencies are not fully pinned, and Python transitive dependencies have no committed lock/constraints artifact. CI behavior can drift without a repository change.
 
+Remediation refresh on 2026-07-21 found 18 Node advisories after the registry database had advanced, including two critical Vitest findings. A focused upgrade to Vite 6.4.3, Vitest 3.2.6, vite-plugin-pwa 1.3.0, and compatible ESLint tooling reduced the current npm audit result to zero without changing React, TypeScript, or runtime UI dependencies. Python findings remain a separate remediation task.
+
 ### Stage self-review: validation
 
 The failed local total is not reported as a blanket regression because GitHub's service-backed CI passed the same revision. Conversely, green GitHub CI does not override the confirmed CD failure or dependency advisories. Dependency counts are point-in-time audit evidence and must be refreshed during the upgrade task.
