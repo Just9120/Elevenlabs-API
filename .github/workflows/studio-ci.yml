@@ -13,7 +13,7 @@ on:
       - 'scripts/deploy_studio_platform_component.sh'
       - 'scripts/migrate_studio_platform.sh'
       - 'scripts/backup_studio_postgres_r2.sh'
-      - 'docs/runbooks/studio-deploy.md'
+      - 'docs/runbooks/legacy-studio-web-deploy.md'
       - 'docs/runbooks/studio-platform-ops.md'
   push:
     branches: [main]
@@ -28,7 +28,7 @@ on:
       - 'scripts/deploy_studio_platform_component.sh'
       - 'scripts/migrate_studio_platform.sh'
       - 'scripts/backup_studio_postgres_r2.sh'
-      - 'docs/runbooks/studio-deploy.md'
+      - 'docs/runbooks/legacy-studio-web-deploy.md'
       - 'docs/runbooks/studio-platform-ops.md'
   workflow_dispatch:
 

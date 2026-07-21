@@ -228,6 +228,17 @@ def test_studio_platform_cd_materializes_deploy_script_for_both_components() -> 
         assert pattern.search(workflow), f"{component} deploy does not execute a materialized temporary script"
 
 
+def test_studio_ci_path_filters_reference_existing_files() -> None:
+    workflow = (ROOT / ".github/workflows/studio-ci.yml").read_text(encoding="utf-8")
+    filtered_paths = re.findall(r"^\s+- '([^']+)'$", workflow, re.MULTILINE)
+    literal_paths = {path for path in filtered_paths if "*" not in path}
+    missing = sorted(path for path in literal_paths if not (ROOT / path).is_file())
+
+    assert missing == []
+    assert workflow.count("- 'docs/runbooks/legacy-studio-web-deploy.md'") == 2
+    assert workflow.count("- 'docs/runbooks/studio-platform-ops.md'") == 2
+
+
 def test_new_script_fast_forwards_old_checkout_before_versioned_validation(tmp_path: Path) -> None:
     checkout = tmp_path / "checkout"
     target_tree = tmp_path / "target-tree"
