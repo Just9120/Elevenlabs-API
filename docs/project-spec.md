@@ -30,6 +30,11 @@ Durable Colab invariants:
 - Existing Colab notebooks/scripts must not be refactored as a side effect of Studio documentation or platform work.
 - Secret values must be read from approved runtime secret mechanisms and never printed.
 - Provider responses, transcript bodies, document content, Google tokens, and private source bytes must not be copied into repository docs, logs, examples, or validation evidence.
+- Provider HTTP failures expose safe diagnostics only: provider name, status code, an endpoint without query parameters, and scalar fields `detail`, `message`, `code`, `type`, `error.message`, `error.type`, and `error.code`. Raw response bodies must not be printed. Google retry logs must likewise omit request/response bodies, transcript text, tokens, and secrets.
+- Generated media, transcripts, private manifest exports, runtime analytics, and notebook outputs containing user data must not be committed.
+- Runtime temp cleanup is TTL-based (24 hours by default), best-effort, and limited to stale artifacts with the `elevenlabs_api_` project prefix; it must not target generic temporary files or arbitrary user media.
+- The manifest workflow supports one user in one runtime. Parallel notebooks or tabs are not an accepted concurrency model.
+- The Colab launcher executes repository code from `GITHUB_REF`; only trusted reviewed refs may be used, and a reviewed commit SHA is preferred for reproducible runs.
 - Long-media behavior and manifest behavior remain Colab baseline capabilities for parity analysis, not automatically proven Studio capabilities.
 
 Realtime Colab is a separate experimental validation path. Its current runbook is `docs/runbooks/realtime-colab.md`; it does not replace the stable batch Colab workflow.
@@ -102,14 +107,15 @@ Manual segmentation:
 - Re-running a controlled batch must not repeat paid transcription without a manifest/source/settings reason.
 - The Drive workspace is `VoiceOps Workspace/`; legacy `_transcription_state` history must not be deleted before reconciliation.
 - Analytics JSONL is best-effort aggregate evidence and must not include transcript body, secrets, raw provider payloads, raw Google/Drive payloads, Google Docs body content, raw Drive URLs, or full local paths.
+- New structured Google Docs output must use transcript text and provider/model/language/speaker/timestamp metadata already available in memory. It must not expose source filename/source mode in the visible metadata block, create mirrored Markdown output, or make extra provider/LLM/Docs readback calls only for formatting.
 
 ### Colab maintenance workflows
 
 Existing Colab maintenance workflows are explicit operator actions, not new transcription runs:
 
-- Existing Google Docs transcripts may be standardized to `transcript_doc_v1.2` through an explicit dry-run/apply maintenance workflow.
-- Existing manifest records may be reconciled or refreshed without calling a transcription provider.
-- Maintenance workflows must not call STT/LLM APIs and must not register a new transcription output as the result of a new provider run.
+- Existing Google Docs transcripts may be standardized to `transcript_doc_v1.2` through a selected-folder workflow that defaults to dry-run and separates selected-folder scan counters from apply-impact counters. Explicit apply may rewrite only the same selected Google Doc in place; it must not process PDFs/non-Google-Docs, create new Docs or mirrored artifacts, mutate manifest entries, call STT/provider/LLM APIs, or print document body text. The older source-matching standardization path is legacy/internal, not the primary maintenance path.
+- Existing manifest records may be reconciled or refreshed through a schema-only workflow that defaults to read-only dry-run and separates selected-folder results from global manifest reference statistics. It may read a Google Doc only to classify transcript structure, and apply may persist operational document/source metadata, source processing state, and classification metadata, never transcript or document body text. `standard_check` stores only target/detected standard, status, checked-at time, and checker version.
+- Manifest maintenance must not mutate Google Docs, create Docs, call STT/provider/LLM APIs, or register a new transcription output. Timestamped backups created during old-schema migration contain sensitive operational metadata and require the same access care as the active manifest.
 - Speaker-project rename is a manual post-transcription workflow that maps `Speaker N` or provider speaker labels to project speaker names.
 - Speaker-project rename does not perform voice identification, speaker verification, biometric matching, voiceprint extraction, embeddings, or automatic identity assignment from voice.
 - The speaker roster is runtime Colab state normalized by the speaker-project helpers and contains only safe project/speaker display data, not transcript samples or voice data.

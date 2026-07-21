@@ -1,76 +1,115 @@
-# SECURITY.md
+# Security policy
 
-## Security baseline (Colab-first)
+## Supported versions and contours
 
-This project is a **Google Colab-first transcription workflow**. Secrets, media files, and notebook outputs must be handled as sensitive data.
+Security fixes are prepared for the current `main` branch. Older commits, forks, and
+unmaintained local deployments are not supported separately.
 
-## Secrets and credentials
+The repository has two product contours with different maturity:
 
-Never commit secrets to the repository, including:
-- API keys (`ELEVENLABS_API_KEY`, `OPENAI_API_KEY`, legacy `ELEVEN_API_KEY`)
-- Google OAuth / service account credentials
-- `.env` files
+- the Google Colab batch workflow is the stable operational baseline;
+- Studio PWA is in development and is not confirmed production-live.
 
-Use Google Colab Secrets (`google.colab.userdata`) for runtime access.
+Realtime Colab is experimental. Source code, CI success, deployment success, and
+production security evidence are different states; none should be inferred from
+another.
 
-## Colab outputs and logs
+## Reporting a vulnerability
 
-Notebook outputs can leak sensitive values, request payload details, or provider error bodies.
+Do not publish vulnerability details, credentials, tokens, private media,
+transcripts, document identifiers, or customer data in a public issue.
 
-Security baseline:
-- provider HTTP errors are logged with **safe diagnostics only**;
-- raw response bodies are **not** printed to Colab output;
-- only provider name, status code, endpoint without query parameters, and selected safe scalar JSON fields are logged (`detail`, `message`, `code`, `type`, `error.message`, `error.type`, `error.code`).
+Use GitHub's private vulnerability reporting flow for this repository when it is
+available:
 
-## Generated media and transcripts
+<https://github.com/Just9120/Elevenlabs-API/security/advisories/new>
 
-Do not commit:
-- downloaded media,
-- extracted audio,
-- generated transcripts,
-- manifest exports from private runs,
-- notebook `.ipynb` outputs containing user data.
-- runtime analytics logs from Drive (`VoiceOps Workspace/analytics/elevenlabs_transcription_runs.jsonl`).
+If private reporting is unavailable, open only a minimal public issue asking the
+maintainer to provide a private contact channel. Do not include exploit details or
+sensitive evidence in that issue.
 
-Analytics logs are runtime diagnostic artifacts. They must not store secrets, transcript text, raw provider response bodies, or Google Docs contents. Structured Google Docs output for new transcriptions must be produced from transcript text and runtime provider/model/language/speaker/timestamp metadata already available in memory; it must not embed source filename/source mode in the visible transcript metadata block, create mirrored Markdown artifacts, or perform extra provider/LLM/Docs readback calls for formatting.
+A useful private report includes:
 
-Docs-only standardization for existing transcripts is a user-triggered Google Drive/Docs flow tied to the selected destination/output folder. Its reports separate selected-folder scan counters from apply impact counters. It reads existing Google Docs and, only in explicit apply mode, rewrites the same Google Doc in place. It must not call STT providers, diarization providers, ElevenLabs, OpenAI, provider APIs, or LLM APIs; must not create new Docs; must not create Markdown/JSON/mirrored folders/export artifacts; must not mutate manifest entries; must ignore PDFs and non-Google-Docs files; and must default to dry-run. It also must not print transcript body text or Google Docs body content in logs/reports. The older source-matching standardization flow is legacy/internal and should not be treated as the primary path for existing transcript standardization.
+- the affected contour and commit or version;
+- impact and required preconditions;
+- minimal reproduction steps or a small proof of concept;
+- whether authentication, owner scope, external provider calls, or persistent data
+  are involved;
+- redacted logs or screenshots only when they are necessary.
 
-Unified manifest maintenance is a schema-only Docs metadata flow tied to the selected destination/output folder and the global workspace manifest. Its reports must clearly separate selected-folder result counters from global manifest reference statistics, and must not print transcript text. It may read Google Docs only to classify transcript structure for `standard_check`; it must never store transcript text or Google Docs body content in `documents`, `sources`, manifest backups, logs, analytics, or reports. Reconciliation/refresh may inspect manifest metadata fields such as `doc_id`, `doc_link`, `doc_name`, `doc_path`, `doc_mime_type`, `source_name`, `status`, `source_type`, source signatures, and registration metadata; it must not store or print transcript text. Apply mode may store doc IDs, doc names, doc links, paths, MIME type, timestamps, separated document/source metadata, source processing state, and classification metadata only. `standard_check` stores only `target_standard`, `detected_standard`, `status`, `checked_at`, and checker version. Dry-run must remain the default and read-only. When apply updates an old-format manifest to the current internal schema, it writes a timestamped backup of the prior active manifest; that backup contains operational metadata such as source names, document links, source signatures, and historical statuses, so treat backup files as sensitive operational metadata with the same access care as the active manifest. The unified manifest flow must not mutate Google Docs content, create Docs, call STT/provider/LLM APIs, or print full transcript text.
+This is a maintainer-run project and does not promise a fixed response SLA. Reports
+are handled on a best-effort basis, with public disclosure coordinated after a fix
+or mitigation is available.
 
-Runtime hygiene:
-- startup cleanup removes only stale temp artifacts with project prefix `elevenlabs_api_`;
-- cleanup is TTL-based (default 24h) and best-effort;
-- generic `/tmp` files and arbitrary user media are not targeted.
+## Safe research boundaries
 
-## Supported operating model
+Good-faith review of repository code and isolated local test environments is in
+scope. Relevant findings include authentication or owner-isolation bypasses,
+credential disclosure, unsafe OAuth/provider handling, source-storage access,
+unredacted diagnostics, unintended paid or external side effects, deployment
+safety failures, and exploitable dependency or supply-chain issues.
 
-The current manifest model is intended for **single-user / single-runtime Colab usage**. Parallel notebooks/tabs are not officially supported and may create state races.
+Do not, without explicit authorization:
 
-## Incident handling recommendation
+- test against a live or production deployment;
+- access another person's account, files, sources, transcripts, or Google Docs;
+- call paid transcription providers or mutate Google resources;
+- perform denial-of-service, broad scanning, social engineering, or destructive
+  testing;
+- retain or redistribute data obtained accidentally.
 
-If secret leakage is suspected:
-1. Revoke/rotate affected keys immediately.
-2. Remove exposed artifacts from history if possible.
-3. Re-run impacted jobs only after credential rotation.
+Stop testing and report privately if private data or a secret becomes visible.
 
+## Non-negotiable handling rules
 
-## GitHub Colab launcher safety
+- Never commit or print API keys, OAuth tokens, session material, runtime `.env`
+  values, secret-file contents, private source bytes, transcript/document bodies,
+  or raw provider/Google responses.
+- Colab credentials belong in approved runtime secret mechanisms. Generated media,
+  transcript artifacts, private manifest exports, and notebook outputs do not
+  belong in the repository.
+- Studio runtime secrets belong in operator-managed secret files or approved secret
+  stores. Persisted BYOK credentials must remain encrypted and owner-scoped.
+- The browser is an untrusted boundary. Safe normalized owner-scoped metadata is
+  distinct from credentials, raw content, storage identity, or external payloads.
+- External provider and Google operations are side-effect boundaries. Uncertain
+  outcomes must fail closed and must not trigger automatic duplicate paid calls or
+  duplicate document creation.
+- CI and validation evidence must use synthetic credentials and redacted metadata.
+  A green check is not permission to use production secrets.
 
-`notebooks/elevenlabs_api_colab.ipynb` downloads executable code (`elevenlabs_api.py`) from the configured GitHub ref and executes it in Colab runtime.
+The current Google Picker/direct-upload browser-token and presigned-URL contract is
+an explicit unresolved Studio security decision tracked as
+`PWA-BROWSER-INTEGRATION-BOUNDARY-01`. Existing implementation is not evidence that
+this boundary has been accepted or production-validated.
 
-Recommendations:
-- use trusted refs only (default `main` or a reviewed commit SHA);
-- prefer pinning `GITHUB_REF` to a commit SHA for reproducible runs;
-- never commit notebook outputs or secrets from launcher/runtime sessions.
+## Security authorities
 
-## CI credentials policy
+This file is the reporting and routing entry point. Detailed requirements live in:
 
-The lightweight GitHub Actions CI is intentionally secretless:
-- it must not require real ElevenLabs, OpenAI, or Google credentials;
-- it must not perform real provider/API transcription calls;
-- no CI-specific secrets are required for baseline hygiene checks.
+- `docs/project-spec.md` — product scope, durable security constraints, and
+  acceptance criteria;
+- `docs/architecture.md` — trust boundaries and data flow;
+- `docs/studio-processing-contract.md` — processing, side-effect, diagnostics, and
+  browser-payload invariants;
+- `docs/ci-cd-rules.md` — secrets, deployment, migration, stateful-service, and
+  rollback safety;
+- `docs/runbooks/studio-platform-ops.md` — operator-managed runtime and rollout
+  procedures;
+- `docs/runbooks/validation.md` — safe validation evidence;
+- `docs/delivery-plan.md` — current unresolved security and delivery risks.
 
-If future workflows add integration/E2E checks, keep them isolated and explicitly gated before introducing any credentials.
+If these sources conflict, follow the priority in `AGENTS.md` and report the
+conflict instead of silently weakening a security boundary.
 
-- Retry logging for Google API transient failures is intentionally minimal and must not include request/response bodies, transcript text, tokens, or secrets.
+## Suspected exposure
+
+If a credential or private artifact may have leaked:
+
+1. stop the affected workflow or deployment without destroying evidence;
+2. revoke or rotate the affected credential through its owning provider;
+3. invalidate affected sessions or OAuth grants where applicable;
+4. preserve only redacted incident metadata;
+5. remove committed sensitive history through an explicitly reviewed recovery
+   procedure;
+6. resume provider or Google operations only after containment and validation.

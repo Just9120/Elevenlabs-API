@@ -159,6 +159,12 @@ Use placeholders such as `__REQUIRED_SECRET__` only as schema markers, not as re
 
 Do not print or validate runtime secrets with unsafe commands such as `cat .env`, `docker compose config`, or any command that can expose resolved secret values.
 
+Baseline repository and Studio CI must remain secretless: use synthetic test values,
+do not require real ElevenLabs, OpenAI, Google, or production credentials, and do
+not make real transcription/provider calls. Any future credentialed integration or
+end-to-end workflow requires a separate explicitly approved, isolated, and gated
+design before credentials are introduced.
+
 ---
 
 ## Stateful services
