@@ -305,6 +305,9 @@ def test_api_job_create_batch_replay_and_cancel_diagnostics(monkeypatch, db):
     import studio_api.main as main
     from studio_api import models as m
     u,p,_=user_project_job(db)
+    p.output_drive_folder_id = "legacy-output-folder"
+    p.output_drive_folder_url = "https://drive.google.com/drive/folders/legacy-output-folder"
+    p.output_drive_folder_name = "Legacy output"
     cred = m.ProviderCredential(
         user_id=u.id,
         provider=m.CredentialProvider.elevenlabs,
