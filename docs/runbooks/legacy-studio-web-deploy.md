@@ -1,6 +1,8 @@
 # Legacy Studio web deploy runbook
 
-This runbook documents the legacy/stateless Studio web-only path until a separate `PWA-LEGACY-AUTHORITY-01` cleanup task removes or formally supersedes the runtime code.
+LEGACY / COMPATIBILITY ONLY / NOT AUTHORITATIVE FOR PRODUCTION. Replacement path: `deploy/studio/compose.platform.yml` with `scripts/deploy_studio_platform_component.sh web`. Removal condition: delete this runbook only after an explicit operator review confirms no stateless web-only rollback or compatibility dependency remains.
+
+This runbook documents the legacy/stateless Studio web-only path preserved for compatibility only.
 
 This path:
 

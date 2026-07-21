@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# LEGACY / COMPATIBILITY ONLY / NOT AUTHORITATIVE FOR PRODUCTION. Replacement: scripts/deploy_studio_platform_component.sh web with deploy/studio/compose.platform.yml. Removal condition: explicit operator confirmation that stateless web-only rollback/history is no longer needed.
 set -euo pipefail
 
 EXPECTED_REMOTE="${EXPECTED_REMOTE:-git@github.com:Just9120/Elevenlabs-API.git}"

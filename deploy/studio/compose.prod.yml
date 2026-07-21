@@ -1,3 +1,4 @@
+# LEGACY / COMPATIBILITY ONLY / NOT AUTHORITATIVE FOR PRODUCTION. Replacement: deploy/studio/compose.platform.yml with scripts/deploy_studio_platform_component.sh web. Removal condition: explicit operator confirmation that stateless web-only rollback/history is no longer needed.
 name: elevenlabs-studio
 services:
   studio-web:

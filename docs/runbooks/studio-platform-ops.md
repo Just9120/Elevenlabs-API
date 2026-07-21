@@ -36,7 +36,7 @@ Rules:
 
 ## Platform bootstrap
 
-Canonical stateful platform deployment uses the platform Compose stack under `deploy/studio/` and the approved platform scripts/runbooks, not the legacy stateless web-only path.
+Canonical stateful platform deployment uses `deploy/studio/compose.platform.yml`, `deploy/studio/.env` created from `deploy/studio/.env.example`, and the approved platform scripts/runbooks, not the legacy stateless web-only path. The legacy stateless web-only path is LEGACY / COMPATIBILITY ONLY / NOT AUTHORITATIVE FOR PRODUCTION; replacement is `deploy/studio/compose.platform.yml` plus `scripts/deploy_studio_platform_component.sh`, and removal requires operator confirmation that no stateless web-only rollback/history dependency remains.
 
 Bootstrap boundary:
 
@@ -155,15 +155,28 @@ Before any processing rollout or canary, verify without printing sensitive value
 - production database revision is known and compared to repository Alembic head `0014_source_deletion_retention`;
 - exactly one worker instance is intended for the canary.
 
-## Controlled worker rollout sequence
+## Authoritative rollout sequence
 
-1. Keep `studio-worker` stopped until migration and runtime readiness are confirmed.
-2. Create/confirm the tagged pre-migration database backup if a migration or stateful rollout is involved.
-3. Verify production database revision equals repository head `0014_source_deletion_retention` where the deployment is expected to be current.
-4. Deploy web/API only through the approved isolated component deployment model.
-5. Verify intended commit/image identity, running component identity, localhost health, public health, authenticated session behavior, and output endpoint availability without exposing another owner’s data.
-6. Start exactly one `studio-worker` from the intended image with no public HTTP port.
-7. Verify worker configuration, bounded opaque process identity, and idle polling without creating or mutating jobs.
+These steps are operator actions only. Do not run them from a coding-agent PR, standard CI, or unapproved automation.
+
+1. Verify intended commit/image identity: expected repository `Just9120/Elevenlabs-API`, branch `main`, clean/reviewed checkout, intended commit SHA, and selected image IDs for `studio-web`, `studio-api`, and later `studio-worker`.
+2. Verify database health: PostgreSQL service identity and read-only health must pass before any application deployment or schema comparison.
+3. Verify repository/image Alembic head: repository and intended API/worker image head must be `0014_source_deletion_retention`; compare with the current production database revision.
+4. Apply migration only as an explicit manual step: create/confirm the tagged pre-migration backup, set `STUDIO_PRE_MIGRATION_BACKUP_CONFIRMED=yes`, and run `scripts/migrate_studio_platform.sh`; standard CD must not apply migrations.
+5. Verify API/web health: deploy/recreate only the intended component through `scripts/deploy_studio_platform_component.sh`, verify running image identity, localhost health, public nginx routing, authenticated session behavior, and output endpoint availability without exposing another owner’s data.
+6. Verify the existing worker is absent or drained/stopped: use `scripts/manage_studio_worker.sh status` and `drain`/`pause` as needed; abnormal exits, multiple containers, unknown state, or active running worker block rollout.
+7. Deploy exactly one intended worker: use the manual worker component path only after migration compatibility and runtime readiness are proven; the worker has no public HTTP port and must run `python -m studio_api.worker`. Multi-worker production rollout is not authorized until separately validated.
+8. Verify worker identity and healthy idle state: confirm commit-specific worker image identity, Docker health from `python -m studio_api.worker_health`, and idle polling without creating or mutating jobs.
+9. Controlled canary is a separate operator-approved action: create exactly one bounded canary job only after the previous evidence passes.
+10. Collect safe evidence only: record status booleans/markers, component names, commit/image identities, database revision, terminal job state, attempt count, output count, and redacted health; never record secrets, transcript bodies, source bytes, document IDs/URLs, raw provider responses, raw Google responses, or private account data.
+11. Respect rollback boundaries: rollback/pause/resume uses `scripts/manage_studio_worker.sh` for worker lifecycle and explicit reviewed API/web decisions; do not automatically requeue, retry provider calls, delete Google Docs, clear leases with direct SQL, downgrade schema, prune volumes, or run destructive Compose operations.
+
+State separation rules:
+
+- source-level done != deployed;
+- migration-applied != worker-running;
+- worker-running != production-live;
+- CI green != canary success.
 
 Starting or deploying the API does not prove the worker was recreated or that processing is production-live.
 
@@ -208,15 +221,15 @@ Output-side-effect uncertainty requires a separate reconciliation item. API/web 
 
 ## Legacy deployment pointer
 
-The legacy stateless web-only path remains documented separately in `docs/runbooks/legacy-studio-web-deploy.md` until `PWA-LEGACY-AUTHORITY-01` removes or formally supersedes that runtime code. Do not use the legacy path for platform API, worker, processing, PostgreSQL, Redis, migrations, or production processing rollout.
+LEGACY / COMPATIBILITY ONLY / NOT AUTHORITATIVE FOR PRODUCTION: `docs/runbooks/legacy-studio-web-deploy.md`, `deploy/studio/compose.prod.yml`, and `scripts/deploy_studio.sh` describe the stateless `studio-web`-only path. Replacement path: `deploy/studio/compose.platform.yml` with `scripts/deploy_studio_platform_component.sh web`. Removal condition: an explicit future operator review confirms the stateless web-only path is no longer needed for historical rollback or compatibility. Do not use the legacy path for platform API, worker, processing, PostgreSQL, Redis, migrations, source cleanup, or production processing rollout.
 
 ## Residual limitations
 
 Current known limitations remain:
 
 - no exactly-once Google document creation guarantee;
-- no automated output reconciliation;
-- no safe automatic retry/recovery;
+- source-level output reconciliation exists, but production rollout/canary evidence remains separate;
+- source-level safe retry/recovery exists, but production rollout/canary evidence remains separate;
 - bounded PostgreSQL lease heartbeat is source-level only until deployed/validated; it is not a retry system and does not prove production-live processing;
 - no Studio manifest mutation;
 - no OpenAI Studio processing parity;

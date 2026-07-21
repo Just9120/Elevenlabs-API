@@ -144,9 +144,7 @@ Unfinished or unproven capabilities:
 
 - production worker rollout validation;
 - controlled end-to-end canary after the latest fix with exactly one persisted output;
-- automated output reconciliation for uncertain Google Docs side effects;
-- safe stage-specific retries/recovery;
-- safe stage-specific retries/recovery;
+- production rollout/canary evidence for source-level retry/recovery, source deletion/retention/cleanup, and output reconciliation;
 - OpenAI PWA processing parity;
 - long-media splitting parity with Colab;
 - Studio manifest authority/update behavior;
@@ -222,9 +220,9 @@ Current delivery sequencing is in `docs/delivery-plan.md`. Product backlog items
 - `PWA-WORKER-OPS-01` — official worker deployable component with health, identity, pause/drain/resume, and rollback contract.
 - `PWA-OUTPUT-RECONCILIATION-01` — reconcile uncertain or missing Google Docs output evidence without unsafe duplication.
 - `PWA-LEASE-HEARTBEAT-01` — source-complete PostgreSQL-backed bounded heartbeat for long source/provider and Google output calls; rollout evidence remains separate.
-- `PWA-RETRY-RECOVERY-01` — safe stage-specific retry and recovery design.
-- `PWA-SOURCE-DELETION-01` — source deletion and retention behavior.
-- `PWA-LEGACY-AUTHORITY-01` — remove or formally mark legacy deployment/runtime paths after review.
+- `PWA-RETRY-RECOVERY-01` — safe stage-specific retry and recovery is implemented at source level and CI-verified; production rollout/canary remains separate.
+- `PWA-SOURCE-DELETION-01` — source deletion, retention, and cleanup is implemented at source level and CI-verified; production rollout/canary remains separate.
+- `PWA-LEGACY-AUTHORITY-01` — Studio runtime/deployment authority is reconciled at source level; production rollout/canary remains separate.
 - `PWA-E2E-FOUNDATION-01` — automated end-to-end validation foundation.
 - OpenAI processing parity, long-media parity, manifest behavior, and golden Colab/PWA parity validation.
 
