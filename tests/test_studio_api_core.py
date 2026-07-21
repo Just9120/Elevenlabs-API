@@ -210,17 +210,19 @@ def test_project_create_list_update_archive_lifecycle_and_archived_excluded():
     created = r.json()
     assert created["title"] == "First project"
     assert created["description"] == "Notes"
-    assert created["owner_user_id"]
+    assert "owner_user_id" not in created
     assert created["archived_at"] is None
 
     r = c.patch(f"/api/projects/{created['id']}", json={"title": "Renamed", "description": ""}, headers={"origin": "https://studio.test", "x-csrf-token": csrf})
     assert r.status_code == 200
     assert r.json()["title"] == "Renamed"
     assert r.json()["description"] is None
+    assert "owner_user_id" not in r.json()
 
     r = c.get("/api/projects")
     assert r.status_code == 200
     assert [p["id"] for p in r.json()["projects"]] == [created["id"]]
+    assert all("owner_user_id" not in project for project in r.json()["projects"])
 
     r = c.post(f"/api/projects/{created['id']}/archive", headers={"origin": "https://studio.test", "x-csrf-token": csrf})
     assert r.status_code == 200
@@ -330,6 +332,7 @@ def assert_job_response_safe(text):
     lowered = text.lower()
     for value in forbidden:
         assert value.lower() not in lowered
+    assert '"provider_credential_id"' not in lowered
 
 
 def test_transcription_jobs_auth_and_csrf_required():
@@ -364,7 +367,7 @@ def test_legacy_job_selects_sole_active_elevenlabs_credential_for_blank_id():
         r = c.post(f"/api/projects/{pid}/jobs", json={"source_ids":[sid], "provider_credential_id":value}, headers=headers)
         assert r.status_code == 200
         assert app.openapi()["paths"][f"/api/projects/{{project_id}}/jobs"]["post"]["deprecated"] is True
-        assert r.json()["provider_credential_id"] == credential_id
+        assert "provider_credential_id" not in r.json()
         assert r.json()["output_folder"] == {"name":"Test results", "web_view_url":"https://drive.google.com/drive/folders/folder-test"}
         assert r.headers["deprecation"] == "true"
         assert r.headers["link"] == f'</api/projects/{pid}/jobs/batch>; rel="successor-version"'
@@ -388,7 +391,7 @@ def test_legacy_create_job_rejects_openai_and_preserves_source_order_and_safe_me
     assert body["source_count"] == 2
     assert [s["id"] for s in body["sources"]] == [sid1, sid2]
     assert [s["position"] for s in body["sources"]] == [0, 1]
-    assert body["provider_credential_id"] == cred
+    assert "provider_credential_id" not in body
     assert "drive_file_url" not in body["sources"][0]
     assert_job_response_safe(r.text)
     assert raw not in r.text
@@ -408,6 +411,7 @@ def test_legacy_create_job_rejects_openai_and_preserves_source_order_and_safe_me
         assert src.deleted_at is None
         assert src.upload_status == SourceUploadStatus.uploaded
         assert queued.status == JobStatus.queued
+        assert queued.provider_credential_id == cred
     finally:
         db.close()
 
@@ -2480,6 +2484,7 @@ def test_batch_explicit_active_owner_elevenlabs_credential_saved(monkeypatch):
     c, csrf, user_id, pid, source_a, source_b, cred_id = _batch_setup("batch-explicit-eleven@example.com")
     r = c.post(f"/api/projects/{pid}/jobs/batch", json=_batch_body(source_a, credential_id=cred_id), headers=_batch_headers(csrf))
     assert r.status_code == 200
+    assert all("provider_credential_id" not in job for job in r.json()["jobs"])
     db = SessionLocal()
     try:
         job = db.query(TranscriptionJob).filter_by(project_id=pid).one()

@@ -171,7 +171,7 @@ Before deletion, verify that no external client uses these endpoints. Then make 
 - Add a committed Python constraints/lock strategy and pin development tooling.
 - Add an automated dependency update/audit policy after the baseline is clean.
 - The application/container and host nginx configurations lack an explicit CSP, HSTS, `X-Content-Type-Options`, referrer, permissions, and framing policy. Google Picker requires a carefully tested allowlist; headers must be introduced with browser integration tests and host TLS validation.
-- Browser DTOs expose internal IDs such as `owner_user_id` and `provider_credential_id` that the current UI does not need. Replace broad serializers with explicit browser-facing response models and minimum fields.
+- The audited browser DTOs exposed internal IDs such as `owner_user_id` and `provider_credential_id` that the current UI did not need. The local remediation batch removes those two fields from the explicit project/job serializers while retaining request-side credential selection and server-side authority; service-backed API verification remains pending.
 - The generic 500 middleware returns safe error text and correlation IDs but does not emit a safe server diagnostic/log event for an unhandled exception, which limits production diagnosis.
 
 #### P1 — insufficient release evidence

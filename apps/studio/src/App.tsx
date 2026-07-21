@@ -150,7 +150,6 @@ type TranscriptionJob = {
   status: JobСтатус;
   title: string | null;
   provider: string | null;
-  provider_credential_id: string | null;
   source_count: number;
   sources?: JobSource[];
   created_at: string;
