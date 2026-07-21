@@ -457,3 +457,95 @@ def test_cleanup_exact_failure_preserves_identity_and_success_clears_identity(sq
     assert finalize_source_cleanup(sqlite_db, claim=success_claim, now=now + timedelta(seconds=1), success=True)
     assert succeeding.storage_cleanup_status == m.SourceStorageCleanupStatus.completed
     assert succeeding.s3_bucket is None and succeeding.s3_object_key is None
+
+
+def test_audit_source_lifecycle_metadata_contract(sqlite_db):
+    import json
+    from studio_api.audit import audit
+
+    m, user, project = _owner_project(sqlite_db)
+    audit(
+        sqlite_db,
+        "source.deletion_blocked",
+        actor_user_id=user.id,
+        subject_user_id=user.id,
+        blocker="queued_job_uses_source",
+        deletion_reason="user_deleted",
+        cleanup_outcome="completed",
+        cleanup_attempt=7,
+        source_id="private-source",
+        job_id="private-job",
+        project_id="private-project",
+        bucket="private-bucket",
+        object_key="private/key",
+        filename="secret.mp3",
+        url="https://example.invalid/secret",
+        owner="worker",
+        generation=3,
+        exception="Traceback secret-token",
+        token="secret-token",
+    )
+    audit(
+        sqlite_db,
+        "source.storage_cleanup_failed",
+        blocker="not-a-safe-blocker",
+        deletion_reason="hard_deleted",
+        cleanup_outcome="raw_failure",
+        cleanup_attempt=-1,
+    )
+    audit(sqlite_db, "source.storage_cleanup_failed", cleanup_attempt=100001)
+    sqlite_db.commit()
+
+    rows = sqlite_db.query(m.AuditEvent).order_by(m.AuditEvent.created_at.asc(), m.AuditEvent.id.asc()).all()
+    persisted = json.loads(rows[0].metadata_json)
+    assert persisted == {
+        "blocker": "queued_job_uses_source",
+        "deletion_reason": "user_deleted",
+        "cleanup_outcome": "completed",
+        "cleanup_attempt": 7,
+    }
+    assert json.loads(rows[1].metadata_json) == {}
+    assert json.loads(rows[2].metadata_json) == {}
+
+
+def test_cleanup_sql_selection_skips_more_than_100_processing_blocked_sources(sqlite_db):
+    from studio_api.source_deletion import claim_next_source_cleanup, mark_one_expired_source_for_cleanup
+
+    m, user, project = _owner_project(sqlite_db)
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    for idx in range(105):
+        src = _local_source(sqlite_db, m, project, now - timedelta(minutes=idx + 2), key=f"blocked-{idx}", expires_delta=timedelta(seconds=0))
+        _job_for_source(sqlite_db, m, user, project, src, status=m.JobStatus.processing)
+    skipped = _local_source(sqlite_db, m, project, now - timedelta(minutes=1), key="skipped-processing", expires_delta=timedelta(seconds=0))
+    _job_for_source(sqlite_db, m, user, project, skipped, status=m.JobStatus.processing, relation_status=m.JobSourceStatus.skipped)
+    eligible = _local_source(sqlite_db, m, project, now, key="eligible-later", expires_delta=timedelta(seconds=0))
+    sqlite_db.commit()
+
+    assert mark_one_expired_source_for_cleanup(sqlite_db, now=now)
+    assert skipped.upload_status == m.SourceUploadStatus.expired
+    assert eligible.upload_status == m.SourceUploadStatus.uploaded
+    sqlite_db.commit()
+
+    skipped.deleted_at = now
+    skipped.storage_cleanup_not_before_at = now
+    eligible.upload_status = m.SourceUploadStatus.expired
+    eligible.deleted_at = now
+    eligible.storage_cleanup_status = m.SourceStorageCleanupStatus.pending
+    eligible.storage_cleanup_not_before_at = now + timedelta(seconds=1)
+    sqlite_db.commit()
+    claim = claim_next_source_cleanup(sqlite_db, owner_id="worker", now=now)
+    assert claim is not None
+    assert claim.source_id == skipped.id
+    assert claim.source_id != eligible.id
+    assert claim_next_source_cleanup(sqlite_db, owner_id="worker-2", now=now) is None
+
+
+def test_job_source_final_validation_compiles_to_no_key_update(monkeypatch):
+    from sqlalchemy import select
+    from sqlalchemy.dialects import postgresql
+    from studio_api.models import Source
+
+    stmt = select(Source).where(Source.id.in_(["source-a"])).order_by(Source.id.asc()).with_for_update(key_share=True)
+    compiled = str(stmt.compile(dialect=postgresql.dialect()))
+    assert "FOR NO KEY UPDATE" in compiled
+    assert "FOR UPDATE" not in compiled.replace("FOR NO KEY UPDATE", "")

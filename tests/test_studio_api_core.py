@@ -370,12 +370,37 @@ def test_create_job_from_google_drive_and_local_sources_preserves_order_and_safe
     detail = c.get(f"/api/jobs/{body['id']}")
     assert detail.status_code == 200
     assert [s["id"] for s in detail.json()["sources"]] == [sid1, sid2]
-    assert c.delete(f"/api/sources/{sid1}", headers=headers).status_code == 200
+    blocked_delete = c.delete(f"/api/sources/{sid1}", headers=headers)
+    assert blocked_delete.status_code == 409
+    assert blocked_delete.json()["detail"]["reason"] == "queued_job_uses_source"
+    active_sources = c.get(f"/api/projects/{pid}/sources")
+    assert active_sources.status_code == 200
+    assert sid1 in [s["id"] for s in active_sources.json()["sources"]]
+    db = SessionLocal()
+    try:
+        src = db.get(Source, sid1)
+        queued = db.get(TranscriptionJob, body["id"])
+        assert src.deleted_at is None
+        assert src.upload_status == SourceUploadStatus.uploaded
+        assert queued.status == JobStatus.queued
+    finally:
+        db.close()
+
+    cancel = c.post(f"/api/jobs/{body['id']}/cancel", headers=headers)
+    assert cancel.status_code == 200
+    assert cancel.json()["status"] == "cancelled"
+    deleted = c.delete(f"/api/sources/{sid1}", headers=headers)
+    assert deleted.status_code == 200
     assert sid1 not in [s["id"] for s in c.get(f"/api/projects/{pid}/sources").json()["sources"]]
     historical = c.get(f"/api/jobs/{body['id']}")
     assert historical.status_code == 200
     assert [s["id"] for s in historical.json()["sources"]] == [sid1, sid2]
-    assert historical.json()["sources"][0]["upload_status"] == "deleted"
+    first_source = historical.json()["sources"][0]
+    assert first_source["upload_status"] == "deleted"
+    assert first_source["original_filename"] == "first.mp4"
+    assert "drive_file_id" not in first_source
+    assert "s3_bucket" not in first_source
+    assert "s3_object_key" not in first_source
     listed = c.get(f"/api/projects/{pid}/jobs")
     assert listed.status_code == 200 and listed.json()["jobs"][0]["id"] == body["id"]
 
@@ -2592,6 +2617,7 @@ def test_batch_jobs_integrity_error_replays_concurrent_winner(monkeypatch):
             request_hash = main._batch_hash(pid, cred_id, language, options_json, hash_items)
             winner = SessionLocal()
             try:
+                winner.execute(text("SET LOCAL lock_timeout = '3s'"))
                 for idx, item in enumerate(body["items"]):
                     job = TranscriptionJob(project_id=pid, owner_user_id=user_id, status=JobStatus.queued, provider_credential_id=cred_id, language=language, options_json=options_json, batch_idempotency_key="batch-key-1", batch_request_hash=request_hash, batch_position=idx)
                     job.apply_output_folder_snapshot(folder_id=item["output_folder_id"], folder_url=f"https://drive.google.com/drive/folders/{item['output_folder_id']}", folder_name=f"Folder {item['output_folder_id']}")

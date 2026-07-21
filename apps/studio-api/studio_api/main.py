@@ -304,10 +304,16 @@ def owned_job_or_404(db: Session, user: User, job_id: str) -> TranscriptionJob:
     if not job or job.owner_user_id!=user.id: raise HTTPException(404, "Не найдено")
     return job
 
-def validate_job_sources(db: Session, project_id: str, source_ids: list[str], *, lock: bool=False, now: datetime|None=None) -> list[Source]:
+def validate_job_sources(db: Session, project_id: str, source_ids: list[str], *, lock: bool=False, lock_mode: str|None=None, now: datetime|None=None) -> list[Source]:
     stmt=select(Source).where(Source.id.in_(source_ids), Source.project_id==project_id)
-    if lock:
-        stmt=stmt.order_by(Source.id.asc()).with_for_update()
+    if lock or lock_mode:
+        stmt=stmt.order_by(Source.id.asc())
+        if lock_mode == "no_key_update":
+            # PostgreSQL FOR NO KEY UPDATE serializes source lifecycle UPDATE/DELETE
+            # while allowing FK KEY SHARE access from concurrent job-source inserts.
+            stmt=stmt.with_for_update(key_share=True)
+        else:
+            stmt=stmt.with_for_update()
     rows=list(db.execute(stmt).scalars().all())
     by_id={r.id:r for r in rows}
     ordered=[]
@@ -540,7 +546,7 @@ def create_transcription_jobs_batch(project_id: str, data: TranscriptionJobBatch
     verified_by_id={fid: verify_output_folder_selection(access_token, fid) for fid in unique_folders}
     try:
         jobs=[]
-        sources=validate_job_sources(db, p.id, source_ids, lock=True)
+        sources=validate_job_sources(db, p.id, source_ids, lock_mode="no_key_update")
         for idx,(src,fid,title) in enumerate(zip(sources,folder_ids,titles)):
             vf=verified_by_id[fid]
             job=TranscriptionJob(project_id=p.id, owner_user_id=user.id, status=JobStatus.queued, provider_credential_id=provider_credential_id, title=title, language=language, options_json=options_json, batch_idempotency_key=key, batch_request_hash=request_hash, batch_position=idx)
@@ -636,7 +642,7 @@ def list_project_jobs(project_id: str, pair=Depends(current_session), db: Sessio
 @app.post("/api/projects/{project_id}/jobs")
 def create_transcription_job(project_id: str, data: TranscriptionJobCreateIn, request: Request, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     _,user=pair; limiter.check("job:create:"+user.id, 60, 3600); p=owned_project_or_404(db,user,project_id)
-    sources=validate_job_sources(db, p.id, data.source_ids, lock=True)
+    sources=validate_job_sources(db, p.id, data.source_ids, lock_mode="no_key_update")
     if data.provider_credential_id:
         cred=db.get(ProviderCredential, data.provider_credential_id)
         if not cred or cred.user_id!=user.id or cred.status!=CredentialStatus.active: raise HTTPException(422, "Учетные данные провайдера недоступны")

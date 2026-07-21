@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from uuid import uuid4
 
-from sqlalchemy import or_, select
+from sqlalchemy import exists, or_, select
 from sqlalchemy.orm import Session
 
 from .audit import audit
@@ -91,6 +91,19 @@ def _referencing_jobs(db: Session, source_id: str, *, lock: bool) -> list[Transc
     return list(db.execute(stmt).scalars().all())
 
 
+
+def _no_processing_reference_predicate():
+    return ~exists(
+        select(1)
+        .select_from(TranscriptionJobSource)
+        .join(TranscriptionJob, TranscriptionJob.id == TranscriptionJobSource.job_id)
+        .where(
+            TranscriptionJobSource.source_id == Source.id,
+            TranscriptionJobSource.status != JobSourceStatus.skipped,
+            TranscriptionJob.status == JobStatus.processing,
+        )
+    )
+
 def _project_owner_id(db: Session, project_id: str) -> str | None:
     project = db.get(Project, project_id)
     return project.owner_user_id if project is not None else None
@@ -154,22 +167,25 @@ def request_source_deletion(db: Session, *, owner_user_id: str, source_id: str, 
     return SourceDeletionResult(True, SourceDeletionReason.available, source.upload_status.value, browser_cleanup_status(source))
 
 
-def mark_one_expired_source_for_cleanup(db: Session, *, now: datetime, max_scan: int = 50) -> bool:
-    excluded: set[str] = set()
-    src = None
-    for _ in range(max_scan):
-        filters = [Source.source_type == SourceType.local_upload, Source.deleted_at.is_(None), Source.expires_at.is_not(None), Source.expires_at <= now, Source.upload_status != SourceUploadStatus.expired]
-        if excluded:
-            filters.append(Source.id.not_in(excluded))
-        candidate = db.execute(select(Source).where(*filters).order_by(Source.expires_at.asc(), Source.id.asc()).limit(1).with_for_update(skip_locked=True)).scalar_one_or_none()
-        if candidate is None:
-            return False
-        if any(job.status == JobStatus.processing for job in _referencing_jobs(db, candidate.id, lock=True)):
-            excluded.add(candidate.id)
-            continue
-        src = candidate
-        break
+def mark_one_expired_source_for_cleanup(db: Session, *, now: datetime) -> bool:
+    src = db.execute(
+        select(Source)
+        .where(
+            Source.source_type == SourceType.local_upload,
+            Source.deleted_at.is_(None),
+            Source.expires_at.is_not(None),
+            Source.expires_at <= now,
+            Source.upload_status != SourceUploadStatus.expired,
+            _no_processing_reference_predicate(),
+        )
+        .order_by(Source.expires_at.asc(), Source.id.asc())
+        .limit(1)
+        .with_for_update(skip_locked=True)
+    ).scalar_one_or_none()
     if src is None:
+        return False
+    # Defence in depth for races between candidate selection and source mutation.
+    if any(job.status == JobStatus.processing for job in _referencing_jobs(db, src.id, lock=True)):
         return False
     src.upload_status = SourceUploadStatus.expired
     src.delete_reason = "retention_expired"
@@ -188,10 +204,9 @@ def mark_one_expired_source_for_cleanup(db: Session, *, now: datetime, max_scan:
 def claim_next_source_cleanup(db: Session, *, owner_id: str, now: datetime) -> SourceCleanupClaim | None:
     owner = (owner_id or "")[:128] or f"source-cleanup-{uuid4().hex}"
     stale = or_(Source.storage_cleanup_owner_id.is_(None), Source.storage_cleanup_lease_expires_at.is_(None), Source.storage_cleanup_lease_expires_at <= now)
-    excluded: set[str] = set()
-    src = None
-    for _ in range(50):
-        filters = [
+    src = db.execute(
+        select(Source)
+        .where(
             Source.source_type == SourceType.local_upload,
             Source.storage_cleanup_status.in_([SourceStorageCleanupStatus.pending, SourceStorageCleanupStatus.failed]),
             Source.storage_cleanup_not_before_at <= now,
@@ -201,18 +216,16 @@ def claim_next_source_cleanup(db: Session, *, owner_id: str, now: datetime) -> S
             Source.s3_object_key != "",
             stale,
             or_(Source.deleted_at.is_not(None), Source.expires_at <= now),
-        ]
-        if excluded:
-            filters.append(Source.id.not_in(excluded))
-        candidate = db.execute(select(Source).where(*filters).order_by(Source.storage_cleanup_not_before_at.asc(), Source.created_at.asc(), Source.id.asc()).limit(1).with_for_update(skip_locked=True)).scalar_one_or_none()
-        if candidate is None:
-            return None
-        if any(job.status == JobStatus.processing for job in _referencing_jobs(db, candidate.id, lock=True)):
-            excluded.add(candidate.id)
-            continue
-        src = candidate
-        break
+            _no_processing_reference_predicate(),
+        )
+        .order_by(Source.storage_cleanup_not_before_at.asc(), Source.created_at.asc(), Source.id.asc())
+        .limit(1)
+        .with_for_update(skip_locked=True)
+    ).scalar_one_or_none()
     if src is None:
+        return None
+    # Defence in depth for races between candidate selection and source mutation.
+    if any(job.status == JobStatus.processing for job in _referencing_jobs(db, src.id, lock=True)):
         return None
     src.storage_cleanup_generation = int(src.storage_cleanup_generation or 0) + 1
     src.storage_cleanup_owner_id = owner
