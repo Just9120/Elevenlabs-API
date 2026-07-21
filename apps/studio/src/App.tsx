@@ -587,6 +587,9 @@ function SourcesPanel({
             <span>{unusableJobSourceReason(source)}</span>
           )}
           <span>Размер: {formatBytes(source.size_bytes)}</span>
+          {source.source_type === "local_upload" && source.expires_at && (
+            <span>Хранится до: {formatTime(source.expires_at)}</span>
+          )}
           <div className="resource-actions">
             {isSafeDisplayUrl(source.drive_file_url) && (
               <ResourceExternalLink
@@ -1785,6 +1788,13 @@ function PreparationPanel({
                             Статус:{" "}
                             {sourceСтатусLabel(selectedSource.upload_status)}
                           </span>
+                          {selectedSource.source_type === "local_upload" &&
+                            selectedSource.expires_at && (
+                              <span>
+                                Временная копия хранится до:{" "}
+                                {formatTime(selectedSource.expires_at)}
+                              </span>
+                            )}
                           {isSafeDisplayUrl(
                             selectedSource.drive_file_url ?? null,
                           ) && (

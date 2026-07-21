@@ -45,6 +45,7 @@ STUDIO_SOURCE_S3_BUCKET=bucket
 STUDIO_SOURCE_S3_ACCESS_KEY_ID_FILE={secrets['s3id']}
 STUDIO_SOURCE_S3_SECRET_ACCESS_KEY_FILE={secrets['s3secret']}
 STUDIO_SOURCE_UPLOAD_TTL_SECONDS=3600
+STUDIO_SOURCE_RETENTION_TTL_SECONDS=86400
 STUDIO_SOURCE_PRESIGN_TTL_SECONDS=900
 STUDIO_SOURCE_MAX_UPLOAD_BYTES=10
 STUDIO_GOOGLE_OAUTH_CLIENT_ID=client-private@example.com
@@ -61,6 +62,8 @@ STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS=60
 """
     if state.pop("omit_heartbeat", ""):
         env_text = env_text.replace("STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS=60\n", "")
+    if state.pop("omit_source_retention", ""):
+        env_text = env_text.replace("STUDIO_SOURCE_RETENTION_TTL_SECONDS=86400\n", "")
     (repo / "deploy/studio/.env").write_text(state.pop("env_text", env_text), encoding="utf-8")
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -336,7 +339,10 @@ def test_semantic_runtime_validation_blocks_before_docker(tmp_path: Path) -> Non
         ("STUDIO_SOURCE_MAX_UPLOAD_BYTES", "0"),
         ("STUDIO_WORKER_POLL_INTERVAL_SECONDS", "61"),
         ("STUDIO_WORKER_LEASE_TTL_SECONDS", "299"),
-        ("STUDIO_SOURCE_UPLOAD_TTL_SECONDS", "10 20"),
+        ("STUDIO_SOURCE_UPLOAD_TTL_SECONDS", "899"),
+        ("STUDIO_SOURCE_RETENTION_TTL_SECONDS", "3599"),
+        ("STUDIO_SOURCE_RETENTION_TTL_SECONDS", "2592001"),
+        ("STUDIO_SOURCE_PRESIGN_TTL_SECONDS", "901"),
     ]
     for i, (key, value) in enumerate(cases):
         proc, calls = with_env_override(tmp_path / str(i), key, value)
@@ -499,6 +505,7 @@ STUDIO_SOURCE_S3_ENDPOINT_URL=https://private-r2.invalid
 STUDIO_SOURCE_S3_REGION=auto
 STUDIO_SOURCE_S3_BUCKET=bucket
 STUDIO_SOURCE_UPLOAD_TTL_SECONDS=3600
+STUDIO_SOURCE_RETENTION_TTL_SECONDS=86400
 STUDIO_SOURCE_PRESIGN_TTL_SECONDS=900
 STUDIO_SOURCE_MAX_UPLOAD_BYTES=10
 STUDIO_GOOGLE_OAUTH_CLIENT_ID=client
@@ -528,6 +535,13 @@ def test_old_env_without_worker_lease_heartbeat_key_passes_preflight_runtime_val
     proc, calls, _ = run_preflight(tmp_path, omit_heartbeat="1")
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "runtime setting completeness | pass" in proc.stdout
+
+
+def test_old_env_without_source_retention_key_uses_safe_default(tmp_path: Path) -> None:
+    proc, _, _ = run_preflight(tmp_path, omit_source_retention="1")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "runtime setting completeness | pass" in proc.stdout
+
 
 def test_explicit_valid_worker_lease_heartbeat_value_passes_preflight(tmp_path: Path) -> None:
     proc, _, _ = run_preflight(tmp_path, env_text=None) if False else run_preflight(tmp_path)

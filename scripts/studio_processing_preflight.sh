@@ -61,8 +61,10 @@ validate_runtime_values() {
   is_url "${ENV_VALUES[APP_PUBLIC_URL]}" true || return 1
   is_url "${ENV_VALUES[STUDIO_SOURCE_S3_ENDPOINT_URL]}" false || return 1
   is_url "${ENV_VALUES[STUDIO_GOOGLE_OAUTH_REDIRECT_URI]}" true || return 1
-  positive_int "${ENV_VALUES[STUDIO_SOURCE_UPLOAD_TTL_SECONDS]}" || return 1
-  positive_int "${ENV_VALUES[STUDIO_SOURCE_PRESIGN_TTL_SECONDS]}" || return 1
+  in_range "${ENV_VALUES[STUDIO_SOURCE_UPLOAD_TTL_SECONDS]}" 900 86400 || return 1
+  in_range "${ENV_VALUES[STUDIO_SOURCE_PRESIGN_TTL_SECONDS]}" 60 900 || return 1
+  local source_retention_ttl="${ENV_VALUES[STUDIO_SOURCE_RETENTION_TTL_SECONDS]-86400}"
+  in_range "$source_retention_ttl" 3600 2592000 || return 1
   positive_int "${ENV_VALUES[STUDIO_SOURCE_MAX_UPLOAD_BYTES]}" || return 1
   positive_int "${ENV_VALUES[STUDIO_GOOGLE_OAUTH_STATE_TTL_SECONDS]}" || return 1
   in_range "${ENV_VALUES[STUDIO_WORKER_POLL_INTERVAL_SECONDS]}" 1 60 || return 1

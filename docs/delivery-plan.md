@@ -20,7 +20,8 @@
 - ✅ `REPO-HYGIENE-01` — Ignore repository-local Python and Studio test/cache artifacts — Complete in the local batch.
 - ✅ `TEST-PORTABLE-PROFILE-01` — Limit pytest discovery to repository tests and add an opt-in cross-platform profile that excludes service/shell modules before import while leaving the full CI suite unchanged — Complete in the local batch.
 - ✅ `PWA-FRONTEND-MODULARIZATION-01A` — Extract the tested API/CSRF/diagnostic transport from the monolithic application component — Complete in the local batch with no API or UI behavior change.
-- 👉 `PWA-UPLOAD-RETENTION-CONTRACT-01B` — Separate upload-session expiry from retained-source expiry or make the current one-hour lifetime an explicit surfaced product rule — Next focused item; requires a product retention decision.
+- ✅ `PWA-UPLOAD-RETENTION-CONTRACT-01B` — Keep a one-hour pending-upload deadline, reset verified local sources to a configurable 24-hour retained-source deadline, and surface exact expiry in the PWA — Source-complete in the local batch; service-backed API and Linux preflight verification are pending.
+- 👉 `PWA-UPLOAD-POLICY-DISCOVERY-01C` — Remove the frontend's hard-coded upload-size policy by exposing a safe server capability/policy DTO — Next focused item.
 - ⛔ `PWA-PROCESSING-ROLLOUT-01A` — Production processing rollout/canary — Operator item not run; production-live claims remain prohibited.
 
 ## Current repository state
@@ -46,6 +47,7 @@
 - Project serializers no longer expose `owner_user_id`, and job serializers no longer expose `provider_credential_id`; the PWA did not consume either field, while credential selection and persisted worker authority remain unchanged server-side.
 - Unhandled API exceptions now produce a fixed safe 500 response, a sanitized server log record, and—only after owner authentication—one allowlisted aggregate diagnostic; raw exception/path/query/header/body data is excluded and diagnostic-write failure is non-recursive.
 - Local-upload completion now requires present object-storage size/MIME metadata, enforces policy on the verified values, and requires exact normalized equality with the initiation contract. Rejected objects remain pending and retain their expiry-driven cleanup path.
+- Local uploads now keep separate persisted lifecycle windows: unfinished uploads default to one hour from initiation, while exact verified completion resets expiry to 24 hours from completion. The retention TTL is operator-configurable with a backward-compatible runtime default, and the PWA shows the exact server expiry.
 - `SECURITY.md` is now a repository-wide reporting and routing entry point; it does not duplicate detailed Colab or Studio product contracts.
 - Production migration state for `0014_source_deletion_retention` is not proven by repository evidence.
 - Latest production web/API deployment, worker rollout, and controlled canary are not proven complete.
@@ -53,7 +55,8 @@
 ## Near backlog
 
 - `PWA-E2E-FOUNDATION-01B` — authenticated browser E2E on top of the API/worker processing foundation.
-- `PWA-UPLOAD-RETENTION-CONTRACT-01B` — explicit post-upload retention semantics, separately from the bounded presign lifetime.
+- `PWA-UPLOAD-POLICY-DISCOVERY-01C` — server-authoritative browser-safe upload limits instead of the duplicated 512 MB frontend constant.
+- `PWA-UPLOAD-RETENTION-PREFERENCES-02` — server-authoritative project/user retention choices and settings UX; browser-local preferences must not control cleanup authority.
 - OpenAI processing parity, long-media parity, manifest behavior, and golden Colab/PWA parity validation remain product backlog items in `docs/project-spec.md`.
 
 ## Blockers and risks

@@ -113,10 +113,11 @@ Temporary local-computer Studio source uploads use a private dedicated S3/R2-com
 
 Configuration requirements:
 
-- endpoint URL, region, bucket, upload TTL, presign TTL, and maximum upload bytes are non-secret runtime settings;
+- endpoint URL, region, bucket, pending-upload TTL, retained-source TTL, presign TTL, and maximum upload bytes are non-secret runtime settings;
 - access key ID and secret access key are provided through operator-managed secret files;
 - object keys, private bucket names when sensitive, secret-file paths, and source bytes remain server-only;
 - only the authenticated owner-scoped upload-initiation response may expose a PUT-only presigned URL; it must be `no-store`, expire within 60–900 seconds, and must not appear in logs, diagnostics, evidence, later metadata responses, or browser storage;
+- `STUDIO_SOURCE_UPLOAD_TTL_SECONDS` defaults to 3600 seconds for unfinished uploads, while `STUDIO_SOURCE_RETENTION_TTL_SECONDS` defaults to 86400 seconds from verified completion and may be set from 3600 through 2592000 seconds;
 - rollout of source-storage config is API-only unless another component is explicitly in scope.
 
 ## Google OAuth runtime configuration

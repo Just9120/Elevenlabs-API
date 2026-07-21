@@ -664,7 +664,13 @@ def complete_local_upload(source_id: str, pair=Depends(require_csrf), db: Sessio
         or src.mime_type != initial_mime_type
     ):
         raise HTTPException(404,"Не найдено")
-    src.upload_status=SourceUploadStatus.uploaded; src.uploaded_at=now; src.updated_at=now; audit(db,"source.local_upload.completed",actor_user_id=user.id,subject_user_id=user.id); db.commit(); return source_payload(src)
+    src.upload_status=SourceUploadStatus.uploaded
+    src.uploaded_at=now
+    src.expires_at=now+timedelta(seconds=settings.source_retention_ttl_seconds)
+    src.updated_at=now
+    audit(db,"source.local_upload.completed",actor_user_id=user.id,subject_user_id=user.id)
+    db.commit()
+    return source_payload(src)
 
 @app.delete("/api/sources/{source_id}")
 def delete_source(source_id: str, request: Request, pair=Depends(require_csrf), db: Session=Depends(get_db), _=Depends(require_same_origin)):

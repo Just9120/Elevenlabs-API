@@ -278,6 +278,7 @@ def enable_fake_storage(monkeypatch):
     main_mod.settings.source_s3_secret_access_key_file = "/tmp/no-secret-key"
     main_mod.settings.source_max_upload_bytes = 1000
     main_mod.settings.source_upload_ttl_seconds = 3600
+    main_mod.settings.source_retention_ttl_seconds = 86400
     main_mod.settings.source_presign_ttl_seconds = 900
     monkeypatch.setattr(main_mod, "get_source_storage", lambda settings: fake)
     return fake
@@ -703,6 +704,7 @@ def test_complete_local_upload_requires_exact_verified_metadata(monkeypatch, hea
         headers=headers,
     )
     sid = initiated.json()["source_id"]
+    pending_expires_at = initiated.json()["expires_at"]
 
     response = c.post(f"/api/sources/{sid}/local-upload/complete", headers=headers)
 
@@ -712,7 +714,7 @@ def test_complete_local_upload_requires_exact_verified_metadata(monkeypatch, hea
         src = db.get(Source, sid)
         assert src.upload_status == SourceUploadStatus.pending
         assert src.uploaded_at is None
-        assert src.expires_at is not None
+        assert src.expires_at.isoformat() == pending_expires_at
     finally:
         db.close()
 
@@ -802,11 +804,16 @@ def test_complete_local_upload_revalidates_successful_unchanged_source(monkeypat
     enable_fake_storage(monkeypatch)
     c, headers, pid = create_logged_in_project("complete-race-success@example.com")
     r = c.post(f"/api/projects/{pid}/sources/local-upload/initiate", json={"original_filename":"success.mp3","mime_type":"audio/mpeg","size_bytes":10}, headers=headers)
+    pending_expires_at = datetime.fromisoformat(r.json()["expires_at"])
     sid = r.json()["source_id"]
     response = c.post(f"/api/sources/{sid}/local-upload/complete", headers=headers)
     assert response.status_code == 200
     body = response.json()
     assert body["upload_status"] == "uploaded"
+    uploaded_at = datetime.fromisoformat(body["uploaded_at"])
+    retained_until = datetime.fromisoformat(body["expires_at"])
+    assert retained_until - uploaded_at == timedelta(seconds=86400)
+    assert retained_until > pending_expires_at
     assert "s3_bucket" not in body and "s3_object_key" not in body
 
 def test_expired_local_upload_cleanup_marks_deleted_and_deletes(monkeypatch):

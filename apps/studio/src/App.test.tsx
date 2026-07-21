@@ -632,7 +632,7 @@ describe("Studio PWA", () => {
                 drive_file_url: null,
                 upload_status: "uploaded",
                 uploaded_at: "2026-07-01T00:02:00",
-                expires_at: null,
+                expires_at: "2099-01-02T00:02:00Z",
                 deleted_at: null,
                 delete_reason: null,
                 created_at: "2026-07-01T00:00:00",
@@ -740,8 +740,8 @@ describe("Studio PWA", () => {
             drive_file_id: null,
             drive_file_url: null,
             upload_status: "uploaded",
-            uploaded_at: "2026-07-01T00:00:00Z",
-            expires_at: null,
+            uploaded_at: "2099-01-01T00:00:00Z",
+            expires_at: "2099-01-02T00:00:00Z",
             deleted_at: null,
             delete_reason: null,
             created_at: "2026-07-01T00:00:00Z",
@@ -891,6 +891,7 @@ describe("Studio PWA", () => {
     expect(
       screen.getByRole("button", { name: "Убрать из проекта: local-temp.ogg" }),
     ).toBeInTheDocument();
+    expect(screen.getByText(/Хранится до:/)).toBeInTheDocument();
     expect(
       screen.getByText("Лекция 1. Личность как психологическое явление.flac"),
     ).toBeInTheDocument();
@@ -5455,6 +5456,9 @@ describe("Studio PWA", () => {
     await screen.findByText("Загружено файлов: 2.");
     expect(screen.getByLabelText("Источник строки 1")).toHaveTextContent(
       "local-source-1.ogg",
+    );
+    expect(screen.getByLabelText("Источник строки 1")).toHaveTextContent(
+      "Временная копия хранится до:",
     );
     expect(screen.getByLabelText("Источник строки 2")).toHaveTextContent(
       "local-source-2.ogg",
