@@ -150,7 +150,7 @@ The focused repair should preserve pre-update directory/branch/remote/clean-tree
 
 This needs an explicit architectural decision. If direct-browser flows remain, the product contract should permit narrowly scoped, short-lived, no-store values; implementation and tests should prove no persistence/logging/service-worker caching, strict origin/CSRF controls, minimum Google scope, PUT-only object capability, exact metadata validation, and suitable CSP/security headers. Otherwise, upload and Picker mediation must move server-side.
 
-The local upload completion path validates maximum size and supported MIME type but does not require the stored object size to equal the size declared at initiation. The declared metadata can therefore diverge from the actual object. Use an exact comparison or replace the stored size with verified head metadata, and ensure invalid objects reach cleanup.
+The audited local upload completion path validated maximum size and supported MIME type but did not require the stored object size to equal the size declared at initiation. The local remediation now requires complete object-storage head metadata plus exact normalized MIME and byte-size equality; rejected objects stay pending and remain eligible for the existing expiry-driven cleanup lifecycle. Service-backed API verification is still pending.
 
 The same `source_upload_ttl_seconds` value currently expires a source one hour after initiation and is not extended on successful completion. This may be an intentional privacy limit, but it can make a queued source unavailable before processing. Separate presign/session TTL from retained-source TTL or document and surface the one-hour behavior as a product rule.
 

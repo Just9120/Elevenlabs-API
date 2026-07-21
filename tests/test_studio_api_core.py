@@ -254,7 +254,7 @@ def test_project_validation_failures():
 class FakeStorage:
     def __init__(self):
         self.deleted = []
-        self.head_size = 123
+        self.head_size = 10
         self.head_type = "audio/mpeg"
         self.missing = False
     def presigned_put_url(self, key, content_type, expires_seconds):
@@ -679,6 +679,42 @@ def test_complete_local_upload_missing_object_returns_conflict(monkeypatch):
     db = SessionLocal(); src = db.get(Source, sid); db.close()
     assert src.upload_status.value == "pending"
     assert src.uploaded_at is None
+
+
+@pytest.mark.parametrize(
+    ("head_size", "head_type", "expected_status"),
+    [
+        (None, "audio/mpeg", 409),
+        (10, None, 409),
+        (11, "audio/mpeg", 409),
+        (10, "audio/wav", 409),
+        (1001, "audio/mpeg", 422),
+        (10, "text/plain", 422),
+    ],
+)
+def test_complete_local_upload_requires_exact_verified_metadata(monkeypatch, head_size, head_type, expected_status):
+    fake = enable_fake_storage(monkeypatch)
+    fake.head_size = head_size
+    fake.head_type = head_type
+    c, headers, pid = create_logged_in_project(f"upload-metadata-{head_size}-{expected_status}@example.com")
+    initiated = c.post(
+        f"/api/projects/{pid}/sources/local-upload/initiate",
+        json={"original_filename":"metadata.mp3", "mime_type":"audio/mpeg", "size_bytes":10},
+        headers=headers,
+    )
+    sid = initiated.json()["source_id"]
+
+    response = c.post(f"/api/sources/{sid}/local-upload/complete", headers=headers)
+
+    assert response.status_code == expected_status
+    db = SessionLocal()
+    try:
+        src = db.get(Source, sid)
+        assert src.upload_status == SourceUploadStatus.pending
+        assert src.uploaded_at is None
+        assert src.expires_at is not None
+    finally:
+        db.close()
 
 
 def test_complete_local_upload_and_delete_owner_isolation(monkeypatch):

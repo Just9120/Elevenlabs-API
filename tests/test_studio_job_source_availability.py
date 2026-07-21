@@ -179,6 +179,38 @@ def test_source_policy_normalizes_and_accepts_only_media_and_ogg():
     assert not is_supported_source_mime_type("application/vnd.google-apps.folder")
 
 
+@pytest.mark.parametrize(
+    ("expected_size", "expected_mime", "actual_size", "actual_mime", "expected_issue"),
+    [
+        (10, "audio/mpeg", 10, " Audio/MPEG ", None),
+        (10, "audio/mpeg", None, "audio/mpeg", "metadata_unavailable"),
+        (10, "audio/mpeg", 10, None, "metadata_unavailable"),
+        (10, "audio/mpeg", 1001, "audio/mpeg", "source_too_large"),
+        (10, "audio/mpeg", 10, "text/plain", "unsupported_mime_type"),
+        (10, "audio/mpeg", 11, "audio/mpeg", "source_size_mismatch"),
+        (10, "audio/mpeg", 10, "audio/wav", "source_mime_mismatch"),
+    ],
+)
+def test_uploaded_object_metadata_requires_exact_complete_head(
+    expected_size,
+    expected_mime,
+    actual_size,
+    actual_mime,
+    expected_issue,
+):
+    from studio_api.source_policy import uploaded_object_metadata_issue
+
+    issue = uploaded_object_metadata_issue(
+        expected_size_bytes=expected_size,
+        expected_mime_type=expected_mime,
+        actual_size_bytes=actual_size,
+        actual_mime_type=actual_mime,
+        max_bytes=1000,
+    )
+
+    assert (issue.value if issue else None) == expected_issue
+
+
 def test_processing_job_local_upload_head_ready_and_safe(sqlite_session, models):
     job_id, _, _, _, now, _ = make_processing_job(sqlite_session, models)
     summary = verify(

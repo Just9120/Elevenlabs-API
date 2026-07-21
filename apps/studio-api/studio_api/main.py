@@ -16,7 +16,7 @@ from .models import *
 from .rate_limit import RateLimiter
 from .security import *
 from .source_storage import get_source_storage, normalize_source_display_filename
-from .source_policy import is_supported_source_mime_type, normalize_source_mime_type, validate_source_size
+from .source_policy import UploadedObjectMetadataIssue, is_supported_source_mime_type, normalize_source_mime_type, uploaded_object_metadata_issue, validate_source_size
 from .google_connection_access import GoogleConnectionAccessError, GoogleConnectionAccessReason, active_google_connection_for_user, google_token_aad, refresh_user_google_drive_access_token, require_drive_file_scope, require_picker_browser_scope_boundary
 from .google_scopes import has_drive_file_scope, has_picker_browser_scope_boundary
 from .job_lifecycle import safe_failure_metadata_value
@@ -624,14 +624,25 @@ def complete_local_upload(source_id: str, pair=Depends(require_csrf), db: Sessio
     initial_status=src.upload_status
     initial_bucket=src.s3_bucket
     initial_key=src.s3_object_key
+    initial_size_bytes=src.size_bytes
+    initial_mime_type=src.mime_type
     if not initial_bucket or not initial_key:
         raise HTTPException(404,"Не найдено")
     try:
         head=get_source_storage(settings).head_object(initial_key)
     except FileNotFoundError:
         raise HTTPException(409, "Загруженный объект источника не найден")
-    if head.size_bytes is not None and src.size_bytes is not None and head.size_bytes > settings.source_max_upload_bytes: raise HTTPException(422, "Файл слишком большой")
-    if head.content_type and not is_supported_source_mime_type(head.content_type): raise HTTPException(422, "Неподдерживаемый тип файла")
+    metadata_issue=uploaded_object_metadata_issue(
+        expected_size_bytes=initial_size_bytes,
+        expected_mime_type=initial_mime_type,
+        actual_size_bytes=head.size_bytes,
+        actual_mime_type=head.content_type,
+        max_bytes=settings.source_max_upload_bytes,
+    )
+    if metadata_issue==UploadedObjectMetadataIssue.source_too_large: raise HTTPException(422, "Файл слишком большой")
+    if metadata_issue==UploadedObjectMetadataIssue.unsupported_mime_type: raise HTTPException(422, "Неподдерживаемый тип файла")
+    if metadata_issue==UploadedObjectMetadataIssue.metadata_unavailable: raise HTTPException(409, "Не удалось проверить метаданные загруженного объекта")
+    if metadata_issue is not None: raise HTTPException(409, "Метаданные загруженного объекта не совпадают с заявленными")
     src=db.execute(select(Source).where(Source.id==source_id).with_for_update().execution_options(populate_existing=True)).scalar_one_or_none()
     now=utcnow()
     project=db.get(Project, src.project_id) if src is not None else None
@@ -649,6 +660,8 @@ def complete_local_upload(source_id: str, pair=Depends(require_csrf), db: Sessio
         or is_source_expired(src, now)
         or src.s3_bucket != initial_bucket
         or src.s3_object_key != initial_key
+        or src.size_bytes != initial_size_bytes
+        or src.mime_type != initial_mime_type
     ):
         raise HTTPException(404,"Не найдено")
     src.upload_status=SourceUploadStatus.uploaded; src.uploaded_at=now; src.updated_at=now; audit(db,"source.local_upload.completed",actor_user_id=user.id,subject_user_id=user.id); db.commit(); return source_payload(src)
