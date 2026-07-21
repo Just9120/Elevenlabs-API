@@ -1,14 +1,15 @@
-fastapi==0.115.6
+fastapi==0.139.2
+# Explicit security pin for FastAPI's runtime dependency.
+starlette==1.3.1
 uvicorn[standard]==0.32.1
 SQLAlchemy==2.0.36
 alembic==1.14.0
 psycopg[binary]==3.2.3
 redis==5.2.1
 argon2-cffi==23.1.0
-cryptography==44.0.0
+cryptography==48.0.1
 pydantic-settings==2.6.1
 email-validator==2.2.0
-python-multipart==0.0.19
 boto3==1.35.81
 
 httpx==0.28.1

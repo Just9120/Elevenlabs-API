@@ -62,7 +62,7 @@ Dependency evidence:
 - `pip-audit -r requirements-dev.txt` reported 20 advisories across three pinned packages: `cryptography==44.0.0`, `python-multipart==0.0.19`, and the resolved `starlette==0.41.3`.
 - `pytest` and Colab dependencies are not fully pinned, and Python transitive dependencies have no committed lock/constraints artifact. CI behavior can drift without a repository change.
 
-Remediation refresh on 2026-07-21 found 18 Node advisories after the registry database had advanced, including two critical Vitest findings. A focused upgrade to Vite 6.4.3, Vitest 3.2.6, vite-plugin-pwa 1.3.0, and compatible ESLint tooling reduced the current npm audit result to zero without changing React, TypeScript, or runtime UI dependencies. Python findings remain a separate remediation task.
+Remediation refresh on 2026-07-21 found 18 Node advisories after the registry database had advanced, including two critical Vitest findings. A focused upgrade to Vite 6.4.3, Vitest 3.2.6, vite-plugin-pwa 1.3.0, and compatible ESLint tooling reduced the current npm audit result to zero without changing React, TypeScript, or runtime UI dependencies. Python remediation then pinned FastAPI 0.139.2 with Starlette 1.3.1 and cryptography 48.0.1, removed the unused `python-multipart` package, and added `httpx2` only for the Starlette test client. The refreshed pip audit also reports zero known vulnerabilities; deterministic transitive constraints and automated reporting remain separate work.
 
 ### Stage self-review: validation
 
@@ -236,7 +236,7 @@ The CD repair is the first coding task and should not wait for the rest of the b
 1. Decide and document the Google Picker token and presigned upload exceptions or replace the direct-browser architecture.
 2. Harden upload size/retention behavior and browser response models.
 3. Apply non-breaking Vite/ESLint patches; migrate Vitest separately with the full frontend suite.
-4. Upgrade `cryptography` and `python-multipart`; coordinate FastAPI/Starlette upgrades with API tests.
+4. Upgrade `cryptography`, remove the unused multipart parser, and coordinate FastAPI/Starlette upgrades with API tests.
 5. Introduce Python constraints/lock and automated dependency reporting.
 6. Add carefully tested nginx/browser security headers.
 7. Add safe unhandled-error diagnostics.
