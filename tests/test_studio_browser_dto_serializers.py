@@ -8,6 +8,8 @@ from types import SimpleNamespace
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps/studio-api"))
 os.environ.setdefault("STUDIO_DATABASE_URL", "sqlite+pysqlite:///:memory:")
+os.environ.setdefault("STUDIO_APP_ORIGIN", "https://studio.test")
+os.environ.setdefault("STUDIO_COOKIE_SECURE", "false")
 
 from studio_api.main import job_payload, project_payload
 from studio_api.models import JobStatus

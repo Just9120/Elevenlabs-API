@@ -1,4 +1,4 @@
-import hashlib, json, re
+import hashlib, json, logging, re
 from datetime import datetime, timedelta, timezone
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse, RedirectResponse, Response as FastAPIResponse
@@ -33,6 +33,23 @@ from .source_deletion import SourceDeletionReason, is_source_expired, request_so
 settings=get_settings()
 app=FastAPI(docs_url="/docs" if settings.enable_api_docs else None, redoc_url=None, openapi_url="/openapi.json" if settings.enable_api_docs else None)
 limiter=RateLimiter()
+LOGGER=logging.getLogger("studio_api.api")
+_API_ENDPOINT_GROUPS=(
+    ("/api/diagnostics", "diagnostics"),
+    ("/api/jobs", "jobs"),
+    ("/api/sources", "sources"),
+    ("/api/google", "google"),
+    ("/api/credentials", "credentials"),
+    ("/api/projects", "projects"),
+    ("/api/auth", "auth"),
+)
+
+def diagnostic_endpoint_group(path: str) -> str:
+    value=path if isinstance(path, str) else ""
+    for prefix, group in _API_ENDPOINT_GROUPS:
+        if value == prefix or value.startswith(prefix + "/"):
+            return group
+    return "unknown"
 
 @app.middleware("http")
 async def request_correlation_middleware(request: Request, call_next):
@@ -40,9 +57,18 @@ async def request_correlation_middleware(request: Request, call_next):
     correlation_id = sanitize_inbound_correlation(request.headers.get("x-correlation-id"))
     request.state.request_id = request_id
     request.state.correlation_id = correlation_id
+    request.state.owner_user_id = None
     try:
         response = await call_next(request)
     except Exception:
+        endpoint_group=diagnostic_endpoint_group(request.url.path)
+        LOGGER.error("api_unhandled_exception request_id=%s correlation_id=%s endpoint_group=%s", request_id, correlation_id, endpoint_group)
+        owner_user_id=getattr(request.state, "owner_user_id", None)
+        if owner_user_id:
+            try:
+                write_diagnostic_event(owner_user_id=owner_user_id, component="api", event_code="API_UNHANDLED_EXCEPTION", correlation_id=correlation_id, request_id=request_id, metadata={"endpoint_group":endpoint_group, "http_status_category":"5xx"})
+            except Exception:
+                LOGGER.warning("api_unhandled_diagnostic_write_failed request_id=%s correlation_id=%s endpoint_group=%s", request_id, correlation_id, endpoint_group)
         response = JSONResponse({"detail": "Internal server error"}, status_code=500)
     response.headers["X-Request-ID"] = request_id
     response.headers["X-Correlation-ID"] = correlation_id

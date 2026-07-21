@@ -15,7 +15,8 @@
 - ✅ `PWA-DEPENDENCY-REPORTING-01` — Add automated dependency reporting without coupling ordinary CI to advisory-service availability — Source-complete in the local batch; the first GitHub run remains external evidence.
 - ✅ `PWA-E2E-FOUNDATION-01A` — Establish a deterministic API/worker processing E2E with fake storage/provider/Google boundaries and real PostgreSQL/Redis services — Source-complete in the local batch; service-backed GitHub CI verification is pending.
 - ✅ `PWA-BROWSER-DTO-MINIMIZATION-01` — Remove UI-unused owner and provider-credential IDs from project/job browser payloads while preserving server-side authority — Source-complete in the local batch; service-backed API verification is pending.
-- 👉 `PWA-UNHANDLED-DIAGNOSTICS-01` — Emit one safe server-side diagnostic for otherwise unhandled API exceptions without exposing exception text — Next focused item.
+- ✅ `PWA-UNHANDLED-DIAGNOSTICS-01` — Emit safe server evidence and an owner-scoped aggregate diagnostic for otherwise unhandled API exceptions without exposing exception details — Source-complete in the local batch.
+- 👉 `PWA-UPLOAD-VERIFIED-METADATA-01` — Reconcile declared local-upload metadata with verified object metadata and the source-retention contract — Next focused item.
 - ⛔ `PWA-PROCESSING-ROLLOUT-01A` — Production processing rollout/canary — Operator item not run; production-live claims remain prohibited.
 
 ## Current repository state
@@ -39,6 +40,7 @@
 - A separate weekly/manual GitHub workflow audits the exact npm graph and an installed Linux/Python 3.11 graph; it is deliberately absent from pull-request and push triggers.
 - A dedicated processing E2E now creates a project, encrypted ElevenLabs credential, local-upload source, verified output destination, and idempotent batch through the API; the real runner/worker then persists one completed output through controlled external fakes and the public output API is checked for its explicit safe DTO. The test fails rather than skips when CI lacks PostgreSQL or Redis, but its first service-backed execution is still pending.
 - Project serializers no longer expose `owner_user_id`, and job serializers no longer expose `provider_credential_id`; the PWA did not consume either field, while credential selection and persisted worker authority remain unchanged server-side.
+- Unhandled API exceptions now produce a fixed safe 500 response, a sanitized server log record, and—only after owner authentication—one allowlisted aggregate diagnostic; raw exception/path/query/header/body data is excluded and diagnostic-write failure is non-recursive.
 - `SECURITY.md` is now a repository-wide reporting and routing entry point; it does not duplicate detailed Colab or Studio product contracts.
 - Production migration state for `0014_source_deletion_retention` is not proven by repository evidence.
 - Latest production web/API deployment, worker rollout, and controlled canary are not proven complete.
@@ -46,7 +48,7 @@
 ## Near backlog
 
 - `PWA-E2E-FOUNDATION-01B` — authenticated browser E2E on top of the API/worker processing foundation.
-- `PWA-UNHANDLED-DIAGNOSTICS-01` — safe server evidence for unhandled API exceptions.
+- `PWA-UPLOAD-VERIFIED-METADATA-01` — exact uploaded-object metadata and retention semantics.
 - OpenAI processing parity, long-media parity, manifest behavior, and golden Colab/PWA parity validation remain product backlog items in `docs/project-spec.md`.
 
 ## Blockers and risks

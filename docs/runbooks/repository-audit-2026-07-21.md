@@ -172,7 +172,7 @@ Before deletion, verify that no external client uses these endpoints. Then make 
 - Add an automated dependency update/audit policy after the baseline is clean.
 - The application/container and host nginx configurations lack an explicit CSP, HSTS, `X-Content-Type-Options`, referrer, permissions, and framing policy. Google Picker requires a carefully tested allowlist; headers must be introduced with browser integration tests and host TLS validation.
 - The audited browser DTOs exposed internal IDs such as `owner_user_id` and `provider_credential_id` that the current UI did not need. The local remediation batch removes those two fields from the explicit project/job serializers while retaining request-side credential selection and server-side authority; service-backed API verification remains pending.
-- The generic 500 middleware returns safe error text and correlation IDs but does not emit a safe server diagnostic/log event for an unhandled exception, which limits production diagnosis.
+- The audited generic 500 middleware returned safe error text and correlation IDs but emitted no server evidence. The local remediation batch now logs only sanitized request/correlation IDs plus endpoint group and, after successful owner authentication, emits one allowlisted owner-scoped aggregate diagnostic. Tests reject exception text, raw path/query/header data, and recursive writer failures.
 
 #### P1 — insufficient release evidence
 
