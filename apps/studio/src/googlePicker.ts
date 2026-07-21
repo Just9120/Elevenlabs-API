@@ -173,14 +173,21 @@ export async function openGooglePicker(
   mode: PickerMode,
   session: PickerSession,
 ): Promise<PickerResult> {
-  await loadGooglePicker();
+  let token = session.access_token;
+  session.access_token = "";
+  try {
+    await loadGooglePicker();
+  } catch (error) {
+    token = "";
+    throw error;
+  }
   return new Promise((resolve) => {
     const pickerApi = window.google?.picker;
     if (!pickerApi) {
+      token = "";
       resolve({ action: "error", message: "Google Picker недоступен" });
       return;
     }
-    let token = session.access_token;
     let completed = false;
     const finish = (result: PickerResult) => {
       if (completed) return;

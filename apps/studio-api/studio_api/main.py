@@ -17,8 +17,8 @@ from .rate_limit import RateLimiter
 from .security import *
 from .source_storage import get_source_storage, normalize_source_display_filename
 from .source_policy import is_supported_source_mime_type, normalize_source_mime_type, validate_source_size
-from .google_connection_access import GoogleConnectionAccessError, GoogleConnectionAccessReason, active_google_connection_for_user, google_token_aad, refresh_user_google_drive_access_token, require_drive_file_scope
-from .google_scopes import has_drive_file_scope
+from .google_connection_access import GoogleConnectionAccessError, GoogleConnectionAccessReason, active_google_connection_for_user, google_token_aad, refresh_user_google_drive_access_token, require_drive_file_scope, require_picker_browser_scope_boundary
+from .google_scopes import has_drive_file_scope, has_picker_browser_scope_boundary
 from .job_lifecycle import safe_failure_metadata_value
 from .job_processing_lifecycle import request_job_cancellation
 from .diagnostics import REGISTRY, cleanup_expired_diagnostics, cursor_context, decode_cursor_payload, encode_cursor, markdown_escape, new_correlation_id, new_request_id, sanitize_build_id, sanitize_inbound_correlation, valid_correlation_id, valid_uuid, write_diagnostic_event
@@ -383,18 +383,18 @@ def list_sources(project_id: str, pair=Depends(current_session), db: Session=Dep
     rows=db.query(Source).filter(Source.project_id==p.id, Source.deleted_at.is_(None)).order_by(Source.created_at.desc()).all()
     return {"sources":[source_payload(r) for r in rows]}
 
-def _picker_cache_headers(response: Response):
+def _browser_capability_cache_headers(response: Response):
     response.headers["Cache-Control"] = "no-store"
     response.headers["Pragma"] = "no-cache"
 
 @app.post("/api/google/picker/session")
 def create_google_picker_session(response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db)):
-    _,user=pair; limiter.check("google:picker:session:"+user.id, 30, 300); _picker_cache_headers(response)
+    _,user=pair; limiter.check("google:picker:session:"+user.id, 30, 300); _browser_capability_cache_headers(response)
     if not settings.google_picker_configured():
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Google Picker is not configured")
     try:
         conn=active_google_connection_for_user(db, user_id=user.id)
-        require_drive_file_scope(conn)
+        require_picker_browser_scope_boundary(conn)
         access_token=refresh_user_google_drive_access_token(db, user_id=user.id, settings=settings)
     except GoogleConnectionAccessError as exc:
         if exc.reason == GoogleConnectionAccessReason.missing:
@@ -579,8 +579,8 @@ def create_google_drive_source(project_id: str, data: GoogleDriveSourceIn, respo
     return source_payload(src)
 
 @app.post("/api/projects/{project_id}/sources/local-upload/initiate")
-def initiate_local_upload(project_id: str, data: LocalUploadInitiateIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
-    _,user=pair; limiter.check("source:local:initiate:"+user.id, 60, 3600); p=owned_project_or_404(db,user,project_id)
+def initiate_local_upload(project_id: str, data: LocalUploadInitiateIn, response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("source:local:initiate:"+user.id, 60, 3600); _browser_capability_cache_headers(response); p=owned_project_or_404(db,user,project_id)
     mime=validate_upload(data.mime_type, data.size_bytes)
     if not settings.source_storage_configured(): raise HTTPException(503, "Временное хранилище источников не настроено")
     now=utcnow(); src=Source(project_id=p.id, source_type=SourceType.local_upload, original_filename=normalize_source_display_filename(data.original_filename), mime_type=mime, size_bytes=data.size_bytes, upload_status=SourceUploadStatus.pending, expires_at=now+timedelta(seconds=settings.source_upload_ttl_seconds))
@@ -939,7 +939,7 @@ def diagnostics_report(data: DiagnosticReportIn, pair=Depends(require_csrf), db:
 
 def google_connection_payload(c: GoogleConnection|None):
     picker_configured=settings.google_picker_configured()
-    scope_ready=bool(c and c.status == GoogleConnectionStatus.active and has_drive_file_scope(c.scopes))
+    scope_ready=bool(c and c.status == GoogleConnectionStatus.active and has_picker_browser_scope_boundary(c.scopes))
     base={"connected": bool(c and c.status == GoogleConnectionStatus.active), "status": c.status.value if c else None, "google_email": c.google_email if c else None, "scopes": c.scopes if c else None, "connected_at": c.connected_at.isoformat() if c and c.connected_at else None, "revoked_at": c.revoked_at.isoformat() if c and c.revoked_at else None, "picker_configured": picker_configured, "picker_scope_ready": scope_ready, "picker_ready": bool(picker_configured and scope_ready)}
     if base["connected"] and not scope_ready:
         base["reconnect_required"] = True
@@ -963,8 +963,8 @@ def get_google_connection(pair=Depends(current_session), db: Session=Depends(get
     return google_connection_payload(current_google_connection(db, user))
 
 @app.post("/api/google/oauth/start")
-def start_google_oauth(request: Request, pair=Depends(require_csrf), db: Session=Depends(get_db)):
-    sess,user=pair; limiter.check("google:oauth:start:"+user.id, 20, 3600)
+def start_google_oauth(request: Request, response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    sess,user=pair; limiter.check("google:oauth:start:"+user.id, 20, 3600); _browser_capability_cache_headers(response)
     cfg=google_config_or_503()
     from .google_oauth import authorization_url
     raw_state=new_token()

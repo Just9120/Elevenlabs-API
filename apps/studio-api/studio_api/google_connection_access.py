@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from .google_oauth import GoogleOAuthConfigError, load_google_oauth_config
 from .models import GoogleConnection, GoogleConnectionStatus, GoogleProvider
-from .google_scopes import has_drive_file_scope
+from .google_scopes import has_drive_file_scope, has_picker_browser_scope_boundary
 from .security import aad, decrypt, master_key_from_b64
 
 
@@ -35,6 +35,11 @@ def active_google_connection_for_user(db: Session, *, user_id: str) -> GoogleCon
 
 def require_drive_file_scope(conn: GoogleConnection) -> None:
     if not has_drive_file_scope(conn.scopes):
+        raise GoogleConnectionAccessError(GoogleConnectionAccessReason.scope_unavailable)
+
+
+def require_picker_browser_scope_boundary(conn: GoogleConnection) -> None:
+    if not has_picker_browser_scope_boundary(conn.scopes):
         raise GoogleConnectionAccessError(GoogleConnectionAccessReason.scope_unavailable)
 
 def google_token_aad(user_id: str, connection_id: str) -> bytes:

@@ -1484,12 +1484,14 @@ describe("Studio PWA", () => {
         Feature: { MULTISELECT_ENABLED: "multi" },
       },
     };
-    const pickedPromise = googlePicker.openGooglePicker("sources", {
+    const pickerSession = {
       access_token: "ya29.secret",
       api_key: "public",
       app_id: "app",
       scope_ready: true,
-    });
+    };
+    const pickedPromise = googlePicker.openGooglePicker("sources", pickerSession);
+    expect(pickerSession.access_token).toBe("");
     document.head
       .querySelector<HTMLScriptElement>(
         'script[data-studio-google-picker="true"]',
@@ -5462,6 +5464,24 @@ describe("Studio PWA", () => {
         /bad\.exe: поддерживаются только аудио, видео или OGG\./,
       ),
     ).toBeInTheDocument();
+    const uploadPuts = (
+      fetch as unknown as ReturnType<typeof vi.fn>
+    ).mock.calls.filter(
+      ([url, init]) =>
+        String(url).startsWith("https://upload.example/presigned") &&
+        init?.method === "PUT",
+    );
+    expect(uploadPuts).toHaveLength(2);
+    for (const [, init] of uploadPuts) {
+      expect(init).toEqual(
+        expect.objectContaining({
+          cache: "no-store",
+          credentials: "omit",
+          redirect: "error",
+          referrerPolicy: "no-referrer",
+        }),
+      );
+    }
     expect(
       screen.getByRole("button", {
         name: "Выбрать папку результата для строки 1",

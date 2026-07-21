@@ -1197,6 +1197,10 @@ function PreparationPanel({
           method: initiated.upload.method,
           headers: initiated.upload.headers,
           body: file,
+          cache: "no-store",
+          credentials: "omit",
+          redirect: "error",
+          referrerPolicy: "no-referrer",
         });
         if (!put.ok)
           throw new Error("Не удалось загрузить файл во временное хранилище.");

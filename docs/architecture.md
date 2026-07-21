@@ -31,7 +31,7 @@ Studio PWA is a web platform contour in development. Source-level architecture i
 | Database | PostgreSQL via Studio deployment | Durable users/projects/sources/credentials/jobs/outputs/diagnostics state. | Migrations present through `0014_source_deletion_retention`; production revision requires operator evidence. |
 | Alembic migrations | `apps/studio-api/alembic/versions/` | Schema authority for Studio persistence. | Current repository head is `0014_source_deletion_retention`. |
 | Redis | Studio deployment | Platform support service; not a processing queue/lock/retry authority unless separately designed. | Production health is operator evidence, not source evidence. |
-| Object storage | S3/R2-compatible source storage | Private temporary/local-upload source bytes. | Browser must not receive object keys, presigned URLs, or source bytes. |
+| Object storage | S3/R2-compatible source storage | Private temporary/local-upload source bytes. | Object keys/source bytes remain server-only; the upload initiator returns one bounded PUT-only browser capability. |
 | Worker | `apps/studio-api/studio_api/worker.py` and related runner/orchestrator modules | Poll/claim/process at most bounded work according to lease and lifecycle rules. | Implemented at source level; official production deployable component and canary still require validation. |
 | Provider path | ElevenLabs modules under `apps/studio-api/studio_api/` | Owner-scoped BYOK transcription execution. | ElevenLabs path present; OpenAI Studio parity unfinished. |
 | Google integration | Google OAuth/Drive/Docs modules under `apps/studio-api/studio_api/` | OAuth connection, safe Drive metadata/folder selection, Google Docs output creation. | Source present; exactly-once document creation is not claimed; source-level output reconciliation is present and runtime evidence is separate. |
@@ -40,13 +40,19 @@ Studio PWA is a web platform contour in development. Source-level architecture i
 
 ## Runtime boundaries
 
-- Browser is untrusted for secrets and raw content. It receives only safe normalized owner-scoped metadata.
+- Browser is untrusted for durable secrets and raw server-side content. It normally receives only safe normalized owner-scoped metadata; explicit OAuth-start, Picker, and direct-upload capabilities are bounded exceptions governed by the product contract.
 - API owns authentication, authorization, encryption/decryption, Drive/provider calls, source storage access, and lifecycle checks.
 - Worker uses the API codebase/internal services but must be deployed and validated as a distinct runtime component.
 - PostgreSQL is the durable authority for Studio persisted state.
 - Redis is not the durable job queue authority for current processing semantics.
 - Object storage is private server-side source-byte storage.
 - External providers and Google APIs are side-effect boundaries requiring pre/post lifecycle checks.
+
+### Browser-bound integration capabilities
+
+The Studio frontend keeps the direct-browser Google Picker and local-upload architecture. Google Picker requires a browser OAuth access token; local upload uses a short-lived S3/R2 presigned PUT so source bytes do not transit the API process. OAuth-start authorization URLs, Picker access tokens, and upload URLs are therefore capability responses rather than ordinary metadata.
+
+These responses require authenticated same-origin CSRF-protected issuance, `Cache-Control: no-store`, no service-worker runtime caching, no browser persistence/diagnostic logging, and server-side revalidation of every selected Drive ID or completed object. Picker issuance additionally requires the narrow identity plus `drive.file` scope boundary and exact Picker origin. Upload issuance uses an opaque server-owned object key, exact content type, PUT-only operation, at most 900 seconds, omitted browser credentials/referrer, and refused redirects. Refresh tokens, ID tokens, object keys, source bytes, and provider secrets never cross this boundary.
 
 ## Studio data flow
 
@@ -76,8 +82,8 @@ Lease loss, cancellation uncertainty, provider/Google errors, output-side-effect
 
 ## Trust and safety boundaries
 
-- Credentials and tokens are server-only and encrypted at rest where persisted.
-- OAuth/provider URLs, codes, tokens, raw payloads, owners/permissions, source bytes, transcript bodies, document bodies, object keys, private paths, and stack traces are not browser payloads.
+- Durable credentials, refresh/ID tokens, and provider secrets are server-only and encrypted at rest where persisted.
+- OAuth codes, raw payloads, owners/permissions, source bytes, transcript bodies, document bodies, object keys, private paths, and stack traces are not browser payloads. The three bounded capability responses above are the only integration exceptions.
 - Diagnostics and validation evidence must be allowlisted and redacted.
 - Output links shown to the browser must be validated safe Google web-view metadata and owner-scoped.
 - Production evidence must not record secret values, document IDs/URLs, transcript bodies, private account data, source bytes, raw provider responses, or raw Google responses.

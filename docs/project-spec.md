@@ -174,16 +174,24 @@ The Studio PWA may render implemented source-level output metadata for explicitl
 - User-facing project segment labels must be unique case-insensitively within their owner/project scope.
 - Provider credentials are BYOK, encrypted at rest, decrypted only server-side for authorized processing, and never returned to browsers.
 - Google OAuth refresh tokens are encrypted server-side and separated from provider credential boundaries.
-- Browser APIs may return only normalized safe metadata. They must not return raw OAuth URLs/codes/tokens, provider secrets, raw Google payloads, owners/permissions, source bytes, transcript bodies, document bodies, object keys, private paths, presigned URLs, stack traces, or raw external responses.
+- Browser APIs may return only fields explicitly authorized by their endpoint contract. Ordinary metadata/read APIs must not return OAuth codes/tokens, provider secrets, raw Google payloads, owners/permissions, source bytes, transcript bodies, document bodies, object keys, private paths, presigned URLs, stack traces, or raw external responses. Authentication values and the browser-bound integration capabilities below are narrow exceptions, not generally safe metadata.
 - Project title/description updates and Google output-folder selection are separate authorities. Generic project PATCH accepts only title/description and rejects output-folder IDs, URLs, names, and unknown fields; output folders may be bound only through the server-verified Google Picker route.
 - Google Drive source identity and metadata must be fetched and validated server-side under the current owner connection before a source is persisted. The multi-file Google Picker route is canonical; the deprecated single-file compatibility route must ignore browser-supplied filename, MIME type, size, and URL and apply the same server-side source policy.
+
+Browser-bound integration capabilities are limited to three flows:
+
+- Google OAuth start may return one authorization URL containing a hashed-at-rest, single-use, expiring state value. The authenticated same-origin CSRF-protected response is `no-store`; the callback never reflects the code, state, tokens, raw Google error, or account data into its browser redirect.
+- Google Picker session may return one current owner access token only to an authenticated same-origin CSRF-protected request. The connection scope set must be limited to `openid`, email identity, and `drive.file`; incremental previously granted scopes are not requested. The response is `no-store`, the PWA passes the token directly to Picker with an exact origin and clears its own reference, and every selected ID/metadata value is revalidated server-side before persistence. Refresh and ID tokens remain server-only.
+- Local-upload initiation may return one PUT-only presigned URL for the exact opaque source object key and content type, with a TTL from 60 through 900 seconds. The authenticated owner-scoped same-origin CSRF-protected response is `no-store`; the URL/key is never persisted in browser storage, rendered, logged, diagnosed, or returned by later metadata APIs. The PWA sends no cookies or referrer, refuses redirects, and the API revalidates source/project state plus stored object metadata before marking the source uploaded.
+
+No other endpoint may expose these capabilities. The service worker must not runtime-cache API responses or upload requests.
 
 ### Sources and processing prerequisites
 
 - Source metadata readiness is not proof that source bytes remain accessible.
 - Processing must re-check source availability immediately before external provider execution.
 - Google Drive sources require current owner-scoped access, existence, and supported download/export mode.
-- Local-upload sources require private server-side storage availability and must not expose object keys or presigned URLs to browsers.
+- Local-upload sources require private server-side storage availability. Object keys remain server-only; a presigned URL may cross the browser boundary only in the bounded initiation capability above and must not appear in subsequent source/job/output payloads.
 - Processing must re-check lifecycle, lease ownership/generation, cancellation, project/source relation, credential availability, and output destination authorization at stage boundaries.
 
 ### Jobs, leases, and terminal states

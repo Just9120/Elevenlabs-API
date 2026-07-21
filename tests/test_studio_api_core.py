@@ -639,6 +639,8 @@ def test_local_upload_initiate_requires_auth_ownership_and_validates(monkeypatch
     assert body["source_id"]
     assert body["upload"]["method"] == "PUT"
     assert body["upload"]["expires_in"] == 900
+    assert r.headers["cache-control"] == "no-store"
+    assert r.headers["pragma"] == "no-cache"
     assert "/secret%20song" not in r.text and "secret song.mp3" not in r.text and "secret%20song.mp3" not in r.text
     assert "no-secret-id" not in r.text and "no-secret-key" not in r.text
     db = SessionLocal(); src = db.get(Source, body["source_id"]); object_key = src.s3_object_key; source_id = src.id; original_filename = src.original_filename; db.close()
@@ -829,14 +831,18 @@ def test_google_oauth_start_returns_safe_url_and_stores_hashed_state(monkeypatch
     pw = admin("google-url@example.com"); c = TestClient(app); csrf = login(c, pw, "google-url@example.com")
     r = c.post("/api/google/oauth/start", headers={"origin": "https://studio.test", "x-csrf-token": csrf})
     assert r.status_code == 200
+    assert r.headers["cache-control"] == "no-store"
+    assert r.headers["pragma"] == "no-cache"
     body = r.json(); url = body["authorization_url"]
     assert "client_id=google-client-id-test" in url
     assert "access_type=offline" in url
     assert "prompt=consent" in url
+    from urllib.parse import parse_qs, urlparse
+    query = parse_qs(urlparse(url).query)
+    assert "include_granted_scopes" not in query
     assert "google-client-secret-test" not in r.text
     assert "refresh_token" not in r.text and "access_token" not in r.text and "id_token" not in r.text
-    from urllib.parse import parse_qs, urlparse
-    state = parse_qs(urlparse(url).query)["state"][0]
+    state = query["state"][0]
     db = SessionLocal()
     try:
         from studio_api.models import GoogleOAuthState
@@ -2217,11 +2223,16 @@ def test_job_output_unexpected_query_failure_is_generic(monkeypatch):
 
 
 def test_google_scope_parser_exact_drive_file_only():
-    from studio_api.google_scopes import has_drive_file_scope
+    from studio_api.google_scopes import has_drive_file_scope, has_picker_browser_scope_boundary
     assert has_drive_file_scope("openid email https://www.googleapis.com/auth/drive.file")
     assert has_drive_file_scope("  https://www.googleapis.com/auth/drive.file   openid ")
     assert not has_drive_file_scope("openid email")
     assert not has_drive_file_scope("https://www.googleapis.com/auth/drive.file.extra")
+    assert has_picker_browser_scope_boundary("openid email https://www.googleapis.com/auth/drive.file")
+    assert has_picker_browser_scope_boundary("openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.file")
+    assert not has_picker_browser_scope_boundary("openid email")
+    assert not has_picker_browser_scope_boundary("openid email https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly")
+    assert not has_picker_browser_scope_boundary("openid email https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/calendar.readonly")
 
 
 def _connect_google_for_test(user_id: str, scopes: str = "openid email https://www.googleapis.com/auth/drive.file"):
@@ -2250,6 +2261,9 @@ def test_google_picker_session_csrf_scope_config_and_safe_response(monkeypatch):
     monkeypatch.setattr(main.settings, "google_picker_app_id", "123456")
     assert c.post("/api/google/picker/session", headers=headers).status_code == 404
     _connect_google_for_test(uid, "openid email")
+    assert c.post("/api/google/picker/session", headers=headers).status_code == 409
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE google_connections SET scopes='openid email https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly'"))
     assert c.post("/api/google/picker/session", headers=headers).status_code == 409
     with engine.begin() as conn:
         conn.execute(text("UPDATE google_connections SET scopes='openid email https://www.googleapis.com/auth/drive.file'"))

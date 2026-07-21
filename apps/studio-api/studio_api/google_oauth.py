@@ -68,7 +68,6 @@ def authorization_url(config: GoogleOAuthConfig, state: str) -> str:
         "state": state,
         "access_type": "offline",
         "prompt": "consent",
-        "include_granted_scopes": "true",
     }
     return AUTHORIZE_URL + "?" + urlencode(params)
 
