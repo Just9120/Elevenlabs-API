@@ -301,6 +301,21 @@ def create_gdrive_source(_c, _headers, pid, name="meeting.mp4"):
         db.close()
 
 
+def prepare_legacy_job_authority(c, headers, pid):
+    db = SessionLocal()
+    try:
+        project = db.get(Project, pid)
+        project.output_drive_folder_id = "folder-test"
+        project.output_drive_folder_url = "https://drive.google.com/drive/folders/folder-test"
+        project.output_drive_folder_name = "Test results"
+        db.commit()
+    finally:
+        db.close()
+    r = c.post("/api/credentials", json={"provider":"elevenlabs", "label":f"legacy-{pid}", "raw_value":"test-elevenlabs-key"}, headers=headers)
+    assert r.status_code == 200
+    return r.json()["id"]
+
+
 def add_local_source(pid, status=SourceUploadStatus.uploaded, deleted=False):
     db = SessionLocal()
     try:
@@ -320,6 +335,7 @@ def assert_job_response_safe(text):
 def test_transcription_jobs_auth_and_csrf_required():
     c, headers, pid = create_logged_in_project("jobs-auth@example.com")
     sid = create_gdrive_source(c, headers, pid)
+    prepare_legacy_job_authority(c, headers, pid)
     anon = TestClient(app)
     assert anon.get(f"/api/projects/{pid}/jobs").status_code == 401
     assert anon.post(f"/api/projects/{pid}/jobs", json={"source_ids":[sid]}).status_code == 401
@@ -332,23 +348,39 @@ def test_transcription_jobs_auth_and_csrf_required():
     assert c.post(f"/api/jobs/{jid}/cancel").status_code == 403
 
 
-def test_create_job_normalizes_blank_provider_credential_id_to_null():
+def test_legacy_job_selects_sole_active_elevenlabs_credential_for_blank_id():
     c, headers, pid = create_logged_in_project("jobs-blank-credential@example.com")
     sid = create_gdrive_source(c, headers, pid)
+    missing_authority = c.post(f"/api/projects/{pid}/jobs", json={"source_ids":[sid]}, headers=headers)
+    assert missing_authority.status_code == 422
+    assert missing_authority.json()["detail"] == "Выберите папку Google Drive для результатов."
+    db = SessionLocal()
+    try:
+        assert db.query(TranscriptionJob).filter_by(project_id=pid).count() == 0
+    finally:
+        db.close()
+    credential_id = prepare_legacy_job_authority(c, headers, pid)
     for value in ["", "   "]:
         r = c.post(f"/api/projects/{pid}/jobs", json={"source_ids":[sid], "provider_credential_id":value}, headers=headers)
         assert r.status_code == 200
-        assert r.json()["provider_credential_id"] is None
+        assert app.openapi()["paths"][f"/api/projects/{{project_id}}/jobs"]["post"]["deprecated"] is True
+        assert r.json()["provider_credential_id"] == credential_id
+        assert r.json()["output_folder"] == {"name":"Test results", "web_view_url":"https://drive.google.com/drive/folders/folder-test"}
+        assert r.headers["deprecation"] == "true"
+        assert r.headers["link"] == f'</api/projects/{pid}/jobs/batch>; rel="successor-version"'
         assert_job_response_safe(r.text)
         assert "raw-provider-secret" not in r.text
 
 
-def test_create_job_from_google_drive_and_local_sources_preserves_order_and_safe_metadata():
+def test_legacy_create_job_rejects_openai_and_preserves_source_order_and_safe_metadata():
     c, headers, pid = create_logged_in_project("jobs-create@example.com")
     sid1 = create_gdrive_source(c, headers, pid, "first.mp4")
     sid2 = add_local_source(pid)
     raw = "raw-provider-secret"
-    cred = c.post("/api/credentials", json={"provider":"openai", "label":"jobs", "raw_value":raw}, headers=headers).json()["id"]
+    openai_cred = c.post("/api/credentials", json={"provider":"openai", "label":"jobs-openai", "raw_value":raw}, headers=headers).json()["id"]
+    cred = prepare_legacy_job_authority(c, headers, pid)
+    rejected = c.post(f"/api/projects/{pid}/jobs", json={"source_ids":[sid1, sid2], "provider_credential_id":openai_cred}, headers=headers)
+    assert rejected.status_code == 422
     r = c.post(f"/api/projects/{pid}/jobs", json={"source_ids":[sid1, sid2], "provider_credential_id":cred, "title":" Batch ", "language":"EN_us", "options":{"diarize":False}}, headers=headers)
     assert r.status_code == 200
     body = r.json()
@@ -399,9 +431,10 @@ def test_create_job_from_google_drive_and_local_sources_preserves_order_and_safe
 
 
 
-def test_job_creation_is_record_only_and_response_omits_processing_outputs():
+def test_legacy_job_creation_queues_without_processing_inline():
     c, headers, pid = create_logged_in_project("jobs-record-only@example.com")
     sid = create_gdrive_source(c, headers, pid)
+    prepare_legacy_job_authority(c, headers, pid)
     r = c.post(f"/api/projects/{pid}/jobs", json={"source_ids":[sid]}, headers=headers)
     assert r.status_code == 200
     body = r.json()
@@ -420,6 +453,7 @@ def test_job_creation_is_record_only_and_response_omits_processing_outputs():
 def test_job_failure_metadata_response_redacts_sensitive_internal_values():
     c, headers, pid = create_logged_in_project("jobs-failure-safe@example.com")
     sid = create_gdrive_source(c, headers, pid)
+    prepare_legacy_job_authority(c, headers, pid)
     jid = c.post(f"/api/projects/{pid}/jobs", json={"source_ids":[sid]}, headers=headers).json()["id"]
     db = SessionLocal()
     try:
@@ -449,6 +483,7 @@ def test_cancel_only_transitions_queued_jobs_and_leaves_terminal_jobs_unchanged(
     queued_sid = create_gdrive_source(c, headers, pid, "queued.mp4")
     completed_sid = create_gdrive_source(c, headers, pid, "completed.mp4")
     failed_sid = create_gdrive_source(c, headers, pid, "failed.mp4")
+    prepare_legacy_job_authority(c, headers, pid)
     queued_id = c.post(f"/api/projects/{pid}/jobs", json={"source_ids":[queued_sid]}, headers=headers).json()["id"]
     completed_id = c.post(f"/api/projects/{pid}/jobs", json={"source_ids":[completed_sid]}, headers=headers).json()["id"]
     failed_id = c.post(f"/api/projects/{pid}/jobs", json={"source_ids":[failed_sid]}, headers=headers).json()["id"]
@@ -512,6 +547,8 @@ def test_job_list_owner_scope_and_cancel_idempotent_with_audit():
     c2, h2, pid2 = create_logged_in_project("jobs-owner2@example.com")
     sid1 = create_gdrive_source(c1, h1, pid1)
     sid2 = create_gdrive_source(c2, h2, pid2)
+    prepare_legacy_job_authority(c1, h1, pid1)
+    prepare_legacy_job_authority(c2, h2, pid2)
     jid1 = c1.post(f"/api/projects/{pid1}/jobs", json={"source_ids":[sid1]}, headers=h1).json()["id"]
     jid2 = c2.post(f"/api/projects/{pid2}/jobs", json={"source_ids":[sid2]}, headers=h2).json()["id"]
     assert [j["id"] for j in c1.get(f"/api/projects/{pid1}/jobs").json()["jobs"]] == [jid1]
@@ -1939,6 +1976,7 @@ JOB_OUTPUT_ENTRY_KEYS = {"source_id", "source_position", "source_name", "source_
 def create_job_with_sources(email="job-output@example.com", names=("one.mp4",)):
     c, headers, pid = create_logged_in_project(email)
     source_ids = [create_gdrive_source(c, headers, pid, name) for name in names]
+    prepare_legacy_job_authority(c, headers, pid)
     r = c.post(f"/api/projects/{pid}/jobs", json={"source_ids": source_ids}, headers=headers)
     assert r.status_code == 200
     return c, headers, pid, r.json()["id"], source_ids

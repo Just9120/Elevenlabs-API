@@ -489,7 +489,7 @@ def _batch_hash(project_id, provider_credential_id, language, options_json, item
     return hashlib.sha256(json.dumps(canonical, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
-def _resolve_batch_elevenlabs_credential_id(db, user, requested_credential_id) -> str:
+def _resolve_active_elevenlabs_credential_id(db, user, requested_credential_id) -> str:
     requested = requested_credential_id.strip() if isinstance(requested_credential_id, str) and requested_credential_id.strip() else None
     if requested:
         credential = db.get(ProviderCredential, requested)
@@ -540,7 +540,7 @@ def create_transcription_jobs_batch(project_id: str, data: TranscriptionJobBatch
         if not _existing_batch_is_complete(existing, request_hash, len(data.items)):
             raise HTTPException(409, "Idempotency-Key already used with a different request")
         return {"jobs":[job_payload(j, include_sources=True) for j in existing], "created_count": len(existing), "replayed": True}
-    provider_credential_id=_resolve_batch_elevenlabs_credential_id(db, user, explicit_provider_credential_id)
+    provider_credential_id=_resolve_active_elevenlabs_credential_id(db, user, explicit_provider_credential_id)
     request_hash=_batch_hash(p.id, provider_credential_id, language, options_json, hash_items)
     if duplicate_pair_found:
         raise HTTPException(422, "Повторяющиеся source/folder пары не допускаются")
@@ -647,20 +647,23 @@ def list_project_jobs(project_id: str, pair=Depends(current_session), db: Sessio
     rows=db.query(TranscriptionJob).filter(TranscriptionJob.project_id==p.id, TranscriptionJob.owner_user_id==user.id).order_by(TranscriptionJob.created_at.desc()).all()
     return {"jobs":[job_payload(r) for r in rows]}
 
-@app.post("/api/projects/{project_id}/jobs")
-def create_transcription_job(project_id: str, data: TranscriptionJobCreateIn, request: Request, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+@app.post("/api/projects/{project_id}/jobs", deprecated=True)
+def create_transcription_job(project_id: str, data: TranscriptionJobCreateIn, request: Request, response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     _,user=pair; limiter.check("job:create:"+user.id, 60, 3600); p=owned_project_or_404(db,user,project_id)
     sources=validate_job_sources(db, p.id, data.source_ids, lock_mode="no_key_update")
-    if data.provider_credential_id:
-        cred=db.get(ProviderCredential, data.provider_credential_id)
-        if not cred or cred.user_id!=user.id or cred.status!=CredentialStatus.active: raise HTTPException(422, "Учетные данные провайдера недоступны")
-    job=TranscriptionJob(project_id=p.id, owner_user_id=user.id, status=JobStatus.queued, provider_credential_id=data.provider_credential_id, title=clean_job_title(data.title), language=clean_job_language(data.language), options_json=safe_job_options(data.options))
-    job.apply_output_folder_snapshot(folder_id=p.output_drive_folder_id, folder_url=p.output_drive_folder_url, folder_name=p.output_drive_folder_name)
+    output_folder_id=clean_drive_id(p.output_drive_folder_id, "ID папки Google Drive")
+    if not output_folder_id:
+        raise HTTPException(422, "Выберите папку Google Drive для результатов.")
+    provider_credential_id=_resolve_active_elevenlabs_credential_id(db, user, data.provider_credential_id)
+    job=TranscriptionJob(project_id=p.id, owner_user_id=user.id, status=JobStatus.queued, provider_credential_id=provider_credential_id, title=clean_job_title(data.title), language=clean_job_language(data.language), options_json=safe_job_options(data.options))
+    job.apply_output_folder_snapshot(folder_id=output_folder_id, folder_url=p.output_drive_folder_url, folder_name=p.output_drive_folder_name)
     db.add(job); db.flush()
     for idx, src in enumerate(sources):
         db.add(TranscriptionJobSource(job_id=job.id, source_id=src.id, position=idx, status=JobSourceStatus.queued))
     audit(db,"job.created",actor_user_id=user.id,subject_user_id=user.id,project_id=p.id,job_id=job.id,source_count=len(sources))
-    db.commit(); write_diagnostic_event(owner_user_id=user.id, component="api", event_code="JOB_CREATED", project_id=p.id, job_id=job.id, request_id=getattr(request.state,"request_id",None), correlation_id=getattr(request.state,"correlation_id",None), metadata={"source_count": len(sources), "credential_selected": bool(data.provider_credential_id)}); db.refresh(job)
+    db.commit(); write_diagnostic_event(owner_user_id=user.id, component="api", event_code="JOB_CREATED", project_id=p.id, job_id=job.id, request_id=getattr(request.state,"request_id",None), correlation_id=getattr(request.state,"correlation_id",None), metadata={"source_count": len(sources), "credential_selected": True}); db.refresh(job)
+    response.headers["Deprecation"]="true"
+    response.headers["Link"]=f'</api/projects/{p.id}/jobs/batch>; rel="successor-version"'
     return job_payload(job, include_sources=True)
 
 @app.get("/api/jobs/{job_id}")

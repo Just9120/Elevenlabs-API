@@ -192,6 +192,7 @@ The Studio PWA may render implemented source-level output metadata for explicitl
 - Claiming work must be atomic and owner/generation fenced.
 - Lease expiry comparisons use normalized UTC semantics; equality at the expiry instant means expired.
 - Each prepared batch row owns its selected output destination.
+- The idempotent batch route is the canonical job-creation authority. The deprecated compatibility route may create a job only when the project already has an output-folder selection and the owner has an active, non-deleted ElevenLabs credential; it must reject OpenAI, foreign, inactive, deleted, ambiguous, or missing credential authority.
 - Job creation copies that destination into a per-job output-folder snapshot.
 - Processing uses the job snapshot as the runtime output authority.
 - Later changes to a mutable project default output folder must not redirect an existing queued, processing, failed, cancelled, or completed job.
