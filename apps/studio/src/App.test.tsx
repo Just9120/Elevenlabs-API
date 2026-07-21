@@ -14,7 +14,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import App, { __appDiagnosticsTest } from "./App";
 import * as googlePicker from "./googlePicker";
 import { computeGooglePickerSize } from "./googlePicker";
-import { buildSegmentPlan, parseTimeToSeconds } from "./segments";
 import {
   clearPwaDiagnosticsSession,
   configurePwaDiagnosticsSession,
@@ -35,8 +34,8 @@ const json = (body: unknown, ok = true, status = 200) =>
           : new Blob([JSON.stringify(body)], { type: "application/json" }),
       ),
   } as Response);
-function renderApp(mode: "static" | "platform") {
-  render(<App mode={mode} />);
+function renderApp() {
+  render(<App />);
 }
 function postedPwaEventsFrom(fetchMock: ReturnType<typeof vi.fn>) {
   return fetchMock.mock.calls
@@ -439,7 +438,7 @@ async function openSettingsPage() {
 }
 
 async function openFocusedJobsList() {
-  renderApp("platform");
+  renderApp();
   await openSelectedProjectJobs();
   expect(await screen.findByText("Focused output job")).toBeInTheDocument();
 }
@@ -852,7 +851,7 @@ describe("Studio PWA", () => {
   });
 
   it("opens approved Drive resource links in new tabs with compact action labels", async () => {
-    renderApp("platform");
+    renderApp();
     await openProjectsPage();
 
     expect(screen.queryByText("Папка по умолчанию")).not.toBeInTheDocument();
@@ -988,7 +987,7 @@ describe("Studio PWA", () => {
         return json({ ok: true });
       },
     );
-    renderApp("platform");
+    renderApp();
     await openProjectsPage();
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
     const removeButton = await screen.findByRole("button", {
@@ -1029,7 +1028,7 @@ describe("Studio PWA", () => {
     vi.spyOn(window, "confirm").mockImplementation(() => {
       throw new Error("confirm unavailable");
     });
-    renderApp("platform");
+    renderApp();
     await openProjectsPage();
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
     await userEvent.click(
@@ -1044,7 +1043,7 @@ describe("Studio PWA", () => {
 
   it("confirms source removal text and sends at most one DELETE", async () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
-    renderApp("platform");
+    renderApp();
     await openProjectsPage();
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
     await userEvent.click(
@@ -1087,7 +1086,7 @@ describe("Studio PWA", () => {
         return json({ detail: { reason } }, false, 409);
       return defaultFetch?.(url, init) ?? json({ ok: true });
     });
-    renderApp("platform");
+    renderApp();
     await openProjectsPage();
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
     await userEvent.click(
@@ -1181,7 +1180,7 @@ describe("Studio PWA", () => {
         return json({ ok: true });
       },
     );
-    renderApp("platform");
+    renderApp();
     await openProjectsPage();
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
     await userEvent.click(
@@ -1255,7 +1254,7 @@ describe("Studio PWA", () => {
         });
       return defaultFetch?.(url, init) ?? json({ ok: true });
     });
-    renderApp("platform");
+    renderApp();
     await waitForPlatformOverview();
     expect(await screen.findByText("Последние проекты")).toBeInTheDocument();
     expect(screen.getByLabelText("Проекты")).toHaveTextContent("2");
@@ -1281,7 +1280,7 @@ describe("Studio PWA", () => {
         return json({ projects: [] });
       return defaultFetch?.(url, init) ?? json({ ok: true });
     });
-    renderApp("platform");
+    renderApp();
     await waitForPlatformOverview();
     expect(await screen.findByText("Рабочий процесс")).toBeInTheDocument();
     expect(
@@ -1310,7 +1309,7 @@ describe("Studio PWA", () => {
         });
       return defaultFetch?.(url, init) ?? json({ ok: true });
     });
-    renderApp("platform");
+    renderApp();
     await waitForPlatformOverview();
     expect(await screen.findByText("Последние проекты")).toBeInTheDocument();
     expect(screen.getByLabelText("Проекты")).toHaveTextContent("1");
@@ -1328,7 +1327,7 @@ describe("Studio PWA", () => {
   });
 
   it("opens the project creation form only for the dashboard new-project action", async () => {
-    renderApp("platform");
+    renderApp();
     await waitForPlatformOverview();
     await userEvent.click(
       await screen.findByRole("button", { name: "Открыть проекты" }),
@@ -1353,7 +1352,7 @@ describe("Studio PWA", () => {
   });
 
   it("opens a recent project directly in the preparation workspace", async () => {
-    renderApp("platform");
+    renderApp();
     await waitForPlatformOverview();
     await userEvent.click(
       await screen.findByRole("button", { name: /Research calls/ }),
@@ -1367,15 +1366,6 @@ describe("Studio PWA", () => {
     expect(
       await screen.findByRole("form", { name: "Композитор пакетных задач" }),
     ).toBeInTheDocument();
-  });
-
-  it("static-only mode renders public UI and makes no /api requests", async () => {
-    renderApp("static");
-    expect(screen.getByText("Панель готова к установке")).toBeInTheDocument();
-    expect(fetch).not.toHaveBeenCalled();
-    await userEvent.click(screen.getByRole("button", { name: /Настройки/ }));
-    expect(screen.getByText(/Статический режим/)).toBeInTheDocument();
-    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("Google Picker loader deduplicates success and retries after load failure", async () => {
@@ -1767,8 +1757,8 @@ describe("Studio PWA", () => {
     });
   });
 
-  it("platform mode refreshes in-memory CSRF and renders settings without browser storage secrets", async () => {
-    renderApp("platform");
+  it("refreshes in-memory CSRF and renders settings without browser storage secrets", async () => {
+    renderApp();
     await waitForPlatformOverview();
     expect(fetch).toHaveBeenCalledWith(
       "/api/auth/csrf",
@@ -1799,7 +1789,7 @@ describe("Studio PWA", () => {
         });
       return defaultFetch?.(url, init) ?? json({ ok: true });
     });
-    renderApp("platform");
+    renderApp();
     await openSettingsPage();
     expect(
       await screen.findByText("Google Drive не подключён"),
@@ -1850,7 +1840,7 @@ describe("Studio PWA", () => {
         return json({ ok: true });
       },
     );
-    renderApp("platform");
+    renderApp();
     await openSettingsPage();
     expect(
       await screen.findByText("Google Drive подключён"),
@@ -1891,7 +1881,7 @@ describe("Studio PWA", () => {
       value: { ...window.location, assign },
       writable: true,
     });
-    renderApp("platform");
+    renderApp();
     await openSettingsPage();
     await userEvent.click(
       await screen.findByRole("button", { name: "Подключить Google Drive" }),
@@ -1989,7 +1979,7 @@ describe("Studio PWA", () => {
         return json({ ok: true });
       },
     );
-    renderApp("platform");
+    renderApp();
     await openSettingsPage();
     await userEvent.click(
       await screen.findByRole("button", { name: "Отключить Google Drive" }),
@@ -2012,8 +2002,8 @@ describe("Studio PWA", () => {
     expect(await screen.findByText(/Статус: revoked/)).toBeInTheDocument();
   });
 
-  it("platform mode supports credential replacement without rendering raw key", async () => {
-    renderApp("platform");
+  it("supports credential replacement without rendering raw key", async () => {
+    renderApp();
     await openSettingsPage();
     await userEvent.click(
       await screen.findByRole("button", { name: "Заменить" }),
@@ -2028,7 +2018,7 @@ describe("Studio PWA", () => {
     ).not.toBeInTheDocument();
   });
   it("creates credentials with raw_value while using credential-specific field names", async () => {
-    renderApp("platform");
+    renderApp();
     await openSettingsPage();
     await userEvent.click(
       await screen.findByRole("button", { name: "Добавить ключ" }),
@@ -2060,7 +2050,7 @@ describe("Studio PWA", () => {
   });
 
   it("platform projects page loads /api/projects and renders populated projects", async () => {
-    renderApp("platform");
+    renderApp();
     await openProjectsPage();
     expect(
       await screen.findByRole("heading", { name: "Research calls" }),
@@ -2087,7 +2077,7 @@ describe("Studio PWA", () => {
         return json({ ok: true });
       },
     );
-    renderApp("platform");
+    renderApp();
     await openProjectsPage();
     expect(await screen.findByText(/Пока нет проектов/)).toBeInTheDocument();
 
@@ -2106,14 +2096,14 @@ describe("Studio PWA", () => {
         return json({ ok: true });
       },
     );
-    renderApp("platform");
+    renderApp();
     await openProjectsPage();
     expect(
       await screen.findByText(/Операция не выполнена/),
     ).toBeInTheDocument();
   });
   it("platform projects page creates, edits, and archives projects with CSRF", async () => {
-    renderApp("platform");
+    renderApp();
     await openProjectsPage();
     await screen.findByRole("heading", { name: "Research calls" });
     await userEvent.click(screen.getByRole("button", { name: "Новый проект" }));
@@ -2175,7 +2165,7 @@ describe("Studio PWA", () => {
   });
 
   it("shows compact preparation readiness status", async () => {
-    renderApp("platform");
+    renderApp();
     await openProjectsPage();
     await screen.findByRole("heading", { name: "Подготовка задач" });
     const status = await screen.findByLabelText("Готовность строк подготовки");
@@ -2187,7 +2177,7 @@ describe("Studio PWA", () => {
   });
 
   it("derives readiness, blockers, and submit state from row readiness", async () => {
-    renderApp("platform");
+    renderApp();
     await openProjectsPage();
 
     const readiness = await screen.findByLabelText(
@@ -2261,7 +2251,7 @@ describe("Studio PWA", () => {
       return defaultFetch?.(url, init) ?? json({ ok: true });
     });
 
-    renderApp("platform");
+    renderApp();
     await openProjectsPage();
     await chooseExistingSource(1, "Лекция 1");
 
@@ -2289,7 +2279,7 @@ describe("Studio PWA", () => {
       return defaultFetch?.(url, init) ?? json({ ok: true });
     });
 
-    renderApp("platform");
+    renderApp();
     await openProjectsPage();
     await chooseExistingSource(1, "Лекция 1");
     await chooseResultFolder(1);
@@ -2702,7 +2692,7 @@ describe("Studio PWA", () => {
         return json({});
       },
     );
-    renderApp("platform");
+    renderApp();
     await openProjectsPage();
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
     await waitFor(() =>
@@ -2902,16 +2892,8 @@ describe("Studio PWA", () => {
     expect(window.sessionStorage.length).toBe(0);
   });
 
-  it("renders processing cancellation-request state without extra api calls in static mode", async () => {
-    renderApp("static");
-    expect(fetch).not.toHaveBeenCalledWith(
-      expect.stringContaining("/api"),
-      expect.anything(),
-    );
-  });
-
   it("uses Google Picker actions instead of manual Drive ID forms in platform projects", async () => {
-    renderApp("platform");
+    renderApp();
     await openProjectsPage();
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
     expect(
@@ -2929,7 +2911,7 @@ describe("Studio PWA", () => {
 
   it("Google multiselect creates one ordered row per source with independent folder selectors", async () => {
     const picker = installFakeGooglePicker();
-    renderApp("platform");
+    renderApp();
     await openProjectsPage();
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
     await userEvent.click(
@@ -3216,7 +3198,7 @@ describe("Studio PWA", () => {
         return json({ ok: true });
       },
     );
-    renderApp("platform");
+    renderApp();
     await openSelectedProjectJobs();
     await chooseExistingSource(1, "ready-local.ogg");
     await chooseResultFolder(1);
@@ -3347,7 +3329,7 @@ describe("Studio PWA", () => {
         return json({ ok: true });
       },
     );
-    renderApp("platform");
+    renderApp();
     await openSelectedProjectJobs();
     await chooseExistingSource(1, "remove-me.ogg");
     await chooseResultFolder(1, "folder-default");
@@ -3529,7 +3511,7 @@ describe("Studio PWA", () => {
           return json({ ok: true });
         },
       );
-      renderApp("platform");
+      renderApp();
       await openSelectedProjectJobs();
       await userEvent.click(
         await screen.findByRole("button", { name: "Добавить строку" }),
@@ -3655,7 +3637,7 @@ describe("Studio PWA", () => {
         return json({ ok: true });
       },
     );
-    renderApp("platform");
+    renderApp();
     await openSelectedProjectJobs();
     await userEvent.click(
       await screen.findByRole("button", { name: "Добавить строку" }),
@@ -3674,7 +3656,7 @@ describe("Studio PWA", () => {
   });
 
   it("preserves the preparation composer draft across project tab switches", async () => {
-    renderApp("platform");
+    renderApp();
     await openProjectsPage();
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
 
@@ -3872,7 +3854,7 @@ describe("Studio PWA", () => {
       },
     );
 
-    renderApp("platform");
+    renderApp();
     await openProjectsPage();
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
     await chooseExistingSource(1, "p1-alpha.ogg");
@@ -4171,7 +4153,7 @@ describe("Studio PWA", () => {
       },
     );
 
-    renderApp("platform");
+    renderApp();
     await openProjectsPage();
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
     await chooseExistingSource(1, "project-a-source.ogg");
@@ -4252,7 +4234,7 @@ describe("Studio PWA", () => {
 
   it("source Picker cancel/error and duplicate clicks do not create source mutations", async () => {
     let picker = installFakeGooglePicker();
-    renderApp("platform");
+    renderApp();
     await openProjectsPage();
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
     const button = screen.getByRole("button", {
@@ -4278,7 +4260,7 @@ describe("Studio PWA", () => {
     cleanup();
     vi.clearAllMocks();
     picker = installFakeGooglePicker();
-    renderApp("platform");
+    renderApp();
     await openProjectsPage();
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
     await userEvent.click(
@@ -4320,7 +4302,7 @@ describe("Studio PWA", () => {
       return defaultFetch?.(url, init) ?? json({ ok: true });
     });
 
-    renderApp("platform");
+    renderApp();
     await openProjectsPage();
     const button = await screen.findByRole("button", {
       name: "Выбрать папку результата для строки 1",
@@ -4375,7 +4357,7 @@ describe("Studio PWA", () => {
         return defaultFetch?.(url, init) ?? json({ ok: true });
       });
 
-      renderApp("platform");
+      renderApp();
       await openProjectsPage();
       const button = await screen.findByRole("button", {
         name: "Выбрать папку результата для строки 1",
@@ -4392,7 +4374,7 @@ describe("Studio PWA", () => {
 
   it("row output-folder Picker verifies only folder ID and guards duplicate opens", async () => {
     const picker = installFakeGooglePicker();
-    renderApp("platform");
+    renderApp();
     await openProjectsPage();
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
     const button = screen.getByRole("button", {
@@ -4466,7 +4448,7 @@ describe("Studio PWA", () => {
 
   it("row output-folder Picker cancel/error does not mutate project folder and source/folder cannot open simultaneously", async () => {
     let picker = installFakeGooglePicker();
-    renderApp("platform");
+    renderApp();
     await openProjectsPage();
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
     await userEvent.click(
@@ -4489,7 +4471,7 @@ describe("Studio PWA", () => {
     cleanup();
     vi.clearAllMocks();
     picker = installFakeGooglePicker();
-    renderApp("platform");
+    renderApp();
     await openProjectsPage();
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
     await userEvent.click(
@@ -4516,7 +4498,7 @@ describe("Studio PWA", () => {
     cleanup();
     vi.clearAllMocks();
     picker = installFakeGooglePicker();
-    renderApp("platform");
+    renderApp();
     await openProjectsPage();
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
     await userEvent.click(
@@ -4593,7 +4575,7 @@ describe("Studio PWA", () => {
       value: { ...originalLocation, assign },
       configurable: true,
     });
-    renderApp("platform");
+    renderApp();
     await openProjectsPage();
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
     await waitFor(() =>
@@ -4722,7 +4704,7 @@ describe("Studio PWA", () => {
         return json({});
       },
     );
-    renderApp("platform");
+    renderApp();
     await openProjectsPage();
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
     await waitFor(() =>
@@ -4751,7 +4733,7 @@ describe("Studio PWA", () => {
 
   it("does not request job outputs until explicit job detail opening", async () => {
     installFocusedOutputFixture();
-    renderApp("platform");
+    renderApp();
     await waitForPlatformOverview();
     expect(
       (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(([url]) =>
@@ -4885,7 +4867,7 @@ describe("Studio PWA", () => {
         return json({ csrf_token: "csrf-after-refresh" });
       },
     );
-    renderApp("platform");
+    renderApp();
     expect(screen.getByRole("status")).toHaveTextContent("Проверяем сессию…");
     expect(
       screen.queryByRole("heading", { name: "Вход" }),
@@ -4944,7 +4926,7 @@ describe("Studio PWA", () => {
         });
       return json({ csrf_token: "csrf-after-refresh" });
     });
-    renderApp("platform");
+    renderApp();
     await screen.findByRole("heading", { name: "Вход" });
     await userEvent.type(screen.getByLabelText("Email"), "user@example.com");
     await userEvent.type(screen.getByLabelText("Пароль"), "password-long");
@@ -4973,7 +4955,7 @@ describe("Studio PWA", () => {
         return json({ csrf_token: "csrf-after-refresh" });
       },
     );
-    renderApp("platform");
+    renderApp();
     expect(
       await screen.findByText(
         "Не удалось проверить сессию. Повторите попытку.",
@@ -5003,7 +4985,7 @@ describe("Studio PWA", () => {
         });
       return defaultFetch?.(url, init) ?? json({ ok: true });
     });
-    renderApp("platform");
+    renderApp();
     expect(
       await screen.findByRole("heading", { name: "Настройки аккаунта" }),
     ).toBeInTheDocument();
@@ -5045,7 +5027,7 @@ describe("Studio PWA", () => {
       await screen.findByText("safe.user@example.com"),
     ).toBeInTheDocument();
     cleanup();
-    renderApp("platform");
+    renderApp();
     await waitForPlatformOverview();
     expect(
       screen.queryByText(
@@ -5074,7 +5056,7 @@ describe("Studio PWA", () => {
         });
       return defaultFetch?.(url, init) ?? json({ ok: true });
     });
-    renderApp("platform");
+    renderApp();
     expect(
       await screen.findByText("Google Drive не подключён"),
     ).toBeInTheDocument();
@@ -5094,7 +5076,7 @@ describe("Studio PWA", () => {
         return json({ detail: "raw backend token detail" }, false, 500);
       return defaultFetch?.(url, init) ?? json({ ok: true });
     });
-    renderApp("platform");
+    renderApp();
     expect(
       await screen.findByText("Google Drive сейчас недоступен."),
     ).toBeInTheDocument();
@@ -5132,26 +5114,19 @@ describe("Studio PWA", () => {
         "",
         `/?google_oauth=${result}&error_description=raw-secret-value`,
       );
-      renderApp("platform");
+      renderApp();
       expect(await screen.findByText(message)).toBeInTheDocument();
       expect(document.body.textContent).not.toContain("raw-secret-value");
     },
   );
 
-  it("ignores unknown Google OAuth results safely and static mode remains API-free", async () => {
+  it("ignores unknown Google OAuth results safely", async () => {
     window.history.pushState(
       {},
       "",
       "/?google_oauth=raw-secret-value&keep=1#hash",
     );
-    const mockFetch = fetch as unknown as ReturnType<typeof vi.fn>;
-    renderApp("static");
-    expect(
-      await screen.findByText(/Панель готова к установке/),
-    ).toBeInTheDocument();
-    expect(mockFetch).not.toHaveBeenCalled();
-    cleanup();
-    renderApp("platform");
+    renderApp();
     await waitForPlatformOverview();
     expect(document.body.textContent).not.toContain("raw-secret-value");
     expect(window.location.search).toBe("?keep=1");
@@ -5165,14 +5140,14 @@ describe("Studio PWA", () => {
           ? json({}, false, 401)
           : json({ bootstrap_required: false }),
     );
-    renderApp("platform");
+    renderApp();
     const email = await screen.findByLabelText("Email");
     const password = screen.getByLabelText("Пароль");
     expect(email).toHaveAttribute("autocomplete", "username");
     expect(password).toHaveAttribute("autocomplete", "current-password");
   });
   it("marks BYOK credential forms to avoid saved login autofill", async () => {
-    renderApp("platform");
+    renderApp();
     await openSettingsPage();
     await screen.findByText(/Ключи провайдеров/);
     await userEvent.click(
@@ -5207,7 +5182,7 @@ describe("Studio PWA", () => {
     expect(replaceKey).toHaveAttribute("data-bwignore", "true");
   });
   it("renders polished overview summary cards with separated labels and values", async () => {
-    renderApp("platform");
+    renderApp();
     const projectsCard = await screen.findByLabelText("Проекты");
     expect(within(projectsCard).getByText("Проекты")).toHaveClass(
       "summary-label",
@@ -5225,7 +5200,7 @@ describe("Studio PWA", () => {
   });
 
   it("keeps project list out of the application sidebar selector architecture", async () => {
-    renderApp("platform");
+    renderApp();
     await openProjectsPage();
     const projectList = await screen.findByLabelText("Список проектов");
     expect(projectList.tagName.toLowerCase()).toBe("section");
@@ -5291,7 +5266,7 @@ describe("Studio PWA", () => {
       );
     };
 
-    renderApp("platform");
+    renderApp();
     await openProjectsPage();
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
 
@@ -5409,7 +5384,7 @@ describe("Studio PWA", () => {
   });
 
   it("keeps the final composer row and does not remove its project source", async () => {
-    renderApp("platform");
+    renderApp();
     await openProjectsPage();
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
     await chooseExistingSource(1, "Лекция 1");
@@ -5426,7 +5401,7 @@ describe("Studio PWA", () => {
   });
 
   it("renders balanced Drive and device source cards with an accessible hidden file input", async () => {
-    renderApp("platform");
+    renderApp();
     await openProjectsPage();
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
     const row = await screen.findByLabelText("Источник строки 1");
@@ -5457,7 +5432,7 @@ describe("Studio PWA", () => {
   });
 
   it("local multi-file selection creates rows and partial failure preserves successful rows", async () => {
-    renderApp("platform");
+    renderApp();
     await openProjectsPage();
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
     const row = await screen.findByLabelText("Источник строки 1");
@@ -5500,7 +5475,7 @@ describe("Studio PWA", () => {
   });
 
   it("clears stale local upload status before rejecting a new invalid file", async () => {
-    renderApp("platform");
+    renderApp();
     await openProjectsPage();
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
     const deviceCard = await screen.findByLabelText("Источник строки 1");
@@ -5557,7 +5532,7 @@ describe("Studio PWA", () => {
         return json({ sources: [] });
       return defaultFetch?.(url, init) ?? json({ ok: true });
     });
-    renderApp("platform");
+    renderApp();
     await openProjectsPage();
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
     expect(
@@ -5572,7 +5547,7 @@ describe("Studio PWA", () => {
   });
 
   it("places Google Drive technical values in a closed details block and repairs security summary markup", async () => {
-    renderApp("platform");
+    renderApp();
     await openSettingsPage();
     const technical = await screen.findByText("Технические сведения");
     const details = technical.closest("details");
@@ -5620,18 +5595,8 @@ describe("Studio PWA", () => {
           ? json({}, false, 401)
           : json({ bootstrap_required: true }),
     );
-    renderApp("platform");
+    renderApp();
     expect(await screen.findByText(/bootstrap-admin/)).toBeInTheDocument();
-  });
-  it("validates sequential segment boundaries", () => {
-    expect(parseTimeToSeconds("01:05")).toBe(65);
-    const plan = buildSegmentPlan([
-      { id: "1", title: "", end: "00:30" },
-      { id: "2", title: "", end: "00:20" },
-      { id: "3", title: "", end: "" },
-    ]);
-    expect(plan[1].error).toMatch(/позже/);
-    expect(plan[2].endLabel).toBe("До конца записи");
   });
 });
 
@@ -5777,7 +5742,7 @@ describe("settings diagnostics", () => {
       },
     );
 
-    renderApp("platform");
+    renderApp();
     await openDiagnosticsSettings();
     expect(
       screen.getByRole("heading", { name: "События диагностики" }),
@@ -5835,7 +5800,7 @@ describe("settings diagnostics", () => {
     installBasicPlatformSettingsFixture();
     window.history.replaceState({}, "", "/");
 
-    renderApp("platform");
+    renderApp();
     await waitForPlatformOverview();
     expect(window.location.pathname).toBe("/");
     await userEvent.click(screen.getByRole("button", { name: "Проекты" }));
@@ -5864,7 +5829,7 @@ describe("settings diagnostics", () => {
     ).toHaveLength(1);
 
     window.history.replaceState({}, "", "/settings/diagnostics");
-    renderApp("platform");
+    renderApp();
     expect(
       await screen.findByRole("heading", { name: "Диагностика" }),
     ).toBeInTheDocument();
@@ -5876,19 +5841,19 @@ describe("settings diagnostics", () => {
     cleanup();
 
     window.history.replaceState({}, "", "/unknown");
-    renderApp("platform");
+    renderApp();
     await waitForPlatformOverview();
     cleanup();
 
     window.history.replaceState({}, "", "/projects");
-    renderApp("platform");
+    renderApp();
     expect(
       await screen.findByRole("heading", { name: "Проекты" }),
     ).toBeInTheDocument();
     cleanup();
 
     window.history.replaceState({}, "", "/settings");
-    renderApp("platform");
+    renderApp();
     expect(
       await screen.findByRole("heading", { name: "Настройки аккаунта" }),
     ).toBeInTheDocument();
@@ -5909,7 +5874,7 @@ describe("settings diagnostics", () => {
       "",
       "/settings/diagnostics?google_oauth=connected&keep=1",
     );
-    renderApp("platform");
+    renderApp();
     expect(
       await screen.findByRole("heading", { name: "Диагностика" }),
     ).toBeInTheDocument();
@@ -5922,19 +5887,6 @@ describe("settings diagnostics", () => {
     );
     cleanup();
     window.history.replaceState({}, "", "/");
-  });
-
-  it("static mode performs zero diagnostics or audit API calls", async () => {
-    renderApp("static");
-    await screen.findByRole("heading", { name: "Панель готова к установке" });
-    expect(fetch).not.toHaveBeenCalledWith(
-      expect.stringContaining("/api/diagnostics"),
-      expect.anything(),
-    );
-    expect(fetch).not.toHaveBeenCalledWith(
-      expect.stringContaining("/api/audit-events"),
-      expect.anything(),
-    );
   });
 
   it("opens platform Settings diagnostics and renders safe system, timeline, PWA, and separate audit sections", async () => {
@@ -6036,7 +5988,7 @@ describe("settings diagnostics", () => {
       },
     );
 
-    renderApp("platform");
+    renderApp();
     await openDiagnosticsSettings();
 
     expect(screen.getByRole("tab", { name: "Диагностика" })).toHaveAttribute(
@@ -6164,7 +6116,7 @@ describe("settings diagnostics", () => {
       },
     );
 
-    renderApp("platform");
+    renderApp();
     await openDiagnosticsSettings();
     await screen.findByText("JOB_CREATED");
     expect(screen.getAllByText("Информация").length).toBeGreaterThan(0);
@@ -6369,7 +6321,7 @@ describe("settings diagnostics", () => {
       },
     );
 
-    renderApp("platform");
+    renderApp();
     await openDiagnosticsSettings();
     await screen.findByText("JOB_CREATED");
     const headers = Array.from(
@@ -6480,7 +6432,7 @@ describe("settings diagnostics", () => {
       },
     );
 
-    renderApp("platform");
+    renderApp();
     await openDiagnosticsSettings();
 
     expect(await screen.findAllByText("не настроено")).toHaveLength(3);
@@ -6559,7 +6511,7 @@ describe("settings diagnostics", () => {
       },
     );
 
-    renderApp("platform");
+    renderApp();
     await openDiagnosticsSettings();
 
     for (const label of [
@@ -6631,7 +6583,7 @@ describe("settings diagnostics", () => {
         return json({ ok: true });
       },
     );
-    renderApp("platform");
+    renderApp();
     await openDiagnosticsSettings();
     expect(
       screen.getByText(/Не удалось загрузить состояние/),
@@ -6905,7 +6857,7 @@ describe("Settings DEBUG session controls", () => {
   }
 
   async function openDiagnostics() {
-    renderApp("platform");
+    renderApp();
     await screen.findByText("Настройки");
     await userEvent.click(
       screen.getAllByRole("button", { name: "Настройки" })[0],
