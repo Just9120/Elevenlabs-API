@@ -3,6 +3,13 @@ __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
 
 # Виртуальные окружения
 .venv/
@@ -53,4 +60,9 @@ manifest*.json
 apps/studio/node_modules/
 apps/studio/dist/
 apps/studio/*.tsbuildinfo
+apps/studio/coverage/
+apps/studio/.vite/
+apps/studio/.vitest/
+apps/studio/test-results/
+apps/studio/playwright-report/
 !deploy/studio/.env.example

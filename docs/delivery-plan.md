@@ -17,6 +17,7 @@
 - ✅ `PWA-BROWSER-DTO-MINIMIZATION-01` — Remove UI-unused owner and provider-credential IDs from project/job browser payloads while preserving server-side authority — Source-complete in the local batch; service-backed API verification is pending.
 - ✅ `PWA-UNHANDLED-DIAGNOSTICS-01` — Emit safe server evidence and an owner-scoped aggregate diagnostic for otherwise unhandled API exceptions without exposing exception details — Source-complete in the local batch.
 - ✅ `PWA-UPLOAD-VERIFIED-METADATA-01A` — Require complete uploaded-object metadata and exact normalized MIME/byte-size equality before local-upload completion — Source-complete in the local batch; service-backed API verification is pending.
+- ✅ `REPO-HYGIENE-01` — Ignore repository-local Python and Studio test/cache artifacts — Complete in the local batch.
 - 👉 `PWA-UPLOAD-RETENTION-CONTRACT-01B` — Separate upload-session expiry from retained-source expiry or make the current one-hour lifetime an explicit surfaced product rule — Next focused item; requires a product retention decision.
 - ⛔ `PWA-PROCESSING-ROLLOUT-01A` — Production processing rollout/canary — Operator item not run; production-live claims remain prohibited.
 

@@ -187,7 +187,7 @@ Before deletion, verify that no external client uses these endpoints. Then make 
 - `apps/studio-api/studio_api/main.py` is approximately 1,106 lines and mixes schemas, serializers, middleware, and around 40 routes. Split into domain routers and explicit response models while preserving route behavior.
 - `tests/test_studio_api_core.py` is approximately 3,096 lines. Split by auth, projects/sources, jobs, Google, credentials, diagnostics, and lifecycle fixtures after the API boundary is stable.
 - The top-level `deploy_studio.sh`, stateless compose file, legacy web runbook, and manual full-platform deploy script are not the active component CD path. Confirm operator usage, then delete or rename/guard them as explicit bootstrap-only tools.
-- `.gitignore` omits common pytest/tool caches. Add repository-local cache ignores as a small hygiene task.
+- The audited `.gitignore` omitted common pytest/tool caches. The local remediation now ignores repository-local pytest, type/lint, coverage, Vite/Vitest, and future browser-test artifacts.
 
 ### Stage self-review: PWA code
 
