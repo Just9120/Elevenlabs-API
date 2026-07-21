@@ -527,17 +527,23 @@ def test_job_list_owner_scope_and_cancel_idempotent_with_audit():
     finally:
         db.close()
 
-def test_project_drive_folder_binding_update_and_clear():
+def test_project_patch_rejects_unverified_output_folder_binding_fields():
     c, headers, pid = create_logged_in_project("folder@example.com")
-    payload = {"output_drive_folder_id": "abc_123-XYZ", "output_drive_folder_url": "https://drive.google.com/drive/folders/abc_123-XYZ", "output_drive_folder_name": " Results "}
-    r = c.patch(f"/api/projects/{pid}", json=payload, headers=headers)
+    r = c.patch(f"/api/projects/{pid}", json={"title": " Renamed ", "description": " Safe metadata "}, headers=headers)
     assert r.status_code == 200
-    assert r.json()["output_drive_folder_id"] == "abc_123-XYZ"
-    assert r.json()["output_drive_folder_name"] == "Results"
-    r = c.patch(f"/api/projects/{pid}", json={"output_drive_folder_id": None, "output_drive_folder_url": None, "output_drive_folder_name": None}, headers=headers)
-    assert r.status_code == 200
-    assert r.json()["output_drive_folder_id"] is None
-    assert c.patch(f"/api/projects/{pid}", json={"output_drive_folder_url": "https://evil.test/x"}, headers=headers).status_code == 422
+    assert r.json()["title"] == "Renamed"
+    assert r.json()["description"] == "Safe metadata"
+    for payload in [
+        {"output_drive_folder_id": "abc_123-XYZ"},
+        {"output_drive_folder_url": "https://drive.google.com/drive/folders/abc_123-XYZ"},
+        {"output_drive_folder_name": "Results"},
+        {"unexpected_project_field": "ignored-before-hardening"},
+    ]:
+        assert c.patch(f"/api/projects/{pid}", json=payload, headers=headers).status_code == 422
+    project = next(item for item in c.get("/api/projects").json()["projects"] if item["id"] == pid)
+    assert project["output_drive_folder_id"] is None
+    assert project["output_drive_folder_url"] is None
+    assert project["output_drive_folder_name"] is None
 
 
 

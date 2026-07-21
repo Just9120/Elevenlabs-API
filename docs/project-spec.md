@@ -175,6 +175,7 @@ The Studio PWA may render implemented source-level output metadata for explicitl
 - Provider credentials are BYOK, encrypted at rest, decrypted only server-side for authorized processing, and never returned to browsers.
 - Google OAuth refresh tokens are encrypted server-side and separated from provider credential boundaries.
 - Browser APIs may return only normalized safe metadata. They must not return raw OAuth URLs/codes/tokens, provider secrets, raw Google payloads, owners/permissions, source bytes, transcript bodies, document bodies, object keys, private paths, presigned URLs, stack traces, or raw external responses.
+- Project title/description updates and Google output-folder selection are separate authorities. Generic project PATCH accepts only title/description and rejects output-folder IDs, URLs, names, and unknown fields; output folders may be bound only through the server-verified Google Picker route.
 
 ### Sources and processing prerequisites
 

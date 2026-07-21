@@ -20,13 +20,14 @@
 - The local source fix now preserves pre-update identity/clean-tree checks, fast-forwards before versioned-file validation, and requires exact fetched-target revision identity before build.
 - The legacy stateless web-only contour and the non-authoritative full-platform deploy helper are removed in the local batch; documented bootstrap steps and platform component deployment remain authoritative.
 - The Studio frontend has one authoritative authenticated platform shell; the static demo shell, demo jobs/segments, and obsolete frontend build-mode flags are removed locally.
+- Generic project PATCH now rejects browser-supplied output-folder identity and unknown fields; output-folder binding remains server-verified through the Picker route.
 - `SECURITY.md` is now a repository-wide reporting and routing entry point; it does not duplicate detailed Colab or Studio product contracts.
 - Production migration state for `0014_source_deletion_retention` is not proven by repository evidence.
 - Latest production web/API deployment, worker rollout, and controlled canary are not proven complete.
 
 ## Near backlog
 
-- `PWA-LEGACY-AUTHORITY-01` — review permissive compatibility APIs after removing the legacy deployment and static frontend paths.
+- `PWA-LEGACY-AUTHORITY-01` — harden or retire the unverified Drive-source and legacy single-job creation routes after closing the generic project PATCH bypass.
 - `PWA-BROWSER-INTEGRATION-BOUNDARY-01` — decide and enforce the security contract for Google Picker access tokens and direct presigned uploads.
 - `PWA-DEPENDENCY-SECURITY-01` — remediate audited Node/Python dependency findings with focused upgrades and reproducible constraints.
 - `PWA-E2E-FOUNDATION-01` — automated end-to-end validation foundation for Studio.

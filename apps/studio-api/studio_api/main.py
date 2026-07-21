@@ -2,7 +2,7 @@ import hashlib, json, re
 from datetime import datetime, timedelta, timezone
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse, RedirectResponse, Response as FastAPIResponse
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from sqlalchemy import text, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -53,11 +53,9 @@ class LoginIn(BaseModel): email: EmailStr; password: str; login_csrf_token: str
 class CredentialIn(BaseModel): provider: CredentialProvider; label: str=Field(min_length=1,max_length=120); raw_value: str=Field(min_length=8,max_length=4096)
 class ProjectIn(BaseModel): title: str=Field(min_length=1,max_length=160); description: str|None=Field(default=None,max_length=2000)
 class ProjectPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     title: str|None=Field(default=None,min_length=1,max_length=160)
     description: str|None=Field(default=None,max_length=2000)
-    output_drive_folder_id: str|None=Field(default=None,max_length=256)
-    output_drive_folder_url: str|None=Field(default=None,max_length=2000)
-    output_drive_folder_name: str|None=Field(default=None,max_length=512)
 
 class GooglePickerSourceSelectionIn(BaseModel):
     file_ids: list[str]=Field(min_length=1,max_length=50)
@@ -363,9 +361,6 @@ def update_project(project_id: str, data: ProjectPatch, pair=Depends(require_csr
     _,user=pair; limiter.check("project:update:"+user.id, 120, 3600); p=owned_project_or_404(db,user,project_id)
     if data.title is not None: p.title=clean_project_title(data.title)
     if data.description is not None: p.description=clean_project_description(data.description)
-    if "output_drive_folder_id" in data.model_fields_set: p.output_drive_folder_id=clean_drive_id(data.output_drive_folder_id, "ID папки Google Drive")
-    if "output_drive_folder_url" in data.model_fields_set: p.output_drive_folder_url=clean_drive_url(data.output_drive_folder_url)
-    if "output_drive_folder_name" in data.model_fields_set: p.output_drive_folder_name=clean_optional_name(data.output_drive_folder_name)
     p.updated_at=utcnow(); audit(db,"project.updated",actor_user_id=user.id,subject_user_id=user.id); db.commit(); return project_payload(p)
 
 @app.post("/api/projects/{project_id}/archive")
