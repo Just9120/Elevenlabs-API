@@ -3056,11 +3056,11 @@ def test_openai_split_message_uses_safe_reason_without_paths_or_payloads() -> No
     assert "prepared_path" not in block
 
 
-def test_provider_contract_docs_do_not_include_fake_secret_values_or_raw_bodies() -> None:
+def test_provider_authority_docs_do_not_include_fake_secret_values_or_raw_bodies() -> None:
     docs = [
-        ROOT / "docs" / "provider-transcription-contract.md",
         ROOT / "README.md",
         ROOT / "docs" / "project-spec.md",
+        ROOT / "docs" / "architecture.md",
         ROOT / "docs" / "delivery-plan.md",
     ]
     forbidden = ["sk-", "Bearer ", "raw request", "raw response body"]

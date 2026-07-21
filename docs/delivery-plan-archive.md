@@ -46,7 +46,7 @@ Historical details from earlier job phases remain non-authoritative here. Curren
 
 ### Provider transcription contract
 
-Provider boundaries were consolidated into `docs/project-spec.md`, `docs/provider-transcription-contract.md`, and `docs/architecture.md`: ElevenLabs is the present source-level Studio provider path; OpenAI Studio processing parity remains unfinished.
+Provider boundaries were consolidated into `docs/project-spec.md` and `docs/architecture.md`: ElevenLabs is the present source-level Studio provider path; OpenAI Studio processing parity remains unfinished. The former standalone provider contract was removed after its current rules were verified as duplicate authority.
 
 ### Studio platform prep
 
