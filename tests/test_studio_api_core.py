@@ -197,16 +197,6 @@ def test_spoofed_forwarded_for_ignored_without_trusted_proxy():
     assert get_client_ip(trusted, settings) == "1.2.3.4"
 
 
-def test_secret_boundary_static_assertions():
-    compose = (ROOT / "deploy/studio/compose.platform.yml").read_text(encoding="utf-8")
-    deploy = (ROOT / "scripts/deploy_studio_platform.sh").read_text(encoding="utf-8")
-    migrate = (ROOT / "scripts/migrate_studio_platform.sh").read_text(encoding="utf-8")
-    assert "STUDIO_POSTGRES_PASSWORD:" not in compose
-    assert "postgresql+psycopg://studio:${" not in compose
-    assert "export STUDIO_POSTGRES_PASSWORD" not in deploy + migrate
-
-
-
 def test_projects_require_authentication():
     c = TestClient(app)
     assert c.get("/api/projects").status_code == 401

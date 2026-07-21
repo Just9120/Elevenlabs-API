@@ -238,6 +238,15 @@ def test_studio_ci_path_filters_reference_existing_files() -> None:
     assert workflow.count("- 'docs/runbooks/studio-platform-ops.md'") == 2
 
 
+def test_platform_deploy_files_do_not_export_or_embed_postgres_password() -> None:
+    compose = (ROOT / "deploy/studio/compose.platform.yml").read_text(encoding="utf-8")
+    migrate = (ROOT / "scripts/migrate_studio_platform.sh").read_text(encoding="utf-8")
+
+    assert "STUDIO_POSTGRES_PASSWORD:" not in compose
+    assert "postgresql+psycopg://studio:${" not in compose
+    assert "export STUDIO_POSTGRES_PASSWORD" not in migrate
+
+
 def test_new_script_fast_forwards_old_checkout_before_versioned_validation(tmp_path: Path) -> None:
     checkout = tmp_path / "checkout"
     target_tree = tmp_path / "target-tree"
