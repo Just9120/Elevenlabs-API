@@ -86,8 +86,7 @@ If cancellation, lease loss, owner/generation mismatch, project/source mutation,
 ## Known limitations
 
 - Output reconciliation is source-level and explicit owner-driven; runtime rollout still requires operator migration/deployment evidence.
-- No safe stage-specific retry/recovery system.
-- No generic retry/recovery scheduler for failed long external calls.
+- Safe stage-specific retry/recovery is implemented at source level, but retry is only an explicit owner action when durable PostgreSQL attempt evidence proves it is available; there is no generic automatic retry scheduler, production rollout/canary evidence remains absent, and provider/Google uncertainty never permits an automatic repeat.
 - No OpenAI Studio processing path.
 - No Studio manifest mutation.
 - No multi-worker production validation.

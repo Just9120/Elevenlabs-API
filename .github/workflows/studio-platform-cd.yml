@@ -135,19 +135,24 @@ jobs:
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          EXPECTED_COMMIT: ${{ github.sha }}
         run: |
           set -euo pipefail
+          [[ "$EXPECTED_COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "EXPECTED_COMMIT must be a 40-character lowercase SHA" >&2; exit 1; }
           ssh -i ~/.ssh/deploy_key -o BatchMode=yes "$DEPLOY_USER@$DEPLOY_HOST" \
-            "bash -se -- /opt/elevenlabs-studio" <<'REMOTE'
+            "bash -se -- /opt/elevenlabs-studio $EXPECTED_COMMIT" <<'REMOTE'
           set -euo pipefail
           STUDIO_DEPLOY_DIR="$1"
+          EXPECTED_COMMIT="$2"
+          [[ "$EXPECTED_COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "EXPECTED_COMMIT must be a 40-character lowercase SHA" >&2; exit 1; }
           cd "$STUDIO_DEPLOY_DIR"
           git fetch --prune origin main
+          git cat-file -e "$EXPECTED_COMMIT^{commit}"
           deploy_script="$(mktemp)"
           trap 'rm -f "$deploy_script"' EXIT
-          git show origin/main:scripts/deploy_studio_platform_component.sh >"$deploy_script"
+          git show "$EXPECTED_COMMIT:scripts/deploy_studio_platform_component.sh" >"$deploy_script"
           [[ -s "$deploy_script" ]]
-          STUDIO_DEPLOY_DIR="$STUDIO_DEPLOY_DIR" bash "$deploy_script" web
+          STUDIO_DEPLOY_DIR="$STUDIO_DEPLOY_DIR" EXPECTED_COMMIT="$EXPECTED_COMMIT" bash "$deploy_script" web
           REMOTE
 
   deploy-api:
@@ -192,19 +197,24 @@ jobs:
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          EXPECTED_COMMIT: ${{ github.sha }}
         run: |
           set -euo pipefail
+          [[ "$EXPECTED_COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "EXPECTED_COMMIT must be a 40-character lowercase SHA" >&2; exit 1; }
           ssh -i ~/.ssh/deploy_key -o BatchMode=yes "$DEPLOY_USER@$DEPLOY_HOST" \
-            "bash -se -- /opt/elevenlabs-studio" <<'REMOTE'
+            "bash -se -- /opt/elevenlabs-studio $EXPECTED_COMMIT" <<'REMOTE'
           set -euo pipefail
           STUDIO_DEPLOY_DIR="$1"
+          EXPECTED_COMMIT="$2"
+          [[ "$EXPECTED_COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "EXPECTED_COMMIT must be a 40-character lowercase SHA" >&2; exit 1; }
           cd "$STUDIO_DEPLOY_DIR"
           git fetch --prune origin main
+          git cat-file -e "$EXPECTED_COMMIT^{commit}"
           deploy_script="$(mktemp)"
           trap 'rm -f "$deploy_script"' EXIT
-          git show origin/main:scripts/deploy_studio_platform_component.sh >"$deploy_script"
+          git show "$EXPECTED_COMMIT:scripts/deploy_studio_platform_component.sh" >"$deploy_script"
           [[ -s "$deploy_script" ]]
-          STUDIO_DEPLOY_DIR="$STUDIO_DEPLOY_DIR" bash "$deploy_script" api
+          STUDIO_DEPLOY_DIR="$STUDIO_DEPLOY_DIR" EXPECTED_COMMIT="$EXPECTED_COMMIT" bash "$deploy_script" api
           REMOTE
 
 
@@ -248,17 +258,22 @@ jobs:
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          EXPECTED_COMMIT: ${{ github.sha }}
         run: |
           set -euo pipefail
+          [[ "$EXPECTED_COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "EXPECTED_COMMIT must be a 40-character lowercase SHA" >&2; exit 1; }
           ssh -i ~/.ssh/deploy_key -o BatchMode=yes "$DEPLOY_USER@$DEPLOY_HOST" \
-            "bash -se -- /opt/elevenlabs-studio" <<'REMOTE'
+            "bash -se -- /opt/elevenlabs-studio $EXPECTED_COMMIT" <<'REMOTE'
           set -euo pipefail
           STUDIO_DEPLOY_DIR="$1"
+          EXPECTED_COMMIT="$2"
+          [[ "$EXPECTED_COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "EXPECTED_COMMIT must be a 40-character lowercase SHA" >&2; exit 1; }
           cd "$STUDIO_DEPLOY_DIR"
           git fetch --prune origin main
+          git cat-file -e "$EXPECTED_COMMIT^{commit}"
           deploy_script="$(mktemp)"
           trap 'rm -f "$deploy_script"' EXIT
-          git show origin/main:scripts/deploy_studio_platform_component.sh >"$deploy_script"
+          git show "$EXPECTED_COMMIT:scripts/deploy_studio_platform_component.sh" >"$deploy_script"
           [[ -s "$deploy_script" ]]
-          STUDIO_DEPLOY_DIR="$STUDIO_DEPLOY_DIR" bash "$deploy_script" worker
+          STUDIO_DEPLOY_DIR="$STUDIO_DEPLOY_DIR" EXPECTED_COMMIT="$EXPECTED_COMMIT" bash "$deploy_script" worker
           REMOTE

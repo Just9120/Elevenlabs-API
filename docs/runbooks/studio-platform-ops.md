@@ -157,13 +157,13 @@ Before any processing rollout or canary, verify without printing sensitive value
 
 ## Authoritative rollout sequence
 
-These steps are operator actions only. Do not run them from a coding-agent PR, standard CI, or unapproved automation.
+These steps separate guarded deployment execution from explicit operator approvals. Web/API deployment may run through guarded CD on push to `main` when `STUDIO_PLATFORM_CD_ENABLED == true`, or by manual dispatch. Migration, worker rollout approval, controlled canary, production-readiness decisions, and rollback boundaries remain explicit operator actions. Do not run them from a coding-agent PR, standard CI, or unapproved automation.
 
 1. Verify intended commit/image identity: expected repository `Just9120/Elevenlabs-API`, branch `main`, clean/reviewed checkout, intended commit SHA, and selected image IDs for `studio-web`, `studio-api`, and later `studio-worker`.
 2. Verify database health: PostgreSQL service identity and read-only health must pass before any application deployment or schema comparison.
 3. Verify repository/image Alembic head: repository and intended API/worker image head must be `0014_source_deletion_retention`; compare with the current production database revision.
 4. Apply migration only as an explicit manual step: create/confirm the tagged pre-migration backup, set `STUDIO_PRE_MIGRATION_BACKUP_CONFIRMED=yes`, and run `scripts/migrate_studio_platform.sh`; standard CD must not apply migrations.
-5. Verify API/web health: deploy/recreate only the intended component through `scripts/deploy_studio_platform_component.sh`, verify running image identity, localhost health, public nginx routing, authenticated session behavior, and output endpoint availability without exposing another owner’s data.
+5. Verify API/web health: deploy/recreate only the intended component through guarded CD/manual dispatch backed by `scripts/deploy_studio_platform_component.sh`, verify expected commit identity, running image identity, localhost health, public nginx routing, authenticated session behavior, and output endpoint availability without exposing another owner’s data.
 6. Verify the existing worker is absent or drained/stopped: use `scripts/manage_studio_worker.sh status` and `drain`/`pause` as needed; abnormal exits, multiple containers, unknown state, or active running worker block rollout.
 7. Deploy exactly one intended worker: use the manual worker component path only after migration compatibility and runtime readiness are proven; the worker has no public HTTP port and must run `python -m studio_api.worker`. Multi-worker production rollout is not authorized until separately validated.
 8. Verify worker identity and healthy idle state: confirm commit-specific worker image identity, Docker health from `python -m studio_api.worker_health`, and idle polling without creating or mutating jobs.

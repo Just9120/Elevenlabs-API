@@ -6,6 +6,9 @@ import subprocess
 from pathlib import Path
 import re
 
+EXPECTED_SHA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+NEWER_SHA = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "deploy_studio_platform_component.sh"
 
@@ -15,10 +18,10 @@ def _write_exe(path: Path, content: str) -> None:
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
 
-def run_deploy(tmp_path: Path, component: str, *, via_stdin: bool = False, **env_overrides: str) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+def run_deploy(tmp_path: Path, component: str, *, via_stdin: bool = False, expected_commit: str | None = EXPECTED_SHA, **env_overrides: str) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     log = tmp_path / "calls.log"
     bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
+    bin_dir.mkdir(parents=True)
     state = {
         "built_image_id": "sha256:built",
         "running_image_id": "sha256:built",
@@ -34,6 +37,11 @@ def run_deploy(tmp_path: Path, component: str, *, via_stdin: bool = False, **env
         "tagged_inspect_empty": "0",
         "running_inspect_exit": "0",
         "running_inspect_empty": "0",
+        "current_head": EXPECTED_SHA,
+        "final_head": EXPECTED_SHA,
+        "cat_file_exit": "0",
+        "merge_base_exit": "0",
+        "merge_exit": "0",
     }
     state.update(env_overrides)
 
@@ -44,11 +52,14 @@ set -euo pipefail
 printf 'git %s\\n' "$*" >> {str(log)!r}
 case "$*" in
   "rev-parse --abbrev-ref HEAD") echo main ;;
-  "rev-parse HEAD") echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ;;
+  "rev-parse HEAD") echo {state['final_head']!r} ;;
   "config --get remote.origin.url") echo git@github.com:Just9120/Elevenlabs-API.git ;;
   "status --porcelain --untracked-files=no") ;;
   "fetch --prune origin main") ;;
-  "merge --ff-only origin/main") ;;
+  "cat-file -e {EXPECTED_SHA}^{{commit}}") exit {state['cat_file_exit']} ;;
+  "merge-base --is-ancestor {EXPECTED_SHA} origin/main") exit {state['merge_base_exit']} ;;
+  "merge --ff-only {EXPECTED_SHA}") exit {state['merge_exit']} ;;
+  "merge --ff-only origin/main"|"reset --hard"*|"checkout -f"*|"clean -fdx"*) echo "forbidden git $*" >&2; exit 44 ;;
   *) echo "unexpected git $*" >&2; exit 44 ;;
 esac
 """,
@@ -130,6 +141,8 @@ fi
     )
     env = os.environ.copy()
     env.update({"PATH": f"{bin_dir}:{env['PATH']}", "STUDIO_DEPLOY_DIR": str(ROOT)})
+    if expected_commit is not None:
+        env["EXPECTED_COMMIT"] = expected_commit
     env_file = ROOT / "deploy/studio/.env"
     created_env_file = not env_file.exists()
     if created_env_file:
@@ -148,7 +161,7 @@ fi
 
 def assert_no_forbidden_mutation(calls: list[str]) -> None:
     joined = "\n".join(calls)
-    forbidden = ["compose down", " prune", " volume rm", "compose config"]
+    forbidden = ["compose down", " prune", " volume rm", "compose config", "reset --hard", "checkout -f", "clean -fdx"]
     for text in forbidden:
         assert text not in joined
     up_lines = [line for line in calls if line.startswith("compose-up-args ")]
@@ -190,22 +203,36 @@ def test_api_deploy_via_stdin_still_reaches_success_boundary(tmp_path: Path) -> 
     assert_no_forbidden_mutation(calls)
 
 
-def test_studio_platform_cd_materializes_deploy_script_for_both_components() -> None:
+def test_studio_platform_cd_materializes_deploy_script_from_exact_commit_for_all_components() -> None:
     workflow = (ROOT / ".github/workflows/studio-platform-cd.yml").read_text(encoding="utf-8")
-    assert "git show origin/main:scripts/deploy_studio_platform_component.sh |" not in workflow
+    assert "git show origin/main:scripts/deploy_studio_platform_component.sh" not in workflow
+    assert 'git show "$EXPECTED_COMMIT:scripts/deploy_studio_platform_component.sh" >"$deploy_script"' in workflow
+    assert "EXPECTED_COMMIT: ${{ github.sha }}" in workflow
+    assert 'git cat-file -e "$EXPECTED_COMMIT^{commit}"' in workflow
     assert "bash -s -- web" not in workflow
     assert "bash -s -- api" not in workflow
-    for component in ("web", "api"):
+    for component in ("web", "api", "worker"):
         pattern = re.compile(
+            rf"EXPECTED_COMMIT: \${{{{ github\.sha }}}}.*?"
             rf"git fetch --prune origin main.*?"
+            rf"git cat-file -e \"\$EXPECTED_COMMIT\^{{commit}}\".*?"
             rf"deploy_script=\"\$\(mktemp\)\".*?"
             rf"trap 'rm -f \"\$deploy_script\"' EXIT.*?"
-            rf"git show origin/main:scripts/deploy_studio_platform_component.sh >\"\$deploy_script\".*?"
-            rf"\[\[ -s \"\$deploy_script\" \]\].*?"
-            rf"STUDIO_DEPLOY_DIR=\"\$STUDIO_DEPLOY_DIR\" bash \"\$deploy_script\" {component}",
+            rf"git show \"\$EXPECTED_COMMIT:scripts/deploy_studio_platform_component\.sh\" >\"\$deploy_script\".*?"
+            rf"STUDIO_DEPLOY_DIR=\"\$STUDIO_DEPLOY_DIR\" EXPECTED_COMMIT=\"\$EXPECTED_COMMIT\" bash \"\$deploy_script\" {component}",
             re.DOTALL,
         )
-        assert pattern.search(workflow), f"{component} deploy does not execute a materialized temporary script"
+        assert pattern.search(workflow), f"{component} deploy does not execute exact-commit materialized script"
+
+
+def test_studio_platform_cd_push_uses_github_sha_and_worker_manual_only() -> None:
+    workflow = (ROOT / ".github/workflows/studio-platform-cd.yml").read_text(encoding="utf-8")
+    assert "EXPECTED_COMMIT: ${{ github.sha }}" in workflow
+    assert "worker-only source is manual-only" in workflow
+    assert "deploy-worker:" in workflow
+    assert "github.event_name == 'workflow_dispatch'" in workflow
+    push_detection = workflow.split('elif [[ "${{ vars.STUDIO_PLATFORM_CD_ENABLED }}" == "true" ]]', 1)[1].split('echo "web=$web"', 1)[0]
+    assert "worker=true" not in push_detection
 
 
 
@@ -215,7 +242,7 @@ def test_successful_worker_deployment_is_worker_only_and_manual_identity(tmp_pat
     assert "STUDIO_PLATFORM_WORKER_DEPLOY_OK" in proc.stdout
     assert any("build studio-worker" in line for line in calls)
     assert not any("build studio-web" in line or "build studio-api" in line for line in calls)
-    assert any("docker tag elevenlabs-studio-worker:local elevenlabs-studio-worker:" in line for line in calls)
+    assert any(f"docker tag elevenlabs-studio-worker:local elevenlabs-studio-worker:{EXPECTED_SHA}" in line for line in calls)
     assert any("compose-up-args -d --no-deps --force-recreate studio-worker" in line for line in calls)
     assert not any("compose-up-args" in line and ("postgres" in line or "redis" in line or "studio-api" in line or "studio-web" in line) for line in calls)
     assert_no_forbidden_mutation(calls)
@@ -335,11 +362,14 @@ set -euo pipefail
 printf 'git %s\n' "$*" >> {str(log)!r}
 case "$*" in
   "rev-parse --abbrev-ref HEAD") echo main ;;
-  "rev-parse HEAD") echo {('b'*40)!r} ;;
+  "rev-parse HEAD") echo {EXPECTED_SHA!r} ;;
   "config --get remote.origin.url") echo git@github.com:Just9120/Elevenlabs-API.git ;;
   "status --porcelain --untracked-files=no") ;;
   "fetch --prune origin main") ;;
-  "merge --ff-only origin/main") ;;
+  "cat-file -e {EXPECTED_SHA}^{{commit}}") ;;
+  "merge-base --is-ancestor {EXPECTED_SHA} origin/main") ;;
+  "merge --ff-only {EXPECTED_SHA}") ;;
+  "merge --ff-only origin/main"|"reset --hard"*|"checkout -f"*|"clean -fdx"*) exit 44 ;;
   *) exit 44 ;;
 esac
 """)
@@ -383,7 +413,7 @@ else exit 52; fi
 """)
     env_file = ROOT / "deploy/studio/.env"; created = not env_file.exists()
     if created: env_file.write_text("# fake\n", encoding="utf-8")
-    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "STUDIO_DEPLOY_DIR": str(ROOT)}
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "STUDIO_DEPLOY_DIR": str(ROOT), "EXPECTED_COMMIT": EXPECTED_SHA}
     try:
         proc = subprocess.run(["bash", str(SCRIPT), "worker"], cwd=ROOT, env=env, text=True, capture_output=True, timeout=10)
     finally:
@@ -429,3 +459,40 @@ def test_worker_deploy_multiple_containers_blocks_before_build_without_mutation(
     assert not any("build studio-worker" in c for c in calls)
     assert not any("docker tag" in c for c in calls)
     assert not any("compose-up-args" in c for c in calls)
+
+
+def test_expected_commit_is_required_and_malformed_blocks_before_fetch_build_or_up(tmp_path: Path) -> None:
+    for index, expected in enumerate((None, "", "A" * 40, "abc123")):
+        proc, calls = run_deploy(tmp_path / f"malformed-{index}", "web", expected_commit=expected)
+        assert proc.returncode != 0
+        assert "STUDIO_PLATFORM_WEB_DEPLOY_OK" not in proc.stdout
+        assert not any("fetch --prune" in line or " build " in line or "compose-up-args" in line for line in calls)
+
+
+def test_expected_commit_unavailable_or_not_on_main_blocks_before_build_or_up(tmp_path: Path) -> None:
+    proc, calls = run_deploy(tmp_path / "missing", "api", cat_file_exit="1")
+    assert proc.returncode != 0
+    assert index_of(calls, "fetch --prune origin main") < index_of(calls, f"cat-file -e {EXPECTED_SHA}^{{commit}}")
+    assert not any("build studio-api" in line or "compose-up-args" in line for line in calls)
+
+    proc, calls = run_deploy(tmp_path / "not-main", "api", merge_base_exit="1")
+    assert proc.returncode != 0
+    assert index_of(calls, f"cat-file -e {EXPECTED_SHA}^{{commit}}") < index_of(calls, f"merge-base --is-ancestor {EXPECTED_SHA} origin/main")
+    assert not any("build studio-api" in line or "compose-up-args" in line for line in calls)
+
+
+def test_exact_commit_fast_forward_and_final_head_are_required_before_build(tmp_path: Path) -> None:
+    proc, calls = run_deploy(tmp_path / "success", "web")
+    assert proc.returncode == 0, proc.stderr + proc.stdout
+    assert index_of(calls, f"merge --ff-only {EXPECTED_SHA}") < index_of(calls, "build studio-web")
+    assert any(f"rev-parse HEAD" in line for line in calls)
+    assert not any("merge --ff-only origin/main" in line or "reset --hard" in line or "checkout -f" in line or "clean -fdx" in line for line in calls)
+
+    proc, calls = run_deploy(tmp_path / "ahead", "web", merge_exit="1")
+    assert proc.returncode != 0
+    assert not any("build studio-web" in line or "compose-up-args" in line for line in calls)
+    assert not any("reset --hard" in line or "checkout -f" in line or "clean -fdx" in line for line in calls)
+
+    proc, calls = run_deploy(tmp_path / "mismatch", "web", final_head=NEWER_SHA)
+    assert proc.returncode != 0
+    assert not any("build studio-web" in line or "compose-up-args" in line for line in calls)

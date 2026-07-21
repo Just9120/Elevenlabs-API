@@ -4,11 +4,28 @@ set -euo pipefail
 EXPECTED_REMOTE="${EXPECTED_REMOTE:-git@github.com:Just9120/Elevenlabs-API.git}"
 EXPECTED_BRANCH="${EXPECTED_BRANCH:-main}"
 EXPECTED_DIR="${STUDIO_DEPLOY_DIR:?STUDIO_DEPLOY_DIR is required}"
+EXPECTED_COMMIT="${EXPECTED_COMMIT:?EXPECTED_COMMIT is required}"
 COMPOSE_FILE="deploy/studio/compose.platform.yml"
 ENV_FILE="deploy/studio/.env"
 
 log() { printf '[studio-platform-component-deploy] %s\n' "$*"; }
 fail() { printf '[studio-platform-component-deploy] ERROR: %s\n' "$*" >&2; exit 1; }
+
+require_expected_commit() {
+  [[ "$EXPECTED_COMMIT" =~ ^[0-9a-f]{40}$ ]] || fail "EXPECTED_COMMIT must be exactly one 40-character lowercase hexadecimal SHA"
+}
+
+update_checkout_to_expected_commit() {
+  require_expected_commit
+  log "fetching intended branch for exact commit fencing"
+  git fetch --prune origin "$EXPECTED_BRANCH"
+  git cat-file -e "$EXPECTED_COMMIT^{commit}" || fail "EXPECTED_COMMIT is not available as a commit"
+  git merge-base --is-ancestor "$EXPECTED_COMMIT" "origin/$EXPECTED_BRANCH" || fail "EXPECTED_COMMIT is not reachable from origin/$EXPECTED_BRANCH"
+  git merge --ff-only "$EXPECTED_COMMIT" || fail "could not fast-forward checkout to EXPECTED_COMMIT"
+  local actual_head
+  actual_head="$(git rev-parse HEAD)"
+  [[ "$actual_head" == "$EXPECTED_COMMIT" ]] || fail "checkout HEAD ($actual_head) does not match EXPECTED_COMMIT ($EXPECTED_COMMIT)"
+}
 
 [[ "$#" -eq 1 ]] || fail "expected exactly one component argument: web, api, or worker"
 case "$1" in
@@ -137,6 +154,7 @@ poll_health() {
   fail "health check failed for $SERVICE; no automatic rollback attempted"
 }
 
+require_expected_commit
 [[ "$(pwd -P)" == "$(cd "$EXPECTED_DIR" && pwd -P)" ]] || fail "must run inside STUDIO_DEPLOY_DIR"
 [[ "$(git rev-parse --abbrev-ref HEAD)" == "$EXPECTED_BRANCH" ]] || fail "unexpected branch"
 remote_url="$(git config --get remote.origin.url)"
@@ -161,8 +179,7 @@ worker_block="$(sed -n '/^  studio-worker:/,/^  [^ ]/p' "$COMPOSE_FILE")"
 grep -q '127.0.0.1:8181:8080' "$COMPOSE_FILE" || fail "studio-web must bind localhost-only 8181"
 grep -q '127.0.0.1:8182:8000' "$COMPOSE_FILE" || fail "studio-api must bind localhost-only 8182"
 
-git fetch --prune origin "$EXPECTED_BRANCH"
-git merge --ff-only "origin/$EXPECTED_BRANCH"
+update_checkout_to_expected_commit
 [[ -z "$(git status --porcelain --untracked-files=no)" ]] || fail "tracked working tree changed unexpectedly"
 
 if [[ "$SERVICE" == "studio-worker" ]]; then
@@ -208,7 +225,7 @@ if [[ "$SERVICE" == "studio-api" ]]; then
   verify_database_revision_matches_new_image studio-api yes
 elif [[ "$SERVICE" == "studio-worker" ]]; then
   verify_database_revision_matches_new_image studio-worker no
-  commit_sha="$(git rev-parse HEAD)"
+  commit_sha="$EXPECTED_COMMIT"
   docker tag "$IMAGE_REF" "elevenlabs-studio-worker:${commit_sha}" || fail "could not create commit-specific worker image tag"
 fi
 
@@ -216,7 +233,7 @@ log "force-recreating only $SERVICE without dependencies"
 compose up -d --no-deps --force-recreate "$SERVICE"
 verify_running_image_identity "$BUILT_IMAGE_ID"
 if [[ "$SERVICE" == "studio-worker" ]]; then
-  commit_sha="${commit_sha:-$(git rev-parse HEAD)}"
+  commit_sha="${commit_sha:-$EXPECTED_COMMIT}"
   running_cid="$(compose ps -q "$SERVICE")"
   running_image="$(docker inspect --format '{{.Image}}' "$running_cid")"
   commit_image="$(docker image inspect --format '{{.Id}}' "elevenlabs-studio-worker:${commit_sha}")"

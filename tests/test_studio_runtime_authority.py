@@ -1,5 +1,6 @@
 from pathlib import Path
 import re
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -98,3 +99,43 @@ def test_legacy_runtime_paths_are_marked_with_replacement():
     architecture = read("docs/architecture.md")
     assert "deploy/studio/compose.prod.yml` | `compatibility-only` / `legacy-deprecated`" in architecture
     assert "No legacy paths were removed" in read("docs/delivery-plan.md")
+
+
+
+def workflow_paths(path: str) -> list[str]:
+    workflow = yaml.load((ROOT / path).read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+    on_block = workflow.get("on", {})
+    paths: list[str] = []
+    for event in ("pull_request", "push"):
+        event_block = on_block.get(event, {})
+        if isinstance(event_block, dict):
+            paths.extend(event_block.get("paths", []) or [])
+    return paths
+
+
+def test_workflow_path_filters_reference_existing_repository_paths_and_authority_docs():
+    all_paths: list[tuple[str, str]] = []
+    for workflow in (ROOT / ".github/workflows").glob("*.yml"):
+        for entry in workflow_paths(str(workflow.relative_to(ROOT))):
+            all_paths.append((str(workflow.relative_to(ROOT)), entry))
+            literal_prefix = entry.split("*", 1)[0].rstrip("/")
+            candidate = ROOT / literal_prefix
+            if "*" in entry:
+                assert candidate.exists(), f"{workflow} glob parent missing: {entry}"
+            else:
+                assert (ROOT / entry).exists(), f"{workflow} literal path missing: {entry}"
+
+    flattened = [entry for _, entry in all_paths]
+    assert "docs/runbooks/studio-deploy.md" not in flattened
+    assert "docs/runbooks/legacy-studio-web-deploy.md" in flattened
+    studio_ci_paths = workflow_paths(".github/workflows/studio-ci.yml")
+    for authority_path in [
+        "docs/architecture.md",
+        "docs/delivery-plan.md",
+        "docs/project-spec.md",
+        "docs/studio-processing-contract.md",
+        "README.md",
+        "tests/test_studio_runtime_authority.py",
+    ]:
+        assert authority_path in studio_ci_paths
+    assert "docs/delivery-plan-archive.md" not in flattened
