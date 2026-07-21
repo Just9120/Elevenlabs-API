@@ -494,6 +494,9 @@ def test_audit_source_lifecycle_metadata_contract(sqlite_db):
         cleanup_attempt=-1,
     )
     audit(sqlite_db, "source.storage_cleanup_failed", cleanup_attempt=100001)
+    audit(sqlite_db, "source.storage_cleanup_failed", cleanup_attempt=True)
+    # Existing legacy safe keys still persist.
+    audit(sqlite_db, "credential.updated", provider="openai", credential_id="cred-safe", session_id="sess-safe", reason="rotation")
     sqlite_db.commit()
 
     rows = sqlite_db.query(m.AuditEvent).order_by(m.AuditEvent.created_at.asc(), m.AuditEvent.id.asc()).all()
@@ -506,6 +509,8 @@ def test_audit_source_lifecycle_metadata_contract(sqlite_db):
     }
     assert json.loads(rows[1].metadata_json) == {}
     assert json.loads(rows[2].metadata_json) == {}
+    assert json.loads(rows[3].metadata_json) == {}
+    assert json.loads(rows[4].metadata_json) == {"credential_id": "cred-safe", "provider": "openai", "reason": "rotation", "session_id": "sess-safe"}
 
 
 def test_cleanup_sql_selection_skips_more_than_100_processing_blocked_sources(sqlite_db):
