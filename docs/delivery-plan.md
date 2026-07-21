@@ -17,12 +17,13 @@
 - Repository CI and Studio PWA CI passed for `main` revision `6ee51994de90bbfe7852cf1bd7618397b00e52b3`.
 - Studio Platform CD run `29815613081` failed before the server checkout fast-forward because the new deploy script required a file present only in the new revision.
 - The local source fix now preserves pre-update identity/clean-tree checks, fast-forwards before versioned-file validation, and requires exact fetched-target revision identity before build.
+- The legacy stateless web-only deploy script, Compose file, and runbook are removed in the local batch; platform component deployment remains authoritative.
 - Production migration state for `0014_source_deletion_retention` is not proven by repository evidence.
 - Latest production web/API deployment, worker rollout, and controlled canary are not proven complete.
 
 ## Near backlog
 
-- `PWA-LEGACY-AUTHORITY-01` — review legacy static UI, permissive compatibility APIs, and deployment/runtime paths; remove, deprecate, or formally mark them.
+- `PWA-LEGACY-AUTHORITY-01` — continue with the legacy static UI, permissive compatibility APIs, and non-authoritative full-platform helper after removing the stateless web-only path.
 - `PWA-BROWSER-INTEGRATION-BOUNDARY-01` — decide and enforce the security contract for Google Picker access tokens and direct presigned uploads.
 - `PWA-DEPENDENCY-SECURITY-01` — remediate audited Node/Python dependency findings with focused upgrades and reproducible constraints.
 - `PWA-E2E-FOUNDATION-01` — automated end-to-end validation foundation for Studio.

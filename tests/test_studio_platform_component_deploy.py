@@ -235,7 +235,6 @@ def test_studio_ci_path_filters_reference_existing_files() -> None:
     missing = sorted(path for path in literal_paths if not (ROOT / path).is_file())
 
     assert missing == []
-    assert workflow.count("- 'docs/runbooks/legacy-studio-web-deploy.md'") == 2
     assert workflow.count("- 'docs/runbooks/studio-platform-ops.md'") == 2
 
 

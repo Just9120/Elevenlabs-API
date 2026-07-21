@@ -38,7 +38,6 @@ Useful checks for documentation authority work:
 ```bash
 rg -n "record-only|record only" README.md AGENTS.md docs
 rg -n "studio-processing-contract.md" README.md AGENTS.md docs
-rg -n "legacy-studio-web-deploy.md" README.md AGENTS.md docs
 rg -n "production-live|production ready|production-ready" README.md AGENTS.md docs
 rg -n "active item|Active item|ACTIVE" docs/delivery-plan.md
 ```

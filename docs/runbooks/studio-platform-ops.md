@@ -206,10 +206,6 @@ Stopping the worker must not automatically requeue, delete, retry, downgrade, re
 
 Output-side-effect uncertainty requires a separate reconciliation item. API/web rollback requires an explicitly reviewed database-compatible operator decision.
 
-## Legacy deployment pointer
-
-The legacy stateless web-only path remains documented separately in `docs/runbooks/legacy-studio-web-deploy.md` until `PWA-LEGACY-AUTHORITY-01` removes or formally supersedes that runtime code. Do not use the legacy path for platform API, worker, processing, PostgreSQL, Redis, migrations, or production processing rollout.
-
 ## Residual limitations
 
 Current known limitations remain:

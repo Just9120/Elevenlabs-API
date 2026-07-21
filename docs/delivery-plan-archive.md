@@ -54,7 +54,7 @@ Preparation decisions that still matter were consolidated into current product, 
 
 ### Studio deploy runbooks
 
-Current platform operations live in `docs/runbooks/studio-platform-ops.md` and CI/CD safety remains in `docs/ci-cd-rules.md`. The legacy stateless web-only path remains visible in `docs/runbooks/legacy-studio-web-deploy.md` until `PWA-LEGACY-AUTHORITY-01` removes or formally supersedes that runtime code.
+Current platform operations live in `docs/runbooks/studio-platform-ops.md` and CI/CD safety remains in `docs/ci-cd-rules.md`. The legacy stateless web-only script, Compose file, and runbook were removed under `PWA-LEGACY-AUTHORITY-01` after the platform component path became authoritative.
 
 ## Archived closed items and PR-chain categories
 

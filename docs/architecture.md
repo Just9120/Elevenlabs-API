@@ -36,7 +36,7 @@ Studio PWA is a web platform contour in development. Source-level architecture i
 | Provider path | ElevenLabs modules under `apps/studio-api/studio_api/` | Owner-scoped BYOK transcription execution. | ElevenLabs path present; OpenAI Studio parity unfinished. |
 | Google integration | Google OAuth/Drive/Docs modules under `apps/studio-api/studio_api/` | OAuth connection, safe Drive metadata/folder selection, Google Docs output creation. | Source present; exactly-once document creation is not claimed; source-level output reconciliation is present and runtime evidence is separate. |
 | Diagnostics | API/frontend diagnostic modules and migrations `0010`/`0011` | Safe diagnostic event/report/debug-session foundation. | Source present; evidence must remain redacted. |
-| Deployment | `deploy/studio/`, `.github/workflows/` | Component deployment and preflight automation boundaries. | Deployment changes are governed by `docs/ci-cd-rules.md`; standard CD must not deploy workers or run migrations. Legacy stateless web deploy is documented in `docs/runbooks/legacy-studio-web-deploy.md`. |
+| Deployment | `deploy/studio/`, `.github/workflows/` | Component deployment and preflight automation boundaries. | Deployment changes are governed by `docs/ci-cd-rules.md`; standard CD must not deploy workers or run migrations. |
 
 ## Runtime boundaries
 
