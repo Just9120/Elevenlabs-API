@@ -414,7 +414,10 @@ def _validated_drive_metadata_for_picker(db: Session, user: User, drive_id: str)
     if not clean_id: raise HTTPException(422, "Некорректный ID Google Drive")
     try:
         access_token=refreshed_google_drive_access_token(db, user)
-        return fetch_drive_file_metadata(access_token, clean_id)
+        meta=fetch_drive_file_metadata(access_token, clean_id)
+        if not isinstance(meta.id, str) or meta.id.strip() != clean_id:
+            raise HTTPException(502, "Google Drive metadata is unavailable")
+        return meta
     except HTTPException:
         raise
     except GoogleDriveMetadataError:
@@ -422,24 +425,30 @@ def _validated_drive_metadata_for_picker(db: Session, user: User, drive_id: str)
     except Exception:
         raise HTTPException(502, "Google Drive metadata is unavailable")
 
+def _validated_google_drive_source_metadata(db: Session, user: User, drive_id: str):
+    meta=_validated_drive_metadata_for_picker(db, user, drive_id)
+    if meta.is_folder:
+        raise HTTPException(422, "Папки Google Drive нельзя добавить как source")
+    mime=normalize_source_mime_type(meta.mime_type or "")
+    if not is_supported_source_mime_type(mime):
+        raise HTTPException(422, "Неподдерживаемый тип файла")
+    if meta.size_bytes is not None and not validate_source_size(meta.size_bytes, settings.source_max_upload_bytes):
+        raise HTTPException(422, "Файл слишком большой")
+    return meta,mime
+
+def _new_google_drive_source(project_id: str, meta, mime: str, uploaded_at: datetime) -> Source:
+    return Source(project_id=project_id, source_type=SourceType.google_drive, original_filename=normalize_source_display_filename(meta.name or f"Google Drive source {meta.id}"), mime_type=mime, size_bytes=meta.size_bytes, drive_file_id=clean_drive_id(meta.id, "ID файла Google Drive"), drive_file_url=clean_drive_url(meta.web_view_link), upload_status=SourceUploadStatus.uploaded, uploaded_at=uploaded_at, storage_cleanup_status=SourceStorageCleanupStatus.not_applicable)
+
 @app.post("/api/projects/{project_id}/sources/google-picker")
 def create_google_picker_sources(project_id: str, data: GooglePickerSourceSelectionIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     _,user=pair; limiter.check("source:gpicker:create:"+user.id, 60, 3600); p=owned_project_or_404(db,user,project_id)
     metas=[]
     for raw_id in data.file_ids:
-        meta=_validated_drive_metadata_for_picker(db, user, raw_id)
-        if meta.is_folder:
-            raise HTTPException(422, "Папки Google Drive нельзя добавить как source")
-        mime=normalize_source_mime_type(meta.mime_type or "")
-        if not is_supported_source_mime_type(mime):
-            raise HTTPException(422, "Неподдерживаемый тип файла")
-        if meta.size_bytes is not None and not validate_source_size(meta.size_bytes, settings.source_max_upload_bytes):
-            raise HTTPException(422, "Файл слишком большой")
-        metas.append((meta, mime))
+        metas.append(_validated_google_drive_source_metadata(db, user, raw_id))
     now=utcnow(); created=[]
     try:
         for meta,mime in metas:
-            src=Source(project_id=p.id, source_type=SourceType.google_drive, original_filename=normalize_source_display_filename(meta.name or f"Google Drive source {meta.id}"), mime_type=mime, size_bytes=meta.size_bytes, drive_file_id=clean_drive_id(meta.id, "ID файла Google Drive"), drive_file_url=clean_drive_url(meta.web_view_link), upload_status=SourceUploadStatus.uploaded, uploaded_at=now, storage_cleanup_status=SourceStorageCleanupStatus.not_applicable)
+            src=_new_google_drive_source(p.id, meta, mime, now)
             db.add(src); created.append(src)
         audit(db,"source.google_picker.created",actor_user_id=user.id,subject_user_id=user.id,project_id=p.id,source_count=len(created)); db.commit()
     except Exception:
@@ -559,11 +568,15 @@ def create_transcription_jobs_batch(project_id: str, data: TranscriptionJobBatch
     for job in jobs: db.refresh(job)
     return {"jobs":[job_payload(j, include_sources=True) for j in sorted(jobs, key=lambda j: j.batch_position or 0)], "created_count": len(jobs), "replayed": False}
 
-@app.post("/api/projects/{project_id}/sources/google-drive")
-def create_google_drive_source(project_id: str, data: GoogleDriveSourceIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+@app.post("/api/projects/{project_id}/sources/google-drive", deprecated=True)
+def create_google_drive_source(project_id: str, data: GoogleDriveSourceIn, response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     _,user=pair; limiter.check("source:gdrive:create:"+user.id, 120, 3600); p=owned_project_or_404(db,user,project_id)
-    src=Source(project_id=p.id, source_type=SourceType.google_drive, original_filename=normalize_source_display_filename(data.original_filename), mime_type=data.mime_type.strip() if data.mime_type else None, size_bytes=data.size_bytes, drive_file_id=clean_drive_id(data.drive_file_id, "ID файла Google Drive"), drive_file_url=clean_drive_url(data.drive_file_url), upload_status=SourceUploadStatus.uploaded, uploaded_at=utcnow(), storage_cleanup_status=SourceStorageCleanupStatus.not_applicable)
-    db.add(src); audit(db,"source.google_drive.created",actor_user_id=user.id,subject_user_id=user.id); db.commit(); return source_payload(src)
+    meta,mime=_validated_google_drive_source_metadata(db, user, data.drive_file_id)
+    src=_new_google_drive_source(p.id, meta, mime, utcnow())
+    db.add(src); audit(db,"source.google_drive.created",actor_user_id=user.id,subject_user_id=user.id,project_id=p.id); db.commit()
+    response.headers["Deprecation"]="true"
+    response.headers["Link"]=f'</api/projects/{p.id}/sources/google-picker>; rel="successor-version"'
+    return source_payload(src)
 
 @app.post("/api/projects/{project_id}/sources/local-upload/initiate")
 def initiate_local_upload(project_id: str, data: LocalUploadInitiateIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):

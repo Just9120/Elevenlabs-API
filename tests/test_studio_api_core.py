@@ -292,10 +292,13 @@ def create_logged_in_project(email="sources@example.com"):
 
 
 
-def create_gdrive_source(c, headers, pid, name="meeting.mp4"):
-    r = c.post(f"/api/projects/{pid}/sources/google-drive", json={"drive_file_id": f"file_{name.replace('.', '_')}", "drive_file_url":"https://drive.google.com/file/d/file_123/view", "original_filename":name, "mime_type":"video/mp4", "size_bytes":42}, headers=headers)
-    assert r.status_code == 200
-    return r.json()["id"]
+def create_gdrive_source(_c, _headers, pid, name="meeting.mp4"):
+    db = SessionLocal()
+    try:
+        src = Source(project_id=pid, source_type=SourceType.google_drive, original_filename=name, mime_type="video/mp4", size_bytes=42, drive_file_id=f"file_{name.replace('.', '_')}", drive_file_url="https://drive.google.com/file/d/file_123/view", upload_status=SourceUploadStatus.uploaded, uploaded_at=utcnow(), storage_cleanup_status=SourceStorageCleanupStatus.not_applicable)
+        db.add(src); db.commit(); return src.id
+    finally:
+        db.close()
 
 
 def add_local_source(pid, status=SourceUploadStatus.uploaded, deleted=False):
@@ -2277,6 +2280,74 @@ def test_google_picker_source_and_output_selection_revalidates_server_metadata(m
     assert r.json()["output_drive_folder_name"] == "Results"
     assert r.json()["output_drive_folder_url"] == "https://drive.google.com/drive/folders/folder"
     assert "access" not in r.text and "canAddChildren" not in r.text and "capabilities" not in r.text
+
+
+def test_legacy_google_drive_source_ignores_browser_metadata_and_uses_verified_metadata(monkeypatch):
+    import studio_api.main as main
+    from studio_api.google_drive import GoogleDriveMetadata
+
+    pw = admin("drive-source-compat@example.com")
+    c = TestClient(app)
+    csrf = login(c, pw, "drive-source-compat@example.com")
+    db = SessionLocal()
+    uid = db.query(User).first().id
+    db.close()
+    _connect_google_for_test(uid)
+    monkeypatch.setattr(main, "refresh_user_google_drive_access_token", lambda *a, **k: "access")
+    verified = GoogleDriveMetadata(
+        "verified-file",
+        "Verified meeting.mp4",
+        "video/mp4",
+        42,
+        "https://drive.google.com/file/d/verified-file/view",
+        None,
+        None,
+        False,
+    )
+    calls = []
+
+    def fake_fetch(token, drive_file_id):
+        calls.append((token, drive_file_id))
+        return verified
+
+    monkeypatch.setattr("studio_api.google_drive.fetch_drive_file_metadata", fake_fetch)
+    headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+    pid = c.post("/api/projects", json={"title": "Compatibility"}, headers=headers).json()["id"]
+    payload = {
+        "drive_file_id": "verified-file",
+        "drive_file_url": "https://evil.example/spoofed",
+        "original_filename": "Spoofed.pdf",
+        "mime_type": "application/pdf",
+        "size_bytes": main.settings.source_max_upload_bytes + 1,
+    }
+    r = c.post(f"/api/projects/{pid}/sources/google-drive", json=payload, headers=headers)
+    assert r.status_code == 200
+    assert app.openapi()["paths"][f"/api/projects/{{project_id}}/sources/google-drive"]["post"]["deprecated"] is True
+    assert r.headers["deprecation"] == "true"
+    assert r.headers["link"] == f'</api/projects/{pid}/sources/google-picker>; rel="successor-version"'
+    assert calls == [("access", "verified-file")]
+    body = r.json()
+    assert body["original_filename"] == "Verified meeting.mp4"
+    assert body["mime_type"] == "video/mp4"
+    assert body["size_bytes"] == 42
+    assert body["drive_file_url"] == "https://drive.google.com/file/d/verified-file/view"
+    assert "Spoofed.pdf" not in r.text and "evil.example" not in r.text
+    db = SessionLocal()
+    try:
+        src = db.get(Source, body["id"])
+        assert src.drive_file_id == "verified-file"
+    finally:
+        db.close()
+
+    mismatched = GoogleDriveMetadata("other-file", "Other.mp4", "video/mp4", 1, None, None, None, False)
+    monkeypatch.setattr("studio_api.google_drive.fetch_drive_file_metadata", lambda *_: mismatched)
+    mismatch = c.post(f"/api/projects/{pid}/sources/google-drive", json=payload, headers=headers)
+    assert mismatch.status_code == 502
+    db = SessionLocal()
+    try:
+        assert db.query(Source).filter_by(project_id=pid).count() == 1
+    finally:
+        db.close()
 
 
 def _batch_headers(csrf):
