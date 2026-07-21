@@ -26,7 +26,7 @@ Studio PWA is a web platform contour in development. Source-level architecture i
 
 | Component | Source location | Responsibility | Production status note |
 | --- | --- | --- | --- |
-| Studio frontend | `apps/studio/` | Browser UI for sessions, projects, sources, credentials, Google connection, preparation, jobs, outputs, diagnostics. | Source present; deployment evidence is separate. |
+| Studio frontend | `apps/studio/` | Browser UI for sessions, projects, sources, credentials, Google connection, preparation, jobs, outputs, diagnostics; `src/apiClient.ts` owns same-origin JSON/CSRF retry transport and its safe diagnostic emission. | Source present; deployment evidence is separate. |
 | Studio API | `apps/studio-api/studio_api/` | FastAPI app, auth/session boundaries, owner-scoped APIs, job/source/credential/output/diagnostic services. | Source present; production API deployment does not imply worker processing. |
 | Database | PostgreSQL via Studio deployment | Durable users/projects/sources/credentials/jobs/outputs/diagnostics state. | Migrations present through `0014_source_deletion_retention`; production revision requires operator evidence. |
 | Alembic migrations | `apps/studio-api/alembic/versions/` | Schema authority for Studio persistence. | Current repository head is `0014_source_deletion_retention`. |

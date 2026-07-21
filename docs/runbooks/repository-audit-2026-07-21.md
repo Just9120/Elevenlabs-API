@@ -185,7 +185,7 @@ Before deletion, verify that no external client uses these endpoints. Then make 
 
 ### Maintainability debt
 
-- `apps/studio/src/App.tsx` is approximately 4,098 lines and `App.test.tsx` approximately 7,205 lines. Split by domain routes/features, API client, and hooks after legacy UI authority is resolved.
+- `apps/studio/src/App.tsx` was approximately 4,098 lines and `App.test.tsx` approximately 7,205 lines. The local batch begins the split by extracting the API/CSRF/safe-diagnostic transport into `src/apiClient.ts`; domain routes/features, hooks, and test modules remain maintainability work.
 - `apps/studio-api/studio_api/main.py` is approximately 1,106 lines and mixes schemas, serializers, middleware, and around 40 routes. Split into domain routers and explicit response models while preserving route behavior.
 - `tests/test_studio_api_core.py` is approximately 3,096 lines. Split by auth, projects/sources, jobs, Google, credentials, diagnostics, and lifecycle fixtures after the API boundary is stable.
 - The top-level `deploy_studio.sh`, stateless compose file, legacy web runbook, and manual full-platform deploy script are not the active component CD path. Confirm operator usage, then delete or rename/guard them as explicit bootstrap-only tools.

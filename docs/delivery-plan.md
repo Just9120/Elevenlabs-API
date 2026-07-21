@@ -19,6 +19,7 @@
 - ✅ `PWA-UPLOAD-VERIFIED-METADATA-01A` — Require complete uploaded-object metadata and exact normalized MIME/byte-size equality before local-upload completion — Source-complete in the local batch; service-backed API verification is pending.
 - ✅ `REPO-HYGIENE-01` — Ignore repository-local Python and Studio test/cache artifacts — Complete in the local batch.
 - ✅ `TEST-PORTABLE-PROFILE-01` — Limit pytest discovery to repository tests and add an opt-in cross-platform profile that excludes service/shell modules before import while leaving the full CI suite unchanged — Complete in the local batch.
+- ✅ `PWA-FRONTEND-MODULARIZATION-01A` — Extract the tested API/CSRF/diagnostic transport from the monolithic application component — Complete in the local batch with no API or UI behavior change.
 - 👉 `PWA-UPLOAD-RETENTION-CONTRACT-01B` — Separate upload-session expiry from retained-source expiry or make the current one-hour lifetime an explicit surfaced product rule — Next focused item; requires a product retention decision.
 - ⛔ `PWA-PROCESSING-ROLLOUT-01A` — Production processing rollout/canary — Operator item not run; production-live claims remain prohibited.
 
