@@ -100,6 +100,8 @@ CI should:
 - not deploy;
 - clearly report success, for example with `CI_OK`.
 
+Network-backed dependency advisory scans run in a separate scheduled/manual workflow so advisory-service availability cannot block ordinary pull-request or `main` CI. A vulnerability finding fails that audit workflow. A registry or advisory-service outage requires a later rerun and must not be reported as a confirmed product vulnerability or as green audit evidence.
+
 If the project has no tests, CI may run the smallest available useful checks.
 
 Do not introduce heavy testing infrastructure as part of a CI setup unless explicitly requested.

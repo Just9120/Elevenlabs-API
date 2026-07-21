@@ -45,6 +45,8 @@ python -m piptools compile --resolver=backtracking --strip-extras --newline=LF -
 
 Constraints are installed with `-c`; they are not standalone cross-platform requirements files. This preserves platform-specific dependencies selected by extras while constraining the shared resolution.
 
+The `Dependency audit` GitHub Actions workflow runs weekly and via `workflow_dispatch`. It audits the exact npm lock and an installed Linux/Python 3.11 graph. Findings fail only that reporting workflow; ordinary PR/push CI does not call advisory services. Treat service outages as `blocked` and rerun later rather than recording a vulnerability or a pass.
+
 For docs-only changes, run `git diff --check`, available markdown/link checks, targeted `rg` searches for stale links/conflicting claims, and a docs-only changed-file review. Runtime integration tests are not required unless the task explicitly asks for them.
 
 ## Markdown link check pattern
