@@ -25,6 +25,16 @@ Use the smallest relevant checks for the task.
 
 For Studio frontend changes, inspect `apps/studio/package.json` and run the relevant existing npm scripts from `apps/studio/` when dependencies are available.
 
+### Studio processing E2E
+
+The deterministic source-level processing scenario is:
+
+```bash
+pytest -q tests/test_studio_processing_e2e.py
+```
+
+It requires the same PostgreSQL database, current Alembic head, and Redis service used by repository CI. A developer run without those services is reported as skipped; `CI=true` makes either missing service a failure. The test creates the project, credential, source, output destination, and job through the authenticated API, runs the real claim/orchestration/persistence path, replaces only storage, ElevenLabs, and Google network boundaries with controlled fakes, then verifies the completed job and explicit browser-safe output DTO. It is not a real-browser test and does not replace the controlled production canary.
+
 ## Reproducible Python dependencies
 
 Repository/CI development installs use the input requirements together with the committed transitive constraints:

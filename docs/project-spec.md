@@ -139,6 +139,9 @@ Source currently present in the repository includes:
 - Google Docs output creation path;
 - safe output persistence and browser-safe output read path;
 - diagnostics, diagnostic debug sessions, migrations, and tests.
+- a deterministic API-to-worker processing E2E scenario that uses real PostgreSQL/Redis state and controlled in-process storage, ElevenLabs, and Google boundaries.
+
+The processing E2E scenario is repository validation, not production evidence. It does not exercise a real browser, provider account, Google account, deployed worker, or public host, and it must not be used to claim exactly-once behavior outside its controlled fakes.
 
 The current Alembic migration head in the repository is `0014_source_deletion_retention` under `apps/studio-api/alembic/versions/`.
 
@@ -158,6 +161,7 @@ Unfinished or unproven delivery capabilities:
 
 - production migration/deployment and worker rollout validation for the intended revision;
 - controlled end-to-end canary after the latest fix with exactly one persisted output;
+- browser-level automated E2E coverage for the authenticated preparation and job-result workflow;
 - OpenAI PWA processing parity;
 - long-media splitting parity with Colab;
 - Studio manifest authority/update behavior;
@@ -244,7 +248,7 @@ Current delivery sequencing is in `docs/delivery-plan.md`. Product backlog items
 
 - `PWA-PROCESSING-ROLLOUT-01A` — operator validation for fixed worker rollout and one controlled end-to-end canary.
 - `PWA-LEGACY-AUTHORITY-01` — remove or formally mark legacy deployment/runtime paths after review.
-- `PWA-E2E-FOUNDATION-01` — automated end-to-end validation foundation.
+- `PWA-E2E-FOUNDATION-01B` — extend the source-level API/worker processing foundation through the authenticated browser workflow without replacing the production canary requirement.
 - OpenAI processing parity, long-media parity, manifest behavior, and golden Colab/PWA parity validation.
 
 Source-complete delivery items remain listed for traceability and still require applicable rollout evidence:

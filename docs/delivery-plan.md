@@ -13,7 +13,8 @@
 - ✅ `PWA-DEPENDENCY-SECURITY-01` — Reproduce and remediate actionable Studio Node/Python dependency findings without broad upgrades — Complete in the local batch; current npm and pip audits have zero known vulnerabilities.
 - ✅ `PWA-DEPENDENCY-REPRODUCIBILITY-01` — Add deterministic Python transitive constraints without changing the Colab runtime install — Source-complete in the local batch.
 - ✅ `PWA-DEPENDENCY-REPORTING-01` — Add automated dependency reporting without coupling ordinary CI to advisory-service availability — Source-complete in the local batch; the first GitHub run remains external evidence.
-- 👉 `PWA-E2E-FOUNDATION-01` — Establish deterministic product-level Studio E2E coverage with fake external boundaries and real PostgreSQL/Redis services — Current analysis item.
+- ✅ `PWA-E2E-FOUNDATION-01A` — Establish a deterministic API/worker processing E2E with fake storage/provider/Google boundaries and real PostgreSQL/Redis services — Source-complete in the local batch; service-backed GitHub CI verification is pending.
+- 👉 `PWA-E2E-FOUNDATION-01B` — Extend deterministic coverage through the authenticated browser preparation and completed-output workflow — Current analysis item.
 - ⛔ `PWA-PROCESSING-ROLLOUT-01A` — Production processing rollout/canary — Operator item not run; production-live claims remain prohibited.
 
 ## Current repository state
@@ -35,13 +36,14 @@
 - Studio API now pins a patched FastAPI/Starlette pair and cryptography release, removes the unused multipart parser, and uses `httpx2` only for Starlette TestClient compatibility; the current pip audit has zero known vulnerabilities.
 - Studio API Docker and repository CI now install their input requirements under committed pip-tools constraints; Colab continues to install its independent runtime requirements.
 - A separate weekly/manual GitHub workflow audits the exact npm graph and an installed Linux/Python 3.11 graph; it is deliberately absent from pull-request and push triggers.
+- A dedicated processing E2E now creates a project, encrypted ElevenLabs credential, local-upload source, verified output destination, and idempotent batch through the API; the real runner/worker then persists one completed output through controlled external fakes and the public output API is checked for its explicit safe DTO. The test fails rather than skips when CI lacks PostgreSQL or Redis, but its first service-backed execution is still pending.
 - `SECURITY.md` is now a repository-wide reporting and routing entry point; it does not duplicate detailed Colab or Studio product contracts.
 - Production migration state for `0014_source_deletion_retention` is not proven by repository evidence.
 - Latest production web/API deployment, worker rollout, and controlled canary are not proven complete.
 
 ## Near backlog
 
-- `PWA-E2E-FOUNDATION-01` — automated end-to-end validation foundation for Studio.
+- `PWA-E2E-FOUNDATION-01B` — authenticated browser E2E on top of the API/worker processing foundation.
 - OpenAI processing parity, long-media parity, manifest behavior, and golden Colab/PWA parity validation remain product backlog items in `docs/project-spec.md`.
 
 ## Blockers and risks
@@ -50,6 +52,7 @@
 - No current repository evidence proves a successful production controlled canary after the latest worker/source lifecycle work.
 - Browser-bound capabilities increase the impact of frontend injection; the committed host header policy is not production evidence until an operator applies it, runs `nginx -t`, and validates public Picker/upload flows over TLS.
 - The dependency-audit workflow has not yet run on GitHub from the local batch; its source and local audit probes are not remote execution evidence.
+- The new processing E2E is skipped in the current Windows environment because PostgreSQL/Redis are not running; GitHub CI must execute it against its service containers before it can be called CI-verified.
 
 ## Sources of truth
 

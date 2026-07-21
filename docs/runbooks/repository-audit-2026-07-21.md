@@ -64,6 +64,8 @@ Dependency evidence:
 
 Remediation refresh on 2026-07-21 found 18 Node advisories after the registry database had advanced, including two critical Vitest findings. A focused upgrade to Vite 6.4.3, Vitest 3.2.6, vite-plugin-pwa 1.3.0, and compatible ESLint tooling reduced the current npm audit result to zero without changing React, TypeScript, or runtime UI dependencies. Python remediation then pinned FastAPI 0.139.2 with Starlette 1.3.1 and cryptography 48.0.1, removed the unused `python-multipart` package, and added `httpx2` only for the Starlette test client. The refreshed pip audit also reports zero known vulnerabilities. Committed pip-tools constraints now bound Studio Docker and repository-CI transitive resolution without changing the standalone Colab install. A separate scheduled/manual workflow now audits the npm lock and an installed Linux/Python 3.11 graph without adding advisory-service calls to ordinary CI; its first GitHub execution remains unproven.
 
+The local remediation batch now also contains a deterministic API/worker processing E2E. It creates the authenticated preparation state through public API routes, runs the real PostgreSQL-backed claim/orchestration/output persistence path, and verifies the safe output API while injecting controlled storage, ElevenLabs, and Google boundaries. Local collection and static checks pass, but the test is skipped without PostgreSQL/Redis and therefore remains pending service-backed GitHub CI. Browser automation and the production canary remain separate gaps.
+
 ### Stage self-review: validation
 
 The failed local total is not reported as a blanket regression because GitHub's service-backed CI passed the same revision. Conversely, green GitHub CI does not override the confirmed CD failure or dependency advisories. Dependency counts are point-in-time audit evidence and must be refreshed during the upgrade task.
@@ -174,7 +176,7 @@ Before deletion, verify that no external client uses these endpoints. Then make 
 
 #### P1 — insufficient release evidence
 
-- There is no automated end-to-end test spanning browser/API/database/worker/provider/Google boundaries with controlled fakes or a sandbox.
+- The local remediation batch adds controlled API/database/worker/provider/Google processing coverage, but there is still no automated real-browser E2E spanning authenticated preparation through completed-output rendering.
 - There is no repository evidence of a successful controlled production canary at the latest migration and worker revision.
 - Backup/restore rehearsal, worker rollout identity, and production migration evidence are operator tasks still requiring safe records.
 - Accessibility, offline/update behavior, performance/capacity, and multi-worker behavior have no complete validation evidence.
