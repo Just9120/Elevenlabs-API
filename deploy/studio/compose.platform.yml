@@ -5,7 +5,6 @@ services:
       context: ../../apps/studio
       args:
         VITE_APP_PUBLIC_URL: "${APP_PUBLIC_URL:?APP_PUBLIC_URL is required}"
-        VITE_STUDIO_PLATFORM_MODE: platform
     image: elevenlabs-studio-web:local
     restart: unless-stopped
     ports: ["127.0.0.1:8181:8080"]

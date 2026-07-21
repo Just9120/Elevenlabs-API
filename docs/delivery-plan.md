@@ -19,13 +19,14 @@
 - Studio Platform CD run `29815613081` failed before the server checkout fast-forward because the new deploy script required a file present only in the new revision.
 - The local source fix now preserves pre-update identity/clean-tree checks, fast-forwards before versioned-file validation, and requires exact fetched-target revision identity before build.
 - The legacy stateless web-only contour and the non-authoritative full-platform deploy helper are removed in the local batch; documented bootstrap steps and platform component deployment remain authoritative.
+- The Studio frontend now defaults to the authenticated platform shell in local development and ordinary Docker builds; the retained static shell is the next legacy-removal step.
 - `SECURITY.md` is now a repository-wide reporting and routing entry point; it does not duplicate detailed Colab or Studio product contracts.
 - Production migration state for `0014_source_deletion_retention` is not proven by repository evidence.
 - Latest production web/API deployment, worker rollout, and controlled canary are not proven complete.
 
 ## Near backlog
 
-- `PWA-LEGACY-AUTHORITY-01` — continue with the legacy static UI and permissive compatibility APIs after removing the non-authoritative deployment paths.
+- `PWA-LEGACY-AUTHORITY-01` — remove the now-non-default legacy static UI, then review permissive compatibility APIs.
 - `PWA-BROWSER-INTEGRATION-BOUNDARY-01` — decide and enforce the security contract for Google Picker access tokens and direct presigned uploads.
 - `PWA-DEPENDENCY-SECURITY-01` — remediate audited Node/Python dependency findings with focused upgrades and reproducible constraints.
 - `PWA-E2E-FOUNDATION-01` — automated end-to-end validation foundation for Studio.

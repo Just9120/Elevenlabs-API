@@ -842,6 +842,15 @@ describe("Studio PWA", () => {
       }),
     );
   });
+  it("uses the authenticated platform shell as the default app entrypoint", async () => {
+    render(<App />);
+    await waitForPlatformOverview();
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/auth/session",
+      expect.objectContaining({ credentials: "same-origin" }),
+    );
+  });
+
   it("opens approved Drive resource links in new tabs with compact action labels", async () => {
     renderApp("platform");
     await openProjectsPage();

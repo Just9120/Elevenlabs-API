@@ -4,9 +4,7 @@ COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
 ARG VITE_APP_PUBLIC_URL=https://studio.librechat.online
-ARG VITE_STUDIO_PLATFORM_MODE=static
 ENV VITE_APP_PUBLIC_URL=$VITE_APP_PUBLIC_URL
-ENV VITE_STUDIO_PLATFORM_MODE=$VITE_STUDIO_PLATFORM_MODE
 RUN npm run build
 FROM nginx:1.27-alpine
 COPY nginx.conf /etc/nginx/conf.d/default.conf
