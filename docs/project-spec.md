@@ -136,22 +136,27 @@ Source currently present in the repository includes:
 
 The current Alembic migration head in the repository is `0014_source_deletion_retention` under `apps/studio-api/alembic/versions/`.
 
-## Studio production status and unfinished capabilities
+## Studio production status and remaining capabilities
 
 Studio processing is **not yet confirmed production-live**. Source-level implementation and CI do not prove production deployment, worker image parity, provider execution, Google Docs creation, or a successful controlled canary.
 
-Unfinished or unproven capabilities:
+Source-complete capabilities that still lack current production rollout evidence:
 
-- production worker rollout validation;
+- official worker lifecycle operations;
+- bounded PostgreSQL-backed lease heartbeat;
+- explicit output reconciliation for uncertain Google Docs side effects;
+- safe stage-specific retry and expired-lease recovery;
+- safe source deletion, retention, and local-object cleanup.
+
+Unfinished or unproven delivery capabilities:
+
+- production migration/deployment and worker rollout validation for the intended revision;
 - controlled end-to-end canary after the latest fix with exactly one persisted output;
-- automated output reconciliation for uncertain Google Docs side effects;
-- safe stage-specific retries/recovery;
-- safe stage-specific retries/recovery;
 - OpenAI PWA processing parity;
 - long-media splitting parity with Colab;
 - Studio manifest authority/update behavior;
 - golden Colab/PWA parity validation;
-- multi-worker production validation and official worker operations contract.
+- multi-worker production validation.
 
 The Studio PWA may render implemented source-level output metadata for explicitly opened jobs, but that does not prove production-live processing or exactly-once Google document creation.
 
@@ -219,14 +224,17 @@ Studio processing can be considered production-live only after all of the follow
 Current delivery sequencing is in `docs/delivery-plan.md`. Product backlog items that remain durable:
 
 - `PWA-PROCESSING-ROLLOUT-01A` — operator validation for fixed worker rollout and one controlled end-to-end canary.
+- `PWA-LEGACY-AUTHORITY-01` — remove or formally mark legacy deployment/runtime paths after review.
+- `PWA-E2E-FOUNDATION-01` — automated end-to-end validation foundation.
+- OpenAI processing parity, long-media parity, manifest behavior, and golden Colab/PWA parity validation.
+
+Source-complete delivery items remain listed for traceability and still require applicable rollout evidence:
+
 - `PWA-WORKER-OPS-01` — official worker deployable component with health, identity, pause/drain/resume, and rollback contract.
 - `PWA-OUTPUT-RECONCILIATION-01` — reconcile uncertain or missing Google Docs output evidence without unsafe duplication.
 - `PWA-LEASE-HEARTBEAT-01` — source-complete PostgreSQL-backed bounded heartbeat for long source/provider and Google output calls; rollout evidence remains separate.
 - `PWA-RETRY-RECOVERY-01` — safe stage-specific retry and recovery design.
 - `PWA-SOURCE-DELETION-01` — source deletion and retention behavior.
-- `PWA-LEGACY-AUTHORITY-01` — remove or formally mark legacy deployment/runtime paths after review.
-- `PWA-E2E-FOUNDATION-01` — automated end-to-end validation foundation.
-- OpenAI processing parity, long-media parity, manifest behavior, and golden Colab/PWA parity validation.
 
 ## Supporting documents
 
