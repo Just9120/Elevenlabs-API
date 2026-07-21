@@ -23,6 +23,16 @@ Use the smallest relevant checks for the task.
  pytest -q
 ```
 
+### Portable local Python profile
+
+On a workstation without the repository's PostgreSQL/Redis services or a bash runtime, run:
+
+```bash
+pytest -q --portable
+```
+
+The repository pytest configuration limits discovery to the owned `tests/` tree so installed dependency suites inside a local virtual environment are never collected. The portable option additionally prevents collection—and therefore import-time setup—of the two PostgreSQL/Redis suites and the four bash integration suites. It still runs the remaining Python tests and is intended as a fast cross-platform baseline. It is not a replacement for plain `pytest`, which remains the required CI/service-backed suite and is unchanged when `--portable` is absent.
+
 For Studio frontend changes, inspect `apps/studio/package.json` and run the relevant existing npm scripts from `apps/studio/` when dependencies are available.
 
 ### Studio processing E2E

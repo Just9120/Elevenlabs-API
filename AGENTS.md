@@ -52,6 +52,7 @@ Use existing commands where relevant:
 Install: `python -m pip install -r requirements-dev.txt -c constraints-dev.txt` for repository checks; Colab keeps its separate runtime requirements.
 Lightweight checks: python scripts/ci_checks.py
 Python tests: pytest -q
+Portable local tests (no PostgreSQL/Redis/bash): pytest -q --portable
 Docs diff check: git diff --check
 Colab runtime: manually run notebooks/elevenlabs_api_colab.ipynb in Google Colab.
 Studio frontend: inspect apps/studio/package.json; existing scripts are dev, lint, test, and build.

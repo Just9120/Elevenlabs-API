@@ -56,6 +56,8 @@ Local Python failures were classified as follows:
 - Most remaining failures invoke `bash` deployment/backup/worker scripts, which is unavailable in the audited Windows shell.
 - One test is genuinely nondeterministic: `test_audit_source_lifecycle_metadata_contract` orders rows by timestamps and random UUID IDs, then assumes insertion order. It should select rows by event type/metadata or set deterministic order values.
 
+The local remediation adds an opt-in `pytest --portable` profile that excludes the PostgreSQL/Redis and bash integration modules before collection/import. Plain `pytest` and GitHub CI remain full-suite gates.
+
 Dependency evidence:
 
 - `npm audit` reported 6 frontend-development dependency findings: 2 low, 1 moderate, 2 high, and 1 critical. Direct affected tools include Vite, Vitest, and ESLint. The critical Vitest report concerns the development/test server rather than the shipped browser bundle, but it still affects developer and CI safety.
