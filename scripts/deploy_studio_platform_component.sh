@@ -143,6 +143,14 @@ remote_url="$(git config --get remote.origin.url)"
 [[ "$remote_url" == "$EXPECTED_REMOTE" || "$remote_url" == "git@github.com:Just9120/Elevenlabs-API" || "$remote_url" == "https://github.com/Just9120/Elevenlabs-API.git" ]] || fail "unexpected remote"
 [[ -z "$(git status --porcelain --untracked-files=no)" ]] || fail "tracked working tree is not clean"
 require_file "$ENV_FILE"
+
+git fetch --prune origin "$EXPECTED_BRANCH"
+target_revision="$(git rev-parse "origin/$EXPECTED_BRANCH")"
+[[ -n "$target_revision" ]] || fail "fetched target revision is empty"
+git merge --ff-only "origin/$EXPECTED_BRANCH"
+[[ "$(git rev-parse HEAD)" == "$target_revision" ]] || fail "checkout did not reach fetched target revision"
+[[ -z "$(git status --porcelain --untracked-files=no)" ]] || fail "tracked working tree changed unexpectedly"
+
 require_file "$COMPOSE_FILE"
 require_file apps/studio/Dockerfile
 require_file apps/studio-api/Dockerfile
@@ -160,10 +168,6 @@ worker_block="$(sed -n '/^  studio-worker:/,/^  [^ ]/p' "$COMPOSE_FILE")"
 [[ "$worker_block" == *"healthcheck:"* ]] || fail "studio-worker must define healthcheck"
 grep -q '127.0.0.1:8181:8080' "$COMPOSE_FILE" || fail "studio-web must bind localhost-only 8181"
 grep -q '127.0.0.1:8182:8000' "$COMPOSE_FILE" || fail "studio-api must bind localhost-only 8182"
-
-git fetch --prune origin "$EXPECTED_BRANCH"
-git merge --ff-only "origin/$EXPECTED_BRANCH"
-[[ -z "$(git status --porcelain --untracked-files=no)" ]] || fail "tracked working tree changed unexpectedly"
 
 if [[ "$SERVICE" == "studio-worker" ]]; then
   existing_worker="$(compose ps -a -q studio-worker || true)"

@@ -4,7 +4,7 @@
 
 - ✅ `PWA-RETRY-RECOVERY-01` — Safe stage-specific retry/recovery — Done/source-complete, merged via PR #173.
 - ✅ `PWA-SOURCE-DELETION-01` — Safe Studio source deletion, retention, and storage cleanup — Done/source-complete, merged via PR #174.
-- 👉 `PWA-CD-RECOVERY-01` — Repair component CD old-checkout/new-script ordering and validate the latest `main` deployment — Current blocker and next focused coding item.
+- 👉 `PWA-CD-RECOVERY-01` — Repair component CD old-checkout/new-script ordering and validate the latest `main` deployment — Source fix implemented in the local stabilization batch; merge and live CD validation remain pending.
 - 📋 `DOCS-AUTHORITY-SYNC-02` — Reconcile stale source-complete versus production-rollout claims and consolidate pointer-only documents.
 - 📋 `PWA-LEGACY-AUTHORITY-01` — Review legacy UI, API, deployment, and runtime authority after CD recovery.
 - ⛔ `PWA-PROCESSING-ROLLOUT-01A` — Production processing rollout/canary — Operator item not run; production-live claims remain prohibited.
@@ -16,6 +16,7 @@
 - Redis is not cleanup authority, scheduler, retry authority, or lease authority.
 - Repository CI and Studio PWA CI passed for `main` revision `6ee51994de90bbfe7852cf1bd7618397b00e52b3`.
 - Studio Platform CD run `29815613081` failed before the server checkout fast-forward because the new deploy script required a file present only in the new revision.
+- The local source fix now preserves pre-update identity/clean-tree checks, fast-forwards before versioned-file validation, and requires exact fetched-target revision identity before build.
 - Production migration state for `0014_source_deletion_retention` is not proven by repository evidence.
 - Latest production web/API deployment, worker rollout, and controlled canary are not proven complete.
 
@@ -30,7 +31,7 @@
 
 ## Blockers and risks
 
-- The latest component CD failure blocks a claim that current `main` is deployed.
+- The latest component CD failure blocks a claim that current `main` is deployed; the local source fix is not runtime evidence until merged and validated by a new CD run.
 - No current repository evidence proves a successful production controlled canary after the latest worker/source lifecycle work.
 - The product contract currently prohibits browser OAuth tokens and presigned URLs while the implemented Google Picker and local-upload flows require them; this needs an explicit architecture/security decision.
 - Dependency audits report actionable findings in frontend development tooling and pinned Studio API dependencies.
