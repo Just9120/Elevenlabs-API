@@ -54,6 +54,8 @@ The Studio frontend keeps the direct-browser Google Picker and local-upload arch
 
 These responses require authenticated same-origin CSRF-protected issuance, `Cache-Control: no-store`, no service-worker runtime caching, no browser persistence/diagnostic logging, and server-side revalidation of every selected Drive ID or completed object. Picker issuance additionally requires the narrow identity plus `drive.file` scope boundary and exact Picker origin. Upload issuance uses an opaque server-owned object key, exact content type, PUT-only operation, at most 900 seconds, omitted browser credentials/referrer, and refused redirects. Refresh tokens, ID tokens, object keys, source bytes, and provider secrets never cross this boundary.
 
+The public host nginx is the authoritative browser-header boundary for both the PWA and `/api`; the loopback-only web-container nginx does not maintain a competing policy. CSP limits executable script to Studio plus the Google API loader hosts, limits frames to Google Picker hosts, and blocks external framing, objects, and unsafe evaluation. `connect-src https:` remains intentionally broader than the other directives only because the S3/R2-compatible upload origin is selected at runtime.
+
 ## Studio data flow
 
 1. User authenticates and opens an owner-scoped project.
