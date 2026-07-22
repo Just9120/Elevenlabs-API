@@ -52,10 +52,10 @@ import {
 import {
   isUsableJobSource,
   sourceСтатусLabel,
-  unusableJobSourceReason,
   type Source,
 } from "./sourceModel";
 import { isSafeDisplayUrl, ResourceExternalLink } from "./resourceLinks";
+import { SourcesPanel } from "./SourcesPanel";
 import "./styles.css";
 
 type User = { email: string; role: string };
@@ -238,14 +238,6 @@ const emptyJobState: JobState = {
   loaded: false,
   items: [],
 };
-function safeConfirm(message: string) {
-  try {
-    return window.confirm(message) !== false;
-  } catch {
-    return false;
-  }
-}
-
 function jobTitle(job: TranscriptionJob) {
   return job.title?.trim() || `Транскрибация от ${formatTime(job.created_at)}`;
 }
@@ -378,126 +370,6 @@ async function csrfMutate<T>(
   return mutateWithCsrfRetry<T>(path, csrf, onCsrf, options);
 }
 export const __appDiagnosticsTest = { api, csrfMutate };
-function SourcesPanel({
-  project,
-  csrf,
-  onCsrf,
-  sources,
-  onReload,
-  onSourceRemoved,
-  onError,
-}: {
-  project: Project;
-  csrf: string;
-  onCsrf: (csrf: string) => void;
-  sources: {
-    loading: boolean;
-    error: string;
-    loaded: boolean;
-    items: Source[];
-  };
-  onReload: (projectId: string) => void;
-  onSourceRemoved?: (sourceId: string) => void;
-  onError: (message: string) => void;
-}) {
-  async function deleteSource(id: string) {
-    const source = sources.items.find((item) => item.id === id);
-    const message =
-      source?.source_type === "google_drive"
-        ? "Источник будет убран только из Studio. Файл останется на Google Drive."
-        : "Источник будет убран из Studio. Временная копия будет удалена из хранилища после безопасной проверки связанных задач.";
-    if (!safeConfirm(message)) return;
-    try {
-      await csrfMutate<{ ok: boolean }>(`/sources/${id}`, csrf, onCsrf, {
-        method: "DELETE",
-      });
-      onSourceRemoved?.(id);
-      onReload(project.id);
-    } catch (error) {
-      const detail =
-        error instanceof ApiError &&
-        error.data &&
-        typeof error.data === "object" &&
-        "detail" in error.data
-          ? (error.data as { detail?: unknown }).detail
-          : null;
-      const reason =
-        detail && typeof detail === "object" && "reason" in detail
-          ? (detail as { reason?: string }).reason
-          : null;
-      const messages: Record<string, string> = {
-        queued_job_uses_source: "Сначала отмените ожидающие задачи, использующие этот файл.",
-        processing_job_uses_source: "Дождитесь завершения или отмены текущей обработки.",
-        retryable_failed_job_uses_source: "Источник нужен для доступного безопасного повтора задачи.",
-      };
-      onError(reason && messages[reason] ? messages[reason] : "Не удалось убрать файл из проекта.");
-    }
-  }
-  return (
-    <section className="sources" aria-label={`Источники ${project.title}`}>
-      <h4>Источники</h4>
-      {sources.loading && <p role="status">Загрузка файлов…</p>}
-      {sources.error && <p className="error">{sources.error}</p>}
-      {sources.loaded && !sources.loading && sources.items.length === 0 && (
-        <p className="notice">Источники пока не добавлены.</p>
-      )}
-      {sources.items.map((source) => (
-        <article className="source-card" key={source.id}>
-          <b>{source.original_filename}</b>
-          <span>
-            {source.source_type === "google_drive"
-              ? "Google Drive"
-              : "С устройства"}
-          </span>
-          <span>Статус: {sourceСтатусLabel(source.upload_status)}</span>
-          {!isUsableJobSource(source) && (
-            <span>{unusableJobSourceReason(source)}</span>
-          )}
-          <span>Размер: {formatBytes(source.size_bytes)}</span>
-          {source.source_type === "local_upload" && source.expires_at && (
-            <span>Хранится до: {formatTime(source.expires_at)}</span>
-          )}
-          <div className="resource-actions">
-            {isSafeDisplayUrl(source.drive_file_url) && (
-              <ResourceExternalLink
-                href={source.drive_file_url ?? ""}
-                label="Открыть файл в Google Drive"
-                ariaLabel="Открыть файл в Google Drive в новой вкладке"
-              />
-            )}
-            <div className="source-removal-note">
-              {source.source_type === "google_drive"
-                ? "Файл останется на Google Drive."
-                : "Временная копия будет удалена из хранилища Studio."}
-            </div>
-            <button
-              type="button"
-              onClick={() => deleteSource(source.id)}
-              aria-label={`Убрать из проекта: ${source.original_filename}`}
-            >
-              Убрать из проекта
-            </button>
-          </div>
-          <details>
-            <summary>Технические сведения</summary>
-            <span>MIME: {source.mime_type || "не указан"}</span>
-            <span>Загружен: {formatTime(source.uploaded_at)}</span>
-            <span>Истекает: {formatTime(source.expires_at)}</span>
-            <span>Удалён: {formatTime(source.deleted_at)}</span>
-            {source.delete_reason && (
-              <span>Причина: {source.delete_reason}</span>
-            )}
-          </details>
-        </article>
-      ))}
-      <p className="notice">
-        Добавление файлов выполняется в строках подготовки выше. Этот раздел —
-        только для просмотра безопасных метаданных и удаления файлов из проекта.
-      </p>
-    </section>
-  );
-}
-
 function newComposerRow(): ComposerRow {
   return {
     id: crypto.randomUUID(),
