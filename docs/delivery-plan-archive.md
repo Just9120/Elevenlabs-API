@@ -75,6 +75,32 @@ The following categories are closed historical delivery work, not active items:
 - Diagnostics backend, read-only UI/report export, debug sessions, and UX polish.
 - Historical deployment/preflight and partial rollout validation notes that did not produce a successful end-to-end processing canary.
 
+## Archived PR #173–#177 stabilization checkpoint
+
+PR #173 completed source-level safe stage-specific retry/recovery. PR #174 completed source-level Studio source deletion, retention, and storage cleanup. PR #177 merged the following tracked remediation items into `main` at `9f85ffe93102354869f37f60fd525dd60404b878`:
+
+- `DOCS-AUTHORITY-SYNC-02`
+- `SECURITY-ENTRYPOINT-01`
+- `PWA-LEGACY-AUTHORITY-01`
+- `PWA-BROWSER-INTEGRATION-BOUNDARY-01`
+- `PWA-WEB-SECURITY-HEADERS-01`
+- `PWA-CD-RECOVERY-01`
+- `PWA-DEPENDENCY-SECURITY-01`
+- `PWA-DEPENDENCY-REPRODUCIBILITY-01`
+- `PWA-DEPENDENCY-REPORTING-01`
+- `PWA-E2E-FOUNDATION-01A`
+- `PWA-BROWSER-DTO-MINIMIZATION-01`
+- `PWA-UNHANDLED-DIAGNOSTICS-01`
+- `PWA-UPLOAD-VERIFIED-METADATA-01A`
+- `REPO-HYGIENE-01`
+- `TEST-PORTABLE-PROFILE-01`
+- `PWA-FRONTEND-MODULARIZATION-01A`
+- `PWA-UPLOAD-RETENTION-CONTRACT-01B`
+- `PWA-UPLOAD-RETENTION-PREFERENCES-02`
+- `PWA-UPLOAD-POLICY-DISCOVERY-01C`
+
+Repository CI run `29898199041` and Studio PWA CI run `29898198991` passed for the merge revision. Studio Platform CD run `29898198997` deployed and identity-checked the web component only; API deployment, migration `0015_user_source_retention`, worker rollout, public-host header validation, dependency-audit workflow execution, and a controlled processing canary were not proven by that checkpoint.
+
 ## Current non-authority warning
 
 If this archive conflicts with `docs/project-spec.md`, `docs/delivery-plan.md`, `docs/architecture.md`, `docs/ci-cd-rules.md`, or the current user task, treat the current documents/task as authoritative and this archive as historical context only.
