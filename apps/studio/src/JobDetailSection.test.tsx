@@ -36,6 +36,7 @@ const job: TranscriptionJob = {
   title: "Interview",
   provider: "elevenlabs",
   language_mode: "ru",
+  diarization_enabled: true,
   source_count: 2,
   sources: [
     source("second", 1, "https://evil.example/file/token"),
@@ -82,6 +83,7 @@ describe("JobDetailSection", () => {
 
     const detail = screen.getByLabelText("Job detail job-1");
     expect(detail).toHaveTextContent("Язык: Русский");
+    expect(detail).toHaveTextContent("Разделение спикеров: Включено");
     const text = detail.textContent ?? "";
     expect(text.indexOf("1. first.ogg")).toBeLessThan(
       text.indexOf("2. second.ogg"),

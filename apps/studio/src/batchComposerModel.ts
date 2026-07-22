@@ -36,10 +36,12 @@ export function composerSignature(
   rows: ComposerRow[],
   credentialId: string,
   languageMode: TranscriptionLanguageMode,
+  diarizationEnabled: boolean,
 ) {
   return JSON.stringify({
     provider_credential_id: credentialId || null,
     language: languageMode,
+    options: { diarize: diarizationEnabled },
     items: rows.map((row) => ({
       source_id: row.source_id,
       output_folder_id: row.output_folder?.folder_id ?? "",

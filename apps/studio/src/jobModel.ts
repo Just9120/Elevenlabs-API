@@ -50,6 +50,7 @@ export type TranscriptionJob = {
   title: string | null;
   provider: string | null;
   language_mode?: string | null;
+  diarization_enabled?: boolean;
   source_count: number;
   sources?: JobSource[];
   created_at: string;

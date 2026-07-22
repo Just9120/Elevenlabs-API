@@ -29,6 +29,7 @@ JOB_KEYS = {
     "title",
     "provider",
     "language_mode",
+    "diarization_enabled",
     "source_count",
     "created_at",
     "updated_at",
@@ -121,3 +122,4 @@ def test_job_browser_payload_omits_credential_and_worker_authority(
     assert "lease_owner_id" not in payload
     assert "lease_generation" not in payload
     assert payload["language_mode"] == "detect"
+    assert payload["diarization_enabled"] is False

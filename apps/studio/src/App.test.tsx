@@ -2835,6 +2835,9 @@ describe("Studio PWA", () => {
     const languageSelect = screen.getByLabelText("Язык транскрибации");
     expect(languageSelect).toHaveValue("ru");
     await userEvent.selectOptions(languageSelect, "detect");
+    const diarizationToggle = screen.getByLabelText("Разделять спикеров");
+    expect(diarizationToggle).not.toBeChecked();
+    await userEvent.click(diarizationToggle);
     await userEvent.click(
       screen.getByRole("button", { name: /Создать задачи \(\d+\)/ }),
     );
@@ -2856,6 +2859,7 @@ describe("Studio PWA", () => {
     expect(JSON.parse(String(createCall?.[1]?.body))).toEqual({
       provider_credential_id: "cred-active",
       language: "detect",
+      options: { diarize: true },
       items: [
         {
           source_id: "s1",
@@ -4292,6 +4296,7 @@ describe("Studio PWA", () => {
     expect(JSON.parse(String(bCreateCall?.[1]?.body))).toEqual({
       provider_credential_id: "cred-active",
       language: "ru",
+      options: { diarize: false },
       items: [
         {
           source_id: "source-b",

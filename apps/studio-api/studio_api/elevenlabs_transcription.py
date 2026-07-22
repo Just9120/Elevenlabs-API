@@ -131,14 +131,14 @@ class ElevenLabsTranscriptionTransport:
     post: Callable[..., httpx.Response] | None = field(default=None, repr=False)
 
     def transcribe(
-        self, *, api_key: str, stream: BinaryIO, filename: str, mime_type: str, language_code: str | None = None
+        self, *, api_key: str, stream: BinaryIO, filename: str, mime_type: str, language_code: str | None = None, diarize: bool = False
     ) -> ElevenLabsTranscriptResult:
         data: dict[str, str] = {
             "model_id": "scribe_v2",
             "no_verbatim": "false",
             "temperature": "0",
             "tag_audio_events": "false",
-            "diarize": "false",
+            "diarize": str(diarize).lower(),
             "use_multi_channel": "false",
         }
         if language_code:
@@ -169,7 +169,11 @@ class ElevenLabsTranscriptionTransport:
             payload = response.json()
         except Exception as exc:
             raise ElevenLabsTranscriptionError(ElevenLabsTranscriptionReason.malformed_provider_response) from exc
-        return normalize_elevenlabs_transcript_response(payload)
+        result = normalize_elevenlabs_transcript_response(payload)
+        if diarize and not any((word.speaker_id or "").strip() for word in result.words):
+            result.revoke()
+            raise ElevenLabsTranscriptionError(ElevenLabsTranscriptionReason.malformed_provider_response)
+        return result
 
     def __repr__(self) -> str:
         return f"ElevenLabsTranscriptionTransport(endpoint={self.endpoint!r})"

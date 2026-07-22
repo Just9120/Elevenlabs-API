@@ -32,7 +32,7 @@ from .security import utcnow
 from .diagnostics import resolve_job_correlation_id, write_diagnostic_event
 from .job_retry_recovery import classify_source_attempt_failure, mark_attempt_provider_returned, mark_attempt_provider_started
 from .source_storage import safe_filename
-from .transcription_options import provider_language_code
+from .transcription_options import TranscriptionProviderSettings, provider_transcription_settings
 
 
 class JobElevenLabsTranscriptionReason(str, Enum):
@@ -124,7 +124,7 @@ def transcribe_processing_job_source_with_elevenlabs(
             except SourceMaterializationError as exc:
                 raise JobElevenLabsTranscriptionError(JobElevenLabsTranscriptionReason.source_materialization_unavailable) from exc
             try:
-                language = _final_pre_provider_revalidate(db, job_id, job_source_id, lease_owner_id, lease_generation, settings, clock(), prereq, source)
+                provider_settings = _final_pre_provider_revalidate(db, job_id, job_source_id, lease_owner_id, lease_generation, settings, clock(), prereq, source)
                 _emit_provider(db, job_id, "SOURCE_READY", {"attempt_number": _attempt(db, job_id)})
                 _emit_provider(db, job_id, "PROVIDER_REQUEST_STARTED", {"attempt_number": _attempt(db, job_id)})
                 try:
@@ -140,7 +140,8 @@ def transcribe_processing_job_source_with_elevenlabs(
                         stream=source.stream,
                         filename=safe_filename(source.original_filename),
                         mime_type=source.mime_type,
-                        language_code=language,
+                        language_code=provider_settings.language_code,
+                        diarize=provider_settings.diarize,
                     )
                 except ElevenLabsTranscriptionError as exc:
                     mapped=_map_provider_reason(exc.reason)
@@ -186,7 +187,7 @@ def _call_transport(transport, **kwargs):
 
 def _final_pre_provider_revalidate(
     db, job_id, job_source_id, owner, generation, settings, now, prereq, source
-) -> str | None:
+) -> TranscriptionProviderSettings:
     try:
         cred_snap = _load_credential_db_only(db, job_id, owner, generation, now, settings)
         out_snap = _load_output_snapshot(db, job_id, owner, generation, now)
@@ -206,7 +207,7 @@ def _final_pre_provider_revalidate(
         )
     if src_snap.job_source_id != source.identity.job_source_id or src_snap.source_id != source.identity.source_id:
         raise JobElevenLabsTranscriptionError(JobElevenLabsTranscriptionReason.lifecycle_changed_before_provider_call)
-    return cred_snap["language"]
+    return cred_snap["provider_settings"]
 
 
 def _load_credential_db_only(db, job_id, owner, generation, now, settings):
@@ -249,7 +250,12 @@ def _load_credential_db_only(db, job_id, owner, generation, now, settings):
         raise JobElevenLabsTranscriptionError(
             JobElevenLabsTranscriptionReason.credential_or_output_identity_changed_before_provider_call
         )
-    return {"credential_id": cred.id, "version_id": ver.id, "provider": provider, "language": provider_language_code(job.language)}
+    return {
+        "credential_id": cred.id,
+        "version_id": ver.id,
+        "provider": provider,
+        "provider_settings": provider_transcription_settings(job.language, job.options_json),
+    }
 
 
 def _post_provider_lifecycle_revalidate(db, job_id, owner, generation, now) -> None:

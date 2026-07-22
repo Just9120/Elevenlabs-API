@@ -2,7 +2,7 @@ import hashlib, json, logging, re
 from datetime import datetime, timedelta, timezone
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse, RedirectResponse, Response as FastAPIResponse
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, StrictBool, field_validator
 from sqlalchemy import text, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -29,7 +29,7 @@ from .google_docs_output import OUTPUT_RECONCILIATION_APP_PROPERTY
 from .google_drive import GoogleDriveReconciliationError, list_reconciliation_candidates
 from .job_output_folder_selection import VerifiedOutputFolderSelection, verify_output_folder_selection
 from .source_deletion import SourceDeletionReason, is_source_expired, request_source_deletion
-from .transcription_options import DEFAULT_TRANSCRIPTION_LANGUAGE_MODE, TranscriptionLanguageMode, browser_language_mode, stored_language_mode
+from .transcription_options import DEFAULT_TRANSCRIPTION_LANGUAGE_MODE, TranscriptionLanguageMode, browser_language_mode, job_diarization_enabled, stored_language_mode, stored_transcription_options
 
 settings=get_settings()
 app=FastAPI(docs_url="/docs" if settings.enable_api_docs else None, redoc_url=None, openapi_url="/openapi.json" if settings.enable_api_docs else None)
@@ -133,10 +133,14 @@ class BatchJobItemIn(BaseModel):
     output_folder_id: str=Field(min_length=1,max_length=256)
     title: str|None=Field(default=None,max_length=160)
 
+class TranscriptionJobOptionsIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    diarize: StrictBool=False
+
 class TranscriptionJobBatchCreateIn(BaseModel):
     provider_credential_id: str|None=Field(default=None, max_length=36)
     language: TranscriptionLanguageMode=DEFAULT_TRANSCRIPTION_LANGUAGE_MODE
-    options: dict|None=None
+    options: TranscriptionJobOptionsIn=Field(default_factory=TranscriptionJobOptionsIn)
     items: list[BatchJobItemIn]=Field(min_length=1,max_length=50)
 
 class DiagnosticDebugSessionIn(BaseModel):
@@ -353,7 +357,7 @@ def safe_job_output_folder_payload(job: TranscriptionJob):
     return {"name": clean_optional_name(job.output_drive_folder_name) or "Папка Google Drive", "web_view_url": url}
 
 def job_payload(job: TranscriptionJob, include_sources=False):
-    payload={"id": job.id, "project_id": job.project_id, "status": job.status.value, "title": job.title, "provider": job.provider, "language_mode": browser_language_mode(getattr(job, "language", None)), "source_count": len(job.sources), "created_at": job.created_at.isoformat(), "updated_at": job.updated_at.isoformat(), "cancelled_at": job.cancelled_at.isoformat() if job.cancelled_at else None, "cancel_requested_at": job.cancel_requested_at.isoformat() if job.cancel_requested_at else None, "attempt_count": job.attempt_count or 0, "started_at": job.started_at.isoformat() if job.started_at else None, "finished_at": job.finished_at.isoformat() if job.finished_at else None, "error_code": safe_failure_metadata_value(job.error_code), "error_message": safe_failure_metadata_value(job.error_message), "output_folder": safe_job_output_folder_payload(job)}
+    payload={"id": job.id, "project_id": job.project_id, "status": job.status.value, "title": job.title, "provider": job.provider, "language_mode": browser_language_mode(getattr(job, "language", None)), "diarization_enabled": job_diarization_enabled(getattr(job, "options_json", None)), "source_count": len(job.sources), "created_at": job.created_at.isoformat(), "updated_at": job.updated_at.isoformat(), "cancelled_at": job.cancelled_at.isoformat() if job.cancelled_at else None, "cancel_requested_at": job.cancel_requested_at.isoformat() if job.cancel_requested_at else None, "attempt_count": job.attempt_count or 0, "started_at": job.started_at.isoformat() if job.started_at else None, "finished_at": job.finished_at.isoformat() if job.finished_at else None, "error_code": safe_failure_metadata_value(job.error_code), "error_message": safe_failure_metadata_value(job.error_message), "output_folder": safe_job_output_folder_payload(job)}
     if include_sources: payload["sources"]=[job_source_payload(s) for s in sorted(job.sources, key=lambda item: item.position)]
     return payload
 
@@ -592,7 +596,7 @@ def _existing_batch_is_complete(existing, request_hash: str, expected_count: int
 def create_transcription_jobs_batch(project_id: str, data: TranscriptionJobBatchCreateIn, request: Request, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     _,user=pair; limiter.check("job:batch:create:"+user.id, 30, 3600); p=owned_project_or_404(db,user,project_id)
     key=_clean_idempotency_key(request.headers.get("Idempotency-Key"))
-    language=stored_language_mode(data.language); options_json=safe_job_options(data.options)
+    language=stored_language_mode(data.language); options_json=stored_transcription_options(data.options.diarize)
     explicit_provider_credential_id=data.provider_credential_id.strip() if isinstance(data.provider_credential_id, str) and data.provider_credential_id.strip() else None
     pairs=set(); duplicate_pair_found=False; source_ids=[]; folder_ids=[]; titles=[]
     for item in data.items:

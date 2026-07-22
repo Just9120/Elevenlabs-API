@@ -47,7 +47,7 @@ def models():
     return m
 
 
-def make_job(db, m, *, provider="elevenlabs", language="en"):
+def make_job(db, m, *, provider="elevenlabs", language="en", options_json=None):
     from studio_api.security import utcnow
     now = utcnow().replace(tzinfo=None)
     user = m.User(email=f"{uuid.uuid4().hex}-{provider}-{language}@example.com", role=m.UserRole.user, status=m.UserStatus.active)
@@ -60,7 +60,7 @@ def make_job(db, m, *, provider="elevenlabs", language="en"):
     db.add(version); db.flush(); cred.active_version_id = version.id
     src = m.Source(project_id=project.id, source_type=m.SourceType.local_upload, original_filename="secret meeting.mp3", mime_type="audio/mpeg", size_bytes=5, s3_bucket="bucket", s3_object_key="private/object", upload_status=m.SourceUploadStatus.uploaded, uploaded_at=now, expires_at=now + timedelta(hours=1))
     db.add(src); db.flush()
-    job = m.TranscriptionJob(project_id=project.id, owner_user_id=user.id, status=m.JobStatus.processing, provider=provider, provider_credential_id=cred.id, language=language, output_drive_folder_id="folder-private", output_drive_folder_url="https://drive.google.com/drive/folders/folder-private", output_drive_folder_name="Private", lease_owner_id="worker", lease_generation=7, claimed_at=now, lease_expires_at=now + timedelta(minutes=5), started_at=now, attempt_count=1)
+    job = m.TranscriptionJob(project_id=project.id, owner_user_id=user.id, status=m.JobStatus.processing, provider=provider, provider_credential_id=cred.id, language=language, options_json=options_json, output_drive_folder_id="folder-private", output_drive_folder_url="https://drive.google.com/drive/folders/folder-private", output_drive_folder_name="Private", lease_owner_id="worker", lease_generation=7, claimed_at=now, lease_expires_at=now + timedelta(minutes=5), started_at=now, attempt_count=1)
     db.add(job); db.flush()
     rel = m.TranscriptionJobSource(job_id=job.id, source_id=src.id, position=0)
     db.add(rel); db.flush()
@@ -134,7 +134,7 @@ def test_request_construction_language_and_redaction():
     calls = []
     def post(url, **kwargs):
         calls.append((url, kwargs))
-        return httpx.Response(200, json={"text": "ok"})
+        return httpx.Response(200, json={"text": "ok", "words": [{"text": "ok", "speaker_id": "speaker_0"}]})
     stream = BytesIO(b"abc")
     result = ElevenLabsTranscriptionTransport(post=post).transcribe(api_key="secret-key", stream=stream, filename="safe.mp3", mime_type="audio/mpeg", language_code="en")
     assert result.text == "ok"
@@ -144,8 +144,29 @@ def test_request_construction_language_and_redaction():
     assert kwargs["files"]["file"] == ("safe.mp3", stream, "audio/mpeg")
     assert kwargs["data"] == {"model_id": "scribe_v2", "no_verbatim": "false", "temperature": "0", "tag_audio_events": "false", "diarize": "false", "use_multi_channel": "false", "language_code": "en"}
     assert "secret-key" not in repr(ElevenLabsTranscriptionTransport(post=post)) and "ok" not in repr(result)
+    calls.clear(); ElevenLabsTranscriptionTransport(post=post).transcribe(api_key="k", stream=BytesIO(b"x"), filename="a.mp3", mime_type="audio/mpeg", diarize=True)
+    assert calls[0][1]["data"]["diarize"] == "true"
     calls.clear(); ElevenLabsTranscriptionTransport(post=post).transcribe(api_key="k", stream=BytesIO(b"x"), filename="a.mp3", mime_type="audio/mpeg")
     assert "language_code" not in calls[0][1]["data"]
+
+
+def test_diarized_transport_rejects_success_without_speaker_labels():
+    from studio_api.elevenlabs_transcription import (
+        ElevenLabsTranscriptionError,
+        ElevenLabsTranscriptionTransport,
+    )
+
+    def post(*args, **kwargs):
+        return httpx.Response(200, json={"text": "hello", "words": [{"text": "hello"}]})
+
+    with pytest.raises(ElevenLabsTranscriptionError, match="malformed_provider_response"):
+        ElevenLabsTranscriptionTransport(post=post).transcribe(
+            api_key="secret-key",
+            stream=BytesIO(b"abc"),
+            filename="safe.mp3",
+            mime_type="audio/mpeg",
+            diarize=True,
+        )
 
 
 def test_successful_single_source_flow_lifetime_and_one_call(db, models):
@@ -173,6 +194,20 @@ def test_auto_detect_mode_omits_provider_language_code(db, models):
         pass
 
     assert transport.calls[0]["language_code"] is None
+
+
+def test_diarization_option_reaches_provider_boundary(db, models):
+    *_, job, rel, now = make_job(
+        db,
+        models,
+        options_json='{"diarize":true}',
+    )
+    transport = CaptureTransport()
+
+    with run_boundary(db, models, job, rel, transport, now):
+        pass
+
+    assert transport.calls[0]["diarize"] is True
 
 
 def test_diagnostics_source_provider_success_order_and_correlation(monkeypatch, db, models):

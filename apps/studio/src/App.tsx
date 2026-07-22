@@ -244,6 +244,7 @@ function PreparationPanel({
   const [languageMode, setLanguageMode] = useState<TranscriptionLanguageMode>(
     DEFAULT_TRANSCRIPTION_LANGUAGE_MODE,
   );
+  const [diarizationEnabled, setDiarizationEnabled] = useState(false);
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [credentialsLoading, setCredentialsLoading] = useState(true);
   const [credentialsError, setCredentialsError] = useState("");
@@ -283,6 +284,7 @@ function PreparationPanel({
     setPendingKey(null);
     setMessage("");
     setLanguageMode(DEFAULT_TRANSCRIPTION_LANGUAGE_MODE);
+    setDiarizationEnabled(false);
   }, [project.id]);
   useEffect(() => {
     let cancelled = false;
@@ -370,6 +372,7 @@ function PreparationPanel({
     rows,
     selectedCredentialId,
     languageMode,
+    diarizationEnabled,
   );
   useEffect(() => {
     setPendingKey((current) =>
@@ -815,6 +818,7 @@ function PreparationPanel({
           body: JSON.stringify({
             provider_credential_id: selectedCredentialId,
             language: languageMode,
+            options: { diarize: diarizationEnabled },
             items: rows.map((row) => ({
               source_id: row.source_id,
               output_folder_id: row.output_folder?.folder_id,
@@ -1070,6 +1074,23 @@ function PreparationPanel({
               <option value="ru">Русский</option>
               <option value="detect">Автоопределение</option>
             </select>
+          </label>
+          <label className="transcription-toggle">
+            <input
+              type="checkbox"
+              aria-label="Разделять спикеров"
+              checked={diarizationEnabled}
+              onChange={(event) =>
+                setDiarizationEnabled(event.target.checked)
+              }
+            />
+            <span>
+              <strong>Разделять спикеров</strong>
+              <small>
+                В документе появятся последовательные блоки Speaker 1,
+                Speaker 2 и далее.
+              </small>
+            </span>
           </label>
         </div>
         <div

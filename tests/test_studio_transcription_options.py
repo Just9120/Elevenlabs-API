@@ -37,3 +37,19 @@ def test_language_modes_map_safely_at_provider_and_display_boundaries():
     assert document_language("detect", "en") == "en"
     assert document_language("ru", "en") == "ru"
     assert document_language(None, None) == "unknown"
+
+
+def test_diarization_options_are_canonical_and_fail_closed():
+    from studio_api.transcription_options import (
+        job_diarization_enabled,
+        provider_transcription_settings,
+        stored_transcription_options,
+    )
+
+    assert stored_transcription_options(False) is None
+    assert stored_transcription_options(True) == '{"diarize":true}'
+    assert job_diarization_enabled('{"diarize":true}') is True
+    for value in [None, "", "not-json", "[]", '{"diarize":1}', '{"diarize":false}']:
+        assert job_diarization_enabled(value) is False
+    assert provider_transcription_settings("detect", '{"diarize":true}').language_code is None
+    assert provider_transcription_settings("ru", '{"diarize":true}').diarize is True

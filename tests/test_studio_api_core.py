@@ -453,6 +453,7 @@ def test_legacy_create_job_rejects_openai_and_preserves_source_order_and_safe_me
     assert body["status"] == "queued"
     assert body["source_count"] == 2
     assert body["language_mode"] == "en_us"
+    assert body["diarization_enabled"] is False
     assert [s["id"] for s in body["sources"]] == [sid1, sid2]
     assert [s["position"] for s in body["sources"]] == [0, 1]
     assert "provider_credential_id" not in body
@@ -2759,6 +2760,7 @@ def test_batch_jobs_create_two_one_source_jobs_safe_payload_and_same_source_diff
     data = r.json(); assert data["created_count"] == 2 and data["replayed"] is False
     assert [job["title"] for job in data["jobs"]] == ["First", "Second"]
     assert [job["language_mode"] for job in data["jobs"]] == ["ru", "ru"]
+    assert [job["diarization_enabled"] for job in data["jobs"]] == [True, True]
     assert "output_drive_folder_id" not in r.text and "batch-key-1" not in r.text and "batch_request_hash" not in r.text and "batch_position" not in r.text
     assert data["jobs"][0]["output_folder"] == {"name": "Folder folder-a", "web_view_url": "https://drive.google.com/drive/folders/folder-a"}
     db = SessionLocal()
@@ -2766,6 +2768,7 @@ def test_batch_jobs_create_two_one_source_jobs_safe_payload_and_same_source_diff
         jobs = db.query(TranscriptionJob).filter_by(project_id=pid).order_by(TranscriptionJob.batch_position).all()
         assert len(jobs) == 2
         assert [j.output_drive_folder_id for j in jobs] == ["folder-a", "folder-b"]
+        assert [j.options_json for j in jobs] == ['{"diarize":true}', '{"diarize":true}']
         assert all(len(j.sources) == 1 and j.sources[0].position == 0 for j in jobs)
     finally:
         db.close()
@@ -2792,6 +2795,8 @@ def test_batch_jobs_duplicate_pair_and_atomic_validation_failures(monkeypatch):
         after.close()
     cases = [
         ({"language": "fr", "items": [{"source_id": source_a, "output_folder_id": "folder-a"}]}, "bad-key-language"),
+        ({"options": {"diarize": "yes"}, "items": [{"source_id": source_a, "output_folder_id": "folder-a"}]}, "bad-key-diarize-type"),
+        ({"options": {"diarize": True, "keyterms": ["deferred"]}, "items": [{"source_id": source_a, "output_folder_id": "folder-a"}]}, "bad-key-options-extra"),
         ({"items": [{"source_id": "missing-source", "output_folder_id": "folder-a"}]}, "bad-key-1"),
         ({"provider_credential_id": "missing-cred", "items": [{"source_id": source_a, "output_folder_id": "folder-a"}]}, "bad-key-2"),
         ({"items": [{"source_id": source_a, "output_folder_id": "bad-folder"}]}, "bad-key-3"),

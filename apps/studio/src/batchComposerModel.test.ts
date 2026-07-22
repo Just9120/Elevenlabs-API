@@ -65,9 +65,12 @@ describe("batch composer model", () => {
       },
     ];
 
-    expect(JSON.parse(composerSignature(rows, "credential-1", "detect"))).toEqual({
+    expect(
+      JSON.parse(composerSignature(rows, "credential-1", "detect", true)),
+    ).toEqual({
       provider_credential_id: "credential-1",
       language: "detect",
+      options: { diarize: true },
       items: [
         {
           source_id: "source-1",
@@ -81,7 +84,7 @@ describe("batch composer model", () => {
         },
       ],
     });
-    expect(JSON.parse(composerSignature(rows, "", "ru"))).toEqual(
+    expect(JSON.parse(composerSignature(rows, "", "ru", false))).toEqual(
       expect.objectContaining({ provider_credential_id: null }),
     );
   });

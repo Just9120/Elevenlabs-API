@@ -25,6 +25,9 @@ export function JobDetailSection({
     <section aria-label={`Job detail ${job.id}`}>
       <p>UUID: {job.id}</p>
       <p>Язык: {transcriptionLanguageModeLabel(job.language_mode)}</p>
+      <p>
+        Разделение спикеров: {job.diarization_enabled ? "Включено" : "Выключено"}
+      </p>
       <h5>Папка результата</h5>
       {job.output_folder ? (
         <p>
