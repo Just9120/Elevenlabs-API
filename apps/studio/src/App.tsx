@@ -53,6 +53,18 @@ import { isSafeDisplayUrl, ResourceExternalLink } from "./resourceLinks";
 import { SourcesPanel } from "./SourcesPanel";
 import { Login, type User } from "./Login";
 import { PlatformSidebar } from "./PlatformSidebar";
+import {
+  isApprovedOutputUrl,
+  jobTitle,
+  jobСтатусLabel,
+  outputSourceLabel,
+  safeJobSources,
+  type JobOutputsResponse,
+  type JobOutputsState,
+  type JobState,
+  type JobСтатус,
+  type TranscriptionJob,
+} from "./jobModel";
 import "./styles.css";
 
 type AccountPreferences = {
@@ -116,42 +128,11 @@ type Project = {
   updated_at: string;
   archived_at: string | null;
 };
-type JobСтатус = "queued" | "processing" | "cancelled" | "failed" | "completed";
-type JobSourceСтатус = "queued" | "skipped";
-type JobSource = Source & {
-  position: number;
-  job_source_status: JobSourceСтатус;
-};
-type JobOutput = {
-  source_id?: string;
-  source_position: number | null;
-  source_name: string | null;
-  source_type: string | null;
-  output_kind: string | null;
-  transcript_standard: string | null;
-  web_view_url: string | null;
-  link_available: boolean;
-  document_character_count: number | null;
-  document_created_at: string | null;
-  persisted_at: string | null;
-};
-type JobOutputsResponse = {
-  job_id: string;
-  job_status: JobСтатус;
-  output_count: number;
-  outputs: JobOutput[];
-};
-type JobOutputsState = {
-  loading: boolean;
-  error: string;
-  data: JobOutputsResponse | null;
-};
 type OutputReconciliationResponse = { job_id: string; job_status: JobСтатус; available: boolean; counts: Record<string, number>; cases: { job_source_id: string; status: string; reason?: string | null; resolved: boolean; last_checked_at?: string | null }[] };
 type JobRetryResponse = { job_id: string; job_status: JobСтатус; available: boolean; reason: string; attempt_count: number; max_attempts: number; missing_output_count: number; retry_safe_source_count: number };
 type JobRetryState = { loading: boolean; posting: boolean; error: string; message: string; data: JobRetryResponse | null };
 type OutputReconciliationCheckResponse = { job_id: string; checked: number; resolved: number; unresolved: number; conflicts: number };
 type OutputReconciliationState = { loading: boolean; checking: boolean; error: string; message: string; data: OutputReconciliationResponse | null };
-type JobOutputFolder = { name: string; web_view_url: string | null };
 type VerifiedOutputFolder = {
   folder_id: string;
   name: string;
@@ -163,32 +144,6 @@ type ComposerRow = {
   output_folder: VerifiedOutputFolder | null;
   title: string;
 };
-type TranscriptionJob = {
-  id: string;
-  project_id: string;
-  status: JobСтатус;
-  title: string | null;
-  provider: string | null;
-  source_count: number;
-  sources?: JobSource[];
-  created_at: string;
-  updated_at: string;
-  cancelled_at: string | null;
-  cancel_requested_at: string | null;
-  attempt_count: number;
-  started_at: string | null;
-  finished_at: string | null;
-  error_code: string | null;
-  error_message: string | null;
-  output_folder?: JobOutputFolder | null;
-};
-type JobState = {
-  loading: boolean;
-  error: string;
-  loaded: boolean;
-  items: TranscriptionJob[];
-};
-
 type UploadInit = {
   source_id: string;
   upload: {
@@ -234,41 +189,6 @@ const emptyJobState: JobState = {
   loaded: false,
   items: [],
 };
-function jobTitle(job: TranscriptionJob) {
-  return job.title?.trim() || `Транскрибация от ${formatTime(job.created_at)}`;
-}
-function safeJobSources(job: TranscriptionJob) {
-  return [...(job.sources ?? [])].sort((a, b) => a.position - b.position);
-}
-function isApprovedOutputUrl(value: string | null) {
-  if (!value) return false;
-  try {
-    const url = new URL(value);
-    return (
-      url.protocol === "https:" &&
-      (url.hostname === "docs.google.com" ||
-        url.hostname === "drive.google.com")
-    );
-  } catch {
-    return false;
-  }
-}
-function outputSourceLabel(output: JobOutput) {
-  const position =
-    output.source_position == null ? "—" : String(output.source_position + 1);
-  return `${position}. ${output.source_name || "Файл без имени"}`;
-}
-
-function jobСтатусLabel(status: JobСтатус) {
-  const labels: Record<JobСтатус, string> = {
-    queued: "В очереди",
-    processing: "Обрабатывается",
-    cancelled: "Отменена",
-    failed: "Ошибка",
-    completed: "Завершена",
-  };
-  return labels[status];
-}
 function credentialProfileLabel(c: Credential) {
   return c.active_version ? `${c.label} · v${c.active_version}` : c.label;
 }
