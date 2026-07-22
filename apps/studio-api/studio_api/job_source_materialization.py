@@ -15,7 +15,7 @@ from .job_claim_lease import is_lease_active
 from .job_source_availability import verify_processing_job_sources
 from .models import JobSourceStatus, JobStatus, Project, SourceType, SourceUploadStatus, TranscriptionJob, TranscriptionJobSource
 from .security import utcnow
-from .source_policy import is_supported_source_mime_type, normalize_source_mime_type, validate_source_size
+from .source_policy import is_source_expired, is_supported_source_mime_type, normalize_source_mime_type, validate_source_size
 from .source_storage import SourceObjectReadError, SourceObjectReadReason, get_source_storage, safe_filename
 
 _CHUNK_SIZE = 1024 * 1024
@@ -196,7 +196,7 @@ def _load_selected_snapshot(db, job_id, job_source_id, owner, generation, now, s
     mime = normalize_source_mime_type(src.mime_type)
     if rel.status == JobSourceStatus.skipped or src.project_id != job.project_id or src.upload_status != SourceUploadStatus.uploaded or src.deleted_at is not None:
         raise SourceMaterializationError(SourceMaterializationReason.job_source_not_processable)
-    if src.expires_at is not None and src.expires_at <= now:
+    if is_source_expired(src.expires_at, now):
         raise SourceMaterializationError(SourceMaterializationReason.job_source_not_processable)
     if src.source_type not in {SourceType.local_upload, SourceType.google_drive} or not is_supported_source_mime_type(mime):
         raise SourceMaterializationError(SourceMaterializationReason.job_source_not_processable)

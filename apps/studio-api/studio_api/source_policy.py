@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from enum import Enum
 
 SUPPORTED_SOURCE_MIME_PREFIXES = ("audio/", "video/")
@@ -45,6 +46,18 @@ def validate_source_size(size_bytes: int | None, max_bytes: int) -> bool:
     if size_bytes is None:
         return True
     return 0 <= size_bytes <= max_bytes
+
+
+def is_source_expired(expires_at: datetime | None, now: datetime) -> bool:
+    if expires_at is None:
+        return False
+    return _as_utc_aware(expires_at) <= _as_utc_aware(now)
+
+
+def _as_utc_aware(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 def uploaded_object_metadata_issue(

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from io import BytesIO
@@ -183,6 +183,18 @@ def test_source_policy_normalizes_and_accepts_only_media_and_ogg():
         "supported_mime_prefixes": ["audio/", "video/"],
         "supported_mime_types": ["application/ogg"],
     }
+
+
+def test_source_expiry_policy_normalizes_mixed_timezone_awareness():
+    from studio_api.source_policy import is_source_expired
+
+    naive_now = datetime(2026, 7, 22, 6, 40, 27)
+    aware_now = naive_now.replace(tzinfo=timezone.utc)
+
+    assert is_source_expired(aware_now, naive_now)
+    assert is_source_expired(naive_now, aware_now)
+    assert not is_source_expired(aware_now + timedelta(seconds=1), naive_now)
+    assert not is_source_expired(None, aware_now)
 
 
 @pytest.mark.parametrize(
