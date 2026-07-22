@@ -11,7 +11,9 @@ def test_security_policy_covers_both_product_contours_and_current_status() -> No
     assert "Google Colab batch workflow" in POLICY
     assert "Studio PWA is in development" in POLICY
     assert "not confirmed production-live" in POLICY
-    assert "PWA-BROWSER-INTEGRATION-BOUNDARY-01" in POLICY
+    assert "bounded browser capabilities" in POLICY
+    assert "production-validated" in POLICY
+    assert "unresolved Studio security decision" not in POLICY
 
 
 def test_security_policy_routes_private_reports_and_authoritative_details() -> None:

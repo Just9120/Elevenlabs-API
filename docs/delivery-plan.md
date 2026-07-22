@@ -2,71 +2,42 @@
 
 ## Current dashboard
 
-- ✅ `PWA-RETRY-RECOVERY-01` — Safe stage-specific retry/recovery — Done/source-complete, merged via PR #173.
-- ✅ `PWA-SOURCE-DELETION-01` — Safe Studio source deletion, retention, and storage cleanup — Done/source-complete, merged via PR #174.
-- ✅ `DOCS-AUTHORITY-SYNC-02` — Reconcile stale source-complete versus production-rollout claims and consolidate pointer-only documents — Complete in the local stabilization batch.
-- ✅ `SECURITY-ENTRYPOINT-01` — Reframe `SECURITY.md` for both contours, private reporting, and authority routing — Complete in the local stabilization batch.
-- ✅ `PWA-LEGACY-AUTHORITY-01` — Remove obsolete Studio UI/deploy surfaces and close legacy project, Drive-source, and job-creation authority bypasses — Complete in the local stabilization batch.
-- ✅ `PWA-BROWSER-INTEGRATION-BOUNDARY-01` — Define and enforce bounded OAuth-start, Picker-token, and direct-upload browser capabilities — Complete in the local stabilization batch.
-- ✅ `PWA-WEB-SECURITY-HEADERS-01` — Add a single host-level Picker-compatible CSP and browser security-header policy — Source-complete in the local stabilization batch; live nginx/TLS validation remains operator evidence.
-- ⛔ `PWA-CD-RECOVERY-01` — Repair component CD old-checkout/new-script ordering and validate the latest `main` deployment — Source fix implemented; live validation is blocked until the batch is merged and CD is run again.
-- ✅ `PWA-DEPENDENCY-SECURITY-01` — Reproduce and remediate actionable Studio Node/Python dependency findings without broad upgrades — Complete in the local batch; current npm and pip audits have zero known vulnerabilities.
-- ✅ `PWA-DEPENDENCY-REPRODUCIBILITY-01` — Add deterministic Python transitive constraints without changing the Colab runtime install — Source-complete in the local batch.
-- ✅ `PWA-DEPENDENCY-REPORTING-01` — Add automated dependency reporting without coupling ordinary CI to advisory-service availability — Source-complete in the local batch; the first GitHub run remains external evidence.
-- ✅ `PWA-E2E-FOUNDATION-01A` — Establish a deterministic API/worker processing E2E with fake storage/provider/Google boundaries and real PostgreSQL/Redis services — Source-complete in the local batch; service-backed GitHub CI verification is pending.
-- ✅ `PWA-BROWSER-DTO-MINIMIZATION-01` — Remove UI-unused owner and provider-credential IDs from project/job browser payloads while preserving server-side authority — Source-complete in the local batch; service-backed API verification is pending.
-- ✅ `PWA-UNHANDLED-DIAGNOSTICS-01` — Emit safe server evidence and an owner-scoped aggregate diagnostic for otherwise unhandled API exceptions without exposing exception details — Source-complete in the local batch.
-- ✅ `PWA-UPLOAD-VERIFIED-METADATA-01A` — Require complete uploaded-object metadata and exact normalized MIME/byte-size equality before local-upload completion — Source-complete in the local batch; service-backed API verification is pending.
-- ✅ `REPO-HYGIENE-01` — Ignore repository-local Python and Studio test/cache artifacts — Complete in the local batch.
-- ✅ `TEST-PORTABLE-PROFILE-01` — Limit pytest discovery to repository tests and add an opt-in cross-platform profile that excludes service/shell modules before import while leaving the full CI suite unchanged — Complete in the local batch.
-- ✅ `PWA-FRONTEND-MODULARIZATION-01A` — Extract the tested API/CSRF/diagnostic transport from the monolithic application component — Complete in the local batch with no API or UI behavior change.
-- ✅ `PWA-UPLOAD-RETENTION-CONTRACT-01B` — Keep a one-hour pending-upload deadline, reset verified local sources to a user-configurable 24-hour default retained-source deadline, and surface exact expiry in the PWA — Source-complete in the local batch; service-backed API and Linux preflight verification are pending.
-- ✅ `PWA-UPLOAD-RETENTION-PREFERENCES-02` — Persist allowlisted one-hour/24-hour/three-day/seven-day/30-day account choices in PostgreSQL and expose them in PWA settings; changes apply to future verified uploads — Source-complete in the local batch; migration and service-backed API verification are pending.
-- ✅ `PWA-UPLOAD-POLICY-DISCOVERY-01C` — Remove the frontend's hard-coded upload-size/MIME policy by exposing a runtime-validated safe server DTO and disabling direct local selection when discovery fails — Complete in the local batch; service-backed API and Linux preflight verification are pending.
-- 👉 `PWA-E2E-FOUNDATION-01B` — Add authenticated real-browser coverage on top of the API/worker processing foundation — Next focused item.
+- ✅ PR #177 stabilization checkpoint — Merged into `main` at `9f85ffe`; item-level history for PR #173, PR #174, and PR #177 is in `docs/delivery-plan-archive.md`.
+- 👉 `PWA-E2E-FOUNDATION-01B` — Add authenticated real-browser coverage on top of the API/worker processing foundation — CI-verified in PR #178; merge is pending.
+- 📋 `PWA-FRONTEND-MODULARIZATION-01B` — Continue splitting domain UI/hooks and tests after the browser boundary is CI-verified.
 - ⛔ `PWA-PROCESSING-ROLLOUT-01A` — Production processing rollout/canary — Operator item not run; production-live claims remain prohibited.
 
 ## Current repository state
 
-- Current repository Alembic head: `0015_user_source_retention`.
-- PostgreSQL remains the durable authority for Studio processing, retry/recovery, source deletion, retention, and cleanup state.
-- Redis is not cleanup authority, scheduler, retry authority, or lease authority.
-- Repository CI and Studio PWA CI passed for `main` revision `6ee51994de90bbfe7852cf1bd7618397b00e52b3`.
-- Studio Platform CD run `29815613081` failed before the server checkout fast-forward because the new deploy script required a file present only in the new revision.
-- The local source fix now preserves pre-update identity/clean-tree checks, fast-forwards before versioned-file validation, and requires exact fetched-target revision identity before build.
-- The legacy stateless web-only contour and the non-authoritative full-platform deploy helper are removed in the local batch; documented bootstrap steps and platform component deployment remain authoritative.
-- The Studio frontend has one authoritative authenticated platform shell; the static demo shell, demo jobs/segments, and obsolete frontend build-mode flags are removed locally.
-- Generic project PATCH now rejects browser-supplied output-folder identity and unknown fields; output-folder binding remains server-verified through the Picker route.
-- The deprecated single-file Google Drive source route now ignores browser metadata and reuses the canonical Picker route's owner-scoped metadata and source-policy validation.
-- The deprecated single-job route now requires project output-folder authority and resolves only an active, non-deleted ElevenLabs credential; the idempotent batch route remains canonical.
-- OAuth-start, Picker access-token, and direct-upload responses are now explicit browser-bound capabilities with no-store responses; Picker rejects broader scope sets/incremental grants and direct PUT uses a validated 60–900 second TTL without cookies, referrer, redirects, or service-worker runtime caching.
-- The host nginx source now enforces one CSP/HSTS/nosniff/referrer/permissions/framing policy across PWA and API; standard component CD does not apply host config, so production header state is still unproven.
-- Studio frontend build/test tooling now uses the minimum compatible patched Vite 6/Vitest 3 line plus refreshed ESLint tooling; `npm audit`, lint, 114 tests, TypeScript, and the production PWA build pass locally.
-- Studio API now pins a patched FastAPI/Starlette pair and cryptography release, removes the unused multipart parser, and uses `httpx2` only for Starlette TestClient compatibility; the current pip audit has zero known vulnerabilities.
-- Studio API Docker and repository CI now install their input requirements under committed pip-tools constraints; Colab continues to install its independent runtime requirements.
-- A separate weekly/manual GitHub workflow audits the exact npm graph and an installed Linux/Python 3.11 graph; it is deliberately absent from pull-request and push triggers.
-- A dedicated processing E2E now creates a project, encrypted ElevenLabs credential, local-upload source, verified output destination, and idempotent batch through the API; the real runner/worker then persists one completed output through controlled external fakes and the public output API is checked for its explicit safe DTO. The test fails rather than skips when CI lacks PostgreSQL or Redis, but its first service-backed execution is still pending.
-- Project serializers no longer expose `owner_user_id`, and job serializers no longer expose `provider_credential_id`; the PWA did not consume either field, while credential selection and persisted worker authority remain unchanged server-side.
-- Unhandled API exceptions now produce a fixed safe 500 response, a sanitized server log record, and—only after owner authentication—one allowlisted aggregate diagnostic; raw exception/path/query/header/body data is excluded and diagnostic-write failure is non-recursive.
-- Local-upload completion now requires present object-storage size/MIME metadata, enforces policy on the verified values, and requires exact normalized equality with the initiation contract. Rejected objects remain pending and retain their expiry-driven cleanup path.
-- Local uploads now keep separate persisted lifecycle windows: unfinished uploads default to one hour from initiation, while exact verified completion resets expiry from the owner's PostgreSQL-backed account choice. PWA settings offer one hour, 24 hours (default), three days, seven days, and 30 days; existing uploaded sources retain their already persisted deadline, and the PWA shows the exact server expiry.
-- The authenticated PWA now reads maximum upload bytes and supported MIME rules from a safe `no-store` server DTO, validates it at runtime, and disables direct local selection when discovery fails; the API remains authoritative at initiation, stored-object verification, and processing boundaries.
-- `SECURITY.md` is now a repository-wide reporting and routing entry point; it does not duplicate detailed Colab or Studio product contracts.
-- Production migration state for `0015_user_source_retention` is not proven by repository evidence.
-- Latest production web/API deployment, worker rollout, and controlled canary are not proven complete.
+- `main` revision `9f85ffe93102354869f37f60fd525dd60404b878` passed repository CI run `29898199041` and Studio PWA CI run `29898198991`.
+- Studio Platform CD run `29898198997` deployed and identity-checked only the web component at that revision. API, migration `0015_user_source_retention`, worker, and canary evidence remain absent, so live frontend/API revision compatibility is not proven.
+- PostgreSQL remains durable Studio authority; Redis remains a non-durable support service and is not job, cleanup, retry, scheduler, heartbeat, or lease authority.
+- Source-level Studio includes the authenticated platform shell, bounded browser capabilities, processing/retry/reconciliation/source-lifecycle foundations, patched dependency graphs, constrained Python resolution, and the service-backed API/worker E2E verified on `main`.
+- The current branch adds an isolated real-Chromium login/project/result/logout scenario through live FastAPI/PostgreSQL/Redis services without provider, Google, S3, production, or canary side effects. Studio PWA CI run `29902672256` verified the browser job for implementation revision `0199c83`.
+- The weekly/manual dependency-audit workflow is source-complete but has no GitHub run evidence yet.
+- Frontend `App.tsx`/`App.test.tsx` and API `main.py`/`test_studio_api_core.py` remain major maintainability concentrations; frontend modularization is the next source task after browser CI evidence.
+
+## Readiness snapshot
+
+- Stable Colab batch contour: **100%** of the currently accepted operational scope; no change from `main`.
+- Studio PWA combined v1 delivery readiness: **about 69% on `main` and 71% on the current branch**, uncertainty ±5 percentage points. Source-level breadth is about 85%; production evidence remains materially lower because API/migration/worker rollout, public-host validation, and the controlled canary are incomplete.
+- The percentage is a planning estimate, not an acceptance criterion or production claim. Update it only when a commit materially changes implementation or evidence, and report unchanged estimates after documentation/diagnostic-only commits.
 
 ## Near backlog
 
-- `PWA-FRONTEND-MODULARIZATION-01B` — continue splitting domain UI/hooks and their tests out of the monolithic `App.tsx`/`App.test.tsx` after the browser E2E boundary is established.
 - OpenAI processing parity, long-media parity, manifest behavior, and golden Colab/PWA parity validation remain product backlog items in `docs/project-spec.md`.
+
+## Active item validation
+
+`PWA-E2E-FOUNDATION-01B` keeps the existing API/worker E2E as backend processing evidence and adds a separate browser boundary. Local validation covers Studio ESLint, all 114 Vitest tests, the production PWA build, Playwright discovery, two browser-E2E contract guards, the 645-test portable Python profile, lightweight CI checks, and zero known npm audit findings. On implementation revision `0199c83`, Studio PWA CI run `29902672256` passed both `browser-e2e` and `studio`, and repository CI run `29902672222` passed all 840 Python tests. This is isolated CI evidence, not deployed-host or production-canary evidence.
 
 ## Blockers and risks
 
-- The latest component CD failure blocks a claim that current `main` is deployed; the local source fix is not runtime evidence until merged and validated by a new CD run.
+- The latest automatic component CD proves only the web deployment at merge revision `9f85ffe`; API deployment, migration `0015`, worker rollout, and processing canary remain separate operator-controlled evidence.
 - No current repository evidence proves a successful production controlled canary after the latest worker/source lifecycle work.
 - Browser-bound capabilities increase the impact of frontend injection; the committed host header policy is not production evidence until an operator applies it, runs `nginx -t`, and validates public Picker/upload flows over TLS.
-- The dependency-audit workflow has not yet run on GitHub from the local batch; its source and local audit probes are not remote execution evidence.
-- The new processing E2E is skipped in the current Windows environment because PostgreSQL/Redis are not running; GitHub CI must execute it against its service containers before it can be called CI-verified.
+- The dependency-audit workflow has not yet run through its scheduled/manual GitHub path; merged source and local audit probes are not remote execution evidence.
+- The processing E2E remains skipped in the current Windows environment because PostgreSQL/Redis are not running, but GitHub CI has verified it against service containers.
 
 ## Sources of truth
 
@@ -75,5 +46,5 @@
 - Workflow: `docs/ai-coding-workflow.md`.
 - CI/CD and deployment safety: `docs/ci-cd-rules.md`.
 - Architecture map: `docs/architecture.md`.
-- Audit evidence and recommended sequence: `docs/runbooks/repository-audit-2026-07-21.md`.
+- Historical pre-PR #177 audit evidence only: `docs/runbooks/repository-audit-2026-07-21.md`; its readiness score and sequence are superseded by this dashboard.
 - Historical traceability only: `docs/delivery-plan-archive.md`.

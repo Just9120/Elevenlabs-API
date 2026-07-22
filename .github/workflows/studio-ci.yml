@@ -11,6 +11,8 @@ on:
       - 'scripts/deploy_studio_platform_component.sh'
       - 'scripts/migrate_studio_platform.sh'
       - 'scripts/backup_studio_postgres_r2.sh'
+      - 'tests/support/studio_browser_e2e_seed.py'
+      - 'tests/test_studio_browser_e2e_contract.py'
       - 'docs/runbooks/studio-platform-ops.md'
   push:
     branches: [main]
@@ -23,6 +25,8 @@ on:
       - 'scripts/deploy_studio_platform_component.sh'
       - 'scripts/migrate_studio_platform.sh'
       - 'scripts/backup_studio_postgres_r2.sh'
+      - 'tests/support/studio_browser_e2e_seed.py'
+      - 'tests/test_studio_browser_e2e_contract.py'
       - 'docs/runbooks/studio-platform-ops.md'
   workflow_dispatch:
 
@@ -65,3 +69,85 @@ jobs:
           docker compose --env-file "$tmp/.env" -f deploy/studio/compose.platform.yml config >/dev/null
       - run: docker build -t elevenlabs-studio-api:test apps/studio-api
       - run: echo "STUDIO_CI_OK"
+
+  browser-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: studio_browser_e2e
+          POSTGRES_USER: studio_test
+          POSTGRES_PASSWORD: studio_test_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U studio_test -d studio_browser_e2e"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      STUDIO_ENVIRONMENT: test
+      STUDIO_DATABASE_SCHEME: postgresql+psycopg
+      STUDIO_DATABASE_HOST: 127.0.0.1
+      STUDIO_DATABASE_PORT: '5432'
+      STUDIO_DATABASE_NAME: studio_browser_e2e
+      STUDIO_DATABASE_USER: studio_test
+      STUDIO_REDIS_URL: redis://127.0.0.1:6379/0
+      STUDIO_APP_ORIGIN: http://127.0.0.1:4173
+      STUDIO_COOKIE_NAME: studio_e2e_session
+      STUDIO_COOKIE_SECURE: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/studio/package-lock.json
+      - name: Install Studio API dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r apps/studio-api/requirements.txt -c apps/studio-api/constraints.txt
+      - name: Install Studio browser dependencies
+        run: npm ci
+        working-directory: apps/studio
+      - name: Create browser E2E fixture secret files
+        run: |
+          POSTGRES_PASSWORD_FILE="$RUNNER_TEMP/studio_browser_e2e_postgres_password"
+          CREDENTIAL_MASTER_KEY_FILE="$RUNNER_TEMP/studio_browser_e2e_master_key"
+          printf 'studio_test_password' > "$POSTGRES_PASSWORD_FILE"
+          python -c "import base64; print(base64.b64encode(b'5' * 32).decode())" > "$CREDENTIAL_MASTER_KEY_FILE"
+          printf 'STUDIO_POSTGRES_PASSWORD_FILE=%s\n' "$POSTGRES_PASSWORD_FILE" >> "$GITHUB_ENV"
+          printf 'STUDIO_CREDENTIAL_MASTER_KEY_FILE=%s\n' "$CREDENTIAL_MASTER_KEY_FILE" >> "$GITHUB_ENV"
+      - name: Run browser E2E migrations
+        run: alembic -c apps/studio-api/alembic.ini upgrade head
+      - name: Seed isolated browser E2E state
+        run: python tests/support/studio_browser_e2e_seed.py
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+        working-directory: apps/studio
+      - name: Run authenticated browser E2E
+        run: npm run test:e2e
+        working-directory: apps/studio
+      - name: Upload browser E2E failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: studio-browser-e2e-${{ github.run_id }}
+          path: apps/studio/test-results
+          if-no-files-found: warn
+          retention-days: 7
+      - run: echo "STUDIO_BROWSER_E2E_OK"

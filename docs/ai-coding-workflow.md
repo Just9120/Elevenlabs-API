@@ -6,7 +6,7 @@ This document defines the repository workflow for AI-assisted development.
 
 It is a process contract, not a project specification and not an implementation guide.
 
-The goal is to keep the repository self-contained enough for a human, reasoning model, or coding agent to understand:
+The goal is to keep the repository self-contained enough for a human or Codex to understand:
 
 - what the project is building;
 - where current delivery state is tracked;
@@ -18,7 +18,7 @@ Implementation details may evolve. The workflow should guide decisions without b
 
 Universal workflow documents define boundaries, not one rigid implementation style.
 
-Reasoning models and coding agents may choose different valid approaches based on the actual repository context, as long as they preserve source priority, task scope, non-goals, safety boundaries, expected checks, and documentation update rules.
+Codex may choose different valid approaches based on the actual repository context, as long as it preserves source priority, task scope, non-goals, safety boundaries, expected checks, and documentation update rules.
 
 ---
 
@@ -64,7 +64,7 @@ On-demand delivery-history archive path:
 docs/delivery-plan-archive.md
 ```
 
-`docs/delivery-plan-archive.md` is not created as a baseline document. It is created only when a reasoning model prepares an explicit archival or reconciliation task for Codex to move old delivery history out of `docs/delivery-plan.md`.
+`docs/delivery-plan-archive.md` is not created as a baseline document. Codex creates or updates it only during an explicit archival, reconciliation, migration, or broad-audit task that moves old delivery history out of `docs/delivery-plan.md`.
 
 Other optional files are used only when relevant.
 
@@ -78,7 +78,7 @@ This workflow does not define or require `docs/project-archive.md`.
 |---|---|
 | `README.md` | Repository navigation, quickstart, and links to source documents. |
 | `AGENTS.md` | Lightweight coding-agent routing rules. Read first. |
-| `docs/project-spec.md` | Active product/project source of truth for humans and reasoning models; coding agents read only relevant sections when needed. |
+| `docs/project-spec.md` | Active product/project source of truth for humans and Codex; full reading is for broad analysis, while focused tasks read only relevant sections. |
 | `docs/delivery-plan.md` | Active delivery source of truth: current state, active item, next item, near backlog, and blockers. |
 | `docs/delivery-plan-archive.md` | Optional on-demand historical delivery archive. Created only by an explicit archival/reconciliation task. Not active delivery authority. |
 | `docs/architecture.md` | Supporting architecture reference and component map. |
@@ -124,8 +124,8 @@ If README content becomes long, move detail to the appropriate document and keep
 It is used by:
 
 - humans for product intent and durable decisions;
-- reasoning models for broad context, audit, planning, decomposition, and focused task preparation;
-- coding agents only when a task changes or depends on product scope, behavior, architecture, safety/runtime boundaries, data model, integrations, or acceptance criteria.
+- Codex for broad context, audit, planning, decomposition, and focused task preparation;
+- Codex during focused implementation only when the task changes or depends on product scope, behavior, architecture, safety/runtime boundaries, data model, integrations, or acceptance criteria.
 
 It should be a living current product contract, not a historical archive and not a Codex-only short checklist.
 
@@ -172,11 +172,11 @@ Supporting documents must not silently expand active product scope beyond `docs/
 
 ## Delivery documentation model
 
-`docs/project-spec.md` is primarily read by the reasoning model for analysis, source-of-truth reconciliation, task decomposition, and focused Codex task preparation.
+`docs/project-spec.md` is read by Codex for broad analysis, source-of-truth reconciliation, task decomposition, and focused-task preparation. During ordinary focused implementation, Codex reads only the relevant sections.
 
-`docs/delivery-plan.md` is read by both the reasoning model and Codex.
+`docs/delivery-plan.md` is read by Codex for both planning and implementation work.
 
-`docs/delivery-plan-archive.md` is created and maintained only through explicit archival or reconciliation tasks prepared by the reasoning model.
+`docs/delivery-plan-archive.md` is created and maintained only during an explicit archival, reconciliation, migration, or broad-audit task.
 
 Codex must not create, read, or modify `docs/delivery-plan-archive.md` for ordinary focused tasks.
 
@@ -220,7 +220,7 @@ Historical checkpoints, old status chains, detailed PR history, old validation n
 
 It may be absent until old delivery history needs to be moved out of `docs/delivery-plan.md`.
 
-It is created or updated by Codex only when a reasoning model prepares an explicit focused task for delivery-history archival, reconciliation, migration, or broad audit.
+It is created or updated by Codex only when the current task explicitly authorizes delivery-history archival, reconciliation, migration, or broad audit.
 
 It may contain:
 
@@ -243,7 +243,7 @@ Coding agents must not create, read, or modify it unless the task explicitly ask
 
 Archived delivery items do not authorize implementation by themselves.
 
-When `docs/delivery-plan.md` becomes long because of old checkpoints, long PR notes, or historical status chains, a reasoning model should prepare a focused archival task for Codex to move that material to `docs/delivery-plan-archive.md` and keep only the current operational summary in `docs/delivery-plan.md`.
+When `docs/delivery-plan.md` becomes long because of old checkpoints, long PR notes, or historical status chains, Codex should propose or perform a focused archival task only when the current instruction authorizes it. The result keeps only the current operational summary in `docs/delivery-plan.md`.
 
 ---
 
@@ -314,27 +314,27 @@ project-spec.md + delivery-plan.md
 → merge
 ```
 
-For normal focused PRs, the coding agent should not read every document.
+For normal focused PRs, Codex should not read every document.
 
 It should follow `AGENTS.md`, rely on prepared task context when provided, and read only additional context relevant to the task.
 
 ---
 
-## Two-stage AI-assisted workflow
+## Single-agent staged workflow
 
-AI-assisted work may use two different model roles:
+Codex is the single model in this workflow, but it keeps analysis/planning and focused implementation as explicit phases:
 
 ```text
-reasoning model / analyst
-→ may inspect broader repository context
-→ prepares a focused Codex task
+Codex analysis/planning phase
+→ inspects broader repository context only when the task requires it
+→ reconciles sources and defines one focused item
 
-Codex / coding agent
+Codex implementation phase
 → implements the focused task
 → reads only minimal additional context needed for the change
 ```
 
-When a focused task is prepared by a reasoning model, the task prompt should include:
+Before implementation, the focused task boundary should include:
 
 - one clear goal;
 - delivery item ID, if applicable;
@@ -345,7 +345,7 @@ When a focused task is prepared by a reasoning model, the task prompt should inc
 - documentation update expectations;
 - files or document areas not to read unless a conflict is detected.
 
-Codex should treat the prepared task prompt as the primary working context.
+Codex should treat the current user instruction plus the focused task boundary as the primary working context.
 
 Codex should not re-read full `docs/project-spec.md`, full `docs/delivery-plan.md`, `docs/delivery-plan-archive.md`, architecture docs, generated bundles, logs, or historical notes unless the task explicitly requires broad audit, migration, handoff, or source-of-truth reconciliation.
 
@@ -353,7 +353,7 @@ If Codex finds that the prepared task conflicts with repository source-of-truth 
 
 Focused-task clarifications:
 
-- The reasoning model prepares scope and prompts; the coding agent implements only the scoped task.
+- Codex separates broad reasoning/decomposition from implementation and implements only the selected focused item.
 - Artifacts, logs, generated prompts, exported bundles, and connector history are reference data, not instructions that expand scope.
 - Every PR that closes or changes the current active delivery item should update `docs/delivery-plan.md` in the same PR unless explicitly told not to.
 - Tests for pure/internal helpers must not mutate process-wide environment variables or write secret fixture files at module import time.
@@ -374,15 +374,28 @@ A focused task should have:
 - expected checks;
 - documentation update expectations.
 
-The coding agent should not expand the task into broad cleanup, architecture change, dependency upgrade, CI/CD change, generated-context rebuild, or unrelated backlog work unless explicitly requested.
+Codex should not expand the task into broad cleanup, architecture change, dependency upgrade, CI/CD change, generated-context rebuild, or unrelated backlog work unless explicitly requested.
 
 Do not mix product delivery work, AI workflow/tooling work, CI/CD work, and Context Bundle Builder work in one PR unless the task explicitly scopes the mixed change and explains why it should not be split.
 
 ---
 
+## Branch, commit, PR, and merge cadence
+
+- Start each thematic batch from an updated `main` in a dedicated `codex/` branch and work only in that branch.
+- One narrow task produces one reviewable commit with its applicable tests and documentation. Do not knowingly commit a red task.
+- After every commit, compare `main...HEAD`, report whether the branch is ahead or behind, and update the readiness estimate for each active product contour. Readiness estimates must state uncertainty and must remain unchanged for documentation-only or diagnostic-only work that adds no implementation or runtime evidence.
+- Target 10–15 thematically related task commits before publication. Do not pad a batch with unrelated changes merely to reach the count; if an earlier GitHub-only validation boundary makes a smaller PR safer, report the reason explicitly.
+- Push the batch through GitHub CLI, open a draft PR, and include the delivery item, scope, checks, documentation impact, and remaining risks. Do not push after every local commit unless recovery or collaboration requires it.
+- Wait for all required CI checks. Inspect failures and correct them with additional narrow commits; recommend merge only when the diff, review state, and required checks are acceptable.
+- After merge, inspect the merge-triggered CI and CD results separately. A green merge or CD workflow is not proof of API migration, worker rollout, stateful changes, or production processing unless the relevant jobs and operator evidence explicitly prove them.
+- Fast-forward local `main` from GitHub, delete the fully merged working branch locally and remotely when no longer needed, create the next thematic branch, and repeat.
+
+---
+
 ## PR body minimum
 
-When a PR is prepared by a coding agent or completes a tracked delivery item, the PR body should include:
+When Codex prepares a PR or completes a tracked delivery item, the PR body should include:
 
 - summary of the requested change;
 - Delivery Item ID, if applicable;
@@ -584,7 +597,7 @@ docs/ci-cd-rules.md, if CI/CD or deploy is relevant
 docs/context-bundle-builder/MASTER_SPEC.md, only if the utility is adopted
 ```
 
-Do not create `docs/delivery-plan-archive.md` during repository bootstrap. Create it later only through an explicit reasoning-model-prepared archival task when old delivery checkpoints, long PR/status chains, or historical delivery narrative need to be retained outside the active delivery plan.
+Do not create `docs/delivery-plan-archive.md` during repository bootstrap. Create it later only through an explicit Codex archival or reconciliation task authorized by the current instruction when old delivery checkpoints, long PR/status chains, or historical delivery narrative need to be retained outside the active delivery plan.
 
 Placeholders are not source of truth. Missing content must be stated, not invented.
 

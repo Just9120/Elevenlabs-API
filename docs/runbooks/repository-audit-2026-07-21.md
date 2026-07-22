@@ -2,6 +2,8 @@
 
 This document records audit evidence and recommendations. It is not a product contract and does not replace `docs/project-spec.md`, `docs/delivery-plan.md`, or the CI/CD safety contract.
 
+> Historical snapshot: this audit is based on repository revision `6ee51994de90bbfe7852cf1bd7618397b00e52b3`, before the remediation batch merged through PR #177. Many P0/P1 findings and the 63% readiness estimate below are superseded. Use `docs/delivery-plan.md` for current status, blockers, readiness, and delivery sequence; keep this file only as dated audit evidence.
+
 ## Executive summary
 
 - The repository is healthy enough to continue development: the audited branch started clean at `6ee51994de90bbfe7852cf1bd7618397b00e52b3`, local lightweight checks passed, Studio frontend lint/tests/build passed, and GitHub CI passed for the same `main` revision.
