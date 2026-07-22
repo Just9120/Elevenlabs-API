@@ -52,6 +52,7 @@ import { isSafeDisplayUrl, ResourceExternalLink } from "./resourceLinks";
 import { SourcesPanel } from "./SourcesPanel";
 import { JobOutputsSection } from "./JobOutputsSection";
 import { JobDetailSection } from "./JobDetailSection";
+import { OutputReconciliationNotice } from "./OutputReconciliationNotice";
 import { Login, type User } from "./Login";
 import { PlatformSidebar } from "./PlatformSidebar";
 import {
@@ -1008,15 +1009,11 @@ function PreparationPanel({
           <p className="error">{currentOutputs.error}</p>
         )}
         {currentReconciliation?.data?.available && (
-          <section className="notice" aria-label={`Output reconciliation ${job.id}`}>
-            <b>Требуется проверка результата Google Docs</b>
-            <p>Reconciliation не создаёт документ заново и запускается только по нажатию.</p>
-            <button type="button" disabled={currentReconciliation.checking} onClick={() => void checkReconciliation(job.id)}>
-              {currentReconciliation.checking ? "Проверяем Google Drive…" : "Проверить созданный документ в Google Drive"}
-            </button>
-            {currentReconciliation.message && <p role="status">{currentReconciliation.message}</p>}
-            {currentReconciliation.error && <p className="error">{currentReconciliation.error}</p>}
-          </section>
+          <OutputReconciliationNotice
+            jobId={job.id}
+            state={currentReconciliation}
+            onCheck={checkReconciliation}
+          />
         )}
         {currentOutputs?.data && (
           <JobOutputsSection jobId={job.id} data={currentOutputs.data} />
