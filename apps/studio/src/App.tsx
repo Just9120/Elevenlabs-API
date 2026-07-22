@@ -5,11 +5,6 @@ import {
   useRef,
   useState,
 } from "react";
-import {
-  Briefcase,
-  Home,
-  Settings,
-} from "lucide-react";
 import * as googlePicker from "./googlePicker";
 import type { PickerSession } from "./googlePicker";
 import {
@@ -24,21 +19,45 @@ import {
   mutateWithCsrfRetry,
   requestJson,
 } from "./apiClient";
+import {
+  parsePlatformRoute,
+  pushPlatformRoute,
+  type Page,
+  type PlatformRoute,
+  type SettingsSection,
+} from "./platformRouting";
+import {
+  consumeGoogleOauthResult,
+  googleOauthMessages,
+  type GoogleOauthResult,
+} from "./googleOauthResult";
+import {
+  formatBytes,
+  formatTime,
+  formatUploadLimit,
+  retentionOptionLabel,
+} from "./formatters";
+import {
+  isSupportedMediaFile,
+  isSupportedSourceMimeType,
+  normalizeSourceUploadPolicy,
+  sourceUploadAccept,
+  type SourceUploadPolicy,
+} from "./sourceUploadPolicy";
+import {
+  isUsableJobSource,
+  sourceСтатусLabel,
+  type Source,
+} from "./sourceModel";
+import { isSafeDisplayUrl, ResourceExternalLink } from "./resourceLinks";
+import { SourcesPanel } from "./SourcesPanel";
+import { Login, type User } from "./Login";
+import { PlatformSidebar } from "./PlatformSidebar";
 import "./styles.css";
 
-type Page = "dashboard" | "projects" | "settings";
-type SettingsSection = "account" | "diagnostics";
-type PlatformRoute = { page: Page; settingsSection: SettingsSection };
-type User = { email: string; role: string };
 type AccountPreferences = {
   source_retention_ttl_seconds: number;
   allowed_source_retention_ttl_seconds: number[];
-};
-type SourceUploadPolicy = {
-  local_upload_enabled: boolean;
-  max_upload_bytes: number;
-  supported_mime_prefixes: string[];
-  supported_mime_types: string[];
 };
 type Credential = {
   id: string;
@@ -96,22 +115,6 @@ type Project = {
   created_at: string;
   updated_at: string;
   archived_at: string | null;
-};
-type Source = {
-  id: string;
-  project_id: string;
-  source_type: "local_upload" | "google_drive";
-  original_filename: string;
-  mime_type: string | null;
-  size_bytes: number | null;
-  drive_file_url: string | null;
-  upload_status: "pending" | "uploaded" | "deleted" | "expired" | "failed";
-  uploaded_at: string | null;
-  expires_at: string | null;
-  deleted_at: string | null;
-  delete_reason: string | null;
-  created_at: string;
-  updated_at: string;
 };
 type JobСтатус = "queued" | "processing" | "cancelled" | "failed" | "completed";
 type JobSourceСтатус = "queued" | "skipped";
@@ -219,28 +222,6 @@ type SessionBootstrapState = {
   csrf: string;
   error: string;
 };
-type GoogleOauthResult =
-  | "connected"
-  | "cancelled"
-  | "invalid_callback"
-  | "invalid_state"
-  | "exchange_failed"
-  | "offline_access_missing";
-const googleOauthMessages: Record<GoogleOauthResult, string> = {
-  connected: "Google Drive подключён. Статус подключения обновлён.",
-  cancelled: "Подключение Google Drive отменено.",
-  invalid_callback:
-    "Не удалось завершить подключение Google Drive. Запустите подключение ещё раз.",
-  invalid_state:
-    "Не удалось завершить подключение Google Drive. Запустите подключение ещё раз.",
-  exchange_failed:
-    "Google Drive не подключён. Повторите авторизацию и подтвердите запрошенный доступ.",
-  offline_access_missing:
-    "Google Drive не подключён. Повторите авторизацию и подтвердите запрошенный доступ.",
-};
-const googleOauthResults = new Set<GoogleOauthResult>(
-  Object.keys(googleOauthMessages) as GoogleOauthResult[],
-);
 const emptySourceState = {
   loading: false,
   error: "",
@@ -253,90 +234,6 @@ const emptyJobState: JobState = {
   loaded: false,
   items: [],
 };
-function formatBytes(value: number | null) {
-  if (value == null) return "не указан";
-  return `${(value / 1024 / 1024).toFixed(2)} MB`;
-}
-function formatTime(value: string | null) {
-  return value ? new Date(value).toLocaleString("ru-RU") : "—";
-}
-function retentionOptionLabel(seconds: number) {
-  const labels: Record<number, string> = {
-    3600: "1 час",
-    86400: "24 часа",
-    259200: "3 дня",
-    604800: "7 дней",
-    2592000: "30 дней",
-  };
-  return labels[seconds] ?? `${seconds} сек.`;
-}
-function formatUploadLimit(value: number) {
-  const mebibytes = value / 1024 / 1024;
-  if (mebibytes >= 1)
-    return `${Number.isInteger(mebibytes) ? mebibytes : mebibytes.toFixed(1)} МБ`;
-  const kibibytes = value / 1024;
-  if (kibibytes >= 1)
-    return `${Number.isInteger(kibibytes) ? kibibytes : kibibytes.toFixed(1)} КБ`;
-  return `${value} байт`;
-}
-function isUsableJobSource(source: Source) {
-  const expiresAt = source.expires_at ? new Date(source.expires_at).getTime() : null;
-  return (
-    source.upload_status === "uploaded" &&
-    !source.deleted_at &&
-    (expiresAt == null || expiresAt > Date.now()) &&
-    (source.source_type === "google_drive" ||
-      source.source_type === "local_upload")
-  );
-}
-function unusableJobSourceReason(source: Source) {
-  if (source.deleted_at)
-    return "Убранный из проекта файл нельзя добавить в задачу";
-  if (source.expires_at && new Date(source.expires_at).getTime() <= Date.now())
-    return "Срок хранения временной копии истёк";
-  if (source.upload_status !== "uploaded")
-    return "Файл ещё не готов для задачи";
-  return "Тип файла не поддерживается для задачи";
-}
-function isSafeDisplayUrl(value: string | null) {
-  return Boolean(
-    value &&
-    /^https?:\/\//i.test(value) &&
-    !/\s|token|secret|cipher|presigned|s3:|r2:|key/i.test(value),
-  );
-}
-
-function safeConfirm(message: string) {
-  try {
-    return window.confirm(message) !== false;
-  } catch {
-    return false;
-  }
-}
-
-function ResourceExternalLink({
-  href,
-  label,
-  ariaLabel,
-}: {
-  href: string;
-  label: string;
-  ariaLabel: string;
-}) {
-  return (
-    <a
-      className="button-like secondary resource-link"
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      aria-label={ariaLabel}
-    >
-      <span>{label}</span>
-      <span aria-hidden="true">↗</span>
-    </a>
-  );
-}
-
 function jobTitle(job: TranscriptionJob) {
   return job.title?.trim() || `Транскрибация от ${formatTime(job.created_at)}`;
 }
@@ -362,17 +259,6 @@ function outputSourceLabel(output: JobOutput) {
   return `${position}. ${output.source_name || "Файл без имени"}`;
 }
 
-function sourceСтатусLabel(status: Source["upload_status"]) {
-  const labels: Record<Source["upload_status"], string> = {
-    pending: "Загружается",
-    uploaded: "Готов",
-    deleted: "Убран из проекта",
-    expired: "Срок истёк",
-    failed: "Ошибка",
-  };
-  return labels[status];
-}
-
 function jobСтатусLabel(status: JobСтатус) {
   const labels: Record<JobСтатус, string> = {
     queued: "В очереди",
@@ -387,63 +273,6 @@ function credentialProfileLabel(c: Credential) {
   return c.active_version ? `${c.label} · v${c.active_version}` : c.label;
 }
 const ELEVENLABS_CREDENTIAL_SESSION_KEY = "studio.elevenlabsCredentialId";
-function normalizeSourceUploadPolicy(value: unknown): SourceUploadPolicy | null {
-  if (!value || typeof value !== "object") return null;
-  const candidate = value as Partial<SourceUploadPolicy>;
-  if (
-    typeof candidate.local_upload_enabled !== "boolean" ||
-    !Number.isSafeInteger(candidate.max_upload_bytes) ||
-    Number(candidate.max_upload_bytes) <= 0 ||
-    !Array.isArray(candidate.supported_mime_prefixes) ||
-    !Array.isArray(candidate.supported_mime_types)
-  )
-    return null;
-  const prefixes = candidate.supported_mime_prefixes
-    .filter((item): item is string => typeof item === "string")
-    .map((item) => item.trim().toLowerCase())
-    .filter(Boolean);
-  const types = candidate.supported_mime_types
-    .filter((item): item is string => typeof item === "string")
-    .map((item) => item.trim().toLowerCase())
-    .filter(Boolean);
-  if (
-    prefixes.length !== candidate.supported_mime_prefixes.length ||
-    types.length !== candidate.supported_mime_types.length ||
-    prefixes.length + types.length === 0
-  )
-    return null;
-  return {
-    local_upload_enabled: candidate.local_upload_enabled,
-    max_upload_bytes: Number(candidate.max_upload_bytes),
-    supported_mime_prefixes: [...new Set(prefixes)],
-    supported_mime_types: [...new Set(types)],
-  };
-}
-function isSupportedSourceMimeType(
-  mimeType: string,
-  policy: SourceUploadPolicy,
-) {
-  const normalized = mimeType.trim().toLowerCase();
-  return (
-    policy.supported_mime_prefixes.some((prefix) =>
-      normalized.startsWith(prefix),
-    ) || policy.supported_mime_types.includes(normalized)
-  );
-}
-function sourceUploadAccept(policy: SourceUploadPolicy) {
-  return [
-    ...policy.supported_mime_prefixes.map((prefix) => `${prefix}*`),
-    ...policy.supported_mime_types,
-  ].join(",");
-}
-function isSupportedMediaFile(file: File, policy: SourceUploadPolicy) {
-  return isSupportedSourceMimeType(file.type, policy);
-}
-const platformNav: { id: Page; label: string; icon: typeof Home }[] = [
-  { id: "dashboard", label: "Обзор", icon: Home },
-  { id: "projects", label: "Проекты", icon: Briefcase },
-  { id: "settings", label: "Настройки", icon: Settings },
-];
 async function bootstrapSession(): Promise<{
   user: User;
   csrf: string;
@@ -457,120 +286,6 @@ async function bootstrapSession(): Promise<{
   });
   return { user: session.user, csrf: csrf.csrf_token };
 }
-function parsePlatformRoute(
-  pathname = window.location.pathname,
-): PlatformRoute {
-  switch (pathname) {
-    case "/projects":
-      return { page: "projects", settingsSection: "account" };
-    case "/settings":
-      return { page: "settings", settingsSection: "account" };
-    case "/settings/diagnostics":
-      return { page: "settings", settingsSection: "diagnostics" };
-    case "/":
-    default:
-      return { page: "dashboard", settingsSection: "account" };
-  }
-}
-function platformPathFor(
-  page: Page,
-  settingsSection: SettingsSection = "account",
-) {
-  if (page === "projects") return "/projects";
-  if (page === "settings") {
-    return settingsSection === "diagnostics"
-      ? "/settings/diagnostics"
-      : "/settings";
-  }
-  return "/";
-}
-function pushPlatformRoute(
-  page: Page,
-  settingsSection: SettingsSection = "account",
-) {
-  const path = platformPathFor(page, settingsSection);
-  if (window.location.pathname !== path) {
-    window.history.pushState(window.history.state, "", path);
-  }
-}
-function consumeGoogleOauthResult(): GoogleOauthResult | null {
-  const current = `${window.location.pathname ?? "/"}${window.location.search ?? ""}${window.location.hash ?? ""}`;
-  const url = new URL(current, window.location.origin || "http://localhost");
-  const raw = url.searchParams.get("google_oauth");
-  if (raw === null) return null;
-  url.searchParams.delete("google_oauth");
-  const cleaned = `${url.pathname}${url.search}${url.hash}`;
-  window.history.replaceState(window.history.state, "", cleaned);
-  return googleOauthResults.has(raw as GoogleOauthResult)
-    ? (raw as GoogleOauthResult)
-    : null;
-}
-function Login({ onLogin }: { onLogin: (u: User, csrf: string) => void }) {
-  const [bootstrap, setBootstrap] = useState(false);
-  const [error, setError] = useState("");
-  useEffect(() => {
-    api<{ bootstrap_required: boolean }>("/auth/bootstrap-status")
-      .then((r) => setBootstrap(r.bootstrap_required))
-      .catch(() => setError("API временно недоступен."));
-  }, []);
-  async function submit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setError("");
-    const fd = new FormData(e.currentTarget);
-    try {
-      const ctx = await api<{ login_csrf_token: string }>(
-        "/auth/login-context",
-        { method: "POST" },
-      );
-      const r = await api<{ user: User; csrf_token: string }>("/auth/login", {
-        method: "POST",
-        body: JSON.stringify({
-          email: fd.get("email"),
-          password: fd.get("password"),
-          login_csrf_token: ctx.login_csrf_token,
-        }),
-      });
-      onLogin(r.user, r.csrf_token);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось войти.");
-    }
-  }
-  if (bootstrap)
-    return (
-      <main className="auth">
-        <section className="card">
-          <h1>Требуется первичная настройка</h1>
-          <p className="notice">
-            Публичной формы администратора нет. Обратитесь к оператору, чтобы
-            выполнить bootstrap-admin команду на сервере.
-          </p>
-        </section>
-      </main>
-    );
-  return (
-    <main className="auth">
-      <form className="card login" onSubmit={submit}>
-        <p className="eyebrow">Studio account</p>
-        <h1>Вход</h1>
-        <label>
-          Email
-          <input name="email" type="email" autoComplete="username" required />
-        </label>
-        <label>
-          Пароль
-          <input
-            name="password"
-            type="password"
-            autoComplete="current-password"
-            required
-          />
-        </label>
-        <button className="primary">Войти</button>
-        {error && <p className="error">{error}</p>}
-      </form>
-    </main>
-  );
-}
 async function csrfMutate<T>(
   path: string,
   csrf: string,
@@ -580,126 +295,6 @@ async function csrfMutate<T>(
   return mutateWithCsrfRetry<T>(path, csrf, onCsrf, options);
 }
 export const __appDiagnosticsTest = { api, csrfMutate };
-function SourcesPanel({
-  project,
-  csrf,
-  onCsrf,
-  sources,
-  onReload,
-  onSourceRemoved,
-  onError,
-}: {
-  project: Project;
-  csrf: string;
-  onCsrf: (csrf: string) => void;
-  sources: {
-    loading: boolean;
-    error: string;
-    loaded: boolean;
-    items: Source[];
-  };
-  onReload: (projectId: string) => void;
-  onSourceRemoved?: (sourceId: string) => void;
-  onError: (message: string) => void;
-}) {
-  async function deleteSource(id: string) {
-    const source = sources.items.find((item) => item.id === id);
-    const message =
-      source?.source_type === "google_drive"
-        ? "Источник будет убран только из Studio. Файл останется на Google Drive."
-        : "Источник будет убран из Studio. Временная копия будет удалена из хранилища после безопасной проверки связанных задач.";
-    if (!safeConfirm(message)) return;
-    try {
-      await csrfMutate<{ ok: boolean }>(`/sources/${id}`, csrf, onCsrf, {
-        method: "DELETE",
-      });
-      onSourceRemoved?.(id);
-      onReload(project.id);
-    } catch (error) {
-      const detail =
-        error instanceof ApiError &&
-        error.data &&
-        typeof error.data === "object" &&
-        "detail" in error.data
-          ? (error.data as { detail?: unknown }).detail
-          : null;
-      const reason =
-        detail && typeof detail === "object" && "reason" in detail
-          ? (detail as { reason?: string }).reason
-          : null;
-      const messages: Record<string, string> = {
-        queued_job_uses_source: "Сначала отмените ожидающие задачи, использующие этот файл.",
-        processing_job_uses_source: "Дождитесь завершения или отмены текущей обработки.",
-        retryable_failed_job_uses_source: "Источник нужен для доступного безопасного повтора задачи.",
-      };
-      onError(reason && messages[reason] ? messages[reason] : "Не удалось убрать файл из проекта.");
-    }
-  }
-  return (
-    <section className="sources" aria-label={`Источники ${project.title}`}>
-      <h4>Источники</h4>
-      {sources.loading && <p role="status">Загрузка файлов…</p>}
-      {sources.error && <p className="error">{sources.error}</p>}
-      {sources.loaded && !sources.loading && sources.items.length === 0 && (
-        <p className="notice">Источники пока не добавлены.</p>
-      )}
-      {sources.items.map((source) => (
-        <article className="source-card" key={source.id}>
-          <b>{source.original_filename}</b>
-          <span>
-            {source.source_type === "google_drive"
-              ? "Google Drive"
-              : "С устройства"}
-          </span>
-          <span>Статус: {sourceСтатусLabel(source.upload_status)}</span>
-          {!isUsableJobSource(source) && (
-            <span>{unusableJobSourceReason(source)}</span>
-          )}
-          <span>Размер: {formatBytes(source.size_bytes)}</span>
-          {source.source_type === "local_upload" && source.expires_at && (
-            <span>Хранится до: {formatTime(source.expires_at)}</span>
-          )}
-          <div className="resource-actions">
-            {isSafeDisplayUrl(source.drive_file_url) && (
-              <ResourceExternalLink
-                href={source.drive_file_url ?? ""}
-                label="Открыть файл в Google Drive"
-                ariaLabel="Открыть файл в Google Drive в новой вкладке"
-              />
-            )}
-            <div className="source-removal-note">
-              {source.source_type === "google_drive"
-                ? "Файл останется на Google Drive."
-                : "Временная копия будет удалена из хранилища Studio."}
-            </div>
-            <button
-              type="button"
-              onClick={() => deleteSource(source.id)}
-              aria-label={`Убрать из проекта: ${source.original_filename}`}
-            >
-              Убрать из проекта
-            </button>
-          </div>
-          <details>
-            <summary>Технические сведения</summary>
-            <span>MIME: {source.mime_type || "не указан"}</span>
-            <span>Загружен: {formatTime(source.uploaded_at)}</span>
-            <span>Истекает: {formatTime(source.expires_at)}</span>
-            <span>Удалён: {formatTime(source.deleted_at)}</span>
-            {source.delete_reason && (
-              <span>Причина: {source.delete_reason}</span>
-            )}
-          </details>
-        </article>
-      ))}
-      <p className="notice">
-        Добавление файлов выполняется в строках подготовки выше. Этот раздел —
-        только для просмотра безопасных метаданных и удаления файлов из проекта.
-      </p>
-    </section>
-  );
-}
-
 function newComposerRow(): ComposerRow {
   return {
     id: crypto.randomUUID(),
@@ -3934,30 +3529,16 @@ function PlatformShell() {
   };
   return (
     <div className="shell">
-      <aside className="app-sidebar">
-        <div className="brand">
-          Studio PWA<span>Транскрибация</span>
-        </div>
-        <nav className="app-nav" aria-label="Основная навигация">
-          {platformNav.map(({ id, label, icon: Icon }) => (
-            <button
-              className={page === id ? "active" : ""}
-              aria-current={page === id ? "page" : undefined}
-              onClick={() => {
-                navigate(id);
-                if (id === "projects") {
-                  setRequestedProjectId(null);
-                  setRequestedCreateProject(false);
-                }
-              }}
-              key={id}
-            >
-              <Icon size={18} />
-              {label}
-            </button>
-          ))}
-        </nav>
-      </aside>
+      <PlatformSidebar
+        page={page}
+        onNavigate={(nextPage) => {
+          navigate(nextPage);
+          if (nextPage === "projects") {
+            setRequestedProjectId(null);
+            setRequestedCreateProject(false);
+          }
+        }}
+      />
       <main>
         {page === "dashboard" && (
           <OverviewPage
