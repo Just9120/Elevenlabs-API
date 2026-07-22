@@ -57,11 +57,11 @@ def test_retry_recovery_model_metadata_contract(studio_model_modules):
     assert indexes["ix_source_attempts_job_retry_disposition"] == ("job_id", "retry_disposition")
 
 
-def test_alembic_single_head_is_retry_recovery():
+def test_alembic_single_head_is_user_source_retention():
     cfg = Config("apps/studio-api/alembic.ini")
     script = ScriptDirectory.from_config(cfg)
-    assert script.get_heads() == ["0014_source_deletion_retention"]
-    assert script.get_current_head() == "0014_source_deletion_retention"
+    assert script.get_heads() == ["0015_user_source_retention"]
+    assert script.get_current_head() == "0015_user_source_retention"
 
 from datetime import datetime, timedelta
 from sqlalchemy import create_engine

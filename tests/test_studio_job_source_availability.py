@@ -758,3 +758,29 @@ def test_malformed_drive_metadata_maps_to_unavailable(sqlite_session, models, mo
     assert "drive_metadata_unavailable" in summary.blocking_reasons
     assert "drive_file_identity_mismatch" not in summary.blocking_reasons
     assert_safe_summary(summary)
+
+
+def test_source_retention_preference_allowlist_and_model_constraint():
+    from studio_api.models import User
+    from studio_api.source_policy import (
+        DEFAULT_SOURCE_RETENTION_TTL_SECONDS,
+        SOURCE_RETENTION_TTL_OPTIONS_SECONDS,
+    )
+
+    assert DEFAULT_SOURCE_RETENTION_TTL_SECONDS == 86400
+    assert SOURCE_RETENTION_TTL_OPTIONS_SECONDS == (
+        3600,
+        86400,
+        259200,
+        604800,
+        2592000,
+    )
+    assert User.__table__.c.source_retention_ttl_seconds.nullable is False
+    retention_constraint = next(
+        constraint
+        for constraint in User.__table__.constraints
+        if constraint.name == "ck_users_source_retention_ttl_allowed"
+    )
+    assert str(retention_constraint.sqltext) == (
+        "source_retention_ttl_seconds IN (3600, 86400, 259200, 604800, 2592000)"
+    )

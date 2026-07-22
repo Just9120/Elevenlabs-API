@@ -30,6 +30,10 @@ type Page = "dashboard" | "projects" | "settings";
 type SettingsSection = "account" | "diagnostics";
 type PlatformRoute = { page: Page; settingsSection: SettingsSection };
 type User = { email: string; role: string };
+type AccountPreferences = {
+  source_retention_ttl_seconds: number;
+  allowed_source_retention_ttl_seconds: number[];
+};
 type Credential = {
   id: string;
   provider: "elevenlabs" | "openai";
@@ -250,6 +254,16 @@ function formatBytes(value: number | null) {
 }
 function formatTime(value: string | null) {
   return value ? new Date(value).toLocaleString("ru-RU") : "—";
+}
+function retentionOptionLabel(seconds: number) {
+  const labels: Record<number, string> = {
+    3600: "1 час",
+    86400: "24 часа",
+    259200: "3 дня",
+    604800: "7 дней",
+    2592000: "30 дней",
+  };
+  return labels[seconds] ?? `${seconds} сек.`;
 }
 function isUsableJobSource(source: Source) {
   const expiresAt = source.expires_at ? new Date(source.expires_at).getTime() : null;
@@ -2643,6 +2657,7 @@ function auditLabel(type: string) {
     "auth.login_failed": "Неудачная попытка входа",
     "auth.logout": "Выход выполнен",
     "auth.sessions_revoked": "Другие сеансы завершены",
+    "account.preferences_updated": "Настройки хранения обновлены",
     "project.created": "Проект создан",
     "project.updated": "Проект обновлён",
     "project.archived": "Проект архивирован",
@@ -2685,6 +2700,14 @@ function SettingsPage({
   const [googleLoading, setGoogleLoading] = useState(true);
   const [googleMessage, setGoogleMessage] = useState("");
   const [googleStarting, setGoogleStarting] = useState(false);
+  const [accountPreferences, setAccountPreferences] =
+    useState<AccountPreferences | null>(null);
+  const [retentionSelection, setRetentionSelection] = useState("86400");
+  const [retentionState, setRetentionState] = useState<
+    "loading" | "ready" | "error"
+  >("loading");
+  const [retentionSaving, setRetentionSaving] = useState(false);
+  const [retentionMessage, setRetentionMessage] = useState("");
   const [error, setError] = useState("");
   const [createCredentialOpen, setCreateCredentialOpen] = useState(false);
   const [replacingCredentialId, setReplacingCredentialId] = useState<
@@ -2701,12 +2724,37 @@ function SettingsPage({
       })
       .finally(() => setGoogleLoading(false));
   };
+  const loadAccountPreferences = () => {
+    setRetentionState("loading");
+    setRetentionMessage("");
+    api<AccountPreferences>("/account/preferences")
+      .then((preferences) => {
+        if (
+          !Array.isArray(preferences.allowed_source_retention_ttl_seconds) ||
+          !preferences.allowed_source_retention_ttl_seconds.includes(
+            preferences.source_retention_ttl_seconds,
+          )
+        ) {
+          throw new Error("invalid account preferences");
+        }
+        setAccountPreferences(preferences);
+        setRetentionSelection(
+          String(preferences.source_retention_ttl_seconds),
+        );
+        setRetentionState("ready");
+      })
+      .catch(() => {
+        setAccountPreferences(null);
+        setRetentionState("error");
+      });
+  };
   const load = () => {
     api<{ credentials: Credential[] }>("/credentials").then((r) =>
       setCredentials(r.credentials),
     );
     api<{ events: Audit[] }>("/audit-events").then((r) => setEvents(r.events));
     loadGoogleConnection();
+    loadAccountPreferences();
   };
   useEffect(load, []);
   const safeMutate = <T,>(path: string, options: RequestInit) =>
@@ -2751,6 +2799,38 @@ function SettingsPage({
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ошибка");
+    }
+  }
+  async function saveRetentionPreference(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const selected = Number(retentionSelection);
+    if (
+      !accountPreferences?.allowed_source_retention_ttl_seconds.includes(
+        selected,
+      )
+    ) {
+      setRetentionMessage("Выберите доступный срок хранения.");
+      return;
+    }
+    setRetentionSaving(true);
+    setRetentionMessage("");
+    try {
+      const preferences = await safeMutate<AccountPreferences>(
+        "/account/preferences",
+        {
+          method: "PATCH",
+          body: JSON.stringify({ source_retention_ttl_seconds: selected }),
+        },
+      );
+      setAccountPreferences(preferences);
+      setRetentionSelection(
+        String(preferences.source_retention_ttl_seconds),
+      );
+      setRetentionMessage("Срок хранения сохранён.");
+    } catch {
+      setRetentionMessage("Не удалось сохранить срок хранения.");
+    } finally {
+      setRetentionSaving(false);
     }
   }
   const action = async (path: string, method = "POST") => {
@@ -2841,6 +2921,59 @@ function SettingsPage({
             <button className="secondary" onClick={onLogout}>
               Выйти
             </button>
+          </section>
+          <h3>Хранение локальных файлов</h3>
+          <section className="card retention-preferences">
+            <p>
+              Выбранный срок применяется к новым файлам после завершения
+              загрузки. Уже загруженные файлы сохраняют текущую дату удаления.
+            </p>
+            {retentionState === "loading" && (
+              <p role="status">Загружаем настройку хранения…</p>
+            )}
+            {retentionState === "error" && (
+              <div className="error">
+                <p>Не удалось загрузить настройку хранения.</p>
+                <button type="button" onClick={loadAccountPreferences}>
+                  Повторить
+                </button>
+              </div>
+            )}
+            {retentionState === "ready" && accountPreferences && (
+              <form
+                className="retention-preferences-form"
+                aria-label="Настройка хранения локальных файлов"
+                onSubmit={saveRetentionPreference}
+              >
+                <label>
+                  Срок хранения
+                  <select
+                    aria-label="Срок хранения локальных файлов"
+                    value={retentionSelection}
+                    onChange={(event) => {
+                      setRetentionSelection(event.target.value);
+                      setRetentionMessage("");
+                    }}
+                  >
+                    {accountPreferences.allowed_source_retention_ttl_seconds.map(
+                      (seconds) => (
+                        <option key={seconds} value={seconds}>
+                          {retentionOptionLabel(seconds)}
+                        </option>
+                      ),
+                    )}
+                  </select>
+                </label>
+                <button className="primary" disabled={retentionSaving}>
+                  {retentionSaving ? "Сохраняем…" : "Сохранить срок"}
+                </button>
+              </form>
+            )}
+            {retentionMessage && (
+              <p role="status" className="notice">
+                {retentionMessage}
+              </p>
+            )}
           </section>
           <h3>Ключи провайдеров</h3>
           <p className="notice">

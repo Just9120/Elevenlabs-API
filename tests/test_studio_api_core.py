@@ -156,6 +156,42 @@ def test_same_origin_and_authenticated_csrf_required():
     assert c.post("/api/auth/logout", headers={"origin": "https://studio.test", "x-csrf-token": "bad"}).status_code == 403
 
 
+def test_account_source_retention_preferences_are_server_authoritative():
+    email = "retention-preferences@example.com"
+    pw = admin(email)
+    anonymous = TestClient(app)
+    assert anonymous.get("/api/account/preferences").status_code == 401
+
+    c = TestClient(app)
+    csrf = login(c, pw, email)
+    headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+    expected_options = [3600, 86400, 259200, 604800, 2592000]
+    current = c.get("/api/account/preferences")
+    assert current.status_code == 200
+    assert current.json() == {
+        "source_retention_ttl_seconds": 86400,
+        "allowed_source_retention_ttl_seconds": expected_options,
+    }
+    assert c.patch("/api/account/preferences", json={"source_retention_ttl_seconds": 604800}).status_code == 403
+    assert c.patch("/api/account/preferences", json={"source_retention_ttl_seconds": 7200}, headers=headers).status_code == 422
+    assert c.patch("/api/account/preferences", json={"source_retention_ttl_seconds": 604800, "unknown": True}, headers=headers).status_code == 422
+
+    updated = c.patch("/api/account/preferences", json={"source_retention_ttl_seconds": 604800}, headers=headers)
+    assert updated.status_code == 200
+    assert updated.json() == {
+        "source_retention_ttl_seconds": 604800,
+        "allowed_source_retention_ttl_seconds": expected_options,
+    }
+    assert c.patch("/api/account/preferences", json={"source_retention_ttl_seconds": 604800}, headers=headers).status_code == 200
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter_by(email=email).one()
+        assert user.source_retention_ttl_seconds == 604800
+        assert db.query(AuditEvent).filter_by(event_type="account.preferences_updated", actor_user_id=user.id).count() == 1
+    finally:
+        db.close()
+
+
 def test_credential_lifecycle_no_raw_secret_echo_and_audit_safe():
     pw = admin(); raw = "sk-test-secret-value-123456"
     with TestClient(app) as c:
@@ -278,7 +314,6 @@ def enable_fake_storage(monkeypatch):
     main_mod.settings.source_s3_secret_access_key_file = "/tmp/no-secret-key"
     main_mod.settings.source_max_upload_bytes = 1000
     main_mod.settings.source_upload_ttl_seconds = 3600
-    main_mod.settings.source_retention_ttl_seconds = 86400
     main_mod.settings.source_presign_ttl_seconds = 900
     monkeypatch.setattr(main_mod, "get_source_storage", lambda settings: fake)
     return fake
@@ -803,6 +838,12 @@ def test_complete_local_upload_revalidates_after_head_race(monkeypatch, mutation
 def test_complete_local_upload_revalidates_successful_unchanged_source(monkeypatch):
     enable_fake_storage(monkeypatch)
     c, headers, pid = create_logged_in_project("complete-race-success@example.com")
+    preference = c.patch(
+        "/api/account/preferences",
+        json={"source_retention_ttl_seconds": 604800},
+        headers=headers,
+    )
+    assert preference.status_code == 200
     r = c.post(f"/api/projects/{pid}/sources/local-upload/initiate", json={"original_filename":"success.mp3","mime_type":"audio/mpeg","size_bytes":10}, headers=headers)
     pending_expires_at = datetime.fromisoformat(r.json()["expires_at"])
     sid = r.json()["source_id"]
@@ -812,7 +853,7 @@ def test_complete_local_upload_revalidates_successful_unchanged_source(monkeypat
     assert body["upload_status"] == "uploaded"
     uploaded_at = datetime.fromisoformat(body["uploaded_at"])
     retained_until = datetime.fromisoformat(body["expires_at"])
-    assert retained_until - uploaded_at == timedelta(seconds=86400)
+    assert retained_until - uploaded_at == timedelta(seconds=604800)
     assert retained_until > pending_expires_at
     assert "s3_bucket" not in body and "s3_object_key" not in body
 
@@ -1344,7 +1385,7 @@ def test_job_lease_migration_real_0005_shape_upgrades_to_head():
             assert {"lease_owner_id", "lease_generation", "claimed_at", "lease_expires_at", "attempt_count", "cancel_requested_at"}.issubset(cols)
             indexes = [idx["name"] for idx in inspector.get_indexes("transcription_jobs")]
             assert indexes.count("ix_transcription_jobs_status_lease_expires_created") == 1
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0014_source_deletion_retention"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0015_user_source_retention"
 
 
 
@@ -1379,7 +1420,7 @@ def test_job_output_migration_clean_chain_constraints_and_0007_roundtrip():
         run_alembic("head", env=env)
         with temp_engine.begin() as conn:
             assert "transcription_job_outputs" in inspect(conn).get_table_names()
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0014_source_deletion_retention"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0015_user_source_retention"
 
 
 
@@ -2936,6 +2977,52 @@ def _assert_source_deletion_0014_absent(inspector, conn):
     assert conn.execute(text("SELECT count(*) FROM pg_type WHERE typname = 'sourcestoragecleanupstatus'")).scalar_one() == 0
 
 
+def _assert_user_source_retention_0015_absent(inspector):
+    assert "source_retention_ttl_seconds" not in {c["name"] for c in inspector.get_columns("users")}
+    assert "ck_users_source_retention_ttl_allowed" not in {c["name"] for c in inspector.get_check_constraints("users")}
+
+
+def test_user_source_retention_0015_upgrade_downgrade_roundtrip_and_metadata_table():
+    from studio_api.db import Base
+
+    with isolated_migration_database("studio_migration_0015") as (temp_engine, env):
+        run_alembic("0014_source_deletion_retention", env=env)
+        with temp_engine.begin() as conn:
+            conn.execute(text("ALTER TABLE users DROP CONSTRAINT IF EXISTS ck_users_source_retention_ttl_allowed"))
+            conn.execute(text("ALTER TABLE users DROP COLUMN IF EXISTS source_retention_ttl_seconds"))
+            conn.execute(text("UPDATE alembic_version SET version_num='0014_source_deletion_retention'"))
+            _assert_user_source_retention_0015_absent(inspect(conn))
+            conn.execute(text("INSERT INTO users (id, email, role, status, created_at, updated_at) VALUES ('user-0015', 'migration-0015@example.com', 'user', 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"))
+
+        run_alembic("0015_user_source_retention", env=env)
+        with temp_engine.begin() as conn:
+            inspector = inspect(conn)
+            columns = {c["name"]: c for c in inspector.get_columns("users")}
+            assert columns["source_retention_ttl_seconds"]["nullable"] is False
+            assert "ck_users_source_retention_ttl_allowed" in {c["name"] for c in inspector.get_check_constraints("users")}
+            assert conn.execute(text("SELECT source_retention_ttl_seconds FROM users WHERE id='user-0015'")).scalar_one() == 86400
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0015_user_source_retention"
+        for allowed in (3600, 86400, 259200, 604800, 2592000):
+            with temp_engine.begin() as conn:
+                conn.execute(text("UPDATE users SET source_retention_ttl_seconds=:allowed WHERE id='user-0015'"), {"allowed": allowed})
+        with pytest.raises(Exception):
+            with temp_engine.begin() as conn:
+                conn.execute(text("UPDATE users SET source_retention_ttl_seconds=7200 WHERE id='user-0015'"))
+
+        run_alembic("0014_source_deletion_retention", env=env, command="downgrade")
+        with temp_engine.begin() as conn:
+            _assert_user_source_retention_0015_absent(inspect(conn))
+            assert conn.execute(text("SELECT count(*) FROM users WHERE id='user-0015'")).scalar_one() == 1
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0014_source_deletion_retention"
+
+    with isolated_migration_database("studio_migration_0015_metadata") as (temp_engine, env):
+        Base.metadata.create_all(temp_engine)
+        run_alembic("0015_user_source_retention", env=env, command="stamp")
+        run_alembic("0014_source_deletion_retention", env=env, command="downgrade")
+        with temp_engine.begin() as conn:
+            _assert_user_source_retention_0015_absent(inspect(conn))
+
+
 def test_source_deletion_0014_upgrade_downgrade_roundtrip_and_metadata_table(tmp_path):
     from studio_api.db import Base
 
@@ -3139,7 +3226,7 @@ def test_job_destination_migration_0008_0009_upgrade_downgrade_backfill(tmp_path
         with temp_engine.begin() as conn:
             assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0009_job_output_destinations"
         cfg = Config(str(ALEMBIC))
-        assert ScriptDirectory.from_config(cfg).get_current_head() == "0014_source_deletion_retention"
+        assert ScriptDirectory.from_config(cfg).get_current_head() == "0015_user_source_retention"
     finally:
         temp_engine.dispose()
         cleanup_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")

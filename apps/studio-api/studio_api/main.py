@@ -16,7 +16,7 @@ from .models import *
 from .rate_limit import RateLimiter
 from .security import *
 from .source_storage import get_source_storage, normalize_source_display_filename
-from .source_policy import UploadedObjectMetadataIssue, is_supported_source_mime_type, normalize_source_mime_type, uploaded_object_metadata_issue, validate_source_size
+from .source_policy import SOURCE_RETENTION_TTL_OPTIONS_SECONDS, UploadedObjectMetadataIssue, is_supported_source_mime_type, normalize_source_mime_type, uploaded_object_metadata_issue, validate_source_size
 from .google_connection_access import GoogleConnectionAccessError, GoogleConnectionAccessReason, active_google_connection_for_user, google_token_aad, refresh_user_google_drive_access_token, require_drive_file_scope, require_picker_browser_scope_boundary
 from .google_scopes import has_drive_file_scope, has_picker_browser_scope_boundary
 from .job_lifecycle import safe_failure_metadata_value
@@ -115,6 +115,17 @@ class LocalUploadInitiateIn(BaseModel):
     original_filename: str=Field(min_length=1,max_length=255)
     mime_type: str=Field(min_length=1,max_length=255)
     size_bytes: int=Field(ge=1)
+
+class AccountPreferencesPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source_retention_ttl_seconds: int
+
+    @field_validator("source_retention_ttl_seconds")
+    @classmethod
+    def retention_must_be_supported(cls, value):
+        if value not in SOURCE_RETENTION_TTL_OPTIONS_SECONDS:
+            raise ValueError("Выберите поддерживаемый срок хранения")
+        return value
 
 class BatchJobItemIn(BaseModel):
     source_id: str=Field(min_length=1,max_length=36)
@@ -237,6 +248,28 @@ def refresh_csrf(pair=Depends(current_session), db: Session=Depends(get_db), _=D
 
 @app.get("/api/account")
 def account(pair=Depends(current_session)): return session(pair)
+
+def account_preferences_payload(user: User):
+    return {
+        "source_retention_ttl_seconds": user.source_retention_ttl_seconds,
+        "allowed_source_retention_ttl_seconds": list(SOURCE_RETENTION_TTL_OPTIONS_SECONDS),
+    }
+
+@app.get("/api/account/preferences")
+def account_preferences(pair=Depends(current_session)):
+    _,user=pair
+    return account_preferences_payload(user)
+
+@app.patch("/api/account/preferences")
+def update_account_preferences(data: AccountPreferencesPatch, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=pair
+    limiter.check("account:preferences:"+user.id, 30, 3600)
+    if user.source_retention_ttl_seconds != data.source_retention_ttl_seconds:
+        user.source_retention_ttl_seconds=data.source_retention_ttl_seconds
+        user.updated_at=utcnow()
+        audit(db,"account.preferences_updated",actor_user_id=user.id,subject_user_id=user.id)
+        db.commit()
+    return account_preferences_payload(user)
 
 @app.post("/api/auth/sessions/revoke-other")
 def revoke_other(pair=Depends(require_csrf), db: Session=Depends(get_db)):
@@ -666,7 +699,7 @@ def complete_local_upload(source_id: str, pair=Depends(require_csrf), db: Sessio
         raise HTTPException(404,"Не найдено")
     src.upload_status=SourceUploadStatus.uploaded
     src.uploaded_at=now
-    src.expires_at=now+timedelta(seconds=settings.source_retention_ttl_seconds)
+    src.expires_at=now+timedelta(seconds=user.source_retention_ttl_seconds)
     src.updated_at=now
     audit(db,"source.local_upload.completed",actor_user_id=user.id,subject_user_id=user.id)
     db.commit()

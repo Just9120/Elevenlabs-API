@@ -143,7 +143,7 @@ Source currently present in the repository includes:
 
 The processing E2E scenario is repository validation, not production evidence. It does not exercise a real browser, provider account, Google account, deployed worker, or public host, and it must not be used to claim exactly-once behavior outside its controlled fakes.
 
-The current Alembic migration head in the repository is `0014_source_deletion_retention` under `apps/studio-api/alembic/versions/`.
+The current Alembic migration head in the repository is `0015_user_source_retention` under `apps/studio-api/alembic/versions/`.
 
 ## Studio production status and remaining capabilities
 
@@ -235,7 +235,7 @@ The public Studio host must enforce one browser security-header policy across th
 Studio processing can be considered production-live only after all of the following have factual operator evidence:
 
 1. Repository source and CI are verified for the intended commit.
-2. Production database migration head matches repository head `0014_source_deletion_retention` where required.
+2. Production database migration head matches repository head `0015_user_source_retention` where required.
 3. Web/API deployment identity and health are verified.
 4. Exactly one intended worker instance is deployed from the intended image and shown idle before the smoke.
 5. One controlled operator-approved job uses one small supported source, one owner-scoped ElevenLabs BYOK credential, one valid Google connection, and one writable output folder.
@@ -252,7 +252,6 @@ Current delivery sequencing is in `docs/delivery-plan.md`. Product backlog items
 - `PWA-LEGACY-AUTHORITY-01` — remove or formally mark legacy deployment/runtime paths after review.
 - `PWA-E2E-FOUNDATION-01B` — extend the source-level API/worker processing foundation through the authenticated browser workflow without replacing the production canary requirement.
 - OpenAI processing parity, long-media parity, manifest behavior, and golden Colab/PWA parity validation.
-- `PWA-UPLOAD-RETENTION-PREFERENCES-02` — design server-authoritative project/user retention choices and settings UX without making browser-local state the lifecycle authority.
 
 Source-complete delivery items remain listed for traceability and still require applicable rollout evidence:
 
@@ -261,6 +260,7 @@ Source-complete delivery items remain listed for traceability and still require 
 - `PWA-LEASE-HEARTBEAT-01` — source-complete PostgreSQL-backed bounded heartbeat for long source/provider and Google output calls; rollout evidence remains separate.
 - `PWA-RETRY-RECOVERY-01` — safe stage-specific retry and recovery design.
 - `PWA-SOURCE-DELETION-01` — source deletion and retention behavior.
+- `PWA-UPLOAD-RETENTION-PREFERENCES-02` — server-authoritative per-user retention choices and PWA settings UX for future verified local uploads.
 
 ## Supporting documents
 
@@ -297,6 +297,6 @@ Studio source removal is logical, owner-scoped, and durable in PostgreSQL. Sourc
 
 Local-upload bytes use an asynchronous, idempotent cleanup lifecycle stored on `sources`. S3/R2 delete is allowed only after durable logical deletion or retention expiry state exists. A missing object is treated as successful physical cleanup; storage failures do not roll back logical deletion and are retried through durable cleanup state. Object storage identity is cleared only after successful cleanup finalization; browser payloads must not expose bucket/object keys, cleanup owners, cleanup generations, cleanup leases, cleanup attempt counts, cleanup errors, or internal job references.
 
-Pending local uploads expire one hour after initiation by default. Successful completion resets `expires_at` from that pending-upload deadline to a retained-source deadline, which defaults to 24 hours after verified completion. Operators may configure the pending window from 15 minutes through 24 hours and the retained-source window from one hour through 30 days; the presigned PUT capability remains independently bounded to at most 15 minutes. The PWA must surface the exact retained-source expiry for a completed local source. This retention policy does not apply to referenced Google Drive inputs or Google Docs outputs.
+Pending local uploads expire one hour after initiation by default. Successful completion resets `expires_at` from that pending-upload deadline according to the authenticated owner's durable account preference. The supported choices are one hour, 24 hours (default), three days, seven days, and 30 days after verified completion. The setting is persisted in PostgreSQL, is changed through the owner-scoped CSRF-protected account-preferences API/PWA settings surface, applies only to future verified completions, and is never controlled by browser-local storage. The presigned PUT capability remains independently bounded to at most 15 minutes. The PWA must surface the exact retained-source expiry for a completed local source. This retention policy does not apply to referenced Google Drive inputs or Google Docs outputs.
 
 Local sources expire when `expires_at <= now`. Expiry blocks new jobs, claims, explicit retries, expired-lease recovery, upload completion, and processing-time source access. Retention expiry may mark a local source `expired` with `delete_reason=retention_expired` without setting `deleted_at`, so unavailable metadata may remain visible. A referencing `processing` job defers physical cleanup until terminal/recovered state; cleanup never calls the provider, Google Drive, Google Docs, output reconciliation, or attempt-ledger mutation. Completed, cancelled, non-retryable failed, provider-uncertain/result-lost, and unresolved-reconciliation history does not block user source deletion; queued, processing, and actually retryable failed jobs do block deletion.

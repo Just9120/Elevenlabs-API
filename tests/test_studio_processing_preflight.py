@@ -45,7 +45,6 @@ STUDIO_SOURCE_S3_BUCKET=bucket
 STUDIO_SOURCE_S3_ACCESS_KEY_ID_FILE={secrets['s3id']}
 STUDIO_SOURCE_S3_SECRET_ACCESS_KEY_FILE={secrets['s3secret']}
 STUDIO_SOURCE_UPLOAD_TTL_SECONDS=3600
-STUDIO_SOURCE_RETENTION_TTL_SECONDS=86400
 STUDIO_SOURCE_PRESIGN_TTL_SECONDS=900
 STUDIO_SOURCE_MAX_UPLOAD_BYTES=10
 STUDIO_GOOGLE_OAUTH_CLIENT_ID=client-private@example.com
@@ -62,8 +61,6 @@ STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS=60
 """
     if state.pop("omit_heartbeat", ""):
         env_text = env_text.replace("STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS=60\n", "")
-    if state.pop("omit_source_retention", ""):
-        env_text = env_text.replace("STUDIO_SOURCE_RETENTION_TTL_SECONDS=86400\n", "")
     (repo / "deploy/studio/.env").write_text(state.pop("env_text", env_text), encoding="utf-8")
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -91,7 +88,7 @@ esac
         "studio-worker": state.get("worker", "missing"),
     }
     worker_count = int(state.get("worker_count", "0"))
-    current = state.get("current", "0014_source_deletion_retention")
+    current = state.get("current", "0015_user_source_retention")
     _write_exe(bin_dir / "docker", f"""#!/usr/bin/env bash
 set -euo pipefail
 printf 'docker %s\n' "$*" >> {str(log)!r}
@@ -230,8 +227,8 @@ def test_revision_safety_cases(tmp_path: Path) -> None:
     assert proc.returncode == 0
     case = tmp_path / "nohead"
     proc, calls, repo = run_preflight(case)
-    f = repo / "apps/studio-api/alembic/versions/0014_source_deletion_retention.py"
-    f.write_text(f.read_text().replace('revision = "0014_source_deletion_retention"', 'revision = "0013_wrong_head"'), encoding="utf-8")
+    f = repo / "apps/studio-api/alembic/versions/0015_user_source_retention.py"
+    f.write_text(f.read_text().replace('revision = "0015_user_source_retention"', 'revision = "0015_wrong_head"'), encoding="utf-8")
     proc = subprocess.run(["bash", str(SCRIPT), str(repo), "main", "Just9120/Elevenlabs-API", SHA], cwd=repo, env={**os.environ, "PATH": f"{case/'bin'}:{os.environ['PATH']}"}, text=True, capture_output=True, timeout=15)
     assert proc.returncode != 0
 
@@ -340,8 +337,6 @@ def test_semantic_runtime_validation_blocks_before_docker(tmp_path: Path) -> Non
         ("STUDIO_WORKER_POLL_INTERVAL_SECONDS", "61"),
         ("STUDIO_WORKER_LEASE_TTL_SECONDS", "299"),
         ("STUDIO_SOURCE_UPLOAD_TTL_SECONDS", "899"),
-        ("STUDIO_SOURCE_RETENTION_TTL_SECONDS", "3599"),
-        ("STUDIO_SOURCE_RETENTION_TTL_SECONDS", "2592001"),
         ("STUDIO_SOURCE_PRESIGN_TTL_SECONDS", "901"),
     ]
     for i, (key, value) in enumerate(cases):
@@ -505,7 +500,6 @@ STUDIO_SOURCE_S3_ENDPOINT_URL=https://private-r2.invalid
 STUDIO_SOURCE_S3_REGION=auto
 STUDIO_SOURCE_S3_BUCKET=bucket
 STUDIO_SOURCE_UPLOAD_TTL_SECONDS=3600
-STUDIO_SOURCE_RETENTION_TTL_SECONDS=86400
 STUDIO_SOURCE_PRESIGN_TTL_SECONDS=900
 STUDIO_SOURCE_MAX_UPLOAD_BYTES=10
 STUDIO_GOOGLE_OAUTH_CLIENT_ID=client
@@ -533,12 +527,6 @@ def test_worker_lease_heartbeat_too_large_blocks_preflight(tmp_path: Path) -> No
 
 def test_old_env_without_worker_lease_heartbeat_key_passes_preflight_runtime_validation(tmp_path: Path) -> None:
     proc, calls, _ = run_preflight(tmp_path, omit_heartbeat="1")
-    assert proc.returncode == 0, proc.stdout + proc.stderr
-    assert "runtime setting completeness | pass" in proc.stdout
-
-
-def test_old_env_without_source_retention_key_uses_safe_default(tmp_path: Path) -> None:
-    proc, _, _ = run_preflight(tmp_path, omit_source_retention="1")
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "runtime setting completeness | pass" in proc.stdout
 

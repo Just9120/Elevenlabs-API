@@ -154,7 +154,7 @@ This needs an explicit architectural decision. If direct-browser flows remain, t
 
 The audited local upload completion path validated maximum size and supported MIME type but did not require the stored object size to equal the size declared at initiation. The local remediation now requires complete object-storage head metadata plus exact normalized MIME and byte-size equality; rejected objects stay pending and remain eligible for the existing expiry-driven cleanup lifecycle. Service-backed API verification is still pending.
 
-The audit found that the same `source_upload_ttl_seconds` value expired a source one hour after initiation and was not extended on successful completion. The local remediation keeps the one-hour pending-upload default, resets verified sources to a separate operator-configurable 24-hour retention default, validates both runtime ranges, and surfaces the exact retained expiry in the PWA. Server-authoritative user/project retention choices remain a separate product backlog item; service-backed API and Linux preflight verification are pending.
+The audit found that the same `source_upload_ttl_seconds` value expired a source one hour after initiation and was not extended on successful completion. The local remediation keeps the one-hour pending-upload default, resets verified sources from an allowlisted PostgreSQL-backed user preference with a 24-hour default, exposes one-hour through 30-day choices in PWA settings, and surfaces the exact retained expiry. Existing sources keep their persisted deadline; migration and service-backed API/Linux preflight verification are pending.
 
 #### P1 — legacy API and UI authority is ambiguous
 

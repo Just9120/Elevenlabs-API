@@ -20,13 +20,14 @@
 - ✅ `REPO-HYGIENE-01` — Ignore repository-local Python and Studio test/cache artifacts — Complete in the local batch.
 - ✅ `TEST-PORTABLE-PROFILE-01` — Limit pytest discovery to repository tests and add an opt-in cross-platform profile that excludes service/shell modules before import while leaving the full CI suite unchanged — Complete in the local batch.
 - ✅ `PWA-FRONTEND-MODULARIZATION-01A` — Extract the tested API/CSRF/diagnostic transport from the monolithic application component — Complete in the local batch with no API or UI behavior change.
-- ✅ `PWA-UPLOAD-RETENTION-CONTRACT-01B` — Keep a one-hour pending-upload deadline, reset verified local sources to a configurable 24-hour retained-source deadline, and surface exact expiry in the PWA — Source-complete in the local batch; service-backed API and Linux preflight verification are pending.
+- ✅ `PWA-UPLOAD-RETENTION-CONTRACT-01B` — Keep a one-hour pending-upload deadline, reset verified local sources to a user-configurable 24-hour default retained-source deadline, and surface exact expiry in the PWA — Source-complete in the local batch; service-backed API and Linux preflight verification are pending.
+- ✅ `PWA-UPLOAD-RETENTION-PREFERENCES-02` — Persist allowlisted one-hour/24-hour/three-day/seven-day/30-day account choices in PostgreSQL and expose them in PWA settings; changes apply to future verified uploads — Source-complete in the local batch; migration and service-backed API verification are pending.
 - 👉 `PWA-UPLOAD-POLICY-DISCOVERY-01C` — Remove the frontend's hard-coded upload-size policy by exposing a safe server capability/policy DTO — Next focused item.
 - ⛔ `PWA-PROCESSING-ROLLOUT-01A` — Production processing rollout/canary — Operator item not run; production-live claims remain prohibited.
 
 ## Current repository state
 
-- Current repository Alembic head: `0014_source_deletion_retention`.
+- Current repository Alembic head: `0015_user_source_retention`.
 - PostgreSQL remains the durable authority for Studio processing, retry/recovery, source deletion, retention, and cleanup state.
 - Redis is not cleanup authority, scheduler, retry authority, or lease authority.
 - Repository CI and Studio PWA CI passed for `main` revision `6ee51994de90bbfe7852cf1bd7618397b00e52b3`.
@@ -39,7 +40,7 @@
 - The deprecated single-job route now requires project output-folder authority and resolves only an active, non-deleted ElevenLabs credential; the idempotent batch route remains canonical.
 - OAuth-start, Picker access-token, and direct-upload responses are now explicit browser-bound capabilities with no-store responses; Picker rejects broader scope sets/incremental grants and direct PUT uses a validated 60–900 second TTL without cookies, referrer, redirects, or service-worker runtime caching.
 - The host nginx source now enforces one CSP/HSTS/nosniff/referrer/permissions/framing policy across PWA and API; standard component CD does not apply host config, so production header state is still unproven.
-- Studio frontend build/test tooling now uses the minimum compatible patched Vite 6/Vitest 3 line plus refreshed ESLint tooling; `npm audit`, lint, 111 tests, TypeScript, and the production PWA build pass locally.
+- Studio frontend build/test tooling now uses the minimum compatible patched Vite 6/Vitest 3 line plus refreshed ESLint tooling; `npm audit`, lint, 112 tests, TypeScript, and the production PWA build pass locally.
 - Studio API now pins a patched FastAPI/Starlette pair and cryptography release, removes the unused multipart parser, and uses `httpx2` only for Starlette TestClient compatibility; the current pip audit has zero known vulnerabilities.
 - Studio API Docker and repository CI now install their input requirements under committed pip-tools constraints; Colab continues to install its independent runtime requirements.
 - A separate weekly/manual GitHub workflow audits the exact npm graph and an installed Linux/Python 3.11 graph; it is deliberately absent from pull-request and push triggers.
@@ -47,16 +48,15 @@
 - Project serializers no longer expose `owner_user_id`, and job serializers no longer expose `provider_credential_id`; the PWA did not consume either field, while credential selection and persisted worker authority remain unchanged server-side.
 - Unhandled API exceptions now produce a fixed safe 500 response, a sanitized server log record, and—only after owner authentication—one allowlisted aggregate diagnostic; raw exception/path/query/header/body data is excluded and diagnostic-write failure is non-recursive.
 - Local-upload completion now requires present object-storage size/MIME metadata, enforces policy on the verified values, and requires exact normalized equality with the initiation contract. Rejected objects remain pending and retain their expiry-driven cleanup path.
-- Local uploads now keep separate persisted lifecycle windows: unfinished uploads default to one hour from initiation, while exact verified completion resets expiry to 24 hours from completion. The retention TTL is operator-configurable with a backward-compatible runtime default, and the PWA shows the exact server expiry.
+- Local uploads now keep separate persisted lifecycle windows: unfinished uploads default to one hour from initiation, while exact verified completion resets expiry from the owner's PostgreSQL-backed account choice. PWA settings offer one hour, 24 hours (default), three days, seven days, and 30 days; existing uploaded sources retain their already persisted deadline, and the PWA shows the exact server expiry.
 - `SECURITY.md` is now a repository-wide reporting and routing entry point; it does not duplicate detailed Colab or Studio product contracts.
-- Production migration state for `0014_source_deletion_retention` is not proven by repository evidence.
+- Production migration state for `0015_user_source_retention` is not proven by repository evidence.
 - Latest production web/API deployment, worker rollout, and controlled canary are not proven complete.
 
 ## Near backlog
 
 - `PWA-E2E-FOUNDATION-01B` — authenticated browser E2E on top of the API/worker processing foundation.
 - `PWA-UPLOAD-POLICY-DISCOVERY-01C` — server-authoritative browser-safe upload limits instead of the duplicated 512 MB frontend constant.
-- `PWA-UPLOAD-RETENTION-PREFERENCES-02` — server-authoritative project/user retention choices and settings UX; browser-local preferences must not control cleanup authority.
 - OpenAI processing parity, long-media parity, manifest behavior, and golden Colab/PWA parity validation remain product backlog items in `docs/project-spec.md`.
 
 ## Blockers and risks

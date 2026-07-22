@@ -474,6 +474,26 @@ describe("Studio PWA", () => {
             csrf_token: "csrf-after-refresh",
             user: { email: "user@example.com", role: "admin" },
           });
+        if (
+          url.endsWith("/api/account/preferences") &&
+          init?.method === "PATCH"
+        ) {
+          const payload = JSON.parse(String(init.body));
+          return json({
+            source_retention_ttl_seconds:
+              payload.source_retention_ttl_seconds,
+            allowed_source_retention_ttl_seconds: [
+              3600, 86400, 259200, 604800, 2592000,
+            ],
+          });
+        }
+        if (url.endsWith("/api/account/preferences"))
+          return json({
+            source_retention_ttl_seconds: 86400,
+            allowed_source_retention_ttl_seconds: [
+              3600, 86400, 259200, 604800, 2592000,
+            ],
+          });
         if (url.endsWith("/api/auth/bootstrap-status"))
           return json({ bootstrap_required: false });
         if (url.endsWith("/api/auth/login-context"))
@@ -1773,6 +1793,43 @@ describe("Studio PWA", () => {
     expect(window.localStorage.length).toBe(0);
     expect(window.sessionStorage.length).toBe(0);
   });
+
+  it("persists the local-source retention choice through account settings", async () => {
+    renderApp();
+    await openSettingsPage();
+
+    const retention = await screen.findByRole("combobox", {
+      name: "Срок хранения локальных файлов",
+    });
+    expect(retention).toHaveValue("86400");
+    expect(
+      within(retention).getByRole("option", { name: "1 час" }),
+    ).toBeInTheDocument();
+    expect(
+      within(retention).getByRole("option", { name: "30 дней" }),
+    ).toBeInTheDocument();
+
+    await userEvent.selectOptions(retention, "604800");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Сохранить срок" }),
+    );
+
+    await screen.findByText("Срок хранения сохранён.");
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/account/preferences",
+      expect.objectContaining({
+        method: "PATCH",
+        headers: expect.objectContaining({
+          "x-csrf-token": "csrf-after-refresh",
+        }),
+        body: JSON.stringify({ source_retention_ttl_seconds: 604800 }),
+      }),
+    );
+    expect(retention).toHaveValue("604800");
+    expect(window.localStorage.length).toBe(0);
+    expect(window.sessionStorage.length).toBe(0);
+  });
+
   it("renders disconnected Google Drive state", async () => {
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = baseFetch.getMockImplementation();
