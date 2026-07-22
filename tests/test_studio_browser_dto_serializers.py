@@ -1,18 +1,13 @@
-import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps/studio-api"))
-os.environ.setdefault("STUDIO_DATABASE_URL", "sqlite+pysqlite:///:memory:")
-os.environ.setdefault("STUDIO_APP_ORIGIN", "https://studio.test")
-os.environ.setdefault("STUDIO_COOKIE_SECURE", "false")
-
-from studio_api.main import job_payload, project_payload
-from studio_api.models import JobStatus
 
 
 NOW = datetime(2026, 7, 21, tzinfo=timezone.utc)
@@ -47,7 +42,28 @@ JOB_KEYS = {
 }
 
 
-def test_project_browser_payload_has_an_explicit_minimum_contract():
+@pytest.fixture
+def browser_serializers(monkeypatch):
+    monkeypatch.setenv("STUDIO_DATABASE_URL", "sqlite+pysqlite:///:memory:")
+    monkeypatch.setenv("STUDIO_APP_ORIGIN", "https://studio.test")
+    monkeypatch.setenv("STUDIO_COOKIE_SECURE", "false")
+    from studio_api.main import job_payload, project_payload
+    from studio_api.models import JobStatus
+
+    return project_payload, job_payload, JobStatus
+
+
+def test_module_does_not_mutate_database_environment_during_collection():
+    source = Path(__file__).read_text(encoding="utf-8")
+    import_prefix = source.split("@pytest.fixture", 1)[0]
+    assert "os.environ" not in import_prefix
+    assert "setdefault" not in import_prefix
+
+
+def test_project_browser_payload_has_an_explicit_minimum_contract(
+    browser_serializers,
+):
+    project_payload, _, _ = browser_serializers
     project = SimpleNamespace(
         id="project-public",
         owner_user_id="owner-internal",
@@ -67,7 +83,10 @@ def test_project_browser_payload_has_an_explicit_minimum_contract():
     assert "owner_user_id" not in payload
 
 
-def test_job_browser_payload_omits_credential_and_worker_authority():
+def test_job_browser_payload_omits_credential_and_worker_authority(
+    browser_serializers,
+):
+    _, job_payload, JobStatus = browser_serializers
     job = SimpleNamespace(
         id="job-public",
         project_id="project-public",
