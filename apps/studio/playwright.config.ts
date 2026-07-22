@@ -16,7 +16,8 @@ export default defineConfig({
   webServer: [
     {
       command:
-        'python -m uvicorn studio_api.main:app --app-dir ../studio-api --host 127.0.0.1 --port 8000',
+        'python -m uvicorn studio_api.main:app --app-dir apps/studio-api --host 127.0.0.1 --port 8000',
+      cwd: '../..',
       url: 'http://127.0.0.1:8000/api/healthz',
       timeout: 30_000,
       reuseExistingServer: false,

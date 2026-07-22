@@ -17,19 +17,27 @@ test('authenticated user creates a project and reads a completed job result', as
   await page.getByLabel('Пароль').fill(E2E_PASSWORD);
   await page.getByRole('button', { name: 'Войти' }).click();
 
-  await expect(
-    page.getByRole('navigation', { name: 'Основная навигация' }),
-  ).toBeVisible();
-  await page.getByRole('button', { name: 'Проекты' }).click();
+  const navigation = page.getByRole('navigation', {
+    name: 'Основная навигация',
+  });
+  await expect(navigation).toBeVisible();
+  await navigation.getByRole('button', { name: 'Проекты', exact: true }).click();
   await expect(page).toHaveURL(/\/projects$/);
 
   await page.getByRole('button', { name: 'Новый проект' }).click();
-  await page.getByLabel('Название проекта').fill('Browser E2E Draft');
-  await page
+  const createProjectForm = page.locator('form.project-form');
+  await createProjectForm
+    .getByLabel('Название проекта')
+    .fill('Browser E2E Draft');
+  await createProjectForm
     .getByLabel('Описание')
     .fill('Created through the authenticated browser workflow');
-  await page.getByRole('button', { name: 'Создать' }).click();
-  await expect(page.getByText('Browser E2E Draft', { exact: true })).toBeVisible();
+  await createProjectForm.getByRole('button', { name: 'Создать' }).click();
+  await expect(
+    page
+      .getByRole('region', { name: 'Список проектов' })
+      .getByRole('button', { name: /^Browser E2E Draft/ }),
+  ).toBeVisible();
 
   await page
     .getByRole('button', { name: new RegExp(`^${RESULT_PROJECT}`) })
@@ -53,7 +61,9 @@ test('authenticated user creates a project and reads a completed job result', as
     RESULT_URL,
   );
 
-  await page.getByRole('button', { name: 'Настройки' }).click();
+  await navigation
+    .getByRole('button', { name: 'Настройки', exact: true })
+    .click();
   await page.getByRole('button', { name: 'Выйти' }).click();
   await expect(page.getByRole('heading', { name: 'Вход' })).toBeVisible();
 });
