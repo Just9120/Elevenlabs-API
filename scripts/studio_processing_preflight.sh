@@ -127,7 +127,20 @@ public="${ENV_VALUES[APP_PUBLIC_URL]}"
 curl -fsS -o /dev/null --max-time 8 "$public/api/healthz" >/dev/null 2>&1 && set_row "public API health" "pass" "public API routing health passed" || { set_row "public API health" "blocked" "public API routing health failed"; block_exit; }
 curl -fsS -o /dev/null --max-time 8 "$public/healthz" >/dev/null 2>&1 && set_row "public web health" "pass" "public web routing health passed" || { set_row "public web health" "blocked" "public web routing health failed"; block_exit; }
 
-mapfile -t heads < <(python - <<'PY'
+declare -A KNOWN_REVISIONS=()
+heads=()
+revision_inventory_valid=true
+while IFS=$'\t' read -r kind revision_id; do
+  if [[ ! "$revision_id" =~ ^[0-9a-zA-Z_]{1,128}$ ]]; then
+    revision_inventory_valid=false
+    continue
+  fi
+  case "$kind" in
+    revision) KNOWN_REVISIONS["$revision_id"]=1 ;;
+    head) heads+=("$revision_id") ;;
+    *) revision_inventory_valid=false ;;
+  esac
+done < <(python - <<'PY'
 from pathlib import Path
 import ast
 versions=Path('apps/studio-api/alembic/versions')
@@ -144,13 +157,16 @@ for path in versions.glob('*.py'):
     d=vals.get('down_revision')
     if isinstance(d, str): downs.add(d)
     elif isinstance(d, (tuple, list)): downs.update(x for x in d if isinstance(x, str))
-for h in sorted(set(revs)-downs): print(h)
+for revision in sorted(revs): print(f"revision\t{revision}")
+for head in sorted(set(revs)-downs): print(f"head\t{head}")
 PY
 )
-[[ "${#heads[@]}" -eq 1 && "${heads[0]}" == "$EXPECTED_HEAD" ]] && set_row "repository Alembic head" "pass" "exactly one repository Alembic head matches expected source head" || { set_row "repository Alembic head" "blocked" "repository Alembic head is missing, multiple, or unexpected"; block_exit; }
+[[ "$revision_inventory_valid" == true && "${#heads[@]}" -eq 1 && "${heads[0]}" == "$EXPECTED_HEAD" ]] && set_row "repository Alembic head" "pass" "exactly one repository Alembic head matches expected source head: ${heads[0]}" || { set_row "repository Alembic head" "blocked" "repository Alembic inventory is malformed or its head is missing, multiple, or unexpected"; block_exit; }
 current_raw="$(${compose[@]} exec -T studio-api alembic current </dev/null 2>/dev/null || true)"
 mapfile -t currents < <(printf '%s\n' "$current_raw" | sed -nE 's/^([0-9a-zA-Z_]+).*/\1/p' | sed '/^$/d' | sort -u)
 [[ "${#currents[@]}" -eq 1 ]] && set_row "production Alembic revision" "pass" "exactly one production database revision was reported" || { set_row "production Alembic revision" "blocked" "production database revision is missing, unknown, or multiple"; block_exit; }
-[[ "${currents[0]}" == "${heads[0]}" ]] && set_row "revision equality" "pass" "production database revision equals repository head" || { set_row "revision equality" "blocked" "production database revision does not equal repository head"; block_exit; }
+[[ "${#currents[0]}" -le 128 && -n "${KNOWN_REVISIONS[${currents[0]}]+x}" ]] || { set_row "production Alembic revision" "blocked" "single production database revision is not present in the repository migration inventory"; block_exit; }
+set_row "production Alembic revision" "pass" "exactly one known production database revision was reported: ${currents[0]}"
+[[ "${currents[0]}" == "${heads[0]}" ]] && set_row "revision equality" "pass" "production database revision ${currents[0]} equals repository head ${heads[0]}" || { set_row "revision equality" "blocked" "production database revision ${currents[0]} does not equal repository head ${heads[0]}"; block_exit; }
 print_table
 echo "STUDIO_PROCESSING_HOST_PREFLIGHT_OK"

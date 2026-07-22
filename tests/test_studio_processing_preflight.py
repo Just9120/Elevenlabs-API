@@ -153,7 +153,9 @@ def test_successful_host_preflight(tmp_path: Path) -> None:
     assert proc.stdout.count("STUDIO_PROCESSING_HOST_PREFLIGHT_OK") == 1
     assert "STUDIO_PROCESSING_HOST_PREFLIGHT_BLOCKED" not in proc.stdout
     assert "authenticated smoke-account login | not-run" in proc.stdout
-    assert "production Alembic revision | pass" in proc.stdout
+    assert "repository Alembic head | pass | exactly one repository Alembic head matches expected source head: 0015_user_source_retention" in proc.stdout
+    assert "production Alembic revision | pass | exactly one known production database revision was reported: 0015_user_source_retention" in proc.stdout
+    assert "revision equality | pass | production database revision 0015_user_source_retention equals repository head 0015_user_source_retention" in proc.stdout
     assert any("exec -T studio-api alembic current" in c for c in calls)
     assert_no_secret_output(proc)
     assert_no_forbidden(calls)
@@ -253,6 +255,24 @@ def downgrade():
         proc, calls, _ = run_preflight(tmp_path / ("cur" + (current or "empty").replace("\n", "_")), current=current)
         assert proc.returncode != 0
         assert_no_forbidden(calls)
+
+
+def test_revision_output_is_known_normalized_metadata_only(tmp_path: Path) -> None:
+    mismatch, calls, _ = run_preflight(
+        tmp_path / "known-mismatch",
+        current="0011_diagnostic_debug_sessions (branchpoint) SUPERSECRET",
+    )
+    assert mismatch.returncode != 0
+    assert "production Alembic revision | pass | exactly one known production database revision was reported: 0011_diagnostic_debug_sessions" in mismatch.stdout
+    assert "revision equality | blocked | production database revision 0011_diagnostic_debug_sessions does not equal repository head 0015_user_source_retention" in mismatch.stdout
+    assert_no_secret_output(mismatch)
+    assert_no_forbidden(calls)
+
+    unknown, calls, _ = run_preflight(tmp_path / "unknown", current="TOKEN123")
+    assert unknown.returncode != 0
+    assert "single production database revision is not present in the repository migration inventory" in unknown.stdout
+    assert_no_secret_output(unknown)
+    assert_no_forbidden(calls)
 
 
 def test_workflow_contract() -> None:
