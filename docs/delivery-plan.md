@@ -81,5 +81,5 @@
 - Workflow: `docs/ai-coding-workflow.md`.
 - CI/CD and deployment safety: `docs/ci-cd-rules.md`.
 - Architecture map: `docs/architecture.md`.
-- Audit evidence and recommended sequence: `docs/runbooks/repository-audit-2026-07-21.md`.
+- Historical pre-PR #177 audit evidence only: `docs/runbooks/repository-audit-2026-07-21.md`; its readiness score and sequence are superseded by this dashboard.
 - Historical traceability only: `docs/delivery-plan-archive.md`.
