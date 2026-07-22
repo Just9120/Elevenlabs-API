@@ -3,7 +3,7 @@
 ## Current dashboard
 
 - ✅ `PWA-E2E-FOUNDATION-01B` — Authenticated real-browser coverage merged through PR #178 at `5ba3b42` and passed post-merge repository and Studio PWA CI.
-- 👉 `PWA-FRONTEND-MODULARIZATION-01B` — First behavior-preserving frontend modularization tranche is CI-verified in draft PR #179; merge is pending.
+- 👉 `PWA-FRONTEND-MODULARIZATION-01B` — First behavior-preserving frontend modularization tranche is CI-verified in PR #179; merge is pending.
 - ⛔ `PWA-PROCESSING-ROLLOUT-01A` — Production processing rollout/canary — Operator item not run; production-live claims remain prohibited.
 
 ## Current repository state
@@ -30,7 +30,7 @@
 
 ## Active item validation
 
-`PWA-FRONTEND-MODULARIZATION-01B` has completed its first tranche in narrow behavior-preserving commits. Targeted routing, upload-policy, OAuth, source-state, formatter, link, source-panel, login, and sidebar checks pass; the full local Studio profile passes ESLint, all 198 Vitest tests, TypeScript, and the production PWA build, and repository lightweight checks pass. Draft PR #179 has also passed its authenticated Chromium boundary and both required CI workflows at revision `a3327c8`. This remains isolated CI evidence and does not itself provide API rollout, production-host, migration, worker, or canary evidence.
+`PWA-FRONTEND-MODULARIZATION-01B` has completed its first tranche in narrow behavior-preserving commits. Targeted routing, upload-policy, OAuth, source-state, formatter, link, source-panel, login, and sidebar checks pass; the full local Studio profile passes ESLint, all 198 Vitest tests, TypeScript, and the production PWA build, and repository lightweight checks pass. PR #179 has also passed its authenticated Chromium boundary and both required CI workflows at revision `a3327c8`. This remains isolated CI evidence and does not itself provide API rollout, production-host, migration, worker, or canary evidence.
 
 ## Blockers and risks
 
