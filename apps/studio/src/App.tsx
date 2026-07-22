@@ -32,7 +32,6 @@ import {
   type GoogleOauthResult,
 } from "./googleOauthResult";
 import {
-  formatBytes,
   formatTime,
   formatUploadLimit,
   retentionOptionLabel,
@@ -51,8 +50,32 @@ import {
 } from "./sourceModel";
 import { isSafeDisplayUrl, ResourceExternalLink } from "./resourceLinks";
 import { SourcesPanel } from "./SourcesPanel";
+import { JobCard } from "./JobCard";
 import { Login, type User } from "./Login";
 import { PlatformSidebar } from "./PlatformSidebar";
+import {
+  isApprovedOutputUrl,
+  type JobDetailState,
+  type JobOutputsResponse,
+  type JobOutputsState,
+  type JobState,
+  type TranscriptionJob,
+} from "./jobModel";
+import {
+  composerSignature,
+  makeIdempotencyKey,
+  mergeJobsWithBatchOrder,
+  newComposerRow,
+  type BatchCreateResponse,
+  type ComposerRow,
+} from "./batchComposerModel";
+import {
+  type JobRetryResponse,
+  type JobRetryState,
+  type OutputReconciliationCheckResponse,
+  type OutputReconciliationResponse,
+  type OutputReconciliationState,
+} from "./jobRecoveryModel";
 import "./styles.css";
 
 type AccountPreferences = {
@@ -116,79 +139,6 @@ type Project = {
   updated_at: string;
   archived_at: string | null;
 };
-type JobСтатус = "queued" | "processing" | "cancelled" | "failed" | "completed";
-type JobSourceСтатус = "queued" | "skipped";
-type JobSource = Source & {
-  position: number;
-  job_source_status: JobSourceСтатус;
-};
-type JobOutput = {
-  source_id?: string;
-  source_position: number | null;
-  source_name: string | null;
-  source_type: string | null;
-  output_kind: string | null;
-  transcript_standard: string | null;
-  web_view_url: string | null;
-  link_available: boolean;
-  document_character_count: number | null;
-  document_created_at: string | null;
-  persisted_at: string | null;
-};
-type JobOutputsResponse = {
-  job_id: string;
-  job_status: JobСтатус;
-  output_count: number;
-  outputs: JobOutput[];
-};
-type JobOutputsState = {
-  loading: boolean;
-  error: string;
-  data: JobOutputsResponse | null;
-};
-type OutputReconciliationResponse = { job_id: string; job_status: JobСтатус; available: boolean; counts: Record<string, number>; cases: { job_source_id: string; status: string; reason?: string | null; resolved: boolean; last_checked_at?: string | null }[] };
-type JobRetryResponse = { job_id: string; job_status: JobСтатус; available: boolean; reason: string; attempt_count: number; max_attempts: number; missing_output_count: number; retry_safe_source_count: number };
-type JobRetryState = { loading: boolean; posting: boolean; error: string; message: string; data: JobRetryResponse | null };
-type OutputReconciliationCheckResponse = { job_id: string; checked: number; resolved: number; unresolved: number; conflicts: number };
-type OutputReconciliationState = { loading: boolean; checking: boolean; error: string; message: string; data: OutputReconciliationResponse | null };
-type JobOutputFolder = { name: string; web_view_url: string | null };
-type VerifiedOutputFolder = {
-  folder_id: string;
-  name: string;
-  web_view_url: string | null;
-};
-type ComposerRow = {
-  id: string;
-  source_id: string;
-  output_folder: VerifiedOutputFolder | null;
-  title: string;
-};
-type TranscriptionJob = {
-  id: string;
-  project_id: string;
-  status: JobСтатус;
-  title: string | null;
-  provider: string | null;
-  source_count: number;
-  sources?: JobSource[];
-  created_at: string;
-  updated_at: string;
-  cancelled_at: string | null;
-  cancel_requested_at: string | null;
-  attempt_count: number;
-  started_at: string | null;
-  finished_at: string | null;
-  error_code: string | null;
-  error_message: string | null;
-  output_folder?: JobOutputFolder | null;
-};
-type JobState = {
-  loading: boolean;
-  error: string;
-  loaded: boolean;
-  items: TranscriptionJob[];
-};
-
 type UploadInit = {
   source_id: string;
   upload: {
@@ -234,41 +184,6 @@ const emptyJobState: JobState = {
   loaded: false,
   items: [],
 };
-function jobTitle(job: TranscriptionJob) {
-  return job.title?.trim() || `Транскрибация от ${formatTime(job.created_at)}`;
-}
-function safeJobSources(job: TranscriptionJob) {
-  return [...(job.sources ?? [])].sort((a, b) => a.position - b.position);
-}
-function isApprovedOutputUrl(value: string | null) {
-  if (!value) return false;
-  try {
-    const url = new URL(value);
-    return (
-      url.protocol === "https:" &&
-      (url.hostname === "docs.google.com" ||
-        url.hostname === "drive.google.com")
-    );
-  } catch {
-    return false;
-  }
-}
-function outputSourceLabel(output: JobOutput) {
-  const position =
-    output.source_position == null ? "—" : String(output.source_position + 1);
-  return `${position}. ${output.source_name || "Файл без имени"}`;
-}
-
-function jobСтатусLabel(status: JobСтатус) {
-  const labels: Record<JobСтатус, string> = {
-    queued: "В очереди",
-    processing: "Обрабатывается",
-    cancelled: "Отменена",
-    failed: "Ошибка",
-    completed: "Завершена",
-  };
-  return labels[status];
-}
 function credentialProfileLabel(c: Credential) {
   return c.active_version ? `${c.label} · v${c.active_version}` : c.label;
 }
@@ -295,46 +210,6 @@ async function csrfMutate<T>(
   return mutateWithCsrfRetry<T>(path, csrf, onCsrf, options);
 }
 export const __appDiagnosticsTest = { api, csrfMutate };
-function newComposerRow(): ComposerRow {
-  return {
-    id: crypto.randomUUID(),
-    source_id: "",
-    output_folder: null,
-    title: "",
-  };
-}
-function composerSignature(rows: ComposerRow[], credentialId: string) {
-  return JSON.stringify({
-    provider_credential_id: credentialId || null,
-    items: rows.map((row) => ({
-      source_id: row.source_id,
-      output_folder_id: row.output_folder?.folder_id ?? "",
-      title: row.title.trim() || null,
-    })),
-  });
-}
-function makeIdempotencyKey() {
-  return `batch-${crypto.randomUUID()}`;
-}
-
-type BatchCreateResponse = {
-  jobs: TranscriptionJob[];
-  created_count: number;
-  replayed: boolean;
-};
-function mergeJobsWithBatchOrder(
-  jobs: TranscriptionJob[],
-  batchJobs: TranscriptionJob[],
-) {
-  if (batchJobs.length === 0) return jobs;
-  const freshById = new Map(jobs.map((job) => [job.id, job]));
-  const batchIds = new Set(batchJobs.map((job) => job.id));
-  return [
-    ...batchJobs.map((job) => freshById.get(job.id) ?? job),
-    ...jobs.filter((job) => !batchIds.has(job.id)),
-  ];
-}
-
 function PreparationPanel({
   project,
   csrf,
@@ -377,12 +252,7 @@ function PreparationPanel({
     signature: string;
     key: string;
   } | null>(null);
-  const [detail, setDetail] = useState<
-    Record<
-      string,
-      { loading: boolean; error: string; job: TranscriptionJob | null }
-    >
-  >({});
+  const [detail, setDetail] = useState<Record<string, JobDetailState>>({});
   const [outputs, setOutputs] = useState<Record<string, JobOutputsState>>({});
   const [reconciliations, setReconciliations] = useState<Record<string, OutputReconciliationState>>({});
   const [retries, setRetries] = useState<Record<string, JobRetryState>>({});
@@ -1074,173 +944,20 @@ function PreparationPanel({
   );
   function renderJobCard(job: TranscriptionJob) {
     const currentDetail = detail[job.id];
-    const currentOutputs = outputs[job.id];
-    const currentReconciliation = reconciliations[job.id];
     const detailedJob = currentDetail?.job;
-    const terminal = ["completed", "failed", "cancelled"].includes(job.status);
     return (
-      <article
-        className={`source-card ${terminal ? "terminal-job" : ""}`}
+      <JobCard
         key={job.id}
-      >
-        <b>{jobTitle(job)}</b>
-        <span>Статус: {jobСтатусLabel(job.status)}</span>
-        <span>Файлов: {job.source_count}</span>
-        <span>Создана: {formatTime(job.created_at)}</span>
-        {job.output_folder && (
-          <span>
-            Папка результата: {job.output_folder.name || "Папка Google Drive"}
-          </span>
-        )}
-        {job.output_folder?.web_view_url &&
-          isApprovedOutputUrl(job.output_folder.web_view_url) && (
-            <ResourceExternalLink
-              href={job.output_folder.web_view_url}
-              label="Открыть папку результата"
-              ariaLabel="Открыть папку результата в Google Drive в новой вкладке"
-            />
-          )}
-        {job.status === "processing" && job.cancel_requested_at && (
-          <span>Отмена запрошена: {formatTime(job.cancel_requested_at)}</span>
-        )}
-        {job.error_message && <span>Ошибка: {job.error_message}</span>}
-        <div className="job-actions">
-          <button type="button" onClick={() => void loadDetail(job.id)}>
-            Открыть
-          </button>
-          {job.status === "queued" && (
-            <button type="button" onClick={() => void cancelJob(job.id)}>
-              Отменить
-            </button>
-          )}
-          {job.status === "processing" && !job.cancel_requested_at && (
-            <button type="button" onClick={() => void cancelJob(job.id)}>
-              Запросить отмену
-            </button>
-          )}
-          {job.status === "processing" && job.cancel_requested_at && (
-            <span>Отмена запрошена</span>
-          )}
-        </div>
-        {currentDetail?.loading && (
-          <p role="status">Загрузка деталей задачи…</p>
-        )}
-        {currentDetail?.error && <p className="error">{currentDetail.error}</p>}
-        {currentOutputs?.loading && <p role="status">Загрузка результатов…</p>}
-        {currentOutputs?.error && (
-          <p className="error">{currentOutputs.error}</p>
-        )}
-        {currentReconciliation?.data?.available && (
-          <section className="notice" aria-label={`Output reconciliation ${job.id}`}>
-            <b>Требуется проверка результата Google Docs</b>
-            <p>Reconciliation не создаёт документ заново и запускается только по нажатию.</p>
-            <button type="button" disabled={currentReconciliation.checking} onClick={() => void checkReconciliation(job.id)}>
-              {currentReconciliation.checking ? "Проверяем Google Drive…" : "Проверить созданный документ в Google Drive"}
-            </button>
-            {currentReconciliation.message && <p role="status">{currentReconciliation.message}</p>}
-            {currentReconciliation.error && <p className="error">{currentReconciliation.error}</p>}
-          </section>
-        )}
-        {currentOutputs?.data && (
-          <section aria-label={`Результаты ${currentOutputs.data.job_id}`}>
-            <h5>Результаты</h5>
-            <p>
-              Состояние задачи: {jobСтатусLabel(currentOutputs.data.job_status)}
-            </p>
-            <p>Результатов: {currentOutputs.data.output_count}</p>
-            {currentOutputs.data.output_count === 0 && (
-              <p className="notice">Результаты пока не созданы.</p>
-            )}
-            {currentOutputs.data.outputs.map((output, index) => {
-              const approvedLink =
-                output.link_available === true &&
-                isApprovedOutputUrl(output.web_view_url);
-              return (
-                <article
-                  className="source-card"
-                  key={`${job.id}-output-${index}`}
-                >
-                  <b>{outputSourceLabel(output)}</b>
-                  <span>Тип файла: {output.source_type || "не указан"}</span>
-                  <span>
-                    Тип результата: {output.output_kind || "не указан"}
-                  </span>
-                  <span>
-                    Формат: {output.transcript_standard || "не указан"}
-                  </span>
-                  <span>
-                    Символов: {output.document_character_count ?? "—"}
-                  </span>
-                  <span>Создан: {formatTime(output.document_created_at)}</span>
-                  <span>Сохранён: {formatTime(output.persisted_at)}</span>
-                  {approvedLink ? (
-                    <ResourceExternalLink
-                      href={output.web_view_url ?? ""}
-                      label="Открыть документ"
-                      ariaLabel="Открыть документ"
-                    />
-                  ) : (
-                    <span>Ссылка недоступна</span>
-                  )}
-                </article>
-              );
-            })}
-          </section>
-        )}
-        {detailedJob && (
-          <section aria-label={`Job detail ${detailedJob.id}`}>
-            <p>UUID: {detailedJob.id}</p>
-            <h5>Папка результата</h5>
-            {detailedJob.output_folder ? (
-              <p>
-                {detailedJob.output_folder.name || "Папка Google Drive"}{" "}
-                {isSafeDisplayUrl(detailedJob.output_folder.web_view_url) && (
-                  <ResourceExternalLink
-                    href={detailedJob.output_folder.web_view_url ?? ""}
-                    label="Открыть папку результата"
-                    ariaLabel="Открыть папку результата в Google Drive в новой вкладке"
-                  />
-                )}
-              </p>
-            ) : (
-              <p className="notice">Папка результата не задана.</p>
-            )}
-
-            {detailedJob.status === "failed" && (() => {
-              const retry = retries[detailedJob.id];
-              const reason = retry?.data?.reason;
-              const unavailable = reason === "provider_outcome_uncertain" ? "Повтор недоступен: результат внешнего вызова не определён" : reason === "output_reconciliation_required" ? "Требуется проверка созданного документа" : reason === "attempt_limit_reached" ? "Достигнут предел попыток" : reason && reason !== "available" ? "Повтор недоступен" : "";
-              return <div className="resource-actions" aria-label="Safe retry action">
-                {retry?.data?.available ? <button type="button" onClick={() => void retryJob(detailedJob.id)} disabled={retry.posting}>Повторить безопасную обработку</button> : unavailable ? <span className="notice">{unavailable}</span> : null}
-                {retry?.message && <span>{retry.message}</span>}
-                {retry?.error && <span className="error">{retry.error}</span>}
-              </div>;
-            })()}
-            <h5>Файлы задачи</h5>
-            {safeJobSources(detailedJob).map((source) => (
-              <article
-                className="source-card"
-                key={`${detailedJob.id}-${source.id}`}
-              >
-                <b>
-                  {source.position + 1}. {source.original_filename}
-                </b>
-                <span>Статус файла: {source.job_source_status}</span>
-                <span>Размер: {formatBytes(source.size_bytes)}</span>
-                {isSafeDisplayUrl(source.drive_file_url) && (
-                  <div className="resource-actions">
-                    <ResourceExternalLink
-                      href={source.drive_file_url ?? ""}
-                      label="Открыть файл в Google Drive"
-                      ariaLabel="Открыть файл в Google Drive в новой вкладке"
-                    />
-                  </div>
-                )}
-              </article>
-            ))}
-          </section>
-        )}
-      </article>
+        job={job}
+        detail={currentDetail}
+        outputs={outputs[job.id]}
+        reconciliation={reconciliations[job.id]}
+        retry={detailedJob ? retries[detailedJob.id] : undefined}
+        onOpen={loadDetail}
+        onCancel={cancelJob}
+        onCheckReconciliation={checkReconciliation}
+        onRetry={retryJob}
+      />
     );
   }
   return (
