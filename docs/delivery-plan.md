@@ -3,8 +3,8 @@
 ## Current dashboard
 
 - ✅ `PWA-FRONTEND-MODULARIZATION-01B/02` — The first two behavior-preserving frontend tranches are merged through PR #180 at `605cbae`; repository, Studio, authenticated Chromium, and web deployment checks passed.
-- ⛔ `PWA-PROCESSING-ROLLOUT-01A / Gate 0` — Current-main preflight run `29918894603` stopped fail-closed because one `studio-worker` is running; later health, public-routing, and revision checks were intentionally not run.
-- 👉 `PWA-PROCESSING-ROLLOUT-01A / Gate 0A` — Merge and dispatch the manual-only read-only worker-status workflow from the intended `main` SHA; use its safe identity/health evidence before separately authorizing any drain/stop.
+- ✅ `PWA-PROCESSING-ROLLOUT-01A / Gate 0A` — PR #181 merged the manual-only read-only worker-status path at `749833c`; run `29925528002` safely proved one running, not-drained worker while leaving its image identity unknown.
+- 👉 `PWA-PROCESSING-ROLLOUT-01A / Gate 0B` — Obtain explicit operator authorization for `status → drain → confirm stopped`, then rerun the fail-closed preflight; do not drain, deploy, migrate, retry, or reconcile automatically.
 - ⏸ `PWA-FRONTEND-MODULARIZATION-03` — Preparation composer/readiness extraction is deferred until the production baseline is known or rollout is waiting on an explicit operator window.
 - ⛔ `PWA-PROCESSING-ROLLOUT-01A / Gates 1–6` — Backup, migration, API deployment, public-edge validation, worker deployment, and canary must run in order; each later gate is blocked until the previous gate has safe factual evidence.
 
@@ -12,9 +12,10 @@
 
 - The stable Colab batch contour remains frozen and accepted at **100%** for its current operational scope. Experimental realtime work is a separate contour and is not included in that claim.
 - Studio has broad source-level implementation and green service-backed CI. The dominant blocker is release evidence, not a missing core ElevenLabs processing implementation.
-- Current `main` source and CI are proven at `605cbaee35664327197bfc15b58771cf967241e3`; automatic CD at that revision proved only the web component.
+- Current `main` source and repository CI are proven at `749833c9f683f1e78dfb107a668392687a8d56bd`; production checkout remains separately proven clean at `605cbaee35664327197bfc15b58771cf967241e3`, where automatic CD proved only the web component.
 - The last GitHub-proven API deployment is run `29677090742` at `fe60789f9278fd9adc967a2046a4fca0c4833774`, when the repository Alembic head was `0011_diagnostic_debug_sessions`. There is no later GitHub evidence that production API, database, or worker reached current source head `0015_user_source_retention`.
-- Current-main preflight run `29918894603` proved the VPS checkout is clean at `605cbae` and found one running worker. No `deploy-worker` job exists in the inspected Studio Platform CD workflow-dispatch history, so that worker's deployment source/image identity is not established by GitHub evidence.
+- Production-baseline preflight run `29918894603` proved the VPS checkout is clean at `605cbae` and found one running worker. No `deploy-worker` job exists in the inspected Studio Platform CD workflow-dispatch history, so that worker's deployment source/image identity is not established by GitHub evidence.
+- Read-only worker-status run `29925528002` completed from trusted `main` source and reported `container_state=running`, `exit_code=0`, `drain_state=running`, no commit tag for `605cbae`, `identity_match=unknown`, and no rollback candidate. This removes ambiguity about lifecycle state but does not establish deploy provenance or authorize mutation.
 - Studio Platform CD is not generally broken: migration-changing pushes intentionally suppress automatic API deployment, and worker deployment is intentionally manual-only. The workflow currently makes this safe skip too easy to mistake for a complete green deployment; that observability gap is a focused follow-up.
 - Migrations `0012`–`0015` are a single chain with PostgreSQL upgrade/downgrade and schema-contract coverage. Their tests reduce source risk but do not replace the required production backup, migration, identity checks, or canary.
 - The authenticated Playwright scenario proves the browser shell through live FastAPI/PostgreSQL/Redis with controlled boundaries. It does not call ElevenLabs, Google, S3/R2, or production and therefore does not replace the controlled canary.
@@ -40,6 +41,8 @@ Documentation, diagnostics, or behavior-preserving refactors do not raise these 
 4. Treat a blocked revision-equality result as useful truth, not as permission to mutate production. Do not start a worker, provider call, Google call, job, backup, migration, deploy, or retry in this gate.
 
 Current attempt: run `29918894603` passed checkout/remote/branch/commit/clean-tree checks, runtime configuration and required secret-file presence, and Compose-reported counts/status for PostgreSQL, Redis, API, and web. It then blocked on one running `studio-worker`. Dedicated health, public routing, Alembic, and authenticated preparation rows were not reached. Do not rerun until the worker is explicitly drained/stopped and its authority is understood.
+
+Worker evidence: after PR #181 and green post-merge repository CI run `29925230146`, read-only status run `29925528002` validated the clean production checkout at `605cbae` and completed with `STUDIO_WORKER_STATUS_OK`. Exactly one worker is running with exit code `0`; it is not drained, has no Docker health check, has no matching `605cbae` commit tag, has unknown image identity, and has no rollback candidate. The next action is an explicit operator drain decision, not a deploy or preflight retry.
 
 Exit: a safe go/no-go record identifies the actual production baseline and confirms that no worker is running before migration work.
 
@@ -160,10 +163,10 @@ For production/operator work, use a separate evidence pipeline: **read-only pref
 
 ## Current validation evidence and blockers
 
-- `main` revision `605cbae` passed repository CI run `29915391965`, Studio PWA CI run `29915391923`, and web-only CD run `29915391979`.
-- The dependency-audit workflow has no GitHub run. Studio Processing Preflight passed historically in run `29633282269` at old revision `5df22347f4d9d8a2805f70f023929cbe7ac34c47`, but current-main run `29918894603` is blocked by the running worker.
-- Production checkout is now proven clean at `605cbae`; current API image identity, database revision, and running worker image/deployment authority remain unproven because the fail-closed preflight stopped before those checks.
-- The current branch adds a manual-only `Studio Worker Status` workflow that validates `main`/SHA/repository/clean-tree identity and invokes only `manage_studio_worker.sh status`; it cannot be dispatched as trusted default-branch source until merged.
+- `main` revision `749833c` passed post-merge repository CI run `29925230146`. Studio PWA CI and Studio Platform CD correctly did not run because PR #181 changed only workflow/tooling tests and delivery documentation; the latest runtime-path evidence remains Studio PWA CI run `29915391923` and web-only CD run `29915391979` at `605cbae`.
+- The dependency-audit workflow has no GitHub run. Studio Processing Preflight passed historically in run `29633282269` at old revision `5df22347f4d9d8a2805f70f023929cbe7ac34c47`, but production-baseline run `29918894603` is blocked by the running worker.
+- Production checkout is proven clean at `605cbae`; worker-status run `29925528002` additionally proves one running worker, absent `605cbae` commit tag, unknown image match, and absent rollback candidate. Current API image identity, database revision, and worker deployment authority remain unproven.
+- The merged manual-only `Studio Worker Status` workflow validates `main`/SHA/repository/clean-tree identity and invokes only `manage_studio_worker.sh status`; its first trusted-default-branch dispatch succeeded without runtime mutation.
 - Public security headers, TLS Picker/upload behavior, database head `0015`, controlled worker absence/rollout, and the one-output canary remain unproven.
 - Windows local service-backed processing tests remain environment-limited without PostgreSQL/Redis; GitHub CI is the authoritative service-backed gate.
 
