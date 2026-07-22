@@ -51,13 +51,13 @@ import {
 } from "./sourceModel";
 import { isSafeDisplayUrl, ResourceExternalLink } from "./resourceLinks";
 import { SourcesPanel } from "./SourcesPanel";
+import { JobOutputsSection } from "./JobOutputsSection";
 import { Login, type User } from "./Login";
 import { PlatformSidebar } from "./PlatformSidebar";
 import {
   isApprovedOutputUrl,
   jobTitle,
   jobСтатусLabel,
-  outputSourceLabel,
   safeJobSources,
   type JobOutputsResponse,
   type JobOutputsState,
@@ -1019,50 +1019,7 @@ function PreparationPanel({
           </section>
         )}
         {currentOutputs?.data && (
-          <section aria-label={`Результаты ${currentOutputs.data.job_id}`}>
-            <h5>Результаты</h5>
-            <p>
-              Состояние задачи: {jobСтатусLabel(currentOutputs.data.job_status)}
-            </p>
-            <p>Результатов: {currentOutputs.data.output_count}</p>
-            {currentOutputs.data.output_count === 0 && (
-              <p className="notice">Результаты пока не созданы.</p>
-            )}
-            {currentOutputs.data.outputs.map((output, index) => {
-              const approvedLink =
-                output.link_available === true &&
-                isApprovedOutputUrl(output.web_view_url);
-              return (
-                <article
-                  className="source-card"
-                  key={`${job.id}-output-${index}`}
-                >
-                  <b>{outputSourceLabel(output)}</b>
-                  <span>Тип файла: {output.source_type || "не указан"}</span>
-                  <span>
-                    Тип результата: {output.output_kind || "не указан"}
-                  </span>
-                  <span>
-                    Формат: {output.transcript_standard || "не указан"}
-                  </span>
-                  <span>
-                    Символов: {output.document_character_count ?? "—"}
-                  </span>
-                  <span>Создан: {formatTime(output.document_created_at)}</span>
-                  <span>Сохранён: {formatTime(output.persisted_at)}</span>
-                  {approvedLink ? (
-                    <ResourceExternalLink
-                      href={output.web_view_url ?? ""}
-                      label="Открыть документ"
-                      ariaLabel="Открыть документ"
-                    />
-                  ) : (
-                    <span>Ссылка недоступна</span>
-                  )}
-                </article>
-              );
-            })}
-          </section>
+          <JobOutputsSection jobId={job.id} data={currentOutputs.data} />
         )}
         {detailedJob && (
           <section aria-label={`Job detail ${detailedJob.id}`}>
