@@ -24,11 +24,15 @@ import {
   mutateWithCsrfRetry,
   requestJson,
 } from "./apiClient";
+import {
+  parsePlatformRoute,
+  pushPlatformRoute,
+  type Page,
+  type PlatformRoute,
+  type SettingsSection,
+} from "./platformRouting";
 import "./styles.css";
 
-type Page = "dashboard" | "projects" | "settings";
-type SettingsSection = "account" | "diagnostics";
-type PlatformRoute = { page: Page; settingsSection: SettingsSection };
 type User = { email: string; role: string };
 type AccountPreferences = {
   source_retention_ttl_seconds: number;
@@ -456,42 +460,6 @@ async function bootstrapSession(): Promise<{
     method: "POST",
   });
   return { user: session.user, csrf: csrf.csrf_token };
-}
-function parsePlatformRoute(
-  pathname = window.location.pathname,
-): PlatformRoute {
-  switch (pathname) {
-    case "/projects":
-      return { page: "projects", settingsSection: "account" };
-    case "/settings":
-      return { page: "settings", settingsSection: "account" };
-    case "/settings/diagnostics":
-      return { page: "settings", settingsSection: "diagnostics" };
-    case "/":
-    default:
-      return { page: "dashboard", settingsSection: "account" };
-  }
-}
-function platformPathFor(
-  page: Page,
-  settingsSection: SettingsSection = "account",
-) {
-  if (page === "projects") return "/projects";
-  if (page === "settings") {
-    return settingsSection === "diagnostics"
-      ? "/settings/diagnostics"
-      : "/settings";
-  }
-  return "/";
-}
-function pushPlatformRoute(
-  page: Page,
-  settingsSection: SettingsSection = "account",
-) {
-  const path = platformPathFor(page, settingsSection);
-  if (window.location.pathname !== path) {
-    window.history.pushState(window.history.state, "", path);
-  }
 }
 function consumeGoogleOauthResult(): GoogleOauthResult | null {
   const current = `${window.location.pathname ?? "/"}${window.location.search ?? ""}${window.location.hash ?? ""}`;
