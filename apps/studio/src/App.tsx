@@ -43,6 +43,12 @@ import {
   sourceUploadAccept,
   type SourceUploadPolicy,
 } from "./sourceUploadPolicy";
+import {
+  isUsableJobSource,
+  sourceСтатусLabel,
+  unusableJobSourceReason,
+  type Source,
+} from "./sourceModel";
 import "./styles.css";
 
 type User = { email: string; role: string };
@@ -106,22 +112,6 @@ type Project = {
   created_at: string;
   updated_at: string;
   archived_at: string | null;
-};
-type Source = {
-  id: string;
-  project_id: string;
-  source_type: "local_upload" | "google_drive";
-  original_filename: string;
-  mime_type: string | null;
-  size_bytes: number | null;
-  drive_file_url: string | null;
-  upload_status: "pending" | "uploaded" | "deleted" | "expired" | "failed";
-  uploaded_at: string | null;
-  expires_at: string | null;
-  deleted_at: string | null;
-  delete_reason: string | null;
-  created_at: string;
-  updated_at: string;
 };
 type JobСтатус = "queued" | "processing" | "cancelled" | "failed" | "completed";
 type JobSourceСтатус = "queued" | "skipped";
@@ -267,25 +257,6 @@ function formatUploadLimit(value: number) {
     return `${Number.isInteger(kibibytes) ? kibibytes : kibibytes.toFixed(1)} КБ`;
   return `${value} байт`;
 }
-function isUsableJobSource(source: Source) {
-  const expiresAt = source.expires_at ? new Date(source.expires_at).getTime() : null;
-  return (
-    source.upload_status === "uploaded" &&
-    !source.deleted_at &&
-    (expiresAt == null || expiresAt > Date.now()) &&
-    (source.source_type === "google_drive" ||
-      source.source_type === "local_upload")
-  );
-}
-function unusableJobSourceReason(source: Source) {
-  if (source.deleted_at)
-    return "Убранный из проекта файл нельзя добавить в задачу";
-  if (source.expires_at && new Date(source.expires_at).getTime() <= Date.now())
-    return "Срок хранения временной копии истёк";
-  if (source.upload_status !== "uploaded")
-    return "Файл ещё не готов для задачи";
-  return "Тип файла не поддерживается для задачи";
-}
 function isSafeDisplayUrl(value: string | null) {
   return Boolean(
     value &&
@@ -348,17 +319,6 @@ function outputSourceLabel(output: JobOutput) {
   const position =
     output.source_position == null ? "—" : String(output.source_position + 1);
   return `${position}. ${output.source_name || "Файл без имени"}`;
-}
-
-function sourceСтатусLabel(status: Source["upload_status"]) {
-  const labels: Record<Source["upload_status"], string> = {
-    pending: "Загружается",
-    uploaded: "Готов",
-    deleted: "Убран из проекта",
-    expired: "Срок истёк",
-    failed: "Ошибка",
-  };
-  return labels[status];
 }
 
 function jobСтатусLabel(status: JobСтатус) {
