@@ -1,8 +1,8 @@
-import hashlib, json, re
+import hashlib, json, logging, re
 from datetime import datetime, timedelta, timezone
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse, RedirectResponse, Response as FastAPIResponse
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from sqlalchemy import text, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -16,9 +16,9 @@ from .models import *
 from .rate_limit import RateLimiter
 from .security import *
 from .source_storage import get_source_storage, normalize_source_display_filename
-from .source_policy import is_supported_source_mime_type, normalize_source_mime_type, validate_source_size
-from .google_connection_access import GoogleConnectionAccessError, GoogleConnectionAccessReason, active_google_connection_for_user, google_token_aad, refresh_user_google_drive_access_token, require_drive_file_scope
-from .google_scopes import has_drive_file_scope
+from .source_policy import SOURCE_RETENTION_TTL_OPTIONS_SECONDS, UploadedObjectMetadataIssue, browser_source_upload_policy, is_supported_source_mime_type, normalize_source_mime_type, uploaded_object_metadata_issue, validate_source_size
+from .google_connection_access import GoogleConnectionAccessError, GoogleConnectionAccessReason, active_google_connection_for_user, google_token_aad, refresh_user_google_drive_access_token, require_drive_file_scope, require_picker_browser_scope_boundary
+from .google_scopes import has_drive_file_scope, has_picker_browser_scope_boundary
 from .job_lifecycle import safe_failure_metadata_value
 from .job_processing_lifecycle import request_job_cancellation
 from .diagnostics import REGISTRY, cleanup_expired_diagnostics, cursor_context, decode_cursor_payload, encode_cursor, markdown_escape, new_correlation_id, new_request_id, sanitize_build_id, sanitize_inbound_correlation, valid_correlation_id, valid_uuid, write_diagnostic_event
@@ -33,6 +33,23 @@ from .source_deletion import SourceDeletionReason, is_source_expired, request_so
 settings=get_settings()
 app=FastAPI(docs_url="/docs" if settings.enable_api_docs else None, redoc_url=None, openapi_url="/openapi.json" if settings.enable_api_docs else None)
 limiter=RateLimiter()
+LOGGER=logging.getLogger("studio_api.api")
+_API_ENDPOINT_GROUPS=(
+    ("/api/diagnostics", "diagnostics"),
+    ("/api/jobs", "jobs"),
+    ("/api/sources", "sources"),
+    ("/api/google", "google"),
+    ("/api/credentials", "credentials"),
+    ("/api/projects", "projects"),
+    ("/api/auth", "auth"),
+)
+
+def diagnostic_endpoint_group(path: str) -> str:
+    value=path if isinstance(path, str) else ""
+    for prefix, group in _API_ENDPOINT_GROUPS:
+        if value == prefix or value.startswith(prefix + "/"):
+            return group
+    return "unknown"
 
 @app.middleware("http")
 async def request_correlation_middleware(request: Request, call_next):
@@ -40,9 +57,18 @@ async def request_correlation_middleware(request: Request, call_next):
     correlation_id = sanitize_inbound_correlation(request.headers.get("x-correlation-id"))
     request.state.request_id = request_id
     request.state.correlation_id = correlation_id
+    request.state.owner_user_id = None
     try:
         response = await call_next(request)
     except Exception:
+        endpoint_group=diagnostic_endpoint_group(request.url.path)
+        LOGGER.error("api_unhandled_exception request_id=%s correlation_id=%s endpoint_group=%s", request_id, correlation_id, endpoint_group)
+        owner_user_id=getattr(request.state, "owner_user_id", None)
+        if owner_user_id:
+            try:
+                write_diagnostic_event(owner_user_id=owner_user_id, component="api", event_code="API_UNHANDLED_EXCEPTION", correlation_id=correlation_id, request_id=request_id, metadata={"endpoint_group":endpoint_group, "http_status_category":"5xx"})
+            except Exception:
+                LOGGER.warning("api_unhandled_diagnostic_write_failed request_id=%s correlation_id=%s endpoint_group=%s", request_id, correlation_id, endpoint_group)
         response = JSONResponse({"detail": "Internal server error"}, status_code=500)
     response.headers["X-Request-ID"] = request_id
     response.headers["X-Correlation-ID"] = correlation_id
@@ -53,11 +79,9 @@ class LoginIn(BaseModel): email: EmailStr; password: str; login_csrf_token: str
 class CredentialIn(BaseModel): provider: CredentialProvider; label: str=Field(min_length=1,max_length=120); raw_value: str=Field(min_length=8,max_length=4096)
 class ProjectIn(BaseModel): title: str=Field(min_length=1,max_length=160); description: str|None=Field(default=None,max_length=2000)
 class ProjectPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     title: str|None=Field(default=None,min_length=1,max_length=160)
     description: str|None=Field(default=None,max_length=2000)
-    output_drive_folder_id: str|None=Field(default=None,max_length=256)
-    output_drive_folder_url: str|None=Field(default=None,max_length=2000)
-    output_drive_folder_name: str|None=Field(default=None,max_length=512)
 
 class GooglePickerSourceSelectionIn(BaseModel):
     file_ids: list[str]=Field(min_length=1,max_length=50)
@@ -91,6 +115,17 @@ class LocalUploadInitiateIn(BaseModel):
     original_filename: str=Field(min_length=1,max_length=255)
     mime_type: str=Field(min_length=1,max_length=255)
     size_bytes: int=Field(ge=1)
+
+class AccountPreferencesPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source_retention_ttl_seconds: int
+
+    @field_validator("source_retention_ttl_seconds")
+    @classmethod
+    def retention_must_be_supported(cls, value):
+        if value not in SOURCE_RETENTION_TTL_OPTIONS_SECONDS:
+            raise ValueError("Выберите поддерживаемый срок хранения")
+        return value
 
 class BatchJobItemIn(BaseModel):
     source_id: str=Field(min_length=1,max_length=36)
@@ -214,12 +249,34 @@ def refresh_csrf(pair=Depends(current_session), db: Session=Depends(get_db), _=D
 @app.get("/api/account")
 def account(pair=Depends(current_session)): return session(pair)
 
+def account_preferences_payload(user: User):
+    return {
+        "source_retention_ttl_seconds": user.source_retention_ttl_seconds,
+        "allowed_source_retention_ttl_seconds": list(SOURCE_RETENTION_TTL_OPTIONS_SECONDS),
+    }
+
+@app.get("/api/account/preferences")
+def account_preferences(pair=Depends(current_session)):
+    _,user=pair
+    return account_preferences_payload(user)
+
+@app.patch("/api/account/preferences")
+def update_account_preferences(data: AccountPreferencesPatch, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=pair
+    limiter.check("account:preferences:"+user.id, 30, 3600)
+    if user.source_retention_ttl_seconds != data.source_retention_ttl_seconds:
+        user.source_retention_ttl_seconds=data.source_retention_ttl_seconds
+        user.updated_at=utcnow()
+        audit(db,"account.preferences_updated",actor_user_id=user.id,subject_user_id=user.id)
+        db.commit()
+    return account_preferences_payload(user)
+
 @app.post("/api/auth/sessions/revoke-other")
 def revoke_other(pair=Depends(require_csrf), db: Session=Depends(get_db)):
     sess,user=pair; n=db.query(Session).filter(Session.user_id==user.id, Session.id!=sess.id, Session.revoked_at.is_(None)).update({"revoked_at": utcnow()}); audit(db,"auth.sessions_revoked", actor_user_id=user.id, subject_user_id=user.id); db.commit(); return {"revoked": n}
 
 def project_payload(p: Project):
-    return {"id": p.id, "owner_user_id": p.owner_user_id, "title": p.title, "description": p.description, "output_drive_folder_id": p.output_drive_folder_id, "output_drive_folder_url": p.output_drive_folder_url, "output_drive_folder_name": p.output_drive_folder_name, "created_at": p.created_at.isoformat(), "updated_at": p.updated_at.isoformat(), "archived_at": p.archived_at.isoformat() if p.archived_at else None}
+    return {"id": p.id, "title": p.title, "description": p.description, "output_drive_folder_id": p.output_drive_folder_id, "output_drive_folder_url": p.output_drive_folder_url, "output_drive_folder_name": p.output_drive_folder_name, "created_at": p.created_at.isoformat(), "updated_at": p.updated_at.isoformat(), "archived_at": p.archived_at.isoformat() if p.archived_at else None}
 
 def source_payload(s: Source):
     return {"id": s.id, "project_id": s.project_id, "source_type": s.source_type.value, "original_filename": s.original_filename, "mime_type": s.mime_type, "size_bytes": s.size_bytes, "drive_file_url": s.drive_file_url, "upload_status": s.upload_status.value, "uploaded_at": s.uploaded_at.isoformat() if s.uploaded_at else None, "expires_at": s.expires_at.isoformat() if s.expires_at else None, "deleted_at": s.deleted_at.isoformat() if s.deleted_at else None, "delete_reason": s.delete_reason, "created_at": s.created_at.isoformat(), "updated_at": s.updated_at.isoformat()}
@@ -295,7 +352,7 @@ def safe_job_output_folder_payload(job: TranscriptionJob):
     return {"name": clean_optional_name(job.output_drive_folder_name) or "Папка Google Drive", "web_view_url": url}
 
 def job_payload(job: TranscriptionJob, include_sources=False):
-    payload={"id": job.id, "project_id": job.project_id, "status": job.status.value, "title": job.title, "provider": job.provider, "provider_credential_id": job.provider_credential_id, "source_count": len(job.sources), "created_at": job.created_at.isoformat(), "updated_at": job.updated_at.isoformat(), "cancelled_at": job.cancelled_at.isoformat() if job.cancelled_at else None, "cancel_requested_at": job.cancel_requested_at.isoformat() if job.cancel_requested_at else None, "attempt_count": job.attempt_count or 0, "started_at": job.started_at.isoformat() if job.started_at else None, "finished_at": job.finished_at.isoformat() if job.finished_at else None, "error_code": safe_failure_metadata_value(job.error_code), "error_message": safe_failure_metadata_value(job.error_message), "output_folder": safe_job_output_folder_payload(job)}
+    payload={"id": job.id, "project_id": job.project_id, "status": job.status.value, "title": job.title, "provider": job.provider, "source_count": len(job.sources), "created_at": job.created_at.isoformat(), "updated_at": job.updated_at.isoformat(), "cancelled_at": job.cancelled_at.isoformat() if job.cancelled_at else None, "cancel_requested_at": job.cancel_requested_at.isoformat() if job.cancel_requested_at else None, "attempt_count": job.attempt_count or 0, "started_at": job.started_at.isoformat() if job.started_at else None, "finished_at": job.finished_at.isoformat() if job.finished_at else None, "error_code": safe_failure_metadata_value(job.error_code), "error_message": safe_failure_metadata_value(job.error_message), "output_folder": safe_job_output_folder_payload(job)}
     if include_sources: payload["sources"]=[job_source_payload(s) for s in sorted(job.sources, key=lambda item: item.position)]
     return payload
 
@@ -363,9 +420,6 @@ def update_project(project_id: str, data: ProjectPatch, pair=Depends(require_csr
     _,user=pair; limiter.check("project:update:"+user.id, 120, 3600); p=owned_project_or_404(db,user,project_id)
     if data.title is not None: p.title=clean_project_title(data.title)
     if data.description is not None: p.description=clean_project_description(data.description)
-    if "output_drive_folder_id" in data.model_fields_set: p.output_drive_folder_id=clean_drive_id(data.output_drive_folder_id, "ID папки Google Drive")
-    if "output_drive_folder_url" in data.model_fields_set: p.output_drive_folder_url=clean_drive_url(data.output_drive_folder_url)
-    if "output_drive_folder_name" in data.model_fields_set: p.output_drive_folder_name=clean_optional_name(data.output_drive_folder_name)
     p.updated_at=utcnow(); audit(db,"project.updated",actor_user_id=user.id,subject_user_id=user.id); db.commit(); return project_payload(p)
 
 @app.post("/api/projects/{project_id}/archive")
@@ -388,18 +442,26 @@ def list_sources(project_id: str, pair=Depends(current_session), db: Session=Dep
     rows=db.query(Source).filter(Source.project_id==p.id, Source.deleted_at.is_(None)).order_by(Source.created_at.desc()).all()
     return {"sources":[source_payload(r) for r in rows]}
 
-def _picker_cache_headers(response: Response):
+def _browser_capability_cache_headers(response: Response):
     response.headers["Cache-Control"] = "no-store"
     response.headers["Pragma"] = "no-cache"
 
+@app.get("/api/sources/upload-policy")
+def get_source_upload_policy(response: Response, pair=Depends(current_session)):
+    _browser_capability_cache_headers(response)
+    return browser_source_upload_policy(
+        settings.source_max_upload_bytes,
+        local_upload_enabled=settings.source_storage_configured(),
+    )
+
 @app.post("/api/google/picker/session")
 def create_google_picker_session(response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db)):
-    _,user=pair; limiter.check("google:picker:session:"+user.id, 30, 300); _picker_cache_headers(response)
+    _,user=pair; limiter.check("google:picker:session:"+user.id, 30, 300); _browser_capability_cache_headers(response)
     if not settings.google_picker_configured():
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Google Picker is not configured")
     try:
         conn=active_google_connection_for_user(db, user_id=user.id)
-        require_drive_file_scope(conn)
+        require_picker_browser_scope_boundary(conn)
         access_token=refresh_user_google_drive_access_token(db, user_id=user.id, settings=settings)
     except GoogleConnectionAccessError as exc:
         if exc.reason == GoogleConnectionAccessReason.missing:
@@ -419,7 +481,10 @@ def _validated_drive_metadata_for_picker(db: Session, user: User, drive_id: str)
     if not clean_id: raise HTTPException(422, "Некорректный ID Google Drive")
     try:
         access_token=refreshed_google_drive_access_token(db, user)
-        return fetch_drive_file_metadata(access_token, clean_id)
+        meta=fetch_drive_file_metadata(access_token, clean_id)
+        if not isinstance(meta.id, str) or meta.id.strip() != clean_id:
+            raise HTTPException(502, "Google Drive metadata is unavailable")
+        return meta
     except HTTPException:
         raise
     except GoogleDriveMetadataError:
@@ -427,24 +492,30 @@ def _validated_drive_metadata_for_picker(db: Session, user: User, drive_id: str)
     except Exception:
         raise HTTPException(502, "Google Drive metadata is unavailable")
 
+def _validated_google_drive_source_metadata(db: Session, user: User, drive_id: str):
+    meta=_validated_drive_metadata_for_picker(db, user, drive_id)
+    if meta.is_folder:
+        raise HTTPException(422, "Папки Google Drive нельзя добавить как source")
+    mime=normalize_source_mime_type(meta.mime_type or "")
+    if not is_supported_source_mime_type(mime):
+        raise HTTPException(422, "Неподдерживаемый тип файла")
+    if meta.size_bytes is not None and not validate_source_size(meta.size_bytes, settings.source_max_upload_bytes):
+        raise HTTPException(422, "Файл слишком большой")
+    return meta,mime
+
+def _new_google_drive_source(project_id: str, meta, mime: str, uploaded_at: datetime) -> Source:
+    return Source(project_id=project_id, source_type=SourceType.google_drive, original_filename=normalize_source_display_filename(meta.name or f"Google Drive source {meta.id}"), mime_type=mime, size_bytes=meta.size_bytes, drive_file_id=clean_drive_id(meta.id, "ID файла Google Drive"), drive_file_url=clean_drive_url(meta.web_view_link), upload_status=SourceUploadStatus.uploaded, uploaded_at=uploaded_at, storage_cleanup_status=SourceStorageCleanupStatus.not_applicable)
+
 @app.post("/api/projects/{project_id}/sources/google-picker")
 def create_google_picker_sources(project_id: str, data: GooglePickerSourceSelectionIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     _,user=pair; limiter.check("source:gpicker:create:"+user.id, 60, 3600); p=owned_project_or_404(db,user,project_id)
     metas=[]
     for raw_id in data.file_ids:
-        meta=_validated_drive_metadata_for_picker(db, user, raw_id)
-        if meta.is_folder:
-            raise HTTPException(422, "Папки Google Drive нельзя добавить как source")
-        mime=normalize_source_mime_type(meta.mime_type or "")
-        if not is_supported_source_mime_type(mime):
-            raise HTTPException(422, "Неподдерживаемый тип файла")
-        if meta.size_bytes is not None and not validate_source_size(meta.size_bytes, settings.source_max_upload_bytes):
-            raise HTTPException(422, "Файл слишком большой")
-        metas.append((meta, mime))
+        metas.append(_validated_google_drive_source_metadata(db, user, raw_id))
     now=utcnow(); created=[]
     try:
         for meta,mime in metas:
-            src=Source(project_id=p.id, source_type=SourceType.google_drive, original_filename=normalize_source_display_filename(meta.name or f"Google Drive source {meta.id}"), mime_type=mime, size_bytes=meta.size_bytes, drive_file_id=clean_drive_id(meta.id, "ID файла Google Drive"), drive_file_url=clean_drive_url(meta.web_view_link), upload_status=SourceUploadStatus.uploaded, uploaded_at=now, storage_cleanup_status=SourceStorageCleanupStatus.not_applicable)
+            src=_new_google_drive_source(p.id, meta, mime, now)
             db.add(src); created.append(src)
         audit(db,"source.google_picker.created",actor_user_id=user.id,subject_user_id=user.id,project_id=p.id,source_count=len(created)); db.commit()
     except Exception:
@@ -485,7 +556,7 @@ def _batch_hash(project_id, provider_credential_id, language, options_json, item
     return hashlib.sha256(json.dumps(canonical, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
-def _resolve_batch_elevenlabs_credential_id(db, user, requested_credential_id) -> str:
+def _resolve_active_elevenlabs_credential_id(db, user, requested_credential_id) -> str:
     requested = requested_credential_id.strip() if isinstance(requested_credential_id, str) and requested_credential_id.strip() else None
     if requested:
         credential = db.get(ProviderCredential, requested)
@@ -536,7 +607,7 @@ def create_transcription_jobs_batch(project_id: str, data: TranscriptionJobBatch
         if not _existing_batch_is_complete(existing, request_hash, len(data.items)):
             raise HTTPException(409, "Idempotency-Key already used with a different request")
         return {"jobs":[job_payload(j, include_sources=True) for j in existing], "created_count": len(existing), "replayed": True}
-    provider_credential_id=_resolve_batch_elevenlabs_credential_id(db, user, explicit_provider_credential_id)
+    provider_credential_id=_resolve_active_elevenlabs_credential_id(db, user, explicit_provider_credential_id)
     request_hash=_batch_hash(p.id, provider_credential_id, language, options_json, hash_items)
     if duplicate_pair_found:
         raise HTTPException(422, "Повторяющиеся source/folder пары не допускаются")
@@ -564,15 +635,19 @@ def create_transcription_jobs_batch(project_id: str, data: TranscriptionJobBatch
     for job in jobs: db.refresh(job)
     return {"jobs":[job_payload(j, include_sources=True) for j in sorted(jobs, key=lambda j: j.batch_position or 0)], "created_count": len(jobs), "replayed": False}
 
-@app.post("/api/projects/{project_id}/sources/google-drive")
-def create_google_drive_source(project_id: str, data: GoogleDriveSourceIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+@app.post("/api/projects/{project_id}/sources/google-drive", deprecated=True)
+def create_google_drive_source(project_id: str, data: GoogleDriveSourceIn, response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     _,user=pair; limiter.check("source:gdrive:create:"+user.id, 120, 3600); p=owned_project_or_404(db,user,project_id)
-    src=Source(project_id=p.id, source_type=SourceType.google_drive, original_filename=normalize_source_display_filename(data.original_filename), mime_type=data.mime_type.strip() if data.mime_type else None, size_bytes=data.size_bytes, drive_file_id=clean_drive_id(data.drive_file_id, "ID файла Google Drive"), drive_file_url=clean_drive_url(data.drive_file_url), upload_status=SourceUploadStatus.uploaded, uploaded_at=utcnow(), storage_cleanup_status=SourceStorageCleanupStatus.not_applicable)
-    db.add(src); audit(db,"source.google_drive.created",actor_user_id=user.id,subject_user_id=user.id); db.commit(); return source_payload(src)
+    meta,mime=_validated_google_drive_source_metadata(db, user, data.drive_file_id)
+    src=_new_google_drive_source(p.id, meta, mime, utcnow())
+    db.add(src); audit(db,"source.google_drive.created",actor_user_id=user.id,subject_user_id=user.id,project_id=p.id); db.commit()
+    response.headers["Deprecation"]="true"
+    response.headers["Link"]=f'</api/projects/{p.id}/sources/google-picker>; rel="successor-version"'
+    return source_payload(src)
 
 @app.post("/api/projects/{project_id}/sources/local-upload/initiate")
-def initiate_local_upload(project_id: str, data: LocalUploadInitiateIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
-    _,user=pair; limiter.check("source:local:initiate:"+user.id, 60, 3600); p=owned_project_or_404(db,user,project_id)
+def initiate_local_upload(project_id: str, data: LocalUploadInitiateIn, response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("source:local:initiate:"+user.id, 60, 3600); _browser_capability_cache_headers(response); p=owned_project_or_404(db,user,project_id)
     mime=validate_upload(data.mime_type, data.size_bytes)
     if not settings.source_storage_configured(): raise HTTPException(503, "Временное хранилище источников не настроено")
     now=utcnow(); src=Source(project_id=p.id, source_type=SourceType.local_upload, original_filename=normalize_source_display_filename(data.original_filename), mime_type=mime, size_bytes=data.size_bytes, upload_status=SourceUploadStatus.pending, expires_at=now+timedelta(seconds=settings.source_upload_ttl_seconds))
@@ -590,14 +665,25 @@ def complete_local_upload(source_id: str, pair=Depends(require_csrf), db: Sessio
     initial_status=src.upload_status
     initial_bucket=src.s3_bucket
     initial_key=src.s3_object_key
+    initial_size_bytes=src.size_bytes
+    initial_mime_type=src.mime_type
     if not initial_bucket or not initial_key:
         raise HTTPException(404,"Не найдено")
     try:
         head=get_source_storage(settings).head_object(initial_key)
     except FileNotFoundError:
         raise HTTPException(409, "Загруженный объект источника не найден")
-    if head.size_bytes is not None and src.size_bytes is not None and head.size_bytes > settings.source_max_upload_bytes: raise HTTPException(422, "Файл слишком большой")
-    if head.content_type and not is_supported_source_mime_type(head.content_type): raise HTTPException(422, "Неподдерживаемый тип файла")
+    metadata_issue=uploaded_object_metadata_issue(
+        expected_size_bytes=initial_size_bytes,
+        expected_mime_type=initial_mime_type,
+        actual_size_bytes=head.size_bytes,
+        actual_mime_type=head.content_type,
+        max_bytes=settings.source_max_upload_bytes,
+    )
+    if metadata_issue==UploadedObjectMetadataIssue.source_too_large: raise HTTPException(422, "Файл слишком большой")
+    if metadata_issue==UploadedObjectMetadataIssue.unsupported_mime_type: raise HTTPException(422, "Неподдерживаемый тип файла")
+    if metadata_issue==UploadedObjectMetadataIssue.metadata_unavailable: raise HTTPException(409, "Не удалось проверить метаданные загруженного объекта")
+    if metadata_issue is not None: raise HTTPException(409, "Метаданные загруженного объекта не совпадают с заявленными")
     src=db.execute(select(Source).where(Source.id==source_id).with_for_update().execution_options(populate_existing=True)).scalar_one_or_none()
     now=utcnow()
     project=db.get(Project, src.project_id) if src is not None else None
@@ -615,9 +701,17 @@ def complete_local_upload(source_id: str, pair=Depends(require_csrf), db: Sessio
         or is_source_expired(src, now)
         or src.s3_bucket != initial_bucket
         or src.s3_object_key != initial_key
+        or src.size_bytes != initial_size_bytes
+        or src.mime_type != initial_mime_type
     ):
         raise HTTPException(404,"Не найдено")
-    src.upload_status=SourceUploadStatus.uploaded; src.uploaded_at=now; src.updated_at=now; audit(db,"source.local_upload.completed",actor_user_id=user.id,subject_user_id=user.id); db.commit(); return source_payload(src)
+    src.upload_status=SourceUploadStatus.uploaded
+    src.uploaded_at=now
+    src.expires_at=now+timedelta(seconds=user.source_retention_ttl_seconds)
+    src.updated_at=now
+    audit(db,"source.local_upload.completed",actor_user_id=user.id,subject_user_id=user.id)
+    db.commit()
+    return source_payload(src)
 
 @app.delete("/api/sources/{source_id}")
 def delete_source(source_id: str, request: Request, pair=Depends(require_csrf), db: Session=Depends(get_db), _=Depends(require_same_origin)):
@@ -639,20 +733,23 @@ def list_project_jobs(project_id: str, pair=Depends(current_session), db: Sessio
     rows=db.query(TranscriptionJob).filter(TranscriptionJob.project_id==p.id, TranscriptionJob.owner_user_id==user.id).order_by(TranscriptionJob.created_at.desc()).all()
     return {"jobs":[job_payload(r) for r in rows]}
 
-@app.post("/api/projects/{project_id}/jobs")
-def create_transcription_job(project_id: str, data: TranscriptionJobCreateIn, request: Request, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+@app.post("/api/projects/{project_id}/jobs", deprecated=True)
+def create_transcription_job(project_id: str, data: TranscriptionJobCreateIn, request: Request, response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     _,user=pair; limiter.check("job:create:"+user.id, 60, 3600); p=owned_project_or_404(db,user,project_id)
     sources=validate_job_sources(db, p.id, data.source_ids, lock_mode="no_key_update")
-    if data.provider_credential_id:
-        cred=db.get(ProviderCredential, data.provider_credential_id)
-        if not cred or cred.user_id!=user.id or cred.status!=CredentialStatus.active: raise HTTPException(422, "Учетные данные провайдера недоступны")
-    job=TranscriptionJob(project_id=p.id, owner_user_id=user.id, status=JobStatus.queued, provider_credential_id=data.provider_credential_id, title=clean_job_title(data.title), language=clean_job_language(data.language), options_json=safe_job_options(data.options))
-    job.apply_output_folder_snapshot(folder_id=p.output_drive_folder_id, folder_url=p.output_drive_folder_url, folder_name=p.output_drive_folder_name)
+    output_folder_id=clean_drive_id(p.output_drive_folder_id, "ID папки Google Drive")
+    if not output_folder_id:
+        raise HTTPException(422, "Выберите папку Google Drive для результатов.")
+    provider_credential_id=_resolve_active_elevenlabs_credential_id(db, user, data.provider_credential_id)
+    job=TranscriptionJob(project_id=p.id, owner_user_id=user.id, status=JobStatus.queued, provider_credential_id=provider_credential_id, title=clean_job_title(data.title), language=clean_job_language(data.language), options_json=safe_job_options(data.options))
+    job.apply_output_folder_snapshot(folder_id=output_folder_id, folder_url=p.output_drive_folder_url, folder_name=p.output_drive_folder_name)
     db.add(job); db.flush()
     for idx, src in enumerate(sources):
         db.add(TranscriptionJobSource(job_id=job.id, source_id=src.id, position=idx, status=JobSourceStatus.queued))
     audit(db,"job.created",actor_user_id=user.id,subject_user_id=user.id,project_id=p.id,job_id=job.id,source_count=len(sources))
-    db.commit(); write_diagnostic_event(owner_user_id=user.id, component="api", event_code="JOB_CREATED", project_id=p.id, job_id=job.id, request_id=getattr(request.state,"request_id",None), correlation_id=getattr(request.state,"correlation_id",None), metadata={"source_count": len(sources), "credential_selected": bool(data.provider_credential_id)}); db.refresh(job)
+    db.commit(); write_diagnostic_event(owner_user_id=user.id, component="api", event_code="JOB_CREATED", project_id=p.id, job_id=job.id, request_id=getattr(request.state,"request_id",None), correlation_id=getattr(request.state,"correlation_id",None), metadata={"source_count": len(sources), "credential_selected": True}); db.refresh(job)
+    response.headers["Deprecation"]="true"
+    response.headers["Link"]=f'</api/projects/{p.id}/jobs/batch>; rel="successor-version"'
     return job_payload(job, include_sources=True)
 
 @app.get("/api/jobs/{job_id}")
@@ -928,7 +1025,7 @@ def diagnostics_report(data: DiagnosticReportIn, pair=Depends(require_csrf), db:
 
 def google_connection_payload(c: GoogleConnection|None):
     picker_configured=settings.google_picker_configured()
-    scope_ready=bool(c and c.status == GoogleConnectionStatus.active and has_drive_file_scope(c.scopes))
+    scope_ready=bool(c and c.status == GoogleConnectionStatus.active and has_picker_browser_scope_boundary(c.scopes))
     base={"connected": bool(c and c.status == GoogleConnectionStatus.active), "status": c.status.value if c else None, "google_email": c.google_email if c else None, "scopes": c.scopes if c else None, "connected_at": c.connected_at.isoformat() if c and c.connected_at else None, "revoked_at": c.revoked_at.isoformat() if c and c.revoked_at else None, "picker_configured": picker_configured, "picker_scope_ready": scope_ready, "picker_ready": bool(picker_configured and scope_ready)}
     if base["connected"] and not scope_ready:
         base["reconnect_required"] = True
@@ -952,8 +1049,8 @@ def get_google_connection(pair=Depends(current_session), db: Session=Depends(get
     return google_connection_payload(current_google_connection(db, user))
 
 @app.post("/api/google/oauth/start")
-def start_google_oauth(request: Request, pair=Depends(require_csrf), db: Session=Depends(get_db)):
-    sess,user=pair; limiter.check("google:oauth:start:"+user.id, 20, 3600)
+def start_google_oauth(request: Request, response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    sess,user=pair; limiter.check("google:oauth:start:"+user.id, 20, 3600); _browser_capability_cache_headers(response)
     cfg=google_config_or_503()
     from .google_oauth import authorization_url
     raw_state=new_token()

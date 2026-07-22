@@ -100,6 +100,8 @@ CI should:
 - not deploy;
 - clearly report success, for example with `CI_OK`.
 
+Network-backed dependency advisory scans run in a separate scheduled/manual workflow so advisory-service availability cannot block ordinary pull-request or `main` CI. A vulnerability finding fails that audit workflow. A registry or advisory-service outage requires a later rerun and must not be reported as a confirmed product vulnerability or as green audit evidence.
+
 If the project has no tests, CI may run the smallest available useful checks.
 
 Do not introduce heavy testing infrastructure as part of a CI setup unless explicitly requested.
@@ -158,6 +160,12 @@ After safe `.env.example` to runtime `.env` sync, deploy scripts must check runt
 Use placeholders such as `__REQUIRED_SECRET__` only as schema markers, not as real values.
 
 Do not print or validate runtime secrets with unsafe commands such as `cat .env`, `docker compose config`, or any command that can expose resolved secret values.
+
+Baseline repository and Studio CI must remain secretless: use synthetic test values,
+do not require real ElevenLabs, OpenAI, Google, or production credentials, and do
+not make real transcription/provider calls. Any future credentialed integration or
+end-to-end workflow requires a separate explicitly approved, isolated, and gated
+design before credentials are introduced.
 
 ---
 

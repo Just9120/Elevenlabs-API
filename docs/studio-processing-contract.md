@@ -86,7 +86,7 @@ If cancellation, lease loss, owner/generation mismatch, project/source mutation,
 ## Known limitations
 
 - Output reconciliation is source-level and explicit owner-driven; runtime rollout still requires operator migration/deployment evidence.
-- No safe stage-specific retry/recovery system.
+- Safe stage-specific retry/recovery is source-level and explicit owner-driven; runtime rollout evidence remains pending.
 - No generic retry/recovery scheduler for failed long external calls.
 - No OpenAI Studio processing path.
 - No Studio manifest mutation.
@@ -118,5 +118,9 @@ The maximum processing attempts per job is three: the initial attempt plus at mo
 Studio source removal is logical, owner-scoped, and durable in PostgreSQL. Source rows are never hard-deleted by the source lifecycle; display metadata, job-source relations, historical jobs, persisted outputs, attempt evidence, and reconciliation cases remain available for history. Google Drive source removal only removes the Studio reference: Studio must not delete, trash, update, or otherwise mutate the external Drive file, and Google Docs outputs are not removed by this flow.
 
 Local-upload bytes use an asynchronous, idempotent cleanup lifecycle stored on `sources`. S3/R2 delete is allowed only after durable logical deletion or retention expiry state exists. A missing object is treated as successful physical cleanup; storage failures do not roll back logical deletion and are retried through durable cleanup state. Object storage identity is cleared only after successful cleanup finalization; browser payloads must not expose bucket/object keys, cleanup owners, cleanup generations, cleanup leases, cleanup attempt counts, cleanup errors, or internal job references.
+
+Pending local uploads expire one hour after initiation by default. Verified completion resets `expires_at` from the authenticated owner's PostgreSQL-backed account preference: one hour, 24 hours (default), three days, seven days, or 30 days. Preference changes are owner-scoped, CSRF-protected, allowlisted server-side, and apply only to future verified completions; browser-local state is not retention authority. The browser presign remains a separate capability with a maximum lifetime of 15 minutes. Completed local-source payloads expose the exact expiry so the PWA can show it, while Google Drive inputs and Google Docs outputs are outside this retention rule.
+
+Maximum source bytes and supported MIME rules are server policy. The authenticated PWA may read only those safe values plus a local-upload availability boolean through the `no-store` source-upload policy DTO so it can reject unsupported local selections early; unavailable storage or malformed/unavailable policy disables direct local upload. This browser check never replaces server validation at initiation, exact stored-object metadata verification, source availability, or materialization.
 
 Local sources expire when `expires_at <= now`. Expiry blocks new jobs, claims, explicit retries, expired-lease recovery, upload completion, and processing-time source access. Retention expiry may mark a local source `expired` with `delete_reason=retention_expired` without setting `deleted_at`, so unavailable metadata may remain visible. A referencing `processing` job defers physical cleanup until terminal/recovered state; cleanup never calls the provider, Google Drive, Google Docs, output reconciliation, or attempt-ledger mutation. Completed, cancelled, non-retryable failed, provider-uncertain/result-lost, and unresolved-reconciliation history does not block user source deletion; queued, processing, and actually retryable failed jobs do block deletion.

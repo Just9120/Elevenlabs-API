@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from io import BytesIO
@@ -169,7 +169,7 @@ def test_test_module_has_no_import_time_env_file_or_schema_side_effects():
 
 
 def test_source_policy_normalizes_and_accepts_only_media_and_ogg():
-    from studio_api.source_policy import is_supported_source_mime_type, normalize_source_mime_type
+    from studio_api.source_policy import browser_source_upload_policy, is_supported_source_mime_type, normalize_source_mime_type
 
     assert normalize_source_mime_type(" Audio/MPEG ") == "audio/mpeg"
     assert is_supported_source_mime_type("audio/wav")
@@ -177,6 +177,56 @@ def test_source_policy_normalizes_and_accepts_only_media_and_ogg():
     assert is_supported_source_mime_type("application/ogg")
     assert not is_supported_source_mime_type("application/pdf")
     assert not is_supported_source_mime_type("application/vnd.google-apps.folder")
+    assert browser_source_upload_policy(123, local_upload_enabled=True) == {
+        "local_upload_enabled": True,
+        "max_upload_bytes": 123,
+        "supported_mime_prefixes": ["audio/", "video/"],
+        "supported_mime_types": ["application/ogg"],
+    }
+
+
+def test_source_expiry_policy_normalizes_mixed_timezone_awareness():
+    from studio_api.source_policy import is_source_expired
+
+    naive_now = datetime(2026, 7, 22, 6, 40, 27)
+    aware_now = naive_now.replace(tzinfo=timezone.utc)
+
+    assert is_source_expired(aware_now, naive_now)
+    assert is_source_expired(naive_now, aware_now)
+    assert not is_source_expired(aware_now + timedelta(seconds=1), naive_now)
+    assert not is_source_expired(None, aware_now)
+
+
+@pytest.mark.parametrize(
+    ("expected_size", "expected_mime", "actual_size", "actual_mime", "expected_issue"),
+    [
+        (10, "audio/mpeg", 10, " Audio/MPEG ", None),
+        (10, "audio/mpeg", None, "audio/mpeg", "metadata_unavailable"),
+        (10, "audio/mpeg", 10, None, "metadata_unavailable"),
+        (10, "audio/mpeg", 1001, "audio/mpeg", "source_too_large"),
+        (10, "audio/mpeg", 10, "text/plain", "unsupported_mime_type"),
+        (10, "audio/mpeg", 11, "audio/mpeg", "source_size_mismatch"),
+        (10, "audio/mpeg", 10, "audio/wav", "source_mime_mismatch"),
+    ],
+)
+def test_uploaded_object_metadata_requires_exact_complete_head(
+    expected_size,
+    expected_mime,
+    actual_size,
+    actual_mime,
+    expected_issue,
+):
+    from studio_api.source_policy import uploaded_object_metadata_issue
+
+    issue = uploaded_object_metadata_issue(
+        expected_size_bytes=expected_size,
+        expected_mime_type=expected_mime,
+        actual_size_bytes=actual_size,
+        actual_mime_type=actual_mime,
+        max_bytes=1000,
+    )
+
+    assert (issue.value if issue else None) == expected_issue
 
 
 def test_processing_job_local_upload_head_ready_and_safe(sqlite_session, models):
@@ -726,3 +776,29 @@ def test_malformed_drive_metadata_maps_to_unavailable(sqlite_session, models, mo
     assert "drive_metadata_unavailable" in summary.blocking_reasons
     assert "drive_file_identity_mismatch" not in summary.blocking_reasons
     assert_safe_summary(summary)
+
+
+def test_source_retention_preference_allowlist_and_model_constraint():
+    from studio_api.models import User
+    from studio_api.source_policy import (
+        DEFAULT_SOURCE_RETENTION_TTL_SECONDS,
+        SOURCE_RETENTION_TTL_OPTIONS_SECONDS,
+    )
+
+    assert DEFAULT_SOURCE_RETENTION_TTL_SECONDS == 86400
+    assert SOURCE_RETENTION_TTL_OPTIONS_SECONDS == (
+        3600,
+        86400,
+        259200,
+        604800,
+        2592000,
+    )
+    assert User.__table__.c.source_retention_ttl_seconds.nullable is False
+    retention_constraint = next(
+        constraint
+        for constraint in User.__table__.constraints
+        if constraint.name == "ck_users_source_retention_ttl_allowed"
+    )
+    assert str(retention_constraint.sqltext) == (
+        "source_retention_ttl_seconds IN (3600, 86400, 259200, 604800, 2592000)"
+    )

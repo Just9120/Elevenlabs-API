@@ -88,7 +88,7 @@ esac
         "studio-worker": state.get("worker", "missing"),
     }
     worker_count = int(state.get("worker_count", "0"))
-    current = state.get("current", "0014_source_deletion_retention")
+    current = state.get("current", "0015_user_source_retention")
     _write_exe(bin_dir / "docker", f"""#!/usr/bin/env bash
 set -euo pipefail
 printf 'docker %s\n' "$*" >> {str(log)!r}
@@ -227,8 +227,8 @@ def test_revision_safety_cases(tmp_path: Path) -> None:
     assert proc.returncode == 0
     case = tmp_path / "nohead"
     proc, calls, repo = run_preflight(case)
-    f = repo / "apps/studio-api/alembic/versions/0014_source_deletion_retention.py"
-    f.write_text(f.read_text().replace('revision = "0014_source_deletion_retention"', 'revision = "0013_wrong_head"'), encoding="utf-8")
+    f = repo / "apps/studio-api/alembic/versions/0015_user_source_retention.py"
+    f.write_text(f.read_text().replace('revision = "0015_user_source_retention"', 'revision = "0015_wrong_head"'), encoding="utf-8")
     proc = subprocess.run(["bash", str(SCRIPT), str(repo), "main", "Just9120/Elevenlabs-API", SHA], cwd=repo, env={**os.environ, "PATH": f"{case/'bin'}:{os.environ['PATH']}"}, text=True, capture_output=True, timeout=15)
     assert proc.returncode != 0
 
@@ -334,9 +334,11 @@ def test_semantic_runtime_validation_blocks_before_docker(tmp_path: Path) -> Non
         ("STUDIO_WORKER_POLL_INTERVAL_SECONDS", "abc"),
         ("STUDIO_WORKER_ERROR_BACKOFF_SECONDS", "-1"),
         ("STUDIO_SOURCE_MAX_UPLOAD_BYTES", "0"),
+        ("STUDIO_SOURCE_MAX_UPLOAD_BYTES", "2147483648"),
         ("STUDIO_WORKER_POLL_INTERVAL_SECONDS", "61"),
         ("STUDIO_WORKER_LEASE_TTL_SECONDS", "299"),
-        ("STUDIO_SOURCE_UPLOAD_TTL_SECONDS", "10 20"),
+        ("STUDIO_SOURCE_UPLOAD_TTL_SECONDS", "899"),
+        ("STUDIO_SOURCE_PRESIGN_TTL_SECONDS", "901"),
     ]
     for i, (key, value) in enumerate(cases):
         proc, calls = with_env_override(tmp_path / str(i), key, value)
@@ -528,6 +530,7 @@ def test_old_env_without_worker_lease_heartbeat_key_passes_preflight_runtime_val
     proc, calls, _ = run_preflight(tmp_path, omit_heartbeat="1")
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "runtime setting completeness | pass" in proc.stdout
+
 
 def test_explicit_valid_worker_lease_heartbeat_value_passes_preflight(tmp_path: Path) -> None:
     proc, _, _ = run_preflight(tmp_path, env_text=None) if False else run_preflight(tmp_path)

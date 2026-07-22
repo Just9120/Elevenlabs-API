@@ -11,7 +11,7 @@ from .google_drive import GOOGLE_FOLDER_MIME_TYPE, GoogleDriveMetadataError, Goo
 from .job_claim_lease import is_lease_active
 from .models import JobStatus, Project, SourceType, SourceUploadStatus, TranscriptionJob, TranscriptionJobSource
 from .security import utcnow
-from .source_policy import is_supported_source_mime_type, normalize_source_mime_type, validate_source_size
+from .source_policy import is_source_expired, is_supported_source_mime_type, normalize_source_mime_type, validate_source_size
 from .source_storage import get_source_storage
 
 
@@ -205,7 +205,7 @@ def _snapshot(job, js):
 
 def _verify_local(snap, now, settings, storage_factory):
     reasons = []
-    if snap["expires_at"] is not None and snap["expires_at"] <= now:
+    if is_source_expired(snap["expires_at"], now):
         reasons.append("source_expired")
     if not snap["s3_bucket"] or not snap["s3_object_key"]:
         reasons.append("source_missing_required_identity")
@@ -370,7 +370,7 @@ def _relation_revalidation(original: tuple[SourceRelationSnapshot, ...], current
             changed_source_ids.add(original_relation.source_id)
         if current_relation.deleted_at is not None:
             changed_source_ids.add(original_relation.source_id)
-        if current_relation.expires_at is not None and current_relation.expires_at <= now:
+        if is_source_expired(current_relation.expires_at, now):
             changed_source_ids.add(original_relation.source_id)
 
     if _ordered_relation_keys(original) != _ordered_relation_keys(current):

@@ -68,6 +68,19 @@ def test_writer_sanitizes_retains_and_deduplicates(db):
     from studio_api.diagnostics import expiry_for
     assert expiry_for("DEBUG", now) - now <= timedelta(hours=24)
 
+def test_unhandled_api_event_registry_accepts_only_safe_aggregate_metadata(db):
+    from studio_api import models as m
+    from studio_api.diagnostics import write_diagnostic_event
+    u,_,_=user_project_job(db)
+    Session=sessionmaker(bind=db.bind, expire_on_commit=False)
+    result=write_diagnostic_event(owner_user_id=u.id, component="api", event_code="API_UNHANDLED_EXCEPTION", metadata={"endpoint_group":"jobs", "http_status_category":"5xx"}, session_factory=Session)
+    assert result.persisted
+    row=db.query(m.DiagnosticEvent).filter_by(event_code="API_UNHANDLED_EXCEPTION").one()
+    assert row.level == m.DiagnosticLevel.ERROR
+    assert json.loads(row.metadata_json) == {"endpoint_group":"jobs", "http_status_category":"5xx"}
+    rejected=write_diagnostic_event(owner_user_id=u.id, component="api", event_code="API_UNHANDLED_EXCEPTION", metadata={"endpoint_group":"jobs", "http_status_category":"5xx", "exception":"private"}, session_factory=Session)
+    assert rejected.accepted is False
+
 def test_secret_like_request_and_correlation_ids_are_rejected(db):
     from studio_api import models as m
     from studio_api.diagnostics import valid_correlation_id, valid_request_id, write_diagnostic_event
@@ -188,6 +201,71 @@ def test_request_ids_headers(monkeypatch, db):
     assert "secret" not in r.text
     main.app.dependency_overrides.clear()
 
+def test_authenticated_session_marks_owner_for_middleware_diagnostics(db):
+    from studio_api import models as m
+    from studio_api.deps import current_session
+    from studio_api.security import token_hash, utcnow
+    u,_,_=user_project_job(db)
+    raw="runtime-session-value"
+    session=m.Session(user_id=u.id, token_hash=token_hash(raw), csrf_hash="csrf", expires_at=utcnow()+timedelta(hours=1))
+    db.add(session); db.commit()
+    request=SimpleNamespace(cookies={"studio_session":raw}, state=SimpleNamespace())
+    pair=current_session(request, db=db, settings=SimpleNamespace(cookie_name="studio_session"))
+    assert pair == (session, u)
+    assert request.state.owner_user_id == u.id
+
+def test_unhandled_middleware_emits_safe_owner_event_without_exception_text(monkeypatch, caplog):
+    import asyncio
+    from starlette.requests import Request
+    import studio_api.main as main
+    owner="11111111-1111-4111-8111-111111111111"
+    events=[]
+    monkeypatch.setattr(main, "write_diagnostic_event", lambda **kwargs: events.append(kwargs) or SimpleNamespace(accepted=True, persisted=True))
+    caplog.set_level("ERROR", logger="studio_api.api")
+    request=Request({"type":"http", "http_version":"1.1", "method":"GET", "scheme":"https", "path":"/api/jobs/private-job-id", "raw_path":b"/api/jobs/private-job-id", "query_string":b"token=private", "headers":[(b"x-correlation-id", b"Bearer private")], "client":("127.0.0.1", 1234), "server":("studio.test", 443)})
+
+    async def fail_after_auth(current_request):
+        current_request.state.owner_user_id=owner
+        raise RuntimeError("private exception text")
+
+    response=asyncio.run(main.request_correlation_middleware(request, fail_after_auth))
+    assert response.status_code == 500
+    assert json.loads(response.body) == {"detail":"Internal server error"}
+    assert response.headers["X-Request-ID"].startswith("req_")
+    assert response.headers["X-Correlation-ID"].startswith("corr_")
+    assert events == [{
+        "owner_user_id":owner,
+        "component":"api",
+        "event_code":"API_UNHANDLED_EXCEPTION",
+        "correlation_id":response.headers["X-Correlation-ID"],
+        "request_id":response.headers["X-Request-ID"],
+        "metadata":{"endpoint_group":"jobs", "http_status_category":"5xx"},
+    }]
+    evidence=response.body.decode()+" "+caplog.text+" "+json.dumps(events)
+    for forbidden in ["private exception text", "private-job-id", "token=private", "Bearer private"]:
+        assert forbidden not in evidence
+
+def test_unhandled_middleware_keeps_diagnostic_writer_failure_non_recursive(monkeypatch, caplog):
+    import asyncio
+    from starlette.requests import Request
+    import studio_api.main as main
+    def fail_writer(**kwargs):
+        raise RuntimeError("private writer failure")
+    monkeypatch.setattr(main, "write_diagnostic_event", fail_writer)
+    caplog.set_level("WARNING", logger="studio_api.api")
+    request=Request({"type":"http", "http_version":"1.1", "method":"GET", "scheme":"https", "path":"/api/projects/private-project-id", "raw_path":b"/api/projects/private-project-id", "query_string":b"", "headers":[], "client":("127.0.0.1", 1234), "server":("studio.test", 443)})
+
+    async def fail_after_auth(current_request):
+        current_request.state.owner_user_id="11111111-1111-4111-8111-111111111111"
+        raise RuntimeError("private route failure")
+
+    response=asyncio.run(main.request_correlation_middleware(request, fail_after_auth))
+    assert response.status_code == 500
+    assert "api_unhandled_diagnostic_write_failed" in caplog.text
+    assert "private writer failure" not in caplog.text
+    assert "private route failure" not in caplog.text
+    assert "private-project-id" not in caplog.text
+
 def test_default_period_signed_cursor_can_be_used_without_repeating_period(db, monkeypatch):
     from fastapi.testclient import TestClient
     import studio_api.main as main
@@ -305,6 +383,9 @@ def test_api_job_create_batch_replay_and_cancel_diagnostics(monkeypatch, db):
     import studio_api.main as main
     from studio_api import models as m
     u,p,_=user_project_job(db)
+    p.output_drive_folder_id = "legacy-output-folder"
+    p.output_drive_folder_url = "https://drive.google.com/drive/folders/legacy-output-folder"
+    p.output_drive_folder_name = "Legacy output"
     cred = m.ProviderCredential(
         user_id=u.id,
         provider=m.CredentialProvider.elevenlabs,

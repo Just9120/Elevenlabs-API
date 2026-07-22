@@ -499,18 +499,24 @@ def test_audit_source_lifecycle_metadata_contract(sqlite_db):
     audit(sqlite_db, "credential.updated", provider="openai", credential_id="cred-safe", session_id="sess-safe", reason="rotation")
     sqlite_db.commit()
 
-    rows = sqlite_db.query(m.AuditEvent).order_by(m.AuditEvent.created_at.asc(), m.AuditEvent.id.asc()).all()
-    persisted = json.loads(rows[0].metadata_json)
+    rows = sqlite_db.query(m.AuditEvent).all()
+    blocked = [row for row in rows if row.event_type == "source.deletion_blocked"]
+    cleanup_failures = [row for row in rows if row.event_type == "source.storage_cleanup_failed"]
+    credential_updates = [row for row in rows if row.event_type == "credential.updated"]
+
+    assert len(rows) == 5
+    assert len(blocked) == 1
+    assert len(cleanup_failures) == 3
+    assert len(credential_updates) == 1
+    persisted = json.loads(blocked[0].metadata_json)
     assert persisted == {
         "blocker": "queued_job_uses_source",
         "deletion_reason": "user_deleted",
         "cleanup_outcome": "completed",
         "cleanup_attempt": 7,
     }
-    assert json.loads(rows[1].metadata_json) == {}
-    assert json.loads(rows[2].metadata_json) == {}
-    assert json.loads(rows[3].metadata_json) == {}
-    assert json.loads(rows[4].metadata_json) == {"credential_id": "cred-safe", "provider": "openai", "reason": "rotation", "session_id": "sess-safe"}
+    assert all(json.loads(row.metadata_json) == {} for row in cleanup_failures)
+    assert json.loads(credential_updates[0].metadata_json) == {"credential_id": "cred-safe", "provider": "openai", "reason": "rotation", "session_id": "sess-safe"}
 
 
 def test_cleanup_sql_selection_skips_more_than_100_processing_blocked_sources(sqlite_db):

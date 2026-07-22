@@ -37,6 +37,7 @@ def current_session(request: Request, db: Session=Depends(get_db), settings: Set
     if not sess or sess.expires_at <= utcnow(): raise HTTPException(401, "Требуется вход")
     user=db.get(User, sess.user_id)
     if not user or user.status != UserStatus.active: raise HTTPException(401, "Требуется вход")
+    request.state.owner_user_id=user.id
     sess.last_seen_at=utcnow(); db.commit(); return sess, user
 
 def require_csrf(request: Request, x_csrf_token: str=Header(default=""), pair=Depends(current_session), _=Depends(require_same_origin)):

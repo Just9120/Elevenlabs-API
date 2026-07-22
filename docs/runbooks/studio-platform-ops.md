@@ -46,6 +46,7 @@ Bootstrap boundary:
 4. Start API and web components separately.
 5. Bootstrap the initial admin only through the approved server-side bootstrap admin command and without printing credentials.
 6. Verify nginx routes browser traffic to the web component and `/api/*` traffic to the API component.
+7. Validate the public HTTPS response carries the repository CSP, HSTS, `nosniff`, no-referrer, permissions, and framing headers; confirm Picker open/select/cancel and one bounded local PUT still work without CSP violations. Do not infer live header state from the committed nginx file.
 7. Verify localhost and public health endpoints for the intended components.
 
 After migrations and successful API/database configuration, bootstrap the first admin with the approved interactive command:
@@ -70,7 +71,7 @@ Manual migration rollout order is strict:
 2. Create a tagged pre-migration PostgreSQL backup through the approved backup boundary.
 3. Confirm the backup completed and record only safe snapshot metadata.
 4. Run the manual migration command/script only after explicit operator confirmation.
-5. Verify production database revision equals repository Alembic head `0014_source_deletion_retention` where the deployment is expected to be current.
+5. Verify production database revision equals repository Alembic head `0015_user_source_retention` where the deployment is expected to be current.
 6. Deploy or restart only the intended components.
 
 Operator-safe tagged backup command:
@@ -112,18 +113,22 @@ Temporary local-computer Studio source uploads use a private dedicated S3/R2-com
 
 Configuration requirements:
 
-- endpoint URL, region, bucket, upload TTL, presign TTL, and maximum upload bytes are non-secret runtime settings;
+- endpoint URL, region, bucket, pending-upload TTL, presign TTL, and maximum upload bytes are non-secret runtime settings; maximum upload bytes must be within `1..2147483647` and is exposed to authenticated browsers only through the safe `no-store` upload-policy DTO;
 - access key ID and secret access key are provided through operator-managed secret files;
-- browser payloads must never expose object keys, private bucket names when sensitive, presigned URLs, secret-file paths, or source bytes;
+- object keys, private bucket names when sensitive, secret-file paths, and source bytes remain server-only;
+- only the authenticated owner-scoped upload-initiation response may expose a PUT-only presigned URL; it must be `no-store`, expire within 60–900 seconds, and must not appear in logs, diagnostics, evidence, later metadata responses, or browser storage;
+- `STUDIO_SOURCE_UPLOAD_TTL_SECONDS` defaults to 3600 seconds for unfinished uploads; post-completion retention is an allowlisted per-user PostgreSQL preference managed in PWA settings, not a runtime env value;
 - rollout of source-storage config is API-only unless another component is explicitly in scope.
 
 ## Google OAuth runtime configuration
 
 Google OAuth runtime config is fail-closed. OAuth endpoints must remain unavailable or reject safely until required non-secret settings and a non-empty client secret file are present.
 
-Required settings include client ID, redirect URI, scopes, state TTL, and the client-secret file path. The client secret itself stays in an operator-managed file. Current Drive/Picker integration requires `openid`, `email`, and `https://www.googleapis.com/auth/drive.file`; do not invent broader scopes. If OAuth scopes change, existing Google connections may require disconnect/reconnect before validation.
+Required settings include client ID, redirect URI, scopes, state TTL, and the client-secret file path. The client secret itself stays in an operator-managed file. Current Drive/Picker integration permits only `openid`, email identity, and `https://www.googleapis.com/auth/drive.file`; do not invent broader scopes or enable incremental previously granted scopes. A connection reporting any additional scope is not Picker-ready and must be disconnected/reconnected before browser-token issuance.
 
 Picker readiness is separate from OAuth readiness. `STUDIO_GOOGLE_PICKER_API_KEY` and `STUDIO_GOOGLE_PICKER_APP_ID` must be configured, non-empty, and not placeholder values. OAuth connection, Picker configuration, and writable output folder selection are three different preconditions. Do not record Picker key/app ID values in validation evidence.
+
+The host nginx file is the single browser security-header authority. Keep script and frame sources limited to the documented Google Picker hosts; do not add `unsafe-eval` or wildcard script sources. The runtime-configured upload destination currently requires general HTTPS in `connect-src`; narrow it only after all intended production S3/R2 origins are explicit and a real Picker/upload smoke test is available. Standard component CD does not apply or reload host nginx, so header rollout and `nginx -t` remain explicit operator actions.
 
 Roll out OAuth/Picker config through API deployment only when runtime files are ready. Validate with authenticated owner-scoped flows and confirm unauthenticated connection/status endpoints still reject as expected.
 
@@ -152,14 +157,14 @@ Before any processing rollout or canary, verify without printing sensitive value
 - credential master key and encrypted BYOK records are usable;
 - exactly one intended active ElevenLabs BYOK credential exists for the smoke account;
 - writable Google output folder selection exists;
-- production database revision is known and compared to repository Alembic head `0014_source_deletion_retention`;
+- production database revision is known and compared to repository Alembic head `0015_user_source_retention`;
 - exactly one worker instance is intended for the canary.
 
 ## Controlled worker rollout sequence
 
 1. Keep `studio-worker` stopped until migration and runtime readiness are confirmed.
 2. Create/confirm the tagged pre-migration database backup if a migration or stateful rollout is involved.
-3. Verify production database revision equals repository head `0014_source_deletion_retention` where the deployment is expected to be current.
+3. Verify production database revision equals repository head `0015_user_source_retention` where the deployment is expected to be current.
 4. Deploy web/API only through the approved isolated component deployment model.
 5. Verify intended commit/image identity, running component identity, localhost health, public health, authenticated session behavior, and output endpoint availability without exposing another owner’s data.
 6. Start exactly one `studio-worker` from the intended image with no public HTTP port.
@@ -205,10 +210,6 @@ Any exception between claim commit and transition to `processing` blocks the smo
 Stopping the worker must not automatically requeue, delete, retry, downgrade, remove output rows, or delete Google documents. Do not clear leases with direct SQL during smoke recovery. Do not run destructive Docker Compose `down`, prune, volume removal, automatic downgrade, automatic job reset, provider retry, Google document deletion/recreation, or output-row deletion.
 
 Output-side-effect uncertainty requires a separate reconciliation item. API/web rollback requires an explicitly reviewed database-compatible operator decision.
-
-## Legacy deployment pointer
-
-The legacy stateless web-only path remains documented separately in `docs/runbooks/legacy-studio-web-deploy.md` until `PWA-LEGACY-AUTHORITY-01` removes or formally supersedes that runtime code. Do not use the legacy path for platform API, worker, processing, PostgreSQL, Redis, migrations, or production processing rollout.
 
 ## Residual limitations
 
@@ -335,7 +336,7 @@ GitHub Actions supports manual `workflow_dispatch(component=worker)` using the s
 
 ## Output reconciliation operations boundary
 
-`PWA-OUTPUT-RECONCILIATION-01` is source-level only until an operator manually applies migration `0014_source_deletion_retention` in the target database and verifies API/worker image compatibility. Standard CD must not run this migration automatically.
+`PWA-OUTPUT-RECONCILIATION-01` is source-level only until an operator manually applies the current migration head `0015_user_source_retention` in the target database and verifies API/worker image compatibility. Standard CD must not run migrations automatically.
 
 When a job fails with `output_reconciliation_required`, the owner may use the Studio PWA action or API check endpoint to query Drive by the internal opaque appProperty token and the job output-folder snapshot. Operators must not ask users for raw Google document IDs, must not create duplicate Google Docs, must not delete possible duplicates, must not retry provider processing as reconciliation, and must not inspect transcript/document bodies as evidence. Zero matches remain unresolved for later explicit checks. Multiple matches are a conflict requiring manual investigation outside the automated path.
 
@@ -351,4 +352,4 @@ No production deployment, migration rollout, worker rollout, or controlled canar
 
 ## Source cleanup operations note
 
-Repository Alembic head is `0014_source_deletion_retention`. Source cleanup is durable PostgreSQL state on `sources` and is processed as bounded worker idle maintenance after normal job claim/orchestration finds no job. Safe diagnostics use normalized source deletion/retention/cleanup events and must not log object keys, buckets, filenames, Drive file IDs, presigned URLs, raw storage errors, or secrets. Production migration, deployment, worker rollout, and controlled canary remain manual operator actions and were not run by this source-level PR.
+Repository Alembic head is `0015_user_source_retention`. Source cleanup is durable PostgreSQL state on `sources`; the allowlisted per-user retention preference is durable PostgreSQL state on `users`. Cleanup is processed as bounded worker idle maintenance after normal job claim/orchestration finds no job. Safe diagnostics use normalized source deletion/retention/cleanup events and must not log object keys, buckets, filenames, Drive file IDs, presigned URLs, raw storage errors, or secrets. Production migration, deployment, worker rollout, and controlled canary remain manual operator actions and were not run by this source-level PR.

@@ -2,36 +2,44 @@ import {
   ChangeEvent,
   FormEvent,
   useEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
 import {
   Briefcase,
-  ClipboardList,
   Home,
-  PlusCircle,
   Settings,
 } from "lucide-react";
-import { buildSegmentPlan, hasSegmentErrors, type Segment } from "./segments";
 import * as googlePicker from "./googlePicker";
 import type { PickerSession } from "./googlePicker";
 import {
   clearPwaDiagnosticsSession,
   configurePwaDiagnosticsDebugState,
-  emitPwaDiagnostic,
   updatePwaDiagnosticsCsrf,
 } from "./pwaDiagnostics";
+import {
+  ApiError,
+  api,
+  batchMutateWithCsrfRetry,
+  mutateWithCsrfRetry,
+  requestJson,
+} from "./apiClient";
 import "./styles.css";
 
-// Platform mode is selected at build time by VITE_STUDIO_PLATFORM_MODE.
-const platformMode = import.meta.env.VITE_STUDIO_PLATFORM_MODE === "platform";
-const appUrl =
-  import.meta.env.VITE_APP_PUBLIC_URL ?? "https://studio.librechat.online";
-type Page = "dashboard" | "projects" | "new" | "jobs" | "settings";
+type Page = "dashboard" | "projects" | "settings";
 type SettingsSection = "account" | "diagnostics";
 type PlatformRoute = { page: Page; settingsSection: SettingsSection };
 type User = { email: string; role: string };
+type AccountPreferences = {
+  source_retention_ttl_seconds: number;
+  allowed_source_retention_ttl_seconds: number[];
+};
+type SourceUploadPolicy = {
+  local_upload_enabled: boolean;
+  max_upload_bytes: number;
+  supported_mime_prefixes: string[];
+  supported_mime_types: string[];
+};
 type Credential = {
   id: string;
   provider: "elevenlabs" | "openai";
@@ -158,7 +166,6 @@ type TranscriptionJob = {
   status: JobСтатус;
   title: string | null;
   provider: string | null;
-  provider_credential_id: string | null;
   source_count: number;
   sources?: JobSource[];
   created_at: string;
@@ -234,7 +241,6 @@ const googleOauthMessages: Record<GoogleOauthResult, string> = {
 const googleOauthResults = new Set<GoogleOauthResult>(
   Object.keys(googleOauthMessages) as GoogleOauthResult[],
 );
-const LOCAL_UPLOAD_LIMIT_BYTES = 536870912;
 const emptySourceState = {
   loading: false,
   error: "",
@@ -253,6 +259,25 @@ function formatBytes(value: number | null) {
 }
 function formatTime(value: string | null) {
   return value ? new Date(value).toLocaleString("ru-RU") : "—";
+}
+function retentionOptionLabel(seconds: number) {
+  const labels: Record<number, string> = {
+    3600: "1 час",
+    86400: "24 часа",
+    259200: "3 дня",
+    604800: "7 дней",
+    2592000: "30 дней",
+  };
+  return labels[seconds] ?? `${seconds} сек.`;
+}
+function formatUploadLimit(value: number) {
+  const mebibytes = value / 1024 / 1024;
+  if (mebibytes >= 1)
+    return `${Number.isInteger(mebibytes) ? mebibytes : mebibytes.toFixed(1)} МБ`;
+  const kibibytes = value / 1024;
+  if (kibibytes >= 1)
+    return `${Number.isInteger(kibibytes) ? kibibytes : kibibytes.toFixed(1)} КБ`;
+  return `${value} байт`;
 }
 function isUsableJobSource(source: Source) {
   const expiresAt = source.expires_at ? new Date(source.expires_at).getTime() : null;
@@ -362,176 +387,63 @@ function credentialProfileLabel(c: Credential) {
   return c.active_version ? `${c.label} · v${c.active_version}` : c.label;
 }
 const ELEVENLABS_CREDENTIAL_SESSION_KEY = "studio.elevenlabsCredentialId";
-export function isSupportedSourceMimeType(mimeType: string) {
+function normalizeSourceUploadPolicy(value: unknown): SourceUploadPolicy | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Partial<SourceUploadPolicy>;
+  if (
+    typeof candidate.local_upload_enabled !== "boolean" ||
+    !Number.isSafeInteger(candidate.max_upload_bytes) ||
+    Number(candidate.max_upload_bytes) <= 0 ||
+    !Array.isArray(candidate.supported_mime_prefixes) ||
+    !Array.isArray(candidate.supported_mime_types)
+  )
+    return null;
+  const prefixes = candidate.supported_mime_prefixes
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+  const types = candidate.supported_mime_types
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+  if (
+    prefixes.length !== candidate.supported_mime_prefixes.length ||
+    types.length !== candidate.supported_mime_types.length ||
+    prefixes.length + types.length === 0
+  )
+    return null;
+  return {
+    local_upload_enabled: candidate.local_upload_enabled,
+    max_upload_bytes: Number(candidate.max_upload_bytes),
+    supported_mime_prefixes: [...new Set(prefixes)],
+    supported_mime_types: [...new Set(types)],
+  };
+}
+function isSupportedSourceMimeType(
+  mimeType: string,
+  policy: SourceUploadPolicy,
+) {
   const normalized = mimeType.trim().toLowerCase();
   return (
-    normalized.startsWith("audio/") ||
-    normalized.startsWith("video/") ||
-    normalized === "application/ogg"
+    policy.supported_mime_prefixes.some((prefix) =>
+      normalized.startsWith(prefix),
+    ) || policy.supported_mime_types.includes(normalized)
   );
 }
-function isSupportedMediaFile(file: File) {
-  return isSupportedSourceMimeType(file.type);
+function sourceUploadAccept(policy: SourceUploadPolicy) {
+  return [
+    ...policy.supported_mime_prefixes.map((prefix) => `${prefix}*`),
+    ...policy.supported_mime_types,
+  ].join(",");
 }
-const staticNav: { id: Page; label: string; icon: typeof Home }[] = [
-  { id: "dashboard", label: "Панель", icon: Home },
-  { id: "projects", label: "Проекты", icon: Briefcase },
-  { id: "new", label: "Новая транскрибация", icon: PlusCircle },
-  { id: "jobs", label: "Задачи", icon: ClipboardList },
-  { id: "settings", label: "Настройки", icon: Settings },
-];
+function isSupportedMediaFile(file: File, policy: SourceUploadPolicy) {
+  return isSupportedSourceMimeType(file.type, policy);
+}
 const platformNav: { id: Page; label: string; icon: typeof Home }[] = [
   { id: "dashboard", label: "Обзор", icon: Home },
   { id: "projects", label: "Проекты", icon: Briefcase },
   { id: "settings", label: "Настройки", icon: Settings },
 ];
-const demoProjects = [
-  "Интервью продукта — демо",
-  "Подкаст о локализации — демо",
-  "Исследование звонков — демо",
-];
-const demoJobs = [
-  { title: "Демо: ожидание серверной очереди", state: "Прототип" },
-  { title: "Демо: проверка сегментов", state: "UI-only" },
-];
-class ApiError extends Error {
-  status: number;
-  data?: unknown;
-  constructor(status: number, message: string, data?: unknown) {
-    super(message);
-    this.status = status;
-    this.data = data;
-  }
-}
-function diagnosticEndpointGroup(path: string) {
-  if (path.startsWith("/auth")) return "auth";
-  if (path.startsWith("/projects")) return "projects";
-  if (path.startsWith("/sources")) return "sources";
-  if (path.startsWith("/jobs")) return "jobs";
-  if (path.startsWith("/google")) return "google";
-  if (path.startsWith("/credentials")) return "credentials";
-  if (path.startsWith("/diagnostics")) return "diagnostics";
-  return "unknown";
-}
-function statusCategory(status?: number) {
-  if (!status || status < 100 || status > 599) return "unknown";
-  return `${Math.floor(status / 100)}xx`;
-}
-function isRetryableApiFailure(status?: number) {
-  return !status || status === 408 || status === 429 || status >= 500;
-}
-function emitApiFailure(path: string, startedAt: number, status?: number) {
-  if (path.startsWith("/diagnostics/pwa-events")) return;
-  emitPwaDiagnostic("PWA_API_REQUEST_FAILED", {
-    boundary: "api_request",
-    error_code: "api_request_failed",
-    endpoint_group: diagnosticEndpointGroup(path),
-    http_status_category: statusCategory(status),
-    duration_ms: performance.now() - startedAt,
-    retryable: isRetryableApiFailure(status),
-  });
-}
-
-async function requestJson<T>(
-  path: string,
-  options: RequestInit = {},
-  csrf?: string,
-): Promise<T> {
-  const res = await fetch(`/api${path}`, {
-    ...options,
-    credentials: "same-origin",
-    headers: {
-      "content-type": "application/json",
-      ...(csrf ? { "x-csrf-token": csrf } : {}),
-      ...(options.headers ?? {}),
-    },
-  });
-  if (!res.ok) {
-    let data: unknown = null;
-    try {
-      data = await res.clone().json();
-    } catch {
-      data = null;
-    }
-    throw new ApiError(
-      res.status,
-      res.status === 429
-        ? "Слишком много попыток. Попробуйте позже."
-        : "Операция не выполнена. Проверьте данные и повторите.",
-      data,
-    );
-  }
-  return res.json();
-}
-
-async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const startedAt = performance.now();
-  try {
-    return await requestJson<T>(path, options);
-  } catch (err) {
-    emitApiFailure(
-      path,
-      startedAt,
-      err instanceof ApiError ? err.status : undefined,
-    );
-    throw err;
-  }
-}
-
-function isCsrfRejection(err: unknown) {
-  return (
-    err instanceof ApiError &&
-    (err.status === 401 || err.status === 403 || err.status === 419)
-  );
-}
-
-async function mutateWithCsrfRetry<T>(
-  path: string,
-  csrf: string,
-  onCsrf: (csrf: string) => void,
-  options: RequestInit,
-): Promise<T> {
-  const startedAt = performance.now();
-  try {
-    return await requestJson<T>(path, options, csrf);
-  } catch (err) {
-    if (!isCsrfRejection(err)) {
-      emitApiFailure(
-        path,
-        startedAt,
-        err instanceof ApiError ? err.status : undefined,
-      );
-      throw err;
-    }
-    try {
-      const refreshed = await requestJson<{ csrf_token: string }>(
-        "/auth/csrf",
-        {
-          method: "POST",
-        },
-      );
-      onCsrf(refreshed.csrf_token);
-      return await requestJson<T>(path, options, refreshed.csrf_token);
-    } catch (retryErr) {
-      emitApiFailure(
-        path,
-        startedAt,
-        retryErr instanceof ApiError ? retryErr.status : undefined,
-      );
-      throw retryErr;
-    }
-  }
-}
-
-async function batchMutateWithCsrfRetry<T>(
-  path: string,
-  csrf: string,
-  onCsrf: (csrf: string) => void,
-  options: RequestInit,
-): Promise<T> {
-  return mutateWithCsrfRetry<T>(path, csrf, onCsrf, options);
-}
-
 async function bootstrapSession(): Promise<{
   user: User;
   csrf: string;
@@ -592,184 +504,6 @@ function consumeGoogleOauthResult(): GoogleOauthResult | null {
   return googleOauthResults.has(raw as GoogleOauthResult)
     ? (raw as GoogleOauthResult)
     : null;
-}
-function NewTranscription() {
-  const [file, setFile] = useState<File | null>(null);
-  const [segments, setSegments] = useState<Segment[]>([
-    { id: crypto.randomUUID(), title: "", end: "" },
-  ]);
-  const plan = useMemo(() => buildSegmentPlan(segments), [segments]);
-  const invalid = hasSegmentErrors(segments);
-  return (
-    <section className="card wide">
-      <p className="eyebrow">Локально в браузере</p>
-      <h2>Новая транскрибация</h2>
-      <p className="notice">
-        Файл не загружается на сервер. Provider calls, Google Drive/Docs и
-        серверные задачи появятся позже.
-      </p>
-      <label className="drop">
-        Выберите audio/video файл
-        <input
-          type="file"
-          accept="audio/*,video/*"
-          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-        />
-      </label>
-      {file && (
-        <dl className="meta">
-          <dt>Файл</dt>
-          <dd>{file.name}</dd>
-          <dt>Размер</dt>
-          <dd>{(file.size / 1024 / 1024).toFixed(2)} MB</dd>
-          <dt>Тип</dt>
-          <dd>{file.type || "не указан браузером"}</dd>
-        </dl>
-      )}
-      <div className="builder">
-        <h3>Сегменты будущих документов</h3>
-        {segments.map((s, i) => (
-          <div className="segment" key={s.id}>
-            <strong>Часть {i + 1}</strong>
-            <label>
-              Название Google Doc (прототип)
-              <input
-                value={s.title}
-                onChange={(e) =>
-                  setSegments((v) =>
-                    v.map((x) =>
-                      x.id === s.id ? { ...x, title: e.target.value } : x,
-                    ),
-                  )
-                }
-                placeholder={`Часть ${i + 1}`}
-              />
-            </label>
-            {i < segments.length - 1 ? (
-              <label>
-                Конец части
-                <input
-                  value={s.end}
-                  onChange={(e) =>
-                    setSegments((v) =>
-                      v.map((x) =>
-                        x.id === s.id ? { ...x, end: e.target.value } : x,
-                      ),
-                    )
-                  }
-                  placeholder="MM:SS"
-                  aria-invalid={Boolean(plan[i]?.error)}
-                />
-              </label>
-            ) : (
-              <span className="pill">До конца записи</span>
-            )}
-            <button
-              type="button"
-              onClick={() =>
-                setSegments((v) => [
-                  ...v,
-                  { id: crypto.randomUUID(), title: "", end: "" },
-                ])
-              }
-            >
-              Добавить часть
-            </button>
-            {plan[i]?.error && <p className="error">{plan[i].error}</p>}
-          </div>
-        ))}
-      </div>
-      <ol className="timeline">
-        {plan.map((p) => (
-          <li key={p.index}>
-            <b>{p.title}</b>
-            <span>
-              {p.start} → {p.endLabel}
-            </span>
-          </li>
-        ))}
-      </ol>
-      <button className="primary" disabled={!file || invalid}>
-        Подготовить черновик задачи
-      </button>
-    </section>
-  );
-}
-function StaticShell() {
-  const [page, setPage] = useState<Page>("dashboard");
-  return (
-    <div className="shell">
-      <aside className="app-sidebar">
-        <div className="brand">
-          Studio PWA<span>UI foundation</span>
-        </div>
-        <nav className="app-nav" aria-label="Основная навигация">
-          {staticNav.map(({ id, label, icon: Icon }) => (
-            <button
-              className={page === id ? "active" : ""}
-              aria-current={page === id ? "page" : undefined}
-              onClick={() => setPage(id)}
-              key={id}
-            >
-              <Icon size={18} />
-              {label}
-            </button>
-          ))}
-        </nav>
-      </aside>
-      <main>
-        {page === "dashboard" && (
-          <section className="hero">
-            <p className="eyebrow">Русскоязычная Studio</p>
-            <h1>Панель готова к установке</h1>
-            <p>
-              Это статический PWA-фундамент: app shell и прототипы будущих
-              сценариев без входа, API, транскрибации и интеграций.
-            </p>
-            <button className="primary" onClick={() => setPage("new")}>
-              Создать черновик
-            </button>
-          </section>
-        )}
-        {page === "projects" && (
-          <section className="grid">
-            <h2>Проекты</h2>
-            {demoProjects.map((p) => (
-              <article className="card" key={p}>
-                <span className="tag">Демо-данные</span>
-                <h3>{p}</h3>
-                <p>Клиентский прототип, не связан с Drive или manifest.</p>
-              </article>
-            ))}
-          </section>
-        )}
-        {page === "new" && <NewTranscription />}
-        {page === "jobs" && (
-          <section className="grid">
-            <h2>Задачи</h2>
-            {demoJobs.map((j) => (
-              <article className="card" key={j.title}>
-                <span className="tag">{j.state}</span>
-                <h3>{j.title}</h3>
-                <p>Реальная очередь и provider processing ещё не подключены.</p>
-              </article>
-            ))}
-          </section>
-        )}
-        {page === "settings" && (
-          <section className="card wide">
-            <h2>Настройки</h2>
-            <p>Публичный URL приложения:</p>
-            <code>{appUrl}</code>
-            <p className="notice">
-              Статический режим не обращается к `/api` и не требует PostgreSQL,
-              Redis или секретов.
-            </p>
-          </section>
-        )}
-      </main>
-    </div>
-  );
 }
 function Login({ onLogin }: { onLogin: (u: User, csrf: string) => void }) {
   const [bootstrap, setBootstrap] = useState(false);
@@ -922,6 +656,9 @@ function SourcesPanel({
             <span>{unusableJobSourceReason(source)}</span>
           )}
           <span>Размер: {formatBytes(source.size_bytes)}</span>
+          {source.source_type === "local_upload" && source.expires_at && (
+            <span>Хранится до: {formatTime(source.expires_at)}</span>
+          )}
           <div className="resource-actions">
             {isSafeDisplayUrl(source.drive_file_url) && (
               <ResourceExternalLink
@@ -1035,6 +772,9 @@ function PreparationPanel({
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [credentialsLoading, setCredentialsLoading] = useState(true);
   const [credentialsError, setCredentialsError] = useState("");
+  const [sourceUploadPolicy, setSourceUploadPolicy] =
+    useState<SourceUploadPolicy | null>(null);
+  const [sourceUploadPolicyError, setSourceUploadPolicyError] = useState("");
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [batchJobs, setBatchJobs] = useState<TranscriptionJob[]>([]);
@@ -1089,6 +829,28 @@ function PreparationPanel({
       })
       .finally(() => {
         if (!cancelled) setCredentialsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  useEffect(() => {
+    let cancelled = false;
+    setSourceUploadPolicy(null);
+    setSourceUploadPolicyError("");
+    api<unknown>("/sources/upload-policy")
+      .then((value) => {
+        if (cancelled) return;
+        const policy = normalizeSourceUploadPolicy(value);
+        if (!policy) throw new Error("Invalid source upload policy");
+        setSourceUploadPolicy(policy);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setSourceUploadPolicy(null);
+        setSourceUploadPolicyError(
+          "Не удалось загрузить правила локальной загрузки. Загрузка с устройства временно недоступна.",
+        );
       });
     return () => {
       cancelled = true;
@@ -1294,15 +1056,18 @@ function PreparationPanel({
         return;
       }
       if (
+        sourceUploadPolicy &&
         result.docs.some(
-          (doc) => doc.mimeType && !isSupportedSourceMimeType(doc.mimeType),
+          (doc) =>
+            doc.mimeType &&
+            !isSupportedSourceMimeType(doc.mimeType, sourceUploadPolicy),
         )
       ) {
         setRowIntakeStatus((current) => ({ ...current, [rowId]: "" }));
         setRowIntakeErrors((current) => ({
           ...current,
           [rowId]:
-            "Выберите только аудио, видео или OGG. В выборе есть неподдерживаемые файлы.",
+            "В выборе есть файлы, не поддерживаемые текущими правилами.",
         }));
         return;
       }
@@ -1355,13 +1120,22 @@ function PreparationPanel({
     const files = Array.from(e.target.files ?? []);
     e.target.value = "";
     if (files.length === 0) return;
+    if (!sourceUploadPolicy?.local_upload_enabled) {
+      setRowIntakeErrors((current) => ({
+        ...current,
+        [rowId]:
+          sourceUploadPolicyError ||
+          "Локальная загрузка временно недоступна. Повторите попытку позже.",
+      }));
+      return;
+    }
     const successful: Source[] = [];
     const failures: string[] = [];
     setRowIntakeErrors((current) => ({ ...current, [rowId]: "" }));
     for (const file of files) {
-      if (!isSupportedMediaFile(file)) {
+      if (!isSupportedMediaFile(file, sourceUploadPolicy)) {
         failures.push(
-          `${file.name}: поддерживаются только аудио, видео или OGG.`,
+          `${file.name}: тип файла не поддерживается текущими правилами.`,
         );
         continue;
       }
@@ -1369,8 +1143,10 @@ function PreparationPanel({
         failures.push(`${file.name}: файл пустой.`);
         continue;
       }
-      if (file.size > LOCAL_UPLOAD_LIMIT_BYTES) {
-        failures.push(`${file.name}: файл больше 512 МБ.`);
+      if (file.size > sourceUploadPolicy.max_upload_bytes) {
+        failures.push(
+          `${file.name}: файл больше ${formatUploadLimit(sourceUploadPolicy.max_upload_bytes)}.`,
+        );
         continue;
       }
       try {
@@ -1399,6 +1175,10 @@ function PreparationPanel({
           method: initiated.upload.method,
           headers: initiated.upload.headers,
           body: file,
+          cache: "no-store",
+          credentials: "omit",
+          redirect: "error",
+          referrerPolicy: "no-referrer",
         });
         if (!put.ok)
           throw new Error("Не удалось загрузить файл во временное хранилище.");
@@ -1969,6 +1749,19 @@ function PreparationPanel({
               : "Все строки готовы"}
           </span>
         </div>
+        {sourceUploadPolicy?.local_upload_enabled ? (
+          <p className="muted">
+            Локальная загрузка: до{" "}
+            {formatUploadLimit(sourceUploadPolicy.max_upload_bytes)}. Допустимые
+            типы получены с сервера.
+          </p>
+        ) : sourceUploadPolicy ? (
+          <p className="notice">Локальная загрузка временно недоступна.</p>
+        ) : sourceUploadPolicyError ? (
+          <p className="notice">{sourceUploadPolicyError}</p>
+        ) : (
+          <p className="muted">Загружаем правила локальной загрузки…</p>
+        )}
         <fieldset className="composer-rows">
           <legend>Строки подготовки</legend>
           {!sources.loaded && (
@@ -2080,8 +1873,15 @@ function PreparationPanel({
                         </button>
                         <span className="file-picker-control">
                           <label
-                            className="button-like secondary"
+                            className={`button-like secondary${
+                              sourceUploadPolicy?.local_upload_enabled
+                                ? ""
+                                : " disabled"
+                            }`}
                             htmlFor={`local-source-upload-${row.id}`}
+                            aria-disabled={
+                              !sourceUploadPolicy?.local_upload_enabled
+                            }
                           >
                             <span aria-hidden="true">С устройства</span>
                             <span className="visually-hidden">
@@ -2094,7 +1894,12 @@ function PreparationPanel({
                             aria-label={`Выбрать файлы с устройства для строки ${index + 1}`}
                             type="file"
                             multiple
-                            accept="audio/*,video/*,.ogg,.oga,application/ogg"
+                            accept={
+                              sourceUploadPolicy?.local_upload_enabled
+                                ? sourceUploadAccept(sourceUploadPolicy)
+                                : undefined
+                            }
+                            disabled={!sourceUploadPolicy?.local_upload_enabled}
                             onChange={(e) =>
                               void uploadRowLocalSources(row.id, e)
                             }
@@ -2116,6 +1921,13 @@ function PreparationPanel({
                             Статус:{" "}
                             {sourceСтатусLabel(selectedSource.upload_status)}
                           </span>
+                          {selectedSource.source_type === "local_upload" &&
+                            selectedSource.expires_at && (
+                              <span>
+                                Временная копия хранится до:{" "}
+                                {formatTime(selectedSource.expires_at)}
+                              </span>
+                            )}
                           {isSafeDisplayUrl(
                             selectedSource.drive_file_url ?? null,
                           ) && (
@@ -2964,6 +2776,7 @@ function auditLabel(type: string) {
     "auth.login_failed": "Неудачная попытка входа",
     "auth.logout": "Выход выполнен",
     "auth.sessions_revoked": "Другие сеансы завершены",
+    "account.preferences_updated": "Настройки хранения обновлены",
     "project.created": "Проект создан",
     "project.updated": "Проект обновлён",
     "project.archived": "Проект архивирован",
@@ -3006,6 +2819,14 @@ function SettingsPage({
   const [googleLoading, setGoogleLoading] = useState(true);
   const [googleMessage, setGoogleMessage] = useState("");
   const [googleStarting, setGoogleStarting] = useState(false);
+  const [accountPreferences, setAccountPreferences] =
+    useState<AccountPreferences | null>(null);
+  const [retentionSelection, setRetentionSelection] = useState("86400");
+  const [retentionState, setRetentionState] = useState<
+    "loading" | "ready" | "error"
+  >("loading");
+  const [retentionSaving, setRetentionSaving] = useState(false);
+  const [retentionMessage, setRetentionMessage] = useState("");
   const [error, setError] = useState("");
   const [createCredentialOpen, setCreateCredentialOpen] = useState(false);
   const [replacingCredentialId, setReplacingCredentialId] = useState<
@@ -3022,12 +2843,37 @@ function SettingsPage({
       })
       .finally(() => setGoogleLoading(false));
   };
+  const loadAccountPreferences = () => {
+    setRetentionState("loading");
+    setRetentionMessage("");
+    api<AccountPreferences>("/account/preferences")
+      .then((preferences) => {
+        if (
+          !Array.isArray(preferences.allowed_source_retention_ttl_seconds) ||
+          !preferences.allowed_source_retention_ttl_seconds.includes(
+            preferences.source_retention_ttl_seconds,
+          )
+        ) {
+          throw new Error("invalid account preferences");
+        }
+        setAccountPreferences(preferences);
+        setRetentionSelection(
+          String(preferences.source_retention_ttl_seconds),
+        );
+        setRetentionState("ready");
+      })
+      .catch(() => {
+        setAccountPreferences(null);
+        setRetentionState("error");
+      });
+  };
   const load = () => {
     api<{ credentials: Credential[] }>("/credentials").then((r) =>
       setCredentials(r.credentials),
     );
     api<{ events: Audit[] }>("/audit-events").then((r) => setEvents(r.events));
     loadGoogleConnection();
+    loadAccountPreferences();
   };
   useEffect(load, []);
   const safeMutate = <T,>(path: string, options: RequestInit) =>
@@ -3072,6 +2918,38 @@ function SettingsPage({
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ошибка");
+    }
+  }
+  async function saveRetentionPreference(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const selected = Number(retentionSelection);
+    if (
+      !accountPreferences?.allowed_source_retention_ttl_seconds.includes(
+        selected,
+      )
+    ) {
+      setRetentionMessage("Выберите доступный срок хранения.");
+      return;
+    }
+    setRetentionSaving(true);
+    setRetentionMessage("");
+    try {
+      const preferences = await safeMutate<AccountPreferences>(
+        "/account/preferences",
+        {
+          method: "PATCH",
+          body: JSON.stringify({ source_retention_ttl_seconds: selected }),
+        },
+      );
+      setAccountPreferences(preferences);
+      setRetentionSelection(
+        String(preferences.source_retention_ttl_seconds),
+      );
+      setRetentionMessage("Срок хранения сохранён.");
+    } catch {
+      setRetentionMessage("Не удалось сохранить срок хранения.");
+    } finally {
+      setRetentionSaving(false);
     }
   }
   const action = async (path: string, method = "POST") => {
@@ -3162,6 +3040,59 @@ function SettingsPage({
             <button className="secondary" onClick={onLogout}>
               Выйти
             </button>
+          </section>
+          <h3>Хранение локальных файлов</h3>
+          <section className="card retention-preferences">
+            <p>
+              Выбранный срок применяется к новым файлам после завершения
+              загрузки. Уже загруженные файлы сохраняют текущую дату удаления.
+            </p>
+            {retentionState === "loading" && (
+              <p role="status">Загружаем настройку хранения…</p>
+            )}
+            {retentionState === "error" && (
+              <div className="error">
+                <p>Не удалось загрузить настройку хранения.</p>
+                <button type="button" onClick={loadAccountPreferences}>
+                  Повторить
+                </button>
+              </div>
+            )}
+            {retentionState === "ready" && accountPreferences && (
+              <form
+                className="retention-preferences-form"
+                aria-label="Настройка хранения локальных файлов"
+                onSubmit={saveRetentionPreference}
+              >
+                <label>
+                  Срок хранения
+                  <select
+                    aria-label="Срок хранения локальных файлов"
+                    value={retentionSelection}
+                    onChange={(event) => {
+                      setRetentionSelection(event.target.value);
+                      setRetentionMessage("");
+                    }}
+                  >
+                    {accountPreferences.allowed_source_retention_ttl_seconds.map(
+                      (seconds) => (
+                        <option key={seconds} value={seconds}>
+                          {retentionOptionLabel(seconds)}
+                        </option>
+                      ),
+                    )}
+                  </select>
+                </label>
+                <button className="primary" disabled={retentionSaving}>
+                  {retentionSaving ? "Сохраняем…" : "Сохранить срок"}
+                </button>
+              </form>
+            )}
+            {retentionMessage && (
+              <p role="status" className="notice">
+                {retentionMessage}
+              </p>
+            )}
           </section>
           <h3>Ключи провайдеров</h3>
           <p className="notice">
@@ -4060,19 +3991,6 @@ function PlatformShell() {
             />
           </div>
         )}
-        {page === "new" && <NewTranscription />}
-        {page === "jobs" && (
-          <section className="grid">
-            <h2>Задачи</h2>
-            {demoJobs.map((j) => (
-              <article className="card" key={j.title}>
-                <span className="tag">{j.state}</span>
-                <h3>{j.title}</h3>
-                <p>Реальная очередь и provider processing ещё не подключены.</p>
-              </article>
-            ))}
-          </section>
-        )}
         {page === "settings" && (
           <SettingsPage
             user={user}
@@ -4091,8 +4009,6 @@ function PlatformShell() {
     </div>
   );
 }
-export default function App({
-  mode = platformMode ? "platform" : "static",
-}: { mode?: "static" | "platform" } = {}) {
-  return mode === "platform" ? <PlatformShell /> : <StaticShell />;
+export default function App() {
+  return <PlatformShell />;
 }

@@ -30,6 +30,11 @@ Durable Colab invariants:
 - Existing Colab notebooks/scripts must not be refactored as a side effect of Studio documentation or platform work.
 - Secret values must be read from approved runtime secret mechanisms and never printed.
 - Provider responses, transcript bodies, document content, Google tokens, and private source bytes must not be copied into repository docs, logs, examples, or validation evidence.
+- Provider HTTP failures expose safe diagnostics only: provider name, status code, an endpoint without query parameters, and scalar fields `detail`, `message`, `code`, `type`, `error.message`, `error.type`, and `error.code`. Raw response bodies must not be printed. Google retry logs must likewise omit request/response bodies, transcript text, tokens, and secrets.
+- Generated media, transcripts, private manifest exports, runtime analytics, and notebook outputs containing user data must not be committed.
+- Runtime temp cleanup is TTL-based (24 hours by default), best-effort, and limited to stale artifacts with the `elevenlabs_api_` project prefix; it must not target generic temporary files or arbitrary user media.
+- The manifest workflow supports one user in one runtime. Parallel notebooks or tabs are not an accepted concurrency model.
+- The Colab launcher executes repository code from `GITHUB_REF`; only trusted reviewed refs may be used, and a reviewed commit SHA is preferred for reproducible runs.
 - Long-media behavior and manifest behavior remain Colab baseline capabilities for parity analysis, not automatically proven Studio capabilities.
 
 Realtime Colab is a separate experimental validation path. Its current runbook is `docs/runbooks/realtime-colab.md`; it does not replace the stable batch Colab workflow.
@@ -102,14 +107,15 @@ Manual segmentation:
 - Re-running a controlled batch must not repeat paid transcription without a manifest/source/settings reason.
 - The Drive workspace is `VoiceOps Workspace/`; legacy `_transcription_state` history must not be deleted before reconciliation.
 - Analytics JSONL is best-effort aggregate evidence and must not include transcript body, secrets, raw provider payloads, raw Google/Drive payloads, Google Docs body content, raw Drive URLs, or full local paths.
+- New structured Google Docs output must use transcript text and provider/model/language/speaker/timestamp metadata already available in memory. It must not expose source filename/source mode in the visible metadata block, create mirrored Markdown output, or make extra provider/LLM/Docs readback calls only for formatting.
 
 ### Colab maintenance workflows
 
 Existing Colab maintenance workflows are explicit operator actions, not new transcription runs:
 
-- Existing Google Docs transcripts may be standardized to `transcript_doc_v1.2` through an explicit dry-run/apply maintenance workflow.
-- Existing manifest records may be reconciled or refreshed without calling a transcription provider.
-- Maintenance workflows must not call STT/LLM APIs and must not register a new transcription output as the result of a new provider run.
+- Existing Google Docs transcripts may be standardized to `transcript_doc_v1.2` through a selected-folder workflow that defaults to dry-run and separates selected-folder scan counters from apply-impact counters. Explicit apply may rewrite only the same selected Google Doc in place; it must not process PDFs/non-Google-Docs, create new Docs or mirrored artifacts, mutate manifest entries, call STT/provider/LLM APIs, or print document body text. The older source-matching standardization path is legacy/internal, not the primary maintenance path.
+- Existing manifest records may be reconciled or refreshed through a schema-only workflow that defaults to read-only dry-run and separates selected-folder results from global manifest reference statistics. It may read a Google Doc only to classify transcript structure, and apply may persist operational document/source metadata, source processing state, and classification metadata, never transcript or document body text. `standard_check` stores only target/detected standard, status, checked-at time, and checker version.
+- Manifest maintenance must not mutate Google Docs, create Docs, call STT/provider/LLM APIs, or register a new transcription output. Timestamped backups created during old-schema migration contain sensitive operational metadata and require the same access care as the active manifest.
 - Speaker-project rename is a manual post-transcription workflow that maps `Speaker N` or provider speaker labels to project speaker names.
 - Speaker-project rename does not perform voice identification, speaker verification, biometric matching, voiceprint extraction, embeddings, or automatic identity assignment from voice.
 - The speaker roster is runtime Colab state normalized by the speaker-project helpers and contains only safe project/speaker display data, not transcript samples or voice data.
@@ -133,25 +139,34 @@ Source currently present in the repository includes:
 - Google Docs output creation path;
 - safe output persistence and browser-safe output read path;
 - diagnostics, diagnostic debug sessions, migrations, and tests.
+- a deterministic API-to-worker processing E2E scenario that uses real PostgreSQL/Redis state and controlled in-process storage, ElevenLabs, and Google boundaries.
 
-The current Alembic migration head in the repository is `0014_source_deletion_retention` under `apps/studio-api/alembic/versions/`.
+The processing E2E scenario is repository validation, not production evidence. It does not exercise a real browser, provider account, Google account, deployed worker, or public host, and it must not be used to claim exactly-once behavior outside its controlled fakes.
 
-## Studio production status and unfinished capabilities
+The current Alembic migration head in the repository is `0015_user_source_retention` under `apps/studio-api/alembic/versions/`.
+
+## Studio production status and remaining capabilities
 
 Studio processing is **not yet confirmed production-live**. Source-level implementation and CI do not prove production deployment, worker image parity, provider execution, Google Docs creation, or a successful controlled canary.
 
-Unfinished or unproven capabilities:
+Source-complete capabilities that still lack current production rollout evidence:
 
-- production worker rollout validation;
+- official worker lifecycle operations;
+- bounded PostgreSQL-backed lease heartbeat;
+- explicit output reconciliation for uncertain Google Docs side effects;
+- safe stage-specific retry and expired-lease recovery;
+- safe source deletion, retention, and local-object cleanup.
+
+Unfinished or unproven delivery capabilities:
+
+- production migration/deployment and worker rollout validation for the intended revision;
 - controlled end-to-end canary after the latest fix with exactly one persisted output;
-- automated output reconciliation for uncertain Google Docs side effects;
-- safe stage-specific retries/recovery;
-- safe stage-specific retries/recovery;
+- browser-level automated E2E coverage for the authenticated preparation and job-result workflow;
 - OpenAI PWA processing parity;
 - long-media splitting parity with Colab;
 - Studio manifest authority/update behavior;
 - golden Colab/PWA parity validation;
-- multi-worker production validation and official worker operations contract.
+- multi-worker production validation.
 
 The Studio PWA may render implemented source-level output metadata for explicitly opened jobs, but that does not prove production-live processing or exactly-once Google document creation.
 
@@ -163,14 +178,29 @@ The Studio PWA may render implemented source-level output metadata for explicitl
 - User-facing project segment labels must be unique case-insensitively within their owner/project scope.
 - Provider credentials are BYOK, encrypted at rest, decrypted only server-side for authorized processing, and never returned to browsers.
 - Google OAuth refresh tokens are encrypted server-side and separated from provider credential boundaries.
-- Browser APIs may return only normalized safe metadata. They must not return raw OAuth URLs/codes/tokens, provider secrets, raw Google payloads, owners/permissions, source bytes, transcript bodies, document bodies, object keys, private paths, presigned URLs, stack traces, or raw external responses.
+- Browser APIs may return only fields explicitly authorized by their endpoint contract. Ordinary metadata/read APIs must not return OAuth codes/tokens, provider secrets, raw Google payloads, owners/permissions, source bytes, transcript bodies, document bodies, object keys, private paths, presigned URLs, stack traces, or raw external responses. Authentication values and the browser-bound integration capabilities below are narrow exceptions, not generally safe metadata.
+- Project title/description updates and Google output-folder selection are separate authorities. Generic project PATCH accepts only title/description and rejects output-folder IDs, URLs, names, and unknown fields; output folders may be bound only through the server-verified Google Picker route.
+- Browser project/job DTOs expose only UI-required public fields. Project payloads omit the internal owner ID, and job payloads omit the selected provider-credential ID; request-side credential selection remains an authenticated write authority and server-side job state retains the resolved ID.
+- An otherwise unhandled API exception returns only the fixed safe 500 body plus sanitized request/correlation headers. The server log records only those sanitized IDs and an endpoint group. If authentication already established an owner, one owner-scoped `API_UNHANDLED_EXCEPTION` diagnostic may persist only the endpoint group and `5xx` category; exception text, stack traces, raw paths, query strings, request bodies, and headers are forbidden.
+- Google Drive source identity and metadata must be fetched and validated server-side under the current owner connection before a source is persisted. The multi-file Google Picker route is canonical; the deprecated single-file compatibility route must ignore browser-supplied filename, MIME type, size, and URL and apply the same server-side source policy.
+- The authenticated read-only source-upload policy response exposes only whether local upload is enabled, the current maximum byte count, supported MIME prefixes, and exact MIME types; it is `no-store` and never exposes storage identity or credentials. The PWA must runtime-validate this response and keep local file selection disabled until a valid enabled policy is available. Maximum upload size remains deployment configuration, while account settings control only retained-source duration; initiation, object-head verification, and processing-time checks remain authoritative server-side.
+
+Browser-bound integration capabilities are limited to three flows:
+
+- Google OAuth start may return one authorization URL containing a hashed-at-rest, single-use, expiring state value. The authenticated same-origin CSRF-protected response is `no-store`; the callback never reflects the code, state, tokens, raw Google error, or account data into its browser redirect.
+- Google Picker session may return one current owner access token only to an authenticated same-origin CSRF-protected request. The connection scope set must be limited to `openid`, email identity, and `drive.file`; incremental previously granted scopes are not requested. The response is `no-store`, the PWA passes the token directly to Picker with an exact origin and clears its own reference, and every selected ID/metadata value is revalidated server-side before persistence. Refresh and ID tokens remain server-only.
+- Local-upload initiation may return one PUT-only presigned URL for the exact opaque source object key and content type, with a TTL from 60 through 900 seconds. The authenticated owner-scoped same-origin CSRF-protected response is `no-store`; the URL/key is never persisted in browser storage, rendered, logged, diagnosed, or returned by later metadata APIs. The PWA sends no cookies or referrer, refuses redirects, and the API requires a complete object-storage head plus exact normalized MIME and byte-size equality with the initiation contract before marking the source uploaded. Missing, unsupported, oversized, or mismatched metadata leaves the source pending so the existing expiry/cleanup lifecycle remains authoritative.
+
+No other endpoint may expose these capabilities. The service worker must not runtime-cache API responses or upload requests.
+
+The public Studio host must enforce one browser security-header policy across the PWA and `/api`: CSP with no script wildcard or `unsafe-eval`, Google Picker script/frame allowlists, self-only framing denial, MIME-sniffing denial, no-referrer, restrictive permissions, and HSTS. Because the S3/R2-compatible upload origin is runtime-configured, `connect-src` may temporarily permit HTTPS generally; narrowing it to explicit production storage origins is preferred when that deployment contract becomes fixed. Header source configuration is not proof that the live TLS/nginx boundary has applied it.
 
 ### Sources and processing prerequisites
 
 - Source metadata readiness is not proof that source bytes remain accessible.
 - Processing must re-check source availability immediately before external provider execution.
 - Google Drive sources require current owner-scoped access, existence, and supported download/export mode.
-- Local-upload sources require private server-side storage availability and must not expose object keys or presigned URLs to browsers.
+- Local-upload sources require private server-side storage availability. Object keys remain server-only; a presigned URL may cross the browser boundary only in the bounded initiation capability above and must not appear in subsequent source/job/output payloads.
 - Processing must re-check lifecycle, lease ownership/generation, cancellation, project/source relation, credential availability, and output destination authorization at stage boundaries.
 
 ### Jobs, leases, and terminal states
@@ -179,6 +209,7 @@ The Studio PWA may render implemented source-level output metadata for explicitl
 - Claiming work must be atomic and owner/generation fenced.
 - Lease expiry comparisons use normalized UTC semantics; equality at the expiry instant means expired.
 - Each prepared batch row owns its selected output destination.
+- The idempotent batch route is the canonical job-creation authority. The deprecated compatibility route may create a job only when the project already has an output-folder selection and the owner has an active, non-deleted ElevenLabs credential; it must reject OpenAI, foreign, inactive, deleted, ambiguous, or missing credential authority.
 - Job creation copies that destination into a per-job output-folder snapshot.
 - Processing uses the job snapshot as the runtime output authority.
 - Later changes to a mutable project default output folder must not redirect an existing queued, processing, failed, cancelled, or completed job.
@@ -205,7 +236,7 @@ The Studio PWA may render implemented source-level output metadata for explicitl
 Studio processing can be considered production-live only after all of the following have factual operator evidence:
 
 1. Repository source and CI are verified for the intended commit.
-2. Production database migration head matches repository head `0014_source_deletion_retention` where required.
+2. Production database migration head matches repository head `0015_user_source_retention` where required.
 3. Web/API deployment identity and health are verified.
 4. Exactly one intended worker instance is deployed from the intended image and shown idle before the smoke.
 5. One controlled operator-approved job uses one small supported source, one owner-scoped ElevenLabs BYOK credential, one valid Google connection, and one writable output folder.
@@ -219,14 +250,18 @@ Studio processing can be considered production-live only after all of the follow
 Current delivery sequencing is in `docs/delivery-plan.md`. Product backlog items that remain durable:
 
 - `PWA-PROCESSING-ROLLOUT-01A` — operator validation for fixed worker rollout and one controlled end-to-end canary.
+- `PWA-LEGACY-AUTHORITY-01` — remove or formally mark legacy deployment/runtime paths after review.
+- `PWA-E2E-FOUNDATION-01B` — extend the source-level API/worker processing foundation through the authenticated browser workflow without replacing the production canary requirement.
+- OpenAI processing parity, long-media parity, manifest behavior, and golden Colab/PWA parity validation.
+
+Source-complete delivery items remain listed for traceability and still require applicable rollout evidence:
+
 - `PWA-WORKER-OPS-01` — official worker deployable component with health, identity, pause/drain/resume, and rollback contract.
 - `PWA-OUTPUT-RECONCILIATION-01` — reconcile uncertain or missing Google Docs output evidence without unsafe duplication.
 - `PWA-LEASE-HEARTBEAT-01` — source-complete PostgreSQL-backed bounded heartbeat for long source/provider and Google output calls; rollout evidence remains separate.
 - `PWA-RETRY-RECOVERY-01` — safe stage-specific retry and recovery design.
 - `PWA-SOURCE-DELETION-01` — source deletion and retention behavior.
-- `PWA-LEGACY-AUTHORITY-01` — remove or formally mark legacy deployment/runtime paths after review.
-- `PWA-E2E-FOUNDATION-01` — automated end-to-end validation foundation.
-- OpenAI processing parity, long-media parity, manifest behavior, and golden Colab/PWA parity validation.
+- `PWA-UPLOAD-RETENTION-PREFERENCES-02` — server-authoritative per-user retention choices and PWA settings UX for future verified local uploads.
 
 ## Supporting documents
 
@@ -262,5 +297,7 @@ After successful reconciliation persistence, cancelled jobs remain cancelled, ac
 Studio source removal is logical, owner-scoped, and durable in PostgreSQL. Source rows are never hard-deleted by the source lifecycle; display metadata, job-source relations, historical jobs, persisted outputs, attempt evidence, and reconciliation cases remain available for history. Google Drive source removal only removes the Studio reference: Studio must not delete, trash, update, or otherwise mutate the external Drive file, and Google Docs outputs are not removed by this flow.
 
 Local-upload bytes use an asynchronous, idempotent cleanup lifecycle stored on `sources`. S3/R2 delete is allowed only after durable logical deletion or retention expiry state exists. A missing object is treated as successful physical cleanup; storage failures do not roll back logical deletion and are retried through durable cleanup state. Object storage identity is cleared only after successful cleanup finalization; browser payloads must not expose bucket/object keys, cleanup owners, cleanup generations, cleanup leases, cleanup attempt counts, cleanup errors, or internal job references.
+
+Pending local uploads expire one hour after initiation by default. Successful completion resets `expires_at` from that pending-upload deadline according to the authenticated owner's durable account preference. The supported choices are one hour, 24 hours (default), three days, seven days, and 30 days after verified completion. The setting is persisted in PostgreSQL, is changed through the owner-scoped CSRF-protected account-preferences API/PWA settings surface, applies only to future verified completions, and is never controlled by browser-local storage. The presigned PUT capability remains independently bounded to at most 15 minutes. The PWA must surface the exact retained-source expiry for a completed local source. This retention policy does not apply to referenced Google Drive inputs or Google Docs outputs.
 
 Local sources expire when `expires_at <= now`. Expiry blocks new jobs, claims, explicit retries, expired-lease recovery, upload completion, and processing-time source access. Retention expiry may mark a local source `expired` with `delete_reason=retention_expired` without setting `deleted_at`, so unavailable metadata may remain visible. A referencing `processing` job defers physical cleanup until terminal/recovered state; cleanup never calls the provider, Google Drive, Google Docs, output reconciliation, or attempt-ledger mutation. Completed, cancelled, non-retryable failed, provider-uncertain/result-lost, and unresolved-reconciliation history does not block user source deletion; queued, processing, and actually retryable failed jobs do block deletion.

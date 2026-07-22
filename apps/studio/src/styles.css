@@ -55,6 +55,10 @@ button:disabled {
   cursor: not-allowed;
   opacity: 0.65;
 }
+.button-like.disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
 .primary:disabled {
   cursor: not-allowed;
   opacity: 0.55;
@@ -515,6 +519,20 @@ code {
 .account-card div {
   display: grid;
   gap: 0.2rem;
+}
+.retention-preferences {
+  margin-bottom: 1rem;
+}
+.retention-preferences-form {
+  display: flex;
+  align-items: end;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.retention-preferences-form label {
+  display: grid;
+  gap: 0.45rem;
+  min-width: min(18rem, 100%);
 }
 .technical-details {
   margin: 0.75rem 0;

@@ -11,7 +11,7 @@ The Colab workflow is stable, ready, and remains the behavioral baseline for fut
 
 The Studio PWA is not a blank or record-only prototype. Source currently present in the repository includes authentication/sessions, projects/sources, BYOK credentials, Google OAuth/Drive integration, persisted batches/jobs, a worker entrypoint, processing orchestration, the ElevenLabs provider path, Google Docs output, diagnostics, Alembic migrations, and tests.
 
-That source-level implementation is **not yet confirmed production-live**. Worker production deployment and a controlled end-to-end canary with exactly one output still require operator validation. Retry/recovery, lease heartbeat during long external calls, and automated output reconciliation remain unfinished capabilities.
+That source-level implementation is **not yet confirmed production-live**. Safe stage-specific retry/recovery, bounded lease heartbeat during long external calls, explicit output reconciliation, and source deletion/cleanup are implemented in repository source. Production migration/deployment, worker rollout, and a controlled end-to-end canary with exactly one output still require operator evidence.
 
 ## Minimal commands
 
@@ -41,7 +41,6 @@ Runtime validation for the stable batch path is manual in Google Colab via `note
 | `docs/studio-processing-contract.md` | Current Studio processing invariants. |
 | `docs/ci-cd-rules.md` | CI/CD, deployment, migration, and runtime safety rules. |
 | `docs/runbooks/studio-platform-ops.md` | Main Studio operations and rollout runbook. |
-| `docs/runbooks/legacy-studio-web-deploy.md` | Legacy stateless web-only deploy path until cleanup. |
 | `docs/runbooks/validation.md` | Unified validation checklist and commands. |
 | `docs/runbooks/realtime-colab.md` | Realtime Colab experimental validation guide. |
 

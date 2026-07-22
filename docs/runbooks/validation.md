@@ -23,7 +23,49 @@ Use the smallest relevant checks for the task.
  pytest -q
 ```
 
+### Portable local Python profile
+
+On a workstation without the repository's PostgreSQL/Redis services or a bash runtime, run:
+
+```bash
+pytest -q --portable
+```
+
+The repository pytest configuration limits discovery to the owned `tests/` tree so installed dependency suites inside a local virtual environment are never collected. The portable option additionally prevents collection—and therefore import-time setup—of the two PostgreSQL/Redis suites and the four bash integration suites. It still runs the remaining Python tests and is intended as a fast cross-platform baseline. It is not a replacement for plain `pytest`, which remains the required CI/service-backed suite and is unchanged when `--portable` is absent.
+
 For Studio frontend changes, inspect `apps/studio/package.json` and run the relevant existing npm scripts from `apps/studio/` when dependencies are available.
+
+### Studio processing E2E
+
+The deterministic source-level processing scenario is:
+
+```bash
+pytest -q tests/test_studio_processing_e2e.py
+```
+
+It requires the same PostgreSQL database, current Alembic head, and Redis service used by repository CI. A developer run without those services is reported as skipped; `CI=true` makes either missing service a failure. The test creates the project, credential, source, output destination, and job through the authenticated API, runs the real claim/orchestration/persistence path, replaces only storage, ElevenLabs, and Google network boundaries with controlled fakes, then verifies the completed job and explicit browser-safe output DTO. It is not a real-browser test and does not replace the controlled production canary.
+
+## Reproducible Python dependencies
+
+Repository/CI development installs use the input requirements together with the committed transitive constraints:
+
+```bash
+python -m pip install -r requirements-dev.txt -c constraints-dev.txt
+```
+
+The Studio API container applies `apps/studio-api/constraints.txt` to `apps/studio-api/requirements.txt`. These constraints do not replace `requirements-colab.txt` when installing the stable Colab runtime.
+
+After an intentional Python dependency change, regenerate both constraints with the pinned generator and review the complete diff before testing:
+
+```bash
+python -m pip install pip-tools==7.6.0
+python -m piptools compile --resolver=backtracking --strip-extras --newline=LF --output-file=apps/studio-api/constraints.txt apps/studio-api/requirements.txt
+python -m piptools compile --resolver=backtracking --strip-extras --newline=LF --output-file=constraints-dev.txt requirements-dev.txt
+```
+
+Constraints are installed with `-c`; they are not standalone cross-platform requirements files. This preserves platform-specific dependencies selected by extras while constraining the shared resolution.
+
+The `Dependency audit` GitHub Actions workflow runs weekly and via `workflow_dispatch`. It audits the exact npm lock and an installed Linux/Python 3.11 graph. Findings fail only that reporting workflow; ordinary PR/push CI does not call advisory services. Treat service outages as `blocked` and rerun later rather than recording a vulnerability or a pass.
 
 For docs-only changes, run `git diff --check`, available markdown/link checks, targeted `rg` searches for stale links/conflicting claims, and a docs-only changed-file review. Runtime integration tests are not required unless the task explicitly asks for them.
 
@@ -38,7 +80,6 @@ Useful checks for documentation authority work:
 ```bash
 rg -n "record-only|record only" README.md AGENTS.md docs
 rg -n "studio-processing-contract.md" README.md AGENTS.md docs
-rg -n "legacy-studio-web-deploy.md" README.md AGENTS.md docs
 rg -n "production-live|production ready|production-ready" README.md AGENTS.md docs
 rg -n "active item|Active item|ACTIVE" docs/delivery-plan.md
 ```

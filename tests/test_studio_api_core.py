@@ -156,6 +156,69 @@ def test_same_origin_and_authenticated_csrf_required():
     assert c.post("/api/auth/logout", headers={"origin": "https://studio.test", "x-csrf-token": "bad"}).status_code == 403
 
 
+def test_account_source_retention_preferences_are_server_authoritative():
+    email = "retention-preferences@example.com"
+    pw = admin(email)
+    anonymous = TestClient(app)
+    assert anonymous.get("/api/account/preferences").status_code == 401
+
+    c = TestClient(app)
+    csrf = login(c, pw, email)
+    headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+    expected_options = [3600, 86400, 259200, 604800, 2592000]
+    current = c.get("/api/account/preferences")
+    assert current.status_code == 200
+    assert current.json() == {
+        "source_retention_ttl_seconds": 86400,
+        "allowed_source_retention_ttl_seconds": expected_options,
+    }
+    assert c.patch("/api/account/preferences", json={"source_retention_ttl_seconds": 604800}).status_code == 403
+    assert c.patch("/api/account/preferences", json={"source_retention_ttl_seconds": 7200}, headers=headers).status_code == 422
+    assert c.patch("/api/account/preferences", json={"source_retention_ttl_seconds": 604800, "unknown": True}, headers=headers).status_code == 422
+
+    updated = c.patch("/api/account/preferences", json={"source_retention_ttl_seconds": 604800}, headers=headers)
+    assert updated.status_code == 200
+    assert updated.json() == {
+        "source_retention_ttl_seconds": 604800,
+        "allowed_source_retention_ttl_seconds": expected_options,
+    }
+    assert c.patch("/api/account/preferences", json={"source_retention_ttl_seconds": 604800}, headers=headers).status_code == 200
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter_by(email=email).one()
+        assert user.source_retention_ttl_seconds == 604800
+        assert db.query(AuditEvent).filter_by(event_type="account.preferences_updated", actor_user_id=user.id).count() == 1
+    finally:
+        db.close()
+
+
+def test_source_upload_policy_is_authenticated_safe_and_not_cached(monkeypatch):
+    email = "source-upload-policy@example.com"
+    pw = admin(email)
+    anonymous = TestClient(app)
+    assert anonymous.get("/api/sources/upload-policy").status_code == 401
+
+    from studio_api import main as main_mod
+    monkeypatch.setattr(main_mod.settings, "source_max_upload_bytes", 123456)
+    monkeypatch.setattr(
+        type(main_mod.settings), "source_storage_configured", lambda self: True
+    )
+    c = TestClient(app)
+    login(c, pw, email)
+    response = c.get("/api/sources/upload-policy")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["pragma"] == "no-cache"
+    assert response.json() == {
+        "local_upload_enabled": True,
+        "max_upload_bytes": 123456,
+        "supported_mime_prefixes": ["audio/", "video/"],
+        "supported_mime_types": ["application/ogg"],
+    }
+    forbidden = ["bucket", "object", "presigned", "endpoint", "access_key", "secret"]
+    assert all(value not in response.text.lower() for value in forbidden)
+
+
 def test_credential_lifecycle_no_raw_secret_echo_and_audit_safe():
     pw = admin(); raw = "sk-test-secret-value-123456"
     with TestClient(app) as c:
@@ -197,16 +260,6 @@ def test_spoofed_forwarded_for_ignored_without_trusted_proxy():
     assert get_client_ip(trusted, settings) == "1.2.3.4"
 
 
-def test_secret_boundary_static_assertions():
-    compose = (ROOT / "deploy/studio/compose.platform.yml").read_text(encoding="utf-8")
-    deploy = (ROOT / "scripts/deploy_studio_platform.sh").read_text(encoding="utf-8")
-    migrate = (ROOT / "scripts/migrate_studio_platform.sh").read_text(encoding="utf-8")
-    assert "STUDIO_POSTGRES_PASSWORD:" not in compose
-    assert "postgresql+psycopg://studio:${" not in compose
-    assert "export STUDIO_POSTGRES_PASSWORD" not in deploy + migrate
-
-
-
 def test_projects_require_authentication():
     c = TestClient(app)
     assert c.get("/api/projects").status_code == 401
@@ -220,17 +273,19 @@ def test_project_create_list_update_archive_lifecycle_and_archived_excluded():
     created = r.json()
     assert created["title"] == "First project"
     assert created["description"] == "Notes"
-    assert created["owner_user_id"]
+    assert "owner_user_id" not in created
     assert created["archived_at"] is None
 
     r = c.patch(f"/api/projects/{created['id']}", json={"title": "Renamed", "description": ""}, headers={"origin": "https://studio.test", "x-csrf-token": csrf})
     assert r.status_code == 200
     assert r.json()["title"] == "Renamed"
     assert r.json()["description"] is None
+    assert "owner_user_id" not in r.json()
 
     r = c.get("/api/projects")
     assert r.status_code == 200
     assert [p["id"] for p in r.json()["projects"]] == [created["id"]]
+    assert all("owner_user_id" not in project for project in r.json()["projects"])
 
     r = c.post(f"/api/projects/{created['id']}/archive", headers={"origin": "https://studio.test", "x-csrf-token": csrf})
     assert r.status_code == 200
@@ -262,7 +317,7 @@ def test_project_validation_failures():
 class FakeStorage:
     def __init__(self):
         self.deleted = []
-        self.head_size = 123
+        self.head_size = 10
         self.head_type = "audio/mpeg"
         self.missing = False
     def presigned_put_url(self, key, content_type, expires_seconds):
@@ -302,8 +357,26 @@ def create_logged_in_project(email="sources@example.com"):
 
 
 
-def create_gdrive_source(c, headers, pid, name="meeting.mp4"):
-    r = c.post(f"/api/projects/{pid}/sources/google-drive", json={"drive_file_id": f"file_{name.replace('.', '_')}", "drive_file_url":"https://drive.google.com/file/d/file_123/view", "original_filename":name, "mime_type":"video/mp4", "size_bytes":42}, headers=headers)
+def create_gdrive_source(_c, _headers, pid, name="meeting.mp4"):
+    db = SessionLocal()
+    try:
+        src = Source(project_id=pid, source_type=SourceType.google_drive, original_filename=name, mime_type="video/mp4", size_bytes=42, drive_file_id=f"file_{name.replace('.', '_')}", drive_file_url="https://drive.google.com/file/d/file_123/view", upload_status=SourceUploadStatus.uploaded, uploaded_at=utcnow(), storage_cleanup_status=SourceStorageCleanupStatus.not_applicable)
+        db.add(src); db.commit(); return src.id
+    finally:
+        db.close()
+
+
+def prepare_legacy_job_authority(c, headers, pid):
+    db = SessionLocal()
+    try:
+        project = db.get(Project, pid)
+        project.output_drive_folder_id = "folder-test"
+        project.output_drive_folder_url = "https://drive.google.com/drive/folders/folder-test"
+        project.output_drive_folder_name = "Test results"
+        db.commit()
+    finally:
+        db.close()
+    r = c.post("/api/credentials", json={"provider":"elevenlabs", "label":f"legacy-{pid}", "raw_value":"test-elevenlabs-key"}, headers=headers)
     assert r.status_code == 200
     return r.json()["id"]
 
@@ -322,11 +395,13 @@ def assert_job_response_safe(text):
     lowered = text.lower()
     for value in forbidden:
         assert value.lower() not in lowered
+    assert '"provider_credential_id"' not in lowered
 
 
 def test_transcription_jobs_auth_and_csrf_required():
     c, headers, pid = create_logged_in_project("jobs-auth@example.com")
     sid = create_gdrive_source(c, headers, pid)
+    prepare_legacy_job_authority(c, headers, pid)
     anon = TestClient(app)
     assert anon.get(f"/api/projects/{pid}/jobs").status_code == 401
     assert anon.post(f"/api/projects/{pid}/jobs", json={"source_ids":[sid]}).status_code == 401
@@ -339,23 +414,39 @@ def test_transcription_jobs_auth_and_csrf_required():
     assert c.post(f"/api/jobs/{jid}/cancel").status_code == 403
 
 
-def test_create_job_normalizes_blank_provider_credential_id_to_null():
+def test_legacy_job_selects_sole_active_elevenlabs_credential_for_blank_id():
     c, headers, pid = create_logged_in_project("jobs-blank-credential@example.com")
     sid = create_gdrive_source(c, headers, pid)
+    missing_authority = c.post(f"/api/projects/{pid}/jobs", json={"source_ids":[sid]}, headers=headers)
+    assert missing_authority.status_code == 422
+    assert missing_authority.json()["detail"] == "Выберите папку Google Drive для результатов."
+    db = SessionLocal()
+    try:
+        assert db.query(TranscriptionJob).filter_by(project_id=pid).count() == 0
+    finally:
+        db.close()
+    credential_id = prepare_legacy_job_authority(c, headers, pid)
     for value in ["", "   "]:
         r = c.post(f"/api/projects/{pid}/jobs", json={"source_ids":[sid], "provider_credential_id":value}, headers=headers)
         assert r.status_code == 200
-        assert r.json()["provider_credential_id"] is None
+        assert app.openapi()["paths"][f"/api/projects/{{project_id}}/jobs"]["post"]["deprecated"] is True
+        assert "provider_credential_id" not in r.json()
+        assert r.json()["output_folder"] == {"name":"Test results", "web_view_url":"https://drive.google.com/drive/folders/folder-test"}
+        assert r.headers["deprecation"] == "true"
+        assert r.headers["link"] == f'</api/projects/{pid}/jobs/batch>; rel="successor-version"'
         assert_job_response_safe(r.text)
         assert "raw-provider-secret" not in r.text
 
 
-def test_create_job_from_google_drive_and_local_sources_preserves_order_and_safe_metadata():
+def test_legacy_create_job_rejects_openai_and_preserves_source_order_and_safe_metadata():
     c, headers, pid = create_logged_in_project("jobs-create@example.com")
     sid1 = create_gdrive_source(c, headers, pid, "first.mp4")
     sid2 = add_local_source(pid)
     raw = "raw-provider-secret"
-    cred = c.post("/api/credentials", json={"provider":"openai", "label":"jobs", "raw_value":raw}, headers=headers).json()["id"]
+    openai_cred = c.post("/api/credentials", json={"provider":"openai", "label":"jobs-openai", "raw_value":raw}, headers=headers).json()["id"]
+    cred = prepare_legacy_job_authority(c, headers, pid)
+    rejected = c.post(f"/api/projects/{pid}/jobs", json={"source_ids":[sid1, sid2], "provider_credential_id":openai_cred}, headers=headers)
+    assert rejected.status_code == 422
     r = c.post(f"/api/projects/{pid}/jobs", json={"source_ids":[sid1, sid2], "provider_credential_id":cred, "title":" Batch ", "language":"EN_us", "options":{"diarize":False}}, headers=headers)
     assert r.status_code == 200
     body = r.json()
@@ -363,7 +454,7 @@ def test_create_job_from_google_drive_and_local_sources_preserves_order_and_safe
     assert body["source_count"] == 2
     assert [s["id"] for s in body["sources"]] == [sid1, sid2]
     assert [s["position"] for s in body["sources"]] == [0, 1]
-    assert body["provider_credential_id"] == cred
+    assert "provider_credential_id" not in body
     assert "drive_file_url" not in body["sources"][0]
     assert_job_response_safe(r.text)
     assert raw not in r.text
@@ -383,6 +474,7 @@ def test_create_job_from_google_drive_and_local_sources_preserves_order_and_safe
         assert src.deleted_at is None
         assert src.upload_status == SourceUploadStatus.uploaded
         assert queued.status == JobStatus.queued
+        assert queued.provider_credential_id == cred
     finally:
         db.close()
 
@@ -406,9 +498,10 @@ def test_create_job_from_google_drive_and_local_sources_preserves_order_and_safe
 
 
 
-def test_job_creation_is_record_only_and_response_omits_processing_outputs():
+def test_legacy_job_creation_queues_without_processing_inline():
     c, headers, pid = create_logged_in_project("jobs-record-only@example.com")
     sid = create_gdrive_source(c, headers, pid)
+    prepare_legacy_job_authority(c, headers, pid)
     r = c.post(f"/api/projects/{pid}/jobs", json={"source_ids":[sid]}, headers=headers)
     assert r.status_code == 200
     body = r.json()
@@ -427,6 +520,7 @@ def test_job_creation_is_record_only_and_response_omits_processing_outputs():
 def test_job_failure_metadata_response_redacts_sensitive_internal_values():
     c, headers, pid = create_logged_in_project("jobs-failure-safe@example.com")
     sid = create_gdrive_source(c, headers, pid)
+    prepare_legacy_job_authority(c, headers, pid)
     jid = c.post(f"/api/projects/{pid}/jobs", json={"source_ids":[sid]}, headers=headers).json()["id"]
     db = SessionLocal()
     try:
@@ -456,6 +550,7 @@ def test_cancel_only_transitions_queued_jobs_and_leaves_terminal_jobs_unchanged(
     queued_sid = create_gdrive_source(c, headers, pid, "queued.mp4")
     completed_sid = create_gdrive_source(c, headers, pid, "completed.mp4")
     failed_sid = create_gdrive_source(c, headers, pid, "failed.mp4")
+    prepare_legacy_job_authority(c, headers, pid)
     queued_id = c.post(f"/api/projects/{pid}/jobs", json={"source_ids":[queued_sid]}, headers=headers).json()["id"]
     completed_id = c.post(f"/api/projects/{pid}/jobs", json={"source_ids":[completed_sid]}, headers=headers).json()["id"]
     failed_id = c.post(f"/api/projects/{pid}/jobs", json={"source_ids":[failed_sid]}, headers=headers).json()["id"]
@@ -519,6 +614,8 @@ def test_job_list_owner_scope_and_cancel_idempotent_with_audit():
     c2, h2, pid2 = create_logged_in_project("jobs-owner2@example.com")
     sid1 = create_gdrive_source(c1, h1, pid1)
     sid2 = create_gdrive_source(c2, h2, pid2)
+    prepare_legacy_job_authority(c1, h1, pid1)
+    prepare_legacy_job_authority(c2, h2, pid2)
     jid1 = c1.post(f"/api/projects/{pid1}/jobs", json={"source_ids":[sid1]}, headers=h1).json()["id"]
     jid2 = c2.post(f"/api/projects/{pid2}/jobs", json={"source_ids":[sid2]}, headers=h2).json()["id"]
     assert [j["id"] for j in c1.get(f"/api/projects/{pid1}/jobs").json()["jobs"]] == [jid1]
@@ -537,17 +634,23 @@ def test_job_list_owner_scope_and_cancel_idempotent_with_audit():
     finally:
         db.close()
 
-def test_project_drive_folder_binding_update_and_clear():
+def test_project_patch_rejects_unverified_output_folder_binding_fields():
     c, headers, pid = create_logged_in_project("folder@example.com")
-    payload = {"output_drive_folder_id": "abc_123-XYZ", "output_drive_folder_url": "https://drive.google.com/drive/folders/abc_123-XYZ", "output_drive_folder_name": " Results "}
-    r = c.patch(f"/api/projects/{pid}", json=payload, headers=headers)
+    r = c.patch(f"/api/projects/{pid}", json={"title": " Renamed ", "description": " Safe metadata "}, headers=headers)
     assert r.status_code == 200
-    assert r.json()["output_drive_folder_id"] == "abc_123-XYZ"
-    assert r.json()["output_drive_folder_name"] == "Results"
-    r = c.patch(f"/api/projects/{pid}", json={"output_drive_folder_id": None, "output_drive_folder_url": None, "output_drive_folder_name": None}, headers=headers)
-    assert r.status_code == 200
-    assert r.json()["output_drive_folder_id"] is None
-    assert c.patch(f"/api/projects/{pid}", json={"output_drive_folder_url": "https://evil.test/x"}, headers=headers).status_code == 422
+    assert r.json()["title"] == "Renamed"
+    assert r.json()["description"] == "Safe metadata"
+    for payload in [
+        {"output_drive_folder_id": "abc_123-XYZ"},
+        {"output_drive_folder_url": "https://drive.google.com/drive/folders/abc_123-XYZ"},
+        {"output_drive_folder_name": "Results"},
+        {"unexpected_project_field": "ignored-before-hardening"},
+    ]:
+        assert c.patch(f"/api/projects/{pid}", json=payload, headers=headers).status_code == 422
+    project = next(item for item in c.get("/api/projects").json()["projects"] if item["id"] == pid)
+    assert project["output_drive_folder_id"] is None
+    assert project["output_drive_folder_url"] is None
+    assert project["output_drive_folder_name"] is None
 
 
 
@@ -567,19 +670,64 @@ def test_source_display_filename_normalization_preserves_unicode_and_extension()
 
 def test_google_drive_source_metadata_lifecycle_owner_scoped(monkeypatch):
     import studio_api.main as main_mod
+    from studio_api.google_drive import GoogleDriveMetadata
+
     def fail_storage(*_args, **_kwargs):
         raise AssertionError("Google Drive source removal must not delete Studio storage")
+
     monkeypatch.setattr(main_mod, "get_source_storage", fail_storage)
     c, headers, pid = create_logged_in_project("gdrive@example.com")
-    r = c.post(f"/api/projects/{pid}/sources/google-drive", json={"drive_file_id":"file_123", "drive_file_url":"https://drive.google.com/file/d/file_123/view", "original_filename":"Лекция 1. Личность как психологическое явление.flac", "mime_type":"video/mp4", "size_bytes":42}, headers=headers)
+    db = SessionLocal()
+    user_id = db.query(User).filter_by(email="gdrive@example.com").one().id
+    db.close()
+    _connect_google_for_test(user_id)
+    monkeypatch.setattr(
+        main_mod, "refresh_user_google_drive_access_token", lambda *a, **k: "access"
+    )
+    metadata = {
+        "file_123": GoogleDriveMetadata(
+            "file_123",
+            "Лекция 1. Личность как психологическое явление.flac",
+            "audio/flac",
+            42,
+            "https://drive.google.com/file/d/file_123/view",
+            None,
+            None,
+            False,
+        ),
+        "file_456": GoogleDriveMetadata(
+            "file_456",
+            "active.mp4",
+            "video/mp4",
+            43,
+            "https://drive.google.com/file/d/file_456/view",
+            None,
+            None,
+            False,
+        ),
+    }
+    monkeypatch.setattr(
+        "studio_api.google_drive.fetch_drive_file_metadata",
+        lambda token, drive_file_id: metadata[drive_file_id],
+    )
+    r = c.post(
+        f"/api/projects/{pid}/sources/google-picker",
+        json={"file_ids": ["file_123"]},
+        headers=headers,
+    )
     assert r.status_code == 200
-    sid = r.json()["id"]
-    assert r.json()["source_type"] == "google_drive"
-    assert r.json()["original_filename"] == "Лекция 1. Личность как психологическое явление.flac"
+    created = r.json()["sources"][0]
+    sid = created["id"]
+    assert created["source_type"] == "google_drive"
+    assert created["original_filename"] == "Лекция 1. Личность как психологическое явление.flac"
     assert "s3" not in r.text.lower()
-    r2 = c.post(f"/api/projects/{pid}/sources/google-drive", json={"drive_file_id":"file_456", "drive_file_url":"https://drive.google.com/file/d/file_456/view", "original_filename":"active.mp4", "mime_type":"video/mp4", "size_bytes":43}, headers=headers)
+    r2 = c.post(
+        f"/api/projects/{pid}/sources/google-picker",
+        json={"file_ids": ["file_456"]},
+        headers=headers,
+    )
     assert r2.status_code == 200
-    active_sid = r2.json()["id"]
+    active_sid = r2.json()["sources"][0]["id"]
     assert [s["id"] for s in c.get(f"/api/projects/{pid}/sources").json()["sources"]] == [active_sid, sid]
     assert c.delete(f"/api/sources/{sid}", headers=headers).status_code == 200
     assert [s["id"] for s in c.get(f"/api/projects/{pid}/sources").json()["sources"]] == [active_sid]
@@ -603,6 +751,8 @@ def test_local_upload_initiate_requires_auth_ownership_and_validates(monkeypatch
     assert body["source_id"]
     assert body["upload"]["method"] == "PUT"
     assert body["upload"]["expires_in"] == 900
+    assert r.headers["cache-control"] == "no-store"
+    assert r.headers["pragma"] == "no-cache"
     assert "/secret%20song" not in r.text and "secret song.mp3" not in r.text and "secret%20song.mp3" not in r.text
     assert "no-secret-id" not in r.text and "no-secret-key" not in r.text
     db = SessionLocal(); src = db.get(Source, body["source_id"]); object_key = src.s3_object_key; source_id = src.id; original_filename = src.original_filename; db.close()
@@ -637,6 +787,44 @@ def test_complete_local_upload_missing_object_returns_conflict(monkeypatch):
     db = SessionLocal(); src = db.get(Source, sid); db.close()
     assert src.upload_status.value == "pending"
     assert src.uploaded_at is None
+
+
+@pytest.mark.parametrize(
+    ("head_size", "head_type", "expected_status"),
+    [
+        (None, "audio/mpeg", 409),
+        (10, None, 409),
+        (11, "audio/mpeg", 409),
+        (10, "audio/wav", 409),
+        (1001, "audio/mpeg", 422),
+        (10, "text/plain", 422),
+    ],
+)
+def test_complete_local_upload_requires_exact_verified_metadata(monkeypatch, head_size, head_type, expected_status):
+    fake = enable_fake_storage(monkeypatch)
+    fake.head_size = head_size
+    fake.head_type = head_type
+    size_label = "missing" if head_size is None else str(head_size)
+    c, headers, pid = create_logged_in_project(f"upload-metadata-{size_label}-{expected_status}@example.com")
+    initiated = c.post(
+        f"/api/projects/{pid}/sources/local-upload/initiate",
+        json={"original_filename":"metadata.mp3", "mime_type":"audio/mpeg", "size_bytes":10},
+        headers=headers,
+    )
+    sid = initiated.json()["source_id"]
+    pending_expires_at = initiated.json()["expires_at"]
+
+    response = c.post(f"/api/sources/{sid}/local-upload/complete", headers=headers)
+
+    assert response.status_code == expected_status
+    db = SessionLocal()
+    try:
+        src = db.get(Source, sid)
+        assert src.upload_status == SourceUploadStatus.pending
+        assert src.uploaded_at is None
+        assert src.expires_at.isoformat() == pending_expires_at
+    finally:
+        db.close()
 
 
 def test_complete_local_upload_and_delete_owner_isolation(monkeypatch):
@@ -723,12 +911,23 @@ def test_complete_local_upload_revalidates_after_head_race(monkeypatch, mutation
 def test_complete_local_upload_revalidates_successful_unchanged_source(monkeypatch):
     enable_fake_storage(monkeypatch)
     c, headers, pid = create_logged_in_project("complete-race-success@example.com")
+    preference = c.patch(
+        "/api/account/preferences",
+        json={"source_retention_ttl_seconds": 604800},
+        headers=headers,
+    )
+    assert preference.status_code == 200
     r = c.post(f"/api/projects/{pid}/sources/local-upload/initiate", json={"original_filename":"success.mp3","mime_type":"audio/mpeg","size_bytes":10}, headers=headers)
+    pending_expires_at = datetime.fromisoformat(r.json()["expires_at"])
     sid = r.json()["source_id"]
     response = c.post(f"/api/sources/{sid}/local-upload/complete", headers=headers)
     assert response.status_code == 200
     body = response.json()
     assert body["upload_status"] == "uploaded"
+    uploaded_at = datetime.fromisoformat(body["uploaded_at"])
+    retained_until = datetime.fromisoformat(body["expires_at"])
+    assert retained_until - uploaded_at == timedelta(seconds=604800)
+    assert retained_until > pending_expires_at
     assert "s3_bucket" not in body and "s3_object_key" not in body
 
 def test_expired_local_upload_cleanup_marks_deleted_and_deletes(monkeypatch):
@@ -793,14 +992,18 @@ def test_google_oauth_start_returns_safe_url_and_stores_hashed_state(monkeypatch
     pw = admin("google-url@example.com"); c = TestClient(app); csrf = login(c, pw, "google-url@example.com")
     r = c.post("/api/google/oauth/start", headers={"origin": "https://studio.test", "x-csrf-token": csrf})
     assert r.status_code == 200
+    assert r.headers["cache-control"] == "no-store"
+    assert r.headers["pragma"] == "no-cache"
     body = r.json(); url = body["authorization_url"]
     assert "client_id=google-client-id-test" in url
     assert "access_type=offline" in url
     assert "prompt=consent" in url
+    from urllib.parse import parse_qs, urlparse
+    query = parse_qs(urlparse(url).query)
+    assert "include_granted_scopes" not in query
     assert "google-client-secret-test" not in r.text
     assert "refresh_token" not in r.text and "access_token" not in r.text and "id_token" not in r.text
-    from urllib.parse import parse_qs, urlparse
-    state = parse_qs(urlparse(url).query)["state"][0]
+    state = query["state"][0]
     db = SessionLocal()
     try:
         from studio_api.models import GoogleOAuthState
@@ -1255,7 +1458,7 @@ def test_job_lease_migration_real_0005_shape_upgrades_to_head():
             assert {"lease_owner_id", "lease_generation", "claimed_at", "lease_expires_at", "attempt_count", "cancel_requested_at"}.issubset(cols)
             indexes = [idx["name"] for idx in inspector.get_indexes("transcription_jobs")]
             assert indexes.count("ix_transcription_jobs_status_lease_expires_created") == 1
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0014_source_deletion_retention"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0015_user_source_retention"
 
 
 
@@ -1290,7 +1493,7 @@ def test_job_output_migration_clean_chain_constraints_and_0007_roundtrip():
         run_alembic("head", env=env)
         with temp_engine.begin() as conn:
             assert "transcription_job_outputs" in inspect(conn).get_table_names()
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0014_source_deletion_retention"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0015_user_source_retention"
 
 
 
@@ -1940,6 +2143,7 @@ JOB_OUTPUT_ENTRY_KEYS = {"source_id", "source_position", "source_name", "source_
 def create_job_with_sources(email="job-output@example.com", names=("one.mp4",)):
     c, headers, pid = create_logged_in_project(email)
     source_ids = [create_gdrive_source(c, headers, pid, name) for name in names]
+    prepare_legacy_job_authority(c, headers, pid)
     r = c.post(f"/api/projects/{pid}/jobs", json={"source_ids": source_ids}, headers=headers)
     assert r.status_code == 200
     return c, headers, pid, r.json()["id"], source_ids
@@ -2149,8 +2353,8 @@ def test_job_output_existing_job_payloads_remain_unchanged_after_outputs_exist()
     listed = c.get(f"/api/projects/{pid}/jobs")
     for response in [detail, listed]:
         assert response.status_code == 200
-        assert "outputs" not in response.text
-        assert "web_view_url" not in response.text
+        assert "outputs" not in response.json()
+        assert "doc-output-compat" not in response.text
         assert "compat/edit" not in response.text
 
 
@@ -2180,11 +2384,16 @@ def test_job_output_unexpected_query_failure_is_generic(monkeypatch):
 
 
 def test_google_scope_parser_exact_drive_file_only():
-    from studio_api.google_scopes import has_drive_file_scope
+    from studio_api.google_scopes import has_drive_file_scope, has_picker_browser_scope_boundary
     assert has_drive_file_scope("openid email https://www.googleapis.com/auth/drive.file")
     assert has_drive_file_scope("  https://www.googleapis.com/auth/drive.file   openid ")
     assert not has_drive_file_scope("openid email")
     assert not has_drive_file_scope("https://www.googleapis.com/auth/drive.file.extra")
+    assert has_picker_browser_scope_boundary("openid email https://www.googleapis.com/auth/drive.file")
+    assert has_picker_browser_scope_boundary("openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.file")
+    assert not has_picker_browser_scope_boundary("openid email")
+    assert not has_picker_browser_scope_boundary("openid email https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly")
+    assert not has_picker_browser_scope_boundary("openid email https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/calendar.readonly")
 
 
 def _connect_google_for_test(user_id: str, scopes: str = "openid email https://www.googleapis.com/auth/drive.file"):
@@ -2213,6 +2422,9 @@ def test_google_picker_session_csrf_scope_config_and_safe_response(monkeypatch):
     monkeypatch.setattr(main.settings, "google_picker_app_id", "123456")
     assert c.post("/api/google/picker/session", headers=headers).status_code == 404
     _connect_google_for_test(uid, "openid email")
+    assert c.post("/api/google/picker/session", headers=headers).status_code == 409
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE google_connections SET scopes='openid email https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly'"))
     assert c.post("/api/google/picker/session", headers=headers).status_code == 409
     with engine.begin() as conn:
         conn.execute(text("UPDATE google_connections SET scopes='openid email https://www.googleapis.com/auth/drive.file'"))
@@ -2281,6 +2493,74 @@ def test_google_picker_source_and_output_selection_revalidates_server_metadata(m
     assert r.json()["output_drive_folder_name"] == "Results"
     assert r.json()["output_drive_folder_url"] == "https://drive.google.com/drive/folders/folder"
     assert "access" not in r.text and "canAddChildren" not in r.text and "capabilities" not in r.text
+
+
+def test_legacy_google_drive_source_ignores_browser_metadata_and_uses_verified_metadata(monkeypatch):
+    import studio_api.main as main
+    from studio_api.google_drive import GoogleDriveMetadata
+
+    pw = admin("drive-source-compat@example.com")
+    c = TestClient(app)
+    csrf = login(c, pw, "drive-source-compat@example.com")
+    db = SessionLocal()
+    uid = db.query(User).first().id
+    db.close()
+    _connect_google_for_test(uid)
+    monkeypatch.setattr(main, "refresh_user_google_drive_access_token", lambda *a, **k: "access")
+    verified = GoogleDriveMetadata(
+        "verified-file",
+        "Verified meeting.mp4",
+        "video/mp4",
+        42,
+        "https://drive.google.com/file/d/verified-file/view",
+        None,
+        None,
+        False,
+    )
+    calls = []
+
+    def fake_fetch(token, drive_file_id):
+        calls.append((token, drive_file_id))
+        return verified
+
+    monkeypatch.setattr("studio_api.google_drive.fetch_drive_file_metadata", fake_fetch)
+    headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+    pid = c.post("/api/projects", json={"title": "Compatibility"}, headers=headers).json()["id"]
+    payload = {
+        "drive_file_id": "verified-file",
+        "drive_file_url": "https://evil.example/spoofed",
+        "original_filename": "Spoofed.pdf",
+        "mime_type": "application/pdf",
+        "size_bytes": main.settings.source_max_upload_bytes + 1,
+    }
+    r = c.post(f"/api/projects/{pid}/sources/google-drive", json=payload, headers=headers)
+    assert r.status_code == 200
+    assert app.openapi()["paths"][f"/api/projects/{{project_id}}/sources/google-drive"]["post"]["deprecated"] is True
+    assert r.headers["deprecation"] == "true"
+    assert r.headers["link"] == f'</api/projects/{pid}/sources/google-picker>; rel="successor-version"'
+    assert calls == [("access", "verified-file")]
+    body = r.json()
+    assert body["original_filename"] == "Verified meeting.mp4"
+    assert body["mime_type"] == "video/mp4"
+    assert body["size_bytes"] == 42
+    assert body["drive_file_url"] == "https://drive.google.com/file/d/verified-file/view"
+    assert "Spoofed.pdf" not in r.text and "evil.example" not in r.text
+    db = SessionLocal()
+    try:
+        src = db.get(Source, body["id"])
+        assert src.drive_file_id == "verified-file"
+    finally:
+        db.close()
+
+    mismatched = GoogleDriveMetadata("other-file", "Other.mp4", "video/mp4", 1, None, None, None, False)
+    monkeypatch.setattr("studio_api.google_drive.fetch_drive_file_metadata", lambda *_: mismatched)
+    mismatch = c.post(f"/api/projects/{pid}/sources/google-drive", json=payload, headers=headers)
+    assert mismatch.status_code == 502
+    db = SessionLocal()
+    try:
+        assert db.query(Source).filter_by(project_id=pid).count() == 1
+    finally:
+        db.close()
 
 
 def _batch_headers(csrf):
@@ -2361,6 +2641,7 @@ def test_batch_explicit_active_owner_elevenlabs_credential_saved(monkeypatch):
     c, csrf, user_id, pid, source_a, source_b, cred_id = _batch_setup("batch-explicit-eleven@example.com")
     r = c.post(f"/api/projects/{pid}/jobs/batch", json=_batch_body(source_a, credential_id=cred_id), headers=_batch_headers(csrf))
     assert r.status_code == 200
+    assert all("provider_credential_id" not in job for job in r.json()["jobs"])
     db = SessionLocal()
     try:
         job = db.query(TranscriptionJob).filter_by(project_id=pid).one()
@@ -2769,6 +3050,52 @@ def _assert_source_deletion_0014_absent(inspector, conn):
     assert conn.execute(text("SELECT count(*) FROM pg_type WHERE typname = 'sourcestoragecleanupstatus'")).scalar_one() == 0
 
 
+def _assert_user_source_retention_0015_absent(inspector):
+    assert "source_retention_ttl_seconds" not in {c["name"] for c in inspector.get_columns("users")}
+    assert "ck_users_source_retention_ttl_allowed" not in {c["name"] for c in inspector.get_check_constraints("users")}
+
+
+def test_user_source_retention_0015_upgrade_downgrade_roundtrip_and_metadata_table():
+    from studio_api.db import Base
+
+    with isolated_migration_database("studio_migration_0015") as (temp_engine, env):
+        run_alembic("0014_source_deletion_retention", env=env)
+        with temp_engine.begin() as conn:
+            conn.execute(text("ALTER TABLE users DROP CONSTRAINT IF EXISTS ck_users_source_retention_ttl_allowed"))
+            conn.execute(text("ALTER TABLE users DROP COLUMN IF EXISTS source_retention_ttl_seconds"))
+            conn.execute(text("UPDATE alembic_version SET version_num='0014_source_deletion_retention'"))
+            _assert_user_source_retention_0015_absent(inspect(conn))
+            conn.execute(text("INSERT INTO users (id, email, role, status, created_at, updated_at) VALUES ('user-0015', 'migration-0015@example.com', 'user', 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"))
+
+        run_alembic("0015_user_source_retention", env=env)
+        with temp_engine.begin() as conn:
+            inspector = inspect(conn)
+            columns = {c["name"]: c for c in inspector.get_columns("users")}
+            assert columns["source_retention_ttl_seconds"]["nullable"] is False
+            assert "ck_users_source_retention_ttl_allowed" in {c["name"] for c in inspector.get_check_constraints("users")}
+            assert conn.execute(text("SELECT source_retention_ttl_seconds FROM users WHERE id='user-0015'")).scalar_one() == 86400
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0015_user_source_retention"
+        for allowed in (3600, 86400, 259200, 604800, 2592000):
+            with temp_engine.begin() as conn:
+                conn.execute(text("UPDATE users SET source_retention_ttl_seconds=:allowed WHERE id='user-0015'"), {"allowed": allowed})
+        with pytest.raises(Exception):
+            with temp_engine.begin() as conn:
+                conn.execute(text("UPDATE users SET source_retention_ttl_seconds=7200 WHERE id='user-0015'"))
+
+        run_alembic("0014_source_deletion_retention", env=env, command="downgrade")
+        with temp_engine.begin() as conn:
+            _assert_user_source_retention_0015_absent(inspect(conn))
+            assert conn.execute(text("SELECT count(*) FROM users WHERE id='user-0015'")).scalar_one() == 1
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0014_source_deletion_retention"
+
+    with isolated_migration_database("studio_migration_0015_metadata") as (temp_engine, env):
+        Base.metadata.create_all(temp_engine)
+        run_alembic("0015_user_source_retention", env=env, command="stamp")
+        run_alembic("0014_source_deletion_retention", env=env, command="downgrade")
+        with temp_engine.begin() as conn:
+            _assert_user_source_retention_0015_absent(inspect(conn))
+
+
 def test_source_deletion_0014_upgrade_downgrade_roundtrip_and_metadata_table(tmp_path):
     from studio_api.db import Base
 
@@ -2972,7 +3299,7 @@ def test_job_destination_migration_0008_0009_upgrade_downgrade_backfill(tmp_path
         with temp_engine.begin() as conn:
             assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0009_job_output_destinations"
         cfg = Config(str(ALEMBIC))
-        assert ScriptDirectory.from_config(cfg).get_current_head() == "0014_source_deletion_retention"
+        assert ScriptDirectory.from_config(cfg).get_current_head() == "0015_user_source_retention"
     finally:
         temp_engine.dispose()
         cleanup_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")

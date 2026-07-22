@@ -29,9 +29,9 @@ class Settings(BaseSettings):
     source_s3_bucket: str | None = None
     source_s3_access_key_id_file: str | None = None
     source_s3_secret_access_key_file: str | None = None
-    source_upload_ttl_seconds: int = 3600
-    source_presign_ttl_seconds: int = 900
-    source_max_upload_bytes: int = 536870912
+    source_upload_ttl_seconds: int = Field(default=3600, ge=900, le=86400)
+    source_presign_ttl_seconds: int = Field(default=900, ge=60, le=900)
+    source_max_upload_bytes: int = Field(default=536870912, ge=1, le=2147483647)
     google_oauth_client_id: str | None = None
     google_oauth_client_secret_file: str | None = None
     google_oauth_redirect_uri: str | None = None

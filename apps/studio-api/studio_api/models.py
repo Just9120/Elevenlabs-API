@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from sqlalchemy import CheckConstraint, DateTime, Enum, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .db import Base
+from .source_policy import DEFAULT_SOURCE_RETENTION_TTL_SECONDS
 
 def now(): return datetime.now(timezone.utc)
 class UserRole(str, enum.Enum): admin="admin"; user="user"
@@ -28,10 +29,12 @@ class User(Base):
     email: Mapped[str]=mapped_column(String(320), unique=True, index=True)
     role: Mapped[UserRole]=mapped_column(Enum(UserRole), default=UserRole.user)
     status: Mapped[UserStatus]=mapped_column(Enum(UserStatus), default=UserStatus.active)
+    source_retention_ttl_seconds: Mapped[int]=mapped_column(Integer, default=DEFAULT_SOURCE_RETENTION_TTL_SECONDS, server_default=text(str(DEFAULT_SOURCE_RETENTION_TTL_SECONDS)), nullable=False)
     created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now)
     updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now, onupdate=now)
     disabled_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     deleted_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    __table_args__=(CheckConstraint("source_retention_ttl_seconds IN (3600, 86400, 259200, 604800, 2592000)", name="ck_users_source_retention_ttl_allowed"),)
 
 class LocalIdentity(Base):
     __tablename__="local_identities"

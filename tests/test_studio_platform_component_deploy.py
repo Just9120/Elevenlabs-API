@@ -15,10 +15,27 @@ def _write_exe(path: Path, content: str) -> None:
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
 
-def run_deploy(tmp_path: Path, component: str, *, via_stdin: bool = False, **env_overrides: str) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+def run_deploy(
+    tmp_path: Path,
+    component: str,
+    *,
+    via_stdin: bool = False,
+    checkout_dir: Path | None = None,
+    merge_target_tree: Path | None = None,
+    merge_updates_head: bool = True,
+    **env_overrides: str,
+) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     log = tmp_path / "calls.log"
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
+    checkout = checkout_dir or ROOT
+    merge_marker = tmp_path / "merge-complete"
+    merge_actions = []
+    if merge_target_tree is not None:
+        merge_actions.append(f"cp -R {str(merge_target_tree)!r}/. {str(checkout)!r}/")
+    if merge_updates_head:
+        merge_actions.append(f"touch {str(merge_marker)!r}")
+    merge_command = "; ".join(merge_actions) or ":"
     state = {
         "built_image_id": "sha256:built",
         "running_image_id": "sha256:built",
@@ -34,6 +51,8 @@ def run_deploy(tmp_path: Path, component: str, *, via_stdin: bool = False, **env
         "tagged_inspect_empty": "0",
         "running_inspect_exit": "0",
         "running_inspect_empty": "0",
+        "local_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "target_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     }
     state.update(env_overrides)
 
@@ -44,11 +63,12 @@ set -euo pipefail
 printf 'git %s\\n' "$*" >> {str(log)!r}
 case "$*" in
   "rev-parse --abbrev-ref HEAD") echo main ;;
-  "rev-parse HEAD") echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ;;
+  "rev-parse HEAD") if [[ -f {str(merge_marker)!r} ]]; then echo {state['target_head']!r}; else echo {state['local_head']!r}; fi ;;
+  "rev-parse origin/main") echo {state['target_head']!r} ;;
   "config --get remote.origin.url") echo git@github.com:Just9120/Elevenlabs-API.git ;;
   "status --porcelain --untracked-files=no") ;;
   "fetch --prune origin main") ;;
-  "merge --ff-only origin/main") ;;
+  "merge --ff-only origin/main") {merge_command} ;;
   *) echo "unexpected git $*" >&2; exit 44 ;;
 esac
 """,
@@ -129,17 +149,17 @@ fi
 """,
     )
     env = os.environ.copy()
-    env.update({"PATH": f"{bin_dir}:{env['PATH']}", "STUDIO_DEPLOY_DIR": str(ROOT)})
-    env_file = ROOT / "deploy/studio/.env"
+    env.update({"PATH": f"{bin_dir}:{env['PATH']}", "STUDIO_DEPLOY_DIR": str(checkout)})
+    env_file = checkout / "deploy/studio/.env"
     created_env_file = not env_file.exists()
     if created_env_file:
         env_file.write_text("# test placeholder; fake docker does not read this file\n", encoding="utf-8")
     try:
         if via_stdin:
             with SCRIPT.open("r", encoding="utf-8") as stdin:
-                proc = subprocess.run(["bash", "-s", "--", component], cwd=ROOT, env=env, text=True, stdin=stdin, capture_output=True, timeout=10)
+                proc = subprocess.run(["bash", "-s", "--", component], cwd=checkout, env=env, text=True, stdin=stdin, capture_output=True, timeout=10)
         else:
-            proc = subprocess.run(["bash", str(SCRIPT), component], cwd=ROOT, env=env, text=True, capture_output=True, timeout=10)
+            proc = subprocess.run(["bash", str(SCRIPT), component], cwd=checkout, env=env, text=True, capture_output=True, timeout=10)
     finally:
         if created_env_file:
             env_file.unlink()
@@ -207,6 +227,104 @@ def test_studio_platform_cd_materializes_deploy_script_for_both_components() -> 
         )
         assert pattern.search(workflow), f"{component} deploy does not execute a materialized temporary script"
 
+
+def test_studio_ci_path_filters_reference_existing_files() -> None:
+    workflow = (ROOT / ".github/workflows/studio-ci.yml").read_text(encoding="utf-8")
+    filtered_paths = re.findall(r"^\s+- '([^']+)'$", workflow, re.MULTILINE)
+    literal_paths = {path for path in filtered_paths if "*" not in path}
+    missing = sorted(path for path in literal_paths if not (ROOT / path).is_file())
+
+    assert missing == []
+    assert workflow.count("- 'docs/runbooks/studio-platform-ops.md'") == 2
+
+
+def test_platform_deploy_files_do_not_export_or_embed_postgres_password() -> None:
+    compose = (ROOT / "deploy/studio/compose.platform.yml").read_text(encoding="utf-8")
+    migrate = (ROOT / "scripts/migrate_studio_platform.sh").read_text(encoding="utf-8")
+
+    assert "STUDIO_POSTGRES_PASSWORD:" not in compose
+    assert "postgresql+psycopg://studio:${" not in compose
+    assert "export STUDIO_POSTGRES_PASSWORD" not in migrate
+
+
+def test_new_script_fast_forwards_old_checkout_before_versioned_validation(tmp_path: Path) -> None:
+    checkout = tmp_path / "checkout"
+    target_tree = tmp_path / "target-tree"
+    checkout.mkdir()
+    target_tree.mkdir()
+
+    env_file = checkout / "deploy/studio/.env"
+    env_file.parent.mkdir(parents=True)
+    env_file.write_text("# runtime file remains outside versioned updates\n", encoding="utf-8")
+
+    required_files = (
+        "apps/studio/Dockerfile",
+        "apps/studio-api/Dockerfile",
+        "apps/studio-api/alembic.ini",
+        "apps/studio-api/studio_api/worker.py",
+        "apps/studio-api/studio_api/worker_health.py",
+        "apps/studio-api/alembic/versions/0001_fixture.py",
+    )
+    for relative_path in required_files:
+        path = target_tree / relative_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("# target revision fixture\n", encoding="utf-8")
+
+    compose_file = target_tree / "deploy/studio/compose.platform.yml"
+    compose_file.parent.mkdir(parents=True, exist_ok=True)
+    compose_file.write_text(
+        """services:
+  studio-web:
+    ports:
+      - "127.0.0.1:8181:8080"
+  studio-api:
+    ports:
+      - "127.0.0.1:8182:8000"
+  postgres:
+  redis:
+  studio-worker:
+    healthcheck:
+      test: ["CMD", "true"]
+""",
+        encoding="utf-8",
+    )
+
+    assert not (checkout / "apps/studio-api/studio_api/worker_health.py").exists()
+    proc, calls = run_deploy(
+        tmp_path,
+        "web",
+        checkout_dir=checkout,
+        merge_target_tree=target_tree,
+        local_head="1" * 40,
+        target_head="2" * 40,
+    )
+
+    assert proc.returncode == 0, proc.stderr + proc.stdout
+    assert "STUDIO_PLATFORM_WEB_DEPLOY_OK" in proc.stdout
+    assert (checkout / "apps/studio-api/studio_api/worker_health.py").is_file()
+    assert index_of(calls, "rev-parse --abbrev-ref HEAD") < index_of(calls, "fetch --prune origin main")
+    assert index_of(calls, "config --get remote.origin.url") < index_of(calls, "fetch --prune origin main")
+    assert index_of(calls, "status --porcelain --untracked-files=no") < index_of(calls, "fetch --prune origin main")
+    assert sum("status --porcelain --untracked-files=no" in line for line in calls) == 2
+    assert index_of(calls, "fetch --prune origin main") < index_of(calls, "rev-parse origin/main")
+    assert index_of(calls, "rev-parse origin/main") < index_of(calls, "merge --ff-only origin/main")
+    assert index_of(calls, "merge --ff-only origin/main") < index_of(calls, "rev-parse HEAD")
+    assert index_of(calls, "rev-parse HEAD") < index_of(calls, "build studio-web")
+    assert_no_forbidden_mutation(calls)
+
+
+def test_target_revision_mismatch_blocks_before_build(tmp_path: Path) -> None:
+    proc, calls = run_deploy(
+        tmp_path,
+        "web",
+        local_head="1" * 40,
+        target_head="2" * 40,
+        merge_updates_head=False,
+    )
+    assert proc.returncode != 0
+    assert "checkout did not reach fetched target revision" in proc.stderr
+    assert not any("build studio-web" in line for line in calls)
+    assert_no_forbidden_mutation(calls)
 
 
 def test_successful_worker_deployment_is_worker_only_and_manual_identity(tmp_path: Path) -> None:
@@ -336,6 +454,7 @@ printf 'git %s\n' "$*" >> {str(log)!r}
 case "$*" in
   "rev-parse --abbrev-ref HEAD") echo main ;;
   "rev-parse HEAD") echo {('b'*40)!r} ;;
+  "rev-parse origin/main") echo {('b'*40)!r} ;;
   "config --get remote.origin.url") echo git@github.com:Just9120/Elevenlabs-API.git ;;
   "status --porcelain --untracked-files=no") ;;
   "fetch --prune origin main") ;;
