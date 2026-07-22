@@ -54,12 +54,11 @@ import { JobOutputsSection } from "./JobOutputsSection";
 import { JobDetailSection } from "./JobDetailSection";
 import { OutputReconciliationNotice } from "./OutputReconciliationNotice";
 import { JobCardActions } from "./JobCardActions";
+import { JobCardSummary } from "./JobCardSummary";
 import { Login, type User } from "./Login";
 import { PlatformSidebar } from "./PlatformSidebar";
 import {
   isApprovedOutputUrl,
-  jobTitle,
-  jobСтатусLabel,
   type JobOutputsResponse,
   type JobOutputsState,
   type JobState,
@@ -962,27 +961,7 @@ function PreparationPanel({
         className={`source-card ${terminal ? "terminal-job" : ""}`}
         key={job.id}
       >
-        <b>{jobTitle(job)}</b>
-        <span>Статус: {jobСтатусLabel(job.status)}</span>
-        <span>Файлов: {job.source_count}</span>
-        <span>Создана: {formatTime(job.created_at)}</span>
-        {job.output_folder && (
-          <span>
-            Папка результата: {job.output_folder.name || "Папка Google Drive"}
-          </span>
-        )}
-        {job.output_folder?.web_view_url &&
-          isApprovedOutputUrl(job.output_folder.web_view_url) && (
-            <ResourceExternalLink
-              href={job.output_folder.web_view_url}
-              label="Открыть папку результата"
-              ariaLabel="Открыть папку результата в Google Drive в новой вкладке"
-            />
-          )}
-        {job.status === "processing" && job.cancel_requested_at && (
-          <span>Отмена запрошена: {formatTime(job.cancel_requested_at)}</span>
-        )}
-        {job.error_message && <span>Ошибка: {job.error_message}</span>}
+        <JobCardSummary job={job} />
         <JobCardActions
           job={job}
           onOpen={loadDetail}
