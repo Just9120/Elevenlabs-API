@@ -32,8 +32,12 @@ def test_browser_e2e_uses_real_browser_api_and_isolated_service_state() -> None:
     assert "STUDIO_COOKIE_NAME: studio_e2e_session" in workflow
     assert "alembic -c apps/studio-api/alembic.ini upgrade head" in workflow
     assert "python tests/support/studio_browser_e2e_seed.py" in workflow
+    assert "'tests/test_studio_browser_e2e_contract.py'" in workflow
     assert "npx playwright install --with-deps chromium" in workflow
     assert "npm run test:e2e" in workflow
+    assert "uses: actions/upload-artifact@v4" in workflow
+    assert "path: apps/studio/test-results" in workflow
+    assert "if-no-files-found: warn" in workflow
 
 
 def test_browser_e2e_seed_guards_before_database_initialization() -> None:

@@ -12,6 +12,7 @@ on:
       - 'scripts/migrate_studio_platform.sh'
       - 'scripts/backup_studio_postgres_r2.sh'
       - 'tests/support/studio_browser_e2e_seed.py'
+      - 'tests/test_studio_browser_e2e_contract.py'
       - 'docs/runbooks/studio-platform-ops.md'
   push:
     branches: [main]
@@ -25,6 +26,7 @@ on:
       - 'scripts/migrate_studio_platform.sh'
       - 'scripts/backup_studio_postgres_r2.sh'
       - 'tests/support/studio_browser_e2e_seed.py'
+      - 'tests/test_studio_browser_e2e_contract.py'
       - 'docs/runbooks/studio-platform-ops.md'
   workflow_dispatch:
 
@@ -140,4 +142,12 @@ jobs:
       - name: Run authenticated browser E2E
         run: npm run test:e2e
         working-directory: apps/studio
+      - name: Upload browser E2E failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: studio-browser-e2e-${{ github.run_id }}
+          path: apps/studio/test-results
+          if-no-files-found: warn
+          retention-days: 7
       - run: echo "STUDIO_BROWSER_E2E_OK"
