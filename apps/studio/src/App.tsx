@@ -62,7 +62,6 @@ import {
   type JobOutputsResponse,
   type JobOutputsState,
   type JobState,
-  type JobСтатус,
   type TranscriptionJob,
 } from "./jobModel";
 import {
@@ -73,6 +72,14 @@ import {
   type BatchCreateResponse,
   type ComposerRow,
 } from "./batchComposerModel";
+import {
+  retryUnavailableLabel,
+  type JobRetryResponse,
+  type JobRetryState,
+  type OutputReconciliationCheckResponse,
+  type OutputReconciliationResponse,
+  type OutputReconciliationState,
+} from "./jobRecoveryModel";
 import "./styles.css";
 
 type AccountPreferences = {
@@ -136,11 +143,6 @@ type Project = {
   updated_at: string;
   archived_at: string | null;
 };
-type OutputReconciliationResponse = { job_id: string; job_status: JobСтатус; available: boolean; counts: Record<string, number>; cases: { job_source_id: string; status: string; reason?: string | null; resolved: boolean; last_checked_at?: string | null }[] };
-type JobRetryResponse = { job_id: string; job_status: JobСтатус; available: boolean; reason: string; attempt_count: number; max_attempts: number; missing_output_count: number; retry_safe_source_count: number };
-type JobRetryState = { loading: boolean; posting: boolean; error: string; message: string; data: JobRetryResponse | null };
-type OutputReconciliationCheckResponse = { job_id: string; checked: number; resolved: number; unresolved: number; conflicts: number };
-type OutputReconciliationState = { loading: boolean; checking: boolean; error: string; message: string; data: OutputReconciliationResponse | null };
 type UploadInit = {
   source_id: string;
   upload: {
@@ -1043,7 +1045,7 @@ function PreparationPanel({
             {detailedJob.status === "failed" && (() => {
               const retry = retries[detailedJob.id];
               const reason = retry?.data?.reason;
-              const unavailable = reason === "provider_outcome_uncertain" ? "Повтор недоступен: результат внешнего вызова не определён" : reason === "output_reconciliation_required" ? "Требуется проверка созданного документа" : reason === "attempt_limit_reached" ? "Достигнут предел попыток" : reason && reason !== "available" ? "Повтор недоступен" : "";
+              const unavailable = retryUnavailableLabel(reason);
               return <div className="resource-actions" aria-label="Safe retry action">
                 {retry?.data?.available ? <button type="button" onClick={() => void retryJob(detailedJob.id)} disabled={retry.posting}>Повторить безопасную обработку</button> : unavailable ? <span className="notice">{unavailable}</span> : null}
                 {retry?.message && <span>{retry.message}</span>}
