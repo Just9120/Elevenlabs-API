@@ -35,6 +35,9 @@ This is the current Studio processing contract. It is not a delivery plan, PR hi
 - A materialized source with a server-validated `video/*` MIME type is converted server-side to AAC/M4A before ElevenLabs submission. The browser does not choose or perform this conversion.
 - Video preparation invokes `ffmpeg` without a shell, selects the first audio stream, has a 1,800-second timeout, refuses an empty or deployment-limit-exceeding output, and keeps input/output artifacts inside one temporary directory that is closed after the provider boundary.
 - Video-preparation failures are normalized before the provider request-start marker. Lifecycle, lease, cancellation, source, credential, and output identity are revalidated after preparation and immediately before provider submission.
+- Every prepared ElevenLabs input is duration-probed server-side. It is split before the first provider request when it exceeds either 25 MiB or 1,320 seconds; parts target 20 MiB and at most 1,320 seconds, are mono AAC at 96 kbit/s, overlap by two seconds, are capped at 256 deterministic ordered parts, and may not exceed the deployment source-size limit in aggregate.
+- Part creation is shell-free, timeout-bounded, size-validated, and temporary. Merge assigns the overlap interval to the earlier part, removes an exact repeated word prefix when present, shifts retained word timestamps onto the source timeline, and fails closed if a multi-part response cannot provide the word timing needed for deterministic ownership.
+- Provider calls run in part order with lifecycle revalidation between calls. The provider timeout is 1,800 seconds per part and Google Docs upload timeout is 120 seconds. Once any part has returned successfully, a later provider failure is classified as an uncertain partial result and the whole source is not automatically retried.
 
 ## Transaction and commit ownership
 
@@ -92,7 +95,7 @@ If cancellation, lease loss, owner/generation mismatch, project/source mutation,
 - Safe stage-specific retry/recovery is source-level and explicit owner-driven; runtime rollout evidence remains pending.
 - No generic retry/recovery scheduler for failed long external calls.
 - No OpenAI Studio processing path.
-- Video audio extraction is source-level; automatic long-media size/duration split and overlap-aware merge are not implemented yet.
+- Split diarization remains a quality risk because provider speaker labels can change identity between independently processed parts; Studio preserves returned labels deterministically but does not claim cross-part voice identity matching.
 - No Studio manifest mutation.
 - No multi-worker production validation.
 - No production-live processing claim without controlled rollout validation.

@@ -103,6 +103,7 @@ def test_transport_multipart_and_redaction():
     assert parsed.scheme == "https" and parsed.netloc == "www.googleapis.com" and parsed.path == "/upload/drive/v3/files"
     assert parse_qs(parsed.query) == {"uploadType":["multipart"], "supportsAllDrives":["true"], "fields":["id,name,mimeType,webViewLink,parents"]}
     assert kwargs["headers"]["Authorization"] == "Bearer token-secret"
+    assert kwargs["timeout"] == 120.0
     assert "multipart/related" in kwargs["headers"]["Content-Type"]
     body = kwargs["content"]
     assert body.index(b"application/json") < body.index(b"text/plain; charset=UTF-8")

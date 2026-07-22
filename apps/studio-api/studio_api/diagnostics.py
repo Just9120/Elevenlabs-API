@@ -61,6 +61,7 @@ ERROR_CODES = frozenset({
     "lifecycle_changed_before_provider_call", "credential_or_output_identity_changed_before_provider_call",
     "source_materialization_unavailable", "prerequisites_unavailable", "provider_mismatch", "pipeline_transcription_failed",
     "ffmpeg_unavailable", "media_preparation_timeout", "media_preparation_failed", "prepared_media_too_large",
+    "media_duration_unavailable", "media_split_failed", "media_part_too_large", "partial_provider_result",
     "pipeline_google_docs_failed", "output_reconciliation_required", "incomplete_output_coverage", "commit_failed",
     "no_required_sources", "cancellation_requested", "google_docs_failed", "transcription_failed", "lease_heartbeat_failed", "lease_heartbeat_not_owned",
     "lease_heartbeat_expired", "lease_heartbeat_commit_failed", "lease_heartbeat_stop_timeout", "pipeline_retry_state_prepare_failed", "pipeline_retry_state_persistence_failed", "retry_attempt_limit_reached", "retry_recovery_state_unknown",

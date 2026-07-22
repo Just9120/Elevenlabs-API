@@ -121,6 +121,18 @@ def fake_source(db, *, job_id, job_source_id, lease_owner_id, lease_generation, 
         stream.close()
 
 
+@contextmanager
+def fake_media_preparer(**kwargs):
+    from studio_api.media_preparation import PreparedMediaInput
+
+    yield PreparedMediaInput(
+        filename=kwargs["original_filename"],
+        mime_type=kwargs["mime_type"],
+        byte_count=kwargs["byte_count"],
+        stream=kwargs["stream"],
+    )
+
+
 class CaptureTransport:
     def __init__(self, mutate=None):
         self.calls = []
@@ -135,6 +147,7 @@ class CaptureTransport:
 
 def run_boundary(db, m, job, rel, transport, now, **kwargs):
     from studio_api.job_elevenlabs_transcription import transcribe_processing_job_source_with_elevenlabs
+    kwargs.setdefault("media_preparer", fake_media_preparer)
     return transcribe_processing_job_source_with_elevenlabs(db, job_id=job.id, job_source_id=rel.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), now=now, prerequisites_opener=fake_prereq, source_materializer=fake_source, elevenlabs_transport=transport, models=m, **kwargs)
 
 
@@ -151,7 +164,8 @@ def test_request_construction_language_and_redaction():
     kwargs = calls[0][1]
     assert kwargs["headers"] == {"xi-api-key": "secret-key"}
     assert kwargs["files"]["file"] == ("safe.mp3", stream, "audio/mpeg")
-    assert kwargs["data"] == {"model_id": "scribe_v2", "no_verbatim": "false", "temperature": "0", "tag_audio_events": "false", "diarize": "false", "use_multi_channel": "false", "language_code": "en"}
+    assert kwargs["data"] == {"model_id": "scribe_v2", "no_verbatim": "false", "temperature": "0", "tag_audio_events": "false", "diarize": "false", "use_multi_channel": "false", "timestamps_granularity": "word", "language_code": "en"}
+    assert kwargs["timeout"] == 1800.0
     assert "secret-key" not in repr(ElevenLabsTranscriptionTransport(post=post)) and "ok" not in repr(result)
     calls.clear(); ElevenLabsTranscriptionTransport(post=post).transcribe(api_key="k", stream=BytesIO(b"x"), filename="a.mp3", mime_type="audio/mpeg", diarize=True)
     assert calls[0][1]["data"]["diarize"] == "true"
@@ -341,6 +355,237 @@ def test_media_preparation_failure_blocks_provider_with_safe_reason(db, models):
     assert "private" not in str(exc.value)
 
 
+def test_chunk_transcripts_merge_in_order_without_duplicate_overlap():
+    from studio_api.elevenlabs_transcription import (
+        merge_elevenlabs_transcript_results,
+        normalize_elevenlabs_transcript_response,
+    )
+
+    first = normalize_elevenlabs_transcript_response(
+        {
+            "text": "Hello world",
+            "language_code": "en",
+            "language_probability": 0.95,
+            "words": [
+                {"text": "Hello", "start": 0, "end": 0.5, "speaker_id": "speaker_0"},
+                {"text": " world", "start": 9, "end": 10, "speaker_id": "speaker_0"},
+            ],
+        }
+    )
+    second = normalize_elevenlabs_transcript_response(
+        {
+            "text": "world again",
+            "language_code": "en",
+            "language_probability": 0.8,
+            "words": [
+                {"text": " world", "start": 1, "end": 2, "speaker_id": "speaker_0"},
+                {"text": " again", "start": 2.1, "end": 2.5, "speaker_id": "speaker_0"},
+            ],
+        }
+    )
+
+    merged = merge_elevenlabs_transcript_results(
+        ((first, 0, 0), (second, 8, 2)),
+    )
+
+    assert merged.text == "Hello world again"
+    assert [word.text for word in merged.words] == ["Hello", " world", " again"]
+    assert merged.words[-1].start == 10.1
+    assert merged.detected_language_code == "en"
+    assert merged.language_probability == 0.8
+    assert "Hello" not in repr(merged)
+
+
+def test_chunk_merge_uses_timeline_ownership_when_boundary_text_differs():
+    from studio_api.elevenlabs_transcription import (
+        merge_elevenlabs_transcript_results,
+        normalize_elevenlabs_transcript_response,
+    )
+
+    first = normalize_elevenlabs_transcript_response(
+        {"text": "alpha", "words": [{"text": "alpha", "start": 9, "end": 10}]}
+    )
+    second = normalize_elevenlabs_transcript_response(
+        {
+            "text": "alternate beta",
+            "words": [
+                {"text": "alternate", "start": 0.5, "end": 1.5},
+                {"text": " beta", "start": 2.1, "end": 2.5},
+            ],
+        }
+    )
+
+    merged = merge_elevenlabs_transcript_results(
+        ((first, 0, 0), (second, 8, 2)),
+    )
+
+    assert merged.text == "alpha beta"
+    assert [word.start for word in merged.words] == [9, 10.1]
+
+
+def test_chunk_merge_fails_closed_without_word_timestamps():
+    from studio_api.elevenlabs_transcription import (
+        ElevenLabsTranscriptionError,
+        merge_elevenlabs_transcript_results,
+        normalize_elevenlabs_transcript_response,
+    )
+
+    first = normalize_elevenlabs_transcript_response(
+        {"text": "first", "words": [{"text": "first"}]}
+    )
+    second = normalize_elevenlabs_transcript_response(
+        {"text": "different", "words": [{"text": "different"}]}
+    )
+
+    with pytest.raises(ElevenLabsTranscriptionError, match="malformed_provider_response"):
+        merge_elevenlabs_transcript_results(((first, 0, 0), (second, 8, 2)))
+
+
+def test_prepared_parts_reach_provider_in_order_and_merge(db, models):
+    from studio_api.elevenlabs_transcription import normalize_elevenlabs_transcript_response
+    from studio_api.media_preparation import PreparedMediaBatch, PreparedMediaInput
+
+    *_, job, rel, now = make_job(db, models)
+    streams = [BytesIO(b"part-one"), BytesIO(b"part-two")]
+
+    @contextmanager
+    def prepare(**kwargs):
+        try:
+            yield PreparedMediaBatch(
+                parts=(
+                    PreparedMediaInput(
+                        filename="part-001.m4a",
+                        mime_type="audio/mp4",
+                        byte_count=8,
+                        stream=streams[0],
+                        part_index=1,
+                        part_count=2,
+                        duration_seconds=10,
+                    ),
+                    PreparedMediaInput(
+                        filename="part-002.m4a",
+                        mime_type="audio/mp4",
+                        byte_count=8,
+                        stream=streams[1],
+                        part_index=2,
+                        part_count=2,
+                        timeline_offset_seconds=8,
+                        duration_seconds=5,
+                    ),
+                ),
+                duration_seconds=13,
+                split_reason="duration",
+            )
+        finally:
+            for stream in streams:
+                stream.close()
+
+    class PartsTransport:
+        def __init__(self):
+            self.calls = []
+
+        def transcribe(self, **kwargs):
+            self.calls.append(kwargs)
+            if len(self.calls) == 1:
+                return normalize_elevenlabs_transcript_response(
+                    {
+                        "text": "alpha overlap",
+                        "words": [
+                            {"text": "alpha", "start": 0, "end": 1},
+                            {"text": " overlap", "start": 9, "end": 10},
+                        ],
+                    }
+                )
+            return normalize_elevenlabs_transcript_response(
+                {
+                    "text": "overlap beta",
+                    "words": [
+                        {"text": " overlap", "start": 1, "end": 2},
+                        {"text": " beta", "start": 2.1, "end": 3},
+                    ],
+                }
+            )
+
+    transport = PartsTransport()
+    with run_boundary(
+        db,
+        models,
+        job,
+        rel,
+        transport,
+        now,
+        media_preparer=prepare,
+    ) as result:
+        assert result.text == "alpha overlap beta"
+        assert result.words[-1].start == 10.1
+
+    assert [call["filename"] for call in transport.calls] == [
+        "part-001.m4a",
+        "part-002.m4a",
+    ]
+    assert all(stream.closed for stream in streams)
+
+
+def test_second_part_failure_is_never_classified_retry_safe(db, models):
+    from studio_api.elevenlabs_transcription import (
+        ElevenLabsTranscriptionError,
+        ElevenLabsTranscriptionReason,
+        normalize_elevenlabs_transcript_response,
+    )
+    from studio_api.job_elevenlabs_transcription import JobElevenLabsTranscriptionError
+    from studio_api.media_preparation import PreparedMediaBatch, PreparedMediaInput
+
+    *_, job, rel, now = make_job(db, models)
+
+    @contextmanager
+    def prepare(**kwargs):
+        streams = [BytesIO(b"one"), BytesIO(b"two")]
+        try:
+            yield PreparedMediaBatch(
+                parts=(
+                    PreparedMediaInput("part-001.m4a", "audio/mp4", 3, streams[0], part_count=2, duration_seconds=10),
+                    PreparedMediaInput("part-002.m4a", "audio/mp4", 3, streams[1], part_index=2, part_count=2, timeline_offset_seconds=8, duration_seconds=5),
+                ),
+                duration_seconds=13,
+                split_reason="duration",
+            )
+        finally:
+            for stream in streams:
+                stream.close()
+
+    class PartialFailureTransport:
+        calls = 0
+
+        def transcribe(self, **kwargs):
+            self.calls += 1
+            if self.calls == 2:
+                raise ElevenLabsTranscriptionError(
+                    ElevenLabsTranscriptionReason.provider_rate_limited,
+                )
+            return normalize_elevenlabs_transcript_response(
+                {"text": "first", "words": [{"text": "first", "start": 0, "end": 1}]}
+            )
+
+    transport = PartialFailureTransport()
+    with pytest.raises(JobElevenLabsTranscriptionError, match="partial_provider_result"):
+        with run_boundary(
+            db,
+            models,
+            job,
+            rel,
+            transport,
+            now,
+            media_preparer=prepare,
+        ):
+            pass
+
+    db.expire_all()
+    attempt = db.query(models.TranscriptionJobSourceAttempt).filter_by(job_source_id=rel.id).one()
+    assert transport.calls == 2
+    assert attempt.failure_code == "partial_provider_result"
+    assert attempt.retry_disposition == models.SourceAttemptRetryDisposition.provider_outcome_uncertain
+
+
 def test_diagnostics_source_provider_success_order_and_correlation(monkeypatch, db, models):
     import studio_api.job_elevenlabs_transcription as mod
     *_, job, rel, now = make_job(db, models)
@@ -403,7 +648,7 @@ def test_pre_provider_revalidation_blocks_transport(db, models, mutate, reason):
     from studio_api.job_elevenlabs_transcription import JobElevenLabsTranscriptionError, transcribe_processing_job_source_with_elevenlabs
     transport = CaptureTransport()
     with pytest.raises(JobElevenLabsTranscriptionError, match=reason):
-        with transcribe_processing_job_source_with_elevenlabs(db, job_id=job.id, job_source_id=rel.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), now=now, prerequisites_opener=fake_prereq, source_materializer=materializer, elevenlabs_transport=transport, models=models):
+        with transcribe_processing_job_source_with_elevenlabs(db, job_id=job.id, job_source_id=rel.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), now=now, prerequisites_opener=fake_prereq, source_materializer=materializer, media_preparer=fake_media_preparer, elevenlabs_transport=transport, models=models):
             pass
     assert transport.calls == []
 

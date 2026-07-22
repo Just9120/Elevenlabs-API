@@ -67,8 +67,8 @@ The public host nginx is the authoritative browser-header boundary for both the 
 5. Worker claims one eligible queued job using fenced lease metadata.
 6. Processing re-checks lifecycle, lease, cancellation, source availability, credentials, and output destination.
 7. Source materialization provides an ephemeral server-side handle.
-8. For a server-validated video source, the worker uses its bundled `ffmpeg` runtime to create a bounded temporary AAC/M4A input, then revalidates lifecycle authority before provider submission; non-video inputs pass through unchanged.
-9. ElevenLabs provider path produces an ephemeral redacted transcript result.
+8. The worker duration-probes every prepared source; video first becomes temporary AAC/M4A, while any source above the explicit size/duration policy becomes an ordered bounded set of overlapping mono AAC parts before the first provider request.
+9. ElevenLabs processes parts in order under the source/provider heartbeat. The worker revalidates lifecycle authority between calls, fails closed after any partial provider result, and merges successful part words onto one deterministic source timeline.
 10. Google Docs output path creates one document reference for the active output target.
 11. API persists safe output metadata and completes the job only when every non-skipped relation has output evidence.
 12. Frontend reads browser-safe job/output metadata; transcript/document bodies remain server-private and are not returned.

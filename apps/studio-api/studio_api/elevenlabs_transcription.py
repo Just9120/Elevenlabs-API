@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, BinaryIO, Callable, Mapping
+from typing import Any, BinaryIO, Callable, Mapping, Sequence
 
 import httpx
 
@@ -126,7 +126,7 @@ class ElevenLabsTranscriptResult:
 @dataclass(frozen=True)
 class ElevenLabsTranscriptionTransport:
     endpoint: str = ELEVENLABS_SPEECH_TO_TEXT_URL
-    timeout: float = 60.0
+    timeout: float = 1800.0
     client: httpx.Client | None = field(default=None, repr=False)
     post: Callable[..., httpx.Response] | None = field(default=None, repr=False)
 
@@ -140,6 +140,7 @@ class ElevenLabsTranscriptionTransport:
             "tag_audio_events": "false",
             "diarize": str(diarize).lower(),
             "use_multi_channel": "false",
+            "timestamps_granularity": "word",
         }
         if language_code:
             data["language_code"] = language_code
@@ -177,6 +178,71 @@ class ElevenLabsTranscriptionTransport:
 
     def __repr__(self) -> str:
         return f"ElevenLabsTranscriptionTransport(endpoint={self.endpoint!r})"
+
+
+def merge_elevenlabs_transcript_results(
+    parts: Sequence[tuple[ElevenLabsTranscriptResult, float, float]],
+) -> ElevenLabsTranscriptResult:
+    if not parts:
+        raise ElevenLabsTranscriptionError(
+            ElevenLabsTranscriptionReason.malformed_provider_response,
+        )
+
+    merged_words: list[_WordData] = []
+    language_codes: list[str | None] = []
+    probabilities: list[float | None] = []
+    for index, (result, timeline_offset, overlap_seconds) in enumerate(parts):
+        if not math.isfinite(timeline_offset) or timeline_offset < 0:
+            raise ElevenLabsTranscriptionError(
+                ElevenLabsTranscriptionReason.malformed_provider_response,
+            )
+        if not math.isfinite(overlap_seconds) or overlap_seconds < 0:
+            raise ElevenLabsTranscriptionError(
+                ElevenLabsTranscriptionReason.malformed_provider_response,
+            )
+        current_words = tuple(
+            _WordData(
+                text=word.text,
+                start=word.start,
+                end=word.end,
+                type=word.type,
+                speaker_id=word.speaker_id,
+            )
+            for word in result.words
+        )
+        if not current_words:
+            raise ElevenLabsTranscriptionError(
+                ElevenLabsTranscriptionReason.malformed_provider_response,
+            )
+        drop_count = 0
+        if index:
+            drop_count = max(
+                _duplicate_prefix_word_count(merged_words, current_words),
+                _owned_overlap_prefix_count(current_words, overlap_seconds),
+            )
+        for word in current_words[drop_count:]:
+            merged_words.append(
+                _WordData(
+                    text=word.text,
+                    start=_shift_timestamp(word.start, timeline_offset),
+                    end=_shift_timestamp(word.end, timeline_offset),
+                    type=word.type,
+                    speaker_id=word.speaker_id,
+                )
+            )
+        language_codes.append(result.detected_language_code)
+        probabilities.append(result.language_probability)
+
+    text = _join_transcript_tokens([word.text for word in merged_words])
+    language_code, probability = _merged_language(language_codes, probabilities)
+    holder = _RevocableTranscript(text, tuple(merged_words))
+    return ElevenLabsTranscriptResult(
+        holder,
+        text_length=len(text),
+        word_count=len(merged_words),
+        detected_language_code=language_code,
+        language_probability=probability,
+    )
 
 
 def normalize_elevenlabs_transcript_response(payload: Any) -> ElevenLabsTranscriptResult:
@@ -234,3 +300,85 @@ def _optional_timestamp(value: Any) -> float | None:
     if not valid_timestamp:
         raise ElevenLabsTranscriptionError(ElevenLabsTranscriptionReason.malformed_provider_response)
     return float(value)
+
+
+def _duplicate_prefix_word_count(
+    previous_words: Sequence[_WordData],
+    current_words: Sequence[_WordData],
+) -> int:
+    max_overlap = min(24, len(previous_words), len(current_words))
+    for count in range(max_overlap, 0, -1):
+        previous = _normalized_word_window(previous_words[-count:])
+        current = _normalized_word_window(current_words[:count])
+        if previous and previous == current:
+            return count
+    return 0
+
+
+def _owned_overlap_prefix_count(
+    words: Sequence[_WordData],
+    overlap_seconds: float,
+) -> int:
+    if overlap_seconds <= 0:
+        return 0
+    drop_count = 0
+    saw_timestamp = False
+    for index, word in enumerate(words):
+        if word.start is None:
+            if drop_count == index:
+                drop_count = index + 1
+            continue
+        saw_timestamp = True
+        if word.start < overlap_seconds:
+            drop_count = index + 1
+            continue
+        break
+    if not saw_timestamp:
+        raise ElevenLabsTranscriptionError(
+            ElevenLabsTranscriptionReason.malformed_provider_response,
+        )
+    return drop_count
+
+
+def _normalized_word_window(words: Sequence[_WordData]) -> str:
+    return " ".join(
+        token
+        for token in (
+            " ".join(word.text.split()).casefold()
+            for word in words
+        )
+        if token
+    )
+
+
+def _shift_timestamp(value: float | None, offset: float) -> float | None:
+    return None if value is None else value + offset
+
+
+def _join_transcript_tokens(tokens: Sequence[str]) -> str:
+    text = ""
+    for token in tokens:
+        if not token:
+            continue
+        if (
+            text
+            and not text[-1].isspace()
+            and not token[0].isspace()
+            and text[-1].isalnum()
+            and token[0].isalnum()
+        ):
+            text += " "
+        text += token
+    return text.strip()
+
+
+def _merged_language(
+    codes: Sequence[str | None],
+    probabilities: Sequence[float | None],
+) -> tuple[str | None, float | None]:
+    normalized = [code.strip().lower() if code else None for code in codes]
+    if not normalized or normalized[0] is None or any(code != normalized[0] for code in normalized):
+        return None, None
+    available_probabilities = [value for value in probabilities if value is not None]
+    probability = min(available_probabilities) if len(available_probabilities) == len(probabilities) else None
+    return normalized[0], probability

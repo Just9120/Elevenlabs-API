@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import uuid
+from contextlib import contextmanager
 from datetime import timedelta
 from pathlib import Path
 
@@ -55,6 +56,7 @@ from studio_api.job_output_destination import DriveFolderAuthorizationMetadata
 from studio_api.job_output_folder_selection import VerifiedOutputFolderSelection
 from studio_api.job_processing_orchestrator import orchestrate_processing_job
 from studio_api.job_processing_runner import claim_next_and_orchestrate_processing_job
+from studio_api.media_preparation import PreparedMediaInput
 from studio_api.models import (
     JobStatus,
     LocalIdentity,
@@ -133,6 +135,16 @@ class FakeSourceStorage:
             raise FileNotFoundError(key)
         body, content_type = self.objects[key]
         return SourceObjectStream(io.BytesIO(body), content_type, len(body))
+
+
+@contextmanager
+def passthrough_test_media(**kwargs):
+    yield PreparedMediaInput(
+        filename=kwargs["original_filename"],
+        mime_type=kwargs["mime_type"],
+        byte_count=kwargs["byte_count"],
+        stream=kwargs["stream"],
+    )
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -271,6 +283,7 @@ def test_api_created_job_completes_through_worker_and_public_output_api(monkeypa
             token_resolver=resolve_google_token,
             metadata_fetcher=fetch_folder_metadata,
             storage_factory=lambda settings: storage,
+            media_preparer=passthrough_test_media,
             elevenlabs_transport=transcribe_with_fake_provider,
         )
 
