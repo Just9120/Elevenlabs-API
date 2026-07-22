@@ -2,20 +2,19 @@
 
 ## Current dashboard
 
-- ✅ `PWA-E2E-FOUNDATION-01B` — Authenticated real-browser coverage merged through PR #178 at `5ba3b42` and passed post-merge repository and Studio PWA CI.
-- 👉 `PWA-FRONTEND-MODULARIZATION-01B` — First behavior-preserving frontend modularization tranche is CI-verified in PR #179; merge is pending.
+- ✅ `PWA-FRONTEND-MODULARIZATION-01B` — First behavior-preserving frontend modularization tranche merged through PR #179 at `feb099f` and passed post-merge repository and Studio PWA CI.
+- 👉 `PWA-FRONTEND-MODULARIZATION-02` — Continue extracting job-domain presentation/model helpers and bounded UI/tests from `App.tsx`/`App.test.tsx` without changing product behavior.
 - ⛔ `PWA-PROCESSING-ROLLOUT-01A` — Production processing rollout/canary — Operator item not run; production-live claims remain prohibited.
 
 ## Current repository state
 
-- `main` revision `5ba3b42b5f629312031d3a26901c6a4ccfdf3719` passed post-merge repository CI run `29903690739` and Studio PWA CI run `29903690995`.
-- Studio Platform CD run `29903690667` deployed and identity-checked only the web component at that revision; API and worker deployment jobs were skipped. Migration `0015_user_source_retention`, worker rollout, and canary evidence remain absent, so live frontend/API revision compatibility is not proven.
+- `main` revision `feb099f677bcffd2e3b578548bfe76cfd1ab164e` passed post-merge repository CI run `29910237303` and Studio PWA CI run `29910237261`.
+- Studio Platform CD run `29910237358` deployed and identity-checked only the web component at that revision; API and worker deployment jobs were skipped. Migration `0015_user_source_retention`, worker rollout, and canary evidence remain absent, so live frontend/API revision compatibility is not proven.
 - PostgreSQL remains durable Studio authority; Redis remains a non-durable support service and is not job, cleanup, retry, scheduler, heartbeat, or lease authority.
 - Source-level Studio includes the authenticated platform shell, bounded browser capabilities, processing/retry/reconciliation/source-lifecycle foundations, patched dependency graphs, constrained Python resolution, and the service-backed API/worker E2E verified on `main`.
-- `main` now includes an isolated real-Chromium login/project/result/logout scenario through live FastAPI/PostgreSQL/Redis services without provider, Google, S3, production, or canary side effects. Post-merge Studio PWA CI run `29903690995` verified both the browser and Studio jobs at the merge revision.
+- `main` includes an isolated real-Chromium login/project/result/logout scenario through live FastAPI/PostgreSQL/Redis services without provider, Google, S3, production, or canary side effects. Post-merge Studio PWA CI run `29910237261` verified both the browser and Studio jobs at the merge revision.
 - The weekly/manual dependency-audit workflow is source-complete but has no GitHub run evidence yet.
-- The current branch reduces `App.tsx` from 4,014 to 3,595 lines and extracts platform routing, upload-policy validation, OAuth-result handling, source state rules, display formatters, safe resource links, `SourcesPanel`, `Login`, and `PlatformSidebar` into focused modules without adding dependencies or changing product behavior. Focused module coverage raises the Studio suite from 114 to 198 tests.
-- On publication revision `a3327c8`, Studio PWA CI run `29909171967` passed both `browser-e2e` and `studio`, and repository CI run `29909172616` passed `checks`.
+- `main` now contains the first modularization tranche: `App.tsx` is reduced from 4,014 to 3,595 lines, focused modules own platform routing, upload-policy validation, OAuth-result handling, source state rules, display formatters, safe resource links, `SourcesPanel`, `Login`, and `PlatformSidebar`, and the Studio suite contains 198 tests without new dependencies or product-behavior changes.
 - Frontend `App.tsx`/`App.test.tsx` and API `main.py`/`test_studio_api_core.py` remain major maintainability concentrations after this first tranche; further UI/test modularization remains follow-up work.
 
 ## Readiness snapshot
@@ -30,11 +29,11 @@
 
 ## Active item validation
 
-`PWA-FRONTEND-MODULARIZATION-01B` has completed its first tranche in narrow behavior-preserving commits. Targeted routing, upload-policy, OAuth, source-state, formatter, link, source-panel, login, and sidebar checks pass; the full local Studio profile passes ESLint, all 198 Vitest tests, TypeScript, and the production PWA build, and repository lightweight checks pass. PR #179 has also passed its authenticated Chromium boundary and both required CI workflows at revision `a3327c8`. This remains isolated CI evidence and does not itself provide API rollout, production-host, migration, worker, or canary evidence.
+`PWA-FRONTEND-MODULARIZATION-02` starts from clean post-merge `main`. Its first focus is extracting job-domain types and pure presentation helpers with direct unit coverage, followed by bounded job/project UI and related tests where dependency direction remains clear. Non-goals are product behavior, API/backend changes, dependency changes, CI/CD changes, and production rollout. Each commit must pass targeted tests and the full Studio lint/test/build profile; the PR browser job remains the final boundary check.
 
 ## Blockers and risks
 
-- The latest automatic component CD proves only the web deployment at merge revision `5ba3b42`; API deployment, migration `0015`, worker rollout, and processing canary remain separate operator-controlled evidence.
+- The latest automatic component CD proves only the web deployment at merge revision `feb099f`; API deployment, migration `0015`, worker rollout, and processing canary remain separate operator-controlled evidence.
 - No current repository evidence proves a successful production controlled canary after the latest worker/source lifecycle work.
 - Browser-bound capabilities increase the impact of frontend injection; the committed host header policy is not production evidence until an operator applies it, runs `nginx -t`, and validates public Picker/upload flows over TLS.
 - The dependency-audit workflow has not yet run through its scheduled/manual GitHub path; merged source and local audit probes are not remote execution evidence.
