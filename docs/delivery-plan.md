@@ -4,7 +4,7 @@
 
 - ✅ `PWA-FRONTEND-MODULARIZATION-01B/02` — The first two behavior-preserving frontend tranches are merged through PR #180 at `605cbae`; repository, Studio, authenticated Chromium, and web deployment checks passed.
 - ⛔ `PWA-PROCESSING-ROLLOUT-01A / Gate 0` — Current-main preflight run `29918894603` stopped fail-closed because one `studio-worker` is running; later health, public-routing, and revision checks were intentionally not run.
-- 👉 `PWA-PROCESSING-ROLLOUT-01A / Gate 0A` — Establish the running worker's authority and perform an explicitly approved controlled drain/stop before repeating the read-only preflight.
+- 👉 `PWA-PROCESSING-ROLLOUT-01A / Gate 0A` — Merge and dispatch the manual-only read-only worker-status workflow from the intended `main` SHA; use its safe identity/health evidence before separately authorizing any drain/stop.
 - ⏸ `PWA-FRONTEND-MODULARIZATION-03` — Preparation composer/readiness extraction is deferred until the production baseline is known or rollout is waiting on an explicit operator window.
 - ⛔ `PWA-PROCESSING-ROLLOUT-01A / Gates 1–6` — Backup, migration, API deployment, public-edge validation, worker deployment, and canary must run in order; each later gate is blocked until the previous gate has safe factual evidence.
 
@@ -163,6 +163,7 @@ For production/operator work, use a separate evidence pipeline: **read-only pref
 - `main` revision `605cbae` passed repository CI run `29915391965`, Studio PWA CI run `29915391923`, and web-only CD run `29915391979`.
 - The dependency-audit workflow has no GitHub run. Studio Processing Preflight passed historically in run `29633282269` at old revision `5df22347f4d9d8a2805f70f023929cbe7ac34c47`, but current-main run `29918894603` is blocked by the running worker.
 - Production checkout is now proven clean at `605cbae`; current API image identity, database revision, and running worker image/deployment authority remain unproven because the fail-closed preflight stopped before those checks.
+- The current branch adds a manual-only `Studio Worker Status` workflow that validates `main`/SHA/repository/clean-tree identity and invokes only `manage_studio_worker.sh status`; it cannot be dispatched as trusted default-branch source until merged.
 - Public security headers, TLS Picker/upload behavior, database head `0015`, controlled worker absence/rollout, and the one-output canary remain unproven.
 - Windows local service-backed processing tests remain environment-limited without PostgreSQL/Redis; GitHub CI is the authoritative service-backed gate.
 
