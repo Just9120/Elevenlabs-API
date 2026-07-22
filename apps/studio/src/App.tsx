@@ -55,6 +55,7 @@ import {
   unusableJobSourceReason,
   type Source,
 } from "./sourceModel";
+import { isSafeDisplayUrl, ResourceExternalLink } from "./resourceLinks";
 import "./styles.css";
 
 type User = { email: string; role: string };
@@ -237,43 +238,12 @@ const emptyJobState: JobState = {
   loaded: false,
   items: [],
 };
-function isSafeDisplayUrl(value: string | null) {
-  return Boolean(
-    value &&
-    /^https?:\/\//i.test(value) &&
-    !/\s|token|secret|cipher|presigned|s3:|r2:|key/i.test(value),
-  );
-}
-
 function safeConfirm(message: string) {
   try {
     return window.confirm(message) !== false;
   } catch {
     return false;
   }
-}
-
-function ResourceExternalLink({
-  href,
-  label,
-  ariaLabel,
-}: {
-  href: string;
-  label: string;
-  ariaLabel: string;
-}) {
-  return (
-    <a
-      className="button-like secondary resource-link"
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      aria-label={ariaLabel}
-    >
-      <span>{label}</span>
-      <span aria-hidden="true">↗</span>
-    </a>
-  );
 }
 
 function jobTitle(job: TranscriptionJob) {
