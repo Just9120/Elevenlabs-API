@@ -34,6 +34,12 @@ type AccountPreferences = {
   source_retention_ttl_seconds: number;
   allowed_source_retention_ttl_seconds: number[];
 };
+type SourceUploadPolicy = {
+  local_upload_enabled: boolean;
+  max_upload_bytes: number;
+  supported_mime_prefixes: string[];
+  supported_mime_types: string[];
+};
 type Credential = {
   id: string;
   provider: "elevenlabs" | "openai";
@@ -235,7 +241,6 @@ const googleOauthMessages: Record<GoogleOauthResult, string> = {
 const googleOauthResults = new Set<GoogleOauthResult>(
   Object.keys(googleOauthMessages) as GoogleOauthResult[],
 );
-const LOCAL_UPLOAD_LIMIT_BYTES = 536870912;
 const emptySourceState = {
   loading: false,
   error: "",
@@ -264,6 +269,15 @@ function retentionOptionLabel(seconds: number) {
     2592000: "30 дней",
   };
   return labels[seconds] ?? `${seconds} сек.`;
+}
+function formatUploadLimit(value: number) {
+  const mebibytes = value / 1024 / 1024;
+  if (mebibytes >= 1)
+    return `${Number.isInteger(mebibytes) ? mebibytes : mebibytes.toFixed(1)} МБ`;
+  const kibibytes = value / 1024;
+  if (kibibytes >= 1)
+    return `${Number.isInteger(kibibytes) ? kibibytes : kibibytes.toFixed(1)} КБ`;
+  return `${value} байт`;
 }
 function isUsableJobSource(source: Source) {
   const expiresAt = source.expires_at ? new Date(source.expires_at).getTime() : null;
@@ -373,16 +387,57 @@ function credentialProfileLabel(c: Credential) {
   return c.active_version ? `${c.label} · v${c.active_version}` : c.label;
 }
 const ELEVENLABS_CREDENTIAL_SESSION_KEY = "studio.elevenlabsCredentialId";
-export function isSupportedSourceMimeType(mimeType: string) {
+function normalizeSourceUploadPolicy(value: unknown): SourceUploadPolicy | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Partial<SourceUploadPolicy>;
+  if (
+    typeof candidate.local_upload_enabled !== "boolean" ||
+    !Number.isSafeInteger(candidate.max_upload_bytes) ||
+    Number(candidate.max_upload_bytes) <= 0 ||
+    !Array.isArray(candidate.supported_mime_prefixes) ||
+    !Array.isArray(candidate.supported_mime_types)
+  )
+    return null;
+  const prefixes = candidate.supported_mime_prefixes
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+  const types = candidate.supported_mime_types
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+  if (
+    prefixes.length !== candidate.supported_mime_prefixes.length ||
+    types.length !== candidate.supported_mime_types.length ||
+    prefixes.length + types.length === 0
+  )
+    return null;
+  return {
+    local_upload_enabled: candidate.local_upload_enabled,
+    max_upload_bytes: Number(candidate.max_upload_bytes),
+    supported_mime_prefixes: [...new Set(prefixes)],
+    supported_mime_types: [...new Set(types)],
+  };
+}
+function isSupportedSourceMimeType(
+  mimeType: string,
+  policy: SourceUploadPolicy,
+) {
   const normalized = mimeType.trim().toLowerCase();
   return (
-    normalized.startsWith("audio/") ||
-    normalized.startsWith("video/") ||
-    normalized === "application/ogg"
+    policy.supported_mime_prefixes.some((prefix) =>
+      normalized.startsWith(prefix),
+    ) || policy.supported_mime_types.includes(normalized)
   );
 }
-function isSupportedMediaFile(file: File) {
-  return isSupportedSourceMimeType(file.type);
+function sourceUploadAccept(policy: SourceUploadPolicy) {
+  return [
+    ...policy.supported_mime_prefixes.map((prefix) => `${prefix}*`),
+    ...policy.supported_mime_types,
+  ].join(",");
+}
+function isSupportedMediaFile(file: File, policy: SourceUploadPolicy) {
+  return isSupportedSourceMimeType(file.type, policy);
 }
 const platformNav: { id: Page; label: string; icon: typeof Home }[] = [
   { id: "dashboard", label: "Обзор", icon: Home },
@@ -717,6 +772,9 @@ function PreparationPanel({
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [credentialsLoading, setCredentialsLoading] = useState(true);
   const [credentialsError, setCredentialsError] = useState("");
+  const [sourceUploadPolicy, setSourceUploadPolicy] =
+    useState<SourceUploadPolicy | null>(null);
+  const [sourceUploadPolicyError, setSourceUploadPolicyError] = useState("");
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [batchJobs, setBatchJobs] = useState<TranscriptionJob[]>([]);
@@ -771,6 +829,28 @@ function PreparationPanel({
       })
       .finally(() => {
         if (!cancelled) setCredentialsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  useEffect(() => {
+    let cancelled = false;
+    setSourceUploadPolicy(null);
+    setSourceUploadPolicyError("");
+    api<unknown>("/sources/upload-policy")
+      .then((value) => {
+        if (cancelled) return;
+        const policy = normalizeSourceUploadPolicy(value);
+        if (!policy) throw new Error("Invalid source upload policy");
+        setSourceUploadPolicy(policy);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setSourceUploadPolicy(null);
+        setSourceUploadPolicyError(
+          "Не удалось загрузить правила локальной загрузки. Загрузка с устройства временно недоступна.",
+        );
       });
     return () => {
       cancelled = true;
@@ -976,15 +1056,18 @@ function PreparationPanel({
         return;
       }
       if (
+        sourceUploadPolicy &&
         result.docs.some(
-          (doc) => doc.mimeType && !isSupportedSourceMimeType(doc.mimeType),
+          (doc) =>
+            doc.mimeType &&
+            !isSupportedSourceMimeType(doc.mimeType, sourceUploadPolicy),
         )
       ) {
         setRowIntakeStatus((current) => ({ ...current, [rowId]: "" }));
         setRowIntakeErrors((current) => ({
           ...current,
           [rowId]:
-            "Выберите только аудио, видео или OGG. В выборе есть неподдерживаемые файлы.",
+            "В выборе есть файлы, не поддерживаемые текущими правилами.",
         }));
         return;
       }
@@ -1037,13 +1120,22 @@ function PreparationPanel({
     const files = Array.from(e.target.files ?? []);
     e.target.value = "";
     if (files.length === 0) return;
+    if (!sourceUploadPolicy?.local_upload_enabled) {
+      setRowIntakeErrors((current) => ({
+        ...current,
+        [rowId]:
+          sourceUploadPolicyError ||
+          "Локальная загрузка временно недоступна. Повторите попытку позже.",
+      }));
+      return;
+    }
     const successful: Source[] = [];
     const failures: string[] = [];
     setRowIntakeErrors((current) => ({ ...current, [rowId]: "" }));
     for (const file of files) {
-      if (!isSupportedMediaFile(file)) {
+      if (!isSupportedMediaFile(file, sourceUploadPolicy)) {
         failures.push(
-          `${file.name}: поддерживаются только аудио, видео или OGG.`,
+          `${file.name}: тип файла не поддерживается текущими правилами.`,
         );
         continue;
       }
@@ -1051,8 +1143,10 @@ function PreparationPanel({
         failures.push(`${file.name}: файл пустой.`);
         continue;
       }
-      if (file.size > LOCAL_UPLOAD_LIMIT_BYTES) {
-        failures.push(`${file.name}: файл больше 512 МБ.`);
+      if (file.size > sourceUploadPolicy.max_upload_bytes) {
+        failures.push(
+          `${file.name}: файл больше ${formatUploadLimit(sourceUploadPolicy.max_upload_bytes)}.`,
+        );
         continue;
       }
       try {
@@ -1655,6 +1749,19 @@ function PreparationPanel({
               : "Все строки готовы"}
           </span>
         </div>
+        {sourceUploadPolicy?.local_upload_enabled ? (
+          <p className="muted">
+            Локальная загрузка: до{" "}
+            {formatUploadLimit(sourceUploadPolicy.max_upload_bytes)}. Допустимые
+            типы получены с сервера.
+          </p>
+        ) : sourceUploadPolicy ? (
+          <p className="notice">Локальная загрузка временно недоступна.</p>
+        ) : sourceUploadPolicyError ? (
+          <p className="notice">{sourceUploadPolicyError}</p>
+        ) : (
+          <p className="muted">Загружаем правила локальной загрузки…</p>
+        )}
         <fieldset className="composer-rows">
           <legend>Строки подготовки</legend>
           {!sources.loaded && (
@@ -1766,8 +1873,15 @@ function PreparationPanel({
                         </button>
                         <span className="file-picker-control">
                           <label
-                            className="button-like secondary"
+                            className={`button-like secondary${
+                              sourceUploadPolicy?.local_upload_enabled
+                                ? ""
+                                : " disabled"
+                            }`}
                             htmlFor={`local-source-upload-${row.id}`}
+                            aria-disabled={
+                              !sourceUploadPolicy?.local_upload_enabled
+                            }
                           >
                             <span aria-hidden="true">С устройства</span>
                             <span className="visually-hidden">
@@ -1780,7 +1894,12 @@ function PreparationPanel({
                             aria-label={`Выбрать файлы с устройства для строки ${index + 1}`}
                             type="file"
                             multiple
-                            accept="audio/*,video/*,.ogg,.oga,application/ogg"
+                            accept={
+                              sourceUploadPolicy?.local_upload_enabled
+                                ? sourceUploadAccept(sourceUploadPolicy)
+                                : undefined
+                            }
+                            disabled={!sourceUploadPolicy?.local_upload_enabled}
                             onChange={(e) =>
                               void uploadRowLocalSources(row.id, e)
                             }

@@ -156,6 +156,8 @@ The audited local upload completion path validated maximum size and supported MI
 
 The audit found that the same `source_upload_ttl_seconds` value expired a source one hour after initiation and was not extended on successful completion. The local remediation keeps the one-hour pending-upload default, resets verified sources from an allowlisted PostgreSQL-backed user preference with a 24-hour default, exposes one-hour through 30-day choices in PWA settings, and surfaces the exact retained expiry. Existing sources keep their persisted deadline; migration and service-backed API/Linux preflight verification are pending.
 
+The audit also found a duplicated 512 MB constant and MIME allowlist in the PWA. The local remediation exposes only those safe server-policy values through an authenticated `no-store` DTO, validates the DTO at runtime, disables direct local selection when policy discovery fails, and keeps every server-side validation boundary intact.
+
 #### P1 — legacy API and UI authority is ambiguous
 
 - The frontend defaults to static demo mode unless `VITE_STUDIO_PLATFORM_MODE=platform`; ordinary `npm run dev` therefore does not open the real PWA.

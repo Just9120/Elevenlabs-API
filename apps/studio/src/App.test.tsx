@@ -494,6 +494,13 @@ describe("Studio PWA", () => {
               3600, 86400, 259200, 604800, 2592000,
             ],
           });
+        if (url.endsWith("/api/sources/upload-policy"))
+          return json({
+            local_upload_enabled: true,
+            max_upload_bytes: 536870912,
+            supported_mime_prefixes: ["audio/", "video/"],
+            supported_mime_types: ["application/ogg"],
+          });
         if (url.endsWith("/api/auth/bootstrap-status"))
           return json({ bootstrap_required: false });
         if (url.endsWith("/api/auth/login-context"))
@@ -5477,6 +5484,7 @@ describe("Studio PWA", () => {
     expect(input.tagName.toLowerCase()).toBe("input");
     expect(input).toHaveAttribute("type", "file");
     expect(input).toHaveAttribute("multiple");
+    await waitFor(() => expect(input).toBeEnabled());
     expect(input).toHaveClass("visually-hidden");
     expect(input.closest(".file-picker-control")).not.toBeNull();
     expect(
@@ -5484,7 +5492,7 @@ describe("Studio PWA", () => {
     ).toHaveTextContent("С устройства");
     expect(input).toHaveAttribute(
       "accept",
-      "audio/*,video/*,.ogg,.oga,application/ogg",
+      "audio/*,video/*,application/ogg",
     );
     expect(document.body).not.toHaveTextContent(
       "https://upload.example/presigned",
@@ -5522,7 +5530,7 @@ describe("Studio PWA", () => {
     );
     expect(
       screen.getByText(
-        /bad\.exe: поддерживаются только аудио, видео или OGG\./,
+        /bad\.exe: тип файла не поддерживается текущими правилами\./,
       ),
     ).toBeInTheDocument();
     const uploadPuts = (
@@ -5553,6 +5561,68 @@ describe("Studio PWA", () => {
         name: "Выбрать папку результата для строки 2",
       }),
     ).toBeInTheDocument();
+  });
+
+  it("uses the server upload-size policy before initiating a local upload", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/sources/upload-policy"))
+        return json({
+          local_upload_enabled: true,
+          max_upload_bytes: 3,
+          supported_mime_prefixes: ["audio/", "video/"],
+          supported_mime_types: ["application/ogg"],
+        });
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    renderApp();
+    await openProjectsPage();
+    const row = await screen.findByLabelText("Источник строки 1");
+    const input = within(row).getByLabelText(
+      "Выбрать файлы с устройства для строки 1",
+    ) as HTMLInputElement;
+    await waitFor(() => expect(input).toBeEnabled());
+
+    await userEvent.upload(
+      input,
+      new File(["four"], "too-large.ogg", { type: "audio/ogg" }),
+    );
+
+    expect(
+      await screen.findByText(/too-large\.ogg: файл больше 3 байт\./),
+    ).toBeInTheDocument();
+    expect(
+      baseFetch.mock.calls.some(
+        ([url, init]) =>
+          String(url).endsWith(
+            "/api/projects/p1/sources/local-upload/initiate",
+          ) && init?.method === "POST",
+      ),
+    ).toBe(false);
+  });
+
+  it("fails closed when the server upload policy is unavailable", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/sources/upload-policy"))
+        return json({ detail: "unavailable" }, false, 503);
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    renderApp();
+    await openProjectsPage();
+    expect(
+      await screen.findByText(
+        /Не удалось загрузить правила локальной загрузки/,
+      ),
+    ).toBeInTheDocument();
+    const row = await screen.findByLabelText("Источник строки 1");
+    expect(
+      within(row).getByLabelText(
+        "Выбрать файлы с устройства для строки 1",
+      ),
+    ).toBeDisabled();
   });
 
   it("clears stale local upload status before rejecting a new invalid file", async () => {
@@ -5586,7 +5656,7 @@ describe("Studio PWA", () => {
     await userEvent.upload(input, unsupportedFile, { applyAccept: false });
 
     await screen.findByText(
-      /unsupported\.exe: поддерживаются только аудио, видео или OGG\./,
+      /unsupported\.exe: тип файла не поддерживается текущими правилами\./,
     );
     expect(
       within(deviceCard).queryByText(/valid\.ogg/),

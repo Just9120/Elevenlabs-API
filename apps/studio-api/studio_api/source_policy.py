@@ -8,6 +8,17 @@ DEFAULT_SOURCE_RETENTION_TTL_SECONDS = 86400
 SOURCE_RETENTION_TTL_OPTIONS_SECONDS = (3600, 86400, 259200, 604800, 2592000)
 
 
+def browser_source_upload_policy(
+    max_upload_bytes: int, *, local_upload_enabled: bool
+) -> dict[str, object]:
+    return {
+        "local_upload_enabled": local_upload_enabled,
+        "max_upload_bytes": max_upload_bytes,
+        "supported_mime_prefixes": list(SUPPORTED_SOURCE_MIME_PREFIXES),
+        "supported_mime_types": sorted(SUPPORTED_SOURCE_MIME_TYPES),
+    }
+
+
 class UploadedObjectMetadataIssue(str, Enum):
     metadata_unavailable = "metadata_unavailable"
     source_too_large = "source_too_large"

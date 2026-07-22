@@ -55,6 +55,10 @@ button:disabled {
   cursor: not-allowed;
   opacity: 0.65;
 }
+.button-like.disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
 .primary:disabled {
   cursor: not-allowed;
   opacity: 0.55;

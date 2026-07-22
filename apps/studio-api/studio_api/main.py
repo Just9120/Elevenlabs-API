@@ -16,7 +16,7 @@ from .models import *
 from .rate_limit import RateLimiter
 from .security import *
 from .source_storage import get_source_storage, normalize_source_display_filename
-from .source_policy import SOURCE_RETENTION_TTL_OPTIONS_SECONDS, UploadedObjectMetadataIssue, is_supported_source_mime_type, normalize_source_mime_type, uploaded_object_metadata_issue, validate_source_size
+from .source_policy import SOURCE_RETENTION_TTL_OPTIONS_SECONDS, UploadedObjectMetadataIssue, browser_source_upload_policy, is_supported_source_mime_type, normalize_source_mime_type, uploaded_object_metadata_issue, validate_source_size
 from .google_connection_access import GoogleConnectionAccessError, GoogleConnectionAccessReason, active_google_connection_for_user, google_token_aad, refresh_user_google_drive_access_token, require_drive_file_scope, require_picker_browser_scope_boundary
 from .google_scopes import has_drive_file_scope, has_picker_browser_scope_boundary
 from .job_lifecycle import safe_failure_metadata_value
@@ -445,6 +445,14 @@ def list_sources(project_id: str, pair=Depends(current_session), db: Session=Dep
 def _browser_capability_cache_headers(response: Response):
     response.headers["Cache-Control"] = "no-store"
     response.headers["Pragma"] = "no-cache"
+
+@app.get("/api/sources/upload-policy")
+def get_source_upload_policy(response: Response, pair=Depends(current_session)):
+    _browser_capability_cache_headers(response)
+    return browser_source_upload_policy(
+        settings.source_max_upload_bytes,
+        local_upload_enabled=settings.source_storage_configured(),
+    )
 
 @app.post("/api/google/picker/session")
 def create_google_picker_session(response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db)):

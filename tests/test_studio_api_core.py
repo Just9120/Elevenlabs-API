@@ -192,6 +192,33 @@ def test_account_source_retention_preferences_are_server_authoritative():
         db.close()
 
 
+def test_source_upload_policy_is_authenticated_safe_and_not_cached(monkeypatch):
+    email = "source-upload-policy@example.com"
+    pw = admin(email)
+    anonymous = TestClient(app)
+    assert anonymous.get("/api/sources/upload-policy").status_code == 401
+
+    from studio_api import main as main_mod
+    monkeypatch.setattr(main_mod.settings, "source_max_upload_bytes", 123456)
+    monkeypatch.setattr(
+        type(main_mod.settings), "source_storage_configured", lambda self: True
+    )
+    c = TestClient(app)
+    login(c, pw, email)
+    response = c.get("/api/sources/upload-policy")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["pragma"] == "no-cache"
+    assert response.json() == {
+        "local_upload_enabled": True,
+        "max_upload_bytes": 123456,
+        "supported_mime_prefixes": ["audio/", "video/"],
+        "supported_mime_types": ["application/ogg"],
+    }
+    forbidden = ["bucket", "object", "presigned", "endpoint", "access_key", "secret"]
+    assert all(value not in response.text.lower() for value in forbidden)
+
+
 def test_credential_lifecycle_no_raw_secret_echo_and_audit_safe():
     pw = admin(); raw = "sk-test-secret-value-123456"
     with TestClient(app) as c:

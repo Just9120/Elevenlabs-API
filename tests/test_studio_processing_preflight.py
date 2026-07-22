@@ -334,6 +334,7 @@ def test_semantic_runtime_validation_blocks_before_docker(tmp_path: Path) -> Non
         ("STUDIO_WORKER_POLL_INTERVAL_SECONDS", "abc"),
         ("STUDIO_WORKER_ERROR_BACKOFF_SECONDS", "-1"),
         ("STUDIO_SOURCE_MAX_UPLOAD_BYTES", "0"),
+        ("STUDIO_SOURCE_MAX_UPLOAD_BYTES", "2147483648"),
         ("STUDIO_WORKER_POLL_INTERVAL_SECONDS", "61"),
         ("STUDIO_WORKER_LEASE_TTL_SECONDS", "299"),
         ("STUDIO_SOURCE_UPLOAD_TTL_SECONDS", "899"),

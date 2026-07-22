@@ -63,7 +63,7 @@ validate_runtime_values() {
   is_url "${ENV_VALUES[STUDIO_GOOGLE_OAUTH_REDIRECT_URI]}" true || return 1
   in_range "${ENV_VALUES[STUDIO_SOURCE_UPLOAD_TTL_SECONDS]}" 900 86400 || return 1
   in_range "${ENV_VALUES[STUDIO_SOURCE_PRESIGN_TTL_SECONDS]}" 60 900 || return 1
-  positive_int "${ENV_VALUES[STUDIO_SOURCE_MAX_UPLOAD_BYTES]}" || return 1
+  in_range "${ENV_VALUES[STUDIO_SOURCE_MAX_UPLOAD_BYTES]}" 1 2147483647 || return 1
   positive_int "${ENV_VALUES[STUDIO_GOOGLE_OAUTH_STATE_TTL_SECONDS]}" || return 1
   in_range "${ENV_VALUES[STUDIO_WORKER_POLL_INTERVAL_SECONDS]}" 1 60 || return 1
   in_range "${ENV_VALUES[STUDIO_WORKER_ERROR_BACKOFF_SECONDS]}" 1 300 || return 1

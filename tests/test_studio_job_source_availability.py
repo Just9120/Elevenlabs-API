@@ -169,7 +169,7 @@ def test_test_module_has_no_import_time_env_file_or_schema_side_effects():
 
 
 def test_source_policy_normalizes_and_accepts_only_media_and_ogg():
-    from studio_api.source_policy import is_supported_source_mime_type, normalize_source_mime_type
+    from studio_api.source_policy import browser_source_upload_policy, is_supported_source_mime_type, normalize_source_mime_type
 
     assert normalize_source_mime_type(" Audio/MPEG ") == "audio/mpeg"
     assert is_supported_source_mime_type("audio/wav")
@@ -177,6 +177,12 @@ def test_source_policy_normalizes_and_accepts_only_media_and_ogg():
     assert is_supported_source_mime_type("application/ogg")
     assert not is_supported_source_mime_type("application/pdf")
     assert not is_supported_source_mime_type("application/vnd.google-apps.folder")
+    assert browser_source_upload_policy(123, local_upload_enabled=True) == {
+        "local_upload_enabled": True,
+        "max_upload_bytes": 123,
+        "supported_mime_prefixes": ["audio/", "video/"],
+        "supported_mime_types": ["application/ogg"],
+    }
 
 
 @pytest.mark.parametrize(

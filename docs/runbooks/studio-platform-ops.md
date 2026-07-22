@@ -113,7 +113,7 @@ Temporary local-computer Studio source uploads use a private dedicated S3/R2-com
 
 Configuration requirements:
 
-- endpoint URL, region, bucket, pending-upload TTL, presign TTL, and maximum upload bytes are non-secret runtime settings;
+- endpoint URL, region, bucket, pending-upload TTL, presign TTL, and maximum upload bytes are non-secret runtime settings; maximum upload bytes must be within `1..2147483647` and is exposed to authenticated browsers only through the safe `no-store` upload-policy DTO;
 - access key ID and secret access key are provided through operator-managed secret files;
 - object keys, private bucket names when sensitive, secret-file paths, and source bytes remain server-only;
 - only the authenticated owner-scoped upload-initiation response may expose a PUT-only presigned URL; it must be `no-store`, expire within 60–900 seconds, and must not appear in logs, diagnostics, evidence, later metadata responses, or browser storage;
