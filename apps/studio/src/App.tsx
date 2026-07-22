@@ -60,8 +60,10 @@ import {
   type JobOutputsState,
   type JobState,
   type TranscriptionJob,
+  type TranscriptionLanguageMode,
 } from "./jobModel";
 import {
+  DEFAULT_TRANSCRIPTION_LANGUAGE_MODE,
   composerSignature,
   makeIdempotencyKey,
   mergeJobsWithBatchOrder,
@@ -239,6 +241,9 @@ function PreparationPanel({
 }) {
   const [rows, setRows] = useState<ComposerRow[]>(() => [newComposerRow()]);
   const [selectedCredentialId, setSelectedCredentialId] = useState("");
+  const [languageMode, setLanguageMode] = useState<TranscriptionLanguageMode>(
+    DEFAULT_TRANSCRIPTION_LANGUAGE_MODE,
+  );
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [credentialsLoading, setCredentialsLoading] = useState(true);
   const [credentialsError, setCredentialsError] = useState("");
@@ -277,6 +282,7 @@ function PreparationPanel({
     setBatchJobs([]);
     setPendingKey(null);
     setMessage("");
+    setLanguageMode(DEFAULT_TRANSCRIPTION_LANGUAGE_MODE);
   }, [project.id]);
   useEffect(() => {
     let cancelled = false;
@@ -360,7 +366,11 @@ function PreparationPanel({
   const visibleSources = { ...sources, items: sourceItems };
   const usableSources = sourceItems.filter(isUsableJobSource);
   const usableSourceIds = new Set(usableSources.map((source) => source.id));
-  const signature = composerSignature(rows, selectedCredentialId);
+  const signature = composerSignature(
+    rows,
+    selectedCredentialId,
+    languageMode,
+  );
   useEffect(() => {
     setPendingKey((current) =>
       current && current.signature !== signature ? null : current,
@@ -804,6 +814,7 @@ function PreparationPanel({
           headers: { "Idempotency-Key": key },
           body: JSON.stringify({
             provider_credential_id: selectedCredentialId,
+            language: languageMode,
             items: rows.map((row) => ({
               source_id: row.source_id,
               output_folder_id: row.output_folder?.folder_id,
@@ -1045,6 +1056,21 @@ function PreparationPanel({
                 </select>
               </label>
             )}
+          <label className="profile-selector">
+            Язык транскрибации
+            <select
+              aria-label="Язык транскрибации"
+              value={languageMode}
+              onChange={(event) =>
+                setLanguageMode(
+                  event.target.value as TranscriptionLanguageMode,
+                )
+              }
+            >
+              <option value="ru">Русский</option>
+              <option value="detect">Автоопределение</option>
+            </select>
+          </label>
         </div>
         <div
           className="composer-status"

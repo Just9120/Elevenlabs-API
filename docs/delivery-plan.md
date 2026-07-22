@@ -6,6 +6,7 @@
 - ✅ `PWA-PROCESSING-ROLLOUT-01A / Gate 0A` — PR #181 merged the manual-only read-only worker-status path at `749833c`; run `29925528002` safely proved one running, not-drained worker while leaving its image identity unknown.
 - ✅ `PWA-PROCESSING-ROLLOUT-01A / Gate 0B` — PR #182 merged the controlled drain path at `850bfdf`; run `29929528124` gracefully drained the worker, and preflight run `29929607368` passed runtime/service/local/public checks before blocking on production database revision mismatch.
 - 👉 `PWA-PROCESSING-ROLLOUT-01A / Gate 0C` — The branch preflight now reports an exact revision only after normalization and repository-inventory validation, and the migration/backup decision record is prepared below. The current trusted production run still proves only that one revision exists and differs from `0015`; its exact value requires merge plus a new trusted-`main` preflight. Backup and migration still require separate authorization.
+- 🧪 `PWA-TRANSCRIPTION-OPTIONS-01A` — The current branch implements the language subtask end to end: Russian is the typed default, auto-detection is the only alternative, the selection participates in batch idempotency, reaches the ElevenLabs request, and is shown in job detail/output metadata. Local frontend, portable backend, lint, and build checks pass; service-backed CI and merge evidence are pending. Diarization remains a separate follow-up.
 - ⏸ `PWA-FRONTEND-MODULARIZATION-03` — Preparation composer/readiness extraction is deferred until the production baseline is known or rollout is waiting on an explicit operator window.
 - ⛔ `PWA-PROCESSING-ROLLOUT-01A / Gates 1–6` — Backup, migration, API deployment, public-edge validation, worker deployment, and canary must run in order; each later gate is blocked until the previous gate has safe factual evidence.
 
@@ -27,9 +28,9 @@
 | Contour/dimension | Current estimate | Meaning |
 | --- | ---: | --- |
 | Stable Colab batch | **100%** | Accepted current scope; do not reopen without an explicit maintenance/product task. |
-| Studio source breadth | **about 85%** | Major ElevenLabs short-media workflow, lifecycle safety, PWA shell, operations, and test foundations exist. |
+| Studio source breadth | **about 86%** | Major ElevenLabs short-media workflow, lifecycle safety, PWA shell, operations, test foundations, and the typed Russian/auto-detect language path exist on the current branch. |
 | Studio production evidence | **about 55–60%** | Runtime/service/public health and graceful worker stop are proven; exact production revision, current API/worker identity, migration, authenticated prerequisites, and canary remain unresolved. |
-| Studio combined v1 readiness | **about 73% ±5** | Weighted planning estimate across product, parity, quality, operations, and production evidence. |
+| Studio combined v1 readiness | **about 74% ±5** | Weighted planning estimate across product, parity, quality, operations, and production evidence. |
 
 Documentation, diagnostics, or behavior-preserving refactors do not raise these estimates by themselves. A rollout gate changes production evidence only after its factual result is recorded; a feature changes source breadth only after implementation and relevant validation.
 

@@ -165,6 +165,16 @@ def test_successful_single_source_flow_lifetime_and_one_call(db, models):
     assert transport.calls[0]["filename"] == "secret meeting.mp3"
 
 
+def test_auto_detect_mode_omits_provider_language_code(db, models):
+    *_, job, rel, now = make_job(db, models, language="detect")
+    transport = CaptureTransport()
+
+    with run_boundary(db, models, job, rel, transport, now):
+        pass
+
+    assert transport.calls[0]["language_code"] is None
+
+
 def test_diagnostics_source_provider_success_order_and_correlation(monkeypatch, db, models):
     import studio_api.job_elevenlabs_transcription as mod
     *_, job, rel, now = make_job(db, models)

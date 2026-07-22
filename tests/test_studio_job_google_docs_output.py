@@ -143,6 +143,8 @@ def test_formatting_contract_title_language_unicode_empty_body():
     doc = format_transcript_doc_v1_2(title=" My Job ", transcript_text="Привет\nмир", job_language=" ", detected_language_code="ru", created_at=created)
     assert doc.body == "My Job\n\nTranscript metadata\nProvider: ElevenLabs\nModel: scribe_v2\nLanguage: ru\nSpeakers: no\nCreated at: 2026-01-02T03:04:05Z\n\nTranscript\n\nПривет\nмир"
     assert "Source file:" not in doc.body and "Source mode:" not in doc.body
+    detected = format_transcript_doc_v1_2(title="Auto", transcript_text="Text", job_language="detect", detected_language_code="en", created_at=created)
+    assert detected.language == "en" and "Language: en" in detected.body
     assert choose_transcript_document_title(job_title=" ", original_filename="folder/audio.name.mp3") == "audio.name"
     empty = format_transcript_doc_v1_2(title="\x00", transcript_text="", job_language=None, detected_language_code=None, created_at=created)
     assert empty.title == "Transcript" and empty.body.endswith("Transcript\n\n") and "Language: unknown" in empty.body

@@ -2832,6 +2832,9 @@ describe("Studio PWA", () => {
     if (profileSelect) {
       await userEvent.selectOptions(profileSelect, "cred-active");
     }
+    const languageSelect = screen.getByLabelText("Язык транскрибации");
+    expect(languageSelect).toHaveValue("ru");
+    await userEvent.selectOptions(languageSelect, "detect");
     await userEvent.click(
       screen.getByRole("button", { name: /Создать задачи \(\d+\)/ }),
     );
@@ -2852,6 +2855,7 @@ describe("Studio PWA", () => {
     });
     expect(JSON.parse(String(createCall?.[1]?.body))).toEqual({
       provider_credential_id: "cred-active",
+      language: "detect",
       items: [
         {
           source_id: "s1",
@@ -4287,6 +4291,7 @@ describe("Studio PWA", () => {
     );
     expect(JSON.parse(String(bCreateCall?.[1]?.body))).toEqual({
       provider_credential_id: "cred-active",
+      language: "ru",
       items: [
         {
           source_id: "source-b",

@@ -24,6 +24,7 @@ from .job_source_materialization import SourceMaterializationError, _load_select
 from .models import JobStatus, Project, TranscriptionJob, TranscriptionJobOutput
 from .security import utcnow
 from .job_output_reconciliation import OutputReconciliationError, OutputReconciliationReason, prepare_output_reconciliation_case, mark_reconciliation_creation_returned
+from .transcription_options import document_language
 
 
 class TranscriptResultProtocol(Protocol):
@@ -190,7 +191,7 @@ def create_processing_job_google_doc_from_transcript(
 
 def format_transcript_doc_v1_2(*, title: str, transcript_text: str, job_language: str | None, detected_language_code: str | None, created_at: datetime) -> FormattedTranscriptDocument:
     safe_title = normalize_document_title(title)
-    lang = _first_nonblank(job_language, detected_language_code) or "unknown"
+    lang = document_language(job_language, detected_language_code)
     ts = _utc_iso(created_at)
     body = f"{safe_title}\n\nTranscript metadata\nProvider: ElevenLabs\nModel: scribe_v2\nLanguage: {lang}\nSpeakers: no\nCreated at: {ts}\n\nTranscript\n\n{transcript_text}"
     return FormattedTranscriptDocument(title=safe_title, body=body, language=lang, created_at=created_at)

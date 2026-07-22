@@ -1,5 +1,9 @@
 import { formatBytes } from "./formatters";
-import { safeJobSources, type TranscriptionJob } from "./jobModel";
+import {
+  safeJobSources,
+  transcriptionLanguageModeLabel,
+  type TranscriptionJob,
+} from "./jobModel";
 import {
   retryUnavailableLabel,
   type JobRetryState,
@@ -20,6 +24,7 @@ export function JobDetailSection({
   return (
     <section aria-label={`Job detail ${job.id}`}>
       <p>UUID: {job.id}</p>
+      <p>Язык: {transcriptionLanguageModeLabel(job.language_mode)}</p>
       <h5>Папка результата</h5>
       {job.output_folder ? (
         <p>

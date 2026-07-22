@@ -452,6 +452,7 @@ def test_legacy_create_job_rejects_openai_and_preserves_source_order_and_safe_me
     body = r.json()
     assert body["status"] == "queued"
     assert body["source_count"] == 2
+    assert body["language_mode"] == "en_us"
     assert [s["id"] for s in body["sources"]] == [sid1, sid2]
     assert [s["position"] for s in body["sources"]] == [0, 1]
     assert "provider_credential_id" not in body
@@ -474,6 +475,7 @@ def test_legacy_create_job_rejects_openai_and_preserves_source_order_and_safe_me
         assert src.deleted_at is None
         assert src.upload_status == SourceUploadStatus.uploaded
         assert queued.status == JobStatus.queued
+        assert queued.language == "en_us"
         assert queued.provider_credential_id == cred
     finally:
         db.close()
@@ -2621,7 +2623,7 @@ def _batch_body(source_a, source_b=None, folder_a="folder-a", folder_b="folder-b
     items = [{"source_id": source_a, "output_folder_id": folder_a, "title": "First"}]
     if source_b is not None:
         items.append({"source_id": source_b, "output_folder_id": folder_b, "title": "Second"})
-    body = {"language": "EN", "options": {"diarize": True}, "items": items}
+    body = {"language": "ru", "options": {"diarize": True}, "items": items}
     if credential_id:
         body["provider_credential_id"] = credential_id
     return body
@@ -2639,13 +2641,17 @@ def _count_batch_rows():
 def test_batch_explicit_active_owner_elevenlabs_credential_saved(monkeypatch):
     _install_batch_folder_mocks(monkeypatch)
     c, csrf, user_id, pid, source_a, source_b, cred_id = _batch_setup("batch-explicit-eleven@example.com")
-    r = c.post(f"/api/projects/{pid}/jobs/batch", json=_batch_body(source_a, credential_id=cred_id), headers=_batch_headers(csrf))
+    body = _batch_body(source_a, credential_id=cred_id)
+    body["language"] = "detect"
+    r = c.post(f"/api/projects/{pid}/jobs/batch", json=body, headers=_batch_headers(csrf))
     assert r.status_code == 200
     assert all("provider_credential_id" not in job for job in r.json()["jobs"])
+    assert r.json()["jobs"][0]["language_mode"] == "detect"
     db = SessionLocal()
     try:
         job = db.query(TranscriptionJob).filter_by(project_id=pid).one()
         assert job.provider_credential_id == cred_id
+        assert job.language == "detect"
     finally:
         db.close()
 
@@ -2752,6 +2758,7 @@ def test_batch_jobs_create_two_one_source_jobs_safe_payload_and_same_source_diff
     assert r.status_code == 200
     data = r.json(); assert data["created_count"] == 2 and data["replayed"] is False
     assert [job["title"] for job in data["jobs"]] == ["First", "Second"]
+    assert [job["language_mode"] for job in data["jobs"]] == ["ru", "ru"]
     assert "output_drive_folder_id" not in r.text and "batch-key-1" not in r.text and "batch_request_hash" not in r.text and "batch_position" not in r.text
     assert data["jobs"][0]["output_folder"] == {"name": "Folder folder-a", "web_view_url": "https://drive.google.com/drive/folders/folder-a"}
     db = SessionLocal()
@@ -2784,6 +2791,7 @@ def test_batch_jobs_duplicate_pair_and_atomic_validation_failures(monkeypatch):
     finally:
         after.close()
     cases = [
+        ({"language": "fr", "items": [{"source_id": source_a, "output_folder_id": "folder-a"}]}, "bad-key-language"),
         ({"items": [{"source_id": "missing-source", "output_folder_id": "folder-a"}]}, "bad-key-1"),
         ({"provider_credential_id": "missing-cred", "items": [{"source_id": source_a, "output_folder_id": "folder-a"}]}, "bad-key-2"),
         ({"items": [{"source_id": source_a, "output_folder_id": "bad-folder"}]}, "bad-key-3"),
@@ -2840,7 +2848,7 @@ def test_batch_jobs_exact_replay_skips_current_validation_and_conflicts_skip_goo
         {**body, "items": [{"source_id": source_b, "output_folder_id": "shared", "title": "Dup"}, {"source_id": source_b, "output_folder_id": "shared", "title": "Dup"}]},
         _batch_body(source_b, source_b, folder_a="shared", folder_b="shared", credential_id=cred_id),
         _batch_body(source_a, source_b, folder_a="changed", folder_b="shared", credential_id=cred_id),
-        {**body, "language": "fr"},
+        {**body, "language": "detect"},
         {**body, "options": {"diarize": False}},
         {**body, "items": list(reversed(body["items"]))},
         {**body, "items": [{**body["items"][0], "title": "Changed"}, body["items"][1]]},

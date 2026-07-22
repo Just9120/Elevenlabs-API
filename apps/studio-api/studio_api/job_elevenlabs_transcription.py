@@ -32,6 +32,7 @@ from .security import utcnow
 from .diagnostics import resolve_job_correlation_id, write_diagnostic_event
 from .job_retry_recovery import classify_source_attempt_failure, mark_attempt_provider_returned, mark_attempt_provider_started
 from .source_storage import safe_filename
+from .transcription_options import provider_language_code
 
 
 class JobElevenLabsTranscriptionReason(str, Enum):
@@ -248,7 +249,7 @@ def _load_credential_db_only(db, job_id, owner, generation, now, settings):
         raise JobElevenLabsTranscriptionError(
             JobElevenLabsTranscriptionReason.credential_or_output_identity_changed_before_provider_call
         )
-    return {"credential_id": cred.id, "version_id": ver.id, "provider": provider, "language": job.language}
+    return {"credential_id": cred.id, "version_id": ver.id, "provider": provider, "language": provider_language_code(job.language)}
 
 
 def _post_provider_lifecycle_revalidate(db, job_id, owner, generation, now) -> None:

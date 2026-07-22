@@ -35,6 +35,7 @@ const job: TranscriptionJob = {
   status: "failed",
   title: "Interview",
   provider: "elevenlabs",
+  language_mode: "ru",
   source_count: 2,
   sources: [
     source("second", 1, "https://evil.example/file/token"),
@@ -80,6 +81,7 @@ describe("JobDetailSection", () => {
     render(<JobDetailSection job={job} retry={undefined} onRetry={vi.fn()} />);
 
     const detail = screen.getByLabelText("Job detail job-1");
+    expect(detail).toHaveTextContent("Язык: Русский");
     const text = detail.textContent ?? "";
     expect(text.indexOf("1. first.ogg")).toBeLessThan(
       text.indexOf("2. second.ogg"),

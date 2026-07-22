@@ -1,4 +1,10 @@
-import type { TranscriptionJob } from "./jobModel";
+import type {
+  TranscriptionJob,
+  TranscriptionLanguageMode,
+} from "./jobModel";
+
+export const DEFAULT_TRANSCRIPTION_LANGUAGE_MODE: TranscriptionLanguageMode =
+  "ru";
 
 export type VerifiedOutputFolder = {
   folder_id: string;
@@ -26,9 +32,14 @@ export function newComposerRow(): ComposerRow {
   };
 }
 
-export function composerSignature(rows: ComposerRow[], credentialId: string) {
+export function composerSignature(
+  rows: ComposerRow[],
+  credentialId: string,
+  languageMode: TranscriptionLanguageMode,
+) {
   return JSON.stringify({
     provider_credential_id: credentialId || null,
+    language: languageMode,
     items: rows.map((row) => ({
       source_id: row.source_id,
       output_folder_id: row.output_folder?.folder_id ?? "",
