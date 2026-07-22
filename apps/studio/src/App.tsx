@@ -32,7 +32,6 @@ import {
   type GoogleOauthResult,
 } from "./googleOauthResult";
 import {
-  formatBytes,
   formatTime,
   formatUploadLimit,
   retentionOptionLabel,
@@ -52,13 +51,13 @@ import {
 import { isSafeDisplayUrl, ResourceExternalLink } from "./resourceLinks";
 import { SourcesPanel } from "./SourcesPanel";
 import { JobOutputsSection } from "./JobOutputsSection";
+import { JobDetailSection } from "./JobDetailSection";
 import { Login, type User } from "./Login";
 import { PlatformSidebar } from "./PlatformSidebar";
 import {
   isApprovedOutputUrl,
   jobTitle,
   jobСтатусLabel,
-  safeJobSources,
   type JobOutputsResponse,
   type JobOutputsState,
   type JobState,
@@ -73,7 +72,6 @@ import {
   type ComposerRow,
 } from "./batchComposerModel";
 import {
-  retryUnavailableLabel,
   type JobRetryResponse,
   type JobRetryState,
   type OutputReconciliationCheckResponse,
@@ -1024,57 +1022,11 @@ function PreparationPanel({
           <JobOutputsSection jobId={job.id} data={currentOutputs.data} />
         )}
         {detailedJob && (
-          <section aria-label={`Job detail ${detailedJob.id}`}>
-            <p>UUID: {detailedJob.id}</p>
-            <h5>Папка результата</h5>
-            {detailedJob.output_folder ? (
-              <p>
-                {detailedJob.output_folder.name || "Папка Google Drive"}{" "}
-                {isSafeDisplayUrl(detailedJob.output_folder.web_view_url) && (
-                  <ResourceExternalLink
-                    href={detailedJob.output_folder.web_view_url ?? ""}
-                    label="Открыть папку результата"
-                    ariaLabel="Открыть папку результата в Google Drive в новой вкладке"
-                  />
-                )}
-              </p>
-            ) : (
-              <p className="notice">Папка результата не задана.</p>
-            )}
-
-            {detailedJob.status === "failed" && (() => {
-              const retry = retries[detailedJob.id];
-              const reason = retry?.data?.reason;
-              const unavailable = retryUnavailableLabel(reason);
-              return <div className="resource-actions" aria-label="Safe retry action">
-                {retry?.data?.available ? <button type="button" onClick={() => void retryJob(detailedJob.id)} disabled={retry.posting}>Повторить безопасную обработку</button> : unavailable ? <span className="notice">{unavailable}</span> : null}
-                {retry?.message && <span>{retry.message}</span>}
-                {retry?.error && <span className="error">{retry.error}</span>}
-              </div>;
-            })()}
-            <h5>Файлы задачи</h5>
-            {safeJobSources(detailedJob).map((source) => (
-              <article
-                className="source-card"
-                key={`${detailedJob.id}-${source.id}`}
-              >
-                <b>
-                  {source.position + 1}. {source.original_filename}
-                </b>
-                <span>Статус файла: {source.job_source_status}</span>
-                <span>Размер: {formatBytes(source.size_bytes)}</span>
-                {isSafeDisplayUrl(source.drive_file_url) && (
-                  <div className="resource-actions">
-                    <ResourceExternalLink
-                      href={source.drive_file_url ?? ""}
-                      label="Открыть файл в Google Drive"
-                      ariaLabel="Открыть файл в Google Drive в новой вкладке"
-                    />
-                  </div>
-                )}
-              </article>
-            ))}
-          </section>
+          <JobDetailSection
+            job={detailedJob}
+            retry={retries[detailedJob.id]}
+            onRetry={retryJob}
+          />
         )}
       </article>
     );
