@@ -65,6 +65,14 @@ import {
   type JobСтатус,
   type TranscriptionJob,
 } from "./jobModel";
+import {
+  composerSignature,
+  makeIdempotencyKey,
+  mergeJobsWithBatchOrder,
+  newComposerRow,
+  type BatchCreateResponse,
+  type ComposerRow,
+} from "./batchComposerModel";
 import "./styles.css";
 
 type AccountPreferences = {
@@ -133,17 +141,6 @@ type JobRetryResponse = { job_id: string; job_status: JobСтатус; available
 type JobRetryState = { loading: boolean; posting: boolean; error: string; message: string; data: JobRetryResponse | null };
 type OutputReconciliationCheckResponse = { job_id: string; checked: number; resolved: number; unresolved: number; conflicts: number };
 type OutputReconciliationState = { loading: boolean; checking: boolean; error: string; message: string; data: OutputReconciliationResponse | null };
-type VerifiedOutputFolder = {
-  folder_id: string;
-  name: string;
-  web_view_url: string | null;
-};
-type ComposerRow = {
-  id: string;
-  source_id: string;
-  output_folder: VerifiedOutputFolder | null;
-  title: string;
-};
 type UploadInit = {
   source_id: string;
   upload: {
@@ -215,46 +212,6 @@ async function csrfMutate<T>(
   return mutateWithCsrfRetry<T>(path, csrf, onCsrf, options);
 }
 export const __appDiagnosticsTest = { api, csrfMutate };
-function newComposerRow(): ComposerRow {
-  return {
-    id: crypto.randomUUID(),
-    source_id: "",
-    output_folder: null,
-    title: "",
-  };
-}
-function composerSignature(rows: ComposerRow[], credentialId: string) {
-  return JSON.stringify({
-    provider_credential_id: credentialId || null,
-    items: rows.map((row) => ({
-      source_id: row.source_id,
-      output_folder_id: row.output_folder?.folder_id ?? "",
-      title: row.title.trim() || null,
-    })),
-  });
-}
-function makeIdempotencyKey() {
-  return `batch-${crypto.randomUUID()}`;
-}
-
-type BatchCreateResponse = {
-  jobs: TranscriptionJob[];
-  created_count: number;
-  replayed: boolean;
-};
-function mergeJobsWithBatchOrder(
-  jobs: TranscriptionJob[],
-  batchJobs: TranscriptionJob[],
-) {
-  if (batchJobs.length === 0) return jobs;
-  const freshById = new Map(jobs.map((job) => [job.id, job]));
-  const batchIds = new Set(batchJobs.map((job) => job.id));
-  return [
-    ...batchJobs.map((job) => freshById.get(job.id) ?? job),
-    ...jobs.filter((job) => !batchIds.has(job.id)),
-  ];
-}
-
 function PreparationPanel({
   project,
   csrf,

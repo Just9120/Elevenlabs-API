@@ -1,0 +1,131 @@
+import {
+  composerSignature,
+  makeIdempotencyKey,
+  mergeJobsWithBatchOrder,
+  newComposerRow,
+  type ComposerRow,
+} from "./batchComposerModel";
+import type { TranscriptionJob } from "./jobModel";
+
+function transcriptionJob(id: string, title = id): TranscriptionJob {
+  return {
+    id,
+    project_id: "project-1",
+    status: "queued",
+    title,
+    provider: "elevenlabs",
+    source_count: 1,
+    created_at: "2026-07-22T10:00:00Z",
+    updated_at: "2026-07-22T10:00:00Z",
+    cancelled_at: null,
+    cancel_requested_at: null,
+    attempt_count: 0,
+    started_at: null,
+    finished_at: null,
+    error_code: null,
+    error_message: null,
+  };
+}
+
+describe("batch composer model", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("creates an empty row with an opaque browser identifier", () => {
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(
+      "00000000-0000-4000-8000-000000000001",
+    );
+
+    expect(newComposerRow()).toEqual({
+      id: "00000000-0000-4000-8000-000000000001",
+      source_id: "",
+      output_folder: null,
+      title: "",
+    });
+  });
+
+  it("builds a stable request signature from server-relevant fields only", () => {
+    const rows: ComposerRow[] = [
+      {
+        id: "browser-only-row-id",
+        source_id: "source-1",
+        output_folder: {
+          folder_id: "folder-1",
+          name: "Display name",
+          web_view_url: "https://drive.google.com/drive/folders/folder-1",
+        },
+        title: "  Interview  ",
+      },
+      {
+        id: "browser-only-row-id-2",
+        source_id: "source-2",
+        output_folder: null,
+        title: "   ",
+      },
+    ];
+
+    expect(JSON.parse(composerSignature(rows, "credential-1"))).toEqual({
+      provider_credential_id: "credential-1",
+      items: [
+        {
+          source_id: "source-1",
+          output_folder_id: "folder-1",
+          title: "Interview",
+        },
+        {
+          source_id: "source-2",
+          output_folder_id: "",
+          title: null,
+        },
+      ],
+    });
+    expect(JSON.parse(composerSignature(rows, ""))).toEqual(
+      expect.objectContaining({ provider_credential_id: null }),
+    );
+  });
+
+  it("prefixes the opaque idempotency identifier", () => {
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(
+      "00000000-0000-4000-8000-000000000002",
+    );
+
+    expect(makeIdempotencyKey()).toBe(
+      "batch-00000000-0000-4000-8000-000000000002",
+    );
+  });
+
+  it("keeps batch order, uses fresh jobs, and appends unrelated jobs", () => {
+    const currentJobs = [
+      transcriptionJob("job-a", "Fresh A"),
+      transcriptionJob("job-b", "Fresh B"),
+      transcriptionJob("job-c", "Fresh C"),
+    ];
+    const batchJobs = [
+      transcriptionJob("job-b", "Stale B"),
+      transcriptionJob("job-d", "Batch D"),
+    ];
+
+    const merged = mergeJobsWithBatchOrder(currentJobs, batchJobs);
+
+    expect(merged.map((job) => job.id)).toEqual([
+      "job-b",
+      "job-d",
+      "job-a",
+      "job-c",
+    ]);
+    expect(merged[0].title).toBe("Fresh B");
+    expect(merged[1].title).toBe("Batch D");
+    expect(currentJobs.map((job) => job.id)).toEqual([
+      "job-a",
+      "job-b",
+      "job-c",
+    ]);
+  });
+
+  it("returns the original jobs when there is no batch ordering", () => {
+    const jobs = [transcriptionJob("job-a")];
+
+    expect(mergeJobsWithBatchOrder(jobs, [])).toBe(jobs);
+  });
+});
