@@ -670,19 +670,64 @@ def test_source_display_filename_normalization_preserves_unicode_and_extension()
 
 def test_google_drive_source_metadata_lifecycle_owner_scoped(monkeypatch):
     import studio_api.main as main_mod
+    from studio_api.google_drive import GoogleDriveMetadata
+
     def fail_storage(*_args, **_kwargs):
         raise AssertionError("Google Drive source removal must not delete Studio storage")
+
     monkeypatch.setattr(main_mod, "get_source_storage", fail_storage)
     c, headers, pid = create_logged_in_project("gdrive@example.com")
-    r = c.post(f"/api/projects/{pid}/sources/google-drive", json={"drive_file_id":"file_123", "drive_file_url":"https://drive.google.com/file/d/file_123/view", "original_filename":"Лекция 1. Личность как психологическое явление.flac", "mime_type":"video/mp4", "size_bytes":42}, headers=headers)
+    db = SessionLocal()
+    user_id = db.query(User).filter_by(email="gdrive@example.com").one().id
+    db.close()
+    _connect_google_for_test(user_id)
+    monkeypatch.setattr(
+        main_mod, "refresh_user_google_drive_access_token", lambda *a, **k: "access"
+    )
+    metadata = {
+        "file_123": GoogleDriveMetadata(
+            "file_123",
+            "Лекция 1. Личность как психологическое явление.flac",
+            "audio/flac",
+            42,
+            "https://drive.google.com/file/d/file_123/view",
+            None,
+            None,
+            False,
+        ),
+        "file_456": GoogleDriveMetadata(
+            "file_456",
+            "active.mp4",
+            "video/mp4",
+            43,
+            "https://drive.google.com/file/d/file_456/view",
+            None,
+            None,
+            False,
+        ),
+    }
+    monkeypatch.setattr(
+        "studio_api.google_drive.fetch_drive_file_metadata",
+        lambda token, drive_file_id: metadata[drive_file_id],
+    )
+    r = c.post(
+        f"/api/projects/{pid}/sources/google-picker",
+        json={"file_ids": ["file_123"]},
+        headers=headers,
+    )
     assert r.status_code == 200
-    sid = r.json()["id"]
-    assert r.json()["source_type"] == "google_drive"
-    assert r.json()["original_filename"] == "Лекция 1. Личность как психологическое явление.flac"
+    created = r.json()["sources"][0]
+    sid = created["id"]
+    assert created["source_type"] == "google_drive"
+    assert created["original_filename"] == "Лекция 1. Личность как психологическое явление.flac"
     assert "s3" not in r.text.lower()
-    r2 = c.post(f"/api/projects/{pid}/sources/google-drive", json={"drive_file_id":"file_456", "drive_file_url":"https://drive.google.com/file/d/file_456/view", "original_filename":"active.mp4", "mime_type":"video/mp4", "size_bytes":43}, headers=headers)
+    r2 = c.post(
+        f"/api/projects/{pid}/sources/google-picker",
+        json={"file_ids": ["file_456"]},
+        headers=headers,
+    )
     assert r2.status_code == 200
-    active_sid = r2.json()["id"]
+    active_sid = r2.json()["sources"][0]["id"]
     assert [s["id"] for s in c.get(f"/api/projects/{pid}/sources").json()["sources"]] == [active_sid, sid]
     assert c.delete(f"/api/sources/{sid}", headers=headers).status_code == 200
     assert [s["id"] for s in c.get(f"/api/projects/{pid}/sources").json()["sources"]] == [active_sid]
@@ -759,7 +804,8 @@ def test_complete_local_upload_requires_exact_verified_metadata(monkeypatch, hea
     fake = enable_fake_storage(monkeypatch)
     fake.head_size = head_size
     fake.head_type = head_type
-    c, headers, pid = create_logged_in_project(f"upload-metadata-{head_size}-{expected_status}@example.com")
+    size_label = "missing" if head_size is None else str(head_size)
+    c, headers, pid = create_logged_in_project(f"upload-metadata-{size_label}-{expected_status}@example.com")
     initiated = c.post(
         f"/api/projects/{pid}/sources/local-upload/initiate",
         json={"original_filename":"metadata.mp3", "mime_type":"audio/mpeg", "size_bytes":10},
@@ -2307,8 +2353,8 @@ def test_job_output_existing_job_payloads_remain_unchanged_after_outputs_exist()
     listed = c.get(f"/api/projects/{pid}/jobs")
     for response in [detail, listed]:
         assert response.status_code == 200
-        assert "outputs" not in response.text
-        assert "web_view_url" not in response.text
+        assert "outputs" not in response.json()
+        assert "doc-output-compat" not in response.text
         assert "compat/edit" not in response.text
 
 

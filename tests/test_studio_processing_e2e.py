@@ -170,7 +170,7 @@ def clean_platform_state(platform_services):
 
 def _create_admin(password: str) -> None:
     with SessionLocal() as db:
-        user = User(email="processing-e2e@example.test", role=UserRole.admin, status=UserStatus.active)
+        user = User(email="processing-e2e@example.com", role=UserRole.admin, status=UserStatus.active)
         db.add(user)
         db.flush()
         db.add(LocalIdentity(user_id=user.id, password_hash=hash_password(password)))
@@ -183,7 +183,7 @@ def _login(client: TestClient, password: str) -> str:
     response = client.post(
         "/api/auth/login",
         json={
-            "email": "processing-e2e@example.test",
+            "email": "processing-e2e@example.com",
             "password": password,
             "login_csrf_token": context.json()["login_csrf_token"],
         },
