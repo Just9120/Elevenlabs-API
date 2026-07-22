@@ -53,6 +53,7 @@ import { SourcesPanel } from "./SourcesPanel";
 import { JobOutputsSection } from "./JobOutputsSection";
 import { JobDetailSection } from "./JobDetailSection";
 import { OutputReconciliationNotice } from "./OutputReconciliationNotice";
+import { JobCardActions } from "./JobCardActions";
 import { Login, type User } from "./Login";
 import { PlatformSidebar } from "./PlatformSidebar";
 import {
@@ -982,24 +983,11 @@ function PreparationPanel({
           <span>Отмена запрошена: {formatTime(job.cancel_requested_at)}</span>
         )}
         {job.error_message && <span>Ошибка: {job.error_message}</span>}
-        <div className="job-actions">
-          <button type="button" onClick={() => void loadDetail(job.id)}>
-            Открыть
-          </button>
-          {job.status === "queued" && (
-            <button type="button" onClick={() => void cancelJob(job.id)}>
-              Отменить
-            </button>
-          )}
-          {job.status === "processing" && !job.cancel_requested_at && (
-            <button type="button" onClick={() => void cancelJob(job.id)}>
-              Запросить отмену
-            </button>
-          )}
-          {job.status === "processing" && job.cancel_requested_at && (
-            <span>Отмена запрошена</span>
-          )}
-        </div>
+        <JobCardActions
+          job={job}
+          onOpen={loadDetail}
+          onCancel={cancelJob}
+        />
         {currentDetail?.loading && (
           <p role="status">Загрузка деталей задачи…</p>
         )}
