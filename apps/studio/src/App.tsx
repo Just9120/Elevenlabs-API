@@ -5,11 +5,6 @@ import {
   useRef,
   useState,
 } from "react";
-import {
-  Briefcase,
-  Home,
-  Settings,
-} from "lucide-react";
 import * as googlePicker from "./googlePicker";
 import type { PickerSession } from "./googlePicker";
 import {
@@ -57,6 +52,7 @@ import {
 import { isSafeDisplayUrl, ResourceExternalLink } from "./resourceLinks";
 import { SourcesPanel } from "./SourcesPanel";
 import { Login, type User } from "./Login";
+import { PlatformSidebar } from "./PlatformSidebar";
 import "./styles.css";
 
 type AccountPreferences = {
@@ -277,11 +273,6 @@ function credentialProfileLabel(c: Credential) {
   return c.active_version ? `${c.label} · v${c.active_version}` : c.label;
 }
 const ELEVENLABS_CREDENTIAL_SESSION_KEY = "studio.elevenlabsCredentialId";
-const platformNav: { id: Page; label: string; icon: typeof Home }[] = [
-  { id: "dashboard", label: "Обзор", icon: Home },
-  { id: "projects", label: "Проекты", icon: Briefcase },
-  { id: "settings", label: "Настройки", icon: Settings },
-];
 async function bootstrapSession(): Promise<{
   user: User;
   csrf: string;
@@ -3538,30 +3529,16 @@ function PlatformShell() {
   };
   return (
     <div className="shell">
-      <aside className="app-sidebar">
-        <div className="brand">
-          Studio PWA<span>Транскрибация</span>
-        </div>
-        <nav className="app-nav" aria-label="Основная навигация">
-          {platformNav.map(({ id, label, icon: Icon }) => (
-            <button
-              className={page === id ? "active" : ""}
-              aria-current={page === id ? "page" : undefined}
-              onClick={() => {
-                navigate(id);
-                if (id === "projects") {
-                  setRequestedProjectId(null);
-                  setRequestedCreateProject(false);
-                }
-              }}
-              key={id}
-            >
-              <Icon size={18} />
-              {label}
-            </button>
-          ))}
-        </nav>
-      </aside>
+      <PlatformSidebar
+        page={page}
+        onNavigate={(nextPage) => {
+          navigate(nextPage);
+          if (nextPage === "projects") {
+            setRequestedProjectId(null);
+            setRequestedCreateProject(false);
+          }
+        }}
+      />
       <main>
         {page === "dashboard" && (
           <OverviewPage
