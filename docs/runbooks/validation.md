@@ -45,6 +45,24 @@ pytest -q tests/test_studio_processing_e2e.py
 
 It requires the same PostgreSQL database, current Alembic head, and Redis service used by repository CI. A developer run without those services is reported as skipped; `CI=true` makes either missing service a failure. The test creates the project, credential, source, output destination, and job through the authenticated API, runs the real claim/orchestration/persistence path, replaces only storage, ElevenLabs, and Google network boundaries with controlled fakes, then verifies the completed job and explicit browser-safe output DTO. It is not a real-browser test and does not replace the controlled production canary.
 
+### Studio authenticated browser E2E
+
+From `apps/studio/`, Playwright discovery can be checked without starting a browser:
+
+```bash
+npm run test:e2e:list
+```
+
+The full scenario is run by the `browser-e2e` job in `.github/workflows/studio-ci.yml`. That job creates an isolated PostgreSQL database named `studio_browser_e2e`, starts Redis, applies the current migrations, seeds synthetic owner-scoped state, starts the real FastAPI and Vite servers, and runs:
+
+```bash
+npm run test:e2e
+```
+
+The scenario uses headless Chromium through the same-origin Vite proxy. It verifies real login/session/CSRF behavior, authenticated project creation, safe completed-result rendering, and logout. It does not call ElevenLabs, Google, S3/R2, production infrastructure, or the deployed public host, and it does not replace the controlled production canary. On failure, the GitHub job uploads the Playwright trace and screenshot directory as a short-lived artifact.
+
+A full local run requires the same isolated database name, test-only environment, migrations, seed, Redis service, and Playwright Chromium installation as the GitHub job. Do not point the seed at a shared, development, staging, or production database; the seed fails closed unless the exact isolated localhost test boundary is present and the user table is empty.
+
 ## Reproducible Python dependencies
 
 Repository/CI development installs use the input requirements together with the committed transitive constraints:
