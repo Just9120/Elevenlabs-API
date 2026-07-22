@@ -23,7 +23,7 @@
 - ✅ `PWA-UPLOAD-RETENTION-CONTRACT-01B` — Keep a one-hour pending-upload deadline, reset verified local sources to a user-configurable 24-hour default retained-source deadline, and surface exact expiry in the PWA — Source-complete via PR #177 and verified by service-backed GitHub CI; production migration/runtime state remains unproven.
 - ✅ `PWA-UPLOAD-RETENTION-PREFERENCES-02` — Persist allowlisted one-hour/24-hour/three-day/seven-day/30-day account choices in PostgreSQL and expose them in PWA settings; changes apply to future verified uploads — Source-complete via PR #177 and verified by service-backed GitHub CI; production migration/runtime state remains unproven.
 - ✅ `PWA-UPLOAD-POLICY-DISCOVERY-01C` — Remove the frontend's hard-coded upload-size/MIME policy by exposing a runtime-validated safe server DTO and disabling direct local selection when discovery fails — Done via PR #177 and verified by service-backed GitHub CI.
-- 👉 `PWA-E2E-FOUNDATION-01B` — Add authenticated real-browser coverage on top of the API/worker processing foundation — Next focused item.
+- 👉 `PWA-E2E-FOUNDATION-01B` — Add authenticated real-browser coverage on top of the API/worker processing foundation — Source-complete on `codex/pwa-browser-e2e-01`; first service-backed GitHub execution is pending.
 - ⛔ `PWA-PROCESSING-ROLLOUT-01A` — Production processing rollout/canary — Operator item not run; production-live claims remain prohibited.
 
 ## Current repository state
@@ -51,6 +51,7 @@
 - Local-upload completion now requires present object-storage size/MIME metadata, enforces policy on the verified values, and requires exact normalized equality with the initiation contract. Rejected objects remain pending and retain their expiry-driven cleanup path.
 - Local uploads now keep separate persisted lifecycle windows: unfinished uploads default to one hour from initiation, while exact verified completion resets expiry from the owner's PostgreSQL-backed account choice. PWA settings offer one hour, 24 hours (default), three days, seven days, and 30 days; existing uploaded sources retain their already persisted deadline, and the PWA shows the exact server expiry.
 - The authenticated PWA now reads maximum upload bytes and supported MIME rules from a safe `no-store` server DTO, validates it at runtime, and disables direct local selection when discovery fails; the API remains authoritative at initiation, stored-object verification, and processing boundaries.
+- The current browser-E2E branch adds one real Chromium scenario through the Vite same-origin proxy and live FastAPI/PostgreSQL/Redis services. It verifies login/session/CSRF behavior, authenticated project creation, safe completed-result visibility, and logout against an isolated synthetic seed without provider, Google, S3, production, or canary side effects.
 - `SECURITY.md` is now a repository-wide reporting and routing entry point; it does not duplicate detailed Colab or Studio product contracts.
 - Production migration state for `0015_user_source_retention` is not proven by repository evidence.
 - Latest production web/API deployment, worker rollout, and controlled canary are not proven complete.
@@ -60,6 +61,10 @@
 - `PWA-FRONTEND-MODULARIZATION-01B` — continue splitting domain UI/hooks and their tests out of the monolithic `App.tsx`/`App.test.tsx` after the browser E2E boundary is established.
 - OpenAI processing parity, long-media parity, manifest behavior, and golden Colab/PWA parity validation remain product backlog items in `docs/project-spec.md`.
 
+## Active item validation
+
+`PWA-E2E-FOUNDATION-01B` keeps the existing API/worker E2E as backend processing evidence and adds a separate browser boundary. Local validation covers Studio ESLint, all 114 Vitest tests, the production PWA build, Playwright discovery, two browser-E2E contract guards, the 645-test portable Python profile, lightweight CI checks, and zero known npm audit findings. The real Chromium scenario requires Linux plus PostgreSQL/Redis and remains pending until the branch reaches a pull request; it is not production-canary evidence.
+
 ## Blockers and risks
 
 - The latest automatic component CD proves only the web deployment at merge revision `9f85ffe`; API deployment, migration `0015`, worker rollout, and processing canary remain separate operator-controlled evidence.
@@ -67,6 +72,7 @@
 - Browser-bound capabilities increase the impact of frontend injection; the committed host header policy is not production evidence until an operator applies it, runs `nginx -t`, and validates public Picker/upload flows over TLS.
 - The dependency-audit workflow has not yet run through its scheduled/manual GitHub path; merged source and local audit probes are not remote execution evidence.
 - The processing E2E remains skipped in the current Windows environment because PostgreSQL/Redis are not running, but GitHub CI has verified it against service containers.
+- The authenticated Chromium scenario cannot run in the current Windows environment because Docker/PostgreSQL/Redis are unavailable; its isolated GitHub job must pass before `PWA-E2E-FOUNDATION-01B` becomes CI-verified.
 
 ## Sources of truth
 
