@@ -56,9 +56,9 @@ import {
 } from "./sourceModel";
 import { isSafeDisplayUrl, ResourceExternalLink } from "./resourceLinks";
 import { SourcesPanel } from "./SourcesPanel";
+import { Login, type User } from "./Login";
 import "./styles.css";
 
-type User = { email: string; role: string };
 type AccountPreferences = {
   source_retention_ttl_seconds: number;
   allowed_source_retention_ttl_seconds: number[];
@@ -294,72 +294,6 @@ async function bootstrapSession(): Promise<{
     method: "POST",
   });
   return { user: session.user, csrf: csrf.csrf_token };
-}
-function Login({ onLogin }: { onLogin: (u: User, csrf: string) => void }) {
-  const [bootstrap, setBootstrap] = useState(false);
-  const [error, setError] = useState("");
-  useEffect(() => {
-    api<{ bootstrap_required: boolean }>("/auth/bootstrap-status")
-      .then((r) => setBootstrap(r.bootstrap_required))
-      .catch(() => setError("API временно недоступен."));
-  }, []);
-  async function submit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setError("");
-    const fd = new FormData(e.currentTarget);
-    try {
-      const ctx = await api<{ login_csrf_token: string }>(
-        "/auth/login-context",
-        { method: "POST" },
-      );
-      const r = await api<{ user: User; csrf_token: string }>("/auth/login", {
-        method: "POST",
-        body: JSON.stringify({
-          email: fd.get("email"),
-          password: fd.get("password"),
-          login_csrf_token: ctx.login_csrf_token,
-        }),
-      });
-      onLogin(r.user, r.csrf_token);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось войти.");
-    }
-  }
-  if (bootstrap)
-    return (
-      <main className="auth">
-        <section className="card">
-          <h1>Требуется первичная настройка</h1>
-          <p className="notice">
-            Публичной формы администратора нет. Обратитесь к оператору, чтобы
-            выполнить bootstrap-admin команду на сервере.
-          </p>
-        </section>
-      </main>
-    );
-  return (
-    <main className="auth">
-      <form className="card login" onSubmit={submit}>
-        <p className="eyebrow">Studio account</p>
-        <h1>Вход</h1>
-        <label>
-          Email
-          <input name="email" type="email" autoComplete="username" required />
-        </label>
-        <label>
-          Пароль
-          <input
-            name="password"
-            type="password"
-            autoComplete="current-password"
-            required
-          />
-        </label>
-        <button className="primary">Войти</button>
-        {error && <p className="error">{error}</p>}
-      </form>
-    </main>
-  );
 }
 async function csrfMutate<T>(
   path: string,
