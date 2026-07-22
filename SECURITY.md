@@ -78,10 +78,12 @@ Stop testing and report privately if private data or a secret becomes visible.
 - CI and validation evidence must use synthetic credentials and redacted metadata.
   A green check is not permission to use production secrets.
 
-The current Google Picker/direct-upload browser-token and presigned-URL contract is
-an explicit unresolved Studio security decision tracked as
-`PWA-BROWSER-INTEGRATION-BOUNDARY-01`. Existing implementation is not evidence that
-this boundary has been accepted or production-validated.
+The Google Picker access-token and direct-upload presigned-URL flows are accepted
+only as the bounded browser capabilities defined in `docs/project-spec.md`.
+Source code and tests enforce the current no-store, same-origin/CSRF, scope, TTL,
+metadata-verification, and browser-persistence boundaries, but they are not evidence
+that the public CSP/TLS host configuration or the live Picker/upload flows have been
+production-validated.
 
 ## Security authorities
 
