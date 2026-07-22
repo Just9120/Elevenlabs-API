@@ -186,6 +186,32 @@ const emptyJobState: JobState = {
   loaded: false,
   items: [],
 };
+function isExpectedPickerSourceBatch(
+  value: unknown,
+  expectedCount: number,
+  projectId: string,
+): value is Source[] {
+  if (!Array.isArray(value) || value.length !== expectedCount) return false;
+  const sourceIds = new Set<string>();
+  return value.every((candidate) => {
+    if (!candidate || typeof candidate !== "object") return false;
+    const source = candidate as Partial<Source>;
+    if (
+      typeof source.id !== "string" ||
+      !source.id ||
+      sourceIds.has(source.id) ||
+      source.project_id !== projectId ||
+      source.source_type !== "google_drive" ||
+      source.upload_status !== "uploaded" ||
+      typeof source.original_filename !== "string" ||
+      !source.original_filename
+    ) {
+      return false;
+    }
+    sourceIds.add(source.id);
+    return true;
+  });
+}
 function credentialProfileLabel(c: Credential) {
   return c.active_version ? `${c.label} · v${c.active_version}` : c.label;
 }
@@ -557,19 +583,26 @@ function PreparationPanel({
         }));
         return;
       }
-      const created = await csrfMutate<{ sources: Source[] }>(
+      const created = await csrfMutate<{ sources: unknown }>(
         `/projects/${project.id}/sources/google-picker`,
         csrf,
         onCsrf,
         { method: "POST", body: JSON.stringify({ file_ids: fileIds }) },
       );
       const orderedSources = created.sources;
-      if (orderedSources.some((source) => !source)) {
+      if (
+        !isExpectedPickerSourceBatch(
+          orderedSources,
+          fileIds.length,
+          project.id,
+        )
+      ) {
+        onReloadSources(project.id);
         throw new Error(
-          "Не удалось сопоставить выбранные файлы с созданными источниками. Обновите файлы проекта и повторите выбор.",
+          "Сервер вернул неполный ответ для выбранных файлов. Список файлов обновлён; проверьте добавленные файлы перед повторным выбором.",
         );
       }
-      placeSourcesInRows(rowId, orderedSources as Source[]);
+      placeSourcesInRows(rowId, orderedSources);
       setRowIntakeStatus((current) => ({
         ...current,
         [rowId]: `Добавлено файлов: ${orderedSources.length}.`,

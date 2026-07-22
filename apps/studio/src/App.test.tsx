@@ -3095,6 +3095,70 @@ describe("Studio PWA", () => {
     expect(document.body.textContent).not.toContain("ya29.test-access-token");
   });
 
+  it("fails Google multiselect closed when the API response cannot cover every picked file", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        url.endsWith("/api/projects/p1/sources/google-picker") &&
+        init?.method === "POST"
+      ) {
+        return json({
+          sources: [
+            {
+              id: "s-picker-only",
+              project_id: "p1",
+              source_type: "google_drive",
+              original_filename: "picked-only.mp4",
+              mime_type: "video/mp4",
+              size_bytes: 10,
+              drive_file_url: "https://drive.example/file-only",
+              upload_status: "uploaded",
+              uploaded_at: "2026-07-01T00:00:00Z",
+              expires_at: null,
+              deleted_at: null,
+              delete_reason: null,
+              created_at: "2026-07-01T00:00:00Z",
+              updated_at: "2026-07-01T00:00:00Z",
+            },
+          ],
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    vi.spyOn(googlePicker, "openGooglePicker").mockResolvedValueOnce({
+      action: "picked",
+      docs: [{ id: "file-1" }, { id: "file-2" }],
+    });
+
+    renderApp();
+    await openProjectsPage();
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
+    await userEvent.click(
+      screen.getByRole("button", { name: "Выбрать файлы Google Drive" }),
+    );
+
+    expect(
+      await screen.findByText(
+        "Сервер вернул неполный ответ для выбранных файлов. Список файлов обновлён; проверьте добавленные файлы перед повторным выбором.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getAllByRole("listitem").filter((item) =>
+      item.classList.contains("composer-row"),
+    )).toHaveLength(1);
+    expect(screen.getByLabelText("Источник строки 1")).not.toHaveTextContent(
+      "picked-only.mp4",
+    );
+    await waitFor(() =>
+      expect(
+        baseFetch.mock.calls.filter(
+          ([url, init]) =>
+            url === "/api/projects/p1/sources" && !init?.method,
+        ),
+      ).toHaveLength(2),
+    );
+  });
+
   it("renders refreshed authoritative job data for returned batch IDs before existing history", async () => {
     let jobListCalls = 0;
     (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
@@ -5509,7 +5573,7 @@ describe("Studio PWA", () => {
     );
   });
 
-  it("local multi-file selection creates rows and partial failure preserves successful rows", async () => {
+  it("local multi-file selection preserves successful rows through ordered batch creation", async () => {
     renderApp();
     await openProjectsPage();
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
@@ -5571,6 +5635,31 @@ describe("Studio PWA", () => {
         name: "Выбрать папку результата для строки 2",
       }),
     ).toBeInTheDocument();
+    await chooseResultFolder(1, "folder-local-1");
+    await chooseResultFolder(2, "folder-local-2");
+    await userEvent.click(
+      screen.getByRole("button", { name: /Создать задачи \(\d+\)/ }),
+    );
+    const batchCall = await waitFor(() => {
+      const call = (
+        fetch as unknown as ReturnType<typeof vi.fn>
+      ).mock.calls.find(
+        ([url, init]) =>
+          url === "/api/projects/p1/jobs/batch" && init?.method === "POST",
+      );
+      expect(call).toBeTruthy();
+      return call;
+    });
+    expect(JSON.parse(String(batchCall?.[1]?.body)).items).toMatchObject([
+      {
+        source_id: "local-source-1",
+        output_folder_id: "folder-local-1",
+      },
+      {
+        source_id: "local-source-2",
+        output_folder_id: "folder-local-2",
+      },
+    ]);
   });
 
   it("uses the server upload-size policy before initiating a local upload", async () => {
