@@ -3,7 +3,7 @@
 ## Current dashboard
 
 - ✅ `PWA-E2E-FOUNDATION-01B` — Authenticated real-browser coverage merged through PR #178 at `5ba3b42` and passed post-merge repository and Studio PWA CI.
-- 👉 `PWA-FRONTEND-MODULARIZATION-01B` — First behavior-preserving frontend modularization tranche is locally complete; PR publication and browser CI evidence are pending.
+- 👉 `PWA-FRONTEND-MODULARIZATION-01B` — First behavior-preserving frontend modularization tranche is CI-verified in draft PR #179; merge is pending.
 - ⛔ `PWA-PROCESSING-ROLLOUT-01A` — Production processing rollout/canary — Operator item not run; production-live claims remain prohibited.
 
 ## Current repository state
@@ -15,6 +15,7 @@
 - `main` now includes an isolated real-Chromium login/project/result/logout scenario through live FastAPI/PostgreSQL/Redis services without provider, Google, S3, production, or canary side effects. Post-merge Studio PWA CI run `29903690995` verified both the browser and Studio jobs at the merge revision.
 - The weekly/manual dependency-audit workflow is source-complete but has no GitHub run evidence yet.
 - The current branch reduces `App.tsx` from 4,014 to 3,595 lines and extracts platform routing, upload-policy validation, OAuth-result handling, source state rules, display formatters, safe resource links, `SourcesPanel`, `Login`, and `PlatformSidebar` into focused modules without adding dependencies or changing product behavior. Focused module coverage raises the Studio suite from 114 to 198 tests.
+- On publication revision `a3327c8`, Studio PWA CI run `29909171967` passed both `browser-e2e` and `studio`, and repository CI run `29909172616` passed `checks`.
 - Frontend `App.tsx`/`App.test.tsx` and API `main.py`/`test_studio_api_core.py` remain major maintainability concentrations after this first tranche; further UI/test modularization remains follow-up work.
 
 ## Readiness snapshot
@@ -29,7 +30,7 @@
 
 ## Active item validation
 
-`PWA-FRONTEND-MODULARIZATION-01B` has completed its first local tranche in narrow behavior-preserving commits. Targeted routing, upload-policy, OAuth, source-state, formatter, link, source-panel, login, and sidebar checks pass; the full local Studio profile passes ESLint, all 198 Vitest tests, TypeScript, and the production PWA build, and repository lightweight checks pass. The PR browser job remains the final boundary check; this work does not itself provide API rollout, production-host, migration, worker, or canary evidence.
+`PWA-FRONTEND-MODULARIZATION-01B` has completed its first tranche in narrow behavior-preserving commits. Targeted routing, upload-policy, OAuth, source-state, formatter, link, source-panel, login, and sidebar checks pass; the full local Studio profile passes ESLint, all 198 Vitest tests, TypeScript, and the production PWA build, and repository lightweight checks pass. Draft PR #179 has also passed its authenticated Chromium boundary and both required CI workflows at revision `a3327c8`. This remains isolated CI evidence and does not itself provide API rollout, production-host, migration, worker, or canary evidence.
 
 ## Blockers and risks
 
