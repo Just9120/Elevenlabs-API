@@ -50,15 +50,12 @@ import {
 } from "./sourceModel";
 import { isSafeDisplayUrl, ResourceExternalLink } from "./resourceLinks";
 import { SourcesPanel } from "./SourcesPanel";
-import { JobOutputsSection } from "./JobOutputsSection";
-import { JobDetailSection } from "./JobDetailSection";
-import { OutputReconciliationNotice } from "./OutputReconciliationNotice";
-import { JobCardActions } from "./JobCardActions";
-import { JobCardSummary } from "./JobCardSummary";
+import { JobCard } from "./JobCard";
 import { Login, type User } from "./Login";
 import { PlatformSidebar } from "./PlatformSidebar";
 import {
   isApprovedOutputUrl,
+  type JobDetailState,
   type JobOutputsResponse,
   type JobOutputsState,
   type JobState,
@@ -255,12 +252,7 @@ function PreparationPanel({
     signature: string;
     key: string;
   } | null>(null);
-  const [detail, setDetail] = useState<
-    Record<
-      string,
-      { loading: boolean; error: string; job: TranscriptionJob | null }
-    >
-  >({});
+  const [detail, setDetail] = useState<Record<string, JobDetailState>>({});
   const [outputs, setOutputs] = useState<Record<string, JobOutputsState>>({});
   const [reconciliations, setReconciliations] = useState<Record<string, OutputReconciliationState>>({});
   const [retries, setRetries] = useState<Record<string, JobRetryState>>({});
@@ -952,47 +944,20 @@ function PreparationPanel({
   );
   function renderJobCard(job: TranscriptionJob) {
     const currentDetail = detail[job.id];
-    const currentOutputs = outputs[job.id];
-    const currentReconciliation = reconciliations[job.id];
     const detailedJob = currentDetail?.job;
-    const terminal = ["completed", "failed", "cancelled"].includes(job.status);
     return (
-      <article
-        className={`source-card ${terminal ? "terminal-job" : ""}`}
+      <JobCard
         key={job.id}
-      >
-        <JobCardSummary job={job} />
-        <JobCardActions
-          job={job}
-          onOpen={loadDetail}
-          onCancel={cancelJob}
-        />
-        {currentDetail?.loading && (
-          <p role="status">Загрузка деталей задачи…</p>
-        )}
-        {currentDetail?.error && <p className="error">{currentDetail.error}</p>}
-        {currentOutputs?.loading && <p role="status">Загрузка результатов…</p>}
-        {currentOutputs?.error && (
-          <p className="error">{currentOutputs.error}</p>
-        )}
-        {currentReconciliation?.data?.available && (
-          <OutputReconciliationNotice
-            jobId={job.id}
-            state={currentReconciliation}
-            onCheck={checkReconciliation}
-          />
-        )}
-        {currentOutputs?.data && (
-          <JobOutputsSection jobId={job.id} data={currentOutputs.data} />
-        )}
-        {detailedJob && (
-          <JobDetailSection
-            job={detailedJob}
-            retry={retries[detailedJob.id]}
-            onRetry={retryJob}
-          />
-        )}
-      </article>
+        job={job}
+        detail={currentDetail}
+        outputs={outputs[job.id]}
+        reconciliation={reconciliations[job.id]}
+        retry={detailedJob ? retries[detailedJob.id] : undefined}
+        onOpen={loadDetail}
+        onCancel={cancelJob}
+        onCheckReconciliation={checkReconciliation}
+        onRetry={retryJob}
+      />
     );
   }
   return (

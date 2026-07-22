@@ -36,6 +36,11 @@ export type JobOutputsState = {
   error: string;
   data: JobOutputsResponse | null;
 };
+export type JobDetailState = {
+  loading: boolean;
+  error: string;
+  job: TranscriptionJob | null;
+};
 export type JobOutputFolder = { name: string; web_view_url: string | null };
 export type TranscriptionJob = {
   id: string;
