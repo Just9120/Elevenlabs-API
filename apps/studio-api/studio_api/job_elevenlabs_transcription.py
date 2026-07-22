@@ -27,6 +27,11 @@ from .job_source_materialization import (
     _load_selected_snapshot,
     materialize_processing_job_source,
 )
+from .media_preparation import (
+    MediaPreparationError,
+    PreparedMediaInput,
+    prepare_elevenlabs_media_input,
+)
 from .models import CredentialStatus, JobStatus, Project, ProviderCredential, ProviderCredentialVersion, TranscriptionJob
 from .security import utcnow
 from .diagnostics import resolve_job_correlation_id, write_diagnostic_event
@@ -39,6 +44,10 @@ class JobElevenLabsTranscriptionReason(str, Enum):
     provider_mismatch = "provider_mismatch"
     prerequisites_unavailable = "prerequisites_unavailable"
     source_materialization_unavailable = "source_materialization_unavailable"
+    ffmpeg_unavailable = "ffmpeg_unavailable"
+    media_preparation_timeout = "media_preparation_timeout"
+    media_preparation_failed = "media_preparation_failed"
+    prepared_media_too_large = "prepared_media_too_large"
     lifecycle_changed_before_provider_call = "lifecycle_changed_before_provider_call"
     credential_or_output_identity_changed_before_provider_call = "credential_or_output_identity_changed_before_provider_call"
     provider_authentication_rejected = "provider_authentication_rejected"
@@ -83,6 +92,7 @@ def transcribe_processing_job_source_with_elevenlabs(
     clock: Callable[[], datetime] | None = None,
     prerequisites_opener: Callable = open_processing_job_execution_prerequisites,
     source_materializer: Callable = materialize_processing_job_source,
+    media_preparer: Callable = prepare_elevenlabs_media_input,
     elevenlabs_transport: ElevenLabsTranscriptionTransport | Callable[..., ElevenLabsTranscriptResult] | None = None,
     **kwargs,
 ) -> Iterator[ElevenLabsTranscriptResult]:
@@ -124,45 +134,64 @@ def transcribe_processing_job_source_with_elevenlabs(
             except SourceMaterializationError as exc:
                 raise JobElevenLabsTranscriptionError(JobElevenLabsTranscriptionReason.source_materialization_unavailable) from exc
             try:
-                provider_settings = _final_pre_provider_revalidate(db, job_id, job_source_id, lease_owner_id, lease_generation, settings, clock(), prereq, source)
-                _emit_provider(db, job_id, "SOURCE_READY", {"attempt_number": _attempt(db, job_id)})
-                _emit_provider(db, job_id, "PROVIDER_REQUEST_STARTED", {"attempt_number": _attempt(db, job_id)})
                 try:
-                    mark_attempt_provider_started(db, job_id=job_id, job_source_id=job_source_id, lease_owner_id=lease_owner_id, lease_generation=lease_generation, now=clock())
-                    db.commit()
-                except Exception as exc:
-                    db.rollback()
-                    raise JobElevenLabsTranscriptionError(JobElevenLabsTranscriptionReason.retry_state_persistence_failed) from exc
-                try:
-                    result = _call_transport(
-                        transport,
-                        api_key=prereq.raw_credential_secret,
+                    prepared_cm = media_preparer(
                         stream=source.stream,
-                        filename=safe_filename(source.original_filename),
+                        original_filename=safe_filename(source.original_filename),
                         mime_type=source.mime_type,
-                        language_code=provider_settings.language_code,
-                        diarize=provider_settings.diarize,
+                        byte_count=source.byte_count,
+                        max_output_bytes=settings.source_max_upload_bytes,
                     )
-                except ElevenLabsTranscriptionError as exc:
-                    mapped=_map_provider_reason(exc.reason)
-                    _emit_provider(db, job_id, "PROVIDER_REQUEST_FAILED", {"boundary": "provider_transport", "error_code": mapped.value if mapped.value in {"provider_authentication_rejected","provider_request_rejected","provider_rate_limited","provider_unavailable","provider_timeout","malformed_provider_response"} else "unknown", "retryable": mapped.value in {"provider_rate_limited","provider_unavailable","provider_timeout"}, "attempt_number": _attempt(db, job_id)})
+                    prepared: PreparedMediaInput = prepared_cm.__enter__()
+                except MediaPreparationError as exc:
+                    mapped = _map_media_preparation_reason(exc.reason)
                     _best_effort_classify(db, job_id, job_source_id, lease_owner_id, lease_generation, mapped.value, clock)
                     raise JobElevenLabsTranscriptionError(mapped) from exc
                 except Exception as exc:
-                    _emit_provider(db, job_id, "PROVIDER_REQUEST_FAILED", {"boundary": "provider_transport", "error_code": "unknown", "retryable": False, "attempt_number": _attempt(db, job_id)})
-                    _best_effort_classify(db, job_id, job_source_id, lease_owner_id, lease_generation, "unknown", clock)
-                    raise JobElevenLabsTranscriptionError(JobElevenLabsTranscriptionReason.provider_unavailable) from exc
+                    _best_effort_classify(db, job_id, job_source_id, lease_owner_id, lease_generation, "media_preparation_failed", clock)
+                    raise JobElevenLabsTranscriptionError(JobElevenLabsTranscriptionReason.media_preparation_failed) from exc
                 try:
+                    provider_settings = _final_pre_provider_revalidate(db, job_id, job_source_id, lease_owner_id, lease_generation, settings, clock(), prereq, source)
+                    _emit_provider(db, job_id, "SOURCE_READY", {"attempt_number": _attempt(db, job_id)})
+                    _emit_provider(db, job_id, "PROVIDER_REQUEST_STARTED", {"attempt_number": _attempt(db, job_id)})
                     try:
-                        mark_attempt_provider_returned(db, job_id=job_id, job_source_id=job_source_id, lease_owner_id=lease_owner_id, lease_generation=lease_generation, now=clock())
+                        mark_attempt_provider_started(db, job_id=job_id, job_source_id=job_source_id, lease_owner_id=lease_owner_id, lease_generation=lease_generation, now=clock())
                         db.commit()
                     except Exception as exc:
                         db.rollback()
+                        raise JobElevenLabsTranscriptionError(JobElevenLabsTranscriptionReason.retry_state_persistence_failed) from exc
+                    try:
+                        result = _call_transport(
+                            transport,
+                            api_key=prereq.raw_credential_secret,
+                            stream=prepared.stream,
+                            filename=safe_filename(prepared.filename),
+                            mime_type=prepared.mime_type,
+                            language_code=provider_settings.language_code,
+                            diarize=provider_settings.diarize,
+                        )
+                    except ElevenLabsTranscriptionError as exc:
+                        mapped=_map_provider_reason(exc.reason)
+                        _emit_provider(db, job_id, "PROVIDER_REQUEST_FAILED", {"boundary": "provider_transport", "error_code": mapped.value if mapped.value in {"provider_authentication_rejected","provider_request_rejected","provider_rate_limited","provider_unavailable","provider_timeout","malformed_provider_response"} else "unknown", "retryable": mapped.value in {"provider_rate_limited","provider_unavailable","provider_timeout"}, "attempt_number": _attempt(db, job_id)})
+                        _best_effort_classify(db, job_id, job_source_id, lease_owner_id, lease_generation, mapped.value, clock)
+                        raise JobElevenLabsTranscriptionError(mapped) from exc
+                    except Exception as exc:
+                        _emit_provider(db, job_id, "PROVIDER_REQUEST_FAILED", {"boundary": "provider_transport", "error_code": "unknown", "retryable": False, "attempt_number": _attempt(db, job_id)})
+                        _best_effort_classify(db, job_id, job_source_id, lease_owner_id, lease_generation, "unknown", clock)
                         raise JobElevenLabsTranscriptionError(JobElevenLabsTranscriptionReason.provider_unavailable) from exc
-                    _post_provider_lifecycle_revalidate(db, job_id, lease_owner_id, lease_generation, clock())
-                except JobElevenLabsTranscriptionError:
-                    _emit_provider(db, job_id, "PROVIDER_REQUEST_FAILED", {"boundary": "post_provider_lifecycle", "error_code": "lifecycle_changed_after_provider_call", "retryable": False, "attempt_number": _attempt(db, job_id)})
-                    raise
+                    try:
+                        try:
+                            mark_attempt_provider_returned(db, job_id=job_id, job_source_id=job_source_id, lease_owner_id=lease_owner_id, lease_generation=lease_generation, now=clock())
+                            db.commit()
+                        except Exception as exc:
+                            db.rollback()
+                            raise JobElevenLabsTranscriptionError(JobElevenLabsTranscriptionReason.provider_unavailable) from exc
+                        _post_provider_lifecycle_revalidate(db, job_id, lease_owner_id, lease_generation, clock())
+                    except JobElevenLabsTranscriptionError:
+                        _emit_provider(db, job_id, "PROVIDER_REQUEST_FAILED", {"boundary": "post_provider_lifecycle", "error_code": "lifecycle_changed_after_provider_call", "retryable": False, "attempt_number": _attempt(db, job_id)})
+                        raise
+                finally:
+                    prepared_cm.__exit__(None, None, None)
                 _emit_provider(db, job_id, "PROVIDER_REQUEST_COMPLETED", {"attempt_number": _attempt(db, job_id)})
                 yield result
             finally:
@@ -295,6 +324,10 @@ def _load_lifecycle(db, job_id, owner, generation, now) -> _LifecycleSnapshot:
 
 
 def _map_provider_reason(reason: ElevenLabsTranscriptionReason) -> JobElevenLabsTranscriptionReason:
+    return JobElevenLabsTranscriptionReason(reason.value)
+
+
+def _map_media_preparation_reason(reason) -> JobElevenLabsTranscriptionReason:
     return JobElevenLabsTranscriptionReason(reason.value)
 
 

@@ -32,6 +32,9 @@ This is the current Studio processing contract. It is not a delivery plan, PR hi
 - An existing persisted output for a relation is authoritative.
 - A relation with persisted output must not repeat provider transcription or Google Docs creation.
 - Existing output coverage is considered before deciding whether more external work is required.
+- A materialized source with a server-validated `video/*` MIME type is converted server-side to AAC/M4A before ElevenLabs submission. The browser does not choose or perform this conversion.
+- Video preparation invokes `ffmpeg` without a shell, selects the first audio stream, has a 1,800-second timeout, refuses an empty or deployment-limit-exceeding output, and keeps input/output artifacts inside one temporary directory that is closed after the provider boundary.
+- Video-preparation failures are normalized before the provider request-start marker. Lifecycle, lease, cancellation, source, credential, and output identity are revalidated after preparation and immediately before provider submission.
 
 ## Transaction and commit ownership
 
@@ -89,6 +92,7 @@ If cancellation, lease loss, owner/generation mismatch, project/source mutation,
 - Safe stage-specific retry/recovery is source-level and explicit owner-driven; runtime rollout evidence remains pending.
 - No generic retry/recovery scheduler for failed long external calls.
 - No OpenAI Studio processing path.
+- Video audio extraction is source-level; automatic long-media size/duration split and overlap-aware merge are not implemented yet.
 - No Studio manifest mutation.
 - No multi-worker production validation.
 - No production-live processing claim without controlled rollout validation.

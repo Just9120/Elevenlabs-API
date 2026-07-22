@@ -47,7 +47,16 @@ def models():
     return m
 
 
-def make_job(db, m, *, provider="elevenlabs", language="en", options_json=None):
+def make_job(
+    db,
+    m,
+    *,
+    provider="elevenlabs",
+    language="en",
+    options_json=None,
+    source_filename="secret meeting.mp3",
+    source_mime_type="audio/mpeg",
+):
     from studio_api.security import utcnow
     now = utcnow().replace(tzinfo=None)
     user = m.User(email=f"{uuid.uuid4().hex}-{provider}-{language}@example.com", role=m.UserRole.user, status=m.UserStatus.active)
@@ -58,7 +67,7 @@ def make_job(db, m, *, provider="elevenlabs", language="en", options_json=None):
     db.add(cred); db.flush()
     version = m.ProviderCredentialVersion(credential_id=cred.id, version=1, ciphertext=b"ct", nonce=b"nonce", key_id="credential-key-v1", masked_value="masked", fingerprint="fp")
     db.add(version); db.flush(); cred.active_version_id = version.id
-    src = m.Source(project_id=project.id, source_type=m.SourceType.local_upload, original_filename="secret meeting.mp3", mime_type="audio/mpeg", size_bytes=5, s3_bucket="bucket", s3_object_key="private/object", upload_status=m.SourceUploadStatus.uploaded, uploaded_at=now, expires_at=now + timedelta(hours=1))
+    src = m.Source(project_id=project.id, source_type=m.SourceType.local_upload, original_filename=source_filename, mime_type=source_mime_type, size_bytes=5, s3_bucket="bucket", s3_object_key="private/object", upload_status=m.SourceUploadStatus.uploaded, uploaded_at=now, expires_at=now + timedelta(hours=1))
     db.add(src); db.flush()
     job = m.TranscriptionJob(project_id=project.id, owner_user_id=user.id, status=m.JobStatus.processing, provider=provider, provider_credential_id=cred.id, language=language, options_json=options_json, output_drive_folder_id="folder-private", output_drive_folder_url="https://drive.google.com/drive/folders/folder-private", output_drive_folder_name="Private", lease_owner_id="worker", lease_generation=7, claimed_at=now, lease_expires_at=now + timedelta(minutes=5), started_at=now, attempt_count=1)
     db.add(job); db.flush()
@@ -124,9 +133,9 @@ class CaptureTransport:
         return normalize_elevenlabs_transcript_response({"text": "hello", "words": [{"text": "hello", "start": 0, "end": 1, "type": "word", "speaker_id": "speaker_0"}]})
 
 
-def run_boundary(db, m, job, rel, transport, now):
+def run_boundary(db, m, job, rel, transport, now, **kwargs):
     from studio_api.job_elevenlabs_transcription import transcribe_processing_job_source_with_elevenlabs
-    return transcribe_processing_job_source_with_elevenlabs(db, job_id=job.id, job_source_id=rel.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), now=now, prerequisites_opener=fake_prereq, source_materializer=fake_source, elevenlabs_transport=transport, models=m)
+    return transcribe_processing_job_source_with_elevenlabs(db, job_id=job.id, job_source_id=rel.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), now=now, prerequisites_opener=fake_prereq, source_materializer=fake_source, elevenlabs_transport=transport, models=m, **kwargs)
 
 
 def test_request_construction_language_and_redaction():
@@ -208,6 +217,128 @@ def test_diarization_option_reaches_provider_boundary(db, models):
         pass
 
     assert transport.calls[0]["diarize"] is True
+
+
+def test_video_is_prepared_before_provider_and_revalidated_after_preparation(db, models):
+    from studio_api.job_elevenlabs_transcription import (
+        JobElevenLabsTranscriptionError,
+    )
+    from studio_api.media_preparation import PreparedMediaInput
+
+    *_, job, rel, now = make_job(
+        db,
+        models,
+        source_filename="private meeting.mp4",
+        source_mime_type="video/mp4",
+    )
+    transport = CaptureTransport()
+    preparation_calls = []
+    preparation_state = {"closed": False}
+
+    @contextmanager
+    def prepare(**kwargs):
+        preparation_calls.append(kwargs)
+        stream = BytesIO(b"prepared-audio")
+        try:
+            yield PreparedMediaInput(
+                filename="private meeting.m4a",
+                mime_type="audio/mp4",
+                byte_count=14,
+                stream=stream,
+                audio_extracted=True,
+            )
+        finally:
+            stream.close()
+            preparation_state["closed"] = True
+
+    with run_boundary(
+        db,
+        models,
+        job,
+        rel,
+        transport,
+        now,
+        media_preparer=prepare,
+    ):
+        assert preparation_state["closed"] is True
+
+    assert preparation_calls[0]["mime_type"] == "video/mp4"
+    assert preparation_calls[0]["max_output_bytes"] == Settings.source_max_upload_bytes
+    assert transport.calls[0]["filename"] == "private meeting.m4a"
+    assert transport.calls[0]["mime_type"] == "audio/mp4"
+
+    transport = CaptureTransport()
+
+    @contextmanager
+    def prepare_then_cancel(**kwargs):
+        job.cancel_requested_at = now
+        db.flush()
+        stream = BytesIO(b"prepared-audio")
+        try:
+            yield PreparedMediaInput(
+                filename="private meeting.m4a",
+                mime_type="audio/mp4",
+                byte_count=14,
+                stream=stream,
+                audio_extracted=True,
+            )
+        finally:
+            stream.close()
+
+    with pytest.raises(
+        JobElevenLabsTranscriptionError,
+        match="lifecycle_changed_before_provider_call",
+    ):
+        with run_boundary(
+            db,
+            models,
+            job,
+            rel,
+            transport,
+            now,
+            media_preparer=prepare_then_cancel,
+        ):
+            pass
+    assert transport.calls == []
+
+
+def test_media_preparation_failure_blocks_provider_with_safe_reason(db, models):
+    from studio_api.job_elevenlabs_transcription import (
+        JobElevenLabsTranscriptionError,
+    )
+    from studio_api.media_preparation import (
+        MediaPreparationError,
+        MediaPreparationReason,
+    )
+
+    *_, job, rel, now = make_job(
+        db,
+        models,
+        source_filename="private meeting.mp4",
+        source_mime_type="video/mp4",
+    )
+    transport = CaptureTransport()
+
+    def prepare(**kwargs):
+        raise MediaPreparationError(MediaPreparationReason.ffmpeg_unavailable)
+
+    with pytest.raises(
+        JobElevenLabsTranscriptionError,
+        match="ffmpeg_unavailable",
+    ) as exc:
+        with run_boundary(
+            db,
+            models,
+            job,
+            rel,
+            transport,
+            now,
+            media_preparer=prepare,
+        ):
+            pass
+
+    assert transport.calls == []
+    assert "private" not in str(exc.value)
 
 
 def test_diagnostics_source_provider_success_order_and_correlation(monkeypatch, db, models):
