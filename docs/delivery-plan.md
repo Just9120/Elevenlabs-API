@@ -3,7 +3,8 @@
 ## Current dashboard
 
 - ✅ `PWA-FRONTEND-MODULARIZATION-01B` — First behavior-preserving frontend modularization tranche merged through PR #179 at `feb099f` and passed post-merge repository and Studio PWA CI.
-- 👉 `PWA-FRONTEND-MODULARIZATION-02` — Continue extracting job-domain presentation/model helpers and bounded UI/tests from `App.tsx`/`App.test.tsx` without changing product behavior.
+- 🟡 `PWA-FRONTEND-MODULARIZATION-02` — Job-domain model, recovery, and bounded card/detail/output UI extraction is complete on `codex/pwa-frontend-modularization-02`; PR and remote browser/CI evidence are pending.
+- 👉 `PWA-FRONTEND-MODULARIZATION-03` — After tranche 02 merges, extract composer-row/readiness boundaries and focused tests from `PreparationPanel` without changing product behavior.
 - ⛔ `PWA-PROCESSING-ROLLOUT-01A` — Production processing rollout/canary — Operator item not run; production-live claims remain prohibited.
 
 ## Current repository state
@@ -15,7 +16,8 @@
 - `main` includes an isolated real-Chromium login/project/result/logout scenario through live FastAPI/PostgreSQL/Redis services without provider, Google, S3, production, or canary side effects. Post-merge Studio PWA CI run `29910237261` verified both the browser and Studio jobs at the merge revision.
 - The weekly/manual dependency-audit workflow is source-complete but has no GitHub run evidence yet.
 - `main` now contains the first modularization tranche: `App.tsx` is reduced from 4,014 to 3,595 lines, focused modules own platform routing, upload-policy validation, OAuth-result handling, source state rules, display formatters, safe resource links, `SourcesPanel`, `Login`, and `PlatformSidebar`, and the Studio suite contains 198 tests without new dependencies or product-behavior changes.
-- Frontend `App.tsx`/`App.test.tsx` and API `main.py`/`test_studio_api_core.py` remain major maintainability concentrations after this first tranche; further UI/test modularization remains follow-up work.
+- The current tranche-02 branch is zero commits behind and ten commits ahead of `main` before this dashboard update. It reduces `App.tsx` from 3,595 to 3,312 lines and grows the Studio suite from 198 to 244 tests. Nine focused production modules now own job/composer models, recovery labels, job-card composition/actions/summary, output/detail presentation, and reconciliation notice behavior; no dependency or product-behavior change is included.
+- Frontend `App.tsx`/`App.test.tsx` and API `main.py`/`test_studio_api_core.py` remain major maintainability concentrations. The preparation composer/readiness UI is the next bounded frontend extraction candidate; API modularization remains a separate later workstream.
 
 ## Readiness snapshot
 
@@ -29,7 +31,7 @@
 
 ## Active item validation
 
-`PWA-FRONTEND-MODULARIZATION-02` starts from clean post-merge `main`. Its first focus is extracting job-domain types and pure presentation helpers with direct unit coverage, followed by bounded job/project UI and related tests where dependency direction remains clear. Non-goals are product behavior, API/backend changes, dependency changes, CI/CD changes, and production rollout. Each commit must pass targeted tests and the full Studio lint/test/build profile; the PR browser job remains the final boundary check.
+`PWA-FRONTEND-MODULARIZATION-02` is locally implementation-complete at `32f1282` before this dashboard commit. Targeted tests passed after every extraction; the final local profile passed ESLint, TypeScript, all 244 Studio Vitest tests, the Vite/PWA production build, `python scripts/ci_checks.py`, and `git diff --check` (with only the existing LF-to-CRLF informational warning). The branch remains behavior-preserving: API/backend, dependencies, CI/CD, runtime configuration, and product rules are unchanged. The PR browser job and GitHub checks remain required before merge approval.
 
 ## Blockers and risks
 
