@@ -7,6 +7,7 @@ import {
 } from "react";
 import * as googlePicker from "./googlePicker";
 import type { PickerSession } from "./googlePicker";
+import { googlePickerFailureMessage } from "./googlePickerErrors";
 import {
   clearPwaDiagnosticsSession,
   configurePwaDiagnosticsDebugState,
@@ -653,15 +654,17 @@ function PreparationPanel({
       }));
       onReloadSources(project.id);
     } catch (err) {
+      const pickerFailure = googlePickerFailureMessage(err);
       setRowIntakeStatus((current) => ({ ...current, [rowId]: "" }));
       setRowIntakeErrors((current) => ({
         ...current,
         [rowId]:
-          err instanceof ApiError && err.status === 422
+          pickerFailure ??
+          (err instanceof ApiError && err.status === 422
             ? "Один или несколько файлов не поддерживаются. Выберите аудио, видео или OGG."
             : err instanceof Error
               ? err.message
-              : "Не удалось выбрать файлы Google Drive.",
+              : "Не удалось выбрать файлы Google Drive."),
       }));
     } finally {
       rowSourcePickerRef.current = false;
@@ -843,9 +846,10 @@ function PreparationPanel({
       });
     } catch (err) {
       setMessage(
-        err instanceof Error
+        googlePickerFailureMessage(err) ??
+        (err instanceof Error
           ? err.message
-          : "Не удалось проверить папку результата.",
+          : "Не удалось проверить папку результата."),
       );
     } finally {
       rowFolderPickerRef.current = false;

@@ -4799,6 +4799,41 @@ describe("Studio PWA", () => {
     expect(document.body.textContent).not.toContain("raw-google-payload");
   });
 
+  it("shows an actionable safe message when Picker session requires reconnect", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        url.endsWith("/api/google/picker/session") &&
+        init?.method === "POST"
+      )
+        return json(
+          {
+            detail: "google_reauthorization_required",
+            raw: "private-google-response",
+          },
+          false,
+          409,
+        );
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: "Выбрать файлы Google Drive",
+      }),
+    );
+
+    expect(
+      await screen.findByText(
+        "Переподключите Google Drive в настройках и повторите выбор.",
+      ),
+    ).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("private-google-response");
+  });
+
   it("disables row folder selection while Google Drive is disconnected without requesting Picker session", async () => {
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = baseFetch.getMockImplementation();
