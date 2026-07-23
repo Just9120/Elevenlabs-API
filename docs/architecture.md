@@ -117,6 +117,12 @@ Source-level Studio architecture now includes `TranscriptionOutputReconciliation
 
 The API remains the trust boundary: browsers see only aggregate reconciliation status and safe counts. Tokens, document IDs, folder IDs, raw URLs before output persistence, appProperties, raw Google payloads, transcript text, document body, and lease metadata remain server-only.
 
+## Studio transcription analytics component
+
+The project-scoped transcription analytics read path aggregates existing PostgreSQL job, job-source, output, credential-provider, and source-attempt authority without adding a separate analytics table or browser-visible raw events. The API reports all-time safe totals, outcome/configuration counts, and duration summaries with sample coverage. Queue and whole-job processing use complete job lifecycle intervals; provider and combined post-provider-output timing use complete source-attempt intervals. Missing, unfinished, or negative intervals are excluded rather than estimated.
+
+The PWA requests analytics only when the user opens the project analytics panel and validates an exact aggregate DTO before rendering it. Project/job/source/output identifiers, filenames, titles, credentials, storage metadata, Google identifiers/URLs, raw timestamps, failure detail, provider payloads, and transcript/document content remain server-only. The combined post-provider interval may include part merging and Google Docs persistence and must not be presented as a Google-only measurement.
+
 ## Studio source lifecycle component map
 
 | Component | Responsibility | Boundary |

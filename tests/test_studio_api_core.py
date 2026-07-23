@@ -2215,6 +2215,78 @@ def test_project_job_progress_is_owner_scoped_no_store_and_browser_safe():
     assert c1.get(f"/api/projects/{pid2}/jobs/progress").status_code == 404
 
 
+def test_project_transcription_analytics_is_owner_scoped_no_store_and_aggregate_only():
+    c1, _h1, pid1, _jid1, _source_ids1 = create_job_with_sources(
+        "analytics-owner@example.com",
+        ("analytics-private-source.mp4",),
+    )
+    _c2, _h2, pid2, _jid2, _source_ids2 = create_job_with_sources(
+        "analytics-other@example.com",
+        ("other-private-source.mp4",),
+    )
+
+    response = c1.get(f"/api/projects/{pid1}/transcription-analytics")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["pragma"] == "no-cache"
+    body = response.json()
+    assert set(body) == {
+        "scope",
+        "totals",
+        "outcomes",
+        "configuration",
+        "durations",
+    }
+    assert body["scope"] == "project_all_time"
+    assert body["totals"] == {"jobs": 1, "sources": 1, "outputs": 0}
+    assert body["outcomes"] == {
+        "queued": 1,
+        "processing": 0,
+        "completed": 0,
+        "failed": 0,
+        "cancelled": 0,
+    }
+    assert body["configuration"] == {
+        "provider_model": {
+            "elevenlabs_scribe_v2": 1,
+            "unknown": 0,
+        },
+        "language_mode": {"ru": 0, "detect": 1, "other": 0},
+        "diarization": {"enabled": 0, "disabled": 1},
+    }
+    assert all(
+        summary == {
+            "sample_count": 0,
+            "average_seconds": None,
+            "p50_seconds": None,
+            "p95_seconds": None,
+        }
+        for summary in body["durations"].values()
+    )
+    for private_marker in (
+        pid1,
+        "analytics-private-source.mp4",
+        "other-private-source.mp4",
+        "folder-test",
+        "provider_credential_id",
+        "document_id",
+        "web_view_url",
+        "provider_request_started_at",
+        "failure_code",
+    ):
+        assert private_marker not in response.text
+
+    anon = TestClient(app)
+    assert (
+        anon.get(f"/api/projects/{pid1}/transcription-analytics").status_code
+        == 401
+    )
+    assert (
+        c1.get(f"/api/projects/{pid2}/transcription-analytics").status_code
+        == 404
+    )
+
+
 def add_output_row(job_id, source_id, *, url="https://docs.google.com/document/d/doc/edit", doc_id=None, persisted_at=None, output_id=None):
     db = SessionLocal()
     try:

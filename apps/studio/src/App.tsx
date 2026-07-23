@@ -86,6 +86,7 @@ import {
   parseProjectJobProgressResponse,
   type JobProgressState,
 } from "./jobProgressModel";
+import { TranscriptionAnalyticsPanel } from "./TranscriptionAnalyticsPanel";
 import "./styles.css";
 
 type AccountPreferences = {
@@ -1660,6 +1661,7 @@ function PreparationPanel({
           onError={onError}
         />
       </details>
+      <TranscriptionAnalyticsPanel key={project.id} projectId={project.id} />
       <section className="sources" aria-label="Текущие задачи">
         <h4>Текущие задачи</h4>
         {jobs.loading && <p role="status">Загрузка задач…</p>}
