@@ -309,6 +309,134 @@ def load_existing_result_matches(
     )
 
 
+def has_competing_provider_attempt_conflict(
+    db: Any,
+    *,
+    owner_user_id: str,
+    sources: Iterable[Any],
+    target_settings: EffectiveTranscriptionSettings,
+    exclude_job_id: str,
+) -> bool:
+    """Return whether equivalent paid work is in flight or unresolved.
+
+    Callers must hold the catalog-identity source locks while checking this and
+    while durably marking their own provider request as started. That makes the
+    first worker the only unapproved job allowed across the paid-call boundary.
+    A failed or cancelled attempt also remains a conflict unless its outcome is
+    explicitly classified retry-safe; a new job must not bypass uncertainty.
+    """
+    from sqlalchemy import and_, or_
+
+    from .models import (
+        JobStatus,
+        Project,
+        ProviderCredential,
+        Source,
+        SourceAttemptRetryDisposition,
+        SourceType,
+        TranscriptionJob,
+        TranscriptionJobSource,
+        TranscriptionJobSourceAttempt,
+    )
+
+    source_rows = tuple(sources)
+    source_ids = {
+        identity.value
+        for source in source_rows
+        if (identity := catalog_source_identity(source)) is not None
+        and identity.kind == CatalogSourceIdentityKind.studio_source
+    }
+    drive_file_ids = {
+        identity.value
+        for source in source_rows
+        if (identity := catalog_source_identity(source)) is not None
+        and identity.kind == CatalogSourceIdentityKind.google_drive_file
+    }
+    identity_filters = []
+    if source_ids:
+        identity_filters.append(Source.id.in_(source_ids))
+    if drive_file_ids:
+        identity_filters.append(
+            and_(
+                Source.source_type == SourceType.google_drive,
+                Source.drive_file_id.in_(drive_file_ids),
+            )
+        )
+    if not identity_filters:
+        return True
+
+    rows = (
+        db.query(
+            TranscriptionJob.provider,
+            ProviderCredential.provider,
+            TranscriptionJob.language,
+            TranscriptionJob.options_json,
+            TranscriptionJob.status,
+            TranscriptionJobSourceAttempt.retry_disposition,
+        )
+        .select_from(Source)
+        .join(
+            TranscriptionJobSource,
+            TranscriptionJobSource.source_id == Source.id,
+        )
+        .join(
+            TranscriptionJob,
+            TranscriptionJob.id == TranscriptionJobSource.job_id,
+        )
+        .join(
+            TranscriptionJobSourceAttempt,
+            and_(
+                TranscriptionJobSourceAttempt.job_id == TranscriptionJob.id,
+                TranscriptionJobSourceAttempt.job_source_id
+                == TranscriptionJobSource.id,
+            ),
+        )
+        .join(Project, Project.id == Source.project_id)
+        .outerjoin(
+            ProviderCredential,
+            and_(
+                ProviderCredential.id
+                == TranscriptionJob.provider_credential_id,
+                ProviderCredential.user_id == owner_user_id,
+            ),
+        )
+        .filter(
+            TranscriptionJob.owner_user_id == owner_user_id,
+            Project.owner_user_id == owner_user_id,
+            TranscriptionJob.project_id == Source.project_id,
+            TranscriptionJob.id != exclude_job_id,
+            TranscriptionJobSourceAttempt.provider_request_started_at.is_not(
+                None
+            ),
+            or_(*identity_filters),
+        )
+        .all()
+    )
+    for (
+        job_provider,
+        credential_provider,
+        language,
+        options_json,
+        job_status,
+        retry_disposition,
+    ) in rows:
+        settings = effective_settings_from_persisted_job(
+            job_provider=job_provider,
+            credential_provider=credential_provider,
+            language=language,
+            options_json=options_json,
+        )
+        settings_conflict = settings is None or settings == target_settings
+        unresolved_attempt = (
+            job_status == JobStatus.processing
+            or retry_disposition
+            != SourceAttemptRetryDisposition.retry_safe
+        )
+        if settings_conflict and unresolved_attempt:
+            return True
+    return False
+
+
 def lock_catalog_source_identities(
     db: Any,
     *,

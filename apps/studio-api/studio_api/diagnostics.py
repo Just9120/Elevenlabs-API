@@ -59,7 +59,7 @@ ERROR_CODES = frozenset({
     "unknown", "provider_authentication_rejected", "provider_request_rejected", "provider_rate_limited",
     "provider_unavailable", "provider_timeout", "malformed_provider_response", "lifecycle_changed_after_provider_call",
     "lifecycle_changed_before_provider_call", "credential_or_output_identity_changed_before_provider_call",
-    "source_materialization_unavailable", "prerequisites_unavailable", "provider_mismatch", "pipeline_transcription_failed",
+    "source_materialization_unavailable", "prerequisites_unavailable", "provider_mismatch", "existing_result_conflict", "pipeline_transcription_failed",
     "ffmpeg_unavailable", "media_preparation_timeout", "media_preparation_failed", "prepared_media_too_large",
     "media_duration_unavailable", "media_split_failed", "media_part_too_large", "partial_provider_result",
     "pipeline_google_docs_failed", "output_reconciliation_required", "incomplete_output_coverage", "commit_failed",

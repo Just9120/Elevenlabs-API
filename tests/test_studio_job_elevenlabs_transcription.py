@@ -78,6 +78,134 @@ def make_job(
     return user, project, cred, version, src, job, rel, now
 
 
+def add_accepted_output(
+    db,
+    m,
+    *,
+    user,
+    project,
+    credential,
+    source,
+    now,
+    language="en",
+    options_json=None,
+):
+    job = m.TranscriptionJob(
+        project_id=project.id,
+        owner_user_id=user.id,
+        status=m.JobStatus.completed,
+        provider="elevenlabs",
+        provider_credential_id=credential.id,
+        language=language,
+        options_json=options_json,
+        finished_at=now,
+    )
+    db.add(job); db.flush()
+    rel = m.TranscriptionJobSource(
+        job_id=job.id,
+        source_id=source.id,
+        position=0,
+    )
+    db.add(rel); db.flush()
+    db.add(
+        m.TranscriptionJobOutput(
+            job_id=job.id,
+            job_source_id=rel.id,
+            document_id=f"accepted-{job.id}",
+            web_view_url=f"https://docs.google.com/document/d/{job.id}/edit",
+            output_drive_folder_id="folder-private",
+            output_kind="google_docs_transcript",
+            transcript_standard="transcript_doc_v1.2",
+            document_character_count=5,
+            document_created_at=now,
+            persisted_at=now,
+            lease_generation=1,
+        )
+    )
+    db.commit()
+    return job
+
+
+def add_provider_attempt(
+    db,
+    m,
+    *,
+    user,
+    project,
+    credential,
+    source,
+    now,
+    language="en",
+    status="processing",
+    retry_disposition="undetermined",
+):
+    job_status = getattr(m.JobStatus, status)
+    disposition = getattr(
+        m.SourceAttemptRetryDisposition,
+        retry_disposition,
+    )
+    job = m.TranscriptionJob(
+        project_id=project.id,
+        owner_user_id=user.id,
+        status=job_status,
+        provider="elevenlabs",
+        provider_credential_id=credential.id,
+        language=language,
+        lease_owner_id=(
+            "other-worker" if job_status == m.JobStatus.processing else None
+        ),
+        lease_generation=1,
+        claimed_at=now if job_status == m.JobStatus.processing else None,
+        lease_expires_at=(
+            now + timedelta(minutes=5)
+            if job_status == m.JobStatus.processing
+            else None
+        ),
+        started_at=now,
+        finished_at=(
+            now
+            if job_status in {m.JobStatus.failed, m.JobStatus.completed}
+            else None
+        ),
+        attempt_count=1,
+    )
+    db.add(job); db.flush()
+    rel = m.TranscriptionJobSource(
+        job_id=job.id,
+        source_id=source.id,
+        position=0,
+    )
+    db.add(rel); db.flush()
+    db.add(
+        m.TranscriptionJobSourceAttempt(
+            owner_user_id=user.id,
+            project_id=project.id,
+            job_id=job.id,
+            job_source_id=rel.id,
+            attempt_number=1,
+            stage=(
+                m.SourceAttemptStage.provider_request_started
+                if job_status == m.JobStatus.processing
+                else (
+                    m.SourceAttemptStage.output_persisted
+                    if job_status == m.JobStatus.completed
+                    else m.SourceAttemptStage.failed
+                )
+            ),
+            retry_disposition=disposition,
+            provider_request_started_at=now,
+            failed_at=now if job_status == m.JobStatus.failed else None,
+            completed_at=(
+                now if job_status == m.JobStatus.completed else None
+            ),
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    db.commit()
+    return job
+
+
 class Secret:
     provider = "elevenlabs"
     credential_version_id = ""
@@ -231,6 +359,259 @@ def test_diarization_option_reaches_provider_boundary(db, models):
         pass
 
     assert transport.calls[0]["diarize"] is True
+
+
+def test_existing_accepted_result_blocks_provider_and_is_non_retryable(db, models):
+    from studio_api.job_elevenlabs_transcription import (
+        JobElevenLabsTranscriptionError,
+    )
+
+    user, project, credential, _version, source, job, rel, now = make_job(
+        db,
+        models,
+    )
+    add_accepted_output(
+        db,
+        models,
+        user=user,
+        project=project,
+        credential=credential,
+        source=source,
+        now=now,
+    )
+    transport = CaptureTransport()
+
+    with pytest.raises(
+        JobElevenLabsTranscriptionError,
+        match="existing_result_conflict",
+    ):
+        with run_boundary(db, models, job, rel, transport, now):
+            pass
+
+    assert transport.calls == []
+    db.expire_all()
+    attempt = (
+        db.query(models.TranscriptionJobSourceAttempt)
+        .filter_by(job_source_id=rel.id)
+        .one()
+    )
+    assert attempt.failure_code == "existing_result_conflict"
+    assert (
+        attempt.retry_disposition
+        == models.SourceAttemptRetryDisposition.non_retryable
+    )
+
+
+def test_explicit_reprocess_authority_crosses_existing_result_guard(db, models):
+    from studio_api.transcription_options import stored_transcription_options
+
+    user, project, credential, _version, source, job, rel, now = make_job(
+        db,
+        models,
+        options_json=stored_transcription_options(
+            False,
+            existing_result_reprocess_authorized=True,
+        ),
+    )
+    add_accepted_output(
+        db,
+        models,
+        user=user,
+        project=project,
+        credential=credential,
+        source=source,
+        now=now,
+    )
+    transport = CaptureTransport()
+
+    with run_boundary(db, models, job, rel, transport, now):
+        pass
+
+    assert len(transport.calls) == 1
+
+
+def test_explicit_reprocess_does_not_bypass_unresolved_provider_attempt(
+    db,
+    models,
+):
+    from studio_api.job_elevenlabs_transcription import (
+        JobElevenLabsTranscriptionError,
+    )
+    from studio_api.transcription_options import stored_transcription_options
+
+    user, project, credential, _version, source, job, rel, now = make_job(
+        db,
+        models,
+        options_json=stored_transcription_options(
+            False,
+            existing_result_reprocess_authorized=True,
+        ),
+    )
+    add_accepted_output(
+        db,
+        models,
+        user=user,
+        project=project,
+        credential=credential,
+        source=source,
+        now=now,
+    )
+    add_provider_attempt(
+        db,
+        models,
+        user=user,
+        project=project,
+        credential=credential,
+        source=source,
+        now=now,
+    )
+    transport = CaptureTransport()
+
+    with pytest.raises(
+        JobElevenLabsTranscriptionError,
+        match="existing_result_conflict",
+    ):
+        with run_boundary(db, models, job, rel, transport, now):
+            pass
+    assert transport.calls == []
+
+
+def test_competing_equivalent_provider_attempt_wins_source_serialization(
+    db,
+    models,
+):
+    from studio_api.job_elevenlabs_transcription import (
+        JobElevenLabsTranscriptionError,
+    )
+
+    user, project, credential, _version, source, job, rel, now = make_job(
+        db,
+        models,
+    )
+    add_provider_attempt(
+        db,
+        models,
+        user=user,
+        project=project,
+        credential=credential,
+        source=source,
+        now=now,
+    )
+    transport = CaptureTransport()
+
+    with pytest.raises(
+        JobElevenLabsTranscriptionError,
+        match="existing_result_conflict",
+    ):
+        with run_boundary(db, models, job, rel, transport, now):
+            pass
+    assert transport.calls == []
+
+
+def test_competing_provider_attempt_with_different_settings_does_not_block(
+    db,
+    models,
+):
+    user, project, credential, _version, source, job, rel, now = make_job(
+        db,
+        models,
+    )
+    add_provider_attempt(
+        db,
+        models,
+        user=user,
+        project=project,
+        credential=credential,
+        source=source,
+        now=now,
+        language="detect",
+    )
+    transport = CaptureTransport()
+
+    with run_boundary(db, models, job, rel, transport, now):
+        pass
+    assert len(transport.calls) == 1
+
+
+@pytest.mark.parametrize(
+    "retry_disposition,blocked",
+    [
+        ("provider_outcome_uncertain", True),
+        ("provider_result_lost", True),
+        ("output_reconciliation_required", True),
+        ("retry_safe", False),
+    ],
+)
+def test_failed_provider_attempt_blocks_only_while_outcome_is_unresolved(
+    db,
+    models,
+    retry_disposition,
+    blocked,
+):
+    from studio_api.job_elevenlabs_transcription import (
+        JobElevenLabsTranscriptionError,
+    )
+
+    user, project, credential, _version, source, job, rel, now = make_job(
+        db,
+        models,
+    )
+    add_provider_attempt(
+        db,
+        models,
+        user=user,
+        project=project,
+        credential=credential,
+        source=source,
+        now=now,
+        status="failed",
+        retry_disposition=retry_disposition,
+    )
+    transport = CaptureTransport()
+
+    if blocked:
+        with pytest.raises(
+            JobElevenLabsTranscriptionError,
+            match="existing_result_conflict",
+        ):
+            with run_boundary(db, models, job, rel, transport, now):
+                pass
+        assert transport.calls == []
+    else:
+        with run_boundary(db, models, job, rel, transport, now):
+            pass
+        assert len(transport.calls) == 1
+
+
+def test_completed_attempt_without_accepted_output_fails_closed(db, models):
+    from studio_api.job_elevenlabs_transcription import (
+        JobElevenLabsTranscriptionError,
+    )
+
+    user, project, credential, _version, source, job, rel, now = make_job(
+        db,
+        models,
+    )
+    add_provider_attempt(
+        db,
+        models,
+        user=user,
+        project=project,
+        credential=credential,
+        source=source,
+        now=now,
+        status="completed",
+        retry_disposition="completed",
+    )
+    transport = CaptureTransport()
+
+    with pytest.raises(
+        JobElevenLabsTranscriptionError,
+        match="existing_result_conflict",
+    ):
+        with run_boundary(db, models, job, rel, transport, now):
+            pass
+    assert transport.calls == []
 
 
 def test_video_is_prepared_before_provider_and_revalidated_after_preparation(db, models):

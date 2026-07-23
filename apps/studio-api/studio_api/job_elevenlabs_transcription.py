@@ -35,12 +35,25 @@ from .media_preparation import (
     PreparedMediaInput,
     prepare_elevenlabs_media_parts,
 )
-from .models import CredentialStatus, JobStatus, Project, ProviderCredential, ProviderCredentialVersion, TranscriptionJob
+from .models import CredentialStatus, JobStatus, Project, ProviderCredential, ProviderCredentialVersion, Source, TranscriptionJob
 from .security import utcnow
 from .diagnostics import resolve_job_correlation_id, write_diagnostic_event
 from .job_retry_recovery import classify_source_attempt_failure, mark_attempt_provider_returned, mark_attempt_provider_started
 from .source_storage import safe_filename
-from .transcription_options import TranscriptionProviderSettings, provider_transcription_settings
+from .transcript_catalog import (
+    ExistingResultMatchStatus,
+    elevenlabs_effective_settings,
+    has_competing_provider_attempt_conflict,
+    load_existing_result_matches,
+    lock_catalog_source_identities,
+)
+from .transcription_options import (
+    TranscriptionProviderSettings,
+    browser_language_mode,
+    job_diarization_enabled,
+    job_existing_result_reprocess_authorized,
+    provider_transcription_settings,
+)
 
 
 class JobElevenLabsTranscriptionReason(str, Enum):
@@ -54,6 +67,7 @@ class JobElevenLabsTranscriptionReason(str, Enum):
     media_duration_unavailable = "media_duration_unavailable"
     media_split_failed = "media_split_failed"
     media_part_too_large = "media_part_too_large"
+    existing_result_conflict = "existing_result_conflict"
     lifecycle_changed_before_provider_call = "lifecycle_changed_before_provider_call"
     credential_or_output_identity_changed_before_provider_call = "credential_or_output_identity_changed_before_provider_call"
     provider_authentication_rejected = "provider_authentication_rejected"
@@ -335,7 +349,81 @@ def _final_pre_provider_revalidate(
         )
     if src_snap.job_source_id != source.identity.job_source_id or src_snap.source_id != source.identity.source_id:
         raise JobElevenLabsTranscriptionError(JobElevenLabsTranscriptionReason.lifecycle_changed_before_provider_call)
+    try:
+        _require_no_existing_result_conflict(
+            db,
+            job_id=job_id,
+            source_id=src_snap.source_id,
+            credential_snapshot=cred_snap,
+        )
+    except JobElevenLabsTranscriptionError as exc:
+        if (
+            exc.reason
+            == JobElevenLabsTranscriptionReason.existing_result_conflict
+        ):
+            _best_effort_classify(
+                db,
+                job_id,
+                job_source_id,
+                owner,
+                generation,
+                exc.reason.value,
+                lambda: now,
+            )
+        raise
     return cred_snap["provider_settings"]
+
+
+def _require_no_existing_result_conflict(
+    db,
+    *,
+    job_id,
+    source_id,
+    credential_snapshot,
+) -> None:
+    selected_source = db.get(Source, source_id)
+    if selected_source is None:
+        raise JobElevenLabsTranscriptionError(
+            JobElevenLabsTranscriptionReason.lifecycle_changed_before_provider_call
+        )
+    locked_sources = lock_catalog_source_identities(
+        db,
+        owner_user_id=credential_snapshot["owner_user_id"],
+        sources=(selected_source,),
+    )
+    selected_source = next(
+        (source for source in locked_sources if source.id == source_id),
+        None,
+    )
+    if selected_source is None:
+        raise JobElevenLabsTranscriptionError(
+            JobElevenLabsTranscriptionReason.lifecycle_changed_before_provider_call
+        )
+    matches = load_existing_result_matches(
+        db,
+        owner_user_id=credential_snapshot["owner_user_id"],
+        sources=(selected_source,),
+        target_settings=credential_snapshot["catalog_settings"],
+    )
+    match = matches.get(source_id)
+    accepted_conflict = (
+        not credential_snapshot["existing_result_reprocess_authorized"]
+        and (
+            match is None
+            or match.status != ExistingResultMatchStatus.no_match
+        )
+    )
+    provider_attempt_conflict = has_competing_provider_attempt_conflict(
+        db,
+        owner_user_id=credential_snapshot["owner_user_id"],
+        sources=(selected_source,),
+        target_settings=credential_snapshot["catalog_settings"],
+        exclude_job_id=job_id,
+    )
+    if accepted_conflict or provider_attempt_conflict:
+        raise JobElevenLabsTranscriptionError(
+            JobElevenLabsTranscriptionReason.existing_result_conflict
+        )
 
 
 def _load_credential_db_only(db, job_id, owner, generation, now, settings):
@@ -383,6 +471,14 @@ def _load_credential_db_only(db, job_id, owner, generation, now, settings):
         "version_id": ver.id,
         "provider": provider,
         "provider_settings": provider_transcription_settings(job.language, job.options_json),
+        "owner_user_id": job.owner_user_id,
+        "catalog_settings": elevenlabs_effective_settings(
+            language_mode=browser_language_mode(job.language),
+            diarization_enabled=job_diarization_enabled(job.options_json),
+        ),
+        "existing_result_reprocess_authorized": (
+            job_existing_result_reprocess_authorized(job.options_json)
+        ),
     }
 
 
