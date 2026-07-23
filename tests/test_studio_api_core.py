@@ -2639,6 +2639,85 @@ def _count_batch_rows():
         db.close()
 
 
+def test_batch_preflight_is_safe_ordered_and_does_not_create_rows(monkeypatch):
+    calls = _install_batch_folder_mocks(monkeypatch)
+    c, csrf, _user_id, pid, source_a, source_b, cred_id = _batch_setup(
+        "batch-preflight@example.com"
+    )
+    body = _batch_body(
+        source_a,
+        source_b,
+        folder_a="shared",
+        folder_b="shared",
+        credential_id=cred_id,
+    )
+    before = _count_batch_rows()
+
+    r = c.post(
+        f"/api/projects/{pid}/jobs/batch/preflight",
+        json=body,
+        headers={"origin": "https://studio.test", "x-csrf-token": csrf},
+    )
+
+    assert r.status_code == 200
+    assert r.headers["cache-control"] == "no-store"
+    data = r.json()
+    assert data["language_mode"] == "ru"
+    assert data["diarization_enabled"] is True
+    assert data["summary"] == {
+        "process_count": 2,
+        "skip_count": 0,
+        "blocked_count": 0,
+    }
+    assert [item["source"]["name"] for item in data["items"]] == [
+        "a.mp3",
+        "b.mp3",
+    ]
+    assert [item["output_destination"]["name"] for item in data["items"]] == [
+        "Folder shared",
+        "Folder shared",
+    ]
+    assert all(
+        item["existing_result_match"] == {"status": "not_evaluated"}
+        and item["planned_outcome"] == "process"
+        and item["source"]["duration_seconds"] is None
+        for item in data["items"]
+    )
+    assert calls.count(("folder", "shared")) == 1
+    assert _count_batch_rows() == before
+    for private_value in (
+        source_a,
+        source_b,
+        cred_id,
+        "objects/a.mp3",
+        "objects/b.mp3",
+        "https://drive.google.com/drive/folders/shared",
+    ):
+        assert private_value not in r.text
+
+
+def test_batch_preflight_requires_csrf_and_rejects_invalid_targets_without_rows(monkeypatch):
+    _install_batch_folder_mocks(monkeypatch)
+    c, csrf, _user_id, pid, source_a, _source_b, _cred_id = _batch_setup(
+        "batch-preflight-reject@example.com"
+    )
+    body = _batch_body(source_a)
+    before = _count_batch_rows()
+
+    assert c.post(f"/api/projects/{pid}/jobs/batch/preflight", json=body).status_code == 403
+    assert c.post(
+        f"/api/projects/{pid}/jobs/batch/preflight",
+        json={"items": [body["items"][0], body["items"][0]]},
+        headers={"origin": "https://studio.test", "x-csrf-token": csrf},
+    ).status_code == 422
+    assert c.post(
+        f"/api/projects/{pid}/jobs/batch/preflight",
+        json={"items": [{"source_id": "missing-source", "output_folder_id": "folder-a"}]},
+        headers={"origin": "https://studio.test", "x-csrf-token": csrf},
+    ).status_code == 422
+    assert _count_batch_rows() == before
+
+
 def test_batch_explicit_active_owner_elevenlabs_credential_saved(monkeypatch):
     _install_batch_folder_mocks(monkeypatch)
     c, csrf, user_id, pid, source_a, source_b, cred_id = _batch_setup("batch-explicit-eleven@example.com")

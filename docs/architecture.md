@@ -63,15 +63,18 @@ The public host nginx is the authoritative browser-header boundary for both the 
 1. User authenticates and opens an owner-scoped project.
 2. User adds sources from safe local upload or Google Drive metadata/folder selection.
 3. User configures owner-scoped BYOK credentials and Google output destination.
-4. API persists source/job/relation/output-destination records in PostgreSQL.
-5. Worker claims one eligible queued job using fenced lease metadata.
-6. Processing re-checks lifecycle, lease, cancellation, source availability, credentials, and output destination.
-7. Source materialization provides an ephemeral server-side handle.
-8. The worker duration-probes every prepared source; video first becomes temporary AAC/M4A, while any source above the explicit size/duration policy becomes an ordered bounded set of overlapping mono AAC parts before the first provider request.
-9. ElevenLabs processes parts in order under the source/provider heartbeat. The worker revalidates lifecycle authority between calls, fails closed after any partial provider result, and merges successful part words onto one deterministic source timeline.
-10. Google Docs output path creates one document reference for the active output target.
-11. API persists safe output metadata and completes the job only when every non-skipped relation has output evidence.
-12. Frontend reads browser-safe job/output metadata; transcript/document bodies remain server-private and are not returned.
+4. Before job creation, the frontend requests a non-mutating server preflight. The API revalidates the active ElevenLabs credential, ordered sources, and writable output folders, then returns only safe source/display metadata, selected options, destination names, and planned outcomes. The preflight DTO does not echo source/folder identifiers or URLs and never returns storage paths, tokens, or raw external payloads.
+5. The user explicitly confirms the unchanged preview. Batch creation remains the canonical authority and repeats current validation before persisting source/job/relation/output-destination records in PostgreSQL; editing the composer invalidates the preview.
+6. Worker claims one eligible queued job using fenced lease metadata.
+7. Processing re-checks lifecycle, lease, cancellation, source availability, credentials, and output destination.
+8. Source materialization provides an ephemeral server-side handle.
+9. The worker duration-probes every prepared source; video first becomes temporary AAC/M4A, while any source above the explicit size/duration policy becomes an ordered bounded set of overlapping mono AAC parts before the first provider request.
+10. ElevenLabs processes parts in order under the source/provider heartbeat. The worker revalidates lifecycle authority between calls, fails closed after any partial provider result, and merges successful part words onto one deterministic source timeline.
+11. Google Docs output path creates one document reference for the active output target.
+12. API persists safe output metadata and completes the job only when every non-skipped relation has output evidence.
+13. Frontend reads browser-safe job/output metadata; transcript/document bodies remain server-private and are not returned.
+
+The current preflight reports existing-result authority as unavailable and therefore plans every validated row for processing. It must not claim that no accepted output exists. Durable match/skip/conflict decisions remain part of the separately designed transcript-catalog migration and duplicate-protection workstream.
 
 ## High-level job state transitions
 

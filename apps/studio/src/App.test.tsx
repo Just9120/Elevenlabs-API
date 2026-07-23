@@ -34,6 +34,48 @@ const json = (body: unknown, ok = true, status = 200) =>
           : new Blob([JSON.stringify(body)], { type: "application/json" }),
       ),
   } as Response);
+function batchPreflightJson(init?: RequestInit) {
+  const request = JSON.parse(String(init?.body ?? "{}")) as {
+    language?: "ru" | "detect";
+    options?: { diarize?: boolean };
+    items?: { title?: string | null }[];
+  };
+  const items = request.items ?? [];
+  return json({
+    provider: "elevenlabs",
+    model: "scribe_v2",
+    language_mode: request.language ?? "ru",
+    diarization_enabled: request.options?.diarize === true,
+    existing_result_authority: {
+      status: "not_available",
+      reason_code: "catalog_authority_not_available",
+    },
+    items: items.map((item, position) => ({
+      position,
+      title: item.title ?? null,
+      source: {
+        name: `Safe source ${position + 1}`,
+        source_type: position % 2 === 0 ? "google_drive" : "local_upload",
+        mime_type: position % 2 === 0 ? "video/mp4" : "audio/ogg",
+        size_bytes: 2048 * (position + 1),
+        duration_seconds: null,
+      },
+      output_destination: { name: `Safe folder ${position + 1}` },
+      existing_result_match: { status: "not_evaluated" },
+      planned_outcome: "process",
+    })),
+    summary: {
+      process_count: items.length,
+      skip_count: 0,
+      blocked_count: 0,
+    },
+    confirmation_required: true,
+  });
+}
+
+function isBatchPreflightRequest(url: string, init?: RequestInit) {
+  return url.endsWith("/jobs/batch/preflight") && init?.method === "POST";
+}
 function renderApp() {
   render(<App />);
 }
@@ -430,6 +472,18 @@ async function chooseResultFolder(
   }
 }
 
+async function reviewAndConfirmBatch() {
+  await userEvent.click(
+    screen.getByRole("button", { name: /\u041fроверить задачи \(\d+\)/ }),
+  );
+  await screen.findByLabelText("Проверка перед созданием задач");
+  await userEvent.click(
+    screen.getByRole("button", {
+      name: /\u041fодтвердить и создать \(\d+\)/,
+    }),
+  );
+}
+
 async function openSettingsPage() {
   await openPlatformNavPage("Настройки");
   expect(
@@ -464,6 +518,8 @@ describe("Studio PWA", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string, init?: RequestInit) => {
+        if (isBatchPreflightRequest(url, init))
+          return batchPreflightJson(init);
         if (url.endsWith("/api/auth/session"))
           return json({
             authenticated: true,
@@ -2259,7 +2315,7 @@ describe("Studio PWA", () => {
       screen.queryByRole("button", { name: "Удалить строку 1" }),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Создать задачи (1)" }),
+      screen.getByRole("button", { name: "Проверить задачи (1)" }),
     ).toBeDisabled();
 
     await chooseExistingSource(1, "Лекция 1");
@@ -2268,7 +2324,7 @@ describe("Studio PWA", () => {
     await chooseResultFolder(1);
     expect(readiness).toHaveTextContent("Готово: 1 из 1");
     expect(
-      screen.getByRole("button", { name: "Создать задачи (1)" }),
+      screen.getByRole("button", { name: "Проверить задачи (1)" }),
     ).toBeEnabled();
 
     await userEvent.click(
@@ -2284,14 +2340,75 @@ describe("Studio PWA", () => {
       screen.getAllByText("Такая пара файла и папки уже добавлена.").length,
     ).toBeGreaterThan(0);
     expect(
-      screen.getByRole("button", { name: "Создать задачи (2)" }),
+      screen.getByRole("button", { name: "Проверить задачи (2)" }),
     ).toBeDisabled();
 
     await chooseExistingSource(2, "local-temp");
     expect(readiness).toHaveTextContent("Готово: 2 из 2");
     expect(readiness).toHaveTextContent("Все строки готовы");
     expect(
-      screen.getByRole("button", { name: "Создать задачи (2)" }),
+      screen.getByRole("button", { name: "Проверить задачи (2)" }),
+    ).toBeEnabled();
+  });
+
+  it("shows server-authoritative batch preflight and invalidates it after edits", async () => {
+    renderApp();
+    await openProjectsPage();
+    await chooseExistingSource(1, "Лекция 1");
+    await chooseResultFolder(1);
+    await userEvent.selectOptions(
+      screen.getByLabelText("Язык транскрибации"),
+      "detect",
+    );
+    await userEvent.click(screen.getByLabelText("Разделять спикеров"));
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Проверить задачи (1)" }),
+    );
+
+    const preview = await screen.findByLabelText(
+      "Проверка перед созданием задач",
+    );
+    expect(preview).toHaveTextContent("ElevenLabs scribe_v2");
+    expect(preview).toHaveTextContent("Автоопределение");
+    expect(preview).toHaveTextContent("Спикеры: разделять");
+    expect(preview).toHaveTextContent("Safe source 1");
+    expect(preview).toHaveTextContent("Safe folder 1");
+    expect(preview).toHaveTextContent("План: обработать");
+    expect(preview).toHaveTextContent("Совпадения не оценены");
+    expect(
+      (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
+        ([url, init]) =>
+          url === "/api/projects/p1/jobs/batch/preflight" &&
+          init?.method === "POST",
+      ),
+    ).toBe(true);
+    const preflightCall = (
+      fetch as unknown as ReturnType<typeof vi.fn>
+    ).mock.calls.find(
+      ([url, init]) =>
+        url === "/api/projects/p1/jobs/batch/preflight" &&
+        init?.method === "POST",
+    );
+    expect(preflightCall?.[1]?.headers).not.toHaveProperty("Idempotency-Key");
+    expect(
+      (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
+        ([url, init]) =>
+          url === "/api/projects/p1/jobs/batch" && init?.method === "POST",
+      ),
+    ).toBe(false);
+
+    await userEvent.type(
+      screen.getByLabelText("Название задачи для строки 1"),
+      " Уточнение",
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByLabelText("Проверка перед созданием задач"),
+      ).not.toBeInTheDocument(),
+    );
+    expect(
+      screen.getByRole("button", { name: "Проверить задачи (1)" }),
     ).toBeEnabled();
   });
 
@@ -2326,7 +2443,7 @@ describe("Studio PWA", () => {
     expect(readiness).toHaveTextContent("Готово: 0 из 1");
     expect(readiness).toHaveTextContent("Строка 1: выберите папку результата");
     expect(
-      screen.getByRole("button", { name: "Создать задачи (1)" }),
+      screen.getByRole("button", { name: "Проверить задачи (1)" }),
     ).toBeDisabled();
   });
 
@@ -2351,7 +2468,11 @@ describe("Studio PWA", () => {
     await chooseExistingSource(1, "Лекция 1");
     await chooseResultFolder(1);
     await userEvent.click(
-      screen.getByRole("button", { name: "Создать задачи (1)" }),
+      screen.getByRole("button", { name: "Проверить задачи (1)" }),
+    );
+    await screen.findByLabelText("Проверка перед созданием задач");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Подтвердить и создать (1)" }),
     );
 
     expect(
@@ -2594,6 +2715,8 @@ describe("Studio PWA", () => {
               },
             ],
           });
+        if (isBatchPreflightRequest(url, init))
+          return batchPreflightJson(init);
         if (
           url.endsWith("/api/projects/p1/jobs/batch") &&
           init?.method === "POST"
@@ -2838,9 +2961,7 @@ describe("Studio PWA", () => {
     const diarizationToggle = screen.getByLabelText("Разделять спикеров");
     expect(diarizationToggle).not.toBeChecked();
     await userEvent.click(diarizationToggle);
-    await userEvent.click(
-      screen.getByRole("button", { name: /Создать задачи \(\d+\)/ }),
-    );
+    await reviewAndConfirmBatch();
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
         "/api/projects/p1/jobs/batch",
@@ -3073,9 +3194,7 @@ describe("Studio PWA", () => {
     await waitFor(() =>
       expect(screen.getAllByText("Default folder").length).toBeGreaterThan(1),
     );
-    await userEvent.click(
-      screen.getByRole("button", { name: /Создать задачи \(\d+\)/ }),
-    );
+    await reviewAndConfirmBatch();
     const batchCall = await waitFor(() => {
       const call = (
         fetch as unknown as ReturnType<typeof vi.fn>
@@ -3305,6 +3424,8 @@ describe("Studio PWA", () => {
                   ],
           });
         }
+        if (isBatchPreflightRequest(url, init))
+          return batchPreflightJson(init);
         if (
           url.endsWith("/api/projects/p1/jobs/batch") &&
           init?.method === "POST"
@@ -3341,9 +3462,7 @@ describe("Studio PWA", () => {
     await openSelectedProjectJobs();
     await chooseExistingSource(1, "ready-local.ogg");
     await chooseResultFolder(1);
-    await userEvent.click(
-      screen.getByRole("button", { name: /Создать задачи \(\d+\)/ }),
-    );
+    await reviewAndConfirmBatch();
     expect(await screen.findByText("Fresh authoritative")).toBeInTheDocument();
     expect(screen.getByText("Статус: Завершена")).toBeInTheDocument();
     expect(
@@ -3503,7 +3622,7 @@ describe("Studio PWA", () => {
       "",
     );
     await userEvent.click(
-      screen.getByRole("button", { name: /Создать задачи \(\d+\)/ }),
+      screen.getByRole("button", { name: /Проверить задачи \(\d+\)/ }),
     );
     expect(
       (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
@@ -4255,6 +4374,8 @@ describe("Studio PWA", () => {
               },
             ],
           });
+        if (isBatchPreflightRequest(url, init))
+          return batchPreflightJson(init);
         if (
           url.endsWith("/api/projects/pA/jobs/batch") &&
           init?.method === "POST"
@@ -4312,9 +4433,7 @@ describe("Studio PWA", () => {
     expect(await screen.findByLabelText("Результаты job-a")).toHaveTextContent(
       "project-a-output",
     );
-    await userEvent.click(
-      screen.getByRole("button", { name: /Создать задачи \(\d+\)/ }),
-    );
+    await reviewAndConfirmBatch();
     expect(
       await screen.findByText(/ключ повтора сохранены/),
     ).toBeInTheDocument();
@@ -4342,9 +4461,7 @@ describe("Studio PWA", () => {
       screen.getByLabelText("Название задачи для строки 1"),
       "B clean submit",
     );
-    await userEvent.click(
-      screen.getByRole("button", { name: /Создать задачи \(\d+\)/ }),
-    );
+    await reviewAndConfirmBatch();
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
         "/api/projects/pB/jobs/batch",
@@ -4850,7 +4967,7 @@ describe("Studio PWA", () => {
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: /Создать задачи \(\d+\)/ }),
+        screen.getByRole("button", { name: /Проверить задачи \(\d+\)/ }),
       ).toBeDisabled(),
     );
     expect(
@@ -4860,7 +4977,7 @@ describe("Studio PWA", () => {
     await chooseExistingSource(1, "ready-local.ogg");
     await chooseResultFolder(1);
     expect(
-      screen.getByRole("button", { name: /Создать задачи \(\d+\)/ }),
+      screen.getByRole("button", { name: /Проверить задачи \(\d+\)/ }),
     ).toBeDisabled();
     expect(
       (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
@@ -5637,9 +5754,7 @@ describe("Studio PWA", () => {
     ).toBeInTheDocument();
     await chooseResultFolder(1, "folder-local-1");
     await chooseResultFolder(2, "folder-local-2");
-    await userEvent.click(
-      screen.getByRole("button", { name: /Создать задачи \(\d+\)/ }),
-    );
+    await reviewAndConfirmBatch();
     const batchCall = await waitFor(() => {
       const call = (
         fetch as unknown as ReturnType<typeof vi.fn>

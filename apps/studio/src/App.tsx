@@ -33,6 +33,7 @@ import {
 } from "./googleOauthResult";
 import {
   formatTime,
+  formatBytes,
   formatUploadLimit,
   retentionOptionLabel,
 } from "./formatters";
@@ -65,10 +66,13 @@ import {
 import {
   DEFAULT_TRANSCRIPTION_LANGUAGE_MODE,
   composerSignature,
+  buildBatchCreateRequest,
   makeIdempotencyKey,
   mergeJobsWithBatchOrder,
   newComposerRow,
+  parseBatchPreflightResponse,
   type BatchCreateResponse,
+  type BatchPreflightResponse,
   type ComposerRow,
 } from "./batchComposerModel";
 import {
@@ -278,7 +282,13 @@ function PreparationPanel({
     useState<SourceUploadPolicy | null>(null);
   const [sourceUploadPolicyError, setSourceUploadPolicyError] = useState("");
   const [message, setMessage] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+  const [submissionStage, setSubmissionStage] = useState<
+    "preflight" | "create" | null
+  >(null);
+  const [preflight, setPreflight] = useState<{
+    signature: string;
+    data: BatchPreflightResponse;
+  } | null>(null);
   const [batchJobs, setBatchJobs] = useState<TranscriptionJob[]>([]);
   const [pendingKey, setPendingKey] = useState<{
     signature: string;
@@ -308,6 +318,7 @@ function PreparationPanel({
     setRowIntakeErrors({});
     setBatchJobs([]);
     setPendingKey(null);
+    setPreflight(null);
     setMessage("");
     setLanguageMode(DEFAULT_TRANSCRIPTION_LANGUAGE_MODE);
     setDiarizationEnabled(false);
@@ -405,6 +416,12 @@ function PreparationPanel({
       current && current.signature !== signature ? null : current,
     );
   }, [signature]);
+  useEffect(() => {
+    if (preflight && preflight.signature !== signature) {
+      setPreflight(null);
+      setMessage("");
+    }
+  }, [preflight, signature]);
   const invalidSourceRowIds = new Set(
     rows
       .filter((row) => row.source_id && !usableSourceIds.has(row.source_id))
@@ -472,8 +489,13 @@ function PreparationPanel({
           ? "Выберите профиль подключения ElevenLabs"
           : "Добавьте активный ключ ElevenLabs в настройках"
         : "";
+  const submitting = submissionStage !== null;
+  const activePreflight =
+    preflight?.signature === signature ? preflight.data : null;
   const submitBlocker = submitting
-    ? "Создание задач…"
+    ? submissionStage === "preflight"
+      ? "Проверяем план…"
+      : "Создание задач…"
     : credentialBlocker
       ? credentialBlocker
       : rows.length === 0
@@ -834,13 +856,39 @@ function PreparationPanel({
       );
       return;
     }
-    const key =
-      pendingKey?.signature === signature
-        ? pendingKey.key
-        : makeIdempotencyKey();
-    setPendingKey({ signature, key });
-    setSubmitting(true);
+    const requestBody = buildBatchCreateRequest(
+      rows,
+      selectedCredentialId,
+      languageMode,
+      diarizationEnabled,
+    );
+    const confirming = activePreflight !== null;
+    setSubmissionStage(confirming ? "create" : "preflight");
     try {
+      if (!confirming) {
+        const rawResponse = await batchMutateWithCsrfRetry<unknown>(
+          `/projects/${project.id}/jobs/batch/preflight`,
+          csrf,
+          onCsrf,
+          { method: "POST", body: JSON.stringify(requestBody) },
+        );
+        const response = parseBatchPreflightResponse(rawResponse);
+        if (
+          !response ||
+          response.items.length !== rows.length ||
+          response.summary.blocked_count !== 0
+        ) {
+          throw new Error("Invalid batch preflight response");
+        }
+        setPreflight({ signature, data: response });
+        setMessage("Проверка готова. Сверьте план и подтвердите создание задач.");
+        return;
+      }
+      const key =
+        pendingKey?.signature === signature
+          ? pendingKey.key
+          : makeIdempotencyKey();
+      setPendingKey({ signature, key });
       const response = await batchMutateWithCsrfRetry<BatchCreateResponse>(
         `/projects/${project.id}/jobs/batch`,
         csrf,
@@ -848,21 +896,13 @@ function PreparationPanel({
         {
           method: "POST",
           headers: { "Idempotency-Key": key },
-          body: JSON.stringify({
-            provider_credential_id: selectedCredentialId,
-            language: languageMode,
-            options: { diarize: diarizationEnabled },
-            items: rows.map((row) => ({
-              source_id: row.source_id,
-              output_folder_id: row.output_folder?.folder_id,
-              title: row.title.trim() || null,
-            })),
-          }),
+          body: JSON.stringify(requestBody),
         },
       );
       setBatchJobs(response.jobs);
       setRows([newComposerRow()]);
       setPendingKey(null);
+      setPreflight(null);
       setMessage(
         response.replayed
           ? `Повтор подтверждён: создано независимых задач: ${response.created_count}.`
@@ -870,7 +910,13 @@ function PreparationPanel({
       );
       onReloadJobs(project.id);
     } catch (err) {
-      if (err instanceof ApiError && err.status === 409) {
+      if (!confirming) {
+        setMessage(
+          err instanceof ApiError && err.status === 422
+            ? "План не прошёл серверную проверку. Исправьте файлы, папки или профиль ElevenLabs."
+            : "Не удалось проверить план. Задачи не созданы; повторите проверку.",
+        );
+      } else if (err instanceof ApiError && err.status === 409) {
         setMessage(
           "Конфликт повторной отправки. Проверьте строки и отправьте заново без автоматического повтора.",
         );
@@ -884,7 +930,7 @@ function PreparationPanel({
         );
       }
     } finally {
-      setSubmitting(false);
+      setSubmissionStage(null);
     }
   }
   async function loadDetail(jobId: string) {
@@ -1392,6 +1438,83 @@ function PreparationPanel({
             })}
           </ol>
         </fieldset>
+        {activePreflight && (
+          <section
+            className="batch-preflight"
+            aria-label="Проверка перед созданием задач"
+          >
+            <div className="batch-preflight-header">
+              <div>
+                <h5>План готов к подтверждению</h5>
+                <p className="muted">
+                  ElevenLabs scribe_v2 ·{" "}
+                  {activePreflight.language_mode === "ru"
+                    ? "Русский"
+                    : "Автоопределение"}
+                  {" · "}
+                  Спикеры:{" "}
+                  {activePreflight.diarization_enabled
+                    ? "разделять"
+                    : "не разделять"}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => {
+                  setPreflight(null);
+                  setMessage("");
+                }}
+              >
+                Изменить план
+              </button>
+            </div>
+            <ol>
+              {activePreflight.items.map((item) => (
+                <li key={item.position}>
+                  <div>
+                    <b>
+                      {item.position + 1}. {item.source.name}
+                    </b>
+                    <span>
+                      {item.source.source_type === "google_drive"
+                        ? "Google Drive"
+                        : "С устройства"}
+                      {item.source.mime_type
+                        ? ` · ${item.source.mime_type}`
+                        : ""}
+                    </span>
+                    <span>
+                      Размер: {formatBytes(item.source.size_bytes)} ·{" "}
+                      Длительность:{" "}
+                      {item.source.duration_seconds == null
+                        ? "будет определена при подготовке"
+                        : `${Math.round(item.source.duration_seconds)} сек.`}
+                    </span>
+                  </div>
+                  <div>
+                    <span>Результат: {item.output_destination.name}</span>
+                    <strong>
+                      {item.planned_outcome === "process"
+                        ? "План: обработать"
+                        : item.planned_outcome === "skip"
+                          ? "План: пропустить"
+                          : "План: заблокировано"}
+                    </strong>
+                  </div>
+                </li>
+              ))}
+            </ol>
+            {activePreflight.existing_result_authority.status ===
+              "not_available" && (
+              <p className="notice">
+                Каталог ранее созданных результатов ещё не подключён.
+                Совпадения не оценены; каждая строка пока запланирована к
+                обработке.
+              </p>
+            )}
+          </section>
+        )}
         <div className="composer-footer">
           <div>
             <b>Строк: {rows.length}</b>
@@ -1401,7 +1524,13 @@ function PreparationPanel({
             {submitBlocker && <span>{submitBlocker}</span>}
           </div>
           <button className="primary" disabled={!canSubmit}>
-            {submitting ? "Создание задач…" : `Создать задачи (${rows.length})`}
+            {submissionStage === "preflight"
+              ? "Проверяем план…"
+              : submissionStage === "create"
+                ? "Создание задач…"
+                : activePreflight
+                  ? `Подтвердить и создать (${rows.length})`
+                  : `Проверить задачи (${rows.length})`}
           </button>
         </div>
       </form>

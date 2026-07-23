@@ -28,6 +28,7 @@ from .job_retry_recovery import compute_explicit_retry_readiness, queue_retry
 from .google_docs_output import OUTPUT_RECONCILIATION_APP_PROPERTY
 from .google_drive import GoogleDriveReconciliationError, list_reconciliation_candidates
 from .job_output_folder_selection import VerifiedOutputFolderSelection, verify_output_folder_selection
+from .batch_preflight import build_batch_preflight_payload
 from .source_deletion import SourceDeletionReason, is_source_expired, request_source_deletion
 from .transcription_options import DEFAULT_TRANSCRIPTION_LANGUAGE_MODE, TranscriptionLanguageMode, browser_language_mode, job_diarization_enabled, stored_language_mode, stored_transcription_options
 
@@ -592,10 +593,7 @@ def _existing_batch_is_complete(existing, request_hash: str, expected_count: int
     positions=[job.batch_position for job in existing]
     return positions == list(range(expected_count)) and all(job.batch_request_hash == request_hash for job in existing)
 
-@app.post("/api/projects/{project_id}/jobs/batch")
-def create_transcription_jobs_batch(project_id: str, data: TranscriptionJobBatchCreateIn, request: Request, pair=Depends(require_csrf), db: Session=Depends(get_db)):
-    _,user=pair; limiter.check("job:batch:create:"+user.id, 30, 3600); p=owned_project_or_404(db,user,project_id)
-    key=_clean_idempotency_key(request.headers.get("Idempotency-Key"))
+def _normalize_batch_creation_input(data: TranscriptionJobBatchCreateIn):
     language=stored_language_mode(data.language); options_json=stored_transcription_options(data.options.diarize)
     explicit_provider_credential_id=data.provider_credential_id.strip() if isinstance(data.provider_credential_id, str) and data.provider_credential_id.strip() else None
     pairs=set(); duplicate_pair_found=False; source_ids=[]; folder_ids=[]; titles=[]
@@ -605,6 +603,36 @@ def create_transcription_jobs_batch(project_id: str, data: TranscriptionJobBatch
         if pair_key in pairs: duplicate_pair_found=True
         pairs.add(pair_key); source_ids.append(sid); folder_ids.append(fid); titles.append(clean_job_title(item.title))
     hash_items=[{"source_id": sid, "output_folder_id": fid, "title": title} for sid,fid,title in zip(source_ids,folder_ids,titles)]
+    return language, options_json, explicit_provider_credential_id, duplicate_pair_found, source_ids, folder_ids, titles, hash_items
+
+def _validate_new_batch_targets(db: Session, user: User, project: Project, *, explicit_provider_credential_id, duplicate_pair_found, source_ids, folder_ids):
+    provider_credential_id=_resolve_active_elevenlabs_credential_id(db, user, explicit_provider_credential_id)
+    if duplicate_pair_found:
+        raise HTTPException(422, "Повторяющиеся source/folder пары не допускаются")
+    sources=validate_job_sources(db, project.id, source_ids)
+    unique_folders=list(dict.fromkeys(folder_ids))
+    access_token=refreshed_google_drive_access_token(db, user)
+    verified_by_id={fid: verify_output_folder_selection(access_token, fid) for fid in unique_folders}
+    return provider_credential_id, sources, verified_by_id
+
+@app.post("/api/projects/{project_id}/jobs/batch/preflight")
+def preflight_transcription_jobs_batch(project_id: str, data: TranscriptionJobBatchCreateIn, response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("job:batch:preflight:"+user.id, 60, 3600); _browser_capability_cache_headers(response); p=owned_project_or_404(db,user,project_id)
+    language, _options_json, explicit_provider_credential_id, duplicate_pair_found, source_ids, folder_ids, titles, _hash_items=_normalize_batch_creation_input(data)
+    _provider_credential_id, sources, verified_by_id=_validate_new_batch_targets(db,user,p,explicit_provider_credential_id=explicit_provider_credential_id,duplicate_pair_found=duplicate_pair_found,source_ids=source_ids,folder_ids=folder_ids)
+    return build_batch_preflight_payload(
+        sources=sources,
+        output_folders=[verified_by_id[fid] for fid in folder_ids],
+        titles=titles,
+        language_mode=language,
+        diarization_enabled=data.options.diarize,
+    )
+
+@app.post("/api/projects/{project_id}/jobs/batch")
+def create_transcription_jobs_batch(project_id: str, data: TranscriptionJobBatchCreateIn, request: Request, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("job:batch:create:"+user.id, 30, 3600); p=owned_project_or_404(db,user,project_id)
+    key=_clean_idempotency_key(request.headers.get("Idempotency-Key"))
+    language, options_json, explicit_provider_credential_id, duplicate_pair_found, source_ids, folder_ids, titles, hash_items=_normalize_batch_creation_input(data)
     existing=_load_existing_batch(db,user.id,p.id,key)
     if existing:
         replay_credential_id = explicit_provider_credential_id or existing[0].provider_credential_id
@@ -612,14 +640,8 @@ def create_transcription_jobs_batch(project_id: str, data: TranscriptionJobBatch
         if not _existing_batch_is_complete(existing, request_hash, len(data.items)):
             raise HTTPException(409, "Idempotency-Key already used with a different request")
         return {"jobs":[job_payload(j, include_sources=True) for j in existing], "created_count": len(existing), "replayed": True}
-    provider_credential_id=_resolve_active_elevenlabs_credential_id(db, user, explicit_provider_credential_id)
+    provider_credential_id, sources, verified_by_id=_validate_new_batch_targets(db,user,p,explicit_provider_credential_id=explicit_provider_credential_id,duplicate_pair_found=duplicate_pair_found,source_ids=source_ids,folder_ids=folder_ids)
     request_hash=_batch_hash(p.id, provider_credential_id, language, options_json, hash_items)
-    if duplicate_pair_found:
-        raise HTTPException(422, "Повторяющиеся source/folder пары не допускаются")
-    sources=validate_job_sources(db, p.id, source_ids)
-    unique_folders=list(dict.fromkeys(folder_ids))
-    access_token=refreshed_google_drive_access_token(db, user)
-    verified_by_id={fid: verify_output_folder_selection(access_token, fid) for fid in unique_folders}
     try:
         jobs=[]
         sources=validate_job_sources(db, p.id, source_ids, lock_mode="no_key_update")
