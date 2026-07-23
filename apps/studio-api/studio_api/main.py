@@ -32,6 +32,12 @@ from .google_drive import GoogleDriveReconciliationError, list_reconciliation_ca
 from .job_output_folder_selection import VerifiedOutputFolderSelection, verify_output_folder_selection
 from .batch_preflight import build_batch_preflight_payload
 from .source_deletion import SourceDeletionReason, is_source_expired, request_source_deletion
+from .transcript_catalog import (
+    ExistingResultMatchStatus,
+    current_effective_settings,
+    load_existing_result_matches,
+    lock_catalog_source_identities,
+)
 from .transcription_options import DEFAULT_TRANSCRIPTION_LANGUAGE_MODE, TranscriptionLanguageMode, browser_language_mode, job_diarization_enabled, stored_language_mode, stored_transcription_options
 
 settings=get_settings()
@@ -132,9 +138,11 @@ class AccountPreferencesPatch(BaseModel):
         return value
 
 class BatchJobItemIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     source_id: str=Field(min_length=1,max_length=36)
     output_folder_id: str=Field(min_length=1,max_length=256)
     title: str|None=Field(default=None,max_length=160)
+    reprocess_existing: StrictBool=False
 
 class TranscriptionJobOptionsIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -379,6 +387,7 @@ def validate_job_sources(db: Session, project_id: str, source_ids: list[str], *,
             stmt=stmt.with_for_update(key_share=True)
         else:
             stmt=stmt.with_for_update()
+        stmt=stmt.execution_options(populate_existing=True)
     rows=list(db.execute(stmt).scalars().all())
     by_id={r.id:r for r in rows}
     ordered=[]
@@ -598,14 +607,21 @@ def _existing_batch_is_complete(existing, request_hash: str, expected_count: int
 def _normalize_batch_creation_input(data: TranscriptionJobBatchCreateIn):
     language=stored_language_mode(data.language); options_json=stored_transcription_options(data.options.diarize)
     explicit_provider_credential_id=data.provider_credential_id.strip() if isinstance(data.provider_credential_id, str) and data.provider_credential_id.strip() else None
-    pairs=set(); duplicate_pair_found=False; source_ids=[]; folder_ids=[]; titles=[]
+    pairs=set(); duplicate_pair_found=False; source_ids=[]; folder_ids=[]; titles=[]; reprocess_existing=[]
     for item in data.items:
         sid=item.source_id.strip(); fid=clean_drive_id(item.output_folder_id, "ID папки Google Drive")
         pair_key=(sid,fid)
         if pair_key in pairs: duplicate_pair_found=True
-        pairs.add(pair_key); source_ids.append(sid); folder_ids.append(fid); titles.append(clean_job_title(item.title))
-    hash_items=[{"source_id": sid, "output_folder_id": fid, "title": title} for sid,fid,title in zip(source_ids,folder_ids,titles)]
-    return language, options_json, explicit_provider_credential_id, duplicate_pair_found, source_ids, folder_ids, titles, hash_items
+        pairs.add(pair_key); source_ids.append(sid); folder_ids.append(fid); titles.append(clean_job_title(item.title)); reprocess_existing.append(item.reprocess_existing)
+    hash_items=[]
+    for sid,fid,title,reprocess in zip(source_ids,folder_ids,titles,reprocess_existing):
+        hash_item={"source_id": sid, "output_folder_id": fid, "title": title}
+        # Preserve hashes created before the optional decision field existed.
+        # An affirmative reprocess decision must still produce a distinct hash.
+        if reprocess:
+            hash_item["reprocess_existing"]=True
+        hash_items.append(hash_item)
+    return language, options_json, explicit_provider_credential_id, duplicate_pair_found, source_ids, folder_ids, titles, reprocess_existing, hash_items
 
 def _validate_new_batch_targets(db: Session, user: User, project: Project, *, explicit_provider_credential_id, duplicate_pair_found, source_ids, folder_ids):
     provider_credential_id=_resolve_active_elevenlabs_credential_id(db, user, explicit_provider_credential_id)
@@ -617,24 +633,49 @@ def _validate_new_batch_targets(db: Session, user: User, project: Project, *, ex
     verified_by_id={fid: verify_output_folder_selection(access_token, fid) for fid in unique_folders}
     return provider_credential_id, sources, verified_by_id
 
+def _load_batch_existing_result_matches(db: Session, user: User, sources, *, language: str, diarization_enabled: bool):
+    return load_existing_result_matches(
+        db,
+        owner_user_id=user.id,
+        sources=sources,
+        target_settings=current_effective_settings(
+            language_mode=language,
+            diarization_enabled=diarization_enabled,
+        ),
+    )
+
+def _require_batch_existing_result_decisions(sources, matches, reprocess_existing):
+    unresolved=0
+    for source,reprocess in zip(sources,reprocess_existing):
+        match=matches.get(source.id)
+        if match is None or (
+            match.status != ExistingResultMatchStatus.no_match and not reprocess
+        ):
+            unresolved+=1
+    if unresolved:
+        raise HTTPException(409, "Для существующего результата требуется явное решение")
+
 @app.post("/api/projects/{project_id}/jobs/batch/preflight")
 def preflight_transcription_jobs_batch(project_id: str, data: TranscriptionJobBatchCreateIn, response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     _,user=pair; limiter.check("job:batch:preflight:"+user.id, 60, 3600); _browser_capability_cache_headers(response); p=owned_project_or_404(db,user,project_id)
-    language, _options_json, explicit_provider_credential_id, duplicate_pair_found, source_ids, folder_ids, titles, _hash_items=_normalize_batch_creation_input(data)
+    language, _options_json, explicit_provider_credential_id, duplicate_pair_found, source_ids, folder_ids, titles, reprocess_existing, _hash_items=_normalize_batch_creation_input(data)
     _provider_credential_id, sources, verified_by_id=_validate_new_batch_targets(db,user,p,explicit_provider_credential_id=explicit_provider_credential_id,duplicate_pair_found=duplicate_pair_found,source_ids=source_ids,folder_ids=folder_ids)
+    existing_result_matches=_load_batch_existing_result_matches(db,user,sources,language=language,diarization_enabled=data.options.diarize)
     return build_batch_preflight_payload(
         sources=sources,
         output_folders=[verified_by_id[fid] for fid in folder_ids],
         titles=titles,
         language_mode=language,
         diarization_enabled=data.options.diarize,
+        existing_result_matches=existing_result_matches,
+        reprocess_existing=reprocess_existing,
     )
 
 @app.post("/api/projects/{project_id}/jobs/batch")
 def create_transcription_jobs_batch(project_id: str, data: TranscriptionJobBatchCreateIn, request: Request, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     _,user=pair; limiter.check("job:batch:create:"+user.id, 30, 3600); p=owned_project_or_404(db,user,project_id)
     key=_clean_idempotency_key(request.headers.get("Idempotency-Key"))
-    language, options_json, explicit_provider_credential_id, duplicate_pair_found, source_ids, folder_ids, titles, hash_items=_normalize_batch_creation_input(data)
+    language, options_json, explicit_provider_credential_id, duplicate_pair_found, source_ids, folder_ids, titles, reprocess_existing, hash_items=_normalize_batch_creation_input(data)
     existing=_load_existing_batch(db,user.id,p.id,key)
     if existing:
         replay_credential_id = explicit_provider_credential_id or existing[0].provider_credential_id
@@ -646,7 +687,10 @@ def create_transcription_jobs_batch(project_id: str, data: TranscriptionJobBatch
     request_hash=_batch_hash(p.id, provider_credential_id, language, options_json, hash_items)
     try:
         jobs=[]
+        lock_catalog_source_identities(db, owner_user_id=user.id, sources=sources)
         sources=validate_job_sources(db, p.id, source_ids, lock_mode="no_key_update")
+        existing_result_matches=_load_batch_existing_result_matches(db,user,sources,language=language,diarization_enabled=data.options.diarize)
+        _require_batch_existing_result_decisions(sources,existing_result_matches,reprocess_existing)
         for idx,(src,fid,title) in enumerate(zip(sources,folder_ids,titles)):
             vf=verified_by_id[fid]
             job=TranscriptionJob(project_id=p.id, owner_user_id=user.id, status=JobStatus.queued, provider_credential_id=provider_credential_id, title=title, language=language, options_json=options_json, batch_idempotency_key=key, batch_request_hash=request_hash, batch_position=idx)

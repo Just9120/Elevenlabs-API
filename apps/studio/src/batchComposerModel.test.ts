@@ -43,6 +43,7 @@ describe("batch composer model", () => {
       source_id: "",
       output_folder: null,
       title: "",
+      reprocess_existing: false,
     });
   });
 
@@ -57,12 +58,14 @@ describe("batch composer model", () => {
           web_view_url: "https://drive.google.com/drive/folders/folder-1",
         },
         title: "  Interview  ",
+        reprocess_existing: true,
       },
       {
         id: "browser-only-row-id-2",
         source_id: "source-2",
         output_folder: null,
         title: "   ",
+        reprocess_existing: false,
       },
     ];
 
@@ -77,11 +80,13 @@ describe("batch composer model", () => {
           source_id: "source-1",
           output_folder_id: "folder-1",
           title: "Interview",
+          reprocess_existing: true,
         },
         {
           source_id: "source-2",
           output_folder_id: "",
           title: null,
+          reprocess_existing: false,
         },
       ],
     });
@@ -107,8 +112,8 @@ describe("batch composer model", () => {
       language_mode: "ru",
       diarization_enabled: false,
       existing_result_authority: {
-        status: "not_available",
-        reason_code: "catalog_authority_not_available",
+        status: "partial",
+        reason_code: "studio_outputs_only",
       },
       items: [
         {
@@ -122,7 +127,11 @@ describe("batch composer model", () => {
             duration_seconds: null,
           },
           output_destination: { name: "Safe folder" },
-          existing_result_match: { status: "not_evaluated" },
+          existing_result_match: {
+            status: "no_match",
+            accepted_output_count: 0,
+            resolution: "not_required",
+          },
           planned_outcome: "process",
         },
       ],
@@ -141,6 +150,23 @@ describe("batch composer model", () => {
     expect(
       parseBatchPreflightResponse({
         ...valid,
+        items: [
+          {
+            ...valid.items[0],
+            existing_result_match: {
+              status: "indeterminate",
+              accepted_output_count: 0,
+              resolution: "required",
+            },
+            planned_outcome: "blocked",
+          },
+        ],
+        summary: { process_count: 0, skip_count: 0, blocked_count: 1 },
+      }),
+    ).toBeNull();
+    expect(
+      parseBatchPreflightResponse({
+        ...valid,
         summary: { process_count: 0, skip_count: 1, blocked_count: 0 },
       }),
     ).toBeNull();
@@ -148,6 +174,22 @@ describe("batch composer model", () => {
       parseBatchPreflightResponse({
         ...valid,
         items: [{ ...valid.items[0], position: 2 }],
+      }),
+    ).toBeNull();
+    expect(
+      parseBatchPreflightResponse({
+        ...valid,
+        items: [
+          {
+            ...valid.items[0],
+            existing_result_match: {
+              status: "accepted_match",
+              accepted_output_count: 1,
+              resolution: "required",
+            },
+            planned_outcome: "process",
+          },
+        ],
       }),
     ).toBeNull();
     expect(parseBatchPreflightResponse(null)).toBeNull();

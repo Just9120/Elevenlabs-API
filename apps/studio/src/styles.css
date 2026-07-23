@@ -792,6 +792,19 @@ code {
   min-width: 0;
   overflow-wrap: anywhere;
 }
+.reprocess-decision {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  margin-top: 0.35rem;
+  padding: 0.55rem;
+  border: 1px solid var(--studio-border);
+  border-radius: 10px;
+  background: var(--studio-soft);
+}
+.reprocess-decision input {
+  margin-top: 0.15rem;
+}
 @media (max-width: 900px) {
   .composer-header,
   .composer-settings-row,

@@ -293,6 +293,68 @@ def load_existing_result_matches(
     )
 
 
+def lock_catalog_source_identities(
+    db: Any,
+    *,
+    owner_user_id: str,
+    sources: Iterable[Any],
+) -> tuple[Any, ...]:
+    """Serialize create-time decisions with accepted-output persistence.
+
+    Google Drive identity can span multiple Studio source rows, so locking only
+    the currently selected row would leave a race with output persistence on an
+    older row for the same Drive file. All matching owner-scoped source rows are
+    locked in one deterministic order before the accepted-output query runs.
+    """
+    from sqlalchemy import and_, or_, select
+
+    from .models import Project, Source, SourceType
+
+    source_rows = tuple(sources)
+    source_ids = {
+        identity.value
+        for source in source_rows
+        if (identity := catalog_source_identity(source)) is not None
+        and identity.kind == CatalogSourceIdentityKind.studio_source
+    }
+    drive_file_ids = {
+        identity.value
+        for source in source_rows
+        if (identity := catalog_source_identity(source)) is not None
+        and identity.kind == CatalogSourceIdentityKind.google_drive_file
+    }
+    identity_filters = []
+    if source_ids:
+        identity_filters.append(Source.id.in_(source_ids))
+    if drive_file_ids:
+        identity_filters.append(
+            and_(
+                Source.source_type == SourceType.google_drive,
+                Source.drive_file_id.in_(drive_file_ids),
+            )
+        )
+    if not identity_filters:
+        return ()
+
+    return tuple(
+        db.execute(
+            select(Source)
+            .join(Project, Project.id == Source.project_id)
+            .where(
+                Project.owner_user_id == owner_user_id,
+                or_(*identity_filters),
+            )
+            .order_by(Source.id.asc())
+            # PostgreSQL FOR NO KEY UPDATE conflicts with the worker's source
+            # FOR UPDATE while still allowing unrelated FK KEY SHARE access.
+            .with_for_update(key_share=True, of=Source)
+            .execution_options(populate_existing=True)
+        )
+        .scalars()
+        .all()
+    )
+
+
 @dataclass(frozen=True)
 class _SourceIdentityProjection:
     id: Any

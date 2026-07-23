@@ -503,6 +503,8 @@ function PreparationPanel({
   const submitting = submissionStage !== null;
   const activePreflight =
     preflight?.signature === signature ? preflight.data : null;
+  const activePreflightBlocked =
+    (activePreflight?.summary.blocked_count ?? 0) > 0;
   const submitBlocker = submitting
     ? submissionStage === "preflight"
       ? "Проверяем план…"
@@ -511,14 +513,19 @@ function PreparationPanel({
       ? credentialBlocker
       : rows.length === 0
         ? "Добавьте хотя бы одну строку"
-        : firstReadinessBlocker;
+        : firstReadinessBlocker
+          ? firstReadinessBlocker
+          : activePreflightBlocked
+            ? "Для найденных результатов выберите явное решение"
+            : "";
   const canSubmit =
     !submitting &&
     !credentialsLoading &&
     !credentialsError &&
     Boolean(selectedCredentialId) &&
     rows.length > 0 &&
-    rowReadinessResults.every((result) => result.ready);
+    rowReadinessResults.every((result) => result.ready) &&
+    !activePreflightBlocked;
 
   function sourceById(sourceId: string) {
     return sourceItems.find((source) => source.id === sourceId) ?? null;
@@ -549,7 +556,11 @@ function PreparationPanel({
       const [first, ...rest] = selected;
       const sourcesToAppend = canFillTarget ? rest : selected;
       if (canFillTarget && first) {
-        next[targetIndex] = { ...next[targetIndex], source_id: first.id };
+        next[targetIndex] = {
+          ...next[targetIndex],
+          source_id: first.id,
+          reprocess_existing: false,
+        };
       }
       next.push(
         ...sourcesToAppend.map((source) => ({
@@ -765,7 +776,9 @@ function PreparationPanel({
         const emptyIndex = current.findIndex((row) => !row.source_id);
         if (emptyIndex >= 0) {
           return current.map((row, index) =>
-            index === emptyIndex ? { ...row, source_id: sourceId } : row,
+            index === emptyIndex
+              ? { ...row, source_id: sourceId, reprocess_existing: false }
+              : row,
           );
         }
       }
@@ -886,13 +899,16 @@ function PreparationPanel({
         const response = parseBatchPreflightResponse(rawResponse);
         if (
           !response ||
-          response.items.length !== rows.length ||
-          response.summary.blocked_count !== 0
+          response.items.length !== rows.length
         ) {
           throw new Error("Invalid batch preflight response");
         }
         setPreflight({ signature, data: response });
-        setMessage("Проверка готова. Сверьте план и подтвердите создание задач.");
+        setMessage(
+          response.summary.blocked_count > 0
+            ? "Найдены ранее созданные результаты. Выберите явное решение для каждой заблокированной строки."
+            : "Проверка готова. Сверьте план и подтвердите создание задач.",
+        );
         return;
       }
       const key =
@@ -929,7 +945,7 @@ function PreparationPanel({
         );
       } else if (err instanceof ApiError && err.status === 409) {
         setMessage(
-          "Конфликт повторной отправки. Проверьте строки и отправьте заново без автоматического повтора.",
+          "План изменился или появился существующий результат. Повторите проверку и примите явное решение; задачи не созданы.",
         );
       } else if (err instanceof ApiError && err.status === 422) {
         setMessage(
@@ -1227,11 +1243,17 @@ function PreparationPanel({
             <select
               aria-label="Язык транскрибации"
               value={languageMode}
-              onChange={(event) =>
+              onChange={(event) => {
                 setLanguageMode(
                   event.target.value as TranscriptionLanguageMode,
-                )
-              }
+                );
+                setRows((current) =>
+                  current.map((row) => ({
+                    ...row,
+                    reprocess_existing: false,
+                  })),
+                );
+              }}
             >
               <option value="ru">Русский</option>
               <option value="detect">Автоопределение</option>
@@ -1242,9 +1264,15 @@ function PreparationPanel({
               type="checkbox"
               aria-label="Разделять спикеров"
               checked={diarizationEnabled}
-              onChange={(event) =>
-                setDiarizationEnabled(event.target.checked)
-              }
+              onChange={(event) => {
+                setDiarizationEnabled(event.target.checked);
+                setRows((current) =>
+                  current.map((row) => ({
+                    ...row,
+                    reprocess_existing: false,
+                  })),
+                );
+              }}
             />
             <span>
               <strong>Разделять спикеров</strong>
@@ -1365,7 +1393,10 @@ function PreparationPanel({
                           aria-label={`Существующий файл для строки ${index + 1}`}
                           value={row.source_id}
                           onChange={(e) => {
-                            updateRow(row.id, { source_id: e.target.value });
+                            updateRow(row.id, {
+                              source_id: e.target.value,
+                              reprocess_existing: false,
+                            });
                             if (e.target.value) clearRowIntakeError(row.id);
                           }}
                         >
@@ -1528,7 +1559,11 @@ function PreparationPanel({
           >
             <div className="batch-preflight-header">
               <div>
-                <h5>План готов к подтверждению</h5>
+                <h5>
+                  {activePreflightBlocked
+                    ? "План требует решения"
+                    : "План готов к подтверждению"}
+                </h5>
                 <p className="muted">
                   ElevenLabs scribe_v2 ·{" "}
                   {activePreflight.language_mode === "ru"
@@ -1553,47 +1588,82 @@ function PreparationPanel({
               </button>
             </div>
             <ol>
-              {activePreflight.items.map((item) => (
-                <li key={item.position}>
-                  <div>
-                    <b>
-                      {item.position + 1}. {item.source.name}
-                    </b>
-                    <span>
-                      {item.source.source_type === "google_drive"
-                        ? "Google Drive"
-                        : "С устройства"}
-                      {item.source.mime_type
-                        ? ` · ${item.source.mime_type}`
-                        : ""}
-                    </span>
-                    <span>
-                      Размер: {formatBytes(item.source.size_bytes)} ·{" "}
-                      Длительность:{" "}
-                      {item.source.duration_seconds == null
-                        ? "будет определена при подготовке"
-                        : `${Math.round(item.source.duration_seconds)} сек.`}
-                    </span>
-                  </div>
-                  <div>
-                    <span>Результат: {item.output_destination.name}</span>
-                    <strong>
-                      {item.planned_outcome === "process"
-                        ? "План: обработать"
-                        : item.planned_outcome === "skip"
-                          ? "План: пропустить"
-                          : "План: заблокировано"}
-                    </strong>
-                  </div>
-                </li>
-              ))}
+              {activePreflight.items.map((item) => {
+                const matchLabel =
+                  item.existing_result_match.status === "accepted_match"
+                    ? "Есть готовый результат с теми же настройками."
+                    : item.existing_result_match.status ===
+                        "standardization_required"
+                      ? "Есть результат с теми же настройками, но старого стандарта."
+                      : item.existing_result_match.status === "indeterminate"
+                        ? "Есть результат, настройки которого нельзя подтвердить."
+                        : "Совпадений с теми же настройками среди результатов Studio не найдено.";
+                const row = rows[item.position];
+                return (
+                  <li key={item.position}>
+                    <div>
+                      <b>
+                        {item.position + 1}. {item.source.name}
+                      </b>
+                      <span>
+                        {item.source.source_type === "google_drive"
+                          ? "Google Drive"
+                          : "С устройства"}
+                        {item.source.mime_type
+                          ? ` · ${item.source.mime_type}`
+                          : ""}
+                      </span>
+                      <span>
+                        Размер: {formatBytes(item.source.size_bytes)} ·{" "}
+                        Длительность:{" "}
+                        {item.source.duration_seconds == null
+                          ? "будет определена при подготовке"
+                          : `${Math.round(item.source.duration_seconds)} сек.`}
+                      </span>
+                      <span>{matchLabel}</span>
+                    </div>
+                    <div>
+                      <span>Результат: {item.output_destination.name}</span>
+                      <strong>
+                        {item.planned_outcome === "process"
+                          ? item.existing_result_match.resolution ===
+                            "reprocess"
+                            ? "План: транскрибировать заново"
+                            : "План: обработать"
+                          : item.planned_outcome === "skip"
+                            ? "План: пропустить"
+                            : "План: заблокировано"}
+                      </strong>
+                      {item.existing_result_match.status !== "no_match" &&
+                        row && (
+                          <label className="reprocess-decision">
+                            <input
+                              type="checkbox"
+                              checked={row.reprocess_existing}
+                              onChange={(event) =>
+                                updateRow(row.id, {
+                                  reprocess_existing: event.target.checked,
+                                })
+                              }
+                              aria-label={`Транскрибировать заново строку ${item.position + 1}`}
+                            />
+                            <span>
+                              Транскрибировать заново — повтор может списать
+                              средства
+                            </span>
+                          </label>
+                        )}
+                    </div>
+                  </li>
+                );
+              })}
             </ol>
             {activePreflight.existing_result_authority.status ===
-              "not_available" && (
+              "partial" && (
               <p className="notice">
-                Каталог ранее созданных результатов ещё не подключён.
-                Совпадения не оценены; каждая строка пока запланирована к
-                обработке.
+                Проверены только принятые результаты Studio. Разовый импорт
+                старой коллекции Google Docs ещё не выполнен, поэтому эта
+                проверка не видит документы вне Studio.
               </p>
             )}
           </section>
@@ -1653,7 +1723,13 @@ function PreparationPanel({
             }
             setRows((current) =>
               current.map((row) =>
-                row.source_id === sourceId ? { ...row, source_id: "" } : row,
+                row.source_id === sourceId
+                  ? {
+                      ...row,
+                      source_id: "",
+                      reprocess_existing: false,
+                    }
+                  : row,
               ),
             );
             setMessage("Файл убран из проекта.");

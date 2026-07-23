@@ -2822,6 +2822,48 @@ def _count_batch_rows():
         db.close()
 
 
+def _add_accepted_batch_output(user_id, project_id, source_id, credential_id):
+    db = SessionLocal()
+    try:
+        now = utcnow()
+        job = TranscriptionJob(
+            project_id=project_id,
+            owner_user_id=user_id,
+            status=JobStatus.completed,
+            provider_credential_id=credential_id,
+            language="ru",
+            options_json='{"diarize":true}',
+            finished_at=now,
+        )
+        db.add(job); db.flush()
+        rel = TranscriptionJobSource(
+            job_id=job.id,
+            source_id=source_id,
+            position=0,
+            status=JobSourceStatus.queued,
+        )
+        db.add(rel); db.flush()
+        db.add(
+            TranscriptionJobOutput(
+                job_id=job.id,
+                job_source_id=rel.id,
+                document_id=f"accepted-{job.id}",
+                web_view_url=f"https://docs.google.com/document/d/accepted-{job.id}/edit",
+                output_drive_folder_id="accepted-folder",
+                output_kind="google_docs_transcript",
+                transcript_standard="transcript_doc_v1.2",
+                document_character_count=42,
+                document_created_at=now,
+                persisted_at=now,
+                lease_generation=1,
+            )
+        )
+        db.commit()
+        return job.id
+    finally:
+        db.close()
+
+
 def test_batch_preflight_is_safe_ordered_and_does_not_create_rows(monkeypatch):
     calls = _install_batch_folder_mocks(monkeypatch)
     c, csrf, _user_id, pid, source_a, source_b, cred_id = _batch_setup(
@@ -2852,6 +2894,10 @@ def test_batch_preflight_is_safe_ordered_and_does_not_create_rows(monkeypatch):
         "skip_count": 0,
         "blocked_count": 0,
     }
+    assert data["existing_result_authority"] == {
+        "status": "partial",
+        "reason_code": "studio_outputs_only",
+    }
     assert [item["source"]["name"] for item in data["items"]] == [
         "a.mp3",
         "b.mp3",
@@ -2861,7 +2907,11 @@ def test_batch_preflight_is_safe_ordered_and_does_not_create_rows(monkeypatch):
         "Folder shared",
     ]
     assert all(
-        item["existing_result_match"] == {"status": "not_evaluated"}
+        item["existing_result_match"] == {
+            "status": "no_match",
+            "accepted_output_count": 0,
+            "resolution": "not_required",
+        }
         and item["planned_outcome"] == "process"
         and item["source"]["duration_seconds"] is None
         for item in data["items"]
@@ -2877,6 +2927,88 @@ def test_batch_preflight_is_safe_ordered_and_does_not_create_rows(monkeypatch):
         "https://drive.google.com/drive/folders/shared",
     ):
         assert private_value not in r.text
+
+
+def test_batch_create_rechecks_existing_result_and_requires_explicit_reprocessing(monkeypatch):
+    _install_batch_folder_mocks(monkeypatch)
+    c, csrf, user_id, pid, source_a, _source_b, cred_id = _batch_setup(
+        "batch-existing-result@example.com"
+    )
+    body = _batch_body(source_a, credential_id=cred_id)
+    preflight_headers = {
+        "origin": "https://studio.test",
+        "x-csrf-token": csrf,
+    }
+
+    initial = c.post(
+        f"/api/projects/{pid}/jobs/batch/preflight",
+        json=body,
+        headers=preflight_headers,
+    )
+    assert initial.status_code == 200
+    assert initial.json()["items"][0]["existing_result_match"]["status"] == "no_match"
+
+    accepted_job_id = _add_accepted_batch_output(
+        user_id,
+        pid,
+        source_a,
+        cred_id,
+    )
+    before_blocked_create = _count_batch_rows()
+    blocked_create = c.post(
+        f"/api/projects/{pid}/jobs/batch",
+        json=body,
+        headers=_batch_headers(csrf),
+    )
+    assert blocked_create.status_code == 409
+    assert _count_batch_rows() == before_blocked_create
+    assert accepted_job_id not in blocked_create.text
+
+    blocked_preview = c.post(
+        f"/api/projects/{pid}/jobs/batch/preflight",
+        json=body,
+        headers=preflight_headers,
+    )
+    assert blocked_preview.status_code == 200
+    assert blocked_preview.json()["summary"] == {
+        "process_count": 0,
+        "skip_count": 0,
+        "blocked_count": 1,
+    }
+    assert blocked_preview.json()["items"][0]["existing_result_match"] == {
+        "status": "accepted_match",
+        "accepted_output_count": 1,
+        "resolution": "required",
+    }
+    assert blocked_preview.json()["items"][0]["planned_outcome"] == "blocked"
+    assert accepted_job_id not in blocked_preview.text
+
+    body["items"][0]["reprocess_existing"] = True
+    approved_preview = c.post(
+        f"/api/projects/{pid}/jobs/batch/preflight",
+        json=body,
+        headers=preflight_headers,
+    )
+    assert approved_preview.status_code == 200
+    assert approved_preview.json()["summary"] == {
+        "process_count": 1,
+        "skip_count": 0,
+        "blocked_count": 0,
+    }
+    assert approved_preview.json()["items"][0]["existing_result_match"]["resolution"] == "reprocess"
+    assert approved_preview.json()["items"][0]["planned_outcome"] == "process"
+
+    created = c.post(
+        f"/api/projects/{pid}/jobs/batch",
+        json=body,
+        headers=_batch_headers(csrf),
+    )
+    assert created.status_code == 200
+    assert created.json()["created_count"] == 1
+    assert _count_batch_rows() == (
+        before_blocked_create[0] + 1,
+        before_blocked_create[1] + 1,
+    )
 
 
 def test_batch_preflight_requires_csrf_and_rejects_invalid_targets_without_rows(monkeypatch):
@@ -3059,6 +3191,8 @@ def test_batch_jobs_duplicate_pair_and_atomic_validation_failures(monkeypatch):
         ({"language": "fr", "items": [{"source_id": source_a, "output_folder_id": "folder-a"}]}, "bad-key-language"),
         ({"options": {"diarize": "yes"}, "items": [{"source_id": source_a, "output_folder_id": "folder-a"}]}, "bad-key-diarize-type"),
         ({"options": {"diarize": True, "keyterms": ["deferred"]}, "items": [{"source_id": source_a, "output_folder_id": "folder-a"}]}, "bad-key-options-extra"),
+        ({"items": [{"source_id": source_a, "output_folder_id": "folder-a", "reprocess_existing": "yes"}]}, "bad-key-reprocess-type"),
+        ({"items": [{"source_id": source_a, "output_folder_id": "folder-a", "unexpected": True}]}, "bad-key-item-extra"),
         ({"items": [{"source_id": "missing-source", "output_folder_id": "folder-a"}]}, "bad-key-1"),
         ({"provider_credential_id": "missing-cred", "items": [{"source_id": source_a, "output_folder_id": "folder-a"}]}, "bad-key-2"),
         ({"items": [{"source_id": source_a, "output_folder_id": "bad-folder"}]}, "bad-key-3"),
@@ -3119,6 +3253,7 @@ def test_batch_jobs_exact_replay_skips_current_validation_and_conflicts_skip_goo
         {**body, "options": {"diarize": False}},
         {**body, "items": list(reversed(body["items"]))},
         {**body, "items": [{**body["items"][0], "title": "Changed"}, body["items"][1]]},
+        {**body, "items": [{**body["items"][0], "reprocess_existing": True}, body["items"][1]]},
     ]
     for idx, conflict in enumerate(conflict_bodies):
         calls.clear()

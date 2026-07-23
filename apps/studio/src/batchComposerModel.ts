@@ -16,6 +16,7 @@ export type ComposerRow = {
   source_id: string;
   output_folder: VerifiedOutputFolder | null;
   title: string;
+  reprocess_existing: boolean;
 };
 export type BatchCreateResponse = {
   jobs: TranscriptionJob[];
@@ -30,6 +31,7 @@ export type BatchCreateRequest = {
     source_id: string;
     output_folder_id: string;
     title: string | null;
+    reprocess_existing: boolean;
   }[];
 };
 export type BatchPreflightItem = {
@@ -44,7 +46,13 @@ export type BatchPreflightItem = {
   };
   output_destination: { name: string };
   existing_result_match: {
-    status: "not_evaluated" | "no_match" | "match";
+    status:
+      | "accepted_match"
+      | "standardization_required"
+      | "indeterminate"
+      | "no_match";
+    accepted_output_count: number;
+    resolution: "not_required" | "required" | "reprocess";
   };
   planned_outcome: "process" | "skip" | "blocked";
 };
@@ -54,7 +62,7 @@ export type BatchPreflightResponse = {
   language_mode: TranscriptionLanguageMode;
   diarization_enabled: boolean;
   existing_result_authority: {
-    status: "not_available" | "available";
+    status: "partial" | "available";
     reason_code: string | null;
   };
   items: BatchPreflightItem[];
@@ -72,6 +80,7 @@ export function newComposerRow(): ComposerRow {
     source_id: "",
     output_folder: null,
     title: "",
+    reprocess_existing: false,
   };
 }
 
@@ -105,6 +114,7 @@ export function buildBatchCreateRequest(
       source_id: row.source_id,
       output_folder_id: row.output_folder?.folder_id ?? "",
       title: row.title.trim() || null,
+      reprocess_existing: row.reprocess_existing,
     })),
   };
 }
@@ -131,7 +141,7 @@ export function parseBatchPreflightResponse(
     value.confirmation_required !== true ||
     !isRecord(value.existing_result_authority) ||
     !hasExactKeys(value.existing_result_authority, ["status", "reason_code"]) ||
-    !["not_available", "available"].includes(
+    !["partial", "available"].includes(
       String(value.existing_result_authority.status),
     ) ||
     !isNullableString(value.existing_result_authority.reason_code) ||
@@ -142,6 +152,14 @@ export function parseBatchPreflightResponse(
       "skip_count",
       "blocked_count",
     ])
+  ) {
+    return null;
+  }
+  if (
+    (value.existing_result_authority.status === "partial" &&
+      value.existing_result_authority.reason_code !== "studio_outputs_only") ||
+    (value.existing_result_authority.status === "available" &&
+      value.existing_result_authority.reason_code !== null)
   ) {
     return null;
   }
@@ -200,15 +218,52 @@ function isPreflightItem(value: unknown, expectedPosition: number) {
     !hasExactKeys(value.output_destination, ["name"]) ||
     typeof value.output_destination.name !== "string" ||
     !isRecord(value.existing_result_match) ||
-    !hasExactKeys(value.existing_result_match, ["status"]) ||
-    !["not_evaluated", "no_match", "match"].includes(
+    !hasExactKeys(value.existing_result_match, [
+      "status",
+      "accepted_output_count",
+      "resolution",
+    ]) ||
+    ![
+      "accepted_match",
+      "standardization_required",
+      "indeterminate",
+      "no_match",
+    ].includes(
       String(value.existing_result_match.status),
+    ) ||
+    !isNonNegativeInteger(
+      value.existing_result_match.accepted_output_count,
+    ) ||
+    !["not_required", "required", "reprocess"].includes(
+      String(value.existing_result_match.resolution),
     ) ||
     !["process", "skip", "blocked"].includes(String(value.planned_outcome))
   ) {
     return false;
   }
-  return value.source.name.length > 0 && value.output_destination.name.length > 0;
+  const status = String(value.existing_result_match.status);
+  const resolution = String(value.existing_result_match.resolution);
+  const outcome = String(value.planned_outcome);
+  const acceptedOutputCount =
+    value.existing_result_match.accepted_output_count;
+  if (
+    status !== "no_match" &&
+    (!isNonNegativeInteger(acceptedOutputCount) || acceptedOutputCount < 1)
+  ) {
+    return false;
+  }
+  const coherentDecision =
+    (status === "no_match" &&
+      resolution === "not_required" &&
+      outcome === "process") ||
+    (status !== "no_match" &&
+      ((resolution === "required" && outcome === "blocked") ||
+        (resolution === "reprocess" && outcome === "process")));
+  return (
+    coherentDecision &&
+    value.source.name.length > 0 &&
+    value.output_destination.name.length > 0
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -228,7 +283,7 @@ function isNullableString(value: unknown) {
   return value === null || typeof value === "string";
 }
 
-function isNonNegativeInteger(value: unknown) {
+function isNonNegativeInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 0;
 }
 
