@@ -40,6 +40,18 @@ class GoogleDriveMetadataError(RuntimeError):
         super().__init__(reason.value)
 
 
+class GoogleAccessTokenRefreshReason(str, Enum):
+    authentication_rejected = "authentication_rejected"
+    unavailable = "unavailable"
+    malformed_response = "malformed_response"
+
+
+class GoogleAccessTokenRefreshError(RuntimeError):
+    def __init__(self, reason: GoogleAccessTokenRefreshReason):
+        self.reason = reason
+        super().__init__(reason.value)
+
+
 @dataclass(frozen=True)
 class GoogleDriveFolderChildren:
     folder_id: str
@@ -55,11 +67,25 @@ def refresh_access_token(config: GoogleOAuthConfig, refresh_token: str) -> str:
         "grant_type": "refresh_token",
     }).encode()
     req = Request(TOKEN_URL, data=form, method="POST", headers={"Content-Type": "application/x-www-form-urlencoded"})
-    with urlopen(req, timeout=10) as resp:  # nosec - Google OAuth endpoint; tests monkeypatch urlopen/helper.
-        payload = json.loads(resp.read().decode("utf-8"))
+    try:
+        with urlopen(req, timeout=10) as resp:  # nosec - Google OAuth endpoint; tests monkeypatch urlopen/helper.
+            payload = json.loads(resp.read().decode("utf-8"))
+    except HTTPError as exc:
+        reason = (
+            GoogleAccessTokenRefreshReason.authentication_rejected
+            if exc.code in {400, 401}
+            else GoogleAccessTokenRefreshReason.unavailable
+        )
+        raise GoogleAccessTokenRefreshError(reason) from exc
+    except (URLError, OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise GoogleAccessTokenRefreshError(
+            GoogleAccessTokenRefreshReason.unavailable
+        ) from exc
     access_token = payload.get("access_token")
     if not isinstance(access_token, str) or not access_token:
-        raise RuntimeError("Google token refresh failed")
+        raise GoogleAccessTokenRefreshError(
+            GoogleAccessTokenRefreshReason.malformed_response
+        )
     return access_token
 
 
