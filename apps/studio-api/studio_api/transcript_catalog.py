@@ -65,6 +65,22 @@ def current_effective_settings(
         raise ValueError("Unsupported PWA transcription language mode")
     if not isinstance(diarization_enabled, bool):
         raise ValueError("Diarization selection must be boolean")
+    return elevenlabs_effective_settings(
+        language_mode=normalized_language,
+        diarization_enabled=diarization_enabled,
+    )
+
+
+def elevenlabs_effective_settings(
+    *,
+    language_mode: str,
+    diarization_enabled: bool,
+) -> EffectiveTranscriptionSettings:
+    normalized_language = _catalog_language_mode(language_mode)
+    if normalized_language is None:
+        raise ValueError("Unsupported transcription language mode")
+    if not isinstance(diarization_enabled, bool):
+        raise ValueError("Diarization selection must be boolean")
     return EffectiveTranscriptionSettings(
         provider=CURRENT_TRANSCRIPTION_PROVIDER,
         model=CURRENT_TRANSCRIPTION_MODEL,
@@ -99,10 +115,10 @@ def effective_settings_from_persisted_job(
 ) -> EffectiveTranscriptionSettings | None:
     explicit_provider = _enum_value(job_provider).strip().lower()
     selected_provider = explicit_provider or _enum_value(credential_provider).strip().lower()
-    language_mode = browser_language_mode(language)
+    language_mode = _catalog_language_mode(browser_language_mode(language))
     if (
         selected_provider != CURRENT_TRANSCRIPTION_PROVIDER
-        or language_mode not in {"ru", "detect"}
+        or language_mode is None
     ):
         return None
     return EffectiveTranscriptionSettings(
@@ -369,3 +385,14 @@ def _enum_value(value: Any) -> str:
 
 def _clean_private_identity(value: Any) -> str:
     return value.strip() if isinstance(value, str) and value.strip() else ""
+
+
+def _catalog_language_mode(value: Any) -> str | None:
+    normalized = value.strip().lower() if isinstance(value, str) else ""
+    if (
+        not normalized
+        or len(normalized) > 40
+        or not all(ch.isalnum() or ch in "_-" for ch in normalized)
+    ):
+        return None
+    return normalized

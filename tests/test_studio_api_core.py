@@ -2864,6 +2864,54 @@ def _add_accepted_batch_output(user_id, project_id, source_id, credential_id):
         db.close()
 
 
+def test_legacy_create_cannot_bypass_existing_result_decision_or_set_authority():
+    c, headers, pid = create_logged_in_project("legacy-existing-result@example.com")
+    sid = create_gdrive_source(c, headers, pid)
+    credential_id = prepare_legacy_job_authority(c, headers, pid)
+    db = SessionLocal()
+    try:
+        user_id = db.get(Project, pid).owner_user_id
+    finally:
+        db.close()
+    accepted_job_id = _add_accepted_batch_output(
+        user_id,
+        pid,
+        sid,
+        credential_id,
+    )
+    before = _count_batch_rows()
+
+    blocked = c.post(
+        f"/api/projects/{pid}/jobs",
+        json={
+            "source_ids": [sid],
+            "language": "ru",
+            "options": {"diarize": True},
+        },
+        headers=headers,
+    )
+    assert blocked.status_code == 409
+    assert blocked.json()["detail"] == (
+        "Используйте пакетную проверку для явного решения"
+    )
+    assert accepted_job_id not in blocked.text
+    assert _count_batch_rows() == before
+
+    reserved = c.post(
+        f"/api/projects/{pid}/jobs",
+        json={
+            "source_ids": [sid],
+            "options": {"_existing_result_reprocess_authorized": True},
+        },
+        headers=headers,
+    )
+    assert reserved.status_code == 422
+    assert reserved.json()["detail"] == (
+        "Параметры задания содержат служебное поле"
+    )
+    assert _count_batch_rows() == before
+
+
 def test_batch_preflight_is_safe_ordered_and_does_not_create_rows(monkeypatch):
     calls = _install_batch_folder_mocks(monkeypatch)
     c, csrf, _user_id, pid, source_a, source_b, cred_id = _batch_setup(
@@ -3009,6 +3057,22 @@ def test_batch_create_rechecks_existing_result_and_requires_explicit_reprocessin
         before_blocked_create[0] + 1,
         before_blocked_create[1] + 1,
     )
+    assert "_existing_result_reprocess_authorized" not in created.text
+    db = SessionLocal()
+    try:
+        created_job = (
+            db.query(TranscriptionJob)
+            .filter(
+                TranscriptionJob.project_id == pid,
+                TranscriptionJob.id != accepted_job_id,
+            )
+            .one()
+        )
+        assert created_job.options_json == (
+            '{"_existing_result_reprocess_authorized":true,"diarize":true}'
+        )
+    finally:
+        db.close()
 
 
 def test_batch_preflight_requires_csrf_and_rejects_invalid_targets_without_rows(monkeypatch):

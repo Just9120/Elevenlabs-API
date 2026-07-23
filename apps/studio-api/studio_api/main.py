@@ -35,10 +35,11 @@ from .source_deletion import SourceDeletionReason, is_source_expired, request_so
 from .transcript_catalog import (
     ExistingResultMatchStatus,
     current_effective_settings,
+    elevenlabs_effective_settings,
     load_existing_result_matches,
     lock_catalog_source_identities,
 )
-from .transcription_options import DEFAULT_TRANSCRIPTION_LANGUAGE_MODE, TranscriptionLanguageMode, browser_language_mode, job_diarization_enabled, stored_language_mode, stored_transcription_options
+from .transcription_options import DEFAULT_TRANSCRIPTION_LANGUAGE_MODE, EXISTING_RESULT_REPROCESS_AUTHORITY_OPTION, TranscriptionLanguageMode, browser_language_mode, job_diarization_enabled, stored_language_mode, stored_transcription_options
 
 settings=get_settings()
 app=FastAPI(docs_url="/docs" if settings.enable_api_docs else None, redoc_url=None, openapi_url="/openapi.json" if settings.enable_api_docs else None)
@@ -344,6 +345,8 @@ def clean_job_language(value: str|None) -> str|None:
 
 def safe_job_options(value: dict|None) -> str|None:
     if value is None: return None
+    if EXISTING_RESULT_REPROCESS_AUTHORITY_OPTION in value:
+        raise HTTPException(422, "Параметры задания содержат служебное поле")
     encoded=json.dumps(value, ensure_ascii=False, sort_keys=True)
     if len(encoded)>4000: raise HTTPException(422, "Параметры задания слишком большие")
     lowered=encoded.lower()
@@ -693,7 +696,11 @@ def create_transcription_jobs_batch(project_id: str, data: TranscriptionJobBatch
         _require_batch_existing_result_decisions(sources,existing_result_matches,reprocess_existing)
         for idx,(src,fid,title) in enumerate(zip(sources,folder_ids,titles)):
             vf=verified_by_id[fid]
-            job=TranscriptionJob(project_id=p.id, owner_user_id=user.id, status=JobStatus.queued, provider_credential_id=provider_credential_id, title=title, language=language, options_json=options_json, batch_idempotency_key=key, batch_request_hash=request_hash, batch_position=idx)
+            job_options_json=stored_transcription_options(
+                data.options.diarize,
+                existing_result_reprocess_authorized=reprocess_existing[idx],
+            )
+            job=TranscriptionJob(project_id=p.id, owner_user_id=user.id, status=JobStatus.queued, provider_credential_id=provider_credential_id, title=title, language=language, options_json=job_options_json, batch_idempotency_key=key, batch_request_hash=request_hash, batch_position=idx)
             job.apply_output_folder_snapshot(folder_id=vf.id, folder_url=vf.web_view_url, folder_name=vf.name)
             db.add(job); db.flush(); db.add(TranscriptionJobSource(job_id=job.id, source_id=src.id, position=0, status=JobSourceStatus.queued)); jobs.append(job)
         audit(db,"job.batch_created",actor_user_id=user.id,subject_user_id=user.id,project_id=p.id,created_count=len(jobs))
@@ -826,12 +833,32 @@ def get_project_transcription_analytics(response: Response, project_id: str, pai
 @app.post("/api/projects/{project_id}/jobs", deprecated=True)
 def create_transcription_job(project_id: str, data: TranscriptionJobCreateIn, request: Request, response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     _,user=pair; limiter.check("job:create:"+user.id, 60, 3600); p=owned_project_or_404(db,user,project_id)
-    sources=validate_job_sources(db, p.id, data.source_ids, lock_mode="no_key_update")
     output_folder_id=clean_drive_id(p.output_drive_folder_id, "ID папки Google Drive")
     if not output_folder_id:
         raise HTTPException(422, "Выберите папку Google Drive для результатов.")
     provider_credential_id=_resolve_active_elevenlabs_credential_id(db, user, data.provider_credential_id)
-    job=TranscriptionJob(project_id=p.id, owner_user_id=user.id, status=JobStatus.queued, provider_credential_id=provider_credential_id, title=clean_job_title(data.title), language=clean_job_language(data.language), options_json=safe_job_options(data.options))
+    language=clean_job_language(data.language)
+    options_json=safe_job_options(data.options)
+    sources=validate_job_sources(db, p.id, data.source_ids)
+    lock_catalog_source_identities(db, owner_user_id=user.id, sources=sources)
+    sources=validate_job_sources(db, p.id, data.source_ids, lock_mode="no_key_update")
+    existing_result_matches=load_existing_result_matches(
+        db,
+        owner_user_id=user.id,
+        sources=sources,
+        target_settings=elevenlabs_effective_settings(
+            language_mode=browser_language_mode(language),
+            diarization_enabled=job_diarization_enabled(options_json),
+        ),
+    )
+    if any(
+        existing_result_matches.get(source.id) is None
+        or existing_result_matches[source.id].status
+        != ExistingResultMatchStatus.no_match
+        for source in sources
+    ):
+        raise HTTPException(409, "Используйте пакетную проверку для явного решения")
+    job=TranscriptionJob(project_id=p.id, owner_user_id=user.id, status=JobStatus.queued, provider_credential_id=provider_credential_id, title=clean_job_title(data.title), language=language, options_json=options_json)
     job.apply_output_folder_snapshot(folder_id=output_folder_id, folder_url=p.output_drive_folder_url, folder_name=p.output_drive_folder_name)
     db.add(job); db.flush()
     for idx, src in enumerate(sources):

@@ -205,6 +205,7 @@ def test_catalog_settings_contract_is_strict_and_deterministic():
         CURRENT_TRANSCRIPTION_PROVIDER,
         current_effective_settings,
         effective_settings_from_persisted_job,
+        elevenlabs_effective_settings,
     )
 
     target = current_effective_settings(
@@ -221,6 +222,15 @@ def test_catalog_settings_contract_is_strict_and_deterministic():
     assert restored == target
     assert target.provider == CURRENT_TRANSCRIPTION_PROVIDER == "elevenlabs"
     assert target.model == CURRENT_TRANSCRIPTION_MODEL == "scribe_v2"
+    assert effective_settings_from_persisted_job(
+        job_provider=None,
+        credential_provider=enum("elevenlabs"),
+        language="EN_us",
+        options_json=None,
+    ) == elevenlabs_effective_settings(
+        language_mode="en_us",
+        diarization_enabled=False,
+    )
     assert (
         effective_settings_from_persisted_job(
             job_provider="openai",
@@ -244,4 +254,9 @@ def test_catalog_settings_contract_is_strict_and_deterministic():
         current_effective_settings(
             language_mode="ru",
             diarization_enabled="false",
+        )
+    with pytest.raises(ValueError, match="language mode"):
+        elevenlabs_effective_settings(
+            language_mode="not valid",
+            diarization_enabled=False,
         )
