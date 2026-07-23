@@ -82,6 +82,10 @@ import {
   type OutputReconciliationResponse,
   type OutputReconciliationState,
 } from "./jobRecoveryModel";
+import {
+  parseProjectJobProgressResponse,
+  type JobProgressState,
+} from "./jobProgressModel";
 import "./styles.css";
 
 type AccountPreferences = {
@@ -298,6 +302,7 @@ function PreparationPanel({
   const [outputs, setOutputs] = useState<Record<string, JobOutputsState>>({});
   const [reconciliations, setReconciliations] = useState<Record<string, OutputReconciliationState>>({});
   const [retries, setRetries] = useState<Record<string, JobRetryState>>({});
+  const [progress, setProgress] = useState<Record<string, JobProgressState>>({});
   const [removedSourceIds, setRemovedSourceIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -310,6 +315,10 @@ function PreparationPanel({
   >({});
   const rowFolderPickerRef = useRef(false);
   const rowSourcePickerRef = useRef(false);
+  const reloadJobsRef = useRef(onReloadJobs);
+  useEffect(() => {
+    reloadJobsRef.current = onReloadJobs;
+  }, [onReloadJobs]);
   useEffect(() => {
     setRows([newComposerRow()]);
     setCreatedSources([]);
@@ -320,6 +329,7 @@ function PreparationPanel({
     setPendingKey(null);
     setPreflight(null);
     setMessage("");
+    setProgress({});
     setLanguageMode(DEFAULT_TRANSCRIPTION_LANGUAGE_MODE);
     setDiarizationEnabled(false);
   }, [project.id]);
@@ -1036,6 +1046,73 @@ function PreparationPanel({
   const recentJobs = displayJobs.filter((job) =>
     ["completed", "failed", "cancelled"].includes(job.status),
   );
+  const currentJobIds = currentJobs.map((job) => job.id).sort().join(",");
+  useEffect(() => {
+    if (!currentJobIds) {
+      setProgress({});
+      return;
+    }
+    let stopped = false;
+    let timer: number | undefined;
+    let confirmedResponse = false;
+    const requestedIds = currentJobIds.split(",");
+    const refresh = async () => {
+      setProgress((current) => {
+        const next: Record<string, JobProgressState> = {};
+        for (const jobId of requestedIds) {
+          next[jobId] = {
+            loading: !current[jobId]?.data,
+            error: "",
+            data: current[jobId]?.data ?? null,
+          };
+        }
+        return next;
+      });
+      try {
+        const raw = await api<unknown>(`/projects/${project.id}/jobs/progress`);
+        const parsed = parseProjectJobProgressResponse(raw);
+        if (!parsed) throw new Error("Invalid job progress response");
+        if (stopped) return;
+        confirmedResponse = true;
+        const byId = new Map(parsed.jobs.map((item) => [item.job_id, item]));
+        setProgress((current) => {
+          const next: Record<string, JobProgressState> = {};
+          for (const jobId of requestedIds) {
+            next[jobId] = {
+              loading: false,
+              error: "",
+              data: byId.get(jobId) ?? current[jobId]?.data ?? null,
+            };
+          }
+          return next;
+        });
+        if (requestedIds.some((jobId) => !byId.has(jobId))) {
+          reloadJobsRef.current(project.id);
+          return;
+        }
+        timer = window.setTimeout(refresh, 5000);
+      } catch {
+        if (stopped) return;
+        setProgress((current) => {
+          const next: Record<string, JobProgressState> = {};
+          for (const jobId of requestedIds) {
+            next[jobId] = {
+              loading: false,
+              error: "progress_unavailable",
+              data: current[jobId]?.data ?? null,
+            };
+          }
+          return next;
+        });
+        if (confirmedResponse) timer = window.setTimeout(refresh, 10000);
+      }
+    };
+    void refresh();
+    return () => {
+      stopped = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [currentJobIds, project.id]);
   function renderJobCard(job: TranscriptionJob) {
     const currentDetail = detail[job.id];
     const detailedJob = currentDetail?.job;
@@ -1047,6 +1124,11 @@ function PreparationPanel({
         outputs={outputs[job.id]}
         reconciliation={reconciliations[job.id]}
         retry={detailedJob ? retries[detailedJob.id] : undefined}
+        progress={
+          ["queued", "processing"].includes(job.status)
+            ? progress[job.id]
+            : undefined
+        }
         onOpen={loadDetail}
         onCancel={cancelJob}
         onCheckReconciliation={checkReconciliation}

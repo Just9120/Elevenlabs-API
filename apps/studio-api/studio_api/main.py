@@ -23,6 +23,7 @@ from .job_lifecycle import safe_failure_metadata_value
 from .job_processing_lifecycle import request_job_cancellation
 from .diagnostics import REGISTRY, cleanup_expired_diagnostics, cursor_context, decode_cursor_payload, encode_cursor, markdown_escape, new_correlation_id, new_request_id, sanitize_build_id, sanitize_inbound_correlation, valid_correlation_id, valid_uuid, write_diagnostic_event
 from .job_output_read import browser_job_output_payload, load_browser_job_output_rows
+from .job_progress import load_browser_job_progress_payloads
 from .job_output_reconciliation import OutputReconciliationError, OutputReconciliationReason, check_job_output_reconciliation, reconciliation_status_payload
 from .job_retry_recovery import compute_explicit_retry_readiness, queue_retry
 from .google_docs_output import OUTPUT_RECONCILIATION_APP_PROPERTY
@@ -759,6 +760,15 @@ def list_project_jobs(project_id: str, pair=Depends(current_session), db: Sessio
     _,user=pair; p=owned_project_or_404(db,user,project_id)
     rows=db.query(TranscriptionJob).filter(TranscriptionJob.project_id==p.id, TranscriptionJob.owner_user_id==user.id).order_by(TranscriptionJob.created_at.desc()).all()
     return {"jobs":[job_payload(r) for r in rows]}
+
+@app.get("/api/projects/{project_id}/jobs/progress")
+def get_project_job_progress(response: Response, project_id: str, pair=Depends(current_session), db: Session=Depends(get_db)):
+    _,user=pair; p=owned_project_or_404(db,user,project_id); _browser_capability_cache_headers(response)
+    rows=db.query(TranscriptionJob).filter(TranscriptionJob.project_id==p.id, TranscriptionJob.owner_user_id==user.id, TranscriptionJob.status.in_([JobStatus.queued, JobStatus.processing])).order_by(TranscriptionJob.created_at.desc()).all()
+    try:
+        return {"jobs": load_browser_job_progress_payloads(db, rows)}
+    except Exception:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Не удалось загрузить прогресс задач") from None
 
 @app.post("/api/projects/{project_id}/jobs", deprecated=True)
 def create_transcription_job(project_id: str, data: TranscriptionJobCreateIn, request: Request, response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db)):

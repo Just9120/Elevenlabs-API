@@ -72,9 +72,12 @@ The public host nginx is the authoritative browser-header boundary for both the 
 10. ElevenLabs processes parts in order under the source/provider heartbeat. The worker revalidates lifecycle authority between calls, fails closed after any partial provider result, and merges successful part words onto one deterministic source timeline.
 11. Google Docs output path creates one document reference for the active output target.
 12. API persists safe output metadata and completes the job only when every non-skipped relation has output evidence.
-13. Frontend reads browser-safe job/output metadata; transcript/document bodies remain server-private and are not returned.
+13. While queued or processing jobs exist, the frontend polls one owner-scoped project progress endpoint. The API projects only browser-safe filenames and a fixed preparation, video-audio extraction, conditional split, provider, conditional merge, and Google Docs pipeline from current durable attempt checkpoints plus persisted-output evidence. The DTO omits source IDs/URLs, storage identity, credentials, failure detail, and lease/claim authority.
+14. Frontend reads browser-safe job/output metadata; transcript/document bodies remain server-private and are not returned.
 
 The current preflight reports existing-result authority as unavailable and therefore plans every validated row for processing. It must not claim that no accepted output exists. Durable match/skip/conflict decisions remain part of the separately designed transcript-catalog migration and duplicate-protection workstream.
+
+Progress tracking is deliberately checkpoint-based without a new persistence migration. The existing `prepared` attempt checkpoint covers source materialization plus media preparation, so audio extraction and split evaluation become confirmed when the provider checkpoint is reached rather than exposing fabricated sub-step timing. Split and merge are displayed as conditional checks: completion means the gate was evaluated and applied when required, not that every source was split. More granular live ffmpeg progress would require a separately authorized durable progress model.
 
 ## High-level job state transitions
 

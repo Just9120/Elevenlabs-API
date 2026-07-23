@@ -76,6 +76,45 @@ function batchPreflightJson(init?: RequestInit) {
 function isBatchPreflightRequest(url: string, init?: RequestInit) {
   return url.endsWith("/jobs/batch/preflight") && init?.method === "POST";
 }
+function progressStages(
+  current:
+    | "preparation"
+    | "provider_processing"
+    | "part_merge"
+    | "google_docs_output"
+    | null,
+  video = true,
+) {
+  const keys = [
+    "preparation",
+    "audio_extraction",
+    "splitting",
+    "provider_processing",
+    "part_merge",
+    "google_docs_output",
+  ];
+  const currentIndex = current ? keys.indexOf(current) : -1;
+  return keys.map((key, index) => {
+    const notApplicable = key === "audio_extraction" && !video;
+    return {
+      key,
+      status: notApplicable
+        ? "not_applicable"
+        : currentIndex < 0
+          ? "pending"
+          : index < currentIndex
+            ? "completed"
+            : index === currentIndex
+              ? "active"
+              : "pending",
+      applicability: notApplicable
+        ? "not_applicable"
+        : key === "splitting" || key === "part_merge"
+          ? "conditional"
+          : "required",
+    };
+  });
+}
 function renderApp() {
   render(<App />);
 }
@@ -2715,6 +2754,51 @@ describe("Studio PWA", () => {
               },
             ],
           });
+        if (url.endsWith("/api/projects/p1/jobs/progress"))
+          return json({
+            jobs: [
+              {
+                job_id: "job-1",
+                job_status: "queued",
+                tracking_precision: "checkpoint",
+                completed_source_count: 0,
+                total_source_count: 2,
+                active_source_position: null,
+                current_stage: null,
+                sources: [
+                  {
+                    position: 0,
+                    name: "ready-drive.mp4",
+                    status: "queued",
+                    stages: progressStages(null),
+                  },
+                  {
+                    position: 1,
+                    name: "ready-local.ogg",
+                    status: "queued",
+                    stages: progressStages(null, false),
+                  },
+                ],
+              },
+              {
+                job_id: "job-processing",
+                job_status: "processing",
+                tracking_precision: "checkpoint",
+                completed_source_count: 0,
+                total_source_count: 1,
+                active_source_position: 0,
+                current_stage: "provider_processing",
+                sources: [
+                  {
+                    position: 0,
+                    name: "processing.mp4",
+                    status: "processing",
+                    stages: progressStages("provider_processing"),
+                  },
+                ],
+              },
+            ],
+          });
         if (isBatchPreflightRequest(url, init))
           return batchPreflightJson(init);
         if (
@@ -2915,6 +2999,28 @@ describe("Studio PWA", () => {
     expect(screen.getByText(/Отмена запрошена:/)).toBeInTheDocument();
     expect(screen.getByText("Отмена запрошена")).toBeInTheDocument();
     expect(screen.getByText("Файлов: 2")).toBeInTheDocument();
+    const processingProgress = await screen.findByLabelText(
+      "Прогресс задачи job-processing",
+    );
+    expect(processingProgress).toHaveTextContent("Подготовка источника");
+    expect(processingProgress).toHaveTextContent("Извлечение аудио");
+    expect(processingProgress).toHaveTextContent(
+      "Разбиение на части (при необходимости)",
+    );
+    expect(processingProgress).toHaveTextContent("Транскрибация ElevenLabs");
+    expect(processingProgress).toHaveTextContent(
+      "Слияние частей (при необходимости)",
+    );
+    expect(processingProgress).toHaveTextContent("Создание Google Docs");
+    expect(
+      within(processingProgress).getByText("Транскрибация ElevenLabs")
+        .parentElement,
+    ).toHaveTextContent("Выполняется");
+    expect(
+      (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(
+        ([url]) => url === "/api/projects/p1/jobs/progress",
+      ),
+    ).toHaveLength(1);
     expect(screen.queryByText("Error code: SAFE_CODE")).not.toBeInTheDocument();
     expect(screen.getByText("Ошибка: Safe visible error")).toBeInTheDocument();
 

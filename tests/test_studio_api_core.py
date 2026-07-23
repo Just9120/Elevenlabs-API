@@ -2152,6 +2152,69 @@ def create_job_with_sources(email="job-output@example.com", names=("one.mp4",)):
     return c, headers, pid, r.json()["id"], source_ids
 
 
+JOB_PROGRESS_TOP_KEYS = {
+    "job_id",
+    "job_status",
+    "tracking_precision",
+    "completed_source_count",
+    "total_source_count",
+    "active_source_position",
+    "current_stage",
+    "sources",
+}
+JOB_PROGRESS_SOURCE_KEYS = {"position", "name", "status", "stages"}
+JOB_PROGRESS_STAGE_KEYS = {"key", "status", "applicability"}
+
+
+def test_project_job_progress_is_owner_scoped_no_store_and_browser_safe():
+    c1, _h1, pid1, jid1, _source_ids1 = create_job_with_sources(
+        "job-progress-owner@example.com",
+        ("progress-video.mp4",),
+    )
+    c2, _h2, pid2, _jid2, _source_ids2 = create_job_with_sources(
+        "job-progress-other@example.com",
+        ("other-private.mp4",),
+    )
+
+    response = c1.get(f"/api/projects/{pid1}/jobs/progress")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["pragma"] == "no-cache"
+    body = response.json()
+    assert set(body) == {"jobs"}
+    assert len(body["jobs"]) == 1
+    progress = body["jobs"][0]
+    assert set(progress) == JOB_PROGRESS_TOP_KEYS
+    assert progress["job_id"] == jid1
+    assert progress["job_status"] == "queued"
+    assert progress["tracking_precision"] == "checkpoint"
+    assert progress["active_source_position"] is None
+    assert progress["current_stage"] is None
+    assert set(progress["sources"][0]) == JOB_PROGRESS_SOURCE_KEYS
+    assert progress["sources"][0]["name"] == "progress-video.mp4"
+    assert all(
+        set(stage) == JOB_PROGRESS_STAGE_KEYS
+        for stage in progress["sources"][0]["stages"]
+    )
+    assert "other-private.mp4" not in response.text
+    for marker in (
+        "lease_owner_id",
+        "lease_generation",
+        "claimed_at",
+        "provider_credential_id",
+        "s3_bucket",
+        "s3_object_key",
+        "drive_file_id",
+        "drive_file_url",
+        "failure_code",
+    ):
+        assert marker not in response.text
+
+    anon = TestClient(app)
+    assert anon.get(f"/api/projects/{pid1}/jobs/progress").status_code == 401
+    assert c1.get(f"/api/projects/{pid2}/jobs/progress").status_code == 404
+
+
 def add_output_row(job_id, source_id, *, url="https://docs.google.com/document/d/doc/edit", doc_id=None, persisted_at=None, output_id=None):
     db = SessionLocal()
     try:

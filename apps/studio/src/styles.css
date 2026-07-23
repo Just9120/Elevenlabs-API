@@ -1039,3 +1039,82 @@ code {
 .terminal-job {
   opacity: 0.82;
 }
+
+.job-progress {
+  display: grid;
+  gap: 0.6rem;
+  padding: 0.85rem;
+  border: 1px solid #dbeafe;
+  border-radius: 14px;
+  background: #f8fbff;
+}
+
+.job-progress-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+}
+
+.job-progress-source {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.job-progress-steps {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.job-progress-step {
+  display: grid;
+  grid-template-columns: 0.75rem minmax(0, 1fr) auto;
+  gap: 0.55rem;
+  align-items: center;
+  color: var(--studio-muted);
+}
+
+.job-progress-step small {
+  font-weight: 700;
+}
+
+.job-progress-marker {
+  width: 0.65rem;
+  height: 0.65rem;
+  border: 2px solid #94a3b8;
+  border-radius: 999px;
+  background: #fff;
+}
+
+.progress-completed,
+.progress-active {
+  color: var(--studio-text);
+}
+
+.progress-completed .job-progress-marker {
+  border-color: #16a34a;
+  background: #16a34a;
+}
+
+.progress-active .job-progress-marker {
+  border-color: #2563eb;
+  background: #60a5fa;
+  box-shadow: 0 0 0 3px #dbeafe;
+}
+
+.progress-failed {
+  color: #b91c1c;
+}
+
+.progress-failed .job-progress-marker {
+  border-color: #dc2626;
+  background: #fecaca;
+}
+
+.progress-cancelled,
+.progress-not_applicable {
+  opacity: 0.7;
+}
