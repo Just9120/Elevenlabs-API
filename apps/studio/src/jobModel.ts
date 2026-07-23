@@ -42,12 +42,15 @@ export type JobDetailState = {
   job: TranscriptionJob | null;
 };
 export type JobOutputFolder = { name: string; web_view_url: string | null };
+export type TranscriptionLanguageMode = "ru" | "detect";
 export type TranscriptionJob = {
   id: string;
   project_id: string;
   status: JobСтатус;
   title: string | null;
   provider: string | null;
+  language_mode?: string | null;
+  diarization_enabled?: boolean;
   source_count: number;
   sources?: JobSource[];
   created_at: string;
@@ -70,6 +73,12 @@ export type JobState = {
 
 export function jobTitle(job: TranscriptionJob) {
   return job.title?.trim() || `Транскрибация от ${formatTime(job.created_at)}`;
+}
+
+export function transcriptionLanguageModeLabel(value: string | null | undefined) {
+  if (value === "ru") return "Русский";
+  if (!value || value === "detect") return "Автоопределение";
+  return value;
 }
 
 export function safeJobSources(job: TranscriptionJob) {

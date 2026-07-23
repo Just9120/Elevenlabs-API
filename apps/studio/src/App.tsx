@@ -33,6 +33,7 @@ import {
 } from "./googleOauthResult";
 import {
   formatTime,
+  formatBytes,
   formatUploadLimit,
   retentionOptionLabel,
 } from "./formatters";
@@ -60,13 +61,18 @@ import {
   type JobOutputsState,
   type JobState,
   type TranscriptionJob,
+  type TranscriptionLanguageMode,
 } from "./jobModel";
 import {
+  DEFAULT_TRANSCRIPTION_LANGUAGE_MODE,
   composerSignature,
+  buildBatchCreateRequest,
   makeIdempotencyKey,
   mergeJobsWithBatchOrder,
   newComposerRow,
+  parseBatchPreflightResponse,
   type BatchCreateResponse,
+  type BatchPreflightResponse,
   type ComposerRow,
 } from "./batchComposerModel";
 import {
@@ -76,6 +82,11 @@ import {
   type OutputReconciliationResponse,
   type OutputReconciliationState,
 } from "./jobRecoveryModel";
+import {
+  parseProjectJobProgressResponse,
+  type JobProgressState,
+} from "./jobProgressModel";
+import { TranscriptionAnalyticsPanel } from "./TranscriptionAnalyticsPanel";
 import "./styles.css";
 
 type AccountPreferences = {
@@ -184,6 +195,32 @@ const emptyJobState: JobState = {
   loaded: false,
   items: [],
 };
+function isExpectedPickerSourceBatch(
+  value: unknown,
+  expectedCount: number,
+  projectId: string,
+): value is Source[] {
+  if (!Array.isArray(value) || value.length !== expectedCount) return false;
+  const sourceIds = new Set<string>();
+  return value.every((candidate) => {
+    if (!candidate || typeof candidate !== "object") return false;
+    const source = candidate as Partial<Source>;
+    if (
+      typeof source.id !== "string" ||
+      !source.id ||
+      sourceIds.has(source.id) ||
+      source.project_id !== projectId ||
+      source.source_type !== "google_drive" ||
+      source.upload_status !== "uploaded" ||
+      typeof source.original_filename !== "string" ||
+      !source.original_filename
+    ) {
+      return false;
+    }
+    sourceIds.add(source.id);
+    return true;
+  });
+}
 function credentialProfileLabel(c: Credential) {
   return c.active_version ? `${c.label} · v${c.active_version}` : c.label;
 }
@@ -239,6 +276,10 @@ function PreparationPanel({
 }) {
   const [rows, setRows] = useState<ComposerRow[]>(() => [newComposerRow()]);
   const [selectedCredentialId, setSelectedCredentialId] = useState("");
+  const [languageMode, setLanguageMode] = useState<TranscriptionLanguageMode>(
+    DEFAULT_TRANSCRIPTION_LANGUAGE_MODE,
+  );
+  const [diarizationEnabled, setDiarizationEnabled] = useState(false);
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [credentialsLoading, setCredentialsLoading] = useState(true);
   const [credentialsError, setCredentialsError] = useState("");
@@ -246,7 +287,13 @@ function PreparationPanel({
     useState<SourceUploadPolicy | null>(null);
   const [sourceUploadPolicyError, setSourceUploadPolicyError] = useState("");
   const [message, setMessage] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+  const [submissionStage, setSubmissionStage] = useState<
+    "preflight" | "create" | null
+  >(null);
+  const [preflight, setPreflight] = useState<{
+    signature: string;
+    data: BatchPreflightResponse;
+  } | null>(null);
   const [batchJobs, setBatchJobs] = useState<TranscriptionJob[]>([]);
   const [pendingKey, setPendingKey] = useState<{
     signature: string;
@@ -256,6 +303,7 @@ function PreparationPanel({
   const [outputs, setOutputs] = useState<Record<string, JobOutputsState>>({});
   const [reconciliations, setReconciliations] = useState<Record<string, OutputReconciliationState>>({});
   const [retries, setRetries] = useState<Record<string, JobRetryState>>({});
+  const [progress, setProgress] = useState<Record<string, JobProgressState>>({});
   const [removedSourceIds, setRemovedSourceIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -268,6 +316,10 @@ function PreparationPanel({
   >({});
   const rowFolderPickerRef = useRef(false);
   const rowSourcePickerRef = useRef(false);
+  const reloadJobsRef = useRef(onReloadJobs);
+  useEffect(() => {
+    reloadJobsRef.current = onReloadJobs;
+  }, [onReloadJobs]);
   useEffect(() => {
     setRows([newComposerRow()]);
     setCreatedSources([]);
@@ -276,7 +328,11 @@ function PreparationPanel({
     setRowIntakeErrors({});
     setBatchJobs([]);
     setPendingKey(null);
+    setPreflight(null);
     setMessage("");
+    setProgress({});
+    setLanguageMode(DEFAULT_TRANSCRIPTION_LANGUAGE_MODE);
+    setDiarizationEnabled(false);
   }, [project.id]);
   useEffect(() => {
     let cancelled = false;
@@ -360,12 +416,23 @@ function PreparationPanel({
   const visibleSources = { ...sources, items: sourceItems };
   const usableSources = sourceItems.filter(isUsableJobSource);
   const usableSourceIds = new Set(usableSources.map((source) => source.id));
-  const signature = composerSignature(rows, selectedCredentialId);
+  const signature = composerSignature(
+    rows,
+    selectedCredentialId,
+    languageMode,
+    diarizationEnabled,
+  );
   useEffect(() => {
     setPendingKey((current) =>
       current && current.signature !== signature ? null : current,
     );
   }, [signature]);
+  useEffect(() => {
+    if (preflight && preflight.signature !== signature) {
+      setPreflight(null);
+      setMessage("");
+    }
+  }, [preflight, signature]);
   const invalidSourceRowIds = new Set(
     rows
       .filter((row) => row.source_id && !usableSourceIds.has(row.source_id))
@@ -433,20 +500,32 @@ function PreparationPanel({
           ? "Выберите профиль подключения ElevenLabs"
           : "Добавьте активный ключ ElevenLabs в настройках"
         : "";
+  const submitting = submissionStage !== null;
+  const activePreflight =
+    preflight?.signature === signature ? preflight.data : null;
+  const activePreflightBlocked =
+    (activePreflight?.summary.blocked_count ?? 0) > 0;
   const submitBlocker = submitting
-    ? "Создание задач…"
+    ? submissionStage === "preflight"
+      ? "Проверяем план…"
+      : "Создание задач…"
     : credentialBlocker
       ? credentialBlocker
       : rows.length === 0
         ? "Добавьте хотя бы одну строку"
-        : firstReadinessBlocker;
+        : firstReadinessBlocker
+          ? firstReadinessBlocker
+          : activePreflightBlocked
+            ? "Для найденных результатов выберите явное решение"
+            : "";
   const canSubmit =
     !submitting &&
     !credentialsLoading &&
     !credentialsError &&
     Boolean(selectedCredentialId) &&
     rows.length > 0 &&
-    rowReadinessResults.every((result) => result.ready);
+    rowReadinessResults.every((result) => result.ready) &&
+    !activePreflightBlocked;
 
   function sourceById(sourceId: string) {
     return sourceItems.find((source) => source.id === sourceId) ?? null;
@@ -477,7 +556,11 @@ function PreparationPanel({
       const [first, ...rest] = selected;
       const sourcesToAppend = canFillTarget ? rest : selected;
       if (canFillTarget && first) {
-        next[targetIndex] = { ...next[targetIndex], source_id: first.id };
+        next[targetIndex] = {
+          ...next[targetIndex],
+          source_id: first.id,
+          reprocess_existing: false,
+        };
       }
       next.push(
         ...sourcesToAppend.map((source) => ({
@@ -544,19 +627,26 @@ function PreparationPanel({
         }));
         return;
       }
-      const created = await csrfMutate<{ sources: Source[] }>(
+      const created = await csrfMutate<{ sources: unknown }>(
         `/projects/${project.id}/sources/google-picker`,
         csrf,
         onCsrf,
         { method: "POST", body: JSON.stringify({ file_ids: fileIds }) },
       );
       const orderedSources = created.sources;
-      if (orderedSources.some((source) => !source)) {
+      if (
+        !isExpectedPickerSourceBatch(
+          orderedSources,
+          fileIds.length,
+          project.id,
+        )
+      ) {
+        onReloadSources(project.id);
         throw new Error(
-          "Не удалось сопоставить выбранные файлы с созданными источниками. Обновите файлы проекта и повторите выбор.",
+          "Сервер вернул неполный ответ для выбранных файлов. Список файлов обновлён; проверьте добавленные файлы перед повторным выбором.",
         );
       }
-      placeSourcesInRows(rowId, orderedSources as Source[]);
+      placeSourcesInRows(rowId, orderedSources);
       setRowIntakeStatus((current) => ({
         ...current,
         [rowId]: `Добавлено файлов: ${orderedSources.length}.`,
@@ -686,7 +776,9 @@ function PreparationPanel({
         const emptyIndex = current.findIndex((row) => !row.source_id);
         if (emptyIndex >= 0) {
           return current.map((row, index) =>
-            index === emptyIndex ? { ...row, source_id: sourceId } : row,
+            index === emptyIndex
+              ? { ...row, source_id: sourceId, reprocess_existing: false }
+              : row,
           );
         }
       }
@@ -788,13 +880,42 @@ function PreparationPanel({
       );
       return;
     }
-    const key =
-      pendingKey?.signature === signature
-        ? pendingKey.key
-        : makeIdempotencyKey();
-    setPendingKey({ signature, key });
-    setSubmitting(true);
+    const requestBody = buildBatchCreateRequest(
+      rows,
+      selectedCredentialId,
+      languageMode,
+      diarizationEnabled,
+    );
+    const confirming = activePreflight !== null;
+    setSubmissionStage(confirming ? "create" : "preflight");
     try {
+      if (!confirming) {
+        const rawResponse = await batchMutateWithCsrfRetry<unknown>(
+          `/projects/${project.id}/jobs/batch/preflight`,
+          csrf,
+          onCsrf,
+          { method: "POST", body: JSON.stringify(requestBody) },
+        );
+        const response = parseBatchPreflightResponse(rawResponse);
+        if (
+          !response ||
+          response.items.length !== rows.length
+        ) {
+          throw new Error("Invalid batch preflight response");
+        }
+        setPreflight({ signature, data: response });
+        setMessage(
+          response.summary.blocked_count > 0
+            ? "Найдены ранее созданные результаты. Выберите явное решение для каждой заблокированной строки."
+            : "Проверка готова. Сверьте план и подтвердите создание задач.",
+        );
+        return;
+      }
+      const key =
+        pendingKey?.signature === signature
+          ? pendingKey.key
+          : makeIdempotencyKey();
+      setPendingKey({ signature, key });
       const response = await batchMutateWithCsrfRetry<BatchCreateResponse>(
         `/projects/${project.id}/jobs/batch`,
         csrf,
@@ -802,19 +923,13 @@ function PreparationPanel({
         {
           method: "POST",
           headers: { "Idempotency-Key": key },
-          body: JSON.stringify({
-            provider_credential_id: selectedCredentialId,
-            items: rows.map((row) => ({
-              source_id: row.source_id,
-              output_folder_id: row.output_folder?.folder_id,
-              title: row.title.trim() || null,
-            })),
-          }),
+          body: JSON.stringify(requestBody),
         },
       );
       setBatchJobs(response.jobs);
       setRows([newComposerRow()]);
       setPendingKey(null);
+      setPreflight(null);
       setMessage(
         response.replayed
           ? `Повтор подтверждён: создано независимых задач: ${response.created_count}.`
@@ -822,9 +937,15 @@ function PreparationPanel({
       );
       onReloadJobs(project.id);
     } catch (err) {
-      if (err instanceof ApiError && err.status === 409) {
+      if (!confirming) {
         setMessage(
-          "Конфликт повторной отправки. Проверьте строки и отправьте заново без автоматического повтора.",
+          err instanceof ApiError && err.status === 422
+            ? "План не прошёл серверную проверку. Исправьте файлы, папки или профиль ElevenLabs."
+            : "Не удалось проверить план. Задачи не созданы; повторите проверку.",
+        );
+      } else if (err instanceof ApiError && err.status === 409) {
+        setMessage(
+          "План изменился или появился существующий результат. Повторите проверку и примите явное решение; задачи не созданы.",
         );
       } else if (err instanceof ApiError && err.status === 422) {
         setMessage(
@@ -836,7 +957,7 @@ function PreparationPanel({
         );
       }
     } finally {
-      setSubmitting(false);
+      setSubmissionStage(null);
     }
   }
   async function loadDetail(jobId: string) {
@@ -942,6 +1063,73 @@ function PreparationPanel({
   const recentJobs = displayJobs.filter((job) =>
     ["completed", "failed", "cancelled"].includes(job.status),
   );
+  const currentJobIds = currentJobs.map((job) => job.id).sort().join(",");
+  useEffect(() => {
+    if (!currentJobIds) {
+      setProgress({});
+      return;
+    }
+    let stopped = false;
+    let timer: number | undefined;
+    let confirmedResponse = false;
+    const requestedIds = currentJobIds.split(",");
+    const refresh = async () => {
+      setProgress((current) => {
+        const next: Record<string, JobProgressState> = {};
+        for (const jobId of requestedIds) {
+          next[jobId] = {
+            loading: !current[jobId]?.data,
+            error: "",
+            data: current[jobId]?.data ?? null,
+          };
+        }
+        return next;
+      });
+      try {
+        const raw = await api<unknown>(`/projects/${project.id}/jobs/progress`);
+        const parsed = parseProjectJobProgressResponse(raw);
+        if (!parsed) throw new Error("Invalid job progress response");
+        if (stopped) return;
+        confirmedResponse = true;
+        const byId = new Map(parsed.jobs.map((item) => [item.job_id, item]));
+        setProgress((current) => {
+          const next: Record<string, JobProgressState> = {};
+          for (const jobId of requestedIds) {
+            next[jobId] = {
+              loading: false,
+              error: "",
+              data: byId.get(jobId) ?? current[jobId]?.data ?? null,
+            };
+          }
+          return next;
+        });
+        if (requestedIds.some((jobId) => !byId.has(jobId))) {
+          reloadJobsRef.current(project.id);
+          return;
+        }
+        timer = window.setTimeout(refresh, 5000);
+      } catch {
+        if (stopped) return;
+        setProgress((current) => {
+          const next: Record<string, JobProgressState> = {};
+          for (const jobId of requestedIds) {
+            next[jobId] = {
+              loading: false,
+              error: "progress_unavailable",
+              data: current[jobId]?.data ?? null,
+            };
+          }
+          return next;
+        });
+        if (confirmedResponse) timer = window.setTimeout(refresh, 10000);
+      }
+    };
+    void refresh();
+    return () => {
+      stopped = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [currentJobIds, project.id]);
   function renderJobCard(job: TranscriptionJob) {
     const currentDetail = detail[job.id];
     const detailedJob = currentDetail?.job;
@@ -953,6 +1141,11 @@ function PreparationPanel({
         outputs={outputs[job.id]}
         reconciliation={reconciliations[job.id]}
         retry={detailedJob ? retries[detailedJob.id] : undefined}
+        progress={
+          ["queued", "processing"].includes(job.status)
+            ? progress[job.id]
+            : undefined
+        }
         onOpen={loadDetail}
         onCancel={cancelJob}
         onCheckReconciliation={checkReconciliation}
@@ -1045,6 +1238,50 @@ function PreparationPanel({
                 </select>
               </label>
             )}
+          <label className="profile-selector">
+            Язык транскрибации
+            <select
+              aria-label="Язык транскрибации"
+              value={languageMode}
+              onChange={(event) => {
+                setLanguageMode(
+                  event.target.value as TranscriptionLanguageMode,
+                );
+                setRows((current) =>
+                  current.map((row) => ({
+                    ...row,
+                    reprocess_existing: false,
+                  })),
+                );
+              }}
+            >
+              <option value="ru">Русский</option>
+              <option value="detect">Автоопределение</option>
+            </select>
+          </label>
+          <label className="transcription-toggle">
+            <input
+              type="checkbox"
+              aria-label="Разделять спикеров"
+              checked={diarizationEnabled}
+              onChange={(event) => {
+                setDiarizationEnabled(event.target.checked);
+                setRows((current) =>
+                  current.map((row) => ({
+                    ...row,
+                    reprocess_existing: false,
+                  })),
+                );
+              }}
+            />
+            <span>
+              <strong>Разделять спикеров</strong>
+              <small>
+                В документе появятся последовательные блоки Speaker 1,
+                Speaker 2 и далее.
+              </small>
+            </span>
+          </label>
         </div>
         <div
           className="composer-status"
@@ -1156,7 +1393,10 @@ function PreparationPanel({
                           aria-label={`Существующий файл для строки ${index + 1}`}
                           value={row.source_id}
                           onChange={(e) => {
-                            updateRow(row.id, { source_id: e.target.value });
+                            updateRow(row.id, {
+                              source_id: e.target.value,
+                              reprocess_existing: false,
+                            });
                             if (e.target.value) clearRowIntakeError(row.id);
                           }}
                         >
@@ -1312,6 +1552,122 @@ function PreparationPanel({
             })}
           </ol>
         </fieldset>
+        {activePreflight && (
+          <section
+            className="batch-preflight"
+            aria-label="Проверка перед созданием задач"
+          >
+            <div className="batch-preflight-header">
+              <div>
+                <h5>
+                  {activePreflightBlocked
+                    ? "План требует решения"
+                    : "План готов к подтверждению"}
+                </h5>
+                <p className="muted">
+                  ElevenLabs scribe_v2 ·{" "}
+                  {activePreflight.language_mode === "ru"
+                    ? "Русский"
+                    : "Автоопределение"}
+                  {" · "}
+                  Спикеры:{" "}
+                  {activePreflight.diarization_enabled
+                    ? "разделять"
+                    : "не разделять"}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => {
+                  setPreflight(null);
+                  setMessage("");
+                }}
+              >
+                Изменить план
+              </button>
+            </div>
+            <ol>
+              {activePreflight.items.map((item) => {
+                const matchLabel =
+                  item.existing_result_match.status === "accepted_match"
+                    ? "Есть готовый результат с теми же настройками."
+                    : item.existing_result_match.status ===
+                        "standardization_required"
+                      ? "Есть результат с теми же настройками, но старого стандарта."
+                      : item.existing_result_match.status === "indeterminate"
+                        ? "Есть результат, настройки которого нельзя подтвердить."
+                        : "Совпадений с теми же настройками среди результатов Studio не найдено.";
+                const row = rows[item.position];
+                return (
+                  <li key={item.position}>
+                    <div>
+                      <b>
+                        {item.position + 1}. {item.source.name}
+                      </b>
+                      <span>
+                        {item.source.source_type === "google_drive"
+                          ? "Google Drive"
+                          : "С устройства"}
+                        {item.source.mime_type
+                          ? ` · ${item.source.mime_type}`
+                          : ""}
+                      </span>
+                      <span>
+                        Размер: {formatBytes(item.source.size_bytes)} ·{" "}
+                        Длительность:{" "}
+                        {item.source.duration_seconds == null
+                          ? "будет определена при подготовке"
+                          : `${Math.round(item.source.duration_seconds)} сек.`}
+                      </span>
+                      <span>{matchLabel}</span>
+                    </div>
+                    <div>
+                      <span>Результат: {item.output_destination.name}</span>
+                      <strong>
+                        {item.planned_outcome === "process"
+                          ? item.existing_result_match.resolution ===
+                            "reprocess"
+                            ? "План: транскрибировать заново"
+                            : "План: обработать"
+                          : item.planned_outcome === "skip"
+                            ? "План: пропустить"
+                            : "План: заблокировано"}
+                      </strong>
+                      {item.existing_result_match.status !== "no_match" &&
+                        row && (
+                          <label className="reprocess-decision">
+                            <input
+                              type="checkbox"
+                              checked={row.reprocess_existing}
+                              onChange={(event) =>
+                                updateRow(row.id, {
+                                  reprocess_existing: event.target.checked,
+                                })
+                              }
+                              aria-label={`Транскрибировать заново строку ${item.position + 1}`}
+                            />
+                            <span>
+                              Транскрибировать заново — повтор может списать
+                              средства
+                            </span>
+                          </label>
+                        )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ol>
+            {activePreflight.existing_result_authority.status ===
+              "partial" && (
+              <p className="notice">
+                Проверены только принятые результаты Studio. Разовый импорт
+                старой коллекции Google Docs ещё не выполнен, поэтому эта
+                проверка не видит документы вне Studio.
+              </p>
+            )}
+          </section>
+        )}
         <div className="composer-footer">
           <div>
             <b>Строк: {rows.length}</b>
@@ -1321,7 +1677,13 @@ function PreparationPanel({
             {submitBlocker && <span>{submitBlocker}</span>}
           </div>
           <button className="primary" disabled={!canSubmit}>
-            {submitting ? "Создание задач…" : `Создать задачи (${rows.length})`}
+            {submissionStage === "preflight"
+              ? "Проверяем план…"
+              : submissionStage === "create"
+                ? "Создание задач…"
+                : activePreflight
+                  ? `Подтвердить и создать (${rows.length})`
+                  : `Проверить задачи (${rows.length})`}
           </button>
         </div>
       </form>
@@ -1361,7 +1723,13 @@ function PreparationPanel({
             }
             setRows((current) =>
               current.map((row) =>
-                row.source_id === sourceId ? { ...row, source_id: "" } : row,
+                row.source_id === sourceId
+                  ? {
+                      ...row,
+                      source_id: "",
+                      reprocess_existing: false,
+                    }
+                  : row,
               ),
             );
             setMessage("Файл убран из проекта.");
@@ -1369,6 +1737,7 @@ function PreparationPanel({
           onError={onError}
         />
       </details>
+      <TranscriptionAnalyticsPanel key={project.id} projectId={project.id} />
       <section className="sources" aria-label="Текущие задачи">
         <h4>Текущие задачи</h4>
         {jobs.loading && <p role="status">Загрузка задач…</p>}

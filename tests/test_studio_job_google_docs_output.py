@@ -47,7 +47,7 @@ def models():
     return m
 
 
-def make_job(db, m, *, title="Job Title", language="en"):
+def make_job(db, m, *, title="Job Title", language="en", options_json=None):
     now = datetime(2026, 1, 2, 3, 4, 5)
     user = m.User(email=f"{id(db)}@example.com", role=m.UserRole.user, status=m.UserStatus.active)
     db.add(user); db.flush()
@@ -55,7 +55,7 @@ def make_job(db, m, *, title="Job Title", language="en"):
     db.add(project); db.flush()
     src = m.Source(project_id=project.id, source_type=m.SourceType.local_upload, original_filename="тайна meeting.mp3", mime_type="audio/mpeg", size_bytes=5, s3_bucket="bucket", s3_object_key="private/object", upload_status=m.SourceUploadStatus.uploaded, uploaded_at=now, expires_at=now + timedelta(hours=1))
     db.add(src); db.flush()
-    job = m.TranscriptionJob(project_id=project.id, owner_user_id=user.id, status=m.JobStatus.processing, provider="elevenlabs", title=title, language=language, output_drive_folder_id="folder-private", output_drive_folder_url="https://drive.google.com/drive/folders/folder-private", output_drive_folder_name="Private", lease_owner_id="worker", lease_generation=7, claimed_at=now, lease_expires_at=now + timedelta(minutes=5), started_at=now)
+    job = m.TranscriptionJob(project_id=project.id, owner_user_id=user.id, status=m.JobStatus.processing, provider="elevenlabs", title=title, language=language, options_json=options_json, output_drive_folder_id="folder-private", output_drive_folder_url="https://drive.google.com/drive/folders/folder-private", output_drive_folder_name="Private", lease_owner_id="worker", lease_generation=7, claimed_at=now, lease_expires_at=now + timedelta(minutes=5), started_at=now)
     db.add(job); db.flush()
     rel = m.TranscriptionJobSource(job_id=job.id, source_id=src.id, position=0)
     db.add(rel); db.commit()
@@ -65,8 +65,8 @@ def make_job(db, m, *, title="Job Title", language="en"):
 class Transcript:
     text_length = 12
     detected_language_code = "ru"
-    def __init__(self, text="Привет\nмир"):
-        self._text = text; self.closed = False
+    def __init__(self, text="Привет\nмир", words=()):
+        self._text = text; self.words = tuple(words); self.closed = False
     @property
     def text(self):
         if self.closed:
@@ -103,6 +103,7 @@ def test_transport_multipart_and_redaction():
     assert parsed.scheme == "https" and parsed.netloc == "www.googleapis.com" and parsed.path == "/upload/drive/v3/files"
     assert parse_qs(parsed.query) == {"uploadType":["multipart"], "supportsAllDrives":["true"], "fields":["id,name,mimeType,webViewLink,parents"]}
     assert kwargs["headers"]["Authorization"] == "Bearer token-secret"
+    assert kwargs["timeout"] == 120.0
     assert "multipart/related" in kwargs["headers"]["Content-Type"]
     body = kwargs["content"]
     assert body.index(b"application/json") < body.index(b"text/plain; charset=UTF-8")
@@ -138,11 +139,23 @@ def test_transport_malformed_response_rejected():
 
 
 def test_formatting_contract_title_language_unicode_empty_body():
-    from studio_api.job_google_docs_output import choose_transcript_document_title, format_transcript_doc_v1_2
+    from studio_api.job_google_docs_output import build_speaker_labeled_transcript, choose_transcript_document_title, format_transcript_doc_v1_2
     created = datetime(2026,1,2,3,4,5)
     doc = format_transcript_doc_v1_2(title=" My Job ", transcript_text="Привет\nмир", job_language=" ", detected_language_code="ru", created_at=created)
     assert doc.body == "My Job\n\nTranscript metadata\nProvider: ElevenLabs\nModel: scribe_v2\nLanguage: ru\nSpeakers: no\nCreated at: 2026-01-02T03:04:05Z\n\nTranscript\n\nПривет\nмир"
     assert "Source file:" not in doc.body and "Source mode:" not in doc.body
+    detected = format_transcript_doc_v1_2(title="Auto", transcript_text="Text", job_language="detect", detected_language_code="en", created_at=created)
+    assert detected.language == "en" and "Language: en" in detected.body
+    words = (
+        type("Word", (), {"text": "Привет", "speaker_id": "speaker_b"})(),
+        type("Word", (), {"text": ",", "speaker_id": "speaker_b"})(),
+        type("Word", (), {"text": "мир", "speaker_id": "speaker_a"})(),
+        type("Word", (), {"text": " снова", "speaker_id": "speaker_b"})(),
+    )
+    labeled = build_speaker_labeled_transcript(words, fallback_text="fallback")
+    assert labeled == "Speaker 1:\nПривет,\n\nSpeaker 2:\nмир\n\nSpeaker 1:\nснова"
+    diarized = format_transcript_doc_v1_2(title="Call", transcript_text=labeled, job_language="ru", detected_language_code="ru", created_at=created, diarization_enabled=True)
+    assert "Speakers: yes" in diarized.body and diarized.body.endswith(labeled)
     assert choose_transcript_document_title(job_title=" ", original_filename="folder/audio.name.mp3") == "audio.name"
     empty = format_transcript_doc_v1_2(title="\x00", transcript_text="", job_language=None, detected_language_code=None, created_at=created)
     assert empty.title == "Transcript" and empty.body.endswith("Transcript\n\n") and "Language: unknown" in empty.body
@@ -163,6 +176,42 @@ def test_success_job_boundary_one_token_one_create_lifetime_and_no_mutation(db, 
     from studio_api.google_docs_output import GoogleDocsOutputError
     with pytest.raises(GoogleDocsOutputError, match="context_closed"):
         retained.document_id
+
+
+def test_diarized_job_creates_deterministic_speaker_document(db, models):
+    from studio_api.job_google_docs_output import create_processing_job_google_doc_from_transcript
+    user, project, src, job, rel, now = make_job(
+        db,
+        models,
+        options_json='{"diarize":true}',
+    )
+    words = (
+        type("Word", (), {"text": "Добрый", "speaker_id": "speaker_7"})(),
+        type("Word", (), {"text": " день", "speaker_id": "speaker_7"})(),
+        type("Word", (), {"text": "Здравствуйте", "speaker_id": "speaker_2"})(),
+    )
+    transcript = Transcript("Добрый день Здравствуйте", words)
+    transport = FakeTransport()
+
+    with create_processing_job_google_doc_from_transcript(
+        db,
+        job_id=job.id,
+        job_source_id=rel.id,
+        lease_owner_id="worker",
+        lease_generation=7,
+        transcript=transcript,
+        settings=Settings(),
+        now=now,
+        clock=lambda: now,
+        token_resolver=lambda *a, **k: "token-secret",
+        metadata_fetcher=lambda token, folder: good_meta(token, folder),
+        google_docs_transport=transport,
+    ):
+        pass
+
+    document_text = transport.calls[0]["document_text"]
+    assert "Speakers: yes" in document_text
+    assert document_text.endswith("Speaker 1:\nДобрый день\n\nSpeaker 2:\nЗдравствуйте")
 
 
 @pytest.mark.parametrize("mutate,reason", [

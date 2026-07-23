@@ -51,6 +51,7 @@ Supported batch source modes are:
 - local/computer single file;
 - local/computer multiple files;
 - Google Drive single file;
+- Google Drive multiple files;
 - Google Drive folder.
 
 Manual user segmentation is available only in one-source modes where one source can be split deterministically before transcription.
@@ -145,6 +146,41 @@ The processing E2E scenario is repository validation, not production evidence. I
 
 The current Alembic migration head in the repository is `0015_user_source_retention` under `apps/studio-api/alembic/versions/`.
 
+## Studio PWA selected transcription scope
+
+Studio targets selected product parity, not a literal copy of every Colab control or maintenance helper. The current small-source production rollout remains a separate baseline gate; completing that rollout does not claim that the selected feature scope below is already implemented.
+
+Required Studio transcription capabilities:
+
+- ElevenLabs `scribe_v2` remains the current PWA provider path.
+- Job preparation must offer Russian by default and provider auto-detection as the alternative language mode. The selected mode must use a typed validated job contract and reach the worker/provider request.
+- ElevenLabs speaker separation is required for PWA v1. A diarized result must produce deterministic `Speaker N` transcript blocks and `Speakers: yes` document metadata without exposing transcript text through browser metadata APIs.
+- Video sources must have a server-side audio-extraction/preparation path before provider upload.
+- Long ElevenLabs inputs must be prepared and automatically split by explicit safe size/duration policy before the first provider call, processed in deterministic part order, and merged without silently losing or duplicating boundary text. Provider and Google output timeouts must be compatible with the documented long-media policy.
+- Existing local multi-file intake and Google Picker multi-file intake must be validated end to end. Google Drive folder selection and recursive traversal are not part of the selected scope.
+- Before job creation, an explicit preflight must show safe source metadata, size and duration where available, selected language, speaker-separation mode, output destinations, existing-result matches, and the planned process/skip outcome. It must not expose source bytes, private storage identity, tokens, transcript bodies, or raw Google/provider payloads.
+- The PWA must show a user-facing staged progress pipeline, including applicable preparation, audio extraction, splitting, provider processing, part merge, and Google Docs output stages. Internal lease/claim authority remains server-only.
+- New Google Docs transcripts must follow `transcript_doc_v1.2`, including its structured metadata and readable paragraph normalization.
+- User-facing aggregate analytics may report safe counts, outcomes, selected provider/model/options, and stage durations. It must not contain transcript/document bodies, secrets, private source paths, raw external payloads, or private Google identifiers/URLs.
+
+Existing transcript migration, standardization, and duplicate protection form one product workstream:
+
+- A separately initiated one-time migration must discover the approved existing Google Docs transcript collection, default to a non-mutating dry-run, report safe aggregate findings, and require explicit confirmation before apply. Its selection and Google permission flow require focused design; this decision does not silently broaden the current OAuth scope.
+- Apply may standardize eligible existing transcript documents in place to `transcript_doc_v1.2`, including readable paragraph normalization, and import only the durable metadata needed for the Studio catalog and duplicate decisions. It must not call a transcription provider or copy document/transcript bodies into browser payloads, logs, diagnostics, or long-term Studio storage.
+- Studio must prevent accidental repeated paid transcription across separate job-creation requests when the same source and effective transcription settings already have accepted output evidence. A new explicit user decision is required when an existing-result conflict is found.
+- Conflict handling must be designed together with the imported catalog and support explicit safe user choice rather than implicit overwrite or automatic provider retry. Exact matching, authority, and UX rules require a focused design before implementation.
+- A continuously refreshed PWA transcript catalog backed by Google Drive is desired but deferred to backlog. Its synchronization flow, matching rules, refresh triggers, permissions, and system-of-record boundary must be designed before implementation; the one-time migration must not silently become continuous synchronization.
+
+Explicitly deferred or excluded from the current selected scope:
+
+- keyterms are deferred;
+- OpenAI job processing is deferred; the ability to store an OpenAI credential must not be presented as proof that OpenAI transcription is available;
+- manual post-transcription speaker renaming is deferred;
+- user-directed media cutting and multi-file media concatenation are deferred pending a separate workflow design;
+- Google Drive folder ingestion and recursive traversal are excluded in favor of validating explicit multi-file selection.
+
+Selected-scope completion requires source and applicable browser/service-backed evidence for the typed language and diarization options, multi-file intake, video preparation, long-media split/merge, safe preflight/progress, one-time catalog migration/standardization, duplicate protection, and aggregate analytics. The existing one-small-source production canary remains necessary but does not prove these additional capabilities.
+
 ## Studio production status and remaining capabilities
 
 Studio processing is **not yet confirmed production-live**. Source-level implementation and CI do not prove production deployment, worker image parity, provider execution, Google Docs creation, or a successful controlled canary.
@@ -162,10 +198,12 @@ Unfinished or unproven delivery capabilities:
 - production migration/deployment and worker rollout validation for the intended revision;
 - controlled end-to-end canary after the latest fix with exactly one persisted output;
 - browser-level automated E2E coverage for the authenticated preparation and job-result workflow;
-- OpenAI PWA processing parity;
-- long-media splitting parity with Colab;
-- Studio manifest authority/update behavior;
-- golden Colab/PWA parity validation;
+- typed language selection and ElevenLabs diarization through the browser/API/worker/output path;
+- video audio preparation and automatic long-media split/merge;
+- safe preflight, staged progress, and aggregate analytics;
+- validated local/Google Drive multi-file intake;
+- one-time Google Docs catalog import, `transcript_doc_v1.2` standardization, and cross-run duplicate protection;
+- golden validation for the selected Colab/PWA behaviors rather than literal full-feature parity;
 - multi-worker production validation.
 
 The Studio PWA may render implemented source-level output metadata for explicitly opened jobs, but that does not prove production-live processing or exactly-once Google document creation.
@@ -220,10 +258,12 @@ The public Studio host must enforce one browser security-header policy across th
 
 ### Provider and output boundaries
 
-- ElevenLabs is the implemented source-level Studio provider path.
-- OpenAI provider parity in Studio remains unfinished until separately implemented and validated.
+- ElevenLabs is the implemented source-level Studio provider path and the selected PWA v1 provider. Russian-default/auto-detect language selection and optional speaker separation are required additions to its typed job options.
+- OpenAI processing, keyterms, manual speaker renaming, and user-directed media cutting/concatenation are deferred until separately designed and authorized. Persisted credential support alone is not a processing capability.
+- Video audio preparation and automatic long-media split/merge must remain server-side, bounded, deterministic, and covered by explicit temporary-artifact cleanup. The browser must not become the media-processing authority.
 - Provider transcript content is ephemeral server-side processing data unless explicitly persisted by an approved product rule; current browser-safe output APIs must not expose transcript/document body text.
-- Google Docs output uses safe owner-scoped document reference metadata only. Exactly-once Google document creation is not claimed.
+- Google Docs output uses safe owner-scoped document reference metadata only. Exactly-once Google document creation is not claimed. Existing-document standardization and catalog import are explicit migration actions, not ordinary job execution.
+- Cross-run duplicate protection must use durable Studio authority for normalized source identity, effective transcription settings, and accepted output evidence. It must not copy the Colab single-runtime manifest as Studio's concurrency authority.
 
 ### CI/CD and deployment
 
@@ -252,7 +292,14 @@ Current delivery sequencing is in `docs/delivery-plan.md`. Product backlog items
 - `PWA-PROCESSING-ROLLOUT-01A` — operator validation for fixed worker rollout and one controlled end-to-end canary.
 - `PWA-LEGACY-AUTHORITY-01` — remove or formally mark legacy deployment/runtime paths after review.
 - `PWA-E2E-FOUNDATION-01B` — extend the source-level API/worker processing foundation through the authenticated browser workflow without replacing the production canary requirement.
-- OpenAI processing parity, long-media parity, manifest behavior, and golden Colab/PWA parity validation.
+- `PWA-TRANSCRIPTION-OPTIONS-01` — typed Russian-default/auto-detect language selection and required ElevenLabs speaker separation across PWA, API, worker, and Google Docs output.
+- `PWA-MEDIA-PREPARATION-01` — server-side video audio extraction plus deterministic long-media size/duration split and merge.
+- `PWA-MULTI-SOURCE-VALIDATION-01` — end-to-end validation of existing local and Google Picker multi-file intake; folder/recursive ingestion is a non-goal.
+- `PWA-PREFLIGHT-PROGRESS-01` — safe preflight and polished staged progress for the selected processing pipeline.
+- `PWA-TRANSCRIPT-CATALOG-MIGRATION-01` — one-time dry-run/apply import and `transcript_doc_v1.2` standardization of the approved existing Google Docs collection, combined with durable cross-run duplicate protection and explicit conflict handling.
+- `PWA-TRANSCRIPTION-ANALYTICS-01` — safe aggregate transcription outcomes and stage-duration analytics.
+- `PWA-TRANSCRIPT-CATALOG-SYNC-01` — deferred design for a Google Drive-backed continuously refreshed PWA catalog and its system-of-record boundary.
+- OpenAI processing, keyterms, manual speaker rename, manual cutting/concatenation, and Drive folder/recursive intake remain deferred or excluded as defined above.
 
 Source-complete delivery items remain listed for traceability and still require applicable rollout evidence:
 

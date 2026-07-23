@@ -100,7 +100,7 @@ class GoogleDocsTranscriptArtifact:
 @dataclass(frozen=True)
 class GoogleDocsTranscriptTransport:
     endpoint: str = GOOGLE_DRIVE_UPLOAD_URL
-    timeout: float = 30.0
+    timeout: float = 120.0
     client: httpx.Client | None = field(default=None, repr=False)
     post: Callable[..., httpx.Response] | None = field(default=None, repr=False)
 

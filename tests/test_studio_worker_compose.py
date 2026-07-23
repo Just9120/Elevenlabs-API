@@ -3,6 +3,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 COMPOSE = ROOT / "deploy/studio/compose.platform.yml"
 ENV = ROOT / "deploy/studio/.env.example"
+DOCKERFILE = ROOT / "apps/studio-api/Dockerfile"
 
 
 def service_block(name):
@@ -51,3 +52,9 @@ def test_compose_worker_heartbeat_default_supports_old_env():
     worker=service_block("studio-worker")
     assert "STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS is required" not in worker
     assert "${STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS:-60}" in worker
+
+
+def test_shared_api_worker_image_installs_media_runtime_without_recommends():
+    text = DOCKERFILE.read_text()
+    assert "apt-get install -y --no-install-recommends ffmpeg" in text
+    assert "rm -rf /var/lib/apt/lists/*" in text

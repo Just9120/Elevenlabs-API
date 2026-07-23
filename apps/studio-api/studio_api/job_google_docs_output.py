@@ -24,11 +24,19 @@ from .job_source_materialization import SourceMaterializationError, _load_select
 from .models import JobStatus, Project, TranscriptionJob, TranscriptionJobOutput
 from .security import utcnow
 from .job_output_reconciliation import OutputReconciliationError, OutputReconciliationReason, prepare_output_reconciliation_case, mark_reconciliation_creation_returned
+from .transcript_catalog import CURRENT_TRANSCRIPTION_MODEL
+from .transcription_options import document_language, job_diarization_enabled
+
+
+class TranscriptWordProtocol(Protocol):
+    text: str
+    speaker_id: str | None
 
 
 class TranscriptResultProtocol(Protocol):
     text_length: int
     detected_language_code: str | None
+    words: tuple[TranscriptWordProtocol, ...]
     @property
     def text(self) -> str: ...
 
@@ -87,6 +95,7 @@ class _OutputJobSnapshot:
     project_id: str
     title: str | None
     language: str | None
+    options_json: str | None
     output_drive_folder_id: str
     lease_owner_id: str | None
     lease_generation: int
@@ -133,6 +142,12 @@ def create_processing_job_google_doc_from_transcript(
         _compare_source_or_before(_load_source_snapshot(db, job_id, job_source_id, lease_owner_id, lease_generation, clock(), settings), source_snap)
         try:
             transcript_text = transcript.text
+            diarization_enabled = job_diarization_enabled(snap.options_json)
+            if diarization_enabled:
+                transcript_text = build_speaker_labeled_transcript(
+                    transcript.words,
+                    fallback_text=transcript_text,
+                )
         except (ElevenLabsTranscriptionError, GoogleDocsOutputError) as exc:
             raise JobGoogleDocsOutputError(JobGoogleDocsOutputReason.transcript_context_closed) from exc
         title = choose_transcript_document_title(job_title=snap.title, original_filename=source_snap.original_filename)
@@ -143,6 +158,7 @@ def create_processing_job_google_doc_from_transcript(
             job_language=snap.language,
             detected_language_code=transcript.detected_language_code,
             created_at=created_at,
+            diarization_enabled=diarization_enabled,
         )
         _compare_or_before(_load_output_job_snapshot(db, job_id, lease_owner_id, lease_generation, clock()), snap)
         _compare_source_or_before(_load_source_snapshot(db, job_id, job_source_id, lease_owner_id, lease_generation, clock(), settings), source_snap)
@@ -188,12 +204,70 @@ def create_processing_job_google_doc_from_transcript(
             artifact.revoke()
 
 
-def format_transcript_doc_v1_2(*, title: str, transcript_text: str, job_language: str | None, detected_language_code: str | None, created_at: datetime) -> FormattedTranscriptDocument:
+def format_transcript_doc_v1_2(*, title: str, transcript_text: str, job_language: str | None, detected_language_code: str | None, created_at: datetime, diarization_enabled: bool = False) -> FormattedTranscriptDocument:
     safe_title = normalize_document_title(title)
-    lang = _first_nonblank(job_language, detected_language_code) or "unknown"
+    lang = document_language(job_language, detected_language_code)
     ts = _utc_iso(created_at)
-    body = f"{safe_title}\n\nTranscript metadata\nProvider: ElevenLabs\nModel: scribe_v2\nLanguage: {lang}\nSpeakers: no\nCreated at: {ts}\n\nTranscript\n\n{transcript_text}"
+    speakers = "yes" if diarization_enabled else "no"
+    body = f"{safe_title}\n\nTranscript metadata\nProvider: ElevenLabs\nModel: {CURRENT_TRANSCRIPTION_MODEL}\nLanguage: {lang}\nSpeakers: {speakers}\nCreated at: {ts}\n\nTranscript\n\n{transcript_text}"
     return FormattedTranscriptDocument(title=safe_title, body=body, language=lang, created_at=created_at)
+
+
+def build_speaker_labeled_transcript(
+    words: tuple[TranscriptWordProtocol, ...],
+    *,
+    fallback_text: str,
+) -> str:
+    speaker_numbers: dict[str, int] = {}
+    blocks: list[str] = []
+    current_speaker: str | None = None
+    current_tokens: list[str] = []
+    saw_speaker = False
+
+    def flush() -> None:
+        nonlocal current_tokens
+        if current_speaker is None:
+            return
+        text = _join_transcript_tokens(current_tokens)
+        current_tokens = []
+        if not text:
+            return
+        number = speaker_numbers.setdefault(current_speaker, len(speaker_numbers) + 1)
+        blocks.append(f"Speaker {number}:\n{text}")
+
+    for word in words:
+        token = word.text
+        if not token:
+            continue
+        speaker_id = (word.speaker_id or "").strip() or None
+        if speaker_id is not None:
+            saw_speaker = True
+            if current_speaker is None:
+                current_speaker = speaker_id
+            elif speaker_id != current_speaker:
+                flush()
+                current_speaker = speaker_id
+        current_tokens.append(token)
+
+    flush()
+    if not saw_speaker or not blocks:
+        return fallback_text.strip()
+    return "\n\n".join(blocks)
+
+
+def _join_transcript_tokens(tokens: list[str]) -> str:
+    text = ""
+    for token in tokens:
+        if (
+            text
+            and not text[-1].isspace()
+            and not token[0].isspace()
+            and text[-1].isalnum()
+            and token[0].isalnum()
+        ):
+            text += " "
+        text += token
+    return text.strip()
 
 
 def choose_transcript_document_title(*, job_title: str | None, original_filename: str | None) -> str:
@@ -228,7 +302,7 @@ def _load_output_job_snapshot(db: Session, job_id: str, owner: str, generation: 
         raise JobGoogleDocsOutputError(JobGoogleDocsOutputReason.project_unavailable)
     if not job.output_drive_folder_id:
         raise JobGoogleDocsOutputError(JobGoogleDocsOutputReason.output_folder_missing)
-    return _OutputJobSnapshot(job.id, job.owner_user_id, project.id, job.title, job.language, job.output_drive_folder_id, job.lease_owner_id, job.lease_generation, job.cancel_requested_at, project.archived_at, project.owner_user_id)
+    return _OutputJobSnapshot(job.id, job.owner_user_id, project.id, job.title, job.language, job.options_json, job.output_drive_folder_id, job.lease_owner_id, job.lease_generation, job.cancel_requested_at, project.archived_at, project.owner_user_id)
 
 
 def _load_source_snapshot(db, job_id, job_source_id, owner, generation, now, settings):

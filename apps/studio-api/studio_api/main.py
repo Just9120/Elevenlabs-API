@@ -2,7 +2,7 @@ import hashlib, json, logging, re
 from datetime import datetime, timedelta, timezone
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse, RedirectResponse, Response as FastAPIResponse
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, StrictBool, field_validator
 from sqlalchemy import text, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -23,12 +23,23 @@ from .job_lifecycle import safe_failure_metadata_value
 from .job_processing_lifecycle import request_job_cancellation
 from .diagnostics import REGISTRY, cleanup_expired_diagnostics, cursor_context, decode_cursor_payload, encode_cursor, markdown_escape, new_correlation_id, new_request_id, sanitize_build_id, sanitize_inbound_correlation, valid_correlation_id, valid_uuid, write_diagnostic_event
 from .job_output_read import browser_job_output_payload, load_browser_job_output_rows
+from .job_progress import load_browser_job_progress_payloads
+from .transcription_analytics import load_transcription_analytics_payload
 from .job_output_reconciliation import OutputReconciliationError, OutputReconciliationReason, check_job_output_reconciliation, reconciliation_status_payload
 from .job_retry_recovery import compute_explicit_retry_readiness, queue_retry
 from .google_docs_output import OUTPUT_RECONCILIATION_APP_PROPERTY
 from .google_drive import GoogleDriveReconciliationError, list_reconciliation_candidates
 from .job_output_folder_selection import VerifiedOutputFolderSelection, verify_output_folder_selection
+from .batch_preflight import build_batch_preflight_payload
 from .source_deletion import SourceDeletionReason, is_source_expired, request_source_deletion
+from .transcript_catalog import (
+    ExistingResultMatchStatus,
+    current_effective_settings,
+    elevenlabs_effective_settings,
+    load_existing_result_matches,
+    lock_catalog_source_identities,
+)
+from .transcription_options import DEFAULT_TRANSCRIPTION_LANGUAGE_MODE, EXISTING_RESULT_REPROCESS_AUTHORITY_OPTION, TranscriptionLanguageMode, browser_language_mode, job_diarization_enabled, stored_language_mode, stored_transcription_options
 
 settings=get_settings()
 app=FastAPI(docs_url="/docs" if settings.enable_api_docs else None, redoc_url=None, openapi_url="/openapi.json" if settings.enable_api_docs else None)
@@ -128,14 +139,20 @@ class AccountPreferencesPatch(BaseModel):
         return value
 
 class BatchJobItemIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     source_id: str=Field(min_length=1,max_length=36)
     output_folder_id: str=Field(min_length=1,max_length=256)
     title: str|None=Field(default=None,max_length=160)
+    reprocess_existing: StrictBool=False
+
+class TranscriptionJobOptionsIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    diarize: StrictBool=False
 
 class TranscriptionJobBatchCreateIn(BaseModel):
     provider_credential_id: str|None=Field(default=None, max_length=36)
-    language: str|None=Field(default=None, max_length=40)
-    options: dict|None=None
+    language: TranscriptionLanguageMode=DEFAULT_TRANSCRIPTION_LANGUAGE_MODE
+    options: TranscriptionJobOptionsIn=Field(default_factory=TranscriptionJobOptionsIn)
     items: list[BatchJobItemIn]=Field(min_length=1,max_length=50)
 
 class DiagnosticDebugSessionIn(BaseModel):
@@ -328,6 +345,8 @@ def clean_job_language(value: str|None) -> str|None:
 
 def safe_job_options(value: dict|None) -> str|None:
     if value is None: return None
+    if EXISTING_RESULT_REPROCESS_AUTHORITY_OPTION in value:
+        raise HTTPException(422, "Параметры задания содержат служебное поле")
     encoded=json.dumps(value, ensure_ascii=False, sort_keys=True)
     if len(encoded)>4000: raise HTTPException(422, "Параметры задания слишком большие")
     lowered=encoded.lower()
@@ -352,7 +371,7 @@ def safe_job_output_folder_payload(job: TranscriptionJob):
     return {"name": clean_optional_name(job.output_drive_folder_name) or "Папка Google Drive", "web_view_url": url}
 
 def job_payload(job: TranscriptionJob, include_sources=False):
-    payload={"id": job.id, "project_id": job.project_id, "status": job.status.value, "title": job.title, "provider": job.provider, "source_count": len(job.sources), "created_at": job.created_at.isoformat(), "updated_at": job.updated_at.isoformat(), "cancelled_at": job.cancelled_at.isoformat() if job.cancelled_at else None, "cancel_requested_at": job.cancel_requested_at.isoformat() if job.cancel_requested_at else None, "attempt_count": job.attempt_count or 0, "started_at": job.started_at.isoformat() if job.started_at else None, "finished_at": job.finished_at.isoformat() if job.finished_at else None, "error_code": safe_failure_metadata_value(job.error_code), "error_message": safe_failure_metadata_value(job.error_message), "output_folder": safe_job_output_folder_payload(job)}
+    payload={"id": job.id, "project_id": job.project_id, "status": job.status.value, "title": job.title, "provider": job.provider, "language_mode": browser_language_mode(getattr(job, "language", None)), "diarization_enabled": job_diarization_enabled(getattr(job, "options_json", None)), "source_count": len(job.sources), "created_at": job.created_at.isoformat(), "updated_at": job.updated_at.isoformat(), "cancelled_at": job.cancelled_at.isoformat() if job.cancelled_at else None, "cancel_requested_at": job.cancel_requested_at.isoformat() if job.cancel_requested_at else None, "attempt_count": job.attempt_count or 0, "started_at": job.started_at.isoformat() if job.started_at else None, "finished_at": job.finished_at.isoformat() if job.finished_at else None, "error_code": safe_failure_metadata_value(job.error_code), "error_message": safe_failure_metadata_value(job.error_message), "output_folder": safe_job_output_folder_payload(job)}
     if include_sources: payload["sources"]=[job_source_payload(s) for s in sorted(job.sources, key=lambda item: item.position)]
     return payload
 
@@ -371,6 +390,7 @@ def validate_job_sources(db: Session, project_id: str, source_ids: list[str], *,
             stmt=stmt.with_for_update(key_share=True)
         else:
             stmt=stmt.with_for_update()
+        stmt=stmt.execution_options(populate_existing=True)
     rows=list(db.execute(stmt).scalars().all())
     by_id={r.id:r for r in rows}
     ordered=[]
@@ -587,19 +607,78 @@ def _existing_batch_is_complete(existing, request_hash: str, expected_count: int
     positions=[job.batch_position for job in existing]
     return positions == list(range(expected_count)) and all(job.batch_request_hash == request_hash for job in existing)
 
-@app.post("/api/projects/{project_id}/jobs/batch")
-def create_transcription_jobs_batch(project_id: str, data: TranscriptionJobBatchCreateIn, request: Request, pair=Depends(require_csrf), db: Session=Depends(get_db)):
-    _,user=pair; limiter.check("job:batch:create:"+user.id, 30, 3600); p=owned_project_or_404(db,user,project_id)
-    key=_clean_idempotency_key(request.headers.get("Idempotency-Key"))
-    language=clean_job_language(data.language); options_json=safe_job_options(data.options)
+def _normalize_batch_creation_input(data: TranscriptionJobBatchCreateIn):
+    language=stored_language_mode(data.language); options_json=stored_transcription_options(data.options.diarize)
     explicit_provider_credential_id=data.provider_credential_id.strip() if isinstance(data.provider_credential_id, str) and data.provider_credential_id.strip() else None
-    pairs=set(); duplicate_pair_found=False; source_ids=[]; folder_ids=[]; titles=[]
+    pairs=set(); duplicate_pair_found=False; source_ids=[]; folder_ids=[]; titles=[]; reprocess_existing=[]
     for item in data.items:
         sid=item.source_id.strip(); fid=clean_drive_id(item.output_folder_id, "ID папки Google Drive")
         pair_key=(sid,fid)
         if pair_key in pairs: duplicate_pair_found=True
-        pairs.add(pair_key); source_ids.append(sid); folder_ids.append(fid); titles.append(clean_job_title(item.title))
-    hash_items=[{"source_id": sid, "output_folder_id": fid, "title": title} for sid,fid,title in zip(source_ids,folder_ids,titles)]
+        pairs.add(pair_key); source_ids.append(sid); folder_ids.append(fid); titles.append(clean_job_title(item.title)); reprocess_existing.append(item.reprocess_existing)
+    hash_items=[]
+    for sid,fid,title,reprocess in zip(source_ids,folder_ids,titles,reprocess_existing):
+        hash_item={"source_id": sid, "output_folder_id": fid, "title": title}
+        # Preserve hashes created before the optional decision field existed.
+        # An affirmative reprocess decision must still produce a distinct hash.
+        if reprocess:
+            hash_item["reprocess_existing"]=True
+        hash_items.append(hash_item)
+    return language, options_json, explicit_provider_credential_id, duplicate_pair_found, source_ids, folder_ids, titles, reprocess_existing, hash_items
+
+def _validate_new_batch_targets(db: Session, user: User, project: Project, *, explicit_provider_credential_id, duplicate_pair_found, source_ids, folder_ids):
+    provider_credential_id=_resolve_active_elevenlabs_credential_id(db, user, explicit_provider_credential_id)
+    if duplicate_pair_found:
+        raise HTTPException(422, "Повторяющиеся source/folder пары не допускаются")
+    sources=validate_job_sources(db, project.id, source_ids)
+    unique_folders=list(dict.fromkeys(folder_ids))
+    access_token=refreshed_google_drive_access_token(db, user)
+    verified_by_id={fid: verify_output_folder_selection(access_token, fid) for fid in unique_folders}
+    return provider_credential_id, sources, verified_by_id
+
+def _load_batch_existing_result_matches(db: Session, user: User, sources, *, language: str, diarization_enabled: bool):
+    return load_existing_result_matches(
+        db,
+        owner_user_id=user.id,
+        sources=sources,
+        target_settings=current_effective_settings(
+            language_mode=language,
+            diarization_enabled=diarization_enabled,
+        ),
+    )
+
+def _require_batch_existing_result_decisions(sources, matches, reprocess_existing):
+    unresolved=0
+    for source,reprocess in zip(sources,reprocess_existing):
+        match=matches.get(source.id)
+        if match is None or (
+            match.status != ExistingResultMatchStatus.no_match and not reprocess
+        ):
+            unresolved+=1
+    if unresolved:
+        raise HTTPException(409, "Для существующего результата требуется явное решение")
+
+@app.post("/api/projects/{project_id}/jobs/batch/preflight")
+def preflight_transcription_jobs_batch(project_id: str, data: TranscriptionJobBatchCreateIn, response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("job:batch:preflight:"+user.id, 60, 3600); _browser_capability_cache_headers(response); p=owned_project_or_404(db,user,project_id)
+    language, _options_json, explicit_provider_credential_id, duplicate_pair_found, source_ids, folder_ids, titles, reprocess_existing, _hash_items=_normalize_batch_creation_input(data)
+    _provider_credential_id, sources, verified_by_id=_validate_new_batch_targets(db,user,p,explicit_provider_credential_id=explicit_provider_credential_id,duplicate_pair_found=duplicate_pair_found,source_ids=source_ids,folder_ids=folder_ids)
+    existing_result_matches=_load_batch_existing_result_matches(db,user,sources,language=language,diarization_enabled=data.options.diarize)
+    return build_batch_preflight_payload(
+        sources=sources,
+        output_folders=[verified_by_id[fid] for fid in folder_ids],
+        titles=titles,
+        language_mode=language,
+        diarization_enabled=data.options.diarize,
+        existing_result_matches=existing_result_matches,
+        reprocess_existing=reprocess_existing,
+    )
+
+@app.post("/api/projects/{project_id}/jobs/batch")
+def create_transcription_jobs_batch(project_id: str, data: TranscriptionJobBatchCreateIn, request: Request, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("job:batch:create:"+user.id, 30, 3600); p=owned_project_or_404(db,user,project_id)
+    key=_clean_idempotency_key(request.headers.get("Idempotency-Key"))
+    language, options_json, explicit_provider_credential_id, duplicate_pair_found, source_ids, folder_ids, titles, reprocess_existing, hash_items=_normalize_batch_creation_input(data)
     existing=_load_existing_batch(db,user.id,p.id,key)
     if existing:
         replay_credential_id = explicit_provider_credential_id or existing[0].provider_credential_id
@@ -607,20 +686,21 @@ def create_transcription_jobs_batch(project_id: str, data: TranscriptionJobBatch
         if not _existing_batch_is_complete(existing, request_hash, len(data.items)):
             raise HTTPException(409, "Idempotency-Key already used with a different request")
         return {"jobs":[job_payload(j, include_sources=True) for j in existing], "created_count": len(existing), "replayed": True}
-    provider_credential_id=_resolve_active_elevenlabs_credential_id(db, user, explicit_provider_credential_id)
+    provider_credential_id, sources, verified_by_id=_validate_new_batch_targets(db,user,p,explicit_provider_credential_id=explicit_provider_credential_id,duplicate_pair_found=duplicate_pair_found,source_ids=source_ids,folder_ids=folder_ids)
     request_hash=_batch_hash(p.id, provider_credential_id, language, options_json, hash_items)
-    if duplicate_pair_found:
-        raise HTTPException(422, "Повторяющиеся source/folder пары не допускаются")
-    sources=validate_job_sources(db, p.id, source_ids)
-    unique_folders=list(dict.fromkeys(folder_ids))
-    access_token=refreshed_google_drive_access_token(db, user)
-    verified_by_id={fid: verify_output_folder_selection(access_token, fid) for fid in unique_folders}
     try:
         jobs=[]
+        lock_catalog_source_identities(db, owner_user_id=user.id, sources=sources)
         sources=validate_job_sources(db, p.id, source_ids, lock_mode="no_key_update")
+        existing_result_matches=_load_batch_existing_result_matches(db,user,sources,language=language,diarization_enabled=data.options.diarize)
+        _require_batch_existing_result_decisions(sources,existing_result_matches,reprocess_existing)
         for idx,(src,fid,title) in enumerate(zip(sources,folder_ids,titles)):
             vf=verified_by_id[fid]
-            job=TranscriptionJob(project_id=p.id, owner_user_id=user.id, status=JobStatus.queued, provider_credential_id=provider_credential_id, title=title, language=language, options_json=options_json, batch_idempotency_key=key, batch_request_hash=request_hash, batch_position=idx)
+            job_options_json=stored_transcription_options(
+                data.options.diarize,
+                existing_result_reprocess_authorized=reprocess_existing[idx],
+            )
+            job=TranscriptionJob(project_id=p.id, owner_user_id=user.id, status=JobStatus.queued, provider_credential_id=provider_credential_id, title=title, language=language, options_json=job_options_json, batch_idempotency_key=key, batch_request_hash=request_hash, batch_position=idx)
             job.apply_output_folder_snapshot(folder_id=vf.id, folder_url=vf.web_view_url, folder_name=vf.name)
             db.add(job); db.flush(); db.add(TranscriptionJobSource(job_id=job.id, source_id=src.id, position=0, status=JobSourceStatus.queued)); jobs.append(job)
         audit(db,"job.batch_created",actor_user_id=user.id,subject_user_id=user.id,project_id=p.id,created_count=len(jobs))
@@ -733,15 +813,52 @@ def list_project_jobs(project_id: str, pair=Depends(current_session), db: Sessio
     rows=db.query(TranscriptionJob).filter(TranscriptionJob.project_id==p.id, TranscriptionJob.owner_user_id==user.id).order_by(TranscriptionJob.created_at.desc()).all()
     return {"jobs":[job_payload(r) for r in rows]}
 
+@app.get("/api/projects/{project_id}/jobs/progress")
+def get_project_job_progress(response: Response, project_id: str, pair=Depends(current_session), db: Session=Depends(get_db)):
+    _,user=pair; p=owned_project_or_404(db,user,project_id); _browser_capability_cache_headers(response)
+    rows=db.query(TranscriptionJob).filter(TranscriptionJob.project_id==p.id, TranscriptionJob.owner_user_id==user.id, TranscriptionJob.status.in_([JobStatus.queued, JobStatus.processing])).order_by(TranscriptionJob.created_at.desc()).all()
+    try:
+        return {"jobs": load_browser_job_progress_payloads(db, rows)}
+    except Exception:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Не удалось загрузить прогресс задач") from None
+
+@app.get("/api/projects/{project_id}/transcription-analytics")
+def get_project_transcription_analytics(response: Response, project_id: str, pair=Depends(current_session), db: Session=Depends(get_db)):
+    _,user=pair; p=owned_project_or_404(db,user,project_id); _browser_capability_cache_headers(response)
+    try:
+        return load_transcription_analytics_payload(db, owner_user_id=user.id, project_id=p.id)
+    except Exception:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Не удалось загрузить аналитику транскрибаций") from None
+
 @app.post("/api/projects/{project_id}/jobs", deprecated=True)
 def create_transcription_job(project_id: str, data: TranscriptionJobCreateIn, request: Request, response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     _,user=pair; limiter.check("job:create:"+user.id, 60, 3600); p=owned_project_or_404(db,user,project_id)
-    sources=validate_job_sources(db, p.id, data.source_ids, lock_mode="no_key_update")
     output_folder_id=clean_drive_id(p.output_drive_folder_id, "ID папки Google Drive")
     if not output_folder_id:
         raise HTTPException(422, "Выберите папку Google Drive для результатов.")
     provider_credential_id=_resolve_active_elevenlabs_credential_id(db, user, data.provider_credential_id)
-    job=TranscriptionJob(project_id=p.id, owner_user_id=user.id, status=JobStatus.queued, provider_credential_id=provider_credential_id, title=clean_job_title(data.title), language=clean_job_language(data.language), options_json=safe_job_options(data.options))
+    language=clean_job_language(data.language)
+    options_json=safe_job_options(data.options)
+    sources=validate_job_sources(db, p.id, data.source_ids)
+    lock_catalog_source_identities(db, owner_user_id=user.id, sources=sources)
+    sources=validate_job_sources(db, p.id, data.source_ids, lock_mode="no_key_update")
+    existing_result_matches=load_existing_result_matches(
+        db,
+        owner_user_id=user.id,
+        sources=sources,
+        target_settings=elevenlabs_effective_settings(
+            language_mode=browser_language_mode(language),
+            diarization_enabled=job_diarization_enabled(options_json),
+        ),
+    )
+    if any(
+        existing_result_matches.get(source.id) is None
+        or existing_result_matches[source.id].status
+        != ExistingResultMatchStatus.no_match
+        for source in sources
+    ):
+        raise HTTPException(409, "Используйте пакетную проверку для явного решения")
+    job=TranscriptionJob(project_id=p.id, owner_user_id=user.id, status=JobStatus.queued, provider_credential_id=provider_credential_id, title=clean_job_title(data.title), language=language, options_json=options_json)
     job.apply_output_folder_snapshot(folder_id=output_folder_id, folder_url=p.output_drive_folder_url, folder_name=p.output_drive_folder_name)
     db.add(job); db.flush()
     for idx, src in enumerate(sources):

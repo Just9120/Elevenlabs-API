@@ -82,6 +82,7 @@ function renderCard(
     },
     reconciliation,
     retry,
+    progress: undefined,
     onOpen: vi.fn(),
     onCancel: vi.fn(),
     onCheckReconciliation: vi.fn(),

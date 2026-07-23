@@ -12,6 +12,8 @@ import type {
   OutputReconciliationState,
 } from "./jobRecoveryModel";
 import { OutputReconciliationNotice } from "./OutputReconciliationNotice";
+import { JobProgressPipeline } from "./JobProgressPipeline";
+import type { JobProgressState } from "./jobProgressModel";
 
 export function JobCard({
   job,
@@ -19,6 +21,7 @@ export function JobCard({
   outputs,
   reconciliation,
   retry,
+  progress,
   onOpen,
   onCancel,
   onCheckReconciliation,
@@ -29,6 +32,7 @@ export function JobCard({
   outputs: JobOutputsState | undefined;
   reconciliation: OutputReconciliationState | undefined;
   retry: JobRetryState | undefined;
+  progress: JobProgressState | undefined;
   onOpen: (jobId: string) => void | Promise<void>;
   onCancel: (jobId: string) => void | Promise<void>;
   onCheckReconciliation: (jobId: string) => void | Promise<void>;
@@ -40,6 +44,7 @@ export function JobCard({
   return (
     <article className={`source-card ${terminal ? "terminal-job" : ""}`}>
       <JobCardSummary job={job} />
+      <JobProgressPipeline jobId={job.id} state={progress} />
       <JobCardActions job={job} onOpen={onOpen} onCancel={onCancel} />
       {detail?.loading && <p role="status">Загрузка деталей задачи…</p>}
       {detail?.error && <p className="error">{detail.error}</p>}

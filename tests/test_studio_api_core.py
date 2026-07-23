@@ -452,6 +452,8 @@ def test_legacy_create_job_rejects_openai_and_preserves_source_order_and_safe_me
     body = r.json()
     assert body["status"] == "queued"
     assert body["source_count"] == 2
+    assert body["language_mode"] == "en_us"
+    assert body["diarization_enabled"] is False
     assert [s["id"] for s in body["sources"]] == [sid1, sid2]
     assert [s["position"] for s in body["sources"]] == [0, 1]
     assert "provider_credential_id" not in body
@@ -474,6 +476,7 @@ def test_legacy_create_job_rejects_openai_and_preserves_source_order_and_safe_me
         assert src.deleted_at is None
         assert src.upload_status == SourceUploadStatus.uploaded
         assert queued.status == JobStatus.queued
+        assert queued.language == "en_us"
         assert queued.provider_credential_id == cred
     finally:
         db.close()
@@ -2149,7 +2152,142 @@ def create_job_with_sources(email="job-output@example.com", names=("one.mp4",)):
     return c, headers, pid, r.json()["id"], source_ids
 
 
-def add_output_row(job_id, source_id, *, url="https://docs.google.com/document/d/doc/edit", doc_id=None, persisted_at=None, output_id=None):
+JOB_PROGRESS_TOP_KEYS = {
+    "job_id",
+    "job_status",
+    "tracking_precision",
+    "completed_source_count",
+    "total_source_count",
+    "active_source_position",
+    "current_stage",
+    "sources",
+}
+JOB_PROGRESS_SOURCE_KEYS = {"position", "name", "status", "stages"}
+JOB_PROGRESS_STAGE_KEYS = {"key", "status", "applicability"}
+
+
+def test_project_job_progress_is_owner_scoped_no_store_and_browser_safe():
+    c1, _h1, pid1, jid1, _source_ids1 = create_job_with_sources(
+        "job-progress-owner@example.com",
+        ("progress-video.mp4",),
+    )
+    c2, _h2, pid2, _jid2, _source_ids2 = create_job_with_sources(
+        "job-progress-other@example.com",
+        ("other-private.mp4",),
+    )
+
+    response = c1.get(f"/api/projects/{pid1}/jobs/progress")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["pragma"] == "no-cache"
+    body = response.json()
+    assert set(body) == {"jobs"}
+    assert len(body["jobs"]) == 1
+    progress = body["jobs"][0]
+    assert set(progress) == JOB_PROGRESS_TOP_KEYS
+    assert progress["job_id"] == jid1
+    assert progress["job_status"] == "queued"
+    assert progress["tracking_precision"] == "checkpoint"
+    assert progress["active_source_position"] is None
+    assert progress["current_stage"] is None
+    assert set(progress["sources"][0]) == JOB_PROGRESS_SOURCE_KEYS
+    assert progress["sources"][0]["name"] == "progress-video.mp4"
+    assert all(
+        set(stage) == JOB_PROGRESS_STAGE_KEYS
+        for stage in progress["sources"][0]["stages"]
+    )
+    assert "other-private.mp4" not in response.text
+    for marker in (
+        "lease_owner_id",
+        "lease_generation",
+        "claimed_at",
+        "provider_credential_id",
+        "s3_bucket",
+        "s3_object_key",
+        "drive_file_id",
+        "drive_file_url",
+        "failure_code",
+    ):
+        assert marker not in response.text
+
+    anon = TestClient(app)
+    assert anon.get(f"/api/projects/{pid1}/jobs/progress").status_code == 401
+    assert c1.get(f"/api/projects/{pid2}/jobs/progress").status_code == 404
+
+
+def test_project_transcription_analytics_is_owner_scoped_no_store_and_aggregate_only():
+    c1, _h1, pid1, _jid1, _source_ids1 = create_job_with_sources(
+        "analytics-owner@example.com",
+        ("analytics-private-source.mp4",),
+    )
+    _c2, _h2, pid2, _jid2, _source_ids2 = create_job_with_sources(
+        "analytics-other@example.com",
+        ("other-private-source.mp4",),
+    )
+
+    response = c1.get(f"/api/projects/{pid1}/transcription-analytics")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["pragma"] == "no-cache"
+    body = response.json()
+    assert set(body) == {
+        "scope",
+        "totals",
+        "outcomes",
+        "configuration",
+        "durations",
+    }
+    assert body["scope"] == "project_all_time"
+    assert body["totals"] == {"jobs": 1, "sources": 1, "outputs": 0}
+    assert body["outcomes"] == {
+        "queued": 1,
+        "processing": 0,
+        "completed": 0,
+        "failed": 0,
+        "cancelled": 0,
+    }
+    assert body["configuration"] == {
+        "provider_model": {
+            "elevenlabs_scribe_v2": 1,
+            "unknown": 0,
+        },
+        "language_mode": {"ru": 0, "detect": 1, "other": 0},
+        "diarization": {"enabled": 0, "disabled": 1},
+    }
+    assert all(
+        summary == {
+            "sample_count": 0,
+            "average_seconds": None,
+            "p50_seconds": None,
+            "p95_seconds": None,
+        }
+        for summary in body["durations"].values()
+    )
+    for private_marker in (
+        pid1,
+        "analytics-private-source.mp4",
+        "other-private-source.mp4",
+        "folder-test",
+        "provider_credential_id",
+        "document_id",
+        "web_view_url",
+        "provider_request_started_at",
+        "failure_code",
+    ):
+        assert private_marker not in response.text
+
+    anon = TestClient(app)
+    assert (
+        anon.get(f"/api/projects/{pid1}/transcription-analytics").status_code
+        == 401
+    )
+    assert (
+        c1.get(f"/api/projects/{pid2}/transcription-analytics").status_code
+        == 404
+    )
+
+
+def add_output_row(job_id, source_id, *, url="https://docs.google.com/document/d/doc/edit", doc_id=None, persisted_at=None, output_id=None, output_kind="google_doc_transcript"):
     db = SessionLocal()
     try:
         rel = db.query(TranscriptionJobSource).filter_by(job_id=job_id, source_id=source_id).one()
@@ -2162,7 +2300,7 @@ def add_output_row(job_id, source_id, *, url="https://docs.google.com/document/d
             document_id=doc_id or f"doc-{job_id}-{source_id}",
             web_view_url=url,
             output_drive_folder_id="folder-secret-marker",
-            output_kind="google_doc_transcript",
+            output_kind=output_kind,
             transcript_standard="transcript_doc_v1.2",
             document_character_count=42,
             document_created_at=now,
@@ -2174,6 +2312,54 @@ def add_output_row(job_id, source_id, *, url="https://docs.google.com/document/d
         return output.id
     finally:
         db.close()
+
+
+def test_transcript_catalog_query_is_owner_scoped_and_uses_accepted_output_authority():
+    from studio_api.transcript_catalog import (
+        ExistingResultMatchStatus,
+        current_effective_settings,
+        load_existing_result_matches,
+    )
+
+    _c1, _h1, _pid1, jid1, source_ids1 = create_job_with_sources(
+        "catalog-query-owner@example.com",
+        ("shared-drive-source.mp4",),
+    )
+    _c2, _h2, _pid2, jid2, source_ids2 = create_job_with_sources(
+        "catalog-query-other@example.com",
+        ("shared-drive-source.mp4",),
+    )
+    add_output_row(
+        jid1,
+        source_ids1[0],
+        doc_id="catalog-owner-doc",
+        output_kind="google_docs_transcript",
+    )
+    add_output_row(
+        jid2,
+        source_ids2[0],
+        doc_id="catalog-other-doc",
+        output_kind="google_docs_transcript",
+    )
+
+    db = SessionLocal()
+    try:
+        source_row = db.get(Source, source_ids1[0])
+        match = load_existing_result_matches(
+            db,
+            owner_user_id=db.get(TranscriptionJob, jid1).owner_user_id,
+            sources=[source_row],
+            target_settings=current_effective_settings(
+                language_mode="detect",
+                diarization_enabled=False,
+            ),
+        )[source_ids1[0]]
+    finally:
+        db.close()
+
+    assert match.status == ExistingResultMatchStatus.accepted_match
+    assert match.accepted_output_count == 1
+    assert match.matching_settings_count == 1
 
 
 def test_job_output_authentication_and_no_csrf_required():
@@ -2621,7 +2807,7 @@ def _batch_body(source_a, source_b=None, folder_a="folder-a", folder_b="folder-b
     items = [{"source_id": source_a, "output_folder_id": folder_a, "title": "First"}]
     if source_b is not None:
         items.append({"source_id": source_b, "output_folder_id": folder_b, "title": "Second"})
-    body = {"language": "EN", "options": {"diarize": True}, "items": items}
+    body = {"language": "ru", "options": {"diarize": True}, "items": items}
     if credential_id:
         body["provider_credential_id"] = credential_id
     return body
@@ -2636,16 +2822,295 @@ def _count_batch_rows():
         db.close()
 
 
+def _add_accepted_batch_output(user_id, project_id, source_id, credential_id):
+    db = SessionLocal()
+    try:
+        now = utcnow()
+        job = TranscriptionJob(
+            project_id=project_id,
+            owner_user_id=user_id,
+            status=JobStatus.completed,
+            provider_credential_id=credential_id,
+            language="ru",
+            options_json='{"diarize":true}',
+            finished_at=now,
+        )
+        db.add(job); db.flush()
+        rel = TranscriptionJobSource(
+            job_id=job.id,
+            source_id=source_id,
+            position=0,
+            status=JobSourceStatus.queued,
+        )
+        db.add(rel); db.flush()
+        db.add(
+            TranscriptionJobOutput(
+                job_id=job.id,
+                job_source_id=rel.id,
+                document_id=f"accepted-{job.id}",
+                web_view_url=f"https://docs.google.com/document/d/accepted-{job.id}/edit",
+                output_drive_folder_id="accepted-folder",
+                output_kind="google_docs_transcript",
+                transcript_standard="transcript_doc_v1.2",
+                document_character_count=42,
+                document_created_at=now,
+                persisted_at=now,
+                lease_generation=1,
+            )
+        )
+        db.commit()
+        return job.id
+    finally:
+        db.close()
+
+
+def test_legacy_create_cannot_bypass_existing_result_decision_or_set_authority():
+    c, headers, pid = create_logged_in_project("legacy-existing-result@example.com")
+    sid = create_gdrive_source(c, headers, pid)
+    credential_id = prepare_legacy_job_authority(c, headers, pid)
+    db = SessionLocal()
+    try:
+        user_id = db.get(Project, pid).owner_user_id
+    finally:
+        db.close()
+    accepted_job_id = _add_accepted_batch_output(
+        user_id,
+        pid,
+        sid,
+        credential_id,
+    )
+    before = _count_batch_rows()
+
+    blocked = c.post(
+        f"/api/projects/{pid}/jobs",
+        json={
+            "source_ids": [sid],
+            "language": "ru",
+            "options": {"diarize": True},
+        },
+        headers=headers,
+    )
+    assert blocked.status_code == 409
+    assert blocked.json()["detail"] == (
+        "Используйте пакетную проверку для явного решения"
+    )
+    assert accepted_job_id not in blocked.text
+    assert _count_batch_rows() == before
+
+    reserved = c.post(
+        f"/api/projects/{pid}/jobs",
+        json={
+            "source_ids": [sid],
+            "options": {"_existing_result_reprocess_authorized": True},
+        },
+        headers=headers,
+    )
+    assert reserved.status_code == 422
+    assert reserved.json()["detail"] == (
+        "Параметры задания содержат служебное поле"
+    )
+    assert _count_batch_rows() == before
+
+
+def test_batch_preflight_is_safe_ordered_and_does_not_create_rows(monkeypatch):
+    calls = _install_batch_folder_mocks(monkeypatch)
+    c, csrf, _user_id, pid, source_a, source_b, cred_id = _batch_setup(
+        "batch-preflight@example.com"
+    )
+    body = _batch_body(
+        source_a,
+        source_b,
+        folder_a="shared",
+        folder_b="shared",
+        credential_id=cred_id,
+    )
+    before = _count_batch_rows()
+
+    r = c.post(
+        f"/api/projects/{pid}/jobs/batch/preflight",
+        json=body,
+        headers={"origin": "https://studio.test", "x-csrf-token": csrf},
+    )
+
+    assert r.status_code == 200
+    assert r.headers["cache-control"] == "no-store"
+    data = r.json()
+    assert data["language_mode"] == "ru"
+    assert data["diarization_enabled"] is True
+    assert data["summary"] == {
+        "process_count": 2,
+        "skip_count": 0,
+        "blocked_count": 0,
+    }
+    assert data["existing_result_authority"] == {
+        "status": "partial",
+        "reason_code": "studio_outputs_only",
+    }
+    assert [item["source"]["name"] for item in data["items"]] == [
+        "a.mp3",
+        "b.mp3",
+    ]
+    assert [item["output_destination"]["name"] for item in data["items"]] == [
+        "Folder shared",
+        "Folder shared",
+    ]
+    assert all(
+        item["existing_result_match"] == {
+            "status": "no_match",
+            "accepted_output_count": 0,
+            "resolution": "not_required",
+        }
+        and item["planned_outcome"] == "process"
+        and item["source"]["duration_seconds"] is None
+        for item in data["items"]
+    )
+    assert calls.count(("folder", "shared")) == 1
+    assert _count_batch_rows() == before
+    for private_value in (
+        source_a,
+        source_b,
+        cred_id,
+        "objects/a.mp3",
+        "objects/b.mp3",
+        "https://drive.google.com/drive/folders/shared",
+    ):
+        assert private_value not in r.text
+
+
+def test_batch_create_rechecks_existing_result_and_requires_explicit_reprocessing(monkeypatch):
+    _install_batch_folder_mocks(monkeypatch)
+    c, csrf, user_id, pid, source_a, _source_b, cred_id = _batch_setup(
+        "batch-existing-result@example.com"
+    )
+    body = _batch_body(source_a, credential_id=cred_id)
+    preflight_headers = {
+        "origin": "https://studio.test",
+        "x-csrf-token": csrf,
+    }
+
+    initial = c.post(
+        f"/api/projects/{pid}/jobs/batch/preflight",
+        json=body,
+        headers=preflight_headers,
+    )
+    assert initial.status_code == 200
+    assert initial.json()["items"][0]["existing_result_match"]["status"] == "no_match"
+
+    accepted_job_id = _add_accepted_batch_output(
+        user_id,
+        pid,
+        source_a,
+        cred_id,
+    )
+    before_blocked_create = _count_batch_rows()
+    blocked_create = c.post(
+        f"/api/projects/{pid}/jobs/batch",
+        json=body,
+        headers=_batch_headers(csrf),
+    )
+    assert blocked_create.status_code == 409
+    assert _count_batch_rows() == before_blocked_create
+    assert accepted_job_id not in blocked_create.text
+
+    blocked_preview = c.post(
+        f"/api/projects/{pid}/jobs/batch/preflight",
+        json=body,
+        headers=preflight_headers,
+    )
+    assert blocked_preview.status_code == 200
+    assert blocked_preview.json()["summary"] == {
+        "process_count": 0,
+        "skip_count": 0,
+        "blocked_count": 1,
+    }
+    assert blocked_preview.json()["items"][0]["existing_result_match"] == {
+        "status": "accepted_match",
+        "accepted_output_count": 1,
+        "resolution": "required",
+    }
+    assert blocked_preview.json()["items"][0]["planned_outcome"] == "blocked"
+    assert accepted_job_id not in blocked_preview.text
+
+    body["items"][0]["reprocess_existing"] = True
+    approved_preview = c.post(
+        f"/api/projects/{pid}/jobs/batch/preflight",
+        json=body,
+        headers=preflight_headers,
+    )
+    assert approved_preview.status_code == 200
+    assert approved_preview.json()["summary"] == {
+        "process_count": 1,
+        "skip_count": 0,
+        "blocked_count": 0,
+    }
+    assert approved_preview.json()["items"][0]["existing_result_match"]["resolution"] == "reprocess"
+    assert approved_preview.json()["items"][0]["planned_outcome"] == "process"
+
+    created = c.post(
+        f"/api/projects/{pid}/jobs/batch",
+        json=body,
+        headers=_batch_headers(csrf),
+    )
+    assert created.status_code == 200
+    assert created.json()["created_count"] == 1
+    assert _count_batch_rows() == (
+        before_blocked_create[0] + 1,
+        before_blocked_create[1] + 1,
+    )
+    assert "_existing_result_reprocess_authorized" not in created.text
+    db = SessionLocal()
+    try:
+        created_job = (
+            db.query(TranscriptionJob)
+            .filter(
+                TranscriptionJob.project_id == pid,
+                TranscriptionJob.id != accepted_job_id,
+            )
+            .one()
+        )
+        assert created_job.options_json == (
+            '{"_existing_result_reprocess_authorized":true,"diarize":true}'
+        )
+    finally:
+        db.close()
+
+
+def test_batch_preflight_requires_csrf_and_rejects_invalid_targets_without_rows(monkeypatch):
+    _install_batch_folder_mocks(monkeypatch)
+    c, csrf, _user_id, pid, source_a, _source_b, _cred_id = _batch_setup(
+        "batch-preflight-reject@example.com"
+    )
+    body = _batch_body(source_a)
+    before = _count_batch_rows()
+
+    assert c.post(f"/api/projects/{pid}/jobs/batch/preflight", json=body).status_code == 403
+    assert c.post(
+        f"/api/projects/{pid}/jobs/batch/preflight",
+        json={"items": [body["items"][0], body["items"][0]]},
+        headers={"origin": "https://studio.test", "x-csrf-token": csrf},
+    ).status_code == 422
+    assert c.post(
+        f"/api/projects/{pid}/jobs/batch/preflight",
+        json={"items": [{"source_id": "missing-source", "output_folder_id": "folder-a"}]},
+        headers={"origin": "https://studio.test", "x-csrf-token": csrf},
+    ).status_code == 422
+    assert _count_batch_rows() == before
+
+
 def test_batch_explicit_active_owner_elevenlabs_credential_saved(monkeypatch):
     _install_batch_folder_mocks(monkeypatch)
     c, csrf, user_id, pid, source_a, source_b, cred_id = _batch_setup("batch-explicit-eleven@example.com")
-    r = c.post(f"/api/projects/{pid}/jobs/batch", json=_batch_body(source_a, credential_id=cred_id), headers=_batch_headers(csrf))
+    body = _batch_body(source_a, credential_id=cred_id)
+    body["language"] = "detect"
+    r = c.post(f"/api/projects/{pid}/jobs/batch", json=body, headers=_batch_headers(csrf))
     assert r.status_code == 200
     assert all("provider_credential_id" not in job for job in r.json()["jobs"])
+    assert r.json()["jobs"][0]["language_mode"] == "detect"
     db = SessionLocal()
     try:
         job = db.query(TranscriptionJob).filter_by(project_id=pid).one()
         assert job.provider_credential_id == cred_id
+        assert job.language == "detect"
     finally:
         db.close()
 
@@ -2752,6 +3217,8 @@ def test_batch_jobs_create_two_one_source_jobs_safe_payload_and_same_source_diff
     assert r.status_code == 200
     data = r.json(); assert data["created_count"] == 2 and data["replayed"] is False
     assert [job["title"] for job in data["jobs"]] == ["First", "Second"]
+    assert [job["language_mode"] for job in data["jobs"]] == ["ru", "ru"]
+    assert [job["diarization_enabled"] for job in data["jobs"]] == [True, True]
     assert "output_drive_folder_id" not in r.text and "batch-key-1" not in r.text and "batch_request_hash" not in r.text and "batch_position" not in r.text
     assert data["jobs"][0]["output_folder"] == {"name": "Folder folder-a", "web_view_url": "https://drive.google.com/drive/folders/folder-a"}
     db = SessionLocal()
@@ -2759,6 +3226,7 @@ def test_batch_jobs_create_two_one_source_jobs_safe_payload_and_same_source_diff
         jobs = db.query(TranscriptionJob).filter_by(project_id=pid).order_by(TranscriptionJob.batch_position).all()
         assert len(jobs) == 2
         assert [j.output_drive_folder_id for j in jobs] == ["folder-a", "folder-b"]
+        assert [j.options_json for j in jobs] == ['{"diarize":true}', '{"diarize":true}']
         assert all(len(j.sources) == 1 and j.sources[0].position == 0 for j in jobs)
     finally:
         db.close()
@@ -2784,6 +3252,11 @@ def test_batch_jobs_duplicate_pair_and_atomic_validation_failures(monkeypatch):
     finally:
         after.close()
     cases = [
+        ({"language": "fr", "items": [{"source_id": source_a, "output_folder_id": "folder-a"}]}, "bad-key-language"),
+        ({"options": {"diarize": "yes"}, "items": [{"source_id": source_a, "output_folder_id": "folder-a"}]}, "bad-key-diarize-type"),
+        ({"options": {"diarize": True, "keyterms": ["deferred"]}, "items": [{"source_id": source_a, "output_folder_id": "folder-a"}]}, "bad-key-options-extra"),
+        ({"items": [{"source_id": source_a, "output_folder_id": "folder-a", "reprocess_existing": "yes"}]}, "bad-key-reprocess-type"),
+        ({"items": [{"source_id": source_a, "output_folder_id": "folder-a", "unexpected": True}]}, "bad-key-item-extra"),
         ({"items": [{"source_id": "missing-source", "output_folder_id": "folder-a"}]}, "bad-key-1"),
         ({"provider_credential_id": "missing-cred", "items": [{"source_id": source_a, "output_folder_id": "folder-a"}]}, "bad-key-2"),
         ({"items": [{"source_id": source_a, "output_folder_id": "bad-folder"}]}, "bad-key-3"),
@@ -2840,10 +3313,11 @@ def test_batch_jobs_exact_replay_skips_current_validation_and_conflicts_skip_goo
         {**body, "items": [{"source_id": source_b, "output_folder_id": "shared", "title": "Dup"}, {"source_id": source_b, "output_folder_id": "shared", "title": "Dup"}]},
         _batch_body(source_b, source_b, folder_a="shared", folder_b="shared", credential_id=cred_id),
         _batch_body(source_a, source_b, folder_a="changed", folder_b="shared", credential_id=cred_id),
-        {**body, "language": "fr"},
+        {**body, "language": "detect"},
         {**body, "options": {"diarize": False}},
         {**body, "items": list(reversed(body["items"]))},
         {**body, "items": [{**body["items"][0], "title": "Changed"}, body["items"][1]]},
+        {**body, "items": [{**body["items"][0], "reprocess_existing": True}, body["items"][1]]},
     ]
     for idx, conflict in enumerate(conflict_bodies):
         calls.clear()

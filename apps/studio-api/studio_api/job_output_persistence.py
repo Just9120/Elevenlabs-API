@@ -11,9 +11,10 @@ from sqlalchemy.orm import Session
 from .google_docs_output import GoogleDocsOutputError, GoogleDocsOutputReason, GoogleDocsTranscriptArtifact
 from .job_claim_lease import invalidate_job_lease, is_lease_active
 from .models import JobSourceStatus, JobStatus, OutputReconciliationStatus, Project, Source, SourceUploadStatus, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, TranscriptionOutputReconciliation
-
-GOOGLE_DOCS_TRANSCRIPT_OUTPUT_KIND = "google_docs_transcript"
-TRANSCRIPT_STANDARD = "transcript_doc_v1.2"
+from .transcript_catalog import (
+    CURRENT_TRANSCRIPT_STANDARD as TRANSCRIPT_STANDARD,
+    GOOGLE_DOCS_TRANSCRIPT_OUTPUT_KIND,
+)
 
 
 class JobOutputPersistenceReason(str, Enum):
