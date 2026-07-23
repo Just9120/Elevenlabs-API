@@ -2,6 +2,11 @@ from __future__ import annotations
 
 from typing import Any, Sequence
 
+from .transcript_catalog import (
+    CURRENT_TRANSCRIPTION_MODEL,
+    CURRENT_TRANSCRIPTION_PROVIDER,
+)
+
 
 def build_batch_preflight_payload(
     *,
@@ -55,8 +60,8 @@ def build_batch_preflight_payload(
         )
 
     return {
-        "provider": "elevenlabs",
-        "model": "scribe_v2",
+        "provider": CURRENT_TRANSCRIPTION_PROVIDER,
+        "model": CURRENT_TRANSCRIPTION_MODEL,
         "language_mode": language_mode,
         "diarization_enabled": bool(diarization_enabled),
         "existing_result_authority": {

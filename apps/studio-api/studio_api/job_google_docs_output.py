@@ -24,6 +24,7 @@ from .job_source_materialization import SourceMaterializationError, _load_select
 from .models import JobStatus, Project, TranscriptionJob, TranscriptionJobOutput
 from .security import utcnow
 from .job_output_reconciliation import OutputReconciliationError, OutputReconciliationReason, prepare_output_reconciliation_case, mark_reconciliation_creation_returned
+from .transcript_catalog import CURRENT_TRANSCRIPTION_MODEL
 from .transcription_options import document_language, job_diarization_enabled
 
 
@@ -208,7 +209,7 @@ def format_transcript_doc_v1_2(*, title: str, transcript_text: str, job_language
     lang = document_language(job_language, detected_language_code)
     ts = _utc_iso(created_at)
     speakers = "yes" if diarization_enabled else "no"
-    body = f"{safe_title}\n\nTranscript metadata\nProvider: ElevenLabs\nModel: scribe_v2\nLanguage: {lang}\nSpeakers: {speakers}\nCreated at: {ts}\n\nTranscript\n\n{transcript_text}"
+    body = f"{safe_title}\n\nTranscript metadata\nProvider: ElevenLabs\nModel: {CURRENT_TRANSCRIPTION_MODEL}\nLanguage: {lang}\nSpeakers: {speakers}\nCreated at: {ts}\n\nTranscript\n\n{transcript_text}"
     return FormattedTranscriptDocument(title=safe_title, body=body, language=lang, created_at=created_at)
 
 

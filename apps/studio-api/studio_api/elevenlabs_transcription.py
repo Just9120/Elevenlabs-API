@@ -7,6 +7,8 @@ from typing import Any, BinaryIO, Callable, Mapping, Sequence
 
 import httpx
 
+from .transcript_catalog import CURRENT_TRANSCRIPTION_MODEL
+
 ELEVENLABS_SPEECH_TO_TEXT_URL = "https://api.elevenlabs.io/v1/speech-to-text"
 
 
@@ -134,7 +136,7 @@ class ElevenLabsTranscriptionTransport:
         self, *, api_key: str, stream: BinaryIO, filename: str, mime_type: str, language_code: str | None = None, diarize: bool = False
     ) -> ElevenLabsTranscriptResult:
         data: dict[str, str] = {
-            "model_id": "scribe_v2",
+            "model_id": CURRENT_TRANSCRIPTION_MODEL,
             "no_verbatim": "false",
             "temperature": "0",
             "tag_audio_events": "false",

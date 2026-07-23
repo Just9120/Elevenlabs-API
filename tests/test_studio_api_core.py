@@ -2287,7 +2287,7 @@ def test_project_transcription_analytics_is_owner_scoped_no_store_and_aggregate_
     )
 
 
-def add_output_row(job_id, source_id, *, url="https://docs.google.com/document/d/doc/edit", doc_id=None, persisted_at=None, output_id=None):
+def add_output_row(job_id, source_id, *, url="https://docs.google.com/document/d/doc/edit", doc_id=None, persisted_at=None, output_id=None, output_kind="google_doc_transcript"):
     db = SessionLocal()
     try:
         rel = db.query(TranscriptionJobSource).filter_by(job_id=job_id, source_id=source_id).one()
@@ -2300,7 +2300,7 @@ def add_output_row(job_id, source_id, *, url="https://docs.google.com/document/d
             document_id=doc_id or f"doc-{job_id}-{source_id}",
             web_view_url=url,
             output_drive_folder_id="folder-secret-marker",
-            output_kind="google_doc_transcript",
+            output_kind=output_kind,
             transcript_standard="transcript_doc_v1.2",
             document_character_count=42,
             document_created_at=now,
@@ -2312,6 +2312,54 @@ def add_output_row(job_id, source_id, *, url="https://docs.google.com/document/d
         return output.id
     finally:
         db.close()
+
+
+def test_transcript_catalog_query_is_owner_scoped_and_uses_accepted_output_authority():
+    from studio_api.transcript_catalog import (
+        ExistingResultMatchStatus,
+        current_effective_settings,
+        load_existing_result_matches,
+    )
+
+    _c1, _h1, _pid1, jid1, source_ids1 = create_job_with_sources(
+        "catalog-query-owner@example.com",
+        ("shared-drive-source.mp4",),
+    )
+    _c2, _h2, _pid2, jid2, source_ids2 = create_job_with_sources(
+        "catalog-query-other@example.com",
+        ("shared-drive-source.mp4",),
+    )
+    add_output_row(
+        jid1,
+        source_ids1[0],
+        doc_id="catalog-owner-doc",
+        output_kind="google_docs_transcript",
+    )
+    add_output_row(
+        jid2,
+        source_ids2[0],
+        doc_id="catalog-other-doc",
+        output_kind="google_docs_transcript",
+    )
+
+    db = SessionLocal()
+    try:
+        source_row = db.get(Source, source_ids1[0])
+        match = load_existing_result_matches(
+            db,
+            owner_user_id=db.get(TranscriptionJob, jid1).owner_user_id,
+            sources=[source_row],
+            target_settings=current_effective_settings(
+                language_mode="detect",
+                diarization_enabled=False,
+            ),
+        )[source_ids1[0]]
+    finally:
+        db.close()
+
+    assert match.status == ExistingResultMatchStatus.accepted_match
+    assert match.accepted_output_count == 1
+    assert match.matching_settings_count == 1
 
 
 def test_job_output_authentication_and_no_csrf_required():
