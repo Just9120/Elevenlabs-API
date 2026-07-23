@@ -1961,6 +1961,11 @@ describe("Studio PWA", () => {
       await screen.findByText("Google Drive не подключён"),
     ).toBeInTheDocument();
     expect(
+      screen.getByText(
+        "Подключите Google Drive, чтобы выбирать файлы и папку результатов.",
+      ),
+    ).toBeInTheDocument();
+    expect(
       screen.getByRole("button", { name: "Подключить Google Drive" }),
     ).toBeInTheDocument();
     expect(fetch).toHaveBeenCalledWith(
@@ -2011,6 +2016,11 @@ describe("Studio PWA", () => {
     expect(
       await screen.findByText("Google Drive подключён"),
     ).toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        "Подключите Google Drive, чтобы выбирать файлы и папку результатов.",
+      ),
+    ).not.toBeInTheDocument();
     expect(screen.getByText("safe.user@example.com")).toBeInTheDocument();
     expect(screen.getByText("active")).toBeInTheDocument();
     expect(
@@ -6657,6 +6667,10 @@ describe("settings diagnostics", () => {
     expect(await screen.findByText("web-build")).toBeInTheDocument();
     expect(screen.getByText("api-build")).toBeInTheDocument();
     expect(screen.getByText("worker-build")).toBeInTheDocument();
+    expect(
+      screen.getByText("Разрешение Google Drive получено"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Google Drive готов")).not.toBeInTheDocument();
     expect(screen.getByText("JOB_FAILED")).toBeInTheDocument();
     expect(screen.getAllByText("Ошибка").length).toBeGreaterThan(0);
     expect(screen.getAllByText("API").length).toBeGreaterThan(0);

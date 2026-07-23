@@ -2879,8 +2879,23 @@ function SettingsPage({
             ))}
           </div>
           <h3>Google Drive</h3>
-          <p className="notice">
-            Подключите Google Drive, чтобы выбирать файлы и папку результатов.
+          <p
+            className={
+              googleConnection?.connected && googleConnection.picker_ready
+                ? "muted"
+                : "notice"
+            }
+          >
+            {googleLoading
+              ? "Проверяем подключение Google Drive…"
+              : googleConnection?.connected
+                ? googleConnection.picker_ready
+                  ? "Google Drive подключён. Актуальность доступа проверяется при каждом открытии Picker."
+                  : googleConnection.reconnect_required ||
+                      !googleConnection.picker_scope_ready
+                    ? "Подключение Google Drive нужно обновить, чтобы выбирать файлы и папку результатов."
+                    : "Google Drive подключён, но Google Picker пока не настроен."
+                : "Подключите Google Drive, чтобы выбирать файлы и папку результатов."}
           </p>
           <article className="card">
             <span className="tag">Google Drive</span>
@@ -3214,7 +3229,7 @@ function DiagnosticsSettings({
             <dd>{safeText(system.environment ?? system.pwa_mode)}</dd>
             <dt>Google Drive подключён</dt>
             <dd>{boolText(system.google_drive?.connected)}</dd>
-            <dt>Google Drive готов</dt>
+            <dt>Разрешение Google Drive получено</dt>
             <dd>{boolText(system.google_drive?.scope_ready)}</dd>
             <dt>Ключи готовы</dt>
             <dd>{boolText(system.provider_credentials?.ready)}</dd>
