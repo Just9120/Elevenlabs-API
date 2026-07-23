@@ -2603,7 +2603,9 @@ def test_google_picker_session_csrf_scope_config_and_safe_response(monkeypatch):
     headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
     assert c.post("/api/google/picker/session", headers={"origin": "https://evil.test", "x-csrf-token": csrf}).status_code == 403
     assert c.post("/api/google/picker/session", headers={"origin": "https://studio.test", "x-csrf-token": "bad"}).status_code == 403
-    assert c.post("/api/google/picker/session", headers=headers).status_code == 503
+    unavailable = c.post("/api/google/picker/session", headers=headers)
+    assert unavailable.status_code == 503
+    assert unavailable.json() == {"detail": "google_picker_not_configured"}
     monkeypatch.setattr(main.settings, "google_picker_api_key", "public-key")
     monkeypatch.setattr(main.settings, "google_picker_app_id", "123456")
     assert c.post("/api/google/picker/session", headers=headers).status_code == 404
@@ -2614,6 +2616,29 @@ def test_google_picker_session_csrf_scope_config_and_safe_response(monkeypatch):
     assert c.post("/api/google/picker/session", headers=headers).status_code == 409
     with engine.begin() as conn:
         conn.execute(text("UPDATE google_connections SET scopes='openid email https://www.googleapis.com/auth/drive.file'"))
+    from studio_api.google_connection_access import GoogleConnectionAccessError, GoogleConnectionAccessReason
+    monkeypatch.setattr(
+        main,
+        "refresh_user_google_drive_access_token",
+        lambda *a, **k: (_ for _ in ()).throw(
+            GoogleConnectionAccessError(
+                GoogleConnectionAccessReason.reauthorization_required
+            )
+        ),
+    )
+    reconnect = c.post("/api/google/picker/session", headers=headers)
+    assert reconnect.status_code == 409
+    assert reconnect.json() == {"detail": "google_reauthorization_required"}
+    monkeypatch.setattr(
+        main,
+        "refresh_user_google_drive_access_token",
+        lambda *a, **k: (_ for _ in ()).throw(
+            GoogleConnectionAccessError(GoogleConnectionAccessReason.token_unavailable)
+        ),
+    )
+    transient = c.post("/api/google/picker/session", headers=headers)
+    assert transient.status_code == 502
+    assert transient.json() == {"detail": "google_token_unavailable"}
     monkeypatch.setattr(main, "refresh_user_google_drive_access_token", lambda *a, **k: "short-access-token")
     r = c.post("/api/google/picker/session", headers=headers)
     assert r.status_code == 200

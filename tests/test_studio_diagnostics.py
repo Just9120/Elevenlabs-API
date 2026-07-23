@@ -81,6 +81,44 @@ def test_unhandled_api_event_registry_accepts_only_safe_aggregate_metadata(db):
     rejected=write_diagnostic_event(owner_user_id=u.id, component="api", event_code="API_UNHANDLED_EXCEPTION", metadata={"endpoint_group":"jobs", "http_status_category":"5xx", "exception":"private"}, session_factory=Session)
     assert rejected.accepted is False
 
+
+def test_google_picker_failure_event_accepts_only_safe_reason(db):
+    from studio_api import models as m
+    from studio_api.diagnostics import write_diagnostic_event
+    u,_,_=user_project_job(db)
+    Session=sessionmaker(bind=db.bind, expire_on_commit=False)
+    result=write_diagnostic_event(
+        owner_user_id=u.id,
+        component="api",
+        event_code="GOOGLE_PICKER_SESSION_FAILED",
+        metadata={
+            "reason":"google_reauthorization_required",
+            "retryable":False,
+            "http_status_category":"4xx",
+        },
+        session_factory=Session,
+    )
+    assert result.persisted
+    row=db.query(m.DiagnosticEvent).filter_by(event_code="GOOGLE_PICKER_SESSION_FAILED").one()
+    assert json.loads(row.metadata_json) == {
+        "http_status_category":"4xx",
+        "reason":"google_reauthorization_required",
+        "retryable":False,
+    }
+    rejected=write_diagnostic_event(
+        owner_user_id=u.id,
+        component="api",
+        event_code="GOOGLE_PICKER_SESSION_FAILED",
+        metadata={
+            "reason":"invalid_grant",
+            "retryable":False,
+            "http_status_category":"4xx",
+        },
+        session_factory=Session,
+    )
+    assert rejected.accepted is False
+
+
 def test_secret_like_request_and_correlation_ids_are_rejected(db):
     from studio_api import models as m
     from studio_api.diagnostics import valid_correlation_id, valid_request_id, write_diagnostic_event

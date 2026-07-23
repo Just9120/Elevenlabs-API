@@ -474,25 +474,63 @@ def get_source_upload_policy(response: Response, pair=Depends(current_session)):
         local_upload_enabled=settings.source_storage_configured(),
     )
 
+def _raise_google_picker_session_failure(
+    request: Request,
+    user: User,
+    *,
+    reason: str,
+    status_code: int,
+    retryable: bool,
+) -> None:
+    write_diagnostic_event(
+        owner_user_id=user.id,
+        component="api",
+        event_code="GOOGLE_PICKER_SESSION_FAILED",
+        request_id=getattr(request.state, "request_id", None),
+        correlation_id=getattr(request.state, "correlation_id", None),
+        metadata={
+            "reason": reason,
+            "retryable": retryable,
+            "http_status_category": f"{status_code // 100}xx",
+        },
+    )
+    raise HTTPException(status_code, reason)
+
+
 @app.post("/api/google/picker/session")
-def create_google_picker_session(response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+def create_google_picker_session(request: Request, response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     _,user=pair; limiter.check("google:picker:session:"+user.id, 30, 300); _browser_capability_cache_headers(response)
     if not settings.google_picker_configured():
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Google Picker is not configured")
+        _raise_google_picker_session_failure(
+            request,
+            user,
+            reason="google_picker_not_configured",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            retryable=False,
+        )
     try:
         conn=active_google_connection_for_user(db, user_id=user.id)
         require_picker_browser_scope_boundary(conn)
         access_token=refresh_user_google_drive_access_token(db, user_id=user.id, settings=settings)
     except GoogleConnectionAccessError as exc:
-        if exc.reason == GoogleConnectionAccessReason.missing:
-            raise HTTPException(404, "Google Drive connection is not connected")
-        if exc.reason == GoogleConnectionAccessReason.inactive:
-            raise HTTPException(409, "Google Drive connection is not active")
-        if exc.reason == GoogleConnectionAccessReason.scope_unavailable:
-            raise HTTPException(409, "Google Drive reconnect is required")
-        if exc.reason == GoogleConnectionAccessReason.config_unavailable:
-            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Google OAuth is not configured")
-        raise HTTPException(502, "Google Picker session is unavailable")
+        status_code, retryable = {
+            GoogleConnectionAccessReason.missing: (404, False),
+            GoogleConnectionAccessReason.inactive: (409, False),
+            GoogleConnectionAccessReason.reauthorization_required: (409, False),
+            GoogleConnectionAccessReason.scope_unavailable: (409, False),
+            GoogleConnectionAccessReason.config_unavailable: (
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                False,
+            ),
+            GoogleConnectionAccessReason.token_unavailable: (502, True),
+        }[exc.reason]
+        _raise_google_picker_session_failure(
+            request,
+            user,
+            reason=exc.reason.value,
+            status_code=status_code,
+            retryable=retryable,
+        )
     return {"access_token": access_token, "api_key": settings.google_picker_api_key.strip(), "app_id": settings.google_picker_app_id.strip(), "scope_ready": True}
 
 def _validated_drive_metadata_for_picker(db: Session, user: User, drive_id: str):
