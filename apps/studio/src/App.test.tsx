@@ -2394,6 +2394,14 @@ describe("Studio PWA", () => {
     await userEvent.click(
       screen.getByRole("button", { name: "Добавить строку" }),
     );
+    expect(
+      screen.getByRole("status", { name: "Результат добавления строки" }),
+    ).toHaveTextContent("Добавлена строка 2. Выберите источник.");
+    await waitFor(() =>
+      expect(
+        screen.getByLabelText("Существующий файл для строки 2"),
+      ).toHaveFocus(),
+    );
     await chooseExistingSource(2, "Лекция 1");
     await chooseResultFolder(2);
     expect(readiness).toHaveTextContent("Готово: 0 из 2");

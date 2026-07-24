@@ -315,8 +315,14 @@ function PreparationPanel({
   const [rowIntakeErrors, setRowIntakeErrors] = useState<
     Record<string, string>
   >({});
+  const [recentlyAddedRow, setRecentlyAddedRow] = useState<{
+    id: string;
+    number: number;
+  } | null>(null);
+  const [rowAdditionStatus, setRowAdditionStatus] = useState("");
   const rowFolderPickerRef = useRef(false);
   const rowSourcePickerRef = useRef(false);
+  const rowElementRefs = useRef(new Map<string, HTMLLIElement>());
   const reloadJobsRef = useRef(onReloadJobs);
   useEffect(() => {
     reloadJobsRef.current = onReloadJobs;
@@ -334,7 +340,39 @@ function PreparationPanel({
     setProgress({});
     setLanguageMode(DEFAULT_TRANSCRIPTION_LANGUAGE_MODE);
     setDiarizationEnabled(false);
+    setRecentlyAddedRow(null);
+    setRowAdditionStatus("");
   }, [project.id]);
+  useEffect(() => {
+    if (!recentlyAddedRow) return;
+    const rowElement = rowElementRefs.current.get(recentlyAddedRow.id);
+    const sourceSelect = rowElement?.querySelector<HTMLSelectElement>(
+      'select[aria-label^="Существующий файл"]',
+    );
+    const reducedMotion =
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    sourceSelect?.focus({ preventScroll: true });
+    rowElement?.scrollIntoView?.({
+      behavior: reducedMotion ? "auto" : "smooth",
+      block: "nearest",
+    });
+    setRowAdditionStatus(
+      `Добавлена строка ${recentlyAddedRow.number}. Выберите источник.`,
+    );
+    const highlightTimeout = window.setTimeout(
+      () => setRecentlyAddedRow(null),
+      1000,
+    );
+    return () => window.clearTimeout(highlightTimeout);
+  }, [recentlyAddedRow]);
+  useEffect(() => {
+    if (!rowAdditionStatus) return;
+    const statusTimeout = window.setTimeout(
+      () => setRowAdditionStatus(""),
+      4000,
+    );
+    return () => window.clearTimeout(statusTimeout);
+  }, [rowAdditionStatus]);
   useEffect(() => {
     let cancelled = false;
     setCredentialsLoading(true);
@@ -773,20 +811,10 @@ function PreparationPanel({
       current.map((row) => (row.id === rowId ? { ...row, ...patch } : row)),
     );
   }
-  function addRow(sourceId = "") {
-    setRows((current) => {
-      if (sourceId) {
-        const emptyIndex = current.findIndex((row) => !row.source_id);
-        if (emptyIndex >= 0) {
-          return current.map((row, index) =>
-            index === emptyIndex
-              ? { ...row, source_id: sourceId, reprocess_existing: false }
-              : row,
-          );
-        }
-      }
-      return [...current, { ...newComposerRow(), source_id: sourceId }];
-    });
+  function addRow() {
+    const row = newComposerRow();
+    setRows((current) => [...current, row]);
+    setRecentlyAddedRow({ id: row.id, number: rows.length + 1 });
   }
   function moveRow(index: number, direction: -1 | 1) {
     setRows((current) => {
@@ -1172,9 +1200,19 @@ function PreparationPanel({
               папка результата.
             </p>
           </div>
-          <button type="button" className="secondary" onClick={() => addRow()}>
-            Добавить строку
-          </button>
+          <div className="composer-add-row">
+            <button type="button" className="secondary" onClick={addRow}>
+              Добавить строку
+            </button>
+            <span
+              className="composer-add-row-status"
+              role="status"
+              aria-live="polite"
+              aria-label="Результат добавления строки"
+            >
+              {rowAdditionStatus}
+            </span>
+          </div>
         </div>
         <div className="provider-card">
           <div>
@@ -1342,9 +1380,17 @@ function PreparationPanel({
               const rowReady = rowReadiness.ready;
               return (
                 <li
-                  className="composer-row"
+                  className={`composer-row${
+                    recentlyAddedRow?.id === row.id
+                      ? " composer-row-added"
+                      : ""
+                  }`}
                   key={row.id}
                   aria-label={`Задача ${index + 1}`}
+                  ref={(element) => {
+                    if (element) rowElementRefs.current.set(row.id, element);
+                    else rowElementRefs.current.delete(row.id);
+                  }}
                 >
                   <div className="composer-row-header">
                     <div>
