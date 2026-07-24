@@ -37,11 +37,14 @@ def seed() -> None:
         OutputReconciliationStatus,
         Project,
         Source,
+        SourceAttemptRetryDisposition,
+        SourceAttemptStage,
         SourceType,
         SourceUploadStatus,
         TranscriptionJob,
         TranscriptionJobOutput,
         TranscriptionJobSource,
+        TranscriptionJobSourceAttempt,
         TranscriptionOutputReconciliation,
         User,
         UserRole,
@@ -164,6 +167,224 @@ def seed() -> None:
                 resolved_at=now - timedelta(minutes=1),
                 created_at=now - timedelta(minutes=1, seconds=5),
                 updated_at=now - timedelta(minutes=1),
+            )
+        )
+
+        uncertain_job = TranscriptionJob(
+            project_id=project.id,
+            owner_user_id=user.id,
+            status=JobStatus.failed,
+            provider="elevenlabs",
+            title="Browser E2E uncertain provider job",
+            output_drive_folder_id=project.output_drive_folder_id,
+            output_drive_folder_url=project.output_drive_folder_url,
+            output_drive_folder_name=project.output_drive_folder_name,
+            attempt_count=1,
+            lease_generation=1,
+            started_at=now - timedelta(seconds=45),
+            finished_at=now - timedelta(seconds=30),
+            error_code="provider_timeout",
+            error_message="provider_timeout",
+        )
+        db.add(uncertain_job)
+        db.flush()
+        uncertain_relation = TranscriptionJobSource(
+            job_id=uncertain_job.id,
+            source_id=source.id,
+            position=0,
+            status=JobSourceStatus.queued,
+        )
+        db.add(uncertain_relation)
+        db.flush()
+        db.add(
+            TranscriptionJobSourceAttempt(
+                owner_user_id=user.id,
+                project_id=project.id,
+                job_id=uncertain_job.id,
+                job_source_id=uncertain_relation.id,
+                attempt_number=1,
+                stage=SourceAttemptStage.failed,
+                retry_disposition=(
+                    SourceAttemptRetryDisposition.provider_outcome_uncertain
+                ),
+                failure_code="provider_timeout",
+                provider_request_started_at=now - timedelta(seconds=40),
+                failed_at=now - timedelta(seconds=30),
+                created_at=now - timedelta(seconds=45),
+                updated_at=now - timedelta(seconds=30),
+            )
+        )
+
+        retry_safe_job = TranscriptionJob(
+            project_id=project.id,
+            owner_user_id=user.id,
+            status=JobStatus.failed,
+            provider="elevenlabs",
+            title="Browser E2E retry-safe provider job",
+            output_drive_folder_id=project.output_drive_folder_id,
+            output_drive_folder_url=project.output_drive_folder_url,
+            output_drive_folder_name=project.output_drive_folder_name,
+            attempt_count=1,
+            lease_generation=1,
+            started_at=now - timedelta(seconds=38),
+            finished_at=now - timedelta(seconds=28),
+            error_code="provider_rate_limited",
+            error_message="provider_rate_limited",
+        )
+        db.add(retry_safe_job)
+        db.flush()
+        retry_safe_relation = TranscriptionJobSource(
+            job_id=retry_safe_job.id,
+            source_id=source.id,
+            position=0,
+            status=JobSourceStatus.queued,
+        )
+        db.add(retry_safe_relation)
+        db.flush()
+        db.add(
+            TranscriptionJobSourceAttempt(
+                owner_user_id=user.id,
+                project_id=project.id,
+                job_id=retry_safe_job.id,
+                job_source_id=retry_safe_relation.id,
+                attempt_number=1,
+                stage=SourceAttemptStage.failed,
+                retry_disposition=SourceAttemptRetryDisposition.retry_safe,
+                failure_code="provider_rate_limited",
+                provider_request_started_at=now - timedelta(seconds=35),
+                failed_at=now - timedelta(seconds=28),
+                created_at=now - timedelta(seconds=38),
+                updated_at=now - timedelta(seconds=28),
+            )
+        )
+
+        reconciliation_job = TranscriptionJob(
+            project_id=project.id,
+            owner_user_id=user.id,
+            status=JobStatus.failed,
+            provider="elevenlabs",
+            title="Browser E2E reconciliation required job",
+            output_drive_folder_id=project.output_drive_folder_id,
+            output_drive_folder_url=project.output_drive_folder_url,
+            output_drive_folder_name=project.output_drive_folder_name,
+            attempt_count=1,
+            lease_generation=1,
+            started_at=now - timedelta(seconds=25),
+            finished_at=now - timedelta(seconds=10),
+            error_code="output_reconciliation_required",
+            error_message="output_reconciliation_required",
+        )
+        db.add(reconciliation_job)
+        db.flush()
+        reconciliation_relation = TranscriptionJobSource(
+            job_id=reconciliation_job.id,
+            source_id=source.id,
+            position=0,
+            status=JobSourceStatus.queued,
+        )
+        db.add(reconciliation_relation)
+        db.flush()
+        db.add(
+            TranscriptionJobSourceAttempt(
+                owner_user_id=user.id,
+                project_id=project.id,
+                job_id=reconciliation_job.id,
+                job_source_id=reconciliation_relation.id,
+                attempt_number=1,
+                stage=SourceAttemptStage.google_handoff,
+                retry_disposition=(
+                    SourceAttemptRetryDisposition.output_reconciliation_required
+                ),
+                failure_code="output_reconciliation_required",
+                provider_request_started_at=now - timedelta(seconds=22),
+                provider_response_returned_at=now - timedelta(seconds=18),
+                failed_at=now - timedelta(seconds=10),
+                created_at=now - timedelta(seconds=25),
+                updated_at=now - timedelta(seconds=10),
+            )
+        )
+        db.add(
+            TranscriptionOutputReconciliation(
+                owner_user_id=user.id,
+                project_id=project.id,
+                job_id=reconciliation_job.id,
+                job_source_id=reconciliation_relation.id,
+                reconciliation_token="or_browser_e2e_pending",
+                lease_generation=1,
+                attempt_number=1,
+                status=OutputReconciliationStatus.reconciliation_required,
+                uncertainty_reason="google_docs_timeout",
+                expected_output_drive_folder_id="browser-e2e-folder",
+                expected_document_title="Browser E2E pending document",
+                expected_document_character_count=84,
+                prepared_at=now - timedelta(seconds=17),
+                creation_started_at=now - timedelta(seconds=16),
+                created_at=now - timedelta(seconds=17),
+                updated_at=now - timedelta(seconds=10),
+            )
+        )
+
+        queued_job = TranscriptionJob(
+            project_id=project.id,
+            owner_user_id=user.id,
+            status=JobStatus.queued,
+            provider="elevenlabs",
+            title="Browser E2E queued cancellation job",
+            output_drive_folder_id=project.output_drive_folder_id,
+            output_drive_folder_url=project.output_drive_folder_url,
+            output_drive_folder_name=project.output_drive_folder_name,
+            attempt_count=0,
+            lease_generation=0,
+        )
+        db.add(queued_job)
+        db.flush()
+        db.add(
+            TranscriptionJobSource(
+                job_id=queued_job.id,
+                source_id=source.id,
+                position=0,
+                status=JobSourceStatus.queued,
+            )
+        )
+
+        processing_job = TranscriptionJob(
+            project_id=project.id,
+            owner_user_id=user.id,
+            status=JobStatus.processing,
+            provider="elevenlabs",
+            title="Browser E2E processing cancellation job",
+            output_drive_folder_id=project.output_drive_folder_id,
+            output_drive_folder_url=project.output_drive_folder_url,
+            output_drive_folder_name=project.output_drive_folder_name,
+            attempt_count=1,
+            lease_owner_id="browser-e2e-worker",
+            lease_generation=1,
+            claimed_at=now - timedelta(seconds=8),
+            lease_expires_at=now + timedelta(minutes=10),
+            started_at=now - timedelta(seconds=7),
+        )
+        db.add(processing_job)
+        db.flush()
+        processing_relation = TranscriptionJobSource(
+            job_id=processing_job.id,
+            source_id=source.id,
+            position=0,
+            status=JobSourceStatus.queued,
+        )
+        db.add(processing_relation)
+        db.flush()
+        db.add(
+            TranscriptionJobSourceAttempt(
+                owner_user_id=user.id,
+                project_id=project.id,
+                job_id=processing_job.id,
+                job_source_id=processing_relation.id,
+                attempt_number=1,
+                stage=SourceAttemptStage.provider_request_started,
+                retry_disposition=SourceAttemptRetryDisposition.undetermined,
+                provider_request_started_at=now - timedelta(seconds=5),
+                created_at=now - timedelta(seconds=7),
+                updated_at=now - timedelta(seconds=5),
             )
         )
         owner_user_id = user.id

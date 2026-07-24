@@ -58,6 +58,34 @@ def test_browser_e2e_seed_guards_before_database_initialization() -> None:
     assert "TranscriptionJobOutput(" in seed
     assert "status=OutputReconciliationStatus.resolved" in seed
     assert "TranscriptionOutputReconciliation(" in seed
+    assert 'title="Browser E2E uncertain provider job"' in seed
+    assert "TranscriptionJobSourceAttempt(" in seed
+    assert (
+        "SourceAttemptRetryDisposition.provider_outcome_uncertain"
+        in seed
+    )
+    assert 'failure_code="provider_timeout"' in seed
+    assert 'title="Browser E2E retry-safe provider job"' in seed
+    assert "SourceAttemptRetryDisposition.retry_safe" in seed
+    assert 'failure_code="provider_rate_limited"' in seed
+    assert 'title="Browser E2E reconciliation required job"' in seed
+    assert (
+        "SourceAttemptRetryDisposition.output_reconciliation_required"
+        in seed
+    )
+    assert (
+        "status=OutputReconciliationStatus.reconciliation_required"
+        in seed
+    )
+    assert 'reconciliation_token="or_browser_e2e_pending"' in seed
+    assert 'title="Browser E2E queued cancellation job"' in seed
+    assert "status=JobStatus.queued" in seed
+    assert "attempt_count=0" in seed
+    assert 'title="Browser E2E processing cancellation job"' in seed
+    assert "status=JobStatus.processing" in seed
+    assert 'lease_owner_id="browser-e2e-worker"' in seed
+    assert "stage=SourceAttemptStage.provider_request_started" in seed
+    assert "retry_disposition=SourceAttemptRetryDisposition.undetermined" in seed
     assert "write_diagnostic_event(" in seed
     assert '"JOB_CREATED"' in seed
     assert '"OUTPUT_PERSISTED"' in seed
