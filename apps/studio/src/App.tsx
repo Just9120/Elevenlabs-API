@@ -1813,7 +1813,8 @@ function PreparationPanel({
           onCsrf={onCsrf}
           sources={visibleSources}
           onReload={onReloadSources}
-          onSourceRemoved={(sourceId) => {
+          onSourceRemoved={(source, storageCleanup) => {
+            const sourceId = source.id;
             setRemovedSourceIds((current) => new Set(current).add(sourceId));
             const affectedRowIds = rows
               .filter((row) => row.source_id === sourceId)
@@ -1839,7 +1840,15 @@ function PreparationPanel({
                   : row,
               ),
             );
-            setMessage("Файл убран из проекта.");
+            setMessage(
+              storageCleanup === "pending"
+                ? source.upload_status === "pending"
+                  ? "Файл убран из проекта. Временная копия поставлена в очередь на удаление после завершения окна загрузки."
+                  : "Файл убран из проекта. Временная копия поставлена в очередь фонового удаления; выбранный срок хранения ждать не нужно."
+                : storageCleanup === "completed"
+                  ? "Файл убран из проекта. Временная копия уже удалена из хранилища."
+                  : "Файл убран из проекта.",
+            );
           }}
           onError={onError}
         />

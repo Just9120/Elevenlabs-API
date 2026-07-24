@@ -1012,7 +1012,7 @@ describe("Studio PWA", () => {
       screen.getByText("Файл останется на Google Drive."),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("Временная копия будет удалена из хранилища Studio."),
+      screen.getByText("Временную копию удалит фоновая очистка Studio."),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Убрать из проекта: local-temp.ogg" }),
@@ -1199,6 +1199,34 @@ describe("Studio PWA", () => {
         ([url, init]) => String(url).endsWith("/api/sources/s-local") && init?.method === "DELETE",
       ),
     ).toHaveLength(1);
+  });
+
+  it("reports queued background cleanup after removing an uploaded local source", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        url.endsWith("/api/sources/s-local") &&
+        init?.method === "DELETE"
+      )
+        return json({
+          ok: true,
+          source_state: "deleted",
+          storage_cleanup: "pending",
+        });
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    renderApp();
+    await openProjectsPage();
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
+    await userEvent.click(
+      screen.getByRole("button", { name: "Убрать из проекта: local-temp.ogg" }),
+    );
+    expect(
+      await screen.findByText(
+        "Файл убран из проекта. Временная копия поставлена в очередь фонового удаления; выбранный срок хранения ждать не нужно.",
+      ),
+    ).toBeInTheDocument();
   });
 
   it.each([
