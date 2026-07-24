@@ -6,6 +6,7 @@ const E2E_PASSWORD = 'browser-e2e-password';
 const RESULT_PROJECT = 'Browser E2E Results';
 const RESULT_JOB = 'Browser E2E completed job';
 const UNCERTAIN_JOB = 'Browser E2E uncertain provider job';
+const RETRY_SAFE_JOB = 'Browser E2E retry-safe provider job';
 const RECONCILIATION_JOB = 'Browser E2E reconciliation required job';
 const QUEUED_CANCELLATION_JOB = 'Browser E2E queued cancellation job';
 const PROCESSING_CANCELLATION_JOB = 'Browser E2E processing cancellation job';
@@ -74,7 +75,7 @@ test('authenticated user creates a project and reads a completed job result', as
     page.getByRole('region', { name: `Подготовка ${RESULT_PROJECT}` }),
   ).toBeVisible();
 
-  await page.getByText('Недавние задачи · 3', { exact: true }).click();
+  await page.getByText('Недавние задачи · 4', { exact: true }).click();
   const jobCard = page
     .locator('article.source-card')
     .filter({ hasText: RESULT_JOB })
@@ -229,7 +230,7 @@ test('uncertain provider result exposes no unsafe recovery action', async ({
   await page
     .getByRole('button', { name: new RegExp(`^${RESULT_PROJECT}`) })
     .click();
-  await page.getByText('Недавние задачи · 3', { exact: true }).click();
+  await page.getByText('Недавние задачи · 4', { exact: true }).click();
 
   const jobCard = page
     .locator('article.source-card')
@@ -308,7 +309,7 @@ test('unresolved output reconciliation waits for an explicit safe action', async
   await page
     .getByRole('button', { name: new RegExp(`^${RESULT_PROJECT}`) })
     .click();
-  await page.getByText('Недавние задачи · 3', { exact: true }).click();
+  await page.getByText('Недавние задачи · 4', { exact: true }).click();
 
   const jobCard = page
     .locator('article.source-card')
@@ -746,7 +747,7 @@ test('queued cancellation performs one bounded API mutation', async ({
   ).toHaveCount(0);
   await expect(currentJobs).toContainText(PROCESSING_CANCELLATION_JOB);
 
-  await page.getByText('Недавние задачи · 4', { exact: true }).click();
+  await page.getByText('Недавние задачи · 5', { exact: true }).click();
   const cancelledCard = page
     .locator('article.source-card')
     .filter({ hasText: QUEUED_CANCELLATION_JOB })
@@ -759,5 +760,93 @@ test('queued cancellation performs one bounded API mutation', async ({
   expect(integrationRequests).toHaveLength(1);
   expect(integrationRequests[0]).toMatch(
     /^POST http:\/\/127\.0\.0\.1:4173\/api\/jobs\/[0-9a-f-]{36}\/cancel$/,
+  );
+});
+
+test('retry-safe provider rejection performs one explicit requeue mutation', async ({
+  page,
+}) => {
+  const navigation = await login(page);
+  await navigation.getByRole('button', { name: 'Проекты', exact: true }).click();
+  await page
+    .getByRole('button', { name: new RegExp(`^${RESULT_PROJECT}`) })
+    .click();
+
+  const recentJobs = page.locator('details.recent-jobs');
+  await recentJobs.getByText(/^Недавние задачи · \d+$/).click();
+  const retryCard = recentJobs
+    .locator('article.source-card')
+    .filter({ hasText: RETRY_SAFE_JOB })
+    .first();
+  await expect(retryCard.getByText('Статус: Ошибка')).toBeVisible();
+
+  const integrationRequests = trackExternalOrJobMutations(page);
+  const retryReadinessResponsePromise = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'GET' &&
+      response.url().endsWith('/retry'),
+  );
+  await retryCard.getByRole('button', { name: 'Открыть' }).click();
+
+  const retryReadinessResponse = await retryReadinessResponsePromise;
+  expect(retryReadinessResponse.status()).toBe(200);
+  const retryReadiness = await retryReadinessResponse.json();
+  expect(retryReadiness).toMatchObject({
+    job_status: 'failed',
+    available: true,
+    reason: 'available',
+    attempt_count: 1,
+    max_attempts: 3,
+    missing_output_count: 1,
+    retry_safe_source_count: 1,
+  });
+
+  const retryAction = retryCard.locator('[aria-label="Safe retry action"]');
+  const retryButton = retryAction.getByRole('button', {
+    name: 'Повторить безопасную обработку',
+  });
+  await expect(retryButton).toBeVisible();
+  expect(integrationRequests).toEqual([]);
+
+  const retryMutationResponsePromise = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      response.url().endsWith('/retry'),
+  );
+  await retryButton.click();
+
+  const retryMutationResponse = await retryMutationResponsePromise;
+  expect(retryMutationResponse.status()).toBe(200);
+  const queuedRetry = await retryMutationResponse.json();
+  expect(queuedRetry).toMatchObject({
+    job_status: 'queued',
+    available: true,
+    reason: 'available',
+    attempt_count: 1,
+    max_attempts: 3,
+    missing_output_count: 0,
+    retry_safe_source_count: 0,
+  });
+
+  const currentJobs = page.getByRole('region', { name: 'Текущие задачи' });
+  const queuedRetryCard = currentJobs
+    .locator('article.source-card')
+    .filter({ hasText: RETRY_SAFE_JOB })
+    .first();
+  await expect(queuedRetryCard.getByText('Статус: В очереди')).toBeVisible();
+  await expect(
+    queuedRetryCard.getByRole('button', {
+      name: 'Повторить безопасную обработку',
+    }),
+  ).toHaveCount(0);
+  await expect(
+    recentJobs
+      .locator('article.source-card')
+      .filter({ hasText: RETRY_SAFE_JOB }),
+  ).toHaveCount(0);
+
+  expect(integrationRequests).toHaveLength(1);
+  expect(integrationRequests[0]).toMatch(
+    /^POST http:\/\/127\.0\.0\.1:4173\/api\/jobs\/[0-9a-f-]{36}\/retry$/,
   );
 });

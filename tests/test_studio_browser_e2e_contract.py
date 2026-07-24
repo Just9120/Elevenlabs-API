@@ -65,6 +65,9 @@ def test_browser_e2e_seed_guards_before_database_initialization() -> None:
         in seed
     )
     assert 'failure_code="provider_timeout"' in seed
+    assert 'title="Browser E2E retry-safe provider job"' in seed
+    assert "SourceAttemptRetryDisposition.retry_safe" in seed
+    assert 'failure_code="provider_rate_limited"' in seed
     assert 'title="Browser E2E reconciliation required job"' in seed
     assert (
         "SourceAttemptRetryDisposition.output_reconciliation_required"

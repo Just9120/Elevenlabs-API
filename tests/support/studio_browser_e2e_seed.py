@@ -215,6 +215,49 @@ def seed() -> None:
             )
         )
 
+        retry_safe_job = TranscriptionJob(
+            project_id=project.id,
+            owner_user_id=user.id,
+            status=JobStatus.failed,
+            provider="elevenlabs",
+            title="Browser E2E retry-safe provider job",
+            output_drive_folder_id=project.output_drive_folder_id,
+            output_drive_folder_url=project.output_drive_folder_url,
+            output_drive_folder_name=project.output_drive_folder_name,
+            attempt_count=1,
+            lease_generation=1,
+            started_at=now - timedelta(seconds=38),
+            finished_at=now - timedelta(seconds=28),
+            error_code="provider_rate_limited",
+            error_message="provider_rate_limited",
+        )
+        db.add(retry_safe_job)
+        db.flush()
+        retry_safe_relation = TranscriptionJobSource(
+            job_id=retry_safe_job.id,
+            source_id=source.id,
+            position=0,
+            status=JobSourceStatus.queued,
+        )
+        db.add(retry_safe_relation)
+        db.flush()
+        db.add(
+            TranscriptionJobSourceAttempt(
+                owner_user_id=user.id,
+                project_id=project.id,
+                job_id=retry_safe_job.id,
+                job_source_id=retry_safe_relation.id,
+                attempt_number=1,
+                stage=SourceAttemptStage.failed,
+                retry_disposition=SourceAttemptRetryDisposition.retry_safe,
+                failure_code="provider_rate_limited",
+                provider_request_started_at=now - timedelta(seconds=35),
+                failed_at=now - timedelta(seconds=28),
+                created_at=now - timedelta(seconds=38),
+                updated_at=now - timedelta(seconds=28),
+            )
+        )
+
         reconciliation_job = TranscriptionJob(
             project_id=project.id,
             owner_user_id=user.id,
