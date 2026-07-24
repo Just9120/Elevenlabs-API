@@ -9,7 +9,6 @@ from .google_scopes import has_drive_file_scope, has_picker_browser_scope_bounda
 from .google_drive import (
     GoogleAccessTokenRefreshError,
     GoogleAccessTokenRefreshReason,
-    refresh_access_token,
 )
 from .security import aad, decrypt, master_key_from_b64
 
@@ -64,6 +63,8 @@ def refresh_user_google_drive_access_token(db: Session, *, user_id: str, setting
             master_key_from_b64(settings.master_key_b64()),
             google_token_aad(user_id, conn.id),
         )
+        from .google_drive import refresh_access_token
+
         return refresh_access_token(cfg, refresh_token)
     except GoogleAccessTokenRefreshError as exc:
         reason = (
