@@ -37,11 +37,14 @@ def seed() -> None:
         OutputReconciliationStatus,
         Project,
         Source,
+        SourceAttemptRetryDisposition,
+        SourceAttemptStage,
         SourceType,
         SourceUploadStatus,
         TranscriptionJob,
         TranscriptionJobOutput,
         TranscriptionJobSource,
+        TranscriptionJobSourceAttempt,
         TranscriptionOutputReconciliation,
         User,
         UserRole,
@@ -164,6 +167,51 @@ def seed() -> None:
                 resolved_at=now - timedelta(minutes=1),
                 created_at=now - timedelta(minutes=1, seconds=5),
                 updated_at=now - timedelta(minutes=1),
+            )
+        )
+
+        uncertain_job = TranscriptionJob(
+            project_id=project.id,
+            owner_user_id=user.id,
+            status=JobStatus.failed,
+            provider="elevenlabs",
+            title="Browser E2E uncertain provider job",
+            output_drive_folder_id=project.output_drive_folder_id,
+            output_drive_folder_url=project.output_drive_folder_url,
+            output_drive_folder_name=project.output_drive_folder_name,
+            attempt_count=1,
+            lease_generation=1,
+            started_at=now - timedelta(seconds=45),
+            finished_at=now - timedelta(seconds=30),
+            error_code="provider_timeout",
+            error_message="provider_timeout",
+        )
+        db.add(uncertain_job)
+        db.flush()
+        uncertain_relation = TranscriptionJobSource(
+            job_id=uncertain_job.id,
+            source_id=source.id,
+            position=0,
+            status=JobSourceStatus.queued,
+        )
+        db.add(uncertain_relation)
+        db.flush()
+        db.add(
+            TranscriptionJobSourceAttempt(
+                owner_user_id=user.id,
+                project_id=project.id,
+                job_id=uncertain_job.id,
+                job_source_id=uncertain_relation.id,
+                attempt_number=1,
+                stage=SourceAttemptStage.failed,
+                retry_disposition=(
+                    SourceAttemptRetryDisposition.provider_outcome_uncertain
+                ),
+                failure_code="provider_timeout",
+                provider_request_started_at=now - timedelta(seconds=40),
+                failed_at=now - timedelta(seconds=30),
+                created_at=now - timedelta(seconds=45),
+                updated_at=now - timedelta(seconds=30),
             )
         )
         owner_user_id = user.id

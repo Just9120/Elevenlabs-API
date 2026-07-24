@@ -5,6 +5,7 @@ const E2E_EMAIL = 'browser-e2e@example.com';
 const E2E_PASSWORD = 'browser-e2e-password';
 const RESULT_PROJECT = 'Browser E2E Results';
 const RESULT_JOB = 'Browser E2E completed job';
+const UNCERTAIN_JOB = 'Browser E2E uncertain provider job';
 const RESULT_URL =
   'https://docs.google.com/document/d/browser-e2e-document/edit';
 
@@ -21,6 +22,23 @@ async function login(page: Page) {
   });
   await expect(navigation).toBeVisible();
   return navigation;
+}
+
+function trackExternalOrJobMutations(page: Page) {
+  const requests: string[] = [];
+  page.on('request', (request) => {
+    const url = new URL(request.url());
+    const isExternalIntegration =
+      url.hostname.includes('google') ||
+      url.hostname.includes('elevenlabs') ||
+      url.hostname.includes('cloudflarestorage');
+    const isJobMutation =
+      request.method() !== 'GET' && url.pathname.startsWith('/api/jobs/');
+    if (isExternalIntegration || isJobMutation) {
+      requests.push(`${request.method()} ${url.origin}${url.pathname}`);
+    }
+  });
+  return requests;
 }
 
 test('authenticated user creates a project and reads a completed job result', async ({
@@ -52,7 +70,7 @@ test('authenticated user creates a project and reads a completed job result', as
     page.getByRole('region', { name: `Подготовка ${RESULT_PROJECT}` }),
   ).toBeVisible();
 
-  await page.getByText('Недавние задачи · 1', { exact: true }).click();
+  await page.getByText('Недавние задачи · 2', { exact: true }).click();
   const jobCard = page
     .locator('article.source-card')
     .filter({ hasText: RESULT_JOB })
@@ -160,19 +178,7 @@ test('preparation stays fail-closed without external integrations', async ({
   });
   await expect(preparation).toBeVisible();
 
-  const integrationRequests: string[] = [];
-  page.on('request', (request) => {
-    const url = new URL(request.url());
-    const isExternalIntegration =
-      url.hostname.includes('google') ||
-      url.hostname.includes('elevenlabs') ||
-      url.hostname.includes('cloudflarestorage');
-    const isJobMutation =
-      request.method() !== 'GET' && url.pathname.includes('/api/jobs/batch');
-    if (isExternalIntegration || isJobMutation) {
-      integrationRequests.push(`${request.method()} ${url.origin}${url.pathname}`);
-    }
-  });
+  const integrationRequests = trackExternalOrJobMutations(page);
 
   await expect(
     preparation.getByText(
@@ -208,5 +214,84 @@ test('preparation stays fail-closed without external integrations', async ({
   await expect(preparation).toContainText(
     'Добавьте активный ключ ElevenLabs в настройках',
   );
+  expect(integrationRequests).toEqual([]);
+});
+
+test('uncertain provider result exposes no unsafe recovery action', async ({
+  page,
+}) => {
+  const navigation = await login(page);
+  await navigation.getByRole('button', { name: 'Проекты', exact: true }).click();
+  await page
+    .getByRole('button', { name: new RegExp(`^${RESULT_PROJECT}`) })
+    .click();
+  await page.getByText('Недавние задачи · 2', { exact: true }).click();
+
+  const jobCard = page
+    .locator('article.source-card')
+    .filter({ hasText: UNCERTAIN_JOB })
+    .first();
+  await expect(jobCard.getByText('Статус: Ошибка')).toBeVisible();
+
+  const integrationRequests = trackExternalOrJobMutations(page);
+  const retryResponsePromise = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'GET' &&
+      response.url().endsWith('/retry'),
+  );
+  const reconciliationResponsePromise = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'GET' &&
+      response.url().endsWith('/output-reconciliation'),
+  );
+  await jobCard.getByRole('button', { name: 'Открыть' }).click();
+
+  const retryResponse = await retryResponsePromise;
+  expect(retryResponse.status()).toBe(200);
+  const retry = await retryResponse.json();
+  expect(retry).toMatchObject({
+    job_status: 'failed',
+    available: false,
+    reason: 'provider_outcome_uncertain',
+    attempt_count: 1,
+    missing_output_count: 1,
+    retry_safe_source_count: 0,
+  });
+
+  const reconciliationResponse = await reconciliationResponsePromise;
+  expect(reconciliationResponse.status()).toBe(200);
+  const reconciliation = await reconciliationResponse.json();
+  expect(reconciliation).toMatchObject({
+    job_status: 'failed',
+    available: false,
+    counts: {
+      reconciliation_required: 0,
+      resolved: 0,
+      conflict: 0,
+    },
+  });
+
+  await expect(jobCard.getByRole('heading', { name: 'Результаты' })).toBeVisible();
+  await expect(jobCard.getByText('Результатов: 0')).toBeVisible();
+  await expect(jobCard.getByText('Результаты пока не созданы.')).toBeVisible();
+  await expect(jobCard.getByText('Статус обработки: Ошибка')).toBeVisible();
+
+  const retryAction = jobCard.locator('[aria-label="Safe retry action"]');
+  await expect(retryAction).toContainText(
+    'Повтор недоступен: результат внешнего вызова не определён',
+  );
+  await expect(
+    retryAction.getByRole('button', {
+      name: 'Повторить безопасную обработку',
+    }),
+  ).toHaveCount(0);
+  await expect(
+    jobCard.locator('section[aria-label^="Output reconciliation "]'),
+  ).toHaveCount(0);
+  await expect(
+    jobCard.getByRole('button', {
+      name: 'Проверить созданный документ в Google Drive',
+    }),
+  ).toHaveCount(0);
   expect(integrationRequests).toEqual([]);
 });

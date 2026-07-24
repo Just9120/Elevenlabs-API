@@ -58,6 +58,13 @@ def test_browser_e2e_seed_guards_before_database_initialization() -> None:
     assert "TranscriptionJobOutput(" in seed
     assert "status=OutputReconciliationStatus.resolved" in seed
     assert "TranscriptionOutputReconciliation(" in seed
+    assert 'title="Browser E2E uncertain provider job"' in seed
+    assert "TranscriptionJobSourceAttempt(" in seed
+    assert (
+        "SourceAttemptRetryDisposition.provider_outcome_uncertain"
+        in seed
+    )
+    assert 'failure_code="provider_timeout"' in seed
     assert "write_diagnostic_event(" in seed
     assert '"JOB_CREATED"' in seed
     assert '"OUTPUT_PERSISTED"' in seed
