@@ -181,6 +181,7 @@ For production/operator work, use a separate evidence pipeline: **read-only pref
 ## Current validation evidence and blockers
 
 - `main` is `77a3b39` (PR #183). The active UX/Picker diagnostics branch is local-only until this batch is pushed and reviewed; none of its behavior is production evidence yet.
+- Active-branch pre-PR validation: Studio Vitest `266 passed`; portable Python `715 passed, 6 skipped`; full ESLint, TypeScript, production Vite/PWA build, lightweight repository checks, and diff checks passed. Playwright discovers the single authenticated scenario; its real run requires the isolated PostgreSQL/Redis/seed environment and remains an authoritative Studio CI gate.
 - Pre-migration backup snapshot `7b03ad00` completed successfully against the configured restic/R2 repository, and the manual migration reached `0015_user_source_retention`.
 - Isolated API deployment run `30004599136` succeeded. Post-deploy preflight `30004696267` proved database head `0015`, healthy PostgreSQL/Redis, and passing public API/web health.
 - Worker-status run `30004841628` proves `container_state=exited`, `exit_code=0`, and `drain_state=gracefully-drained`; worker image identity remains unknown and no worker deploy is authorized before Gate 4 passes.
