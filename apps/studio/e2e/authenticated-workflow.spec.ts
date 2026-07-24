@@ -391,6 +391,85 @@ test('unresolved output reconciliation waits for an explicit safe action', async
   expect(integrationRequests).toEqual([]);
 });
 
+test('progress refresh keeps the last confirmed checkpoint after a temporary failure', async ({
+  page,
+}) => {
+  const navigation = await login(page);
+  await navigation.getByRole('button', { name: 'Проекты', exact: true }).click();
+
+  const integrationRequests = trackExternalOrJobMutations(page);
+  const initialProgressResponsePromise = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'GET' &&
+      response.url().endsWith('/jobs/progress'),
+  );
+  await page
+    .getByRole('button', { name: new RegExp(`^${RESULT_PROJECT}`) })
+    .click();
+
+  const initialProgressResponse = await initialProgressResponsePromise;
+  expect(initialProgressResponse.status()).toBe(200);
+  const initialProgressPayload = await initialProgressResponse.json();
+  const processingProgress = initialProgressPayload.jobs.find(
+    (job: { job_status?: string }) => job.job_status === 'processing',
+  );
+  expect(processingProgress).toMatchObject({
+    job_status: 'processing',
+    current_stage: 'provider_processing',
+  });
+  expect(processingProgress.job_id).toMatch(/^[0-9a-f-]{36}$/);
+
+  const progress = page.getByRole('region', {
+    name: `Прогресс задачи ${processingProgress.job_id}`,
+  });
+  await expect(
+    progress.getByText('Транскрибация ElevenLabs').locator('..'),
+  ).toContainText('Выполняется');
+  await expect(
+    progress.getByText('Создание Google Docs').locator('..'),
+  ).toContainText('Ожидает');
+
+  let failedRefreshes = 0;
+  await page.route('**/api/projects/*/jobs/progress', async (route) => {
+    if (route.request().method() !== 'GET') {
+      await route.continue();
+      return;
+    }
+    failedRefreshes += 1;
+    await route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({ detail: 'temporary_progress_unavailable' }),
+    });
+  });
+  const failedProgressResponsePromise = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'GET' &&
+      response.url().endsWith('/jobs/progress') &&
+      response.status() === 503,
+  );
+
+  const failedProgressResponse = await failedProgressResponsePromise;
+  expect(failedProgressResponse.status()).toBe(503);
+  expect(failedRefreshes).toBe(1);
+  await expect(
+    progress.getByText(
+      'Не удалось обновить прогресс; показан последний подтверждённый статус.',
+    ),
+  ).toBeVisible();
+  await expect(
+    progress.getByText('Подготовка источника').locator('..'),
+  ).toContainText('Готово');
+  await expect(
+    progress.getByText('Транскрибация ElevenLabs').locator('..'),
+  ).toContainText('Выполняется');
+  await expect(
+    progress.getByText('Создание Google Docs').locator('..'),
+  ).toContainText('Ожидает');
+  await expect(progress.getByText('Готово файлов: 0 из 1')).toBeVisible();
+  expect(integrationRequests).toEqual([]);
+});
+
 test('processing cancellation records a request without claiming completion', async ({
   page,
 }) => {
