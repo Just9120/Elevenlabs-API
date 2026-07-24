@@ -7,6 +7,7 @@ const RESULT_PROJECT = 'Browser E2E Results';
 const RESULT_JOB = 'Browser E2E completed job';
 const UNCERTAIN_JOB = 'Browser E2E uncertain provider job';
 const RECONCILIATION_JOB = 'Browser E2E reconciliation required job';
+const QUEUED_CANCELLATION_JOB = 'Browser E2E queued cancellation job';
 const RECONCILIATION_TOKEN = 'or_browser_e2e_pending';
 const RESULT_URL =
   'https://docs.google.com/document/d/browser-e2e-document/edit';
@@ -387,4 +388,69 @@ test('unresolved output reconciliation waits for an explicit safe action', async
     }),
   ).toHaveCount(0);
   expect(integrationRequests).toEqual([]);
+});
+
+test('queued cancellation performs one bounded API mutation', async ({
+  page,
+}) => {
+  const navigation = await login(page);
+  await navigation.getByRole('button', { name: 'Проекты', exact: true }).click();
+  await page
+    .getByRole('button', { name: new RegExp(`^${RESULT_PROJECT}`) })
+    .click();
+
+  const currentJobs = page.getByRole('region', { name: 'Текущие задачи' });
+  const queuedCard = currentJobs
+    .locator('article.source-card')
+    .filter({ hasText: QUEUED_CANCELLATION_JOB })
+    .first();
+  await expect(queuedCard.getByText('Статус: В очереди')).toBeVisible();
+
+  const integrationRequests = trackExternalOrJobMutations(page);
+  const cancelResponsePromise = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      response.url().endsWith('/cancel'),
+  );
+  await queuedCard.getByRole('button', { name: 'Отменить' }).click();
+
+  const cancelResponse = await cancelResponsePromise;
+  expect(cancelResponse.status()).toBe(200);
+  const cancelled = await cancelResponse.json();
+  expect(cancelled).toMatchObject({
+    status: 'cancelled',
+    attempt_count: 0,
+    started_at: null,
+    cancel_requested_at: null,
+  });
+  expect(String(cancelled.cancelled_at ?? '')).toMatch(
+    /^\d{4}-\d{2}-\d{2}T/,
+  );
+
+  await expect(
+    page.getByText(
+      'Запрос отмены отправлен. Уже созданные результаты останутся доступны.',
+    ),
+  ).toBeVisible();
+  await expect(currentJobs.getByText('Текущих задач нет.')).toBeVisible();
+  await expect(
+    currentJobs
+      .locator('article.source-card')
+      .filter({ hasText: QUEUED_CANCELLATION_JOB }),
+  ).toHaveCount(0);
+
+  await page.getByText('Недавние задачи · 4', { exact: true }).click();
+  const cancelledCard = page
+    .locator('article.source-card')
+    .filter({ hasText: QUEUED_CANCELLATION_JOB })
+    .first();
+  await expect(cancelledCard.getByText('Статус: Отменена')).toBeVisible();
+  await expect(
+    cancelledCard.getByRole('button', { name: 'Отменить' }),
+  ).toHaveCount(0);
+
+  expect(integrationRequests).toHaveLength(1);
+  expect(integrationRequests[0]).toMatch(
+    /^POST http:\/\/127\.0\.0\.1:4173\/api\/jobs\/[0-9a-f-]{36}\/cancel$/,
+  );
 });

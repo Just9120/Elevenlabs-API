@@ -75,6 +75,9 @@ def test_browser_e2e_seed_guards_before_database_initialization() -> None:
         in seed
     )
     assert 'reconciliation_token="or_browser_e2e_pending"' in seed
+    assert 'title="Browser E2E queued cancellation job"' in seed
+    assert "status=JobStatus.queued" in seed
+    assert "attempt_count=0" in seed
     assert "write_diagnostic_event(" in seed
     assert '"JOB_CREATED"' in seed
     assert '"OUTPUT_PERSISTED"' in seed

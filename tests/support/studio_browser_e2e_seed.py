@@ -280,6 +280,29 @@ def seed() -> None:
                 updated_at=now - timedelta(seconds=10),
             )
         )
+
+        queued_job = TranscriptionJob(
+            project_id=project.id,
+            owner_user_id=user.id,
+            status=JobStatus.queued,
+            provider="elevenlabs",
+            title="Browser E2E queued cancellation job",
+            output_drive_folder_id=project.output_drive_folder_id,
+            output_drive_folder_url=project.output_drive_folder_url,
+            output_drive_folder_name=project.output_drive_folder_name,
+            attempt_count=0,
+            lease_generation=0,
+        )
+        db.add(queued_job)
+        db.flush()
+        db.add(
+            TranscriptionJobSource(
+                job_id=queued_job.id,
+                source_id=source.id,
+                position=0,
+                status=JobSourceStatus.queued,
+            )
+        )
         owner_user_id = user.id
         result_project_id = project.id
         result_job_id = job.id
