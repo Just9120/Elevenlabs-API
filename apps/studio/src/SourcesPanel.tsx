@@ -21,6 +21,20 @@ type SourceDeletionResponse = {
   storage_cleanup?: "not_applicable" | "pending" | "completed";
 };
 
+function isExpectedDeletionResponse(
+  value: SourceDeletionResponse,
+  source: Source,
+) {
+  return (
+    value.ok === true &&
+    value.source_state === "deleted" &&
+    (source.source_type === "google_drive"
+      ? value.storage_cleanup === "not_applicable"
+      : value.storage_cleanup === "pending" ||
+        value.storage_cleanup === "completed")
+  );
+}
+
 function safeConfirm(message: string) {
   try {
     return window.confirm(message) !== false;
@@ -63,7 +77,14 @@ export function SourcesPanel({
         onCsrf,
         { method: "DELETE" },
       );
-      if (source) onSourceRemoved?.(source, result.storage_cleanup);
+      if (!source || !isExpectedDeletionResponse(result, source)) {
+        onError(
+          "Сервер вернул несогласованное подтверждение удаления. Список файлов обновлён.",
+        );
+        onReload(project.id);
+        return;
+      }
+      onSourceRemoved?.(source, result.storage_cleanup);
       onReload(project.id);
     } catch (error) {
       const detail =

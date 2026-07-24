@@ -888,7 +888,20 @@ describe("Studio PWA", () => {
           });
         }
         if (url.endsWith("/api/sources/s1") && init?.method === "DELETE")
-          return json({ ok: true });
+          return json({
+            ok: true,
+            source_state: "deleted",
+            storage_cleanup: "not_applicable",
+          });
+        if (
+          url.endsWith("/api/sources/s-local") &&
+          init?.method === "DELETE"
+        )
+          return json({
+            ok: true,
+            source_state: "deleted",
+            storage_cleanup: "pending",
+          });
         if (url.endsWith("/api/credentials") && init?.method === "POST")
           return json({ id: "c1" });
         if (url.endsWith("/replace")) return json({ ok: true });
@@ -1096,7 +1109,11 @@ describe("Studio PWA", () => {
           });
         }
         if (url.endsWith("/api/sources/s1") && init?.method === "DELETE")
-          return json({ ok: true });
+          return json({
+            ok: true,
+            source_state: "deleted",
+            storage_cleanup: "not_applicable",
+          });
         if (url.endsWith("/api/google/connection"))
           return json({
             connected: true,
@@ -1240,6 +1257,39 @@ describe("Studio PWA", () => {
         "Файл убран из проекта. Временная копия поставлена в очередь фонового удаления; выбранный срок хранения ждать не нужно.",
       ),
     ).toBeInTheDocument();
+  });
+
+  it("keeps a source visible when a successful delete response is inconsistent", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        url.endsWith("/api/sources/s-local") &&
+        init?.method === "DELETE"
+      )
+        return json({
+          ok: false,
+          source_state: "uploaded",
+          storage_cleanup: "not_applicable",
+        });
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    renderApp();
+    await openProjectsPage();
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
+    await userEvent.click(
+      screen.getByRole("button", { name: "Убрать из проекта: local-temp.ogg" }),
+    );
+
+    expect(
+      await screen.findByText(
+        "Сервер вернул несогласованное подтверждение удаления. Список файлов обновлён.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("local-temp.ogg")).toBeInTheDocument();
+    expect(
+      screen.queryByText(/Временная копия поставлена в очередь/),
+    ).not.toBeInTheDocument();
   });
 
   it.each([
@@ -3974,7 +4024,11 @@ describe("Studio PWA", () => {
           });
         }
         if (url.endsWith("/api/sources/s1") && init?.method === "DELETE")
-          return json({ ok: true });
+          return json({
+            ok: true,
+            source_state: "deleted",
+            storage_cleanup: "pending",
+          });
         if (
           url.endsWith("/api/projects/p1/jobs/batch") &&
           init?.method === "POST"
