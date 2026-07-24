@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import type { Page } from '@playwright/test';
 
 const E2E_EMAIL = 'browser-e2e@example.com';
 const E2E_PASSWORD = 'browser-e2e-password';
@@ -7,9 +8,7 @@ const RESULT_JOB = 'Browser E2E completed job';
 const RESULT_URL =
   'https://docs.google.com/document/d/browser-e2e-document/edit';
 
-test('authenticated user creates a project and reads a completed job result', async ({
-  page,
-}) => {
+async function login(page: Page) {
   await page.goto('/');
 
   await expect(page.getByRole('heading', { name: 'Вход' })).toBeVisible();
@@ -21,6 +20,13 @@ test('authenticated user creates a project and reads a completed job result', as
     name: 'Основная навигация',
   });
   await expect(navigation).toBeVisible();
+  return navigation;
+}
+
+test('authenticated user creates a project and reads a completed job result', async ({
+  page,
+}) => {
+  const navigation = await login(page);
   await navigation.getByRole('button', { name: 'Проекты', exact: true }).click();
   await expect(page).toHaveURL(/\/projects$/);
 
@@ -138,4 +144,69 @@ test('authenticated user creates a project and reads a completed job result', as
   await page.getByRole('tab', { name: 'Аккаунт' }).click();
   await page.getByRole('button', { name: 'Выйти' }).click();
   await expect(page.getByRole('heading', { name: 'Вход' })).toBeVisible();
+});
+
+test('preparation stays fail-closed without external integrations', async ({
+  page,
+}) => {
+  const navigation = await login(page);
+  await navigation.getByRole('button', { name: 'Проекты', exact: true }).click();
+  await page
+    .getByRole('button', { name: new RegExp(`^${RESULT_PROJECT}`) })
+    .click();
+
+  const preparation = page.getByRole('region', {
+    name: `Подготовка ${RESULT_PROJECT}`,
+  });
+  await expect(preparation).toBeVisible();
+
+  const integrationRequests: string[] = [];
+  page.on('request', (request) => {
+    const url = new URL(request.url());
+    const isExternalIntegration =
+      url.hostname.includes('google') ||
+      url.hostname.includes('elevenlabs') ||
+      url.hostname.includes('cloudflarestorage');
+    const isJobMutation =
+      request.method() !== 'GET' && url.pathname.includes('/api/jobs/batch');
+    if (isExternalIntegration || isJobMutation) {
+      integrationRequests.push(`${request.method()} ${url.origin}${url.pathname}`);
+    }
+  });
+
+  await expect(
+    preparation.getByText(
+      'Добавьте активный ключ ElevenLabs в настройках, чтобы создавать задачи.',
+    ),
+  ).toBeVisible();
+  await expect(preparation.getByText('Google Drive не подключён.')).toBeVisible();
+  await expect(
+    preparation.getByRole('button', { name: 'Выбрать файлы Google Drive' }),
+  ).toBeDisabled();
+  await expect(
+    preparation.getByRole('button', {
+      name: 'Выбрать папку результата для строки 1',
+    }),
+  ).toBeDisabled();
+
+  const readiness = preparation.getByRole('status', {
+    name: 'Готовность строк подготовки',
+  });
+  await expect(readiness).toContainText('Готово: 0 из 1');
+  await expect(readiness).toContainText('Строка 1: выберите источник');
+
+  await preparation
+    .getByLabel('Существующий файл для строки 1')
+    .selectOption({ label: /browser-e2e-audio\.mp3/ });
+
+  await expect(readiness).toContainText(
+    'Строка 1: выберите папку результата',
+  );
+  await expect(
+    preparation.getByRole('button', { name: 'Проверить задачи (1)' }),
+  ).toBeDisabled();
+  await expect(preparation).toContainText(
+    'Добавьте активный ключ ElevenLabs в настройках',
+  );
+  expect(integrationRequests).toEqual([]);
 });
