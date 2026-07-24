@@ -1989,15 +1989,15 @@ function ProjectsPage({
   onCsrf,
   requestedProjectId,
   onRequestedProjectHandled,
-  requestedCreateProject,
-  onRequestedCreateProjectHandled,
+  requestedProjectsView,
+  onRequestedProjectsViewHandled,
 }: {
   csrf: string;
   onCsrf: (csrf: string) => void;
   requestedProjectId: string | null;
   onRequestedProjectHandled: () => void;
-  requestedCreateProject: boolean;
-  onRequestedCreateProjectHandled: () => void;
+  requestedProjectsView: "browse" | "create" | null;
+  onRequestedProjectsViewHandled: () => void;
 }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [sources, setSources] = useState<
@@ -2049,10 +2049,18 @@ function ProjectsPage({
     }
   }, [requestedProjectId, projects, onRequestedProjectHandled]);
   useEffect(() => {
-    if (!requestedCreateProject) return;
-    setCreateOpen(true);
-    onRequestedCreateProjectHandled();
-  }, [requestedCreateProject, onRequestedCreateProjectHandled]);
+    if (!requestedProjectsView) return;
+    if (requestedProjectsView === "browse" && loading) return;
+    setCreateOpen(
+      requestedProjectsView === "create" || projects.length === 0,
+    );
+    onRequestedProjectsViewHandled();
+  }, [
+    requestedProjectsView,
+    loading,
+    projects.length,
+    onRequestedProjectsViewHandled,
+  ]);
   useEffect(() => {
     api<GoogleConnection>("/google/connection")
       .then(setGoogleConnection)
@@ -3563,7 +3571,9 @@ function PlatformShell() {
   const [requestedProjectId, setRequestedProjectId] = useState<string | null>(
     null,
   );
-  const [requestedCreateProject, setRequestedCreateProject] = useState(false);
+  const [requestedProjectsView, setRequestedProjectsView] = useState<
+    "browse" | "create" | null
+  >(null);
   const [projectsOpened, setProjectsOpened] = useState(false);
   const navigate = (
     nextPage: Page,
@@ -3693,21 +3703,27 @@ function PlatformShell() {
           navigate(nextPage);
           if (nextPage === "projects") {
             setRequestedProjectId(null);
-            setRequestedCreateProject(false);
+            setRequestedProjectsView("browse");
           }
         }}
       />
       <main>
         {page === "dashboard" && (
           <OverviewPage
-            onNavigate={navigate}
+            onNavigate={(nextPage) => {
+              if (nextPage === "projects") {
+                setRequestedProjectId(null);
+                setRequestedProjectsView("browse");
+              }
+              navigate(nextPage);
+            }}
             onCreateProject={() => {
-              setRequestedCreateProject(true);
+              setRequestedProjectsView("create");
               setRequestedProjectId(null);
               navigate("projects");
             }}
             onOpenProject={(projectId) => {
-              setRequestedCreateProject(false);
+              setRequestedProjectsView("browse");
               setRequestedProjectId(projectId);
               navigate("projects");
             }}
@@ -3723,9 +3739,9 @@ function PlatformShell() {
               }}
               requestedProjectId={requestedProjectId}
               onRequestedProjectHandled={() => setRequestedProjectId(null)}
-              requestedCreateProject={requestedCreateProject}
-              onRequestedCreateProjectHandled={() =>
-                setRequestedCreateProject(false)
+              requestedProjectsView={requestedProjectsView}
+              onRequestedProjectsViewHandled={() =>
+                setRequestedProjectsView(null)
               }
             />
           </div>

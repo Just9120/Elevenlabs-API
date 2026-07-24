@@ -1476,6 +1476,15 @@ describe("Studio PWA", () => {
     expect(
       await screen.findByLabelText("Название проекта"),
     ).toBeInTheDocument();
+
+    await openPlatformNavPage("Обзор");
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Открыть проекты" }),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Проекты" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText("Название проекта")).not.toBeInTheDocument();
   });
 
   it("opens a recent project directly in the preparation workspace", async () => {
