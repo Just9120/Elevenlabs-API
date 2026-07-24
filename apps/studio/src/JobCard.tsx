@@ -59,7 +59,12 @@ export function JobCard({
       )}
       {outputs?.data && <JobOutputsSection jobId={job.id} data={outputs.data} />}
       {detailedJob && (
-        <JobDetailSection job={detailedJob} retry={retry} onRetry={onRetry} />
+        <JobDetailSection
+          job={detailedJob}
+          outputs={outputs?.data ?? null}
+          retry={retry}
+          onRetry={onRetry}
+        />
       )}
     </article>
   );

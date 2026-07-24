@@ -52,7 +52,28 @@ test('authenticated user creates a project and reads a completed job result', as
     .filter({ hasText: RESULT_JOB })
     .first();
   await expect(jobCard.getByText('Статус: Завершена')).toBeVisible();
+  const reconciliationResponsePromise = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'GET' &&
+      response.url().includes('/output-reconciliation'),
+  );
   await jobCard.getByRole('button', { name: 'Открыть' }).click();
+  const reconciliationResponse = await reconciliationResponsePromise;
+  expect(reconciliationResponse.status()).toBe(200);
+  const reconciliation = await reconciliationResponse.json();
+  expect(reconciliation).toMatchObject({
+    job_status: 'completed',
+    available: false,
+    counts: {
+      reconciliation_required: 0,
+      resolved: 1,
+      conflict: 0,
+    },
+  });
+  const resultJobId = String(
+    (reconciliation as { job_id?: unknown }).job_id ?? '',
+  );
+  expect(resultJobId).toMatch(/^[0-9a-f-]{36}$/);
 
   await expect(jobCard.getByRole('heading', { name: 'Результаты' })).toBeVisible();
   await expect(jobCard.getByText('Результатов: 1')).toBeVisible();
@@ -60,10 +81,61 @@ test('authenticated user creates a project and reads a completed job result', as
     'href',
     RESULT_URL,
   );
+  const jobDetail = jobCard.locator('section[aria-label^="Job detail "]');
+  await expect(jobDetail.getByRole('heading', { name: 'Файлы задачи' })).toBeVisible();
+  await expect(jobDetail.getByText('Статус обработки: Завершена')).toBeVisible();
+  await expect(jobDetail).not.toContainText('Статус файла: queued');
+  await expect(jobDetail).not.toContainText('Статус обработки: В очереди');
+  await expect(
+    jobCard.locator('section[aria-label^="Output reconciliation "]'),
+  ).toHaveCount(0);
+  await expect(
+    jobCard.getByRole('button', {
+      name: 'Проверить созданный документ в Google Drive',
+    }),
+  ).toHaveCount(0);
 
   await navigation
     .getByRole('button', { name: 'Настройки', exact: true })
     .click();
+  await page.getByRole('tab', { name: 'Диагностика' }).click();
+  await page
+    .getByRole('textbox', { name: 'Задача', exact: true })
+    .fill(resultJobId);
+  const diagnosticsResponsePromise = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'GET' &&
+      response.url().includes('/diagnostics/events?') &&
+      response.url().includes(`job_id=${resultJobId}`),
+  );
+  await page
+    .getByRole('button', { name: 'Применить фильтры', exact: true })
+    .click();
+  const diagnosticsResponse = await diagnosticsResponsePromise;
+  expect(diagnosticsResponse.status()).toBe(200);
+  const diagnostics = await diagnosticsResponse.json();
+  expect(
+    (diagnostics as { events?: Array<{ event_code?: string }> }).events?.map(
+      (event) => event.event_code,
+    ),
+  ).toEqual(['JOB_COMPLETED', 'OUTPUT_PERSISTED', 'JOB_CREATED']);
+  const diagnosticsJson = JSON.stringify(diagnostics);
+  expect(diagnosticsJson).not.toContain('browser-e2e-audio.mp3');
+  expect(diagnosticsJson).not.toContain('browser-e2e-document');
+  expect(diagnosticsJson).not.toContain('browser-e2e-source');
+
+  const diagnosticEvents = page.getByRole('region', {
+    name: 'События диагностики',
+  });
+  await expect(diagnosticEvents.getByText('JOB_COMPLETED')).toBeVisible();
+  await expect(diagnosticEvents.getByText('OUTPUT_PERSISTED')).toBeVisible();
+  await expect(diagnosticEvents.getByText('JOB_CREATED')).toBeVisible();
+  await expect(diagnosticEvents).toContainText('final_job_status');
+  await expect(diagnosticEvents).toContainText('completed');
+  await expect(diagnosticEvents).toContainText('output_count');
+  await expect(diagnosticEvents).toContainText('1');
+
+  await page.getByRole('tab', { name: 'Аккаунт' }).click();
   await page.getByRole('button', { name: 'Выйти' }).click();
   await expect(page.getByRole('heading', { name: 'Вход' })).toBeVisible();
 });

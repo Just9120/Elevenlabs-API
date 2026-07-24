@@ -29,10 +29,12 @@ def _require_isolated_database() -> None:
 def seed() -> None:
     _require_isolated_database()
     from studio_api.db import SessionLocal
+    from studio_api.diagnostics import write_diagnostic_event
     from studio_api.models import (
         JobSourceStatus,
         JobStatus,
         LocalIdentity,
+        OutputReconciliationStatus,
         Project,
         Source,
         SourceType,
@@ -40,6 +42,7 @@ def seed() -> None:
         TranscriptionJob,
         TranscriptionJobOutput,
         TranscriptionJobSource,
+        TranscriptionOutputReconciliation,
         User,
         UserRole,
         UserStatus,
@@ -119,25 +122,98 @@ def seed() -> None:
         )
         db.add(relation)
         db.flush()
+        output = TranscriptionJobOutput(
+            job_id=job.id,
+            job_source_id=relation.id,
+            document_id="browser-e2e-document",
+            web_view_url=(
+                "https://docs.google.com/document/d/"
+                "browser-e2e-document/edit"
+            ),
+            output_drive_folder_id="browser-e2e-folder",
+            output_kind="google_doc",
+            transcript_standard="elevenlabs",
+            document_character_count=42,
+            document_created_at=now - timedelta(minutes=1),
+            persisted_at=now - timedelta(minutes=1),
+            lease_generation=1,
+        )
+        db.add(output)
+        db.flush()
         db.add(
-            TranscriptionJobOutput(
+            TranscriptionOutputReconciliation(
+                owner_user_id=user.id,
+                project_id=project.id,
                 job_id=job.id,
                 job_source_id=relation.id,
-                document_id="browser-e2e-document",
-                web_view_url=(
+                reconciliation_token="or_browser_e2e_resolved",
+                lease_generation=1,
+                attempt_number=1,
+                status=OutputReconciliationStatus.resolved,
+                expected_output_drive_folder_id="browser-e2e-folder",
+                expected_document_character_count=42,
+                prepared_at=now - timedelta(minutes=1, seconds=5),
+                creation_started_at=now - timedelta(minutes=1, seconds=5),
+                returned_document_id="browser-e2e-document",
+                returned_web_view_url=(
                     "https://docs.google.com/document/d/"
                     "browser-e2e-document/edit"
                 ),
-                output_drive_folder_id="browser-e2e-folder",
-                output_kind="google_doc",
-                transcript_standard="elevenlabs",
-                document_character_count=42,
-                document_created_at=now - timedelta(minutes=1),
-                persisted_at=now - timedelta(minutes=1),
-                lease_generation=1,
+                returned_document_created_at=now - timedelta(minutes=1),
+                resolved_output_id=output.id,
+                resolved_at=now - timedelta(minutes=1),
+                created_at=now - timedelta(minutes=1, seconds=5),
+                updated_at=now - timedelta(minutes=1),
             )
         )
+        owner_user_id = user.id
+        result_project_id = project.id
+        result_job_id = job.id
         db.commit()
+
+    diagnostic_events = (
+        (
+            "api",
+            "JOB_CREATED",
+            {
+                "source_count": 1,
+                "batch_position": 0,
+                "credential_selected": True,
+            },
+            now - timedelta(minutes=2),
+        ),
+        (
+            "worker",
+            "OUTPUT_PERSISTED",
+            {"output_count": 1, "attempt_number": 1},
+            now - timedelta(minutes=1, seconds=1),
+        ),
+        (
+            "worker",
+            "JOB_COMPLETED",
+            {
+                "final_job_status": "completed",
+                "output_count": 1,
+                "attempt_number": 1,
+            },
+            now - timedelta(minutes=1),
+        ),
+    )
+    for component, event_code, metadata, occurred_at in diagnostic_events:
+        result = write_diagnostic_event(
+            owner_user_id=owner_user_id,
+            component=component,
+            event_code=event_code,
+            project_id=result_project_id,
+            job_id=result_job_id,
+            metadata=metadata,
+            session_factory=SessionLocal,
+            now=occurred_at,
+        )
+        if not result.accepted or not result.persisted:
+            raise RuntimeError(
+                f"browser E2E diagnostic seed failed for {event_code}"
+            )
 
 
 if __name__ == "__main__":
