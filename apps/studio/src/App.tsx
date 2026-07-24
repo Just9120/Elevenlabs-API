@@ -225,6 +225,16 @@ function isExpectedPickerSourceBatch(
 function credentialProfileLabel(c: Credential) {
   return c.active_version ? `${c.label} · v${c.active_version}` : c.label;
 }
+function isRetryableLocalUploadCompletionFailure(err: unknown) {
+  return (
+    err instanceof TypeError ||
+    (err instanceof ApiError &&
+      (err.status === 403 ||
+        err.status === 408 ||
+        err.status === 419 ||
+        err.status >= 500))
+  );
+}
 const ELEVENLABS_CREDENTIAL_SESSION_KEY = "studio.elevenlabsCredentialId";
 async function bootstrapSession(): Promise<{
   user: User;
@@ -329,8 +339,12 @@ function PreparationPanel({
   const [rowAdditionStatus, setRowAdditionStatus] = useState("");
   const rowFolderPickerRef = useRef(false);
   const rowSourcePickerRef = useRef(false);
+  const localUploadCsrfRef = useRef(csrf);
   const rowElementRefs = useRef(new Map<string, HTMLLIElement>());
   const reloadJobsRef = useRef(onReloadJobs);
+  useEffect(() => {
+    localUploadCsrfRef.current = csrf;
+  }, [csrf]);
   useEffect(() => {
     reloadJobsRef.current = onReloadJobs;
   }, [onReloadJobs]);
@@ -617,6 +631,24 @@ function PreparationPanel({
       return next.length > 0 ? next : [newComposerRow()];
     });
   }
+  async function completeLocalUpload(sourceId: string) {
+    const complete = () =>
+      csrfMutate<Source>(
+        `/sources/${sourceId}/local-upload/complete`,
+        localUploadCsrfRef.current,
+        (token) => {
+          localUploadCsrfRef.current = token;
+          onCsrf(token);
+        },
+        { method: "POST" },
+      );
+    try {
+      return await complete();
+    } catch (err) {
+      if (!isRetryableLocalUploadCompletionFailure(err)) throw err;
+      return complete();
+    }
+  }
   async function chooseRowDriveSources(rowId: string) {
     if (pickerBusy || rowSourcePickerRef.current) return;
     rowSourcePickerRef.current = true;
@@ -759,8 +791,11 @@ function PreparationPanel({
         }));
         const initiated = await csrfMutate<UploadInit>(
           `/projects/${project.id}/sources/local-upload/initiate`,
-          csrf,
-          onCsrf,
+          localUploadCsrfRef.current,
+          (token) => {
+            localUploadCsrfRef.current = token;
+            onCsrf(token);
+          },
           {
             method: "POST",
             body: JSON.stringify({
@@ -774,23 +809,34 @@ function PreparationPanel({
           ...current,
           [rowId]: `${file.name} — загрузка…`,
         }));
-        const put = await fetch(initiated.upload.url, {
-          method: initiated.upload.method,
-          headers: initiated.upload.headers,
-          body: file,
-          cache: "no-store",
-          credentials: "omit",
-          redirect: "error",
-          referrerPolicy: "no-referrer",
-        });
+        let put: Response;
+        try {
+          put = await fetch(initiated.upload.url, {
+            method: initiated.upload.method,
+            headers: initiated.upload.headers,
+            body: file,
+            cache: "no-store",
+            credentials: "omit",
+            redirect: "error",
+            referrerPolicy: "no-referrer",
+          });
+        } catch {
+          setRowIntakeStatus((current) => ({
+            ...current,
+            [rowId]: `${file.name} — проверяем результат загрузки…`,
+          }));
+          const recovered = await completeLocalUpload(initiated.source_id);
+          successful.push(recovered);
+          placeSourcesInRows(rowId, [recovered]);
+          continue;
+        }
         if (!put.ok)
           throw new Error("Не удалось загрузить файл во временное хранилище.");
-        const completed = await csrfMutate<Source>(
-          `/sources/${initiated.source_id}/local-upload/complete`,
-          csrf,
-          onCsrf,
-          { method: "POST" },
-        );
+        setRowIntakeStatus((current) => ({
+          ...current,
+          [rowId]: `${file.name} — подтверждаем загрузку…`,
+        }));
+        const completed = await completeLocalUpload(initiated.source_id);
         successful.push(completed);
         placeSourcesInRows(rowId, [completed]);
       } catch (err) {

@@ -6176,6 +6176,111 @@ describe("Studio PWA", () => {
     ]);
   });
 
+  it("recovers an ambiguous local PUT through completion without creating a second source", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let rejectedPut = false;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        String(url).startsWith("https://upload.example/presigned") &&
+        init?.method === "PUT" &&
+        !rejectedPut
+      ) {
+        rejectedPut = true;
+        return Promise.reject(new TypeError("synthetic ambiguous PUT"));
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    renderApp();
+    await openProjectsPage();
+    const row = await screen.findByLabelText("Источник строки 1");
+    const input = within(row).getByLabelText(
+      "Выбрать файлы с устройства для строки 1",
+    ) as HTMLInputElement;
+
+    await userEvent.upload(
+      input,
+      new File(["recover"], "recover.ogg", { type: "audio/ogg" }),
+    );
+
+    await within(row).findByText("Загружено файлов: 1.");
+    expect(row).toHaveTextContent("local-source-1.ogg");
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          String(url).endsWith(
+            "/api/projects/p1/sources/local-upload/initiate",
+          ) && init?.method === "POST",
+      ),
+    ).toHaveLength(1);
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          String(url).startsWith("https://upload.example/presigned") &&
+          init?.method === "PUT",
+      ),
+    ).toHaveLength(1);
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          String(url).endsWith("/local-upload/complete") &&
+          init?.method === "POST",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("retries local upload completion without repeating initiation or PUT", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let rejectedCompletion = false;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        String(url).endsWith("/local-upload/complete") &&
+        init?.method === "POST" &&
+        !rejectedCompletion
+      ) {
+        rejectedCompletion = true;
+        return Promise.reject(new TypeError("synthetic lost completion"));
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    renderApp();
+    await openProjectsPage();
+    const row = await screen.findByLabelText("Источник строки 1");
+    const input = within(row).getByLabelText(
+      "Выбрать файлы с устройства для строки 1",
+    ) as HTMLInputElement;
+
+    await userEvent.upload(
+      input,
+      new File(["recover"], "complete-retry.ogg", { type: "audio/ogg" }),
+    );
+
+    await within(row).findByText("Загружено файлов: 1.");
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          String(url).endsWith(
+            "/api/projects/p1/sources/local-upload/initiate",
+          ) && init?.method === "POST",
+      ),
+    ).toHaveLength(1);
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          String(url).startsWith("https://upload.example/presigned") &&
+          init?.method === "PUT",
+      ),
+    ).toHaveLength(1);
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          String(url).endsWith("/local-upload/complete") &&
+          init?.method === "POST",
+      ),
+    ).toHaveLength(2);
+  });
+
   it("uses the server upload-size policy before initiating a local upload", async () => {
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = baseFetch.getMockImplementation();
