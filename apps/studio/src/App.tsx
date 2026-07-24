@@ -1266,7 +1266,7 @@ function PreparationPanel({
           <label className="transcription-toggle">
             <input
               type="checkbox"
-              aria-label="Разделять спикеров"
+              aria-label="Разделять на спикеров"
               checked={diarizationEnabled}
               onChange={(event) => {
                 setDiarizationEnabled(event.target.checked);
@@ -1279,7 +1279,7 @@ function PreparationPanel({
               }}
             />
             <span>
-              <strong>Разделять спикеров</strong>
+              <strong>Разделять на спикеров</strong>
               <small>
                 В документе появятся последовательные блоки Speaker 1,
                 Speaker 2 и далее.

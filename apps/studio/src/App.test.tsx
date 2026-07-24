@@ -2424,7 +2424,7 @@ describe("Studio PWA", () => {
       screen.getByLabelText("Язык транскрибации"),
       "detect",
     );
-    await userEvent.click(screen.getByLabelText("Разделять спикеров"));
+    await userEvent.click(screen.getByLabelText("Разделять на спикеров"));
 
     await userEvent.click(
       screen.getByRole("button", { name: "Проверить задачи (1)" }),
@@ -3231,7 +3231,7 @@ describe("Studio PWA", () => {
     const languageSelect = screen.getByLabelText("Язык транскрибации");
     expect(languageSelect).toHaveValue("ru");
     await userEvent.selectOptions(languageSelect, "detect");
-    const diarizationToggle = screen.getByLabelText("Разделять спикеров");
+    const diarizationToggle = screen.getByLabelText("Разделять на спикеров");
     expect(diarizationToggle).not.toBeChecked();
     await userEvent.click(diarizationToggle);
     await reviewAndConfirmBatch();
