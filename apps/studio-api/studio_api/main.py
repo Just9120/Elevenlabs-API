@@ -777,7 +777,11 @@ def initiate_local_upload(project_id: str, data: LocalUploadInitiateIn, response
 @app.post("/api/sources/{source_id}/local-upload/complete")
 def complete_local_upload(source_id: str, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     _,user=pair; src=owned_source_or_404(db,user,source_id)
-    if src.source_type!=SourceType.local_upload or src.upload_status!=SourceUploadStatus.pending or src.deleted_at is not None: raise HTTPException(404,"Не найдено")
+    if src.source_type!=SourceType.local_upload or src.deleted_at is not None: raise HTTPException(404,"Не найдено")
+    if src.upload_status==SourceUploadStatus.uploaded:
+        if is_source_expired(src, utcnow()): raise HTTPException(404,"Не найдено")
+        return source_payload(src)
+    if src.upload_status!=SourceUploadStatus.pending: raise HTTPException(404,"Не найдено")
     initial_project_id=src.project_id
     initial_type=src.source_type
     initial_status=src.upload_status
