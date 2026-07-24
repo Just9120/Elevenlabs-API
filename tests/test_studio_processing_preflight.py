@@ -216,7 +216,7 @@ def test_source_storage_placeholder_secrets_block_before_docker(tmp_path: Path) 
         ("s3id", "SOURCE_S3_ACCESS_KEY_ID secret-file presence", "echo"),
         ("s3id", "SOURCE_S3_ACCESS_KEY_ID secret-file presence", "short"),
         ("s3id", "SOURCE_S3_ACCESS_KEY_ID secret-file presence", "a" * 129),
-        ("s3secret", "SOURCE_S3_SECRET_ACCESS_KEY secret-file presence", "placeholder"),
+        ("s3secret", "SOURCE_S3_SECRET_ACCESS_KEY secret-file presence", "changeme"),
         ("s3secret", "SOURCE_S3_SECRET_ACCESS_KEY secret-file presence", "b" * 31),
         ("s3secret", "SOURCE_S3_SECRET_ACCESS_KEY secret-file presence", "b" * 32 + "\nsecond-line"),
     ]
