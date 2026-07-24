@@ -6309,6 +6309,53 @@ describe("Studio PWA", () => {
     ).toHaveLength(2);
   });
 
+  it("blocks a second local selection while the row upload is still running", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let releasePut: (() => void) | undefined;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        String(url).startsWith("https://upload.example/presigned") &&
+        init?.method === "PUT"
+      )
+        return new Promise<Response>((resolve) => {
+          releasePut = () => resolve({ ok: true } as Response);
+        });
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    renderApp();
+    await openProjectsPage();
+    const row = await screen.findByLabelText("Источник строки 1");
+    const input = within(row).getByLabelText(
+      "Выбрать файлы с устройства для строки 1",
+    ) as HTMLInputElement;
+
+    await userEvent.upload(
+      input,
+      new File(["first"], "first.ogg", { type: "audio/ogg" }),
+    );
+    await waitFor(() => expect(input).toBeDisabled());
+    fireEvent.change(input, {
+      target: {
+        files: [new File(["second"], "second.ogg", { type: "audio/ogg" })],
+      },
+    });
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          String(url).endsWith(
+            "/api/projects/p1/sources/local-upload/initiate",
+          ) && init?.method === "POST",
+      ),
+    ).toHaveLength(1);
+
+    act(() => releasePut?.());
+    await within(row).findByText("Загружено файлов: 1.");
+    await waitFor(() => expect(input).toBeEnabled());
+    expect(row).toHaveTextContent("local-source-1.ogg");
+    expect(row).not.toHaveTextContent("local-source-2.ogg");
+  });
+
   it("uses the server upload-size policy before initiating a local upload", async () => {
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = baseFetch.getMockImplementation();
