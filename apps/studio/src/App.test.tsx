@@ -6356,6 +6356,66 @@ describe("Studio PWA", () => {
     expect(row).not.toHaveTextContent("local-source-2.ogg");
   });
 
+  it("reports an explicit storage PUT rejection without leaking upload identity", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        String(url).startsWith("https://upload.example/presigned") &&
+        init?.method === "PUT"
+      )
+        return json({ private: "raw-storage-body" }, false, 400);
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    renderApp();
+    await openProjectsPage();
+    const row = await screen.findByLabelText("Источник строки 1");
+    const input = within(row).getByLabelText(
+      "Выбрать файлы с устройства для строки 1",
+    ) as HTMLInputElement;
+
+    await userEvent.upload(
+      input,
+      new File(["rejected"], "private-filename.ogg", { type: "audio/ogg" }),
+    );
+
+    expect(
+      await within(row).findByText(
+        /Хранилище отклонило загрузку\. Обновите страницу и повторите/,
+      ),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        baseFetch.mock.calls.some(([url]) =>
+          String(url).endsWith("/api/diagnostics/pwa-events"),
+        ),
+      ).toBe(true),
+    );
+    const event = postedPwaEventsFrom(baseFetch).find(
+      (candidate) => candidate.event_code === "PWA_API_REQUEST_FAILED",
+    );
+    expect(event).toMatchObject({
+      event_code: "PWA_API_REQUEST_FAILED",
+      metadata: {
+        boundary: "api_request",
+        error_code: "api_request_failed",
+        endpoint_group: "sources",
+        http_status_category: "4xx",
+        retryable: false,
+      },
+    });
+    expect(JSON.stringify(event)).not.toContain("private-filename.ogg");
+    expect(JSON.stringify(event)).not.toContain("presigned");
+    expect(JSON.stringify(event)).not.toContain("raw-storage-body");
+    expect(
+      baseFetch.mock.calls.some(
+        ([url, init]) =>
+          String(url).endsWith("/local-upload/complete") &&
+          init?.method === "POST",
+      ),
+    ).toBe(false);
+  });
+
   it("uses the server upload-size policy before initiating a local upload", async () => {
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = baseFetch.getMockImplementation();

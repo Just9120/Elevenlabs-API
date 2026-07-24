@@ -11,6 +11,7 @@ import { googlePickerFailureMessage } from "./googlePickerErrors";
 import {
   clearPwaDiagnosticsSession,
   configurePwaDiagnosticsDebugState,
+  emitPwaDiagnostic,
   updatePwaDiagnosticsCsrf,
 } from "./pwaDiagnostics";
 import {
@@ -234,6 +235,34 @@ function isRetryableLocalUploadCompletionFailure(err: unknown) {
         err.status === 419 ||
         err.status >= 500))
   );
+}
+function localUploadHttpStatusCategory(status: number) {
+  return status >= 100 && status <= 599
+    ? (`${Math.floor(status / 100)}xx` as
+        | "1xx"
+        | "2xx"
+        | "3xx"
+        | "4xx"
+        | "5xx")
+    : "unknown";
+}
+function reportLocalUploadPutFailure(status: number) {
+  emitPwaDiagnostic("PWA_API_REQUEST_FAILED", {
+    boundary: "api_request",
+    error_code: "api_request_failed",
+    endpoint_group: "sources",
+    http_status_category: localUploadHttpStatusCategory(status),
+    retryable: status === 408 || status === 429 || status >= 500,
+  });
+}
+function localUploadPutFailureMessage(status: number) {
+  if (status === 401 || status === 403)
+    return "Временная ссылка на загрузку отклонена. Обновите страницу и повторите попытку.";
+  if (status === 408 || status === 429 || status >= 500)
+    return "Временное хранилище сейчас недоступно. Повторите попытку позже.";
+  if (status >= 400 && status < 500)
+    return "Хранилище отклонило загрузку. Обновите страницу и повторите; если ошибка вернётся, сообщите администратору время попытки.";
+  return "Не удалось загрузить файл во временное хранилище.";
 }
 const ELEVENLABS_CREDENTIAL_SESSION_KEY = "studio.elevenlabsCredentialId";
 async function bootstrapSession(): Promise<{
@@ -839,8 +868,10 @@ function PreparationPanel({
             placeSourcesInRows(rowId, [recovered]);
             continue;
           }
-          if (!put.ok)
-            throw new Error("Не удалось загрузить файл во временное хранилище.");
+          if (!put.ok) {
+            reportLocalUploadPutFailure(put.status);
+            throw new Error(localUploadPutFailureMessage(put.status));
+          }
           setRowIntakeStatus((current) => ({
             ...current,
             [rowId]: `${file.name} — подтверждаем загрузку…`,
