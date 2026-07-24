@@ -619,9 +619,93 @@ test('queued cancellation performs one bounded API mutation', async ({
 }) => {
   const navigation = await login(page);
   await navigation.getByRole('button', { name: 'Проекты', exact: true }).click();
+
+  const integrationRequests = trackExternalOrJobMutations(page);
+  const progressResponsePromise = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'GET' &&
+      response.url().endsWith('/jobs/progress'),
+  );
   await page
     .getByRole('button', { name: new RegExp(`^${RESULT_PROJECT}`) })
     .click();
+
+  const progressResponse = await progressResponsePromise;
+  expect(progressResponse.status()).toBe(200);
+  const progressPayload = await progressResponse.json();
+  const queuedProgress = progressPayload.jobs.find(
+    (job: { job_status?: string }) => job.job_status === 'queued',
+  );
+  expect(queuedProgress).toMatchObject({
+    job_status: 'queued',
+    tracking_precision: 'checkpoint',
+    completed_source_count: 0,
+    total_source_count: 1,
+    active_source_position: null,
+    current_stage: null,
+    sources: [
+      {
+        position: 0,
+        name: 'browser-e2e-audio.mp3',
+        status: 'queued',
+        stages: [
+          {
+            key: 'preparation',
+            status: 'pending',
+            applicability: 'required',
+          },
+          {
+            key: 'audio_extraction',
+            status: 'not_applicable',
+            applicability: 'not_applicable',
+          },
+          {
+            key: 'splitting',
+            status: 'pending',
+            applicability: 'conditional',
+          },
+          {
+            key: 'provider_processing',
+            status: 'pending',
+            applicability: 'required',
+          },
+          {
+            key: 'part_merge',
+            status: 'pending',
+            applicability: 'conditional',
+          },
+          {
+            key: 'google_docs_output',
+            status: 'pending',
+            applicability: 'required',
+          },
+        ],
+      },
+    ],
+  });
+  expect(queuedProgress.job_id).toMatch(/^[0-9a-f-]{36}$/);
+
+  const progress = page.getByRole('region', {
+    name: `Прогресс задачи ${queuedProgress.job_id}`,
+  });
+  await expect(progress.getByText('Готово файлов: 0 из 1')).toBeVisible();
+  await expect(
+    progress.getByText('Подготовка источника').locator('..'),
+  ).toContainText('Ожидает');
+  await expect(
+    progress.getByText('Извлечение аудио').locator('..'),
+  ).toContainText('Не требуется');
+  await expect(
+    progress.getByText('Транскрибация ElevenLabs').locator('..'),
+  ).toContainText('Ожидает');
+  await expect(
+    progress.getByText('Создание Google Docs').locator('..'),
+  ).toContainText('Ожидает');
+  await expect(progress.getByText('Выполняется', { exact: true })).toHaveCount(
+    0,
+  );
+  await expect(progress.getByText('Готово', { exact: true })).toHaveCount(0);
+  await expect(progress.getByText('Проверено', { exact: true })).toHaveCount(0);
 
   const currentJobs = page.getByRole('region', { name: 'Текущие задачи' });
   const queuedCard = currentJobs
@@ -630,7 +714,6 @@ test('queued cancellation performs one bounded API mutation', async ({
     .first();
   await expect(queuedCard.getByText('Статус: В очереди')).toBeVisible();
 
-  const integrationRequests = trackExternalOrJobMutations(page);
   const cancelResponsePromise = page.waitForResponse(
     (response) =>
       response.request().method() === 'POST' &&
