@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import type { Page } from '@playwright/test';
+import type { BrowserContext, Page } from '@playwright/test';
 
 const E2E_EMAIL = 'browser-e2e@example.com';
 const E2E_PASSWORD = 'browser-e2e-password';
@@ -13,19 +13,30 @@ const PROCESSING_CANCELLATION_JOB = 'Browser E2E processing cancellation job';
 const RECONCILIATION_TOKEN = 'or_browser_e2e_pending';
 const RESULT_URL =
   'https://docs.google.com/document/d/browser-e2e-document/edit';
+let sharedSessionCookies:
+  | Awaited<ReturnType<BrowserContext['cookies']>>
+  | null = null;
+
+test.describe.configure({ mode: 'serial' });
 
 async function login(page: Page) {
   await page.goto('/');
 
-  await expect(page.getByRole('heading', { name: 'Вход' })).toBeVisible();
-  await page.getByLabel('Email').fill(E2E_EMAIL);
-  await page.getByLabel('Пароль').fill(E2E_PASSWORD);
-  await page.getByRole('button', { name: 'Войти' }).click();
+  if (sharedSessionCookies) {
+    await page.context().addCookies(sharedSessionCookies);
+    await page.reload();
+  } else {
+    await expect(page.getByRole('heading', { name: 'Вход' })).toBeVisible();
+    await page.getByLabel('Email').fill(E2E_EMAIL);
+    await page.getByLabel('Пароль').fill(E2E_PASSWORD);
+    await page.getByRole('button', { name: 'Войти' }).click();
+  }
 
   const navigation = page.getByRole('navigation', {
     name: 'Основная навигация',
   });
   await expect(navigation).toBeVisible();
+  sharedSessionCookies ??= await page.context().cookies();
   return navigation;
 }
 
@@ -166,6 +177,7 @@ test('authenticated user creates a project and reads a completed job result', as
 
   await page.getByRole('tab', { name: 'Аккаунт' }).click();
   await page.getByRole('button', { name: 'Выйти' }).click();
+  sharedSessionCookies = null;
   await expect(page.getByRole('heading', { name: 'Вход' })).toBeVisible();
 });
 
@@ -206,9 +218,17 @@ test('preparation stays fail-closed without external integrations', async ({
   await expect(readiness).toContainText('Готово: 0 из 1');
   await expect(readiness).toContainText('Строка 1: выберите источник');
 
-  await preparation
-    .getByLabel('Существующий файл для строки 1')
-    .selectOption({ label: /browser-e2e-audio\.mp3/ });
+  const existingSourceSelect = preparation.getByLabel(
+    'Существующий файл для строки 1',
+  );
+  const existingSourceValue = await existingSourceSelect
+    .locator('option')
+    .filter({ hasText: 'browser-e2e-audio.mp3' })
+    .getAttribute('value');
+  if (!existingSourceValue) {
+    throw new Error('Seeded browser E2E source option is missing');
+  }
+  await existingSourceSelect.selectOption(existingSourceValue);
 
   await expect(readiness).toContainText(
     'Строка 1: выберите папку результата',
