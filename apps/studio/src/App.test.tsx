@@ -2347,6 +2347,12 @@ describe("Studio PWA", () => {
     const status = await screen.findByLabelText("Готовность строк подготовки");
     expect(status).toHaveTextContent("Готово: 0 из 1");
     expect(status).toHaveTextContent("Строка 1: выберите источник");
+    expect(screen.getByText("Название документа")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Необязательно. Если оставить пустым, Google Docs получит имя исходного файла.",
+      ),
+    ).toBeInTheDocument();
     expect(
       screen.queryByRole("heading", { name: "Готовность" }),
     ).not.toBeInTheDocument();

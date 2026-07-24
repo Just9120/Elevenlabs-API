@@ -1528,7 +1528,7 @@ function PreparationPanel({
                       </button>
                     </div>
                     <label>
-                      Название
+                      Название документа
                       <input
                         value={row.title}
                         onChange={(e) =>
@@ -1538,6 +1538,10 @@ function PreparationPanel({
                         placeholder="Необязательно"
                         aria-label={`Название задачи для строки ${index + 1}`}
                       />
+                      <small className="muted">
+                        Необязательно. Если оставить пустым, Google Docs
+                        получит имя исходного файла.
+                      </small>
                     </label>
                   </div>
                   {invalidSourceRowIds.has(row.id) && (
