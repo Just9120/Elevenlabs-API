@@ -1156,6 +1156,40 @@ code {
   margin: 0 0 0.55rem;
 }
 
+.analytics-glossary {
+  margin-top: 0.75rem;
+  border: 1px solid var(--studio-border);
+  border-radius: 12px;
+  padding: 0.65rem 0.75rem;
+  background: var(--studio-soft);
+}
+
+.analytics-glossary summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.analytics-glossary dl {
+  display: grid;
+  gap: 0.65rem;
+  margin: 0.75rem 0 0;
+}
+
+.analytics-glossary dl > div {
+  display: grid;
+  grid-template-columns: minmax(5rem, 0.25fr) minmax(0, 1fr);
+  gap: 0.75rem;
+}
+
+.analytics-glossary dt {
+  font-weight: 700;
+}
+
+.analytics-glossary dd {
+  margin: 0;
+  color: var(--studio-muted);
+}
+
 .terminal-job {
   opacity: 0.82;
 }
