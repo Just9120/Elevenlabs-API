@@ -1907,6 +1907,11 @@ describe("Studio PWA", () => {
     const retention = await screen.findByRole("combobox", {
       name: "Срок хранения локальных файлов",
     });
+    expect(
+      screen.getByText(/приватном объектном хранилище \(S3\/R2\)/),
+    ).toHaveTextContent(
+      "Ссылки на Google Drive и результаты Google Docs не затрагиваются.",
+    );
     expect(retention).toHaveValue("86400");
     expect(
       within(retention).getByRole("option", { name: "1 час" }),
