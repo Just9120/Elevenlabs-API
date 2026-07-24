@@ -247,6 +247,13 @@ async function csrfMutate<T>(
 ): Promise<T> {
   return mutateWithCsrfRetry<T>(path, csrf, onCsrf, options);
 }
+function safeConfirm(message: string) {
+  try {
+    return window.confirm(message) === true;
+  } catch {
+    return false;
+  }
+}
 export const __appDiagnosticsTest = { api, csrfMutate };
 function PreparationPanel({
   project,
@@ -2892,6 +2899,11 @@ function SettingsPage({
                 <p>
                   {c.status} · v{c.active_version ?? "—"} · {c.masked_value}
                 </p>
+                <p className="muted">
+                  Отключение запрещает использовать ключ в задачах, но сохраняет
+                  его версии. Удаление навсегда стирает сохранённые значения
+                  ключа без возможности восстановления.
+                </p>
                 <div className="credential-actions">
                   <button
                     type="button"
@@ -2899,14 +2911,32 @@ function SettingsPage({
                   >
                     Заменить
                   </button>
-                  <button onClick={() => action(`/credentials/${c.id}/revoke`)}>
-                    Отозвать
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (
+                        safeConfirm(
+                          `Отключить ключ «${c.label}»? Он станет недоступен для новых и выполняющихся задач, но история версий сохранится.`,
+                        )
+                      )
+                        void action(`/credentials/${c.id}/revoke`);
+                    }}
+                  >
+                    Отключить
                   </button>
                   <button
+                    type="button"
                     className="danger"
-                    onClick={() => action(`/credentials/${c.id}`, "DELETE")}
+                    onClick={() => {
+                      if (
+                        safeConfirm(
+                          `Удалить ключ «${c.label}» навсегда? Все сохранённые значения будут стёрты без возможности восстановления.`,
+                        )
+                      )
+                        void action(`/credentials/${c.id}`, "DELETE");
+                    }}
                   >
-                    Удалить
+                    Удалить навсегда
                   </button>
                 </div>
                 {replacingCredentialId === c.id && (

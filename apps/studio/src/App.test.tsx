@@ -2207,6 +2207,65 @@ describe("Studio PWA", () => {
       screen.queryByText("raw-secret-never-render"),
     ).not.toBeInTheDocument();
   });
+
+  it("explains and confirms credential disable and permanent deletion", async () => {
+    const confirm = vi.mocked(window.confirm);
+    confirm.mockReturnValue(false);
+    renderApp();
+    await openSettingsPage();
+
+    expect(
+      await screen.findByText(/Отключение запрещает использовать ключ/),
+    ).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Отключить" }),
+    );
+    expect(confirm).toHaveBeenLastCalledWith(
+      "Отключить ключ «Primary STT»? Он станет недоступен для новых и выполняющихся задач, но история версий сохранится.",
+    );
+    expect(
+      (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
+        ([url]) => url === "/api/credentials/cred-active/revoke",
+      ),
+    ).toBe(false);
+
+    confirm.mockReturnValue(true);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Отключить" }),
+    );
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/credentials/cred-active/revoke",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+
+    confirm.mockReturnValue(false);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Удалить навсегда" }),
+    );
+    expect(confirm).toHaveBeenLastCalledWith(
+      "Удалить ключ «Primary STT» навсегда? Все сохранённые значения будут стёрты без возможности восстановления.",
+    );
+    expect(
+      (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
+        ([url, init]) =>
+          url === "/api/credentials/cred-active" && init?.method === "DELETE",
+      ),
+    ).toBe(false);
+
+    confirm.mockReturnValue(true);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Удалить навсегда" }),
+    );
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/credentials/cred-active",
+        expect.objectContaining({ method: "DELETE" }),
+      ),
+    );
+  });
+
   it("creates credentials with raw_value while using credential-specific field names", async () => {
     renderApp();
     await openSettingsPage();
