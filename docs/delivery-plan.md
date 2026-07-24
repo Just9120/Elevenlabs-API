@@ -183,8 +183,8 @@ For production/operator work, use a separate evidence pipeline: **read-only pref
 
 ## Current validation evidence and blockers
 
-- `main` and `origin/main` are `89fa7d5` (PR #184). The active `codex/pwa-upload-recovery` branch contains nine focused implementation commits plus this dashboard checkpoint; none of its behavior is production evidence yet.
-- Current branch validation is incremental: focused Studio Vitest scenarios for ambiguous PUT recovery, completion retry, per-row concurrency, safe storage failure diagnostics, capability/completion/deletion validation, and cleanup UX pass; targeted ESLint and TypeScript pass; Bash syntax and lightweight repository checks pass. Full Vitest/build/portable Python and Linux service-backed/preflight checks remain the pre-PR gate.
+- `main` and `origin/main` are `89fa7d5` (PR #184). The active `codex/pwa-upload-recovery` batch comprises nine focused implementation commits and two delivery/validation checkpoints; none of its behavior is production evidence yet.
+- Full local pre-PR validation passed: Studio Vitest `274 passed`; portable Python `715 passed, 6 skipped`; full ESLint, TypeScript, production Vite/PWA build, Python compileall, Bash syntax, lightweight repository checks, and `main...HEAD` diff checks passed. Playwright discovery lists the single authenticated scenario without launching a browser.
 - The backend completion regression test is present but cannot run against the Windows local environment without PostgreSQL. The preflight behavior tests are Linux-oriented and Git Bash path semantics cannot reproduce their host identity gate; GitHub CI remains authoritative for both.
 - Pre-migration backup snapshot `7b03ad00` completed successfully against the configured restic/R2 repository, and the manual migration reached `0015_user_source_retention`.
 - Isolated API deployment run `30004599136` succeeded. Post-deploy preflight `30004696267` proved database head `0015`, healthy PostgreSQL/Redis, and passing public API/web health.
