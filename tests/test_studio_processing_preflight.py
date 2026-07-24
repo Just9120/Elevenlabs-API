@@ -34,7 +34,11 @@ def make_repo(tmp_path: Path, **state: str) -> tuple[Path, Path]:
     secrets = {}
     for name in ["pg", "master", "s3id", "s3secret", "google"]:
         p = secret_dir / name
-        p.write_text(f"SUPERSECRET-{name}-TOKEN123\n", encoding="utf-8")
+        value = {
+            "s3id": "a" * 32,
+            "s3secret": "b" * 64,
+        }.get(name, f"SUPERSECRET-{name}-TOKEN123")
+        p.write_text(value + "\n", encoding="utf-8")
         secrets[name] = p
     env_text = f"""APP_PUBLIC_URL=https://secret.example
 STUDIO_POSTGRES_PASSWORD_FILE={secrets['pg']}
@@ -204,6 +208,36 @@ def test_runtime_gate_failures_block_before_service_inspection(tmp_path: Path) -
             calls = (case / "x/calls.log").read_text().splitlines() if (case / "x/calls.log").exists() else []
         assert proc.returncode != 0
         assert not any(c.startswith("docker ") for c in calls)
+        assert_no_secret_output(proc)
+
+
+def test_source_storage_placeholder_secrets_block_before_docker(tmp_path: Path) -> None:
+    cases = [
+        ("s3id", "SOURCE_S3_ACCESS_KEY_ID secret-file presence", "echo"),
+        ("s3id", "SOURCE_S3_ACCESS_KEY_ID secret-file presence", "short"),
+        ("s3id", "SOURCE_S3_ACCESS_KEY_ID secret-file presence", "a" * 129),
+        ("s3secret", "SOURCE_S3_SECRET_ACCESS_KEY secret-file presence", "placeholder"),
+        ("s3secret", "SOURCE_S3_SECRET_ACCESS_KEY secret-file presence", "b" * 31),
+        ("s3secret", "SOURCE_S3_SECRET_ACCESS_KEY secret-file presence", "b" * 32 + "\nsecond-line"),
+    ]
+    for index, (filename, row, value) in enumerate(cases):
+        case = tmp_path / str(index)
+        repo, bin_dir = make_repo(case)
+        (case / "secrets" / filename).write_text(value, encoding="utf-8")
+        proc = subprocess.run(
+            ["bash", str(SCRIPT), str(repo), "main", "Just9120/Elevenlabs-API", SHA],
+            cwd=repo,
+            env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"},
+            text=True,
+            capture_output=True,
+            timeout=10,
+        )
+        calls = (case / "calls.log").read_text(encoding="utf-8").splitlines() if (case / "calls.log").exists() else []
+        assert proc.returncode != 0
+        assert row_statuses(proc.stdout)[row] == "blocked"
+        assert "source storage credential file has invalid or placeholder content" in proc.stdout
+        assert value not in proc.stdout + proc.stderr
+        assert not any(call.startswith("docker ") for call in calls)
         assert_no_secret_output(proc)
 
 
