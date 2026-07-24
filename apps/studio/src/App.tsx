@@ -311,6 +311,43 @@ function isSafeLocalUploadInit(
     return false;
   }
 }
+function isExpectedCompletedLocalSource(
+  candidate: unknown,
+  {
+    sourceId,
+    projectId,
+    mimeType,
+    sizeBytes,
+  }: {
+    sourceId: string;
+    projectId: string;
+    mimeType: string;
+    sizeBytes: number;
+  },
+): candidate is Source {
+  if (!candidate || typeof candidate !== "object") return false;
+  const source = candidate as Partial<Source>;
+  const validDate = (value: unknown) =>
+    typeof value === "string" && Number.isFinite(Date.parse(value));
+  return (
+    source.id === sourceId &&
+    source.project_id === projectId &&
+    source.source_type === "local_upload" &&
+    source.upload_status === "uploaded" &&
+    typeof source.original_filename === "string" &&
+    Boolean(source.original_filename) &&
+    source.original_filename.length <= 255 &&
+    source.mime_type === mimeType &&
+    source.size_bytes === sizeBytes &&
+    source.drive_file_url === null &&
+    validDate(source.uploaded_at) &&
+    validDate(source.expires_at) &&
+    source.deleted_at === null &&
+    source.delete_reason === null &&
+    validDate(source.created_at) &&
+    validDate(source.updated_at)
+  );
+}
 const ELEVENLABS_CREDENTIAL_SESSION_KEY = "studio.elevenlabsCredentialId";
 async function bootstrapSession(): Promise<{
   user: User;
@@ -713,9 +750,13 @@ function PreparationPanel({
       return next.length > 0 ? next : [newComposerRow()];
     });
   }
-  async function completeLocalUpload(sourceId: string) {
+  async function completeLocalUpload(
+    sourceId: string,
+    mimeType: string,
+    sizeBytes: number,
+  ) {
     const complete = () =>
-      csrfMutate<Source>(
+      csrfMutate<unknown>(
         `/sources/${sourceId}/local-upload/complete`,
         localUploadCsrfRef.current,
         (token) => {
@@ -724,12 +765,27 @@ function PreparationPanel({
         },
         { method: "POST" },
       );
+    let completed: unknown;
     try {
-      return await complete();
+      completed = await complete();
     } catch (err) {
       if (!isRetryableLocalUploadCompletionFailure(err)) throw err;
-      return complete();
+      completed = await complete();
     }
+    if (
+      !isExpectedCompletedLocalSource(completed, {
+        sourceId,
+        projectId: project.id,
+        mimeType,
+        sizeBytes,
+      })
+    ) {
+      onReloadSources(project.id);
+      throw new Error(
+        "Сервер вернул несогласованное подтверждение загрузки. Список файлов обновлён; проверьте его перед повторной попыткой.",
+      );
+    }
+    return completed;
   }
   async function chooseRowDriveSources(rowId: string) {
     if (pickerBusy || rowSourcePickerRef.current) return;
@@ -919,7 +975,11 @@ function PreparationPanel({
               ...current,
               [rowId]: `${file.name} — проверяем результат загрузки…`,
             }));
-            const recovered = await completeLocalUpload(initiated.source_id);
+            const recovered = await completeLocalUpload(
+              initiated.source_id,
+              expectedContentType,
+              file.size,
+            );
             successful.push(recovered);
             placeSourcesInRows(rowId, [recovered]);
             continue;
@@ -932,7 +992,11 @@ function PreparationPanel({
             ...current,
             [rowId]: `${file.name} — подтверждаем загрузку…`,
           }));
-          const completed = await completeLocalUpload(initiated.source_id);
+          const completed = await completeLocalUpload(
+            initiated.source_id,
+            expectedContentType,
+            file.size,
+          );
           successful.push(completed);
           placeSourcesInRows(rowId, [completed]);
         } catch (err) {

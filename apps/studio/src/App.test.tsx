@@ -558,6 +558,10 @@ describe("Studio PWA", () => {
     localStorage.clear();
     sessionStorage.clear();
     let localUploadIndex = 0;
+    const localUploadMetadata = new Map<
+      string,
+      { mime_type: string; size_bytes: number }
+    >();
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string, init?: RequestInit) => {
@@ -837,12 +841,17 @@ describe("Studio PWA", () => {
         ) {
           localUploadIndex += 1;
           const sourceId = `local-source-${localUploadIndex}`;
+          const request = JSON.parse(String(init.body)) as {
+            mime_type: string;
+            size_bytes: number;
+          };
+          localUploadMetadata.set(sourceId, request);
           return json({
             source_id: sourceId,
             upload: {
               method: "PUT",
               url: `https://upload.example/presigned-${localUploadIndex}`,
-              headers: { "Content-Type": "audio/ogg" },
+              headers: { "Content-Type": request.mime_type },
               expires_in: 900,
             },
           });
@@ -856,13 +865,17 @@ describe("Studio PWA", () => {
         ) {
           const sourceId =
             url.match(/local-source-\d+/)?.[0] ?? "local-source-1";
+          const metadata = localUploadMetadata.get(sourceId) ?? {
+            mime_type: "audio/ogg",
+            size_bytes: 11,
+          };
           return json({
             id: sourceId,
             project_id: "p1",
             source_type: "local_upload",
             original_filename: `${sourceId}.ogg`,
-            mime_type: "audio/ogg",
-            size_bytes: 11,
+            mime_type: metadata.mime_type,
+            size_bytes: metadata.size_bytes,
             drive_file_id: null,
             drive_file_url: null,
             upload_status: "uploaded",
@@ -6471,6 +6484,59 @@ describe("Studio PWA", () => {
     ).toBe(false);
     expect(document.body.textContent).not.toContain("Authorization");
     expect(document.body.textContent).not.toContain("private");
+  });
+
+  it("refuses a mismatched upload completion before adding it to a task row", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        String(url).endsWith("/local-upload/complete") &&
+        init?.method === "POST"
+      )
+        return json({
+          id: "different-source",
+          project_id: "p1",
+          source_type: "local_upload",
+          original_filename: "different.ogg",
+          mime_type: "audio/ogg",
+          size_bytes: 8,
+          drive_file_url: null,
+          upload_status: "uploaded",
+          uploaded_at: "2099-01-01T00:00:00Z",
+          expires_at: "2099-01-02T00:00:00Z",
+          deleted_at: null,
+          delete_reason: null,
+          created_at: "2026-07-01T00:00:00Z",
+          updated_at: "2026-07-01T00:00:00Z",
+        });
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    renderApp();
+    await openProjectsPage();
+    const row = await screen.findByLabelText("Источник строки 1");
+    const input = within(row).getByLabelText(
+      "Выбрать файлы с устройства для строки 1",
+    ) as HTMLInputElement;
+
+    await userEvent.upload(
+      input,
+      new File(["mismatch"], "mismatch.ogg", { type: "audio/ogg" }),
+    );
+
+    expect(
+      await within(row).findByText(
+        /Сервер вернул несогласованное подтверждение загрузки/,
+      ),
+    ).toBeInTheDocument();
+    expect(row).not.toHaveTextContent("different.ogg");
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          String(url).endsWith("/local-upload/complete") &&
+          init?.method === "POST",
+      ),
+    ).toHaveLength(1);
   });
 
   it("uses the server upload-size policy before initiating a local upload", async () => {
