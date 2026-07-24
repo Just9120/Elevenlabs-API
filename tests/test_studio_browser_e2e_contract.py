@@ -78,6 +78,11 @@ def test_browser_e2e_seed_guards_before_database_initialization() -> None:
     assert 'title="Browser E2E queued cancellation job"' in seed
     assert "status=JobStatus.queued" in seed
     assert "attempt_count=0" in seed
+    assert 'title="Browser E2E processing cancellation job"' in seed
+    assert "status=JobStatus.processing" in seed
+    assert 'lease_owner_id="browser-e2e-worker"' in seed
+    assert "stage=SourceAttemptStage.provider_request_started" in seed
+    assert "retry_disposition=SourceAttemptRetryDisposition.undetermined" in seed
     assert "write_diagnostic_event(" in seed
     assert '"JOB_CREATED"' in seed
     assert '"OUTPUT_PERSISTED"' in seed

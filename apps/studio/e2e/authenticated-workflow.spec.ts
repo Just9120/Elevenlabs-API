@@ -8,6 +8,7 @@ const RESULT_JOB = 'Browser E2E completed job';
 const UNCERTAIN_JOB = 'Browser E2E uncertain provider job';
 const RECONCILIATION_JOB = 'Browser E2E reconciliation required job';
 const QUEUED_CANCELLATION_JOB = 'Browser E2E queued cancellation job';
+const PROCESSING_CANCELLATION_JOB = 'Browser E2E processing cancellation job';
 const RECONCILIATION_TOKEN = 'or_browser_e2e_pending';
 const RESULT_URL =
   'https://docs.google.com/document/d/browser-e2e-document/edit';
@@ -390,6 +391,64 @@ test('unresolved output reconciliation waits for an explicit safe action', async
   expect(integrationRequests).toEqual([]);
 });
 
+test('processing cancellation records a request without claiming completion', async ({
+  page,
+}) => {
+  const navigation = await login(page);
+  await navigation.getByRole('button', { name: 'Проекты', exact: true }).click();
+  await page
+    .getByRole('button', { name: new RegExp(`^${RESULT_PROJECT}`) })
+    .click();
+
+  const currentJobs = page.getByRole('region', { name: 'Текущие задачи' });
+  const processingCard = currentJobs
+    .locator('article.source-card')
+    .filter({ hasText: PROCESSING_CANCELLATION_JOB })
+    .first();
+  await expect(processingCard.getByText('Статус: Обрабатывается')).toBeVisible();
+
+  const integrationRequests = trackExternalOrJobMutations(page);
+  const cancelResponsePromise = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      response.url().endsWith('/cancel'),
+  );
+  await processingCard
+    .getByRole('button', { name: 'Запросить отмену' })
+    .click();
+
+  const cancelResponse = await cancelResponsePromise;
+  expect(cancelResponse.status()).toBe(200);
+  const cancellationRequested = await cancelResponse.json();
+  expect(cancellationRequested).toMatchObject({
+    status: 'processing',
+    attempt_count: 1,
+    cancelled_at: null,
+    finished_at: null,
+  });
+  expect(String(cancellationRequested.cancel_requested_at ?? '')).toMatch(
+    /^\d{4}-\d{2}-\d{2}T/,
+  );
+
+  await expect(
+    page.getByText(
+      'Запрос отмены отправлен. Уже созданные результаты останутся доступны.',
+    ),
+  ).toBeVisible();
+  await expect(processingCard.getByText('Статус: Обрабатывается')).toBeVisible();
+  await expect(
+    processingCard.getByText('Отмена запрошена', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    processingCard.getByRole('button', { name: 'Запросить отмену' }),
+  ).toHaveCount(0);
+
+  expect(integrationRequests).toHaveLength(1);
+  expect(integrationRequests[0]).toMatch(
+    /^POST http:\/\/127\.0\.0\.1:4173\/api\/jobs\/[0-9a-f-]{36}\/cancel$/,
+  );
+});
+
 test('queued cancellation performs one bounded API mutation', async ({
   page,
 }) => {
@@ -432,12 +491,12 @@ test('queued cancellation performs one bounded API mutation', async ({
       'Запрос отмены отправлен. Уже созданные результаты останутся доступны.',
     ),
   ).toBeVisible();
-  await expect(currentJobs.getByText('Текущих задач нет.')).toBeVisible();
   await expect(
     currentJobs
       .locator('article.source-card')
       .filter({ hasText: QUEUED_CANCELLATION_JOB }),
   ).toHaveCount(0);
+  await expect(currentJobs).toContainText(PROCESSING_CANCELLATION_JOB);
 
   await page.getByText('Недавние задачи · 4', { exact: true }).click();
   const cancelledCard = page

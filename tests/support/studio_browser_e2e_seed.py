@@ -303,6 +303,47 @@ def seed() -> None:
                 status=JobSourceStatus.queued,
             )
         )
+
+        processing_job = TranscriptionJob(
+            project_id=project.id,
+            owner_user_id=user.id,
+            status=JobStatus.processing,
+            provider="elevenlabs",
+            title="Browser E2E processing cancellation job",
+            output_drive_folder_id=project.output_drive_folder_id,
+            output_drive_folder_url=project.output_drive_folder_url,
+            output_drive_folder_name=project.output_drive_folder_name,
+            attempt_count=1,
+            lease_owner_id="browser-e2e-worker",
+            lease_generation=1,
+            claimed_at=now - timedelta(seconds=8),
+            lease_expires_at=now + timedelta(minutes=10),
+            started_at=now - timedelta(seconds=7),
+        )
+        db.add(processing_job)
+        db.flush()
+        processing_relation = TranscriptionJobSource(
+            job_id=processing_job.id,
+            source_id=source.id,
+            position=0,
+            status=JobSourceStatus.queued,
+        )
+        db.add(processing_relation)
+        db.flush()
+        db.add(
+            TranscriptionJobSourceAttempt(
+                owner_user_id=user.id,
+                project_id=project.id,
+                job_id=processing_job.id,
+                job_source_id=processing_relation.id,
+                attempt_number=1,
+                stage=SourceAttemptStage.provider_request_started,
+                retry_disposition=SourceAttemptRetryDisposition.undetermined,
+                provider_request_started_at=now - timedelta(seconds=5),
+                created_at=now - timedelta(seconds=7),
+                updated_at=now - timedelta(seconds=5),
+            )
+        )
         owner_user_id = user.id
         result_project_id = project.id
         result_job_id = job.id
