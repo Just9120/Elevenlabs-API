@@ -1,7 +1,9 @@
 import { formatBytes } from "./formatters";
 import {
+  jobSourceProcessingСтатусLabel,
   safeJobSources,
   transcriptionLanguageModeLabel,
+  type JobOutputsResponse,
   type TranscriptionJob,
 } from "./jobModel";
 import {
@@ -12,10 +14,12 @@ import { isSafeDisplayUrl, ResourceExternalLink } from "./resourceLinks";
 
 export function JobDetailSection({
   job,
+  outputs,
   retry,
   onRetry,
 }: {
   job: TranscriptionJob;
+  outputs: JobOutputsResponse | null;
   retry: JobRetryState | undefined;
   onRetry: (jobId: string) => void | Promise<void>;
 }) {
@@ -67,7 +71,10 @@ export function JobDetailSection({
           <b>
             {source.position + 1}. {source.original_filename}
           </b>
-          <span>Статус файла: {source.job_source_status}</span>
+          <span>
+            Статус обработки:{" "}
+            {jobSourceProcessingСтатусLabel(job, source, outputs)}
+          </span>
           <span>Размер: {formatBytes(source.size_bytes)}</span>
           {isSafeDisplayUrl(source.drive_file_url) && (
             <div className="resource-actions">

@@ -8,6 +8,7 @@ export type JobСтатус =
   | "failed"
   | "completed";
 export type JobSourceСтатус = "queued" | "skipped";
+export type JobSourceProcessingСтатус = JobСтатус | "skipped";
 export type JobSource = Source & {
   position: number;
   job_source_status: JobSourceСтатус;
@@ -103,6 +104,38 @@ export function outputSourceLabel(output: JobOutput) {
   const position =
     output.source_position == null ? "—" : String(output.source_position + 1);
   return `${position}. ${output.source_name || "Файл без имени"}`;
+}
+
+export function jobSourceProcessingСтатус(
+  job: TranscriptionJob,
+  source: JobSource,
+  outputs: JobOutputsResponse | null | undefined,
+): JobSourceProcessingСтатус {
+  if (source.job_source_status === "skipped") return "skipped";
+  if (
+    outputs?.job_id === job.id &&
+    outputs.outputs.some((output) => output.source_id === source.id)
+  ) {
+    return "completed";
+  }
+  if (job.status === "completed") return "completed";
+  return job.status;
+}
+
+export function jobSourceProcessingСтатусLabel(
+  job: TranscriptionJob,
+  source: JobSource,
+  outputs: JobOutputsResponse | null | undefined,
+) {
+  const labels: Record<JobSourceProcessingСтатус, string> = {
+    queued: "В очереди",
+    processing: "Обрабатывается",
+    cancelled: "Отменена",
+    failed: "Ошибка",
+    completed: "Завершена",
+    skipped: "Пропущена",
+  };
+  return labels[jobSourceProcessingСтатус(job, source, outputs)];
 }
 
 export function jobСтатусLabel(status: JobСтатус) {

@@ -1,6 +1,10 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { JobSource, TranscriptionJob } from "./jobModel";
+import type {
+  JobOutputsResponse,
+  JobSource,
+  TranscriptionJob,
+} from "./jobModel";
 import type { JobRetryState } from "./jobRecoveryModel";
 import { JobDetailSection } from "./JobDetailSection";
 
@@ -79,7 +83,14 @@ function retry(overrides: Partial<JobRetryState> = {}): JobRetryState {
 
 describe("JobDetailSection", () => {
   it("renders sorted sources and only safe resource links", () => {
-    render(<JobDetailSection job={job} retry={undefined} onRetry={vi.fn()} />);
+    render(
+      <JobDetailSection
+        job={job}
+        outputs={null}
+        retry={undefined}
+        onRetry={vi.fn()}
+      />,
+    );
 
     const detail = screen.getByLabelText("Job detail job-1");
     expect(detail).toHaveTextContent("Язык: Русский");
@@ -103,7 +114,14 @@ describe("JobDetailSection", () => {
 
   it("runs an available safe retry for the current job", async () => {
     const onRetry = vi.fn();
-    render(<JobDetailSection job={job} retry={retry()} onRetry={onRetry} />);
+    render(
+      <JobDetailSection
+        job={job}
+        outputs={null}
+        retry={retry()}
+        onRetry={onRetry}
+      />,
+    );
 
     await userEvent.click(
       screen.getByRole("button", { name: "Повторить безопасную обработку" }),
@@ -125,7 +143,12 @@ describe("JobDetailSection", () => {
       },
     });
     render(
-      <JobDetailSection job={job} retry={unavailable} onRetry={vi.fn()} />,
+      <JobDetailSection
+        job={job}
+        outputs={null}
+        retry={unavailable}
+        onRetry={vi.fn()}
+      />,
     );
 
     const action = screen.getByLabelText("Safe retry action");
@@ -139,6 +162,7 @@ describe("JobDetailSection", () => {
     render(
       <JobDetailSection
         job={{ ...job, status: "completed", output_folder: null }}
+        outputs={null}
         retry={undefined}
         onRetry={vi.fn()}
       />,
@@ -146,5 +170,46 @@ describe("JobDetailSection", () => {
 
     expect(screen.getByText("Папка результата не задана.")).toBeInTheDocument();
     expect(screen.queryByLabelText("Safe retry action")).not.toBeInTheDocument();
+  });
+
+  it("derives file processing status from persisted outputs instead of the relation queue flag", () => {
+    const outputData: JobOutputsResponse = {
+      job_id: job.id,
+      job_status: "failed",
+      output_count: 1,
+      outputs: [
+        {
+          source_id: "first",
+          source_position: 0,
+          source_name: "first.ogg",
+          source_type: "local_upload",
+          output_kind: "google_docs_transcript",
+          transcript_standard: "transcript_doc_v1.2",
+          web_view_url: null,
+          link_available: false,
+          document_character_count: 42,
+          document_created_at: "2026-07-22T10:00:00Z",
+          persisted_at: "2026-07-22T10:01:00Z",
+        },
+      ],
+    };
+
+    render(
+      <JobDetailSection
+        job={job}
+        outputs={outputData}
+        retry={undefined}
+        onRetry={vi.fn()}
+      />,
+    );
+
+    const detail = screen.getByLabelText("Job detail job-1");
+    expect(
+      within(detail).getByText("Статус обработки: Завершена"),
+    ).toBeInTheDocument();
+    expect(
+      within(detail).getByText("Статус обработки: Ошибка"),
+    ).toBeInTheDocument();
+    expect(detail).not.toHaveTextContent("Статус файла: queued");
   });
 });

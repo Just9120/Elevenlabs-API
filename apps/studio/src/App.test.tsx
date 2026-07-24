@@ -3453,7 +3453,9 @@ describe("Studio PWA", () => {
     const detail = await screen.findByLabelText("Job detail job-1");
     expect(within(detail).getByText("1. ready-drive.mp4")).toBeInTheDocument();
     expect(within(detail).getByText("2. ready-local.ogg")).toBeInTheDocument();
-    expect(within(detail).getAllByText("Статус файла: queued")).toHaveLength(2);
+    expect(
+      within(detail).getAllByText("Статус обработки: В очереди"),
+    ).toHaveLength(2);
     const jobSourceLink = within(detail).getByRole("link", {
       name: "Открыть файл в Google Drive в новой вкладке",
     });

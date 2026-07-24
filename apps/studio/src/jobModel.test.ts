@@ -1,5 +1,7 @@
 import {
   isApprovedOutputUrl,
+  jobSourceProcessingСтатус,
+  jobSourceProcessingСтатусLabel,
   jobTitle,
   jobСтатусLabel,
   outputSourceLabel,
@@ -103,6 +105,38 @@ describe("job model", () => {
     expect(
       outputSourceLabel(output({ source_position: null, source_name: null })),
     ).toBe("—. Файл без имени");
+  });
+
+  it("uses persisted output evidence and the terminal job contract for source status", () => {
+    const source = jobSource("source-1", 0);
+    const failedJob = { ...job, status: "failed" as const };
+    const outputData = {
+      job_id: failedJob.id,
+      job_status: failedJob.status,
+      output_count: 1,
+      outputs: [output()],
+    };
+
+    expect(jobSourceProcessingСтатус(failedJob, source, outputData)).toBe(
+      "completed",
+    );
+    expect(
+      jobSourceProcessingСтатусLabel(failedJob, source, outputData),
+    ).toBe("Завершена");
+    expect(
+      jobSourceProcessingСтатус(
+        failedJob,
+        jobSource("source-2", 1),
+        outputData,
+      ),
+    ).toBe("failed");
+    expect(
+      jobSourceProcessingСтатус(
+        { ...job, status: "completed" },
+        source,
+        null,
+      ),
+    ).toBe("completed");
   });
 
   it.each([
