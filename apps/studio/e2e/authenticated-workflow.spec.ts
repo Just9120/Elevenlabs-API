@@ -6,6 +6,8 @@ const E2E_PASSWORD = 'browser-e2e-password';
 const RESULT_PROJECT = 'Browser E2E Results';
 const RESULT_JOB = 'Browser E2E completed job';
 const UNCERTAIN_JOB = 'Browser E2E uncertain provider job';
+const RECONCILIATION_JOB = 'Browser E2E reconciliation required job';
+const RECONCILIATION_TOKEN = 'or_browser_e2e_pending';
 const RESULT_URL =
   'https://docs.google.com/document/d/browser-e2e-document/edit';
 
@@ -70,7 +72,7 @@ test('authenticated user creates a project and reads a completed job result', as
     page.getByRole('region', { name: `Подготовка ${RESULT_PROJECT}` }),
   ).toBeVisible();
 
-  await page.getByText('Недавние задачи · 2', { exact: true }).click();
+  await page.getByText('Недавние задачи · 3', { exact: true }).click();
   const jobCard = page
     .locator('article.source-card')
     .filter({ hasText: RESULT_JOB })
@@ -225,7 +227,7 @@ test('uncertain provider result exposes no unsafe recovery action', async ({
   await page
     .getByRole('button', { name: new RegExp(`^${RESULT_PROJECT}`) })
     .click();
-  await page.getByText('Недавние задачи · 2', { exact: true }).click();
+  await page.getByText('Недавние задачи · 3', { exact: true }).click();
 
   const jobCard = page
     .locator('article.source-card')
@@ -291,6 +293,97 @@ test('uncertain provider result exposes no unsafe recovery action', async ({
   await expect(
     jobCard.getByRole('button', {
       name: 'Проверить созданный документ в Google Drive',
+    }),
+  ).toHaveCount(0);
+  expect(integrationRequests).toEqual([]);
+});
+
+test('unresolved output reconciliation waits for an explicit safe action', async ({
+  page,
+}) => {
+  const navigation = await login(page);
+  await navigation.getByRole('button', { name: 'Проекты', exact: true }).click();
+  await page
+    .getByRole('button', { name: new RegExp(`^${RESULT_PROJECT}`) })
+    .click();
+  await page.getByText('Недавние задачи · 3', { exact: true }).click();
+
+  const jobCard = page
+    .locator('article.source-card')
+    .filter({ hasText: RECONCILIATION_JOB })
+    .first();
+  await expect(jobCard.getByText('Статус: Ошибка')).toBeVisible();
+
+  const integrationRequests = trackExternalOrJobMutations(page);
+  const retryResponsePromise = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'GET' &&
+      response.url().endsWith('/retry'),
+  );
+  const reconciliationResponsePromise = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'GET' &&
+      response.url().endsWith('/output-reconciliation'),
+  );
+  await jobCard.getByRole('button', { name: 'Открыть' }).click();
+
+  const retryResponse = await retryResponsePromise;
+  expect(retryResponse.status()).toBe(200);
+  const retry = await retryResponse.json();
+  expect(retry).toMatchObject({
+    job_status: 'failed',
+    available: false,
+    reason: 'output_reconciliation_required',
+    attempt_count: 1,
+    missing_output_count: 1,
+    retry_safe_source_count: 0,
+  });
+
+  const reconciliationResponse = await reconciliationResponsePromise;
+  expect(reconciliationResponse.status()).toBe(200);
+  const reconciliation = await reconciliationResponse.json();
+  expect(reconciliation).toMatchObject({
+    job_status: 'failed',
+    available: true,
+    counts: {
+      reconciliation_required: 1,
+      resolved: 0,
+      conflict: 0,
+    },
+    cases: [
+      {
+        status: 'reconciliation_required',
+        reason: 'google_docs_timeout',
+        resolved: false,
+      },
+    ],
+  });
+  const reconciliationJson = JSON.stringify(reconciliation);
+  expect(reconciliationJson).not.toContain(RECONCILIATION_TOKEN);
+  expect(reconciliationJson).not.toContain('Browser E2E pending document');
+  expect(reconciliationJson).not.toContain('browser-e2e-folder');
+
+  await expect(jobCard.getByRole('heading', { name: 'Результаты' })).toBeVisible();
+  await expect(jobCard.getByText('Результатов: 0')).toBeVisible();
+  const reconciliationNotice = jobCard.locator(
+    'section[aria-label^="Output reconciliation "]',
+  );
+  await expect(reconciliationNotice).toContainText(
+    'Требуется проверка результата Google Docs',
+  );
+  await expect(
+    reconciliationNotice.getByRole('button', {
+      name: 'Проверить созданный документ в Google Drive',
+    }),
+  ).toBeVisible();
+
+  const retryAction = jobCard.locator('[aria-label="Safe retry action"]');
+  await expect(retryAction).toContainText(
+    'Требуется проверка созданного документа',
+  );
+  await expect(
+    retryAction.getByRole('button', {
+      name: 'Повторить безопасную обработку',
     }),
   ).toHaveCount(0);
   expect(integrationRequests).toEqual([]);

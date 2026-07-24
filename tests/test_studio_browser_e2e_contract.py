@@ -65,6 +65,16 @@ def test_browser_e2e_seed_guards_before_database_initialization() -> None:
         in seed
     )
     assert 'failure_code="provider_timeout"' in seed
+    assert 'title="Browser E2E reconciliation required job"' in seed
+    assert (
+        "SourceAttemptRetryDisposition.output_reconciliation_required"
+        in seed
+    )
+    assert (
+        "status=OutputReconciliationStatus.reconciliation_required"
+        in seed
+    )
+    assert 'reconciliation_token="or_browser_e2e_pending"' in seed
     assert "write_diagnostic_event(" in seed
     assert '"JOB_CREATED"' in seed
     assert '"OUTPUT_PERSISTED"' in seed

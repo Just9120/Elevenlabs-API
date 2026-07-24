@@ -214,6 +214,72 @@ def seed() -> None:
                 updated_at=now - timedelta(seconds=30),
             )
         )
+
+        reconciliation_job = TranscriptionJob(
+            project_id=project.id,
+            owner_user_id=user.id,
+            status=JobStatus.failed,
+            provider="elevenlabs",
+            title="Browser E2E reconciliation required job",
+            output_drive_folder_id=project.output_drive_folder_id,
+            output_drive_folder_url=project.output_drive_folder_url,
+            output_drive_folder_name=project.output_drive_folder_name,
+            attempt_count=1,
+            lease_generation=1,
+            started_at=now - timedelta(seconds=25),
+            finished_at=now - timedelta(seconds=10),
+            error_code="output_reconciliation_required",
+            error_message="output_reconciliation_required",
+        )
+        db.add(reconciliation_job)
+        db.flush()
+        reconciliation_relation = TranscriptionJobSource(
+            job_id=reconciliation_job.id,
+            source_id=source.id,
+            position=0,
+            status=JobSourceStatus.queued,
+        )
+        db.add(reconciliation_relation)
+        db.flush()
+        db.add(
+            TranscriptionJobSourceAttempt(
+                owner_user_id=user.id,
+                project_id=project.id,
+                job_id=reconciliation_job.id,
+                job_source_id=reconciliation_relation.id,
+                attempt_number=1,
+                stage=SourceAttemptStage.google_handoff,
+                retry_disposition=(
+                    SourceAttemptRetryDisposition.output_reconciliation_required
+                ),
+                failure_code="output_reconciliation_required",
+                provider_request_started_at=now - timedelta(seconds=22),
+                provider_response_returned_at=now - timedelta(seconds=18),
+                failed_at=now - timedelta(seconds=10),
+                created_at=now - timedelta(seconds=25),
+                updated_at=now - timedelta(seconds=10),
+            )
+        )
+        db.add(
+            TranscriptionOutputReconciliation(
+                owner_user_id=user.id,
+                project_id=project.id,
+                job_id=reconciliation_job.id,
+                job_source_id=reconciliation_relation.id,
+                reconciliation_token="or_browser_e2e_pending",
+                lease_generation=1,
+                attempt_number=1,
+                status=OutputReconciliationStatus.reconciliation_required,
+                uncertainty_reason="google_docs_timeout",
+                expected_output_drive_folder_id="browser-e2e-folder",
+                expected_document_title="Browser E2E pending document",
+                expected_document_character_count=84,
+                prepared_at=now - timedelta(seconds=17),
+                creation_started_at=now - timedelta(seconds=16),
+                created_at=now - timedelta(seconds=17),
+                updated_at=now - timedelta(seconds=10),
+            )
+        )
         owner_user_id = user.id
         result_project_id = project.id
         result_job_id = job.id
