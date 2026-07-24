@@ -52,7 +52,23 @@ test('authenticated user creates a project and reads a completed job result', as
     .filter({ hasText: RESULT_JOB })
     .first();
   await expect(jobCard.getByText('Статус: Завершена')).toBeVisible();
+  const reconciliationResponsePromise = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'GET' &&
+      response.url().includes('/output-reconciliation'),
+  );
   await jobCard.getByRole('button', { name: 'Открыть' }).click();
+  const reconciliationResponse = await reconciliationResponsePromise;
+  expect(reconciliationResponse.status()).toBe(200);
+  expect(await reconciliationResponse.json()).toMatchObject({
+    job_status: 'completed',
+    available: false,
+    counts: {
+      reconciliation_required: 0,
+      resolved: 1,
+      conflict: 0,
+    },
+  });
 
   await expect(jobCard.getByRole('heading', { name: 'Результаты' })).toBeVisible();
   await expect(jobCard.getByText('Результатов: 1')).toBeVisible();
@@ -65,6 +81,14 @@ test('authenticated user creates a project and reads a completed job result', as
   await expect(jobDetail.getByText('Статус обработки: Завершена')).toBeVisible();
   await expect(jobDetail).not.toContainText('Статус файла: queued');
   await expect(jobDetail).not.toContainText('Статус обработки: В очереди');
+  await expect(
+    jobCard.locator('section[aria-label^="Output reconciliation "]'),
+  ).toHaveCount(0);
+  await expect(
+    jobCard.getByRole('button', {
+      name: 'Проверить созданный документ в Google Drive',
+    }),
+  ).toHaveCount(0);
 
   await navigation
     .getByRole('button', { name: 'Настройки', exact: true })

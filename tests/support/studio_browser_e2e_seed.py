@@ -33,6 +33,7 @@ def seed() -> None:
         JobSourceStatus,
         JobStatus,
         LocalIdentity,
+        OutputReconciliationStatus,
         Project,
         Source,
         SourceType,
@@ -40,6 +41,7 @@ def seed() -> None:
         TranscriptionJob,
         TranscriptionJobOutput,
         TranscriptionJobSource,
+        TranscriptionOutputReconciliation,
         User,
         UserRole,
         UserStatus,
@@ -119,22 +121,48 @@ def seed() -> None:
         )
         db.add(relation)
         db.flush()
+        output = TranscriptionJobOutput(
+            job_id=job.id,
+            job_source_id=relation.id,
+            document_id="browser-e2e-document",
+            web_view_url=(
+                "https://docs.google.com/document/d/"
+                "browser-e2e-document/edit"
+            ),
+            output_drive_folder_id="browser-e2e-folder",
+            output_kind="google_doc",
+            transcript_standard="elevenlabs",
+            document_character_count=42,
+            document_created_at=now - timedelta(minutes=1),
+            persisted_at=now - timedelta(minutes=1),
+            lease_generation=1,
+        )
+        db.add(output)
+        db.flush()
         db.add(
-            TranscriptionJobOutput(
+            TranscriptionOutputReconciliation(
+                owner_user_id=user.id,
+                project_id=project.id,
                 job_id=job.id,
                 job_source_id=relation.id,
-                document_id="browser-e2e-document",
-                web_view_url=(
+                reconciliation_token="or_browser_e2e_resolved",
+                lease_generation=1,
+                attempt_number=1,
+                status=OutputReconciliationStatus.resolved,
+                expected_output_drive_folder_id="browser-e2e-folder",
+                expected_document_character_count=42,
+                prepared_at=now - timedelta(minutes=1, seconds=5),
+                creation_started_at=now - timedelta(minutes=1, seconds=5),
+                returned_document_id="browser-e2e-document",
+                returned_web_view_url=(
                     "https://docs.google.com/document/d/"
                     "browser-e2e-document/edit"
                 ),
-                output_drive_folder_id="browser-e2e-folder",
-                output_kind="google_doc",
-                transcript_standard="elevenlabs",
-                document_character_count=42,
-                document_created_at=now - timedelta(minutes=1),
-                persisted_at=now - timedelta(minutes=1),
-                lease_generation=1,
+                returned_document_created_at=now - timedelta(minutes=1),
+                resolved_output_id=output.id,
+                resolved_at=now - timedelta(minutes=1),
+                created_at=now - timedelta(minutes=1, seconds=5),
+                updated_at=now - timedelta(minutes=1),
             )
         )
         db.commit()
