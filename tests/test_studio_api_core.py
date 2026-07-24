@@ -317,12 +317,14 @@ def test_project_validation_failures():
 class FakeStorage:
     def __init__(self):
         self.deleted = []
+        self.head_calls = []
         self.head_size = 10
         self.head_type = "audio/mpeg"
         self.missing = False
     def presigned_put_url(self, key, content_type, expires_seconds):
         return f"https://upload.test/{key}?signature=fake"
     def head_object(self, key):
+        self.head_calls.append(key)
         if self.missing:
             raise FileNotFoundError(key)
         from studio_api.source_storage import ObjectHead
@@ -932,6 +934,35 @@ def test_complete_local_upload_revalidates_successful_unchanged_source(monkeypat
     assert retained_until - uploaded_at == timedelta(seconds=604800)
     assert retained_until > pending_expires_at
     assert "s3_bucket" not in body and "s3_object_key" not in body
+
+
+def test_complete_local_upload_replay_returns_same_verified_source_without_extending_retention(monkeypatch):
+    fake = enable_fake_storage(monkeypatch)
+    c, headers, pid = create_logged_in_project("complete-replay@example.com")
+    initiated = c.post(
+        f"/api/projects/{pid}/sources/local-upload/initiate",
+        json={
+            "original_filename": "replay.mp3",
+            "mime_type": "audio/mpeg",
+            "size_bytes": 10,
+        },
+        headers=headers,
+    )
+    sid = initiated.json()["source_id"]
+
+    first = c.post(f"/api/sources/{sid}/local-upload/complete", headers=headers)
+    assert first.status_code == 200
+    first_body = first.json()
+    head_calls = list(fake.head_calls)
+
+    replay = c.post(f"/api/sources/{sid}/local-upload/complete", headers=headers)
+
+    assert replay.status_code == 200
+    assert replay.json() == first_body
+    assert fake.head_calls == head_calls
+    assert replay.json()["uploaded_at"] == first_body["uploaded_at"]
+    assert replay.json()["expires_at"] == first_body["expires_at"]
+
 
 def test_expired_local_upload_cleanup_marks_deleted_and_deletes(monkeypatch):
     fake = enable_fake_storage(monkeypatch)

@@ -11,6 +11,7 @@ import { googlePickerFailureMessage } from "./googlePickerErrors";
 import {
   clearPwaDiagnosticsSession,
   configurePwaDiagnosticsDebugState,
+  emitPwaDiagnostic,
   updatePwaDiagnosticsCsrf,
 } from "./pwaDiagnostics";
 import {
@@ -225,6 +226,128 @@ function isExpectedPickerSourceBatch(
 function credentialProfileLabel(c: Credential) {
   return c.active_version ? `${c.label} · v${c.active_version}` : c.label;
 }
+function isRetryableLocalUploadCompletionFailure(err: unknown) {
+  return (
+    err instanceof TypeError ||
+    (err instanceof ApiError &&
+      (err.status === 403 ||
+        err.status === 408 ||
+        err.status === 419 ||
+        err.status >= 500))
+  );
+}
+function localUploadHttpStatusCategory(status: number) {
+  return status >= 100 && status <= 599
+    ? (`${Math.floor(status / 100)}xx` as
+        | "1xx"
+        | "2xx"
+        | "3xx"
+        | "4xx"
+        | "5xx")
+    : "unknown";
+}
+function reportLocalUploadPutFailure(status: number) {
+  emitPwaDiagnostic("PWA_API_REQUEST_FAILED", {
+    boundary: "api_request",
+    error_code: "api_request_failed",
+    endpoint_group: "sources",
+    http_status_category: localUploadHttpStatusCategory(status),
+    retryable: status === 408 || status === 429 || status >= 500,
+  });
+}
+function localUploadPutFailureMessage(status: number) {
+  if (status === 401 || status === 403)
+    return "Временная ссылка на загрузку отклонена. Обновите страницу и повторите попытку.";
+  if (status === 408 || status === 429 || status >= 500)
+    return "Временное хранилище сейчас недоступно. Повторите попытку позже.";
+  if (status >= 400 && status < 500)
+    return "Хранилище отклонило загрузку. Обновите страницу и повторите; если ошибка вернётся, сообщите администратору время попытки.";
+  return "Не удалось загрузить файл во временное хранилище.";
+}
+function isSafeLocalUploadInit(
+  candidate: unknown,
+  expectedContentType: string,
+): candidate is UploadInit {
+  if (!candidate || typeof candidate !== "object") return false;
+  const sourceId = (candidate as { source_id?: unknown }).source_id;
+  const upload = (candidate as { upload?: unknown }).upload;
+  if (
+    typeof sourceId !== "string" ||
+    !sourceId ||
+    sourceId.length > 128 ||
+    /\s/.test(sourceId) ||
+    !upload ||
+    typeof upload !== "object"
+  )
+    return false;
+  const value = upload as Record<string, unknown>;
+  if (
+    value.method !== "PUT" ||
+    !Number.isInteger(value.expires_in) ||
+    (value.expires_in as number) < 60 ||
+    (value.expires_in as number) > 900 ||
+    !value.headers ||
+    typeof value.headers !== "object" ||
+    Array.isArray(value.headers)
+  )
+    return false;
+  const headers = value.headers as Record<string, unknown>;
+  if (
+    Object.keys(headers).length !== 1 ||
+    headers["Content-Type"] !== expectedContentType
+  )
+    return false;
+  if (typeof value.url !== "string") return false;
+  try {
+    const url = new URL(value.url);
+    return (
+      url.protocol === "https:" &&
+      Boolean(url.hostname) &&
+      !url.username &&
+      !url.password &&
+      !url.hash
+    );
+  } catch {
+    return false;
+  }
+}
+function isExpectedCompletedLocalSource(
+  candidate: unknown,
+  {
+    sourceId,
+    projectId,
+    mimeType,
+    sizeBytes,
+  }: {
+    sourceId: string;
+    projectId: string;
+    mimeType: string;
+    sizeBytes: number;
+  },
+): candidate is Source {
+  if (!candidate || typeof candidate !== "object") return false;
+  const source = candidate as Partial<Source>;
+  const validDate = (value: unknown) =>
+    typeof value === "string" && Number.isFinite(Date.parse(value));
+  return (
+    source.id === sourceId &&
+    source.project_id === projectId &&
+    source.source_type === "local_upload" &&
+    source.upload_status === "uploaded" &&
+    typeof source.original_filename === "string" &&
+    Boolean(source.original_filename) &&
+    source.original_filename.length <= 255 &&
+    source.mime_type === mimeType &&
+    source.size_bytes === sizeBytes &&
+    source.drive_file_url === null &&
+    validDate(source.uploaded_at) &&
+    validDate(source.expires_at) &&
+    source.deleted_at === null &&
+    source.delete_reason === null &&
+    validDate(source.created_at) &&
+    validDate(source.updated_at)
+  );
+}
 const ELEVENLABS_CREDENTIAL_SESSION_KEY = "studio.elevenlabsCredentialId";
 async function bootstrapSession(): Promise<{
   user: User;
@@ -327,10 +450,18 @@ function PreparationPanel({
     number: number;
   } | null>(null);
   const [rowAdditionStatus, setRowAdditionStatus] = useState("");
+  const [localUploadBusyRows, setLocalUploadBusyRows] = useState<Set<string>>(
+    () => new Set(),
+  );
   const rowFolderPickerRef = useRef(false);
   const rowSourcePickerRef = useRef(false);
+  const localUploadBusyRowsRef = useRef(new Set<string>());
+  const localUploadCsrfRef = useRef(csrf);
   const rowElementRefs = useRef(new Map<string, HTMLLIElement>());
   const reloadJobsRef = useRef(onReloadJobs);
+  useEffect(() => {
+    localUploadCsrfRef.current = csrf;
+  }, [csrf]);
   useEffect(() => {
     reloadJobsRef.current = onReloadJobs;
   }, [onReloadJobs]);
@@ -349,6 +480,8 @@ function PreparationPanel({
     setDiarizationEnabled(false);
     setRecentlyAddedRow(null);
     setRowAdditionStatus("");
+    localUploadBusyRowsRef.current.clear();
+    setLocalUploadBusyRows(new Set());
   }, [project.id]);
   useEffect(() => {
     if (!recentlyAddedRow) return;
@@ -617,6 +750,43 @@ function PreparationPanel({
       return next.length > 0 ? next : [newComposerRow()];
     });
   }
+  async function completeLocalUpload(
+    sourceId: string,
+    mimeType: string,
+    sizeBytes: number,
+  ) {
+    const complete = () =>
+      csrfMutate<unknown>(
+        `/sources/${sourceId}/local-upload/complete`,
+        localUploadCsrfRef.current,
+        (token) => {
+          localUploadCsrfRef.current = token;
+          onCsrf(token);
+        },
+        { method: "POST" },
+      );
+    let completed: unknown;
+    try {
+      completed = await complete();
+    } catch (err) {
+      if (!isRetryableLocalUploadCompletionFailure(err)) throw err;
+      completed = await complete();
+    }
+    if (
+      !isExpectedCompletedLocalSource(completed, {
+        sourceId,
+        projectId: project.id,
+        mimeType,
+        sizeBytes,
+      })
+    ) {
+      onReloadSources(project.id);
+      throw new Error(
+        "Сервер вернул несогласованное подтверждение загрузки. Список файлов обновлён; проверьте его перед повторной попыткой.",
+      );
+    }
+    return completed;
+  }
   async function chooseRowDriveSources(rowId: string) {
     if (pickerBusy || rowSourcePickerRef.current) return;
     rowSourcePickerRef.current = true;
@@ -722,7 +892,7 @@ function PreparationPanel({
   ) {
     const files = Array.from(e.target.files ?? []);
     e.target.value = "";
-    if (files.length === 0) return;
+    if (files.length === 0 || localUploadBusyRowsRef.current.has(rowId)) return;
     if (!sourceUploadPolicy?.local_upload_enabled) {
       setRowIntakeErrors((current) => ({
         ...current,
@@ -732,85 +902,129 @@ function PreparationPanel({
       }));
       return;
     }
-    const successful: Source[] = [];
-    const failures: string[] = [];
-    setRowIntakeErrors((current) => ({ ...current, [rowId]: "" }));
-    for (const file of files) {
-      if (!isSupportedMediaFile(file, sourceUploadPolicy)) {
-        failures.push(
-          `${file.name}: тип файла не поддерживается текущими правилами.`,
-        );
-        continue;
-      }
-      if (file.size <= 0) {
-        failures.push(`${file.name}: файл пустой.`);
-        continue;
-      }
-      if (file.size > sourceUploadPolicy.max_upload_bytes) {
-        failures.push(
-          `${file.name}: файл больше ${formatUploadLimit(sourceUploadPolicy.max_upload_bytes)}.`,
-        );
-        continue;
-      }
-      try {
-        setRowIntakeStatus((current) => ({
-          ...current,
-          [rowId]: `${file.name} — подготовка загрузки…`,
-        }));
-        const initiated = await csrfMutate<UploadInit>(
-          `/projects/${project.id}/sources/local-upload/initiate`,
-          csrf,
-          onCsrf,
-          {
-            method: "POST",
-            body: JSON.stringify({
+    localUploadBusyRowsRef.current.add(rowId);
+    setLocalUploadBusyRows((current) => new Set(current).add(rowId));
+    try {
+      const successful: Source[] = [];
+      const failures: string[] = [];
+      setRowIntakeErrors((current) => ({ ...current, [rowId]: "" }));
+      for (const file of files) {
+        if (!isSupportedMediaFile(file, sourceUploadPolicy)) {
+          failures.push(
+            `${file.name}: тип файла не поддерживается текущими правилами.`,
+          );
+          continue;
+        }
+        if (file.size <= 0) {
+          failures.push(`${file.name}: файл пустой.`);
+          continue;
+        }
+        if (file.size > sourceUploadPolicy.max_upload_bytes) {
+          failures.push(
+            `${file.name}: файл больше ${formatUploadLimit(sourceUploadPolicy.max_upload_bytes)}.`,
+          );
+          continue;
+        }
+        try {
+          setRowIntakeStatus((current) => ({
+            ...current,
+            [rowId]: `${file.name} — подготовка загрузки…`,
+          }));
+          const expectedContentType =
+            file.type || "application/octet-stream";
+          const initiatedRaw = await csrfMutate<unknown>(
+            `/projects/${project.id}/sources/local-upload/initiate`,
+            localUploadCsrfRef.current,
+            (token) => {
+              localUploadCsrfRef.current = token;
+              onCsrf(token);
+            },
+            {
+              method: "POST",
+              body: JSON.stringify({
               original_filename: file.name,
-              mime_type: file.type || "application/octet-stream",
-              size_bytes: file.size,
-            }),
-          },
-        );
-        setRowIntakeStatus((current) => ({
-          ...current,
-          [rowId]: `${file.name} — загрузка…`,
-        }));
-        const put = await fetch(initiated.upload.url, {
-          method: initiated.upload.method,
-          headers: initiated.upload.headers,
-          body: file,
-          cache: "no-store",
-          credentials: "omit",
-          redirect: "error",
-          referrerPolicy: "no-referrer",
-        });
-        if (!put.ok)
-          throw new Error("Не удалось загрузить файл во временное хранилище.");
-        const completed = await csrfMutate<Source>(
-          `/sources/${initiated.source_id}/local-upload/complete`,
-          csrf,
-          onCsrf,
-          { method: "POST" },
-        );
-        successful.push(completed);
-        placeSourcesInRows(rowId, [completed]);
-      } catch (err) {
-        failures.push(
-          `${file.name}: ${err instanceof Error ? err.message : "не удалось загрузить файл."}`,
-        );
+                mime_type: expectedContentType,
+                size_bytes: file.size,
+              }),
+            },
+          );
+          if (!isSafeLocalUploadInit(initiatedRaw, expectedContentType)) {
+            onReloadSources(project.id);
+            throw new Error(
+              "Сервер вернул небезопасный ответ для загрузки. Список файлов обновлён; повторите попытку позже.",
+            );
+          }
+          const initiated = initiatedRaw;
+          setRowIntakeStatus((current) => ({
+            ...current,
+            [rowId]: `${file.name} — загрузка…`,
+          }));
+          let put: Response;
+          try {
+            put = await fetch(initiated.upload.url, {
+              method: initiated.upload.method,
+              headers: initiated.upload.headers,
+              body: file,
+              cache: "no-store",
+              credentials: "omit",
+              redirect: "error",
+              referrerPolicy: "no-referrer",
+            });
+          } catch {
+            setRowIntakeStatus((current) => ({
+              ...current,
+              [rowId]: `${file.name} — проверяем результат загрузки…`,
+            }));
+            const recovered = await completeLocalUpload(
+              initiated.source_id,
+              expectedContentType,
+              file.size,
+            );
+            successful.push(recovered);
+            placeSourcesInRows(rowId, [recovered]);
+            continue;
+          }
+          if (!put.ok) {
+            reportLocalUploadPutFailure(put.status);
+            throw new Error(localUploadPutFailureMessage(put.status));
+          }
+          setRowIntakeStatus((current) => ({
+            ...current,
+            [rowId]: `${file.name} — подтверждаем загрузку…`,
+          }));
+          const completed = await completeLocalUpload(
+            initiated.source_id,
+            expectedContentType,
+            file.size,
+          );
+          successful.push(completed);
+          placeSourcesInRows(rowId, [completed]);
+        } catch (err) {
+          failures.push(
+            `${file.name}: ${err instanceof Error ? err.message : "не удалось загрузить файл."}`,
+          );
+        }
       }
-    }
-    if (successful.length > 0) onReloadSources(project.id);
-    setRowIntakeStatus((current) => ({
-      ...current,
-      [rowId]: successful.length
-        ? `Загружено файлов: ${successful.length}.`
-        : "",
-    }));
-    if (failures.length > 0)
-      setRowIntakeErrors((current) => ({
+      if (successful.length > 0) onReloadSources(project.id);
+      setRowIntakeStatus((current) => ({
         ...current,
-        [rowId]: failures.join(" "),
+        [rowId]: successful.length
+          ? `Загружено файлов: ${successful.length}.`
+          : "",
       }));
+      if (failures.length > 0)
+        setRowIntakeErrors((current) => ({
+          ...current,
+          [rowId]: failures.join(" "),
+        }));
+    } finally {
+      localUploadBusyRowsRef.current.delete(rowId);
+      setLocalUploadBusyRows((current) => {
+        const next = new Set(current);
+        next.delete(rowId);
+        return next;
+      });
+    }
   }
 
   function updateRow(rowId: string, patch: Partial<ComposerRow>) {
@@ -1483,13 +1697,15 @@ function PreparationPanel({
                         <span className="file-picker-control">
                           <label
                             className={`button-like secondary${
-                              sourceUploadPolicy?.local_upload_enabled
+                              sourceUploadPolicy?.local_upload_enabled &&
+                              !localUploadBusyRows.has(row.id)
                                 ? ""
                                 : " disabled"
                             }`}
                             htmlFor={`local-source-upload-${row.id}`}
                             aria-disabled={
-                              !sourceUploadPolicy?.local_upload_enabled
+                              !sourceUploadPolicy?.local_upload_enabled ||
+                              localUploadBusyRows.has(row.id)
                             }
                           >
                             <span aria-hidden="true">С устройства</span>
@@ -1508,7 +1724,10 @@ function PreparationPanel({
                                 ? sourceUploadAccept(sourceUploadPolicy)
                                 : undefined
                             }
-                            disabled={!sourceUploadPolicy?.local_upload_enabled}
+                            disabled={
+                              !sourceUploadPolicy?.local_upload_enabled ||
+                              localUploadBusyRows.has(row.id)
+                            }
                             onChange={(e) =>
                               void uploadRowLocalSources(row.id, e)
                             }
@@ -1767,7 +1986,8 @@ function PreparationPanel({
           onCsrf={onCsrf}
           sources={visibleSources}
           onReload={onReloadSources}
-          onSourceRemoved={(sourceId) => {
+          onSourceRemoved={(source, storageCleanup) => {
+            const sourceId = source.id;
             setRemovedSourceIds((current) => new Set(current).add(sourceId));
             const affectedRowIds = rows
               .filter((row) => row.source_id === sourceId)
@@ -1793,7 +2013,15 @@ function PreparationPanel({
                   : row,
               ),
             );
-            setMessage("Файл убран из проекта.");
+            setMessage(
+              storageCleanup === "pending"
+                ? source.upload_status === "pending"
+                  ? "Файл убран из проекта. Временная копия поставлена в очередь на удаление после завершения окна загрузки."
+                  : "Файл убран из проекта. Временная копия поставлена в очередь фонового удаления; выбранный срок хранения ждать не нужно."
+                : storageCleanup === "completed"
+                  ? "Файл убран из проекта. Временная копия уже удалена из хранилища."
+                  : "Файл убран из проекта.",
+            );
           }}
           onError={onError}
         />

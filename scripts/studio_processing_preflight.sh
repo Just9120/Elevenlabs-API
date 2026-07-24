@@ -43,6 +43,23 @@ is_int() { [[ "$1" =~ ^[0-9]+$ ]]; }
 in_range() { local v="$1" min="$2" max="$3"; is_int "$v" && (( v >= min && v <= max )); }
 positive_int() { local v="$1"; is_int "$v" && (( v > 0 )); }
 
+validate_storage_secret_file() {
+  local path="$1" kind="$2" min_length max_length value normalized
+  case "$kind" in
+    access_key_id) min_length=16; max_length=128 ;;
+    secret_access_key) min_length=32; max_length=256 ;;
+    *) return 1 ;;
+  esac
+  value="$(<"$path")"
+  value="${value%$'\r'}"
+  (( ${#value} >= min_length && ${#value} <= max_length )) || return 1
+  [[ "$value" =~ ^[[:graph:]]+$ ]] || return 1
+  normalized="${value,,}"
+  case "$normalized" in
+    echo|test|example|placeholder|changeme|__*__|*required*) return 1 ;;
+  esac
+}
+
 parse_env() {
   local line key val
   while IFS= read -r line || [[ -n "$line" ]]; do
@@ -110,7 +127,19 @@ validate_runtime_values || { set_row "runtime setting completeness" "blocked" "r
 set_row "runtime setting completeness" "pass" "required non-secret runtime settings are present and valid"
 for k in STUDIO_POSTGRES_PASSWORD_FILE STUDIO_CREDENTIAL_MASTER_KEY_FILE STUDIO_SOURCE_S3_ACCESS_KEY_ID_FILE STUDIO_SOURCE_S3_SECRET_ACCESS_KEY_FILE STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE; do
   v="${ENV_VALUES[$k]-}"; label="${k#STUDIO_}"; label="${label%_FILE} secret-file presence"
-  if [[ -z "$v" || "$v" == __*__ || "$v" == *REQUIRED* || "$v" == *[[:space:]]* || ! -f "$v" ]]; then set_row "$label" "blocked" "required secret file is not present"; block_exit; else set_row "$label" "pass" "required secret file is present"; fi
+  if [[ -z "$v" || "$v" == __*__ || "$v" == *REQUIRED* || "$v" == *[[:space:]]* || ! -f "$v" ]]; then
+    set_row "$label" "blocked" "required secret file is not present"
+    block_exit
+  fi
+  if [[ "$k" == "STUDIO_SOURCE_S3_ACCESS_KEY_ID_FILE" ]] && ! validate_storage_secret_file "$v" access_key_id; then
+    set_row "$label" "blocked" "source storage credential file has invalid or placeholder content"
+    block_exit
+  fi
+  if [[ "$k" == "STUDIO_SOURCE_S3_SECRET_ACCESS_KEY_FILE" ]] && ! validate_storage_secret_file "$v" secret_access_key; then
+    set_row "$label" "blocked" "source storage credential file has invalid or placeholder content"
+    block_exit
+  fi
+  set_row "$label" "pass" "required secret file is present and valid for this check"
 done
 
 compose=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")

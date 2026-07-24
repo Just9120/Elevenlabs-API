@@ -558,6 +558,10 @@ describe("Studio PWA", () => {
     localStorage.clear();
     sessionStorage.clear();
     let localUploadIndex = 0;
+    const localUploadMetadata = new Map<
+      string,
+      { mime_type: string; size_bytes: number }
+    >();
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string, init?: RequestInit) => {
@@ -837,13 +841,18 @@ describe("Studio PWA", () => {
         ) {
           localUploadIndex += 1;
           const sourceId = `local-source-${localUploadIndex}`;
+          const request = JSON.parse(String(init.body)) as {
+            mime_type: string;
+            size_bytes: number;
+          };
+          localUploadMetadata.set(sourceId, request);
           return json({
             source_id: sourceId,
             upload: {
               method: "PUT",
               url: `https://upload.example/presigned-${localUploadIndex}`,
-              headers: { "Content-Type": "audio/ogg" },
-              expires_in: 3600,
+              headers: { "Content-Type": request.mime_type },
+              expires_in: 900,
             },
           });
         }
@@ -856,13 +865,17 @@ describe("Studio PWA", () => {
         ) {
           const sourceId =
             url.match(/local-source-\d+/)?.[0] ?? "local-source-1";
+          const metadata = localUploadMetadata.get(sourceId) ?? {
+            mime_type: "audio/ogg",
+            size_bytes: 11,
+          };
           return json({
             id: sourceId,
             project_id: "p1",
             source_type: "local_upload",
             original_filename: `${sourceId}.ogg`,
-            mime_type: "audio/ogg",
-            size_bytes: 11,
+            mime_type: metadata.mime_type,
+            size_bytes: metadata.size_bytes,
             drive_file_id: null,
             drive_file_url: null,
             upload_status: "uploaded",
@@ -875,7 +888,20 @@ describe("Studio PWA", () => {
           });
         }
         if (url.endsWith("/api/sources/s1") && init?.method === "DELETE")
-          return json({ ok: true });
+          return json({
+            ok: true,
+            source_state: "deleted",
+            storage_cleanup: "not_applicable",
+          });
+        if (
+          url.endsWith("/api/sources/s-local") &&
+          init?.method === "DELETE"
+        )
+          return json({
+            ok: true,
+            source_state: "deleted",
+            storage_cleanup: "pending",
+          });
         if (url.endsWith("/api/credentials") && init?.method === "POST")
           return json({ id: "c1" });
         if (url.endsWith("/replace")) return json({ ok: true });
@@ -1012,7 +1038,7 @@ describe("Studio PWA", () => {
       screen.getByText("Файл останется на Google Drive."),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("Временная копия будет удалена из хранилища Studio."),
+      screen.getByText("Временную копию удалит фоновая очистка Studio."),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Убрать из проекта: local-temp.ogg" }),
@@ -1083,7 +1109,11 @@ describe("Studio PWA", () => {
           });
         }
         if (url.endsWith("/api/sources/s1") && init?.method === "DELETE")
-          return json({ ok: true });
+          return json({
+            ok: true,
+            source_state: "deleted",
+            storage_cleanup: "not_applicable",
+          });
         if (url.endsWith("/api/google/connection"))
           return json({
             connected: true,
@@ -1199,6 +1229,67 @@ describe("Studio PWA", () => {
         ([url, init]) => String(url).endsWith("/api/sources/s-local") && init?.method === "DELETE",
       ),
     ).toHaveLength(1);
+  });
+
+  it("reports queued background cleanup after removing an uploaded local source", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        url.endsWith("/api/sources/s-local") &&
+        init?.method === "DELETE"
+      )
+        return json({
+          ok: true,
+          source_state: "deleted",
+          storage_cleanup: "pending",
+        });
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    renderApp();
+    await openProjectsPage();
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
+    await userEvent.click(
+      screen.getByRole("button", { name: "Убрать из проекта: local-temp.ogg" }),
+    );
+    expect(
+      await screen.findByText(
+        "Файл убран из проекта. Временная копия поставлена в очередь фонового удаления; выбранный срок хранения ждать не нужно.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps a source visible when a successful delete response is inconsistent", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        url.endsWith("/api/sources/s-local") &&
+        init?.method === "DELETE"
+      )
+        return json({
+          ok: false,
+          source_state: "uploaded",
+          storage_cleanup: "not_applicable",
+        });
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    renderApp();
+    await openProjectsPage();
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
+    await userEvent.click(
+      screen.getByRole("button", { name: "Убрать из проекта: local-temp.ogg" }),
+    );
+
+    expect(
+      await screen.findByText(
+        "Сервер вернул несогласованное подтверждение удаления. Список файлов обновлён.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("local-temp.ogg")).toBeInTheDocument();
+    expect(
+      screen.queryByText(/Временная копия поставлена в очередь/),
+    ).not.toBeInTheDocument();
   });
 
   it.each([
@@ -3933,7 +4024,11 @@ describe("Studio PWA", () => {
           });
         }
         if (url.endsWith("/api/sources/s1") && init?.method === "DELETE")
-          return json({ ok: true });
+          return json({
+            ok: true,
+            source_state: "deleted",
+            storage_cleanup: "pending",
+          });
         if (
           url.endsWith("/api/projects/p1/jobs/batch") &&
           init?.method === "POST"
@@ -6174,6 +6269,328 @@ describe("Studio PWA", () => {
         output_folder_id: "folder-local-2",
       },
     ]);
+  });
+
+  it("recovers an ambiguous local PUT through completion without creating a second source", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let rejectedPut = false;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        String(url).startsWith("https://upload.example/presigned") &&
+        init?.method === "PUT" &&
+        !rejectedPut
+      ) {
+        rejectedPut = true;
+        return Promise.reject(new TypeError("synthetic ambiguous PUT"));
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    renderApp();
+    await openProjectsPage();
+    const row = await screen.findByLabelText("Источник строки 1");
+    const input = within(row).getByLabelText(
+      "Выбрать файлы с устройства для строки 1",
+    ) as HTMLInputElement;
+
+    await userEvent.upload(
+      input,
+      new File(["recover"], "recover.ogg", { type: "audio/ogg" }),
+    );
+
+    await within(row).findByText("Загружено файлов: 1.");
+    expect(row).toHaveTextContent("local-source-1.ogg");
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          String(url).endsWith(
+            "/api/projects/p1/sources/local-upload/initiate",
+          ) && init?.method === "POST",
+      ),
+    ).toHaveLength(1);
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          String(url).startsWith("https://upload.example/presigned") &&
+          init?.method === "PUT",
+      ),
+    ).toHaveLength(1);
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          String(url).endsWith("/local-upload/complete") &&
+          init?.method === "POST",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("retries local upload completion without repeating initiation or PUT", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let rejectedCompletion = false;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        String(url).endsWith("/local-upload/complete") &&
+        init?.method === "POST" &&
+        !rejectedCompletion
+      ) {
+        rejectedCompletion = true;
+        return Promise.reject(new TypeError("synthetic lost completion"));
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    renderApp();
+    await openProjectsPage();
+    const row = await screen.findByLabelText("Источник строки 1");
+    const input = within(row).getByLabelText(
+      "Выбрать файлы с устройства для строки 1",
+    ) as HTMLInputElement;
+
+    await userEvent.upload(
+      input,
+      new File(["recover"], "complete-retry.ogg", { type: "audio/ogg" }),
+    );
+
+    await within(row).findByText("Загружено файлов: 1.");
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          String(url).endsWith(
+            "/api/projects/p1/sources/local-upload/initiate",
+          ) && init?.method === "POST",
+      ),
+    ).toHaveLength(1);
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          String(url).startsWith("https://upload.example/presigned") &&
+          init?.method === "PUT",
+      ),
+    ).toHaveLength(1);
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          String(url).endsWith("/local-upload/complete") &&
+          init?.method === "POST",
+      ),
+    ).toHaveLength(2);
+  });
+
+  it("blocks a second local selection while the row upload is still running", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let releasePut: (() => void) | undefined;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        String(url).startsWith("https://upload.example/presigned") &&
+        init?.method === "PUT"
+      )
+        return new Promise<Response>((resolve) => {
+          releasePut = () => resolve({ ok: true } as Response);
+        });
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    renderApp();
+    await openProjectsPage();
+    const row = await screen.findByLabelText("Источник строки 1");
+    const input = within(row).getByLabelText(
+      "Выбрать файлы с устройства для строки 1",
+    ) as HTMLInputElement;
+
+    await userEvent.upload(
+      input,
+      new File(["first"], "first.ogg", { type: "audio/ogg" }),
+    );
+    await waitFor(() => expect(input).toBeDisabled());
+    fireEvent.change(input, {
+      target: {
+        files: [new File(["second"], "second.ogg", { type: "audio/ogg" })],
+      },
+    });
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          String(url).endsWith(
+            "/api/projects/p1/sources/local-upload/initiate",
+          ) && init?.method === "POST",
+      ),
+    ).toHaveLength(1);
+
+    act(() => releasePut?.());
+    await within(row).findByText("Загружено файлов: 1.");
+    await waitFor(() => expect(input).toBeEnabled());
+    expect(row).toHaveTextContent("local-source-1.ogg");
+    expect(row).not.toHaveTextContent("local-source-2.ogg");
+  });
+
+  it("reports an explicit storage PUT rejection without leaking upload identity", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        String(url).startsWith("https://upload.example/presigned") &&
+        init?.method === "PUT"
+      )
+        return json({ private: "raw-storage-body" }, false, 400);
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    renderApp();
+    await openProjectsPage();
+    const row = await screen.findByLabelText("Источник строки 1");
+    const input = within(row).getByLabelText(
+      "Выбрать файлы с устройства для строки 1",
+    ) as HTMLInputElement;
+
+    await userEvent.upload(
+      input,
+      new File(["rejected"], "private-filename.ogg", { type: "audio/ogg" }),
+    );
+
+    expect(
+      await within(row).findByText(
+        /Хранилище отклонило загрузку\. Обновите страницу и повторите/,
+      ),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        baseFetch.mock.calls.some(([url]) =>
+          String(url).endsWith("/api/diagnostics/pwa-events"),
+        ),
+      ).toBe(true),
+    );
+    const event = postedPwaEventsFrom(baseFetch).find(
+      (candidate) => candidate.event_code === "PWA_API_REQUEST_FAILED",
+    );
+    expect(event).toMatchObject({
+      event_code: "PWA_API_REQUEST_FAILED",
+      metadata: {
+        boundary: "api_request",
+        error_code: "api_request_failed",
+        endpoint_group: "sources",
+        http_status_category: "4xx",
+        retryable: false,
+      },
+    });
+    expect(JSON.stringify(event)).not.toContain("private-filename.ogg");
+    expect(JSON.stringify(event)).not.toContain("presigned");
+    expect(JSON.stringify(event)).not.toContain("raw-storage-body");
+    expect(
+      baseFetch.mock.calls.some(
+        ([url, init]) =>
+          String(url).endsWith("/local-upload/complete") &&
+          init?.method === "POST",
+      ),
+    ).toBe(false);
+  });
+
+  it("refuses an unsafe upload capability before contacting its origin", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        String(url).endsWith(
+          "/api/projects/p1/sources/local-upload/initiate",
+        ) &&
+        init?.method === "POST"
+      )
+        return json({
+          source_id: "unsafe-source",
+          upload: {
+            method: "POST",
+            url: "http://unsafe-upload.example/private",
+            headers: {
+              "Content-Type": "audio/ogg",
+              Authorization: "private",
+            },
+            expires_in: 3600,
+          },
+        });
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    renderApp();
+    await openProjectsPage();
+    const row = await screen.findByLabelText("Источник строки 1");
+    const input = within(row).getByLabelText(
+      "Выбрать файлы с устройства для строки 1",
+    ) as HTMLInputElement;
+
+    await userEvent.upload(
+      input,
+      new File(["unsafe"], "unsafe.ogg", { type: "audio/ogg" }),
+    );
+
+    expect(
+      await within(row).findByText(
+        /Сервер вернул небезопасный ответ для загрузки/,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      baseFetch.mock.calls.some(([url]) =>
+        String(url).startsWith("http://unsafe-upload.example"),
+      ),
+    ).toBe(false);
+    expect(
+      baseFetch.mock.calls.some(
+        ([url, init]) =>
+          String(url).endsWith("/local-upload/complete") &&
+          init?.method === "POST",
+      ),
+    ).toBe(false);
+    expect(document.body.textContent).not.toContain("Authorization");
+    expect(document.body.textContent).not.toContain("private");
+  });
+
+  it("refuses a mismatched upload completion before adding it to a task row", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        String(url).endsWith("/local-upload/complete") &&
+        init?.method === "POST"
+      )
+        return json({
+          id: "different-source",
+          project_id: "p1",
+          source_type: "local_upload",
+          original_filename: "different.ogg",
+          mime_type: "audio/ogg",
+          size_bytes: 8,
+          drive_file_url: null,
+          upload_status: "uploaded",
+          uploaded_at: "2099-01-01T00:00:00Z",
+          expires_at: "2099-01-02T00:00:00Z",
+          deleted_at: null,
+          delete_reason: null,
+          created_at: "2026-07-01T00:00:00Z",
+          updated_at: "2026-07-01T00:00:00Z",
+        });
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    renderApp();
+    await openProjectsPage();
+    const row = await screen.findByLabelText("Источник строки 1");
+    const input = within(row).getByLabelText(
+      "Выбрать файлы с устройства для строки 1",
+    ) as HTMLInputElement;
+
+    await userEvent.upload(
+      input,
+      new File(["mismatch"], "mismatch.ogg", { type: "audio/ogg" }),
+    );
+
+    expect(
+      await within(row).findByText(
+        /Сервер вернул несогласованное подтверждение загрузки/,
+      ),
+    ).toBeInTheDocument();
+    expect(row).not.toHaveTextContent("different.ogg");
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          String(url).endsWith("/local-upload/complete") &&
+          init?.method === "POST",
+      ),
+    ).toHaveLength(1);
   });
 
   it("uses the server upload-size policy before initiating a local upload", async () => {

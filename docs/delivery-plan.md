@@ -7,17 +7,18 @@
 - ✅ `PWA-PROCESSING-ROLLOUT-01A / Gate 0B` — PR #182 merged the controlled drain path at `850bfdf`; run `29929528124` gracefully drained the worker, and preflight run `29929607368` passed runtime/service/local/public checks before blocking on production database revision mismatch.
 - ✅ `PWA-PROCESSING-ROLLOUT-01A / Gates 0C–3` — PR #183 merged the processing source batch at `77a3b39`. A tagged restic/R2 PostgreSQL backup completed as snapshot `7b03ad00`; the authorized migration then applied `0011 → 0012 → 0013 → 0014 → 0015`. Isolated API deployment run `30004599136` succeeded, and post-deploy preflight run `30004696267` proved database head `0015_user_source_retention`, healthy PostgreSQL/Redis, and passing public API/web health.
 - ✅ `PWA-PROCESSING-SOURCE-BATCH-01` — Transcription language/diarization, validated multi-source intake, video and long-media preparation, batch preflight/progress, aggregate analytics, transcript-catalog duplicate decisions, and the final provider-call guard are merged through PR #183. Source and CI evidence is complete for that batch; real provider/Google behavior still belongs to the controlled rollout gates.
-- 👉 `PWA-UX-STABILIZATION-04 / Gate 4` — Active branch. The recorded public PWA walkthrough proves the authenticated shell works but both source and output-folder Google Picker opens fail fast at `/api/google/picker/session` with a safe 5xx-class browser diagnostic. This branch classifies refresh failures, emits allowlisted Picker-session diagnostics, renders actionable reconnect/config/transient guidance, and applies the agreed navigation, preparation, credential-safety, and analytics-copy fixes. Exact production failure reason still requires merge, deploy, and one controlled reproduction.
-- ⏸ `PWA-PROCESSING-ROLLOUT-01A / Gates 5–6` — Worker deployment and the one-output canary remain blocked until the public Google Picker boundary and authenticated prerequisites pass. Worker-status run `30004841628` still reports the worker exited with `exit_code=0` and gracefully drained; its image identity remains unknown.
+- ✅ `PWA-UX-STABILIZATION-04 / Gate 4 diagnostics baseline` — PR #184 is merged at current `main` revision `89fa7d5`. The safe Picker diagnostics and walkthrough-driven navigation, preparation, credential-safety, and analytics-copy changes are now the released source baseline.
+- 👉 `PWA-LOCAL-UPLOAD-STABILIZATION-05 / Gate 4 completion` — Active branch `codex/pwa-upload-recovery`. Nine implementation commits make upload completion idempotent, recover ambiguous PUT/completion outcomes without re-upload, reject placeholder storage credentials before deployment, prevent concurrent uploads per row, validate browser capabilities/responses at runtime, improve safe storage diagnostics, and explain asynchronous cleanup. The branch still requires the full pre-PR gate, CI, deployment, and a clean public re-smoke.
+- ⏸ `PWA-PROCESSING-ROLLOUT-01A / Gates 5–6` — Worker deployment and the one-output canary remain blocked until the current upload batch is merged/deployed and Gate 4 authenticated prerequisites are re-verified. Worker-status run `30004841628` still reports the worker exited with `exit_code=0` and gracefully drained; its image identity remains unknown.
 - ⏸ `PWA-FRONTEND-MODULARIZATION-03` — Preparation composer/readiness extraction is deferred until the production baseline is known or rollout is waiting on an explicit operator window.
 
 ## Audit conclusion
 
 - The stable Colab batch contour remains frozen and accepted at **100%** for its current operational scope. Experimental realtime work is a separate contour and is not included in that claim.
-- Studio has broad source-level implementation and green service-backed CI at merged `main` revision `77a3b39`. The dominant remaining blocker is the real authenticated Google boundary followed by controlled worker/canary evidence, not missing core ElevenLabs processing code.
+- Studio has broad source-level implementation at merged `main` revision `89fa7d5`. The dominant remaining blocker is a clean authenticated public boundary followed by controlled worker/canary evidence, not missing core ElevenLabs processing code.
 - Production PostgreSQL has a verified tagged backup boundary (`7b03ad00`) and is migrated through `0015_user_source_retention`. API deployment run `30004599136` and post-deploy preflight `30004696267` replace the older `0011`/revision-mismatch evidence.
 - The worker remains intentionally stopped and gracefully drained. Run `30004841628` confirms the safe stopped state but not image provenance; do not describe worker processing as production-live.
-- The public walkthrough is current release evidence: authenticated navigation and non-Google UI are available, while both Picker entry points fail before Google Picker opens. The browser currently exposes only the broad 5xx request class; this branch adds safe reason-level evidence without exposing tokens or raw provider responses.
+- The latest operator smoke supersedes the original all-Picker-failed walkthrough: Google Drive selection appeared available, and one local R2 upload completed after the missing CORS policy and invalid storage credential were corrected and the API was redeployed. The first ambiguous attempt plus a second successful attempt produced duplicate stored objects, and one completion request returned `403`; this branch addresses those client/API recovery gaps. Output-folder selection, security headers, and a clean post-fix single-upload smoke remain unproven.
 - Studio Platform CD is not generally broken: migration-changing pushes intentionally suppress automatic API deployment, and worker deployment is intentionally manual-only. The workflow currently makes this safe skip too easy to mistake for a complete green deployment; that observability gap is a focused follow-up.
 - The authenticated Playwright scenario proves the browser shell through live FastAPI/PostgreSQL/Redis with controlled boundaries. It does not call ElevenLabs, Google, S3/R2, or production and therefore does not replace the controlled canary.
 
@@ -27,9 +28,9 @@
 | --- | ---: | --- |
 | Stable Colab batch | **100%** | Accepted current scope; do not reopen without an explicit maintenance/product task. |
 | Studio source breadth | **about 98%** | Core processing, safety, analytics, and duplicate-authority work is merged. Historical Drive catalog import/standardization, accepted-output reuse, finer optional telemetry, and final rollout evidence remain. |
-| Studio UX readiness | **about 78%** | The walkthrough-driven issues are mostly addressed in the active branch; Google Picker recovery still needs production proof and some advanced diagnostics/analytics decisions remain backlog. |
-| Studio production evidence | **about 70%** | Backup, migration, current API, database, services, and public health are proven. Real Picker success, current worker identity/deploy, and the one-output canary are not. |
-| Studio combined v1 readiness | **about 74% ±4** | Weighted planning estimate. The lower value than source breadth reflects the blocked authenticated Google boundary and absent worker/canary proof. |
+| Studio UX readiness | **about 80% on `main`; about 83% candidate** | PR #184 fixes the recorded walkthrough issues at source level. The current branch adds local-upload recovery and clearer cleanup behavior, but its candidate value requires CI and deployment before it becomes released evidence. |
+| Studio production evidence | **about 71%** | Backup, migration, current API, database, services, public health, and one corrected local-upload success are evidenced. A clean post-fix smoke, current worker identity/deploy, and the one-output canary are not. |
+| Studio combined v1 readiness | **about 71% deployed; about 73% candidate** | The candidate increase is deliberately small: upload reliability improves, but production readiness cannot jump until the branch is merged/deployed and Gates 4–6 produce factual evidence. |
 
 Documentation, diagnostics, or behavior-preserving refactors do not raise these estimates by themselves. A rollout gate changes production evidence only after its factual result is recorded; a feature changes source breadth only after implementation and relevant validation.
 
@@ -87,7 +88,7 @@ Exit: met. Isolated API deployment `30004599136` succeeded, and run `30004696267
 
 ### Gate 4 — public browser boundary (active)
 
-1. Merge the safe Picker failure classification/diagnostics and walkthrough-driven UX batch, then require green repository/Studio CI and successful API/web deployment evidence.
+1. PR #184 has merged the safe Picker failure classification/diagnostics and walkthrough-driven UX batch. Confirm its repository/Studio CI and API/web deployment evidence together with the current upload-stabilization batch before closing this gate.
 2. Reproduce one source-Picker open and one output-folder-Picker open from the public authenticated PWA.
 3. Read only the allowlisted `GOOGLE_PICKER_SESSION_FAILED` reason and HTTP category. Do not inspect or expose refresh tokens, access tokens, raw Google responses, or private source data.
 4. Follow the proven branch: reconnect Google for `google_reauthorization_required`; correct server Picker/OAuth configuration for `google_picker_not_configured`; investigate/retry boundedly for `google_token_unavailable`; stop on an unknown result.
@@ -95,6 +96,8 @@ Exit: met. Isolated API deployment `30004599136` succeeded, and run `30004696267
 6. Confirm the authenticated operator account has one active ElevenLabs credential, a valid Google connection, one writable output folder, and one small supported source.
 
 Exit: the real public browser/API integration boundary is ready for one controlled job.
+
+Current Gate 4 evidence is partial, so the exit is not met. The operator corrected R2 CORS and bucket-scoped credentials without exposing them, redeployed the API, and completed one local upload. Because that smoke included an ambiguous first attempt, a manual second attempt, duplicate objects, and a `403` completion response, it cannot be used as the clean single-upload acceptance run. Physical cleanup of deleted/expired local objects also remains pending while the worker is intentionally stopped.
 
 ### Gate 5 — deploy exactly one worker
 
@@ -180,13 +183,14 @@ For production/operator work, use a separate evidence pipeline: **read-only pref
 
 ## Current validation evidence and blockers
 
-- `main` is `77a3b39` (PR #183). The active UX/Picker diagnostics branch is local-only until this batch is pushed and reviewed; none of its behavior is production evidence yet.
-- Active-branch pre-PR validation: Studio Vitest `266 passed`; portable Python `715 passed, 6 skipped`; full ESLint, TypeScript, production Vite/PWA build, lightweight repository checks, and diff checks passed. Playwright discovers the single authenticated scenario; its real run requires the isolated PostgreSQL/Redis/seed environment and remains an authoritative Studio CI gate.
+- `main` and `origin/main` are `89fa7d5` (PR #184). The active `codex/pwa-upload-recovery` batch comprises nine focused implementation commits and two delivery/validation checkpoints; none of its behavior is production evidence yet.
+- Full local pre-PR validation passed: Studio Vitest `274 passed`; portable Python `715 passed, 6 skipped`; full ESLint, TypeScript, production Vite/PWA build, Python compileall, Bash syntax, lightweight repository checks, and `main...HEAD` diff checks passed. Playwright discovery lists the single authenticated scenario without launching a browser.
+- The backend completion regression test is present but cannot run against the Windows local environment without PostgreSQL. The preflight behavior tests are Linux-oriented and Git Bash path semantics cannot reproduce their host identity gate; GitHub CI remains authoritative for both.
 - Pre-migration backup snapshot `7b03ad00` completed successfully against the configured restic/R2 repository, and the manual migration reached `0015_user_source_retention`.
 - Isolated API deployment run `30004599136` succeeded. Post-deploy preflight `30004696267` proved database head `0015`, healthy PostgreSQL/Redis, and passing public API/web health.
 - Worker-status run `30004841628` proves `container_state=exited`, `exit_code=0`, and `drain_state=gracefully-drained`; worker image identity remains unknown and no worker deploy is authorized before Gate 4 passes.
-- The 2026-07-24 public walkthrough proves both Google Picker entry points currently fail with a 5xx-class `/api/google/picker/session` request before Picker opens. The exact allowlisted reason is unavailable until the active diagnostics change is merged/deployed and the failure is repeated.
-- Public security-header/TLS policy verification, successful real Picker and presigned-upload smoke, authenticated canary prerequisites, current worker rollout, and the one-output canary remain unproven.
+- The 2026-07-24 follow-up smoke indicates Google Drive selection is available and proves one R2 object upload after CORS/credential correction, but it is not a clean Gate 4 pass because the upload required a second manual attempt and left duplicate objects. The current branch must be deployed before repeating it once.
+- Public security-header/TLS policy verification, both Picker roles in one clean run, single-attempt presigned upload completion, authenticated canary prerequisites, current worker rollout, and the one-output canary remain unproven.
 - The dependency-audit workflow still has no recorded run. Windows local service-backed processing tests remain environment-limited without PostgreSQL/Redis; GitHub CI is the authoritative service-backed gate.
 
 ## Sources of truth

@@ -15,6 +15,26 @@ type SourcesState = {
   items: Source[];
 };
 
+type SourceDeletionResponse = {
+  ok: boolean;
+  source_state?: string;
+  storage_cleanup?: "not_applicable" | "pending" | "completed";
+};
+
+function isExpectedDeletionResponse(
+  value: SourceDeletionResponse,
+  source: Source,
+) {
+  return (
+    value.ok === true &&
+    value.source_state === "deleted" &&
+    (source.source_type === "google_drive"
+      ? value.storage_cleanup === "not_applicable"
+      : value.storage_cleanup === "pending" ||
+        value.storage_cleanup === "completed")
+  );
+}
+
 function safeConfirm(message: string) {
   try {
     return window.confirm(message) !== false;
@@ -37,7 +57,10 @@ export function SourcesPanel({
   onCsrf: (csrf: string) => void;
   sources: SourcesState;
   onReload: (projectId: string) => void;
-  onSourceRemoved?: (sourceId: string) => void;
+  onSourceRemoved?: (
+    source: Source,
+    storageCleanup?: SourceDeletionResponse["storage_cleanup"],
+  ) => void;
   onError: (message: string) => void;
 }) {
   async function deleteSource(id: string) {
@@ -48,13 +71,20 @@ export function SourcesPanel({
         : "Источник будет убран из Studio. Временная копия будет удалена из хранилища после безопасной проверки связанных задач.";
     if (!safeConfirm(message)) return;
     try {
-      await mutateWithCsrfRetry<{ ok: boolean }>(
+      const result = await mutateWithCsrfRetry<SourceDeletionResponse>(
         `/sources/${id}`,
         csrf,
         onCsrf,
         { method: "DELETE" },
       );
-      onSourceRemoved?.(id);
+      if (!source || !isExpectedDeletionResponse(result, source)) {
+        onError(
+          "Сервер вернул несогласованное подтверждение удаления. Список файлов обновлён.",
+        );
+        onReload(project.id);
+        return;
+      }
+      onSourceRemoved?.(source, result.storage_cleanup);
       onReload(project.id);
     } catch (error) {
       const detail =
@@ -119,7 +149,7 @@ export function SourcesPanel({
             <div className="source-removal-note">
               {source.source_type === "google_drive"
                 ? "Файл останется на Google Drive."
-                : "Временная копия будет удалена из хранилища Studio."}
+                : "Временную копию удалит фоновая очистка Studio."}
             </div>
             <button
               type="button"
