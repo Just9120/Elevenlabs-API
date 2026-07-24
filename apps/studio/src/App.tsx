@@ -264,6 +264,53 @@ function localUploadPutFailureMessage(status: number) {
     return "Хранилище отклонило загрузку. Обновите страницу и повторите; если ошибка вернётся, сообщите администратору время попытки.";
   return "Не удалось загрузить файл во временное хранилище.";
 }
+function isSafeLocalUploadInit(
+  candidate: unknown,
+  expectedContentType: string,
+): candidate is UploadInit {
+  if (!candidate || typeof candidate !== "object") return false;
+  const sourceId = (candidate as { source_id?: unknown }).source_id;
+  const upload = (candidate as { upload?: unknown }).upload;
+  if (
+    typeof sourceId !== "string" ||
+    !sourceId ||
+    sourceId.length > 128 ||
+    /\s/.test(sourceId) ||
+    !upload ||
+    typeof upload !== "object"
+  )
+    return false;
+  const value = upload as Record<string, unknown>;
+  if (
+    value.method !== "PUT" ||
+    !Number.isInteger(value.expires_in) ||
+    (value.expires_in as number) < 60 ||
+    (value.expires_in as number) > 900 ||
+    !value.headers ||
+    typeof value.headers !== "object" ||
+    Array.isArray(value.headers)
+  )
+    return false;
+  const headers = value.headers as Record<string, unknown>;
+  if (
+    Object.keys(headers).length !== 1 ||
+    headers["Content-Type"] !== expectedContentType
+  )
+    return false;
+  if (typeof value.url !== "string") return false;
+  try {
+    const url = new URL(value.url);
+    return (
+      url.protocol === "https:" &&
+      Boolean(url.hostname) &&
+      !url.username &&
+      !url.password &&
+      !url.hash
+    );
+  } catch {
+    return false;
+  }
+}
 const ELEVENLABS_CREDENTIAL_SESSION_KEY = "studio.elevenlabsCredentialId";
 async function bootstrapSession(): Promise<{
   user: User;
@@ -827,7 +874,9 @@ function PreparationPanel({
             ...current,
             [rowId]: `${file.name} — подготовка загрузки…`,
           }));
-          const initiated = await csrfMutate<UploadInit>(
+          const expectedContentType =
+            file.type || "application/octet-stream";
+          const initiatedRaw = await csrfMutate<unknown>(
             `/projects/${project.id}/sources/local-upload/initiate`,
             localUploadCsrfRef.current,
             (token) => {
@@ -837,12 +886,19 @@ function PreparationPanel({
             {
               method: "POST",
               body: JSON.stringify({
-                original_filename: file.name,
-                mime_type: file.type || "application/octet-stream",
+              original_filename: file.name,
+                mime_type: expectedContentType,
                 size_bytes: file.size,
               }),
             },
           );
+          if (!isSafeLocalUploadInit(initiatedRaw, expectedContentType)) {
+            onReloadSources(project.id);
+            throw new Error(
+              "Сервер вернул небезопасный ответ для загрузки. Список файлов обновлён; повторите попытку позже.",
+            );
+          }
+          const initiated = initiatedRaw;
           setRowIntakeStatus((current) => ({
             ...current,
             [rowId]: `${file.name} — загрузка…`,

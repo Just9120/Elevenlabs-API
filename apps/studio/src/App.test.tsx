@@ -843,7 +843,7 @@ describe("Studio PWA", () => {
               method: "PUT",
               url: `https://upload.example/presigned-${localUploadIndex}`,
               headers: { "Content-Type": "audio/ogg" },
-              expires_in: 3600,
+              expires_in: 900,
             },
           });
         }
@@ -6414,6 +6414,63 @@ describe("Studio PWA", () => {
           init?.method === "POST",
       ),
     ).toBe(false);
+  });
+
+  it("refuses an unsafe upload capability before contacting its origin", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        String(url).endsWith(
+          "/api/projects/p1/sources/local-upload/initiate",
+        ) &&
+        init?.method === "POST"
+      )
+        return json({
+          source_id: "unsafe-source",
+          upload: {
+            method: "POST",
+            url: "http://unsafe-upload.example/private",
+            headers: {
+              "Content-Type": "audio/ogg",
+              Authorization: "private",
+            },
+            expires_in: 3600,
+          },
+        });
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    renderApp();
+    await openProjectsPage();
+    const row = await screen.findByLabelText("Источник строки 1");
+    const input = within(row).getByLabelText(
+      "Выбрать файлы с устройства для строки 1",
+    ) as HTMLInputElement;
+
+    await userEvent.upload(
+      input,
+      new File(["unsafe"], "unsafe.ogg", { type: "audio/ogg" }),
+    );
+
+    expect(
+      await within(row).findByText(
+        /Сервер вернул небезопасный ответ для загрузки/,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      baseFetch.mock.calls.some(([url]) =>
+        String(url).startsWith("http://unsafe-upload.example"),
+      ),
+    ).toBe(false);
+    expect(
+      baseFetch.mock.calls.some(
+        ([url, init]) =>
+          String(url).endsWith("/local-upload/complete") &&
+          init?.method === "POST",
+      ),
+    ).toBe(false);
+    expect(document.body.textContent).not.toContain("Authorization");
+    expect(document.body.textContent).not.toContain("private");
   });
 
   it("uses the server upload-size policy before initiating a local upload", async () => {
