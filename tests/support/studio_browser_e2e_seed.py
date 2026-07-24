@@ -29,6 +29,7 @@ def _require_isolated_database() -> None:
 def seed() -> None:
     _require_isolated_database()
     from studio_api.db import SessionLocal
+    from studio_api.diagnostics import write_diagnostic_event
     from studio_api.models import (
         JobSourceStatus,
         JobStatus,
@@ -165,7 +166,54 @@ def seed() -> None:
                 updated_at=now - timedelta(minutes=1),
             )
         )
+        owner_user_id = user.id
+        result_project_id = project.id
+        result_job_id = job.id
         db.commit()
+
+    diagnostic_events = (
+        (
+            "api",
+            "JOB_CREATED",
+            {
+                "source_count": 1,
+                "batch_position": 0,
+                "credential_selected": True,
+            },
+            now - timedelta(minutes=2),
+        ),
+        (
+            "worker",
+            "OUTPUT_PERSISTED",
+            {"output_count": 1, "attempt_number": 1},
+            now - timedelta(minutes=1, seconds=1),
+        ),
+        (
+            "worker",
+            "JOB_COMPLETED",
+            {
+                "final_job_status": "completed",
+                "output_count": 1,
+                "attempt_number": 1,
+            },
+            now - timedelta(minutes=1),
+        ),
+    )
+    for component, event_code, metadata, occurred_at in diagnostic_events:
+        result = write_diagnostic_event(
+            owner_user_id=owner_user_id,
+            component=component,
+            event_code=event_code,
+            project_id=result_project_id,
+            job_id=result_job_id,
+            metadata=metadata,
+            session_factory=SessionLocal,
+            now=occurred_at,
+        )
+        if not result.accepted or not result.persisted:
+            raise RuntimeError(
+                f"browser E2E diagnostic seed failed for {event_code}"
+            )
 
 
 if __name__ == "__main__":
