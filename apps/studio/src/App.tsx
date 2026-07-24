@@ -3669,6 +3669,7 @@ function PlatformShell() {
           setSession({ status: "authenticated", user: u, csrf: t, error: "" });
           updatePwaDiagnosticsCsrf(t);
           configurePwaDiagnosticsDebugState({ active: false });
+          navigate("dashboard");
         }}
       />
     );
@@ -3692,6 +3693,7 @@ function PlatformShell() {
       method: "POST",
       headers: { "x-csrf-token": token },
     }).catch(() => undefined);
+    navigate("dashboard");
     setSession({ status: "anonymous", user: null, csrf: "", error: "" });
     clearPwaDiagnosticsSession();
   };

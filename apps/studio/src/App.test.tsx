@@ -5475,6 +5475,7 @@ describe("Studio PWA", () => {
 
   it("renders login only for confirmed anonymous session and keeps manual login/logout transitions", async () => {
     const mockFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    window.history.replaceState({}, "", "/settings/diagnostics");
     mockFetch.mockImplementation((url: string) => {
       if (url.endsWith("/api/auth/session")) return json({}, false, 401);
       if (url.endsWith("/api/auth/bootstrap-status"))
@@ -5522,11 +5523,18 @@ describe("Studio PWA", () => {
     await userEvent.type(screen.getByLabelText("Пароль"), "password-long");
     await userEvent.click(screen.getByRole("button", { name: "Войти" }));
     await waitForPlatformOverview();
+    expect(window.location.pathname).toBe("/");
     await openSettingsPage();
     await userEvent.click(await screen.findByRole("button", { name: "Выйти" }));
     expect(
       await screen.findByRole("heading", { name: "Вход" }),
     ).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/");
+
+    await userEvent.type(screen.getByLabelText("Email"), "user@example.com");
+    await userEvent.type(screen.getByLabelText("Пароль"), "password-long");
+    await userEvent.click(screen.getByRole("button", { name: "Войти" }));
+    await waitForPlatformOverview();
   });
 
   it("shows retry instead of login after transient session failure", async () => {
