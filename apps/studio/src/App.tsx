@@ -7,6 +7,7 @@ import {
 } from "react";
 import * as googlePicker from "./googlePicker";
 import type { PickerSession } from "./googlePicker";
+import { googlePickerFailureMessage } from "./googlePickerErrors";
 import {
   clearPwaDiagnosticsSession,
   configurePwaDiagnosticsDebugState,
@@ -246,6 +247,13 @@ async function csrfMutate<T>(
 ): Promise<T> {
   return mutateWithCsrfRetry<T>(path, csrf, onCsrf, options);
 }
+function safeConfirm(message: string) {
+  try {
+    return window.confirm(message) === true;
+  } catch {
+    return false;
+  }
+}
 export const __appDiagnosticsTest = { api, csrfMutate };
 function PreparationPanel({
   project,
@@ -314,8 +322,14 @@ function PreparationPanel({
   const [rowIntakeErrors, setRowIntakeErrors] = useState<
     Record<string, string>
   >({});
+  const [recentlyAddedRow, setRecentlyAddedRow] = useState<{
+    id: string;
+    number: number;
+  } | null>(null);
+  const [rowAdditionStatus, setRowAdditionStatus] = useState("");
   const rowFolderPickerRef = useRef(false);
   const rowSourcePickerRef = useRef(false);
+  const rowElementRefs = useRef(new Map<string, HTMLLIElement>());
   const reloadJobsRef = useRef(onReloadJobs);
   useEffect(() => {
     reloadJobsRef.current = onReloadJobs;
@@ -333,7 +347,39 @@ function PreparationPanel({
     setProgress({});
     setLanguageMode(DEFAULT_TRANSCRIPTION_LANGUAGE_MODE);
     setDiarizationEnabled(false);
+    setRecentlyAddedRow(null);
+    setRowAdditionStatus("");
   }, [project.id]);
+  useEffect(() => {
+    if (!recentlyAddedRow) return;
+    const rowElement = rowElementRefs.current.get(recentlyAddedRow.id);
+    const sourceSelect = rowElement?.querySelector<HTMLSelectElement>(
+      'select[aria-label^="Существующий файл"]',
+    );
+    const reducedMotion =
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    sourceSelect?.focus({ preventScroll: true });
+    rowElement?.scrollIntoView?.({
+      behavior: reducedMotion ? "auto" : "smooth",
+      block: "nearest",
+    });
+    setRowAdditionStatus(
+      `Добавлена строка ${recentlyAddedRow.number}. Выберите источник.`,
+    );
+    const highlightTimeout = window.setTimeout(
+      () => setRecentlyAddedRow(null),
+      1000,
+    );
+    return () => window.clearTimeout(highlightTimeout);
+  }, [recentlyAddedRow]);
+  useEffect(() => {
+    if (!rowAdditionStatus) return;
+    const statusTimeout = window.setTimeout(
+      () => setRowAdditionStatus(""),
+      4000,
+    );
+    return () => window.clearTimeout(statusTimeout);
+  }, [rowAdditionStatus]);
   useEffect(() => {
     let cancelled = false;
     setCredentialsLoading(true);
@@ -653,15 +699,17 @@ function PreparationPanel({
       }));
       onReloadSources(project.id);
     } catch (err) {
+      const pickerFailure = googlePickerFailureMessage(err);
       setRowIntakeStatus((current) => ({ ...current, [rowId]: "" }));
       setRowIntakeErrors((current) => ({
         ...current,
         [rowId]:
-          err instanceof ApiError && err.status === 422
+          pickerFailure ??
+          (err instanceof ApiError && err.status === 422
             ? "Один или несколько файлов не поддерживаются. Выберите аудио, видео или OGG."
             : err instanceof Error
               ? err.message
-              : "Не удалось выбрать файлы Google Drive.",
+              : "Не удалось выбрать файлы Google Drive."),
       }));
     } finally {
       rowSourcePickerRef.current = false;
@@ -770,20 +818,10 @@ function PreparationPanel({
       current.map((row) => (row.id === rowId ? { ...row, ...patch } : row)),
     );
   }
-  function addRow(sourceId = "") {
-    setRows((current) => {
-      if (sourceId) {
-        const emptyIndex = current.findIndex((row) => !row.source_id);
-        if (emptyIndex >= 0) {
-          return current.map((row, index) =>
-            index === emptyIndex
-              ? { ...row, source_id: sourceId, reprocess_existing: false }
-              : row,
-          );
-        }
-      }
-      return [...current, { ...newComposerRow(), source_id: sourceId }];
-    });
+  function addRow() {
+    const row = newComposerRow();
+    setRows((current) => [...current, row]);
+    setRecentlyAddedRow({ id: row.id, number: rows.length + 1 });
   }
   function moveRow(index: number, direction: -1 | 1) {
     setRows((current) => {
@@ -843,9 +881,10 @@ function PreparationPanel({
       });
     } catch (err) {
       setMessage(
-        err instanceof Error
+        googlePickerFailureMessage(err) ??
+        (err instanceof Error
           ? err.message
-          : "Не удалось проверить папку результата.",
+          : "Не удалось проверить папку результата."),
       );
     } finally {
       rowFolderPickerRef.current = false;
@@ -1168,9 +1207,19 @@ function PreparationPanel({
               папка результата.
             </p>
           </div>
-          <button type="button" className="secondary" onClick={() => addRow()}>
-            Добавить строку
-          </button>
+          <div className="composer-add-row">
+            <button type="button" className="secondary" onClick={addRow}>
+              Добавить строку
+            </button>
+            <span
+              className="composer-add-row-status"
+              role="status"
+              aria-live="polite"
+              aria-label="Результат добавления строки"
+            >
+              {rowAdditionStatus}
+            </span>
+          </div>
         </div>
         <div className="provider-card">
           <div>
@@ -1262,7 +1311,7 @@ function PreparationPanel({
           <label className="transcription-toggle">
             <input
               type="checkbox"
-              aria-label="Разделять спикеров"
+              aria-label="Разделять на спикеров"
               checked={diarizationEnabled}
               onChange={(event) => {
                 setDiarizationEnabled(event.target.checked);
@@ -1275,7 +1324,7 @@ function PreparationPanel({
               }}
             />
             <span>
-              <strong>Разделять спикеров</strong>
+              <strong>Разделять на спикеров</strong>
               <small>
                 В документе появятся последовательные блоки Speaker 1,
                 Speaker 2 и далее.
@@ -1338,9 +1387,17 @@ function PreparationPanel({
               const rowReady = rowReadiness.ready;
               return (
                 <li
-                  className="composer-row"
+                  className={`composer-row${
+                    recentlyAddedRow?.id === row.id
+                      ? " composer-row-added"
+                      : ""
+                  }`}
                   key={row.id}
                   aria-label={`Задача ${index + 1}`}
+                  ref={(element) => {
+                    if (element) rowElementRefs.current.set(row.id, element);
+                    else rowElementRefs.current.delete(row.id);
+                  }}
                 >
                   <div className="composer-row-header">
                     <div>
@@ -1524,7 +1581,7 @@ function PreparationPanel({
                       </button>
                     </div>
                     <label>
-                      Название
+                      Название документа
                       <input
                         value={row.title}
                         onChange={(e) =>
@@ -1534,6 +1591,10 @@ function PreparationPanel({
                         placeholder="Необязательно"
                         aria-label={`Название задачи для строки ${index + 1}`}
                       />
+                      <small className="muted">
+                        Необязательно. Если оставить пустым, Google Docs
+                        получит имя исходного файла.
+                      </small>
                     </label>
                   </div>
                   {invalidSourceRowIds.has(row.id) && (
@@ -1935,15 +1996,15 @@ function ProjectsPage({
   onCsrf,
   requestedProjectId,
   onRequestedProjectHandled,
-  requestedCreateProject,
-  onRequestedCreateProjectHandled,
+  requestedProjectsView,
+  onRequestedProjectsViewHandled,
 }: {
   csrf: string;
   onCsrf: (csrf: string) => void;
   requestedProjectId: string | null;
   onRequestedProjectHandled: () => void;
-  requestedCreateProject: boolean;
-  onRequestedCreateProjectHandled: () => void;
+  requestedProjectsView: "browse" | "create" | null;
+  onRequestedProjectsViewHandled: () => void;
 }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [sources, setSources] = useState<
@@ -1995,10 +2056,18 @@ function ProjectsPage({
     }
   }, [requestedProjectId, projects, onRequestedProjectHandled]);
   useEffect(() => {
-    if (!requestedCreateProject) return;
-    setCreateOpen(true);
-    onRequestedCreateProjectHandled();
-  }, [requestedCreateProject, onRequestedCreateProjectHandled]);
+    if (!requestedProjectsView) return;
+    if (requestedProjectsView === "browse" && loading) return;
+    setCreateOpen(
+      requestedProjectsView === "create" || projects.length === 0,
+    );
+    onRequestedProjectsViewHandled();
+  }, [
+    requestedProjectsView,
+    loading,
+    projects.length,
+    onRequestedProjectsViewHandled,
+  ]);
   useEffect(() => {
     api<GoogleConnection>("/google/connection")
       .then(setGoogleConnection)
@@ -2725,8 +2794,11 @@ function SettingsPage({
           <h3>Хранение локальных файлов</h3>
           <section className="card retention-preferences">
             <p>
-              Выбранный срок применяется к новым файлам после завершения
-              загрузки. Уже загруженные файлы сохраняют текущую дату удаления.
+              Это срок хранения временной копии в приватном объектном
+              хранилище (S3/R2) для новых файлов, загруженных с устройства.
+              После срока копия удаляется. Ссылки на Google Drive и результаты
+              Google Docs не затрагиваются. Уже загруженные файлы сохраняют
+              текущую дату удаления.
             </p>
             {retentionState === "loading" && (
               <p role="status">Загружаем настройку хранения…</p>
@@ -2827,6 +2899,11 @@ function SettingsPage({
                 <p>
                   {c.status} · v{c.active_version ?? "—"} · {c.masked_value}
                 </p>
+                <p className="muted">
+                  Отключение запрещает использовать ключ в задачах, но сохраняет
+                  его версии. Удаление навсегда стирает сохранённые значения
+                  ключа без возможности восстановления.
+                </p>
                 <div className="credential-actions">
                   <button
                     type="button"
@@ -2834,14 +2911,32 @@ function SettingsPage({
                   >
                     Заменить
                   </button>
-                  <button onClick={() => action(`/credentials/${c.id}/revoke`)}>
-                    Отозвать
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (
+                        safeConfirm(
+                          `Отключить ключ «${c.label}»? Он станет недоступен для новых и выполняющихся задач, но история версий сохранится.`,
+                        )
+                      )
+                        void action(`/credentials/${c.id}/revoke`);
+                    }}
+                  >
+                    Отключить
                   </button>
                   <button
+                    type="button"
                     className="danger"
-                    onClick={() => action(`/credentials/${c.id}`, "DELETE")}
+                    onClick={() => {
+                      if (
+                        safeConfirm(
+                          `Удалить ключ «${c.label}» навсегда? Все сохранённые значения будут стёрты без возможности восстановления.`,
+                        )
+                      )
+                        void action(`/credentials/${c.id}`, "DELETE");
+                    }}
                   >
-                    Удалить
+                    Удалить навсегда
                   </button>
                 </div>
                 {replacingCredentialId === c.id && (
@@ -2875,8 +2970,23 @@ function SettingsPage({
             ))}
           </div>
           <h3>Google Drive</h3>
-          <p className="notice">
-            Подключите Google Drive, чтобы выбирать файлы и папку результатов.
+          <p
+            className={
+              googleConnection?.connected && googleConnection.picker_ready
+                ? "muted"
+                : "notice"
+            }
+          >
+            {googleLoading
+              ? "Проверяем подключение Google Drive…"
+              : googleConnection?.connected
+                ? googleConnection.picker_ready
+                  ? "Google Drive подключён. Актуальность доступа проверяется при каждом открытии Picker."
+                  : googleConnection.reconnect_required ||
+                      !googleConnection.picker_scope_ready
+                    ? "Подключение Google Drive нужно обновить, чтобы выбирать файлы и папку результатов."
+                    : "Google Drive подключён, но Google Picker пока не настроен."
+                : "Подключите Google Drive, чтобы выбирать файлы и папку результатов."}
           </p>
           <article className="card">
             <span className="tag">Google Drive</span>
@@ -3210,7 +3320,7 @@ function DiagnosticsSettings({
             <dd>{safeText(system.environment ?? system.pwa_mode)}</dd>
             <dt>Google Drive подключён</dt>
             <dd>{boolText(system.google_drive?.connected)}</dd>
-            <dt>Google Drive готов</dt>
+            <dt>Разрешение Google Drive получено</dt>
             <dd>{boolText(system.google_drive?.scope_ready)}</dd>
             <dt>Ключи готовы</dt>
             <dd>{boolText(system.provider_credentials?.ready)}</dd>
@@ -3491,7 +3601,9 @@ function PlatformShell() {
   const [requestedProjectId, setRequestedProjectId] = useState<string | null>(
     null,
   );
-  const [requestedCreateProject, setRequestedCreateProject] = useState(false);
+  const [requestedProjectsView, setRequestedProjectsView] = useState<
+    "browse" | "create" | null
+  >(null);
   const [projectsOpened, setProjectsOpened] = useState(false);
   const navigate = (
     nextPage: Page,
@@ -3587,6 +3699,7 @@ function PlatformShell() {
           setSession({ status: "authenticated", user: u, csrf: t, error: "" });
           updatePwaDiagnosticsCsrf(t);
           configurePwaDiagnosticsDebugState({ active: false });
+          navigate("dashboard");
         }}
       />
     );
@@ -3610,6 +3723,7 @@ function PlatformShell() {
       method: "POST",
       headers: { "x-csrf-token": token },
     }).catch(() => undefined);
+    navigate("dashboard");
     setSession({ status: "anonymous", user: null, csrf: "", error: "" });
     clearPwaDiagnosticsSession();
   };
@@ -3621,21 +3735,27 @@ function PlatformShell() {
           navigate(nextPage);
           if (nextPage === "projects") {
             setRequestedProjectId(null);
-            setRequestedCreateProject(false);
+            setRequestedProjectsView("browse");
           }
         }}
       />
       <main>
         {page === "dashboard" && (
           <OverviewPage
-            onNavigate={navigate}
+            onNavigate={(nextPage) => {
+              if (nextPage === "projects") {
+                setRequestedProjectId(null);
+                setRequestedProjectsView("browse");
+              }
+              navigate(nextPage);
+            }}
             onCreateProject={() => {
-              setRequestedCreateProject(true);
+              setRequestedProjectsView("create");
               setRequestedProjectId(null);
               navigate("projects");
             }}
             onOpenProject={(projectId) => {
-              setRequestedCreateProject(false);
+              setRequestedProjectsView("browse");
               setRequestedProjectId(projectId);
               navigate("projects");
             }}
@@ -3651,9 +3771,9 @@ function PlatformShell() {
               }}
               requestedProjectId={requestedProjectId}
               onRequestedProjectHandled={() => setRequestedProjectId(null)}
-              requestedCreateProject={requestedCreateProject}
-              onRequestedCreateProjectHandled={() =>
-                setRequestedCreateProject(false)
+              requestedProjectsView={requestedProjectsView}
+              onRequestedProjectsViewHandled={() =>
+                setRequestedProjectsView(null)
               }
             />
           </div>

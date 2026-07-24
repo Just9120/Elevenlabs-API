@@ -658,6 +658,17 @@ code {
 .composer-header h4 {
   margin: 0 0 0.25rem;
 }
+.composer-add-row {
+  display: grid;
+  gap: 0.25rem;
+  justify-items: end;
+  text-align: right;
+}
+.composer-add-row-status {
+  min-height: 1.25rem;
+  color: var(--studio-muted);
+  font-size: 0.85rem;
+}
 .composer-settings-row label {
   flex: 0 1 22rem;
 }
@@ -699,6 +710,26 @@ code {
   border-radius: 16px;
   padding: 0.85rem;
   background: var(--studio-surface);
+}
+.composer-row-added {
+  animation: composer-row-added 1s ease-out;
+}
+@keyframes composer-row-added {
+  from {
+    border-color: var(--studio-primary);
+    box-shadow: 0 0 0 4px rgba(49, 94, 251, 0.2);
+    transform: translateY(-0.25rem);
+  }
+  to {
+    border-color: var(--studio-border);
+    box-shadow: none;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer-row-added {
+    animation: none;
+  }
 }
 .composer-row-header {
   display: flex;
@@ -814,6 +845,10 @@ code {
   }
   .composer-row-grid {
     grid-template-columns: 1fr;
+  }
+  .composer-add-row {
+    justify-items: start;
+    text-align: left;
   }
   .batch-preflight-header,
   .batch-preflight li {
@@ -1119,6 +1154,40 @@ code {
 
 .analytics-content h5 {
   margin: 0 0 0.55rem;
+}
+
+.analytics-glossary {
+  margin-top: 0.75rem;
+  border: 1px solid var(--studio-border);
+  border-radius: 12px;
+  padding: 0.65rem 0.75rem;
+  background: var(--studio-soft);
+}
+
+.analytics-glossary summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.analytics-glossary dl {
+  display: grid;
+  gap: 0.65rem;
+  margin: 0.75rem 0 0;
+}
+
+.analytics-glossary dl > div {
+  display: grid;
+  grid-template-columns: minmax(5rem, 0.25fr) minmax(0, 1fr);
+  gap: 0.75rem;
+}
+
+.analytics-glossary dt {
+  font-weight: 700;
+}
+
+.analytics-glossary dd {
+  margin: 0;
+  color: var(--studio-muted);
 }
 
 .terminal-job {

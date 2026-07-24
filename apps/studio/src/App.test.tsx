@@ -1476,6 +1476,15 @@ describe("Studio PWA", () => {
     expect(
       await screen.findByLabelText("Название проекта"),
     ).toBeInTheDocument();
+
+    await openPlatformNavPage("Обзор");
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Открыть проекты" }),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Проекты" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText("Название проекта")).not.toBeInTheDocument();
   });
 
   it("opens a recent project directly in the preparation workspace", async () => {
@@ -1907,6 +1916,11 @@ describe("Studio PWA", () => {
     const retention = await screen.findByRole("combobox", {
       name: "Срок хранения локальных файлов",
     });
+    expect(
+      screen.getByText(/приватном объектном хранилище \(S3\/R2\)/),
+    ).toHaveTextContent(
+      "Ссылки на Google Drive и результаты Google Docs не затрагиваются.",
+    );
     expect(retention).toHaveValue("86400");
     expect(
       within(retention).getByRole("option", { name: "1 час" }),
@@ -1961,6 +1975,11 @@ describe("Studio PWA", () => {
       await screen.findByText("Google Drive не подключён"),
     ).toBeInTheDocument();
     expect(
+      screen.getByText(
+        "Подключите Google Drive, чтобы выбирать файлы и папку результатов.",
+      ),
+    ).toBeInTheDocument();
+    expect(
       screen.getByRole("button", { name: "Подключить Google Drive" }),
     ).toBeInTheDocument();
     expect(fetch).toHaveBeenCalledWith(
@@ -2011,6 +2030,11 @@ describe("Studio PWA", () => {
     expect(
       await screen.findByText("Google Drive подключён"),
     ).toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        "Подключите Google Drive, чтобы выбирать файлы и папку результатов.",
+      ),
+    ).not.toBeInTheDocument();
     expect(screen.getByText("safe.user@example.com")).toBeInTheDocument();
     expect(screen.getByText("active")).toBeInTheDocument();
     expect(
@@ -2183,6 +2207,65 @@ describe("Studio PWA", () => {
       screen.queryByText("raw-secret-never-render"),
     ).not.toBeInTheDocument();
   });
+
+  it("explains and confirms credential disable and permanent deletion", async () => {
+    const confirm = vi.mocked(window.confirm);
+    confirm.mockReturnValue(false);
+    renderApp();
+    await openSettingsPage();
+
+    expect(
+      await screen.findByText(/Отключение запрещает использовать ключ/),
+    ).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Отключить" }),
+    );
+    expect(confirm).toHaveBeenLastCalledWith(
+      "Отключить ключ «Primary STT»? Он станет недоступен для новых и выполняющихся задач, но история версий сохранится.",
+    );
+    expect(
+      (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
+        ([url]) => url === "/api/credentials/cred-active/revoke",
+      ),
+    ).toBe(false);
+
+    confirm.mockReturnValue(true);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Отключить" }),
+    );
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/credentials/cred-active/revoke",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+
+    confirm.mockReturnValue(false);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Удалить навсегда" }),
+    );
+    expect(confirm).toHaveBeenLastCalledWith(
+      "Удалить ключ «Primary STT» навсегда? Все сохранённые значения будут стёрты без возможности восстановления.",
+    );
+    expect(
+      (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
+        ([url, init]) =>
+          url === "/api/credentials/cred-active" && init?.method === "DELETE",
+      ),
+    ).toBe(false);
+
+    confirm.mockReturnValue(true);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Удалить навсегда" }),
+    );
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/credentials/cred-active",
+        expect.objectContaining({ method: "DELETE" }),
+      ),
+    );
+  });
+
   it("creates credentials with raw_value while using credential-specific field names", async () => {
     renderApp();
     await openSettingsPage();
@@ -2337,6 +2420,12 @@ describe("Studio PWA", () => {
     const status = await screen.findByLabelText("Готовность строк подготовки");
     expect(status).toHaveTextContent("Готово: 0 из 1");
     expect(status).toHaveTextContent("Строка 1: выберите источник");
+    expect(screen.getByText("Название документа")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Необязательно. Если оставить пустым, Google Docs получит имя исходного файла.",
+      ),
+    ).toBeInTheDocument();
     expect(
       screen.queryByRole("heading", { name: "Готовность" }),
     ).not.toBeInTheDocument();
@@ -2373,6 +2462,14 @@ describe("Studio PWA", () => {
     await userEvent.click(
       screen.getByRole("button", { name: "Добавить строку" }),
     );
+    expect(
+      screen.getByRole("status", { name: "Результат добавления строки" }),
+    ).toHaveTextContent("Добавлена строка 2. Выберите источник.");
+    await waitFor(() =>
+      expect(
+        screen.getByLabelText("Существующий файл для строки 2"),
+      ).toHaveFocus(),
+    );
     await chooseExistingSource(2, "Лекция 1");
     await chooseResultFolder(2);
     expect(readiness).toHaveTextContent("Готово: 0 из 2");
@@ -2403,7 +2500,7 @@ describe("Studio PWA", () => {
       screen.getByLabelText("Язык транскрибации"),
       "detect",
     );
-    await userEvent.click(screen.getByLabelText("Разделять спикеров"));
+    await userEvent.click(screen.getByLabelText("Разделять на спикеров"));
 
     await userEvent.click(
       screen.getByRole("button", { name: "Проверить задачи (1)" }),
@@ -3210,7 +3307,7 @@ describe("Studio PWA", () => {
     const languageSelect = screen.getByLabelText("Язык транскрибации");
     expect(languageSelect).toHaveValue("ru");
     await userEvent.selectOptions(languageSelect, "detect");
-    const diarizationToggle = screen.getByLabelText("Разделять спикеров");
+    const diarizationToggle = screen.getByLabelText("Разделять на спикеров");
     expect(diarizationToggle).not.toBeChecked();
     await userEvent.click(diarizationToggle);
     await reviewAndConfirmBatch();
@@ -4799,6 +4896,41 @@ describe("Studio PWA", () => {
     expect(document.body.textContent).not.toContain("raw-google-payload");
   });
 
+  it("shows an actionable safe message when Picker session requires reconnect", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        url.endsWith("/api/google/picker/session") &&
+        init?.method === "POST"
+      )
+        return json(
+          {
+            detail: "google_reauthorization_required",
+            raw: "private-google-response",
+          },
+          false,
+          409,
+        );
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: "Выбрать файлы Google Drive",
+      }),
+    );
+
+    expect(
+      await screen.findByText(
+        "Переподключите Google Drive в настройках и повторите выбор.",
+      ),
+    ).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("private-google-response");
+  });
+
   it("disables row folder selection while Google Drive is disconnected without requesting Picker session", async () => {
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = baseFetch.getMockImplementation();
@@ -5402,6 +5534,7 @@ describe("Studio PWA", () => {
 
   it("renders login only for confirmed anonymous session and keeps manual login/logout transitions", async () => {
     const mockFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    window.history.replaceState({}, "", "/settings/diagnostics");
     mockFetch.mockImplementation((url: string) => {
       if (url.endsWith("/api/auth/session")) return json({}, false, 401);
       if (url.endsWith("/api/auth/bootstrap-status"))
@@ -5449,11 +5582,18 @@ describe("Studio PWA", () => {
     await userEvent.type(screen.getByLabelText("Пароль"), "password-long");
     await userEvent.click(screen.getByRole("button", { name: "Войти" }));
     await waitForPlatformOverview();
+    expect(window.location.pathname).toBe("/");
     await openSettingsPage();
     await userEvent.click(await screen.findByRole("button", { name: "Выйти" }));
     expect(
       await screen.findByRole("heading", { name: "Вход" }),
     ).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/");
+
+    await userEvent.type(screen.getByLabelText("Email"), "user@example.com");
+    await userEvent.type(screen.getByLabelText("Пароль"), "password-long");
+    await userEvent.click(screen.getByRole("button", { name: "Войти" }));
+    await waitForPlatformOverview();
   });
 
   it("shows retry instead of login after transient session failure", async () => {
@@ -6622,6 +6762,10 @@ describe("settings diagnostics", () => {
     expect(await screen.findByText("web-build")).toBeInTheDocument();
     expect(screen.getByText("api-build")).toBeInTheDocument();
     expect(screen.getByText("worker-build")).toBeInTheDocument();
+    expect(
+      screen.getByText("Разрешение Google Drive получено"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Google Drive готов")).not.toBeInTheDocument();
     expect(screen.getByText("JOB_FAILED")).toBeInTheDocument();
     expect(screen.getAllByText("Ошибка").length).toBeGreaterThan(0);
     expect(screen.getAllByText("API").length).toBeGreaterThan(0);

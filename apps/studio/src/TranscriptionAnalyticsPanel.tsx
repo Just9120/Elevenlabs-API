@@ -61,10 +61,10 @@ function DurationCard({
   return (
     <article className="analytics-metric">
       <span className="muted">{label}</span>
-      <strong>{formatDuration(summary.average_seconds)}</strong>
+      <strong>Среднее: {formatDuration(summary.average_seconds)}</strong>
       {summary.sample_count > 0 ? (
         <small>
-          медиана {formatDuration(summary.p50_seconds)} · p95{" "}
+          Медиана {formatDuration(summary.p50_seconds)} · p95{" "}
           {formatDuration(summary.p95_seconds)} · замеров {summary.sample_count}
         </small>
       ) : (
@@ -214,7 +214,7 @@ export function TranscriptionAnalyticsPanel({
             </section>
 
             <section aria-label="Длительности этапов транскрибаций">
-              <h5>Средняя длительность</h5>
+              <h5>Длительность этапов</h5>
               <div className="analytics-duration-grid">
                 {DURATION_LABELS.map(([key, label]) => (
                   <DurationCard
@@ -229,6 +229,39 @@ export function TranscriptionAnalyticsPanel({
                 результата в Google Docs. Незавершённые этапы в статистику не
                 входят.
               </p>
+              <details className="analytics-glossary">
+                <summary>Как читать метрики длительности</summary>
+                <dl>
+                  <div>
+                    <dt>Среднее</dt>
+                    <dd>
+                      Сумма длительностей, разделённая на число замеров. Долгие
+                      задачи могут заметно увеличить значение.
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Медиана</dt>
+                    <dd>
+                      Половина замеров короче этого значения, половина —
+                      длиннее.
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>p95</dt>
+                    <dd>
+                      95% замеров завершились не дольше этого времени. Это не
+                      максимальная длительность.
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Замеры</dt>
+                    <dd>
+                      Количество завершённых интервалов конкретного этапа,
+                      вошедших в расчёт.
+                    </dd>
+                  </div>
+                </dl>
+              </details>
             </section>
           </>
         )}

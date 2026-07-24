@@ -76,6 +76,15 @@ SOURCE_TYPES = frozenset({"local_upload", "google_drive"})
 SOURCE_DELETION_REASONS = frozenset({"user_deleted", "retention_expired"})
 SOURCE_CLEANUP_OUTCOMES = frozenset({"not_applicable", "pending", "completed", "failed"})
 SOURCE_DELETION_BLOCKERS = frozenset({"queued_job_uses_source", "processing_job_uses_source", "retryable_failed_job_uses_source", "project_unavailable", "source_already_deleted", "unsupported_source_state"})
+GOOGLE_PICKER_SESSION_FAILURE_REASONS = frozenset({
+    "google_connection_missing",
+    "google_connection_inactive",
+    "google_reauthorization_required",
+    "google_token_unavailable",
+    "google_config_unavailable",
+    "google_scope_unavailable",
+    "google_picker_not_configured",
+})
 
 def R(kind: str, *, min: int | None = None, max: int | None = None, choices: frozenset[str] | None = None, required: bool = False) -> MetaRule:
     return MetaRule(kind, min, max, choices, required)
@@ -120,6 +129,7 @@ REGISTRY: dict[str, EventDef] = {
     "OUTPUT_RECONCILIATION_RESOLVED": EventDef(frozenset({"api"}), "INFO", {"case_status": R("enum", choices=RECONCILIATION_CASE_STATUSES, required=True), "resolved": R("bool", required=True), "aggregate_count": R("int", min=0, max=50)}),
     "OUTPUT_RECONCILIATION_CONFLICT": EventDef(frozenset({"api"}), "WARNING", {"case_status": R("enum", choices=RECONCILIATION_CASE_STATUSES, required=True), "resolved": R("bool"), "aggregate_count": R("int", min=0, max=50)}),
     "OUTPUT_RECONCILIATION_FAILED": EventDef(frozenset({"api"}), "WARNING", {"case_status": R("enum", choices=RECONCILIATION_CASE_STATUSES, required=True), "resolved": R("bool")}),
+    "GOOGLE_PICKER_SESSION_FAILED": EventDef(frozenset({"api"}), "WARNING", {"reason": R("enum", choices=GOOGLE_PICKER_SESSION_FAILURE_REASONS, required=True), "retryable": R("bool", required=True), "http_status_category": R("enum", choices=HTTP_STATUS_CATEGORIES, required=True)}),
     "API_REQUEST_FAILED": EventDef(frozenset({"api"}), "WARNING", {"endpoint_group": R("enum", choices=ENDPOINT_GROUPS, required=True), "http_status_category": R("enum", choices=HTTP_STATUS_CATEGORIES, required=True)}),
     "API_UNHANDLED_EXCEPTION": EventDef(frozenset({"api"}), "ERROR", {"endpoint_group": R("enum", choices=ENDPOINT_GROUPS, required=True), "http_status_category": R("enum", choices=frozenset({"5xx"}), required=True)}),
     "PWA_APP_ERROR": EventDef(frozenset({"web"}), "ERROR", {"boundary": R("enum", choices=PWA_BOUNDARIES), "error_code": R("enum", choices=PWA_ERROR_CODES), "retryable": R("bool"), "duration_ms": R("int", min=0, max=86400000), "http_status_category": R("enum", choices=HTTP_STATUS_CATEGORIES), "endpoint_group": R("enum", choices=ENDPOINT_GROUPS)}),

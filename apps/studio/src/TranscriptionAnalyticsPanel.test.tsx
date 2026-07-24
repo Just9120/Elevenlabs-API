@@ -65,7 +65,7 @@ describe("TranscriptionAnalyticsPanel", () => {
     );
 
     expect(await screen.findByText("ElevenLabs · scribe_v2 2")).toBeInTheDocument();
-    expect(screen.getByText("1 ч")).toBeInTheDocument();
+    expect(screen.getByText("Среднее: 1 ч")).toBeInTheDocument();
     const outcomes = screen.getByRole("region", {
       name: "Исходы транскрибаций",
     });
@@ -73,6 +73,19 @@ describe("TranscriptionAnalyticsPanel", () => {
       "Готово 1",
     );
     expect(screen.queryByText("project-private-id")).not.toBeInTheDocument();
+    const glossary = screen
+      .getByText("Как читать метрики длительности")
+      .closest("details");
+    expect(glossary).not.toHaveAttribute("open");
+    expect(
+      within(glossary as HTMLElement).getByText("Медиана"),
+    ).toBeInTheDocument();
+    expect(
+      within(glossary as HTMLElement).getByText("p95"),
+    ).toBeInTheDocument();
+    expect(
+      within(glossary as HTMLElement).getByText("Замеры"),
+    ).toBeInTheDocument();
   });
 
   it("fails closed when the aggregate DTO is malformed", async () => {
