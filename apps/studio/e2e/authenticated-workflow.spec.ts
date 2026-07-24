@@ -60,6 +60,11 @@ test('authenticated user creates a project and reads a completed job result', as
     'href',
     RESULT_URL,
   );
+  const jobDetail = jobCard.locator('section[aria-label^="Job detail "]');
+  await expect(jobDetail.getByRole('heading', { name: 'Файлы задачи' })).toBeVisible();
+  await expect(jobDetail.getByText('Статус обработки: Завершена')).toBeVisible();
+  await expect(jobDetail).not.toContainText('Статус файла: queued');
+  await expect(jobDetail).not.toContainText('Статус обработки: В очереди');
 
   await navigation
     .getByRole('button', { name: 'Настройки', exact: true })

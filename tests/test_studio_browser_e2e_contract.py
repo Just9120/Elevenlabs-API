@@ -54,3 +54,5 @@ def test_browser_e2e_seed_guards_before_database_initialization() -> None:
     )
     assert "db.query(User.id).first() is not None" in seed
     assert "requires an empty database" in seed
+    assert "status=JobSourceStatus.queued" in seed
+    assert "TranscriptionJobOutput(" in seed
