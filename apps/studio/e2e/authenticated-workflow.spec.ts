@@ -396,9 +396,96 @@ test('processing cancellation records a request without claiming completion', as
 }) => {
   const navigation = await login(page);
   await navigation.getByRole('button', { name: 'Проекты', exact: true }).click();
+
+  const integrationRequests = trackExternalOrJobMutations(page);
+  const progressResponsePromise = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'GET' &&
+      response.url().endsWith('/jobs/progress'),
+  );
   await page
     .getByRole('button', { name: new RegExp(`^${RESULT_PROJECT}`) })
     .click();
+
+  const progressResponse = await progressResponsePromise;
+  expect(progressResponse.status()).toBe(200);
+  const progressPayload = await progressResponse.json();
+  const processingProgress = progressPayload.jobs.find(
+    (job: { job_status?: string }) => job.job_status === 'processing',
+  );
+  expect(processingProgress).toMatchObject({
+    job_status: 'processing',
+    tracking_precision: 'checkpoint',
+    completed_source_count: 0,
+    total_source_count: 1,
+    active_source_position: 0,
+    current_stage: 'provider_processing',
+    sources: [
+      {
+        position: 0,
+        name: 'browser-e2e-audio.mp3',
+        status: 'processing',
+        stages: [
+          {
+            key: 'preparation',
+            status: 'completed',
+            applicability: 'required',
+          },
+          {
+            key: 'audio_extraction',
+            status: 'not_applicable',
+            applicability: 'not_applicable',
+          },
+          {
+            key: 'splitting',
+            status: 'completed',
+            applicability: 'conditional',
+          },
+          {
+            key: 'provider_processing',
+            status: 'active',
+            applicability: 'required',
+          },
+          {
+            key: 'part_merge',
+            status: 'pending',
+            applicability: 'conditional',
+          },
+          {
+            key: 'google_docs_output',
+            status: 'pending',
+            applicability: 'required',
+          },
+        ],
+      },
+    ],
+  });
+  expect(processingProgress.job_id).toMatch(/^[0-9a-f-]{36}$/);
+  expect(JSON.stringify(processingProgress)).not.toContain(
+    'browser-e2e-worker',
+  );
+
+  const progress = page.getByRole('region', {
+    name: `Прогресс задачи ${processingProgress.job_id}`,
+  });
+  await expect(progress.getByText('Готово файлов: 0 из 1')).toBeVisible();
+  await expect(
+    progress.getByText('Подготовка источника').locator('..'),
+  ).toContainText('Готово');
+  await expect(
+    progress.getByText('Извлечение аудио').locator('..'),
+  ).toContainText('Не требуется');
+  await expect(
+    progress
+      .getByText('Разбиение на части (при необходимости)')
+      .locator('..'),
+  ).toContainText('Проверено');
+  await expect(
+    progress.getByText('Транскрибация ElevenLabs').locator('..'),
+  ).toContainText('Выполняется');
+  await expect(
+    progress.getByText('Создание Google Docs').locator('..'),
+  ).toContainText('Ожидает');
 
   const currentJobs = page.getByRole('region', { name: 'Текущие задачи' });
   const processingCard = currentJobs
@@ -407,7 +494,6 @@ test('processing cancellation records a request without claiming completion', as
     .first();
   await expect(processingCard.getByText('Статус: Обрабатывается')).toBeVisible();
 
-  const integrationRequests = trackExternalOrJobMutations(page);
   const cancelResponsePromise = page.waitForResponse(
     (response) =>
       response.request().method() === 'POST' &&
