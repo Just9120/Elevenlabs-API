@@ -5,27 +5,20 @@
 - ✅ `PWA-FRONTEND-MODULARIZATION-01B/02` — The first two behavior-preserving frontend tranches are merged through PR #180 at `605cbae`; repository, Studio, authenticated Chromium, and web deployment checks passed.
 - ✅ `PWA-PROCESSING-ROLLOUT-01A / Gate 0A` — PR #181 merged the manual-only read-only worker-status path at `749833c`; run `29925528002` safely proved one running, not-drained worker while leaving its image identity unknown.
 - ✅ `PWA-PROCESSING-ROLLOUT-01A / Gate 0B` — PR #182 merged the controlled drain path at `850bfdf`; run `29929528124` gracefully drained the worker, and preflight run `29929607368` passed runtime/service/local/public checks before blocking on production database revision mismatch.
-- 👉 `PWA-PROCESSING-ROLLOUT-01A / Gate 0C` — The branch preflight now reports an exact revision only after normalization and repository-inventory validation, and the migration/backup decision record is prepared below. The current trusted production run still proves only that one revision exists and differs from `0015`; its exact value requires merge plus a new trusted-`main` preflight. Backup and migration still require separate authorization.
-- 🧪 `PWA-TRANSCRIPTION-OPTIONS-01` — The current branch implements both selected options end to end: Russian-default/auto-detect language and optional ElevenLabs speaker separation use a typed batch contract, participate in idempotency, reach the provider request, and are shown in job detail. Diarized output requires provider speaker labels and produces deterministic `Speaker N` blocks with `Speakers: yes`; local frontend, portable backend, lint, and build checks pass, while service-backed CI and merge evidence remain pending.
-- 🧪 `PWA-MULTI-SOURCE-VALIDATION-01A` — Existing local and Google Picker multi-file intake now has source-level evidence through ordered composer rows and batch payloads. The browser fails closed and reloads authoritative sources when a Picker response cannot account for every selected file; backend coverage already proves ordered server-side revalidation and duplicate rejection. Local frontend, portable backend, lint, and build checks pass; service-backed CI/merge evidence remains pending, and Drive folder/recursive ingestion remains out of scope.
-- 🧪 `PWA-MEDIA-PREPARATION-01A/01B` — The current branch converts server-validated video to AAC/M4A and now duration-probes every prepared source, splits above the explicit 25 MiB/1,320-second policy before provider work, processes bounded overlapping parts in order, and merges word timing deterministically. Later-part failures are never treated as safe whole-source retries. Focused tests (`120 passed`), the portable suite (`686 passed, 6 skipped`), lightweight repository checks, and diff checks pass locally; Docker image build, service-backed CI, real long-media/provider evidence, and merge evidence remain pending.
-- 🧪 `PWA-PREFLIGHT-PROGRESS-01A/01B` — The current branch adds both the non-mutating server-authoritative batch preflight with explicit PWA review/confirm and a browser-safe staged pipeline for every queued/processing job. The progress API derives one project-level snapshot from durable job/source-attempt checkpoints and persisted-output evidence, never returns source IDs/URLs, storage/credential/failure detail, or lease/claim authority, and marks split/merge as conditional checks. The PWA fails closed on malformed DTOs, polls only after a valid checkpoint response, and preserves the last confirmed state across transient refresh failure. Preflight now consumes the partial current-Studio catalog authority described below; historical Drive import remains separate. Full PWA tests (`251 passed`), pure preflight/progress tests (`4 passed`), portable Python tests (`690 passed, 6 skipped`), focused polling integration, TypeScript, lint, production build, lightweight, compile, and diff checks pass; PostgreSQL-backed endpoint coverage requires service-backed CI.
-- 🧪 `PWA-TRANSCRIPTION-ANALYTICS-01` — The current branch adds on-demand, project-scoped aggregate analytics for totals, outcomes, selected provider/model/options, and four evidence-backed duration series. The API returns no project/job/source/output identifiers, titles, URLs, credential/storage fields, raw attempt timestamps, transcript content, or failure detail. Queue and whole-job intervals come from job lifecycle timestamps; ElevenLabs and combined post-provider-output intervals come only from complete source-attempt checkpoints. Incomplete or negative intervals are excluded, each series exposes its sample count, and the PWA fails closed on malformed or internally inconsistent aggregates. Full PWA tests (`256 passed`), portable Python tests (`692 passed, 6 skipped`), focused pure backend tests (`2 passed`), parser/component tests (`5 passed`), TypeScript, lint, production build, lightweight, compile, and diff checks pass locally. Owner/no-store/browser-safety endpoint coverage is authored; PostgreSQL execution remains a service-backed CI gate.
-- 🧪 `PWA-TRANSCRIPT-CATALOG-MIGRATION-01A/01B/01C/01D` — The current branch now connects the duplicate-authority foundation to batch preflight/create and the final paid-provider boundary. Exact, matching-settings legacy-standard, and indeterminate evidence block a row until the user explicitly chooses paid reprocessing; no automatic skip, reuse, overwrite, or provider call occurs. Source or effective-settings edits clear the decision, the flag participates in idempotency, and create repeats the query after deterministic owner-scoped catalog-identity locks, including every Studio row for a reselected Google Drive file. The affirmative choice is durable per job as a reserved server-owned option that is not returned to the browser and cannot be injected through the deprecated arbitrary-options route; that route blocks accepted-evidence conflicts and sends callers to canonical batch preflight/create. Immediately before the provider, every worker repeats the accepted-evidence query and detects equivalent in-flight or unresolved provider attempts while holding the same identity lock through its own provider-start checkpoint commit. This closes output-persistence, two-already-queued, and failed-uncertain-attempt races; only an explicitly retry-safe provider outcome is exempt, while missing completed-output evidence fails closed. Explicit reprocess authority bypasses accepted-output evidence only, never these active or unresolved attempt conflicts. The losing attempt is non-retryable and calls no provider. The browser receives only safe categories/counts and an honest `studio_outputs_only` partial-authority marker. No migration, Google/provider call, document read, schema change, or continuous synchronization is introduced. Historical Drive discovery/import, in-place standardization, local-copy fingerprinting, and accepted-output reuse/linkage remain follow-up scope. Full PWA tests (`257 passed`), portable Python (`707 passed, 6 skipped`), focused pure catalog/options/preflight tests (`10 passed`), and the final ElevenLabs boundary suite (`53 passed`) pass locally alongside TypeScript, lint, production build, compile, lightweight, and diff checks. The PostgreSQL conflict/lock and legacy-route endpoint tests cannot execute without the unavailable local PostgreSQL service; service-backed CI remains authoritative.
+- ✅ `PWA-PROCESSING-ROLLOUT-01A / Gates 0C–3` — PR #183 merged the processing source batch at `77a3b39`. A tagged restic/R2 PostgreSQL backup completed as snapshot `7b03ad00`; the authorized migration then applied `0011 → 0012 → 0013 → 0014 → 0015`. Isolated API deployment run `30004599136` succeeded, and post-deploy preflight run `30004696267` proved database head `0015_user_source_retention`, healthy PostgreSQL/Redis, and passing public API/web health.
+- ✅ `PWA-PROCESSING-SOURCE-BATCH-01` — Transcription language/diarization, validated multi-source intake, video and long-media preparation, batch preflight/progress, aggregate analytics, transcript-catalog duplicate decisions, and the final provider-call guard are merged through PR #183. Source and CI evidence is complete for that batch; real provider/Google behavior still belongs to the controlled rollout gates.
+- 👉 `PWA-UX-STABILIZATION-04 / Gate 4` — Active branch. The recorded public PWA walkthrough proves the authenticated shell works but both source and output-folder Google Picker opens fail fast at `/api/google/picker/session` with a safe 5xx-class browser diagnostic. This branch classifies refresh failures, emits allowlisted Picker-session diagnostics, renders actionable reconnect/config/transient guidance, and applies the agreed navigation, preparation, credential-safety, and analytics-copy fixes. Exact production failure reason still requires merge, deploy, and one controlled reproduction.
+- ⏸ `PWA-PROCESSING-ROLLOUT-01A / Gates 5–6` — Worker deployment and the one-output canary remain blocked until the public Google Picker boundary and authenticated prerequisites pass. Worker-status run `30004841628` still reports the worker exited with `exit_code=0` and gracefully drained; its image identity remains unknown.
 - ⏸ `PWA-FRONTEND-MODULARIZATION-03` — Preparation composer/readiness extraction is deferred until the production baseline is known or rollout is waiting on an explicit operator window.
-- ⛔ `PWA-PROCESSING-ROLLOUT-01A / Gates 1–6` — Backup, migration, API deployment, public-edge validation, worker deployment, and canary must run in order; each later gate is blocked until the previous gate has safe factual evidence.
 
 ## Audit conclusion
 
 - The stable Colab batch contour remains frozen and accepted at **100%** for its current operational scope. Experimental realtime work is a separate contour and is not included in that claim.
-- Studio has broad source-level implementation and green service-backed CI. The dominant blocker is release evidence, not a missing core ElevenLabs processing implementation.
-- Current `main` source and repository CI are proven at `850bfdf8df3e8dfc90776ddacf4882a775957fdd`; production checkout remains separately proven clean at `605cbaee35664327197bfc15b58771cf967241e3`, where automatic CD proved only the web component.
-- The last GitHub-proven API deployment is run `29677090742` at `fe60789f9278fd9adc967a2046a4fca0c4833774`, when the repository Alembic head was `0011_diagnostic_debug_sessions`. There is no later GitHub evidence that production API, database, or worker reached current source head `0015_user_source_retention`.
-- Production-baseline preflight run `29918894603` proved the VPS checkout is clean at `605cbae` and found one running worker. No `deploy-worker` job exists in the inspected Studio Platform CD workflow-dispatch history, so that worker's deployment source/image identity is not established by GitHub evidence.
-- Read-only worker-status run `29925528002` completed from trusted `main` source and reported `container_state=running`, `exit_code=0`, `drain_state=running`, no commit tag for `605cbae`, `identity_match=unknown`, and no rollback candidate. This removes ambiguity about lifecycle state but does not establish deploy provenance or authorize mutation.
-- Controlled drain run `29929528124` moved the single worker from running to `exited` with `exit_code=0` and `drain_state=gracefully-drained`. Follow-up preflight run `29929607368` proved runtime settings and secret-file presence, healthy PostgreSQL/Redis/API/web services, stopped worker state, passing localhost/public API and web health, and exactly one production database revision; it blocked because that revision differs from repository head `0015`.
+- Studio has broad source-level implementation and green service-backed CI at merged `main` revision `77a3b39`. The dominant remaining blocker is the real authenticated Google boundary followed by controlled worker/canary evidence, not missing core ElevenLabs processing code.
+- Production PostgreSQL has a verified tagged backup boundary (`7b03ad00`) and is migrated through `0015_user_source_retention`. API deployment run `30004599136` and post-deploy preflight `30004696267` replace the older `0011`/revision-mismatch evidence.
+- The worker remains intentionally stopped and gracefully drained. Run `30004841628` confirms the safe stopped state but not image provenance; do not describe worker processing as production-live.
+- The public walkthrough is current release evidence: authenticated navigation and non-Google UI are available, while both Picker entry points fail before Google Picker opens. The browser currently exposes only the broad 5xx request class; this branch adds safe reason-level evidence without exposing tokens or raw provider responses.
 - Studio Platform CD is not generally broken: migration-changing pushes intentionally suppress automatic API deployment, and worker deployment is intentionally manual-only. The workflow currently makes this safe skip too easy to mistake for a complete green deployment; that observability gap is a focused follow-up.
-- Migrations `0012`–`0015` are a single chain with PostgreSQL upgrade/downgrade and schema-contract coverage. Their tests reduce source risk but do not replace the required production backup, migration, identity checks, or canary.
 - The authenticated Playwright scenario proves the browser shell through live FastAPI/PostgreSQL/Redis with controlled boundaries. It does not call ElevenLabs, Google, S3/R2, or production and therefore does not replace the controlled canary.
 
 ## Readiness snapshot
@@ -33,15 +26,16 @@
 | Contour/dimension | Current estimate | Meaning |
 | --- | ---: | --- |
 | Stable Colab batch | **100%** | Accepted current scope; do not reopen without an explicit maintenance/product task. |
-| Studio source breadth | **about 98%** | The current branch adds typed transcription options, validated multi-source intake, video/long-media preparation, safe batch preflight, checkpoint-based staged progress, aggregate analytics, durable duplicate decisions, and a serialized final provider guard for accepted, in-flight, or unresolved Studio work. Historical Drive catalog import/standardization, accepted-output reuse, finer optional preparation telemetry, and rollout evidence remain. |
-| Studio production evidence | **about 55–60%** | Runtime/service/public health and graceful worker stop are proven; exact production revision, current API/worker identity, migration, authenticated prerequisites, and canary remain unresolved. |
-| Studio combined v1 readiness | **about 83% ±5** | Weighted planning estimate across product, parity, quality, operations, and production evidence. |
+| Studio source breadth | **about 98%** | Core processing, safety, analytics, and duplicate-authority work is merged. Historical Drive catalog import/standardization, accepted-output reuse, finer optional telemetry, and final rollout evidence remain. |
+| Studio UX readiness | **about 78%** | The walkthrough-driven issues are mostly addressed in the active branch; Google Picker recovery still needs production proof and some advanced diagnostics/analytics decisions remain backlog. |
+| Studio production evidence | **about 70%** | Backup, migration, current API, database, services, and public health are proven. Real Picker success, current worker identity/deploy, and the one-output canary are not. |
+| Studio combined v1 readiness | **about 74% ±4** | Weighted planning estimate. The lower value than source breadth reflects the blocked authenticated Google boundary and absent worker/canary proof. |
 
 Documentation, diagnostics, or behavior-preserving refactors do not raise these estimates by themselves. A rollout gate changes production evidence only after its factual result is recorded; a feature changes source breadth only after implementation and relevant validation.
 
 ## Release-critical roadmap
 
-### Gate 0 — read-only production truth (active)
+### Gate 0 — read-only production truth (completed)
 
 1. Confirm the intended `main` SHA and green post-merge repository/Studio CI.
 2. Dispatch `Studio Processing Preflight` from `main` only after explicit operator authorization, using the full intended SHA.
@@ -52,20 +46,20 @@ Initial attempt: run `29918894603` passed checkout/remote/branch/commit/clean-tr
 
 Initial worker evidence: after PR #181 and green post-merge repository CI run `29925230146`, read-only status run `29925528002` validated the clean production checkout at `605cbae` and completed with `STUDIO_WORKER_STATUS_OK`. At that checkpoint exactly one worker was running with exit code `0`; it was not drained, had no Docker health check, had no matching `605cbae` commit tag, had unknown image identity, and had no rollback candidate.
 
-Latest attempt: after PR #182 and green post-merge repository CI run `29929236644`, drain run `29929528124` completed with `STUDIO_WORKER_DRAIN_WORKFLOW_OK` and confirmed `container_state=exited`, `exit_code=0`, and `drain_state=gracefully-drained`. Read-only preflight run `29929607368` then passed checkout identity, runtime configuration, required secret-file presence, service topology, PostgreSQL/Redis health, localhost API/web health, public API/web health, repository head, and single production-revision detection. It blocked at revision equality: production is not at `0015_user_source_retention`. The trusted workflow version did not report the exact safe revision value, so the full migration baseline remains incomplete; this branch adds validated exact-revision output, but it is not production evidence until merged and rerun from trusted `main`. Authenticated operator prerequisites remain not-run.
+Prior blocking attempt: after PR #182 and green post-merge repository CI run `29929236644`, drain run `29929528124` completed with `STUDIO_WORKER_DRAIN_WORKFLOW_OK` and confirmed `container_state=exited`, `exit_code=0`, and `drain_state=gracefully-drained`. Read-only preflight run `29929607368` then passed checkout identity, runtime configuration, required secret-file presence, service topology, PostgreSQL/Redis health, localhost API/web health, public API/web health, repository head, and single production-revision detection. It correctly blocked at the pre-migration revision mismatch.
 
-Exit: partially met. The worker is safely stopped and the database mismatch is proven, but the exact current production revision must be captured before migration planning can be treated as complete.
+Exit: met. The subsequent authorized backup/migration/API sequence and post-deploy preflight supersede the earlier revision-mismatch checkpoint.
 
-### Gate 1 — backup and migration readiness
+### Gate 1 — backup and migration readiness (completed)
 
 1. Review the actual known production revision through `0015`, current CI migration evidence, expected additive/data-update effects, and rollback boundary. Do not infer the baseline from the last proven API deployment.
 2. Confirm PostgreSQL/Redis health and the configured restic/R2 backup boundary without printing secret values.
 3. Create a tagged `pre-migration` PostgreSQL backup with the approved script and verify its safe metadata according to the operations runbook.
 4. Stop if the backup is missing, ambiguous, concurrent, or unverifiable.
 
-Exit: verified pre-migration backup evidence and an approved operator window. This is the authorization prerequisite for Gate 2, not the migration itself.
+Exit: met. Restic/R2 snapshot `7b03ad00` was saved with tags `pre-migration,studio-postgres`; the repository reported nine retained snapshots under the 90-day policy before migration began.
 
-Prepared decision record (planning evidence only; no backup or migration is authorized):
+Decision record used for the completed operator action:
 
 - Baseline: accept only one normalized production revision that exists in the checked-out repository migration inventory. Unknown, missing, or multiple revisions are a hard stop. The last GitHub-proven API deployment at repository head `0011_diagnostic_debug_sessions` is historical context, not proof that production remains at `0011`.
 - Forward path: if the trusted preflight proves `0011`, the candidate chain is exactly `0012_output_reconciliation_cases → 0013_job_retry_recovery → 0014_source_deletion_retention → 0015_user_source_retention`. If it proves another known ancestor, review only the actual remaining suffix; if it is not an ancestor of `0015`, stop and investigate rather than improvising.
@@ -74,28 +68,31 @@ Prepared decision record (planning evidence only; no backup or migration is auth
 - Backup go/no-go: require the exact known baseline, a still-gracefully-stopped worker, healthy PostgreSQL, no concurrent production maintenance, a separately authorized tagged pre-migration backup, and safe verifiable backup metadata under the operations runbook. Any ambiguity is no-go.
 - Migration go/no-go: require separate explicit authorization after the backup evidence is accepted. Apply only the reviewed forward suffix, then verify one revision equal to `0015_user_source_retention` and PostgreSQL health. Do not resume or deploy a worker in the migration gate.
 
-### Gate 2 — apply and verify database head
+### Gate 2 — apply and verify database head (completed)
 
 1. Run the manual migration script with explicit backup confirmation.
 2. Verify exactly one production revision equal to `0015_user_source_retention`.
 3. Recheck PostgreSQL health and record only revision/health evidence.
 4. Stop on multiple/unknown revisions, health degradation, or any uncertainty; do not improvise a downgrade.
 
-Exit: production PostgreSQL is healthy at exactly the repository head.
+Exit: met. The manual script applied `0011_diagnostic_debug_sessions → 0012_output_reconciliation_cases → 0013_job_retry_recovery → 0014_source_deletion_retention → 0015_user_source_retention`; post-deploy preflight `30004696267` verified the resulting head and PostgreSQL health.
 
-### Gate 3 — deploy and verify API
+### Gate 3 — deploy and verify API (completed)
 
 1. Manually dispatch the `api` component from the intended `main` SHA.
 2. Require checkout fast-forward, built/running image identity equality, database/image Alembic equality, Docker health, and localhost API health.
 3. Verify public API health and safe authenticated session behavior without processing a source.
 
-Exit: current API identity and health are proven against database head `0015`.
+Exit: met. Isolated API deployment `30004599136` succeeded, and run `30004696267` verified database/image compatibility plus localhost/public API and web health.
 
-### Gate 4 — public browser boundary
+### Gate 4 — public browser boundary (active)
 
-1. Apply/verify the committed host security-header policy, run `nginx -t`, and verify TLS/public routing.
-2. Smoke Google Picker and presigned local-upload initiation/completion boundaries with no-store and safe browser behavior.
-3. Confirm the authenticated operator account has one active ElevenLabs credential, a valid Google connection, one writable output folder, and one small supported source.
+1. Merge the safe Picker failure classification/diagnostics and walkthrough-driven UX batch, then require green repository/Studio CI and successful API/web deployment evidence.
+2. Reproduce one source-Picker open and one output-folder-Picker open from the public authenticated PWA.
+3. Read only the allowlisted `GOOGLE_PICKER_SESSION_FAILED` reason and HTTP category. Do not inspect or expose refresh tokens, access tokens, raw Google responses, or private source data.
+4. Follow the proven branch: reconnect Google for `google_reauthorization_required`; correct server Picker/OAuth configuration for `google_picker_not_configured`; investigate/retry boundedly for `google_token_unavailable`; stop on an unknown result.
+5. Verify the committed host security-header policy, `nginx -t`, TLS/public routing, and the presigned local-upload initiation/completion boundary with no-store browser behavior.
+6. Confirm the authenticated operator account has one active ElevenLabs credential, a valid Google connection, one writable output folder, and one small supported source.
 
 Exit: the real public browser/API integration boundary is ready for one controlled job.
 
@@ -183,13 +180,13 @@ For production/operator work, use a separate evidence pipeline: **read-only pref
 
 ## Current validation evidence and blockers
 
-- `main` revision `850bfdf` passed post-merge repository CI run `29929236644`. Studio PWA CI and Studio Platform CD correctly did not run because PR #182 changed only operational workflow/tooling tests and delivery documentation; the latest runtime-path CI/CD evidence remains Studio PWA CI run `29915391923` and web-only CD run `29915391979` at `605cbae`.
-- The dependency-audit workflow has no GitHub run. Studio Processing Preflight passed historically in run `29633282269` at old revision `5df22347f4d9d8a2805f70f023929cbe7ac34c47`; current production-baseline run `29929607368` passed through public health and blocked only at database revision equality.
-- Production checkout is proven clean at `605cbae`; drain run `29929528124` proves the single worker is gracefully stopped. Preflight proves healthy PostgreSQL/Redis/API/web and passing localhost/public routing, but the exact production database revision, current API image identity, and worker deployment authority remain unproven. This branch can expose a known normalized revision after merge, CI, and trusted-`main` rerun; source changes alone do not close the evidence gap.
-- The merged manual-only `Studio Worker Status` workflow validates `main`/SHA/repository/clean-tree identity and invokes only `manage_studio_worker.sh status`; its first trusted-default-branch dispatch succeeded without runtime mutation.
-- The merged manual-only `Studio Worker Drain` workflow validated production identity, serialized with the shared production concurrency group, and completed its first authorized drain without deploy, backup, migration, resume, retry, or reconciliation actions.
-- Public security headers, TLS Picker/upload behavior, migration to database head `0015`, authenticated smoke prerequisites, controlled worker rollout, and the one-output canary remain unproven.
-- Windows local service-backed processing tests remain environment-limited without PostgreSQL/Redis; GitHub CI is the authoritative service-backed gate.
+- `main` is `77a3b39` (PR #183). The active UX/Picker diagnostics branch is local-only until this batch is pushed and reviewed; none of its behavior is production evidence yet.
+- Pre-migration backup snapshot `7b03ad00` completed successfully against the configured restic/R2 repository, and the manual migration reached `0015_user_source_retention`.
+- Isolated API deployment run `30004599136` succeeded. Post-deploy preflight `30004696267` proved database head `0015`, healthy PostgreSQL/Redis, and passing public API/web health.
+- Worker-status run `30004841628` proves `container_state=exited`, `exit_code=0`, and `drain_state=gracefully-drained`; worker image identity remains unknown and no worker deploy is authorized before Gate 4 passes.
+- The 2026-07-24 public walkthrough proves both Google Picker entry points currently fail with a 5xx-class `/api/google/picker/session` request before Picker opens. The exact allowlisted reason is unavailable until the active diagnostics change is merged/deployed and the failure is repeated.
+- Public security-header/TLS policy verification, successful real Picker and presigned-upload smoke, authenticated canary prerequisites, current worker rollout, and the one-output canary remain unproven.
+- The dependency-audit workflow still has no recorded run. Windows local service-backed processing tests remain environment-limited without PostgreSQL/Redis; GitHub CI is the authoritative service-backed gate.
 
 ## Sources of truth
 
