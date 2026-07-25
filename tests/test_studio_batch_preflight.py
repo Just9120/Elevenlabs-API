@@ -17,6 +17,7 @@ def test_batch_preflight_payload_is_ordered_explicit_and_browser_safe():
     from studio_api.transcript_catalog import (
         ExistingResultMatch,
         ExistingResultMatchStatus,
+        ProviderAttemptAuthorityStatus,
     )
 
     sources = [
@@ -68,6 +69,10 @@ def test_batch_preflight_payload_is_ordered_explicit_and_browser_safe():
             ),
         },
         reprocess_existing=[False, True],
+        provider_attempt_authorities={
+            "private-source-a": ProviderAttemptAuthorityStatus.in_flight,
+            "private-source-b": ProviderAttemptAuthorityStatus.available,
+        },
     )
 
     assert set(payload) == {
@@ -108,6 +113,10 @@ def test_batch_preflight_payload_is_ordered_explicit_and_browser_safe():
             "accepted_output_count": 1,
             "resolution": "required",
         },
+        "provider_attempt_authority": {
+            "status": "blocked",
+            "reason_code": "equivalent_provider_work_in_flight",
+        },
         "planned_outcome": "blocked",
     }
     assert payload["items"][1]["output_destination"] == {
@@ -117,6 +126,10 @@ def test_batch_preflight_payload_is_ordered_explicit_and_browser_safe():
         "status": "standardization_required",
         "accepted_output_count": 2,
         "resolution": "reprocess",
+    }
+    assert payload["items"][1]["provider_attempt_authority"] == {
+        "status": "available",
+        "reason_code": None,
     }
     assert payload["items"][1]["planned_outcome"] == "process"
     encoded = json.dumps(payload)
@@ -161,4 +174,76 @@ def test_batch_preflight_payload_fails_closed_without_catalog_decision():
             diarization_enabled=False,
             existing_result_matches={},
             reprocess_existing=[False],
+        )
+
+
+def test_batch_preflight_reprocess_does_not_override_provider_uncertainty():
+    from studio_api.batch_preflight import build_batch_preflight_payload
+    from studio_api.transcript_catalog import (
+        ExistingResultMatch,
+        ExistingResultMatchStatus,
+        ProviderAttemptAuthorityStatus,
+    )
+
+    payload = build_batch_preflight_payload(
+        sources=[
+            SimpleNamespace(
+                id="private-source",
+                source_type=SimpleNamespace(value="local_upload"),
+                original_filename="Safe source.wav",
+            )
+        ],
+        output_folders=[SimpleNamespace(name="Safe folder")],
+        titles=[None],
+        language_mode="ru",
+        diarization_enabled=False,
+        existing_result_matches={
+            "private-source": ExistingResultMatch(
+                status=ExistingResultMatchStatus.accepted_match,
+                accepted_output_count=1,
+                matching_settings_count=1,
+            )
+        },
+        reprocess_existing=[True],
+        provider_attempt_authorities={
+            "private-source": ProviderAttemptAuthorityStatus.unresolved
+        },
+    )
+
+    assert payload["items"][0]["existing_result_match"]["resolution"] == "reprocess"
+    assert payload["items"][0]["provider_attempt_authority"] == {
+        "status": "blocked",
+        "reason_code": "equivalent_provider_outcome_unresolved",
+    }
+    assert payload["items"][0]["planned_outcome"] == "blocked"
+    assert payload["summary"] == {
+        "process_count": 0,
+        "skip_count": 0,
+        "blocked_count": 1,
+    }
+
+
+def test_batch_preflight_fails_closed_without_provider_attempt_authority():
+    from studio_api.batch_preflight import build_batch_preflight_payload
+    from studio_api.transcript_catalog import (
+        ExistingResultMatch,
+        ExistingResultMatchStatus,
+    )
+
+    with pytest.raises(ValueError, match="provider-attempt authority"):
+        build_batch_preflight_payload(
+            sources=[SimpleNamespace(id="private-source")],
+            output_folders=[SimpleNamespace(name="Safe folder")],
+            titles=[None],
+            language_mode="ru",
+            diarization_enabled=False,
+            existing_result_matches={
+                "private-source": ExistingResultMatch(
+                    status=ExistingResultMatchStatus.no_match,
+                    accepted_output_count=0,
+                    matching_settings_count=0,
+                )
+            },
+            reprocess_existing=[False],
+            provider_attempt_authorities={},
         )

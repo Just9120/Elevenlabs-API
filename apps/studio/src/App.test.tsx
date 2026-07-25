@@ -66,6 +66,10 @@ function batchPreflightJson(init?: RequestInit) {
         accepted_output_count: 0,
         resolution: "not_required",
       },
+      provider_attempt_authority: {
+        status: "available",
+        reason_code: null,
+      },
       planned_outcome: "process",
     })),
     summary: {
@@ -2687,6 +2691,10 @@ describe("Studio PWA", () => {
                 status: "accepted_match",
                 accepted_output_count: 1,
                 resolution: reprocess ? "reprocess" : "required",
+              },
+              provider_attempt_authority: {
+                status: "available",
+                reason_code: null,
               },
               planned_outcome: reprocess ? "process" : "blocked",
             },
