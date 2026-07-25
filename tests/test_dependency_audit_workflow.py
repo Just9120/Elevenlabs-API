@@ -19,6 +19,7 @@ def test_dependency_audit_is_scheduled_and_manual_not_an_ordinary_ci_gate():
     assert "permissions:\n  contents: read" in workflow
     assert "timeout-minutes:" in workflow
     assert "cancel-in-progress: true" in workflow
+    assert workflow.count("persist-credentials: false") == 2
 
 
 def test_dependency_audit_covers_exact_node_and_installed_python_graphs():
