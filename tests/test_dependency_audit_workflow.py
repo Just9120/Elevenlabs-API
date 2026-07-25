@@ -4,6 +4,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "dependency-audit.yml"
+STUDIO_CI_WORKFLOW = ROOT / ".github" / "workflows" / "studio-ci.yml"
 STUDIO = ROOT / "apps" / "studio"
 
 
@@ -69,3 +70,17 @@ def test_studio_build_tool_override_uses_the_supported_filelist_graph():
     assert filelist["dependencies"]["minimatch"] == "^10.2.1"
     assert "node_modules/filelist/node_modules/minimatch" not in packages
     assert "node_modules/filelist/node_modules/brace-expansion" not in packages
+
+
+def test_studio_enforces_its_node_runtime_floor_in_ci_and_image_builds():
+    package = json.loads((STUDIO / "package.json").read_text(encoding="utf-8"))
+    npmrc = (STUDIO / ".npmrc").read_text(encoding="utf-8").splitlines()
+    studio_ci = STUDIO_CI_WORKFLOW.read_text(encoding="utf-8")
+    dependency_audit = WORKFLOW.read_text(encoding="utf-8")
+    dockerfile = (STUDIO / "Dockerfile").read_text(encoding="utf-8")
+
+    assert package["engines"]["node"] == "^20.19.0 || ^22.13.0 || >=24"
+    assert npmrc == ["engine-strict=true"]
+    assert studio_ci.count("node-version: '22'") == 2
+    assert dependency_audit.count("node-version: '22'") == 1
+    assert dockerfile.startswith("FROM node:22-alpine AS build\n")
