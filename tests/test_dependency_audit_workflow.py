@@ -1,8 +1,10 @@
+import json
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "dependency-audit.yml"
+STUDIO = ROOT / "apps" / "studio"
 
 
 def test_dependency_audit_is_scheduled_and_manual_not_an_ordinary_ci_gate():
@@ -26,3 +28,16 @@ def test_dependency_audit_covers_exact_node_and_installed_python_graphs():
     assert "python -m pip install pip-audit==2.10.1" in workflow
     assert 'python -m pip install --target "$RUNNER_TEMP/studio-python-audit" -r requirements-dev.txt -c constraints-dev.txt' in workflow
     assert 'python -m pip_audit --strict --path "$RUNNER_TEMP/studio-python-audit"' in workflow
+
+
+def test_studio_lock_pins_the_compatible_postcss_override():
+    package = json.loads((STUDIO / "package.json").read_text(encoding="utf-8"))
+    lock = json.loads((STUDIO / "package-lock.json").read_text(encoding="utf-8"))
+    postcss = lock["packages"]["node_modules/postcss"]
+
+    assert package["overrides"]["postcss"] == "8.5.23"
+    assert postcss["version"] == "8.5.23"
+    assert postcss["resolved"] == "https://registry.npmjs.org/postcss/-/postcss-8.5.23.tgz"
+    assert postcss["integrity"] == (
+        "sha512-g50586zr4bZmwFiTlflMu8E0bDTb5I5gertgwAKmsdUlTQIhZtunzUlD1WSzwcVWPoAVpsrA6vlfCD7oXvRwgg=="
+    )
