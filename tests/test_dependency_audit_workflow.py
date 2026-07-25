@@ -56,3 +56,16 @@ def test_studio_uses_the_supported_eslint_runtime_contract():
     assert packages["node_modules/minimatch"]["version"] == "10.2.5"
     assert packages["node_modules/brace-expansion"]["version"] == "5.0.8"
     assert "node_modules/@eslint/eslintrc" not in packages
+
+
+def test_studio_build_tool_override_uses_the_supported_filelist_graph():
+    package = json.loads((STUDIO / "package.json").read_text(encoding="utf-8"))
+    lock = json.loads((STUDIO / "package-lock.json").read_text(encoding="utf-8"))
+    packages = lock["packages"]
+    filelist = packages["node_modules/filelist"]
+
+    assert package["overrides"]["filelist"] == "2.0.2"
+    assert filelist["version"] == "2.0.2"
+    assert filelist["dependencies"]["minimatch"] == "^10.2.1"
+    assert "node_modules/filelist/node_modules/minimatch" not in packages
+    assert "node_modules/filelist/node_modules/brace-expansion" not in packages
