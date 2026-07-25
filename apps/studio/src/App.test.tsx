@@ -2889,6 +2889,61 @@ describe("Studio PWA", () => {
     },
   );
 
+  it("invalidates a stale plan after a create-time provider authority race", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (isBatchPreflightRequest(url, init)) {
+        return batchPreflightJson(init);
+      }
+      if (
+        url === "/api/projects/p1/jobs/batch" &&
+        init?.method === "POST"
+      ) {
+        return json(
+          { detail: { reason: "provider_authority_conflict" } },
+          false,
+          409,
+        );
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+    await chooseExistingSource(1, "Лекция 1");
+    await chooseResultFolder(1);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Проверить задачи (1)" }),
+    );
+    await screen.findByLabelText("Проверка перед созданием задач");
+
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Подтвердить и создать (1)",
+      }),
+    );
+
+    expect(
+      await screen.findByText(
+        "Появилась активная или неразрешённая предыдущая транскрибация. Задачи не созданы; проверьте план заново после разрешения её статуса.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByLabelText("Проверка перед созданием задач"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Проверить задачи (1)" }),
+    ).toBeEnabled();
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          url === "/api/projects/p1/jobs/batch" &&
+          init?.method === "POST",
+      ),
+    ).toHaveLength(1);
+  });
+
   it("keeps rows incomplete when a selected source has no row result folder", async () => {
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = baseFetch.getMockImplementation();

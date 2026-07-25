@@ -722,7 +722,7 @@ def _require_batch_preflight_decisions(sources, matches, provider_attempt_author
     if provider_conflicts:
         raise HTTPException(
             409,
-            "Предыдущая транскрибация источника ещё выполняется или требует проверки",
+            detail={"reason": "provider_authority_conflict"},
         )
 
 @app.post("/api/projects/{project_id}/jobs/batch/preflight")

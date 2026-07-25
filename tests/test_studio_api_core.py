@@ -3269,9 +3269,9 @@ def test_batch_preflight_and_create_block_competing_provider_authority(
     )
 
     assert create.status_code == 409
-    assert create.json()["detail"] == (
-        "Предыдущая транскрибация источника ещё выполняется или требует проверки"
-    )
+    assert create.json()["detail"] == {
+        "reason": "provider_authority_conflict"
+    }
     assert competing_job_id not in create.text
     assert _count_batch_rows() == before
 

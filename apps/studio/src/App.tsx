@@ -130,6 +130,19 @@ type DiagnosticsEvent = {
   metadata?: Record<string, string | number | boolean | null>;
   occurrence_count?: number;
 };
+
+function apiErrorDetailReason(error: unknown): string | null {
+  if (!(error instanceof ApiError) || !error.data) return null;
+  const payload = error.data;
+  if (typeof payload !== "object" || !("detail" in payload)) return null;
+  const detail = (payload as { detail?: unknown }).detail;
+  if (typeof detail !== "object" || detail === null || !("reason" in detail)) {
+    return null;
+  }
+  const reason = (detail as { reason?: unknown }).reason;
+  return typeof reason === "string" ? reason : null;
+}
+
 type DiagnosticsEventsResponse = {
   events: DiagnosticsEvent[];
   next_cursor?: string | null;
@@ -1201,6 +1214,16 @@ function PreparationPanel({
           err instanceof ApiError && err.status === 422
             ? "План не прошёл серверную проверку. Исправьте файлы, папки или профиль ElevenLabs."
             : "Не удалось проверить план. Задачи не созданы; повторите проверку.",
+        );
+      } else if (
+        err instanceof ApiError &&
+        err.status === 409 &&
+        apiErrorDetailReason(err) === "provider_authority_conflict"
+      ) {
+        setPendingKey(null);
+        setPreflight(null);
+        setMessage(
+          "Появилась активная или неразрешённая предыдущая транскрибация. Задачи не созданы; проверьте план заново после разрешения её статуса.",
         );
       } else if (err instanceof ApiError && err.status === 409) {
         setMessage(
