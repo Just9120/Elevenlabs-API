@@ -25,7 +25,7 @@ def test_dependency_audit_is_scheduled_and_manual_not_an_ordinary_ci_gate():
 def test_dependency_audit_covers_exact_node_and_installed_python_graphs():
     workflow = WORKFLOW.read_text(encoding="utf-8")
 
-    assert "npm ci --ignore-scripts" in workflow
+    assert "npm ci --ignore-scripts --no-audit" in workflow
     assert "npm audit --audit-level=low" in workflow
     assert "python -m pip install pip-audit==2.10.1" in workflow
     assert 'python -m pip install --target "$RUNNER_TEMP/studio-python-audit" -r requirements-dev.txt -c constraints-dev.txt' in workflow
@@ -35,7 +35,7 @@ def test_dependency_audit_covers_exact_node_and_installed_python_graphs():
 def test_dependency_audit_cannot_mask_or_mutate_dependency_findings():
     workflow = WORKFLOW.read_text(encoding="utf-8")
 
-    assert workflow.count("npm ci --ignore-scripts") == 1
+    assert workflow.count("npm ci --ignore-scripts --no-audit") == 1
     assert workflow.count("npm audit --audit-level=low") == 1
     assert workflow.count("python -m pip_audit --strict") == 1
     assert "continue-on-error:" not in workflow

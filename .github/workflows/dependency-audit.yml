@@ -26,7 +26,7 @@ jobs:
           cache: npm
           cache-dependency-path: apps/studio/package-lock.json
       - name: Install Studio frontend dependencies without lifecycle scripts
-        run: npm ci --ignore-scripts
+        run: npm ci --ignore-scripts --no-audit
         working-directory: apps/studio
       - name: Audit Studio frontend dependency graph
         run: npm audit --audit-level=low

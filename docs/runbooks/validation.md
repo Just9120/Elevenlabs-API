@@ -90,7 +90,7 @@ The `Dependency audit` GitHub Actions workflow runs weekly and via `workflow_dis
 Reproduce the Node graph locally from `apps/studio/` without lifecycle scripts:
 
 ```bash
-npm ci --ignore-scripts
+npm ci --ignore-scripts --no-audit
 npm audit --audit-level=low
 ```
 
