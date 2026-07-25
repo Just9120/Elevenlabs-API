@@ -22,6 +22,12 @@ def test_dependency_audit_is_scheduled_and_manual_not_an_ordinary_ci_gate():
     assert workflow.count("persist-credentials: false") == 2
 
 
+def test_dependency_audit_run_name_identifies_exact_ref_and_revision():
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+
+    assert "run-name: Dependency audit · ${{ github.ref_name }} · ${{ github.sha }}" in workflow
+
+
 def test_dependency_audit_covers_exact_node_and_installed_python_graphs():
     workflow = WORKFLOW.read_text(encoding="utf-8")
 
