@@ -31,6 +31,23 @@ def test_dependency_audit_covers_exact_node_and_installed_python_graphs():
     assert 'python -m pip_audit --strict --path "$RUNNER_TEMP/studio-python-audit"' in workflow
 
 
+def test_dependency_audit_cannot_mask_or_mutate_dependency_findings():
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+
+    assert workflow.count("npm ci --ignore-scripts") == 1
+    assert workflow.count("npm audit --audit-level=low") == 1
+    assert workflow.count("python -m pip_audit --strict") == 1
+    assert "continue-on-error:" not in workflow
+    assert "npm audit fix" not in workflow
+    assert "--force" not in workflow
+    assert "--omit" not in workflow
+    assert "--production" not in workflow
+    assert "--ignore-vuln" not in workflow
+    assert "--no-deps" not in workflow
+    assert "|| true" not in workflow
+    assert "; true" not in workflow
+
+
 def test_studio_lock_pins_the_compatible_postcss_override():
     package = json.loads((STUDIO / "package.json").read_text(encoding="utf-8"))
     lock = json.loads((STUDIO / "package-lock.json").read_text(encoding="utf-8"))
