@@ -3417,6 +3417,75 @@ def test_batch_provider_authority_allows_retry_safe_or_different_settings(
     assert prior_job_id not in created.text
 
 
+def test_batch_provider_authority_conflict_keeps_mixed_batch_atomic(
+    monkeypatch,
+):
+    _install_batch_folder_mocks(monkeypatch)
+    c, csrf, user_id, pid, source_a, source_b, cred_id = _batch_setup(
+        "batch-provider-atomic@example.com"
+    )
+    competing_job_id = _add_batch_provider_attempt(
+        user_id,
+        pid,
+        source_b,
+        cred_id,
+        status="failed",
+        retry_disposition="provider_result_lost",
+    )
+    body = _batch_body(
+        source_a,
+        source_b,
+        credential_id=cred_id,
+    )
+    headers = {
+        "origin": "https://studio.test",
+        "x-csrf-token": csrf,
+    }
+    before = _count_batch_rows()
+
+    preview = c.post(
+        f"/api/projects/{pid}/jobs/batch/preflight",
+        json=body,
+        headers=headers,
+    )
+
+    assert preview.status_code == 200
+    assert [
+        item["provider_attempt_authority"]
+        for item in preview.json()["items"]
+    ] == [
+        {"status": "available", "reason_code": None},
+        {
+            "status": "blocked",
+            "reason_code": "equivalent_provider_outcome_unresolved",
+        },
+    ]
+    assert [item["planned_outcome"] for item in preview.json()["items"]] == [
+        "process",
+        "blocked",
+    ]
+    assert preview.json()["summary"] == {
+        "process_count": 1,
+        "skip_count": 0,
+        "blocked_count": 1,
+    }
+    assert competing_job_id not in preview.text
+    assert _count_batch_rows() == before
+
+    create = c.post(
+        f"/api/projects/{pid}/jobs/batch",
+        json=body,
+        headers=_batch_headers(csrf),
+    )
+
+    assert create.status_code == 409
+    assert create.json()["detail"] == {
+        "reason": "provider_authority_conflict"
+    }
+    assert competing_job_id not in create.text
+    assert _count_batch_rows() == before
+
+
 def test_batch_preflight_requires_csrf_and_rejects_invalid_targets_without_rows(monkeypatch):
     _install_batch_folder_mocks(monkeypatch)
     c, csrf, _user_id, pid, source_a, _source_b, _cred_id = _batch_setup(
