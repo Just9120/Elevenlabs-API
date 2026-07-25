@@ -260,3 +260,114 @@ def test_catalog_settings_contract_is_strict_and_deterministic():
             language_mode="not valid",
             diarization_enabled=False,
         )
+
+
+def test_provider_attempt_authority_is_per_source_safe_and_fail_closed():
+    from studio_api.transcript_catalog import (
+        ProviderAttemptAuthorityStatus,
+        ProviderAttemptEvidence,
+        catalog_source_identity,
+        classify_provider_attempt_authorities,
+        current_effective_settings,
+    )
+
+    target = current_effective_settings(
+        language_mode="ru",
+        diarization_enabled=False,
+    )
+    different = current_effective_settings(
+        language_mode="detect",
+        diarization_enabled=False,
+    )
+    available = source("available")
+    in_flight = source("in-flight")
+    unresolved = source(
+        "new-drive-row",
+        source_type="google_drive",
+        drive_file_id="private-drive-file",
+    )
+    evidence = (
+        ProviderAttemptEvidence(
+            source_identity=catalog_source_identity(in_flight),
+            settings=target,
+            job_status="processing",
+            retry_disposition="retry_safe",
+        ),
+        ProviderAttemptEvidence(
+            source_identity=catalog_source_identity(
+                source(
+                    "old-drive-row",
+                    source_type="google_drive",
+                    drive_file_id="private-drive-file",
+                )
+            ),
+            settings=None,
+            job_status="failed",
+            retry_disposition="provider_outcome_uncertain",
+        ),
+        ProviderAttemptEvidence(
+            source_identity=catalog_source_identity(available),
+            settings=different,
+            job_status="processing",
+            retry_disposition="undetermined",
+        ),
+        ProviderAttemptEvidence(
+            source_identity=catalog_source_identity(available),
+            settings=target,
+            job_status="failed",
+            retry_disposition="retry_safe",
+        ),
+    )
+
+    authorities = classify_provider_attempt_authorities(
+        sources=(available, in_flight, unresolved),
+        evidence=evidence,
+        target_settings=target,
+    )
+
+    assert authorities == {
+        "available": ProviderAttemptAuthorityStatus.available,
+        "in-flight": ProviderAttemptAuthorityStatus.in_flight,
+        "new-drive-row": ProviderAttemptAuthorityStatus.unresolved,
+    }
+    encoded = json.dumps(
+        {source_id: authority.value for source_id, authority in authorities.items()}
+    )
+    assert "private-drive-file" not in encoded
+    assert "old-drive-row" not in encoded
+
+
+def test_provider_attempt_authority_prioritizes_in_flight_over_unresolved():
+    from studio_api.transcript_catalog import (
+        ProviderAttemptAuthorityStatus,
+        ProviderAttemptEvidence,
+        catalog_source_identity,
+        classify_provider_attempt_authorities,
+        current_effective_settings,
+    )
+
+    candidate = source("candidate")
+    target = current_effective_settings(
+        language_mode="ru",
+        diarization_enabled=True,
+    )
+    authority = classify_provider_attempt_authorities(
+        sources=(candidate,),
+        evidence=(
+            ProviderAttemptEvidence(
+                source_identity=catalog_source_identity(candidate),
+                settings=target,
+                job_status="failed",
+                retry_disposition="provider_result_lost",
+            ),
+            ProviderAttemptEvidence(
+                source_identity=catalog_source_identity(candidate),
+                settings=target,
+                job_status="processing",
+                retry_disposition="undetermined",
+            ),
+        ),
+        target_settings=target,
+    )
+
+    assert authority["candidate"] == ProviderAttemptAuthorityStatus.in_flight
