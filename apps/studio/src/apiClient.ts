@@ -59,7 +59,7 @@ export async function requestJson<T>(
     },
   });
   if (!res.ok) {
-    let data: unknown = null;
+    let data: unknown;
     try {
       data = await res.clone().json();
     } catch {

@@ -41,3 +41,18 @@ def test_studio_lock_pins_the_compatible_postcss_override():
     assert postcss["integrity"] == (
         "sha512-g50586zr4bZmwFiTlflMu8E0bDTb5I5gertgwAKmsdUlTQIhZtunzUlD1WSzwcVWPoAVpsrA6vlfCD7oXvRwgg=="
     )
+
+
+def test_studio_uses_the_supported_eslint_runtime_contract():
+    package = json.loads((STUDIO / "package.json").read_text(encoding="utf-8"))
+    lock = json.loads((STUDIO / "package-lock.json").read_text(encoding="utf-8"))
+    packages = lock["packages"]
+
+    assert package["devDependencies"]["eslint"] == "10.8.0"
+    assert package["devDependencies"]["@eslint/js"] == "10.0.1"
+    assert package["engines"]["node"] == "^20.19.0 || ^22.13.0 || >=24"
+    assert packages["node_modules/eslint"]["version"] == "10.8.0"
+    assert packages["node_modules/@eslint/js"]["version"] == "10.0.1"
+    assert packages["node_modules/minimatch"]["version"] == "10.2.5"
+    assert packages["node_modules/brace-expansion"]["version"] == "5.0.8"
+    assert "node_modules/@eslint/eslintrc" not in packages
