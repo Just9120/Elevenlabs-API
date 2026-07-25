@@ -132,6 +132,10 @@ describe("batch composer model", () => {
             accepted_output_count: 0,
             resolution: "not_required",
           },
+          provider_attempt_authority: {
+            status: "available",
+            reason_code: null,
+          },
           planned_outcome: "process",
         },
       ],
@@ -145,6 +149,38 @@ describe("batch composer model", () => {
       parseBatchPreflightResponse({
         ...valid,
         transcript_body: "must-not-be-accepted",
+      }),
+    ).toBeNull();
+    expect(
+      parseBatchPreflightResponse({
+        ...valid,
+        items: [
+          {
+            ...valid.items[0],
+            provider_attempt_authority: {
+              status: "blocked",
+              reason_code: "equivalent_provider_outcome_unresolved",
+            },
+            planned_outcome: "blocked",
+          },
+        ],
+        summary: { process_count: 0, skip_count: 0, blocked_count: 1 },
+      }),
+    ).not.toBeNull();
+    expect(
+      parseBatchPreflightResponse({
+        ...valid,
+        items: [
+          {
+            ...valid.items[0],
+            provider_attempt_authority: {
+              status: "blocked",
+              reason_code: null,
+            },
+            planned_outcome: "blocked",
+          },
+        ],
+        summary: { process_count: 0, skip_count: 0, blocked_count: 1 },
       }),
     ).toBeNull();
     expect(

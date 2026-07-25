@@ -25,6 +25,12 @@ class ExistingResultMatchStatus(str, Enum):
     no_match = "no_match"
 
 
+class ProviderAttemptAuthorityStatus(str, Enum):
+    available = "available"
+    in_flight = "in_flight"
+    unresolved = "unresolved"
+
+
 @dataclass(frozen=True)
 class CatalogSourceIdentity:
     kind: CatalogSourceIdentityKind
@@ -51,6 +57,14 @@ class ExistingResultMatch:
     status: ExistingResultMatchStatus
     accepted_output_count: int
     matching_settings_count: int
+
+
+@dataclass(frozen=True)
+class ProviderAttemptEvidence:
+    source_identity: CatalogSourceIdentity
+    settings: EffectiveTranscriptionSettings | None
+    job_status: str
+    retry_disposition: str
 
 
 def current_effective_settings(
@@ -325,14 +339,34 @@ def has_competing_provider_attempt_conflict(
     A failed or cancelled attempt also remains a conflict unless its outcome is
     explicitly classified retry-safe; a new job must not bypass uncertainty.
     """
+    authorities = load_provider_attempt_authorities(
+        db,
+        owner_user_id=owner_user_id,
+        sources=sources,
+        target_settings=target_settings,
+        exclude_job_id=exclude_job_id,
+    )
+    return not authorities or any(
+        authority != ProviderAttemptAuthorityStatus.available
+        for authority in authorities.values()
+    )
+
+
+def load_provider_attempt_authorities(
+    db: Any,
+    *,
+    owner_user_id: str,
+    sources: Iterable[Any],
+    target_settings: EffectiveTranscriptionSettings,
+    exclude_job_id: str | None = None,
+) -> dict[str, ProviderAttemptAuthorityStatus]:
+    """Classify owner-scoped paid-call authority without exposing identities."""
     from sqlalchemy import and_, or_
 
     from .models import (
-        JobStatus,
         Project,
         ProviderCredential,
         Source,
-        SourceAttemptRetryDisposition,
         SourceType,
         TranscriptionJob,
         TranscriptionJobSource,
@@ -363,10 +397,17 @@ def has_competing_provider_attempt_conflict(
             )
         )
     if not identity_filters:
-        return True
+        return {
+            source_id: ProviderAttemptAuthorityStatus.unresolved
+            for source in source_rows
+            if (source_id := _clean_private_identity(getattr(source, "id", None)))
+        }
 
-    rows = (
+    query = (
         db.query(
+            Source.id,
+            Source.source_type,
+            Source.drive_file_id,
             TranscriptionJob.provider,
             ProviderCredential.provider,
             TranscriptionJob.language,
@@ -404,37 +445,81 @@ def has_competing_provider_attempt_conflict(
             TranscriptionJob.owner_user_id == owner_user_id,
             Project.owner_user_id == owner_user_id,
             TranscriptionJob.project_id == Source.project_id,
-            TranscriptionJob.id != exclude_job_id,
             TranscriptionJobSourceAttempt.provider_request_started_at.is_not(
                 None
             ),
             or_(*identity_filters),
         )
-        .all()
     )
-    for (
-        job_provider,
-        credential_provider,
-        language,
-        options_json,
-        job_status,
-        retry_disposition,
-    ) in rows:
-        settings = effective_settings_from_persisted_job(
-            job_provider=job_provider,
-            credential_provider=credential_provider,
-            language=language,
-            options_json=options_json,
+    if exclude_job_id is not None:
+        query = query.filter(TranscriptionJob.id != exclude_job_id)
+    evidence = tuple(
+        ProviderAttemptEvidence(
+            source_identity=catalog_source_identity(
+                _SourceIdentityProjection(source_id, source_type, drive_file_id)
+            ),
+            settings=effective_settings_from_persisted_job(
+                job_provider=job_provider,
+                credential_provider=credential_provider,
+                language=language,
+                options_json=options_json,
+            ),
+            job_status=_enum_value(job_status),
+            retry_disposition=_enum_value(retry_disposition),
         )
-        settings_conflict = settings is None or settings == target_settings
-        unresolved_attempt = (
-            job_status == JobStatus.processing
-            or retry_disposition
-            != SourceAttemptRetryDisposition.retry_safe
+        for (
+            source_id,
+            source_type,
+            drive_file_id,
+            job_provider,
+            credential_provider,
+            language,
+            options_json,
+            job_status,
+            retry_disposition,
+        ) in query.all()
+        if catalog_source_identity(
+            _SourceIdentityProjection(source_id, source_type, drive_file_id)
         )
-        if settings_conflict and unresolved_attempt:
-            return True
-    return False
+        is not None
+    )
+    return classify_provider_attempt_authorities(
+        sources=source_rows,
+        evidence=evidence,
+        target_settings=target_settings,
+    )
+
+
+def classify_provider_attempt_authorities(
+    *,
+    sources: Iterable[Any],
+    evidence: Iterable[ProviderAttemptEvidence],
+    target_settings: EffectiveTranscriptionSettings,
+) -> dict[str, ProviderAttemptAuthorityStatus]:
+    evidence_rows = tuple(evidence)
+    authorities: dict[str, ProviderAttemptAuthorityStatus] = {}
+    for source in sources:
+        source_id = _clean_private_identity(getattr(source, "id", None))
+        if not source_id:
+            continue
+        identity = catalog_source_identity(source)
+        if identity is None:
+            authorities[source_id] = ProviderAttemptAuthorityStatus.unresolved
+            continue
+        relevant = tuple(
+            row
+            for row in evidence_rows
+            if row.source_identity == identity
+            and (row.settings is None or row.settings == target_settings)
+        )
+        if any(row.job_status == "processing" for row in relevant):
+            status = ProviderAttemptAuthorityStatus.in_flight
+        elif any(row.retry_disposition != "retry_safe" for row in relevant):
+            status = ProviderAttemptAuthorityStatus.unresolved
+        else:
+            status = ProviderAttemptAuthorityStatus.available
+        authorities[source_id] = status
+    return authorities
 
 
 def lock_catalog_source_identities(

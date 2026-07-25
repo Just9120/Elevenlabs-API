@@ -130,6 +130,19 @@ type DiagnosticsEvent = {
   metadata?: Record<string, string | number | boolean | null>;
   occurrence_count?: number;
 };
+
+function apiErrorDetailReason(error: unknown): string | null {
+  if (!(error instanceof ApiError) || !error.data) return null;
+  const payload = error.data;
+  if (typeof payload !== "object" || !("detail" in payload)) return null;
+  const detail = (payload as { detail?: unknown }).detail;
+  if (typeof detail !== "object" || detail === null || !("reason" in detail)) {
+    return null;
+  }
+  const reason = (detail as { reason?: unknown }).reason;
+  return typeof reason === "string" ? reason : null;
+}
+
 type DiagnosticsEventsResponse = {
   events: DiagnosticsEvent[];
   next_cursor?: string | null;
@@ -682,6 +695,10 @@ function PreparationPanel({
   const submitting = submissionStage !== null;
   const activePreflight =
     preflight?.signature === signature ? preflight.data : null;
+  const activeProviderAuthorityBlocked =
+    activePreflight?.items.some(
+      (item) => item.provider_attempt_authority.status === "blocked",
+    ) ?? false;
   const activePreflightBlocked =
     (activePreflight?.summary.blocked_count ?? 0) > 0;
   const submitBlocker = submitting
@@ -695,7 +712,9 @@ function PreparationPanel({
         : firstReadinessBlocker
           ? firstReadinessBlocker
           : activePreflightBlocked
-            ? "Для найденных результатов выберите явное решение"
+            ? activeProviderAuthorityBlocked
+              ? "Предыдущая транскрибация ещё выполняется или требует проверки"
+              : "Для найденных результатов выберите явное решение"
             : "";
   const canSubmit =
     !submitting &&
@@ -1157,9 +1176,14 @@ function PreparationPanel({
           throw new Error("Invalid batch preflight response");
         }
         setPreflight({ signature, data: response });
+        const providerAuthorityBlocked = response.items.some(
+          (item) => item.provider_attempt_authority.status === "blocked",
+        );
         setMessage(
           response.summary.blocked_count > 0
-            ? "Найдены ранее созданные результаты. Выберите явное решение для каждой заблокированной строки."
+            ? providerAuthorityBlocked
+              ? "Найдена активная или неразрешённая предыдущая транскрибация. Повторная обработка заблокирована до разрешения её статуса."
+              : "Найдены ранее созданные результаты. Выберите явное решение для каждой заблокированной строки."
             : "Проверка готова. Сверьте план и подтвердите создание задач.",
         );
         return;
@@ -1195,6 +1219,16 @@ function PreparationPanel({
           err instanceof ApiError && err.status === 422
             ? "План не прошёл серверную проверку. Исправьте файлы, папки или профиль ElevenLabs."
             : "Не удалось проверить план. Задачи не созданы; повторите проверку.",
+        );
+      } else if (
+        err instanceof ApiError &&
+        err.status === 409 &&
+        apiErrorDetailReason(err) === "provider_authority_conflict"
+      ) {
+        setPendingKey(null);
+        setPreflight(null);
+        setMessage(
+          "Появилась активная или неразрешённая предыдущая транскрибация. Задачи не созданы; проверьте план заново после разрешения её статуса.",
         );
       } else if (err instanceof ApiError && err.status === 409) {
         setMessage(
@@ -1841,7 +1875,9 @@ function PreparationPanel({
               <div>
                 <h5>
                   {activePreflightBlocked
-                    ? "План требует решения"
+                    ? activeProviderAuthorityBlocked
+                      ? "План временно заблокирован"
+                      : "План требует решения"
                     : "План готов к подтверждению"}
                 </h5>
                 <p className="muted">
@@ -1878,6 +1914,14 @@ function PreparationPanel({
                       : item.existing_result_match.status === "indeterminate"
                         ? "Есть результат, настройки которого нельзя подтвердить."
                         : "Совпадений с теми же настройками среди результатов Studio не найдено.";
+                const providerAuthorityLabel =
+                  item.provider_attempt_authority.reason_code ===
+                  "equivalent_provider_work_in_flight"
+                    ? "Для этого источника уже выполняется транскрибация. Дождитесь её завершения и повторите проверку."
+                    : item.provider_attempt_authority.reason_code ===
+                        "equivalent_provider_outcome_unresolved"
+                      ? "Предыдущая транскрибация имеет неопределённый результат. Сначала проверьте её статус; повторная обработка заблокирована."
+                      : null;
                 const row = rows[item.position];
                 return (
                   <li key={item.position}>
@@ -1901,6 +1945,9 @@ function PreparationPanel({
                           : `${Math.round(item.source.duration_seconds)} сек.`}
                       </span>
                       <span>{matchLabel}</span>
+                      {providerAuthorityLabel && (
+                        <span className="error">{providerAuthorityLabel}</span>
+                      )}
                     </div>
                     <div>
                       <span>Результат: {item.output_destination.name}</span>
@@ -1920,6 +1967,10 @@ function PreparationPanel({
                             <input
                               type="checkbox"
                               checked={row.reprocess_existing}
+                              disabled={
+                                item.provider_attempt_authority.status ===
+                                "blocked"
+                              }
                               onChange={(event) =>
                                 updateRow(row.id, {
                                   reprocess_existing: event.target.checked,

@@ -66,6 +66,10 @@ function batchPreflightJson(init?: RequestInit) {
         accepted_output_count: 0,
         resolution: "not_required",
       },
+      provider_attempt_authority: {
+        status: "available",
+        reason_code: null,
+      },
       planned_outcome: "process",
     })),
     summary: {
@@ -2688,6 +2692,10 @@ describe("Studio PWA", () => {
                 accepted_output_count: 1,
                 resolution: reprocess ? "reprocess" : "required",
               },
+              provider_attempt_authority: {
+                status: "available",
+                reason_code: null,
+              },
               planned_outcome: reprocess ? "process" : "blocked",
             },
           ],
@@ -2783,6 +2791,167 @@ describe("Studio PWA", () => {
         ],
       }),
     );
+  });
+
+  it.each([
+    [
+      "equivalent_provider_work_in_flight",
+      "Для этого источника уже выполняется транскрибация. Дождитесь её завершения и повторите проверку.",
+    ],
+    [
+      "equivalent_provider_outcome_unresolved",
+      "Предыдущая транскрибация имеет неопределённый результат. Сначала проверьте её статус; повторная обработка заблокирована.",
+    ],
+  ] as const)(
+    "keeps provider authority %s blocked even when accepted-output reprocessing is available",
+    async (reasonCode, expectedCopy) => {
+      const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+      const defaultFetch = baseFetch.getMockImplementation();
+      baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+        if (isBatchPreflightRequest(url, init)) {
+          return json({
+            provider: "elevenlabs",
+            model: "scribe_v2",
+            language_mode: "ru",
+            diarization_enabled: false,
+            existing_result_authority: {
+              status: "partial",
+              reason_code: "studio_outputs_only",
+            },
+            items: [
+              {
+                position: 0,
+                title: null,
+                source: {
+                  name: "Safe source 1",
+                  source_type: "google_drive",
+                  mime_type: "audio/mpeg",
+                  size_bytes: 2048,
+                  duration_seconds: null,
+                },
+                output_destination: { name: "Safe folder 1" },
+                existing_result_match: {
+                  status: "accepted_match",
+                  accepted_output_count: 1,
+                  resolution: "required",
+                },
+                provider_attempt_authority: {
+                  status: "blocked",
+                  reason_code: reasonCode,
+                },
+                planned_outcome: "blocked",
+              },
+            ],
+            summary: {
+              process_count: 0,
+              skip_count: 0,
+              blocked_count: 1,
+            },
+            confirmation_required: true,
+          });
+        }
+        return defaultFetch?.(url, init) ?? json({ ok: true });
+      });
+
+      renderApp();
+      await openProjectsPage();
+      await chooseExistingSource(1, "Лекция 1");
+      await chooseResultFolder(1);
+      await userEvent.click(
+        screen.getByRole("button", { name: "Проверить задачи (1)" }),
+      );
+
+      const blocked = await screen.findByLabelText(
+        "Проверка перед созданием задач",
+      );
+      expect(blocked).toHaveTextContent("План временно заблокирован");
+      expect(blocked).toHaveTextContent(expectedCopy);
+      expect(
+        screen.getByText(
+          "Найдена активная или неразрешённая предыдущая транскрибация. Повторная обработка заблокирована до разрешения её статуса.",
+        ),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByText(
+          "Найдены ранее созданные результаты. Выберите явное решение для каждой заблокированной строки.",
+        ),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.getByText(
+          "Предыдущая транскрибация ещё выполняется или требует проверки",
+        ),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByLabelText("Транскрибировать заново строку 1"),
+      ).toBeDisabled();
+      expect(
+        screen.getByRole("button", {
+          name: "Подтвердить и создать (1)",
+        }),
+      ).toBeDisabled();
+      expect(
+        baseFetch.mock.calls.some(
+          ([url, init]) =>
+            url === "/api/projects/p1/jobs/batch" &&
+            init?.method === "POST",
+        ),
+      ).toBe(false);
+    },
+  );
+
+  it("invalidates a stale plan after a create-time provider authority race", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (isBatchPreflightRequest(url, init)) {
+        return batchPreflightJson(init);
+      }
+      if (
+        url === "/api/projects/p1/jobs/batch" &&
+        init?.method === "POST"
+      ) {
+        return json(
+          { detail: { reason: "provider_authority_conflict" } },
+          false,
+          409,
+        );
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+    await chooseExistingSource(1, "Лекция 1");
+    await chooseResultFolder(1);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Проверить задачи (1)" }),
+    );
+    await screen.findByLabelText("Проверка перед созданием задач");
+
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Подтвердить и создать (1)",
+      }),
+    );
+
+    expect(
+      await screen.findByText(
+        "Появилась активная или неразрешённая предыдущая транскрибация. Задачи не созданы; проверьте план заново после разрешения её статуса.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByLabelText("Проверка перед созданием задач"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Проверить задачи (1)" }),
+    ).toBeEnabled();
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          url === "/api/projects/p1/jobs/batch" &&
+          init?.method === "POST",
+      ),
+    ).toHaveLength(1);
   });
 
   it("keeps rows incomplete when a selected source has no row result folder", async () => {

@@ -54,6 +54,13 @@ export type BatchPreflightItem = {
     accepted_output_count: number;
     resolution: "not_required" | "required" | "reprocess";
   };
+  provider_attempt_authority: {
+    status: "available" | "blocked";
+    reason_code:
+      | "equivalent_provider_work_in_flight"
+      | "equivalent_provider_outcome_unresolved"
+      | null;
+  };
   planned_outcome: "process" | "skip" | "blocked";
 };
 export type BatchPreflightResponse = {
@@ -196,6 +203,7 @@ function isPreflightItem(value: unknown, expectedPosition: number) {
       "source",
       "output_destination",
       "existing_result_match",
+      "provider_attempt_authority",
       "planned_outcome",
     ]) ||
     !hasExactKeys(value.source, [
@@ -237,6 +245,15 @@ function isPreflightItem(value: unknown, expectedPosition: number) {
     !["not_required", "required", "reprocess"].includes(
       String(value.existing_result_match.resolution),
     ) ||
+    !isRecord(value.provider_attempt_authority) ||
+    !hasExactKeys(value.provider_attempt_authority, [
+      "status",
+      "reason_code",
+    ]) ||
+    !["available", "blocked"].includes(
+      String(value.provider_attempt_authority.status),
+    ) ||
+    !isNullableString(value.provider_attempt_authority.reason_code) ||
     !["process", "skip", "blocked"].includes(String(value.planned_outcome))
   ) {
     return false;
@@ -246,6 +263,11 @@ function isPreflightItem(value: unknown, expectedPosition: number) {
   const outcome = String(value.planned_outcome);
   const acceptedOutputCount =
     value.existing_result_match.accepted_output_count;
+  const providerAuthorityStatus = String(
+    value.provider_attempt_authority.status,
+  );
+  const providerAuthorityReason =
+    value.provider_attempt_authority.reason_code;
   if (
     status !== "no_match" &&
     (!isNonNegativeInteger(acceptedOutputCount) || acceptedOutputCount < 1)
@@ -253,14 +275,29 @@ function isPreflightItem(value: unknown, expectedPosition: number) {
     return false;
   }
   const coherentDecision =
-    (status === "no_match" &&
-      resolution === "not_required" &&
-      outcome === "process") ||
+    (status === "no_match" && resolution === "not_required") ||
     (status !== "no_match" &&
-      ((resolution === "required" && outcome === "blocked") ||
-        (resolution === "reprocess" && outcome === "process")));
+      ["required", "reprocess"].includes(resolution));
+  const coherentProviderAuthority =
+    (providerAuthorityStatus === "available" &&
+      providerAuthorityReason === null) ||
+    (providerAuthorityStatus === "blocked" &&
+      [
+        "equivalent_provider_work_in_flight",
+        "equivalent_provider_outcome_unresolved",
+      ].includes(String(providerAuthorityReason)));
+  const existingResultAllowsProcessing =
+    status === "no_match" || resolution === "reprocess";
+  const coherentOutcome =
+    outcome ===
+    (existingResultAllowsProcessing &&
+    providerAuthorityStatus === "available"
+      ? "process"
+      : "blocked");
   return (
     coherentDecision &&
+    coherentProviderAuthority &&
+    coherentOutcome &&
     value.source.name.length > 0 &&
     value.output_destination.name.length > 0
   );

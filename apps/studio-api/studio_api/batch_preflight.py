@@ -7,6 +7,7 @@ from .transcript_catalog import (
     CURRENT_TRANSCRIPTION_PROVIDER,
     ExistingResultMatch,
     ExistingResultMatchStatus,
+    ProviderAttemptAuthorityStatus,
 )
 
 
@@ -19,6 +20,9 @@ def build_batch_preflight_payload(
     diarization_enabled: bool,
     existing_result_matches: dict[str, ExistingResultMatch],
     reprocess_existing: Sequence[bool],
+    provider_attempt_authorities: dict[
+        str, ProviderAttemptAuthorityStatus
+    ],
 ) -> dict[str, Any]:
     """Build a browser-safe preview from validated targets and catalog evidence."""
     if not (
@@ -43,13 +47,22 @@ def build_batch_preflight_payload(
         match = existing_result_matches.get(source_id)
         if match is None:
             raise ValueError("Preflight catalog decision is missing")
-        conflict = match.status != ExistingResultMatchStatus.no_match
+        provider_attempt_authority = provider_attempt_authorities.get(source_id)
+        if provider_attempt_authority is None:
+            raise ValueError("Preflight provider-attempt authority is missing")
+        existing_result_conflict = (
+            match.status != ExistingResultMatchStatus.no_match
+        )
         resolution = (
             "reprocess"
-            if conflict and explicit_reprocess
+            if existing_result_conflict and explicit_reprocess
             else "required"
-            if conflict
+            if existing_result_conflict
             else "not_required"
+        )
+        provider_attempt_conflict = (
+            provider_attempt_authority
+            != ProviderAttemptAuthorityStatus.available
         )
         source_type = getattr(source, "source_type", None)
         if hasattr(source_type, "value"):
@@ -86,8 +99,14 @@ def build_batch_preflight_payload(
                     "accepted_output_count": match.accepted_output_count,
                     "resolution": resolution,
                 },
+                "provider_attempt_authority": _provider_attempt_authority_payload(
+                    provider_attempt_authority
+                ),
                 "planned_outcome": (
-                    "process" if not conflict or explicit_reprocess else "blocked"
+                    "blocked"
+                    if provider_attempt_conflict
+                    or (existing_result_conflict and not explicit_reprocess)
+                    else "process"
                 ),
             }
         )
@@ -122,3 +141,21 @@ def _optional_text(value: object, max_length: int) -> str | None:
         return None
     cleaned = value.strip()
     return cleaned[:max_length] or None
+
+
+def _provider_attempt_authority_payload(
+    status: ProviderAttemptAuthorityStatus,
+) -> dict[str, str | None]:
+    if status == ProviderAttemptAuthorityStatus.available:
+        return {"status": "available", "reason_code": None}
+    if status == ProviderAttemptAuthorityStatus.in_flight:
+        return {
+            "status": "blocked",
+            "reason_code": "equivalent_provider_work_in_flight",
+        }
+    if status == ProviderAttemptAuthorityStatus.unresolved:
+        return {
+            "status": "blocked",
+            "reason_code": "equivalent_provider_outcome_unresolved",
+        }
+    raise ValueError("Unsupported provider-attempt authority")

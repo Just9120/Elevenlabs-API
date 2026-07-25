@@ -34,9 +34,11 @@ from .batch_preflight import build_batch_preflight_payload
 from .source_deletion import SourceDeletionReason, is_source_expired, request_source_deletion
 from .transcript_catalog import (
     ExistingResultMatchStatus,
+    ProviderAttemptAuthorityStatus,
     current_effective_settings,
     elevenlabs_effective_settings,
     load_existing_result_matches,
+    load_provider_attempt_authorities,
     lock_catalog_source_identities,
 )
 from .transcription_options import DEFAULT_TRANSCRIPTION_LANGUAGE_MODE, EXISTING_RESULT_REPROCESS_AUTHORITY_OPTION, TranscriptionLanguageMode, browser_language_mode, job_diarization_enabled, stored_language_mode, stored_transcription_options
@@ -674,18 +676,35 @@ def _validate_new_batch_targets(db: Session, user: User, project: Project, *, ex
     verified_by_id={fid: verify_output_folder_selection(access_token, fid) for fid in unique_folders}
     return provider_credential_id, sources, verified_by_id
 
+def _batch_target_settings(*, language: str, diarization_enabled: bool):
+    return current_effective_settings(
+        language_mode=language,
+        diarization_enabled=diarization_enabled,
+    )
+
 def _load_batch_existing_result_matches(db: Session, user: User, sources, *, language: str, diarization_enabled: bool):
     return load_existing_result_matches(
         db,
         owner_user_id=user.id,
         sources=sources,
-        target_settings=current_effective_settings(
-            language_mode=language,
+        target_settings=_batch_target_settings(
+            language=language,
             diarization_enabled=diarization_enabled,
         ),
     )
 
-def _require_batch_existing_result_decisions(sources, matches, reprocess_existing):
+def _load_batch_provider_attempt_authorities(db: Session, user: User, sources, *, language: str, diarization_enabled: bool):
+    return load_provider_attempt_authorities(
+        db,
+        owner_user_id=user.id,
+        sources=sources,
+        target_settings=_batch_target_settings(
+            language=language,
+            diarization_enabled=diarization_enabled,
+        ),
+    )
+
+def _require_batch_preflight_decisions(sources, matches, provider_attempt_authorities, reprocess_existing):
     unresolved=0
     for source,reprocess in zip(sources,reprocess_existing):
         match=matches.get(source.id)
@@ -695,6 +714,16 @@ def _require_batch_existing_result_decisions(sources, matches, reprocess_existin
             unresolved+=1
     if unresolved:
         raise HTTPException(409, "Для существующего результата требуется явное решение")
+    provider_conflicts=sum(
+        provider_attempt_authorities.get(source.id)
+        != ProviderAttemptAuthorityStatus.available
+        for source in sources
+    )
+    if provider_conflicts:
+        raise HTTPException(
+            409,
+            detail={"reason": "provider_authority_conflict"},
+        )
 
 @app.post("/api/projects/{project_id}/jobs/batch/preflight")
 def preflight_transcription_jobs_batch(project_id: str, data: TranscriptionJobBatchCreateIn, response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db)):
@@ -702,6 +731,7 @@ def preflight_transcription_jobs_batch(project_id: str, data: TranscriptionJobBa
     language, _options_json, explicit_provider_credential_id, duplicate_pair_found, source_ids, folder_ids, titles, reprocess_existing, _hash_items=_normalize_batch_creation_input(data)
     _provider_credential_id, sources, verified_by_id=_validate_new_batch_targets(db,user,p,explicit_provider_credential_id=explicit_provider_credential_id,duplicate_pair_found=duplicate_pair_found,source_ids=source_ids,folder_ids=folder_ids)
     existing_result_matches=_load_batch_existing_result_matches(db,user,sources,language=language,diarization_enabled=data.options.diarize)
+    provider_attempt_authorities=_load_batch_provider_attempt_authorities(db,user,sources,language=language,diarization_enabled=data.options.diarize)
     return build_batch_preflight_payload(
         sources=sources,
         output_folders=[verified_by_id[fid] for fid in folder_ids],
@@ -710,6 +740,7 @@ def preflight_transcription_jobs_batch(project_id: str, data: TranscriptionJobBa
         diarization_enabled=data.options.diarize,
         existing_result_matches=existing_result_matches,
         reprocess_existing=reprocess_existing,
+        provider_attempt_authorities=provider_attempt_authorities,
     )
 
 @app.post("/api/projects/{project_id}/jobs/batch")
@@ -731,7 +762,8 @@ def create_transcription_jobs_batch(project_id: str, data: TranscriptionJobBatch
         lock_catalog_source_identities(db, owner_user_id=user.id, sources=sources)
         sources=validate_job_sources(db, p.id, source_ids, lock_mode="no_key_update")
         existing_result_matches=_load_batch_existing_result_matches(db,user,sources,language=language,diarization_enabled=data.options.diarize)
-        _require_batch_existing_result_decisions(sources,existing_result_matches,reprocess_existing)
+        provider_attempt_authorities=_load_batch_provider_attempt_authorities(db,user,sources,language=language,diarization_enabled=data.options.diarize)
+        _require_batch_preflight_decisions(sources,existing_result_matches,provider_attempt_authorities,reprocess_existing)
         for idx,(src,fid,title) in enumerate(zip(sources,folder_ids,titles)):
             vf=verified_by_id[fid]
             job_options_json=stored_transcription_options(
