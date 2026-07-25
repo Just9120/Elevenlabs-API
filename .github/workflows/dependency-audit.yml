@@ -26,13 +26,28 @@ jobs:
           cache: npm
           cache-dependency-path: apps/studio/package-lock.json
       - name: Install Studio frontend dependencies without lifecycle scripts
+        id: node-install
         run: npm ci --ignore-scripts --no-audit
         working-directory: apps/studio
       - name: Audit Studio frontend dependency graph
+        id: node-audit
         run: npm audit --audit-level=low
         working-directory: apps/studio
       - name: Mark Node audit success
         run: echo "NODE_DEPENDENCY_AUDIT_OK"
+      - name: Summarize Node dependency audit
+        if: always()
+        env:
+          INSTALL_OUTCOME: ${{ steps.node-install.outcome }}
+          AUDIT_OUTCOME: ${{ steps.node-audit.outcome }}
+        run: |
+          {
+            echo "## Node dependency audit"
+            echo
+            echo "- Revision: \`${GITHUB_SHA}\`"
+            echo "- Install: \`${INSTALL_OUTCOME}\`"
+            echo "- Audit: \`${AUDIT_OUTCOME}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   python:
     runs-on: ubuntu-latest
@@ -51,11 +66,26 @@ jobs:
             apps/studio-api/requirements.txt
             apps/studio-api/constraints.txt
       - name: Install audit tool and constrained dependency graph
+        id: python-install
         run: |
           python -m pip install --upgrade pip
           python -m pip install pip-audit==2.10.1
           python -m pip install --target "$RUNNER_TEMP/studio-python-audit" -r requirements-dev.txt -c constraints-dev.txt
       - name: Audit installed Python dependency graph
+        id: python-audit
         run: python -m pip_audit --strict --path "$RUNNER_TEMP/studio-python-audit"
       - name: Mark Python audit success
         run: echo "PYTHON_DEPENDENCY_AUDIT_OK"
+      - name: Summarize Python dependency audit
+        if: always()
+        env:
+          INSTALL_OUTCOME: ${{ steps.python-install.outcome }}
+          AUDIT_OUTCOME: ${{ steps.python-audit.outcome }}
+        run: |
+          {
+            echo "## Python dependency audit"
+            echo
+            echo "- Revision: \`${GITHUB_SHA}\`"
+            echo "- Install: \`${INSTALL_OUTCOME}\`"
+            echo "- Audit: \`${AUDIT_OUTCOME}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

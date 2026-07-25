@@ -49,6 +49,23 @@ def test_dependency_audit_cannot_mask_or_mutate_dependency_findings():
     assert "; true" not in workflow
 
 
+def test_dependency_audit_summaries_preserve_job_failure_and_safe_evidence():
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+
+    assert workflow.count("if: always()") == 2
+    assert workflow.count('echo "- Revision: \\`${GITHUB_SHA}\\`"') == 2
+    assert "id: node-install" in workflow
+    assert "id: node-audit" in workflow
+    assert "id: python-install" in workflow
+    assert "id: python-audit" in workflow
+    assert "${{ steps.node-install.outcome }}" in workflow
+    assert "${{ steps.node-audit.outcome }}" in workflow
+    assert "${{ steps.python-install.outcome }}" in workflow
+    assert "${{ steps.python-audit.outcome }}" in workflow
+    assert "GITHUB_STEP_SUMMARY" in workflow
+    assert "continue-on-error:" not in workflow
+
+
 def test_studio_lock_pins_the_compatible_postcss_override():
     package = json.loads((STUDIO / "package.json").read_text(encoding="utf-8"))
     lock = json.loads((STUDIO / "package-lock.json").read_text(encoding="utf-8"))
