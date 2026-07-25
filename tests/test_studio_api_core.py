@@ -2928,6 +2928,8 @@ def _add_batch_provider_attempt(
     *,
     status="processing",
     retry_disposition="undetermined",
+    language="ru",
+    diarization_enabled=True,
 ):
     db = SessionLocal()
     try:
@@ -2943,8 +2945,12 @@ def _add_batch_provider_attempt(
             status=job_status,
             provider="elevenlabs",
             provider_credential_id=credential_id,
-            language="ru",
-            options_json='{"diarize":true}',
+            language=language,
+            options_json=(
+                '{"diarize":true}'
+                if diarization_enabled
+                else '{"diarize":false}'
+            ),
             started_at=now,
             finished_at=now if job_status == JobStatus.failed else None,
             attempt_count=1,
@@ -3354,6 +3360,61 @@ def test_batch_provider_authority_is_owner_scoped_across_reselected_drive_rows(
     assert private_drive_id not in reselected_preview.text
     assert other_job_id not in reselected_preview.text
     assert own_job_id not in reselected_preview.text
+
+
+@pytest.mark.parametrize(
+    "status,retry_disposition,language",
+    [
+        ("failed", "retry_safe", "ru"),
+        ("processing", "undetermined", "detect"),
+    ],
+)
+def test_batch_provider_authority_allows_retry_safe_or_different_settings(
+    monkeypatch,
+    status,
+    retry_disposition,
+    language,
+):
+    _install_batch_folder_mocks(monkeypatch)
+    c, csrf, user_id, pid, source_a, _source_b, cred_id = _batch_setup(
+        f"batch-provider-allowed-{status}-{language}@example.com"
+    )
+    prior_job_id = _add_batch_provider_attempt(
+        user_id,
+        pid,
+        source_a,
+        cred_id,
+        status=status,
+        retry_disposition=retry_disposition,
+        language=language,
+    )
+    body = _batch_body(source_a, credential_id=cred_id)
+    headers = {
+        "origin": "https://studio.test",
+        "x-csrf-token": csrf,
+    }
+
+    preview = c.post(
+        f"/api/projects/{pid}/jobs/batch/preflight",
+        json=body,
+        headers=headers,
+    )
+
+    assert preview.status_code == 200
+    assert preview.json()["items"][0]["provider_attempt_authority"] == {
+        "status": "available",
+        "reason_code": None,
+    }
+    assert preview.json()["items"][0]["planned_outcome"] == "process"
+    assert prior_job_id not in preview.text
+    created = c.post(
+        f"/api/projects/{pid}/jobs/batch",
+        json=body,
+        headers=_batch_headers(csrf),
+    )
+    assert created.status_code == 200
+    assert created.json()["created_count"] == 1
+    assert prior_job_id not in created.text
 
 
 def test_batch_preflight_requires_csrf_and_rejects_invalid_targets_without_rows(monkeypatch):
