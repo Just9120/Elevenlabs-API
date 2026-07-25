@@ -2868,6 +2868,16 @@ describe("Studio PWA", () => {
       expect(blocked).toHaveTextContent(expectedCopy);
       expect(
         screen.getByText(
+          "Найдена активная или неразрешённая предыдущая транскрибация. Повторная обработка заблокирована до разрешения её статуса.",
+        ),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByText(
+          "Найдены ранее созданные результаты. Выберите явное решение для каждой заблокированной строки.",
+        ),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.getByText(
           "Предыдущая транскрибация ещё выполняется или требует проверки",
         ),
       ).toBeInTheDocument();

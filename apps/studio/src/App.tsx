@@ -1176,9 +1176,14 @@ function PreparationPanel({
           throw new Error("Invalid batch preflight response");
         }
         setPreflight({ signature, data: response });
+        const providerAuthorityBlocked = response.items.some(
+          (item) => item.provider_attempt_authority.status === "blocked",
+        );
         setMessage(
           response.summary.blocked_count > 0
-            ? "Найдены ранее созданные результаты. Выберите явное решение для каждой заблокированной строки."
+            ? providerAuthorityBlocked
+              ? "Найдена активная или неразрешённая предыдущая транскрибация. Повторная обработка заблокирована до разрешения её статуса."
+              : "Найдены ранее созданные результаты. Выберите явное решение для каждой заблокированной строки."
             : "Проверка готова. Сверьте план и подтвердите создание задач.",
         );
         return;
