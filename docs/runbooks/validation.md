@@ -83,7 +83,42 @@ python -m piptools compile --resolver=backtracking --strip-extras --newline=LF -
 
 Constraints are installed with `-c`; they are not standalone cross-platform requirements files. This preserves platform-specific dependencies selected by extras while constraining the shared resolution.
 
-The `Dependency audit` GitHub Actions workflow runs weekly and via `workflow_dispatch`. It audits the exact npm lock and an installed Linux/Python 3.11 graph. Findings fail only that reporting workflow; ordinary PR/push CI does not call advisory services. Treat service outages as `blocked` and rerun later rather than recording a vulnerability or a pass.
+### Dependency audit handoff
+
+The `Dependency audit` GitHub Actions workflow runs weekly and via `workflow_dispatch`. It audits the exact npm lock and an installed Linux/Python 3.11 graph. Findings fail only that reporting workflow; ordinary PR/push CI does not call advisory services.
+
+Reproduce the Node graph locally from `apps/studio/` without lifecycle scripts:
+
+```bash
+npm ci --ignore-scripts --no-audit
+npm audit --audit-level=low
+```
+
+Reproduce the constrained Python graph from the repository root in an isolated temporary target:
+
+```bash
+audit_graph="$(mktemp -d)"
+trap 'rm -rf "$audit_graph"' EXIT
+python -m pip install pip-audit==2.10.1
+python -m pip install --target "$audit_graph" -r requirements-dev.txt -c constraints-dev.txt
+python -m pip_audit --strict --path "$audit_graph"
+```
+
+Local success is preparation evidence, not the remote acceptance gate. After the intended branch is clean and published, dispatch the unchanged workflow against that branch and record the expected revision before selecting the run:
+
+```bash
+branch="$(git branch --show-current)"
+expected_sha="$(git rev-parse HEAD)"
+git push -u origin "$branch"
+gh workflow run dependency-audit.yml --ref "$branch"
+gh run list --workflow dependency-audit.yml --branch "$branch" --event workflow_dispatch --limit 5 --json databaseId,headSha,status,conclusion,url
+gh run watch <run-id> --exit-status
+gh run view <run-id> --json headSha,conclusion,jobs,url
+```
+
+Accept the result only when the selected run's `headSha` equals `expected_sha` and both `node` and `python` jobs conclude `success`. Record only the revision, run URL, job conclusions, and safe aggregate status. Do not publish advisory details, dependency paths, private environment values, or raw audit responses.
+
+An advisory result is `fail`, not an outage and not a reason to rerun. A registry/advisory-service/network outage is `blocked` and may be rerun later. Never use `npm audit fix`, `--force`, advisory ignores, failure masking, or a reduced dependency graph to turn either outcome into a pass.
 
 For docs-only changes, run `git diff --check`, available markdown/link checks, targeted `rg` searches for stale links/conflicting claims, and a docs-only changed-file review. Runtime integration tests are not required unless the task explicitly asks for them.
 

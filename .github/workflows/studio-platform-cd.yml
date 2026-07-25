@@ -31,10 +31,13 @@ jobs:
       web: ${{ steps.detect.outputs.web }}
       api: ${{ steps.detect.outputs.api }}
       worker: ${{ steps.detect.outputs.worker }}
+      web_reason: ${{ steps.detect.outputs.web_reason }}
+      api_reason: ${{ steps.detect.outputs.api_reason }}
+      worker_reason: ${{ steps.detect.outputs.worker_reason }}
     steps:
       - name: Checkout for push detection
         if: github.event_name == 'push'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -47,15 +50,21 @@ jobs:
           web=false
           api=false
           worker=false
+          web_reason=not_selected
+          api_reason=not_selected
+          worker_reason=not_selected
 
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             case "${{ inputs.component }}" in
-              web) web=true ;;
-              api) api=true ;;
-              worker) worker=true ;;
+              web) web=true; web_reason=manual_selection ;;
+              api) api=true; api_reason=manual_selection ;;
+              worker) worker=true; worker_reason=manual_selection ;;
               *) echo "unsupported component" >&2; exit 1 ;;
             esac
           elif [[ "${{ vars.STUDIO_PLATFORM_CD_ENABLED }}" == "true" ]]; then
+            web_reason=not_changed
+            api_reason=not_changed
+            worker_reason=manual_only
             before="${{ github.event.before }}"
             after="${{ github.sha }}"
             zero_sha="0000000000000000000000000000000000000000"
@@ -68,6 +77,7 @@ jobs:
 
             api_changed=false
             api_migration_changed=false
+            worker_source_changed=false
             while IFS= read -r path; do
               [[ -n "$path" ]] || continue
               case "$path" in
@@ -78,7 +88,7 @@ jobs:
                   api_migration_changed=true
                   ;;
                 apps/studio-api/studio_api/worker.py|apps/studio-api/studio_api/worker_health.py)
-                  : worker-only source is manual-only
+                  worker_source_changed=true
                   ;;
                 apps/studio-api/*)
                   api_changed=true
@@ -86,14 +96,32 @@ jobs:
               esac
             done <<< "$changed_files"
 
-            if [[ "$api_changed" == "true" && "$api_migration_changed" != "true" ]]; then
-              api=true
+            if [[ "$web" == "true" ]]; then
+              web_reason=source_changed
             fi
+
+            if [[ "$api_migration_changed" == "true" ]]; then
+              api_reason=manual_migration_required
+            elif [[ "$api_changed" == "true" ]]; then
+              api=true
+              api_reason=source_changed
+            fi
+
+            if [[ "$worker_source_changed" == "true" ]]; then
+              worker_reason=manual_only_source_changed
+            fi
+          else
+            web_reason=automatic_cd_disabled
+            api_reason=automatic_cd_disabled
+            worker_reason=automatic_cd_disabled
           fi
 
           echo "web=$web" >> "$GITHUB_OUTPUT"
           echo "api=$api" >> "$GITHUB_OUTPUT"
           echo "worker=$worker" >> "$GITHUB_OUTPUT"
+          echo "web_reason=$web_reason" >> "$GITHUB_OUTPUT"
+          echo "api_reason=$api_reason" >> "$GITHUB_OUTPUT"
+          echo "worker_reason=$worker_reason" >> "$GITHUB_OUTPUT"
 
   deploy-web:
     needs: detect-components
@@ -262,3 +290,60 @@ jobs:
           [[ -s "$deploy_script" ]]
           STUDIO_DEPLOY_DIR="$STUDIO_DEPLOY_DIR" bash "$deploy_script" worker
           REMOTE
+
+  deployment-summary:
+    needs:
+      - detect-components
+      - deploy-web
+      - deploy-api
+      - deploy-worker
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Summarize component deployment decisions
+        shell: bash
+        env:
+          DETECT_RESULT: ${{ needs.detect-components.result }}
+          WEB_SELECTED: ${{ needs.detect-components.outputs.web }}
+          WEB_REASON: ${{ needs.detect-components.outputs.web_reason }}
+          WEB_RESULT: ${{ needs.deploy-web.result }}
+          API_SELECTED: ${{ needs.detect-components.outputs.api }}
+          API_REASON: ${{ needs.detect-components.outputs.api_reason }}
+          API_RESULT: ${{ needs.deploy-api.result }}
+          WORKER_SELECTED: ${{ needs.detect-components.outputs.worker }}
+          WORKER_REASON: ${{ needs.detect-components.outputs.worker_reason }}
+          WORKER_RESULT: ${{ needs.deploy-worker.result }}
+        run: |
+          set -euo pipefail
+
+          web_decision=skip
+          api_decision=skip
+          worker_decision=skip
+          [[ "$WEB_SELECTED" == "true" ]] && web_decision=deploy
+          [[ "$API_SELECTED" == "true" ]] && api_decision=deploy
+          [[ "$WORKER_SELECTED" == "true" ]] && worker_decision=deploy
+
+          WEB_REASON="${WEB_REASON:-detection_unavailable}"
+          API_REASON="${API_REASON:-detection_unavailable}"
+          WORKER_REASON="${WORKER_REASON:-detection_unavailable}"
+
+          {
+            echo "## Studio platform deployment summary"
+            echo
+            printf 'Component detection: `%s`\n\n' "$DETECT_RESULT"
+            echo "| Component | Decision | Job result | Reason |"
+            echo "| --- | --- | --- | --- |"
+            printf '| web | `%s` | `%s` | `%s` |\n' "$web_decision" "$WEB_RESULT" "$WEB_REASON"
+            printf '| api | `%s` | `%s` | `%s` |\n' "$api_decision" "$API_RESULT" "$API_REASON"
+            printf '| worker | `%s` | `%s` | `%s` |\n' "$worker_decision" "$WORKER_RESULT" "$WORKER_REASON"
+            echo
+            if [[ "$API_REASON" == "manual_migration_required" ]]; then
+              echo "- API deployment was intentionally skipped because migration changes require the separate backup and migration procedure."
+            fi
+            if [[ "$WORKER_REASON" == "manual_only_source_changed" ]]; then
+              echo "- Worker source changed, but worker deployment remains manual-only."
+            fi
+            echo
+            echo "> A green workflow does not mean every component was deployed. Only a component with decision \`deploy\` and job result \`success\` has deployment evidence from this run."
+          } >> "$GITHUB_STEP_SUMMARY"

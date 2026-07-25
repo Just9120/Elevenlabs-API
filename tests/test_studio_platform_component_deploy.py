@@ -349,6 +349,53 @@ def test_workflow_worker_is_manual_only_and_materialized() -> None:
     assert "manage_studio_worker.sh drain" not in workflow
     assert "alembic upgrade" not in workflow
 
+
+def test_workflow_summarizes_component_decisions_and_safe_skips() -> None:
+    workflow = (ROOT / ".github/workflows/studio-platform-cd.yml").read_text(
+        encoding="utf-8"
+    )
+    detection = workflow.split("  deploy-web:", 1)[0]
+    summary = workflow.split("  deployment-summary:", 1)[1]
+
+    for component in ("web", "api", "worker"):
+        assert (
+            f"{component}_reason: "
+            f"${{{{ steps.detect.outputs.{component}_reason }}}}"
+        ) in workflow
+        assert (
+            f'echo "{component}_reason=${component}_reason" '
+            '>> "$GITHUB_OUTPUT"'
+        ) in detection
+        assert f"needs.detect-components.outputs.{component}_reason" in summary
+
+    assert "if: needs.detect-components.outputs.web == 'true'" in workflow
+    assert (
+        "if: always() && needs.detect-components.outputs.api == 'true' && "
+        "(needs.detect-components.outputs.web != 'true' || "
+        "needs.deploy-web.result == 'success')"
+    ) in workflow
+    assert (
+        "if: needs.detect-components.outputs.worker == 'true' && "
+        "github.event_name == 'workflow_dispatch'"
+    ) in workflow
+    assert "api_reason=manual_migration_required" in detection
+    assert "worker_reason=manual_only_source_changed" in detection
+    assert "automatic_cd_disabled" in detection
+    assert "if: always()" in summary
+    for job in ("detect-components", "deploy-web", "deploy-api", "deploy-worker"):
+        assert f"- {job}" in summary
+    for job in ("deploy-web", "deploy-api", "deploy-worker"):
+        assert f"needs.{job}.result" in summary
+    assert '>> "$GITHUB_STEP_SUMMARY"' in summary
+    assert (
+        "migration changes require the separate backup and migration procedure"
+        in summary
+    )
+    assert "worker deployment remains manual-only" in summary
+    assert "A green workflow does not mean every component was deployed." in summary
+    assert "changed_files" not in summary
+
+
 def test_successful_web_deployment_has_no_api_dependency_gates(tmp_path: Path) -> None:
     proc, calls = run_deploy(tmp_path, "web")
     assert proc.returncode == 0, proc.stderr + proc.stdout
