@@ -2920,6 +2920,68 @@ def _add_accepted_batch_output(user_id, project_id, source_id, credential_id):
         db.close()
 
 
+def _add_batch_provider_attempt(
+    user_id,
+    project_id,
+    source_id,
+    credential_id,
+    *,
+    status="processing",
+    retry_disposition="undetermined",
+):
+    db = SessionLocal()
+    try:
+        now = utcnow()
+        job_status = getattr(JobStatus, status)
+        disposition = getattr(
+            SourceAttemptRetryDisposition,
+            retry_disposition,
+        )
+        job = TranscriptionJob(
+            project_id=project_id,
+            owner_user_id=user_id,
+            status=job_status,
+            provider="elevenlabs",
+            provider_credential_id=credential_id,
+            language="ru",
+            options_json='{"diarize":true}',
+            started_at=now,
+            finished_at=now if job_status == JobStatus.failed else None,
+            attempt_count=1,
+        )
+        db.add(job); db.flush()
+        rel = TranscriptionJobSource(
+            job_id=job.id,
+            source_id=source_id,
+            position=0,
+            status=JobSourceStatus.queued,
+        )
+        db.add(rel); db.flush()
+        db.add(
+            TranscriptionJobSourceAttempt(
+                owner_user_id=user_id,
+                project_id=project_id,
+                job_id=job.id,
+                job_source_id=rel.id,
+                attempt_number=1,
+                stage=(
+                    SourceAttemptStage.provider_request_started
+                    if job_status == JobStatus.processing
+                    else SourceAttemptStage.failed
+                ),
+                retry_disposition=disposition,
+                provider_request_started_at=now,
+                failed_at=now if job_status == JobStatus.failed else None,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        db.commit()
+        return job.id
+    finally:
+        db.close()
+
+
 def test_legacy_create_cannot_bypass_existing_result_decision_or_set_authority():
     c, headers, pid = create_logged_in_project("legacy-existing-result@example.com")
     sid = create_gdrive_source(c, headers, pid)
@@ -3015,6 +3077,10 @@ def test_batch_preflight_is_safe_ordered_and_does_not_create_rows(monkeypatch):
             "status": "no_match",
             "accepted_output_count": 0,
             "resolution": "not_required",
+        }
+        and item["provider_attempt_authority"] == {
+            "status": "available",
+            "reason_code": None,
         }
         and item["planned_outcome"] == "process"
         and item["source"]["duration_seconds"] is None
@@ -3129,6 +3195,85 @@ def test_batch_create_rechecks_existing_result_and_requires_explicit_reprocessin
         )
     finally:
         db.close()
+
+
+@pytest.mark.parametrize(
+    "status,retry_disposition,reason_code",
+    [
+        (
+            "processing",
+            "undetermined",
+            "equivalent_provider_work_in_flight",
+        ),
+        (
+            "failed",
+            "provider_outcome_uncertain",
+            "equivalent_provider_outcome_unresolved",
+        ),
+    ],
+)
+def test_batch_preflight_and_create_block_competing_provider_authority(
+    monkeypatch,
+    status,
+    retry_disposition,
+    reason_code,
+):
+    _install_batch_folder_mocks(monkeypatch)
+    c, csrf, user_id, pid, source_a, _source_b, cred_id = _batch_setup(
+        f"batch-provider-{status}@example.com"
+    )
+    competing_job_id = _add_batch_provider_attempt(
+        user_id,
+        pid,
+        source_a,
+        cred_id,
+        status=status,
+        retry_disposition=retry_disposition,
+    )
+    body = _batch_body(source_a, credential_id=cred_id)
+    body["items"][0]["reprocess_existing"] = True
+    before = _count_batch_rows()
+
+    preview = c.post(
+        f"/api/projects/{pid}/jobs/batch/preflight",
+        json=body,
+        headers={
+            "origin": "https://studio.test",
+            "x-csrf-token": csrf,
+        },
+    )
+
+    assert preview.status_code == 200
+    assert preview.json()["items"][0]["existing_result_match"] == {
+        "status": "no_match",
+        "accepted_output_count": 0,
+        "resolution": "not_required",
+    }
+    assert preview.json()["items"][0]["provider_attempt_authority"] == {
+        "status": "blocked",
+        "reason_code": reason_code,
+    }
+    assert preview.json()["items"][0]["planned_outcome"] == "blocked"
+    assert preview.json()["summary"] == {
+        "process_count": 0,
+        "skip_count": 0,
+        "blocked_count": 1,
+    }
+    assert competing_job_id not in preview.text
+    assert _count_batch_rows() == before
+
+    create = c.post(
+        f"/api/projects/{pid}/jobs/batch",
+        json=body,
+        headers=_batch_headers(csrf),
+    )
+
+    assert create.status_code == 409
+    assert create.json()["detail"] == (
+        "Предыдущая транскрибация источника ещё выполняется или требует проверки"
+    )
+    assert competing_job_id not in create.text
+    assert _count_batch_rows() == before
 
 
 def test_batch_preflight_requires_csrf_and_rejects_invalid_targets_without_rows(monkeypatch):
