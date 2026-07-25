@@ -159,6 +159,7 @@ def test_batch_preflight_payload_rejects_misaligned_validated_inputs():
             diarization_enabled=False,
             existing_result_matches={},
             reprocess_existing=[False],
+            provider_attempt_authorities={},
         )
 
 
@@ -174,6 +175,7 @@ def test_batch_preflight_payload_fails_closed_without_catalog_decision():
             diarization_enabled=False,
             existing_result_matches={},
             reprocess_existing=[False],
+            provider_attempt_authorities={},
         )
 
 

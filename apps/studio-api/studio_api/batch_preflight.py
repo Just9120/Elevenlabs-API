@@ -20,9 +20,9 @@ def build_batch_preflight_payload(
     diarization_enabled: bool,
     existing_result_matches: dict[str, ExistingResultMatch],
     reprocess_existing: Sequence[bool],
-    provider_attempt_authorities: (
-        dict[str, ProviderAttemptAuthorityStatus] | None
-    ) = None,
+    provider_attempt_authorities: dict[
+        str, ProviderAttemptAuthorityStatus
+    ],
 ) -> dict[str, Any]:
     """Build a browser-safe preview from validated targets and catalog evidence."""
     if not (
@@ -47,11 +47,7 @@ def build_batch_preflight_payload(
         match = existing_result_matches.get(source_id)
         if match is None:
             raise ValueError("Preflight catalog decision is missing")
-        provider_attempt_authority = (
-            ProviderAttemptAuthorityStatus.available
-            if provider_attempt_authorities is None
-            else provider_attempt_authorities.get(source_id)
-        )
+        provider_attempt_authority = provider_attempt_authorities.get(source_id)
         if provider_attempt_authority is None:
             raise ValueError("Preflight provider-attempt authority is missing")
         existing_result_conflict = (
