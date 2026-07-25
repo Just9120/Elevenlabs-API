@@ -108,6 +108,14 @@ The reconciliation path performs exact Drive lookup using the opaque appProperty
 
 An existing unresolved reconciliation case permanently blocks a new Google Docs create for that relation because Drive appProperties are correlation metadata, not an idempotency key. A `prepared` case by itself is internal evidence and does not make owner reconciliation available until it becomes `creation_returned`, `reconciliation_required`, or `conflict`. Pre-create reconciliation-case persistence failure is a safe processing failure, not output uncertainty and not an existing-output race. A `conflict` case is a stable fail-closed state: repeated owner checks report the conflict without selecting a candidate, creating/deleting Google Docs, or reading document body.
 
+## Preflight provider-attempt authority
+
+Batch preflight projects the final provider-call guard into an owner-scoped, per-source browser outcome. For the selected effective provider/model/language/diarization settings, a competing attempt is `in_flight` while its job is processing and `unresolved` after provider start unless durable evidence classifies the attempt as retry-safe. Unknown settings remain conflicting; attempts with confirmed different settings do not. Google Drive identity may span multiple Studio source rows owned by the same user.
+
+The browser receives only `available` or `blocked` plus one allowlisted reason: equivalent provider work is in flight, or an equivalent provider outcome remains unresolved. It never receives the competing job/attempt ID, private source identity, Drive file ID, provider payload, transcript, credential, lease, or failure detail. An accepted-output reprocessing decision applies only to accepted-output authority and cannot override provider-attempt authority.
+
+Preflight is read-only and can become stale. Batch creation therefore locks the relevant catalog source identities and repeats both accepted-output and provider-attempt checks before creating job or job-source rows. A provider-authority conflict returns a stable browser-safe 409 reason and creates no batch rows. The worker still repeats the same guard immediately before the paid provider boundary; the earlier checks improve UX but never replace the final race-safe authority.
+
 ## Safe stage-specific retry and expired-lease recovery
 
 Studio keeps a durable PostgreSQL per-source attempt ledger for retry/recovery decisions. A missing non-skipped job-source must have an attempt row committed before source/provider external work starts. The provider request-start marker is committed immediately before transport; a valid provider response is marked before Google/output work with `provider_result_lost` until output persistence completes.
