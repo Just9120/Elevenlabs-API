@@ -3276,6 +3276,86 @@ def test_batch_preflight_and_create_block_competing_provider_authority(
     assert _count_batch_rows() == before
 
 
+def test_batch_provider_authority_is_owner_scoped_across_reselected_drive_rows(
+    monkeypatch,
+):
+    _install_batch_folder_mocks(monkeypatch)
+    c, csrf, user_id, pid, source_a, source_b, cred_id = _batch_setup(
+        "batch-provider-owner@example.com"
+    )
+    (
+        _other_client,
+        _other_csrf,
+        other_user_id,
+        other_pid,
+        other_source,
+        _other_source_b,
+        other_cred_id,
+    ) = _batch_setup("batch-provider-other@example.com")
+    private_drive_id = "same-private-drive-id"
+    db = SessionLocal()
+    try:
+        for source_id in (source_a, source_b, other_source):
+            source_row = db.get(Source, source_id)
+            source_row.source_type = SourceType.google_drive
+            source_row.drive_file_id = private_drive_id
+        db.commit()
+    finally:
+        db.close()
+    other_job_id = _add_batch_provider_attempt(
+        other_user_id,
+        other_pid,
+        other_source,
+        other_cred_id,
+        status="failed",
+        retry_disposition="provider_outcome_uncertain",
+    )
+    body = _batch_body(source_a, credential_id=cred_id)
+    headers = {
+        "origin": "https://studio.test",
+        "x-csrf-token": csrf,
+    }
+
+    owner_preview = c.post(
+        f"/api/projects/{pid}/jobs/batch/preflight",
+        json=body,
+        headers=headers,
+    )
+
+    assert owner_preview.status_code == 200
+    assert owner_preview.json()["items"][0]["provider_attempt_authority"] == {
+        "status": "available",
+        "reason_code": None,
+    }
+    assert other_job_id not in owner_preview.text
+    own_job_id = _add_batch_provider_attempt(
+        user_id,
+        pid,
+        source_b,
+        cred_id,
+        status="failed",
+        retry_disposition="provider_result_lost",
+    )
+
+    reselected_preview = c.post(
+        f"/api/projects/{pid}/jobs/batch/preflight",
+        json=body,
+        headers=headers,
+    )
+
+    assert reselected_preview.status_code == 200
+    assert reselected_preview.json()["items"][0][
+        "provider_attempt_authority"
+    ] == {
+        "status": "blocked",
+        "reason_code": "equivalent_provider_outcome_unresolved",
+    }
+    assert reselected_preview.json()["items"][0]["planned_outcome"] == "blocked"
+    assert private_drive_id not in reselected_preview.text
+    assert other_job_id not in reselected_preview.text
+    assert own_job_id not in reselected_preview.text
+
+
 def test_batch_preflight_requires_csrf_and_rejects_invalid_targets_without_rows(monkeypatch):
     _install_batch_folder_mocks(monkeypatch)
     c, csrf, _user_id, pid, source_a, _source_b, _cred_id = _batch_setup(
