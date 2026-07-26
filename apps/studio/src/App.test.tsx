@@ -4581,7 +4581,7 @@ describe("Studio PWA", () => {
           verifyCalls += 1;
           verifyBodies.push(String(init.body));
           return verifyCalls === 1
-            ? json({ detail: "csrf" }, false, 403)
+            ? json({ detail: { reason: "csrf_token_invalid" } }, false, 403)
             : json({
                 name: "Verified folder",
                 web_view_url:
@@ -8084,7 +8084,9 @@ describe("PWA API diagnostics instrumentation", () => {
     const onCsrf = vi.fn();
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(json({ ok: false }, false, 403))
+      .mockResolvedValueOnce(
+        json({ detail: { reason: "csrf_token_invalid" } }, false, 403),
+      )
       .mockResolvedValueOnce(json({ csrf_token: "csrf-new" }))
       .mockResolvedValueOnce(json({ ok: true }));
     vi.stubGlobal("fetch", fetchMock);
@@ -8100,7 +8102,9 @@ describe("PWA API diagnostics instrumentation", () => {
     const onCsrf = vi.fn();
     let fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(json({ ok: false }, false, 419))
+      .mockResolvedValueOnce(
+        json({ detail: { reason: "csrf_token_invalid" } }, false, 403),
+      )
       .mockResolvedValueOnce(json({ csrf_token: "csrf-new" }))
       .mockResolvedValueOnce(json({ ok: false }, false, 500))
       .mockResolvedValue(json({ accepted: true }));
@@ -8145,7 +8149,9 @@ describe("PWA API diagnostics instrumentation", () => {
       const onCsrf = vi.fn();
       const fetchMock = vi
         .fn()
-        .mockResolvedValueOnce(json({ ok: false }, false, 419))
+        .mockResolvedValueOnce(
+          json({ detail: { reason: "csrf_token_invalid" } }, false, 403),
+        )
         .mockImplementationOnce(() => refreshFailure.response)
         .mockResolvedValue(json({ accepted: true }));
       vi.stubGlobal("fetch", fetchMock);
@@ -8468,7 +8474,11 @@ describe("Settings DEBUG session controls", () => {
           init?.method === "POST" &&
           (init.headers as Record<string, string>)["x-csrf-token"] === oldToken
         )
-          return json({ ok: false }, false, 419);
+          return json(
+            { detail: { reason: "csrf_token_invalid" } },
+            false,
+            403,
+          );
         if (
           url.endsWith("/api/diagnostics/debug-session") &&
           init?.method === "POST"
@@ -8516,7 +8526,9 @@ describe("Settings DEBUG session controls", () => {
   it("CSRF refresh during another mutation preserves DEBUG until inactive server status clears it", async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(json({ ok: false }, false, 403))
+      .mockResolvedValueOnce(
+        json({ detail: { reason: "csrf_token_invalid" } }, false, 403),
+      )
       .mockResolvedValueOnce(json({ csrf_token: "csrf-rotated" }))
       .mockResolvedValueOnce(json({ ok: true }))
       .mockResolvedValue(json({ accepted: true }));

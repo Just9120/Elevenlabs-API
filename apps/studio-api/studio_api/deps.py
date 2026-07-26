@@ -7,6 +7,8 @@ from .models import Session as DbSession, User, UserStatus
 from .security import safe_eq, token_hash, utcnow
 from .session_activity import session_activity_write_due
 
+CSRF_REJECTION_REASON = "csrf_token_invalid"
+
 def origin_ok(request: Request, settings: Settings) -> bool:
     origin=request.headers.get("origin")
     referer=request.headers.get("referer")
@@ -35,5 +37,6 @@ def current_session(request: Request, db: Session=Depends(get_db), settings: Set
 
 def require_csrf(request: Request, x_csrf_token: str=Header(default=""), pair=Depends(current_session), _=Depends(require_same_origin)):
     sess,user=pair
-    if not x_csrf_token or not safe_eq(token_hash(x_csrf_token), sess.csrf_hash): raise HTTPException(403, "Недействительный CSRF токен")
+    if not x_csrf_token or not safe_eq(token_hash(x_csrf_token), sess.csrf_hash):
+        raise HTTPException(403, {"reason": CSRF_REJECTION_REASON})
     return sess,user
