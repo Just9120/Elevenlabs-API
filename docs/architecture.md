@@ -20,21 +20,22 @@ Realtime Colab is an experimental standalone/proxy validation path described in 
 
 ### Studio PWA contour
 
-Studio PWA is a web platform contour in development. Source-level architecture includes the web frontend, API, PostgreSQL, Redis, object storage, worker entrypoint, provider adapter path, Google Drive/Docs integration, diagnostics, and migrations. Production-live processing is not confirmed without controlled rollout evidence.
+Studio PWA is a web platform contour in development. Source-level architecture includes the web frontend, API, PostgreSQL, Redis, object storage, worker entrypoint, provider adapter path, Google Drive/Docs integration, diagnostics, catalog migration, and migrations. The bounded single-worker/small-source processing path has controlled production evidence, while broader selected capabilities and every newer schema/API revision still require their own rollout evidence.
 
 ## Components
 
 | Component | Source location | Responsibility | Production status note |
 | --- | --- | --- | --- |
-| Studio frontend | `apps/studio/` | Browser UI for sessions, projects, sources, credentials, Google connection, preparation, jobs, outputs, diagnostics; `src/apiClient.ts` owns same-origin JSON/CSRF retry transport and its safe diagnostic emission. | Source present; deployment evidence is separate. |
-| Studio API | `apps/studio-api/studio_api/` | FastAPI app, auth/session boundaries, owner-scoped APIs, job/source/credential/output/diagnostic services. | Source present; production API deployment does not imply worker processing. |
-| Database | PostgreSQL via Studio deployment | Durable users/preferences/projects/sources/credentials/jobs/outputs/diagnostics state. | Migrations present through `0015_user_source_retention`; production revision requires operator evidence. |
-| Alembic migrations | `apps/studio-api/alembic/versions/` | Schema authority for Studio persistence. | Current repository head is `0015_user_source_retention`. |
+| Studio frontend | `apps/studio/` | Browser UI for sessions, projects, sources, credentials, Google connection, preparation, jobs, outputs, diagnostics, and one-time catalog migration; `src/apiClient.ts` owns same-origin JSON/CSRF retry transport and its safe diagnostic emission. | Web revision `625cd33` is deployed; exact-main browser CI is red at the project-creation navigation race. |
+| Studio API | `apps/studio-api/studio_api/` | FastAPI app, auth/session boundaries, owner-scoped APIs, job/source/credential/output/diagnostic/catalog services. | The deployed API is the compatible pre-`0016` baseline; source revision `625cd33` requires migration and a separately verified API rollout. |
+| Database | PostgreSQL via Studio deployment | Durable users/preferences/projects/sources/credentials/jobs/outputs/diagnostics/catalog state. | Repository migrations are present through `0016_transcript_catalog_entries`; production is operator-evidenced through `0015_user_source_retention`. |
+| Alembic migrations | `apps/studio-api/alembic/versions/` | Schema authority for Studio persistence. | Current repository head is `0016_transcript_catalog_entries`; standard CD does not apply it. |
 | Redis | Studio deployment | Platform support service; not a processing queue/lock/retry authority unless separately designed. | Production health is operator evidence, not source evidence. |
 | Object storage | S3/R2-compatible source storage | Private temporary/local-upload source bytes. | Object keys/source bytes remain server-only; the upload initiator returns one bounded PUT-only browser capability. Pending uploads and verified-source retention use separate persisted expiry windows. |
-| Worker | `apps/studio-api/studio_api/worker.py` and related runner/orchestrator modules | Poll/claim/process at most bounded work according to lease and lifecycle rules. | Implemented at source level; official production deployable component and canary still require validation. |
-| Provider path | ElevenLabs modules under `apps/studio-api/studio_api/` | Owner-scoped BYOK transcription execution. | ElevenLabs path present; OpenAI Studio parity unfinished. |
-| Google integration | Google OAuth/Drive/Docs modules under `apps/studio-api/studio_api/` | OAuth connection, safe Drive metadata/folder selection, Google Docs output creation. | Source present; exactly-once document creation is not claimed; source-level output reconciliation is present and runtime evidence is separate. |
+| Worker | `apps/studio-api/studio_api/worker.py` and related runner/orchestrator modules | Poll/claim/process at most bounded work according to lease and lifecycle rules. | Exactly one production worker is operator-evidenced healthy at image revision `900bf5b`; multi-worker behavior and a retained prior-image rollback candidate remain unproven. |
+| Provider path | ElevenLabs modules under `apps/studio-api/studio_api/` | Owner-scoped BYOK transcription execution. | One bounded ElevenLabs canary completed; dedicated option/video/long-media/multi-file canaries remain. OpenAI Studio processing is deferred. |
+| Google integration | Google OAuth/Drive/Docs modules under `apps/studio-api/studio_api/` | OAuth connection, safe Drive metadata/folder selection, Google Docs output creation. | Picker roles and one non-empty native Google Doc output are production-evidenced; exactly-once document creation is not claimed and reconciliation remains explicit. |
+| Transcript catalog migration | `transcript_catalog*.py`, migration `0016`, and frontend catalog panel/model modules | Owner-scoped dry-run/apply scan, in-place standardization, minimal source-linked metadata, duplicate classification, and explicit conflict outcomes. | Source-complete and web UI deployed; production database/API migration, authenticated dry-run, and separately authorized apply remain. |
 | Diagnostics | API/frontend diagnostic modules and migrations `0010`/`0011` | Safe diagnostic event/report/debug-session foundation. | Source present; evidence must remain redacted. |
 | Deployment | `deploy/studio/`, `.github/workflows/` | Component deployment and preflight automation boundaries. | Deployment changes are governed by `docs/ci-cd-rules.md`; standard CD must not deploy workers or run migrations. |
 
@@ -107,7 +108,7 @@ Lease loss, cancellation uncertainty, provider/Google errors, output-side-effect
 
 The repository contains Studio deployment and workflow files, but architecture does not authorize deployment behavior. CI/CD and runtime safety rules are in `docs/ci-cd-rules.md`; operator procedures are in `docs/runbooks/studio-platform-ops.md`.
 
-Current important distinction: web/API deployment, migration application, worker-running, and production-live processing are separate states. Standard CD must not silently run migrations, start workers, or claim Studio processing readiness. Current processing invariants are in `docs/studio-processing-contract.md`.
+Current important distinction: web/API deployment, migration application, worker-running, bounded core processing evidence, and catalog rollout are separate states. At `625cd33`, standard CD deployed web, skipped API because `0016` requires manual migration, and skipped the manual-only worker. Standard CD must not silently run migrations, start workers, or claim catalog/processing readiness. Current processing invariants are in `docs/studio-processing-contract.md`.
 
 ## Worker operational boundary
 

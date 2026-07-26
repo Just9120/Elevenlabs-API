@@ -136,15 +136,21 @@ Source currently present in the repository includes:
 - a dedicated worker entrypoint and Compose source wiring;
 - processing-time source availability/materialization boundaries;
 - processing prerequisites and owner-scoped credential/output checks;
-- ElevenLabs provider execution path;
-- Google Docs output creation path;
+- typed Russian-default/auto-detect language and ElevenLabs diarization options;
+- server-side video audio extraction plus deterministic long-media split/merge;
+- validated local and Google Picker multi-file intake with batch preflight;
+- staged browser-safe progress and aggregate transcription analytics;
+- ElevenLabs provider execution and Google Docs `transcript_doc_v1.2` output paths;
+- accepted-output/provider-attempt duplicate authority and output reconciliation;
+- one-time Google Docs catalog migration dry-run/apply, in-place standardization, and minimal source-linked catalog metadata;
 - safe output persistence and browser-safe output read path;
-- diagnostics, diagnostic debug sessions, migrations, and tests.
-- a deterministic API-to-worker processing E2E scenario that uses real PostgreSQL/Redis state and controlled in-process storage, ElevenLabs, and Google boundaries.
+- diagnostics, diagnostic debug sessions, retry/recovery, source retention/cleanup, migrations, and tests;
+- a deterministic API-to-worker processing E2E scenario that uses real PostgreSQL/Redis state and controlled in-process storage, ElevenLabs, and Google boundaries;
+- an authenticated Chromium scenario against isolated FastAPI/PostgreSQL/Redis state for principal preparation, job-result, progress, cancellation, retry, reconciliation, diagnostics, and fail-closed catalog UI boundaries.
 
-The processing E2E scenario is repository validation, not production evidence. It does not exercise a real browser, provider account, Google account, deployed worker, or public host, and it must not be used to claim exactly-once behavior outside its controlled fakes.
+These controlled E2E scenarios are repository validation, not production evidence. The API-to-worker scenario does not exercise a real browser, provider account, Google account, deployed worker, or public host. The authenticated browser scenario exercises real Chromium but still uses isolated services and controlled external boundaries. Neither scenario may be used to claim production provider/Google behavior or exactly-once output creation.
 
-The current Alembic migration head in the repository is `0015_user_source_retention` under `apps/studio-api/alembic/versions/`.
+The current Alembic migration head in the repository is `0016_transcript_catalog_entries` under `apps/studio-api/alembic/versions/`. Production PostgreSQL remains operator-evidenced at `0015_user_source_retention` until the separately authorized catalog migration is applied and verified; an API health response of `migrations=current` from the older API image proves compatibility with that image, not equality with the newer repository head.
 
 ## Studio PWA selected transcription scope
 
@@ -183,28 +189,23 @@ Selected-scope completion requires source and applicable browser/service-backed 
 
 ## Studio production status and remaining capabilities
 
-Studio processing is **not yet confirmed production-live**. Source-level implementation and CI do not prove production deployment, worker image parity, provider execution, Google Docs creation, or a successful controlled canary.
+The bounded small-source Studio processing path is production-live with operator evidence: production PostgreSQL was backed up and migrated through `0015_user_source_retention`, intended web/API component identities and health were verified, exactly one healthy worker was deployed from the commit-specific `900bf5b` image, and one operator-approved Drive source produced exactly one persisted `google_docs_transcript` and one non-empty native Google Doc without retry. This proves only that controlled baseline; it does not prove every selected capability, broader workload stability, exactly-once behavior under arbitrary failures, or the newer catalog revision.
 
-Source-complete capabilities that still lack current production rollout evidence:
+Production-evidenced baseline capabilities:
 
-- official worker lifecycle operations;
-- bounded PostgreSQL-backed lease heartbeat;
-- explicit output reconciliation for uncertain Google Docs side effects;
-- safe stage-specific retry and expired-lease recovery;
-- safe source deletion, retention, and local-object cleanup.
+- authenticated PWA access, project/source preparation, Google Picker source/folder roles, one single-attempt local upload completion, and public security headers;
+- manual-only worker lifecycle, health, image identity, and single-worker operation;
+- one controlled ElevenLabs-to-Google-Docs success with exactly one persisted output;
+- deployed browser-safe provider-attempt preflight authority and the source-complete heartbeat, retry/recovery, reconciliation, retention, and cleanup boundaries.
 
-Unfinished or unproven delivery capabilities:
+Current unproven or incomplete delivery capabilities:
 
-- production migration/deployment and worker rollout validation for the intended revision;
-- controlled end-to-end canary after the latest fix with exactly one persisted output;
-- browser-level automated E2E coverage for the authenticated preparation and job-result workflow;
-- typed language selection and ElevenLabs diarization through the browser/API/worker/output path;
-- video audio preparation and automatic long-media split/merge;
-- safe preflight, staged progress, and aggregate analytics;
-- validated local/Google Drive multi-file intake;
-- one-time Google Docs catalog import, `transcript_doc_v1.2` standardization, and cross-run duplicate protection;
+- production backup/migration to `0016_transcript_catalog_entries`, intended API deployment, authenticated catalog dry-run, and separately authorized apply;
+- restoration of a green post-merge authenticated browser E2E run after the project-creation navigation race found at `625cd33`;
+- dedicated production canaries for auto-detect language, diarization, video preparation, long-media split/merge, and multi-file processing;
+- continuous or accepted-output reuse/skip catalog behavior beyond the current partial source-linked duplicate authority;
 - golden validation for the selected Colab/PWA behaviors rather than literal full-feature parity;
-- multi-worker production validation.
+- multi-worker production validation and a retained prior worker-image rollback candidate.
 
 The Studio PWA may render implemented source-level output metadata for explicitly opened jobs, but that does not prove production-live processing or exactly-once Google document creation.
 
@@ -276,7 +277,7 @@ The public Studio host must enforce one browser security-header policy across th
 Studio processing can be considered production-live only after all of the following have factual operator evidence:
 
 1. Repository source and CI are verified for the intended commit.
-2. Production database migration head matches repository head `0015_user_source_retention` where required.
+2. Production database migration head matches the intended repository head where required. The current pending target is `0016_transcript_catalog_entries`; the previously evidenced production baseline is `0015_user_source_retention`.
 3. Web/API deployment identity and health are verified.
 4. Exactly one intended worker instance is deployed from the intended image and shown idle before the smoke.
 5. One controlled operator-approved job uses one small supported source, one owner-scoped ElevenLabs BYOK credential, one valid Google connection, and one writable output folder.
@@ -287,18 +288,18 @@ Studio processing can be considered production-live only after all of the follow
 
 ## Backlog authority
 
-Current delivery sequencing is in `docs/delivery-plan.md`. Product backlog items that remain durable:
+Current delivery sequencing is in `docs/delivery-plan.md`. The durable workstream list below records product authority; status annotations are factual delivery evidence, not changes to scope:
 
-- `PWA-PROCESSING-ROLLOUT-01A` — operator validation for fixed worker rollout and one controlled end-to-end canary.
-- `PWA-LEGACY-AUTHORITY-01` — remove or formally mark legacy deployment/runtime paths after review.
-- `PWA-E2E-FOUNDATION-01B` — extend the source-level API/worker processing foundation through the authenticated browser workflow without replacing the production canary requirement.
-- `PWA-TRANSCRIPTION-OPTIONS-01` — typed Russian-default/auto-detect language selection and required ElevenLabs speaker separation across PWA, API, worker, and Google Docs output.
-- `PWA-MEDIA-PREPARATION-01` — server-side video audio extraction plus deterministic long-media size/duration split and merge.
-- `PWA-MULTI-SOURCE-VALIDATION-01` — end-to-end validation of existing local and Google Picker multi-file intake; folder/recursive ingestion is a non-goal.
-- `PWA-PREFLIGHT-PROGRESS-01` — safe preflight and polished staged progress for the selected processing pipeline.
-- `PWA-TRANSCRIPT-CATALOG-MIGRATION-01` — one-time dry-run/apply import and `transcript_doc_v1.2` standardization of the approved existing Google Docs collection, combined with durable cross-run duplicate protection and explicit conflict handling.
-- `PWA-TRANSCRIPTION-ANALYTICS-01` — safe aggregate transcription outcomes and stage-duration analytics.
-- `PWA-TRANSCRIPT-CATALOG-SYNC-01` — deferred design for a Google Drive-backed continuously refreshed PWA catalog and its system-of-record boundary.
+- `PWA-PROCESSING-ROLLOUT-01A` — bounded single-worker/small-source production rollout and controlled exactly-one-output canary are complete; broader workload evidence remains separate.
+- `PWA-LEGACY-AUTHORITY-01` — pending external-consumer review before the two deprecated compatibility APIs are removed or assigned an explicit support/removal contract.
+- `PWA-E2E-FOUNDATION-01B` — authenticated Chromium foundation is source-complete; the current post-merge project-creation navigation regression must be fixed before browser CI is green again.
+- `PWA-TRANSCRIPTION-OPTIONS-01` — typed Russian-default/auto-detect language selection and required ElevenLabs speaker separation are source-complete across PWA, API, worker, and Google Docs output; dedicated live canaries remain.
+- `PWA-MEDIA-PREPARATION-01` — server-side video audio extraction plus deterministic long-media size/duration split and merge are source-complete; dedicated live canaries remain.
+- `PWA-MULTI-SOURCE-VALIDATION-01` — local and Google Picker multi-file intake is source-complete with automated evidence; broader production processing validation remains, and folder/recursive ingestion is a non-goal.
+- `PWA-PREFLIGHT-PROGRESS-01` — safe preflight and staged progress are source-complete, with the provider-attempt authority deployed.
+- `PWA-TRANSCRIPT-CATALOG-MIGRATION-01` — one-time dry-run/apply import, `transcript_doc_v1.2` standardization, source-linked duplicate authority, and explicit conflict handling are source-complete at `625cd33`; production migration/API rollout and Google dry-run/apply evidence remain.
+- `PWA-TRANSCRIPTION-ANALYTICS-01` — safe aggregate outcomes and stage-duration analytics are source-complete; broader production evidence remains.
+- `PWA-TRANSCRIPT-CATALOG-SYNC-01` — deferred design for a Google Drive-backed continuously refreshed PWA catalog and its system-of-record boundary; no continuous sync is implemented.
 - OpenAI processing, keyterms, manual speaker rename, manual cutting/concatenation, and Drive folder/recursive intake remain deferred or excluded as defined above.
 
 Source-complete delivery items remain listed for traceability and still require applicable rollout evidence:
