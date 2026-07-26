@@ -2514,7 +2514,10 @@ function ProjectsPage({
           className="primary"
           type="button"
           aria-expanded={showCreate}
-          onClick={() => setCreateOpen((v) => !v)}
+          onClick={() => {
+            onRequestedProjectsViewHandled();
+            setCreateOpen((v) => !v);
+          }}
         >
           Новый проект
         </button>
