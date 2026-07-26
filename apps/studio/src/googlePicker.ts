@@ -1,4 +1,4 @@
-export type PickerMode = "sources" | "output-folder";
+export type PickerMode = "sources" | "output-folder" | "catalog-folder";
 export type PickerSelection = { id: string; name?: string; mimeType?: string };
 export type PickerResult =
   | { action: "picked"; docs: PickerSelection[] }
@@ -57,6 +57,7 @@ const PICKER_LOCALE = "ru";
 const MY_DRIVE_ROOT_PARENT = "root";
 const SOURCE_PICKER_TITLE = "Выберите аудио или видео";
 const OUTPUT_FOLDER_PICKER_TITLE = "Выберите папку для результатов";
+const CATALOG_FOLDER_PICKER_TITLE = "Выберите папку каталога транскриптов";
 const PICKER_MIN_WIDTH = 566;
 const PICKER_MIN_HEIGHT = 350;
 const PICKER_VIEWPORT_MARGIN = 48;
@@ -173,6 +174,7 @@ export async function openGooglePicker(
   mode: PickerMode,
   session: PickerSession,
 ): Promise<PickerResult> {
+  const folderMode = mode !== "sources";
   let token = session.access_token;
   session.access_token = "";
   try {
@@ -210,14 +212,12 @@ export async function openGooglePicker(
     };
     try {
       const view = new pickerApi.DocsView(
-        mode === "output-folder"
-          ? pickerApi.ViewId.FOLDERS
-          : pickerApi.ViewId.DOCS,
+        folderMode ? pickerApi.ViewId.FOLDERS : pickerApi.ViewId.DOCS,
       );
       view.setMode(pickerApi.DocsViewMode.LIST);
       view.setParent(MY_DRIVE_ROOT_PARENT);
       view.setIncludeFolders?.(true);
-      if (mode === "output-folder") {
+      if (folderMode) {
         view.setSelectFolderEnabled?.(true);
       }
       const { width, height } = computeGooglePickerSize(
@@ -229,12 +229,14 @@ export async function openGooglePicker(
       builder.setLocale(PICKER_LOCALE);
       builder.setSize(width, height);
       builder.setTitle(
-        mode === "output-folder"
-          ? OUTPUT_FOLDER_PICKER_TITLE
-          : SOURCE_PICKER_TITLE,
+        mode === "catalog-folder"
+          ? CATALOG_FOLDER_PICKER_TITLE
+          : folderMode
+            ? OUTPUT_FOLDER_PICKER_TITLE
+            : SOURCE_PICKER_TITLE,
       );
       builder.setOrigin(window.location.origin);
-      builder.setMaxItems(mode === "output-folder" ? 1 : 50);
+      builder.setMaxItems(folderMode ? 1 : 50);
       if (mode === "sources") {
         builder.enableFeature(pickerApi.Feature.MULTISELECT_ENABLED);
       }

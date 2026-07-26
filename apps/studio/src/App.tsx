@@ -89,6 +89,7 @@ import {
   type JobProgressState,
 } from "./jobProgressModel";
 import { TranscriptionAnalyticsPanel } from "./TranscriptionAnalyticsPanel";
+import { TranscriptCatalogMigrationPanel } from "./TranscriptCatalogMigrationPanel";
 import "./styles.css";
 
 type AccountPreferences = {
@@ -2821,6 +2822,8 @@ function auditLabel(type: string) {
     "job.cancelled": "Задача отменена",
     "job.cancel_requested": "Запрошена отмена задачи",
     "google.oauth_failed": "Подключение Google Drive не удалось",
+    "transcript_catalog.migration_applied":
+      "Миграция каталога транскриптов применена",
   };
   return labels[type] ?? "Событие безопасности";
 }
@@ -3339,6 +3342,13 @@ function SettingsPage({
             )}
             {googleMessage && <p className="error">{googleMessage}</p>}
           </article>
+          <TranscriptCatalogMigrationPanel
+            csrf={csrf}
+            onCsrf={onCsrf}
+            googleConnected={googleConnection?.connected === true}
+            googleLoading={googleLoading}
+            pickerReady={googleConnection?.picker_ready === true}
+          />
           <details className="card security-log">
             <summary className="summary-row">
               <span>Журнал безопасности</span>

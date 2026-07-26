@@ -80,6 +80,8 @@ def test_unhandled_api_event_registry_accepts_only_safe_aggregate_metadata(db):
     assert json.loads(row.metadata_json) == {"endpoint_group":"jobs", "http_status_category":"5xx"}
     rejected=write_diagnostic_event(owner_user_id=u.id, component="api", event_code="API_UNHANDLED_EXCEPTION", metadata={"endpoint_group":"jobs", "http_status_category":"5xx", "exception":"private"}, session_factory=Session)
     assert rejected.accepted is False
+    catalog=write_diagnostic_event(owner_user_id=u.id, component="api", event_code="API_UNHANDLED_EXCEPTION", metadata={"endpoint_group":"transcript_catalog", "http_status_category":"5xx"}, session_factory=Session)
+    assert catalog.persisted
 
 
 def test_google_picker_failure_event_accepts_only_safe_reason(db):
