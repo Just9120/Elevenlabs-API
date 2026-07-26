@@ -24,8 +24,10 @@ import {
 import {
   parsePlatformRoute,
   pushPlatformRoute,
+  resolveRequestedProjectsView,
   type Page,
   type PlatformRoute,
+  type ProjectsViewRequest,
   type SettingsSection,
 } from "./platformRouting";
 import {
@@ -2283,7 +2285,7 @@ function ProjectsPage({
   onCsrf: (csrf: string) => void;
   requestedProjectId: string | null;
   onRequestedProjectHandled: () => void;
-  requestedProjectsView: "browse" | "create" | null;
+  requestedProjectsView: ProjectsViewRequest;
   onRequestedProjectsViewHandled: () => void;
 }) {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -2336,11 +2338,15 @@ function ProjectsPage({
     }
   }, [requestedProjectId, projects, onRequestedProjectHandled]);
   useEffect(() => {
-    if (!requestedProjectsView) return;
-    if (requestedProjectsView === "browse" && loading) return;
-    setCreateOpen(
-      requestedProjectsView === "create" || projects.length === 0,
+    const nextCreateOpen = resolveRequestedProjectsView(
+      requestedProjectsView,
+      {
+        loading,
+        projectCount: projects.length,
+      },
     );
+    if (nextCreateOpen === null) return;
+    setCreateOpen(nextCreateOpen);
     onRequestedProjectsViewHandled();
   }, [
     requestedProjectsView,
@@ -3894,7 +3900,7 @@ function PlatformShell() {
     null,
   );
   const [requestedProjectsView, setRequestedProjectsView] = useState<
-    "browse" | "create" | null
+    ProjectsViewRequest
   >(null);
   const [projectsOpened, setProjectsOpened] = useState(false);
   const navigate = (
