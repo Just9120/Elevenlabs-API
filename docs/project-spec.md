@@ -136,13 +136,19 @@ Source currently present in the repository includes:
 - a dedicated worker entrypoint and Compose source wiring;
 - processing-time source availability/materialization boundaries;
 - processing prerequisites and owner-scoped credential/output checks;
-- ElevenLabs provider execution path;
-- Google Docs output creation path;
+- typed Russian-default/auto-detect language and ElevenLabs diarization options;
+- server-side video audio extraction plus deterministic long-media split/merge;
+- validated local and Google Picker multi-file intake with batch preflight;
+- staged browser-safe progress and aggregate transcription analytics;
+- ElevenLabs provider execution and Google Docs `transcript_doc_v1.2` output paths;
+- accepted-output/provider-attempt duplicate authority and output reconciliation;
+- one-time Google Docs catalog migration dry-run/apply, in-place standardization, and minimal source-linked catalog metadata;
 - safe output persistence and browser-safe output read path;
-- diagnostics, diagnostic debug sessions, migrations, and tests.
-- a deterministic API-to-worker processing E2E scenario that uses real PostgreSQL/Redis state and controlled in-process storage, ElevenLabs, and Google boundaries.
+- diagnostics, diagnostic debug sessions, retry/recovery, source retention/cleanup, migrations, and tests;
+- a deterministic API-to-worker processing E2E scenario that uses real PostgreSQL/Redis state and controlled in-process storage, ElevenLabs, and Google boundaries;
+- an authenticated Chromium scenario against isolated FastAPI/PostgreSQL/Redis state for principal preparation, job-result, progress, cancellation, retry, reconciliation, diagnostics, and fail-closed catalog UI boundaries.
 
-The processing E2E scenario is repository validation, not production evidence. It does not exercise a real browser, provider account, Google account, deployed worker, or public host, and it must not be used to claim exactly-once behavior outside its controlled fakes.
+These controlled E2E scenarios are repository validation, not production evidence. The API-to-worker scenario does not exercise a real browser, provider account, Google account, deployed worker, or public host. The authenticated browser scenario exercises real Chromium but still uses isolated services and controlled external boundaries. Neither scenario may be used to claim production provider/Google behavior or exactly-once output creation.
 
 The current Alembic migration head in the repository is `0016_transcript_catalog_entries` under `apps/studio-api/alembic/versions/`. Production PostgreSQL remains operator-evidenced at `0015_user_source_retention` until the separately authorized catalog migration is applied and verified; an API health response of `migrations=current` from the older API image proves compatibility with that image, not equality with the newer repository head.
 
