@@ -371,11 +371,11 @@ GitHub Actions supports manual `workflow_dispatch(component=worker)` using the s
 
 ## Output reconciliation operations boundary
 
-`PWA-OUTPUT-RECONCILIATION-01` is source-level only until an operator manually applies the current migration head `0016_transcript_catalog_entries` in the target database and verifies API/worker image compatibility. Standard CD must not run migrations automatically.
+`PWA-OUTPUT-RECONCILIATION-01` uses schema introduced by `0012_output_reconciliation_cases` and is part of the operator-evidenced production baseline migrated through `0015_user_source_retention`. The pending catalog migration `0016_transcript_catalog_entries` does not gate reconciliation behavior. Any future API/worker revision still requires schema compatibility and component identity checks; standard CD must not run migrations automatically.
 
 When a job fails with `output_reconciliation_required`, the owner may use the Studio PWA action or API check endpoint to query Drive by the internal opaque appProperty token and the job output-folder snapshot. Operators must not ask users for raw Google document IDs, must not create duplicate Google Docs, must not delete possible duplicates, must not retry provider processing as reconciliation, and must not inspect transcript/document bodies as evidence. Zero matches remain unresolved for later explicit checks. Multiple matches are a conflict requiring manual investigation outside the automated path.
 
-No production deployment, migration rollout, worker rollout, or controlled canary was performed by the source change.
+The bounded production canary produced one resolved reconciliation case and required no manual reconciliation mutation. That evidence proves the deployed read path for that case, not arbitrary uncertain-output recovery; an actual `output_reconciliation_required` case must still follow the fail-closed procedure above.
 
 
 ### Studio output reconciliation runtime guardrails
@@ -387,4 +387,4 @@ No production deployment, migration rollout, worker rollout, or controlled canar
 
 ## Source cleanup operations note
 
-Repository Alembic head is `0016_transcript_catalog_entries`. Source cleanup is durable PostgreSQL state on `sources`; the allowlisted per-user retention preference is durable PostgreSQL state on `users`. Cleanup is processed as bounded worker idle maintenance after normal job claim/orchestration finds no job. Safe diagnostics use normalized source deletion/retention/cleanup events and must not log object keys, buckets, filenames, Drive file IDs, presigned URLs, raw storage errors, or secrets. Production migration, deployment, worker rollout, and controlled canary remain manual operator actions and were not run by this source-level PR.
+Repository Alembic head is `0016_transcript_catalog_entries`, while the source-cleanup and retention schema through `0015_user_source_retention` is production-applied. Source cleanup is durable PostgreSQL state on `sources`; the allowlisted per-user retention preference is durable PostgreSQL state on `users`. Cleanup is processed as bounded worker idle maintenance after normal job claim/orchestration finds no job. Safe diagnostics use normalized source deletion/retention/cleanup events and must not log object keys, buckets, filenames, Drive file IDs, presigned URLs, raw storage errors, or secrets. The authenticated smoke proved that source removal queued background cleanup, but it did not inspect the later physical R2 deletion outcome.
