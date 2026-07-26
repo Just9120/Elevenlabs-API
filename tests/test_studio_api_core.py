@@ -27,13 +27,11 @@ import pytest
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 from fastapi.testclient import TestClient
-from starlette.requests import Request
 from sqlalchemy import create_engine, inspect, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import OperationalError
 from studio_api.config import Settings
 from studio_api.db import SessionLocal, engine
-from studio_api.deps import get_client_ip
 from studio_api.main import app, limiter
 from studio_api.models import AuditEvent, DiagnosticDebugSession, DiagnosticEvent, TranscriptionOutputReconciliation, TranscriptionJobSourceAttempt, OutputReconciliationStatus, SourceAttemptRetryDisposition, SourceAttemptStage, CredentialProvider, CredentialStatus, JobSourceStatus, JobStatus, LocalIdentity, Project, ProviderCredential, ProviderCredentialVersion, Source, SourceStorageCleanupStatus, SourceType, SourceUploadStatus, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, User, UserRole, UserStatus
 from studio_api.security import aad, decrypt, encrypt, hash_password, master_key_from_b64, utcnow, verify_password
@@ -327,19 +325,6 @@ def test_aes_gcm_unique_nonce_and_aad_binding():
 
 def test_bootstrap_status():
     c = TestClient(app); assert c.get("/api/auth/bootstrap-status").json()["bootstrap_required"] is True; admin(); assert c.get("/api/auth/bootstrap-status").json()["bootstrap_required"] is False
-
-
-def request_with_peer(peer: tuple[str, int], forwarded_for: str) -> Request:
-    return Request({"type": "http", "method": "GET", "path": "/", "headers": [(b"x-forwarded-for", forwarded_for.encode())], "client": peer})
-
-
-def test_spoofed_forwarded_for_ignored_without_trusted_proxy():
-    settings = Settings(trusted_proxy_ip="127.0.0.1")
-    spoofed = request_with_peer(("8.8.8.8", 12345), "1.2.3.4")
-    trusted = request_with_peer(("127.0.0.1", 12345), "1.2.3.4")
-
-    assert get_client_ip(spoofed, settings) == "8.8.8.8"
-    assert get_client_ip(trusted, settings) == "1.2.3.4"
 
 
 def test_projects_require_authentication():

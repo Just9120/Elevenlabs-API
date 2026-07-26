@@ -23,7 +23,8 @@
 - ⏳ `PWA-PROJECT-CREATE-NAVIGATION-RACE-01` — Local source implementation and deterministic regression evidence are complete on the working branch: an explicit `Новый проект` action now clears the pending `browse` intent before opening the form, and a delayed `/projects` test reproduces the old close-after-load behavior. Exact changed-revision Studio/browser CI remains required after batch publication before this item is marked done.
 - ⏳ `PWA-DOCKER-CONTEXT-01` — Local source and static contract evidence are complete on the working branch: frontend/API contexts exclude host dependencies, generated output, caches, test artifacts, virtual environments, and local environment/secret-shaped files while retaining required build inputs. Docker is unavailable in the local environment, so both exact-revision image builds remain required in Studio CI after batch publication.
 - ⏳ `PWA-WORKER-CHANGE-DETECTION-01` — Local workflow and contract evidence are complete on the working branch. Any API-context change now reports a manual worker dependency review while automatic worker deployment remains impossible; exact-revision workflow evidence remains pending publication.
-- 👉 `PWA-TRUSTED-PROXY-01` — Next local item. Establish a testable trusted-hop contract from current nginx/Compose topology without guessing or mutating production; any runtime configuration change remains evidence-gated.
+- ⏳ `PWA-TRUSTED-PROXY-01` — Local source/config support is complete on the working branch: one validated exact trusted peer is wired through Compose, forwarded headers remain ignored for every other direct peer, and the runbook requires bounded peer observation before any production value/deploy change. Production peer identity and runtime verification remain unproven.
+- 👉 `PWA-RATE-LIMIT-ATOMICITY-01` — Next local item. Make Redis increment/expiry one atomic operation without weakening existing login limits or changing endpoint behavior.
 - ⏸ `PWA-TRANSCRIPT-CATALOG-MIGRATION-01 / production rollout` — Stateful operator item after a green merged source batch: tagged pre-migration backup, manual migration to `0016_transcript_catalog_entries`, intended API deployment/identity/health verification, authenticated approved-folder dry-run, and a separately authorized apply.
 - 📋 `PWA-LEGACY-AUTHORITY-01` — After the catalog batch, confirm external consumers and then remove the two deprecated compatibility APIs or retain them with an explicit support/removal contract.
 - ⏸ `PWA-FRONTEND-MODULARIZATION-03` — Preparation composer/readiness extraction is deferred until the production baseline is known or rollout is waiting on an explicit operator window.
@@ -49,7 +50,7 @@
 | Bounded one-small-source canary | **100% of its exact scenario gates** | The `0015` core baseline has backup, component identities, database compatibility, public health/security, one exactly-one-output canary, and safe diagnostics/reconciliation. This must not be generalized to every selected mode or repository head. |
 | Catalog migration production rollout | **about 20%** | Source and web UI are merged and the web component is deployed, but production backup for this migration, database `0016`, intended API deployment, authenticated dry-run, and separately authorized apply remain. |
 
-The scoring method and per-epic fractions are in `docs/audits/repository-audit-2026-07-26.md`. The local project-create, Docker-context, and worker-visibility fixes improve implementation confidence but do not yet promote exact-main CI, image-build, or deployment gates, so the aggregate estimates remain unchanged pending publication. Catalog production readiness changes only after the separately evidenced backup, migration, API deployment, dry-run, and authorized apply gates.
+The scoring method and per-epic fractions are in `docs/audits/repository-audit-2026-07-26.md`. The local project-create, Docker-context, worker-visibility, and trusted-peer contract fixes improve implementation confidence but do not yet promote exact-main CI, image-build, deployment, or production-peer gates, so the aggregate estimates remain unchanged pending publication. Catalog production readiness changes only after the separately evidenced backup, migration, API deployment, dry-run, and authorized apply gates.
 
 ## Release-critical roadmap
 
@@ -150,7 +151,7 @@ Order product work so that each capability inherits a known production baseline:
 1. ⏳ `PWA-PROJECT-CREATE-NAVIGATION-RACE-01` — local fix and delayed-load regression complete; exact-revision authenticated Chromium remains.
 2. ⏳ `PWA-DOCKER-CONTEXT-01` — local frontend/API exclusions and static contract complete; exact-revision image builds remain.
 3. ⏳ `PWA-WORKER-CHANGE-DETECTION-01` — local conservative manual-review visibility complete; exact-revision workflow evidence remains.
-4. 👉 Authentication/runtime hygiene — verify the trusted-proxy hop contract before changing configuration, then address rate-limit atomicity, session-write amplification, and expired auth-row retention in focused tasks.
+4. 👉 Authentication/runtime hygiene — local exact-peer config support is complete but production peer evidence remains; next address rate-limit atomicity, session-write amplification, and expired auth-row retention in focused tasks.
 5. `PWA-TRANSCRIPT-CATALOG-MIGRATION-01 / production rollout` — only after a green merged source batch, preserve a tagged backup, migrate PostgreSQL to `0016_transcript_catalog_entries`, deploy/verify the intended API, run an authenticated approved-folder dry-run, and require separate authorization before one bounded apply.
 6. Selected-capability production canaries — validate auto-detect language, diarization, video preparation, long-media split/merge, and multi-file processing without treating one small-source success as proof of all modes.
 7. `PWA-LEGACY-AUTHORITY-01` — confirm external consumers, then remove the two deprecated compatibility APIs or retain them with an explicit support/removal contract. The old static UI and obsolete stateless/full-platform deploy paths are already removed.
@@ -169,7 +170,7 @@ PR #188 and dependency-audit verification completed the CD-observability, depend
 
 1. Prove the local `.dockerignore` context contracts through exact-revision frontend/API image builds in Studio CI.
 2. Prove the local worker shared-dependency review signal through exact-revision component-CD evidence.
-3. Verify the trusted-proxy peer contract and address auth/session/rate-limit retention only from that evidence.
+3. Obtain production trusted-peer evidence for the local exact-IP contract, and continue auth/session/rate-limit retention work without guessing the runtime value.
 4. Resume `PWA-FRONTEND-MODULARIZATION-03`: extract bounded preparation composer/readiness behavior, then split `App.test.tsx` by the same domain boundaries.
 5. Modularize `apps/studio-api/studio_api/main.py` into domain routers/response models, followed by a fixture-preserving split of `tests/test_studio_api_core.py`.
 6. Simplify the 619-line `docs/ai-coding-workflow.md` in a dedicated documentation task; keep `AGENTS.md` as the lightweight router and avoid duplicating product/CI contracts.
