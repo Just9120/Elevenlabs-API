@@ -189,28 +189,23 @@ Selected-scope completion requires source and applicable browser/service-backed 
 
 ## Studio production status and remaining capabilities
 
-Studio processing is **not yet confirmed production-live**. Source-level implementation and CI do not prove production deployment, worker image parity, provider execution, Google Docs creation, or a successful controlled canary.
+The bounded small-source Studio processing path is production-live with operator evidence: production PostgreSQL was backed up and migrated through `0015_user_source_retention`, intended web/API component identities and health were verified, exactly one healthy worker was deployed from the commit-specific `900bf5b` image, and one operator-approved Drive source produced exactly one persisted `google_docs_transcript` and one non-empty native Google Doc without retry. This proves only that controlled baseline; it does not prove every selected capability, broader workload stability, exactly-once behavior under arbitrary failures, or the newer catalog revision.
 
-Source-complete capabilities that still lack current production rollout evidence:
+Production-evidenced baseline capabilities:
 
-- official worker lifecycle operations;
-- bounded PostgreSQL-backed lease heartbeat;
-- explicit output reconciliation for uncertain Google Docs side effects;
-- safe stage-specific retry and expired-lease recovery;
-- safe source deletion, retention, and local-object cleanup.
+- authenticated PWA access, project/source preparation, Google Picker source/folder roles, one single-attempt local upload completion, and public security headers;
+- manual-only worker lifecycle, health, image identity, and single-worker operation;
+- one controlled ElevenLabs-to-Google-Docs success with exactly one persisted output;
+- deployed browser-safe provider-attempt preflight authority and the source-complete heartbeat, retry/recovery, reconciliation, retention, and cleanup boundaries.
 
-Unfinished or unproven delivery capabilities:
+Current unproven or incomplete delivery capabilities:
 
-- production migration/deployment and worker rollout validation for the intended revision;
-- controlled end-to-end canary after the latest fix with exactly one persisted output;
-- browser-level automated E2E coverage for the authenticated preparation and job-result workflow;
-- typed language selection and ElevenLabs diarization through the browser/API/worker/output path;
-- video audio preparation and automatic long-media split/merge;
-- safe preflight, staged progress, and aggregate analytics;
-- validated local/Google Drive multi-file intake;
-- one-time Google Docs catalog import, `transcript_doc_v1.2` standardization, and cross-run duplicate protection;
+- production backup/migration to `0016_transcript_catalog_entries`, intended API deployment, authenticated catalog dry-run, and separately authorized apply;
+- restoration of a green post-merge authenticated browser E2E run after the project-creation navigation race found at `625cd33`;
+- dedicated production canaries for auto-detect language, diarization, video preparation, long-media split/merge, and multi-file processing;
+- continuous or accepted-output reuse/skip catalog behavior beyond the current partial source-linked duplicate authority;
 - golden validation for the selected Colab/PWA behaviors rather than literal full-feature parity;
-- multi-worker production validation.
+- multi-worker production validation and a retained prior worker-image rollback candidate.
 
 The Studio PWA may render implemented source-level output metadata for explicitly opened jobs, but that does not prove production-live processing or exactly-once Google document creation.
 
