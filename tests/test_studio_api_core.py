@@ -187,6 +187,29 @@ def test_catalog_metadata_apply_is_idempotent_on_postgresql():
         db.close()
 
 
+def test_transcript_catalog_migration_routes_require_authentication_and_csrf():
+    anonymous = TestClient(app)
+    body = {"folder_id": "private-folder"}
+    assert anonymous.post(
+        "/api/transcript-catalog/migration/dry-run",
+        json=body,
+    ).status_code == 401
+    assert anonymous.post(
+        "/api/transcript-catalog/migration/apply",
+        json={**body, "confirm_apply": True},
+    ).status_code == 401
+
+    password = admin("catalog-route-auth@example.com")
+    client = TestClient(app)
+    login(client, password, "catalog-route-auth@example.com")
+    response = client.post(
+        "/api/transcript-catalog/migration/dry-run",
+        json=body,
+        headers={"origin": "https://studio.test"},
+    )
+    assert response.status_code == 403
+
+
 def test_readiness_non_200_when_migrations_pending():
     cfg = Config(str(ALEMBIC)); head = ScriptDirectory.from_config(cfg).get_current_head()
     with engine.begin() as conn:

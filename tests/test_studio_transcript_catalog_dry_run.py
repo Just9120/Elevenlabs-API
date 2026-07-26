@@ -353,3 +353,23 @@ def test_catalog_dry_run_requires_exact_authority_coverage():
             reader=Reader(),
             authority_loader=lambda *args, **kwargs: {},
         )
+
+
+def test_catalog_folder_inspection_repr_redacts_private_evidence():
+    from studio_api.transcript_catalog_dry_run import (
+        CatalogMigrationFolderInspection,
+    )
+
+    inspection = CatalogMigrationFolderInspection(
+        candidates=("private-candidate",),
+        created_time_by_document_id={
+            "private-document": "2026-07-01T00:00:00Z"
+        },
+        scan_summary={"google_document_count": 1},
+    )
+
+    rendered = repr(inspection)
+    assert "candidate_count=1" in rendered
+    assert "google_document_count" in rendered
+    assert "private-candidate" not in rendered
+    assert "private-document" not in rendered

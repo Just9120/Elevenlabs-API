@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable, Sequence
 
 from sqlalchemy import and_
@@ -35,6 +35,25 @@ class CatalogImportAuthority:
     settings_status: CatalogSettingsAuthorityStatus
 
 
+@dataclass(frozen=True)
+class CatalogMigrationFolderInspection:
+    """Private revalidated folder evidence for dry-run or explicit apply."""
+
+    candidates: tuple[CatalogMigrationCandidate, ...] = field(repr=False)
+    created_time_by_document_id: dict[str, str | None] = field(
+        repr=False
+    )
+    scan_summary: dict[str, int]
+
+    def __repr__(self) -> str:
+        return (
+            "CatalogMigrationFolderInspection("
+            f"candidate_count={len(self.candidates)!r}, "
+            f"scan_summary={self.scan_summary!r}, "
+            "candidates=<redacted>, created_time_by_document_id=<redacted>)"
+        )
+
+
 def build_catalog_migration_dry_run(
     db: Any,
     *,
@@ -46,6 +65,34 @@ def build_catalog_migration_dry_run(
     | None = None,
 ) -> dict:
     """Build one owner-scoped, non-mutating migration preview."""
+
+    inspection = inspect_catalog_migration_folder(
+        db,
+        owner_user_id=owner_user_id,
+        access_token=access_token,
+        folder_id=folder_id,
+        reader=reader,
+        authority_loader=authority_loader,
+    )
+    payload = build_catalog_migration_payload(
+        operation=CatalogMigrationOperation.dry_run,
+        candidates=inspection.candidates,
+    )
+    payload["scan_summary"] = dict(inspection.scan_summary)
+    return payload
+
+
+def inspect_catalog_migration_folder(
+    db: Any,
+    *,
+    owner_user_id: str,
+    access_token: str,
+    folder_id: str,
+    reader: GoogleTranscriptCatalogReader | None = None,
+    authority_loader: Callable[..., dict[str, CatalogImportAuthority]]
+    | None = None,
+) -> CatalogMigrationFolderInspection:
+    """Rebuild private folder evidence without trusting a browser preview."""
 
     owner_id = _private_identity(owner_user_id, label="owner")
     catalog_reader = reader or GoogleTranscriptCatalogReader()
@@ -93,20 +140,22 @@ def build_catalog_migration_dry_run(
             )
         )
 
-    payload = build_catalog_migration_payload(
-        operation=CatalogMigrationOperation.dry_run,
-        candidates=candidates,
+    return CatalogMigrationFolderInspection(
+        candidates=tuple(candidates),
+        created_time_by_document_id={
+            document.drive_document_id: document.created_time
+            for document in folder_scan.documents
+        },
+        scan_summary={
+            "google_document_count": len(folder_scan.documents),
+            "nested_folder_count": folder_scan.nested_folder_count,
+            "skipped_non_document_count": (
+                folder_scan.skipped_non_document_count
+            ),
+            "unreadable_document_count": unreadable_document_count,
+            "pages_scanned": folder_scan.pages_scanned,
+        },
     )
-    payload["scan_summary"] = {
-        "google_document_count": len(folder_scan.documents),
-        "nested_folder_count": folder_scan.nested_folder_count,
-        "skipped_non_document_count": (
-            folder_scan.skipped_non_document_count
-        ),
-        "unreadable_document_count": unreadable_document_count,
-        "pages_scanned": folder_scan.pages_scanned,
-    }
-    return payload
 
 
 def load_catalog_import_authorities(
