@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 from .audit import audit
+from .auth_retention import cleanup_expired_auth_state
 from .config import get_settings
 from .db import Base, engine, get_db
 from .deps import current_session, get_client_ip, require_csrf, require_same_origin
@@ -241,6 +242,7 @@ def bootstrap_status(db: Session=Depends(get_db)):
 @app.post("/api/auth/login-context")
 def login_context(request: Request, db: Session=Depends(get_db), _=Depends(require_same_origin)):
     limiter.check("login-context:"+rate_key_part(client_id(request)), 20, 300)
+    cleanup_expired_auth_state()
     raw=new_token(); ctx=LoginContext(csrf_hash=token_hash(raw), expires_at=utcnow()+timedelta(minutes=10)); db.add(ctx); db.commit(); return {"login_csrf_token": raw}
 
 @app.post("/api/auth/login")
@@ -1245,6 +1247,7 @@ def get_google_connection(pair=Depends(current_session), db: Session=Depends(get
 @app.post("/api/google/oauth/start")
 def start_google_oauth(request: Request, response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     sess,user=pair; limiter.check("google:oauth:start:"+user.id, 20, 3600); _browser_capability_cache_headers(response)
+    cleanup_expired_auth_state()
     cfg=google_config_or_503()
     from .google_oauth import authorization_url
     raw_state=new_token()

@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     cookie_secure: bool = True
     session_days: int = 14
     session_last_seen_write_interval_seconds: int = Field(default=300, ge=60, le=3600)
+    auth_cleanup_interval_seconds: int = Field(default=3600, ge=60, le=86400)
+    auth_cleanup_batch_size: int = Field(default=500, ge=1, le=1000)
     credential_master_key_file: str = "/run/secrets/studio_credential_master_key"
     credential_key_id: str = "studio-v1"
     enable_api_docs: bool = False
