@@ -243,7 +243,7 @@ def _apply_one_candidate(
             CatalogMetadataApplyOutcome.conflict,
             CatalogMetadataApplyReason.catalog_metadata_conflict,
         )
-    if inserted.rowcount == 1:
+    if inserted.created:
         return CatalogMetadataApplyOutcome.imported, None
     _refresh_catalog_observation(
         persisted,
@@ -256,7 +256,7 @@ def _apply_one_candidate(
 @dataclass(frozen=True)
 class _InsertResult:
     model: Any
-    rowcount: int | None
+    created: bool
 
 
 def _insert_catalog_entry_if_absent(
@@ -272,16 +272,20 @@ def _insert_catalog_entry_if_absent(
         from sqlalchemy.dialects.sqlite import insert
     else:
         raise RuntimeError("Catalog apply requires PostgreSQL or SQLite")
-    result = db.execute(
+    statement = (
         insert(TranscriptCatalogEntry)
         .values(**values)
         .on_conflict_do_nothing(
             index_elements=["owner_user_id", "document_id"],
         )
+        .returning(TranscriptCatalogEntry.id)
     )
+    inserted_id = db.execute(statement).scalar_one_or_none()
+    if inserted_id is not None and inserted_id != values["id"]:
+        raise RuntimeError("Catalog insert returned an unexpected identity")
     return _InsertResult(
         model=TranscriptCatalogEntry,
-        rowcount=result.rowcount,
+        created=inserted_id is not None,
     )
 
 
