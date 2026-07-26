@@ -144,7 +144,7 @@ Source currently present in the repository includes:
 
 The processing E2E scenario is repository validation, not production evidence. It does not exercise a real browser, provider account, Google account, deployed worker, or public host, and it must not be used to claim exactly-once behavior outside its controlled fakes.
 
-The current Alembic migration head in the repository is `0015_user_source_retention` under `apps/studio-api/alembic/versions/`.
+The current Alembic migration head in the repository is `0016_transcript_catalog_entries` under `apps/studio-api/alembic/versions/`. Production PostgreSQL remains operator-evidenced at `0015_user_source_retention` until the separately authorized catalog migration is applied and verified; an API health response of `migrations=current` from the older API image proves compatibility with that image, not equality with the newer repository head.
 
 ## Studio PWA selected transcription scope
 
@@ -276,7 +276,7 @@ The public Studio host must enforce one browser security-header policy across th
 Studio processing can be considered production-live only after all of the following have factual operator evidence:
 
 1. Repository source and CI are verified for the intended commit.
-2. Production database migration head matches repository head `0015_user_source_retention` where required.
+2. Production database migration head matches the intended repository head where required. The current pending target is `0016_transcript_catalog_entries`; the previously evidenced production baseline is `0015_user_source_retention`.
 3. Web/API deployment identity and health are verified.
 4. Exactly one intended worker instance is deployed from the intended image and shown idle before the smoke.
 5. One controlled operator-approved job uses one small supported source, one owner-scoped ElevenLabs BYOK credential, one valid Google connection, and one writable output folder.
