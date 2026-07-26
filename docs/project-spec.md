@@ -288,18 +288,18 @@ Studio processing can be considered production-live only after all of the follow
 
 ## Backlog authority
 
-Current delivery sequencing is in `docs/delivery-plan.md`. Product backlog items that remain durable:
+Current delivery sequencing is in `docs/delivery-plan.md`. The durable workstream list below records product authority; status annotations are factual delivery evidence, not changes to scope:
 
-- `PWA-PROCESSING-ROLLOUT-01A` — operator validation for fixed worker rollout and one controlled end-to-end canary.
-- `PWA-LEGACY-AUTHORITY-01` — remove or formally mark legacy deployment/runtime paths after review.
-- `PWA-E2E-FOUNDATION-01B` — extend the source-level API/worker processing foundation through the authenticated browser workflow without replacing the production canary requirement.
-- `PWA-TRANSCRIPTION-OPTIONS-01` — typed Russian-default/auto-detect language selection and required ElevenLabs speaker separation across PWA, API, worker, and Google Docs output.
-- `PWA-MEDIA-PREPARATION-01` — server-side video audio extraction plus deterministic long-media size/duration split and merge.
-- `PWA-MULTI-SOURCE-VALIDATION-01` — end-to-end validation of existing local and Google Picker multi-file intake; folder/recursive ingestion is a non-goal.
-- `PWA-PREFLIGHT-PROGRESS-01` — safe preflight and polished staged progress for the selected processing pipeline.
-- `PWA-TRANSCRIPT-CATALOG-MIGRATION-01` — one-time dry-run/apply import and `transcript_doc_v1.2` standardization of the approved existing Google Docs collection, combined with durable cross-run duplicate protection and explicit conflict handling.
-- `PWA-TRANSCRIPTION-ANALYTICS-01` — safe aggregate transcription outcomes and stage-duration analytics.
-- `PWA-TRANSCRIPT-CATALOG-SYNC-01` — deferred design for a Google Drive-backed continuously refreshed PWA catalog and its system-of-record boundary.
+- `PWA-PROCESSING-ROLLOUT-01A` — bounded single-worker/small-source production rollout and controlled exactly-one-output canary are complete; broader workload evidence remains separate.
+- `PWA-LEGACY-AUTHORITY-01` — pending external-consumer review before the two deprecated compatibility APIs are removed or assigned an explicit support/removal contract.
+- `PWA-E2E-FOUNDATION-01B` — authenticated Chromium foundation is source-complete; the current post-merge project-creation navigation regression must be fixed before browser CI is green again.
+- `PWA-TRANSCRIPTION-OPTIONS-01` — typed Russian-default/auto-detect language selection and required ElevenLabs speaker separation are source-complete across PWA, API, worker, and Google Docs output; dedicated live canaries remain.
+- `PWA-MEDIA-PREPARATION-01` — server-side video audio extraction plus deterministic long-media size/duration split and merge are source-complete; dedicated live canaries remain.
+- `PWA-MULTI-SOURCE-VALIDATION-01` — local and Google Picker multi-file intake is source-complete with automated evidence; broader production processing validation remains, and folder/recursive ingestion is a non-goal.
+- `PWA-PREFLIGHT-PROGRESS-01` — safe preflight and staged progress are source-complete, with the provider-attempt authority deployed.
+- `PWA-TRANSCRIPT-CATALOG-MIGRATION-01` — one-time dry-run/apply import, `transcript_doc_v1.2` standardization, source-linked duplicate authority, and explicit conflict handling are source-complete at `625cd33`; production migration/API rollout and Google dry-run/apply evidence remain.
+- `PWA-TRANSCRIPTION-ANALYTICS-01` — safe aggregate outcomes and stage-duration analytics are source-complete; broader production evidence remains.
+- `PWA-TRANSCRIPT-CATALOG-SYNC-01` — deferred design for a Google Drive-backed continuously refreshed PWA catalog and its system-of-record boundary; no continuous sync is implemented.
 - OpenAI processing, keyterms, manual speaker rename, manual cutting/concatenation, and Drive folder/recursive intake remain deferred or excluded as defined above.
 
 Source-complete delivery items remain listed for traceability and still require applicable rollout evidence:
