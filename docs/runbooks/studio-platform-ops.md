@@ -47,7 +47,7 @@ Bootstrap boundary:
 5. Bootstrap the initial admin only through the approved server-side bootstrap admin command and without printing credentials.
 6. Verify nginx routes browser traffic to the web component and `/api/*` traffic to the API component.
 7. Validate the public HTTPS response carries the repository CSP, HSTS, `nosniff`, no-referrer, permissions, and framing headers; confirm Picker open/select/cancel and one bounded local PUT still work without CSP violations. Do not infer live header state from the committed nginx file.
-7. Verify localhost and public health endpoints for the intended components.
+8. Verify localhost and public health endpoints for the intended components.
 
 After migrations and successful API/database configuration, bootstrap the first admin with the approved interactive command:
 
@@ -348,7 +348,7 @@ status
 → operator separately decides whether to run controlled canary
 ```
 
-Source merge does not deploy the worker. A successful worker deploy does not prove production-live processing; `PWA-PROCESSING-ROLLOUT-01A` remains a separate controlled canary decision and is still not-run until operator evidence exists.
+Source merge does not deploy the worker. A successful worker deploy does not by itself prove production-live processing. The bounded `PWA-PROCESSING-ROLLOUT-01A` one-small-source canary is complete with exactly one persisted Google Docs output; broader selected-mode or workload claims still require separate operator evidence.
 
 ### Worker rollback
 

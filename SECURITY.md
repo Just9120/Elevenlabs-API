@@ -8,7 +8,7 @@ unmaintained local deployments are not supported separately.
 The repository has two product contours with different maturity:
 
 - the Google Colab batch workflow is the stable operational baseline;
-- Studio PWA is in development and is not confirmed production-live.
+- Studio PWA remains in development. Its bounded single-worker/small-source core has one controlled production-live canary, but the wider selected-v1 scope and the `0016` catalog rollout are not generally production-proven.
 
 Realtime Colab is experimental. Source code, CI success, deployment success, and
 production security evidence are different states; none should be inferred from
