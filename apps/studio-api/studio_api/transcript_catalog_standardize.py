@@ -203,7 +203,7 @@ def standardize_transcript_document_in_place(
     *,
     access_token: str,
     document_id: str,
-    document_name: str,
+    document_name: str | None,
     expected_status: CatalogDocumentStandardStatus,
     created_time: str | None = None,
     standardizer: GoogleTranscriptCatalogStandardizer | None = None,
@@ -382,7 +382,7 @@ def normalize_standardization_snapshot(
 
 def build_standardized_transcript_document_text(
     *,
-    document_name: str,
+    document_name: str | None,
     existing_document_text: str,
     created_time: str | None,
 ) -> str:
