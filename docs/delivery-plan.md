@@ -16,9 +16,10 @@
 - ⏳ `PWA-API-LEAST-PRIVILEGE-01` — Local source/static evidence is complete on the working branch. The shared API/worker image installs system dependencies as root and then runs API, worker, health, and migration commands as fixed UID/GID `10001`; its runtime writes remain under writable temporary storage and Compose secrets remain read-only inputs. Exact-revision image builds and API/worker health checks remain pending CI.
 - ⏳ `PWA-FRONTEND-MODULARIZATION-03A` — Local source/unit evidence is complete on the working branch. The create/browse request resolution that guarded the project-navigation race is now a pure `platformRouting` authority with explicit loading/empty-list cases; the broader preparation-composer refactor remains deferred.
 - ✅ `DOCS-DELIVERY-ARCHIVE-01` — Completed Gates 0–7, PR history, and superseded validation chains are preserved in `docs/delivery-plan-archive.md`; this active dashboard now retains current decisions, blockers, and evidence only.
-- 👉 `PWA-LEGACY-AUTHORITY-01A` — Next local item. Make the two retained compatibility APIs advertise their canonical successors without removing routes or assuming that external consumers have migrated.
+- ✅ `PWA-LEGACY-SUCCESSOR-DISCOVERY-01` — Reinspection proved both retained compatibility APIs already advertise `Deprecation: true` and canonical `successor-version` links, with OpenAPI and response assertions. Route removal still requires external-consumer evidence and an explicit support/removal decision.
+- ✅ `PWA-SOURCE-CLEANUP-AUTHORITY-01` — Repository-wide consumer search proved the legacy `source_cleanup.py` wrapper served only the internal CLI. The CLI command is preserved against the canonical bounded cleanup runner, the redundant module is removed, and focused/portable tests cover the wiring and cleanup behavior.
 - ⏸ `PWA-TRANSCRIPT-CATALOG-MIGRATION-01 / production rollout` — Stateful operator item after a green merged source batch: tagged pre-migration backup, manual migration to `0016_transcript_catalog_entries`, intended API deployment/identity/health verification, authenticated approved-folder dry-run, and a separately authorized apply.
-- 📋 `BATCH-PUBLICATION-2026-07-26` — After commit 15, reconcile the full `main...HEAD` diff, run the complete applicable local gate, and stop at the push/PR boundary for review.
+- ✅ `BATCH-PUBLICATION-2026-07-26 / local gate` — The 15-commit candidate passed the complete applicable local gate and full-diff reconciliation. The branch stops at the publication boundary; push, draft PR, exact-revision CI, and component-CD inspection are next and are not implied by this local result.
 - ⏸ `PWA-FRONTEND-MODULARIZATION-03` — Preparation composer/readiness extraction is deferred until the production baseline is known or rollout is waiting on an explicit operator window.
 
 ## Audit conclusion
@@ -39,7 +40,7 @@
 | Bounded one-small-source canary | **100% of its exact scenario gates** | The `0015` core baseline has backup, component identities, database compatibility, public health/security, one exactly-one-output canary, and safe diagnostics/reconciliation. This must not be generalized to every selected mode or repository head. |
 | Catalog migration production rollout | **about 20%** | Source and web UI are merged and the web component is deployed, but production backup for this migration, database `0016`, intended API deployment, authenticated dry-run, and separately authorized apply remain. |
 
-The scoring method and per-epic fractions are in `docs/audits/repository-audit-2026-07-26.md`. The local project-create, Docker-context, worker-visibility, trusted-peer, rate-limit atomicity, session-write-throttling, bounded auth-retention, explicit CSRF-retry, frontend base-image pinning, API/worker non-root, and project-navigation authority fixes improve implementation confidence but do not yet promote exact-main CI, image-build, deployment, or production-runtime gates, so the aggregate estimates remain unchanged pending publication. Catalog production readiness changes only after the separately evidenced backup, migration, API deployment, dry-run, and authorized apply gates.
+The scoring method and per-epic fractions are in `docs/audits/repository-audit-2026-07-26.md`. The local project-create, Docker-context, worker-visibility, trusted-peer, rate-limit atomicity, session-write-throttling, bounded auth-retention, explicit CSRF-retry, frontend base-image pinning, API/worker non-root, project-navigation authority, and source-cleanup consolidation fixes improve implementation confidence but do not yet promote exact-main CI, image-build, deployment, or production-runtime gates, so the aggregate estimates remain unchanged pending publication. Catalog production readiness changes only after the separately evidenced backup, migration, API deployment, dry-run, and authorized apply gates.
 
 ## Product roadmap after production proof
 
@@ -48,7 +49,7 @@ Order work so each capability inherits a known source and production baseline:
 1. Publish this source batch and require exact-revision repository, Studio, authenticated-browser, Compose, and image-build evidence.
 2. Execute the catalog production rollout only through its guarded backup → migration → intended API → dry-run → separately authorized apply sequence.
 3. Run bounded production canaries for the remaining selected modes: auto-detect language, diarization, video preparation, long-media split/merge, and multi-file processing.
-4. Confirm external consumers of the two deprecated compatibility APIs, then either remove them or record an explicit support/removal contract. This branch may advertise successors but must not infer consumer migration.
+4. Confirm external consumers of the two deprecated compatibility APIs, then either remove them or record an explicit support/removal contract. Existing deprecation/successor headers do not prove that consumers have migrated.
 5. Resume preparation-composer and API-router modularization in bounded behavior-preserving slices.
 6. Add golden Colab/PWA fixtures for normalization, ordering, output shape, and failure semantics.
 7. Validate claim/lease/heartbeat/recovery behavior under concurrency before increasing the production worker count.
@@ -107,7 +108,7 @@ For production/operator work, use a separate evidence pipeline: **read-only pref
 ## Current validation evidence and blockers
 
 - `main` and `origin/main` were synchronized at `c02accd` before the 2026-07-26 audit branch was created. The revision differs from the `625cd33` product/runtime source baseline only through documentation reconciliation.
-- Current branch-local evidence includes `801` passed portable Python tests with `6` skipped, `290` passing frontend tests through the CSRF slice, `137` focused App/routing tests after navigation extraction, ESLint, TypeScript, and lightweight repository checks. Commit 15 will rerun the complete applicable local batch gate and replace these intermediate counts.
+- The final local batch gate passed `802` portable Python tests with `6` skipped, all `295` frontend tests, ESLint, TypeScript, the Vite production build, lightweight repository checks, and Playwright discovery of `9` authenticated scenarios. The focused CLI/source-deletion slice passed `24` tests.
 - Exact-main repository CI run `30207923222` and Studio run `30207923262` passed at `c02accd`, including `studio` and `browser-e2e`. They do not prove this unpublished branch revision.
 - Publication blockers are exact-revision repository/Studio/browser CI, both image builds, Compose validation, and component-CD review. Docker is unavailable locally, and local Windows lacks the PostgreSQL/Redis services used by the authoritative integration jobs.
 - Production trusted-proxy peer identity remains unknown. The source contract is intentionally fail-closed until bounded runtime observation supplies the exact direct peer and a separately reviewed deployment applies it.

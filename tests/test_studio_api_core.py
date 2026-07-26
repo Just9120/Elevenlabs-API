@@ -1033,8 +1033,8 @@ def test_complete_local_upload_replay_returns_same_verified_source_without_exten
 
 def test_expired_local_upload_cleanup_marks_deleted_and_deletes(monkeypatch):
     fake = enable_fake_storage(monkeypatch)
-    from studio_api import source_cleanup
     from studio_api.models import Source, SourceType, SourceUploadStatus
+    from studio_api.source_deletion import run_one_source_cleanup
     import studio_api.source_storage as source_storage
     monkeypatch.setattr(source_storage, "get_source_storage", lambda settings: fake)
     c, headers, pid = create_logged_in_project("cleanup@example.com")
@@ -1042,7 +1042,7 @@ def test_expired_local_upload_cleanup_marks_deleted_and_deletes(monkeypatch):
     try:
         src = Source(project_id=pid, source_type=SourceType.local_upload, original_filename="old.mp3", mime_type="audio/mpeg", size_bytes=10, s3_bucket="studio-temp", s3_object_key="old/key", upload_status=SourceUploadStatus.pending, expires_at=utcnow()-timedelta(seconds=1))
         db.add(src); db.commit()
-        assert source_cleanup.cleanup_expired_local_uploads(db, __import__("studio_api.main", fromlist=["settings"]).settings) == 1
+        assert run_one_source_cleanup(db, settings=__import__("studio_api.main", fromlist=["settings"]).settings, owner_id="legacy-source-cleanup", now=utcnow())
         db.refresh(src)
         assert src.upload_status == SourceUploadStatus.expired
         assert src.deleted_at is None and src.delete_reason == "retention_expired"

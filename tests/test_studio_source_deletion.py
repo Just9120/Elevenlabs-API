@@ -560,3 +560,45 @@ def test_job_source_final_validation_compiles_to_no_key_update(monkeypatch):
     compiled = str(stmt.compile(dialect=postgresql.dialect()))
     assert "FOR NO KEY UPDATE" in compiled
     assert "FOR UPDATE" not in compiled.replace("FOR NO KEY UPDATE", "")
+
+
+def test_cleanup_cli_uses_canonical_cleanup_runner(monkeypatch, capsys):
+    monkeypatch.setenv("STUDIO_DATABASE_URL", "sqlite+pysqlite:///:memory:")
+    from studio_api.config import get_settings
+
+    get_settings.cache_clear()
+    from studio_api import cli
+
+    settings = object()
+    now = datetime(2026, 7, 27, tzinfo=timezone.utc)
+    calls = []
+
+    class FakeSession:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    db = FakeSession()
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+    monkeypatch.setattr(cli, "SessionLocal", lambda: db)
+    monkeypatch.setattr(cli, "utcnow", lambda: now)
+    monkeypatch.setattr(
+        cli,
+        "run_one_source_cleanup",
+        lambda actual_db, **kwargs: calls.append((actual_db, kwargs)) or True,
+    )
+
+    assert cli.cleanup_sources() == 0
+    assert calls == [
+        (
+            db,
+            {
+                "settings": settings,
+                "owner_id": "legacy-source-cleanup",
+                "now": now,
+            },
+        )
+    ]
+    assert db.closed is True
+    assert capsys.readouterr().out == "Expired local-upload sources cleaned: 1\n"
