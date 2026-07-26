@@ -5,6 +5,7 @@ from .config import Settings, get_settings
 from .db import get_db
 from .models import Session as DbSession, User, UserStatus
 from .security import safe_eq, token_hash, utcnow
+from .session_activity import session_activity_write_due
 
 def origin_ok(request: Request, settings: Settings) -> bool:
     origin=request.headers.get("origin")
@@ -17,12 +18,20 @@ def require_same_origin(request: Request, settings: Settings=Depends(get_setting
 def current_session(request: Request, db: Session=Depends(get_db), settings: Settings=Depends(get_settings)):
     raw=request.cookies.get(settings.cookie_name)
     if not raw: raise HTTPException(401, "Требуется вход")
+    now=utcnow()
     sess=db.query(DbSession).filter_by(token_hash=token_hash(raw), revoked_at=None).first()
-    if not sess or sess.expires_at <= utcnow(): raise HTTPException(401, "Требуется вход")
+    if not sess or sess.expires_at <= now: raise HTTPException(401, "Требуется вход")
     user=db.get(User, sess.user_id)
     if not user or user.status != UserStatus.active: raise HTTPException(401, "Требуется вход")
     request.state.owner_user_id=user.id
-    sess.last_seen_at=utcnow(); db.commit(); return sess, user
+    if session_activity_write_due(
+        sess.last_seen_at,
+        now=now,
+        interval_seconds=settings.session_last_seen_write_interval_seconds,
+    ):
+        sess.last_seen_at=now
+        db.commit()
+    return sess, user
 
 def require_csrf(request: Request, x_csrf_token: str=Header(default=""), pair=Depends(current_session), _=Depends(require_same_origin)):
     sess,user=pair
