@@ -48,7 +48,7 @@ function batchPreflightJson(init?: RequestInit) {
     diarization_enabled: request.options?.diarize === true,
     existing_result_authority: {
       status: "partial",
-      reason_code: "studio_outputs_only",
+      reason_code: "unlinked_catalog_entries_excluded",
     },
     items: items.map((item, position) => ({
       position,
@@ -1791,7 +1791,7 @@ describe("Studio PWA", () => {
     expect(Number.isInteger(computed.height)).toBe(true);
   });
 
-  it("configures Google Picker source and output-folder presentation separately", async () => {
+  it("configures Google Picker source and folder presentations separately", async () => {
     googlePicker.resetGooglePickerLoaderForTests();
     const originalInnerWidth = window.innerWidth;
     const originalInnerHeight = window.innerHeight;
@@ -1930,11 +1930,25 @@ describe("Studio PWA", () => {
     callback?.({ action: "cancel" });
     await expect(folderPromise).resolves.toEqual({ action: "cancel" });
 
-    expect(viewIds).toEqual(["docs", "folders"]);
-    expect(viewModes).toEqual(["list", "list"]);
-    expect(viewParents).toEqual(["root", "root"]);
-    expect(includeFolders).toEqual([true, true]);
-    expect(selectFolderEnabled).toEqual([true]);
+    callback = null;
+    const catalogFolderPromise = googlePicker.openGooglePicker(
+      "catalog-folder",
+      {
+        access_token: "ya29.catalog",
+        api_key: "public",
+        app_id: "app",
+        scope_ready: true,
+      },
+    );
+    await waitFor(() => expect(callback).not.toBeNull());
+    callback?.({ action: "cancel" });
+    await expect(catalogFolderPromise).resolves.toEqual({ action: "cancel" });
+
+    expect(viewIds).toEqual(["docs", "folders", "folders"]);
+    expect(viewModes).toEqual(["list", "list", "list"]);
+    expect(viewParents).toEqual(["root", "root", "root"]);
+    expect(includeFolders).toEqual([true, true, true]);
+    expect(selectFolderEnabled).toEqual([true, true]);
     expect(viewMimeTypes).toEqual([]);
     expect(builderCalls).toContainEqual({ method: "setLocale", args: ["ru"] });
     expect(builderCalls).toContainEqual({
@@ -1944,6 +1958,10 @@ describe("Studio PWA", () => {
     expect(builderCalls).toContainEqual({
       method: "setTitle",
       args: ["Выберите папку для результатов"],
+    });
+    expect(builderCalls).toContainEqual({
+      method: "setTitle",
+      args: ["Выберите папку каталога транскриптов"],
     });
     expect(builderCalls).toContainEqual({
       method: "setSize",
@@ -1962,6 +1980,10 @@ describe("Studio PWA", () => {
       args: ["ya29.folder"],
     });
     expect(builderCalls).toContainEqual({
+      method: "setOAuthToken",
+      args: ["ya29.catalog"],
+    });
+    expect(builderCalls).toContainEqual({
       method: "setDeveloperKey",
       args: ["public"],
     });
@@ -1976,7 +1998,7 @@ describe("Studio PWA", () => {
     ).toEqual([{ method: "enableFeature", args: ["multi"] }]);
     expect(
       builderCalls.filter((call) => call.method === "setCallback"),
-    ).toHaveLength(2);
+    ).toHaveLength(3);
     expect(
       builderCalls.some((call) => call.args.includes("support_drives")),
     ).toBe(false);
@@ -1999,6 +2021,11 @@ describe("Studio PWA", () => {
     );
     await openSettingsPage();
     await screen.findByText(/Ключи провайдеров/);
+    expect(
+      screen.getByRole("heading", {
+        name: "Миграция каталога транскриптов",
+      }),
+    ).toBeInTheDocument();
     expect(screen.getByText(/••••1234/)).toBeInTheDocument();
     expect(window.localStorage.length).toBe(0);
     expect(window.sessionStorage.length).toBe(0);
@@ -2611,10 +2638,10 @@ describe("Studio PWA", () => {
     expect(preview).toHaveTextContent("Safe folder 1");
     expect(preview).toHaveTextContent("План: обработать");
     expect(preview).toHaveTextContent(
-      "Совпадений с теми же настройками среди результатов Studio не найдено.",
+      "Совпадений с теми же настройками среди результатов Studio и точно связанных записей каталога не найдено.",
     );
     expect(preview).toHaveTextContent(
-      "Проверены только принятые результаты Studio.",
+      "Проверены принятые результаты Studio и записи импортированного каталога",
     );
     expect(
       (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
@@ -2673,7 +2700,7 @@ describe("Studio PWA", () => {
           diarization_enabled: request.options?.diarize === true,
           existing_result_authority: {
             status: "partial",
-            reason_code: "studio_outputs_only",
+            reason_code: "unlinked_catalog_entries_excluded",
           },
           items: [
             {
@@ -2816,7 +2843,7 @@ describe("Studio PWA", () => {
             diarization_enabled: false,
             existing_result_authority: {
               status: "partial",
-              reason_code: "studio_outputs_only",
+              reason_code: "unlinked_catalog_entries_excluded",
             },
             items: [
               {

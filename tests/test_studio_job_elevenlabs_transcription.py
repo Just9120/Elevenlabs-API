@@ -126,6 +126,42 @@ def add_accepted_output(
     return job
 
 
+def add_linked_catalog_entry(
+    db,
+    m,
+    *,
+    user,
+    source,
+    now,
+    settings_status="exact",
+):
+    exact = settings_status == "exact"
+    db.add(
+        m.TranscriptCatalogEntry(
+            owner_user_id=user.id,
+            document_id=f"catalog-{uuid.uuid4().hex}",
+            document_name="Linked catalog evidence",
+            transcript_standard="transcript_doc_v1.2",
+            standard_status=m.TranscriptCatalogDocumentStandardStatus.current,
+            settings_status=getattr(
+                m.TranscriptCatalogSettingsStatus,
+                settings_status,
+            ),
+            provider="elevenlabs" if exact else None,
+            model="scribe_v2" if exact else None,
+            language_mode="en" if exact else None,
+            diarization_enabled=False if exact else None,
+            source_identity_kind=(
+                m.TranscriptCatalogSourceIdentityKind.studio_source
+            ),
+            source_identity_value=source.id,
+            imported_at=now,
+            updated_at=now,
+        )
+    )
+    db.commit()
+
+
 def add_provider_attempt(
     db,
     m,
@@ -402,6 +438,50 @@ def test_existing_accepted_result_blocks_provider_and_is_non_retryable(db, model
     )
 
 
+@pytest.mark.parametrize("settings_status", ["exact", "indeterminate"])
+def test_linked_catalog_result_blocks_provider_and_is_non_retryable(
+    db,
+    models,
+    settings_status,
+):
+    from studio_api.job_elevenlabs_transcription import (
+        JobElevenLabsTranscriptionError,
+    )
+
+    user, _project, _credential, _version, source, job, rel, now = (
+        make_job(db, models)
+    )
+    add_linked_catalog_entry(
+        db,
+        models,
+        user=user,
+        source=source,
+        now=now,
+        settings_status=settings_status,
+    )
+    transport = CaptureTransport()
+
+    with pytest.raises(
+        JobElevenLabsTranscriptionError,
+        match="existing_result_conflict",
+    ):
+        with run_boundary(db, models, job, rel, transport, now):
+            pass
+
+    assert transport.calls == []
+    db.expire_all()
+    attempt = (
+        db.query(models.TranscriptionJobSourceAttempt)
+        .filter_by(job_source_id=rel.id)
+        .one()
+    )
+    assert attempt.failure_code == "existing_result_conflict"
+    assert (
+        attempt.retry_disposition
+        == models.SourceAttemptRetryDisposition.non_retryable
+    )
+
+
 def test_explicit_reprocess_authority_crosses_existing_result_guard(db, models):
     from studio_api.transcription_options import stored_transcription_options
 
@@ -419,6 +499,34 @@ def test_explicit_reprocess_authority_crosses_existing_result_guard(db, models):
         user=user,
         project=project,
         credential=credential,
+        source=source,
+        now=now,
+    )
+    transport = CaptureTransport()
+
+    with run_boundary(db, models, job, rel, transport, now):
+        pass
+
+    assert len(transport.calls) == 1
+
+
+def test_explicit_reprocess_authority_crosses_linked_catalog_guard(db, models):
+    from studio_api.transcription_options import stored_transcription_options
+
+    user, _project, _credential, _version, source, job, rel, now = (
+        make_job(
+            db,
+            models,
+            options_json=stored_transcription_options(
+                False,
+                existing_result_reprocess_authorized=True,
+            ),
+        )
+    )
+    add_linked_catalog_entry(
+        db,
+        models,
+        user=user,
         source=source,
         now=now,
     )

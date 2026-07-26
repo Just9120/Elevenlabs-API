@@ -113,7 +113,7 @@ describe("batch composer model", () => {
       diarization_enabled: false,
       existing_result_authority: {
         status: "partial",
-        reason_code: "studio_outputs_only",
+        reason_code: "unlinked_catalog_entries_excluded",
       },
       items: [
         {
@@ -144,6 +144,15 @@ describe("batch composer model", () => {
     };
 
     expect(parseBatchPreflightResponse(valid)).toEqual(valid);
+    expect(
+      parseBatchPreflightResponse({
+        ...valid,
+        existing_result_authority: {
+          status: "partial",
+          reason_code: "studio_outputs_only",
+        },
+      }),
+    ).toBeNull();
     expect(parseBatchPreflightResponse({ ...valid, model: "other" })).toBeNull();
     expect(
       parseBatchPreflightResponse({

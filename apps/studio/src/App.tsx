@@ -89,6 +89,7 @@ import {
   type JobProgressState,
 } from "./jobProgressModel";
 import { TranscriptionAnalyticsPanel } from "./TranscriptionAnalyticsPanel";
+import { TranscriptCatalogMigrationPanel } from "./TranscriptCatalogMigrationPanel";
 import "./styles.css";
 
 type AccountPreferences = {
@@ -1913,7 +1914,7 @@ function PreparationPanel({
                       ? "Есть результат с теми же настройками, но старого стандарта."
                       : item.existing_result_match.status === "indeterminate"
                         ? "Есть результат, настройки которого нельзя подтвердить."
-                        : "Совпадений с теми же настройками среди результатов Studio не найдено.";
+                        : "Совпадений с теми же настройками среди результатов Studio и точно связанных записей каталога не найдено.";
                 const providerAuthorityLabel =
                   item.provider_attempt_authority.reason_code ===
                   "equivalent_provider_work_in_flight"
@@ -1992,9 +1993,9 @@ function PreparationPanel({
             {activePreflight.existing_result_authority.status ===
               "partial" && (
               <p className="notice">
-                Проверены только принятые результаты Studio. Разовый импорт
-                старой коллекции Google Docs ещё не выполнен, поэтому эта
-                проверка не видит документы вне Studio.
+                Проверены принятые результаты Studio и записи импортированного
+                каталога, для которых исходник указан точно. Документы без
+                подтверждённой связи с исходником не считаются совпадениями.
               </p>
             )}
           </section>
@@ -2821,6 +2822,8 @@ function auditLabel(type: string) {
     "job.cancelled": "Задача отменена",
     "job.cancel_requested": "Запрошена отмена задачи",
     "google.oauth_failed": "Подключение Google Drive не удалось",
+    "transcript_catalog.migration_applied":
+      "Миграция каталога транскриптов применена",
   };
   return labels[type] ?? "Событие безопасности";
 }
@@ -3339,6 +3342,13 @@ function SettingsPage({
             )}
             {googleMessage && <p className="error">{googleMessage}</p>}
           </article>
+          <TranscriptCatalogMigrationPanel
+            csrf={csrf}
+            onCsrf={onCsrf}
+            googleConnected={googleConnection?.connected === true}
+            googleLoading={googleLoading}
+            pickerReady={googleConnection?.picker_ready === true}
+          />
           <details className="card security-log">
             <summary className="summary-row">
               <span>Журнал безопасности</span>

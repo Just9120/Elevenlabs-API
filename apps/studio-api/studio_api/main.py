@@ -42,15 +42,18 @@ from .transcript_catalog import (
     lock_catalog_source_identities,
 )
 from .transcription_options import DEFAULT_TRANSCRIPTION_LANGUAGE_MODE, EXISTING_RESULT_REPROCESS_AUTHORITY_OPTION, TranscriptionLanguageMode, browser_language_mode, job_diarization_enabled, stored_language_mode, stored_transcription_options
+from .transcript_catalog_routes import router as transcript_catalog_router
 
 settings=get_settings()
 app=FastAPI(docs_url="/docs" if settings.enable_api_docs else None, redoc_url=None, openapi_url="/openapi.json" if settings.enable_api_docs else None)
+app.include_router(transcript_catalog_router)
 limiter=RateLimiter()
 LOGGER=logging.getLogger("studio_api.api")
 _API_ENDPOINT_GROUPS=(
     ("/api/diagnostics", "diagnostics"),
     ("/api/jobs", "jobs"),
     ("/api/sources", "sources"),
+    ("/api/transcript-catalog", "transcript_catalog"),
     ("/api/google", "google"),
     ("/api/credentials", "credentials"),
     ("/api/projects", "projects"),

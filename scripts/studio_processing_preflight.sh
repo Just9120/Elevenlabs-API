@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PREFIX="[studio-processing-preflight]"
-EXPECTED_HEAD="0015_user_source_retention"
+EXPECTED_HEAD="0016_transcript_catalog_entries"
 COMPOSE_FILE="deploy/studio/compose.platform.yml"
 ENV_FILE="deploy/studio/.env"
 VERSIONS_DIR="apps/studio-api/alembic/versions"

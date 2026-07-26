@@ -56,7 +56,7 @@ def clean_state(migrated_database):
     except Exception as exc:
         pytest.skip(f"Redis unavailable for platform tests: {exc}")
     with engine.begin() as conn:
-        tables = ["transcription_job_source_attempts", "transcription_output_reconciliations", "diagnostic_debug_sessions", "diagnostic_events", "audit_events", "google_oauth_states", "google_connections", "provider_credential_versions", "provider_credentials", "transcription_job_outputs", "transcription_job_sources", "transcription_jobs", "sources", "projects", "sessions", "login_contexts", "local_identities", "users"]
+        tables = ["transcript_catalog_entries", "transcription_job_source_attempts", "transcription_output_reconciliations", "diagnostic_debug_sessions", "diagnostic_events", "audit_events", "google_oauth_states", "google_connections", "provider_credential_versions", "provider_credentials", "transcription_job_outputs", "transcription_job_sources", "transcription_jobs", "sources", "projects", "sessions", "login_contexts", "local_identities", "users"]
         required_tables = set(tables)
         missing = required_tables - set(inspect(conn).get_table_names())
         assert not missing, f"shared test database schema is not at current head: {sorted(missing)}"
@@ -126,6 +126,88 @@ def test_alembic_upgrade_and_readiness_current():
     r = c.get("/api/healthz")
     assert r.status_code == 200
     assert r.json() == {"ok": True, "database": "reachable", "migrations": "current"}
+
+
+def test_catalog_metadata_apply_is_idempotent_on_postgresql():
+    from studio_api.models import TranscriptCatalogEntry
+    from studio_api.transcript_catalog_apply import (
+        apply_catalog_migration_metadata,
+    )
+    from studio_api.transcript_catalog_migration import (
+        CatalogDocumentStandardStatus,
+        CatalogImportAuthorityStatus,
+        CatalogMigrationCandidate,
+        CatalogSettingsAuthorityStatus,
+    )
+
+    db = SessionLocal()
+    try:
+        owner = User(
+            id="catalog-apply-owner",
+            email="catalog-apply@example.com",
+        )
+        db.add(owner)
+        db.commit()
+        candidate = CatalogMigrationCandidate(
+            drive_document_id="catalog-apply-document",
+            name="Catalog apply",
+            standard_status=CatalogDocumentStandardStatus.current,
+            import_status=CatalogImportAuthorityStatus.not_imported,
+            settings_status=CatalogSettingsAuthorityStatus.indeterminate,
+        )
+
+        first = apply_catalog_migration_metadata(
+            db,
+            owner_user_id=owner.id,
+            candidates=(candidate,),
+        )
+        db.commit()
+        first_row = db.execute(
+            select(TranscriptCatalogEntry)
+        ).scalar_one()
+        first_id = first_row.id
+        first_imported_at = first_row.imported_at
+
+        second = apply_catalog_migration_metadata(
+            db,
+            owner_user_id=owner.id,
+            candidates=(candidate,),
+        )
+        db.commit()
+        repeated = db.execute(
+            select(TranscriptCatalogEntry)
+        ).scalar_one()
+
+        assert first["items"][0]["outcome"] == "imported"
+        assert second["items"][0]["outcome"] == "already_applied"
+        assert repeated.id == first_id
+        assert repeated.imported_at == first_imported_at
+    finally:
+        db.rollback()
+        db.close()
+
+
+def test_transcript_catalog_migration_routes_require_authentication_and_csrf():
+    anonymous = TestClient(app)
+    body = {"folder_id": "private-folder"}
+    assert anonymous.post(
+        "/api/transcript-catalog/migration/dry-run",
+        json=body,
+    ).status_code == 401
+    assert anonymous.post(
+        "/api/transcript-catalog/migration/apply",
+        json={**body, "confirm_apply": True},
+    ).status_code == 401
+
+    password = admin("catalog-route-auth@example.com")
+    client = TestClient(app)
+    login(client, password, "catalog-route-auth@example.com")
+    response = client.post(
+        "/api/transcript-catalog/migration/dry-run",
+        json=body,
+        headers={"origin": "https://studio.test"},
+    )
+    assert response.status_code == 403
 
 
 def test_readiness_non_200_when_migrations_pending():
@@ -1492,7 +1574,7 @@ def test_job_lease_migration_real_0005_shape_upgrades_to_head():
             assert {"lease_owner_id", "lease_generation", "claimed_at", "lease_expires_at", "attempt_count", "cancel_requested_at"}.issubset(cols)
             indexes = [idx["name"] for idx in inspector.get_indexes("transcription_jobs")]
             assert indexes.count("ix_transcription_jobs_status_lease_expires_created") == 1
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0015_user_source_retention"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0016_transcript_catalog_entries"
 
 
 
@@ -1527,7 +1609,7 @@ def test_job_output_migration_clean_chain_constraints_and_0007_roundtrip():
         run_alembic("head", env=env)
         with temp_engine.begin() as conn:
             assert "transcription_job_outputs" in inspect(conn).get_table_names()
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0015_user_source_retention"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0016_transcript_catalog_entries"
 
 
 
@@ -2346,6 +2428,12 @@ def add_output_row(job_id, source_id, *, url="https://docs.google.com/document/d
 
 
 def test_transcript_catalog_query_is_owner_scoped_and_uses_accepted_output_authority():
+    from studio_api.models import (
+        TranscriptCatalogDocumentStandardStatus,
+        TranscriptCatalogEntry,
+        TranscriptCatalogSettingsStatus,
+        TranscriptCatalogSourceIdentityKind,
+    )
     from studio_api.transcript_catalog import (
         ExistingResultMatchStatus,
         current_effective_settings,
@@ -2376,9 +2464,45 @@ def test_transcript_catalog_query_is_owner_scoped_and_uses_accepted_output_autho
     db = SessionLocal()
     try:
         source_row = db.get(Source, source_ids1[0])
+        owner_user_id = db.get(TranscriptionJob, jid1).owner_user_id
+        other_owner_user_id = db.get(TranscriptionJob, jid2).owner_user_id
+        exact_catalog_values = {
+            "document_name": "Catalog evidence",
+            "transcript_standard": "transcript_doc_v1.2",
+            "standard_status": TranscriptCatalogDocumentStandardStatus.current,
+            "settings_status": TranscriptCatalogSettingsStatus.exact,
+            "provider": "elevenlabs",
+            "model": "scribe_v2",
+            "language_mode": "detect",
+            "diarization_enabled": False,
+            "source_identity_kind": (
+                TranscriptCatalogSourceIdentityKind.google_drive_file
+            ),
+            "source_identity_value": source_row.drive_file_id,
+        }
+        db.add_all(
+            [
+                TranscriptCatalogEntry(
+                    owner_user_id=owner_user_id,
+                    document_id="catalog-owner-doc",
+                    **exact_catalog_values,
+                ),
+                TranscriptCatalogEntry(
+                    owner_user_id=owner_user_id,
+                    document_id="catalog-linked-only-doc",
+                    **exact_catalog_values,
+                ),
+                TranscriptCatalogEntry(
+                    owner_user_id=other_owner_user_id,
+                    document_id="catalog-other-owner-linked-doc",
+                    **exact_catalog_values,
+                ),
+            ]
+        )
+        db.commit()
         match = load_existing_result_matches(
             db,
-            owner_user_id=db.get(TranscriptionJob, jid1).owner_user_id,
+            owner_user_id=owner_user_id,
             sources=[source_row],
             target_settings=current_effective_settings(
                 language_mode="detect",
@@ -2389,8 +2513,10 @@ def test_transcript_catalog_query_is_owner_scoped_and_uses_accepted_output_autho
         db.close()
 
     assert match.status == ExistingResultMatchStatus.accepted_match
-    assert match.accepted_output_count == 1
-    assert match.matching_settings_count == 1
+    # The linked catalog row extends authority, the same Google document is
+    # counted once across both tables, and the other owner's row is ignored.
+    assert match.accepted_output_count == 2
+    assert match.matching_settings_count == 2
 
 
 def test_job_output_authentication_and_no_csrf_required():
@@ -2920,6 +3046,46 @@ def _add_accepted_batch_output(user_id, project_id, source_id, credential_id):
         db.close()
 
 
+def _add_linked_batch_catalog_entry(
+    user_id,
+    source_id,
+    *,
+    document_id="linked-catalog-document",
+):
+    from studio_api.models import (
+        TranscriptCatalogDocumentStandardStatus,
+        TranscriptCatalogEntry,
+        TranscriptCatalogSettingsStatus,
+        TranscriptCatalogSourceIdentityKind,
+    )
+
+    db = SessionLocal()
+    try:
+        db.add(
+            TranscriptCatalogEntry(
+                owner_user_id=user_id,
+                document_id=document_id,
+                document_name="Linked catalog evidence",
+                transcript_standard="transcript_doc_v1.2",
+                standard_status=(
+                    TranscriptCatalogDocumentStandardStatus.current
+                ),
+                settings_status=TranscriptCatalogSettingsStatus.exact,
+                provider="elevenlabs",
+                model="scribe_v2",
+                language_mode="ru",
+                diarization_enabled=True,
+                source_identity_kind=(
+                    TranscriptCatalogSourceIdentityKind.studio_source
+                ),
+                source_identity_value=source_id,
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+
 def _add_batch_provider_attempt(
     user_id,
     project_id,
@@ -3068,7 +3234,7 @@ def test_batch_preflight_is_safe_ordered_and_does_not_create_rows(monkeypatch):
     }
     assert data["existing_result_authority"] == {
         "status": "partial",
-        "reason_code": "studio_outputs_only",
+        "reason_code": "unlinked_catalog_entries_excluded",
     }
     assert [item["source"]["name"] for item in data["items"]] == [
         "a.mp3",
@@ -3201,6 +3367,81 @@ def test_batch_create_rechecks_existing_result_and_requires_explicit_reprocessin
         )
     finally:
         db.close()
+
+
+def test_batch_preflight_and_create_enforce_linked_catalog_authority(
+    monkeypatch,
+):
+    _install_batch_folder_mocks(monkeypatch)
+    c, csrf, user_id, pid, source_a, _source_b, cred_id = _batch_setup(
+        "batch-linked-catalog@example.com"
+    )
+    _add_linked_batch_catalog_entry(user_id, source_a)
+    body = _batch_body(source_a, credential_id=cred_id)
+    preflight_headers = {
+        "origin": "https://studio.test",
+        "x-csrf-token": csrf,
+    }
+    before = _count_batch_rows()
+
+    blocked_preview = c.post(
+        f"/api/projects/{pid}/jobs/batch/preflight",
+        json=body,
+        headers=preflight_headers,
+    )
+
+    assert blocked_preview.status_code == 200
+    assert blocked_preview.json()["items"][0]["existing_result_match"] == {
+        "status": "accepted_match",
+        "accepted_output_count": 1,
+        "resolution": "required",
+    }
+    assert blocked_preview.json()["items"][0]["planned_outcome"] == "blocked"
+    assert blocked_preview.json()["summary"] == {
+        "process_count": 0,
+        "skip_count": 0,
+        "blocked_count": 1,
+    }
+    assert source_a not in blocked_preview.text
+    assert "linked-catalog-document" not in blocked_preview.text
+
+    blocked_create = c.post(
+        f"/api/projects/{pid}/jobs/batch",
+        json=body,
+        headers=_batch_headers(csrf),
+    )
+
+    assert blocked_create.status_code == 409
+    assert blocked_create.json()["detail"] == (
+        "Для существующего результата требуется явное решение"
+    )
+    assert _count_batch_rows() == before
+
+    body["items"][0]["reprocess_existing"] = True
+    approved_preview = c.post(
+        f"/api/projects/{pid}/jobs/batch/preflight",
+        json=body,
+        headers=preflight_headers,
+    )
+
+    assert approved_preview.status_code == 200
+    assert approved_preview.json()["items"][0]["existing_result_match"] == {
+        "status": "accepted_match",
+        "accepted_output_count": 1,
+        "resolution": "reprocess",
+    }
+    assert approved_preview.json()["items"][0]["planned_outcome"] == "process"
+
+    created = c.post(
+        f"/api/projects/{pid}/jobs/batch",
+        json=body,
+        headers=_batch_headers(csrf),
+    )
+
+    assert created.status_code == 200
+    assert created.json()["created_count"] == 1
+    assert _count_batch_rows() == (before[0] + 1, before[1] + 1)
+    assert "linked-catalog-document" not in created.text
 
 
 @pytest.mark.parametrize(
@@ -3981,6 +4222,267 @@ def test_user_source_retention_0015_upgrade_downgrade_roundtrip_and_metadata_tab
             _assert_user_source_retention_0015_absent(inspect(conn))
 
 
+def _drop_transcript_catalog_0016_schema(conn):
+    conn.execute(text("DROP TABLE IF EXISTS transcript_catalog_entries"))
+    conn.execute(
+        text(
+            "DROP TYPE IF EXISTS "
+            "transcriptcatalogsourceidentitykind"
+        )
+    )
+    conn.execute(
+        text("DROP TYPE IF EXISTS transcriptcatalogsettingsstatus")
+    )
+    conn.execute(
+        text(
+            "DROP TYPE IF EXISTS "
+            "transcriptcatalogdocumentstandardstatus"
+        )
+    )
+
+
+def _assert_transcript_catalog_0016_schema(inspector):
+    assert "transcript_catalog_entries" in inspector.get_table_names()
+    columns = {
+        column["name"]
+        for column in inspector.get_columns("transcript_catalog_entries")
+    }
+    assert {
+        "id",
+        "owner_user_id",
+        "document_id",
+        "document_name",
+        "transcript_standard",
+        "standard_status",
+        "settings_status",
+        "provider",
+        "model",
+        "language_mode",
+        "diarization_enabled",
+        "source_identity_kind",
+        "source_identity_value",
+        "imported_at",
+        "updated_at",
+    } == columns
+    checks = {
+        constraint["name"]
+        for constraint in inspector.get_check_constraints(
+            "transcript_catalog_entries"
+        )
+    }
+    assert {
+        "ck_transcript_catalog_document_id_nonempty",
+        "ck_transcript_catalog_document_name_nonempty",
+        "ck_transcript_catalog_standard_nonempty",
+        "ck_transcript_catalog_source_authority",
+        "ck_transcript_catalog_settings_authority",
+    } <= checks
+    unique_constraints = {
+        constraint["name"]
+        for constraint in inspector.get_unique_constraints(
+            "transcript_catalog_entries"
+        )
+    }
+    assert "uq_transcript_catalog_owner_document" in unique_constraints
+    indexes = {
+        index["name"]
+        for index in inspector.get_indexes(
+            "transcript_catalog_entries"
+        )
+    }
+    assert {
+        "ix_transcript_catalog_owner_updated",
+        "ix_transcript_catalog_owner_source_settings",
+    } <= indexes
+    foreign_keys = {
+        tuple(constraint["constrained_columns"]): (
+            constraint["referred_table"]
+        )
+        for constraint in inspector.get_foreign_keys(
+            "transcript_catalog_entries"
+        )
+    }
+    assert foreign_keys[("owner_user_id",)] == "users"
+
+
+def test_transcript_catalog_0016_upgrade_downgrade_and_constraints():
+    from studio_api.db import Base
+
+    with isolated_migration_database(
+        "studio_migration_0016"
+    ) as (temp_engine, env):
+        run_alembic("0015_user_source_retention", env=env)
+        with temp_engine.begin() as conn:
+            _drop_transcript_catalog_0016_schema(conn)
+            assert (
+                conn.execute(
+                    text("SELECT version_num FROM alembic_version")
+                ).scalar_one()
+                == "0015_user_source_retention"
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO users "
+                    "(id, email, role, status, created_at, updated_at) "
+                    "VALUES "
+                    "('catalog-owner-a', 'catalog-a@example.com', "
+                    "'user', 'active', CURRENT_TIMESTAMP, "
+                    "CURRENT_TIMESTAMP), "
+                    "('catalog-owner-b', 'catalog-b@example.com', "
+                    "'user', 'active', CURRENT_TIMESTAMP, "
+                    "CURRENT_TIMESTAMP)"
+                )
+            )
+
+        run_alembic("0016_transcript_catalog_entries", env=env)
+        with temp_engine.begin() as conn:
+            _assert_transcript_catalog_0016_schema(inspect(conn))
+            assert (
+                conn.execute(
+                    text("SELECT version_num FROM alembic_version")
+                ).scalar_one()
+                == "0016_transcript_catalog_entries"
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO transcript_catalog_entries "
+                    "(id, owner_user_id, document_id, document_name, "
+                    "transcript_standard, standard_status, "
+                    "settings_status, imported_at, updated_at) "
+                    "VALUES "
+                    "('catalog-indeterminate', 'catalog-owner-a', "
+                    "'google-document-a', 'Document A', "
+                    "'transcript_doc_v1.2', 'current', "
+                    "'indeterminate', CURRENT_TIMESTAMP, "
+                    "CURRENT_TIMESTAMP)"
+                )
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO transcript_catalog_entries "
+                    "(id, owner_user_id, document_id, document_name, "
+                    "transcript_standard, standard_status, "
+                    "settings_status, provider, model, language_mode, "
+                    "diarization_enabled, source_identity_kind, "
+                    "source_identity_value, imported_at, updated_at) "
+                    "VALUES "
+                    "('catalog-exact', 'catalog-owner-a', "
+                    "'google-document-b', 'Document B', "
+                    "'transcript_doc_v1.2', 'current', 'exact', "
+                    "'elevenlabs', 'scribe_v2', 'ru', true, "
+                    "'google_drive_file', 'source-drive-id', "
+                    "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                )
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO transcript_catalog_entries "
+                    "(id, owner_user_id, document_id, document_name, "
+                    "transcript_standard, standard_status, "
+                    "settings_status, imported_at, updated_at) "
+                    "VALUES "
+                    "('catalog-shared-other-owner', "
+                    "'catalog-owner-b', 'google-document-a', "
+                    "'Document A', 'transcript_doc_v1.2', "
+                    "'current', 'indeterminate', CURRENT_TIMESTAMP, "
+                    "CURRENT_TIMESTAMP)"
+                )
+            )
+
+        invalid_rows = (
+            (
+                "catalog-invalid-settings",
+                "'exact', NULL, NULL",
+            ),
+            (
+                "catalog-invalid-source",
+                "'indeterminate', 'google_drive_file', NULL",
+            ),
+        )
+        for row_id, authority_values in invalid_rows:
+            with pytest.raises(Exception):
+                with temp_engine.begin() as conn:
+                    conn.execute(
+                        text(
+                            "INSERT INTO transcript_catalog_entries "
+                            "(id, owner_user_id, document_id, "
+                            "document_name, transcript_standard, "
+                            "standard_status, settings_status, "
+                            "source_identity_kind, "
+                            "source_identity_value, imported_at, "
+                            "updated_at) VALUES "
+                            f"('{row_id}', 'catalog-owner-a', "
+                            f"'{row_id}-doc', 'Invalid', "
+                            "'transcript_doc_v1.2', 'current', "
+                            f"{authority_values}, CURRENT_TIMESTAMP, "
+                            "CURRENT_TIMESTAMP)"
+                        )
+                    )
+        with pytest.raises(Exception):
+            with temp_engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "INSERT INTO transcript_catalog_entries "
+                        "(id, owner_user_id, document_id, "
+                        "document_name, transcript_standard, "
+                        "standard_status, settings_status, "
+                        "imported_at, updated_at) VALUES "
+                        "('catalog-duplicate', 'catalog-owner-a', "
+                        "'google-document-a', 'Duplicate', "
+                        "'transcript_doc_v1.2', 'current', "
+                        "'indeterminate', CURRENT_TIMESTAMP, "
+                        "CURRENT_TIMESTAMP)"
+                    )
+                )
+
+        run_alembic(
+            "0015_user_source_retention",
+            env=env,
+            command="downgrade",
+        )
+        with temp_engine.begin() as conn:
+            assert "transcript_catalog_entries" not in (
+                inspect(conn).get_table_names()
+            )
+            assert (
+                conn.execute(
+                    text(
+                        "SELECT count(*) FROM pg_type WHERE typname "
+                        "LIKE 'transcriptcatalog%'"
+                    )
+                ).scalar_one()
+                == 0
+            )
+            assert (
+                conn.execute(
+                    text(
+                        "SELECT count(*) FROM users "
+                        "WHERE id LIKE 'catalog-owner-%'"
+                    )
+                ).scalar_one()
+                == 2
+            )
+
+    with isolated_migration_database(
+        "studio_migration_0016_metadata"
+    ) as (temp_engine, env):
+        Base.metadata.create_all(temp_engine)
+        run_alembic(
+            "0016_transcript_catalog_entries",
+            env=env,
+            command="stamp",
+        )
+        run_alembic(
+            "0015_user_source_retention",
+            env=env,
+            command="downgrade",
+        )
+        with temp_engine.begin() as conn:
+            assert "transcript_catalog_entries" not in (
+                inspect(conn).get_table_names()
+            )
+
+
 def test_source_deletion_0014_upgrade_downgrade_roundtrip_and_metadata_table(tmp_path):
     from studio_api.db import Base
 
@@ -4184,7 +4686,7 @@ def test_job_destination_migration_0008_0009_upgrade_downgrade_backfill(tmp_path
         with temp_engine.begin() as conn:
             assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0009_job_output_destinations"
         cfg = Config(str(ALEMBIC))
-        assert ScriptDirectory.from_config(cfg).get_current_head() == "0015_user_source_retention"
+        assert ScriptDirectory.from_config(cfg).get_current_head() == "0016_transcript_catalog_entries"
     finally:
         temp_engine.dispose()
         cleanup_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")

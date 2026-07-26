@@ -80,6 +80,8 @@ def test_unhandled_api_event_registry_accepts_only_safe_aggregate_metadata(db):
     assert json.loads(row.metadata_json) == {"endpoint_group":"jobs", "http_status_category":"5xx"}
     rejected=write_diagnostic_event(owner_user_id=u.id, component="api", event_code="API_UNHANDLED_EXCEPTION", metadata={"endpoint_group":"jobs", "http_status_category":"5xx", "exception":"private"}, session_factory=Session)
     assert rejected.accepted is False
+    catalog=write_diagnostic_event(owner_user_id=u.id, component="api", event_code="API_UNHANDLED_EXCEPTION", metadata={"endpoint_group":"transcript_catalog", "http_status_category":"5xx"}, session_factory=Session)
+    assert catalog.persisted
 
 
 def test_google_picker_failure_event_accepts_only_safe_reason(db):
@@ -229,7 +231,10 @@ def test_request_ids_headers(monkeypatch, db):
     assert r.status_code in {401, 422}
     assert r.headers["X-Request-ID"].startswith("req_")
     assert r.headers["X-Correlation-ID"].startswith("corr_") and "Bearer" not in r.headers["X-Correlation-ID"]
-    if not any(route.path == "/__diagnostics_test_boom" for route in main.app.routes):
+    if not any(
+        getattr(route, "path", None) == "/__diagnostics_test_boom"
+        for route in main.app.routes
+    ):
         @main.app.get("/__diagnostics_test_boom")
         def _diagnostics_test_boom():
             raise RuntimeError("secret stack trace should not escape")
