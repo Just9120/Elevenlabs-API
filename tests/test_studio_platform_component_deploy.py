@@ -379,7 +379,15 @@ def test_workflow_summarizes_component_decisions_and_safe_skips() -> None:
         "github.event_name == 'workflow_dispatch'"
     ) in workflow
     assert "api_reason=manual_migration_required" in detection
-    assert "worker_reason=manual_only_source_changed" in detection
+    assert "worker_reason=manual_only_dependency_changed" in detection
+    assert "worker_dependency_changed=false" in detection
+    for case_pattern in (
+        "apps/studio-api/alembic/*|apps/studio-api/alembic.ini)",
+        "apps/studio-api/studio_api/worker.py|apps/studio-api/studio_api/worker_health.py)",
+        "apps/studio-api/*)",
+    ):
+        case_body = detection.split(case_pattern, 1)[1].split(";;", 1)[0]
+        assert "worker_dependency_changed=true" in case_body
     assert "automatic_cd_disabled" in detection
     assert "if: always()" in summary
     for job in ("detect-components", "deploy-web", "deploy-api", "deploy-worker"):
@@ -391,6 +399,7 @@ def test_workflow_summarizes_component_decisions_and_safe_skips() -> None:
         "migration changes require the separate backup and migration procedure"
         in summary
     )
+    assert "A worker runtime dependency changed" in summary
     assert "worker deployment remains manual-only" in summary
     assert "A green workflow does not mean every component was deployed." in summary
     assert "changed_files" not in summary

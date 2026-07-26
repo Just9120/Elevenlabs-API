@@ -77,7 +77,7 @@ jobs:
 
             api_changed=false
             api_migration_changed=false
-            worker_source_changed=false
+            worker_dependency_changed=false
             while IFS= read -r path; do
               [[ -n "$path" ]] || continue
               case "$path" in
@@ -86,12 +86,14 @@ jobs:
                   ;;
                 apps/studio-api/alembic/*|apps/studio-api/alembic.ini)
                   api_migration_changed=true
+                  worker_dependency_changed=true
                   ;;
                 apps/studio-api/studio_api/worker.py|apps/studio-api/studio_api/worker_health.py)
-                  worker_source_changed=true
+                  worker_dependency_changed=true
                   ;;
                 apps/studio-api/*)
                   api_changed=true
+                  worker_dependency_changed=true
                   ;;
               esac
             done <<< "$changed_files"
@@ -107,8 +109,8 @@ jobs:
               api_reason=source_changed
             fi
 
-            if [[ "$worker_source_changed" == "true" ]]; then
-              worker_reason=manual_only_source_changed
+            if [[ "$worker_dependency_changed" == "true" ]]; then
+              worker_reason=manual_only_dependency_changed
             fi
           else
             web_reason=automatic_cd_disabled
@@ -341,8 +343,8 @@ jobs:
             if [[ "$API_REASON" == "manual_migration_required" ]]; then
               echo "- API deployment was intentionally skipped because migration changes require the separate backup and migration procedure."
             fi
-            if [[ "$WORKER_REASON" == "manual_only_source_changed" ]]; then
-              echo "- Worker source changed, but worker deployment remains manual-only."
+            if [[ "$WORKER_REASON" == "manual_only_dependency_changed" ]]; then
+              echo "- A worker runtime dependency changed, but worker deployment remains manual-only."
             fi
             echo
             echo "> A green workflow does not mean every component was deployed. Only a component with decision \`deploy\` and job result \`success\` has deployment evidence from this run."
