@@ -142,9 +142,11 @@ Exit: met. Owner-scoped production diagnostics show one `JOB_CREATED`, one proce
 
 Order product work so that each capability inherits a known production baseline:
 
-1. ✅ `PWA-E2E-FOUNDATION-01B` — completed through PR #187 with controlled FastAPI/PostgreSQL/Redis fixtures and no provider, Google, S3/R2, or production calls; the real canary remains separate.
-2. ✅ `PWA-PREFLIGHT-UNCERTAINTY-01` — completed through PR #189 with browser-safe owner-scoped provider-attempt authority, a create-time locked recheck, atomic mixed-batch refusal, no automatic retry, and the unchanged final worker guard.
-3. 👉 `PWA-TRANSCRIPT-CATALOG-MIGRATION-01` — 15-commit source candidate ready for PR; PR CI and the manual migration/deployment/dry-run/apply evidence pipeline remain.
+`PWA-E2E-FOUNDATION-01B` and `PWA-PREFLIGHT-UNCERTAINTY-01` remain source-complete through PRs #187 and #189. Current order:
+
+1. 🚨 `PWA-PROJECT-CREATE-NAVIGATION-RACE-01` — clear the pending project-list navigation intent when the user explicitly opens the create form, add a regression test for the load/navigation race, and restore green authenticated Chromium on the exact revision.
+2. 👉 `PWA-TRANSCRIPT-CATALOG-MIGRATION-01 / production rollout` — preserve a tagged backup, migrate PostgreSQL to `0016_transcript_catalog_entries`, deploy/verify the intended API, run an authenticated approved-folder dry-run, and require separate authorization before one bounded apply.
+3. Selected-capability production canaries — validate auto-detect language, diarization, video preparation, long-media split/merge, and multi-file processing without treating one small-source success as proof of all modes.
 4. `PWA-LEGACY-AUTHORITY-01` — confirm external consumers, then remove the two deprecated compatibility APIs or retain them with an explicit support/removal contract. The old static UI and obsolete stateless/full-platform deploy paths are already removed.
 5. Golden Colab/PWA fixtures — lock normalization, ordering, output shape, and failure semantics before adding any later parity paths.
 6. Multi-worker validation — only after single-worker production stability; prove claim/lease/heartbeat/recovery behavior under concurrency before increasing worker count.
