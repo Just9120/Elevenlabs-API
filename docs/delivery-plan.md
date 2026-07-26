@@ -21,8 +21,8 @@
 - ✅ `PWA-TRANSCRIPT-CATALOG-MIGRATION-01 / source acceptance` — PR #190 merged at `625cd33`: browser-safe dry-run, separately confirmed idempotent apply, eligible in-place `transcript_doc_v1.2` standardization, minimal durable Studio catalog metadata, linked-catalog duplicate authority, explicit conflict outcomes, and a fail-closed PWA entry point are in `main`. Repository CI and the Studio lint/unit/build job passed for the merge revision.
 - ✅ `AUDIT-BASELINE-2026-07-26` — The deep repository audit at `docs/audits/repository-audit-2026-07-26.md` reconciles documentation, code, architecture, CI/CD, public health, readiness gates, and a 12-task local batch without changing product/runtime behavior.
 - ⏳ `PWA-PROJECT-CREATE-NAVIGATION-RACE-01` — Local source implementation and deterministic regression evidence are complete on the working branch: an explicit `Новый проект` action now clears the pending `browse` intent before opening the form, and a delayed `/projects` test reproduces the old close-after-load behavior. Exact changed-revision Studio/browser CI remains required after batch publication before this item is marked done.
-- 👉 `PWA-DOCKER-CONTEXT-01` — Next local item after the navigation fix: add narrow frontend/API `.dockerignore` contracts so host `node_modules`, generated output, caches, test artifacts, and local environment files cannot enter image contexts.
-- 📋 `PWA-WORKER-CHANGE-DETECTION-01` — Before further shared backend work, make component CD report manual worker review when worker-imported shared modules change; worker deployment remains manual-only.
+- ⏳ `PWA-DOCKER-CONTEXT-01` — Local source and static contract evidence are complete on the working branch: frontend/API contexts exclude host dependencies, generated output, caches, test artifacts, virtual environments, and local environment/secret-shaped files while retaining required build inputs. Docker is unavailable in the local environment, so both exact-revision image builds remain required in Studio CI after batch publication.
+- 👉 `PWA-WORKER-CHANGE-DETECTION-01` — Next local item. Before further shared backend work, make component CD report manual worker review when worker-imported shared modules change; worker deployment remains manual-only.
 - ⏸ `PWA-TRANSCRIPT-CATALOG-MIGRATION-01 / production rollout` — Stateful operator item after a green merged source batch: tagged pre-migration backup, manual migration to `0016_transcript_catalog_entries`, intended API deployment/identity/health verification, authenticated approved-folder dry-run, and a separately authorized apply.
 - 📋 `PWA-LEGACY-AUTHORITY-01` — After the catalog batch, confirm external consumers and then remove the two deprecated compatibility APIs or retain them with an explicit support/removal contract.
 - ⏸ `PWA-FRONTEND-MODULARIZATION-03` — Preparation composer/readiness extraction is deferred until the production baseline is known or rollout is waiting on an explicit operator window.
@@ -48,7 +48,7 @@
 | Bounded one-small-source canary | **100% of its exact scenario gates** | The `0015` core baseline has backup, component identities, database compatibility, public health/security, one exactly-one-output canary, and safe diagnostics/reconciliation. This must not be generalized to every selected mode or repository head. |
 | Catalog migration production rollout | **about 20%** | Source and web UI are merged and the web component is deployed, but production backup for this migration, database `0016`, intended API deployment, authenticated dry-run, and separately authorized apply remain. |
 
-The scoring method and per-epic fractions are in `docs/audits/repository-audit-2026-07-26.md`. The local project-create fix and targeted regression improve implementation confidence but do not yet promote an exact-main CI gate, so the aggregate estimates remain unchanged pending publication. Catalog production readiness changes only after the separately evidenced backup, migration, API deployment, dry-run, and authorized apply gates.
+The scoring method and per-epic fractions are in `docs/audits/repository-audit-2026-07-26.md`. The local project-create and Docker-context fixes improve implementation confidence but do not yet promote exact-main CI or image-build gates, so the aggregate estimates remain unchanged pending publication. Catalog production readiness changes only after the separately evidenced backup, migration, API deployment, dry-run, and authorized apply gates.
 
 ## Release-critical roadmap
 
@@ -146,9 +146,9 @@ Order product work so that each capability inherits a known production baseline:
 
 `PWA-E2E-FOUNDATION-01B` and `PWA-PREFLIGHT-UNCERTAINTY-01` remain source-complete through PRs #187 and #189. Current order:
 
-1. 🚨 `PWA-PROJECT-CREATE-NAVIGATION-RACE-01` — clear the pending project-list navigation intent when the user explicitly opens the create form, add a delayed-load regression test, and prove deterministic authenticated Chromium on the exact changed revision.
-2. 👉 `PWA-DOCKER-CONTEXT-01` — exclude host dependencies, generated artifacts, caches, test output, and local environment files from both image contexts; prove frontend/API image builds.
-3. `PWA-WORKER-CHANGE-DETECTION-01` — conservatively report manual worker review for shared worker dependencies without enabling automatic worker deployment.
+1. ⏳ `PWA-PROJECT-CREATE-NAVIGATION-RACE-01` — local fix and delayed-load regression complete; exact-revision authenticated Chromium remains.
+2. ⏳ `PWA-DOCKER-CONTEXT-01` — local frontend/API exclusions and static contract complete; exact-revision image builds remain.
+3. 👉 `PWA-WORKER-CHANGE-DETECTION-01` — conservatively report manual worker review for shared worker dependencies without enabling automatic worker deployment.
 4. Authentication/runtime hygiene — verify the production trusted proxy hop before changing configuration, then address rate-limit atomicity, session-write amplification, and expired auth-row retention in focused tasks.
 5. `PWA-TRANSCRIPT-CATALOG-MIGRATION-01 / production rollout` — only after a green merged source batch, preserve a tagged backup, migrate PostgreSQL to `0016_transcript_catalog_entries`, deploy/verify the intended API, run an authenticated approved-folder dry-run, and require separate authorization before one bounded apply.
 6. Selected-capability production canaries — validate auto-detect language, diarization, video preparation, long-media split/merge, and multi-file processing without treating one small-source success as proof of all modes.
@@ -166,7 +166,7 @@ These tasks are valuable but do not outrank the completed production safety gate
 
 PR #188 and dependency-audit verification completed the CD-observability, dependency-remediation, and Actions-runtime items recorded in the dashboard. Remaining maintainability work:
 
-1. Add `.dockerignore` context contracts before the next image-bearing source batch.
+1. Prove the local `.dockerignore` context contracts through exact-revision frontend/API image builds in Studio CI.
 2. Fix worker shared-dependency change visibility before further worker-imported backend work.
 3. Verify the production trusted-proxy peer and address auth/session/rate-limit retention only from that evidence.
 4. Resume `PWA-FRONTEND-MODULARIZATION-03`: extract bounded preparation composer/readiness behavior, then split `App.test.tsx` by the same domain boundaries.

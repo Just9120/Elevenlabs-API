@@ -1,0 +1,27 @@
+# Host dependencies and package-manager cache
+node_modules/
+.npm/
+
+# Generated build and test artifacts
+dist/
+coverage/
+.vite/
+.vitest/
+test-results/
+playwright-report/
+*.tsbuildinfo
+
+# Local environment and logs
+.env
+.env.*
+*.log
+
+# Editor and operating-system metadata
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Build metadata is not application input
+Dockerfile
+.dockerignore
