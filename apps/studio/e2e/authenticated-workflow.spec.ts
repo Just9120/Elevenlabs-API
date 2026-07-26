@@ -242,6 +242,48 @@ test('preparation stays fail-closed without external integrations', async ({
   expect(integrationRequests).toEqual([]);
 });
 
+test('catalog migration stays fail-closed without Google authority', async ({
+  page,
+}) => {
+  const navigation = await login(page);
+  const migrationMutations: string[] = [];
+  page.on('request', (request) => {
+    const url = new URL(request.url());
+    if (
+      request.method() !== 'GET' &&
+      url.pathname.startsWith('/api/transcript-catalog/migration/')
+    ) {
+      migrationMutations.push(`${request.method()} ${url.pathname}`);
+    }
+  });
+
+  await navigation
+    .getByRole('button', { name: 'Настройки', exact: true })
+    .click();
+
+  const migration = page.getByRole('region', {
+    name: 'Миграция каталога транскриптов',
+  });
+  await expect(migration).toBeVisible();
+  await expect(migration).toContainText('Одноразовая операция');
+  await expect(migration).toContainText(
+    'Транскрипция и LLM не вызываются.',
+  );
+  await expect(
+    migration.getByText('Сначала подключите Google Drive выше.'),
+  ).toBeVisible();
+  await expect(
+    migration.getByRole('button', { name: 'Выбрать папку каталога' }),
+  ).toBeDisabled();
+  await expect(
+    migration.getByRole('button', { name: 'Запустить dry-run' }),
+  ).toBeDisabled();
+  await expect(
+    migration.getByRole('button', { name: /Подтвердить и применить/ }),
+  ).toHaveCount(0);
+  expect(migrationMutations).toEqual([]);
+});
+
 test('uncertain provider result exposes no unsafe recovery action', async ({
   page,
 }) => {
