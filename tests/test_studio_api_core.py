@@ -3046,6 +3046,46 @@ def _add_accepted_batch_output(user_id, project_id, source_id, credential_id):
         db.close()
 
 
+def _add_linked_batch_catalog_entry(
+    user_id,
+    source_id,
+    *,
+    document_id="linked-catalog-document",
+):
+    from studio_api.models import (
+        TranscriptCatalogDocumentStandardStatus,
+        TranscriptCatalogEntry,
+        TranscriptCatalogSettingsStatus,
+        TranscriptCatalogSourceIdentityKind,
+    )
+
+    db = SessionLocal()
+    try:
+        db.add(
+            TranscriptCatalogEntry(
+                owner_user_id=user_id,
+                document_id=document_id,
+                document_name="Linked catalog evidence",
+                transcript_standard="transcript_doc_v1.2",
+                standard_status=(
+                    TranscriptCatalogDocumentStandardStatus.current
+                ),
+                settings_status=TranscriptCatalogSettingsStatus.exact,
+                provider="elevenlabs",
+                model="scribe_v2",
+                language_mode="ru",
+                diarization_enabled=True,
+                source_identity_kind=(
+                    TranscriptCatalogSourceIdentityKind.studio_source
+                ),
+                source_identity_value=source_id,
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+
 def _add_batch_provider_attempt(
     user_id,
     project_id,
@@ -3327,6 +3367,81 @@ def test_batch_create_rechecks_existing_result_and_requires_explicit_reprocessin
         )
     finally:
         db.close()
+
+
+def test_batch_preflight_and_create_enforce_linked_catalog_authority(
+    monkeypatch,
+):
+    _install_batch_folder_mocks(monkeypatch)
+    c, csrf, user_id, pid, source_a, _source_b, cred_id = _batch_setup(
+        "batch-linked-catalog@example.com"
+    )
+    _add_linked_batch_catalog_entry(user_id, source_a)
+    body = _batch_body(source_a, credential_id=cred_id)
+    preflight_headers = {
+        "origin": "https://studio.test",
+        "x-csrf-token": csrf,
+    }
+    before = _count_batch_rows()
+
+    blocked_preview = c.post(
+        f"/api/projects/{pid}/jobs/batch/preflight",
+        json=body,
+        headers=preflight_headers,
+    )
+
+    assert blocked_preview.status_code == 200
+    assert blocked_preview.json()["items"][0]["existing_result_match"] == {
+        "status": "accepted_match",
+        "accepted_output_count": 1,
+        "resolution": "required",
+    }
+    assert blocked_preview.json()["items"][0]["planned_outcome"] == "blocked"
+    assert blocked_preview.json()["summary"] == {
+        "process_count": 0,
+        "skip_count": 0,
+        "blocked_count": 1,
+    }
+    assert source_a not in blocked_preview.text
+    assert "linked-catalog-document" not in blocked_preview.text
+
+    blocked_create = c.post(
+        f"/api/projects/{pid}/jobs/batch",
+        json=body,
+        headers=_batch_headers(csrf),
+    )
+
+    assert blocked_create.status_code == 409
+    assert blocked_create.json()["detail"] == (
+        "Для существующего результата требуется явное решение"
+    )
+    assert _count_batch_rows() == before
+
+    body["items"][0]["reprocess_existing"] = True
+    approved_preview = c.post(
+        f"/api/projects/{pid}/jobs/batch/preflight",
+        json=body,
+        headers=preflight_headers,
+    )
+
+    assert approved_preview.status_code == 200
+    assert approved_preview.json()["items"][0]["existing_result_match"] == {
+        "status": "accepted_match",
+        "accepted_output_count": 1,
+        "resolution": "reprocess",
+    }
+    assert approved_preview.json()["items"][0]["planned_outcome"] == "process"
+
+    created = c.post(
+        f"/api/projects/{pid}/jobs/batch",
+        json=body,
+        headers=_batch_headers(csrf),
+    )
+
+    assert created.status_code == 200
+    assert created.json()["created_count"] == 1
+    assert _count_batch_rows() == (before[0] + 1, before[1] + 1)
+    assert "linked-catalog-document" not in created.text
 
 
 @pytest.mark.parametrize(
