@@ -71,7 +71,7 @@ Manual migration rollout order is strict:
 2. Create a tagged pre-migration PostgreSQL backup through the approved backup boundary.
 3. Confirm the backup completed and record only safe snapshot metadata.
 4. Run the manual migration command/script only after explicit operator confirmation.
-5. Verify production database revision equals repository Alembic head `0015_user_source_retention` where the deployment is expected to be current.
+5. Verify production database revision equals repository Alembic head `0016_transcript_catalog_entries` where the deployment is expected to be current.
 6. Deploy or restart only the intended components.
 
 Operator-safe tagged backup command:
@@ -132,6 +132,41 @@ The host nginx file is the single browser security-header authority. Keep script
 
 Roll out OAuth/Picker config through API deployment only when runtime files are ready. Validate with authenticated owner-scoped flows and confirm unauthenticated connection/status endpoints still reject as expected.
 
+## One-time transcript catalog migration canary
+
+The Google Docs transcript catalog migration is a separately initiated stateful operation. A merged source revision, green CI, successful component deployment, or an authenticated browser smoke does not authorize `apply`. The operation requires a reviewed dry-run and a separate explicit operator decision because it can update approved Google Docs in place and create or update durable PostgreSQL catalog rows.
+
+### Preconditions
+
+- Use only merged `main` with green required CI and verified web/API commit and image identities.
+- Create and record a successful tagged pre-migration PostgreSQL backup before applying repository Alembic head `0016_transcript_catalog_entries`; standard CD must not create the backup or run the migration.
+- Verify public and localhost health, API migration readiness, and an authenticated owner-scoped session.
+- Use the existing Google connection with the approved `drive.file` permission and no additional Drive scope. Do not broaden OAuth scope for catalog migration.
+- Select a small approved canary folder containing copies or otherwise explicitly approved representative transcript documents. The scanner evaluates direct children only; nested folders are reported but not traversed.
+- Keep transcription jobs and provider processing out of this operation. The migration must not create a job, call a transcription provider, or require a worker rollout.
+
+### Dry-run and authorization
+
+1. Open **Settings → Account → Transcript catalog migration** in the PWA and select the approved canary folder through Google Picker.
+2. Run `dry-run` only. The preview is non-mutating, browser-safe, and rate-limited; it is not authority for a later apply because the server performs a fresh scan when apply begins.
+3. Review aggregate action, blocked, unsupported, and nested-folder counts. Stop on unexpected documents, unresolved conflicts, blocked candidates, unsupported contents, or an incomplete folder boundary.
+4. Record only safe aggregate counts and the explicit operator decision. Do not record folder IDs, document IDs, document names, document bodies, Google payloads, access tokens, or URLs.
+5. Authorize exactly one apply separately from the dry-run. Do not treat a previous approval, CI result, or deploy approval as migration authorization.
+
+### Apply and post-check
+
+1. Apply once from the reviewed PWA panel. Do not send the endpoint manually or start parallel apply requests.
+2. If the request times out, conflicts, reports an unknown error, or returns an incomplete result, stop. Do not retry blindly. Preserve safe evidence, run a new dry-run, and reconcile Google document version history with catalog state before another operator decision.
+3. Review the returned aggregate apply outcomes, then run a new dry-run for the same canary folder. Expected documents should be current or unchanged, with no new unexpected action.
+4. Manually inspect the approved canary copies or their Google version history to confirm content preservation and the intended `transcript_doc_v1.2` structure. Do not copy transcript text into evidence.
+5. Confirm that the operation created no transcription job, provider attempt, output document, or worker activity. Record the migration audit event only through safe aggregate or normalized evidence.
+
+### Recovery boundary and evidence
+
+A PostgreSQL restore can recover catalog metadata, but it does not automatically revert Google Docs already changed before a database failure. Google recovery depends on approved canary copies or Google version history. If apply may have partially changed external documents, do not automatically rerun apply, delete documents, restore production PostgreSQL, or broaden permissions. Stop and make recovery a separate operator-reviewed stateful task.
+
+Safe evidence includes the merged commit, required CI result, deployed web/API image identities, database revision, backup snapshot ID, public and localhost health, aggregate dry-run/apply counts, absence of provider/job mutations, and the explicit operator approval. It must exclude private folder/object identifiers, document names or bodies, Google responses, credentials, and tokens.
+
 ## Component deployment
 
 Web and API are separate deployable components.
@@ -157,14 +192,14 @@ Before any processing rollout or canary, verify without printing sensitive value
 - credential master key and encrypted BYOK records are usable;
 - exactly one intended active ElevenLabs BYOK credential exists for the smoke account;
 - writable Google output folder selection exists;
-- production database revision is known and compared to repository Alembic head `0015_user_source_retention`;
+- production database revision is known and compared to repository Alembic head `0016_transcript_catalog_entries`;
 - exactly one worker instance is intended for the canary.
 
 ## Controlled worker rollout sequence
 
 1. Keep `studio-worker` stopped until migration and runtime readiness are confirmed.
 2. Create/confirm the tagged pre-migration database backup if a migration or stateful rollout is involved.
-3. Verify production database revision equals repository head `0015_user_source_retention` where the deployment is expected to be current.
+3. Verify production database revision equals repository head `0016_transcript_catalog_entries` where the deployment is expected to be current.
 4. Deploy web/API only through the approved isolated component deployment model.
 5. Verify intended commit/image identity, running component identity, localhost health, public health, authenticated session behavior, and output endpoint availability without exposing another owner’s data.
 6. Start exactly one `studio-worker` from the intended image with no public HTTP port.
@@ -336,7 +371,7 @@ GitHub Actions supports manual `workflow_dispatch(component=worker)` using the s
 
 ## Output reconciliation operations boundary
 
-`PWA-OUTPUT-RECONCILIATION-01` is source-level only until an operator manually applies the current migration head `0015_user_source_retention` in the target database and verifies API/worker image compatibility. Standard CD must not run migrations automatically.
+`PWA-OUTPUT-RECONCILIATION-01` is source-level only until an operator manually applies the current migration head `0016_transcript_catalog_entries` in the target database and verifies API/worker image compatibility. Standard CD must not run migrations automatically.
 
 When a job fails with `output_reconciliation_required`, the owner may use the Studio PWA action or API check endpoint to query Drive by the internal opaque appProperty token and the job output-folder snapshot. Operators must not ask users for raw Google document IDs, must not create duplicate Google Docs, must not delete possible duplicates, must not retry provider processing as reconciliation, and must not inspect transcript/document bodies as evidence. Zero matches remain unresolved for later explicit checks. Multiple matches are a conflict requiring manual investigation outside the automated path.
 
@@ -352,4 +387,4 @@ No production deployment, migration rollout, worker rollout, or controlled canar
 
 ## Source cleanup operations note
 
-Repository Alembic head is `0015_user_source_retention`. Source cleanup is durable PostgreSQL state on `sources`; the allowlisted per-user retention preference is durable PostgreSQL state on `users`. Cleanup is processed as bounded worker idle maintenance after normal job claim/orchestration finds no job. Safe diagnostics use normalized source deletion/retention/cleanup events and must not log object keys, buckets, filenames, Drive file IDs, presigned URLs, raw storage errors, or secrets. Production migration, deployment, worker rollout, and controlled canary remain manual operator actions and were not run by this source-level PR.
+Repository Alembic head is `0016_transcript_catalog_entries`. Source cleanup is durable PostgreSQL state on `sources`; the allowlisted per-user retention preference is durable PostgreSQL state on `users`. Cleanup is processed as bounded worker idle maintenance after normal job claim/orchestration finds no job. Safe diagnostics use normalized source deletion/retention/cleanup events and must not log object keys, buckets, filenames, Drive file IDs, presigned URLs, raw storage errors, or secrets. Production migration, deployment, worker rollout, and controlled canary remain manual operator actions and were not run by this source-level PR.
