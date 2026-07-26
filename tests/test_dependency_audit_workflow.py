@@ -124,4 +124,13 @@ def test_studio_enforces_its_node_runtime_floor_in_ci_and_image_builds():
     assert npmrc == ["engine-strict=true"]
     assert studio_ci.count("node-version: '22'") == 2
     assert dependency_audit.count("node-version: '22'") == 1
-    assert dockerfile.startswith("FROM node:22-alpine AS build\n")
+    assert (
+        "FROM node:22-alpine@sha256:"
+        "16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2 AS build"
+        in dockerfile
+    )
+    assert (
+        "FROM nginx:1.28.3-alpine@sha256:"
+        "a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236"
+        in dockerfile
+    )
