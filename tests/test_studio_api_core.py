@@ -56,7 +56,7 @@ def clean_state(migrated_database):
     except Exception as exc:
         pytest.skip(f"Redis unavailable for platform tests: {exc}")
     with engine.begin() as conn:
-        tables = ["transcription_job_source_attempts", "transcription_output_reconciliations", "diagnostic_debug_sessions", "diagnostic_events", "audit_events", "google_oauth_states", "google_connections", "provider_credential_versions", "provider_credentials", "transcription_job_outputs", "transcription_job_sources", "transcription_jobs", "sources", "projects", "sessions", "login_contexts", "local_identities", "users"]
+        tables = ["transcript_catalog_entries", "transcription_job_source_attempts", "transcription_output_reconciliations", "diagnostic_debug_sessions", "diagnostic_events", "audit_events", "google_oauth_states", "google_connections", "provider_credential_versions", "provider_credentials", "transcription_job_outputs", "transcription_job_sources", "transcription_jobs", "sources", "projects", "sessions", "login_contexts", "local_identities", "users"]
         required_tables = set(tables)
         missing = required_tables - set(inspect(conn).get_table_names())
         assert not missing, f"shared test database schema is not at current head: {sorted(missing)}"
@@ -126,6 +126,65 @@ def test_alembic_upgrade_and_readiness_current():
     r = c.get("/api/healthz")
     assert r.status_code == 200
     assert r.json() == {"ok": True, "database": "reachable", "migrations": "current"}
+
+
+def test_catalog_metadata_apply_is_idempotent_on_postgresql():
+    from studio_api.models import TranscriptCatalogEntry
+    from studio_api.transcript_catalog_apply import (
+        apply_catalog_migration_metadata,
+    )
+    from studio_api.transcript_catalog_migration import (
+        CatalogDocumentStandardStatus,
+        CatalogImportAuthorityStatus,
+        CatalogMigrationCandidate,
+        CatalogSettingsAuthorityStatus,
+    )
+
+    db = SessionLocal()
+    try:
+        owner = User(
+            id="catalog-apply-owner",
+            email="catalog-apply@example.com",
+        )
+        db.add(owner)
+        db.commit()
+        candidate = CatalogMigrationCandidate(
+            drive_document_id="catalog-apply-document",
+            name="Catalog apply",
+            standard_status=CatalogDocumentStandardStatus.current,
+            import_status=CatalogImportAuthorityStatus.not_imported,
+            settings_status=CatalogSettingsAuthorityStatus.indeterminate,
+        )
+
+        first = apply_catalog_migration_metadata(
+            db,
+            owner_user_id=owner.id,
+            candidates=(candidate,),
+        )
+        db.commit()
+        first_row = db.execute(
+            select(TranscriptCatalogEntry)
+        ).scalar_one()
+        first_id = first_row.id
+        first_imported_at = first_row.imported_at
+
+        second = apply_catalog_migration_metadata(
+            db,
+            owner_user_id=owner.id,
+            candidates=(candidate,),
+        )
+        db.commit()
+        repeated = db.execute(
+            select(TranscriptCatalogEntry)
+        ).scalar_one()
+
+        assert first["items"][0]["outcome"] == "imported"
+        assert second["items"][0]["outcome"] == "already_applied"
+        assert repeated.id == first_id
+        assert repeated.imported_at == first_imported_at
+    finally:
+        db.rollback()
+        db.close()
 
 
 def test_readiness_non_200_when_migrations_pending():
