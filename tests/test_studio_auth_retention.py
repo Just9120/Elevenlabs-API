@@ -1,25 +1,38 @@
 from datetime import datetime, timedelta, timezone
-import os
 from pathlib import Path
 from types import SimpleNamespace
 import sys
 
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps/studio-api"))
-os.environ.setdefault("STUDIO_DATABASE_URL", "sqlite+pysqlite:///:memory:")
-os.environ.setdefault("STUDIO_APP_ORIGIN", "https://studio.test")
-os.environ.setdefault("STUDIO_COOKIE_SECURE", "false")
-
-from studio_api.auth_retention import cleanup_expired_auth_state
-from studio_api.db import Base
-from studio_api.models import GoogleOAuthState, LoginContext, Session, User
 
 
-def test_auth_state_cleanup_is_terminal_only_and_batch_bounded():
+@pytest.fixture
+def auth_retention_contract(monkeypatch):
+    monkeypatch.setenv("STUDIO_DATABASE_URL", "sqlite+pysqlite:///:memory:")
+    monkeypatch.setenv("STUDIO_APP_ORIGIN", "https://studio.test")
+    monkeypatch.setenv("STUDIO_COOKIE_SECURE", "false")
+
+    from studio_api.config import get_settings
+
+    get_settings.cache_clear()
+    from studio_api.auth_retention import cleanup_expired_auth_state
+    from studio_api.db import Base
+    from studio_api.models import GoogleOAuthState, LoginContext, Session, User
+
+    try:
+        yield cleanup_expired_auth_state, Base, GoogleOAuthState, LoginContext, Session, User
+    finally:
+        get_settings.cache_clear()
+
+
+def test_auth_state_cleanup_is_terminal_only_and_batch_bounded(auth_retention_contract):
+    cleanup_expired_auth_state, Base, GoogleOAuthState, LoginContext, Session, User = auth_retention_contract
     engine=create_engine(
         "sqlite+pysqlite:///:memory:",
         connect_args={"check_same_thread": False},
