@@ -94,7 +94,7 @@ def test_batch_preflight_payload_is_ordered_explicit_and_browser_safe():
     }
     assert payload["existing_result_authority"] == {
         "status": "partial",
-        "reason_code": "studio_outputs_only",
+        "reason_code": "unlinked_catalog_entries_excluded",
     }
     assert [item["position"] for item in payload["items"]] == [0, 1]
     assert payload["items"][0] == {

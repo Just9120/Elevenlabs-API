@@ -164,7 +164,8 @@ export function parseBatchPreflightResponse(
   }
   if (
     (value.existing_result_authority.status === "partial" &&
-      value.existing_result_authority.reason_code !== "studio_outputs_only") ||
+      value.existing_result_authority.reason_code !==
+        "unlinked_catalog_entries_excluded") ||
     (value.existing_result_authority.status === "available" &&
       value.existing_result_authority.reason_code !== null)
   ) {

@@ -124,7 +124,7 @@ def build_batch_preflight_payload(
         "diarization_enabled": bool(diarization_enabled),
         "existing_result_authority": {
             "status": "partial",
-            "reason_code": "studio_outputs_only",
+            "reason_code": "unlinked_catalog_entries_excluded",
         },
         "items": items,
         "summary": {

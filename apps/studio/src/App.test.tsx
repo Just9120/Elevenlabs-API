@@ -48,7 +48,7 @@ function batchPreflightJson(init?: RequestInit) {
     diarization_enabled: request.options?.diarize === true,
     existing_result_authority: {
       status: "partial",
-      reason_code: "studio_outputs_only",
+      reason_code: "unlinked_catalog_entries_excluded",
     },
     items: items.map((item, position) => ({
       position,
@@ -2638,10 +2638,10 @@ describe("Studio PWA", () => {
     expect(preview).toHaveTextContent("Safe folder 1");
     expect(preview).toHaveTextContent("План: обработать");
     expect(preview).toHaveTextContent(
-      "Совпадений с теми же настройками среди результатов Studio не найдено.",
+      "Совпадений с теми же настройками среди результатов Studio и точно связанных записей каталога не найдено.",
     );
     expect(preview).toHaveTextContent(
-      "Проверены только принятые результаты Studio.",
+      "Проверены принятые результаты Studio и записи импортированного каталога",
     );
     expect(
       (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
@@ -2700,7 +2700,7 @@ describe("Studio PWA", () => {
           diarization_enabled: request.options?.diarize === true,
           existing_result_authority: {
             status: "partial",
-            reason_code: "studio_outputs_only",
+            reason_code: "unlinked_catalog_entries_excluded",
           },
           items: [
             {
@@ -2843,7 +2843,7 @@ describe("Studio PWA", () => {
             diarization_enabled: false,
             existing_result_authority: {
               status: "partial",
-              reason_code: "studio_outputs_only",
+              reason_code: "unlinked_catalog_entries_excluded",
             },
             items: [
               {

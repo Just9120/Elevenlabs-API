@@ -2428,6 +2428,12 @@ def add_output_row(job_id, source_id, *, url="https://docs.google.com/document/d
 
 
 def test_transcript_catalog_query_is_owner_scoped_and_uses_accepted_output_authority():
+    from studio_api.models import (
+        TranscriptCatalogDocumentStandardStatus,
+        TranscriptCatalogEntry,
+        TranscriptCatalogSettingsStatus,
+        TranscriptCatalogSourceIdentityKind,
+    )
     from studio_api.transcript_catalog import (
         ExistingResultMatchStatus,
         current_effective_settings,
@@ -2458,9 +2464,45 @@ def test_transcript_catalog_query_is_owner_scoped_and_uses_accepted_output_autho
     db = SessionLocal()
     try:
         source_row = db.get(Source, source_ids1[0])
+        owner_user_id = db.get(TranscriptionJob, jid1).owner_user_id
+        other_owner_user_id = db.get(TranscriptionJob, jid2).owner_user_id
+        exact_catalog_values = {
+            "document_name": "Catalog evidence",
+            "transcript_standard": "transcript_doc_v1.2",
+            "standard_status": TranscriptCatalogDocumentStandardStatus.current,
+            "settings_status": TranscriptCatalogSettingsStatus.exact,
+            "provider": "elevenlabs",
+            "model": "scribe_v2",
+            "language_mode": "detect",
+            "diarization_enabled": False,
+            "source_identity_kind": (
+                TranscriptCatalogSourceIdentityKind.google_drive_file
+            ),
+            "source_identity_value": source_row.drive_file_id,
+        }
+        db.add_all(
+            [
+                TranscriptCatalogEntry(
+                    owner_user_id=owner_user_id,
+                    document_id="catalog-owner-doc",
+                    **exact_catalog_values,
+                ),
+                TranscriptCatalogEntry(
+                    owner_user_id=owner_user_id,
+                    document_id="catalog-linked-only-doc",
+                    **exact_catalog_values,
+                ),
+                TranscriptCatalogEntry(
+                    owner_user_id=other_owner_user_id,
+                    document_id="catalog-other-owner-linked-doc",
+                    **exact_catalog_values,
+                ),
+            ]
+        )
+        db.commit()
         match = load_existing_result_matches(
             db,
-            owner_user_id=db.get(TranscriptionJob, jid1).owner_user_id,
+            owner_user_id=owner_user_id,
             sources=[source_row],
             target_settings=current_effective_settings(
                 language_mode="detect",
@@ -2471,8 +2513,10 @@ def test_transcript_catalog_query_is_owner_scoped_and_uses_accepted_output_autho
         db.close()
 
     assert match.status == ExistingResultMatchStatus.accepted_match
-    assert match.accepted_output_count == 1
-    assert match.matching_settings_count == 1
+    # The linked catalog row extends authority, the same Google document is
+    # counted once across both tables, and the other owner's row is ignored.
+    assert match.accepted_output_count == 2
+    assert match.matching_settings_count == 2
 
 
 def test_job_output_authentication_and_no_csrf_required():
@@ -3150,7 +3194,7 @@ def test_batch_preflight_is_safe_ordered_and_does_not_create_rows(monkeypatch):
     }
     assert data["existing_result_authority"] == {
         "status": "partial",
-        "reason_code": "studio_outputs_only",
+        "reason_code": "unlinked_catalog_entries_excluded",
     }
     assert [item["source"]["name"] for item in data["items"]] == [
         "a.mp3",

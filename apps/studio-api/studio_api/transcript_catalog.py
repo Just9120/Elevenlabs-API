@@ -180,6 +180,64 @@ def accepted_evidence_from_rows(
     return tuple(evidence)
 
 
+def accepted_catalog_evidence_from_rows(
+    rows: Iterable[Sequence[Any]],
+) -> tuple[AcceptedTranscriptEvidence, ...]:
+    """Restore accepted evidence only from explicitly linked catalog metadata."""
+    evidence: list[AcceptedTranscriptEvidence] = []
+    for (
+        source_identity_kind,
+        source_identity_value,
+        settings_status,
+        provider,
+        model,
+        language_mode,
+        diarization_enabled,
+        transcript_standard,
+    ) in rows:
+        try:
+            identity_kind = CatalogSourceIdentityKind(
+                _enum_value(source_identity_kind)
+            )
+        except ValueError:
+            continue
+        identity_value = _clean_private_identity(source_identity_value)
+        if not identity_value:
+            continue
+
+        settings = None
+        if _enum_value(settings_status) == "exact":
+            normalized_provider = _clean_private_identity(provider).lower()
+            normalized_model = _clean_private_identity(model)
+            normalized_language = _catalog_language_mode(language_mode)
+            if (
+                normalized_provider
+                and normalized_model
+                and normalized_language is not None
+                and isinstance(diarization_enabled, bool)
+            ):
+                settings = EffectiveTranscriptionSettings(
+                    provider=normalized_provider,
+                    model=normalized_model,
+                    language_mode=normalized_language,
+                    diarization_enabled=diarization_enabled,
+                )
+
+        evidence.append(
+            AcceptedTranscriptEvidence(
+                source_identity=CatalogSourceIdentity(
+                    kind=identity_kind,
+                    value=identity_value,
+                ),
+                # Malformed or indeterminate metadata stays relevant but
+                # cannot silently become an exact no-match decision.
+                settings=settings,
+                transcript_standard=str(transcript_standard or ""),
+            )
+        )
+    return tuple(evidence)
+
+
 def classify_existing_results(
     *,
     sources: Iterable[Any],
@@ -239,6 +297,8 @@ def load_existing_result_matches(
         ProviderCredential,
         Source,
         SourceType,
+        TranscriptCatalogEntry,
+        TranscriptCatalogSourceIdentityKind,
         TranscriptionJob,
         TranscriptionJobOutput,
         TranscriptionJobSource,
@@ -274,7 +334,7 @@ def load_existing_result_matches(
             target_settings=target_settings,
         )
 
-    rows = (
+    output_rows = (
         db.query(
             Source.id,
             Source.source_type,
@@ -285,6 +345,7 @@ def load_existing_result_matches(
             TranscriptionJob.options_json,
             TranscriptionJobOutput.output_kind,
             TranscriptionJobOutput.transcript_standard,
+            TranscriptionJobOutput.document_id,
         )
         .join(
             TranscriptionJobSource,
@@ -316,9 +377,58 @@ def load_existing_result_matches(
         )
         .all()
     )
+    output_document_ids = {
+        document_id
+        for row in output_rows
+        if (document_id := _clean_private_identity(row[9]))
+    }
+    accepted_evidence = list(
+        accepted_evidence_from_rows(row[:9] for row in output_rows)
+    )
+
+    catalog_identity_filters = []
+    if source_ids:
+        catalog_identity_filters.append(
+            and_(
+                TranscriptCatalogEntry.source_identity_kind
+                == TranscriptCatalogSourceIdentityKind.studio_source,
+                TranscriptCatalogEntry.source_identity_value.in_(source_ids),
+            )
+        )
+    if drive_file_ids:
+        catalog_identity_filters.append(
+            and_(
+                TranscriptCatalogEntry.source_identity_kind
+                == TranscriptCatalogSourceIdentityKind.google_drive_file,
+                TranscriptCatalogEntry.source_identity_value.in_(
+                    drive_file_ids
+                ),
+            )
+        )
+    catalog_query = db.query(
+        TranscriptCatalogEntry.source_identity_kind,
+        TranscriptCatalogEntry.source_identity_value,
+        TranscriptCatalogEntry.settings_status,
+        TranscriptCatalogEntry.provider,
+        TranscriptCatalogEntry.model,
+        TranscriptCatalogEntry.language_mode,
+        TranscriptCatalogEntry.diarization_enabled,
+        TranscriptCatalogEntry.transcript_standard,
+    ).filter(
+        TranscriptCatalogEntry.owner_user_id == owner_user_id,
+        or_(*catalog_identity_filters),
+    )
+    if output_document_ids:
+        catalog_query = catalog_query.filter(
+            TranscriptCatalogEntry.document_id.notin_(output_document_ids)
+        )
+    accepted_evidence.extend(
+        accepted_catalog_evidence_from_rows(catalog_query.all())
+    )
+
     return classify_existing_results(
         sources=source_rows,
-        evidence=accepted_evidence_from_rows(rows),
+        evidence=accepted_evidence,
         target_settings=target_settings,
     )
 

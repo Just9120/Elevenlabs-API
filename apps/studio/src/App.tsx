@@ -1914,7 +1914,7 @@ function PreparationPanel({
                       ? "Есть результат с теми же настройками, но старого стандарта."
                       : item.existing_result_match.status === "indeterminate"
                         ? "Есть результат, настройки которого нельзя подтвердить."
-                        : "Совпадений с теми же настройками среди результатов Studio не найдено.";
+                        : "Совпадений с теми же настройками среди результатов Studio и точно связанных записей каталога не найдено.";
                 const providerAuthorityLabel =
                   item.provider_attempt_authority.reason_code ===
                   "equivalent_provider_work_in_flight"
@@ -1993,9 +1993,9 @@ function PreparationPanel({
             {activePreflight.existing_result_authority.status ===
               "partial" && (
               <p className="notice">
-                Проверены только принятые результаты Studio. Разовый импорт
-                старой коллекции Google Docs ещё не выполнен, поэтому эта
-                проверка не видит документы вне Studio.
+                Проверены принятые результаты Studio и записи импортированного
+                каталога, для которых исходник указан точно. Документы без
+                подтверждённой связи с исходником не считаются совпадениями.
               </p>
             )}
           </section>

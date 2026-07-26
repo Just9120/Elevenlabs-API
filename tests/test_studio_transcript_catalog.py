@@ -56,6 +56,29 @@ def evidence_row(
     )
 
 
+def catalog_evidence_row(
+    *,
+    source_identity_value: str,
+    source_identity_kind: str = "studio_source",
+    settings_status: str = "exact",
+    provider: str | None = "elevenlabs",
+    model: str | None = "scribe_v2",
+    language_mode: str | None = "ru",
+    diarization_enabled: bool | None = False,
+    transcript_standard: str = "transcript_doc_v1.2",
+):
+    return (
+        enum(source_identity_kind),
+        source_identity_value,
+        enum(settings_status),
+        provider,
+        model,
+        language_mode,
+        diarization_enabled,
+        transcript_standard,
+    )
+
+
 def test_catalog_uses_owner_internal_stable_source_identity_without_exposing_it():
     from studio_api.transcript_catalog import (
         CatalogSourceIdentityKind,
@@ -197,6 +220,76 @@ def test_catalog_matches_reselected_google_file_across_studio_source_rows():
     )
     assert "same-private-drive-file" not in encoded
     assert "old-studio-source" not in encoded
+
+
+def test_linked_catalog_metadata_extends_existing_result_authority_fail_closed():
+    from studio_api.transcript_catalog import (
+        ExistingResultMatchStatus,
+        accepted_catalog_evidence_from_rows,
+        classify_existing_results,
+        current_effective_settings,
+    )
+
+    exact = source("private-exact-source")
+    legacy = source("private-legacy-source")
+    indeterminate = source("private-indeterminate-source")
+    malformed = source("private-malformed-source")
+    evidence = accepted_catalog_evidence_from_rows(
+        [
+            catalog_evidence_row(
+                source_identity_value="private-exact-source",
+                diarization_enabled=True,
+            ),
+            catalog_evidence_row(
+                source_identity_value="private-legacy-source",
+                diarization_enabled=True,
+                transcript_standard="transcript_doc_v1.1",
+            ),
+            catalog_evidence_row(
+                source_identity_value="private-indeterminate-source",
+                settings_status="indeterminate",
+                provider=None,
+                model=None,
+                language_mode=None,
+                diarization_enabled=None,
+            ),
+            catalog_evidence_row(
+                source_identity_value="private-malformed-source",
+                provider=None,
+                diarization_enabled=True,
+            ),
+            catalog_evidence_row(
+                source_identity_value="ignored-private-source",
+                source_identity_kind="unsupported",
+                diarization_enabled=True,
+            ),
+        ]
+    )
+
+    matches = classify_existing_results(
+        sources=(exact, legacy, indeterminate, malformed),
+        evidence=evidence,
+        target_settings=current_effective_settings(
+            language_mode="ru",
+            diarization_enabled=True,
+        ),
+    )
+
+    assert matches["private-exact-source"].status == (
+        ExistingResultMatchStatus.accepted_match
+    )
+    assert matches["private-legacy-source"].status == (
+        ExistingResultMatchStatus.standardization_required
+    )
+    assert matches["private-indeterminate-source"].status == (
+        ExistingResultMatchStatus.indeterminate
+    )
+    assert matches["private-malformed-source"].status == (
+        ExistingResultMatchStatus.indeterminate
+    )
+    assert all(match.accepted_output_count == 1 for match in matches.values())
+    assert "private-exact-source" not in repr(evidence)
+    assert "ignored-private-source" not in repr(evidence)
 
 
 def test_catalog_settings_contract_is_strict_and_deterministic():
