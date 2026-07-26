@@ -1492,7 +1492,7 @@ def test_job_lease_migration_real_0005_shape_upgrades_to_head():
             assert {"lease_owner_id", "lease_generation", "claimed_at", "lease_expires_at", "attempt_count", "cancel_requested_at"}.issubset(cols)
             indexes = [idx["name"] for idx in inspector.get_indexes("transcription_jobs")]
             assert indexes.count("ix_transcription_jobs_status_lease_expires_created") == 1
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0015_user_source_retention"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0016_transcript_catalog_entries"
 
 
 
@@ -1527,7 +1527,7 @@ def test_job_output_migration_clean_chain_constraints_and_0007_roundtrip():
         run_alembic("head", env=env)
         with temp_engine.begin() as conn:
             assert "transcription_job_outputs" in inspect(conn).get_table_names()
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0015_user_source_retention"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0016_transcript_catalog_entries"
 
 
 
@@ -3981,6 +3981,267 @@ def test_user_source_retention_0015_upgrade_downgrade_roundtrip_and_metadata_tab
             _assert_user_source_retention_0015_absent(inspect(conn))
 
 
+def _drop_transcript_catalog_0016_schema(conn):
+    conn.execute(text("DROP TABLE IF EXISTS transcript_catalog_entries"))
+    conn.execute(
+        text(
+            "DROP TYPE IF EXISTS "
+            "transcriptcatalogsourceidentitykind"
+        )
+    )
+    conn.execute(
+        text("DROP TYPE IF EXISTS transcriptcatalogsettingsstatus")
+    )
+    conn.execute(
+        text(
+            "DROP TYPE IF EXISTS "
+            "transcriptcatalogdocumentstandardstatus"
+        )
+    )
+
+
+def _assert_transcript_catalog_0016_schema(inspector):
+    assert "transcript_catalog_entries" in inspector.get_table_names()
+    columns = {
+        column["name"]
+        for column in inspector.get_columns("transcript_catalog_entries")
+    }
+    assert {
+        "id",
+        "owner_user_id",
+        "document_id",
+        "document_name",
+        "transcript_standard",
+        "standard_status",
+        "settings_status",
+        "provider",
+        "model",
+        "language_mode",
+        "diarization_enabled",
+        "source_identity_kind",
+        "source_identity_value",
+        "imported_at",
+        "updated_at",
+    } == columns
+    checks = {
+        constraint["name"]
+        for constraint in inspector.get_check_constraints(
+            "transcript_catalog_entries"
+        )
+    }
+    assert {
+        "ck_transcript_catalog_document_id_nonempty",
+        "ck_transcript_catalog_document_name_nonempty",
+        "ck_transcript_catalog_standard_nonempty",
+        "ck_transcript_catalog_source_authority",
+        "ck_transcript_catalog_settings_authority",
+    } <= checks
+    unique_constraints = {
+        constraint["name"]
+        for constraint in inspector.get_unique_constraints(
+            "transcript_catalog_entries"
+        )
+    }
+    assert "uq_transcript_catalog_owner_document" in unique_constraints
+    indexes = {
+        index["name"]
+        for index in inspector.get_indexes(
+            "transcript_catalog_entries"
+        )
+    }
+    assert {
+        "ix_transcript_catalog_owner_updated",
+        "ix_transcript_catalog_owner_source_settings",
+    } <= indexes
+    foreign_keys = {
+        tuple(constraint["constrained_columns"]): (
+            constraint["referred_table"]
+        )
+        for constraint in inspector.get_foreign_keys(
+            "transcript_catalog_entries"
+        )
+    }
+    assert foreign_keys[("owner_user_id",)] == "users"
+
+
+def test_transcript_catalog_0016_upgrade_downgrade_and_constraints():
+    from studio_api.db import Base
+
+    with isolated_migration_database(
+        "studio_migration_0016"
+    ) as (temp_engine, env):
+        run_alembic("0015_user_source_retention", env=env)
+        with temp_engine.begin() as conn:
+            _drop_transcript_catalog_0016_schema(conn)
+            assert (
+                conn.execute(
+                    text("SELECT version_num FROM alembic_version")
+                ).scalar_one()
+                == "0015_user_source_retention"
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO users "
+                    "(id, email, role, status, created_at, updated_at) "
+                    "VALUES "
+                    "('catalog-owner-a', 'catalog-a@example.com', "
+                    "'user', 'active', CURRENT_TIMESTAMP, "
+                    "CURRENT_TIMESTAMP), "
+                    "('catalog-owner-b', 'catalog-b@example.com', "
+                    "'user', 'active', CURRENT_TIMESTAMP, "
+                    "CURRENT_TIMESTAMP)"
+                )
+            )
+
+        run_alembic("0016_transcript_catalog_entries", env=env)
+        with temp_engine.begin() as conn:
+            _assert_transcript_catalog_0016_schema(inspect(conn))
+            assert (
+                conn.execute(
+                    text("SELECT version_num FROM alembic_version")
+                ).scalar_one()
+                == "0016_transcript_catalog_entries"
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO transcript_catalog_entries "
+                    "(id, owner_user_id, document_id, document_name, "
+                    "transcript_standard, standard_status, "
+                    "settings_status, imported_at, updated_at) "
+                    "VALUES "
+                    "('catalog-indeterminate', 'catalog-owner-a', "
+                    "'google-document-a', 'Document A', "
+                    "'transcript_doc_v1.2', 'current', "
+                    "'indeterminate', CURRENT_TIMESTAMP, "
+                    "CURRENT_TIMESTAMP)"
+                )
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO transcript_catalog_entries "
+                    "(id, owner_user_id, document_id, document_name, "
+                    "transcript_standard, standard_status, "
+                    "settings_status, provider, model, language_mode, "
+                    "diarization_enabled, source_identity_kind, "
+                    "source_identity_value, imported_at, updated_at) "
+                    "VALUES "
+                    "('catalog-exact', 'catalog-owner-a', "
+                    "'google-document-b', 'Document B', "
+                    "'transcript_doc_v1.2', 'current', 'exact', "
+                    "'elevenlabs', 'scribe_v2', 'ru', true, "
+                    "'google_drive_file', 'source-drive-id', "
+                    "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                )
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO transcript_catalog_entries "
+                    "(id, owner_user_id, document_id, document_name, "
+                    "transcript_standard, standard_status, "
+                    "settings_status, imported_at, updated_at) "
+                    "VALUES "
+                    "('catalog-shared-other-owner', "
+                    "'catalog-owner-b', 'google-document-a', "
+                    "'Document A', 'transcript_doc_v1.2', "
+                    "'current', 'indeterminate', CURRENT_TIMESTAMP, "
+                    "CURRENT_TIMESTAMP)"
+                )
+            )
+
+        invalid_rows = (
+            (
+                "catalog-invalid-settings",
+                "'exact', NULL, NULL",
+            ),
+            (
+                "catalog-invalid-source",
+                "'indeterminate', 'google_drive_file', NULL",
+            ),
+        )
+        for row_id, authority_values in invalid_rows:
+            with pytest.raises(Exception):
+                with temp_engine.begin() as conn:
+                    conn.execute(
+                        text(
+                            "INSERT INTO transcript_catalog_entries "
+                            "(id, owner_user_id, document_id, "
+                            "document_name, transcript_standard, "
+                            "standard_status, settings_status, "
+                            "source_identity_kind, "
+                            "source_identity_value, imported_at, "
+                            "updated_at) VALUES "
+                            f"('{row_id}', 'catalog-owner-a', "
+                            f"'{row_id}-doc', 'Invalid', "
+                            "'transcript_doc_v1.2', 'current', "
+                            f"{authority_values}, CURRENT_TIMESTAMP, "
+                            "CURRENT_TIMESTAMP)"
+                        )
+                    )
+        with pytest.raises(Exception):
+            with temp_engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "INSERT INTO transcript_catalog_entries "
+                        "(id, owner_user_id, document_id, "
+                        "document_name, transcript_standard, "
+                        "standard_status, settings_status, "
+                        "imported_at, updated_at) VALUES "
+                        "('catalog-duplicate', 'catalog-owner-a', "
+                        "'google-document-a', 'Duplicate', "
+                        "'transcript_doc_v1.2', 'current', "
+                        "'indeterminate', CURRENT_TIMESTAMP, "
+                        "CURRENT_TIMESTAMP)"
+                    )
+                )
+
+        run_alembic(
+            "0015_user_source_retention",
+            env=env,
+            command="downgrade",
+        )
+        with temp_engine.begin() as conn:
+            assert "transcript_catalog_entries" not in (
+                inspect(conn).get_table_names()
+            )
+            assert (
+                conn.execute(
+                    text(
+                        "SELECT count(*) FROM pg_type WHERE typname "
+                        "LIKE 'transcriptcatalog%'"
+                    )
+                ).scalar_one()
+                == 0
+            )
+            assert (
+                conn.execute(
+                    text(
+                        "SELECT count(*) FROM users "
+                        "WHERE id LIKE 'catalog-owner-%'"
+                    )
+                ).scalar_one()
+                == 2
+            )
+
+    with isolated_migration_database(
+        "studio_migration_0016_metadata"
+    ) as (temp_engine, env):
+        Base.metadata.create_all(temp_engine)
+        run_alembic(
+            "0016_transcript_catalog_entries",
+            env=env,
+            command="stamp",
+        )
+        run_alembic(
+            "0015_user_source_retention",
+            env=env,
+            command="downgrade",
+        )
+        with temp_engine.begin() as conn:
+            assert "transcript_catalog_entries" not in (
+                inspect(conn).get_table_names()
+            )
+
+
 def test_source_deletion_0014_upgrade_downgrade_roundtrip_and_metadata_table(tmp_path):
     from studio_api.db import Base
 
@@ -4184,7 +4445,7 @@ def test_job_destination_migration_0008_0009_upgrade_downgrade_backfill(tmp_path
         with temp_engine.begin() as conn:
             assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0009_job_output_destinations"
         cfg = Config(str(ALEMBIC))
-        assert ScriptDirectory.from_config(cfg).get_current_head() == "0015_user_source_retention"
+        assert ScriptDirectory.from_config(cfg).get_current_head() == "0016_transcript_catalog_entries"
     finally:
         temp_engine.dispose()
         cleanup_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")

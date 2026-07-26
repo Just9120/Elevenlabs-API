@@ -1,6 +1,6 @@
 import enum, uuid
 from datetime import datetime, timezone
-from sqlalchemy import CheckConstraint, DateTime, Enum, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint, text
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .db import Base
 from .source_policy import DEFAULT_SOURCE_RETENTION_TTL_SECONDS
@@ -22,6 +22,9 @@ class SourceAttemptStage(str, enum.Enum): prepared="prepared"; provider_request_
 class SourceAttemptRetryDisposition(str, enum.Enum): undetermined="undetermined"; retry_safe="retry_safe"; provider_outcome_uncertain="provider_outcome_uncertain"; provider_result_lost="provider_result_lost"; output_reconciliation_required="output_reconciliation_required"; non_retryable="non_retryable"; completed="completed"
 class DiagnosticLevel(str, enum.Enum): ERROR="ERROR"; WARNING="WARNING"; INFO="INFO"; DEBUG="DEBUG"
 class DiagnosticComponent(str, enum.Enum): web="web"; api="api"; worker="worker"
+class TranscriptCatalogDocumentStandardStatus(str, enum.Enum): current="current"; outdated="outdated"; unstructured="unstructured"; unreadable="unreadable"
+class TranscriptCatalogSettingsStatus(str, enum.Enum): exact="exact"; indeterminate="indeterminate"
+class TranscriptCatalogSourceIdentityKind(str, enum.Enum): google_drive_file="google_drive_file"; studio_source="studio_source"
 
 class User(Base):
     __tablename__="users"
@@ -227,6 +230,34 @@ class TranscriptionJobOutput(Base):
     persisted_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False)
     lease_generation: Mapped[int]=mapped_column(Integer, nullable=False)
     __table_args__=(CheckConstraint("document_character_count >= 0", name="ck_transcription_job_outputs_character_count_nonnegative"), UniqueConstraint("job_source_id", name="uq_transcription_job_outputs_job_source"), UniqueConstraint("document_id", name="uq_transcription_job_outputs_document_id"), Index("ix_transcription_job_outputs_job_id", "job_id"),)
+
+class TranscriptCatalogEntry(Base):
+    __tablename__="transcript_catalog_entries"
+    id: Mapped[str]=mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_user_id: Mapped[str]=mapped_column(ForeignKey("users.id"), nullable=False)
+    document_id: Mapped[str]=mapped_column(String(256), nullable=False)
+    document_name: Mapped[str]=mapped_column(String(240), nullable=False)
+    transcript_standard: Mapped[str]=mapped_column(String(80), nullable=False)
+    standard_status: Mapped[TranscriptCatalogDocumentStandardStatus]=mapped_column(Enum(TranscriptCatalogDocumentStandardStatus), nullable=False)
+    settings_status: Mapped[TranscriptCatalogSettingsStatus]=mapped_column(Enum(TranscriptCatalogSettingsStatus), nullable=False)
+    provider: Mapped[str|None]=mapped_column(String(40))
+    model: Mapped[str|None]=mapped_column(String(80))
+    language_mode: Mapped[str|None]=mapped_column(String(40))
+    diarization_enabled: Mapped[bool|None]=mapped_column(Boolean)
+    source_identity_kind: Mapped[TranscriptCatalogSourceIdentityKind|None]=mapped_column(Enum(TranscriptCatalogSourceIdentityKind))
+    source_identity_value: Mapped[str|None]=mapped_column(String(256))
+    imported_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now, nullable=False)
+    updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now, onupdate=now, nullable=False)
+    __table_args__=(
+        CheckConstraint("length(trim(document_id)) > 0", name="ck_transcript_catalog_document_id_nonempty"),
+        CheckConstraint("length(trim(document_name)) > 0", name="ck_transcript_catalog_document_name_nonempty"),
+        CheckConstraint("length(trim(transcript_standard)) > 0", name="ck_transcript_catalog_standard_nonempty"),
+        CheckConstraint("((source_identity_kind IS NULL AND source_identity_value IS NULL) OR (source_identity_kind IS NOT NULL AND source_identity_value IS NOT NULL AND length(trim(source_identity_value)) > 0))", name="ck_transcript_catalog_source_authority"),
+        CheckConstraint("((settings_status = 'indeterminate' AND provider IS NULL AND model IS NULL AND language_mode IS NULL AND diarization_enabled IS NULL) OR (settings_status = 'exact' AND provider IS NOT NULL AND length(trim(provider)) > 0 AND model IS NOT NULL AND length(trim(model)) > 0 AND language_mode IS NOT NULL AND length(trim(language_mode)) > 0 AND diarization_enabled IS NOT NULL))", name="ck_transcript_catalog_settings_authority"),
+        UniqueConstraint("owner_user_id", "document_id", name="uq_transcript_catalog_owner_document"),
+        Index("ix_transcript_catalog_owner_updated", "owner_user_id", "updated_at"),
+        Index("ix_transcript_catalog_owner_source_settings", "owner_user_id", "source_identity_kind", "source_identity_value", "provider", "model", "language_mode", "diarization_enabled"),
+    )
 
 class TranscriptionJobSource(Base):
     __tablename__="transcription_job_sources"
