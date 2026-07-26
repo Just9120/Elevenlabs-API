@@ -58,3 +58,13 @@ def test_shared_api_worker_image_installs_media_runtime_without_recommends():
     text = DOCKERFILE.read_text()
     assert "apt-get install -y --no-install-recommends ffmpeg" in text
     assert "rm -rf /var/lib/apt/lists/*" in text
+
+
+def test_shared_api_worker_image_drops_root_before_runtime():
+    lines=DOCKERFILE.read_text().splitlines()
+    assert "groupadd --gid 10001 studio" in "\n".join(lines)
+    assert "useradd --uid 10001 --gid studio --no-create-home" in "\n".join(lines)
+    user_index=lines.index("USER 10001:10001")
+    assert user_index > next(i for i,line in enumerate(lines) if line == "COPY . .")
+    assert user_index < next(i for i,line in enumerate(lines) if line.startswith("CMD "))
+    assert not any(line == "USER root" for line in lines[user_index + 1:])

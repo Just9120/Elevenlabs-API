@@ -2,6 +2,7 @@ import {
   parsePlatformRoute,
   platformPathFor,
   pushPlatformRoute,
+  resolveRequestedProjectsView,
 } from "./platformRouting";
 
 describe("platform routing", () => {
@@ -64,4 +65,22 @@ describe("platform routing", () => {
 
     expect(pushState).not.toHaveBeenCalled();
   });
+
+  it.each([
+    [null, true, 1, null],
+    ["browse", true, 1, null],
+    ["browse", false, 1, false],
+    ["browse", false, 0, true],
+    ["create", true, 1, true],
+  ] as const)(
+    "resolves projects view request %s while loading=%s with count=%s",
+    (requestedView, loading, projectCount, expected) => {
+      expect(
+        resolveRequestedProjectsView(requestedView, {
+          loading,
+          projectCount,
+        }),
+      ).toBe(expected);
+    },
+  );
 });

@@ -34,6 +34,32 @@ Rules:
 - Do not use unsafe `docker compose config` output as evidence because it can resolve and expose secret values.
 - Runtime `.env` review may record variable presence and path shape, but never secret values.
 
+## Trusted reverse-proxy peer
+
+`STUDIO_TRUSTED_PROXY_IP` is one exact IP address, never a hostname, CIDR, wildcard,
+or forwarded client address. The API accepts the first `X-Forwarded-For` value only
+when the direct request peer equals that configured address; otherwise it uses the
+direct peer and ignores the header. The default `127.0.0.1` is fail-closed for
+local direct proxying but must not be assumed correct for a host nginx request
+crossing a Docker-published port.
+
+Before changing the production value:
+
+1. Keep the current value and issue one safe public `/api/healthz` request in a
+   bounded observation window.
+2. Inspect only the matching API access-log row and record the direct peer IP,
+   timestamp, endpoint group, and status. Do not retain unrelated request paths,
+   headers, query strings, cookies, or bodies.
+3. Repeat once to confirm the same direct peer and reconcile it with the intended
+   host-nginx-to-published-port topology. Stop if the peer is absent, changes, or
+   cannot be distinguished from another proxy hop.
+4. Set only the observed exact IP in the operator-managed runtime `.env`. Never
+   use `0.0.0.0`, `::`, a subnet, or a value copied from `X-Forwarded-For`.
+5. Treat the resulting API deployment and verification as a separate authorized
+   runtime action. Confirm distinct safe client requests no longer collapse onto
+   one proxy rate-limit key, while a spoofed forwarded header from an untrusted
+   direct peer remains ignored.
+
 ## Platform bootstrap
 
 Canonical stateful platform deployment uses the platform Compose stack under `deploy/studio/` and the approved platform scripts/runbooks, not the legacy stateless web-only path.
@@ -47,7 +73,7 @@ Bootstrap boundary:
 5. Bootstrap the initial admin only through the approved server-side bootstrap admin command and without printing credentials.
 6. Verify nginx routes browser traffic to the web component and `/api/*` traffic to the API component.
 7. Validate the public HTTPS response carries the repository CSP, HSTS, `nosniff`, no-referrer, permissions, and framing headers; confirm Picker open/select/cancel and one bounded local PUT still work without CSP violations. Do not infer live header state from the committed nginx file.
-7. Verify localhost and public health endpoints for the intended components.
+8. Verify localhost and public health endpoints for the intended components.
 
 After migrations and successful API/database configuration, bootstrap the first admin with the approved interactive command:
 
@@ -348,7 +374,7 @@ status
 → operator separately decides whether to run controlled canary
 ```
 
-Source merge does not deploy the worker. A successful worker deploy does not prove production-live processing; `PWA-PROCESSING-ROLLOUT-01A` remains a separate controlled canary decision and is still not-run until operator evidence exists.
+Source merge does not deploy the worker. A successful worker deploy does not by itself prove production-live processing. The bounded `PWA-PROCESSING-ROLLOUT-01A` one-small-source canary is complete with exactly one persisted Google Docs output; broader selected-mode or workload claims still require separate operator evidence.
 
 ### Worker rollback
 

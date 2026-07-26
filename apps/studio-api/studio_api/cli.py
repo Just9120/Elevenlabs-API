@@ -5,8 +5,8 @@ from .audit import audit
 from .config import get_settings
 from .db import SessionLocal
 from .models import LocalIdentity, User, UserRole, UserStatus
-from .source_cleanup import cleanup_expired_local_uploads
-from .security import hash_password, normalize_email
+from .source_deletion import run_one_source_cleanup
+from .security import hash_password, normalize_email, utcnow
 
 def bootstrap_admin():
     p=argparse.ArgumentParser(); p.add_argument("email"); args=p.parse_args()
@@ -20,7 +20,7 @@ def bootstrap_admin():
 def cleanup_sources():
     s=get_settings(); db=SessionLocal()
     try:
-        count=cleanup_expired_local_uploads(db, s)
+        count=1 if run_one_source_cleanup(db, settings=s, owner_id="legacy-source-cleanup", now=utcnow()) else 0
     finally:
         db.close()
     print(f"Expired local-upload sources cleaned: {count}")

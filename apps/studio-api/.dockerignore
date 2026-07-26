@@ -1,0 +1,42 @@
+# Python caches, virtual environments, and package output
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+dist/
+build/
+*.egg-info/
+
+# Generated test and coverage artifacts
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+test-results/
+
+# Local environment, secret-shaped files, and logs
+.env
+.env.*
+*.secret
+client_secret*.json
+service_account*.json
+oauth*.json
+credentials*.json
+*.log
+tmp/
+temp/
+
+# Editor and operating-system metadata
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Build metadata is not application input
+Dockerfile
+.dockerignore

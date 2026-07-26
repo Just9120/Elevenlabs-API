@@ -1,6 +1,22 @@
 export type Page = "dashboard" | "projects" | "settings";
 export type SettingsSection = "account" | "diagnostics";
 export type PlatformRoute = { page: Page; settingsSection: SettingsSection };
+export type ProjectsViewRequest = "browse" | "create" | null;
+
+export function resolveRequestedProjectsView(
+  requestedView: ProjectsViewRequest,
+  {
+    loading,
+    projectCount,
+  }: {
+    loading: boolean;
+    projectCount: number;
+  },
+): boolean | null {
+  if (!requestedView) return null;
+  if (requestedView === "browse" && loading) return null;
+  return requestedView === "create" || projectCount === 0;
+}
 
 export function parsePlatformRoute(
   pathname = window.location.pathname,

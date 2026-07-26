@@ -244,7 +244,7 @@ def test_request_ids_headers(monkeypatch, db):
     assert "secret" not in r.text
     main.app.dependency_overrides.clear()
 
-def test_authenticated_session_marks_owner_for_middleware_diagnostics(db):
+def test_authenticated_session_marks_owner_and_throttles_activity_writes(db, monkeypatch):
     from studio_api import models as m
     from studio_api.deps import current_session
     from studio_api.security import token_hash, utcnow
@@ -253,9 +253,23 @@ def test_authenticated_session_marks_owner_for_middleware_diagnostics(db):
     session=m.Session(user_id=u.id, token_hash=token_hash(raw), csrf_hash="csrf", expires_at=utcnow()+timedelta(hours=1))
     db.add(session); db.commit()
     request=SimpleNamespace(cookies={"studio_session":raw}, state=SimpleNamespace())
-    pair=current_session(request, db=db, settings=SimpleNamespace(cookie_name="studio_session"))
+    settings=SimpleNamespace(cookie_name="studio_session", session_last_seen_write_interval_seconds=300)
+    commit_calls=0
+    original_commit=db.commit
+    def counted_commit():
+        nonlocal commit_calls
+        commit_calls += 1
+        original_commit()
+    monkeypatch.setattr(db, "commit", counted_commit)
+    pair=current_session(request, db=db, settings=settings)
     assert pair == (session, u)
     assert request.state.owner_user_id == u.id
+    assert commit_calls == 1
+    first_seen=session.last_seen_at
+    pair=current_session(request, db=db, settings=settings)
+    assert pair == (session, u)
+    assert session.last_seen_at == first_seen
+    assert commit_calls == 1
 
 def test_unhandled_middleware_emits_safe_owner_event_without_exception_text(monkeypatch, caplog):
     import asyncio

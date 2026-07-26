@@ -15,7 +15,7 @@ These historical source-done and CI-verified items explain why Studio must no lo
 - Early Studio job items intentionally described jobs as record-only while worker/provider/output slices did not yet exist.
 - Later source-level processing, worker, provider, output, persistence, browser output, and diagnostics slices superseded the record-only-only description.
 - Historical rollout/preflight notes recorded partial operator evidence such as migration application, API health, and at one point an idle worker observation.
-- A later controlled rollout smoke was blocked before successful end-to-end completion; there is no current archived evidence of a successful controlled canary after the latest fix.
+- At that earlier checkpoint, a controlled rollout smoke was blocked before successful end-to-end completion. The later Gates 0–7 evidence archived below superseded that checkpoint with one bounded successful canary.
 - Diagnostics-related work reached source-done/merged and partial deployment/browser evidence, but this did not imply provider execution, Google Docs creation, worker-running, or production-live processing.
 
 ## Archived implementation notes preserved from consolidated docs
@@ -100,6 +100,67 @@ PR #173 completed source-level safe stage-specific retry/recovery. PR #174 compl
 - `PWA-UPLOAD-POLICY-DISCOVERY-01C`
 
 Repository CI run `29898199041` and Studio PWA CI run `29898198991` passed for the merge revision. Studio Platform CD run `29898198997` deployed and identity-checked the web component only; API deployment, migration `0015_user_source_retention`, worker rollout, public-host header validation, dependency-audit workflow execution, and a controlled processing canary were not proven by that checkpoint.
+
+## Archived PR #180–#191 and processing Gates 0–7
+
+This chain ran from frontend modularization through the first bounded production processing proof and the subsequent source/CI hardening:
+
+- PR #180 `605cbae` and PR #181 `749833c` continued bounded frontend modularization and production-status visibility.
+- PR #182 `850bfdf` added the guarded worker-drain path; PR #183 `77a3b39` added rollout/preflight controls.
+- PR #184 `89fa7d5` delivered the walkthrough-driven UX/Picker diagnostics batch; PR #185 `900bf5b` delivered upload stabilization and the component deployment baseline used by the first worker/canary.
+- PR #186 `39aaaff` closed the result-status and stabilization checkpoint; PR #187 `7362a0c` established the authenticated service-backed browser foundation.
+- PR #188 `0b23320` closed the dependency/Actions/CD-observability lane; PR #189 `95d3210` added provider-attempt preflight authority.
+- PR #190 `625cd33` merged the catalog source and migration `0016_transcript_catalog_entries`; PR #191 `c02accd` reconciled source-of-truth documentation without changing runtime source.
+
+### Gate 0 — read-only production truth
+
+- Initial preflight `29918894603` proved checkout/config/service facts, then stopped on one running worker before health, revision, and authenticated rows.
+- Status run `29925528002` proved a clean `605cbae` checkout and one running worker whose image/rollback identity was not yet trustworthy.
+- Drain run `29929528124` proved the old worker `exited`, `exit_code=0`, and `drain_state=gracefully-drained`.
+- Preflight `29929607368` then passed repository identity, service health, localhost/public health, and single production-revision detection, and correctly stopped at the pre-migration revision mismatch.
+
+The gate remained read-only: it did not authorize a backup, migration, deploy, worker start, job, provider request, Google mutation, or retry.
+
+### Gates 1–3 — backup, database, and API
+
+- Tagged restic/R2 snapshot `7b03ad00` established the pre-migration rollback boundary.
+- The guarded migration applied the known chain through `0015_user_source_retention`; it did not improvise a downgrade.
+- Isolated API deployment `30004599136` succeeded.
+- Post-deploy preflight `30004696267` proved PostgreSQL/Redis health, database head `0015`, image/database migration equality, and localhost/public API/web health.
+
+### Gate 4 — public browser boundary
+
+The clean 2026-07-24 authenticated smoke opened both Google Picker roles, selected one Drive source and one writable output folder, confirmed one active ElevenLabs credential and a valid Google connection, and completed one local upload without a manual duplicate retry. Removing that disposable local source immediately blocked its composer row and reported queued background storage cleanup. No transcription job or provider call occurred in this smoke.
+
+The active Certbot-managed host configuration was preserved as timestamped backup `studio.librechat.online.pre-security-headers-20260724T154127Z`. The repository-owned six-header policy was applied through a dedicated nginx snippet; `nginx -t`, reload, and service checks passed. Independent checks then returned `200` over TLS 1.3 for `/` and `/api/healthz` with CSP, HSTS, MIME-sniffing, referrer, permissions, and framing headers. An authenticated PWA load under that CSP had no browser-console errors.
+
+### Gate 5 — exactly one worker
+
+Read-only run `30107810563` first proved production at `900bf5b` with the previous worker still safely drained. Worker run `30107907971` initially stopped before build because the prior stopped image bytes were already absent. After separate operator authorization, only the stale stopped container record was removed without volumes. The failed worker job was then rerun: it built the `900bf5b` image, proved database/image Alembic equality, exact running/built/commit-tag image equality, Docker health, and exactly one worker. The status rerun reported `running`, `healthy`, and `identity_match=yes`.
+
+Because the prior image was already absent, the immediate rollback boundary was drain/stop of the new worker; no historical image was invented.
+
+### Gate 6 — one-output canary
+
+After explicit authorization and a no-match preflight, one supported Drive audio source, one owner-scoped ElevenLabs credential, one valid Google connection, and one writable folder produced exactly one submitted job. It completed one ElevenLabs transcription and persisted exactly one `google_docs_transcript`. Read-only Drive metadata confirmed a newly created, non-empty native Google Doc. No manual or automatic second submission occurred.
+
+Post-canary worker-status job `89537922592` in run `30107810563` proved the worker remained `running`/`healthy` at `900bf5b` with `identity_match=yes`. This is evidence only for that bounded scenario.
+
+### Gate 7 — stabilization
+
+Owner-scoped diagnostics recorded one job creation, one processing attempt, one provider request, one output persistence event with `output_count=1`, and one completed terminal state without an error/uncertainty event. Read-only reconciliation reported the case resolved with zero unresolved/conflicting cases; no manual reconciliation or repeated Google side effect was required.
+
+PR #186 and its service-backed browser checks locked the completed-output, relation-queued, resolved-reconciliation, and safe-diagnostics regressions. Web-only CD moved the web component to `39aaaff`; authenticated production verification showed `Статус обработки: Завершена` without exposing the raw relation `queued` label. API and worker correctly remained unchanged.
+
+### Archived CI/CD acceptance chain
+
+- PR #187/post-merge: repository `30129485474`, Studio `30129485476`, and component CD `30129485498`; authenticated Chromium ran with FastAPI, PostgreSQL, Redis, migrations, and seed data, while CD deployed only the changed web component.
+- PR #188/post-merge: repository `30174331982` / `30175325342`, Studio `30174331983` / `30175325383`, dependency audit `30175970003`, and component CD `30175325341`. The exact remediation superseded historical failing dependency run `30166841704`.
+- PR #189/post-merge: repository `30177377055` / `30177718794`, Studio `30177377357` / `30177718783`, and component CD `30177718793`; source-changed web/API were identity-checked and the worker remained manual-only.
+- PR #190/post-merge: repository `30202031053`, Studio `30202031078`, and component CD `30202031076`. Web deployed; API stopped at `manual_migration_required`; worker remained `manual_only`. Chromium failed before project creation and left eight scenarios unrun.
+- Exact-main reconciliation at `c02accd`: repository `30207923222` and Studio `30207923262` passed, including all nine authenticated scenarios. Because no application source changed between `625cd33` and `c02accd`, that later pass did not explain or deterministically reproduce the earlier project-navigation race.
+
+These run IDs are historical evidence for their exact revisions and executed jobs only. They do not prove the current working branch, repository migration `0016`, unexecuted CD components, or broader production processing modes.
 
 ## Current non-authority warning
 

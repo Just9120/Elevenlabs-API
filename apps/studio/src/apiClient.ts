@@ -95,9 +95,18 @@ export async function api<T>(
 }
 
 function isCsrfRejection(err: unknown) {
+  const data =
+    err instanceof ApiError && err.data && typeof err.data === "object"
+      ? (err.data as { detail?: unknown })
+      : null;
+  const detail =
+    data?.detail && typeof data.detail === "object"
+      ? (data.detail as { reason?: unknown })
+      : null;
   return (
     err instanceof ApiError &&
-    (err.status === 401 || err.status === 403 || err.status === 419)
+    err.status === 403 &&
+    detail?.reason === "csrf_token_invalid"
   );
 }
 

@@ -11,7 +11,7 @@ The Colab workflow is stable, ready, and remains the behavioral baseline for fut
 
 The Studio PWA is not a blank or record-only prototype. Source currently includes authentication/sessions, projects/sources, BYOK credentials, Google OAuth/Drive integration, local/R2 intake, persisted batches/jobs, typed transcription options, video/long-media preparation, preflight/progress, a worker runtime, ElevenLabs processing, Google Docs output, analytics, reconciliation/recovery/retention, and one-time transcript-catalog migration/standardization.
 
-The bounded single-worker/small-source ElevenLabs-to-Google-Docs core is production-live with one controlled exactly-one-output canary. This does not prove every selected mode or the newer catalog revision. At repository revision `625cd33`, the catalog source and web UI are merged, but production PostgreSQL/API remain on the compatible pre-`0016` baseline; migration, API rollout, authenticated catalog dry-run, and separately authorized apply remain. Exact-main browser CI also has an active project-creation navigation regression. See `docs/delivery-plan.md` for the current evidence and next item.
+The bounded single-worker/small-source ElevenLabs-to-Google-Docs core is production-live with one controlled exactly-one-output canary. This does not prove every selected mode or the newer catalog revision. Catalog source and web UI are merged, but production PostgreSQL/API remain on the compatible pre-`0016` baseline; migration, API rollout, authenticated catalog dry-run, and separately authorized apply remain. Exact-main browser CI is currently green, but a same-application-code fail/pass pair confirms that the project-creation navigation race is still unresolved. See `docs/delivery-plan.md` for current evidence and the next item.
 
 ## Minimal commands
 
@@ -43,6 +43,7 @@ Runtime validation for the stable batch path is manual in Google Colab via `note
 | `docs/runbooks/studio-platform-ops.md` | Main Studio operations and rollout runbook. |
 | `docs/runbooks/validation.md` | Unified validation checklist and commands. |
 | `docs/runbooks/realtime-colab.md` | Realtime Colab experimental validation guide. |
+| `docs/audits/repository-audit-2026-07-26.md` | Current dated repository audit evidence and recommended batch roadmap. |
 
 ## Scope reminders
 
