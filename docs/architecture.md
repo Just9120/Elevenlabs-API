@@ -112,7 +112,7 @@ Lease loss, cancellation uncertainty, provider/Google errors, output-side-effect
 
 The repository contains Studio deployment and workflow files, but architecture does not authorize deployment behavior. CI/CD and runtime safety rules are in `docs/ci-cd-rules.md`; operator procedures are in `docs/runbooks/studio-platform-ops.md`.
 
-Current important distinction: web/API deployment, migration application, worker-running, bounded core processing evidence, and catalog rollout are separate states. At `625cd33`, standard CD deployed web, skipped API because `0016` requires manual migration, and skipped the manual-only worker. Standard CD must not silently run migrations, start workers, or claim catalog/processing readiness. Current processing invariants are in `docs/studio-processing-contract.md`.
+Current important distinction: web/API deployment, migration application, worker-running, bounded core processing evidence, and catalog rollout are separate states. At `e825247`, standard CD deployed web, skipped the manual-only worker, and stopped before API recreation when the revision probe could not read operator-owned `0600` secrets through the new non-root image. The prior API remains the pre-`0016` production baseline. Standard CD must not silently run migrations, start workers, or claim catalog/processing readiness. Current processing invariants are in `docs/studio-processing-contract.md`.
 
 ## Worker operational boundary
 
