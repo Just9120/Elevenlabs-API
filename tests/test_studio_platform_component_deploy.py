@@ -528,7 +528,9 @@ def test_revision_probe_command_failures_are_normalized_and_fail_closed(
         ),
     )
     for name, overrides, expected in cases:
-        proc, calls = run_deploy(tmp_path / name, "api", **overrides)
+        case_dir = tmp_path / name
+        case_dir.mkdir()
+        proc, calls = run_deploy(case_dir, "api", **overrides)
         assert proc.returncode != 0
         assert expected in proc.stderr
         assert "found 0" not in proc.stderr
