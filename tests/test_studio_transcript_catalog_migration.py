@@ -229,6 +229,101 @@ def test_catalog_migration_candidate_repr_hides_private_drive_identity():
     assert "private-drive-document" not in repr(projection)
 
 
+def test_standardization_plan_contains_no_catalog_action_or_private_identity():
+    from studio_api.transcript_catalog_migration import (
+        CatalogDocumentStandardStatus,
+        CatalogMigrationOperation,
+        TranscriptStandardizationCandidate,
+        build_transcript_standardization_payload,
+    )
+
+    payload = build_transcript_standardization_payload(
+        operation=CatalogMigrationOperation.dry_run,
+        candidates=(
+            TranscriptStandardizationCandidate(
+                drive_document_id="private-outdated",
+                name="Outdated",
+                standard_status=CatalogDocumentStandardStatus.outdated,
+            ),
+            TranscriptStandardizationCandidate(
+                drive_document_id="private-current",
+                name="Current",
+                standard_status=CatalogDocumentStandardStatus.current,
+            ),
+            TranscriptStandardizationCandidate(
+                drive_document_id="private-unreadable",
+                name="Unreadable",
+                standard_status=CatalogDocumentStandardStatus.unreadable,
+            ),
+        ),
+    )
+
+    assert payload["workflow"] == "standardization"
+    assert [item["action"] for item in payload["items"]] == [
+        "standardize_document",
+        "unchanged",
+        "blocked",
+    ]
+    assert payload["summary"] == {
+        "standardize_document_count": 1,
+        "unchanged_count": 1,
+        "blocked_count": 1,
+    }
+    encoded = json.dumps(payload, ensure_ascii=False)
+    assert "import_metadata" not in encoded
+    assert "standardize_and_import" not in encoded
+    assert "private-outdated" not in encoded
+
+
+def test_catalog_import_plan_requires_current_docs_and_has_no_google_action():
+    from studio_api.transcript_catalog_migration import (
+        CatalogMigrationOperation,
+        build_transcript_catalog_import_payload,
+    )
+
+    payload = build_transcript_catalog_import_payload(
+        operation=CatalogMigrationOperation.dry_run,
+        candidates=(
+            candidate("private-current", name="Current"),
+            candidate(
+                "private-outdated",
+                name="Outdated",
+                standard="outdated",
+            ),
+            candidate(
+                "private-existing",
+                name="Existing",
+                imported="imported_exact",
+            ),
+            candidate(
+                "private-conflict",
+                name="Conflict",
+                imported="conflict",
+            ),
+        ),
+    )
+
+    assert payload["workflow"] == "catalog_import"
+    assert [
+        (item["action"], item["reason_code"])
+        for item in payload["items"]
+    ] == [
+        ("import_metadata", None),
+        ("blocked", "standardization_required"),
+        ("unchanged", None),
+        ("blocked", "catalog_conflict"),
+    ]
+    assert payload["summary"] == {
+        "import_metadata_count": 1,
+        "unchanged_count": 1,
+        "blocked_count": 2,
+    }
+    encoded = json.dumps(payload, ensure_ascii=False)
+    assert "standardize_document" not in encoded
+    assert "standardize_and_import" not in encoded
+    assert "private-current" not in encoded
+
+
 @pytest.mark.parametrize(
     "unsafe_name",
     (
