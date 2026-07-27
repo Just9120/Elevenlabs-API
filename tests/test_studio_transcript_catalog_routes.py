@@ -466,3 +466,242 @@ def test_maintenance_selection_errors_are_safe_and_normalized(
     assert db.rollbacks == 1
     assert "private-folder" not in response.text
     assert "private-document" not in response.text
+
+
+def test_maintenance_apply_routes_reinspect_and_execute_independently(
+    monkeypatch,
+):
+    client, db, routes = _client(monkeypatch)
+    calls = []
+    limit_calls = []
+    monkeypatch.setattr(
+        routes.catalog_limiter,
+        "check",
+        lambda *args: limit_calls.append(args),
+    )
+    standardization_inspection = SimpleNamespace(
+        candidates=("private-standardization-candidate",),
+        created_time_by_document_id={
+            "private-document": "2026-07-01T00:00:00Z"
+        },
+        selection_summary={"selected_document_count": 1},
+    )
+    catalog_inspection = SimpleNamespace(
+        candidates=("private-catalog-candidate",),
+        selection_summary={"selected_document_count": 1},
+    )
+
+    def inspect_standardization(**kwargs):
+        calls.append(("inspect_standardization", kwargs))
+        return standardization_inspection
+
+    def execute_standardization(**kwargs):
+        calls.append(("execute_standardization", kwargs))
+        return {
+            "workflow": "standardization",
+            "operation": "apply",
+            "items": [],
+            "summary": {"standardized_count": 0},
+        }
+
+    def inspect_catalog(db_arg, **kwargs):
+        calls.append(("inspect_catalog", db_arg, kwargs))
+        return catalog_inspection
+
+    def apply_catalog(db_arg, **kwargs):
+        calls.append(("apply_catalog", db_arg, kwargs))
+        return {
+            "workflow": "catalog_import",
+            "operation": "apply",
+            "items": [],
+            "summary": {"imported_count": 0},
+        }
+
+    monkeypatch.setattr(
+        routes,
+        "inspect_transcript_standardization_selection",
+        inspect_standardization,
+    )
+    monkeypatch.setattr(
+        routes,
+        "execute_transcript_standardization_apply",
+        execute_standardization,
+    )
+    monkeypatch.setattr(
+        routes,
+        "inspect_transcript_catalog_import_selection",
+        inspect_catalog,
+    )
+    monkeypatch.setattr(
+        routes,
+        "apply_transcript_catalog_import_metadata",
+        apply_catalog,
+    )
+    body = {
+        "folder_id": "private-folder",
+        "document_ids": ["private-document"],
+        "confirm_apply": True,
+    }
+
+    standardization_response = client.post(
+        "/api/transcript-maintenance/standardization/apply",
+        json=body,
+    )
+    catalog_response = client.post(
+        "/api/transcript-maintenance/catalog-import/apply",
+        json=body,
+    )
+
+    assert standardization_response.status_code == 200
+    assert catalog_response.status_code == 200
+    assert standardization_response.json()["workflow"] == "standardization"
+    assert catalog_response.json()["workflow"] == "catalog_import"
+    assert calls == [
+        (
+            "inspect_standardization",
+            {
+                "access_token": "private-access-token",
+                "folder_id": "private-folder",
+                "document_ids": ("private-document",),
+            },
+        ),
+        (
+            "execute_standardization",
+            {
+                "access_token": "private-access-token",
+                "candidates": (
+                    "private-standardization-candidate",
+                ),
+                "created_time_by_document_id": {
+                    "private-document": "2026-07-01T00:00:00Z"
+                },
+            },
+        ),
+        (
+            "inspect_catalog",
+            db,
+            {
+                "owner_user_id": "private-owner",
+                "access_token": "private-access-token",
+                "folder_id": "private-folder",
+                "document_ids": ("private-document",),
+            },
+        ),
+        (
+            "apply_catalog",
+            db,
+            {
+                "owner_user_id": "private-owner",
+                "candidates": ("private-catalog-candidate",),
+            },
+        ),
+    ]
+    assert limit_calls == [
+        (
+            "transcript-maintenance:standardization:apply:private-owner",
+            5,
+            3600,
+        ),
+        (
+            "transcript-maintenance:catalog-import:apply:private-owner",
+            5,
+            3600,
+        ),
+    ]
+    assert db.commits == 2
+    assert db.rollbacks == 0
+    assert len(db.added) == 2
+    assert standardization_response.headers["cache-control"] == "no-store"
+    assert catalog_response.headers["cache-control"] == "no-store"
+    encoded = standardization_response.text + catalog_response.text
+    for private in (
+        "private-owner",
+        "private-access-token",
+        "private-folder",
+        "private-document",
+        "private-standardization-candidate",
+        "private-catalog-candidate",
+    ):
+        assert private not in encoded
+
+
+def test_maintenance_apply_confirmation_is_required_per_endpoint(
+    monkeypatch,
+):
+    client, db, routes = _client(monkeypatch)
+    called = []
+    monkeypatch.setattr(
+        routes,
+        "inspect_transcript_standardization_selection",
+        lambda **kwargs: called.append(("standardization", kwargs)),
+    )
+    monkeypatch.setattr(
+        routes,
+        "inspect_transcript_catalog_import_selection",
+        lambda *args, **kwargs: called.append(("catalog", kwargs)),
+    )
+    base = {
+        "folder_id": "private-folder",
+        "document_ids": ["private-document"],
+    }
+
+    for path in (
+        "/api/transcript-maintenance/standardization/apply",
+        "/api/transcript-maintenance/catalog-import/apply",
+    ):
+        assert client.post(path, json=base).status_code == 422
+        assert client.post(
+            path,
+            json={**base, "confirm_apply": False},
+        ).status_code == 422
+
+    assert called == []
+    assert db.commits == 0
+
+
+def test_standardization_apply_normalizes_google_write_failure(
+    monkeypatch,
+):
+    from studio_api.transcript_catalog_standardize import (
+        CatalogGoogleWriteError,
+        CatalogGoogleWriteReason,
+    )
+
+    client, db, routes = _client(monkeypatch)
+    monkeypatch.setattr(
+        routes,
+        "inspect_transcript_standardization_selection",
+        lambda **kwargs: SimpleNamespace(
+            candidates=("private-candidate",),
+            created_time_by_document_id={},
+            selection_summary={"selected_document_count": 1},
+        ),
+    )
+    monkeypatch.setattr(
+        routes,
+        "execute_transcript_standardization_apply",
+        lambda **kwargs: (_ for _ in ()).throw(
+            CatalogGoogleWriteError(
+                CatalogGoogleWriteReason.revision_conflict_or_rejected
+            )
+        ),
+    )
+
+    response = client.post(
+        "/api/transcript-maintenance/standardization/apply",
+        json={
+            "folder_id": "private-folder",
+            "document_ids": ["private-document"],
+            "confirm_apply": True,
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == {
+        "reason": "catalog_document_revision_changed",
+        "retryable": True,
+    }
+    assert response.headers["cache-control"] == "no-store"
+    assert db.commits == 0
+    assert db.rollbacks == 1
+    assert "private-document" not in response.text

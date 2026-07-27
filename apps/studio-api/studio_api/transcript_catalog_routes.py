@@ -22,6 +22,9 @@ from .transcript_catalog_dry_run import (
     build_catalog_migration_dry_run,
     inspect_catalog_migration_folder,
 )
+from .transcript_catalog_apply import (
+    apply_transcript_catalog_import_metadata,
+)
 from .transcript_catalog_execution import execute_catalog_migration_apply
 from .transcript_catalog_scan import (
     CatalogGoogleReadError,
@@ -39,6 +42,11 @@ from .transcript_document_selection import (
 from .transcript_maintenance_dry_run import (
     build_transcript_catalog_import_dry_run,
     build_transcript_standardization_dry_run,
+    inspect_transcript_catalog_import_selection,
+    inspect_transcript_standardization_selection,
+)
+from .transcript_maintenance_apply import (
+    execute_transcript_standardization_apply,
 )
 
 
@@ -92,6 +100,17 @@ class TranscriptMaintenanceSelectionIn(
         min_length=1,
         max_length=MAX_SELECTED_TRANSCRIPT_DOCUMENTS,
     )
+
+
+class TranscriptMaintenanceApplyIn(TranscriptMaintenanceSelectionIn):
+    confirm_apply: StrictBool
+
+    @field_validator("confirm_apply")
+    @classmethod
+    def maintenance_apply_must_be_confirmed(cls, value: bool) -> bool:
+        if value is not True:
+            raise ValueError("Подтвердите применение операции")
+        return value
 
 
 @legacy_router.post("/dry-run")
@@ -246,6 +265,117 @@ def dry_run_transcript_catalog_import(
     except CatalogGoogleReadError as exc:
         db.rollback()
         _raise_read_error(exc)
+
+
+@maintenance_router.post("/standardization/apply")
+def apply_transcript_standardization(
+    data: TranscriptMaintenanceApplyIn,
+    response: Response,
+    pair=Depends(require_csrf),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    _, user = pair
+    catalog_limiter.check(
+        f"transcript-maintenance:standardization:apply:{user.id}",
+        5,
+        3600,
+    )
+    _no_store(response)
+    try:
+        access_token = _catalog_access_token(db, user.id, settings)
+        inspection = inspect_transcript_standardization_selection(
+            access_token=access_token,
+            folder_id=data.folder_id,
+            document_ids=data.document_ids,
+        )
+        payload = execute_transcript_standardization_apply(
+            access_token=access_token,
+            candidates=inspection.candidates,
+            created_time_by_document_id=(
+                inspection.created_time_by_document_id
+            ),
+        )
+        payload["selection_summary"] = dict(
+            inspection.selection_summary
+        )
+        audit(
+            db,
+            "transcript_standardization.applied",
+            actor_user_id=user.id,
+            subject_user_id=user.id,
+        )
+        db.commit()
+        return payload
+    except GoogleConnectionAccessError as exc:
+        db.rollback()
+        _raise_connection_error(exc)
+    except TranscriptDocumentSelectionError as exc:
+        db.rollback()
+        _raise_selection_error(exc)
+    except CatalogGoogleReadError as exc:
+        db.rollback()
+        _raise_read_error(exc)
+    except CatalogGoogleWriteError as exc:
+        db.rollback()
+        _raise_write_error(exc)
+    except Exception:
+        db.rollback()
+        raise
+
+
+@maintenance_router.post("/catalog-import/apply")
+def apply_transcript_catalog_import(
+    data: TranscriptMaintenanceApplyIn,
+    response: Response,
+    pair=Depends(require_csrf),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    _, user = pair
+    catalog_limiter.check(
+        f"transcript-maintenance:catalog-import:apply:{user.id}",
+        5,
+        3600,
+    )
+    _no_store(response)
+    try:
+        access_token = _catalog_access_token(db, user.id, settings)
+        inspection = inspect_transcript_catalog_import_selection(
+            db,
+            owner_user_id=user.id,
+            access_token=access_token,
+            folder_id=data.folder_id,
+            document_ids=data.document_ids,
+        )
+        payload = apply_transcript_catalog_import_metadata(
+            db,
+            owner_user_id=user.id,
+            candidates=inspection.candidates,
+        )
+        payload["selection_summary"] = dict(
+            inspection.selection_summary
+        )
+        audit(
+            db,
+            "transcript_catalog.import_applied",
+            actor_user_id=user.id,
+            subject_user_id=user.id,
+        )
+        db.commit()
+        return payload
+    except GoogleConnectionAccessError as exc:
+        db.rollback()
+        _raise_connection_error(exc)
+    except TranscriptDocumentSelectionError as exc:
+        db.rollback()
+        _raise_selection_error(exc)
+    except CatalogGoogleReadError as exc:
+        db.rollback()
+        _raise_read_error(exc)
+    except Exception:
+        db.rollback()
+        raise
 
 
 def _catalog_access_token(
