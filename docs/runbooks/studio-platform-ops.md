@@ -34,6 +34,14 @@ Rules:
 - Do not use unsafe `docker compose config` output as evidence because it can resolve and expose secret values.
 - Runtime `.env` review may record variable presence and path shape, but never secret values.
 
+Compose file-backed secrets retain host-file ownership and permissions. The shared
+API/worker container therefore starts its reviewed entrypoint as container root
+only long enough to copy the mounted allowlisted secrets into a root-owned private
+tmpfs runtime directory as `0400` files owned by UID/GID `10001`. It then clears
+supplementary groups, drops irreversibly to `10001`, and execs the API, worker,
+Alembic, or health command. Do not relax host secret permissions, add broad ACLs,
+or bypass the entrypoint for commands that need database/runtime secrets.
+
 ## Trusted reverse-proxy peer
 
 `STUDIO_TRUSTED_PROXY_IP` is one exact IP address, never a hostname, CIDR, wildcard,

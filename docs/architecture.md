@@ -26,8 +26,8 @@ Studio PWA is a web platform contour in development. Source-level architecture i
 
 | Component | Source location | Responsibility | Production status note |
 | --- | --- | --- | --- |
-| Studio frontend | `apps/studio/` | Browser UI for sessions, projects, sources, credentials, Google connection, preparation, jobs, outputs, diagnostics, and one-time catalog migration; `src/apiClient.ts` owns same-origin JSON/CSRF retry transport and its safe diagnostic emission. | Web application revision `625cd33` is deployed. Exact-main browser CI is green at documentation-only `c02accd`, but a same-code fail/pass pair leaves the project-creation race unresolved. |
-| Studio API | `apps/studio-api/studio_api/` | FastAPI app, auth/session boundaries, owner-scoped APIs, job/source/credential/output/diagnostic/catalog services. | The deployed API is the compatible pre-`0016` baseline; source revision `625cd33` requires migration and a separately verified API rollout. |
+| Studio frontend | `apps/studio/` | Browser UI for sessions, projects, sources, credentials, Google connection, preparation, jobs, outputs, diagnostics, and one-time catalog migration; `src/apiClient.ts` owns same-origin JSON/CSRF retry transport and its safe diagnostic emission. | Merge revision `e825247` passed exact-main browser CI and its web component is deployed. |
+| Studio API | `apps/studio-api/studio_api/` | FastAPI app, auth/session boundaries, owner-scoped APIs, job/source/credential/output/diagnostic/catalog services. | The deployed API remains the compatible pre-`0016` baseline. The `e825247` API build was not recreated after its revision probe could not read host-owned `0600` secrets as UID `10001`; repository head still requires migration and a separately verified API rollout. |
 | Database | PostgreSQL via Studio deployment | Durable users/preferences/projects/sources/credentials/jobs/outputs/diagnostics/catalog state. | Repository migrations are present through `0016_transcript_catalog_entries`; production is operator-evidenced through `0015_user_source_retention`. |
 | Alembic migrations | `apps/studio-api/alembic/versions/` | Schema authority for Studio persistence. | Current repository head is `0016_transcript_catalog_entries`; standard CD does not apply it. |
 | Redis | Studio deployment | Platform support service; not a processing queue/lock/retry authority unless separately designed. | Production health is operator evidence, not source evidence. |
@@ -44,6 +44,10 @@ Studio PWA is a web platform contour in development. Source-level architecture i
 - Browser is untrusted for durable secrets and raw server-side content. It normally receives only safe normalized owner-scoped metadata; explicit OAuth-start, Picker, and direct-upload capabilities are bounded exceptions governed by the product contract.
 - API owns authentication, authorization, encryption/decryption, Drive/provider calls, source storage access, and lifecycle checks.
 - Worker uses the API codebase/internal services but must be deployed and validated as a distinct runtime component.
+- API/worker Compose services use a bounded root bootstrap only to copy allowlisted
+  host-owned file-backed secrets into root-owned tmpfs runtime storage as `0400` files
+  for UID/GID `10001`; the entrypoint then clears supplementary groups, drops to
+  `10001`, and execs every ordinary API, worker, health, or Alembic command.
 - PostgreSQL is the durable authority for Studio persisted state.
 - Redis is not the durable job queue authority for current processing semantics.
 - Object storage is private server-side source-byte storage.

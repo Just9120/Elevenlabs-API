@@ -11,4 +11,5 @@ RUN pip install --no-cache-dir -r requirements.txt -c constraints.txt
 COPY . .
 EXPOSE 8000
 USER 10001:10001
+ENTRYPOINT ["python", "-m", "studio_api.container_entrypoint"]
 CMD ["uvicorn", "studio_api.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -189,8 +189,8 @@ def test_successful_api_deployment_orders_identity_before_health() -> None:
     assert index_of(calls, "build studio-api") < index_of(calls, "docker image inspect --format {{.Id}} elevenlabs-studio-api:local")
     assert not any("build studio-web" in line for line in calls)
     assert index_of(calls, "docker compose --env-file deploy/studio/.env -f deploy/studio/compose.platform.yml ps -q postgres") < index_of(calls, "compose-up-args -d --no-deps --force-recreate studio-api")
-    assert index_of(calls, "alembic studio-api heads") < index_of(calls, "compose-up-args -d --no-deps --force-recreate studio-api")
-    assert index_of(calls, "alembic studio-api current") < index_of(calls, "compose-up-args -d --no-deps --force-recreate studio-api")
+    assert index_of(calls, "studio-api alembic heads") < index_of(calls, "compose-up-args -d --no-deps --force-recreate studio-api")
+    assert index_of(calls, "studio-api alembic current") < index_of(calls, "compose-up-args -d --no-deps --force-recreate studio-api")
     assert index_of(calls, "compose-up-args -d --no-deps --force-recreate studio-api") < index_of(calls, "docker compose --env-file deploy/studio/.env -f deploy/studio/compose.platform.yml ps -q studio-api")
     assert index_of(calls, "docker inspect --format {{.Image}} container-new") < index_of(calls, "curl -fsS http://127.0.0.1:8182/api/healthz")
     assert_no_forbidden_mutation(calls)
@@ -201,9 +201,9 @@ def test_api_deploy_via_stdin_still_reaches_success_boundary(tmp_path: Path) -> 
     assert proc.returncode == 0, proc.stderr + proc.stdout
     assert proc.stdout.count("STUDIO_PLATFORM_API_DEPLOY_OK") == 1
     assert index_of(calls, "ps -q postgres") < index_of(calls, "ps -q redis")
-    assert index_of(calls, "ps -q redis") < index_of(calls, "alembic studio-api heads")
-    assert index_of(calls, "alembic studio-api heads") < index_of(calls, "alembic studio-api current")
-    assert index_of(calls, "alembic studio-api current") < index_of(calls, "compose-up-args -d --no-deps --force-recreate studio-api")
+    assert index_of(calls, "ps -q redis") < index_of(calls, "studio-api alembic heads")
+    assert index_of(calls, "studio-api alembic heads") < index_of(calls, "studio-api alembic current")
+    assert index_of(calls, "studio-api alembic current") < index_of(calls, "compose-up-args -d --no-deps --force-recreate studio-api")
     assert index_of(calls, "compose-up-args -d --no-deps --force-recreate studio-api") < index_of(calls, "docker inspect --format {{.Image}} container-new")
     assert index_of(calls, "docker inspect --format {{.Image}} container-new") < index_of(calls, "curl -fsS http://127.0.0.1:8182/api/healthz")
     assert not any(line.startswith("unexpected-run-stdin ") for line in calls)
@@ -261,6 +261,7 @@ def test_new_script_fast_forwards_old_checkout_before_versioned_validation(tmp_p
         "apps/studio/Dockerfile",
         "apps/studio-api/Dockerfile",
         "apps/studio-api/alembic.ini",
+        "apps/studio-api/studio_api/container_entrypoint.py",
         "apps/studio-api/studio_api/worker.py",
         "apps/studio-api/studio_api/worker_health.py",
         "apps/studio-api/alembic/versions/0001_fixture.py",
@@ -411,7 +412,7 @@ def test_successful_web_deployment_has_no_api_dependency_gates(tmp_path: Path) -
     assert proc.stdout.count("STUDIO_PLATFORM_WEB_DEPLOY_OK") == 1
     assert "STUDIO_PLATFORM_API_DEPLOY_OK" not in proc.stdout
     assert any("build studio-web" in line for line in calls)
-    assert not any("studio-api heads" in line or "studio-api current" in line or "ps -q postgres" in line or "ps -q redis" in line for line in calls)
+    assert not any("studio-api alembic heads" in line or "studio-api alembic current" in line or "ps -q postgres" in line or "ps -q redis" in line for line in calls)
     assert index_of(calls, "compose-up-args -d --no-deps --force-recreate studio-web") < index_of(calls, "docker inspect --format {{.Image}} container-new")
     assert index_of(calls, "docker inspect --format {{.Image}} container-new") < index_of(calls, "curl -fsS http://127.0.0.1:8181/healthz")
     assert_no_forbidden_mutation(calls)

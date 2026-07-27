@@ -191,7 +191,7 @@ for head in sorted(set(revs)-downs): print(f"head\t{head}")
 PY
 )
 [[ "$revision_inventory_valid" == true && "${#heads[@]}" -eq 1 && "${heads[0]}" == "$EXPECTED_HEAD" ]] && set_row "repository Alembic head" "pass" "exactly one repository Alembic head matches expected source head: ${heads[0]}" || { set_row "repository Alembic head" "blocked" "repository Alembic inventory is malformed or its head is missing, multiple, or unexpected"; block_exit; }
-current_raw="$(${compose[@]} exec -T studio-api alembic current </dev/null 2>/dev/null || true)"
+current_raw="$(${compose[@]} exec -T studio-api python -m studio_api.container_entrypoint --drop-only alembic current </dev/null 2>/dev/null || true)"
 mapfile -t currents < <(printf '%s\n' "$current_raw" | sed -nE 's/^([0-9a-zA-Z_]+).*/\1/p' | sed '/^$/d' | sort -u)
 [[ "${#currents[@]}" -eq 1 ]] && set_row "production Alembic revision" "pass" "exactly one production database revision was reported" || { set_row "production Alembic revision" "blocked" "production database revision is missing, unknown, or multiple"; block_exit; }
 [[ "${#currents[0]}" -le 128 && -n "${KNOWN_REVISIONS[${currents[0]}]+x}" ]] || { set_row "production Alembic revision" "blocked" "single production database revision is not present in the repository migration inventory"; block_exit; }

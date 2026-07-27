@@ -77,11 +77,11 @@ verify_database_revision_matches_new_image() {
 
   log "comparing database revision with Alembic head from the newly built API image"
   local -a head_revisions current_revisions
-  mapfile -t head_revisions < <(compose run --rm --no-deps -T --entrypoint alembic "$revision_service" heads </dev/null 2>/dev/null | capture_revision_ids)
+  mapfile -t head_revisions < <(compose run --rm --no-deps -T "$revision_service" alembic heads </dev/null 2>/dev/null | capture_revision_ids)
   require_exactly_one_revision "Alembic head" "${head_revisions[@]}"
   local head_revision="${head_revisions[0]}"
 
-  mapfile -t current_revisions < <(compose run --rm --no-deps -T --entrypoint alembic "$revision_service" current </dev/null 2>/dev/null | capture_revision_ids)
+  mapfile -t current_revisions < <(compose run --rm --no-deps -T "$revision_service" alembic current </dev/null 2>/dev/null | capture_revision_ids)
   require_exactly_one_revision "current database" "${current_revisions[@]}"
   local current_revision="${current_revisions[0]}"
 
@@ -155,6 +155,7 @@ require_file "$COMPOSE_FILE"
 require_file apps/studio/Dockerfile
 require_file apps/studio-api/Dockerfile
 require_file apps/studio-api/alembic.ini
+require_file apps/studio-api/studio_api/container_entrypoint.py
 require_file apps/studio-api/studio_api/worker.py
 require_file apps/studio-api/studio_api/worker_health.py
 [[ -d apps/studio-api/alembic/versions ]] || fail "missing Alembic versions directory"
