@@ -254,6 +254,25 @@ def test_studio_ci_path_filters_reference_existing_files() -> None:
     assert workflow.count("- 'docs/runbooks/studio-platform-ops.md'") == 2
 
 
+def test_studio_ci_runs_protected_secret_bootstrap_smoke_after_image_build() -> None:
+    workflow = (ROOT / ".github/workflows/studio-ci.yml").read_text(encoding="utf-8")
+    build = "docker build -t elevenlabs-studio-api:test apps/studio-api"
+    marker = "Verify protected secret bootstrap and non-root runtime"
+
+    assert workflow.index(build) < workflow.index(marker)
+    for fragment in (
+        "chmod 600",
+        "--user 0:0",
+        "dst=/run/secrets/studio_postgres_password,readonly",
+        "--tmpfs /run/studio-runtime-secrets:",
+        "STUDIO_CONTAINER_SECRET_BOOTSTRAP=required",
+        "assert os.geteuid() == 10001",
+        "stat.S_IMODE(metadata.st_mode) == 0o400",
+        "protected source secret remained readable",
+    ):
+        assert fragment in workflow
+
+
 def test_platform_deploy_files_do_not_export_or_embed_postgres_password() -> None:
     compose = (ROOT / "deploy/studio/compose.platform.yml").read_text(encoding="utf-8")
     migrate = (ROOT / "scripts/migrate_studio_platform.sh").read_text(encoding="utf-8")
