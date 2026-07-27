@@ -291,3 +291,178 @@ def test_catalog_routes_normalize_google_errors_without_raw_payloads(
     encoded = dry_response.text + apply_response.text
     assert "private-folder" not in encoded
     assert "private-candidate" not in encoded
+
+
+def test_maintenance_dry_run_routes_are_independent_and_selected_only(
+    monkeypatch,
+):
+    client, db, routes = _client(monkeypatch)
+    calls = []
+    limit_calls = []
+    monkeypatch.setattr(
+        routes.catalog_limiter,
+        "check",
+        lambda *args: limit_calls.append(args),
+    )
+
+    def standardization(**kwargs):
+        calls.append(("standardization", kwargs))
+        return {
+            "workflow": "standardization",
+            "operation": "dry_run",
+            "items": [],
+            "summary": {"standardize_document_count": 0},
+            "selection_summary": {"selected_document_count": 2},
+        }
+
+    def catalog_import(db_arg, **kwargs):
+        calls.append(("catalog_import", db_arg, kwargs))
+        return {
+            "workflow": "catalog_import",
+            "operation": "dry_run",
+            "items": [],
+            "summary": {"import_metadata_count": 0},
+            "selection_summary": {"selected_document_count": 2},
+        }
+
+    monkeypatch.setattr(
+        routes,
+        "build_transcript_standardization_dry_run",
+        standardization,
+    )
+    monkeypatch.setattr(
+        routes,
+        "build_transcript_catalog_import_dry_run",
+        catalog_import,
+    )
+    body = {
+        "folder_id": "private-folder",
+        "document_ids": ["private-first", "private-second"],
+    }
+
+    standardization_response = client.post(
+        "/api/transcript-maintenance/standardization/dry-run",
+        json=body,
+    )
+    catalog_response = client.post(
+        "/api/transcript-maintenance/catalog-import/dry-run",
+        json=body,
+    )
+
+    assert standardization_response.status_code == 200
+    assert catalog_response.status_code == 200
+    assert standardization_response.json()["workflow"] == "standardization"
+    assert catalog_response.json()["workflow"] == "catalog_import"
+    assert calls == [
+        (
+            "standardization",
+            {
+                "access_token": "private-access-token",
+                "folder_id": "private-folder",
+                "document_ids": (
+                    "private-first",
+                    "private-second",
+                ),
+            },
+        ),
+        (
+            "catalog_import",
+            db,
+            {
+                "owner_user_id": "private-owner",
+                "access_token": "private-access-token",
+                "folder_id": "private-folder",
+                "document_ids": (
+                    "private-first",
+                    "private-second",
+                ),
+            },
+        ),
+    ]
+    assert limit_calls == [
+        (
+            "transcript-maintenance:standardization:dry-run:private-owner",
+            20,
+            3600,
+        ),
+        (
+            "transcript-maintenance:catalog-import:dry-run:private-owner",
+            20,
+            3600,
+        ),
+    ]
+    assert standardization_response.headers["cache-control"] == "no-store"
+    assert catalog_response.headers["cache-control"] == "no-store"
+    assert db.commits == 0
+
+
+def test_maintenance_dry_run_rejects_missing_or_untrusted_selection(
+    monkeypatch,
+):
+    client, db, routes = _client(monkeypatch)
+    called = []
+    monkeypatch.setattr(
+        routes,
+        "build_transcript_standardization_dry_run",
+        lambda **kwargs: called.append(kwargs),
+    )
+    missing = client.post(
+        "/api/transcript-maintenance/standardization/dry-run",
+        json={"folder_id": "private-folder"},
+    )
+    empty = client.post(
+        "/api/transcript-maintenance/standardization/dry-run",
+        json={"folder_id": "private-folder", "document_ids": []},
+    )
+    preview = client.post(
+        "/api/transcript-maintenance/standardization/dry-run",
+        json={
+            "folder_id": "private-folder",
+            "document_ids": ["private-document"],
+            "items": [{"action": "standardize_document"}],
+        },
+    )
+
+    assert missing.status_code == 422
+    assert empty.status_code == 422
+    assert preview.status_code == 422
+    assert called == []
+    assert db.commits == 0
+
+
+def test_maintenance_selection_errors_are_safe_and_normalized(
+    monkeypatch,
+):
+    from studio_api.transcript_document_selection import (
+        TranscriptDocumentSelectionError,
+        TranscriptDocumentSelectionReason,
+    )
+
+    client, db, routes = _client(monkeypatch)
+    monkeypatch.setattr(
+        routes,
+        "build_transcript_catalog_import_dry_run",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            TranscriptDocumentSelectionError(
+                TranscriptDocumentSelectionReason.document_out_of_folder
+            )
+        ),
+    )
+
+    response = client.post(
+        "/api/transcript-maintenance/catalog-import/dry-run",
+        json={
+            "folder_id": "private-folder",
+            "document_ids": ["private-document"],
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == {
+        "reason": "transcript_document_out_of_folder",
+        "retryable": False,
+    }
+    assert response.headers["cache-control"] == "no-store"
+    assert db.rollbacks == 1
+    assert "private-folder" not in response.text
+    assert "private-document" not in response.text

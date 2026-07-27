@@ -31,9 +31,20 @@ from .transcript_catalog_standardize import (
     CatalogGoogleWriteError,
     CatalogGoogleWriteReason,
 )
+from .transcript_document_selection import (
+    MAX_SELECTED_TRANSCRIPT_DOCUMENTS,
+    TranscriptDocumentSelectionError,
+    TranscriptDocumentSelectionReason,
+)
+from .transcript_maintenance_dry_run import (
+    build_transcript_catalog_import_dry_run,
+    build_transcript_standardization_dry_run,
+)
 
 
-router = APIRouter(prefix="/api/transcript-catalog/migration")
+router = APIRouter()
+legacy_router = APIRouter(prefix="/api/transcript-catalog/migration")
+maintenance_router = APIRouter(prefix="/api/transcript-maintenance")
 catalog_limiter = RateLimiter()
 _NO_STORE_HEADERS = {
     "Cache-Control": "no-store",
@@ -74,7 +85,16 @@ class TranscriptCatalogMigrationApplyIn(
         return value
 
 
-@router.post("/dry-run")
+class TranscriptMaintenanceSelectionIn(
+    TranscriptCatalogMigrationFolderIn
+):
+    document_ids: tuple[str, ...] = Field(
+        min_length=1,
+        max_length=MAX_SELECTED_TRANSCRIPT_DOCUMENTS,
+    )
+
+
+@legacy_router.post("/dry-run")
 def dry_run_transcript_catalog_migration(
     data: TranscriptCatalogMigrationFolderIn,
     response: Response,
@@ -105,7 +125,7 @@ def dry_run_transcript_catalog_migration(
         _raise_read_error(exc)
 
 
-@router.post("/apply")
+@legacy_router.post("/apply")
 def apply_transcript_catalog_migration(
     data: TranscriptCatalogMigrationApplyIn,
     response: Response,
@@ -158,6 +178,74 @@ def apply_transcript_catalog_migration(
     except Exception:
         db.rollback()
         raise
+
+
+@maintenance_router.post("/standardization/dry-run")
+def dry_run_transcript_standardization(
+    data: TranscriptMaintenanceSelectionIn,
+    response: Response,
+    pair=Depends(require_csrf),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    _, user = pair
+    catalog_limiter.check(
+        f"transcript-maintenance:standardization:dry-run:{user.id}",
+        20,
+        3600,
+    )
+    _no_store(response)
+    try:
+        access_token = _catalog_access_token(db, user.id, settings)
+        return build_transcript_standardization_dry_run(
+            access_token=access_token,
+            folder_id=data.folder_id,
+            document_ids=data.document_ids,
+        )
+    except GoogleConnectionAccessError as exc:
+        db.rollback()
+        _raise_connection_error(exc)
+    except TranscriptDocumentSelectionError as exc:
+        db.rollback()
+        _raise_selection_error(exc)
+    except CatalogGoogleReadError as exc:
+        db.rollback()
+        _raise_read_error(exc)
+
+
+@maintenance_router.post("/catalog-import/dry-run")
+def dry_run_transcript_catalog_import(
+    data: TranscriptMaintenanceSelectionIn,
+    response: Response,
+    pair=Depends(require_csrf),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    _, user = pair
+    catalog_limiter.check(
+        f"transcript-maintenance:catalog-import:dry-run:{user.id}",
+        20,
+        3600,
+    )
+    _no_store(response)
+    try:
+        access_token = _catalog_access_token(db, user.id, settings)
+        return build_transcript_catalog_import_dry_run(
+            db,
+            owner_user_id=user.id,
+            access_token=access_token,
+            folder_id=data.folder_id,
+            document_ids=data.document_ids,
+        )
+    except GoogleConnectionAccessError as exc:
+        db.rollback()
+        _raise_connection_error(exc)
+    except TranscriptDocumentSelectionError as exc:
+        db.rollback()
+        _raise_selection_error(exc)
+    except CatalogGoogleReadError as exc:
+        db.rollback()
+        _raise_read_error(exc)
 
 
 def _catalog_access_token(
@@ -237,6 +325,45 @@ def _raise_connection_error(
         status_code,
         reason=reason,
         retryable=retryable,
+    )
+
+
+def _raise_selection_error(
+    error: TranscriptDocumentSelectionError,
+) -> NoReturn:
+    reason = {
+        TranscriptDocumentSelectionReason.invalid: (
+            "transcript_selection_invalid"
+        ),
+        TranscriptDocumentSelectionReason.empty: (
+            "transcript_selection_empty"
+        ),
+        TranscriptDocumentSelectionReason.limit_exceeded: (
+            "transcript_selection_limit_exceeded"
+        ),
+        TranscriptDocumentSelectionReason.duplicate: (
+            "transcript_selection_duplicate"
+        ),
+        TranscriptDocumentSelectionReason.folder_invalid: (
+            "transcript_folder_invalid"
+        ),
+        TranscriptDocumentSelectionReason.document_invalid: (
+            "transcript_document_invalid"
+        ),
+        TranscriptDocumentSelectionReason.document_not_google_doc: (
+            "transcript_document_not_google_doc"
+        ),
+        TranscriptDocumentSelectionReason.document_out_of_folder: (
+            "transcript_document_out_of_folder"
+        ),
+        TranscriptDocumentSelectionReason.document_trashed: (
+            "transcript_document_trashed"
+        ),
+    }[error.reason]
+    _raise_catalog_error(
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
+        reason=reason,
+        retryable=False,
     )
 
 
@@ -368,3 +495,7 @@ def _raise_write_error(error: CatalogGoogleWriteError) -> NoReturn:
         reason=reason,
         retryable=retryable,
     )
+
+
+router.include_router(legacy_router)
+router.include_router(maintenance_router)
