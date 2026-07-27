@@ -4,8 +4,8 @@
 
 - ✅ `BATCH-PUBLICATION-2026-07-26` — PR #192 merged as `e825247`. Exact-main repository CI run `30223311852` and Studio CI run `30223311879` passed, including PostgreSQL/Redis pytest, Alembic, frontend tests/build, both Docker image builds, Compose validation, and authenticated Chromium.
 - ✅ `PWA-HARDENING-2026-07-26` — The project-create race, Docker contexts/base-image pinning, worker dependency signal, rate-limit atomicity, session write throttling, bounded auth retention, explicit CSRF retry, project-routing authority, source-cleanup consolidation, and their applicable exact-main CI gates are complete.
-- 👉 `PWA-NONROOT-SECRET-RUNTIME-01` — Draft PR #193 is green at exact revision `e664dc5`. The fix copies only allowlisted secrets into root-owned tmpfs as `0400` files for `10001`, drops privileges before API/worker/Alembic/health execution, normalizes failed revision probes, and adds one Docker smoke. Repository run `30246633514` and Studio/browser run `30246633576` passed; review/merge and post-merge component CD evidence remain.
-- ⛔ `PWA-TRANSCRIPT-CATALOG-MIGRATION-01 / production rollout` — Blocked first on a merged/CI-green non-root secret-runtime fix, then on the separately authorized operator sequence: tagged backup, migration to `0016_transcript_catalog_entries`, intended API deployment/identity/health, authenticated approved-folder dry-run, and separately authorized apply.
+- ✅ `PWA-NONROOT-SECRET-RUNTIME-01` — PR #193 merged as `93de8cf`. Exact-main repository run `30248034282` and Studio run `30248034348` passed. API CD run `30248034330` built the new image and read the production `0015_user_source_retention` revision through the protected-secret bootstrap, then stopped before replacement on the explicit `0016_transcript_catalog_entries` migration gate.
+- 👉 `PWA-TRANSCRIPT-CATALOG-MIGRATION-01 / production rollout` — Active operator-gated item. The non-root runtime prerequisite is complete; no stateful action is authorized yet. Required sequence remains tagged backup, separately authorized migration to `0016_transcript_catalog_entries`, intended API deployment/identity/health, authenticated approved-folder dry-run, and separately authorized apply.
 - 📋 `PWA-TRUSTED-PROXY-01 / production evidence` — The exact-peer source contract and tests are merged. Production peer observation, runtime value selection, and a separately reviewed API deployment remain unproven.
 - 📋 `PWA-LEGACY-SUCCESSOR-DISCOVERY-01 / consumer decision` — Both compatibility APIs advertise deprecation and canonical successors; removal/support still requires external-consumer evidence and an explicit decision.
 - 📋 `PWA-FRONTEND-MODULARIZATION-03` — Preparation-composer/readiness extraction remains deferred until the production baseline is restored or rollout is waiting on an operator window.
@@ -14,9 +14,9 @@
 ## Audit conclusion
 
 - The stable Colab batch contour remains frozen and accepted at **100%** for its current operational scope. Experimental realtime work is a separate contour and is not included in that claim.
-- Studio has broad source-level implementation at merged `main` revision `e825247`. Exact-main repository and Studio/browser CI are green for that revision.
-- Post-merge Studio Platform CD run `30223311873` deployed the web component, skipped the manual-only worker, and failed the API revision probe before container recreation. The prior API remains live and publicly healthy on its existing pre-`0016` schema baseline; that health is not evidence for the `e825247` API image.
-- The API CD failure was a runtime compatibility regression: the fixed UID/GID `10001` process could not read operator-owned `0600` Compose file-backed secrets, while the deploy script suppressed the underlying probe error and misclassified the empty parsed output as zero current revisions. Draft PR #193 addresses both defects and has exact-revision repository, Studio/Docker, and authenticated-browser CI; it is not merged or deployed.
+- Studio has broad source-level implementation at merged `main` revision `93de8cf`. Exact-main repository and Studio/browser CI are green for that revision.
+- Post-merge Studio Platform CD run `30248034330` selected only the API, built the new image, and successfully queried the production database revision through the protected-secret bootstrap. Web and manual-only worker deployment jobs were skipped because those components were not selected.
+- The API deploy then stopped fail-closed before container replacement: production remains on `0015_user_source_retention`, while the new image head is `0016_transcript_catalog_entries`. Public web and API health returned HTTP 200 after the run, but the API response is evidence for the prior image/schema baseline, not deployment of `93de8cf`.
 - The `0015` production baseline has a tagged backup, verified component identities, one healthy worker, public TLS/security evidence, and one successful exactly-one-output ElevenLabs-to-Google-Docs canary. That proves only the bounded scenario, not every selected mode or repository head.
 - Repository head includes `0016_transcript_catalog_entries`, but production remains evidenced only through `0015_user_source_retention`. Catalog rollout still requires its own backup, migration, intended API identity/health, approved-folder dry-run, and separately authorized apply.
 - Authenticated Playwright exercises real Chromium with isolated FastAPI/PostgreSQL/Redis and controlled external boundaries. It raises source/CI confidence but cannot substitute for provider, Google, storage, deployment-identity, or production canary evidence.
@@ -31,20 +31,21 @@
 | Bounded one-small-source canary | **100% of its exact scenario gates** | The `0015` core baseline has backup, component identities, database compatibility, public health/security, one exactly-one-output canary, and safe diagnostics/reconciliation. This must not be generalized to every selected mode or repository head. |
 | Catalog migration production rollout | **about 20%** | Source and web UI are merged and the web component is deployed, but production backup for this migration, database `0016`, intended API deployment, authenticated dry-run, and separately authorized apply remain. |
 
-The scoring method and per-epic fractions are in `docs/audits/repository-audit-2026-07-26.md`. The authoritative 99% is a reproducible same-denominator source/CI calculation backed by exact-revision PR #193 checks, not a production claim. Production evidence remains 57%, and catalog rollout remains about 20%; source fixes, diagnostics, CI, and web deployment do not satisfy the missing backup, database, intended API, dry-run, or apply gates.
+The scoring method and per-epic fractions are in `docs/audits/repository-audit-2026-07-26.md`. The authoritative 99% is a reproducible same-denominator source/CI calculation backed by exact-main `93de8cf` checks, not a production claim. Production evidence remains 57%, and catalog rollout remains about 20%; the successful secret/bootstrap revision probe does not satisfy the missing backup, database migration, intended API identity, dry-run, or apply gates.
 
 ## Product roadmap after production proof
 
 Order work so each capability inherits a known source and production baseline:
 
-1. Review and merge green draft PR #193 for `PWA-NONROOT-SECRET-RUNTIME-01`; do not treat green PR checks as deployment evidence.
-2. After that fix is merged, inspect post-merge component CD. Do not rerun the failed API deployment before the fix and do not infer API rollout from web success.
-3. Execute the catalog production rollout only through its guarded backup → migration → intended API → dry-run → separately authorized apply sequence.
-4. Run bounded production canaries for the remaining selected modes: auto-detect language, diarization, video preparation, long-media split/merge, and multi-file processing.
-5. Confirm external consumers of the two deprecated compatibility APIs, then either remove them or record an explicit support/removal contract. Existing deprecation/successor headers do not prove that consumers have migrated.
-6. Resume preparation-composer and API-router modularization in bounded behavior-preserving slices.
-7. Add golden Colab/PWA fixtures for normalization, ordering, output shape, and failure semantics.
-8. Validate claim/lease/heartbeat/recovery behavior under concurrency before increasing the production worker count.
+1. Obtain explicit authorization for one tagged pre-migration backup and verify that exact backup before any migration.
+2. After verified backup and separate migration authorization, migrate production PostgreSQL to `0016_transcript_catalog_entries`; stop on any uncertain result.
+3. Deploy the intended API image and verify running image identity, local/public health, and revision equality before claiming rollout.
+4. Run an authenticated approved-folder catalog dry-run, then require separate authorization for one bounded apply.
+5. Run bounded production canaries for the remaining selected modes: auto-detect language, diarization, video preparation, long-media split/merge, and multi-file processing.
+6. Confirm external consumers of the two deprecated compatibility APIs, then either remove them or record an explicit support/removal contract. Existing deprecation/successor headers do not prove that consumers have migrated.
+7. Resume preparation-composer and API-router modularization in bounded behavior-preserving slices.
+8. Add golden Colab/PWA fixtures for normalization, ordering, output shape, and failure semantics.
+9. Validate claim/lease/heartbeat/recovery behavior under concurrency before increasing the production worker count.
 
 OpenAI processing remains deferred, and the already source-complete media preparation path is not reopened by this sequence. Accepted-output reuse/skip requires an explicit linkage design and is not inferred from catalog matching.
 
@@ -97,15 +98,15 @@ For production/operator work, use a separate evidence pipeline: **read-only pref
 
 ## Current validation evidence and blockers
 
-- `main` and `origin/main` were synchronized at merge revision `e825247` before `codex/studio-nonroot-secret-runtime` was created.
-- Exact-main repository CI run `30223311852` and Studio run `30223311879` passed at `e825247`, including full PostgreSQL/Redis pytest, Alembic, frontend checks/build, authenticated browser E2E, both image builds, and Compose validation.
-- Studio Platform CD run `30223311873` deployed web successfully, skipped worker as manual-only, and failed API before recreation when `alembic current` returned non-zero under the unreadable `0600` secret mount. Public `/api/healthz` remained HTTP 200 from the prior API/schema baseline.
-- Implementation/test commits through `e664dc5` provide the protected secret bootstrap, normalized revision-probe failure, one focused Docker smoke, the aligned lightweight wiring guard, status reconciliation, and the Linux fixture correction. Locally, the portable suite passes `806 passed, 6 skipped`; lightweight checks, focused entrypoint/Compose and workflow tests, Python compilation, YAML parsing, shell syntax checks, and diff checks also pass.
-- Draft PR #193 exact-revision repository run `30246633514` passed `1028` tests after the focused fixture correction. Studio/browser run `30246633576` passed the frontend, API image, protected-secret bootstrap Docker smoke, Compose validation, and authenticated Chromium jobs.
-- Docker is unavailable locally, and the Windows Python/Git-Bash path model cannot execute the repository's POSIX fake-binary shell integration harness reliably. Exact Linux/Docker CI is therefore the required behavioral gate for the current branch.
+- Local `main` and `origin/main` are synchronized at merge revision `93de8cf`.
+- Exact-main repository CI run `30248034282` and Studio run `30248034348` passed at `93de8cf`, including full PostgreSQL/Redis pytest, Alembic, frontend checks/build, authenticated browser E2E, both image builds, protected-secret bootstrap smoke, and Compose validation.
+- Studio Platform CD run `30248034330` selected only API, built the intended source image, and reported production database revision `0015_user_source_retention` against image head `0016_transcript_catalog_entries`. It emitted `manual migration required` and stopped before API recreation; web and worker deployment jobs were skipped.
+- Read-only public checks after the CD run returned HTTP 200 for `/healthz` and `/api/healthz`. The API result belongs to the prior image/schema baseline and is not new-image identity evidence.
+- PR #193 implementation/test commits provide the protected secret bootstrap, normalized revision-probe failure, one focused Docker smoke, the aligned lightweight wiring guard, and the Linux fixture correction. Locally, the portable suite passed `806 passed, 6 skipped`; lightweight checks, focused entrypoint/Compose and workflow tests, Python compilation, YAML parsing, shell syntax checks, and diff checks also passed.
+- Docker remains unavailable locally, and the Windows Python/Git-Bash path model cannot execute the repository's POSIX fake-binary shell integration harness reliably. Exact Linux/Docker CI has passed for the merged revision.
 - Production trusted-proxy peer identity remains unknown. The source contract is intentionally fail-closed until bounded runtime observation supplies the exact direct peer and a separately reviewed deployment applies it.
-- Catalog production rollout remains paused pending the merged secret-runtime fix, a tagged pre-migration backup, database `0016`, intended API deployment identity/health, an authenticated approved-folder dry-run, and separate authorization for one bounded apply.
-- Historical deployment, CI/CD, security-header, worker, canary, and reconciliation evidence is preserved in `docs/delivery-plan-archive.md`. The one successful canary and healthy worker remain bounded `0015` evidence; the current branch is pushed and exact-revision CI-verified but is not merged or deployed.
+- Catalog production rollout remains paused pending explicit authorization for a tagged pre-migration backup, database `0016`, intended API deployment identity/health, an authenticated approved-folder dry-run, and separate authorization for one bounded apply.
+- Historical deployment, CI/CD, security-header, worker, canary, and reconciliation evidence is preserved in `docs/delivery-plan-archive.md`. The one successful canary and healthy worker remain bounded `0015` evidence; PR #193 is merged and CI-verified, while its API service image is not deployed.
 
 ## Sources of truth
 
