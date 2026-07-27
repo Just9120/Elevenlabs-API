@@ -142,7 +142,7 @@ Source currently present in the repository includes:
 - staged browser-safe progress and aggregate transcription analytics;
 - ElevenLabs provider execution and Google Docs `transcript_doc_v1.2` output paths;
 - accepted-output/provider-attempt duplicate authority and output reconciliation;
-- one-time Google Docs catalog migration dry-run/apply, in-place standardization, and minimal source-linked catalog metadata;
+- a currently combined one-time Google Docs migration implementation for in-place standardization and minimal source-linked catalog metadata; the active product contract below now requires these to be split into independent operations;
 - safe output persistence and browser-safe output read path;
 - diagnostics, diagnostic debug sessions, retry/recovery, source retention/cleanup, migrations, and tests;
 - a deterministic API-to-worker processing E2E scenario that uses real PostgreSQL/Redis state and controlled in-process storage, ElevenLabs, and Google boundaries;
@@ -150,7 +150,7 @@ Source currently present in the repository includes:
 
 These controlled E2E scenarios are repository validation, not production evidence. The API-to-worker scenario does not exercise a real browser, provider account, Google account, deployed worker, or public host. The authenticated browser scenario exercises real Chromium but still uses isolated services and controlled external boundaries. Neither scenario may be used to claim production provider/Google behavior or exactly-once output creation.
 
-The current repository Alembic head is `0016_transcript_catalog_entries` under `apps/studio-api/alembic/versions/`, and operator-verified production PostgreSQL reports the same revision. The separately authorized migration was protected by a verified tagged backup, and the intended API image identity, migration equality, and health were verified after deployment. This infrastructure evidence does not prove the still-separate authenticated catalog dry-run or apply.
+The current repository Alembic head is `0016_transcript_catalog_entries` under `apps/studio-api/alembic/versions/`, and operator-verified production PostgreSQL reports the same revision. The separately authorized migration was protected by a verified tagged backup, and the intended API image identity, migration equality, and health were verified after deployment. This infrastructure evidence does not prove either independent standardization or catalog-import flow.
 
 ## Studio PWA selected transcription scope
 
@@ -169,10 +169,14 @@ Required Studio transcription capabilities:
 - New Google Docs transcripts must follow `transcript_doc_v1.2`, including its structured metadata and readable paragraph normalization.
 - User-facing aggregate analytics may report safe counts, outcomes, selected provider/model/options, and stage durations. It must not contain transcript/document bodies, secrets, private source paths, raw external payloads, or private Google identifiers/URLs.
 
-Existing transcript migration, standardization, and duplicate protection form one product workstream:
+Existing-document standardization, catalog import, and duplicate protection are related but separate product workstreams:
 
-- A separately initiated one-time migration must discover the approved existing Google Docs transcript collection, default to a non-mutating dry-run, report safe aggregate findings, and require explicit confirmation before apply. Its selection and Google permission flow require focused design; this decision does not silently broaden the current OAuth scope.
-- Apply may standardize eligible existing transcript documents in place to `transcript_doc_v1.2`, including readable paragraph normalization, and import only the durable metadata needed for the Studio catalog and duplicate decisions. It must not call a transcription provider or copy document/transcript bodies into browser payloads, logs, diagnostics, or long-term Studio storage.
+- Studio must present existing-document standardization and catalog import as two distinct user-facing operations, not one combined migration action. Each operation has its own document selection, non-mutating dry-run, safe aggregate result, and explicit apply confirmation. A dry-run or confirmation for one operation must never authorize the other.
+- Both operations preserve the current `drive.file` OAuth boundary. The user first selects one folder and then explicitly selects a server-bounded set of Google Docs within that folder through Picker. Studio must not infer authority over pre-existing child documents from folder selection, perform recursive discovery, or silently broaden OAuth scope.
+- Before either dry-run or apply, the server must reject duplicate, malformed, over-limit, non-Google-Doc, inaccessible, or out-of-folder document IDs. Apply must rebuild current evidence from the same explicit selected-document set and must not trust a saved browser preview.
+- Existing-document standardization may read selected document content transiently to classify and normalize it. Explicit standardization apply may rewrite only the same selected Google Docs in place to `transcript_doc_v1.2`, including readable paragraph normalization. It must not create or update Studio catalog entries, persist source/job state, or call a transcription provider or LLM. A safe owner-scoped audit event is allowed.
+- Catalog import may read selected document content transiently to classify its standard and may persist only the durable metadata needed for the Studio catalog and duplicate decisions. Catalog-import apply must not create, rewrite, standardize, move, or delete any Google Doc. Conflicting or insufficient source/settings authority must remain blocked rather than inferred. A safe owner-scoped audit event is allowed.
+- Neither operation may copy document/transcript bodies into browser payloads, logs, diagnostics, or long-term Studio storage.
 - Studio must prevent accidental repeated paid transcription across separate job-creation requests when the same source and effective transcription settings already have accepted output evidence. A new explicit user decision is required when an existing-result conflict is found.
 - Conflict handling must be designed together with the imported catalog and support explicit safe user choice rather than implicit overwrite or automatic provider retry. Exact matching, authority, and UX rules require a focused design before implementation.
 - A continuously refreshed PWA transcript catalog backed by Google Drive is desired but deferred to backlog. Its synchronization flow, matching rules, refresh triggers, permissions, and system-of-record boundary must be designed before implementation; the one-time migration must not silently become continuous synchronization.
@@ -185,11 +189,11 @@ Explicitly deferred or excluded from the current selected scope:
 - user-directed media cutting and multi-file media concatenation are deferred pending a separate workflow design;
 - Google Drive folder ingestion and recursive traversal are excluded in favor of validating explicit multi-file selection.
 
-Selected-scope completion requires source and applicable browser/service-backed evidence for the typed language and diarization options, multi-file intake, video preparation, long-media split/merge, safe preflight/progress, one-time catalog migration/standardization, duplicate protection, and aggregate analytics. The existing one-small-source production canary remains necessary but does not prove these additional capabilities.
+Selected-scope completion requires source and applicable browser/service-backed evidence for the typed language and diarization options, multi-file intake, video preparation, long-media split/merge, safe preflight/progress, independently confirmed standardization and catalog import, duplicate protection, and aggregate analytics. The existing one-small-source production canary remains necessary but does not prove these additional capabilities.
 
 ## Studio production status and remaining capabilities
 
-The bounded small-source Studio processing path is production-live with operator evidence: its original controlled canary ran against the `0015_user_source_retention` baseline with verified web/API identities, exactly one healthy worker from the commit-specific `900bf5b` image, and one operator-approved Drive source producing exactly one persisted `google_docs_transcript` and one non-empty native Google Doc without retry. Production PostgreSQL was subsequently protected by a verified tagged backup and migrated to `0016_transcript_catalog_entries`; intended API identity/health, the public Picker referrer prerequisite, and authenticated Picker loading were also verified. This proves only those controlled gates; it does not prove every selected capability, broader workload stability, exactly-once behavior under arbitrary failures, or catalog dry-run/apply outcomes.
+The bounded small-source Studio processing path is production-live with operator evidence: its original controlled canary ran against the `0015_user_source_retention` baseline with verified web/API identities, exactly one healthy worker from the commit-specific `900bf5b` image, and one operator-approved Drive source producing exactly one persisted `google_docs_transcript` and one non-empty native Google Doc without retry. Production PostgreSQL was subsequently protected by a verified tagged backup and migrated to `0016_transcript_catalog_entries`; intended API identity/health, the public Picker referrer prerequisite, and authenticated Picker loading were also verified. This proves only those controlled gates; it does not prove every selected capability, broader workload stability, exactly-once behavior under arbitrary failures, or the now-separate standardization and catalog-import outcomes.
 
 Production-evidenced baseline capabilities:
 
@@ -200,7 +204,7 @@ Production-evidenced baseline capabilities:
 
 Current unproven or incomplete delivery capabilities:
 
-- authenticated approved-folder catalog dry-run and separately authorized apply;
+- authenticated explicit-document dry-run and separately authorized apply for each of standardization and catalog import;
 - dedicated production canaries for auto-detect language, diarization, video preparation, long-media split/merge, and multi-file processing;
 - continuous or accepted-output reuse/skip catalog behavior beyond the current partial source-linked duplicate authority;
 - golden validation for the selected Colab/PWA behaviors rather than literal full-feature parity;
@@ -262,7 +266,7 @@ The public Studio host must enforce one browser security-header policy across th
 - OpenAI processing, keyterms, manual speaker renaming, and user-directed media cutting/concatenation are deferred until separately designed and authorized. Persisted credential support alone is not a processing capability.
 - Video audio preparation and automatic long-media split/merge must remain server-side, bounded, deterministic, and covered by explicit temporary-artifact cleanup. The browser must not become the media-processing authority.
 - Provider transcript content is ephemeral server-side processing data unless explicitly persisted by an approved product rule; current browser-safe output APIs must not expose transcript/document body text.
-- Google Docs output uses safe owner-scoped document reference metadata only. Exactly-once Google document creation is not claimed. Existing-document standardization and catalog import are explicit migration actions, not ordinary job execution.
+- Google Docs output uses safe owner-scoped document reference metadata only. Exactly-once Google document creation is not claimed. Existing-document standardization and catalog import are explicit maintenance actions, not ordinary job execution. Standardization owns only in-place Google Doc normalization; catalog import owns only PostgreSQL catalog metadata persistence.
 - Cross-run duplicate protection must use durable Studio authority for normalized source identity, effective transcription settings, and accepted output evidence. It must not copy the Colab single-runtime manifest as Studio's concurrency authority.
 
 ### CI/CD and deployment
@@ -270,6 +274,24 @@ The public Studio host must enforce one browser security-header policy across th
 - CI/CD, deployment, migrations, backups, rollback, runtime config, and stateful-service safety are governed by `docs/ci-cd-rules.md`.
 - Standard CD must not run migrations, deploy workers, perform cleanup/hardening, recreate stateful services, or claim processing production readiness.
 - Manual rollout evidence must keep source-done, CI-verified, deployed, migration-applied, worker-running, and production-live states separate.
+
+## Acceptance criteria for Studio transcript maintenance
+
+Existing-document standardization is ready only when:
+
+1. One selected folder and a bounded explicit set of direct-child Google Docs are authorized through Picker under `drive.file` and revalidated server-side.
+2. Dry-run classifies only the selected documents and performs no Google or PostgreSQL mutation.
+3. Apply requires a fresh explicit confirmation and current server-side revalidation.
+4. Apply may update only eligible selected Google Docs in place and creates no catalog row or source/job state; a safe owner-scoped audit event is allowed.
+5. Browser/log evidence contains only safe names, statuses, actions, reasons, and aggregate counts; it contains no document IDs/URLs, bodies, tokens, or raw Google payloads.
+
+Catalog import is ready only when:
+
+1. It uses its own selected folder, explicit bounded document set, dry-run result, and apply confirmation.
+2. Dry-run classifies only selected documents and performs no Google or PostgreSQL mutation.
+3. Apply persists only owner-scoped catalog/duplicate-authority metadata and never mutates Google Docs.
+4. Conflicting, unreadable, inaccessible, out-of-folder, duplicate, changed, or insufficient-authority documents fail closed with safe outcomes.
+5. A standardization preview or confirmation cannot authorize catalog import, and a catalog-import preview or confirmation cannot authorize standardization.
 
 ## Acceptance criteria for Studio processing readiness
 
@@ -296,7 +318,9 @@ Current delivery sequencing is in `docs/delivery-plan.md`. The durable workstrea
 - `PWA-MEDIA-PREPARATION-01` — server-side video audio extraction plus deterministic long-media size/duration split and merge are source-complete; dedicated live canaries remain.
 - `PWA-MULTI-SOURCE-VALIDATION-01` — local and Google Picker multi-file intake is source-complete with automated evidence; broader production processing validation remains, and folder/recursive ingestion is a non-goal.
 - `PWA-PREFLIGHT-PROGRESS-01` — safe preflight and staged progress are source-complete, with the provider-attempt authority deployed.
-- `PWA-TRANSCRIPT-CATALOG-MIGRATION-01` — one-time dry-run/apply import, `transcript_doc_v1.2` standardization, source-linked duplicate authority, and explicit conflict handling are source-complete. Production backup/migration to `0016_transcript_catalog_entries`, intended API deployment, public edge repair, and authenticated Picker loading are verified; approved-folder dry-run and separately authorized apply evidence remain.
+- `PWA-TRANSCRIPT-CATALOG-MIGRATION-01` — split by explicit product decision; the old combined standardize-and-import action is no longer the target contract.
+- `PWA-TRANSCRIPT-STANDARDIZATION-01` — independent explicit-document dry-run/apply for in-place `transcript_doc_v1.2` normalization, with no catalog persistence. Current combined source must be separated before this item can be source-complete.
+- `PWA-TRANSCRIPT-CATALOG-IMPORT-01` — independent explicit-document dry-run/apply for minimal source-linked catalog and duplicate-authority metadata, with no Google Doc mutation. Production schema/API prerequisites are verified, but the separated source and production dry-run/apply remain.
 - `PWA-TRANSCRIPTION-ANALYTICS-01` — safe aggregate outcomes and stage-duration analytics are source-complete; broader production evidence remains.
 - `PWA-TRANSCRIPT-CATALOG-SYNC-01` — deferred design for a Google Drive-backed continuously refreshed PWA catalog and its system-of-record boundary; no continuous sync is implemented.
 - OpenAI processing, keyterms, manual speaker rename, manual cutting/concatenation, and Drive folder/recursive intake remain deferred or excluded as defined above.
