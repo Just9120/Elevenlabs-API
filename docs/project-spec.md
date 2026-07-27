@@ -150,7 +150,7 @@ Source currently present in the repository includes:
 
 These controlled E2E scenarios are repository validation, not production evidence. The API-to-worker scenario does not exercise a real browser, provider account, Google account, deployed worker, or public host. The authenticated browser scenario exercises real Chromium but still uses isolated services and controlled external boundaries. Neither scenario may be used to claim production provider/Google behavior or exactly-once output creation.
 
-The current Alembic migration head in the repository is `0016_transcript_catalog_entries` under `apps/studio-api/alembic/versions/`. Production PostgreSQL remains operator-evidenced at `0015_user_source_retention` until the separately authorized catalog migration is applied and verified; an API health response of `migrations=current` from the older API image proves compatibility with that image, not equality with the newer repository head.
+The current repository Alembic head is `0016_transcript_catalog_entries` under `apps/studio-api/alembic/versions/`, and operator-verified production PostgreSQL reports the same revision. The separately authorized migration was protected by a verified tagged backup, and the intended API image identity, migration equality, and health were verified after deployment. This infrastructure evidence does not prove the still-separate authenticated catalog dry-run or apply.
 
 ## Studio PWA selected transcription scope
 
@@ -189,7 +189,7 @@ Selected-scope completion requires source and applicable browser/service-backed 
 
 ## Studio production status and remaining capabilities
 
-The bounded small-source Studio processing path is production-live with operator evidence: production PostgreSQL was backed up and migrated through `0015_user_source_retention`, intended web/API component identities and health were verified, exactly one healthy worker was deployed from the commit-specific `900bf5b` image, and one operator-approved Drive source produced exactly one persisted `google_docs_transcript` and one non-empty native Google Doc without retry. This proves only that controlled baseline; it does not prove every selected capability, broader workload stability, exactly-once behavior under arbitrary failures, or the newer catalog revision.
+The bounded small-source Studio processing path is production-live with operator evidence: its original controlled canary ran against the `0015_user_source_retention` baseline with verified web/API identities, exactly one healthy worker from the commit-specific `900bf5b` image, and one operator-approved Drive source producing exactly one persisted `google_docs_transcript` and one non-empty native Google Doc without retry. Production PostgreSQL was subsequently protected by a verified tagged backup and migrated to `0016_transcript_catalog_entries`; intended API identity/health, the public Picker referrer prerequisite, and authenticated Picker loading were also verified. This proves only those controlled gates; it does not prove every selected capability, broader workload stability, exactly-once behavior under arbitrary failures, or catalog dry-run/apply outcomes.
 
 Production-evidenced baseline capabilities:
 
@@ -200,8 +200,7 @@ Production-evidenced baseline capabilities:
 
 Current unproven or incomplete delivery capabilities:
 
-- production backup/migration to `0016_transcript_catalog_entries`, intended API deployment, authenticated catalog dry-run, and separately authorized apply;
-- restoration of a green post-merge authenticated browser E2E run after the project-creation navigation race found at `625cd33`;
+- authenticated approved-folder catalog dry-run and separately authorized apply;
 - dedicated production canaries for auto-detect language, diarization, video preparation, long-media split/merge, and multi-file processing;
 - continuous or accepted-output reuse/skip catalog behavior beyond the current partial source-linked duplicate authority;
 - golden validation for the selected Colab/PWA behaviors rather than literal full-feature parity;
@@ -277,7 +276,7 @@ The public Studio host must enforce one browser security-header policy across th
 Studio processing can be considered production-live only after all of the following have factual operator evidence:
 
 1. Repository source and CI are verified for the intended commit.
-2. Production database migration head matches the intended repository head where required. The current pending target is `0016_transcript_catalog_entries`; the previously evidenced production baseline is `0015_user_source_retention`.
+2. Production database migration head matches the intended repository head where required. Both currently report `0016_transcript_catalog_entries`; the bounded original processing canary ran against the older `0015_user_source_retention` baseline.
 3. Web/API deployment identity and health are verified.
 4. Exactly one intended worker instance is deployed from the intended image and shown idle before the smoke.
 5. One controlled operator-approved job uses one small supported source, one owner-scoped ElevenLabs BYOK credential, one valid Google connection, and one writable output folder.
@@ -292,12 +291,12 @@ Current delivery sequencing is in `docs/delivery-plan.md`. The durable workstrea
 
 - `PWA-PROCESSING-ROLLOUT-01A` — bounded single-worker/small-source production rollout and controlled exactly-one-output canary are complete; broader workload evidence remains separate.
 - `PWA-LEGACY-AUTHORITY-01` — pending external-consumer review before the two deprecated compatibility APIs are removed or assigned an explicit support/removal contract.
-- `PWA-E2E-FOUNDATION-01B` — authenticated Chromium foundation is source-complete; the current post-merge project-creation navigation regression must be fixed before browser CI is green again.
+- `PWA-E2E-FOUNDATION-01B` — authenticated Chromium foundation is source-complete and exact-main browser CI is green at `202deed`; real provider/Google production evidence remains separate.
 - `PWA-TRANSCRIPTION-OPTIONS-01` — typed Russian-default/auto-detect language selection and required ElevenLabs speaker separation are source-complete across PWA, API, worker, and Google Docs output; dedicated live canaries remain.
 - `PWA-MEDIA-PREPARATION-01` — server-side video audio extraction plus deterministic long-media size/duration split and merge are source-complete; dedicated live canaries remain.
 - `PWA-MULTI-SOURCE-VALIDATION-01` — local and Google Picker multi-file intake is source-complete with automated evidence; broader production processing validation remains, and folder/recursive ingestion is a non-goal.
 - `PWA-PREFLIGHT-PROGRESS-01` — safe preflight and staged progress are source-complete, with the provider-attempt authority deployed.
-- `PWA-TRANSCRIPT-CATALOG-MIGRATION-01` — one-time dry-run/apply import, `transcript_doc_v1.2` standardization, source-linked duplicate authority, and explicit conflict handling are source-complete at `625cd33`; production migration/API rollout and Google dry-run/apply evidence remain.
+- `PWA-TRANSCRIPT-CATALOG-MIGRATION-01` — one-time dry-run/apply import, `transcript_doc_v1.2` standardization, source-linked duplicate authority, and explicit conflict handling are source-complete. Production backup/migration to `0016_transcript_catalog_entries`, intended API deployment, public edge repair, and authenticated Picker loading are verified; approved-folder dry-run and separately authorized apply evidence remain.
 - `PWA-TRANSCRIPTION-ANALYTICS-01` — safe aggregate outcomes and stage-duration analytics are source-complete; broader production evidence remains.
 - `PWA-TRANSCRIPT-CATALOG-SYNC-01` — deferred design for a Google Drive-backed continuously refreshed PWA catalog and its system-of-record boundary; no continuous sync is implemented.
 - OpenAI processing, keyterms, manual speaker rename, manual cutting/concatenation, and Drive folder/recursive intake remain deferred or excluded as defined above.
