@@ -45,6 +45,8 @@ def run_deploy(
         "health_status": "healthy",
         "head_revision": "abc123",
         "current_revision": "abc123",
+        "head_probe_exit": "0",
+        "current_probe_exit": "0",
         "curl_exit": "0",
         "build_exit": "0",
         "tagged_inspect_exit": "0",
@@ -117,7 +119,21 @@ if [[ "$1" == "compose" ]]; then
         fi
       fi
       last="${{@: -1}}"
-      if [[ "$last" == "heads" ]]; then echo {state['head_revision']!r}; elif [[ "$last" == "current" ]]; then echo {state['current_revision']!r}; else exit 47; fi
+      if [[ "$last" == "heads" ]]; then
+        if [[ {state['head_probe_exit']!r} != "0" ]]; then
+          echo "raw-probe-secret-must-not-escape" >&2
+          exit {state['head_probe_exit']}
+        fi
+        echo {state['head_revision']!r}
+      elif [[ "$last" == "current" ]]; then
+        if [[ {state['current_probe_exit']!r} != "0" ]]; then
+          echo "raw-probe-secret-must-not-escape" >&2
+          exit {state['current_probe_exit']}
+        fi
+        echo {state['current_revision']!r}
+      else
+        exit 47
+      fi
       ;;
     up)
       printf 'compose-up-args %s\\n' "$*" >> {str(log)!r}
@@ -189,8 +205,8 @@ def test_successful_api_deployment_orders_identity_before_health() -> None:
     assert index_of(calls, "build studio-api") < index_of(calls, "docker image inspect --format {{.Id}} elevenlabs-studio-api:local")
     assert not any("build studio-web" in line for line in calls)
     assert index_of(calls, "docker compose --env-file deploy/studio/.env -f deploy/studio/compose.platform.yml ps -q postgres") < index_of(calls, "compose-up-args -d --no-deps --force-recreate studio-api")
-    assert index_of(calls, "alembic studio-api heads") < index_of(calls, "compose-up-args -d --no-deps --force-recreate studio-api")
-    assert index_of(calls, "alembic studio-api current") < index_of(calls, "compose-up-args -d --no-deps --force-recreate studio-api")
+    assert index_of(calls, "studio-api alembic heads") < index_of(calls, "compose-up-args -d --no-deps --force-recreate studio-api")
+    assert index_of(calls, "studio-api alembic current") < index_of(calls, "compose-up-args -d --no-deps --force-recreate studio-api")
     assert index_of(calls, "compose-up-args -d --no-deps --force-recreate studio-api") < index_of(calls, "docker compose --env-file deploy/studio/.env -f deploy/studio/compose.platform.yml ps -q studio-api")
     assert index_of(calls, "docker inspect --format {{.Image}} container-new") < index_of(calls, "curl -fsS http://127.0.0.1:8182/api/healthz")
     assert_no_forbidden_mutation(calls)
@@ -201,9 +217,9 @@ def test_api_deploy_via_stdin_still_reaches_success_boundary(tmp_path: Path) -> 
     assert proc.returncode == 0, proc.stderr + proc.stdout
     assert proc.stdout.count("STUDIO_PLATFORM_API_DEPLOY_OK") == 1
     assert index_of(calls, "ps -q postgres") < index_of(calls, "ps -q redis")
-    assert index_of(calls, "ps -q redis") < index_of(calls, "alembic studio-api heads")
-    assert index_of(calls, "alembic studio-api heads") < index_of(calls, "alembic studio-api current")
-    assert index_of(calls, "alembic studio-api current") < index_of(calls, "compose-up-args -d --no-deps --force-recreate studio-api")
+    assert index_of(calls, "ps -q redis") < index_of(calls, "studio-api alembic heads")
+    assert index_of(calls, "studio-api alembic heads") < index_of(calls, "studio-api alembic current")
+    assert index_of(calls, "studio-api alembic current") < index_of(calls, "compose-up-args -d --no-deps --force-recreate studio-api")
     assert index_of(calls, "compose-up-args -d --no-deps --force-recreate studio-api") < index_of(calls, "docker inspect --format {{.Image}} container-new")
     assert index_of(calls, "docker inspect --format {{.Image}} container-new") < index_of(calls, "curl -fsS http://127.0.0.1:8182/api/healthz")
     assert not any(line.startswith("unexpected-run-stdin ") for line in calls)
@@ -238,6 +254,25 @@ def test_studio_ci_path_filters_reference_existing_files() -> None:
     assert workflow.count("- 'docs/runbooks/studio-platform-ops.md'") == 2
 
 
+def test_studio_ci_runs_protected_secret_bootstrap_smoke_after_image_build() -> None:
+    workflow = (ROOT / ".github/workflows/studio-ci.yml").read_text(encoding="utf-8")
+    build = "docker build -t elevenlabs-studio-api:test apps/studio-api"
+    marker = "Verify protected secret bootstrap and non-root runtime"
+
+    assert workflow.index(build) < workflow.index(marker)
+    for fragment in (
+        "chmod 600",
+        "--user 0:0",
+        "dst=/run/secrets/studio_postgres_password,readonly",
+        "--tmpfs /run/studio-runtime-secrets:",
+        "STUDIO_CONTAINER_SECRET_BOOTSTRAP=required",
+        "assert os.geteuid() == 10001",
+        "stat.S_IMODE(metadata.st_mode) == 0o400",
+        "protected source secret remained readable",
+    ):
+        assert fragment in workflow
+
+
 def test_platform_deploy_files_do_not_export_or_embed_postgres_password() -> None:
     compose = (ROOT / "deploy/studio/compose.platform.yml").read_text(encoding="utf-8")
     migrate = (ROOT / "scripts/migrate_studio_platform.sh").read_text(encoding="utf-8")
@@ -261,6 +296,7 @@ def test_new_script_fast_forwards_old_checkout_before_versioned_validation(tmp_p
         "apps/studio/Dockerfile",
         "apps/studio-api/Dockerfile",
         "apps/studio-api/alembic.ini",
+        "apps/studio-api/studio_api/container_entrypoint.py",
         "apps/studio-api/studio_api/worker.py",
         "apps/studio-api/studio_api/worker_health.py",
         "apps/studio-api/alembic/versions/0001_fixture.py",
@@ -411,7 +447,7 @@ def test_successful_web_deployment_has_no_api_dependency_gates(tmp_path: Path) -
     assert proc.stdout.count("STUDIO_PLATFORM_WEB_DEPLOY_OK") == 1
     assert "STUDIO_PLATFORM_API_DEPLOY_OK" not in proc.stdout
     assert any("build studio-web" in line for line in calls)
-    assert not any("studio-api heads" in line or "studio-api current" in line or "ps -q postgres" in line or "ps -q redis" in line for line in calls)
+    assert not any("studio-api alembic heads" in line or "studio-api alembic current" in line or "ps -q postgres" in line or "ps -q redis" in line for line in calls)
     assert index_of(calls, "compose-up-args -d --no-deps --force-recreate studio-web") < index_of(calls, "docker inspect --format {{.Image}} container-new")
     assert index_of(calls, "docker inspect --format {{.Image}} container-new") < index_of(calls, "curl -fsS http://127.0.0.1:8181/healthz")
     assert_no_forbidden_mutation(calls)
@@ -474,6 +510,34 @@ def test_api_revision_mismatch_blocks_before_replacement(tmp_path: Path) -> None
     assert not any("compose-up-args" in line for line in calls)
     assert "manual migration required" in proc.stderr
     assert_no_forbidden_mutation(calls)
+
+
+def test_revision_probe_command_failures_are_normalized_and_fail_closed(
+    tmp_path: Path,
+) -> None:
+    cases = (
+        (
+            "head",
+            {"head_probe_exit": "17"},
+            "revision probe failed: Alembic head command exited non-zero",
+        ),
+        (
+            "current",
+            {"current_probe_exit": "18"},
+            "revision probe failed: current database command exited non-zero",
+        ),
+    )
+    for name, overrides, expected in cases:
+        case_dir = tmp_path / name
+        case_dir.mkdir()
+        proc, calls = run_deploy(case_dir, "api", **overrides)
+        assert proc.returncode != 0
+        assert expected in proc.stderr
+        assert "found 0" not in proc.stderr
+        assert "raw-probe-secret-must-not-escape" not in proc.stderr
+        assert "STUDIO_PLATFORM_API_DEPLOY_OK" not in proc.stdout
+        assert not any("compose-up-args" in line for line in calls)
+        assert_no_forbidden_mutation(calls)
 
 
 def test_unhealthy_stateful_dependency_blocks_before_replacement(tmp_path: Path) -> None:

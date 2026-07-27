@@ -186,7 +186,7 @@ def check_studio_google_oauth_compose_wiring() -> None:
 
     required_compose_markers = [
         "STUDIO_GOOGLE_OAUTH_CLIENT_ID: ${STUDIO_GOOGLE_OAUTH_CLIENT_ID:-}",
-        "STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE: /run/secrets/studio_google_oauth_client_secret",
+        "STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE: /run/studio-runtime-secrets/studio_google_oauth_client_secret",
         "STUDIO_GOOGLE_OAUTH_REDIRECT_URI: ${STUDIO_GOOGLE_OAUTH_REDIRECT_URI:-}",
         "STUDIO_GOOGLE_OAUTH_SCOPES: ${STUDIO_GOOGLE_OAUTH_SCOPES:-openid email https://www.googleapis.com/auth/drive.file}",
         "STUDIO_GOOGLE_OAUTH_STATE_TTL_SECONDS: ${STUDIO_GOOGLE_OAUTH_STATE_TTL_SECONDS:-600}",

@@ -14,6 +14,8 @@ services:
   studio-api:
     build: ../../apps/studio-api
     image: elevenlabs-studio-api:local
+    # The entrypoint copies host-owned 0600 secrets, then drops to UID/GID 10001.
+    user: "0:0"
     restart: unless-stopped
     ports: ["127.0.0.1:8182:8000"]
     environment:
@@ -22,24 +24,25 @@ services:
       STUDIO_DATABASE_PORT: "5432"
       STUDIO_DATABASE_NAME: studio
       STUDIO_DATABASE_USER: studio
-      STUDIO_POSTGRES_PASSWORD_FILE: /run/secrets/studio_postgres_password
+      STUDIO_CONTAINER_SECRET_BOOTSTRAP: required
+      STUDIO_POSTGRES_PASSWORD_FILE: /run/studio-runtime-secrets/studio_postgres_password
       STUDIO_REDIS_URL: redis://redis:6379/0
       STUDIO_APP_ORIGIN: ${APP_PUBLIC_URL:?APP_PUBLIC_URL is required}
       STUDIO_TRUSTED_PROXY_IP: ${STUDIO_TRUSTED_PROXY_IP:-127.0.0.1}
       STUDIO_SESSION_LAST_SEEN_WRITE_INTERVAL_SECONDS: ${STUDIO_SESSION_LAST_SEEN_WRITE_INTERVAL_SECONDS:-300}
       STUDIO_AUTH_CLEANUP_INTERVAL_SECONDS: ${STUDIO_AUTH_CLEANUP_INTERVAL_SECONDS:-3600}
       STUDIO_AUTH_CLEANUP_BATCH_SIZE: ${STUDIO_AUTH_CLEANUP_BATCH_SIZE:-500}
-      STUDIO_CREDENTIAL_MASTER_KEY_FILE: /run/secrets/studio_credential_master_key
+      STUDIO_CREDENTIAL_MASTER_KEY_FILE: /run/studio-runtime-secrets/studio_credential_master_key
       STUDIO_SOURCE_S3_ENDPOINT_URL: ${STUDIO_SOURCE_S3_ENDPOINT_URL:?STUDIO_SOURCE_S3_ENDPOINT_URL is required}
       STUDIO_SOURCE_S3_REGION: ${STUDIO_SOURCE_S3_REGION:?STUDIO_SOURCE_S3_REGION is required}
       STUDIO_SOURCE_S3_BUCKET: ${STUDIO_SOURCE_S3_BUCKET:?STUDIO_SOURCE_S3_BUCKET is required}
-      STUDIO_SOURCE_S3_ACCESS_KEY_ID_FILE: /run/secrets/studio_source_s3_access_key_id
-      STUDIO_SOURCE_S3_SECRET_ACCESS_KEY_FILE: /run/secrets/studio_source_s3_secret_access_key
+      STUDIO_SOURCE_S3_ACCESS_KEY_ID_FILE: /run/studio-runtime-secrets/studio_source_s3_access_key_id
+      STUDIO_SOURCE_S3_SECRET_ACCESS_KEY_FILE: /run/studio-runtime-secrets/studio_source_s3_secret_access_key
       STUDIO_SOURCE_UPLOAD_TTL_SECONDS: ${STUDIO_SOURCE_UPLOAD_TTL_SECONDS:?STUDIO_SOURCE_UPLOAD_TTL_SECONDS is required}
       STUDIO_SOURCE_PRESIGN_TTL_SECONDS: ${STUDIO_SOURCE_PRESIGN_TTL_SECONDS:?STUDIO_SOURCE_PRESIGN_TTL_SECONDS is required}
       STUDIO_SOURCE_MAX_UPLOAD_BYTES: ${STUDIO_SOURCE_MAX_UPLOAD_BYTES:?STUDIO_SOURCE_MAX_UPLOAD_BYTES is required}
       STUDIO_GOOGLE_OAUTH_CLIENT_ID: ${STUDIO_GOOGLE_OAUTH_CLIENT_ID:-}
-      STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE: /run/secrets/studio_google_oauth_client_secret
+      STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE: /run/studio-runtime-secrets/studio_google_oauth_client_secret
       STUDIO_GOOGLE_OAUTH_REDIRECT_URI: ${STUDIO_GOOGLE_OAUTH_REDIRECT_URI:-}
       STUDIO_GOOGLE_OAUTH_SCOPES: ${STUDIO_GOOGLE_OAUTH_SCOPES:-openid email https://www.googleapis.com/auth/drive.file}
       STUDIO_GOOGLE_OAUTH_STATE_TTL_SECONDS: ${STUDIO_GOOGLE_OAUTH_STATE_TTL_SECONDS:-600}
@@ -51,17 +54,21 @@ services:
       - studio_source_s3_access_key_id
       - studio_source_s3_secret_access_key
       - studio_google_oauth_client_secret
+    tmpfs:
+      - /run/studio-runtime-secrets:mode=0711,uid=0,gid=0
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
     healthcheck:
-      test: ["CMD-SHELL", "python - <<'PY'\nimport urllib.request,sys\nsys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/healthz', timeout=2).status==200 else 1)\nPY"]
+      test: ["CMD", "python", "-m", "studio_api.container_entrypoint", "--drop-only", "python", "-c", "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/healthz',timeout=2).status==200 else 1)"]
       interval: 30s
       timeout: 5s
       retries: 5
   studio-worker:
     build: ../../apps/studio-api
     image: elevenlabs-studio-worker:local
+    # The entrypoint copies host-owned 0600 secrets, then drops to UID/GID 10001.
+    user: "0:0"
     command: ["python", "-m", "studio_api.worker"]
     restart: unless-stopped
     environment:
@@ -70,16 +77,17 @@ services:
       STUDIO_DATABASE_PORT: "5432"
       STUDIO_DATABASE_NAME: studio
       STUDIO_DATABASE_USER: studio
-      STUDIO_POSTGRES_PASSWORD_FILE: /run/secrets/studio_postgres_password
-      STUDIO_CREDENTIAL_MASTER_KEY_FILE: /run/secrets/studio_credential_master_key
+      STUDIO_CONTAINER_SECRET_BOOTSTRAP: required
+      STUDIO_POSTGRES_PASSWORD_FILE: /run/studio-runtime-secrets/studio_postgres_password
+      STUDIO_CREDENTIAL_MASTER_KEY_FILE: /run/studio-runtime-secrets/studio_credential_master_key
       STUDIO_SOURCE_S3_ENDPOINT_URL: ${STUDIO_SOURCE_S3_ENDPOINT_URL:?STUDIO_SOURCE_S3_ENDPOINT_URL is required}
       STUDIO_SOURCE_S3_REGION: ${STUDIO_SOURCE_S3_REGION:?STUDIO_SOURCE_S3_REGION is required}
       STUDIO_SOURCE_S3_BUCKET: ${STUDIO_SOURCE_S3_BUCKET:?STUDIO_SOURCE_S3_BUCKET is required}
-      STUDIO_SOURCE_S3_ACCESS_KEY_ID_FILE: /run/secrets/studio_source_s3_access_key_id
-      STUDIO_SOURCE_S3_SECRET_ACCESS_KEY_FILE: /run/secrets/studio_source_s3_secret_access_key
+      STUDIO_SOURCE_S3_ACCESS_KEY_ID_FILE: /run/studio-runtime-secrets/studio_source_s3_access_key_id
+      STUDIO_SOURCE_S3_SECRET_ACCESS_KEY_FILE: /run/studio-runtime-secrets/studio_source_s3_secret_access_key
       STUDIO_SOURCE_MAX_UPLOAD_BYTES: ${STUDIO_SOURCE_MAX_UPLOAD_BYTES:?STUDIO_SOURCE_MAX_UPLOAD_BYTES is required}
       STUDIO_GOOGLE_OAUTH_CLIENT_ID: ${STUDIO_GOOGLE_OAUTH_CLIENT_ID:-}
-      STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE: /run/secrets/studio_google_oauth_client_secret
+      STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE: /run/studio-runtime-secrets/studio_google_oauth_client_secret
       STUDIO_GOOGLE_OAUTH_REDIRECT_URI: ${STUDIO_GOOGLE_OAUTH_REDIRECT_URI:-}
       STUDIO_GOOGLE_OAUTH_SCOPES: ${STUDIO_GOOGLE_OAUTH_SCOPES:-openid email https://www.googleapis.com/auth/drive.file}
       STUDIO_WORKER_POLL_INTERVAL_SECONDS: ${STUDIO_WORKER_POLL_INTERVAL_SECONDS:-5}
@@ -92,10 +100,12 @@ services:
       - studio_source_s3_access_key_id
       - studio_source_s3_secret_access_key
       - studio_google_oauth_client_secret
+    tmpfs:
+      - /run/studio-runtime-secrets:mode=0711,uid=0,gid=0
     depends_on:
       postgres: { condition: service_healthy }
     healthcheck:
-      test: ["CMD", "python", "-m", "studio_api.worker_health"]
+      test: ["CMD", "python", "-m", "studio_api.container_entrypoint", "--drop-only", "python", "-m", "studio_api.worker_health"]
       interval: 30s
       timeout: 5s
       retries: 5

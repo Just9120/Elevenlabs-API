@@ -160,7 +160,11 @@ def test_successful_host_preflight(tmp_path: Path) -> None:
     assert "repository Alembic head | pass | exactly one repository Alembic head matches expected source head: 0016_transcript_catalog_entries" in proc.stdout
     assert "production Alembic revision | pass | exactly one known production database revision was reported: 0016_transcript_catalog_entries" in proc.stdout
     assert "revision equality | pass | production database revision 0016_transcript_catalog_entries equals repository head 0016_transcript_catalog_entries" in proc.stdout
-    assert any("exec -T studio-api alembic current" in c for c in calls)
+    assert any(
+        "exec -T studio-api python -m studio_api.container_entrypoint "
+        "--drop-only alembic current" in c
+        for c in calls
+    )
     assert_no_secret_output(proc)
     assert_no_forbidden(calls)
 

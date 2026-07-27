@@ -186,7 +186,7 @@ cmd_resume() {
 capture_revision_ids() { awk '$1 ~ /^[[:alnum:]_]+$/ && (NF == 1 || $2 ~ /^\(/) {print $1}'; }
 require_one_revision() { local label="$1"; shift; [[ "$#" -eq 1 && -n "${1:-}" ]] || fail "schema check failed: expected exactly one $label revision"; }
 rollback_head_revision() { docker run --rm --entrypoint alembic "$ROLLBACK_TAG" heads </dev/null 2>/dev/null | capture_revision_ids; }
-current_revision() { compose run --rm --no-deps -T --entrypoint alembic studio-api current </dev/null 2>/dev/null | capture_revision_ids; }
+current_revision() { compose run --rm --no-deps -T studio-api alembic current </dev/null 2>/dev/null | capture_revision_ids; }
 stopped_image_head_revision() { local stopped_image_id="$1"; docker run --rm --entrypoint alembic "$stopped_image_id" heads </dev/null 2>/dev/null | capture_revision_ids; }
 
 cmd_rollback() {

@@ -68,6 +68,42 @@ jobs:
           printf 'STUDIO_POSTGRES_PASSWORD_FILE=%s\nSTUDIO_CREDENTIAL_MASTER_KEY_FILE=%s\n' "$POSTGRES_PASSWORD_FILE" "$CREDENTIAL_MASTER_KEY_FILE" >> "$tmp/.env"
           docker compose --env-file "$tmp/.env" -f deploy/studio/compose.platform.yml config >/dev/null
       - run: docker build -t elevenlabs-studio-api:test apps/studio-api
+      - name: Verify protected secret bootstrap and non-root runtime
+        run: |
+          tmp=$(mktemp -d "$RUNNER_TEMP/studio-secret-bootstrap.XXXXXX")
+          trap 'rm -rf "$tmp"' EXIT
+          secret_file="$tmp/postgres_password"
+          printf 'synthetic-ci-secret' > "$secret_file"
+          chmod 600 "$secret_file"
+          test "$(docker image inspect --format '{{.Config.User}}' elevenlabs-studio-api:test)" = "10001:10001"
+          docker run --rm \
+            --user 0:0 \
+            --mount "type=bind,src=$secret_file,dst=/run/secrets/studio_postgres_password,readonly" \
+            --tmpfs /run/studio-runtime-secrets:rw,noexec,nosuid,size=1m,mode=0711,uid=0,gid=0 \
+            --env STUDIO_CONTAINER_SECRET_BOOTSTRAP=required \
+            --env STUDIO_POSTGRES_PASSWORD_FILE=/run/studio-runtime-secrets/studio_postgres_password \
+            elevenlabs-studio-api:test \
+            python -c '
+          import os
+          import stat
+          from pathlib import Path
+
+          runtime = Path("/run/studio-runtime-secrets/studio_postgres_password")
+          source = Path("/run/secrets/studio_postgres_password")
+          metadata = runtime.stat()
+          assert os.geteuid() == 10001
+          assert os.getegid() == 10001
+          assert metadata.st_uid == 10001
+          assert metadata.st_gid == 10001
+          assert stat.S_IMODE(metadata.st_mode) == 0o400
+          assert runtime.read_text(encoding="utf-8") == "synthetic-ci-secret"
+          try:
+              source.read_bytes()
+          except PermissionError:
+              pass
+          else:
+              raise AssertionError("protected source secret remained readable")
+          '
       - run: echo "STUDIO_CI_OK"
 
   browser-e2e:

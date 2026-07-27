@@ -22,7 +22,10 @@ def test_studio_worker_compose_contract():
     assert 'command: ["python", "-m", "studio_api.worker"]' in worker
     assert "restart: unless-stopped" in worker
     assert "ports:" not in worker and "healthcheck:" in worker
-    assert 'test: ["CMD", "python", "-m", "studio_api.worker_health"]' in worker
+    assert (
+        'test: ["CMD", "python", "-m", "studio_api.container_entrypoint", '
+        '"--drop-only", "python", "-m", "studio_api.worker_health"]'
+    ) in worker
     assert "stop_grace_period: 86460s" in worker
     assert "postgres: { condition: service_healthy }" in worker
     deps = worker.split("depends_on:", 1)[1]
@@ -31,6 +34,13 @@ def test_studio_worker_compose_contract():
         assert key in worker
     for secret in ["studio_postgres_password", "studio_credential_master_key", "studio_source_s3_access_key_id", "studio_source_s3_secret_access_key", "studio_google_oauth_client_secret"]:
         assert secret in worker
+    for service in (api, worker):
+        assert 'user: "0:0"' in service
+        assert "STUDIO_CONTAINER_SECRET_BOOTSTRAP: required" in service
+        assert "/run/studio-runtime-secrets/studio_postgres_password" in service
+        assert "/run/studio-runtime-secrets/studio_credential_master_key" in service
+        assert "/run/studio-runtime-secrets:mode=0711,uid=0,gid=0" in service
+        assert "_FILE: /run/secrets/" not in service
     assert text.rsplit("volumes:", 1)[1].count("studio-postgres-data:") == 1
 
 
@@ -66,5 +76,9 @@ def test_shared_api_worker_image_drops_root_before_runtime():
     assert "useradd --uid 10001 --gid studio --no-create-home" in "\n".join(lines)
     user_index=lines.index("USER 10001:10001")
     assert user_index > next(i for i,line in enumerate(lines) if line == "COPY . .")
+    assert (
+        'ENTRYPOINT ["python", "-m", "studio_api.container_entrypoint"]'
+        in lines[user_index + 1 :]
+    )
     assert user_index < next(i for i,line in enumerate(lines) if line.startswith("CMD "))
     assert not any(line == "USER root" for line in lines[user_index + 1:])
