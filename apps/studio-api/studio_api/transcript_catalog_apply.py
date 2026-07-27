@@ -4,7 +4,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Iterable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 from sqlalchemy import select
 
@@ -15,13 +15,15 @@ from .transcript_catalog import (
     EffectiveTranscriptionSettings,
 )
 from .transcript_catalog_migration import (
-    CatalogMigrationAction,
     CatalogMigrationBlockReason,
     CatalogMigrationCandidate,
     CatalogMigrationDecision,
     CatalogMigrationOperation,
     CatalogSettingsAuthorityStatus,
+    TranscriptCatalogImportDecision,
+    TranscriptMaintenanceWorkflow,
     classify_catalog_migration_candidate,
+    classify_transcript_catalog_import_candidate,
 )
 
 
@@ -65,6 +67,51 @@ def apply_catalog_migration_metadata(
     the surrounding transaction.
     """
 
+    return _apply_catalog_metadata(
+        db,
+        owner_user_id=owner_user_id,
+        candidates=candidates,
+        metadata_by_document_id=metadata_by_document_id,
+        applied_at=applied_at,
+        classifier=classify_catalog_migration_candidate,
+        workflow=None,
+    )
+
+
+def apply_transcript_catalog_import_metadata(
+    db: Any,
+    *,
+    owner_user_id: str,
+    candidates: Iterable[CatalogMigrationCandidate],
+    metadata_by_document_id: Mapping[str, CatalogApplyMetadata] | None = None,
+    applied_at: datetime | None = None,
+) -> dict:
+    """Persist only eligible selected catalog metadata; never touch Google."""
+
+    return _apply_catalog_metadata(
+        db,
+        owner_user_id=owner_user_id,
+        candidates=candidates,
+        metadata_by_document_id=metadata_by_document_id,
+        applied_at=applied_at,
+        classifier=classify_transcript_catalog_import_candidate,
+        workflow=TranscriptMaintenanceWorkflow.catalog_import.value,
+    )
+
+
+def _apply_catalog_metadata(
+    db: Any,
+    *,
+    owner_user_id: str,
+    candidates: Iterable[CatalogMigrationCandidate],
+    metadata_by_document_id: Mapping[str, CatalogApplyMetadata] | None,
+    applied_at: datetime | None,
+    classifier: Callable[
+        [CatalogMigrationCandidate],
+        CatalogMigrationDecision | TranscriptCatalogImportDecision,
+    ],
+    workflow: str | None,
+) -> dict:
     from .models import TranscriptCatalogEntry
 
     owner_id = _bounded_identity(owner_user_id, label="owner", maximum=36)
@@ -85,7 +132,11 @@ def apply_catalog_migration_metadata(
     if len(document_ids) != len(set(document_ids)):
         raise ValueError("Catalog migration candidates must be unique")
     private_metadata = _normalize_private_metadata(
-        metadata_by_document_id or {},
+        (
+            metadata_by_document_id
+            if metadata_by_document_id is not None
+            else {}
+        ),
         allowed_document_ids=set(document_ids),
     )
     timestamp = applied_at or datetime.now(timezone.utc)
@@ -118,7 +169,7 @@ def apply_catalog_migration_metadata(
     for position, (candidate, document_id) in enumerate(
         zip(candidate_rows, document_ids, strict=True)
     ):
-        decision = classify_catalog_migration_candidate(candidate)
+        decision = classifier(candidate)
         outcome, reason = _apply_one_candidate(
             db,
             owner_user_id=owner_id,
@@ -143,7 +194,7 @@ def apply_catalog_migration_metadata(
         )
 
     db.flush()
-    return {
+    payload = {
         "operation": CatalogMigrationOperation.apply.value,
         "target_standard": CURRENT_TRANSCRIPT_STANDARD,
         "items": items,
@@ -152,6 +203,9 @@ def apply_catalog_migration_metadata(
             for outcome in CatalogMetadataApplyOutcome
         },
     }
+    if workflow is not None:
+        payload = {"workflow": workflow, **payload}
+    return payload
 
 
 def _apply_one_candidate(
@@ -159,7 +213,7 @@ def _apply_one_candidate(
     *,
     owner_user_id: str,
     document_id: str,
-    decision: CatalogMigrationDecision,
+    decision: CatalogMigrationDecision | TranscriptCatalogImportDecision,
     metadata: CatalogApplyMetadata,
     existing: Any | None,
     applied_at: datetime,
@@ -167,7 +221,8 @@ def _apply_one_candidate(
     CatalogMetadataApplyOutcome,
     CatalogMetadataApplyReason | None,
 ]:
-    if decision.action == CatalogMigrationAction.blocked:
+    action = decision.action.value
+    if action == "blocked":
         reasons = {
             CatalogMigrationBlockReason.catalog_conflict: (
                 CatalogMetadataApplyReason.catalog_conflict
@@ -175,22 +230,22 @@ def _apply_one_candidate(
             CatalogMigrationBlockReason.document_unreadable: (
                 CatalogMetadataApplyReason.document_unreadable
             ),
+            CatalogMigrationBlockReason.standardization_required: (
+                CatalogMetadataApplyReason.standardization_required
+            ),
         }
         if decision.reason not in reasons:
             raise ValueError("Catalog migration block reason is invalid")
         reason = reasons[decision.reason]
         return CatalogMetadataApplyOutcome.blocked, reason
-    if decision.action == CatalogMigrationAction.standardize_document:
+    if action == "standardize_document":
         return (
             CatalogMetadataApplyOutcome.standardization_required,
             CatalogMetadataApplyReason.standardization_required,
         )
-    if decision.action == CatalogMigrationAction.unchanged:
+    if action == "unchanged":
         return CatalogMetadataApplyOutcome.unchanged, None
-    if decision.action not in {
-        CatalogMigrationAction.import_metadata,
-        CatalogMigrationAction.standardize_and_import,
-    }:
+    if action not in {"import_metadata", "standardize_and_import"}:
         raise ValueError("Catalog migration action is invalid")
 
     desired = _desired_import_values(
@@ -201,7 +256,7 @@ def _apply_one_candidate(
         metadata=metadata,
         applied_at=applied_at,
     )
-    if decision.action == CatalogMigrationAction.standardize_and_import:
+    if action == "standardize_and_import":
         if existing is not None and not _same_catalog_authority(
             existing,
             desired,
