@@ -242,18 +242,18 @@ test('preparation stays fail-closed without external integrations', async ({
   expect(integrationRequests).toEqual([]);
 });
 
-test('catalog migration stays fail-closed without Google authority', async ({
+test('transcript maintenance stays fail-closed without Google authority', async ({
   page,
 }) => {
   const navigation = await login(page);
-  const migrationMutations: string[] = [];
+  const maintenanceMutations: string[] = [];
   page.on('request', (request) => {
     const url = new URL(request.url());
     if (
       request.method() !== 'GET' &&
-      url.pathname.startsWith('/api/transcript-catalog/migration/')
+      url.pathname.startsWith('/api/transcript-maintenance/')
     ) {
-      migrationMutations.push(`${request.method()} ${url.pathname}`);
+      maintenanceMutations.push(`${request.method()} ${url.pathname}`);
     }
   });
 
@@ -261,27 +261,36 @@ test('catalog migration stays fail-closed without Google authority', async ({
     .getByRole('button', { name: 'Настройки', exact: true })
     .click();
 
-  const migration = page.getByRole('region', {
-    name: 'Миграция каталога транскриптов',
+  const maintenance = page.getByRole('region', {
+    name: 'Две независимые операции',
   });
-  await expect(migration).toBeVisible();
-  await expect(migration).toContainText('Одноразовая операция');
-  await expect(migration).toContainText(
-    'Транскрипция и LLM не вызываются.',
+  await expect(maintenance).toBeVisible();
+  await expect(maintenance).toContainText(
+    'Стандартизация изменяет только выбранные Google Docs.',
   );
   await expect(
-    migration.getByText('Сначала подключите Google Drive выше.'),
+    maintenance.getByText('Сначала подключите Google Drive выше.'),
   ).toBeVisible();
+  for (const operationName of [
+    'Стандартизация Google Docs',
+    'Импорт в каталог Studio',
+  ]) {
+    const operation = page.getByRole('region', { name: operationName });
+    await expect(operation).toContainText('Отдельная операция');
+    await expect(
+      operation.getByRole('button', { name: 'Выбрать папку' }),
+    ).toBeDisabled();
+    await expect(
+      operation.getByRole('button', { name: 'Выбрать документы' }),
+    ).toBeDisabled();
+    await expect(
+      operation.getByRole('button', { name: 'Запустить dry-run' }),
+    ).toBeDisabled();
+  }
   await expect(
-    migration.getByRole('button', { name: 'Выбрать папку каталога' }),
-  ).toBeDisabled();
-  await expect(
-    migration.getByRole('button', { name: 'Запустить dry-run' }),
-  ).toBeDisabled();
-  await expect(
-    migration.getByRole('button', { name: /Подтвердить и применить/ }),
+    maintenance.getByRole('button', { name: /Подтвердить/ }),
   ).toHaveCount(0);
-  expect(migrationMutations).toEqual([]);
+  expect(maintenanceMutations).toEqual([]);
 });
 
 test('uncertain provider result exposes no unsafe recovery action', async ({

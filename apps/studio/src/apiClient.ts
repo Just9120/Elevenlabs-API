@@ -21,6 +21,9 @@ function diagnosticEndpointGroup(path: string) {
   if (path.startsWith("/credentials")) return "credentials";
   if (path.startsWith("/diagnostics")) return "diagnostics";
   if (path.startsWith("/transcript-catalog")) return "transcript_catalog";
+  if (path.startsWith("/transcript-maintenance")) {
+    return "transcript_maintenance";
+  }
   return "unknown";
 }
 

@@ -1993,6 +1993,22 @@ describe("Studio PWA", () => {
     await expect(catalogFolderPromise).resolves.toEqual({ action: "cancel" });
 
     callback = null;
+    const transcriptFolderPromise = googlePicker.openGooglePicker(
+      "transcript-folder",
+      {
+        access_token: "ya29.transcript-folder",
+        api_key: "public",
+        app_id: "app",
+        scope_ready: true,
+      },
+    );
+    await waitFor(() => expect(callback).not.toBeNull());
+    callback?.({ action: "cancel" });
+    await expect(transcriptFolderPromise).resolves.toEqual({
+      action: "cancel",
+    });
+
+    callback = null;
     const transcriptDocumentsPromise = googlePicker.openGooglePicker(
       "transcript-documents",
       {
@@ -2009,16 +2025,23 @@ describe("Studio PWA", () => {
       action: "cancel",
     });
 
-    expect(viewIds).toEqual(["docs", "folders", "folders", "docs"]);
-    expect(viewModes).toEqual(["list", "list", "list", "list"]);
+    expect(viewIds).toEqual([
+      "docs",
+      "folders",
+      "folders",
+      "folders",
+      "docs",
+    ]);
+    expect(viewModes).toEqual(["list", "list", "list", "list", "list"]);
     expect(viewParents).toEqual([
+      "root",
       "root",
       "root",
       "root",
       "private-selected-folder",
     ]);
-    expect(includeFolders).toEqual([true, true, true, false]);
-    expect(selectFolderEnabled).toEqual([true, true]);
+    expect(includeFolders).toEqual([true, true, true, true, false]);
+    expect(selectFolderEnabled).toEqual([true, true, true]);
     expect(viewMimeTypes).toEqual([
       "application/vnd.google-apps.document",
     ]);
@@ -2034,6 +2057,10 @@ describe("Studio PWA", () => {
     expect(builderCalls).toContainEqual({
       method: "setTitle",
       args: ["Выберите папку каталога транскриптов"],
+    });
+    expect(builderCalls).toContainEqual({
+      method: "setTitle",
+      args: ["Выберите папку с транскриптами"],
     });
     expect(builderCalls).toContainEqual({
       method: "setTitle",
@@ -2058,6 +2085,10 @@ describe("Studio PWA", () => {
     expect(builderCalls).toContainEqual({
       method: "setOAuthToken",
       args: ["ya29.catalog"],
+    });
+    expect(builderCalls).toContainEqual({
+      method: "setOAuthToken",
+      args: ["ya29.transcript-folder"],
     });
     expect(builderCalls).toContainEqual({
       method: "setOAuthToken",
@@ -2086,7 +2117,7 @@ describe("Studio PWA", () => {
     ]);
     expect(
       builderCalls.filter((call) => call.method === "setCallback"),
-    ).toHaveLength(4);
+    ).toHaveLength(5);
     expect(
       builderCalls.some((call) => call.args.includes("support_drives")),
     ).toBe(false);
@@ -2131,7 +2162,12 @@ describe("Studio PWA", () => {
     await screen.findByText(/Ключи провайдеров/);
     expect(
       screen.getByRole("heading", {
-        name: "Миграция каталога транскриптов",
+        name: "Стандартизация Google Docs",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", {
+        name: "Импорт в каталог Studio",
       }),
     ).toBeInTheDocument();
     expect(screen.getByText(/••••1234/)).toBeInTheDocument();
