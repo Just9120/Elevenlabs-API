@@ -66,6 +66,21 @@ require_exactly_one_revision() {
   [[ -n "${revisions[0]}" ]] || fail "manual migration required: $label revision is empty"
 }
 
+probe_single_revision() {
+  local label="$1"
+  local revision_service="$2"
+  local alembic_command="$3"
+  local raw
+  if ! raw="$(compose run --rm --no-deps -T "$revision_service" alembic "$alembic_command" </dev/null 2>/dev/null)"; then
+    fail "revision probe failed: $label command exited non-zero"
+  fi
+
+  local -a revisions
+  mapfile -t revisions < <(printf '%s\n' "$raw" | capture_revision_ids)
+  require_exactly_one_revision "$label" "${revisions[@]}"
+  printf '%s\n' "${revisions[0]}"
+}
+
 verify_database_revision_matches_new_image() {
   local revision_service="${1:-studio-api}"
   local require_redis="${2:-yes}"
@@ -76,14 +91,9 @@ verify_database_revision_matches_new_image() {
   fi
 
   log "comparing database revision with Alembic head from the newly built API image"
-  local -a head_revisions current_revisions
-  mapfile -t head_revisions < <(compose run --rm --no-deps -T "$revision_service" alembic heads </dev/null 2>/dev/null | capture_revision_ids)
-  require_exactly_one_revision "Alembic head" "${head_revisions[@]}"
-  local head_revision="${head_revisions[0]}"
-
-  mapfile -t current_revisions < <(compose run --rm --no-deps -T "$revision_service" alembic current </dev/null 2>/dev/null | capture_revision_ids)
-  require_exactly_one_revision "current database" "${current_revisions[@]}"
-  local current_revision="${current_revisions[0]}"
+  local head_revision current_revision
+  head_revision="$(probe_single_revision "Alembic head" "$revision_service" heads)"
+  current_revision="$(probe_single_revision "current database" "$revision_service" current)"
 
   [[ "$current_revision" == "$head_revision" ]] || fail "manual migration required: database revision ($current_revision) does not match API image Alembic head ($head_revision)"
 }

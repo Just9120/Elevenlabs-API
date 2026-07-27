@@ -45,6 +45,8 @@ def run_deploy(
         "health_status": "healthy",
         "head_revision": "abc123",
         "current_revision": "abc123",
+        "head_probe_exit": "0",
+        "current_probe_exit": "0",
         "curl_exit": "0",
         "build_exit": "0",
         "tagged_inspect_exit": "0",
@@ -117,7 +119,21 @@ if [[ "$1" == "compose" ]]; then
         fi
       fi
       last="${{@: -1}}"
-      if [[ "$last" == "heads" ]]; then echo {state['head_revision']!r}; elif [[ "$last" == "current" ]]; then echo {state['current_revision']!r}; else exit 47; fi
+      if [[ "$last" == "heads" ]]; then
+        if [[ {state['head_probe_exit']!r} != "0" ]]; then
+          echo "raw-probe-secret-must-not-escape" >&2
+          exit {state['head_probe_exit']}
+        fi
+        echo {state['head_revision']!r}
+      elif [[ "$last" == "current" ]]; then
+        if [[ {state['current_probe_exit']!r} != "0" ]]; then
+          echo "raw-probe-secret-must-not-escape" >&2
+          exit {state['current_probe_exit']}
+        fi
+        echo {state['current_revision']!r}
+      else
+        exit 47
+      fi
       ;;
     up)
       printf 'compose-up-args %s\\n' "$*" >> {str(log)!r}
@@ -475,6 +491,32 @@ def test_api_revision_mismatch_blocks_before_replacement(tmp_path: Path) -> None
     assert not any("compose-up-args" in line for line in calls)
     assert "manual migration required" in proc.stderr
     assert_no_forbidden_mutation(calls)
+
+
+def test_revision_probe_command_failures_are_normalized_and_fail_closed(
+    tmp_path: Path,
+) -> None:
+    cases = (
+        (
+            "head",
+            {"head_probe_exit": "17"},
+            "revision probe failed: Alembic head command exited non-zero",
+        ),
+        (
+            "current",
+            {"current_probe_exit": "18"},
+            "revision probe failed: current database command exited non-zero",
+        ),
+    )
+    for name, overrides, expected in cases:
+        proc, calls = run_deploy(tmp_path / name, "api", **overrides)
+        assert proc.returncode != 0
+        assert expected in proc.stderr
+        assert "found 0" not in proc.stderr
+        assert "raw-probe-secret-must-not-escape" not in proc.stderr
+        assert "STUDIO_PLATFORM_API_DEPLOY_OK" not in proc.stdout
+        assert not any("compose-up-args" in line for line in calls)
+        assert_no_forbidden_mutation(calls)
 
 
 def test_unhealthy_stateful_dependency_blocks_before_replacement(tmp_path: Path) -> None:
