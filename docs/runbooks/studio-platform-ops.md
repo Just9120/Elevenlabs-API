@@ -80,7 +80,7 @@ Bootstrap boundary:
 4. Start API and web components separately.
 5. Bootstrap the initial admin only through the approved server-side bootstrap admin command and without printing credentials.
 6. Verify nginx routes browser traffic to the web component and `/api/*` traffic to the API component.
-7. Validate the public HTTPS response carries the repository CSP, HSTS, `nosniff`, no-referrer, permissions, and framing headers; confirm Picker open/select/cancel and one bounded local PUT still work without CSP violations. Do not infer live header state from the committed nginx file.
+7. Validate the public HTTPS response carries the repository CSP, HSTS, `nosniff`, origin-only referrer policy, permissions, and framing headers; confirm Picker open/select/cancel and one bounded local PUT still work without CSP violations. The local PUT must retain its explicit `no-referrer` request policy. Do not infer live header state from the committed nginx file.
 8. Verify localhost and public health endpoints for the intended components.
 
 After migrations and successful API/database configuration, bootstrap the first admin with the approved interactive command:
@@ -162,7 +162,7 @@ Required settings include client ID, redirect URI, scopes, state TTL, and the cl
 
 Picker readiness is separate from OAuth readiness. `STUDIO_GOOGLE_PICKER_API_KEY` and `STUDIO_GOOGLE_PICKER_APP_ID` must be configured, non-empty, and not placeholder values. OAuth connection, Picker configuration, and writable output folder selection are three different preconditions. Do not record Picker key/app ID values in validation evidence.
 
-The host nginx file is the single browser security-header authority. Keep script and frame sources limited to the documented Google Picker hosts; do not add `unsafe-eval` or wildcard script sources. The runtime-configured upload destination currently requires general HTTPS in `connect-src`; narrow it only after all intended production S3/R2 origins are explicit and a real Picker/upload smoke test is available. Standard component CD does not apply or reload host nginx, so header rollout and `nginx -t` remain explicit operator actions.
+The host nginx file is the single browser security-header authority. Keep script and frame sources limited to the documented Google Picker hosts; do not add `unsafe-eval` or wildcard script sources. Its `Referrer-Policy` must be `origin`: the website-restricted Picker developer key needs the public origin, while paths and query strings remain undisclosed. Do not weaken the API-key website restriction to compensate for a missing referrer. The PWA's presigned local-upload PUT keeps its explicit `no-referrer` override. The runtime-configured upload destination currently requires general HTTPS in `connect-src`; narrow it only after all intended production S3/R2 origins are explicit and a real Picker/upload smoke test is available. Standard component CD does not apply or reload host nginx, so header rollout and `nginx -t` remain explicit operator actions.
 
 Roll out OAuth/Picker config through API deployment only when runtime files are ready. Validate with authenticated owner-scoped flows and confirm unauthenticated connection/status endpoints still reject as expected.
 
