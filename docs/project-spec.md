@@ -232,7 +232,7 @@ Browser-bound integration capabilities are limited to three flows:
 
 No other endpoint may expose these capabilities. The service worker must not runtime-cache API responses or upload requests.
 
-The public Studio host must enforce one browser security-header policy across the PWA and `/api`: CSP with no script wildcard or `unsafe-eval`, Google Picker script/frame allowlists, self-only framing denial, MIME-sniffing denial, no-referrer, restrictive permissions, and HSTS. Because the S3/R2-compatible upload origin is runtime-configured, `connect-src` may temporarily permit HTTPS generally; narrowing it to explicit production storage origins is preferred when that deployment contract becomes fixed. Header source configuration is not proof that the live TLS/nginx boundary has applied it.
+The public Studio host must enforce one browser security-header policy across the PWA and `/api`: CSP with no script wildcard or `unsafe-eval`, Google Picker script/frame allowlists, self-only framing denial, MIME-sniffing denial, an origin-only referrer policy so Google Picker can validate its website-restricted developer key without receiving path or query data, restrictive permissions, and HSTS. The local-upload presigned PUT must continue to override that host policy with `no-referrer`. Because the S3/R2-compatible upload origin is runtime-configured, `connect-src` may temporarily permit HTTPS generally; narrowing it to explicit production storage origins is preferred when that deployment contract becomes fixed. Header source configuration is not proof that the live TLS/nginx boundary has applied it.
 
 ### Sources and processing prerequisites
 

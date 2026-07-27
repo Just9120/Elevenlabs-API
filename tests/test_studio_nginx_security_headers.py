@@ -31,6 +31,14 @@ def test_public_host_owns_complete_browser_security_header_policy():
     assert "proxy_hide_header Pragma" not in config
 
 
+def test_public_referrer_policy_exposes_only_origin_for_google_picker():
+    config = _normalized_config(HOST_NGINX)
+
+    assert len(re.findall(r"add_header Referrer-Policy ", config, re.IGNORECASE)) == 1
+    assert 'add_header Referrer-Policy "origin" always;' in config
+    assert 'add_header Referrer-Policy "no-referrer"' not in config
+
+
 def test_csp_is_picker_compatible_without_script_wildcards_or_eval():
     config = _normalized_config(HOST_NGINX)
     match = re.search(r'add_header Content-Security-Policy "([^"]+)" always;', config)
