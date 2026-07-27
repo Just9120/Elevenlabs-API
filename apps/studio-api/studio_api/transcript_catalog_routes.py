@@ -18,14 +18,9 @@ from .google_connection_access import (
     require_drive_file_scope,
 )
 from .rate_limit import RateLimiter
-from .transcript_catalog_dry_run import (
-    build_catalog_migration_dry_run,
-    inspect_catalog_migration_folder,
-)
 from .transcript_catalog_apply import (
     apply_transcript_catalog_import_metadata,
 )
-from .transcript_catalog_execution import execute_catalog_migration_apply
 from .transcript_catalog_scan import (
     CatalogGoogleReadError,
     CatalogGoogleReadReason,
@@ -60,7 +55,7 @@ _NO_STORE_HEADERS = {
 }
 
 
-class TranscriptCatalogMigrationFolderIn(BaseModel):
+class TranscriptMaintenanceFolderIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     folder_id: str = Field(min_length=1, max_length=256)
@@ -81,7 +76,7 @@ class TranscriptCatalogMigrationFolderIn(BaseModel):
 
 
 class TranscriptCatalogMigrationApplyIn(
-    TranscriptCatalogMigrationFolderIn
+    TranscriptMaintenanceFolderIn
 ):
     confirm_apply: StrictBool
 
@@ -94,7 +89,7 @@ class TranscriptCatalogMigrationApplyIn(
 
 
 class TranscriptMaintenanceSelectionIn(
-    TranscriptCatalogMigrationFolderIn
+    TranscriptMaintenanceFolderIn
 ):
     document_ids: tuple[str, ...] = Field(
         min_length=1,
@@ -115,11 +110,9 @@ class TranscriptMaintenanceApplyIn(TranscriptMaintenanceSelectionIn):
 
 @legacy_router.post("/dry-run")
 def dry_run_transcript_catalog_migration(
-    data: TranscriptCatalogMigrationFolderIn,
+    _data: TranscriptMaintenanceFolderIn,
     response: Response,
     pair=Depends(require_csrf),
-    db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
 ):
     _, user = pair
     catalog_limiter.check(
@@ -128,29 +121,18 @@ def dry_run_transcript_catalog_migration(
         3600,
     )
     _no_store(response)
-    try:
-        access_token = _catalog_access_token(db, user.id, settings)
-        return build_catalog_migration_dry_run(
-            db,
-            owner_user_id=user.id,
-            access_token=access_token,
-            folder_id=data.folder_id,
-        )
-    except GoogleConnectionAccessError as exc:
-        db.rollback()
-        _raise_connection_error(exc)
-    except CatalogGoogleReadError as exc:
-        db.rollback()
-        _raise_read_error(exc)
+    _raise_catalog_error(
+        status.HTTP_410_GONE,
+        reason="transcript_maintenance_split_required",
+        retryable=False,
+    )
 
 
 @legacy_router.post("/apply")
 def apply_transcript_catalog_migration(
-    data: TranscriptCatalogMigrationApplyIn,
+    _data: TranscriptCatalogMigrationApplyIn,
     response: Response,
     pair=Depends(require_csrf),
-    db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
 ):
     _, user = pair
     catalog_limiter.check(
@@ -159,44 +141,11 @@ def apply_transcript_catalog_migration(
         3600,
     )
     _no_store(response)
-    try:
-        access_token = _catalog_access_token(db, user.id, settings)
-        inspection = inspect_catalog_migration_folder(
-            db,
-            owner_user_id=user.id,
-            access_token=access_token,
-            folder_id=data.folder_id,
-        )
-        payload = execute_catalog_migration_apply(
-            db,
-            owner_user_id=user.id,
-            access_token=access_token,
-            candidates=inspection.candidates,
-            created_time_by_document_id=(
-                inspection.created_time_by_document_id
-            ),
-        )
-        payload["scan_summary"] = dict(inspection.scan_summary)
-        audit(
-            db,
-            "transcript_catalog.migration_applied",
-            actor_user_id=user.id,
-            subject_user_id=user.id,
-        )
-        db.commit()
-        return payload
-    except GoogleConnectionAccessError as exc:
-        db.rollback()
-        _raise_connection_error(exc)
-    except CatalogGoogleReadError as exc:
-        db.rollback()
-        _raise_read_error(exc)
-    except CatalogGoogleWriteError as exc:
-        db.rollback()
-        _raise_write_error(exc)
-    except Exception:
-        db.rollback()
-        raise
+    _raise_catalog_error(
+        status.HTTP_410_GONE,
+        reason="transcript_maintenance_split_required",
+        retryable=False,
+    )
 
 
 @maintenance_router.post("/standardization/dry-run")

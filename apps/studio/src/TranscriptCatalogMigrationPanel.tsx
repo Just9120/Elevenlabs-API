@@ -42,7 +42,7 @@ const STANDARD_LABELS: Record<TranscriptStandardStatus, string> = {
   unreadable: "Не удалось прочитать",
 };
 const IMPORT_LABELS: Record<TranscriptImportStatus, string> = {
-  not_imported: "Не импортирован",
+  not_imported: "Не добавлен в манифест",
   imported_exact: "Уже учтён Studio",
   conflict: "Конфликт",
 };
@@ -59,7 +59,7 @@ const STANDARDIZATION_ACTION_LABELS: Record<
   blocked: "Заблокировано",
 };
 const CATALOG_ACTION_LABELS: Record<CatalogImportAction, string> = {
-  import_metadata: "Импортировать метаданные",
+  import_metadata: "Добавить метаданные в манифест",
   unchanged: "Оставить без изменений",
   blocked: "Заблокировано",
 };
@@ -72,8 +72,8 @@ const STANDARDIZATION_OUTCOME_LABELS: Record<
   blocked: "Заблокировано",
 };
 const CATALOG_OUTCOME_LABELS: Record<CatalogImportOutcome, string> = {
-  imported: "Импортировано",
-  already_applied: "Уже импортировано",
+  imported: "Добавлено в манифест",
+  already_applied: "Уже есть в манифесте",
   unchanged: "Без изменений",
   blocked: "Заблокировано",
   standardization_required: "Сначала нужна стандартизация",
@@ -150,12 +150,13 @@ const OPERATION_COPY = {
     resultTitle: "Стандартизация завершена",
   },
   catalog_import: {
-    title: "Импорт в каталог Studio",
+    title: "Манифест Studio",
     description:
-      "Импортирует только метаданные выбранных актуальных документов в " +
-      "Studio. Google Docs не изменяются.",
-    applyLabel: "Подтвердить импорт",
-    resultTitle: "Импорт завершён",
+      "Добавляет в манифест Studio только метаданные выбранных актуальных " +
+      "документов. Отдельный manifest-файл не создаётся, Google Docs не " +
+      "изменяются.",
+    applyLabel: "Добавить в манифест Studio",
+    resultTitle: "Манифест Studio обновлён",
   },
 } as const;
 
@@ -304,7 +305,7 @@ function CatalogDryRunResult({
             value: result.selection_summary.selected_document_count,
           },
           {
-            label: "Будут импортированы",
+            label: "Будут добавлены в манифест",
             value: result.summary.import_metadata_count,
           },
           { label: "Без изменений", value: result.summary.unchanged_count },
@@ -415,9 +416,12 @@ function CatalogApplyResult({
     <>
       <Summary
         entries={[
-          { label: "Импортировано", value: result.summary.imported_count },
           {
-            label: "Уже импортированы",
+            label: "Добавлены в манифест",
+            value: result.summary.imported_count,
+          },
+          {
+            label: "Уже были в манифесте",
             value: result.summary.already_applied_count,
           },
           { label: "Без изменений", value: result.summary.unchanged_count },
@@ -664,7 +668,7 @@ function MaintenanceOperationCard({
       !explicitConfirmation(
         workflow === "standardization"
           ? `Стандартизировать ${actionableCount(dryRun)} выбранных документов? Каталог Studio не изменится.`
-          : `Импортировать метаданные ${actionableCount(dryRun)} выбранных документов? Google Docs не изменятся.`,
+          : `Добавить метаданные ${actionableCount(dryRun)} выбранных документов в манифест Studio? Google Docs не изменятся.`,
       )
     ) {
       return;
@@ -812,9 +816,9 @@ export function TranscriptCatalogMigrationPanel({
         Две независимые операции
       </h2>
       <p>
-        Стандартизация изменяет только выбранные Google Docs. Импорт каталога
-        изменяет только метаданные Studio. Выбор, dry-run и подтверждение у них
-        раздельные.
+        Стандартизация изменяет только выбранные Google Docs. Добавление в
+        манифест изменяет только метаданные Studio. Выбор, dry-run и
+        подтверждение у них раздельные.
       </p>
       {googleLoading && (
         <p className="notice">Проверяем подключение Google Drive…</p>

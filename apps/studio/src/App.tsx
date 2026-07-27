@@ -2836,7 +2836,7 @@ function auditLabel(type: string) {
     "transcript_standardization.applied":
       "Стандартизация Google Docs применена",
     "transcript_catalog.import_applied":
-      "Метаданные импортированы в каталог Studio",
+      "Метаданные добавлены в манифест Studio",
   };
   return labels[type] ?? "Событие безопасности";
 }

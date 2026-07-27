@@ -175,7 +175,7 @@ describe("TranscriptCatalogMigrationPanel", () => {
       screen.getByRole("region", { name: "Стандартизация Google Docs" }),
     ).toHaveTextContent("Каталог Studio и состояние заданий не изменяются");
     expect(
-      screen.getByRole("region", { name: "Импорт в каталог Studio" }),
+      screen.getByRole("region", { name: "Манифест Studio" }),
     ).toHaveTextContent("Google Docs не изменяются");
     expect(
       screen.getByText("Сначала подключите Google Drive выше."),
@@ -256,7 +256,7 @@ describe("TranscriptCatalogMigrationPanel", () => {
       name: "Стандартизация Google Docs",
     });
     const catalog = screen.getByRole("region", {
-      name: "Импорт в каталог Studio",
+      name: "Манифест Studio",
     });
 
     await userEvent.click(
@@ -291,7 +291,9 @@ describe("TranscriptCatalogMigrationPanel", () => {
       "Результат dry-run: Стандартизация Google Docs",
     );
     expect(standardPreview).toHaveTextContent("Лекция для обновления");
-    expect(standardPreview).not.toHaveTextContent("Импортировать метаданные");
+    expect(standardPreview).not.toHaveTextContent(
+      "Добавить метаданные в манифест",
+    );
 
     await userEvent.click(
       within(standardization).getByRole("button", {
@@ -316,7 +318,7 @@ describe("TranscriptCatalogMigrationPanel", () => {
       within(catalog).getByRole("button", { name: "Запустить dry-run" }),
     );
     const catalogPreview = await within(catalog).findByLabelText(
-      "Результат dry-run: Импорт в каталог Studio",
+      "Результат dry-run: Манифест Studio",
     );
     expect(catalogPreview).toHaveTextContent("Лекция для каталога");
     expect(catalogPreview).toHaveTextContent(
@@ -328,12 +330,12 @@ describe("TranscriptCatalogMigrationPanel", () => {
 
     await userEvent.click(
       within(catalog).getByRole("button", {
-        name: "Подтвердить импорт (1)",
+        name: "Добавить в манифест Studio (1)",
       }),
     );
     expect(
       await within(catalog).findByRole("heading", {
-        name: "Импорт завершён",
+        name: "Манифест Studio обновлён",
       }),
     ).toBeInTheDocument();
     expect(window.confirm).toHaveBeenCalledTimes(2);

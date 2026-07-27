@@ -2167,7 +2167,7 @@ describe("Studio PWA", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByRole("heading", {
-        name: "Импорт в каталог Studio",
+        name: "Манифест Studio",
       }),
     ).toBeInTheDocument();
     expect(screen.getByText(/••••1234/)).toBeInTheDocument();

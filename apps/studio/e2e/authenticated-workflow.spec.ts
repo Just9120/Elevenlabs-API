@@ -273,7 +273,7 @@ test('transcript maintenance stays fail-closed without Google authority', async 
   ).toBeVisible();
   for (const operationName of [
     'Стандартизация Google Docs',
-    'Импорт в каталог Studio',
+    'Манифест Studio',
   ]) {
     const operation = page.getByRole('region', { name: operationName });
     await expect(operation).toContainText('Отдельная операция');
