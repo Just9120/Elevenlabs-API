@@ -10,6 +10,11 @@ import httpx
 from .google_drive import GOOGLE_FOLDER_MIME_TYPE
 from .google_docs_output import GOOGLE_DOC_MIME_TYPE
 from .transcript_catalog_migration import CatalogDocumentStandardStatus
+from .transcript_document_selection import (
+    TranscriptDocumentSelectionError,
+    TranscriptDocumentSelectionReason,
+    normalize_transcript_document_selection,
+)
 
 
 GOOGLE_DRIVE_FILES_URL = "https://www.googleapis.com/drive/v3/files"
@@ -20,6 +25,9 @@ CATALOG_SCAN_MAX_PAGES = 100
 CATALOG_DRIVE_FIELDS = (
     "nextPageToken,incompleteSearch,"
     "files(id,name,mimeType,createdTime,modifiedTime)"
+)
+CATALOG_SELECTED_DRIVE_FIELDS = (
+    "id,name,mimeType,parents,trashed,createdTime,modifiedTime"
 )
 CATALOG_DOCS_TEXT_FIELDS = (
     "body(content(paragraph(elements(textRun(content)))))"
@@ -81,6 +89,17 @@ class CatalogGoogleFolderScan:
 
 
 @dataclass(frozen=True)
+class CatalogGoogleDocumentSelection:
+    documents: tuple[CatalogGoogleDocumentMetadata, ...]
+
+    def __repr__(self) -> str:
+        return (
+            "CatalogGoogleDocumentSelection("
+            f"document_count={len(self.documents)!r}, documents=<redacted>)"
+        )
+
+
+@dataclass(frozen=True)
 class GoogleTranscriptCatalogReader:
     """Read an explicitly approved folder without persisting Google payloads."""
 
@@ -89,6 +108,60 @@ class GoogleTranscriptCatalogReader:
     timeout: float = 30.0
     client: httpx.Client | None = field(default=None, repr=False)
     get: Callable[..., httpx.Response] | None = field(default=None, repr=False)
+
+    def inspect_selected_documents(
+        self,
+        *,
+        access_token: str,
+        folder_id: str,
+        document_ids: tuple[str, ...],
+    ) -> CatalogGoogleDocumentSelection:
+        """Revalidate one Picker-selected folder and its explicit documents."""
+
+        token = _private_value(access_token, label="access token")
+        selection = normalize_transcript_document_selection(
+            folder_id=folder_id,
+            document_ids=document_ids,
+        )
+        folder_payload = self._get_json(
+            f"{self.drive_endpoint}/{selection.folder_id}",
+            access_token=token,
+            params={
+                "fields": CATALOG_SELECTED_DRIVE_FIELDS,
+                "supportsAllDrives": "true",
+            },
+            not_found_reason=CatalogGoogleReadReason.request_rejected,
+        )
+        _validate_selected_folder(
+            folder_payload,
+            expected_folder_id=selection.folder_id,
+        )
+
+        documents = []
+        for document_id in selection.document_ids:
+            payload = self._get_json(
+                f"{self.drive_endpoint}/{document_id}",
+                access_token=token,
+                params={
+                    "fields": CATALOG_SELECTED_DRIVE_FIELDS,
+                    "supportsAllDrives": "true",
+                },
+                not_found_reason=CatalogGoogleReadReason.document_not_found,
+            )
+            documents.append(
+                _selected_document_metadata(
+                    payload,
+                    expected_document_id=document_id,
+                    selected_folder_id=selection.folder_id,
+                )
+            )
+        documents.sort(
+            key=lambda item: (
+                (item.name or "").casefold(),
+                item.drive_document_id,
+            )
+        )
+        return CatalogGoogleDocumentSelection(documents=tuple(documents))
 
     def scan_folder(
         self,
@@ -445,6 +518,62 @@ def _normalize_drive_item(
     )
 
 
+def _validate_selected_folder(
+    payload: Mapping[str, Any],
+    *,
+    expected_folder_id: str,
+) -> None:
+    item_id, _name, mime_type, _created_time, _modified_time = (
+        _normalize_drive_item(payload)
+    )
+    if item_id != expected_folder_id or mime_type != GOOGLE_FOLDER_MIME_TYPE:
+        raise TranscriptDocumentSelectionError(
+            TranscriptDocumentSelectionReason.folder_invalid
+        )
+    if _required_bool(payload.get("trashed")):
+        raise TranscriptDocumentSelectionError(
+            TranscriptDocumentSelectionReason.folder_invalid
+        )
+
+
+def _selected_document_metadata(
+    payload: Mapping[str, Any],
+    *,
+    expected_document_id: str,
+    selected_folder_id: str,
+) -> CatalogGoogleDocumentMetadata:
+    item_id, name, mime_type, created_time, modified_time = (
+        _normalize_drive_item(payload)
+    )
+    if item_id != expected_document_id:
+        raise TranscriptDocumentSelectionError(
+            TranscriptDocumentSelectionReason.document_invalid
+        )
+    if _required_bool(payload.get("trashed")):
+        raise TranscriptDocumentSelectionError(
+            TranscriptDocumentSelectionReason.document_trashed
+        )
+    if mime_type != GOOGLE_DOC_MIME_TYPE:
+        raise TranscriptDocumentSelectionError(
+            TranscriptDocumentSelectionReason.document_not_google_doc
+        )
+    parents = payload.get("parents")
+    if (
+        not isinstance(parents, list)
+        or any(not isinstance(parent, str) for parent in parents)
+        or selected_folder_id not in parents
+    ):
+        raise TranscriptDocumentSelectionError(
+            TranscriptDocumentSelectionReason.document_out_of_folder
+        )
+    return CatalogGoogleDocumentMetadata(
+        drive_document_id=item_id,
+        name=name,
+        created_time=created_time,
+        modified_time=modified_time,
+    )
+
+
 def _raise_for_catalog_status(
     status_code: int,
     *,
@@ -491,6 +620,14 @@ def _optional_string(value: object) -> str | None:
     if value is None:
         return None
     if not isinstance(value, str):
+        raise CatalogGoogleReadError(
+            CatalogGoogleReadReason.malformed_response
+        )
+    return value
+
+
+def _required_bool(value: object) -> bool:
+    if not isinstance(value, bool):
         raise CatalogGoogleReadError(
             CatalogGoogleReadReason.malformed_response
         )

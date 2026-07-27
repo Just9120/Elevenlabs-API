@@ -166,6 +166,227 @@ def test_catalog_reader_reads_only_plain_text_needed_for_classification():
     assert "private-access-token" not in repr(reader)
 
 
+def test_explicit_document_selection_revalidates_folder_and_each_google_doc():
+    from studio_api.google_docs_output import GOOGLE_DOC_MIME_TYPE
+    from studio_api.google_drive import GOOGLE_FOLDER_MIME_TYPE
+    from studio_api.transcript_catalog_scan import (
+        CATALOG_SELECTED_DRIVE_FIELDS,
+        GoogleTranscriptCatalogReader,
+    )
+
+    calls = []
+
+    def get(url, *, headers, params, timeout):
+        calls.append((url, headers, params, timeout))
+        item_id = url.rsplit("/", 1)[-1]
+        if item_id == "private-folder":
+            return response(
+                200,
+                {
+                    "id": item_id,
+                    "name": "Approved folder",
+                    "mimeType": GOOGLE_FOLDER_MIME_TYPE,
+                    "parents": ["root"],
+                    "trashed": False,
+                },
+            )
+        return response(
+            200,
+            {
+                "id": item_id,
+                "name": "Zulu" if item_id == "doc-z" else "Alpha",
+                "mimeType": GOOGLE_DOC_MIME_TYPE,
+                "parents": ["private-folder"],
+                "trashed": False,
+                "createdTime": "2026-07-01T00:00:00Z",
+                "modifiedTime": "2026-07-02T00:00:00Z",
+            },
+        )
+
+    selected = GoogleTranscriptCatalogReader(
+        get=get
+    ).inspect_selected_documents(
+        access_token="private-access-token",
+        folder_id="private-folder",
+        document_ids=("doc-z", "doc-a"),
+    )
+
+    assert [item.name for item in selected.documents] == ["Alpha", "Zulu"]
+    assert [call[0].rsplit("/", 1)[-1] for call in calls] == [
+        "private-folder",
+        "doc-z",
+        "doc-a",
+    ]
+    assert all(
+        call[2]
+        == {
+            "fields": CATALOG_SELECTED_DRIVE_FIELDS,
+            "supportsAllDrives": "true",
+        }
+        for call in calls
+    )
+    assert all("q" not in call[2] for call in calls)
+    assert "private-folder" not in repr(selected)
+    assert "doc-a" not in repr(selected)
+    assert "doc-z" not in repr(selected)
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected_reason"),
+    (
+        (
+            {
+                "id": "private-document",
+                "name": "Wrong type",
+                "mimeType": "application/pdf",
+                "parents": ["private-folder"],
+                "trashed": False,
+            },
+            "document_not_google_doc",
+        ),
+        (
+            {
+                "id": "private-document",
+                "name": "Wrong parent",
+                "mimeType": "application/vnd.google-apps.document",
+                "parents": ["other-folder"],
+                "trashed": False,
+            },
+            "document_out_of_folder",
+        ),
+        (
+            {
+                "id": "private-document",
+                "name": "Trashed",
+                "mimeType": "application/vnd.google-apps.document",
+                "parents": ["private-folder"],
+                "trashed": True,
+            },
+            "document_trashed",
+        ),
+    ),
+)
+def test_explicit_document_selection_fails_closed_on_invalid_metadata(
+    payload,
+    expected_reason,
+):
+    from studio_api.google_drive import GOOGLE_FOLDER_MIME_TYPE
+    from studio_api.transcript_catalog_scan import GoogleTranscriptCatalogReader
+    from studio_api.transcript_document_selection import (
+        TranscriptDocumentSelectionError,
+    )
+
+    def get(url, **kwargs):
+        if url.endswith("/private-folder"):
+            return response(
+                200,
+                {
+                    "id": "private-folder",
+                    "name": "Approved folder",
+                    "mimeType": GOOGLE_FOLDER_MIME_TYPE,
+                    "parents": ["root"],
+                    "trashed": False,
+                },
+            )
+        return response(200, payload)
+
+    with pytest.raises(TranscriptDocumentSelectionError) as raised:
+        GoogleTranscriptCatalogReader(
+            get=get
+        ).inspect_selected_documents(
+            access_token="private-access-token",
+            folder_id="private-folder",
+            document_ids=("private-document",),
+        )
+
+    assert raised.value.reason.value == expected_reason
+    assert "private-folder" not in str(raised.value)
+    assert "private-document" not in str(raised.value)
+
+
+@pytest.mark.parametrize(
+    "folder_payload",
+    (
+        {
+            "id": "private-folder",
+            "name": "Not a folder",
+            "mimeType": "application/pdf",
+            "trashed": False,
+        },
+        {
+            "id": "private-folder",
+            "name": "Trashed folder",
+            "mimeType": "application/vnd.google-apps.folder",
+            "trashed": True,
+        },
+        {
+            "id": "different-folder",
+            "name": "Mismatched folder",
+            "mimeType": "application/vnd.google-apps.folder",
+            "trashed": False,
+        },
+    ),
+)
+def test_explicit_document_selection_requires_the_picker_selected_folder(
+    folder_payload,
+):
+    from studio_api.transcript_catalog_scan import GoogleTranscriptCatalogReader
+    from studio_api.transcript_document_selection import (
+        TranscriptDocumentSelectionError,
+        TranscriptDocumentSelectionReason,
+    )
+
+    with pytest.raises(TranscriptDocumentSelectionError) as raised:
+        GoogleTranscriptCatalogReader(
+            get=lambda *args, **kwargs: response(200, folder_payload)
+        ).inspect_selected_documents(
+            access_token="private-access-token",
+            folder_id="private-folder",
+            document_ids=("private-document",),
+        )
+
+    assert (
+        raised.value.reason
+        == TranscriptDocumentSelectionReason.folder_invalid
+    )
+    assert "private-folder" not in str(raised.value)
+
+
+@pytest.mark.parametrize(
+    ("folder_id", "document_ids", "expected_reason"),
+    (
+        ("private-folder", (), "empty"),
+        ("private-folder", ("same", "same"), "duplicate"),
+        ("not valid!", ("document",), "folder_invalid"),
+        ("private-folder", ("not valid!",), "document_invalid"),
+        (
+            "private-folder",
+            tuple(f"document-{index}" for index in range(51)),
+            "limit_exceeded",
+        ),
+    ),
+)
+def test_explicit_document_selection_is_bounded_and_private(
+    folder_id,
+    document_ids,
+    expected_reason,
+):
+    from studio_api.transcript_document_selection import (
+        TranscriptDocumentSelectionError,
+        normalize_transcript_document_selection,
+    )
+
+    with pytest.raises(TranscriptDocumentSelectionError) as raised:
+        normalize_transcript_document_selection(
+            folder_id=folder_id,
+            document_ids=document_ids,
+        )
+
+    assert raised.value.reason.value == expected_reason
+    assert "private-folder" not in str(raised.value)
+    assert "document-0" not in str(raised.value)
+
+
 @pytest.mark.parametrize(
     ("document_text", "expected"),
     (
