@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { ApiError, mutateWithCsrfRetry } from "./apiClient";
+import { ApiError, api, mutateWithCsrfRetry } from "./apiClient";
 import * as googlePicker from "./googlePicker";
 import type { PickerSession } from "./googlePicker";
 import { googlePickerFailureMessage } from "./googlePickerErrors";
+import {
+  googleMaintenanceOauthMessages,
+  type GoogleMaintenanceOauthResult,
+} from "./googleOauthResult";
 import {
   parseTranscriptCatalogImportApply,
   parseTranscriptCatalogImportDryRun,
@@ -32,6 +36,20 @@ type BusyState =
   | null;
 type SelectedFolder = { id: string; name: string };
 type Mutate = <T>(path: string, options: RequestInit) => Promise<T>;
+type GoogleOauthStart = { authorization_url: string; expires_at: string };
+type GoogleMaintenanceConnection = {
+  connected: boolean;
+  status: string | null;
+  google_email: string | null;
+  scopes: string | null;
+  connected_at: string | null;
+  revoked_at: string | null;
+  configured: boolean;
+  account_match: boolean;
+  scope_ready: boolean;
+  ready: boolean;
+  reconnect_required: boolean;
+};
 
 const STANDARD_LABELS: Record<TranscriptStandardStatus, string> = {
   current: "Актуальный стандарт",
@@ -106,6 +124,12 @@ const ERROR_MESSAGES: Record<string, string> = {
     "Подключите Google Drive перед операцией.",
   catalog_google_connection_inactive:
     "Подключение Google Drive неактивно. Обновите его в настройках.",
+  catalog_google_maintenance_connection_missing:
+    "Подключите отдельный доступ Google для обслуживания папок.",
+  catalog_google_maintenance_connection_inactive:
+    "Доступ Google для обслуживания неактивен. Подключите его заново.",
+  catalog_google_maintenance_account_mismatch:
+    "Подключите для обслуживания тот же Google-аккаунт, что и основной.",
   catalog_google_reauthorization_required:
     "Google Drive требует повторного подключения.",
   catalog_google_scope_unavailable:
@@ -512,11 +536,11 @@ function ApplyResult({ result }: { result: TranscriptMaintenanceApply }) {
 
 function MaintenanceOperationCard({
   workflow,
-  pickerReady,
+  operationReady,
   mutate,
 }: {
   workflow: TranscriptMaintenanceWorkflow;
-  pickerReady: boolean;
+  operationReady: boolean;
   mutate: Mutate;
 }) {
   const copy = OPERATION_COPY[workflow];
@@ -533,11 +557,11 @@ function MaintenanceOperationCard({
   const operationActive = useRef(false);
 
   useEffect(() => {
-    if (pickerReady) return;
+    if (operationReady) return;
     setSelectedFolder(null);
     setDryRun(null);
     setApplyResult(null);
-  }, [pickerReady]);
+  }, [operationReady]);
 
   function resetResult() {
     setDryRun(null);
@@ -551,7 +575,7 @@ function MaintenanceOperationCard({
   }
 
   async function chooseFolder() {
-    if (!pickerReady || busy || pickerActive.current) return;
+    if (!operationReady || busy || pickerActive.current) return;
     pickerActive.current = true;
     setBusy("folder-picker");
     setMessage("");
@@ -588,7 +612,7 @@ function MaintenanceOperationCard({
 
   async function runDryRun() {
     if (
-      !pickerReady ||
+      !operationReady ||
       !selectedFolder ||
       busy ||
       operationActive.current
@@ -621,7 +645,7 @@ function MaintenanceOperationCard({
 
   async function applyOperation() {
     if (
-      !pickerReady ||
+      !operationReady ||
       !selectedFolder ||
       !dryRun ||
       dryRun.workflow !== workflow ||
@@ -683,7 +707,7 @@ function MaintenanceOperationCard({
       <div className="actions">
         <button
           type="button"
-          disabled={!pickerReady || busy !== null}
+          disabled={!operationReady || busy !== null}
           onClick={chooseFolder}
         >
           {busy === "folder-picker"
@@ -696,7 +720,7 @@ function MaintenanceOperationCard({
           type="button"
           className="primary"
           disabled={
-            !pickerReady ||
+            !operationReady ||
             !selectedFolder ||
             busy !== null
           }
@@ -728,7 +752,7 @@ function MaintenanceOperationCard({
           <button
             type="button"
             className="primary"
-            disabled={!pickerReady || busy !== null || actionable === 0}
+            disabled={!operationReady || busy !== null || actionable === 0}
             onClick={applyOperation}
           >
             {busy === "apply"
@@ -750,15 +774,105 @@ export function TranscriptCatalogMigrationPanel({
   googleConnected,
   googleLoading,
   pickerReady,
+  maintenanceOauthResult,
 }: {
   csrf: string;
   onCsrf: (csrf: string) => void;
   googleConnected: boolean;
   googleLoading: boolean;
   pickerReady: boolean;
+  maintenanceOauthResult: GoogleMaintenanceOauthResult | null;
 }) {
   const mutate: Mutate = <T,>(path: string, options: RequestInit) =>
     mutateWithCsrfRetry<T>(path, csrf, onCsrf, options);
+  const [maintenanceConnection, setMaintenanceConnection] =
+    useState<GoogleMaintenanceConnection | null>(null);
+  const [maintenanceLoading, setMaintenanceLoading] = useState(true);
+  const [maintenanceStarting, setMaintenanceStarting] = useState(false);
+  const [maintenanceMessage, setMaintenanceMessage] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    if (!googleConnected) {
+      setMaintenanceConnection(null);
+      setMaintenanceLoading(false);
+      return () => {
+        active = false;
+      };
+    }
+    setMaintenanceLoading(true);
+    setMaintenanceMessage("");
+    api<GoogleMaintenanceConnection>("/google/maintenance/connection")
+      .then((connection) => {
+        if (active) setMaintenanceConnection(connection);
+      })
+      .catch(() => {
+        if (!active) return;
+        setMaintenanceConnection(null);
+        setMaintenanceMessage(
+          "Не удалось проверить доступ Google для обслуживания.",
+        );
+      })
+      .finally(() => {
+        if (active) setMaintenanceLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [
+    googleConnected,
+    maintenanceOauthResult,
+  ]);
+
+  async function connectMaintenance() {
+    if (
+      maintenanceStarting ||
+      !pickerReady ||
+      maintenanceConnection?.configured === false
+    ) {
+      return;
+    }
+    setMaintenanceStarting(true);
+    setMaintenanceMessage("");
+    try {
+      const result = await mutate<GoogleOauthStart>(
+        "/google/maintenance/oauth/start",
+        { method: "POST" },
+      );
+      window.location.assign(result.authorization_url);
+    } catch {
+      setMaintenanceMessage(
+        "Не удалось начать подключение доступа для обслуживания.",
+      );
+      setMaintenanceStarting(false);
+    }
+  }
+
+  async function disconnectMaintenance() {
+    setMaintenanceMessage("");
+    try {
+      const connection = await mutate<GoogleMaintenanceConnection>(
+        "/google/maintenance/connection",
+        { method: "DELETE" },
+      );
+      setMaintenanceConnection(connection);
+    } catch {
+      setMaintenanceMessage(
+        "Не удалось отключить доступ Google для обслуживания.",
+      );
+    }
+  }
+
+  const maintenanceReady = maintenanceConnection?.ready === true;
+  const operationReady = pickerReady && maintenanceReady;
+  const oauthMessage =
+    maintenanceOauthResult === "connected"
+      ? !maintenanceLoading && maintenanceReady
+        ? googleMaintenanceOauthMessages.connected
+        : ""
+      : maintenanceOauthResult
+        ? googleMaintenanceOauthMessages[maintenanceOauthResult]
+        : "";
 
   return (
     <section
@@ -774,6 +888,84 @@ export function TranscriptCatalogMigrationPanel({
         дереве папок. Добавление в манифест изменяет только метаданные Studio.
         Корневая папка, dry-run и подтверждение у операций раздельные.
       </p>
+      <section
+        className="card transcript-maintenance-access"
+        aria-labelledby="transcript-maintenance-access-title"
+      >
+        <span className="tag">Отдельное разрешение</span>
+        <h3 id="transcript-maintenance-access-title">
+          Доступ Google для обслуживания
+        </h3>
+        <p>
+          Для рекурсивного сканирования нужен отдельный server-only доступ к
+          метаданным Drive и Google Docs. Его токены не передаются в браузер.
+          Выберите тот же Google-аккаунт, который подключён выше.
+        </p>
+        {maintenanceLoading ? (
+          <p className="notice">Проверяем доступ для обслуживания…</p>
+        ) : maintenanceReady ? (
+          <p className="notice" role="status">
+            Расширенный доступ подключён
+            {maintenanceConnection?.google_email
+              ? `: ${maintenanceConnection.google_email}`
+              : ""}
+            .
+          </p>
+        ) : (
+          <p className="notice">
+            Расширенный доступ ещё не готов. Операции обслуживания
+            заблокированы.
+          </p>
+        )}
+        {oauthMessage && (
+          <p className="notice" role="status">
+            {oauthMessage}
+          </p>
+        )}
+        {maintenanceConnection?.configured === false && (
+          <p className="error" role="alert">
+            OAuth для обслуживания не настроен на сервере.
+          </p>
+        )}
+        {maintenanceConnection &&
+          !maintenanceConnection.account_match &&
+          maintenanceConnection.connected && (
+            <p className="error" role="alert">
+              Подключён другой Google-аккаунт. Переподключите доступ.
+            </p>
+          )}
+        <div className="actions">
+          {!maintenanceReady && (
+            <button
+              type="button"
+              className="primary"
+              disabled={
+                maintenanceLoading ||
+                maintenanceStarting ||
+                !pickerReady ||
+                maintenanceConnection?.configured === false
+              }
+              onClick={connectMaintenance}
+            >
+              {maintenanceStarting
+                ? "Открываем Google…"
+                : maintenanceConnection?.reconnect_required
+                  ? "Переподключить доступ"
+                  : "Подключить доступ"}
+            </button>
+          )}
+          {maintenanceConnection?.connected && (
+            <button type="button" onClick={disconnectMaintenance}>
+              Отключить доступ
+            </button>
+          )}
+        </div>
+        {maintenanceMessage && (
+          <p className="error" role="alert">
+            {maintenanceMessage}
+          </p>
+        )}
+      </section>
       {googleLoading && (
         <p className="notice">Проверяем подключение Google Drive…</p>
       )}
@@ -782,18 +974,26 @@ export function TranscriptCatalogMigrationPanel({
       )}
       {!googleLoading && googleConnected && !pickerReady && (
         <p className="notice">
-          Обновите подключение Google Drive, чтобы выбрать документы.
+          Обновите подключение Google Drive, чтобы выбрать папку.
         </p>
       )}
+      {!googleLoading &&
+        pickerReady &&
+        !maintenanceLoading &&
+        !maintenanceReady && (
+          <p className="notice">
+            Подключите отдельный доступ для обслуживания перед выбором папки.
+          </p>
+        )}
       <div className="transcript-maintenance-grid">
         <MaintenanceOperationCard
           workflow="standardization"
-          pickerReady={pickerReady}
+          operationReady={operationReady}
           mutate={mutate}
         />
         <MaintenanceOperationCard
           workflow="catalog_import"
-          pickerReady={pickerReady}
+          operationReady={operationReady}
           mutate={mutate}
         />
       </div>

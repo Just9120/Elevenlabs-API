@@ -969,6 +969,21 @@ describe("Studio PWA", () => {
             connected_at: "2026-07-01T00:00:00",
             revoked_at: "2026-07-02T00:00:00",
           });
+        if (url.endsWith("/api/google/maintenance/connection"))
+          return json({
+            connected: true,
+            status: "active",
+            google_email: "safe.user@example.com",
+            scopes:
+              "openid email https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/documents",
+            connected_at: "2026-07-28T00:00:00Z",
+            revoked_at: null,
+            configured: true,
+            account_match: true,
+            scope_ready: true,
+            ready: true,
+            reconnect_required: false,
+          });
         if (url.endsWith("/api/google/connection"))
           return json({
             connected: true,
@@ -6128,6 +6143,31 @@ describe("Studio PWA", () => {
         "Google Drive подключён. Статус подключения обновлён.",
       ),
     ).not.toBeInTheDocument();
+  });
+
+  it("routes a safe maintenance OAuth callback to confirmed settings", async () => {
+    window.history.pushState(
+      {},
+      "",
+      "/?google_maintenance_oauth=connected&keep=1#safe",
+    );
+
+    renderApp();
+
+    expect(
+      await screen.findByRole("heading", { name: "Настройки аккаунта" }),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        "Расширенный доступ для обслуживания подключён и проверен.",
+      ),
+    ).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/google/maintenance/connection",
+      expect.objectContaining({ credentials: "same-origin" }),
+    );
+    expect(window.location.search).toBe("?keep=1");
+    expect(window.location.hash).toBe("#safe");
   });
 
   it("does not show OAuth success when refreshed Google connection is disconnected", async () => {

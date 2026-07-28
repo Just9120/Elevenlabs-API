@@ -31,8 +31,10 @@ import {
   type SettingsSection,
 } from "./platformRouting";
 import {
+  consumeGoogleMaintenanceOauthResult,
   consumeGoogleOauthResult,
   googleOauthMessages,
+  type GoogleMaintenanceOauthResult,
   type GoogleOauthResult,
 } from "./googleOauthResult";
 import {
@@ -2831,6 +2833,14 @@ function auditLabel(type: string) {
     "job.cancelled": "Задача отменена",
     "job.cancel_requested": "Запрошена отмена задачи",
     "google.oauth_failed": "Подключение Google Drive не удалось",
+    "google.maintenance_oauth_started":
+      "Запрошено подключение доступа Google для обслуживания",
+    "google.maintenance_oauth_failed":
+      "Подключение доступа Google для обслуживания не удалось",
+    "google.maintenance_connected":
+      "Доступ Google для обслуживания подключён",
+    "google.maintenance_disconnected":
+      "Доступ Google для обслуживания отключён",
     "transcript_catalog.migration_applied":
       "Миграция каталога транскриптов применена",
     "transcript_standardization.applied":
@@ -2846,6 +2856,7 @@ function SettingsPage({
   onCsrf,
   onLogout,
   oauthResult,
+  maintenanceOauthResult,
   section,
   onSectionChange,
 }: {
@@ -2854,6 +2865,7 @@ function SettingsPage({
   onCsrf: (csrf: string) => void;
   onLogout: () => void;
   oauthResult: GoogleOauthResult | null;
+  maintenanceOauthResult: GoogleMaintenanceOauthResult | null;
   section: SettingsSection;
   onSectionChange: (section: SettingsSection) => void;
 }) {
@@ -3361,6 +3373,7 @@ function SettingsPage({
             googleConnected={googleConnection?.connected === true}
             googleLoading={googleLoading}
             pickerReady={googleConnection?.picker_ready === true}
+            maintenanceOauthResult={maintenanceOauthResult}
           />
           <details className="card security-log">
             <summary className="summary-row">
@@ -3892,9 +3905,14 @@ function PlatformShell() {
   const [oauthResult] = useState<GoogleOauthResult | null>(() =>
     consumeGoogleOauthResult(),
   );
+  const [maintenanceOauthResult] =
+    useState<GoogleMaintenanceOauthResult | null>(() =>
+      consumeGoogleMaintenanceOauthResult(),
+    );
   const initialRoute = parsePlatformRoute();
   const [route, setRoute] = useState<PlatformRoute>(() =>
-    oauthResult && initialRoute.page === "dashboard"
+    (oauthResult || maintenanceOauthResult) &&
+    initialRoute.page === "dashboard"
       ? { page: "settings", settingsSection: "account" }
       : initialRoute,
   );
@@ -4090,6 +4108,7 @@ function PlatformShell() {
             }}
             onLogout={logout}
             oauthResult={oauthResult}
+            maintenanceOauthResult={maintenanceOauthResult}
             section={settingsSection}
             onSectionChange={(section) => navigate("settings", section)}
           />

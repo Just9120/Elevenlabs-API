@@ -19,6 +19,20 @@ const selectionSummary = {
   pages_scanned: 5,
   unreadable_document_count: 0,
 };
+const readyMaintenanceConnection = {
+  connected: true,
+  status: "active",
+  google_email: "safe.user@example.com",
+  scopes:
+    "openid email https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/documents",
+  connected_at: "2026-07-28T00:00:00Z",
+  revoked_at: null,
+  configured: true,
+  account_match: true,
+  scope_ready: true,
+  ready: true,
+  reconnect_required: false,
+};
 
 const standardizationDryRun = {
   workflow: "standardization",
@@ -147,6 +161,7 @@ function renderPanel(pickerReady = true) {
       googleConnected={pickerReady}
       googleLoading={false}
       pickerReady={pickerReady}
+      maintenanceOauthResult={null}
     />,
   );
 }
@@ -195,6 +210,9 @@ describe("TranscriptCatalogMigrationPanel", () => {
 
   it("runs separate recursive folder, dry-run, and apply flows", async () => {
     const fetchMock = vi.fn((url: string) => {
+      if (url.endsWith("/api/google/maintenance/connection")) {
+        return json(readyMaintenanceConnection);
+      }
       if (url.endsWith("/api/google/picker/session")) {
         return sessionResponse();
       }
@@ -241,6 +259,9 @@ describe("TranscriptCatalogMigrationPanel", () => {
       });
 
     renderPanel();
+    expect(
+      await screen.findByText(/Расширенный доступ подключён/),
+    ).toBeInTheDocument();
     const standardization = screen.getByRole("region", {
       name: "Стандартизация Google Docs",
     });
@@ -370,6 +391,9 @@ describe("TranscriptCatalogMigrationPanel", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string) => {
+        if (url.endsWith("/api/google/maintenance/connection")) {
+          return json(readyMaintenanceConnection);
+        }
         if (url.endsWith("/api/google/picker/session")) {
           return sessionResponse();
         }
@@ -386,6 +410,9 @@ describe("TranscriptCatalogMigrationPanel", () => {
         docs: [{ id: "private-other-folder", name: "Другой архив" }],
       });
     renderPanel();
+    expect(
+      await screen.findByText(/Расширенный доступ подключён/),
+    ).toBeInTheDocument();
     const region = screen.getByRole("region", {
       name: "Стандартизация Google Docs",
     });
@@ -421,6 +448,9 @@ describe("TranscriptCatalogMigrationPanel", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string) => {
+        if (url.endsWith("/api/google/maintenance/connection")) {
+          return json(readyMaintenanceConnection);
+        }
         if (url.endsWith("/api/google/picker/session")) {
           return sessionResponse();
         }
@@ -446,6 +476,9 @@ describe("TranscriptCatalogMigrationPanel", () => {
         docs: [{ id: "private-folder", name: "Изменяемый архив" }],
       });
     renderPanel();
+    expect(
+      await screen.findByText(/Расширенный доступ подключён/),
+    ).toBeInTheDocument();
     const region = screen.getByRole("region", {
       name: "Стандартизация Google Docs",
     });
@@ -479,5 +512,67 @@ describe("TranscriptCatalogMigrationPanel", () => {
     expect(
       within(region).getByRole("button", { name: "Запустить dry-run" }),
     ).toBeEnabled();
+  });
+
+  it("blocks operations until the server-only grant is ready", async () => {
+    const fetchMock = vi.fn((url: string) => {
+      if (url.endsWith("/api/google/maintenance/connection")) {
+        return json({
+          ...readyMaintenanceConnection,
+          connected: false,
+          status: null,
+          google_email: null,
+          scopes: null,
+          connected_at: null,
+          account_match: false,
+          scope_ready: false,
+          ready: false,
+        });
+      }
+      if (url.endsWith("/api/google/maintenance/oauth/start")) {
+        return json(
+          { detail: "private backend OAuth error" },
+          false,
+          503,
+        );
+      }
+      return json({}, false, 404);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderPanel();
+
+    expect(
+      await screen.findByText(
+        "Расширенный доступ ещё не готов. Операции обслуживания заблокированы.",
+      ),
+    ).toBeInTheDocument();
+    for (const button of screen.getAllByRole("button", {
+      name: "Выбрать папку",
+    })) {
+      expect(button).toBeDisabled();
+    }
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Подключить доступ" }),
+    );
+
+    expect(
+      await screen.findByText(
+        "Не удалось начать подключение доступа для обслуживания.",
+      ),
+    ).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(
+      "private backend OAuth error",
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/google/maintenance/oauth/start",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          "x-csrf-token": "csrf-safe",
+        }),
+      }),
+    );
   });
 });
