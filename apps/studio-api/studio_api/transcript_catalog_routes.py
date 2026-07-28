@@ -13,9 +13,7 @@ from .deps import require_csrf
 from .google_connection_access import (
     GoogleConnectionAccessError,
     GoogleConnectionAccessReason,
-    active_google_connection_for_user,
-    refresh_user_google_drive_access_token,
-    require_drive_file_scope,
+    refresh_user_google_maintenance_access_token,
 )
 from .rate_limit import RateLimiter
 from .transcript_catalog_apply import (
@@ -30,7 +28,6 @@ from .transcript_catalog_standardize import (
     CatalogGoogleWriteReason,
 )
 from .transcript_document_selection import (
-    MAX_SELECTED_TRANSCRIPT_DOCUMENTS,
     TranscriptDocumentSelectionError,
     TranscriptDocumentSelectionReason,
 )
@@ -88,16 +85,7 @@ class TranscriptCatalogMigrationApplyIn(
         return value
 
 
-class TranscriptMaintenanceSelectionIn(
-    TranscriptMaintenanceFolderIn
-):
-    document_ids: tuple[str, ...] = Field(
-        min_length=1,
-        max_length=MAX_SELECTED_TRANSCRIPT_DOCUMENTS,
-    )
-
-
-class TranscriptMaintenanceApplyIn(TranscriptMaintenanceSelectionIn):
+class TranscriptMaintenanceApplyIn(TranscriptMaintenanceFolderIn):
     confirm_apply: StrictBool
 
     @field_validator("confirm_apply")
@@ -150,7 +138,7 @@ def apply_transcript_catalog_migration(
 
 @maintenance_router.post("/standardization/dry-run")
 def dry_run_transcript_standardization(
-    data: TranscriptMaintenanceSelectionIn,
+    data: TranscriptMaintenanceFolderIn,
     response: Response,
     pair=Depends(require_csrf),
     db: Session = Depends(get_db),
@@ -164,11 +152,10 @@ def dry_run_transcript_standardization(
     )
     _no_store(response)
     try:
-        access_token = _catalog_access_token(db, user.id, settings)
+        access_token = _maintenance_access_token(db, user.id, settings)
         return build_transcript_standardization_dry_run(
             access_token=access_token,
             folder_id=data.folder_id,
-            document_ids=data.document_ids,
         )
     except GoogleConnectionAccessError as exc:
         db.rollback()
@@ -183,7 +170,7 @@ def dry_run_transcript_standardization(
 
 @maintenance_router.post("/catalog-import/dry-run")
 def dry_run_transcript_catalog_import(
-    data: TranscriptMaintenanceSelectionIn,
+    data: TranscriptMaintenanceFolderIn,
     response: Response,
     pair=Depends(require_csrf),
     db: Session = Depends(get_db),
@@ -197,13 +184,12 @@ def dry_run_transcript_catalog_import(
     )
     _no_store(response)
     try:
-        access_token = _catalog_access_token(db, user.id, settings)
+        access_token = _maintenance_access_token(db, user.id, settings)
         return build_transcript_catalog_import_dry_run(
             db,
             owner_user_id=user.id,
             access_token=access_token,
             folder_id=data.folder_id,
-            document_ids=data.document_ids,
         )
     except GoogleConnectionAccessError as exc:
         db.rollback()
@@ -232,11 +218,10 @@ def apply_transcript_standardization(
     )
     _no_store(response)
     try:
-        access_token = _catalog_access_token(db, user.id, settings)
+        access_token = _maintenance_access_token(db, user.id, settings)
         inspection = inspect_transcript_standardization_selection(
             access_token=access_token,
             folder_id=data.folder_id,
-            document_ids=data.document_ids,
         )
         payload = execute_transcript_standardization_apply(
             access_token=access_token,
@@ -289,13 +274,12 @@ def apply_transcript_catalog_import(
     )
     _no_store(response)
     try:
-        access_token = _catalog_access_token(db, user.id, settings)
+        access_token = _maintenance_access_token(db, user.id, settings)
         inspection = inspect_transcript_catalog_import_selection(
             db,
             owner_user_id=user.id,
             access_token=access_token,
             folder_id=data.folder_id,
-            document_ids=data.document_ids,
         )
         payload = apply_transcript_catalog_import_metadata(
             db,
@@ -327,17 +311,12 @@ def apply_transcript_catalog_import(
         raise
 
 
-def _catalog_access_token(
+def _maintenance_access_token(
     db: Session,
     user_id: str,
     settings: Settings,
 ) -> str:
-    connection = active_google_connection_for_user(
-        db,
-        user_id=user_id,
-    )
-    require_drive_file_scope(connection)
-    return refresh_user_google_drive_access_token(
+    return refresh_user_google_maintenance_access_token(
         db,
         user_id=user_id,
         settings=settings,
@@ -387,6 +366,21 @@ def _raise_connection_error(
         GoogleConnectionAccessReason.scope_unavailable: (
             status.HTTP_409_CONFLICT,
             "catalog_google_scope_unavailable",
+            False,
+        ),
+        GoogleConnectionAccessReason.maintenance_missing: (
+            status.HTTP_409_CONFLICT,
+            "catalog_google_maintenance_connection_missing",
+            False,
+        ),
+        GoogleConnectionAccessReason.maintenance_inactive: (
+            status.HTTP_409_CONFLICT,
+            "catalog_google_maintenance_connection_inactive",
+            False,
+        ),
+        GoogleConnectionAccessReason.maintenance_account_mismatch: (
+            status.HTTP_409_CONFLICT,
+            "catalog_google_maintenance_account_mismatch",
             False,
         ),
         GoogleConnectionAccessReason.config_unavailable: (

@@ -82,7 +82,6 @@ def build_transcript_standardization_dry_run(
     *,
     access_token: str,
     folder_id: str,
-    document_ids: tuple[str, ...] | None = None,
     reader: GoogleTranscriptCatalogReader | None = None,
 ) -> dict:
     """Classify every Doc in one recursive folder without mutation."""
@@ -90,7 +89,6 @@ def build_transcript_standardization_dry_run(
     inspection = inspect_transcript_standardization_selection(
         access_token=access_token,
         folder_id=folder_id,
-        document_ids=document_ids,
         reader=reader,
     )
     payload = build_transcript_standardization_payload(
@@ -105,7 +103,6 @@ def inspect_transcript_standardization_selection(
     *,
     access_token: str,
     folder_id: str,
-    document_ids: tuple[str, ...] | None = None,
     reader: GoogleTranscriptCatalogReader | None = None,
 ) -> TranscriptStandardizationSelectionInspection:
     """Rebuild standardization evidence from the recursive selected root."""
@@ -137,7 +134,6 @@ def build_transcript_catalog_import_dry_run(
     owner_user_id: str,
     access_token: str,
     folder_id: str,
-    document_ids: tuple[str, ...] | None = None,
     reader: GoogleTranscriptCatalogReader | None = None,
     authority_loader: Callable[..., dict[str, CatalogImportAuthority]]
     | None = None,
@@ -149,7 +145,6 @@ def build_transcript_catalog_import_dry_run(
         owner_user_id=owner_user_id,
         access_token=access_token,
         folder_id=folder_id,
-        document_ids=document_ids,
         reader=reader,
         authority_loader=authority_loader,
     )
@@ -167,7 +162,6 @@ def inspect_transcript_catalog_import_selection(
     owner_user_id: str,
     access_token: str,
     folder_id: str,
-    document_ids: tuple[str, ...] | None = None,
     reader: GoogleTranscriptCatalogReader | None = None,
     authority_loader: Callable[..., dict[str, CatalogImportAuthority]]
     | None = None,

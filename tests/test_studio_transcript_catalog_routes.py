@@ -70,7 +70,7 @@ def _client(monkeypatch):
     )
     monkeypatch.setattr(
         routes,
-        "_catalog_access_token",
+        "_maintenance_access_token",
         lambda *args, **kwargs: "private-access-token",
     )
     return TestClient(app), db, routes
@@ -135,7 +135,7 @@ def test_legacy_apply_still_rejects_unconfirmed_or_preview_payloads(
     assert db.added == []
 
 
-def test_maintenance_dry_run_routes_are_independent_and_selected_only(
+def test_maintenance_dry_run_routes_are_independent_and_recursive(
     monkeypatch,
 ):
     client, db, routes = _client(monkeypatch)
@@ -154,7 +154,7 @@ def test_maintenance_dry_run_routes_are_independent_and_selected_only(
             "operation": "dry_run",
             "items": [],
             "summary": {"standardize_document_count": 0},
-            "selection_summary": {"selected_document_count": 2},
+            "selection_summary": {"google_document_count": 2},
         }
 
     def catalog_import(db_arg, **kwargs):
@@ -164,7 +164,7 @@ def test_maintenance_dry_run_routes_are_independent_and_selected_only(
             "operation": "dry_run",
             "items": [],
             "summary": {"import_metadata_count": 0},
-            "selection_summary": {"selected_document_count": 2},
+            "selection_summary": {"google_document_count": 2},
         }
 
     monkeypatch.setattr(
@@ -179,7 +179,6 @@ def test_maintenance_dry_run_routes_are_independent_and_selected_only(
     )
     body = {
         "folder_id": "private-folder",
-        "document_ids": ["private-first", "private-second"],
     }
 
     standardization_response = client.post(
@@ -201,10 +200,6 @@ def test_maintenance_dry_run_routes_are_independent_and_selected_only(
             {
                 "access_token": "private-access-token",
                 "folder_id": "private-folder",
-                "document_ids": (
-                    "private-first",
-                    "private-second",
-                ),
             },
         ),
         (
@@ -214,10 +209,6 @@ def test_maintenance_dry_run_routes_are_independent_and_selected_only(
                 "owner_user_id": "private-owner",
                 "access_token": "private-access-token",
                 "folder_id": "private-folder",
-                "document_ids": (
-                    "private-first",
-                    "private-second",
-                ),
             },
         ),
     ]
@@ -238,7 +229,90 @@ def test_maintenance_dry_run_routes_are_independent_and_selected_only(
     assert db.commits == 0
 
 
-def test_maintenance_dry_run_rejects_missing_or_untrusted_selection(
+def test_maintenance_routes_fail_closed_on_server_grant_errors(
+    monkeypatch,
+):
+    from studio_api.google_connection_access import (
+        GoogleConnectionAccessError,
+        GoogleConnectionAccessReason,
+    )
+
+    cases = (
+        (
+            GoogleConnectionAccessReason.maintenance_missing,
+            "catalog_google_maintenance_connection_missing",
+        ),
+        (
+            GoogleConnectionAccessReason.maintenance_inactive,
+            "catalog_google_maintenance_connection_inactive",
+        ),
+        (
+            GoogleConnectionAccessReason.maintenance_account_mismatch,
+            "catalog_google_maintenance_account_mismatch",
+        ),
+    )
+
+    for access_reason, response_reason in cases:
+        client, db, routes = _client(monkeypatch)
+
+        def reject_access(*args, _reason=access_reason, **kwargs):
+            raise GoogleConnectionAccessError(_reason)
+
+        monkeypatch.setattr(
+            routes,
+            "_maintenance_access_token",
+            reject_access,
+        )
+        response = client.post(
+            "/api/transcript-maintenance/standardization/dry-run",
+            json={"folder_id": "private-folder"},
+        )
+
+        assert response.status_code == 409
+        assert response.json()["detail"] == {
+            "reason": response_reason,
+            "retryable": False,
+        }
+        assert response.headers["cache-control"] == "no-store"
+        assert db.commits == 0
+        assert db.rollbacks == 1
+        assert "private-folder" not in response.text
+
+
+def test_maintenance_access_uses_only_server_grant(
+    monkeypatch,
+):
+    from studio_api import transcript_catalog_routes as routes
+
+    db = FakeDb()
+    settings = SimpleNamespace()
+    calls = []
+
+    monkeypatch.setattr(
+        routes,
+        "refresh_user_google_maintenance_access_token",
+        lambda *args, **kwargs: (
+            calls.append((args, kwargs)) or "private-maintenance-token"
+        ),
+    )
+
+    assert routes._maintenance_access_token(
+        db,
+        "private-owner",
+        settings,
+    ) == "private-maintenance-token"
+    assert calls == [
+        (
+            (db,),
+            {
+                "user_id": "private-owner",
+                "settings": settings,
+            },
+        )
+    ]
+
+
+def test_maintenance_dry_run_rejects_missing_or_untrusted_fields(
     monkeypatch,
 ):
     client, db, routes = _client(monkeypatch)
@@ -250,11 +324,14 @@ def test_maintenance_dry_run_rejects_missing_or_untrusted_selection(
     )
     missing = client.post(
         "/api/transcript-maintenance/standardization/dry-run",
-        json={"folder_id": "private-folder"},
+        json={},
     )
-    empty = client.post(
+    legacy_selection = client.post(
         "/api/transcript-maintenance/standardization/dry-run",
-        json={"folder_id": "private-folder", "document_ids": []},
+        json={
+            "folder_id": "private-folder",
+            "document_ids": ["private-document"],
+        },
     )
     preview = client.post(
         "/api/transcript-maintenance/standardization/dry-run",
@@ -266,7 +343,7 @@ def test_maintenance_dry_run_rejects_missing_or_untrusted_selection(
     )
 
     assert missing.status_code == 422
-    assert empty.status_code == 422
+    assert legacy_selection.status_code == 422
     assert preview.status_code == 422
     assert called == []
     assert db.commits == 0
@@ -286,7 +363,7 @@ def test_maintenance_selection_errors_are_safe_and_normalized(
         "build_transcript_catalog_import_dry_run",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             TranscriptDocumentSelectionError(
-                TranscriptDocumentSelectionReason.document_out_of_folder
+                TranscriptDocumentSelectionReason.folder_invalid
             )
         ),
     )
@@ -295,13 +372,12 @@ def test_maintenance_selection_errors_are_safe_and_normalized(
         "/api/transcript-maintenance/catalog-import/dry-run",
         json={
             "folder_id": "private-folder",
-            "document_ids": ["private-document"],
         },
     )
 
     assert response.status_code == 422
     assert response.json()["detail"] == {
-        "reason": "transcript_document_out_of_folder",
+        "reason": "transcript_folder_invalid",
         "retryable": False,
     }
     assert response.headers["cache-control"] == "no-store"
@@ -326,11 +402,11 @@ def test_maintenance_apply_routes_reinspect_and_execute_independently(
         created_time_by_document_id={
             "private-document": "2026-07-01T00:00:00Z"
         },
-        selection_summary={"selected_document_count": 1},
+        selection_summary={"google_document_count": 1},
     )
     catalog_inspection = SimpleNamespace(
         candidates=("private-catalog-candidate",),
-        selection_summary={"selected_document_count": 1},
+        selection_summary={"google_document_count": 1},
     )
 
     def inspect_standardization(**kwargs):
@@ -381,7 +457,6 @@ def test_maintenance_apply_routes_reinspect_and_execute_independently(
     )
     body = {
         "folder_id": "private-folder",
-        "document_ids": ["private-document"],
         "confirm_apply": True,
     }
 
@@ -404,7 +479,6 @@ def test_maintenance_apply_routes_reinspect_and_execute_independently(
             {
                 "access_token": "private-access-token",
                 "folder_id": "private-folder",
-                "document_ids": ("private-document",),
             },
         ),
         (
@@ -426,7 +500,6 @@ def test_maintenance_apply_routes_reinspect_and_execute_independently(
                 "owner_user_id": "private-owner",
                 "access_token": "private-access-token",
                 "folder_id": "private-folder",
-                "document_ids": ("private-document",),
             },
         ),
         (
@@ -484,7 +557,6 @@ def test_maintenance_apply_confirmation_is_required_per_endpoint(
     )
     base = {
         "folder_id": "private-folder",
-        "document_ids": ["private-document"],
     }
 
     for path in (
@@ -516,7 +588,7 @@ def test_standardization_apply_normalizes_google_write_failure(
         lambda **kwargs: SimpleNamespace(
             candidates=("private-candidate",),
             created_time_by_document_id={},
-            selection_summary={"selected_document_count": 1},
+            selection_summary={"google_document_count": 1},
         ),
     )
     monkeypatch.setattr(
@@ -533,7 +605,6 @@ def test_standardization_apply_normalizes_google_write_failure(
         "/api/transcript-maintenance/standardization/apply",
         json={
             "folder_id": "private-folder",
-            "document_ids": ["private-document"],
             "confirm_apply": True,
         },
     )
