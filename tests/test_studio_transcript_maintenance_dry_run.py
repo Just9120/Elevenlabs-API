@@ -1,0 +1,286 @@
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+import pytest
+
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "apps/studio-api"))
+
+
+def _current_text(marker: str) -> str:
+    return (
+        "Current\n\nTranscript metadata\n"
+        "Provider: ElevenLabs\n"
+        "Model: scribe_v2\n"
+        "Language: ru\n"
+        "Speakers: yes\n"
+        "Created at: 2026-07-01 10:00 UTC\n\n"
+        f"Transcript\n\n{marker}"
+    )
+
+
+def _outdated_text(marker: str) -> str:
+    return (
+        "Legacy\n\nTranscript metadata\n"
+        "Source file: legacy.mp3\n"
+        "Provider: ElevenLabs\n\n"
+        f"Transcript\n\n{marker}"
+    )
+
+
+class SelectedReader:
+    def __init__(self, *, documents, texts):
+        self.documents = documents
+        self.texts = texts
+        self.calls = []
+
+    def inspect_selected_documents(self, **kwargs):
+        from studio_api.transcript_catalog_scan import (
+            CatalogGoogleDocumentSelection,
+        )
+
+        self.calls.append(("inspect", kwargs))
+        return CatalogGoogleDocumentSelection(documents=self.documents)
+
+    def read_document_text(self, **kwargs):
+        self.calls.append(("read", kwargs))
+        value = self.texts[kwargs["document_id"]]
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+
+def _document(document_id: str, name: str):
+    from studio_api.transcript_catalog_scan import (
+        CatalogGoogleDocumentMetadata,
+    )
+
+    return CatalogGoogleDocumentMetadata(
+        document_id,
+        name,
+        "2026-07-01T10:00:00Z",
+        "2026-07-02T10:00:00Z",
+    )
+
+
+def test_standardization_dry_run_has_no_catalog_authority_or_import_action():
+    from studio_api.transcript_catalog_scan import (
+        CatalogGoogleReadError,
+        CatalogGoogleReadReason,
+    )
+    from studio_api.transcript_maintenance_dry_run import (
+        build_transcript_standardization_dry_run,
+    )
+
+    reader = SelectedReader(
+        documents=(
+            _document("private-current", "Current"),
+            _document("private-outdated", "Outdated"),
+            _document("private-unreadable", "Unreadable"),
+        ),
+        texts={
+            "private-current": _current_text("private-current-body"),
+            "private-outdated": _outdated_text("private-outdated-body"),
+            "private-unreadable": CatalogGoogleReadError(
+                CatalogGoogleReadReason.document_not_found
+            ),
+        },
+    )
+
+    payload = build_transcript_standardization_dry_run(
+        access_token="private-access-token",
+        folder_id="private-folder",
+        document_ids=(
+            "private-current",
+            "private-outdated",
+            "private-unreadable",
+        ),
+        reader=reader,
+    )
+
+    assert payload["workflow"] == "standardization"
+    assert [item["action"] for item in payload["items"]] == [
+        "unchanged",
+        "standardize_document",
+        "blocked",
+    ]
+    assert payload["selection_summary"] == {
+        "selected_document_count": 3,
+        "unreadable_document_count": 1,
+    }
+    assert reader.calls[0] == (
+        "inspect",
+        {
+            "access_token": "private-access-token",
+            "folder_id": "private-folder",
+            "document_ids": (
+                "private-current",
+                "private-outdated",
+                "private-unreadable",
+            ),
+        },
+    )
+    encoded = json.dumps(payload, ensure_ascii=False)
+    assert "import_metadata" not in encoded
+    assert "settings_status" not in encoded
+    for private in (
+        "private-access-token",
+        "private-folder",
+        "private-current",
+        "private-outdated",
+        "private-unreadable",
+        "private-current-body",
+        "private-outdated-body",
+    ):
+        assert private not in encoded
+
+
+def test_catalog_import_dry_run_is_selected_only_and_has_no_google_action():
+    from studio_api.transcript_catalog_dry_run import (
+        CatalogImportAuthority,
+    )
+    from studio_api.transcript_catalog_migration import (
+        CatalogImportAuthorityStatus,
+        CatalogSettingsAuthorityStatus,
+    )
+    from studio_api.transcript_maintenance_dry_run import (
+        build_transcript_catalog_import_dry_run,
+    )
+
+    reader = SelectedReader(
+        documents=(
+            _document("private-current", "Current"),
+            _document("private-outdated", "Outdated"),
+        ),
+        texts={
+            "private-current": _current_text("private-current-body"),
+            "private-outdated": _outdated_text("private-outdated-body"),
+        },
+    )
+    authority_calls = []
+
+    def load_authority(db, *, owner_user_id, document_ids):
+        authority_calls.append((db, owner_user_id, document_ids))
+        return {
+            "private-current": CatalogImportAuthority(
+                CatalogImportAuthorityStatus.not_imported,
+                CatalogSettingsAuthorityStatus.indeterminate,
+            ),
+            "private-outdated": CatalogImportAuthority(
+                CatalogImportAuthorityStatus.not_imported,
+                CatalogSettingsAuthorityStatus.indeterminate,
+            ),
+        }
+
+    db = object()
+    payload = build_transcript_catalog_import_dry_run(
+        db,
+        owner_user_id="private-owner",
+        access_token="private-access-token",
+        folder_id="private-folder",
+        document_ids=("private-current", "private-outdated"),
+        reader=reader,
+        authority_loader=load_authority,
+    )
+
+    assert authority_calls == [
+        (
+            db,
+            "private-owner",
+            ("private-current", "private-outdated"),
+        )
+    ]
+    assert payload["workflow"] == "catalog_import"
+    assert [
+        (item["action"], item["reason_code"])
+        for item in payload["items"]
+    ] == [
+        ("import_metadata", None),
+        ("blocked", "standardization_required"),
+    ]
+    assert payload["selection_summary"] == {
+        "selected_document_count": 2,
+        "unreadable_document_count": 0,
+    }
+    encoded = json.dumps(payload, ensure_ascii=False)
+    assert "standardize_document" not in encoded
+    assert "standardize_and_import" not in encoded
+    for private in (
+        "private-owner",
+        "private-access-token",
+        "private-folder",
+        "private-current",
+        "private-outdated",
+        "private-current-body",
+        "private-outdated-body",
+    ):
+        assert private not in encoded
+
+
+def test_catalog_import_requires_exact_selected_authority_coverage():
+    from studio_api.transcript_maintenance_dry_run import (
+        build_transcript_catalog_import_dry_run,
+    )
+
+    reader = SelectedReader(
+        documents=(_document("private-document", "Document"),),
+        texts={"private-document": _current_text("private-body")},
+    )
+
+    with pytest.raises(ValueError, match="coverage"):
+        build_transcript_catalog_import_dry_run(
+            object(),
+            owner_user_id="private-owner",
+            access_token="private-access-token",
+            folder_id="private-folder",
+            document_ids=("private-document",),
+            reader=reader,
+            authority_loader=lambda *args, **kwargs: {},
+        )
+
+
+def test_dry_run_rejects_incomplete_selected_evidence():
+    from studio_api.transcript_maintenance_dry_run import (
+        build_transcript_standardization_dry_run,
+    )
+
+    reader = SelectedReader(
+        documents=(_document("private-first", "First"),),
+        texts={"private-first": _current_text("private-body")},
+    )
+
+    with pytest.raises(ValueError, match="coverage"):
+        build_transcript_standardization_dry_run(
+            access_token="private-access-token",
+            folder_id="private-folder",
+            document_ids=("private-first", "private-second"),
+            reader=reader,
+        )
+
+
+def test_selection_inspection_repr_redacts_private_evidence():
+    from studio_api.transcript_maintenance_dry_run import (
+        TranscriptCatalogImportSelectionInspection,
+        TranscriptStandardizationSelectionInspection,
+    )
+
+    standardization = TranscriptStandardizationSelectionInspection(
+        candidates=("private-candidate",),
+        created_time_by_document_id={"private-document": "private-time"},
+        selection_summary={"selected_document_count": 1},
+    )
+    catalog_import = TranscriptCatalogImportSelectionInspection(
+        candidates=("private-candidate",),
+        selection_summary={"selected_document_count": 1},
+    )
+
+    rendered = repr((standardization, catalog_import))
+    assert "candidate_count=1" in rendered
+    assert "selected_document_count" in rendered
+    assert "private-candidate" not in rendered
+    assert "private-document" not in rendered
+    assert "private-time" not in rendered

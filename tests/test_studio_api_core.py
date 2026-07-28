@@ -196,6 +196,26 @@ def test_transcript_catalog_migration_routes_require_authentication_and_csrf():
         "/api/transcript-catalog/migration/apply",
         json={**body, "confirm_apply": True},
     ).status_code == 401
+    selection_body = {
+        **body,
+        "document_ids": ["private-document"],
+    }
+    assert anonymous.post(
+        "/api/transcript-maintenance/standardization/dry-run",
+        json=selection_body,
+    ).status_code == 401
+    assert anonymous.post(
+        "/api/transcript-maintenance/catalog-import/dry-run",
+        json=selection_body,
+    ).status_code == 401
+    for path in (
+        "/api/transcript-maintenance/standardization/apply",
+        "/api/transcript-maintenance/catalog-import/apply",
+    ):
+        assert anonymous.post(
+            path,
+            json={**selection_body, "confirm_apply": True},
+        ).status_code == 401
 
     password = admin("catalog-route-auth@example.com")
     client = TestClient(app)
@@ -206,6 +226,24 @@ def test_transcript_catalog_migration_routes_require_authentication_and_csrf():
         headers={"origin": "https://studio.test"},
     )
     assert response.status_code == 403
+    for path in (
+        "/api/transcript-maintenance/standardization/dry-run",
+        "/api/transcript-maintenance/catalog-import/dry-run",
+    ):
+        assert client.post(
+            path,
+            json=selection_body,
+            headers={"origin": "https://studio.test"},
+        ).status_code == 403
+    for path in (
+        "/api/transcript-maintenance/standardization/apply",
+        "/api/transcript-maintenance/catalog-import/apply",
+    ):
+        assert client.post(
+            path,
+            json={**selection_body, "confirm_apply": True},
+            headers={"origin": "https://studio.test"},
+        ).status_code == 403
 
 
 def test_readiness_non_200_when_migrations_pending():

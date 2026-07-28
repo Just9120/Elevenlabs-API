@@ -2833,6 +2833,10 @@ function auditLabel(type: string) {
     "google.oauth_failed": "Подключение Google Drive не удалось",
     "transcript_catalog.migration_applied":
       "Миграция каталога транскриптов применена",
+    "transcript_standardization.applied":
+      "Стандартизация Google Docs применена",
+    "transcript_catalog.import_applied":
+      "Метаданные добавлены в манифест Studio",
   };
   return labels[type] ?? "Событие безопасности";
 }

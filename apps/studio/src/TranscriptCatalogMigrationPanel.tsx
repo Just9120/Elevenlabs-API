@@ -1,80 +1,105 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  ApiError,
-  mutateWithCsrfRetry,
-} from "./apiClient";
+import { ApiError, mutateWithCsrfRetry } from "./apiClient";
 import * as googlePicker from "./googlePicker";
 import type { PickerSession } from "./googlePicker";
 import { googlePickerFailureMessage } from "./googlePickerErrors";
 import {
-  parseCatalogMigrationApply,
-  parseCatalogMigrationDryRun,
-  type CatalogImportStatus,
-  type CatalogMigrationAction,
-  type CatalogMigrationApply,
-  type CatalogMigrationDryRun,
-  type CatalogMigrationOutcome,
-  type CatalogSettingsStatus,
-  type CatalogStandardStatus,
-  type CatalogStandardizationOutcome,
-} from "./transcriptCatalogMigrationModel";
+  parseTranscriptCatalogImportApply,
+  parseTranscriptCatalogImportDryRun,
+  parseTranscriptStandardizationApply,
+  parseTranscriptStandardizationDryRun,
+  type CatalogImportAction,
+  type CatalogImportOutcome,
+  type MaintenanceReason,
+  type StandardizationAction,
+  type StandardizationOutcome,
+  type TranscriptCatalogImportApply,
+  type TranscriptCatalogImportDryRun,
+  type TranscriptImportStatus,
+  type TranscriptMaintenanceApply,
+  type TranscriptMaintenanceDryRun,
+  type TranscriptMaintenanceWorkflow,
+  type TranscriptSettingsStatus,
+  type TranscriptStandardStatus,
+  type TranscriptStandardizationApply,
+  type TranscriptStandardizationDryRun,
+} from "./transcriptMaintenanceModel";
 
-type BusyState = "picker" | "dry-run" | "apply" | null;
+type BusyState =
+  | "folder-picker"
+  | "document-picker"
+  | "dry-run"
+  | "apply"
+  | null;
 type SelectedFolder = { id: string; name: string };
+type SelectedDocument = { id: string; name: string };
+type Mutate = <T>(path: string, options: RequestInit) => Promise<T>;
 
-const STANDARD_LABELS: Record<CatalogStandardStatus, string> = {
+const STANDARD_LABELS: Record<TranscriptStandardStatus, string> = {
   current: "Актуальный стандарт",
   outdated: "Требует обновления",
   unstructured: "Без структуры",
   unreadable: "Не удалось прочитать",
 };
-const IMPORT_LABELS: Record<CatalogImportStatus, string> = {
-  not_imported: "Не импортирован",
-  imported_exact: "Уже в каталоге",
-  conflict: "Конфликт каталога",
+const IMPORT_LABELS: Record<TranscriptImportStatus, string> = {
+  not_imported: "Не добавлен в манифест",
+  imported_exact: "Уже учтён Studio",
+  conflict: "Конфликт",
 };
-const SETTINGS_LABELS: Record<CatalogSettingsStatus, string> = {
+const SETTINGS_LABELS: Record<TranscriptSettingsStatus, string> = {
   exact: "Настройки определены",
   indeterminate: "Настройки не определены",
 };
-const ACTION_LABELS: Record<CatalogMigrationAction, string> = {
-  import_metadata: "Импортировать метаданные",
-  standardize_and_import: "Стандартизировать и импортировать",
+const STANDARDIZATION_ACTION_LABELS: Record<
+  StandardizationAction,
+  string
+> = {
   standardize_document: "Стандартизировать документ",
   unchanged: "Оставить без изменений",
   blocked: "Заблокировано",
 };
-const OUTCOME_LABELS: Record<CatalogMigrationOutcome, string> = {
-  imported: "Импортировано",
-  already_applied: "Уже применено",
-  unchanged: "Без изменений",
+const CATALOG_ACTION_LABELS: Record<CatalogImportAction, string> = {
+  import_metadata: "Добавить метаданные в манифест",
+  unchanged: "Оставить без изменений",
   blocked: "Заблокировано",
-  conflict: "Конфликт",
 };
-const STANDARDIZATION_LABELS: Record<
-  CatalogStandardizationOutcome,
+const STANDARDIZATION_OUTCOME_LABELS: Record<
+  StandardizationOutcome,
   string
 > = {
-  not_required: "Не требовалась",
-  changed: "Документ обновлён",
+  standardized: "Документ обновлён",
   already_current: "Уже актуален",
-  blocked: "Заблокирована",
+  blocked: "Заблокировано",
+};
+const CATALOG_OUTCOME_LABELS: Record<CatalogImportOutcome, string> = {
+  imported: "Добавлено в манифест",
+  already_applied: "Уже есть в манифесте",
+  unchanged: "Без изменений",
+  blocked: "Заблокировано",
+  standardization_required: "Сначала нужна стандартизация",
+  conflict: "Конфликт",
+};
+const REASON_LABELS: Record<MaintenanceReason, string> = {
+  catalog_conflict: "Конфликт с существующей записью Studio",
+  document_unreadable: "Документ недоступен для чтения",
+  standardization_required: "Сначала стандартизируйте документ",
+  catalog_metadata_conflict: "Метаданные Studio изменились",
 };
 const ERROR_MESSAGES: Record<string, string> = {
   catalog_google_connection_missing:
-    "Подключите Google Drive перед миграцией каталога.",
+    "Подключите Google Drive перед операцией.",
   catalog_google_connection_inactive:
     "Подключение Google Drive неактивно. Обновите его в настройках.",
   catalog_google_reauthorization_required:
     "Google Drive требует повторного подключения.",
   catalog_google_scope_unavailable:
-    "Текущего разрешения Google Drive недостаточно для миграции.",
+    "Текущего разрешения Google Drive недостаточно для операции.",
   catalog_google_config_unavailable:
     "Интеграция Google Drive временно не настроена.",
   catalog_google_token_unavailable:
     "Google Drive временно недоступен. Повторите попытку позже.",
   catalog_folder_unavailable:
-    "Выбранная папка недоступна приложению. Выберите её через Google Picker ещё раз.",
+    "Выбранная папка недоступна. Выберите её через Google Picker ещё раз.",
   catalog_google_rate_limited:
     "Google Drive ограничил частоту запросов. Повторите попытку позже.",
   catalog_google_unavailable:
@@ -83,12 +108,8 @@ const ERROR_MESSAGES: Record<string, string> = {
     "Google Drive не ответил вовремя. Повторите попытку.",
   catalog_google_response_invalid:
     "Google Drive вернул неожиданный ответ. Повторите попытку позже.",
-  catalog_scan_incomplete:
-    "Сканирование папки не завершилось. Результат не применён.",
-  catalog_scan_limit_exceeded:
-    "В папке слишком много документов для одной миграции.",
   catalog_document_unavailable:
-    "Один из документов стал недоступен. Запустите проверку заново.",
+    "Один из документов стал недоступен. Запустите dry-run заново.",
   catalog_document_write_rejected:
     "Google Drive отклонил изменение документа.",
   catalog_document_revision_changed:
@@ -100,10 +121,44 @@ const ERROR_MESSAGES: Record<string, string> = {
   catalog_document_classification_changed:
     "Состояние документа изменилось. Запустите dry-run заново.",
   catalog_document_empty:
-    "Пустой документ нельзя импортировать как транскрипт.",
+    "Пустой документ нельзя стандартизировать как транскрипт.",
   catalog_document_limit_exceeded:
     "Один из документов слишком большой для безопасной стандартизации.",
+  transcript_selection_invalid: "Выбор документов некорректен.",
+  transcript_selection_empty: "Выберите хотя бы один Google Doc.",
+  transcript_selection_limit_exceeded:
+    "За один запуск можно выбрать не более 50 документов.",
+  transcript_selection_duplicate:
+    "Один документ выбран несколько раз. Повторите выбор.",
+  transcript_folder_invalid: "Выбранная папка некорректна.",
+  transcript_document_invalid: "Один из выбранных документов некорректен.",
+  transcript_document_not_google_doc:
+    "Выбранный файл не является Google Docs документом.",
+  transcript_document_out_of_folder:
+    "Один из документов находится вне выбранной папки.",
+  transcript_document_trashed:
+    "Один из выбранных документов находится в корзине.",
 };
+
+const OPERATION_COPY = {
+  standardization: {
+    title: "Стандартизация Google Docs",
+    description:
+      "Обновляет только явно выбранные Google Docs до transcript_doc_v1.2. " +
+      "Каталог Studio и состояние заданий не изменяются.",
+    applyLabel: "Подтвердить стандартизацию",
+    resultTitle: "Стандартизация завершена",
+  },
+  catalog_import: {
+    title: "Манифест Studio",
+    description:
+      "Добавляет в манифест Studio только метаданные выбранных актуальных " +
+      "документов. Отдельный manifest-файл не создаётся, Google Docs не " +
+      "изменяются.",
+    applyLabel: "Добавить в манифест Studio",
+    resultTitle: "Манифест Studio обновлён",
+  },
+} as const;
 
 function apiReason(error: unknown): string | null {
   if (!(error instanceof ApiError) || !error.data) return null;
@@ -117,17 +172,17 @@ function apiReason(error: unknown): string | null {
   return typeof reason === "string" ? reason : null;
 }
 
-function catalogErrorMessage(error: unknown): string {
+function maintenanceErrorMessage(error: unknown): string {
   const reason = apiReason(error);
   if (reason && ERROR_MESSAGES[reason]) return ERROR_MESSAGES[reason];
   if (error instanceof ApiError && error.status === 429) return error.message;
-  return "Не удалось выполнить миграцию. Повторите попытку.";
+  return "Не удалось выполнить операцию. Повторите попытку.";
 }
 
-function safeFolderName(value: unknown): string {
-  if (typeof value !== "string") return "Выбранная папка Google Drive";
+function safeName(value: unknown, fallback: string): string {
+  if (typeof value !== "string") return fallback;
   const cleaned = value.trim();
-  return cleaned ? cleaned.slice(0, 160) : "Выбранная папка Google Drive";
+  return cleaned ? cleaned.slice(0, 160) : fallback;
 }
 
 function explicitConfirmation(message: string): boolean {
@@ -138,49 +193,125 @@ function explicitConfirmation(message: string): boolean {
   }
 }
 
-function DryRunResult({ result }: { result: CatalogMigrationDryRun }) {
-  const actionable =
-    result.summary.import_metadata_count +
-    result.summary.standardize_and_import_count +
-    result.summary.standardize_document_count;
+function parseDryRun(
+  workflow: TranscriptMaintenanceWorkflow,
+  value: unknown,
+): TranscriptMaintenanceDryRun {
+  return workflow === "standardization"
+    ? parseTranscriptStandardizationDryRun(value)
+    : parseTranscriptCatalogImportDryRun(value);
+}
+
+function parseApply(
+  workflow: TranscriptMaintenanceWorkflow,
+  value: unknown,
+): TranscriptMaintenanceApply {
+  return workflow === "standardization"
+    ? parseTranscriptStandardizationApply(value)
+    : parseTranscriptCatalogImportApply(value);
+}
+
+function actionableCount(result: TranscriptMaintenanceDryRun): number {
+  return result.workflow === "standardization"
+    ? result.summary.standardize_document_count
+    : result.summary.import_metadata_count;
+}
+
+function Reason({ reason }: { reason: MaintenanceReason | null }) {
+  if (!reason) return null;
   return (
-    <div className="catalog-migration-result" aria-label="Результат dry-run">
-      <h4>План миграции</h4>
-      <dl className="catalog-migration-summary">
-        <div>
-          <dt>Google Docs в папке</dt>
-          <dd>{result.scan_summary.google_document_count}</dd>
+    <span className="error catalog-item-reason">
+      {REASON_LABELS[reason]}
+    </span>
+  );
+}
+
+function Summary({
+  entries,
+}: {
+  entries: { label: string; value: number }[];
+}) {
+  return (
+    <dl className="catalog-migration-summary">
+      {entries.map((entry) => (
+        <div key={entry.label}>
+          <dt>{entry.label}</dt>
+          <dd>{entry.value}</dd>
         </div>
-        <div>
-          <dt>Будут изменены или импортированы</dt>
-          <dd>{actionable}</dd>
-        </div>
-        <div>
-          <dt>Без изменений</dt>
-          <dd>{result.summary.unchanged_count}</dd>
-        </div>
-        <div>
-          <dt>Заблокированы</dt>
-          <dd>{result.summary.blocked_count}</dd>
-        </div>
-      </dl>
-      <p className="muted">
-        Найдено вложенных папок: {result.scan_summary.nested_folder_count}.
-        Пропущено других файлов:{" "}
-        {result.scan_summary.skipped_non_document_count}.
-      </p>
-      {result.summary.blocked_count > 0 && (
-        <p className="notice">
-          Заблокированные документы останутся без изменений. Проверьте причины
-          в списке.
-        </p>
-      )}
-      {result.scan_summary.nested_folder_count > 0 && (
-        <p className="notice">
-          Вложенные папки обнаружены, но не обходятся. При необходимости
-          выберите каждую из них отдельным запуском.
-        </p>
-      )}
+      ))}
+    </dl>
+  );
+}
+
+function StandardizationDryRunResult({
+  result,
+}: {
+  result: TranscriptStandardizationDryRun;
+}) {
+  return (
+    <>
+      <Summary
+        entries={[
+          {
+            label: "Выбрано документов",
+            value: result.selection_summary.selected_document_count,
+          },
+          {
+            label: "Будут стандартизированы",
+            value: result.summary.standardize_document_count,
+          },
+          { label: "Без изменений", value: result.summary.unchanged_count },
+          { label: "Заблокированы", value: result.summary.blocked_count },
+        ]}
+      />
+      <div className="catalog-migration-table-wrap">
+        <table className="catalog-migration-table">
+          <thead>
+            <tr>
+              <th>Документ</th>
+              <th>Стандарт</th>
+              <th>Действие</th>
+            </tr>
+          </thead>
+          <tbody>
+            {result.items.map((item) => (
+              <tr key={item.position}>
+                <td>{item.name}</td>
+                <td>{STANDARD_LABELS[item.standard_status]}</td>
+                <td>
+                  {STANDARDIZATION_ACTION_LABELS[item.action]}
+                  <Reason reason={item.reason_code} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+function CatalogDryRunResult({
+  result,
+}: {
+  result: TranscriptCatalogImportDryRun;
+}) {
+  return (
+    <>
+      <Summary
+        entries={[
+          {
+            label: "Выбрано документов",
+            value: result.selection_summary.selected_document_count,
+          },
+          {
+            label: "Будут добавлены в манифест",
+            value: result.summary.import_metadata_count,
+          },
+          { label: "Без изменений", value: result.summary.unchanged_count },
+          { label: "Заблокированы", value: result.summary.blocked_count },
+        ]}
+      />
       <div className="catalog-migration-table-wrap">
         <table className="catalog-migration-table">
           <thead>
@@ -203,54 +334,52 @@ function DryRunResult({ result }: { result: CatalogMigrationDryRun }) {
                   </span>
                 </td>
                 <td>
-                  {ACTION_LABELS[item.action]}
-                  {item.reason_code === "catalog_conflict" && (
-                    <span className="error catalog-item-reason">
-                      Требуется отдельное разрешение конфликта
-                    </span>
-                  )}
-                  {item.reason_code === "document_unreadable" && (
-                    <span className="error catalog-item-reason">
-                      Документ недоступен для чтения
-                    </span>
-                  )}
+                  {CATALOG_ACTION_LABELS[item.action]}
+                  <Reason reason={item.reason_code} />
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+    </>
+  );
+}
+
+function DryRunResult({ result }: { result: TranscriptMaintenanceDryRun }) {
+  const title = OPERATION_COPY[result.workflow].title;
+  return (
+    <div
+      className="catalog-migration-result"
+      aria-label={`Результат dry-run: ${title}`}
+    >
+      <h4>План операции</h4>
+      {result.workflow === "standardization" ? (
+        <StandardizationDryRunResult result={result} />
+      ) : (
+        <CatalogDryRunResult result={result} />
+      )}
     </div>
   );
 }
 
-function ApplyResult({ result }: { result: CatalogMigrationApply }) {
+function StandardizationApplyResult({
+  result,
+}: {
+  result: TranscriptStandardizationApply;
+}) {
   return (
-    <div
-      className="catalog-migration-result"
-      aria-label="Результат применения миграции"
-    >
-      <h4>Миграция завершена</h4>
-      <dl className="catalog-migration-summary">
-        <div>
-          <dt>Импортировано</dt>
-          <dd>{result.summary.imported_count}</dd>
-        </div>
-        <div>
-          <dt>Документов стандартизировано</dt>
-          <dd>{result.summary.document_standardized_count}</dd>
-        </div>
-        <div>
-          <dt>Уже было применено</dt>
-          <dd>{result.summary.already_applied_count}</dd>
-        </div>
-        <div>
-          <dt>Конфликты и блокировки</dt>
-          <dd>
-            {result.summary.conflict_count + result.summary.blocked_count}
-          </dd>
-        </div>
-      </dl>
+    <>
+      <Summary
+        entries={[
+          { label: "Стандартизировано", value: result.summary.standardized_count },
+          {
+            label: "Уже актуальны",
+            value: result.summary.already_current_count,
+          },
+          { label: "Заблокированы", value: result.summary.blocked_count },
+        ]}
+      />
       <div className="catalog-migration-table-wrap">
         <table className="catalog-migration-table">
           <thead>
@@ -258,24 +387,406 @@ function ApplyResult({ result }: { result: CatalogMigrationApply }) {
               <th>Документ</th>
               <th>Действие</th>
               <th>Результат</th>
-              <th>Стандартизация</th>
             </tr>
           </thead>
           <tbody>
             {result.items.map((item) => (
               <tr key={item.position}>
                 <td>{item.name}</td>
-                <td>{ACTION_LABELS[item.action]}</td>
-                <td>{OUTCOME_LABELS[item.outcome]}</td>
+                <td>{STANDARDIZATION_ACTION_LABELS[item.action]}</td>
                 <td>
-                  {STANDARDIZATION_LABELS[item.standardization_outcome]}
+                  {STANDARDIZATION_OUTCOME_LABELS[item.outcome]}
+                  <Reason reason={item.reason_code} />
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+    </>
+  );
+}
+
+function CatalogApplyResult({
+  result,
+}: {
+  result: TranscriptCatalogImportApply;
+}) {
+  return (
+    <>
+      <Summary
+        entries={[
+          {
+            label: "Добавлены в манифест",
+            value: result.summary.imported_count,
+          },
+          {
+            label: "Уже были в манифесте",
+            value: result.summary.already_applied_count,
+          },
+          { label: "Без изменений", value: result.summary.unchanged_count },
+          {
+            label: "Конфликты и блокировки",
+            value: result.summary.blocked_count + result.summary.conflict_count,
+          },
+        ]}
+      />
+      <div className="catalog-migration-table-wrap">
+        <table className="catalog-migration-table">
+          <thead>
+            <tr>
+              <th>Документ</th>
+              <th>Действие</th>
+              <th>Результат</th>
+            </tr>
+          </thead>
+          <tbody>
+            {result.items.map((item) => (
+              <tr key={item.position}>
+                <td>{item.name}</td>
+                <td>{CATALOG_ACTION_LABELS[item.action]}</td>
+                <td>
+                  {CATALOG_OUTCOME_LABELS[item.outcome]}
+                  <Reason reason={item.reason_code} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+function ApplyResult({ result }: { result: TranscriptMaintenanceApply }) {
+  return (
+    <div
+      className="catalog-migration-result"
+      aria-label={`Результат применения: ${OPERATION_COPY[result.workflow].title}`}
+    >
+      <h4>{OPERATION_COPY[result.workflow].resultTitle}</h4>
+      {result.workflow === "standardization" ? (
+        <StandardizationApplyResult result={result} />
+      ) : (
+        <CatalogApplyResult result={result} />
+      )}
     </div>
+  );
+}
+
+function normalizePickedDocuments(
+  docs: googlePicker.PickerSelection[],
+): SelectedDocument[] | null {
+  if (docs.length < 1 || docs.length > 50) return null;
+  const selected: SelectedDocument[] = [];
+  const seen = new Set<string>();
+  for (const doc of docs) {
+    const id = doc.id.trim();
+    if (!id || seen.has(id)) return null;
+    seen.add(id);
+    selected.push({
+      id,
+      name: safeName(doc.name, "Google Docs документ"),
+    });
+  }
+  return selected;
+}
+
+function MaintenanceOperationCard({
+  workflow,
+  pickerReady,
+  mutate,
+}: {
+  workflow: TranscriptMaintenanceWorkflow;
+  pickerReady: boolean;
+  mutate: Mutate;
+}) {
+  const copy = OPERATION_COPY[workflow];
+  const [selectedFolder, setSelectedFolder] =
+    useState<SelectedFolder | null>(null);
+  const [selectedDocuments, setSelectedDocuments] = useState<
+    SelectedDocument[]
+  >([]);
+  const [dryRun, setDryRun] = useState<TranscriptMaintenanceDryRun | null>(
+    null,
+  );
+  const [applyResult, setApplyResult] =
+    useState<TranscriptMaintenanceApply | null>(null);
+  const [busy, setBusy] = useState<BusyState>(null);
+  const [message, setMessage] = useState("");
+  const pickerActive = useRef(false);
+  const operationActive = useRef(false);
+
+  useEffect(() => {
+    if (pickerReady) return;
+    setSelectedFolder(null);
+    setSelectedDocuments([]);
+    setDryRun(null);
+    setApplyResult(null);
+  }, [pickerReady]);
+
+  function resetResult() {
+    setDryRun(null);
+    setApplyResult(null);
+  }
+
+  async function pickerSession(): Promise<PickerSession> {
+    return mutate<PickerSession>("/google/picker/session", {
+      method: "POST",
+    });
+  }
+
+  async function chooseFolder() {
+    if (!pickerReady || busy || pickerActive.current) return;
+    pickerActive.current = true;
+    setBusy("folder-picker");
+    setMessage("");
+    try {
+      const result = await googlePicker.openGooglePicker(
+        "transcript-folder",
+        await pickerSession(),
+      );
+      if (result.action === "cancel") return;
+      if (result.action === "error") {
+        setMessage(result.message);
+        return;
+      }
+      const folder = result.docs[0];
+      if (!folder?.id || result.docs.length !== 1) {
+        setMessage("Выберите одну папку Google Drive.");
+        return;
+      }
+      setSelectedFolder({
+        id: folder.id,
+        name: safeName(folder.name, "Выбранная папка Google Drive"),
+      });
+      setSelectedDocuments([]);
+      resetResult();
+    } catch (error) {
+      setMessage(
+        googlePickerFailureMessage(error) ??
+          "Не удалось открыть Google Picker.",
+      );
+    } finally {
+      pickerActive.current = false;
+      setBusy(null);
+    }
+  }
+
+  async function chooseDocuments() {
+    if (
+      !pickerReady ||
+      !selectedFolder ||
+      busy ||
+      pickerActive.current
+    ) {
+      return;
+    }
+    pickerActive.current = true;
+    setBusy("document-picker");
+    setMessage("");
+    try {
+      const result = await googlePicker.openGooglePicker(
+        "transcript-documents",
+        await pickerSession(),
+        { parentId: selectedFolder.id },
+      );
+      if (result.action === "cancel") return;
+      if (result.action === "error") {
+        setMessage(result.message);
+        return;
+      }
+      const documents = normalizePickedDocuments(result.docs);
+      if (!documents) {
+        setMessage(
+          "Выберите от 1 до 50 уникальных Google Docs в выбранной папке.",
+        );
+        return;
+      }
+      setSelectedDocuments(documents);
+      resetResult();
+    } catch (error) {
+      setMessage(
+        googlePickerFailureMessage(error) ??
+          "Не удалось открыть Google Picker.",
+      );
+    } finally {
+      pickerActive.current = false;
+      setBusy(null);
+    }
+  }
+
+  async function runDryRun() {
+    if (
+      !pickerReady ||
+      !selectedFolder ||
+      selectedDocuments.length === 0 ||
+      busy ||
+      operationActive.current
+    ) {
+      return;
+    }
+    operationActive.current = true;
+    setBusy("dry-run");
+    setMessage("");
+    resetResult();
+    try {
+      const raw = await mutate<unknown>(
+        `/transcript-maintenance/${workflow === "standardization" ? "standardization" : "catalog-import"}/dry-run`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            folder_id: selectedFolder.id,
+            document_ids: selectedDocuments.map((doc) => doc.id),
+          }),
+        },
+      );
+      setDryRun(parseDryRun(workflow, raw));
+    } catch (error) {
+      setDryRun(null);
+      setMessage(maintenanceErrorMessage(error));
+    } finally {
+      operationActive.current = false;
+      setBusy(null);
+    }
+  }
+
+  async function applyOperation() {
+    if (
+      !pickerReady ||
+      !selectedFolder ||
+      selectedDocuments.length === 0 ||
+      !dryRun ||
+      dryRun.workflow !== workflow ||
+      actionableCount(dryRun) === 0 ||
+      busy ||
+      operationActive.current
+    ) {
+      return;
+    }
+    if (
+      !explicitConfirmation(
+        workflow === "standardization"
+          ? `Стандартизировать ${actionableCount(dryRun)} выбранных документов? Каталог Studio не изменится.`
+          : `Добавить метаданные ${actionableCount(dryRun)} выбранных документов в манифест Studio? Google Docs не изменятся.`,
+      )
+    ) {
+      return;
+    }
+    operationActive.current = true;
+    setBusy("apply");
+    setMessage("");
+    try {
+      const raw = await mutate<unknown>(
+        `/transcript-maintenance/${workflow === "standardization" ? "standardization" : "catalog-import"}/apply`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            folder_id: selectedFolder.id,
+            document_ids: selectedDocuments.map((doc) => doc.id),
+            confirm_apply: true,
+          }),
+        },
+      );
+      setApplyResult(parseApply(workflow, raw));
+      setDryRun(null);
+    } catch (error) {
+      setDryRun(null);
+      setMessage(maintenanceErrorMessage(error));
+    } finally {
+      operationActive.current = false;
+      setBusy(null);
+    }
+  }
+
+  const actionable =
+    dryRun && dryRun.workflow === workflow ? actionableCount(dryRun) : 0;
+
+  return (
+    <section
+      className="card transcript-catalog-migration transcript-maintenance-operation"
+      aria-labelledby={`transcript-maintenance-${workflow}-title`}
+    >
+      <span className="tag">Отдельная операция</span>
+      <h3 id={`transcript-maintenance-${workflow}-title`}>{copy.title}</h3>
+      <p>{copy.description}</p>
+      <p className="muted">
+        Сначала выберите папку, затем явно выберите документы. Dry-run ничего
+        не изменяет. Тексты документов не возвращаются в браузер.
+      </p>
+      <div className="actions">
+        <button
+          type="button"
+          disabled={!pickerReady || busy !== null}
+          onClick={chooseFolder}
+        >
+          {busy === "folder-picker"
+            ? "Открываем папки…"
+            : selectedFolder
+              ? "Сменить папку"
+              : "Выбрать папку"}
+        </button>
+        <button
+          type="button"
+          disabled={!pickerReady || !selectedFolder || busy !== null}
+          onClick={chooseDocuments}
+        >
+          {busy === "document-picker"
+            ? "Открываем документы…"
+            : selectedDocuments.length > 0
+              ? "Изменить документы"
+              : "Выбрать документы"}
+        </button>
+        <button
+          type="button"
+          className="primary"
+          disabled={
+            !pickerReady ||
+            !selectedFolder ||
+            selectedDocuments.length === 0 ||
+            busy !== null
+          }
+          onClick={runDryRun}
+        >
+          {busy === "dry-run" ? "Проверяем…" : "Запустить dry-run"}
+        </button>
+      </div>
+      {selectedFolder && (
+        <p className="folder-status" role="status">
+          Папка: <b>{selectedFolder.name}</b>. Выбрано документов:{" "}
+          <b>{selectedDocuments.length}</b>.
+        </p>
+      )}
+      {message && (
+        <p className="error" role="alert">
+          {message}
+        </p>
+      )}
+      {dryRun && dryRun.workflow === workflow && (
+        <DryRunResult result={dryRun} />
+      )}
+      {dryRun && dryRun.workflow === workflow && (
+        <div className="catalog-migration-apply">
+          <p>
+            Перед применением сервер заново проверит эту папку и тот же набор
+            документов. Preview не считается полномочием на другую операцию.
+          </p>
+          <button
+            type="button"
+            className="primary"
+            disabled={!pickerReady || busy !== null || actionable === 0}
+            onClick={applyOperation}
+          >
+            {busy === "apply"
+              ? "Применяем…"
+              : `${copy.applyLabel} (${actionable})`}
+          </button>
+        </div>
+      )}
+      {applyResult && applyResult.workflow === workflow && (
+        <ApplyResult result={applyResult} />
+      )}
+    </section>
   );
 }
 
@@ -292,168 +803,22 @@ export function TranscriptCatalogMigrationPanel({
   googleLoading: boolean;
   pickerReady: boolean;
 }) {
-  const [selectedFolder, setSelectedFolder] =
-    useState<SelectedFolder | null>(null);
-  const [dryRun, setDryRun] = useState<CatalogMigrationDryRun | null>(null);
-  const [applyResult, setApplyResult] =
-    useState<CatalogMigrationApply | null>(null);
-  const [busy, setBusy] = useState<BusyState>(null);
-  const [message, setMessage] = useState("");
-  const pickerActive = useRef(false);
-  const operationActive = useRef(false);
-
-  const mutate = <T,>(path: string, options: RequestInit) =>
+  const mutate: Mutate = <T,>(path: string, options: RequestInit) =>
     mutateWithCsrfRetry<T>(path, csrf, onCsrf, options);
-
-  useEffect(() => {
-    if (pickerReady) return;
-    setSelectedFolder(null);
-    setDryRun(null);
-    setApplyResult(null);
-  }, [pickerReady]);
-
-  async function chooseFolder() {
-    if (!pickerReady || busy || pickerActive.current) return;
-    pickerActive.current = true;
-    setBusy("picker");
-    setMessage("");
-    try {
-      const session = await mutate<PickerSession>(
-        "/google/picker/session",
-        { method: "POST" },
-      );
-      const result = await googlePicker.openGooglePicker(
-        "catalog-folder",
-        session,
-      );
-      if (result.action === "cancel") return;
-      if (result.action === "error") {
-        setMessage(result.message);
-        return;
-      }
-      const folder = result.docs[0];
-      if (!folder?.id || result.docs.length !== 1) {
-        setMessage("Выберите одну папку Google Drive.");
-        return;
-      }
-      setSelectedFolder({
-        id: folder.id,
-        name: safeFolderName(folder.name),
-      });
-      setDryRun(null);
-      setApplyResult(null);
-    } catch (error) {
-      setMessage(
-        googlePickerFailureMessage(error) ??
-          "Не удалось открыть Google Picker.",
-      );
-    } finally {
-      pickerActive.current = false;
-      setBusy(null);
-    }
-  }
-
-  async function runDryRun() {
-    if (!pickerReady || !selectedFolder || busy || operationActive.current) {
-      return;
-    }
-    operationActive.current = true;
-    setBusy("dry-run");
-    setMessage("");
-    setDryRun(null);
-    setApplyResult(null);
-    try {
-      const raw = await mutate<unknown>(
-        "/transcript-catalog/migration/dry-run",
-        {
-          method: "POST",
-          body: JSON.stringify({ folder_id: selectedFolder.id }),
-        },
-      );
-      setDryRun(parseCatalogMigrationDryRun(raw));
-    } catch (error) {
-      setDryRun(null);
-      setMessage(catalogErrorMessage(error));
-    } finally {
-      operationActive.current = false;
-      setBusy(null);
-    }
-  }
-
-  async function applyMigration() {
-    if (
-      !pickerReady ||
-      !selectedFolder ||
-      !dryRun ||
-      busy ||
-      operationActive.current
-    ) {
-      return;
-    }
-    const actionable =
-      dryRun.summary.import_metadata_count +
-      dryRun.summary.standardize_and_import_count +
-      dryRun.summary.standardize_document_count;
-    if (actionable === 0) return;
-    if (
-      !explicitConfirmation(
-        `Применить миграцию к папке «${selectedFolder.name}»? ` +
-          "Подходящие Google Docs будут стандартизированы на месте, " +
-          "а безопасные метаданные будут импортированы в Studio.",
-      )
-    ) {
-      return;
-    }
-    operationActive.current = true;
-    setBusy("apply");
-    setMessage("");
-    try {
-      const raw = await mutate<unknown>(
-        "/transcript-catalog/migration/apply",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            folder_id: selectedFolder.id,
-            confirm_apply: true,
-          }),
-        },
-      );
-      setApplyResult(parseCatalogMigrationApply(raw));
-      setDryRun(null);
-    } catch (error) {
-      setDryRun(null);
-      setMessage(catalogErrorMessage(error));
-    } finally {
-      operationActive.current = false;
-      setBusy(null);
-    }
-  }
-
-  const actionable = dryRun
-    ? dryRun.summary.import_metadata_count +
-      dryRun.summary.standardize_and_import_count +
-      dryRun.summary.standardize_document_count
-    : 0;
 
   return (
     <section
-      className="card transcript-catalog-migration"
-      aria-labelledby="transcript-catalog-migration-title"
+      className="transcript-maintenance-panel"
+      aria-labelledby="transcript-maintenance-title"
     >
-      <span className="tag">Одноразовая операция</span>
-      <h3 id="transcript-catalog-migration-title">
-        Миграция каталога транскриптов
-      </h3>
+      <span className="tag">Обслуживание существующих транскриптов</span>
+      <h2 id="transcript-maintenance-title">
+        Две независимые операции
+      </h2>
       <p>
-        Выберите существующую папку с Google Docs. Сначала Studio выполнит
-        безопасную проверку без изменений. Применение запускается отдельно и
-        может обновить подходящие документы до{" "}
-        <code>transcript_doc_v1.2</code> на месте.
-      </p>
-      <p className="muted">
-        Транскрипция и LLM не вызываются. Тексты документов не сохраняются в
-        Studio и не возвращаются в браузер. Обрабатываются только Google Docs
-        непосредственно в выбранной папке.
+        Стандартизация изменяет только выбранные Google Docs. Добавление в
+        манифест изменяет только метаданные Studio. Выбор, dry-run и
+        подтверждение у них раздельные.
       </p>
       {googleLoading && (
         <p className="notice">Проверяем подключение Google Drive…</p>
@@ -463,60 +828,21 @@ export function TranscriptCatalogMigrationPanel({
       )}
       {!googleLoading && googleConnected && !pickerReady && (
         <p className="notice">
-          Обновите подключение Google Drive, чтобы выбрать папку.
+          Обновите подключение Google Drive, чтобы выбрать документы.
         </p>
       )}
-      <div className="actions">
-        <button
-          type="button"
-          disabled={!pickerReady || busy !== null}
-          onClick={chooseFolder}
-        >
-          {busy === "picker"
-            ? "Открываем Google Drive…"
-            : selectedFolder
-              ? "Выбрать другую папку"
-              : "Выбрать папку каталога"}
-        </button>
-        <button
-          type="button"
-          className="primary"
-          disabled={!pickerReady || !selectedFolder || busy !== null}
-          onClick={runDryRun}
-        >
-          {busy === "dry-run" ? "Проверяем…" : "Запустить dry-run"}
-        </button>
+      <div className="transcript-maintenance-grid">
+        <MaintenanceOperationCard
+          workflow="standardization"
+          pickerReady={pickerReady}
+          mutate={mutate}
+        />
+        <MaintenanceOperationCard
+          workflow="catalog_import"
+          pickerReady={pickerReady}
+          mutate={mutate}
+        />
       </div>
-      {selectedFolder && (
-        <p className="folder-status" role="status">
-          Выбрана папка: <b>{selectedFolder.name}</b>
-        </p>
-      )}
-      {message && (
-        <p className="error" role="alert">
-          {message}
-        </p>
-      )}
-      {dryRun && <DryRunResult result={dryRun} />}
-      {dryRun && (
-        <div className="catalog-migration-apply">
-          <p>
-            Перед применением сервер заново просканирует папку и не будет
-            доверять сохранённому preview.
-          </p>
-          <button
-            type="button"
-            className="primary"
-            disabled={!pickerReady || busy !== null || actionable === 0}
-            onClick={applyMigration}
-          >
-            {busy === "apply"
-              ? "Применяем…"
-              : `Подтвердить и применить (${actionable})`}
-          </button>
-        </div>
-      )}
-      {applyResult && <ApplyResult result={applyResult} />}
     </section>
   );
 }

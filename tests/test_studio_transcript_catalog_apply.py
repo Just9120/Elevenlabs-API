@@ -432,3 +432,101 @@ def test_catalog_metadata_apply_rejects_missing_or_out_of_scope_authority(
                 )
             },
         )
+
+
+def test_split_catalog_import_apply_persists_only_eligible_current_metadata(
+    catalog_db,
+):
+    from studio_api.models import TranscriptCatalogEntry
+    from studio_api.transcript_catalog_apply import (
+        apply_transcript_catalog_import_metadata,
+    )
+
+    result = apply_transcript_catalog_import_metadata(
+        catalog_db,
+        owner_user_id="owner-a",
+        candidates=(
+            _candidate("private-current", name="Current"),
+            _candidate(
+                "private-outdated",
+                name="Outdated",
+                standard="outdated",
+            ),
+            _candidate(
+                "private-unreadable",
+                name="Unreadable",
+                standard="unreadable",
+            ),
+            _candidate(
+                "private-existing-output",
+                name="Existing",
+                imported="imported_exact",
+                settings="exact",
+            ),
+        ),
+        applied_at=datetime(2026, 7, 27, 10, 0, tzinfo=timezone.utc),
+    )
+
+    assert result["workflow"] == "catalog_import"
+    assert result["operation"] == "apply"
+    assert [
+        (
+            item["action"],
+            item["outcome"],
+            item["reason_code"],
+        )
+        for item in result["items"]
+    ] == [
+        ("import_metadata", "imported", None),
+        ("blocked", "blocked", "standardization_required"),
+        ("blocked", "blocked", "document_unreadable"),
+        ("unchanged", "unchanged", None),
+    ]
+    assert result["summary"]["imported_count"] == 1
+    assert result["summary"]["blocked_count"] == 2
+    assert result["summary"]["unchanged_count"] == 1
+    rows = catalog_db.execute(
+        select(TranscriptCatalogEntry)
+    ).scalars().all()
+    assert [row.document_id for row in rows] == ["private-current"]
+    encoded = json.dumps(result, ensure_ascii=False)
+    assert "standardize_document" not in encoded
+    assert "standardize_and_import" not in encoded
+    for private in (
+        "private-current",
+        "private-outdated",
+        "private-unreadable",
+        "private-existing-output",
+    ):
+        assert private not in encoded
+
+
+def test_split_catalog_import_apply_is_idempotent_without_google_capability(
+    catalog_db,
+):
+    import inspect
+
+    from studio_api.transcript_catalog_apply import (
+        apply_transcript_catalog_import_metadata,
+    )
+
+    parameters = inspect.signature(
+        apply_transcript_catalog_import_metadata
+    ).parameters
+    assert "access_token" not in parameters
+    assert "standardizer" not in parameters
+
+    candidate = _candidate("private-repeat", name="Repeat")
+    first = apply_transcript_catalog_import_metadata(
+        catalog_db,
+        owner_user_id="owner-a",
+        candidates=(candidate,),
+    )
+    second = apply_transcript_catalog_import_metadata(
+        catalog_db,
+        owner_user_id="owner-a",
+        candidates=(candidate,),
+    )
+
+    assert first["items"][0]["outcome"] == "imported"
+    assert second["items"][0]["outcome"] == "already_applied"
