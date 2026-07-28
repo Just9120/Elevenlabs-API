@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
 import re
@@ -171,7 +172,7 @@ class GoogleTranscriptCatalogReader:
         max_items: int = CATALOG_SCAN_MAX_ITEMS,
         max_pages: int = CATALOG_SCAN_MAX_PAGES,
     ) -> CatalogGoogleFolderScan:
-        """List only the immediate children of one explicitly selected folder."""
+        """Recursively list one explicitly selected folder and descendants."""
 
         token = _private_value(access_token, label="access token")
         selected_folder_id = _drive_id(folder_id, label="folder")
@@ -185,97 +186,121 @@ class GoogleTranscriptCatalogReader:
             maximum=CATALOG_SCAN_MAX_PAGES,
             label="catalog scan pages",
         )
+        folder_payload = self._get_json(
+            f"{self.drive_endpoint}/{selected_folder_id}",
+            access_token=token,
+            params={
+                "fields": CATALOG_SELECTED_DRIVE_FIELDS,
+                "supportsAllDrives": "true",
+            },
+            not_found_reason=CatalogGoogleReadReason.request_rejected,
+        )
+        _validate_selected_folder(
+            folder_payload,
+            expected_folder_id=selected_folder_id,
+        )
         documents: list[CatalogGoogleDocumentMetadata] = []
         nested_folder_count = 0
         skipped_non_document_count = 0
-        seen_ids: set[str] = set()
-        seen_page_tokens: set[str] = set()
-        page_token: str | None = None
+        seen_ids: set[str] = {selected_folder_id}
+        pending_folders = deque([selected_folder_id])
         pages_scanned = 0
         items_scanned = 0
 
-        while True:
-            if pages_scanned >= safe_max_pages:
-                raise CatalogGoogleReadError(
-                    CatalogGoogleReadReason.limit_exceeded
-                )
-            params = {
-                "q": (
-                    f"'{selected_folder_id}' in parents and trashed = false"
-                ),
-                "fields": CATALOG_DRIVE_FIELDS,
-                "pageSize": str(CATALOG_SCAN_PAGE_SIZE),
-                "spaces": "drive",
-                "supportsAllDrives": "true",
-                "includeItemsFromAllDrives": "true",
-            }
-            if page_token:
-                params["pageToken"] = page_token
-            payload = self._get_json(
-                self.drive_endpoint,
-                access_token=token,
-                params=params,
-                not_found_reason=CatalogGoogleReadReason.request_rejected,
-            )
-            pages_scanned += 1
-            incomplete_search = payload.get("incompleteSearch")
-            if incomplete_search is not None and not isinstance(
-                incomplete_search,
-                bool,
-            ):
-                raise CatalogGoogleReadError(
-                    CatalogGoogleReadReason.malformed_response
-                )
-            if incomplete_search is True:
-                raise CatalogGoogleReadError(
-                    CatalogGoogleReadReason.incomplete_search
-                )
-            raw_items = payload.get("files")
-            if not isinstance(raw_items, list):
-                raise CatalogGoogleReadError(
-                    CatalogGoogleReadReason.malformed_response
-                )
-            for raw_item in raw_items:
-                items_scanned += 1
-                if items_scanned > safe_max_items:
+        while pending_folders:
+            current_folder_id = pending_folders.popleft()
+            seen_page_tokens: set[str] = set()
+            page_token: str | None = None
+            while True:
+                if pages_scanned >= safe_max_pages:
                     raise CatalogGoogleReadError(
                         CatalogGoogleReadReason.limit_exceeded
                     )
-                item_id, name, mime_type, created_time, modified_time = (
-                    _normalize_drive_item(raw_item)
+                params = {
+                    "q": (
+                        f"'{current_folder_id}' in parents "
+                        "and trashed = false"
+                    ),
+                    "fields": CATALOG_DRIVE_FIELDS,
+                    "pageSize": str(CATALOG_SCAN_PAGE_SIZE),
+                    "spaces": "drive",
+                    "supportsAllDrives": "true",
+                    "includeItemsFromAllDrives": "true",
+                }
+                if page_token:
+                    params["pageToken"] = page_token
+                payload = self._get_json(
+                    self.drive_endpoint,
+                    access_token=token,
+                    params=params,
+                    not_found_reason=(
+                        CatalogGoogleReadReason.request_rejected
+                    ),
                 )
-                if item_id in seen_ids:
+                pages_scanned += 1
+                incomplete_search = payload.get("incompleteSearch")
+                if incomplete_search is not None and not isinstance(
+                    incomplete_search,
+                    bool,
+                ):
                     raise CatalogGoogleReadError(
                         CatalogGoogleReadReason.malformed_response
                     )
-                seen_ids.add(item_id)
-                if mime_type == GOOGLE_DOC_MIME_TYPE:
-                    documents.append(
-                        CatalogGoogleDocumentMetadata(
-                            drive_document_id=item_id,
-                            name=name,
-                            created_time=created_time,
-                            modified_time=modified_time,
-                        )
+                if incomplete_search is True:
+                    raise CatalogGoogleReadError(
+                        CatalogGoogleReadReason.incomplete_search
                     )
-                elif mime_type == GOOGLE_FOLDER_MIME_TYPE:
-                    nested_folder_count += 1
-                else:
-                    skipped_non_document_count += 1
+                raw_items = payload.get("files")
+                if not isinstance(raw_items, list):
+                    raise CatalogGoogleReadError(
+                        CatalogGoogleReadReason.malformed_response
+                    )
+                for raw_item in raw_items:
+                    items_scanned += 1
+                    if items_scanned > safe_max_items:
+                        raise CatalogGoogleReadError(
+                            CatalogGoogleReadReason.limit_exceeded
+                        )
+                    (
+                        item_id,
+                        name,
+                        mime_type,
+                        created_time,
+                        modified_time,
+                    ) = _normalize_drive_item(raw_item)
+                    if item_id in seen_ids:
+                        raise CatalogGoogleReadError(
+                            CatalogGoogleReadReason.malformed_response
+                        )
+                    seen_ids.add(item_id)
+                    if mime_type == GOOGLE_DOC_MIME_TYPE:
+                        documents.append(
+                            CatalogGoogleDocumentMetadata(
+                                drive_document_id=item_id,
+                                name=name,
+                                created_time=created_time,
+                                modified_time=modified_time,
+                            )
+                        )
+                    elif mime_type == GOOGLE_FOLDER_MIME_TYPE:
+                        nested_folder_count += 1
+                        pending_folders.append(item_id)
+                    else:
+                        skipped_non_document_count += 1
 
-            next_page_token = payload.get("nextPageToken")
-            if next_page_token is None:
-                break
-            if (
-                not isinstance(next_page_token, str)
-                or not next_page_token.strip()
-                or next_page_token in seen_page_tokens
-            ):
-                raise CatalogGoogleReadError(
-                    CatalogGoogleReadReason.malformed_response
-                )
-            seen_page_tokens.add(next_page_token)
-            page_token = next_page_token
+                next_page_token = payload.get("nextPageToken")
+                if next_page_token is None:
+                    break
+                if (
+                    not isinstance(next_page_token, str)
+                    or not next_page_token.strip()
+                    or next_page_token in seen_page_tokens
+                ):
+                    raise CatalogGoogleReadError(
+                        CatalogGoogleReadReason.malformed_response
+                    )
+                seen_page_tokens.add(next_page_token)
+                page_token = next_page_token
 
         documents.sort(
             key=lambda item: (

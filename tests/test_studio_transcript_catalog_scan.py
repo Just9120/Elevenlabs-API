@@ -37,6 +37,16 @@ def google_doc_payload(text: str) -> dict:
     }
 
 
+def selected_folder_payload(folder_id: str = "private-folder-id") -> dict:
+    return {
+        "id": folder_id,
+        "name": "Selected root",
+        "mimeType": "application/vnd.google-apps.folder",
+        "parents": ["root"],
+        "trashed": False,
+    }
+
+
 def current_document(*, optional_metadata: str = "") -> str:
     return (
         "Lecture\n\n"
@@ -52,11 +62,12 @@ def current_document(*, optional_metadata: str = "") -> str:
     )
 
 
-def test_catalog_reader_scans_selected_folder_with_minimal_metadata():
+def test_catalog_reader_recursively_scans_selected_folder_with_minimal_metadata():
     from studio_api.google_docs_output import GOOGLE_DOC_MIME_TYPE
     from studio_api.google_drive import GOOGLE_FOLDER_MIME_TYPE
     from studio_api.transcript_catalog_scan import (
         CATALOG_DRIVE_FIELDS,
+        CATALOG_SELECTED_DRIVE_FIELDS,
         GoogleTranscriptCatalogReader,
     )
 
@@ -64,7 +75,12 @@ def test_catalog_reader_scans_selected_folder_with_minimal_metadata():
 
     def get(url, *, headers, params, timeout):
         calls.append((url, headers, params, timeout))
-        if params.get("pageToken") == "private-next-page":
+        if url.endswith("/private-folder-id"):
+            return response(200, selected_folder_payload())
+        query = params["q"]
+        if "'private-folder-id'" in query and params.get(
+            "pageToken"
+        ) == "private-next-page":
             return response(
                 200,
                 {
@@ -75,6 +91,37 @@ def test_catalog_reader_scans_selected_folder_with_minimal_metadata():
                             "mimeType": GOOGLE_DOC_MIME_TYPE,
                             "createdTime": "2026-07-01T00:00:00Z",
                             "modifiedTime": "2026-07-02T00:00:00Z",
+                        }
+                    ]
+                },
+            )
+        if "'nested-folder'" in query:
+            return response(
+                200,
+                {
+                    "files": [
+                        {
+                            "id": "doc-b",
+                            "name": "Beta",
+                            "mimeType": GOOGLE_DOC_MIME_TYPE,
+                        },
+                        {
+                            "id": "deep-folder",
+                            "name": "Deep",
+                            "mimeType": GOOGLE_FOLDER_MIME_TYPE,
+                        },
+                    ]
+                },
+            )
+        if "'deep-folder'" in query:
+            return response(
+                200,
+                {
+                    "files": [
+                        {
+                            "id": "doc-c",
+                            "name": "Gamma",
+                            "mimeType": GOOGLE_DOC_MIME_TYPE,
                         }
                     ]
                 },
@@ -108,22 +155,40 @@ def test_catalog_reader_scans_selected_folder_with_minimal_metadata():
         folder_id="private-folder-id",
     )
 
-    assert [item.name for item in scan.documents] == ["Alpha", "Zulu"]
-    assert scan.nested_folder_count == 1
+    assert [item.name for item in scan.documents] == [
+        "Alpha",
+        "Beta",
+        "Gamma",
+        "Zulu",
+    ]
+    assert scan.nested_folder_count == 2
     assert scan.skipped_non_document_count == 1
-    assert scan.pages_scanned == 2
-    assert calls[0][0].endswith("/drive/v3/files")
-    assert calls[0][1] == {
+    assert scan.pages_scanned == 4
+    assert calls[0][0].endswith(
+        "/drive/v3/files/private-folder-id"
+    )
+    assert calls[0][2] == {
+        "fields": CATALOG_SELECTED_DRIVE_FIELDS,
+        "supportsAllDrives": "true",
+    }
+    assert calls[1][0].endswith("/drive/v3/files")
+    assert calls[1][1] == {
         "Authorization": "Bearer private-access-token",
         "Accept": "application/json",
     }
-    assert calls[0][2]["q"] == (
+    assert calls[1][2]["q"] == (
         "'private-folder-id' in parents and trashed = false"
     )
-    assert calls[0][2]["fields"] == CATALOG_DRIVE_FIELDS
-    assert "webViewLink" not in calls[0][2]["fields"]
-    assert "pageToken" not in calls[0][2]
-    assert calls[1][2]["pageToken"] == "private-next-page"
+    assert calls[1][2]["fields"] == CATALOG_DRIVE_FIELDS
+    assert "webViewLink" not in calls[1][2]["fields"]
+    assert "pageToken" not in calls[1][2]
+    assert calls[2][2]["pageToken"] == "private-next-page"
+    assert calls[3][2]["q"] == (
+        "'nested-folder' in parents and trashed = false"
+    )
+    assert calls[4][2]["q"] == (
+        "'deep-folder' in parents and trashed = false"
+    )
 
     encoded = json.dumps(
         {
@@ -485,9 +550,13 @@ def test_catalog_reader_fails_closed_on_incomplete_or_unbounded_scan():
     )
 
     reader = GoogleTranscriptCatalogReader(
-        get=lambda *args, **kwargs: response(
-            200,
-            {"files": [], "incompleteSearch": True},
+        get=lambda url, **kwargs: (
+            response(200, selected_folder_payload())
+            if url.endswith("/private-folder-id")
+            else response(
+                200,
+                {"files": [], "incompleteSearch": True},
+            )
         )
     )
 
@@ -544,7 +613,11 @@ def test_catalog_reader_rejects_repeated_page_tokens_and_duplicate_items():
         )
     )
     reader = GoogleTranscriptCatalogReader(
-        get=lambda *args, **kwargs: next(responses)
+        get=lambda url, **kwargs: (
+            response(200, selected_folder_payload())
+            if url.endswith("/private-folder-id")
+            else next(responses)
+        )
     )
 
     with pytest.raises(CatalogGoogleReadError) as raised:
@@ -553,6 +626,60 @@ def test_catalog_reader_rejects_repeated_page_tokens_and_duplicate_items():
             folder_id="private-folder-id",
         )
     assert raised.value.reason == CatalogGoogleReadReason.malformed_response
+
+
+def test_recursive_scan_blocks_folder_cycles_and_global_page_overflow():
+    from studio_api.google_drive import GOOGLE_FOLDER_MIME_TYPE
+    from studio_api.transcript_catalog_scan import (
+        CatalogGoogleReadError,
+        CatalogGoogleReadReason,
+        GoogleTranscriptCatalogReader,
+    )
+
+    def get(url, *, params, **kwargs):
+        if url.endswith("/private-folder-id"):
+            return response(200, selected_folder_payload())
+        if "'private-folder-id'" in params["q"]:
+            return response(
+                200,
+                {
+                    "files": [
+                        {
+                            "id": "nested-folder",
+                            "name": "Nested",
+                            "mimeType": GOOGLE_FOLDER_MIME_TYPE,
+                        }
+                    ]
+                },
+            )
+        return response(
+            200,
+            {
+                "files": [
+                    {
+                        "id": "private-folder-id",
+                        "name": "Cycle",
+                        "mimeType": GOOGLE_FOLDER_MIME_TYPE,
+                    }
+                ]
+            },
+        )
+
+    reader = GoogleTranscriptCatalogReader(get=get)
+    with pytest.raises(CatalogGoogleReadError) as cycle:
+        reader.scan_folder(
+            access_token="private-access-token",
+            folder_id="private-folder-id",
+        )
+    assert cycle.value.reason == CatalogGoogleReadReason.malformed_response
+
+    with pytest.raises(CatalogGoogleReadError) as page_limit:
+        reader.scan_folder(
+            access_token="private-access-token",
+            folder_id="private-folder-id",
+            max_pages=1,
+        )
+    assert page_limit.value.reason == CatalogGoogleReadReason.limit_exceeded
 
 
 def test_catalog_document_parser_rejects_raw_or_malformed_responses():
@@ -586,7 +713,11 @@ def test_catalog_folder_scan_normalizes_malformed_google_metadata(payload):
     )
 
     reader = GoogleTranscriptCatalogReader(
-        get=lambda *args, **kwargs: response(200, payload)
+        get=lambda url, **kwargs: (
+            response(200, selected_folder_payload())
+            if url.endswith("/private-folder-id")
+            else response(200, payload)
+        )
     )
 
     with pytest.raises(CatalogGoogleReadError) as raised:
