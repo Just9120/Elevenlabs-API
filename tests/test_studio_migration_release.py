@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import stat
 import subprocess
 from pathlib import Path
@@ -427,3 +428,20 @@ def test_studio_ci_watches_migration_release_contract_files() -> None:
         "tests/test_studio_migration_release.py",
     ):
         assert workflow.count(f"- '{path}'") == 2
+
+
+def test_embedded_release_python_programs_compile() -> None:
+    release = RELEASE_SCRIPT.read_text(encoding="utf-8")
+    heredoc_programs = re.findall(
+        r"<<'PY'\n(.*?)\nPY",
+        release,
+        flags=re.DOTALL,
+    )
+    docker_program = release.split(
+        'docker run --rm --entrypoint python "$API_IMAGE" -c \'\n',
+        1,
+    )[1].split("\n' </dev/null", 1)[0]
+
+    assert len(heredoc_programs) == 3
+    for index, program in enumerate((*heredoc_programs, docker_program), start=1):
+        compile(program, f"<studio-release-embedded-{index}>", "exec")

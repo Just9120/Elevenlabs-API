@@ -153,15 +153,30 @@ One-time setup must be completed in this order:
    `STUDIO_MIGRATION_SSH_KEY`, and `STUDIO_MIGRATION_KNOWN_HOSTS`. Use a new
    dedicated Ed25519 key; do not reuse the ordinary deploy key. Verify the host
    key out of band before storing the known-hosts entry.
-4. On the VPS, require a clean `main` checkout owned by `studio-deploy`, then
-   install the reviewed wrapper as a root-owned regular file:
+4. On the VPS, require a clean `main` checkout owned by `studio-deploy`.
+   Because the lane is still disabled, the merge-triggered workflow may select
+   no VPS deploy job and therefore may not update this checkout. Fast-forward it
+   explicitly as `studio-deploy`, verify `HEAD` equals the reviewed merge SHA,
+   then install the wrapper as a root-owned regular file:
 
    ```bash
+   sudo -u studio-deploy \
+     git -C /opt/elevenlabs-studio fetch --prune origin main
+   sudo -u studio-deploy \
+     git -C /opt/elevenlabs-studio merge --ff-only origin/main
+   sudo -u studio-deploy \
+     git -C /opt/elevenlabs-studio status --short
+   sudo -u studio-deploy \
+     git -C /opt/elevenlabs-studio rev-parse HEAD
+
    sudo install \
      -o root -g root -m 0755 \
      /opt/elevenlabs-studio/deploy/studio/studio-migration-release-wrapper.sh \
      /usr/local/sbin/studio-migration-release-wrapper
    ```
+
+   Stop if status is non-empty or the printed SHA is not the reviewed merge
+   SHA. Do not fetch/merge this checkout as root.
 
 5. Add only the dedicated public key to root's `authorized_keys` with this
    forced-command shape; replace the placeholder with the public key, never the
