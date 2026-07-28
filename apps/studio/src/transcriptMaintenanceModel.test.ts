@@ -6,7 +6,10 @@ import {
 } from "./transcriptMaintenanceModel";
 
 const selectionSummary = {
-  selected_document_count: 1,
+  google_document_count: 1,
+  nested_folder_count: 2,
+  skipped_non_document_count: 3,
+  pages_scanned: 4,
   unreadable_document_count: 0,
 };
 

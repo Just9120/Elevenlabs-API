@@ -46,7 +46,10 @@ export type MaintenanceReason =
   | "catalog_document_response_invalid";
 
 export type TranscriptSelectionSummary = {
-  selected_document_count: number;
+  google_document_count: number;
+  nested_folder_count: number;
+  skipped_non_document_count: number;
+  pages_scanned: number;
   unreadable_document_count: number;
 };
 
@@ -252,7 +255,13 @@ function summary<K extends string>(
 function selectionSummary(value: unknown): TranscriptSelectionSummary {
   return summary(
     value,
-    ["selected_document_count", "unreadable_document_count"] as const,
+    [
+      "google_document_count",
+      "nested_folder_count",
+      "skipped_non_document_count",
+      "pages_scanned",
+      "unreadable_document_count",
+    ] as const,
     "selection summary",
   );
 }

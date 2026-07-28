@@ -13,7 +13,10 @@ const json = (body: unknown, ok = true, status = 200) =>
   } as Response);
 
 const selectionSummary = {
-  selected_document_count: 2,
+  google_document_count: 2,
+  nested_folder_count: 3,
+  skipped_non_document_count: 4,
+  pages_scanned: 5,
   unreadable_document_count: 0,
 };
 
@@ -185,9 +188,12 @@ describe("TranscriptCatalogMigrationPanel", () => {
     })) {
       expect(button).toBeDisabled();
     }
+    expect(
+      screen.queryByRole("button", { name: "Выбрать документы" }),
+    ).not.toBeInTheDocument();
   });
 
-  it("runs separate folder, document, dry-run, and apply flows", async () => {
+  it("runs separate recursive folder, dry-run, and apply flows", async () => {
     const fetchMock = vi.fn((url: string) => {
       if (url.endsWith("/api/google/picker/session")) {
         return sessionResponse();
@@ -231,24 +237,7 @@ describe("TranscriptCatalogMigrationPanel", () => {
       })
       .mockResolvedValueOnce({
         action: "picked",
-        docs: [
-          { id: "private-standard-first", name: "Лекция для обновления" },
-          { id: "private-standard-second", name: "Актуальная лекция" },
-        ],
-      })
-      .mockResolvedValueOnce({
-        action: "picked",
         docs: [{ id: "private-catalog-folder", name: "Архив каталога" }],
-      })
-      .mockResolvedValueOnce({
-        action: "picked",
-        docs: [
-          { id: "private-catalog-first", name: "Лекция для каталога" },
-          {
-            id: "private-catalog-second",
-            name: "Нестандартизированная лекция",
-          },
-        ],
       });
 
     renderPanel();
@@ -264,23 +253,14 @@ describe("TranscriptCatalogMigrationPanel", () => {
         name: "Выбрать папку",
       }),
     );
-    await userEvent.click(
-      within(standardization).getByRole("button", {
-        name: "Выбрать документы",
-      }),
-    );
     expect(picker).toHaveBeenNthCalledWith(
       1,
       "transcript-folder",
       expect.objectContaining({ access_token: "private-access-token" }),
     );
-    expect(picker).toHaveBeenNthCalledWith(
-      2,
-      "transcript-documents",
-      expect.objectContaining({ access_token: "private-access-token" }),
-      { parentId: "private-standard-folder" },
+    expect(standardization).toHaveTextContent(
+      "Будут проверены Google Docs в ней и всех подпапках",
     );
-    expect(standardization).toHaveTextContent("Выбрано документов: 2");
 
     await userEvent.click(
       within(standardization).getByRole("button", {
@@ -291,6 +271,11 @@ describe("TranscriptCatalogMigrationPanel", () => {
       "Результат dry-run: Стандартизация Google Docs",
     );
     expect(standardPreview).toHaveTextContent("Лекция для обновления");
+    expect(standardPreview).toHaveTextContent("Google Docs найдено");
+    expect(standardPreview).toHaveTextContent("Вложенных папок: 3");
+    expect(standardPreview).toHaveTextContent(
+      "Пропущено других файлов: 4",
+    );
     expect(standardPreview).not.toHaveTextContent(
       "Добавить метаданные в манифест",
     );
@@ -309,10 +294,10 @@ describe("TranscriptCatalogMigrationPanel", () => {
     await userEvent.click(
       within(catalog).getByRole("button", { name: "Выбрать папку" }),
     );
-    await userEvent.click(
-      within(catalog).getByRole("button", {
-        name: "Выбрать документы",
-      }),
+    expect(picker).toHaveBeenNthCalledWith(
+      2,
+      "transcript-folder",
+      expect.objectContaining({ access_token: "private-access-token" }),
     );
     await userEvent.click(
       within(catalog).getByRole("button", { name: "Запустить dry-run" }),
@@ -350,10 +335,6 @@ describe("TranscriptCatalogMigrationPanel", () => {
         method: "POST",
         body: JSON.stringify({
           folder_id: "private-standard-folder",
-          document_ids: [
-            "private-standard-first",
-            "private-standard-second",
-          ],
         }),
         headers: expect.objectContaining({
           "x-csrf-token": "csrf-safe",
@@ -370,10 +351,6 @@ describe("TranscriptCatalogMigrationPanel", () => {
         method: "POST",
         body: JSON.stringify({
           folder_id: "private-catalog-folder",
-          document_ids: [
-            "private-catalog-first",
-            "private-catalog-second",
-          ],
           confirm_apply: true,
         }),
       }),
@@ -381,9 +358,7 @@ describe("TranscriptCatalogMigrationPanel", () => {
     for (const privateValue of [
       "private-access-token",
       "private-standard-folder",
-      "private-standard-first",
       "private-catalog-folder",
-      "private-catalog-first",
     ]) {
       expect(document.body).not.toHaveTextContent(privateValue);
     }
@@ -408,14 +383,7 @@ describe("TranscriptCatalogMigrationPanel", () => {
       })
       .mockResolvedValueOnce({
         action: "picked",
-        docs: [
-          { id: "private-first", name: "Лекция 1" },
-          { id: "private-second", name: "Лекция 2" },
-        ],
-      })
-      .mockResolvedValueOnce({
-        action: "picked",
-        docs: [{ id: "private-third", name: "Лекция 3" }],
+        docs: [{ id: "private-other-folder", name: "Другой архив" }],
       });
     renderPanel();
     const region = screen.getByRole("region", {
@@ -426,9 +394,6 @@ describe("TranscriptCatalogMigrationPanel", () => {
       within(region).getByRole("button", { name: "Выбрать папку" }),
     );
     await userEvent.click(
-      within(region).getByRole("button", { name: "Выбрать документы" }),
-    );
-    await userEvent.click(
       within(region).getByRole("button", { name: "Запустить dry-run" }),
     );
     await within(region).findByLabelText(
@@ -436,7 +401,7 @@ describe("TranscriptCatalogMigrationPanel", () => {
     );
 
     await userEvent.click(
-      within(region).getByRole("button", { name: "Изменить документы" }),
+      within(region).getByRole("button", { name: "Сменить папку" }),
     );
 
     expect(
@@ -449,7 +414,7 @@ describe("TranscriptCatalogMigrationPanel", () => {
         name: "Подтвердить стандартизацию (1)",
       }),
     ).not.toBeInTheDocument();
-    expect(region).toHaveTextContent("Выбрано документов: 1");
+    expect(region).toHaveTextContent("Корневая папка: Другой архив");
   });
 
   it("requires a fresh dry-run after a safe apply failure", async () => {
@@ -479,13 +444,6 @@ describe("TranscriptCatalogMigrationPanel", () => {
       .mockResolvedValueOnce({
         action: "picked",
         docs: [{ id: "private-folder", name: "Изменяемый архив" }],
-      })
-      .mockResolvedValueOnce({
-        action: "picked",
-        docs: [
-          { id: "private-first", name: "Лекция 1" },
-          { id: "private-second", name: "Лекция 2" },
-        ],
       });
     renderPanel();
     const region = screen.getByRole("region", {
@@ -494,9 +452,6 @@ describe("TranscriptCatalogMigrationPanel", () => {
 
     await userEvent.click(
       within(region).getByRole("button", { name: "Выбрать папку" }),
-    );
-    await userEvent.click(
-      within(region).getByRole("button", { name: "Выбрать документы" }),
     );
     await userEvent.click(
       within(region).getByRole("button", { name: "Запустить dry-run" }),

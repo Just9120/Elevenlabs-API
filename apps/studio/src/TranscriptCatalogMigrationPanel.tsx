@@ -27,12 +27,10 @@ import {
 
 type BusyState =
   | "folder-picker"
-  | "document-picker"
   | "dry-run"
   | "apply"
   | null;
 type SelectedFolder = { id: string; name: string };
-type SelectedDocument = { id: string; name: string };
 type Mutate = <T>(path: string, options: RequestInit) => Promise<T>;
 
 const STANDARD_LABELS: Record<TranscriptStandardStatus, string> = {
@@ -162,7 +160,8 @@ const OPERATION_COPY = {
   standardization: {
     title: "Стандартизация Google Docs",
     description:
-      "Обновляет только явно выбранные Google Docs до transcript_doc_v1.2. " +
+      "Рекурсивно сканирует выбранную папку и обновляет подходящие Google Docs " +
+      "до transcript_doc_v1.2. Уже актуальные документы пропускаются. " +
       "Каталог Studio и состояние заданий не изменяются.",
     applyLabel: "Подтвердить стандартизацию",
     resultTitle: "Стандартизация завершена",
@@ -170,9 +169,10 @@ const OPERATION_COPY = {
   catalog_import: {
     title: "Манифест Studio",
     description:
-      "Добавляет в манифест Studio только метаданные выбранных актуальных " +
-      "документов. Отдельный manifest-файл не создаётся, Google Docs не " +
-      "изменяются.",
+      "Рекурсивно сканирует выбранную папку и добавляет в манифест Studio " +
+      "только метаданные подходящих актуальных документов. Уже учтённые " +
+      "документы пропускаются. Отдельный manifest-файл не создаётся, " +
+      "Google Docs не изменяются.",
     applyLabel: "Добавить в манифест Studio",
     resultTitle: "Манифест Studio обновлён",
   },
@@ -261,6 +261,22 @@ function Summary({
   );
 }
 
+function RecursiveScanDetails({
+  result,
+}: {
+  result: TranscriptMaintenanceDryRun;
+}) {
+  const summary = result.selection_summary;
+  return (
+    <p className="muted catalog-scan-details">
+      Вложенных папок: {summary.nested_folder_count}. Пропущено других файлов:{" "}
+      {summary.skipped_non_document_count}. Страниц Drive просканировано:{" "}
+      {summary.pages_scanned}. Не удалось прочитать документов:{" "}
+      {summary.unreadable_document_count}.
+    </p>
+  );
+}
+
 function StandardizationDryRunResult({
   result,
 }: {
@@ -271,8 +287,8 @@ function StandardizationDryRunResult({
       <Summary
         entries={[
           {
-            label: "Выбрано документов",
-            value: result.selection_summary.selected_document_count,
+            label: "Google Docs найдено",
+            value: result.selection_summary.google_document_count,
           },
           {
             label: "Будут стандартизированы",
@@ -282,6 +298,7 @@ function StandardizationDryRunResult({
           { label: "Заблокированы", value: result.summary.blocked_count },
         ]}
       />
+      <RecursiveScanDetails result={result} />
       <div className="catalog-migration-table-wrap">
         <table className="catalog-migration-table">
           <thead>
@@ -319,8 +336,8 @@ function CatalogDryRunResult({
       <Summary
         entries={[
           {
-            label: "Выбрано документов",
-            value: result.selection_summary.selected_document_count,
+            label: "Google Docs найдено",
+            value: result.selection_summary.google_document_count,
           },
           {
             label: "Будут добавлены в манифест",
@@ -330,6 +347,7 @@ function CatalogDryRunResult({
           { label: "Заблокированы", value: result.summary.blocked_count },
         ]}
       />
+      <RecursiveScanDetails result={result} />
       <div className="catalog-migration-table-wrap">
         <table className="catalog-migration-table">
           <thead>
@@ -492,24 +510,6 @@ function ApplyResult({ result }: { result: TranscriptMaintenanceApply }) {
   );
 }
 
-function normalizePickedDocuments(
-  docs: googlePicker.PickerSelection[],
-): SelectedDocument[] | null {
-  if (docs.length < 1 || docs.length > 50) return null;
-  const selected: SelectedDocument[] = [];
-  const seen = new Set<string>();
-  for (const doc of docs) {
-    const id = doc.id.trim();
-    if (!id || seen.has(id)) return null;
-    seen.add(id);
-    selected.push({
-      id,
-      name: safeName(doc.name, "Google Docs документ"),
-    });
-  }
-  return selected;
-}
-
 function MaintenanceOperationCard({
   workflow,
   pickerReady,
@@ -522,9 +522,6 @@ function MaintenanceOperationCard({
   const copy = OPERATION_COPY[workflow];
   const [selectedFolder, setSelectedFolder] =
     useState<SelectedFolder | null>(null);
-  const [selectedDocuments, setSelectedDocuments] = useState<
-    SelectedDocument[]
-  >([]);
   const [dryRun, setDryRun] = useState<TranscriptMaintenanceDryRun | null>(
     null,
   );
@@ -538,7 +535,6 @@ function MaintenanceOperationCard({
   useEffect(() => {
     if (pickerReady) return;
     setSelectedFolder(null);
-    setSelectedDocuments([]);
     setDryRun(null);
     setApplyResult(null);
   }, [pickerReady]);
@@ -578,50 +574,6 @@ function MaintenanceOperationCard({
         id: folder.id,
         name: safeName(folder.name, "Выбранная папка Google Drive"),
       });
-      setSelectedDocuments([]);
-      resetResult();
-    } catch (error) {
-      setMessage(
-        googlePickerFailureMessage(error) ??
-          "Не удалось открыть Google Picker.",
-      );
-    } finally {
-      pickerActive.current = false;
-      setBusy(null);
-    }
-  }
-
-  async function chooseDocuments() {
-    if (
-      !pickerReady ||
-      !selectedFolder ||
-      busy ||
-      pickerActive.current
-    ) {
-      return;
-    }
-    pickerActive.current = true;
-    setBusy("document-picker");
-    setMessage("");
-    try {
-      const result = await googlePicker.openGooglePicker(
-        "transcript-documents",
-        await pickerSession(),
-        { parentId: selectedFolder.id },
-      );
-      if (result.action === "cancel") return;
-      if (result.action === "error") {
-        setMessage(result.message);
-        return;
-      }
-      const documents = normalizePickedDocuments(result.docs);
-      if (!documents) {
-        setMessage(
-          "Выберите от 1 до 50 уникальных Google Docs в выбранной папке.",
-        );
-        return;
-      }
-      setSelectedDocuments(documents);
       resetResult();
     } catch (error) {
       setMessage(
@@ -638,7 +590,6 @@ function MaintenanceOperationCard({
     if (
       !pickerReady ||
       !selectedFolder ||
-      selectedDocuments.length === 0 ||
       busy ||
       operationActive.current
     ) {
@@ -655,7 +606,6 @@ function MaintenanceOperationCard({
           method: "POST",
           body: JSON.stringify({
             folder_id: selectedFolder.id,
-            document_ids: selectedDocuments.map((doc) => doc.id),
           }),
         },
       );
@@ -673,7 +623,6 @@ function MaintenanceOperationCard({
     if (
       !pickerReady ||
       !selectedFolder ||
-      selectedDocuments.length === 0 ||
       !dryRun ||
       dryRun.workflow !== workflow ||
       actionableCount(dryRun) === 0 ||
@@ -701,7 +650,6 @@ function MaintenanceOperationCard({
           method: "POST",
           body: JSON.stringify({
             folder_id: selectedFolder.id,
-            document_ids: selectedDocuments.map((doc) => doc.id),
             confirm_apply: true,
           }),
         },
@@ -729,8 +677,8 @@ function MaintenanceOperationCard({
       <h3 id={`transcript-maintenance-${workflow}-title`}>{copy.title}</h3>
       <p>{copy.description}</p>
       <p className="muted">
-        Сначала выберите папку, затем явно выберите документы. Dry-run ничего
-        не изменяет. Тексты документов не возвращаются в браузер.
+        Выберите корневую папку. Dry-run рекурсивно проверит её и все подпапки,
+        но ничего не изменит. Тексты документов не возвращаются в браузер.
       </p>
       <div className="actions">
         <button
@@ -746,22 +694,10 @@ function MaintenanceOperationCard({
         </button>
         <button
           type="button"
-          disabled={!pickerReady || !selectedFolder || busy !== null}
-          onClick={chooseDocuments}
-        >
-          {busy === "document-picker"
-            ? "Открываем документы…"
-            : selectedDocuments.length > 0
-              ? "Изменить документы"
-              : "Выбрать документы"}
-        </button>
-        <button
-          type="button"
           className="primary"
           disabled={
             !pickerReady ||
             !selectedFolder ||
-            selectedDocuments.length === 0 ||
             busy !== null
           }
           onClick={runDryRun}
@@ -771,8 +707,8 @@ function MaintenanceOperationCard({
       </div>
       {selectedFolder && (
         <p className="folder-status" role="status">
-          Папка: <b>{selectedFolder.name}</b>. Выбрано документов:{" "}
-          <b>{selectedDocuments.length}</b>.
+          Корневая папка: <b>{selectedFolder.name}</b>. Будут проверены Google
+          Docs в ней и всех подпапках.
         </p>
       )}
       {message && (
@@ -786,8 +722,8 @@ function MaintenanceOperationCard({
       {dryRun && dryRun.workflow === workflow && (
         <div className="catalog-migration-apply">
           <p>
-            Перед применением сервер заново проверит эту папку и тот же набор
-            документов. Preview не считается полномочием на другую операцию.
+            Перед применением сервер заново просканирует эту корневую папку и
+            все подпапки. Preview не считается полномочием на другую операцию.
           </p>
           <button
             type="button"
@@ -834,9 +770,9 @@ export function TranscriptCatalogMigrationPanel({
         Две независимые операции
       </h2>
       <p>
-        Стандартизация изменяет только выбранные Google Docs. Добавление в
-        манифест изменяет только метаданные Studio. Выбор, dry-run и
-        подтверждение у них раздельные.
+        Стандартизация изменяет только подходящие Google Docs в выбранном
+        дереве папок. Добавление в манифест изменяет только метаданные Studio.
+        Корневая папка, dry-run и подтверждение у операций раздельные.
       </p>
       {googleLoading && (
         <p className="notice">Проверяем подключение Google Drive…</p>
