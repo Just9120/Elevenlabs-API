@@ -23,7 +23,6 @@ def _document_payload(
 ) -> dict:
     content = [
         {
-            "startIndex": 0,
             "endIndex": 1,
             "sectionBreak": {},
         }
@@ -210,6 +209,23 @@ def test_standardizer_reads_one_tab_and_redacts_private_snapshot():
         assert private not in redacted
 
 
+def test_standardizer_accepts_omitted_zero_index_on_initial_section_break():
+    from studio_api.transcript_catalog_standardize import (
+        normalize_standardization_snapshot,
+    )
+
+    payload = _document_payload("Title\n\nPlain text body")
+    first = payload["tabs"][0]["documentTab"]["body"]["content"][0]
+    assert "startIndex" not in first
+
+    snapshot = normalize_standardization_snapshot(
+        payload,
+        expected_document_id="private-document",
+    )
+
+    assert snapshot.document_text == "Title\n\nPlain text body"
+
+
 def test_standardizer_rejects_multiple_tabs_and_non_text_content():
     from studio_api.transcript_catalog_standardize import (
         CatalogGoogleWriteError,
@@ -256,6 +272,20 @@ def test_standardizer_rejects_multiple_tabs_and_non_text_content():
         )
     assert (
         hidden_content.value.reason
+        == CatalogGoogleWriteReason.unsupported_content
+    )
+
+    payload = _document_payload("Body")
+    payload["tabs"][0]["documentTab"]["body"]["content"][0][
+        "startIndex"
+    ] = 2
+    with pytest.raises(CatalogGoogleWriteError) as noninitial_break:
+        normalize_standardization_snapshot(
+            payload,
+            expected_document_id="private-document",
+        )
+    assert (
+        noninitial_break.value.reason
         == CatalogGoogleWriteReason.unsupported_content
     )
 

@@ -322,9 +322,12 @@ def normalize_standardization_snapshot(
         end_index = max(end_index, raw_end_index)
         paragraph = structural_element.get("paragraph")
         if paragraph is None:
+            raw_start_index = structural_element.get("startIndex", 0)
             if (
                 "sectionBreak" in structural_element
-                and structural_element.get("startIndex") == 0
+                and not isinstance(raw_start_index, bool)
+                and isinstance(raw_start_index, int)
+                and raw_start_index == 0
                 and raw_end_index == 1
             ):
                 continue
