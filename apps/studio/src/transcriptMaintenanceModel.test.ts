@@ -57,6 +57,23 @@ describe("transcript maintenance response model", () => {
 
     expect(dryRun.items[0].action).toBe("standardize_document");
     expect(apply.items[0].outcome).toBe("standardized");
+    expect(
+      parseTranscriptStandardizationApply({
+        ...apply,
+        items: [
+          {
+            ...apply.items[0],
+            outcome: "blocked",
+            reason_code: "catalog_document_revision_changed",
+          },
+        ],
+        summary: {
+          standardized_count: 0,
+          already_current_count: 0,
+          blocked_count: 1,
+        },
+      }).items[0].reason_code,
+    ).toBe("catalog_document_revision_changed");
     expect(JSON.stringify(dryRun)).not.toContain("private-document");
     expect(JSON.stringify(dryRun)).not.toContain("private-google-payload");
     expect(() =>

@@ -66,6 +66,60 @@ def _response(status_code: int, payload: object) -> httpx.Response:
     )
 
 
+def test_document_forbidden_is_normalized_as_per_document_rejection():
+    from studio_api.transcript_catalog_standardize import (
+        CatalogGoogleDocumentSnapshot,
+        CatalogGoogleWriteError,
+        CatalogGoogleWriteReason,
+        GoogleTranscriptCatalogStandardizer,
+    )
+
+    reader = GoogleTranscriptCatalogStandardizer(
+        get=lambda *args, **kwargs: _response(
+            403,
+            {"error": "private-google-response"},
+        )
+    )
+    with pytest.raises(CatalogGoogleWriteError) as read_error:
+        reader.read_document(
+            access_token="private-access-token",
+            document_id="private-document",
+        )
+
+    writer = GoogleTranscriptCatalogStandardizer(
+        post=lambda *args, **kwargs: _response(
+            403,
+            {"error": "private-google-response"},
+        )
+    )
+    with pytest.raises(CatalogGoogleWriteError) as write_error:
+        writer.replace_document_text(
+            access_token="private-access-token",
+            snapshot=CatalogGoogleDocumentSnapshot(
+                document_id="private-document",
+                revision_id="private-revision",
+                tab_id="private-tab",
+                document_text="Private text",
+                end_index=2,
+            ),
+            document_text="Replacement",
+        )
+
+    assert (
+        read_error.value.reason
+        == CatalogGoogleWriteReason.request_rejected
+    )
+    assert (
+        write_error.value.reason
+        == CatalogGoogleWriteReason.request_rejected
+    )
+    for raised in (read_error.value, write_error.value):
+        rendered = str(raised)
+        assert "private-access-token" not in rendered
+        assert "private-document" not in rendered
+        assert "private-google-response" not in rendered
+
+
 def test_standardized_text_preserves_authoritative_metadata_and_body():
     from studio_api.transcript_catalog_standardize import (
         build_standardized_transcript_document_text,

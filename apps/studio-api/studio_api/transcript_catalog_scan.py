@@ -333,6 +333,7 @@ class GoogleTranscriptCatalogReader:
                 "includeTabsContent": "false",
             },
             not_found_reason=CatalogGoogleReadReason.document_not_found,
+            forbidden_reason=CatalogGoogleReadReason.request_rejected,
         )
         return extract_google_document_plain_text(payload)
 
@@ -343,6 +344,9 @@ class GoogleTranscriptCatalogReader:
         access_token: str,
         params: Mapping[str, str],
         not_found_reason: CatalogGoogleReadReason,
+        forbidden_reason: CatalogGoogleReadReason = (
+            CatalogGoogleReadReason.authentication_rejected
+        ),
     ) -> Mapping[str, Any]:
         headers = {
             "Authorization": f"Bearer {access_token}",
@@ -383,6 +387,7 @@ class GoogleTranscriptCatalogReader:
         _raise_for_catalog_status(
             response.status_code,
             not_found_reason=not_found_reason,
+            forbidden_reason=forbidden_reason,
         )
         try:
             payload = response.json()
@@ -603,11 +608,16 @@ def _raise_for_catalog_status(
     status_code: int,
     *,
     not_found_reason: CatalogGoogleReadReason,
+    forbidden_reason: CatalogGoogleReadReason = (
+        CatalogGoogleReadReason.authentication_rejected
+    ),
 ) -> None:
     if 200 <= status_code < 300:
         return
-    if status_code in {401, 403}:
+    if status_code == 401:
         reason = CatalogGoogleReadReason.authentication_rejected
+    elif status_code == 403:
+        reason = forbidden_reason
     elif status_code == 404:
         reason = not_found_reason
     elif status_code == 429:

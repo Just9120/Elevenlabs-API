@@ -503,7 +503,7 @@ def test_catalog_standard_classifier_matches_current_migration_contract(
     ("status_code", "expected_reason"),
     (
         (401, "authentication_rejected"),
-        (403, "authentication_rejected"),
+        (403, "request_rejected"),
         (404, "document_not_found"),
         (429, "rate_limited"),
         (503, "unavailable"),
@@ -540,6 +540,31 @@ def test_catalog_reader_normalizes_google_failures_without_raw_payload(
     assert "private-document-id" not in rendered
     assert "private-access-token" not in rendered
     assert "Private transcript body" not in rendered
+
+
+def test_recursive_folder_forbidden_still_aborts_as_authentication_failure():
+    from studio_api.transcript_catalog_scan import (
+        CatalogGoogleReadError,
+        CatalogGoogleReadReason,
+        GoogleTranscriptCatalogReader,
+    )
+
+    with pytest.raises(CatalogGoogleReadError) as raised:
+        GoogleTranscriptCatalogReader(
+            get=lambda *args, **kwargs: response(
+                403,
+                {"error": "private-google-response"},
+            )
+        ).scan_folder(
+            access_token="private-access-token",
+            folder_id="private-folder-id",
+        )
+
+    assert (
+        raised.value.reason
+        == CatalogGoogleReadReason.authentication_rejected
+    )
+    assert "private-google-response" not in str(raised.value)
 
 
 def test_catalog_reader_fails_closed_on_incomplete_or_unbounded_scan():

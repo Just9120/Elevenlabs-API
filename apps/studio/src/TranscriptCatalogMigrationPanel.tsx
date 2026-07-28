@@ -84,6 +84,24 @@ const REASON_LABELS: Record<MaintenanceReason, string> = {
   document_unreadable: "Документ недоступен для чтения",
   standardization_required: "Сначала стандартизируйте документ",
   catalog_metadata_conflict: "Метаданные Studio изменились",
+  catalog_document_unavailable:
+    "Документ стал недоступен во время применения",
+  catalog_document_write_rejected:
+    "Google Drive отклонил изменение документа",
+  catalog_document_revision_changed:
+    "Документ изменился после проверки",
+  catalog_document_multiple_tabs:
+    "Документ с несколькими вкладками не поддерживается",
+  catalog_document_content_unsupported:
+    "Структура документа не поддерживается",
+  catalog_document_classification_changed:
+    "Состояние документа изменилось после проверки",
+  catalog_document_empty:
+    "Пустой документ нельзя стандартизировать",
+  catalog_document_limit_exceeded:
+    "Документ слишком большой для безопасной стандартизации",
+  catalog_document_response_invalid:
+    "Google Docs вернул некорректную структуру документа",
 };
 const ERROR_MESSAGES: Record<string, string> = {
   catalog_google_connection_missing:

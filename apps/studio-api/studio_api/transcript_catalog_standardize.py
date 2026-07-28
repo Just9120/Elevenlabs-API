@@ -557,8 +557,10 @@ def _response_mapping(response: httpx.Response) -> Mapping[str, Any]:
 def _raise_for_read_status(status_code: int) -> None:
     if 200 <= status_code < 300:
         return
-    if status_code in {401, 403}:
+    if status_code == 401:
         reason = CatalogGoogleWriteReason.authentication_rejected
+    elif status_code == 403:
+        reason = CatalogGoogleWriteReason.request_rejected
     elif status_code == 404:
         reason = CatalogGoogleWriteReason.document_not_found
     elif status_code == 429:
@@ -573,8 +575,10 @@ def _raise_for_read_status(status_code: int) -> None:
 def _raise_for_write_status(status_code: int) -> None:
     if 200 <= status_code < 300:
         return
-    if status_code in {401, 403}:
+    if status_code == 401:
         reason = CatalogGoogleWriteReason.authentication_rejected
+    elif status_code == 403:
+        reason = CatalogGoogleWriteReason.request_rejected
     elif status_code == 404:
         reason = CatalogGoogleWriteReason.document_not_found
     elif status_code == 429:
