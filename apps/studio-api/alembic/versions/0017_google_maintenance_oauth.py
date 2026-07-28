@@ -13,6 +13,7 @@ revision = "0017_google_maintenance_oauth"
 down_revision = "0016_transcript_catalog_entries"
 branch_labels = None
 depends_on = None
+release_safety = "additive"
 
 PRIMARY_OAUTH_PURPOSE = "primary"
 
