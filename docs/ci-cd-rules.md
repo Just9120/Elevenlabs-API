@@ -193,6 +193,46 @@ Standard CD must not:
 
 Migrations, runtime changes, and stateful-service work must be separate explicit manual/operator-aware tasks with scope, validation, and rollback expectations.
 
+### Protected stateful release lane
+
+A dedicated stateful release lane is not standard component CD. It may automate
+one explicitly approved migration release only when all of these boundaries are
+present:
+
+- a protected GitHub environment pauses the job for a required reviewer before
+  production credentials or VPS commands are available;
+- a separate enable variable defaults to disabled and is switched on only after
+  the environment, secrets, runtime configuration, and VPS boundary are ready;
+- the VPS identity is dedicated to this lane and restricted by a root-owned
+  forced command; workflow input must never become arbitrary root shell;
+- the release is bound to the exact current `main` SHA and a clean trusted
+  checkout;
+- the candidate image is built and its immutable image identity is captured
+  before backup or migration;
+- PostgreSQL and Redis are healthy, the worker is safely stopped, and required
+  runtime secret files are present without printing their values;
+- exactly one direct Alembic successor is pending and that revision explicitly
+  declares the reviewed `additive` release class;
+- a new tagged pre-migration snapshot is created, identified relative to the
+  pre-run inventory, restored only into an isolated temporary verification
+  directory, and accepted only after one non-empty custom dump passes
+  `pg_restore --list`;
+- the migration executes once, revision equality is rechecked, only the API is
+  recreated from the captured image, and localhost plus public health pass
+  before a success marker is emitted.
+
+The lane must not run a downgrade, database restore, automatic retry, automatic
+rollback, worker deployment, provider call, Google side effect, nginx change,
+volume operation, or stateful-service recreation. A multiple, branched,
+unclassified, destructive, or already-partially-applied migration remains a
+separate operator task and must fail closed.
+
+An explicit manual dispatch may select the same protected lane for first
+activation or diagnosed recovery before any migration was applied. It does not
+authorize blind retry. If safe output reports `migration_applied=yes`, another
+workflow run is prohibited until an operator has diagnosed schema and API image
+state and selected a separate recovery action.
+
 ---
 
 ## Forbidden by default
@@ -276,7 +316,8 @@ Codex must not:
 - change unrelated application behavior;
 - change architecture;
 - touch stateful services;
-- add migrations or backup/restore;
+- add migrations or backup/restore to ordinary CI/CD; a user-requested,
+  separately protected stateful release lane must satisfy the contract above;
 - perform cleanup/hardening;
 - expand CI/CD beyond the requested task;
 - introduce a new deploy access model without explicit request;
@@ -308,3 +349,8 @@ CD is done when:
 - failed post-check cannot produce a success marker such as `DEPLOY_OK`;
 - success is reported only after validation;
 - rollback behavior is explicit or safely absent.
+
+A protected stateful release lane is done only when its ordinary source/CI
+checks pass and its setup prerequisites are documented. Source completion does
+not prove that the GitHub environment, forced-command key, VPS wrapper, backup,
+migration, deployed image, or public health has been configured or exercised.

@@ -100,16 +100,96 @@ Health evidence should include only safe status booleans/markers, component name
 
 ## Backup and migration order
 
-Manual migration rollout order is strict:
+Migration rollout order is strict:
 
 1. Verify PostgreSQL and Redis health/stateful-service identity.
-2. Create a tagged pre-migration PostgreSQL backup through the approved backup boundary.
-3. Confirm the backup completed and record only safe snapshot metadata.
-4. Run the manual migration command/script only after explicit operator confirmation.
-5. Verify production database revision equals repository Alembic head `0017_google_maintenance_oauth` where the deployment is expected to be current.
-6. Deploy or restart only the intended components.
+2. Build the exact candidate API image and verify that exactly one direct
+   repository migration is pending and classified `additive`.
+3. Create a new tagged pre-migration PostgreSQL backup through the approved
+   backup boundary.
+4. Identify that new snapshot relative to the pre-run inventory, restore it only
+   into an isolated temporary verification directory, and require one non-empty
+   custom dump with a valid `pg_restore --list`.
+5. Run the migration once only after explicit operator or protected-environment
+   approval.
+6. Verify production database revision equals repository Alembic head
+   `0017_google_maintenance_oauth`.
+7. Recreate only `studio-api` from the already captured candidate image, verify
+   running image identity, then verify localhost and public API health.
 
-Operator-safe tagged backup command:
+Ordinary web/API/worker component CD does not own this sequence. The preferred
+automated path is the separately protected migration release lane below. The
+manual commands remain a fallback for a diagnosed operator task.
+
+### Approval-gated migration release lane
+
+`.github/workflows/studio-platform-cd.yml` detects Alembic changes but keeps the
+lane disabled unless repository variable
+`STUDIO_MIGRATION_RELEASE_ENABLED=true`. A selected release job enters GitHub
+environment `studio-production-migration`, waits for its required reviewer, and
+only then receives its dedicated environment secrets. It sends exactly
+`release <main-sha>` to a dedicated root SSH key whose forced command is
+`/usr/local/sbin/studio-migration-release-wrapper`.
+
+The root-owned wrapper accepts no other command. It locks the release,
+fast-forwards the clean `studio-deploy` checkout to the exact current remote
+`main`, materializes the versioned runner from that SHA, clears the SSH
+environment, and executes the runner. The runner requires root-owned protected
+backup/OAuth secret files, healthy PostgreSQL/Redis/API, and a stopped worker.
+It builds the API candidate, verifies the one direct additive migration,
+creates and restores a new tagged snapshot for dump validation, migrates once,
+recreates only API from the captured image ID, and emits success only after
+local/public health.
+
+One-time setup must be completed in this order:
+
+1. Merge the reviewed workflow, wrapper, runner, and tests to `main`; keep
+   `STUDIO_MIGRATION_RELEASE_ENABLED` absent or `false`.
+2. Create GitHub environment `studio-production-migration`, add at least one
+   required reviewer, and keep environment secrets scoped to that environment.
+   If the sole operator is also the workflow initiator, do not enable
+   prevent-self-review or that operator cannot approve the deployment.
+3. Add environment secrets `STUDIO_MIGRATION_DEPLOY_HOST`,
+   `STUDIO_MIGRATION_SSH_KEY`, and `STUDIO_MIGRATION_KNOWN_HOSTS`. Use a new
+   dedicated Ed25519 key; do not reuse the ordinary deploy key. Verify the host
+   key out of band before storing the known-hosts entry.
+4. On the VPS, require a clean `main` checkout owned by `studio-deploy`, then
+   install the reviewed wrapper as a root-owned regular file:
+
+   ```bash
+   sudo install \
+     -o root -g root -m 0755 \
+     /opt/elevenlabs-studio/deploy/studio/studio-migration-release-wrapper.sh \
+     /usr/local/sbin/studio-migration-release-wrapper
+   ```
+
+5. Add only the dedicated public key to root's `authorized_keys` with this
+   forced-command shape; replace the placeholder with the public key, never the
+   private key:
+
+   ```text
+   restrict,command="/usr/local/sbin/studio-migration-release-wrapper" ssh-ed25519 <DEDICATED_MIGRATION_PUBLIC_KEY>
+   ```
+
+6. Verify `/etc/elevenlabs-studio/backup.env`, its referenced restic/R2 files,
+   and the primary plus maintenance OAuth secret files are root-owned regular
+   files with mode `0400` or `0600`. Runtime `.env` must contain complete,
+   distinct primary/maintenance OAuth configuration without multiline or
+   placeholder assignments.
+7. Set `STUDIO_MIGRATION_RELEASE_ENABLED=true` last. For the first rollout,
+   dispatch `component=migration` from `main`, then approve the waiting
+   environment deployment in the GitHub UI. Later merged migration changes may
+   select the same approval gate automatically.
+
+The lane never starts or deploys the worker, calls providers or Google, reloads
+nginx, restores into PostgreSQL, downgrades, retries, or rolls back. A manual
+dispatch is not retry authority. If a failure marker reports
+`migration_applied=yes`, do not rerun the workflow: inspect the exact database
+revision and candidate/running API image, then choose a separate manual recovery
+action. If it reports `migration_applied=no`, correct the diagnosed blocker and
+obtain a new environment approval before another attempt.
+
+### Manual fallback
 
 ```bash
 cd /opt/elevenlabs-studio
@@ -120,17 +200,23 @@ STUDIO_BACKUP_TAG=pre-migration \
 
 Only documented backup tags are allowed by the script: `scheduled` and `pre-migration`. Confirm backup success before setting migration confirmation.
 
-Operator-safe migration command after backup confirmation:
+The fallback migration command also requires the verified full snapshot ID,
+the exact current and target revisions, and the captured API image ID:
 
 ```bash
 STUDIO_DEPLOY_DIR=/opt/elevenlabs-studio \
 STUDIO_PRE_MIGRATION_BACKUP_CONFIRMED=yes \
+STUDIO_PRE_MIGRATION_BACKUP_SNAPSHOT=__REQUIRED_64_HEX_SNAPSHOT_ID__ \
+STUDIO_EXPECTED_MIGRATION_FROM=0016_transcript_catalog_entries \
+STUDIO_EXPECTED_MIGRATION_TO=0017_google_maintenance_oauth \
+STUDIO_EXPECTED_API_IMAGE_ID=sha256:__REQUIRED_64_HEX_IMAGE_ID__ \
   scripts/migrate_studio_platform.sh
 ```
 
-The migration script requires explicit `STUDIO_PRE_MIGRATION_BACKUP_CONFIRMED=yes`; it does not create a backup automatically. These commands must not print secret values. Backup/restore remains operator-scoped, and standard CD must not perform these steps.
-
-Do not claim or implement automatic migrations. Standard CD must not run migrations.
+The migration script does not create or verify the backup and does not deploy
+API; the caller must establish every value above from the same reviewed
+candidate. These commands must not print secret values. Do not use the manual
+fallback to bypass the protected lane or to retry a partially applied release.
 
 ## Backup and restore rehearsal
 
@@ -178,7 +264,7 @@ Google Docs standardization and **Манифест Studio** are two separately i
 ### Preconditions
 
 - Use only merged `main` with green required CI and verified web/API commit and image identities.
-- Create and record a successful tagged pre-migration PostgreSQL backup before applying repository Alembic head `0017_google_maintenance_oauth`; standard CD must not create the backup or run the migration.
+- Create and record a successful tagged pre-migration PostgreSQL backup before applying repository Alembic head `0017_google_maintenance_oauth`; use either the approved manual boundary or the separately protected migration lane, never ordinary component CD.
 - Verify public and localhost health, API migration readiness, and an authenticated owner-scoped session.
 - Verify the primary Picker connection remains limited to `openid email drive.file`, then complete the separate server-only maintenance consent with the same Google account and exact maintenance scope boundary.
 - Prepare a small approved recursive canary root containing copies or otherwise explicitly approved representative documents and one approved single-document canary. The server scans the entire selected root tree in folder mode and only the exact selected native Google Doc in document mode; stop if either boundary differs from the approved target.
@@ -213,7 +299,7 @@ Web and API are separate deployable components.
 - Web deployment rebuilds/recreates only the web component, verifies image identity, then checks localhost health.
 - API deployment rebuilds/recreates only the API component, verifies image identity, then checks localhost API health and migration readiness.
 - A migration mismatch blocks API deploy success/readiness.
-- Standard CD does not deploy/start/recreate `studio-worker` and does not maintain PostgreSQL, Redis, migrations, backups, restores, nginx, volumes, runtime secrets, or stateful services.
+- Ordinary component CD does not deploy/start/recreate `studio-worker` and does not maintain PostgreSQL, Redis, migrations, backups, restores, nginx, volumes, runtime secrets, or stateful services. The distinct protected migration lane is limited to the sequence documented above.
 - Failed component health checks fail loudly and must not trigger unreviewed destructive rollback.
 
 ## Manual processing preflight
@@ -407,11 +493,17 @@ Safe evidence may include the intended repository commit SHA, the commit-specifi
 
 ### Manual-only workflow dispatch
 
-GitHub Actions supports manual `workflow_dispatch(component=worker)` using the same SSH access model and a materialized trusted deploy script. Push events never auto-deploy the worker, including worker-only source changes. The workflow does not automatically drain, run migrations, run backups, run canaries, or run rollback.
+GitHub Actions supports manual `workflow_dispatch(component=worker)` using the
+ordinary deploy SSH model and a materialized trusted deploy script. Push events
+never auto-deploy the worker, including worker-only source changes. The separate
+`workflow_dispatch(component=migration)` path uses the protected environment and
+dedicated root forced-command identity described above; it is available for
+first activation but is not blind retry authority. Neither path drains workers,
+runs canaries, calls providers/Google, or performs automatic rollback.
 
 ## Output reconciliation operations boundary
 
-`PWA-OUTPUT-RECONCILIATION-01` uses schema introduced by `0012_output_reconciliation_cases` and is part of the operator-evidenced production baseline migrated through `0015_user_source_retention`. The later catalog and maintenance OAuth migrations `0016_transcript_catalog_entries` and `0017_google_maintenance_oauth` do not gate reconciliation behavior. Any future API/worker revision still requires schema compatibility and component identity checks; standard CD must not run migrations automatically.
+`PWA-OUTPUT-RECONCILIATION-01` uses schema introduced by `0012_output_reconciliation_cases` and is part of the operator-evidenced production baseline migrated through `0015_user_source_retention`. The later catalog and maintenance OAuth migrations `0016_transcript_catalog_entries` and `0017_google_maintenance_oauth` do not gate reconciliation behavior. Any future API/worker revision still requires schema compatibility and component identity checks; ordinary component CD must not run migrations.
 
 When a job fails with `output_reconciliation_required`, the owner may use the Studio PWA action or API check endpoint to query Drive by the internal opaque appProperty token and the job output-folder snapshot. Operators must not ask users for raw Google document IDs, must not create duplicate Google Docs, must not delete possible duplicates, must not retry provider processing as reconciliation, and must not inspect transcript/document bodies as evidence. Zero matches remain unresolved for later explicit checks. Multiple matches are a conflict requiring manual investigation outside the automated path.
 
