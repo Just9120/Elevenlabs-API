@@ -32,19 +32,35 @@ def _outdated_text(marker: str) -> str:
     )
 
 
-class SelectedReader:
-    def __init__(self, *, documents, texts):
+class RecursiveReader:
+    def __init__(
+        self,
+        *,
+        documents,
+        texts,
+        nested_folder_count=2,
+        skipped_non_document_count=1,
+        pages_scanned=3,
+    ):
         self.documents = documents
         self.texts = texts
+        self.nested_folder_count = nested_folder_count
+        self.skipped_non_document_count = skipped_non_document_count
+        self.pages_scanned = pages_scanned
         self.calls = []
 
-    def inspect_selected_documents(self, **kwargs):
+    def scan_folder(self, **kwargs):
         from studio_api.transcript_catalog_scan import (
-            CatalogGoogleDocumentSelection,
+            CatalogGoogleFolderScan,
         )
 
-        self.calls.append(("inspect", kwargs))
-        return CatalogGoogleDocumentSelection(documents=self.documents)
+        self.calls.append(("scan", kwargs))
+        return CatalogGoogleFolderScan(
+            documents=self.documents,
+            nested_folder_count=self.nested_folder_count,
+            skipped_non_document_count=self.skipped_non_document_count,
+            pages_scanned=self.pages_scanned,
+        )
 
     def read_document_text(self, **kwargs):
         self.calls.append(("read", kwargs))
@@ -76,7 +92,7 @@ def test_standardization_dry_run_has_no_catalog_authority_or_import_action():
         build_transcript_standardization_dry_run,
     )
 
-    reader = SelectedReader(
+    reader = RecursiveReader(
         documents=(
             _document("private-current", "Current"),
             _document("private-outdated", "Outdated"),
@@ -94,11 +110,6 @@ def test_standardization_dry_run_has_no_catalog_authority_or_import_action():
     payload = build_transcript_standardization_dry_run(
         access_token="private-access-token",
         folder_id="private-folder",
-        document_ids=(
-            "private-current",
-            "private-outdated",
-            "private-unreadable",
-        ),
         reader=reader,
     )
 
@@ -109,19 +120,17 @@ def test_standardization_dry_run_has_no_catalog_authority_or_import_action():
         "blocked",
     ]
     assert payload["selection_summary"] == {
-        "selected_document_count": 3,
+        "google_document_count": 3,
+        "nested_folder_count": 2,
+        "skipped_non_document_count": 1,
+        "pages_scanned": 3,
         "unreadable_document_count": 1,
     }
     assert reader.calls[0] == (
-        "inspect",
+        "scan",
         {
             "access_token": "private-access-token",
             "folder_id": "private-folder",
-            "document_ids": (
-                "private-current",
-                "private-outdated",
-                "private-unreadable",
-            ),
         },
     )
     encoded = json.dumps(payload, ensure_ascii=False)
@@ -139,7 +148,7 @@ def test_standardization_dry_run_has_no_catalog_authority_or_import_action():
         assert private not in encoded
 
 
-def test_catalog_import_dry_run_is_selected_only_and_has_no_google_action():
+def test_catalog_import_dry_run_is_recursive_and_has_no_google_action():
     from studio_api.transcript_catalog_dry_run import (
         CatalogImportAuthority,
     )
@@ -151,7 +160,7 @@ def test_catalog_import_dry_run_is_selected_only_and_has_no_google_action():
         build_transcript_catalog_import_dry_run,
     )
 
-    reader = SelectedReader(
+    reader = RecursiveReader(
         documents=(
             _document("private-current", "Current"),
             _document("private-outdated", "Outdated"),
@@ -182,7 +191,6 @@ def test_catalog_import_dry_run_is_selected_only_and_has_no_google_action():
         owner_user_id="private-owner",
         access_token="private-access-token",
         folder_id="private-folder",
-        document_ids=("private-current", "private-outdated"),
         reader=reader,
         authority_loader=load_authority,
     )
@@ -203,7 +211,10 @@ def test_catalog_import_dry_run_is_selected_only_and_has_no_google_action():
         ("blocked", "standardization_required"),
     ]
     assert payload["selection_summary"] == {
-        "selected_document_count": 2,
+        "google_document_count": 2,
+        "nested_folder_count": 2,
+        "skipped_non_document_count": 1,
+        "pages_scanned": 3,
         "unreadable_document_count": 0,
     }
     encoded = json.dumps(payload, ensure_ascii=False)
@@ -226,7 +237,7 @@ def test_catalog_import_requires_exact_selected_authority_coverage():
         build_transcript_catalog_import_dry_run,
     )
 
-    reader = SelectedReader(
+    reader = RecursiveReader(
         documents=(_document("private-document", "Document"),),
         texts={"private-document": _current_text("private-body")},
     )
@@ -237,29 +248,59 @@ def test_catalog_import_requires_exact_selected_authority_coverage():
             owner_user_id="private-owner",
             access_token="private-access-token",
             folder_id="private-folder",
-            document_ids=("private-document",),
             reader=reader,
             authority_loader=lambda *args, **kwargs: {},
         )
 
 
-def test_dry_run_rejects_incomplete_selected_evidence():
+def test_dry_run_rejects_duplicate_recursive_scan_evidence():
     from studio_api.transcript_maintenance_dry_run import (
         build_transcript_standardization_dry_run,
     )
 
-    reader = SelectedReader(
-        documents=(_document("private-first", "First"),),
+    reader = RecursiveReader(
+        documents=(
+            _document("private-first", "First"),
+            _document("private-first", "Duplicate"),
+        ),
         texts={"private-first": _current_text("private-body")},
     )
 
-    with pytest.raises(ValueError, match="coverage"):
+    with pytest.raises(ValueError, match="scan evidence"):
         build_transcript_standardization_dry_run(
             access_token="private-access-token",
             folder_id="private-folder",
-            document_ids=("private-first", "private-second"),
             reader=reader,
         )
+
+
+def test_empty_recursive_document_is_blocked_without_aborting_siblings():
+    from studio_api.transcript_maintenance_dry_run import (
+        build_transcript_standardization_dry_run,
+    )
+
+    reader = RecursiveReader(
+        documents=(
+            _document("private-empty", "Empty"),
+            _document("private-current", "Current"),
+        ),
+        texts={
+            "private-empty": "",
+            "private-current": _current_text("private-body"),
+        },
+    )
+
+    payload = build_transcript_standardization_dry_run(
+        access_token="private-access-token",
+        folder_id="private-folder",
+        reader=reader,
+    )
+
+    assert [item["action"] for item in payload["items"]] == [
+        "blocked",
+        "unchanged",
+    ]
+    assert payload["selection_summary"]["unreadable_document_count"] == 1
 
 
 def test_selection_inspection_repr_redacts_private_evidence():
@@ -271,16 +312,16 @@ def test_selection_inspection_repr_redacts_private_evidence():
     standardization = TranscriptStandardizationSelectionInspection(
         candidates=("private-candidate",),
         created_time_by_document_id={"private-document": "private-time"},
-        selection_summary={"selected_document_count": 1},
+        selection_summary={"google_document_count": 1},
     )
     catalog_import = TranscriptCatalogImportSelectionInspection(
         candidates=("private-candidate",),
-        selection_summary={"selected_document_count": 1},
+        selection_summary={"google_document_count": 1},
     )
 
     rendered = repr((standardization, catalog_import))
     assert "candidate_count=1" in rendered
-    assert "selected_document_count" in rendered
+    assert "google_document_count" in rendered
     assert "private-candidate" not in rendered
     assert "private-document" not in rendered
     assert "private-time" not in rendered

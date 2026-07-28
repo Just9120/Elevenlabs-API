@@ -17,13 +17,11 @@ from .transcript_catalog_migration import (
 )
 from .transcript_catalog_scan import (
     CatalogGoogleDocumentMetadata,
+    CatalogGoogleFolderScan,
     CatalogGoogleReadError,
     CatalogGoogleReadReason,
     GoogleTranscriptCatalogReader,
     classify_transcript_document_standard,
-)
-from .transcript_document_selection import (
-    normalize_transcript_document_selection,
 )
 
 
@@ -36,7 +34,7 @@ PER_DOCUMENT_UNREADABLE_REASONS = {
 
 @dataclass(frozen=True)
 class TranscriptStandardizationSelectionInspection:
-    """Private, revalidated evidence for one standardization operation."""
+    """Private recursive-folder evidence for one standardization operation."""
 
     candidates: tuple[TranscriptStandardizationCandidate, ...] = field(
         repr=False
@@ -58,7 +56,7 @@ class TranscriptStandardizationSelectionInspection:
 
 @dataclass(frozen=True)
 class TranscriptCatalogImportSelectionInspection:
-    """Private, revalidated evidence for one catalog-import operation."""
+    """Private recursive-folder evidence for one catalog-import operation."""
 
     candidates: tuple[CatalogMigrationCandidate, ...] = field(repr=False)
     selection_summary: dict[str, int]
@@ -84,10 +82,10 @@ def build_transcript_standardization_dry_run(
     *,
     access_token: str,
     folder_id: str,
-    document_ids: tuple[str, ...],
+    document_ids: tuple[str, ...] | None = None,
     reader: GoogleTranscriptCatalogReader | None = None,
 ) -> dict:
-    """Classify selected Docs without catalog access or any mutation."""
+    """Classify every Doc in one recursive folder without mutation."""
 
     inspection = inspect_transcript_standardization_selection(
         access_token=access_token,
@@ -107,15 +105,14 @@ def inspect_transcript_standardization_selection(
     *,
     access_token: str,
     folder_id: str,
-    document_ids: tuple[str, ...],
+    document_ids: tuple[str, ...] | None = None,
     reader: GoogleTranscriptCatalogReader | None = None,
 ) -> TranscriptStandardizationSelectionInspection:
-    """Rebuild standardization evidence from the explicit selected set."""
+    """Rebuild standardization evidence from the recursive selected root."""
 
-    evidence, selection_summary = _inspect_selected_transcripts(
+    evidence, selection_summary = _inspect_folder_transcripts(
         access_token=access_token,
         folder_id=folder_id,
-        document_ids=document_ids,
         reader=reader,
     )
     return TranscriptStandardizationSelectionInspection(
@@ -140,12 +137,12 @@ def build_transcript_catalog_import_dry_run(
     owner_user_id: str,
     access_token: str,
     folder_id: str,
-    document_ids: tuple[str, ...],
+    document_ids: tuple[str, ...] | None = None,
     reader: GoogleTranscriptCatalogReader | None = None,
     authority_loader: Callable[..., dict[str, CatalogImportAuthority]]
     | None = None,
 ) -> dict:
-    """Classify selected Docs for metadata import without any mutation."""
+    """Classify every recursive Doc for metadata import without mutation."""
 
     inspection = inspect_transcript_catalog_import_selection(
         db,
@@ -170,18 +167,17 @@ def inspect_transcript_catalog_import_selection(
     owner_user_id: str,
     access_token: str,
     folder_id: str,
-    document_ids: tuple[str, ...],
+    document_ids: tuple[str, ...] | None = None,
     reader: GoogleTranscriptCatalogReader | None = None,
     authority_loader: Callable[..., dict[str, CatalogImportAuthority]]
     | None = None,
 ) -> TranscriptCatalogImportSelectionInspection:
-    """Rebuild catalog-import evidence from the explicit selected set."""
+    """Rebuild catalog-import evidence from the recursive selected root."""
 
     owner_id = _private_identity(owner_user_id, label="owner")
-    evidence, selection_summary = _inspect_selected_transcripts(
+    evidence, selection_summary = _inspect_folder_transcripts(
         access_token=access_token,
         folder_id=folder_id,
-        document_ids=document_ids,
         reader=reader,
     )
     selected_document_ids = tuple(
@@ -214,28 +210,18 @@ def inspect_transcript_catalog_import_selection(
     )
 
 
-def _inspect_selected_transcripts(
+def _inspect_folder_transcripts(
     *,
     access_token: str,
     folder_id: str,
-    document_ids: tuple[str, ...],
     reader: GoogleTranscriptCatalogReader | None,
 ) -> tuple[tuple[_SelectedTranscriptEvidence, ...], dict[str, int]]:
-    selection = normalize_transcript_document_selection(
-        folder_id=folder_id,
-        document_ids=document_ids,
-    )
     catalog_reader = reader or GoogleTranscriptCatalogReader()
-    selected = catalog_reader.inspect_selected_documents(
+    scan = catalog_reader.scan_folder(
         access_token=access_token,
-        folder_id=selection.folder_id,
-        document_ids=selection.document_ids,
+        folder_id=folder_id,
     )
-    documents = tuple(selected.documents)
-    _require_exact_selection_coverage(
-        documents,
-        selected_document_ids=selection.document_ids,
-    )
+    documents = _validated_recursive_documents(scan)
 
     evidence = []
     unreadable_document_count = 0
@@ -248,6 +234,9 @@ def _inspect_selected_transcripts(
             standard_status = classify_transcript_document_standard(
                 document_text
             )
+            if not document_text:
+                standard_status = CatalogDocumentStandardStatus.unreadable
+                unreadable_document_count += 1
             del document_text
         except CatalogGoogleReadError as exc:
             if exc.reason not in PER_DOCUMENT_UNREADABLE_REASONS:
@@ -265,17 +254,38 @@ def _inspect_selected_transcripts(
     return (
         tuple(evidence),
         {
-            "selected_document_count": len(evidence),
+            "google_document_count": len(evidence),
+            "nested_folder_count": scan.nested_folder_count,
+            "skipped_non_document_count": (
+                scan.skipped_non_document_count
+            ),
+            "pages_scanned": scan.pages_scanned,
             "unreadable_document_count": unreadable_document_count,
         },
     )
 
 
-def _require_exact_selection_coverage(
-    documents: tuple[CatalogGoogleDocumentMetadata, ...],
-    *,
-    selected_document_ids: tuple[str, ...],
-) -> None:
+def _validated_recursive_documents(
+    scan: CatalogGoogleFolderScan,
+) -> tuple[CatalogGoogleDocumentMetadata, ...]:
+    if not isinstance(scan, CatalogGoogleFolderScan):
+        raise ValueError("Recursive transcript scan evidence is invalid")
+    documents = scan.documents
+    if not isinstance(documents, tuple):
+        raise ValueError("Recursive transcript scan evidence is invalid")
+    for value in (
+        scan.nested_folder_count,
+        scan.skipped_non_document_count,
+        scan.pages_scanned,
+    ):
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or value < 0
+        ):
+            raise ValueError("Recursive transcript scan evidence is invalid")
+    if scan.pages_scanned < 1:
+        raise ValueError("Recursive transcript scan evidence is invalid")
     if any(
         not isinstance(document, CatalogGoogleDocumentMetadata)
         for document in documents
@@ -286,9 +296,10 @@ def _require_exact_selection_coverage(
     )
     if (
         len(inspected_ids) != len(set(inspected_ids))
-        or set(inspected_ids) != set(selected_document_ids)
+        or any(not isinstance(value, str) or not value for value in inspected_ids)
     ):
-        raise ValueError("Selected transcript evidence coverage is incomplete")
+        raise ValueError("Recursive transcript scan evidence is invalid")
+    return documents
 
 
 def _private_identity(value: object, *, label: str) -> str:
