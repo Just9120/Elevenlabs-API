@@ -172,3 +172,115 @@ def test_connection_access_maps_safe_refresh_reason(
         )
 
     assert exc.value.reason.value == expected_reason
+
+
+def maintenance_connection(**overrides):
+    from studio_api.models import GoogleConnectionStatus
+
+    values = {
+        "id": "connection",
+        "status": GoogleConnectionStatus.active,
+        "google_subject": "same-google-subject",
+        "maintenance_google_subject": "same-google-subject",
+        "maintenance_scopes": (
+            "openid email "
+            "https://www.googleapis.com/auth/drive.metadata.readonly "
+            "https://www.googleapis.com/auth/documents"
+        ),
+        "maintenance_refresh_token_ciphertext": b"maintenance-ciphertext",
+        "maintenance_refresh_token_nonce": b"maintenance-nonce",
+        "maintenance_key_id": "maintenance-key",
+        "maintenance_revoked_at": None,
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
+def test_maintenance_access_uses_separate_grant_and_aad(monkeypatch):
+    monkeypatch.setenv("STUDIO_DATABASE_URL", "sqlite+pysqlite:///:memory:")
+    from studio_api import google_connection_access as access
+
+    connection = maintenance_connection(
+        refresh_token_ciphertext=b"picker-ciphertext",
+        refresh_token_nonce=b"picker-nonce",
+        key_id="picker-key",
+    )
+    calls = {}
+
+    monkeypatch.setattr(
+        access,
+        "load_google_maintenance_oauth_config",
+        lambda _settings: config(),
+    )
+    monkeypatch.setattr(access, "master_key_from_b64", lambda _value: b"key")
+
+    def fake_decrypt(ciphertext, nonce, key, additional_data):
+        calls["decrypt"] = (ciphertext, nonce, key, additional_data)
+        return "maintenance-refresh-value"
+
+    def fake_refresh(_config, refresh_token):
+        calls["refresh"] = refresh_token
+        return "maintenance-access-value"
+
+    monkeypatch.setattr(access, "decrypt", fake_decrypt)
+    monkeypatch.setattr(access, "refresh_access_token", fake_refresh)
+
+    result = access.refresh_user_google_maintenance_access_token(
+        FakeDb(connection),
+        user_id="user",
+        settings=SimpleNamespace(master_key_b64=lambda: "master"),
+    )
+
+    assert result == "maintenance-access-value"
+    assert calls["decrypt"] == (
+        b"maintenance-ciphertext",
+        b"maintenance-nonce",
+        b"key",
+        access.google_maintenance_token_aad("user", "connection"),
+    )
+    assert calls["refresh"] == "maintenance-refresh-value"
+
+
+@pytest.mark.parametrize(
+    ("overrides", "expected_reason"),
+    [
+        (
+            {"maintenance_refresh_token_ciphertext": None},
+            "google_maintenance_connection_missing",
+        ),
+        (
+            {"maintenance_revoked_at": object()},
+            "google_maintenance_connection_inactive",
+        ),
+        (
+            {"maintenance_google_subject": "different-google-subject"},
+            "google_maintenance_account_mismatch",
+        ),
+        (
+            {"maintenance_scopes": "openid email"},
+            "google_scope_unavailable",
+        ),
+    ],
+)
+def test_maintenance_access_fails_closed_before_refresh(
+    monkeypatch,
+    overrides,
+    expected_reason,
+):
+    monkeypatch.setenv("STUDIO_DATABASE_URL", "sqlite+pysqlite:///:memory:")
+    from studio_api import google_connection_access as access
+
+    monkeypatch.setattr(
+        access,
+        "refresh_access_token",
+        lambda *_args: pytest.fail("refresh must not run"),
+    )
+
+    with pytest.raises(access.GoogleConnectionAccessError) as exc:
+        access.refresh_user_google_maintenance_access_token(
+            FakeDb(maintenance_connection(**overrides)),
+            user_id="user",
+            settings=SimpleNamespace(master_key_b64=lambda: "master"),
+        )
+
+    assert exc.value.reason.value == expected_reason
