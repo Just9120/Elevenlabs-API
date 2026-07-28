@@ -16,6 +16,13 @@ class CommandExecuted(RuntimeError):
     pass
 
 
+def test_maintenance_oauth_secret_has_dedicated_runtime_target() -> None:
+    assert entrypoint.SECRET_FILES[
+        "STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE"
+    ] == "studio_google_maintenance_oauth_client_secret"
+    assert len(set(entrypoint.SECRET_FILES.values())) == len(entrypoint.SECRET_FILES)
+
+
 def stop_at_exec(events: list[object]):
     def fake_exec(command):
         events.append(("exec", list(command)))

@@ -46,6 +46,10 @@ services:
       STUDIO_GOOGLE_OAUTH_REDIRECT_URI: ${STUDIO_GOOGLE_OAUTH_REDIRECT_URI:-}
       STUDIO_GOOGLE_OAUTH_SCOPES: ${STUDIO_GOOGLE_OAUTH_SCOPES:-openid email https://www.googleapis.com/auth/drive.file}
       STUDIO_GOOGLE_OAUTH_STATE_TTL_SECONDS: ${STUDIO_GOOGLE_OAUTH_STATE_TTL_SECONDS:-600}
+      STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_ID: ${STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_ID:-}
+      STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE: /run/studio-runtime-secrets/studio_google_maintenance_oauth_client_secret
+      STUDIO_GOOGLE_MAINTENANCE_OAUTH_REDIRECT_URI: ${STUDIO_GOOGLE_MAINTENANCE_OAUTH_REDIRECT_URI:-}
+      STUDIO_GOOGLE_MAINTENANCE_OAUTH_SCOPES: ${STUDIO_GOOGLE_MAINTENANCE_OAUTH_SCOPES:-openid email https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/documents}
       STUDIO_GOOGLE_PICKER_API_KEY: ${STUDIO_GOOGLE_PICKER_API_KEY:-}
       STUDIO_GOOGLE_PICKER_APP_ID: ${STUDIO_GOOGLE_PICKER_APP_ID:-}
     secrets:
@@ -54,6 +58,7 @@ services:
       - studio_source_s3_access_key_id
       - studio_source_s3_secret_access_key
       - studio_google_oauth_client_secret
+      - studio_google_maintenance_oauth_client_secret
     tmpfs:
       - /run/studio-runtime-secrets:mode=0711,uid=0,gid=0
     depends_on:
@@ -145,5 +150,7 @@ secrets:
     file: ${STUDIO_SOURCE_S3_SECRET_ACCESS_KEY_FILE:?source S3 secret access key secret file required}
   studio_google_oauth_client_secret:
     file: ${STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE:-./optional-empty-secret}
+  studio_google_maintenance_oauth_client_secret:
+    file: ${STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE:-./optional-empty-secret}
 volumes:
   studio-postgres-data:

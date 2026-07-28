@@ -21,6 +21,9 @@ SECRET_FILES = {
     "STUDIO_SOURCE_S3_ACCESS_KEY_ID_FILE": "studio_source_s3_access_key_id",
     "STUDIO_SOURCE_S3_SECRET_ACCESS_KEY_FILE": "studio_source_s3_secret_access_key",
     "STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE": "studio_google_oauth_client_secret",
+    "STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE": (
+        "studio_google_maintenance_oauth_client_secret"
+    ),
 }
 
 

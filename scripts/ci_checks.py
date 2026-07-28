@@ -193,6 +193,8 @@ def check_studio_google_oauth_compose_wiring() -> None:
         "- studio_google_oauth_client_secret",
         "studio_google_oauth_client_secret:",
         "file: ${STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE:-./optional-empty-secret}",
+        "studio_google_maintenance_oauth_client_secret:",
+        "file: ${STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE:-./optional-empty-secret}",
     ]
     for marker in required_compose_markers:
         if marker not in compose_text:
@@ -204,6 +206,10 @@ def check_studio_google_oauth_compose_wiring() -> None:
         "STUDIO_GOOGLE_OAUTH_REDIRECT_URI=https://studio.librechat.online/api/google/oauth/callback",
         "STUDIO_GOOGLE_OAUTH_SCOPES=openid email https://www.googleapis.com/auth/drive.file",
         "STUDIO_GOOGLE_OAUTH_STATE_TTL_SECONDS=600",
+        "STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_ID=__REQUIRED_GOOGLE_MAINTENANCE_OAUTH_CLIENT_ID__",
+        "STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE=",
+        "STUDIO_GOOGLE_MAINTENANCE_OAUTH_REDIRECT_URI=https://studio.librechat.online/api/google/oauth/callback",
+        "STUDIO_GOOGLE_MAINTENANCE_OAUTH_SCOPES=openid email https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/documents",
     ]
     for marker in required_env_markers:
         if marker not in env_example_text:
@@ -212,7 +218,29 @@ def check_studio_google_oauth_compose_wiring() -> None:
     if not optional_secret_path.exists() or optional_secret_path.stat().st_size != 0:
         fail("Studio Google OAuth optional empty secret placeholder must exist and be zero bytes")
 
-    print("[ci-checks] Studio Google OAuth Compose/env wiring checks passed.")
+    api_block = compose_text.split("  studio-api:", 1)[1].split(
+        "\n  studio-worker:", 1
+    )[0]
+    worker_block = compose_text.split("  studio-worker:", 1)[1].split(
+        "\n  postgres:", 1
+    )[0]
+    required_api_markers = [
+        "STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_ID: ${STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_ID:-}",
+        "STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE: /run/studio-runtime-secrets/studio_google_maintenance_oauth_client_secret",
+        "STUDIO_GOOGLE_MAINTENANCE_OAUTH_REDIRECT_URI: ${STUDIO_GOOGLE_MAINTENANCE_OAUTH_REDIRECT_URI:-}",
+        "STUDIO_GOOGLE_MAINTENANCE_OAUTH_SCOPES: ${STUDIO_GOOGLE_MAINTENANCE_OAUTH_SCOPES:-openid email https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/documents}",
+        "- studio_google_maintenance_oauth_client_secret",
+    ]
+    for marker in required_api_markers:
+        if marker not in api_block:
+            fail(f"Studio maintenance OAuth API wiring missing marker: {marker}")
+    if (
+        "STUDIO_GOOGLE_MAINTENANCE_OAUTH_" in worker_block
+        or "studio_google_maintenance_oauth_client_secret" in worker_block
+    ):
+        fail("Studio maintenance OAuth grant must not be injected into studio-worker")
+
+    print("[ci-checks] Studio primary/maintenance Google OAuth wiring checks passed.")
 
 def main() -> int:
     try:
