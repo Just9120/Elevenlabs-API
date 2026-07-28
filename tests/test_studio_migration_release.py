@@ -9,6 +9,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 RELEASE_SCRIPT = ROOT / "scripts" / "release_studio_platform_migration.sh"
 WRAPPER = ROOT / "deploy" / "studio" / "studio-migration-release-wrapper.sh"
+CD_WORKFLOW = ROOT / ".github" / "workflows" / "studio-platform-cd.yml"
+STUDIO_CI_WORKFLOW = ROOT / ".github" / "workflows" / "studio-ci.yml"
 COMMIT = "a" * 40
 OLD_REVISION = "0016_transcript_catalog_entries"
 NEW_REVISION = "0017_google_maintenance_oauth"
@@ -371,3 +373,57 @@ def test_release_has_no_automatic_retry_downgrade_or_database_restore() -> None:
     assert "pg_restore --list" in release
     assert "pg_restore --clean" not in release
     assert "pg_restore --create" not in release
+
+
+def test_cd_migration_lane_is_disabled_by_default_and_environment_gated() -> None:
+    workflow = CD_WORKFLOW.read_text(encoding="utf-8")
+    detection = workflow.split("  deploy-web:", 1)[0]
+    release_job = workflow.split("  release-api-migration:", 1)[1].split(
+        "\n  deploy-worker:", 1
+    )[0]
+
+    assert "migration_release=false" in detection
+    assert 'vars.STUDIO_MIGRATION_RELEASE_ENABLED }}" == "true"' in detection
+    assert "migration_release=true" in detection
+    assert "source_changed_approval_required" in detection
+    assert "manual_selection_approval_required" in detection
+    assert "automatic_migration_release_disabled" in detection
+    assert "manual_migration_release_disabled" in detection
+    assert "environment: studio-production-migration" in release_job
+    assert "inputs.component == 'migration'" in release_job
+    assert "needs.detect-components.outputs.migration_release == 'true'" in release_job
+    assert "needs.deploy-web.result == 'success'" in release_job
+
+
+def test_cd_uses_only_dedicated_forced_command_identity_for_migration() -> None:
+    workflow = CD_WORKFLOW.read_text(encoding="utf-8")
+    release_job = workflow.split("  release-api-migration:", 1)[1].split(
+        "\n  deploy-worker:", 1
+    )[0]
+
+    for secret in (
+        "STUDIO_MIGRATION_DEPLOY_HOST",
+        "STUDIO_MIGRATION_SSH_KEY",
+        "STUDIO_MIGRATION_KNOWN_HOSTS",
+    ):
+        assert secret in release_job
+    assert '"root@$MIGRATION_DEPLOY_HOST"' in release_job
+    assert '"release $RELEASE_SHA"' in release_job
+    assert "StrictHostKeyChecking=yes" in release_job
+    assert "UserKnownHostsFile=~/.ssh/studio_migration_known_hosts" in release_job
+    assert "[studio-migration-release] OK commit=" in release_job
+    assert "[studio-migration-release-wrapper] OK commit=" in release_job
+    assert "bash -s" not in release_job
+    assert "alembic upgrade" not in release_job
+    assert "backup_studio_postgres_r2.sh" not in release_job
+
+
+def test_studio_ci_watches_migration_release_contract_files() -> None:
+    workflow = STUDIO_CI_WORKFLOW.read_text(encoding="utf-8")
+
+    for path in (
+        "scripts/release_studio_platform_migration.sh",
+        "tests/test_migrate_studio_platform.py",
+        "tests/test_studio_migration_release.py",
+    ):
+        assert workflow.count(f"- '{path}'") == 2

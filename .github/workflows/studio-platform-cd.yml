@@ -15,6 +15,7 @@ on:
         options:
           - web
           - api
+          - migration
           - worker
 
 permissions:
@@ -30,9 +31,11 @@ jobs:
     outputs:
       web: ${{ steps.detect.outputs.web }}
       api: ${{ steps.detect.outputs.api }}
+      migration_release: ${{ steps.detect.outputs.migration_release }}
       worker: ${{ steps.detect.outputs.worker }}
       web_reason: ${{ steps.detect.outputs.web_reason }}
       api_reason: ${{ steps.detect.outputs.api_reason }}
+      migration_reason: ${{ steps.detect.outputs.migration_reason }}
       worker_reason: ${{ steps.detect.outputs.worker_reason }}
     steps:
       - name: Checkout for push detection
@@ -49,21 +52,34 @@ jobs:
 
           web=false
           api=false
+          migration_release=false
           worker=false
           web_reason=not_selected
           api_reason=not_selected
+          migration_reason=not_selected
           worker_reason=not_selected
 
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             case "${{ inputs.component }}" in
               web) web=true; web_reason=manual_selection ;;
               api) api=true; api_reason=manual_selection ;;
+              migration)
+                if [[ "${{ vars.STUDIO_MIGRATION_RELEASE_ENABLED }}" == "true" ]]; then
+                  migration_release=true
+                  migration_reason=manual_selection_approval_required
+                  api_reason=migration_release_selected
+                else
+                  migration_reason=manual_migration_release_disabled
+                  api_reason=manual_migration_required
+                fi
+                ;;
               worker) worker=true; worker_reason=manual_selection ;;
               *) echo "unsupported component" >&2; exit 1 ;;
             esac
           elif [[ "${{ vars.STUDIO_PLATFORM_CD_ENABLED }}" == "true" ]]; then
             web_reason=not_changed
             api_reason=not_changed
+            migration_reason=not_changed
             worker_reason=manual_only
             before="${{ github.event.before }}"
             after="${{ github.sha }}"
@@ -103,7 +119,14 @@ jobs:
             fi
 
             if [[ "$api_migration_changed" == "true" ]]; then
-              api_reason=manual_migration_required
+              if [[ "${{ vars.STUDIO_MIGRATION_RELEASE_ENABLED }}" == "true" ]]; then
+                migration_release=true
+                migration_reason=source_changed_approval_required
+                api_reason=migration_release_selected
+              else
+                api_reason=manual_migration_required
+                migration_reason=automatic_migration_release_disabled
+              fi
             elif [[ "$api_changed" == "true" ]]; then
               api=true
               api_reason=source_changed
@@ -115,14 +138,17 @@ jobs:
           else
             web_reason=automatic_cd_disabled
             api_reason=automatic_cd_disabled
+            migration_reason=automatic_cd_disabled
             worker_reason=automatic_cd_disabled
           fi
 
           echo "web=$web" >> "$GITHUB_OUTPUT"
           echo "api=$api" >> "$GITHUB_OUTPUT"
+          echo "migration_release=$migration_release" >> "$GITHUB_OUTPUT"
           echo "worker=$worker" >> "$GITHUB_OUTPUT"
           echo "web_reason=$web_reason" >> "$GITHUB_OUTPUT"
           echo "api_reason=$api_reason" >> "$GITHUB_OUTPUT"
+          echo "migration_reason=$migration_reason" >> "$GITHUB_OUTPUT"
           echo "worker_reason=$worker_reason" >> "$GITHUB_OUTPUT"
 
   deploy-web:
@@ -184,7 +210,7 @@ jobs:
     needs:
       - detect-components
       - deploy-web
-    if: always() && needs.detect-components.outputs.api == 'true' && (needs.detect-components.outputs.web != 'true' || needs.deploy-web.result == 'success')
+    if: always() && needs.detect-components.outputs.api == 'true' && needs.detect-components.outputs.migration_release != 'true' && (needs.detect-components.outputs.web != 'true' || needs.deploy-web.result == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -236,6 +262,80 @@ jobs:
           [[ -s "$deploy_script" ]]
           STUDIO_DEPLOY_DIR="$STUDIO_DEPLOY_DIR" bash "$deploy_script" api
           REMOTE
+
+  release-api-migration:
+    needs:
+      - detect-components
+      - deploy-web
+    if: always() && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.component == 'migration')) && needs.detect-components.outputs.migration_release == 'true' && (needs.detect-components.outputs.web != 'true' || needs.deploy-web.result == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment: studio-production-migration
+    steps:
+      - name: Validate guarded migration release inputs
+        shell: bash
+        env:
+          MIGRATION_DEPLOY_HOST: ${{ secrets.STUDIO_MIGRATION_DEPLOY_HOST }}
+          MIGRATION_SSH_KEY: ${{ secrets.STUDIO_MIGRATION_SSH_KEY }}
+          MIGRATION_KNOWN_HOSTS: ${{ secrets.STUDIO_MIGRATION_KNOWN_HOSTS }}
+          RELEASE_SHA: ${{ github.sha }}
+          RELEASE_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_REF" == "refs/heads/main" ]] || {
+            echo "migration release is allowed only from main" >&2
+            exit 1
+          }
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "migration release SHA is invalid" >&2
+            exit 1
+          }
+          for name in MIGRATION_DEPLOY_HOST MIGRATION_SSH_KEY MIGRATION_KNOWN_HOSTS; do
+            if [[ -z "${!name}" ]]; then
+              echo "required migration environment secret is missing: $name" >&2
+              exit 1
+            fi
+          done
+
+      - name: Configure dedicated forced-command SSH identity
+        shell: bash
+        env:
+          MIGRATION_SSH_KEY: ${{ secrets.STUDIO_MIGRATION_SSH_KEY }}
+          MIGRATION_KNOWN_HOSTS: ${{ secrets.STUDIO_MIGRATION_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$MIGRATION_SSH_KEY" > ~/.ssh/studio_migration_key
+          chmod 600 ~/.ssh/studio_migration_key
+          printf '%s\n' "$MIGRATION_KNOWN_HOSTS" > ~/.ssh/studio_migration_known_hosts
+          chmod 600 ~/.ssh/studio_migration_known_hosts
+
+      - name: Run approved exact-SHA migration release
+        shell: bash
+        env:
+          MIGRATION_DEPLOY_HOST: ${{ secrets.STUDIO_MIGRATION_DEPLOY_HOST }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          output_file="$(mktemp)"
+          trap 'rm -f "$output_file"' EXIT
+          if ! ssh \
+            -i ~/.ssh/studio_migration_key \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile=~/.ssh/studio_migration_known_hosts \
+            "root@$MIGRATION_DEPLOY_HOST" \
+            "release $RELEASE_SHA" >"$output_file" 2>&1; then
+            cat "$output_file"
+            exit 1
+          fi
+          cat "$output_file"
+          grep -Fq \
+            "[studio-migration-release] OK commit=${RELEASE_SHA:0:12} " \
+            "$output_file"
+          grep -Fq \
+            "[studio-migration-release-wrapper] OK commit=${RELEASE_SHA:0:12}" \
+            "$output_file"
 
 
   deploy-worker:
@@ -298,6 +398,7 @@ jobs:
       - detect-components
       - deploy-web
       - deploy-api
+      - release-api-migration
       - deploy-worker
     if: always()
     runs-on: ubuntu-latest
@@ -313,6 +414,9 @@ jobs:
           API_SELECTED: ${{ needs.detect-components.outputs.api }}
           API_REASON: ${{ needs.detect-components.outputs.api_reason }}
           API_RESULT: ${{ needs.deploy-api.result }}
+          MIGRATION_SELECTED: ${{ needs.detect-components.outputs.migration_release }}
+          MIGRATION_REASON: ${{ needs.detect-components.outputs.migration_reason }}
+          MIGRATION_RESULT: ${{ needs.release-api-migration.result }}
           WORKER_SELECTED: ${{ needs.detect-components.outputs.worker }}
           WORKER_REASON: ${{ needs.detect-components.outputs.worker_reason }}
           WORKER_RESULT: ${{ needs.deploy-worker.result }}
@@ -321,13 +425,16 @@ jobs:
 
           web_decision=skip
           api_decision=skip
+          migration_decision=skip
           worker_decision=skip
           [[ "$WEB_SELECTED" == "true" ]] && web_decision=deploy
           [[ "$API_SELECTED" == "true" ]] && api_decision=deploy
+          [[ "$MIGRATION_SELECTED" == "true" ]] && migration_decision=approved-release
           [[ "$WORKER_SELECTED" == "true" ]] && worker_decision=deploy
 
           WEB_REASON="${WEB_REASON:-detection_unavailable}"
           API_REASON="${API_REASON:-detection_unavailable}"
+          MIGRATION_REASON="${MIGRATION_REASON:-detection_unavailable}"
           WORKER_REASON="${WORKER_REASON:-detection_unavailable}"
 
           {
@@ -338,14 +445,18 @@ jobs:
             echo "| --- | --- | --- | --- |"
             printf '| web | `%s` | `%s` | `%s` |\n' "$web_decision" "$WEB_RESULT" "$WEB_REASON"
             printf '| api | `%s` | `%s` | `%s` |\n' "$api_decision" "$API_RESULT" "$API_REASON"
+            printf '| api migration release | `%s` | `%s` | `%s` |\n' "$migration_decision" "$MIGRATION_RESULT" "$MIGRATION_REASON"
             printf '| worker | `%s` | `%s` | `%s` |\n' "$worker_decision" "$WORKER_RESULT" "$WORKER_REASON"
             echo
             if [[ "$API_REASON" == "manual_migration_required" ]]; then
-              echo "- API deployment was intentionally skipped because migration changes require the separate backup and migration procedure."
+              echo "- API deployment was intentionally skipped because the guarded migration release lane is disabled."
+            fi
+            if [[ "$MIGRATION_REASON" == "source_changed_approval_required" || "$MIGRATION_REASON" == "manual_selection_approval_required" ]]; then
+              echo "- The migration release required approval in the protected studio-production-migration environment before any VPS action."
             fi
             if [[ "$WORKER_REASON" == "manual_only_dependency_changed" ]]; then
               echo "- A worker runtime dependency changed, but worker deployment remains manual-only."
             fi
             echo
-            echo "> A green workflow does not mean every component was deployed. Only a component with decision \`deploy\` and job result \`success\` has deployment evidence from this run."
+            echo "> A green workflow does not mean every component was deployed. Deployment evidence exists only for a selected deploy/release job that completed with result \`success\`."
           } >> "$GITHUB_STEP_SUMMARY"
