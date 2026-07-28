@@ -164,20 +164,7 @@ const ERROR_MESSAGES: Record<string, string> = {
     "Пустой документ нельзя стандартизировать как транскрипт.",
   catalog_document_limit_exceeded:
     "Один из документов слишком большой для безопасной стандартизации.",
-  transcript_selection_invalid: "Выбор документов некорректен.",
-  transcript_selection_empty: "Выберите хотя бы один Google Doc.",
-  transcript_selection_limit_exceeded:
-    "За один запуск можно выбрать не более 50 документов.",
-  transcript_selection_duplicate:
-    "Один документ выбран несколько раз. Повторите выбор.",
   transcript_folder_invalid: "Выбранная папка некорректна.",
-  transcript_document_invalid: "Один из выбранных документов некорректен.",
-  transcript_document_not_google_doc:
-    "Выбранный файл не является Google Docs документом.",
-  transcript_document_out_of_folder:
-    "Один из документов находится вне выбранной папки.",
-  transcript_document_trashed:
-    "Один из выбранных документов находится в корзине.",
 };
 
 const OPERATION_COPY = {
@@ -658,8 +645,8 @@ function MaintenanceOperationCard({
     if (
       !explicitConfirmation(
         workflow === "standardization"
-          ? `Стандартизировать ${actionableCount(dryRun)} выбранных документов? Каталог Studio не изменится.`
-          : `Добавить метаданные ${actionableCount(dryRun)} выбранных документов в манифест Studio? Google Docs не изменятся.`,
+          ? `Стандартизировать ${actionableCount(dryRun)} найденных документов? Каталог Studio не изменится.`
+          : `Добавить метаданные ${actionableCount(dryRun)} найденных документов в манифест Studio? Google Docs не изменятся.`,
       )
     ) {
       return;
