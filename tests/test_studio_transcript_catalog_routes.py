@@ -178,6 +178,7 @@ def test_maintenance_dry_run_routes_are_independent_and_recursive(
         catalog_import,
     )
     body = {
+        "selection_mode": "folder_tree",
         "folder_id": "private-folder",
     }
 
@@ -199,7 +200,9 @@ def test_maintenance_dry_run_routes_are_independent_and_recursive(
             "standardization",
             {
                 "access_token": "private-access-token",
+                "selection_mode": "folder_tree",
                 "folder_id": "private-folder",
+                "document_id": None,
             },
         ),
         (
@@ -208,7 +211,9 @@ def test_maintenance_dry_run_routes_are_independent_and_recursive(
             {
                 "owner_user_id": "private-owner",
                 "access_token": "private-access-token",
+                "selection_mode": "folder_tree",
                 "folder_id": "private-folder",
+                "document_id": None,
             },
         ),
     ]
@@ -265,7 +270,10 @@ def test_maintenance_routes_fail_closed_on_server_grant_errors(
         )
         response = client.post(
             "/api/transcript-maintenance/standardization/dry-run",
-            json={"folder_id": "private-folder"},
+            json={
+                "selection_mode": "folder_tree",
+                "folder_id": "private-folder",
+            },
         )
 
         assert response.status_code == 409
@@ -329,23 +337,65 @@ def test_maintenance_dry_run_rejects_missing_or_untrusted_fields(
     legacy_selection = client.post(
         "/api/transcript-maintenance/standardization/dry-run",
         json={
+            "selection_mode": "folder_tree",
             "folder_id": "private-folder",
             "document_ids": ["private-document"],
+        },
+    )
+    mismatched_folder = client.post(
+        "/api/transcript-maintenance/standardization/dry-run",
+        json={
+            "selection_mode": "folder_tree",
+            "document_id": "private-document",
+        },
+    )
+    mismatched_document = client.post(
+        "/api/transcript-maintenance/standardization/dry-run",
+        json={
+            "selection_mode": "single_document",
+            "folder_id": "private-folder",
+        },
+    )
+    invalid_id = client.post(
+        "/api/transcript-maintenance/standardization/dry-run",
+        json={
+            "selection_mode": "single_document",
+            "document_id": "документ",
         },
     )
     preview = client.post(
         "/api/transcript-maintenance/standardization/dry-run",
         json={
+            "selection_mode": "single_document",
+            "document_id": "private-document",
             "folder_id": "private-folder",
             "document_ids": ["private-document"],
             "items": [{"action": "standardize_document"}],
         },
     )
+    single_document = client.post(
+        "/api/transcript-maintenance/standardization/dry-run",
+        json={
+            "selection_mode": "single_document",
+            "document_id": "private-document",
+        },
+    )
 
     assert missing.status_code == 422
     assert legacy_selection.status_code == 422
+    assert mismatched_folder.status_code == 422
+    assert mismatched_document.status_code == 422
+    assert invalid_id.status_code == 422
     assert preview.status_code == 422
-    assert called == []
+    assert single_document.status_code == 200
+    assert called == [
+        {
+            "access_token": "private-access-token",
+            "selection_mode": "single_document",
+            "folder_id": None,
+            "document_id": "private-document",
+        }
+    ]
     assert db.commits == 0
 
 
@@ -371,6 +421,7 @@ def test_maintenance_selection_errors_are_safe_and_normalized(
     response = client.post(
         "/api/transcript-maintenance/catalog-import/dry-run",
         json={
+            "selection_mode": "folder_tree",
             "folder_id": "private-folder",
         },
     )
@@ -455,18 +506,24 @@ def test_maintenance_apply_routes_reinspect_and_execute_independently(
         "apply_transcript_catalog_import_metadata",
         apply_catalog,
     )
-    body = {
+    standardization_body = {
+        "selection_mode": "single_document",
+        "document_id": "private-document",
+        "confirm_apply": True,
+    }
+    catalog_body = {
+        "selection_mode": "folder_tree",
         "folder_id": "private-folder",
         "confirm_apply": True,
     }
 
     standardization_response = client.post(
         "/api/transcript-maintenance/standardization/apply",
-        json=body,
+        json=standardization_body,
     )
     catalog_response = client.post(
         "/api/transcript-maintenance/catalog-import/apply",
-        json=body,
+        json=catalog_body,
     )
 
     assert standardization_response.status_code == 200
@@ -478,7 +535,9 @@ def test_maintenance_apply_routes_reinspect_and_execute_independently(
             "inspect_standardization",
             {
                 "access_token": "private-access-token",
-                "folder_id": "private-folder",
+                "selection_mode": "single_document",
+                "folder_id": None,
+                "document_id": "private-document",
             },
         ),
         (
@@ -499,7 +558,9 @@ def test_maintenance_apply_routes_reinspect_and_execute_independently(
             {
                 "owner_user_id": "private-owner",
                 "access_token": "private-access-token",
+                "selection_mode": "folder_tree",
                 "folder_id": "private-folder",
+                "document_id": None,
             },
         ),
         (
@@ -556,6 +617,7 @@ def test_maintenance_apply_confirmation_is_required_per_endpoint(
         lambda *args, **kwargs: called.append(("catalog", kwargs)),
     )
     base = {
+        "selection_mode": "folder_tree",
         "folder_id": "private-folder",
     }
 
@@ -604,6 +666,7 @@ def test_standardization_apply_normalizes_google_write_failure(
     response = client.post(
         "/api/transcript-maintenance/standardization/apply",
         json={
+            "selection_mode": "folder_tree",
             "folder_id": "private-folder",
             "confirm_apply": True,
         },

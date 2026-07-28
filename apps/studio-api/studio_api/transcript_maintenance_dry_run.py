@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Callable
 
 from .transcript_catalog_dry_run import (
@@ -16,6 +17,7 @@ from .transcript_catalog_migration import (
     build_transcript_standardization_payload,
 )
 from .transcript_catalog_scan import (
+    DRIVE_ID_PATTERN,
     CatalogGoogleDocumentMetadata,
     CatalogGoogleFolderScan,
     CatalogGoogleReadError,
@@ -23,6 +25,11 @@ from .transcript_catalog_scan import (
     GoogleTranscriptCatalogReader,
     classify_transcript_document_standard,
 )
+
+
+class TranscriptMaintenanceSelectionMode(str, Enum):
+    folder_tree = "folder_tree"
+    single_document = "single_document"
 
 
 PER_DOCUMENT_UNREADABLE_REASONS = {
@@ -34,7 +41,7 @@ PER_DOCUMENT_UNREADABLE_REASONS = {
 
 @dataclass(frozen=True)
 class TranscriptStandardizationSelectionInspection:
-    """Private recursive-folder evidence for one standardization operation."""
+    """Private target evidence for one standardization operation."""
 
     candidates: tuple[TranscriptStandardizationCandidate, ...] = field(
         repr=False
@@ -56,7 +63,7 @@ class TranscriptStandardizationSelectionInspection:
 
 @dataclass(frozen=True)
 class TranscriptCatalogImportSelectionInspection:
-    """Private recursive-folder evidence for one catalog-import operation."""
+    """Private target evidence for one catalog-import operation."""
 
     candidates: tuple[CatalogMigrationCandidate, ...] = field(repr=False)
     selection_summary: dict[str, int]
@@ -81,14 +88,18 @@ class _SelectedTranscriptEvidence:
 def build_transcript_standardization_dry_run(
     *,
     access_token: str,
-    folder_id: str,
+    selection_mode: TranscriptMaintenanceSelectionMode,
+    folder_id: str | None = None,
+    document_id: str | None = None,
     reader: GoogleTranscriptCatalogReader | None = None,
 ) -> dict:
-    """Classify every Doc in one recursive folder without mutation."""
+    """Classify one selected Doc or every Doc in a recursive folder."""
 
     inspection = inspect_transcript_standardization_selection(
         access_token=access_token,
+        selection_mode=selection_mode,
         folder_id=folder_id,
+        document_id=document_id,
         reader=reader,
     )
     payload = build_transcript_standardization_payload(
@@ -102,14 +113,18 @@ def build_transcript_standardization_dry_run(
 def inspect_transcript_standardization_selection(
     *,
     access_token: str,
-    folder_id: str,
+    selection_mode: TranscriptMaintenanceSelectionMode,
+    folder_id: str | None = None,
+    document_id: str | None = None,
     reader: GoogleTranscriptCatalogReader | None = None,
 ) -> TranscriptStandardizationSelectionInspection:
-    """Rebuild standardization evidence from the recursive selected root."""
+    """Rebuild standardization evidence from the selected target."""
 
-    evidence, selection_summary = _inspect_folder_transcripts(
+    evidence, selection_summary = _inspect_transcripts(
         access_token=access_token,
+        selection_mode=selection_mode,
         folder_id=folder_id,
+        document_id=document_id,
         reader=reader,
     )
     return TranscriptStandardizationSelectionInspection(
@@ -133,18 +148,22 @@ def build_transcript_catalog_import_dry_run(
     *,
     owner_user_id: str,
     access_token: str,
-    folder_id: str,
+    selection_mode: TranscriptMaintenanceSelectionMode,
+    folder_id: str | None = None,
+    document_id: str | None = None,
     reader: GoogleTranscriptCatalogReader | None = None,
     authority_loader: Callable[..., dict[str, CatalogImportAuthority]]
     | None = None,
 ) -> dict:
-    """Classify every recursive Doc for metadata import without mutation."""
+    """Classify one Doc or every recursive Doc for metadata import."""
 
     inspection = inspect_transcript_catalog_import_selection(
         db,
         owner_user_id=owner_user_id,
         access_token=access_token,
+        selection_mode=selection_mode,
         folder_id=folder_id,
+        document_id=document_id,
         reader=reader,
         authority_loader=authority_loader,
     )
@@ -161,17 +180,21 @@ def inspect_transcript_catalog_import_selection(
     *,
     owner_user_id: str,
     access_token: str,
-    folder_id: str,
+    selection_mode: TranscriptMaintenanceSelectionMode,
+    folder_id: str | None = None,
+    document_id: str | None = None,
     reader: GoogleTranscriptCatalogReader | None = None,
     authority_loader: Callable[..., dict[str, CatalogImportAuthority]]
     | None = None,
 ) -> TranscriptCatalogImportSelectionInspection:
-    """Rebuild catalog-import evidence from the recursive selected root."""
+    """Rebuild catalog-import evidence from the selected target."""
 
     owner_id = _private_identity(owner_user_id, label="owner")
-    evidence, selection_summary = _inspect_folder_transcripts(
+    evidence, selection_summary = _inspect_transcripts(
         access_token=access_token,
+        selection_mode=selection_mode,
         folder_id=folder_id,
+        document_id=document_id,
         reader=reader,
     )
     selected_document_ids = tuple(
@@ -204,6 +227,36 @@ def inspect_transcript_catalog_import_selection(
     )
 
 
+def _inspect_transcripts(
+    *,
+    access_token: str,
+    selection_mode: TranscriptMaintenanceSelectionMode,
+    folder_id: str | None,
+    document_id: str | None,
+    reader: GoogleTranscriptCatalogReader | None,
+) -> tuple[tuple[_SelectedTranscriptEvidence, ...], dict[str, int]]:
+    mode = _selection_mode(selection_mode)
+    if mode == TranscriptMaintenanceSelectionMode.folder_tree:
+        if document_id is not None:
+            raise ValueError(
+                "Single document must be absent for folder-tree maintenance"
+            )
+        return _inspect_folder_transcripts(
+            access_token=access_token,
+            folder_id=_private_drive_id(folder_id, label="folder"),
+            reader=reader,
+        )
+    if folder_id is not None:
+        raise ValueError(
+            "Folder must be absent for single-document maintenance"
+        )
+    return _inspect_single_transcript(
+        access_token=access_token,
+        document_id=_private_drive_id(document_id, label="document"),
+        reader=reader,
+    )
+
+
 def _inspect_folder_transcripts(
     *,
     access_token: str,
@@ -216,12 +269,78 @@ def _inspect_folder_transcripts(
         folder_id=folder_id,
     )
     documents = _validated_recursive_documents(scan)
+    evidence, unreadable_document_count = _classify_documents(
+        access_token=access_token,
+        documents=documents,
+        reader=catalog_reader,
+    )
+    return (
+        evidence,
+        {
+            "google_document_count": len(evidence),
+            "nested_folder_count": scan.nested_folder_count,
+            "skipped_non_document_count": (
+                scan.skipped_non_document_count
+            ),
+            "pages_scanned": scan.pages_scanned,
+            "unreadable_document_count": unreadable_document_count,
+        },
+    )
 
+
+def _inspect_single_transcript(
+    *,
+    access_token: str,
+    document_id: str,
+    reader: GoogleTranscriptCatalogReader | None,
+) -> tuple[tuple[_SelectedTranscriptEvidence, ...], dict[str, int]]:
+    catalog_reader = reader or GoogleTranscriptCatalogReader()
+    try:
+        document = catalog_reader.inspect_document(
+            access_token=access_token,
+            document_id=document_id,
+        )
+    except CatalogGoogleReadError as exc:
+        if exc.reason not in PER_DOCUMENT_UNREADABLE_REASONS:
+            raise
+        evidence = (
+            _SelectedTranscriptEvidence(
+                drive_document_id=document_id,
+                name=None,
+                created_time=None,
+                standard_status=CatalogDocumentStandardStatus.unreadable,
+            ),
+        )
+        unreadable_document_count = 1
+    else:
+        evidence, unreadable_document_count = _classify_documents(
+            access_token=access_token,
+            documents=(document,),
+            reader=catalog_reader,
+        )
+    return (
+        evidence,
+        {
+            "google_document_count": 1,
+            "nested_folder_count": 0,
+            "skipped_non_document_count": 0,
+            "pages_scanned": 0,
+            "unreadable_document_count": unreadable_document_count,
+        },
+    )
+
+
+def _classify_documents(
+    *,
+    access_token: str,
+    documents: tuple[CatalogGoogleDocumentMetadata, ...],
+    reader: GoogleTranscriptCatalogReader,
+) -> tuple[tuple[_SelectedTranscriptEvidence, ...], int]:
     evidence = []
     unreadable_document_count = 0
     for document in documents:
         try:
-            document_text = catalog_reader.read_document_text(
+            document_text = reader.read_document_text(
                 access_token=access_token,
                 document_id=document.drive_document_id,
             )
@@ -245,18 +364,7 @@ def _inspect_folder_transcripts(
                 standard_status=standard_status,
             )
         )
-    return (
-        tuple(evidence),
-        {
-            "google_document_count": len(evidence),
-            "nested_folder_count": scan.nested_folder_count,
-            "skipped_non_document_count": (
-                scan.skipped_non_document_count
-            ),
-            "pages_scanned": scan.pages_scanned,
-            "unreadable_document_count": unreadable_document_count,
-        },
-    )
+    return tuple(evidence), unreadable_document_count
 
 
 def _validated_recursive_documents(
@@ -301,3 +409,21 @@ def _private_identity(value: object, *, label: str) -> str:
     if not cleaned:
         raise ValueError(f"Transcript maintenance {label} is required")
     return cleaned
+
+
+def _private_drive_id(value: object, *, label: str) -> str:
+    cleaned = _private_identity(value, label=label)
+    if not DRIVE_ID_PATTERN.fullmatch(cleaned):
+        raise ValueError(f"Transcript maintenance {label} is invalid")
+    return cleaned
+
+
+def _selection_mode(
+    value: object,
+) -> TranscriptMaintenanceSelectionMode:
+    try:
+        return TranscriptMaintenanceSelectionMode(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "Transcript maintenance selection mode is invalid"
+        ) from exc

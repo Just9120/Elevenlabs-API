@@ -3,7 +3,14 @@ from __future__ import annotations
 from typing import NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    field_validator,
+    model_validator,
+)
 from sqlalchemy.orm import Session
 
 from .audit import audit
@@ -32,6 +39,7 @@ from .transcript_document_selection import (
     TranscriptDocumentSelectionReason,
 )
 from .transcript_maintenance_dry_run import (
+    TranscriptMaintenanceSelectionMode,
     build_transcript_catalog_import_dry_run,
     build_transcript_standardization_dry_run,
     inspect_transcript_catalog_import_selection,
@@ -85,7 +93,52 @@ class TranscriptCatalogMigrationApplyIn(
         return value
 
 
-class TranscriptMaintenanceApplyIn(TranscriptMaintenanceFolderIn):
+class TranscriptMaintenanceTargetIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    selection_mode: TranscriptMaintenanceSelectionMode
+    folder_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=256,
+    )
+    document_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=256,
+    )
+
+    @field_validator("folder_id", "document_id")
+    @classmethod
+    def valid_target_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if (
+            not cleaned
+            or not cleaned.isascii()
+            or not all(
+                character.isalnum() or character in "_-"
+                for character in cleaned
+            )
+        ):
+            raise ValueError("Некорректный ID Google Drive")
+        return cleaned
+
+    @model_validator(mode="after")
+    def exactly_one_target(self):
+        if self.selection_mode == TranscriptMaintenanceSelectionMode.folder_tree:
+            valid = self.folder_id is not None and self.document_id is None
+        else:
+            valid = self.document_id is not None and self.folder_id is None
+        if not valid:
+            raise ValueError(
+                "Режим обслуживания не соответствует выбранному объекту"
+            )
+        return self
+
+
+class TranscriptMaintenanceApplyIn(TranscriptMaintenanceTargetIn):
     confirm_apply: StrictBool
 
     @field_validator("confirm_apply")
@@ -138,7 +191,7 @@ def apply_transcript_catalog_migration(
 
 @maintenance_router.post("/standardization/dry-run")
 def dry_run_transcript_standardization(
-    data: TranscriptMaintenanceFolderIn,
+    data: TranscriptMaintenanceTargetIn,
     response: Response,
     pair=Depends(require_csrf),
     db: Session = Depends(get_db),
@@ -155,7 +208,7 @@ def dry_run_transcript_standardization(
         access_token = _maintenance_access_token(db, user.id, settings)
         return build_transcript_standardization_dry_run(
             access_token=access_token,
-            folder_id=data.folder_id,
+            **_maintenance_target(data),
         )
     except GoogleConnectionAccessError as exc:
         db.rollback()
@@ -170,7 +223,7 @@ def dry_run_transcript_standardization(
 
 @maintenance_router.post("/catalog-import/dry-run")
 def dry_run_transcript_catalog_import(
-    data: TranscriptMaintenanceFolderIn,
+    data: TranscriptMaintenanceTargetIn,
     response: Response,
     pair=Depends(require_csrf),
     db: Session = Depends(get_db),
@@ -189,7 +242,7 @@ def dry_run_transcript_catalog_import(
             db,
             owner_user_id=user.id,
             access_token=access_token,
-            folder_id=data.folder_id,
+            **_maintenance_target(data),
         )
     except GoogleConnectionAccessError as exc:
         db.rollback()
@@ -221,7 +274,7 @@ def apply_transcript_standardization(
         access_token = _maintenance_access_token(db, user.id, settings)
         inspection = inspect_transcript_standardization_selection(
             access_token=access_token,
-            folder_id=data.folder_id,
+            **_maintenance_target(data),
         )
         payload = execute_transcript_standardization_apply(
             access_token=access_token,
@@ -279,7 +332,7 @@ def apply_transcript_catalog_import(
             db,
             owner_user_id=user.id,
             access_token=access_token,
-            folder_id=data.folder_id,
+            **_maintenance_target(data),
         )
         payload = apply_transcript_catalog_import_metadata(
             db,
@@ -321,6 +374,16 @@ def _maintenance_access_token(
         user_id=user_id,
         settings=settings,
     )
+
+
+def _maintenance_target(
+    data: TranscriptMaintenanceTargetIn,
+) -> dict[str, object]:
+    return {
+        "selection_mode": data.selection_mode,
+        "folder_id": data.folder_id,
+        "document_id": data.document_id,
+    }
 
 
 def _no_store(response: Response) -> None:

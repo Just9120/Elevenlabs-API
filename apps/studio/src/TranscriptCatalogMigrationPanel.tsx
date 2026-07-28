@@ -30,11 +30,14 @@ import {
 } from "./transcriptMaintenanceModel";
 
 type BusyState =
-  | "folder-picker"
+  | "target-picker"
   | "dry-run"
   | "apply"
   | null;
-type SelectedFolder = { id: string; name: string };
+type TranscriptMaintenanceSelectionMode =
+  | "folder_tree"
+  | "single_document";
+type SelectedTarget = { id: string; name: string };
 type Mutate = <T>(path: string, options: RequestInit) => Promise<T>;
 type GoogleOauthStart = { authorization_url: string; expires_at: string };
 type GoogleMaintenanceConnection = {
@@ -165,13 +168,19 @@ const ERROR_MESSAGES: Record<string, string> = {
   catalog_document_limit_exceeded:
     "Один из документов слишком большой для безопасной стандартизации.",
   transcript_folder_invalid: "Выбранная папка некорректна.",
+  transcript_document_invalid: "Выбранный документ некорректен.",
+  transcript_document_not_google_doc:
+    "Выберите документ в формате Google Docs.",
+  transcript_document_trashed:
+    "Выбранный документ находится в корзине Google Drive.",
 };
 
 const OPERATION_COPY = {
   standardization: {
     title: "Стандартизация Google Docs",
     description:
-      "Рекурсивно сканирует выбранную папку и обновляет подходящие Google Docs " +
+      "Обновляет выбранный Google Doc либо рекурсивно сканирует папку и " +
+      "обновляет подходящие Google Docs " +
       "до transcript_doc_v1.2. Уже актуальные документы пропускаются. " +
       "Каталог Studio и состояние заданий не изменяются.",
     applyLabel: "Подтвердить стандартизацию",
@@ -180,7 +189,8 @@ const OPERATION_COPY = {
   catalog_import: {
     title: "Манифест Studio",
     description:
-      "Рекурсивно сканирует выбранную папку и добавляет в манифест Studio " +
+      "Проверяет выбранный Google Doc либо рекурсивно сканирует папку и " +
+      "добавляет в манифест Studio " +
       "только метаданные подходящих актуальных документов. Уже учтённые " +
       "документы пропускаются. Отдельный manifest-файл не создаётся, " +
       "Google Docs не изменяются.",
@@ -188,6 +198,15 @@ const OPERATION_COPY = {
     resultTitle: "Манифест Studio обновлён",
   },
 } as const;
+
+function maintenanceTarget(
+  selectionMode: TranscriptMaintenanceSelectionMode,
+  target: SelectedTarget,
+) {
+  return selectionMode === "folder_tree"
+    ? { selection_mode: selectionMode, folder_id: target.id }
+    : { selection_mode: selectionMode, document_id: target.id };
+}
 
 function apiReason(error: unknown): string | null {
   if (!(error instanceof ApiError) || !error.data) return null;
@@ -272,12 +291,22 @@ function Summary({
   );
 }
 
-function RecursiveScanDetails({
+function SelectionScanDetails({
   result,
+  selectionMode,
 }: {
   result: TranscriptMaintenanceDryRun;
+  selectionMode: TranscriptMaintenanceSelectionMode;
 }) {
   const summary = result.selection_summary;
+  if (selectionMode === "single_document") {
+    return (
+      <p className="muted catalog-scan-details">
+        Проверен один выбранный Google Doc. Не удалось прочитать документов:{" "}
+        {summary.unreadable_document_count}.
+      </p>
+    );
+  }
   return (
     <p className="muted catalog-scan-details">
       Вложенных папок: {summary.nested_folder_count}. Пропущено других файлов:{" "}
@@ -290,8 +319,10 @@ function RecursiveScanDetails({
 
 function StandardizationDryRunResult({
   result,
+  selectionMode,
 }: {
   result: TranscriptStandardizationDryRun;
+  selectionMode: TranscriptMaintenanceSelectionMode;
 }) {
   return (
     <>
@@ -309,7 +340,10 @@ function StandardizationDryRunResult({
           { label: "Заблокированы", value: result.summary.blocked_count },
         ]}
       />
-      <RecursiveScanDetails result={result} />
+      <SelectionScanDetails
+        result={result}
+        selectionMode={selectionMode}
+      />
       <div className="catalog-migration-table-wrap">
         <table className="catalog-migration-table">
           <thead>
@@ -339,8 +373,10 @@ function StandardizationDryRunResult({
 
 function CatalogDryRunResult({
   result,
+  selectionMode,
 }: {
   result: TranscriptCatalogImportDryRun;
+  selectionMode: TranscriptMaintenanceSelectionMode;
 }) {
   return (
     <>
@@ -358,7 +394,10 @@ function CatalogDryRunResult({
           { label: "Заблокированы", value: result.summary.blocked_count },
         ]}
       />
-      <RecursiveScanDetails result={result} />
+      <SelectionScanDetails
+        result={result}
+        selectionMode={selectionMode}
+      />
       <div className="catalog-migration-table-wrap">
         <table className="catalog-migration-table">
           <thead>
@@ -393,7 +432,13 @@ function CatalogDryRunResult({
   );
 }
 
-function DryRunResult({ result }: { result: TranscriptMaintenanceDryRun }) {
+function DryRunResult({
+  result,
+  selectionMode,
+}: {
+  result: TranscriptMaintenanceDryRun;
+  selectionMode: TranscriptMaintenanceSelectionMode;
+}) {
   const title = OPERATION_COPY[result.workflow].title;
   return (
     <div
@@ -402,9 +447,15 @@ function DryRunResult({ result }: { result: TranscriptMaintenanceDryRun }) {
     >
       <h4>План операции</h4>
       {result.workflow === "standardization" ? (
-        <StandardizationDryRunResult result={result} />
+        <StandardizationDryRunResult
+          result={result}
+          selectionMode={selectionMode}
+        />
       ) : (
-        <CatalogDryRunResult result={result} />
+        <CatalogDryRunResult
+          result={result}
+          selectionMode={selectionMode}
+        />
       )}
     </div>
   );
@@ -531,8 +582,10 @@ function MaintenanceOperationCard({
   mutate: Mutate;
 }) {
   const copy = OPERATION_COPY[workflow];
-  const [selectedFolder, setSelectedFolder] =
-    useState<SelectedFolder | null>(null);
+  const [selectionMode, setSelectionMode] =
+    useState<TranscriptMaintenanceSelectionMode>("folder_tree");
+  const [selectedTarget, setSelectedTarget] =
+    useState<SelectedTarget | null>(null);
   const [dryRun, setDryRun] = useState<TranscriptMaintenanceDryRun | null>(
     null,
   );
@@ -545,7 +598,7 @@ function MaintenanceOperationCard({
 
   useEffect(() => {
     if (operationReady) return;
-    setSelectedFolder(null);
+    setSelectedTarget(null);
     setDryRun(null);
     setApplyResult(null);
   }, [operationReady]);
@@ -561,14 +614,26 @@ function MaintenanceOperationCard({
     });
   }
 
-  async function chooseFolder() {
+  function changeSelectionMode(
+    nextMode: TranscriptMaintenanceSelectionMode,
+  ) {
+    if (nextMode === selectionMode) return;
+    setSelectionMode(nextMode);
+    setSelectedTarget(null);
+    setMessage("");
+    resetResult();
+  }
+
+  async function chooseTarget() {
     if (!operationReady || busy || pickerActive.current) return;
     pickerActive.current = true;
-    setBusy("folder-picker");
+    setBusy("target-picker");
     setMessage("");
     try {
       const result = await googlePicker.openGooglePicker(
-        "transcript-folder",
+        selectionMode === "folder_tree"
+          ? "transcript-folder"
+          : "transcript-document",
         await pickerSession(),
       );
       if (result.action === "cancel") return;
@@ -576,14 +641,23 @@ function MaintenanceOperationCard({
         setMessage(result.message);
         return;
       }
-      const folder = result.docs[0];
-      if (!folder?.id || result.docs.length !== 1) {
-        setMessage("Выберите одну папку Google Drive.");
+      const target = result.docs[0];
+      if (!target?.id || result.docs.length !== 1) {
+        setMessage(
+          selectionMode === "folder_tree"
+            ? "Выберите одну папку Google Drive."
+            : "Выберите один Google Doc.",
+        );
         return;
       }
-      setSelectedFolder({
-        id: folder.id,
-        name: safeName(folder.name, "Выбранная папка Google Drive"),
+      setSelectedTarget({
+        id: target.id,
+        name: safeName(
+          target.name,
+          selectionMode === "folder_tree"
+            ? "Выбранная папка Google Drive"
+            : "Выбранный Google Doc",
+        ),
       });
       resetResult();
     } catch (error) {
@@ -600,7 +674,7 @@ function MaintenanceOperationCard({
   async function runDryRun() {
     if (
       !operationReady ||
-      !selectedFolder ||
+      !selectedTarget ||
       busy ||
       operationActive.current
     ) {
@@ -615,9 +689,9 @@ function MaintenanceOperationCard({
         `/transcript-maintenance/${workflow === "standardization" ? "standardization" : "catalog-import"}/dry-run`,
         {
           method: "POST",
-          body: JSON.stringify({
-            folder_id: selectedFolder.id,
-          }),
+          body: JSON.stringify(
+            maintenanceTarget(selectionMode, selectedTarget),
+          ),
         },
       );
       setDryRun(parseDryRun(workflow, raw));
@@ -633,7 +707,7 @@ function MaintenanceOperationCard({
   async function applyOperation() {
     if (
       !operationReady ||
-      !selectedFolder ||
+      !selectedTarget ||
       !dryRun ||
       dryRun.workflow !== workflow ||
       actionableCount(dryRun) === 0 ||
@@ -645,8 +719,8 @@ function MaintenanceOperationCard({
     if (
       !explicitConfirmation(
         workflow === "standardization"
-          ? `Стандартизировать ${actionableCount(dryRun)} найденных документов? Каталог Studio не изменится.`
-          : `Добавить метаданные ${actionableCount(dryRun)} найденных документов в манифест Studio? Google Docs не изменятся.`,
+          ? `Стандартизировать ${actionableCount(dryRun)} выбранных документов? Каталог Studio не изменится.`
+          : `Добавить метаданные ${actionableCount(dryRun)} выбранных документов в манифест Studio? Google Docs не изменятся.`,
       )
     ) {
       return;
@@ -660,7 +734,7 @@ function MaintenanceOperationCard({
         {
           method: "POST",
           body: JSON.stringify({
-            folder_id: selectedFolder.id,
+            ...maintenanceTarget(selectionMode, selectedTarget),
             confirm_apply: true,
           }),
         },
@@ -688,27 +762,49 @@ function MaintenanceOperationCard({
       <h3 id={`transcript-maintenance-${workflow}-title`}>{copy.title}</h3>
       <p>{copy.description}</p>
       <p className="muted">
-        Выберите корневую папку. Dry-run рекурсивно проверит её и все подпапки,
-        но ничего не изменит. Тексты документов не возвращаются в браузер.
+        Выберите режим и объект. Dry-run ничего не изменит. Тексты документов
+        не возвращаются в браузер.
       </p>
+      <label
+        htmlFor={`transcript-maintenance-${workflow}-selection-mode`}
+      >
+        Что обработать
+      </label>
+      <select
+        id={`transcript-maintenance-${workflow}-selection-mode`}
+        value={selectionMode}
+        disabled={!operationReady || busy !== null}
+        onChange={(event) =>
+          changeSelectionMode(
+            event.target.value as TranscriptMaintenanceSelectionMode,
+          )
+        }
+      >
+        <option value="folder_tree">Папка и все подпапки</option>
+        <option value="single_document">Один конкретный Google Doc</option>
+      </select>
       <div className="actions">
         <button
           type="button"
           disabled={!operationReady || busy !== null}
-          onClick={chooseFolder}
+          onClick={chooseTarget}
         >
-          {busy === "folder-picker"
-            ? "Открываем папки…"
-            : selectedFolder
-              ? "Сменить папку"
-              : "Выбрать папку"}
+          {busy === "target-picker"
+            ? "Открываем Google Drive…"
+            : selectedTarget
+              ? selectionMode === "folder_tree"
+                ? "Сменить папку"
+                : "Сменить документ"
+              : selectionMode === "folder_tree"
+                ? "Выбрать папку"
+                : "Выбрать документ"}
         </button>
         <button
           type="button"
           className="primary"
           disabled={
             !operationReady ||
-            !selectedFolder ||
+            !selectedTarget ||
             busy !== null
           }
           onClick={runDryRun}
@@ -716,10 +812,19 @@ function MaintenanceOperationCard({
           {busy === "dry-run" ? "Проверяем…" : "Запустить dry-run"}
         </button>
       </div>
-      {selectedFolder && (
+      {selectedTarget && (
         <p className="folder-status" role="status">
-          Корневая папка: <b>{selectedFolder.name}</b>. Будут проверены Google
-          Docs в ней и всех подпапках.
+          {selectionMode === "folder_tree" ? (
+            <>
+              Корневая папка: <b>{selectedTarget.name}</b>. Будут проверены
+              Google Docs в ней и всех подпапках.
+            </>
+          ) : (
+            <>
+              Выбран документ: <b>{selectedTarget.name}</b>. Будет проверен
+              только этот Google Doc.
+            </>
+          )}
         </p>
       )}
       {message && (
@@ -728,13 +833,18 @@ function MaintenanceOperationCard({
         </p>
       )}
       {dryRun && dryRun.workflow === workflow && (
-        <DryRunResult result={dryRun} />
+        <DryRunResult
+          result={dryRun}
+          selectionMode={selectionMode}
+        />
       )}
       {dryRun && dryRun.workflow === workflow && (
         <div className="catalog-migration-apply">
           <p>
-            Перед применением сервер заново просканирует эту корневую папку и
-            все подпапки. Preview не считается полномочием на другую операцию.
+            {selectionMode === "folder_tree"
+              ? "Перед применением сервер заново просканирует эту корневую папку и все подпапки."
+              : "Перед применением сервер заново проверит именно этот Google Doc."}{" "}
+            Preview не считается полномочием на другую операцию.
           </p>
           <button
             type="button"
@@ -871,9 +981,10 @@ export function TranscriptCatalogMigrationPanel({
         Две независимые операции
       </h2>
       <p>
-        Стандартизация изменяет только подходящие Google Docs в выбранном
-        дереве папок. Добавление в манифест изменяет только метаданные Studio.
-        Корневая папка, dry-run и подтверждение у операций раздельные.
+        Для каждой операции отдельно выберите папку со всеми подпапками либо
+        один Google Doc. Стандартизация изменяет только подходящие документы,
+        а добавление в манифест — только метаданные Studio. Режим, объект,
+        dry-run и подтверждение у операций раздельные.
       </p>
       <section
         className="card transcript-maintenance-access"
@@ -884,9 +995,10 @@ export function TranscriptCatalogMigrationPanel({
           Доступ Google для обслуживания
         </h3>
         <p>
-          Для рекурсивного сканирования нужен отдельный server-only доступ к
-          метаданным Drive и Google Docs. Его токены не передаются в браузер.
-          Выберите тот же Google-аккаунт, который подключён выше.
+          Для серверной проверки выбранных папок или документов нужен
+          отдельный доступ к метаданным Drive и Google Docs. Его токены не
+          передаются в браузер. Выберите тот же Google-аккаунт, который
+          подключён выше.
         </p>
         {maintenanceLoading ? (
           <p className="notice">Проверяем доступ для обслуживания…</p>
@@ -961,7 +1073,7 @@ export function TranscriptCatalogMigrationPanel({
       )}
       {!googleLoading && googleConnected && !pickerReady && (
         <p className="notice">
-          Обновите подключение Google Drive, чтобы выбрать папку.
+          Обновите подключение Google Drive, чтобы выбрать объект.
         </p>
       )}
       {!googleLoading &&
@@ -969,7 +1081,7 @@ export function TranscriptCatalogMigrationPanel({
         !maintenanceLoading &&
         !maintenanceReady && (
           <p className="notice">
-            Подключите отдельный доступ для обслуживания перед выбором папки.
+            Подключите отдельный доступ для обслуживания перед выбором объекта.
           </p>
         )}
       <div className="transcript-maintenance-grid">

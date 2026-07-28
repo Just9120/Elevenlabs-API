@@ -164,6 +164,31 @@ class GoogleTranscriptCatalogReader:
         )
         return CatalogGoogleDocumentSelection(documents=tuple(documents))
 
+    def inspect_document(
+        self,
+        *,
+        access_token: str,
+        document_id: str,
+    ) -> CatalogGoogleDocumentMetadata:
+        """Revalidate one explicitly selected native Google Doc."""
+
+        token = _private_value(access_token, label="access token")
+        private_document_id = _drive_id(document_id, label="document")
+        payload = self._get_json(
+            f"{self.drive_endpoint}/{private_document_id}",
+            access_token=token,
+            params={
+                "fields": CATALOG_SELECTED_DRIVE_FIELDS,
+                "supportsAllDrives": "true",
+            },
+            not_found_reason=CatalogGoogleReadReason.document_not_found,
+            forbidden_reason=CatalogGoogleReadReason.request_rejected,
+        )
+        return _standalone_document_metadata(
+            payload,
+            expected_document_id=private_document_id,
+        )
+
     def scan_folder(
         self,
         *,
@@ -572,6 +597,27 @@ def _selected_document_metadata(
     expected_document_id: str,
     selected_folder_id: str,
 ) -> CatalogGoogleDocumentMetadata:
+    metadata = _standalone_document_metadata(
+        payload,
+        expected_document_id=expected_document_id,
+    )
+    parents = payload.get("parents")
+    if (
+        not isinstance(parents, list)
+        or any(not isinstance(parent, str) for parent in parents)
+        or selected_folder_id not in parents
+    ):
+        raise TranscriptDocumentSelectionError(
+            TranscriptDocumentSelectionReason.document_out_of_folder
+        )
+    return metadata
+
+
+def _standalone_document_metadata(
+    payload: Mapping[str, Any],
+    *,
+    expected_document_id: str,
+) -> CatalogGoogleDocumentMetadata:
     item_id, name, mime_type, created_time, modified_time = (
         _normalize_drive_item(payload)
     )
@@ -586,15 +632,6 @@ def _selected_document_metadata(
     if mime_type != GOOGLE_DOC_MIME_TYPE:
         raise TranscriptDocumentSelectionError(
             TranscriptDocumentSelectionReason.document_not_google_doc
-        )
-    parents = payload.get("parents")
-    if (
-        not isinstance(parents, list)
-        or any(not isinstance(parent, str) for parent in parents)
-        or selected_folder_id not in parents
-    ):
-        raise TranscriptDocumentSelectionError(
-            TranscriptDocumentSelectionReason.document_out_of_folder
         )
     return CatalogGoogleDocumentMetadata(
         drive_document_id=item_id,

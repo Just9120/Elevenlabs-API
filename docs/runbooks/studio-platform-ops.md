@@ -161,7 +161,7 @@ Google OAuth runtime config is fail-closed. OAuth endpoints must remain unavaila
 
 Primary Picker settings include client ID, redirect URI, scopes, state TTL, and the client-secret file path. The client secret itself stays in an operator-managed file. Current Drive/Picker integration permits only `openid`, email identity, and `https://www.googleapis.com/auth/drive.file`; do not invent broader scopes or enable incremental previously granted scopes. A primary connection reporting any additional scope is not Picker-ready and must be disconnected/reconnected before browser-token issuance.
 
-Recursive transcript maintenance uses a second OAuth client and a different client-secret file. Its exact server-only grant is `openid email https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/documents`. Configure `STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_ID`, `STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE`, `STUDIO_GOOGLE_MAINTENANCE_OAUTH_REDIRECT_URI`, and `STUDIO_GOOGLE_MAINTENANCE_OAUTH_SCOPES` before the API rollout. The maintenance client ID and secret file must differ from the primary client. The redirect may use the same reviewed callback route. The maintenance grant must resolve to the same Google subject as the active primary connection; a mismatch is rejected and must not replace either grant.
+Transcript maintenance uses a second OAuth client and a different client-secret file. Its exact server-only grant is `openid email https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/documents`. Configure `STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_ID`, `STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE`, `STUDIO_GOOGLE_MAINTENANCE_OAUTH_REDIRECT_URI`, and `STUDIO_GOOGLE_MAINTENANCE_OAUTH_SCOPES` before the API rollout. The maintenance client ID and secret file must differ from the primary client. The redirect may use the same reviewed callback route. The maintenance grant must resolve to the same Google subject as the active primary connection; a mismatch is rejected and must not replace either grant.
 
 Only `studio-api` receives and copies the maintenance client secret. Do not mount it into `studio-web` or `studio-worker`, do not issue its access token to a browser, and do not record client IDs, secret paths, grant tokens, Google subjects, or email values as validation evidence.
 
@@ -171,9 +171,9 @@ The host nginx file is the single browser security-header authority. Keep script
 
 Roll out OAuth/Picker and maintenance config through API deployment only when runtime files are ready and production is migrated through `0017_google_maintenance_oauth`. Validate the primary and maintenance connection states separately with authenticated owner-scoped flows, confirm maintenance consent is required before maintenance actions, and confirm unauthenticated connection/status endpoints still reject as expected.
 
-## Recursive transcript maintenance canary
+## Transcript maintenance target-mode canary
 
-Google Docs standardization and **Манифест Studio** are two separately initiated stateful operations. A merged source revision, green CI, successful component deployment, maintenance consent, or an authenticated browser smoke does not authorize either `apply`. Each operation requires its own selected root folder, reviewed dry-run, and explicit apply decision. Standardization may update eligible Google Docs in place; **Манифест Studio** does not change Docs and writes only eligible current-document metadata to PostgreSQL.
+Google Docs standardization and **Манифест Studio** are two separately initiated stateful operations. Each panel independently offers one recursive folder tree or one Google Doc. A merged source revision, green CI, successful component deployment, maintenance consent, or an authenticated browser smoke does not authorize any `apply`. Every operation/mode pair requires its own selected target, reviewed dry-run, and explicit apply decision. Standardization may update eligible Google Docs in place; **Манифест Studio** does not change Docs and writes only eligible current-document metadata to PostgreSQL.
 
 ### Preconditions
 
@@ -181,22 +181,22 @@ Google Docs standardization and **Манифест Studio** are two separately i
 - Create and record a successful tagged pre-migration PostgreSQL backup before applying repository Alembic head `0017_google_maintenance_oauth`; standard CD must not create the backup or run the migration.
 - Verify public and localhost health, API migration readiness, and an authenticated owner-scoped session.
 - Verify the primary Picker connection remains limited to `openid email drive.file`, then complete the separate server-only maintenance consent with the same Google account and exact maintenance scope boundary.
-- Select a small approved canary root containing copies or otherwise explicitly approved representative documents. The server scans the root and all descendant folders; keep the entire recursive boundary in scope and stop if it contains unexpected material.
+- Prepare a small approved recursive canary root containing copies or otherwise explicitly approved representative documents and one approved single-document canary. The server scans the entire selected root tree in folder mode and only the exact selected native Google Doc in document mode; stop if either boundary differs from the approved target.
 - Keep transcription jobs and provider processing out of this operation. The migration must not create a job, call a transcription provider, or require a worker rollout.
 
 ### Dry-run and authorization
 
-1. Open the separate **Стандартизация Google Docs** or **Манифест Studio** panel in the PWA and select the approved root folder through Google Picker. Do not select individual documents.
-2. Run that panel's `dry-run` only. The preview is non-mutating, browser-safe, rate-limited, and operation-specific; it is not authority for apply because the server performs a fresh recursive scan when apply begins.
-3. Review aggregate selected, action, unchanged, blocked, skipped-file, and descendant-folder counts. Current documents must be skipped by standardization; already-cataloged current documents must be skipped by **Манифест Studio**. Stop on an unexpected recursive boundary, global scan failure, or unexplained blocked candidates.
-4. Record only safe aggregate counts and the operation-specific decision. Do not record folder IDs, document IDs, document names, document bodies, Google payloads, access tokens, subjects, emails, or URLs.
-5. Authorize exactly one apply for exactly one operation. A standardization preview or apply never authorizes **Манифест Studio**, and the inverse is also true.
+1. Open the separate **Стандартизация Google Docs** or **Манифест Studio** panel in the PWA, select the intended dropdown mode, and choose exactly one approved root folder or Google Doc through Picker.
+2. Run that panel's `dry-run` only. The preview is non-mutating, browser-safe, rate-limited, and bound to that operation/mode/target; it is not authority for apply because the server freshly revalidates the same target when apply begins.
+3. In folder mode review selected, action, unchanged, blocked, skipped-file, and descendant-folder counts. In document mode verify exactly one document was checked. Current documents must be skipped by standardization; already-cataloged current documents must be skipped by **Манифест Studio**. Stop on an unexpected target boundary, global scan failure, or unexplained blocked candidate.
+4. Record only the non-private mode, safe aggregate counts, and the operation-specific decision. Do not record folder IDs, document IDs, document names, document bodies, Google payloads, access tokens, subjects, emails, or URLs.
+5. Authorize exactly one apply for exactly one operation/mode/target. A standardization preview or apply never authorizes **Манифест Studio**, the inverse is also true, and changing the mode or target requires a new dry-run.
 
 ### Apply and post-check
 
 1. Apply once from the reviewed PWA panel. Do not send the endpoint manually or start parallel apply requests.
 2. A per-document inaccessible, unreadable, empty, unsafe, unsupported, or conflicting candidate is reported as blocked without aborting safe siblings. A global authorization, rate-limit, availability, timeout, malformed-scan, or traversal-limit failure aborts the operation. On a global or incomplete result, stop and do not retry blindly.
-3. Review aggregate apply outcomes, then run a new dry-run for the same root and same operation. Successfully standardized documents should now be current; successfully imported catalog entries should now be unchanged/already present.
+3. Review aggregate apply outcomes, then run a new dry-run for the same mode, target, and operation. Successfully standardized documents should now be current; successfully imported catalog entries should now be unchanged/already present.
 4. For standardization only, manually inspect approved canary copies or Google version history to confirm content preservation and the intended `transcript_doc_v1.2` structure. Do not copy transcript text into evidence. **Манифест Studio** must leave Google Docs unchanged.
 5. Confirm that neither operation created a transcription job, provider attempt, output document, or worker activity. Record only safe aggregate or normalized audit evidence.
 
@@ -204,7 +204,7 @@ Google Docs standardization and **Манифест Studio** are two separately i
 
 A PostgreSQL restore can recover catalog metadata, but it does not automatically revert Google Docs changed by standardization before a database failure. Google recovery depends on approved canary copies or Google version history. If standardization may have partially changed external documents, do not automatically rerun apply, delete documents, restore production PostgreSQL, or broaden permissions. Stop and make recovery a separate operator-reviewed stateful task.
 
-Safe evidence includes the merged commit, required CI result, deployed web/API image identities, database revision, backup snapshot ID, public and localhost health, aggregate dry-run/apply counts, absence of provider/job mutations, and the explicit operator approval. It must exclude private folder/object identifiers, document names or bodies, Google responses, credentials, and tokens.
+Safe evidence includes the merged commit, required CI result, deployed web/API image identities, database revision, backup snapshot ID, public and localhost health, non-private target mode, aggregate dry-run/apply counts, absence of provider/job mutations, and the explicit operator approval. It must exclude private folder/object identifiers, document names or bodies, Google responses, credentials, and tokens.
 
 ## Component deployment
 

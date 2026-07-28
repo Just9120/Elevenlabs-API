@@ -2,7 +2,8 @@ export type PickerMode =
   | "sources"
   | "output-folder"
   | "catalog-folder"
-  | "transcript-folder";
+  | "transcript-folder"
+  | "transcript-document";
 export type PickerSelection = { id: string; name?: string; mimeType?: string };
 export type PickerResult =
   | { action: "picked"; docs: PickerSelection[] }
@@ -19,6 +20,7 @@ type PickerCallback = (data: unknown) => void;
 type PickerInstance = { setVisible: (visible: boolean) => void };
 type PickerView = {
   setIncludeFolders?: (value: boolean) => PickerView;
+  setMimeTypes?: (mimeTypes: string) => PickerView;
   setSelectFolderEnabled?: (value: boolean) => PickerView;
   setMode: (mode: string) => PickerView;
   setParent: (parentId: string) => PickerView;
@@ -35,6 +37,7 @@ type PickerBuilder = {
   setTitle: (title: string) => PickerBuilder;
   setOrigin: (origin: string) => PickerBuilder;
   setMaxItems: (maxItems: number) => PickerBuilder;
+  setSelectableMimeTypes?: (mimeTypes: string) => PickerBuilder;
   build: () => PickerInstance;
 };
 type PickerApi = {
@@ -62,6 +65,8 @@ const OUTPUT_FOLDER_PICKER_TITLE = "Выберите папку для резу�
 const CATALOG_FOLDER_PICKER_TITLE = "Выберите папку каталога транскриптов";
 const TRANSCRIPT_FOLDER_PICKER_TITLE =
   "Выберите папку с транскриптами";
+const TRANSCRIPT_DOCUMENT_PICKER_TITLE = "Выберите один Google Doc";
+const GOOGLE_DOC_MIME_TYPE = "application/vnd.google-apps.document";
 const PICKER_MIN_WIDTH = 566;
 const PICKER_MIN_HEIGHT = 350;
 const PICKER_VIEWPORT_MARGIN = 48;
@@ -182,6 +187,7 @@ export async function openGooglePicker(
     mode === "output-folder" ||
     mode === "catalog-folder" ||
     mode === "transcript-folder";
+  const documentMode = mode === "transcript-document";
   let token = session.access_token;
   session.access_token = "";
   try {
@@ -227,6 +233,9 @@ export async function openGooglePicker(
       if (folderMode) {
         view.setSelectFolderEnabled?.(true);
       }
+      if (documentMode) {
+        view.setMimeTypes?.(GOOGLE_DOC_MIME_TYPE);
+      }
       const { width, height } = computeGooglePickerSize(
         window.innerWidth,
         window.innerHeight,
@@ -236,7 +245,9 @@ export async function openGooglePicker(
       builder.setLocale(PICKER_LOCALE);
       builder.setSize(width, height);
       builder.setTitle(
-        mode === "transcript-folder"
+        documentMode
+          ? TRANSCRIPT_DOCUMENT_PICKER_TITLE
+          : mode === "transcript-folder"
           ? TRANSCRIPT_FOLDER_PICKER_TITLE
           : mode === "catalog-folder"
             ? CATALOG_FOLDER_PICKER_TITLE
@@ -245,7 +256,10 @@ export async function openGooglePicker(
               : SOURCE_PICKER_TITLE,
       );
       builder.setOrigin(window.location.origin);
-      builder.setMaxItems(folderMode ? 1 : 50);
+      builder.setMaxItems(folderMode || documentMode ? 1 : 50);
+      if (documentMode) {
+        builder.setSelectableMimeTypes?.(GOOGLE_DOC_MIME_TYPE);
+      }
       if (mode === "sources") {
         builder.enableFeature(pickerApi.Feature.MULTISELECT_ENABLED);
       }

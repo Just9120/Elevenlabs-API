@@ -296,6 +296,128 @@ def test_explicit_document_selection_revalidates_folder_and_each_google_doc():
     assert "doc-z" not in repr(selected)
 
 
+def test_single_document_inspection_revalidates_native_doc_without_parent():
+    from studio_api.google_docs_output import GOOGLE_DOC_MIME_TYPE
+    from studio_api.transcript_catalog_scan import (
+        CATALOG_SELECTED_DRIVE_FIELDS,
+        GoogleTranscriptCatalogReader,
+    )
+
+    calls = []
+
+    def get(url, *, headers, params, timeout):
+        calls.append((url, headers, params, timeout))
+        return response(
+            200,
+            {
+                "id": "private-document",
+                "name": "Selected document",
+                "mimeType": GOOGLE_DOC_MIME_TYPE,
+                "parents": ["unrelated-folder"],
+                "trashed": False,
+                "createdTime": "2026-07-01T00:00:00Z",
+                "modifiedTime": "2026-07-02T00:00:00Z",
+            },
+        )
+
+    document = GoogleTranscriptCatalogReader(get=get).inspect_document(
+        access_token="private-access-token",
+        document_id="private-document",
+    )
+
+    assert document.name == "Selected document"
+    assert calls == [
+        (
+            (
+                "https://www.googleapis.com/drive/v3/files/"
+                "private-document"
+            ),
+            {
+                "Authorization": "Bearer private-access-token",
+                "Accept": "application/json",
+            },
+            {
+                "fields": CATALOG_SELECTED_DRIVE_FIELDS,
+                "supportsAllDrives": "true",
+            },
+            30.0,
+        )
+    ]
+    assert "private-document" not in repr(document)
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected_reason"),
+    (
+        (
+            {
+                "id": "different-document",
+                "name": "Mismatched",
+                "mimeType": "application/vnd.google-apps.document",
+                "trashed": False,
+            },
+            "document_invalid",
+        ),
+        (
+            {
+                "id": "private-document",
+                "name": "Wrong type",
+                "mimeType": "application/pdf",
+                "trashed": False,
+            },
+            "document_not_google_doc",
+        ),
+        (
+            {
+                "id": "private-document",
+                "name": "Trashed",
+                "mimeType": "application/vnd.google-apps.document",
+                "trashed": True,
+            },
+            "document_trashed",
+        ),
+    ),
+)
+def test_single_document_inspection_fails_closed_on_invalid_metadata(
+    payload,
+    expected_reason,
+):
+    from studio_api.transcript_catalog_scan import GoogleTranscriptCatalogReader
+    from studio_api.transcript_document_selection import (
+        TranscriptDocumentSelectionError,
+    )
+
+    with pytest.raises(TranscriptDocumentSelectionError) as raised:
+        GoogleTranscriptCatalogReader(
+            get=lambda *args, **kwargs: response(200, payload)
+        ).inspect_document(
+            access_token="private-access-token",
+            document_id="private-document",
+        )
+
+    assert raised.value.reason.value == expected_reason
+    assert "private-document" not in str(raised.value)
+
+
+def test_single_document_inspection_maps_forbidden_to_request_rejected():
+    from studio_api.transcript_catalog_scan import (
+        CatalogGoogleReadError,
+        CatalogGoogleReadReason,
+        GoogleTranscriptCatalogReader,
+    )
+
+    with pytest.raises(CatalogGoogleReadError) as raised:
+        GoogleTranscriptCatalogReader(
+            get=lambda *args, **kwargs: response(403, {})
+        ).inspect_document(
+            access_token="private-access-token",
+            document_id="private-document",
+        )
+
+    assert raised.value.reason == CatalogGoogleReadReason.request_rejected
+    assert "private-document" not in str(raised.value)
+
+
 @pytest.mark.parametrize(
     ("payload", "expected_reason"),
     (
