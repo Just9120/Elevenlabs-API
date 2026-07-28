@@ -196,6 +196,127 @@ def test_standardization_apply_retry_does_not_rewrite_current_document():
     assert standardizer.writes == []
 
 
+def test_standardization_apply_blocks_one_failed_doc_and_continues():
+    from studio_api.transcript_catalog_standardize import (
+        CatalogGoogleWriteError,
+        CatalogGoogleWriteReason,
+    )
+    from studio_api.transcript_maintenance_apply import (
+        execute_transcript_standardization_apply,
+    )
+
+    class OneConflictStandardizer(StatefulStandardizer):
+        def read_document(self, *, access_token, document_id):
+            if document_id == "private-conflict":
+                self.reads.append(document_id)
+                raise CatalogGoogleWriteError(
+                    CatalogGoogleWriteReason.revision_conflict_or_rejected
+                )
+            return super().read_document(
+                access_token=access_token,
+                document_id=document_id,
+            )
+
+    standardizer = OneConflictStandardizer(
+        {"private-eligible": "Eligible\n\nPrivate body"}
+    )
+    payload = execute_transcript_standardization_apply(
+        access_token="private-access-token",
+        candidates=(
+            _candidate(
+                "private-conflict",
+                name="Changed document",
+                standard="unstructured",
+            ),
+            _candidate(
+                "private-eligible",
+                name="Eligible document",
+                standard="unstructured",
+            ),
+        ),
+        standardizer=standardizer,
+    )
+
+    assert [
+        (
+            item["outcome"],
+            item["reason_code"],
+        )
+        for item in payload["items"]
+    ] == [
+        ("blocked", "catalog_document_revision_changed"),
+        ("standardized", None),
+    ]
+    assert payload["summary"] == {
+        "standardized_count": 1,
+        "already_current_count": 0,
+        "blocked_count": 1,
+    }
+    assert standardizer.reads == [
+        "private-conflict",
+        "private-eligible",
+    ]
+    assert standardizer.writes == ["private-eligible"]
+    encoded = json.dumps(payload, ensure_ascii=False)
+    for private in (
+        "private-conflict",
+        "private-eligible",
+        "private-access-token",
+        "Private body",
+    ):
+        assert private not in encoded
+
+
+@pytest.mark.parametrize(
+    "reason",
+    (
+        "authentication_rejected",
+        "rate_limited",
+        "unavailable",
+        "timeout",
+    ),
+)
+def test_standardization_apply_aborts_on_connection_wide_failure(reason):
+    from studio_api.transcript_catalog_standardize import (
+        CatalogGoogleWriteError,
+        CatalogGoogleWriteReason,
+    )
+    from studio_api.transcript_maintenance_apply import (
+        execute_transcript_standardization_apply,
+    )
+
+    class ConnectionFailureStandardizer(StatefulStandardizer):
+        def read_document(self, *, access_token, document_id):
+            self.reads.append(document_id)
+            raise CatalogGoogleWriteError(
+                CatalogGoogleWriteReason(reason)
+            )
+
+    standardizer = ConnectionFailureStandardizer({})
+    with pytest.raises(CatalogGoogleWriteError) as raised:
+        execute_transcript_standardization_apply(
+            access_token="private-access-token",
+            candidates=(
+                _candidate(
+                    "private-first",
+                    name="First",
+                    standard="unstructured",
+                ),
+                _candidate(
+                    "private-second",
+                    name="Second",
+                    standard="unstructured",
+                ),
+            ),
+            standardizer=standardizer,
+        )
+
+    assert raised.value.reason == CatalogGoogleWriteReason(reason)
+    assert standardizer.reads == ["private-first"]
+    assert standardizer.writes == []
+    assert "private-first" not in str(raised.value)
+
+
 def test_standardization_apply_rejects_out_of_scope_metadata_before_write():
     from studio_api.transcript_maintenance_apply import (
         execute_transcript_standardization_apply,

@@ -23,7 +23,8 @@ Required secret-file classes include:
 
 - PostgreSQL password secret file;
 - Studio credential master key file;
-- Google OAuth client secret file when OAuth is enabled;
+- primary Google OAuth client secret file when Picker/browser OAuth is enabled;
+- separate maintenance Google OAuth client secret file when recursive transcript maintenance is enabled;
 - source-storage access-key files for the private S3/R2-compatible upload bucket;
 - backup/restic repository/password/access secret files when backup automation is used.
 
@@ -105,7 +106,7 @@ Manual migration rollout order is strict:
 2. Create a tagged pre-migration PostgreSQL backup through the approved backup boundary.
 3. Confirm the backup completed and record only safe snapshot metadata.
 4. Run the manual migration command/script only after explicit operator confirmation.
-5. Verify production database revision equals repository Alembic head `0016_transcript_catalog_entries` where the deployment is expected to be current.
+5. Verify production database revision equals repository Alembic head `0017_google_maintenance_oauth` where the deployment is expected to be current.
 6. Deploy or restart only the intended components.
 
 Operator-safe tagged backup command:
@@ -158,48 +159,52 @@ Configuration requirements:
 
 Google OAuth runtime config is fail-closed. OAuth endpoints must remain unavailable or reject safely until required non-secret settings and a non-empty client secret file are present.
 
-Required settings include client ID, redirect URI, scopes, state TTL, and the client-secret file path. The client secret itself stays in an operator-managed file. Current Drive/Picker integration permits only `openid`, email identity, and `https://www.googleapis.com/auth/drive.file`; do not invent broader scopes or enable incremental previously granted scopes. A connection reporting any additional scope is not Picker-ready and must be disconnected/reconnected before browser-token issuance.
+Primary Picker settings include client ID, redirect URI, scopes, state TTL, and the client-secret file path. The client secret itself stays in an operator-managed file. Current Drive/Picker integration permits only `openid`, email identity, and `https://www.googleapis.com/auth/drive.file`; do not invent broader scopes or enable incremental previously granted scopes. A primary connection reporting any additional scope is not Picker-ready and must be disconnected/reconnected before browser-token issuance.
+
+Transcript maintenance uses a second OAuth client and a different client-secret file. Its exact server-only grant is `openid email https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/documents`. Configure `STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_ID`, `STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE`, `STUDIO_GOOGLE_MAINTENANCE_OAUTH_REDIRECT_URI`, and `STUDIO_GOOGLE_MAINTENANCE_OAUTH_SCOPES` before the API rollout. The maintenance client ID and secret file must differ from the primary client. The redirect may use the same reviewed callback route. The maintenance grant must resolve to the same Google subject as the active primary connection; a mismatch is rejected and must not replace either grant.
+
+Only `studio-api` receives and copies the maintenance client secret. Do not mount it into `studio-web` or `studio-worker`, do not issue its access token to a browser, and do not record client IDs, secret paths, grant tokens, Google subjects, or email values as validation evidence.
 
 Picker readiness is separate from OAuth readiness. `STUDIO_GOOGLE_PICKER_API_KEY` and `STUDIO_GOOGLE_PICKER_APP_ID` must be configured, non-empty, and not placeholder values. OAuth connection, Picker configuration, and writable output folder selection are three different preconditions. Do not record Picker key/app ID values in validation evidence.
 
 The host nginx file is the single browser security-header authority. Keep script and frame sources limited to the documented Google Picker hosts; do not add `unsafe-eval` or wildcard script sources. Its `Referrer-Policy` must be `origin`: the website-restricted Picker developer key needs the public origin, while paths and query strings remain undisclosed. Do not weaken the API-key website restriction to compensate for a missing referrer. The PWA's presigned local-upload PUT keeps its explicit `no-referrer` override. The runtime-configured upload destination currently requires general HTTPS in `connect-src`; narrow it only after all intended production S3/R2 origins are explicit and a real Picker/upload smoke test is available. Standard component CD does not apply or reload host nginx, so header rollout and `nginx -t` remain explicit operator actions.
 
-Roll out OAuth/Picker config through API deployment only when runtime files are ready. Validate with authenticated owner-scoped flows and confirm unauthenticated connection/status endpoints still reject as expected.
+Roll out OAuth/Picker and maintenance config through API deployment only when runtime files are ready and production is migrated through `0017_google_maintenance_oauth`. Validate the primary and maintenance connection states separately with authenticated owner-scoped flows, confirm maintenance consent is required before maintenance actions, and confirm unauthenticated connection/status endpoints still reject as expected.
 
-## One-time transcript catalog migration canary
+## Transcript maintenance target-mode canary
 
-The Google Docs transcript catalog migration is a separately initiated stateful operation. A merged source revision, green CI, successful component deployment, or an authenticated browser smoke does not authorize `apply`. The operation requires a reviewed dry-run and a separate explicit operator decision because it can update approved Google Docs in place and create or update durable PostgreSQL catalog rows.
+Google Docs standardization and **Манифест Studio** are two separately initiated stateful operations. Each panel independently offers one recursive folder tree or one Google Doc. A merged source revision, green CI, successful component deployment, maintenance consent, or an authenticated browser smoke does not authorize any `apply`. Every operation/mode pair requires its own selected target, reviewed dry-run, and explicit apply decision. Standardization may update eligible Google Docs in place; **Манифест Studio** does not change Docs and writes only eligible current-document metadata to PostgreSQL.
 
 ### Preconditions
 
 - Use only merged `main` with green required CI and verified web/API commit and image identities.
-- Create and record a successful tagged pre-migration PostgreSQL backup before applying repository Alembic head `0016_transcript_catalog_entries`; standard CD must not create the backup or run the migration.
+- Create and record a successful tagged pre-migration PostgreSQL backup before applying repository Alembic head `0017_google_maintenance_oauth`; standard CD must not create the backup or run the migration.
 - Verify public and localhost health, API migration readiness, and an authenticated owner-scoped session.
-- Use the existing Google connection with the approved `drive.file` permission and no additional Drive scope. Do not broaden OAuth scope for catalog migration.
-- Select a small approved canary folder containing copies or otherwise explicitly approved representative transcript documents. The scanner evaluates direct children only; nested folders are reported but not traversed.
+- Verify the primary Picker connection remains limited to `openid email drive.file`, then complete the separate server-only maintenance consent with the same Google account and exact maintenance scope boundary.
+- Prepare a small approved recursive canary root containing copies or otherwise explicitly approved representative documents and one approved single-document canary. The server scans the entire selected root tree in folder mode and only the exact selected native Google Doc in document mode; stop if either boundary differs from the approved target.
 - Keep transcription jobs and provider processing out of this operation. The migration must not create a job, call a transcription provider, or require a worker rollout.
 
 ### Dry-run and authorization
 
-1. Open **Settings → Account → Transcript catalog migration** in the PWA and select the approved canary folder through Google Picker.
-2. Run `dry-run` only. The preview is non-mutating, browser-safe, and rate-limited; it is not authority for a later apply because the server performs a fresh scan when apply begins.
-3. Review aggregate action, blocked, unsupported, and nested-folder counts. Stop on unexpected documents, unresolved conflicts, blocked candidates, unsupported contents, or an incomplete folder boundary.
-4. Record only safe aggregate counts and the explicit operator decision. Do not record folder IDs, document IDs, document names, document bodies, Google payloads, access tokens, or URLs.
-5. Authorize exactly one apply separately from the dry-run. Do not treat a previous approval, CI result, or deploy approval as migration authorization.
+1. Open the separate **Стандартизация Google Docs** or **Манифест Studio** panel in the PWA, select the intended dropdown mode, and choose exactly one approved root folder or Google Doc through Picker.
+2. Run that panel's `dry-run` only. The preview is non-mutating, browser-safe, rate-limited, and bound to that operation/mode/target; it is not authority for apply because the server freshly revalidates the same target when apply begins.
+3. In folder mode review selected, action, unchanged, blocked, skipped-file, and descendant-folder counts. In document mode verify exactly one document was checked. Current documents must be skipped by standardization; already-cataloged current documents must be skipped by **Манифест Studio**. Stop on an unexpected target boundary, global scan failure, or unexplained blocked candidate.
+4. Record only the non-private mode, safe aggregate counts, and the operation-specific decision. Do not record folder IDs, document IDs, document names, document bodies, Google payloads, access tokens, subjects, emails, or URLs.
+5. Authorize exactly one apply for exactly one operation/mode/target. A standardization preview or apply never authorizes **Манифест Studio**, the inverse is also true, and changing the mode or target requires a new dry-run.
 
 ### Apply and post-check
 
 1. Apply once from the reviewed PWA panel. Do not send the endpoint manually or start parallel apply requests.
-2. If the request times out, conflicts, reports an unknown error, or returns an incomplete result, stop. Do not retry blindly. Preserve safe evidence, run a new dry-run, and reconcile Google document version history with catalog state before another operator decision.
-3. Review the returned aggregate apply outcomes, then run a new dry-run for the same canary folder. Expected documents should be current or unchanged, with no new unexpected action.
-4. Manually inspect the approved canary copies or their Google version history to confirm content preservation and the intended `transcript_doc_v1.2` structure. Do not copy transcript text into evidence.
-5. Confirm that the operation created no transcription job, provider attempt, output document, or worker activity. Record the migration audit event only through safe aggregate or normalized evidence.
+2. A per-document inaccessible, unreadable, empty, unsafe, unsupported, or conflicting candidate is reported as blocked without aborting safe siblings. A global authorization, rate-limit, availability, timeout, malformed-scan, or traversal-limit failure aborts the operation. On a global or incomplete result, stop and do not retry blindly.
+3. Review aggregate apply outcomes, then run a new dry-run for the same mode, target, and operation. Successfully standardized documents should now be current; successfully imported catalog entries should now be unchanged/already present.
+4. For standardization only, manually inspect approved canary copies or Google version history to confirm content preservation and the intended `transcript_doc_v1.2` structure. Do not copy transcript text into evidence. **Манифест Studio** must leave Google Docs unchanged.
+5. Confirm that neither operation created a transcription job, provider attempt, output document, or worker activity. Record only safe aggregate or normalized audit evidence.
 
 ### Recovery boundary and evidence
 
-A PostgreSQL restore can recover catalog metadata, but it does not automatically revert Google Docs already changed before a database failure. Google recovery depends on approved canary copies or Google version history. If apply may have partially changed external documents, do not automatically rerun apply, delete documents, restore production PostgreSQL, or broaden permissions. Stop and make recovery a separate operator-reviewed stateful task.
+A PostgreSQL restore can recover catalog metadata, but it does not automatically revert Google Docs changed by standardization before a database failure. Google recovery depends on approved canary copies or Google version history. If standardization may have partially changed external documents, do not automatically rerun apply, delete documents, restore production PostgreSQL, or broaden permissions. Stop and make recovery a separate operator-reviewed stateful task.
 
-Safe evidence includes the merged commit, required CI result, deployed web/API image identities, database revision, backup snapshot ID, public and localhost health, aggregate dry-run/apply counts, absence of provider/job mutations, and the explicit operator approval. It must exclude private folder/object identifiers, document names or bodies, Google responses, credentials, and tokens.
+Safe evidence includes the merged commit, required CI result, deployed web/API image identities, database revision, backup snapshot ID, public and localhost health, non-private target mode, aggregate dry-run/apply counts, absence of provider/job mutations, and the explicit operator approval. It must exclude private folder/object identifiers, document names or bodies, Google responses, credentials, and tokens.
 
 ## Component deployment
 
@@ -220,20 +225,21 @@ Before any processing rollout or canary, verify without printing sensitive value
 - runtime env/secret files exist where expected, without displaying values;
 - PostgreSQL and Redis health;
 - source-upload storage config is complete;
-- Google OAuth config is complete and authenticated for the smoke account;
+- primary Google OAuth config is complete and authenticated for the smoke account;
+- maintenance OAuth uses a separate client/secret, exact server-only scopes, and the same Google account;
 - Picker runtime config has non-placeholder `STUDIO_GOOGLE_PICKER_API_KEY` and `STUDIO_GOOGLE_PICKER_APP_ID` values without recording them;
-- OAuth scopes include `https://www.googleapis.com/auth/drive.file` where required, and changed scopes have been handled by disconnect/reconnect if needed;
+- primary OAuth scopes equal `openid email drive.file`; maintenance scopes equal `openid email drive.metadata.readonly documents`; changed scopes have been handled by the corresponding disconnect/reconnect if needed;
 - credential master key and encrypted BYOK records are usable;
 - exactly one intended active ElevenLabs BYOK credential exists for the smoke account;
 - writable Google output folder selection exists;
-- production database revision is known and compared to repository Alembic head `0016_transcript_catalog_entries`;
+- production database revision is known and compared to repository Alembic head `0017_google_maintenance_oauth`;
 - exactly one worker instance is intended for the canary.
 
 ## Controlled worker rollout sequence
 
 1. Keep `studio-worker` stopped until migration and runtime readiness are confirmed.
 2. Create/confirm the tagged pre-migration database backup if a migration or stateful rollout is involved.
-3. Verify production database revision equals repository head `0016_transcript_catalog_entries` where the deployment is expected to be current.
+3. Verify production database revision equals repository head `0017_google_maintenance_oauth` where the deployment is expected to be current.
 4. Deploy web/API only through the approved isolated component deployment model.
 5. Verify intended commit/image identity, running component identity, localhost health, public health, authenticated session behavior, and output endpoint availability without exposing another owner’s data.
 6. Start exactly one `studio-worker` from the intended image with no public HTTP port.
@@ -405,7 +411,7 @@ GitHub Actions supports manual `workflow_dispatch(component=worker)` using the s
 
 ## Output reconciliation operations boundary
 
-`PWA-OUTPUT-RECONCILIATION-01` uses schema introduced by `0012_output_reconciliation_cases` and is part of the operator-evidenced production baseline migrated through `0015_user_source_retention`. The pending catalog migration `0016_transcript_catalog_entries` does not gate reconciliation behavior. Any future API/worker revision still requires schema compatibility and component identity checks; standard CD must not run migrations automatically.
+`PWA-OUTPUT-RECONCILIATION-01` uses schema introduced by `0012_output_reconciliation_cases` and is part of the operator-evidenced production baseline migrated through `0015_user_source_retention`. The later catalog and maintenance OAuth migrations `0016_transcript_catalog_entries` and `0017_google_maintenance_oauth` do not gate reconciliation behavior. Any future API/worker revision still requires schema compatibility and component identity checks; standard CD must not run migrations automatically.
 
 When a job fails with `output_reconciliation_required`, the owner may use the Studio PWA action or API check endpoint to query Drive by the internal opaque appProperty token and the job output-folder snapshot. Operators must not ask users for raw Google document IDs, must not create duplicate Google Docs, must not delete possible duplicates, must not retry provider processing as reconciliation, and must not inspect transcript/document bodies as evidence. Zero matches remain unresolved for later explicit checks. Multiple matches are a conflict requiring manual investigation outside the automated path.
 
@@ -421,4 +427,4 @@ The bounded production canary produced one resolved reconciliation case and requ
 
 ## Source cleanup operations note
 
-Repository Alembic head is `0016_transcript_catalog_entries`, while the source-cleanup and retention schema through `0015_user_source_retention` is production-applied. Source cleanup is durable PostgreSQL state on `sources`; the allowlisted per-user retention preference is durable PostgreSQL state on `users`. Cleanup is processed as bounded worker idle maintenance after normal job claim/orchestration finds no job. Safe diagnostics use normalized source deletion/retention/cleanup events and must not log object keys, buckets, filenames, Drive file IDs, presigned URLs, raw storage errors, or secrets. The authenticated smoke proved that source removal queued background cleanup, but it did not inspect the later physical R2 deletion outcome.
+Repository Alembic head is `0017_google_maintenance_oauth`. The older source-cleanup and retention schema through `0015_user_source_retention` has separate production evidence; the currently deployed production head must still be verified rather than inferred from repository source. Source cleanup is durable PostgreSQL state on `sources`; the allowlisted per-user retention preference is durable PostgreSQL state on `users`. Cleanup is processed as bounded worker idle maintenance after normal job claim/orchestration finds no job. Safe diagnostics use normalized source deletion/retention/cleanup events and must not log object keys, buckets, filenames, Drive file IDs, presigned URLs, raw storage errors, or secrets. The authenticated smoke proved that source removal queued background cleanup, but it did not inspect the later physical R2 deletion outcome.

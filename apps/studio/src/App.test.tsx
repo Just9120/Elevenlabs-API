@@ -142,7 +142,6 @@ function installFakeGooglePicker() {
   const viewParents: string[] = [];
   const includeFolders: boolean[] = [];
   const selectFolderEnabled: boolean[] = [];
-  const viewMimeTypes: string[] = [];
   const builderCalls: { method: string; args: unknown[] }[] = [];
   const setVisible = vi.fn();
   class FakeView {
@@ -155,10 +154,6 @@ function installFakeGooglePicker() {
     }
     setSelectFolderEnabled(value: boolean) {
       selectFolderEnabled.push(value);
-      return this;
-    }
-    setMimeTypes(value: string) {
-      viewMimeTypes.push(value);
       return this;
     }
     setMode(mode: string) {
@@ -208,13 +203,6 @@ function installFakeGooglePicker() {
       builderCalls.push({ method: "setMaxItems", args: [maxItems] });
       return this;
     }
-    setSelectableMimeTypes(mimeTypes: string) {
-      builderCalls.push({
-        method: "setSelectableMimeTypes",
-        args: [mimeTypes],
-      });
-      return this;
-    }
     setCallback(cb: (data: unknown) => void) {
       builderCalls.push({ method: "setCallback", args: [cb] });
       callback = cb;
@@ -257,7 +245,6 @@ function installFakeGooglePicker() {
     viewParents,
     includeFolders,
     selectFolderEnabled,
-    viewMimeTypes,
     builderCalls,
   };
 }
@@ -968,6 +955,21 @@ describe("Studio PWA", () => {
             scopes: "https://www.googleapis.com/auth/drive.file",
             connected_at: "2026-07-01T00:00:00",
             revoked_at: "2026-07-02T00:00:00",
+          });
+        if (url.endsWith("/api/google/maintenance/connection"))
+          return json({
+            connected: true,
+            status: "active",
+            google_email: "safe.user@example.com",
+            scopes:
+              "openid email https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/documents",
+            connected_at: "2026-07-28T00:00:00Z",
+            revoked_at: null,
+            configured: true,
+            account_match: true,
+            scope_ready: true,
+            ready: true,
+            reconnect_required: false,
           });
         if (url.endsWith("/api/google/connection"))
           return json({
@@ -1701,9 +1703,6 @@ describe("Studio PWA", () => {
       setSelectFolderEnabled() {
         return this;
       }
-      setMimeTypes() {
-        return this;
-      }
       setMode() {
         return this;
       }
@@ -1740,9 +1739,6 @@ describe("Studio PWA", () => {
         return this;
       }
       setMaxItems() {
-        return this;
-      }
-      setSelectableMimeTypes() {
         return this;
       }
       setCallback(cb: (data: unknown) => void) {
@@ -1856,8 +1852,8 @@ describe("Studio PWA", () => {
     const viewModes: string[] = [];
     const viewParents: string[] = [];
     const includeFolders: boolean[] = [];
-    const selectFolderEnabled: boolean[] = [];
     const viewMimeTypes: string[] = [];
+    const selectFolderEnabled: boolean[] = [];
     const builderCalls: { method: string; args: unknown[] }[] = [];
     class FakeView {
       constructor(viewId: string) {
@@ -1867,12 +1863,12 @@ describe("Studio PWA", () => {
         includeFolders.push(value);
         return this;
       }
-      setSelectFolderEnabled(value: boolean) {
-        selectFolderEnabled.push(value);
+      setMimeTypes(mimeTypes: string) {
+        viewMimeTypes.push(mimeTypes);
         return this;
       }
-      setMimeTypes(value: string) {
-        viewMimeTypes.push(value);
+      setSelectFolderEnabled(value: boolean) {
+        selectFolderEnabled.push(value);
         return this;
       }
       setMode(mode: string) {
@@ -2009,19 +2005,18 @@ describe("Studio PWA", () => {
     });
 
     callback = null;
-    const transcriptDocumentsPromise = googlePicker.openGooglePicker(
-      "transcript-documents",
+    const transcriptDocumentPromise = googlePicker.openGooglePicker(
+      "transcript-document",
       {
-        access_token: "ya29.transcript",
+        access_token: "ya29.transcript-document",
         api_key: "public",
         app_id: "app",
         scope_ready: true,
       },
-      { parentId: "private-selected-folder" },
     );
     await waitFor(() => expect(callback).not.toBeNull());
     callback?.({ action: "cancel" });
-    await expect(transcriptDocumentsPromise).resolves.toEqual({
+    await expect(transcriptDocumentPromise).resolves.toEqual({
       action: "cancel",
     });
 
@@ -2033,18 +2028,12 @@ describe("Studio PWA", () => {
       "docs",
     ]);
     expect(viewModes).toEqual(["list", "list", "list", "list", "list"]);
-    expect(viewParents).toEqual([
-      "root",
-      "root",
-      "root",
-      "root",
-      "private-selected-folder",
-    ]);
-    expect(includeFolders).toEqual([true, true, true, true, false]);
-    expect(selectFolderEnabled).toEqual([true, true, true]);
+    expect(viewParents).toEqual(["root", "root", "root", "root", "root"]);
+    expect(includeFolders).toEqual([true, true, true, true, true]);
     expect(viewMimeTypes).toEqual([
       "application/vnd.google-apps.document",
     ]);
+    expect(selectFolderEnabled).toEqual([true, true, true]);
     expect(builderCalls).toContainEqual({ method: "setLocale", args: ["ru"] });
     expect(builderCalls).toContainEqual({
       method: "setTitle",
@@ -2064,7 +2053,7 @@ describe("Studio PWA", () => {
     });
     expect(builderCalls).toContainEqual({
       method: "setTitle",
-      args: ["Выберите Google Docs в выбранной папке"],
+      args: ["Выберите один Google Doc"],
     });
     expect(builderCalls).toContainEqual({
       method: "setSize",
@@ -2092,7 +2081,7 @@ describe("Studio PWA", () => {
     });
     expect(builderCalls).toContainEqual({
       method: "setOAuthToken",
-      args: ["ya29.transcript"],
+      args: ["ya29.transcript-document"],
     });
     expect(builderCalls).toContainEqual({
       method: "setDeveloperKey",
@@ -2101,20 +2090,13 @@ describe("Studio PWA", () => {
     expect(builderCalls).toContainEqual({ method: "setAppId", args: ["app"] });
     expect(builderCalls).toContainEqual({ method: "setMaxItems", args: [50] });
     expect(builderCalls).toContainEqual({ method: "setMaxItems", args: [1] });
-    expect(
-      builderCalls.filter((call) => call.method === "setSelectableMimeTypes"),
-    ).toEqual([
-      {
-        method: "setSelectableMimeTypes",
-        args: ["application/vnd.google-apps.document"],
-      },
-    ]);
+    expect(builderCalls).toContainEqual({
+      method: "setSelectableMimeTypes",
+      args: ["application/vnd.google-apps.document"],
+    });
     expect(
       builderCalls.filter((call) => call.method === "enableFeature"),
-    ).toEqual([
-      { method: "enableFeature", args: ["multi"] },
-      { method: "enableFeature", args: ["multi"] },
-    ]);
+    ).toEqual([{ method: "enableFeature", args: ["multi"] }]);
     expect(
       builderCalls.filter((call) => call.method === "setCallback"),
     ).toHaveLength(5);
@@ -2129,26 +2111,6 @@ describe("Studio PWA", () => {
       configurable: true,
       value: originalInnerHeight,
     });
-  });
-
-  it("rejects transcript document Picker without a bounded parent folder", async () => {
-    const session = {
-      access_token: "ya29.private",
-      api_key: "public",
-      app_id: "app",
-      scope_ready: true,
-    };
-
-    await expect(
-      googlePicker.openGooglePicker(
-        "transcript-documents",
-        session,
-      ),
-    ).resolves.toEqual({
-      action: "error",
-      message: "Сначала выберите папку для документов",
-    });
-    expect(session.access_token).toBe("");
   });
 
   it("refreshes in-memory CSRF and renders settings without browser storage secrets", async () => {
@@ -5475,14 +5437,8 @@ describe("Studio PWA", () => {
     expect(picker.viewParents).toContain("root");
     expect(picker.includeFolders).toContain(true);
     expect(picker.selectFolderEnabled).toEqual([true]);
-    expect(picker.viewMimeTypes).toEqual([]);
     expect(
       picker.builderCalls.filter((call) => call.method === "enableFeature"),
-    ).toEqual([]);
-    expect(
-      picker.builderCalls.filter(
-        (call) => call.method === "setSelectableMimeTypes",
-      ),
     ).toEqual([]);
     expect(picker.builderCalls).toContainEqual({
       method: "setMaxItems",
@@ -6128,6 +6084,31 @@ describe("Studio PWA", () => {
         "Google Drive подключён. Статус подключения обновлён.",
       ),
     ).not.toBeInTheDocument();
+  });
+
+  it("routes a safe maintenance OAuth callback to confirmed settings", async () => {
+    window.history.pushState(
+      {},
+      "",
+      "/?google_maintenance_oauth=connected&keep=1#safe",
+    );
+
+    renderApp();
+
+    expect(
+      await screen.findByRole("heading", { name: "Настройки аккаунта" }),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        "Расширенный доступ для обслуживания подключён и проверен.",
+      ),
+    ).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/google/maintenance/connection",
+      expect.objectContaining({ credentials: "same-origin" }),
+    );
+    expect(window.location.search).toBe("?keep=1");
+    expect(window.location.hash).toBe("#safe");
   });
 
   it("does not show OAuth success when refreshed Google connection is disconnected", async () => {

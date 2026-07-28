@@ -12,6 +12,8 @@ from .transcript_catalog_migration import (
     classify_transcript_standardization_candidate,
 )
 from .transcript_catalog_standardize import (
+    CatalogGoogleWriteError,
+    CatalogGoogleWriteReason,
     GoogleTranscriptCatalogStandardizer,
     standardize_transcript_document_in_place,
 )
@@ -21,6 +23,49 @@ class TranscriptStandardizationApplyOutcome(str, Enum):
     standardized = "standardized"
     already_current = "already_current"
     blocked = "blocked"
+
+
+class TranscriptStandardizationApplyBlockReason(str, Enum):
+    document_unavailable = "catalog_document_unavailable"
+    write_rejected = "catalog_document_write_rejected"
+    revision_changed = "catalog_document_revision_changed"
+    multiple_tabs = "catalog_document_multiple_tabs"
+    unsupported_content = "catalog_document_content_unsupported"
+    classification_changed = "catalog_document_classification_changed"
+    empty_transcript = "catalog_document_empty"
+    limit_exceeded = "catalog_document_limit_exceeded"
+    response_invalid = "catalog_document_response_invalid"
+
+
+PER_DOCUMENT_WRITE_BLOCK_REASONS = {
+    CatalogGoogleWriteReason.request_rejected: (
+        TranscriptStandardizationApplyBlockReason.write_rejected
+    ),
+    CatalogGoogleWriteReason.malformed_response: (
+        TranscriptStandardizationApplyBlockReason.response_invalid
+    ),
+    CatalogGoogleWriteReason.document_not_found: (
+        TranscriptStandardizationApplyBlockReason.document_unavailable
+    ),
+    CatalogGoogleWriteReason.revision_conflict_or_rejected: (
+        TranscriptStandardizationApplyBlockReason.revision_changed
+    ),
+    CatalogGoogleWriteReason.multiple_tabs: (
+        TranscriptStandardizationApplyBlockReason.multiple_tabs
+    ),
+    CatalogGoogleWriteReason.unsupported_content: (
+        TranscriptStandardizationApplyBlockReason.unsupported_content
+    ),
+    CatalogGoogleWriteReason.classification_changed: (
+        TranscriptStandardizationApplyBlockReason.classification_changed
+    ),
+    CatalogGoogleWriteReason.empty_transcript: (
+        TranscriptStandardizationApplyBlockReason.empty_transcript
+    ),
+    CatalogGoogleWriteReason.limit_exceeded: (
+        TranscriptStandardizationApplyBlockReason.limit_exceeded
+    ),
+}
 
 
 def execute_transcript_standardization_apply(
@@ -73,22 +118,31 @@ def execute_transcript_standardization_apply(
             decision.action
             == TranscriptStandardizationAction.standardize_document
         ):
-            result = standardize_transcript_document_in_place(
-                access_token=token,
-                document_id=candidate.drive_document_id,
-                document_name=candidate.name,
-                expected_status=candidate.standard_status,
-                created_time=created_times.get(
-                    candidate.drive_document_id
-                ),
-                standardizer=transport,
-            )
-            outcome = (
-                TranscriptStandardizationApplyOutcome.standardized
-                if result.changed
-                else TranscriptStandardizationApplyOutcome.already_current
-            )
-            reason = None
+            try:
+                result = standardize_transcript_document_in_place(
+                    access_token=token,
+                    document_id=candidate.drive_document_id,
+                    document_name=candidate.name,
+                    expected_status=candidate.standard_status,
+                    created_time=created_times.get(
+                        candidate.drive_document_id
+                    ),
+                    standardizer=transport,
+                )
+            except CatalogGoogleWriteError as exc:
+                reason = PER_DOCUMENT_WRITE_BLOCK_REASONS.get(exc.reason)
+                if reason is None:
+                    raise
+                outcome = TranscriptStandardizationApplyOutcome.blocked
+            else:
+                outcome = (
+                    TranscriptStandardizationApplyOutcome.standardized
+                    if result.changed
+                    else (
+                        TranscriptStandardizationApplyOutcome.already_current
+                    )
+                )
+                reason = None
         else:
             raise RuntimeError("Transcript standardization plan is invalid")
         outcomes.append(outcome)

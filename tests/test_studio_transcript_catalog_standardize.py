@@ -23,7 +23,6 @@ def _document_payload(
 ) -> dict:
     content = [
         {
-            "startIndex": 0,
             "endIndex": 1,
             "sectionBreak": {},
         }
@@ -65,6 +64,60 @@ def _response(status_code: int, payload: object) -> httpx.Response:
         json=payload,
         request=httpx.Request("GET", "https://docs.googleapis.test"),
     )
+
+
+def test_document_forbidden_is_normalized_as_per_document_rejection():
+    from studio_api.transcript_catalog_standardize import (
+        CatalogGoogleDocumentSnapshot,
+        CatalogGoogleWriteError,
+        CatalogGoogleWriteReason,
+        GoogleTranscriptCatalogStandardizer,
+    )
+
+    reader = GoogleTranscriptCatalogStandardizer(
+        get=lambda *args, **kwargs: _response(
+            403,
+            {"error": "private-google-response"},
+        )
+    )
+    with pytest.raises(CatalogGoogleWriteError) as read_error:
+        reader.read_document(
+            access_token="private-access-token",
+            document_id="private-document",
+        )
+
+    writer = GoogleTranscriptCatalogStandardizer(
+        post=lambda *args, **kwargs: _response(
+            403,
+            {"error": "private-google-response"},
+        )
+    )
+    with pytest.raises(CatalogGoogleWriteError) as write_error:
+        writer.replace_document_text(
+            access_token="private-access-token",
+            snapshot=CatalogGoogleDocumentSnapshot(
+                document_id="private-document",
+                revision_id="private-revision",
+                tab_id="private-tab",
+                document_text="Private text",
+                end_index=2,
+            ),
+            document_text="Replacement",
+        )
+
+    assert (
+        read_error.value.reason
+        == CatalogGoogleWriteReason.request_rejected
+    )
+    assert (
+        write_error.value.reason
+        == CatalogGoogleWriteReason.request_rejected
+    )
+    for raised in (read_error.value, write_error.value):
+        rendered = str(raised)
+        assert "private-access-token" not in rendered
+        assert "private-document" not in rendered
+        assert "private-google-response" not in rendered
 
 
 def test_standardized_text_preserves_authoritative_metadata_and_body():
@@ -210,6 +263,23 @@ def test_standardizer_reads_one_tab_and_redacts_private_snapshot():
         assert private not in redacted
 
 
+def test_standardizer_accepts_omitted_zero_index_on_initial_section_break():
+    from studio_api.transcript_catalog_standardize import (
+        normalize_standardization_snapshot,
+    )
+
+    payload = _document_payload("Title\n\nPlain text body")
+    first = payload["tabs"][0]["documentTab"]["body"]["content"][0]
+    assert "startIndex" not in first
+
+    snapshot = normalize_standardization_snapshot(
+        payload,
+        expected_document_id="private-document",
+    )
+
+    assert snapshot.document_text == "Title\n\nPlain text body"
+
+
 def test_standardizer_rejects_multiple_tabs_and_non_text_content():
     from studio_api.transcript_catalog_standardize import (
         CatalogGoogleWriteError,
@@ -256,6 +326,20 @@ def test_standardizer_rejects_multiple_tabs_and_non_text_content():
         )
     assert (
         hidden_content.value.reason
+        == CatalogGoogleWriteReason.unsupported_content
+    )
+
+    payload = _document_payload("Body")
+    payload["tabs"][0]["documentTab"]["body"]["content"][0][
+        "startIndex"
+    ] = 2
+    with pytest.raises(CatalogGoogleWriteError) as noninitial_break:
+        normalize_standardization_snapshot(
+            payload,
+            expected_document_id="private-document",
+        )
+    assert (
+        noninitial_break.value.reason
         == CatalogGoogleWriteReason.unsupported_content
     )
 

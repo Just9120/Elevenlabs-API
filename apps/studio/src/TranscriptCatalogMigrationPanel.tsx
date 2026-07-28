@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { ApiError, mutateWithCsrfRetry } from "./apiClient";
+import { ApiError, api, mutateWithCsrfRetry } from "./apiClient";
 import * as googlePicker from "./googlePicker";
 import type { PickerSession } from "./googlePicker";
 import { googlePickerFailureMessage } from "./googlePickerErrors";
+import {
+  googleMaintenanceOauthMessages,
+  type GoogleMaintenanceOauthResult,
+} from "./googleOauthResult";
 import {
   parseTranscriptCatalogImportApply,
   parseTranscriptCatalogImportDryRun,
@@ -26,14 +30,29 @@ import {
 } from "./transcriptMaintenanceModel";
 
 type BusyState =
-  | "folder-picker"
-  | "document-picker"
+  | "target-picker"
   | "dry-run"
   | "apply"
   | null;
-type SelectedFolder = { id: string; name: string };
-type SelectedDocument = { id: string; name: string };
+type TranscriptMaintenanceSelectionMode =
+  | "folder_tree"
+  | "single_document";
+type SelectedTarget = { id: string; name: string };
 type Mutate = <T>(path: string, options: RequestInit) => Promise<T>;
+type GoogleOauthStart = { authorization_url: string; expires_at: string };
+type GoogleMaintenanceConnection = {
+  connected: boolean;
+  status: string | null;
+  google_email: string | null;
+  scopes: string | null;
+  connected_at: string | null;
+  revoked_at: string | null;
+  configured: boolean;
+  account_match: boolean;
+  scope_ready: boolean;
+  ready: boolean;
+  reconnect_required: boolean;
+};
 
 const STANDARD_LABELS: Record<TranscriptStandardStatus, string> = {
   current: "Актуальный стандарт",
@@ -84,12 +103,36 @@ const REASON_LABELS: Record<MaintenanceReason, string> = {
   document_unreadable: "Документ недоступен для чтения",
   standardization_required: "Сначала стандартизируйте документ",
   catalog_metadata_conflict: "Метаданные Studio изменились",
+  catalog_document_unavailable:
+    "Документ стал недоступен во время применения",
+  catalog_document_write_rejected:
+    "Google Drive отклонил изменение документа",
+  catalog_document_revision_changed:
+    "Документ изменился после проверки",
+  catalog_document_multiple_tabs:
+    "Документ с несколькими вкладками не поддерживается",
+  catalog_document_content_unsupported:
+    "Структура документа не поддерживается",
+  catalog_document_classification_changed:
+    "Состояние документа изменилось после проверки",
+  catalog_document_empty:
+    "Пустой документ нельзя стандартизировать",
+  catalog_document_limit_exceeded:
+    "Документ слишком большой для безопасной стандартизации",
+  catalog_document_response_invalid:
+    "Google Docs вернул некорректную структуру документа",
 };
 const ERROR_MESSAGES: Record<string, string> = {
   catalog_google_connection_missing:
     "Подключите Google Drive перед операцией.",
   catalog_google_connection_inactive:
     "Подключение Google Drive неактивно. Обновите его в настройках.",
+  catalog_google_maintenance_connection_missing:
+    "Подключите отдельный доступ Google для обслуживания папок.",
+  catalog_google_maintenance_connection_inactive:
+    "Доступ Google для обслуживания неактивен. Подключите его заново.",
+  catalog_google_maintenance_account_mismatch:
+    "Подключите для обслуживания тот же Google-аккаунт, что и основной.",
   catalog_google_reauthorization_required:
     "Google Drive требует повторного подключения.",
   catalog_google_scope_unavailable:
@@ -124,27 +167,21 @@ const ERROR_MESSAGES: Record<string, string> = {
     "Пустой документ нельзя стандартизировать как транскрипт.",
   catalog_document_limit_exceeded:
     "Один из документов слишком большой для безопасной стандартизации.",
-  transcript_selection_invalid: "Выбор документов некорректен.",
-  transcript_selection_empty: "Выберите хотя бы один Google Doc.",
-  transcript_selection_limit_exceeded:
-    "За один запуск можно выбрать не более 50 документов.",
-  transcript_selection_duplicate:
-    "Один документ выбран несколько раз. Повторите выбор.",
   transcript_folder_invalid: "Выбранная папка некорректна.",
-  transcript_document_invalid: "Один из выбранных документов некорректен.",
+  transcript_document_invalid: "Выбранный документ некорректен.",
   transcript_document_not_google_doc:
-    "Выбранный файл не является Google Docs документом.",
-  transcript_document_out_of_folder:
-    "Один из документов находится вне выбранной папки.",
+    "Выберите документ в формате Google Docs.",
   transcript_document_trashed:
-    "Один из выбранных документов находится в корзине.",
+    "Выбранный документ находится в корзине Google Drive.",
 };
 
 const OPERATION_COPY = {
   standardization: {
     title: "Стандартизация Google Docs",
     description:
-      "Обновляет только явно выбранные Google Docs до transcript_doc_v1.2. " +
+      "Обновляет выбранный Google Doc либо рекурсивно сканирует папку и " +
+      "обновляет подходящие Google Docs " +
+      "до transcript_doc_v1.2. Уже актуальные документы пропускаются. " +
       "Каталог Studio и состояние заданий не изменяются.",
     applyLabel: "Подтвердить стандартизацию",
     resultTitle: "Стандартизация завершена",
@@ -152,13 +189,24 @@ const OPERATION_COPY = {
   catalog_import: {
     title: "Манифест Studio",
     description:
-      "Добавляет в манифест Studio только метаданные выбранных актуальных " +
-      "документов. Отдельный manifest-файл не создаётся, Google Docs не " +
-      "изменяются.",
+      "Проверяет выбранный Google Doc либо рекурсивно сканирует папку и " +
+      "добавляет в манифест Studio " +
+      "только метаданные подходящих актуальных документов. Уже учтённые " +
+      "документы пропускаются. Отдельный manifest-файл не создаётся, " +
+      "Google Docs не изменяются.",
     applyLabel: "Добавить в манифест Studio",
     resultTitle: "Манифест Studio обновлён",
   },
 } as const;
+
+function maintenanceTarget(
+  selectionMode: TranscriptMaintenanceSelectionMode,
+  target: SelectedTarget,
+) {
+  return selectionMode === "folder_tree"
+    ? { selection_mode: selectionMode, folder_id: target.id }
+    : { selection_mode: selectionMode, document_id: target.id };
+}
 
 function apiReason(error: unknown): string | null {
   if (!(error instanceof ApiError) || !error.data) return null;
@@ -243,18 +291,46 @@ function Summary({
   );
 }
 
+function SelectionScanDetails({
+  result,
+  selectionMode,
+}: {
+  result: TranscriptMaintenanceDryRun;
+  selectionMode: TranscriptMaintenanceSelectionMode;
+}) {
+  const summary = result.selection_summary;
+  if (selectionMode === "single_document") {
+    return (
+      <p className="muted catalog-scan-details">
+        Проверен один выбранный Google Doc. Не удалось прочитать документов:{" "}
+        {summary.unreadable_document_count}.
+      </p>
+    );
+  }
+  return (
+    <p className="muted catalog-scan-details">
+      Вложенных папок: {summary.nested_folder_count}. Пропущено других файлов:{" "}
+      {summary.skipped_non_document_count}. Страниц Drive просканировано:{" "}
+      {summary.pages_scanned}. Не удалось прочитать документов:{" "}
+      {summary.unreadable_document_count}.
+    </p>
+  );
+}
+
 function StandardizationDryRunResult({
   result,
+  selectionMode,
 }: {
   result: TranscriptStandardizationDryRun;
+  selectionMode: TranscriptMaintenanceSelectionMode;
 }) {
   return (
     <>
       <Summary
         entries={[
           {
-            label: "Выбрано документов",
-            value: result.selection_summary.selected_document_count,
+            label: "Google Docs найдено",
+            value: result.selection_summary.google_document_count,
           },
           {
             label: "Будут стандартизированы",
@@ -263,6 +339,10 @@ function StandardizationDryRunResult({
           { label: "Без изменений", value: result.summary.unchanged_count },
           { label: "Заблокированы", value: result.summary.blocked_count },
         ]}
+      />
+      <SelectionScanDetails
+        result={result}
+        selectionMode={selectionMode}
       />
       <div className="catalog-migration-table-wrap">
         <table className="catalog-migration-table">
@@ -293,16 +373,18 @@ function StandardizationDryRunResult({
 
 function CatalogDryRunResult({
   result,
+  selectionMode,
 }: {
   result: TranscriptCatalogImportDryRun;
+  selectionMode: TranscriptMaintenanceSelectionMode;
 }) {
   return (
     <>
       <Summary
         entries={[
           {
-            label: "Выбрано документов",
-            value: result.selection_summary.selected_document_count,
+            label: "Google Docs найдено",
+            value: result.selection_summary.google_document_count,
           },
           {
             label: "Будут добавлены в манифест",
@@ -311,6 +393,10 @@ function CatalogDryRunResult({
           { label: "Без изменений", value: result.summary.unchanged_count },
           { label: "Заблокированы", value: result.summary.blocked_count },
         ]}
+      />
+      <SelectionScanDetails
+        result={result}
+        selectionMode={selectionMode}
       />
       <div className="catalog-migration-table-wrap">
         <table className="catalog-migration-table">
@@ -346,7 +432,13 @@ function CatalogDryRunResult({
   );
 }
 
-function DryRunResult({ result }: { result: TranscriptMaintenanceDryRun }) {
+function DryRunResult({
+  result,
+  selectionMode,
+}: {
+  result: TranscriptMaintenanceDryRun;
+  selectionMode: TranscriptMaintenanceSelectionMode;
+}) {
   const title = OPERATION_COPY[result.workflow].title;
   return (
     <div
@@ -355,9 +447,15 @@ function DryRunResult({ result }: { result: TranscriptMaintenanceDryRun }) {
     >
       <h4>План операции</h4>
       {result.workflow === "standardization" ? (
-        <StandardizationDryRunResult result={result} />
+        <StandardizationDryRunResult
+          result={result}
+          selectionMode={selectionMode}
+        />
       ) : (
-        <CatalogDryRunResult result={result} />
+        <CatalogDryRunResult
+          result={result}
+          selectionMode={selectionMode}
+        />
       )}
     </div>
   );
@@ -474,39 +572,20 @@ function ApplyResult({ result }: { result: TranscriptMaintenanceApply }) {
   );
 }
 
-function normalizePickedDocuments(
-  docs: googlePicker.PickerSelection[],
-): SelectedDocument[] | null {
-  if (docs.length < 1 || docs.length > 50) return null;
-  const selected: SelectedDocument[] = [];
-  const seen = new Set<string>();
-  for (const doc of docs) {
-    const id = doc.id.trim();
-    if (!id || seen.has(id)) return null;
-    seen.add(id);
-    selected.push({
-      id,
-      name: safeName(doc.name, "Google Docs документ"),
-    });
-  }
-  return selected;
-}
-
 function MaintenanceOperationCard({
   workflow,
-  pickerReady,
+  operationReady,
   mutate,
 }: {
   workflow: TranscriptMaintenanceWorkflow;
-  pickerReady: boolean;
+  operationReady: boolean;
   mutate: Mutate;
 }) {
   const copy = OPERATION_COPY[workflow];
-  const [selectedFolder, setSelectedFolder] =
-    useState<SelectedFolder | null>(null);
-  const [selectedDocuments, setSelectedDocuments] = useState<
-    SelectedDocument[]
-  >([]);
+  const [selectionMode, setSelectionMode] =
+    useState<TranscriptMaintenanceSelectionMode>("folder_tree");
+  const [selectedTarget, setSelectedTarget] =
+    useState<SelectedTarget | null>(null);
   const [dryRun, setDryRun] = useState<TranscriptMaintenanceDryRun | null>(
     null,
   );
@@ -518,12 +597,11 @@ function MaintenanceOperationCard({
   const operationActive = useRef(false);
 
   useEffect(() => {
-    if (pickerReady) return;
-    setSelectedFolder(null);
-    setSelectedDocuments([]);
+    if (operationReady) return;
+    setSelectedTarget(null);
     setDryRun(null);
     setApplyResult(null);
-  }, [pickerReady]);
+  }, [operationReady]);
 
   function resetResult() {
     setDryRun(null);
@@ -536,74 +614,51 @@ function MaintenanceOperationCard({
     });
   }
 
-  async function chooseFolder() {
-    if (!pickerReady || busy || pickerActive.current) return;
-    pickerActive.current = true;
-    setBusy("folder-picker");
+  function changeSelectionMode(
+    nextMode: TranscriptMaintenanceSelectionMode,
+  ) {
+    if (nextMode === selectionMode) return;
+    setSelectionMode(nextMode);
+    setSelectedTarget(null);
     setMessage("");
-    try {
-      const result = await googlePicker.openGooglePicker(
-        "transcript-folder",
-        await pickerSession(),
-      );
-      if (result.action === "cancel") return;
-      if (result.action === "error") {
-        setMessage(result.message);
-        return;
-      }
-      const folder = result.docs[0];
-      if (!folder?.id || result.docs.length !== 1) {
-        setMessage("Выберите одну папку Google Drive.");
-        return;
-      }
-      setSelectedFolder({
-        id: folder.id,
-        name: safeName(folder.name, "Выбранная папка Google Drive"),
-      });
-      setSelectedDocuments([]);
-      resetResult();
-    } catch (error) {
-      setMessage(
-        googlePickerFailureMessage(error) ??
-          "Не удалось открыть Google Picker.",
-      );
-    } finally {
-      pickerActive.current = false;
-      setBusy(null);
-    }
+    resetResult();
   }
 
-  async function chooseDocuments() {
-    if (
-      !pickerReady ||
-      !selectedFolder ||
-      busy ||
-      pickerActive.current
-    ) {
-      return;
-    }
+  async function chooseTarget() {
+    if (!operationReady || busy || pickerActive.current) return;
     pickerActive.current = true;
-    setBusy("document-picker");
+    setBusy("target-picker");
     setMessage("");
     try {
       const result = await googlePicker.openGooglePicker(
-        "transcript-documents",
+        selectionMode === "folder_tree"
+          ? "transcript-folder"
+          : "transcript-document",
         await pickerSession(),
-        { parentId: selectedFolder.id },
       );
       if (result.action === "cancel") return;
       if (result.action === "error") {
         setMessage(result.message);
         return;
       }
-      const documents = normalizePickedDocuments(result.docs);
-      if (!documents) {
+      const target = result.docs[0];
+      if (!target?.id || result.docs.length !== 1) {
         setMessage(
-          "Выберите от 1 до 50 уникальных Google Docs в выбранной папке.",
+          selectionMode === "folder_tree"
+            ? "Выберите одну папку Google Drive."
+            : "Выберите один Google Doc.",
         );
         return;
       }
-      setSelectedDocuments(documents);
+      setSelectedTarget({
+        id: target.id,
+        name: safeName(
+          target.name,
+          selectionMode === "folder_tree"
+            ? "Выбранная папка Google Drive"
+            : "Выбранный Google Doc",
+        ),
+      });
       resetResult();
     } catch (error) {
       setMessage(
@@ -618,9 +673,8 @@ function MaintenanceOperationCard({
 
   async function runDryRun() {
     if (
-      !pickerReady ||
-      !selectedFolder ||
-      selectedDocuments.length === 0 ||
+      !operationReady ||
+      !selectedTarget ||
       busy ||
       operationActive.current
     ) {
@@ -635,10 +689,9 @@ function MaintenanceOperationCard({
         `/transcript-maintenance/${workflow === "standardization" ? "standardization" : "catalog-import"}/dry-run`,
         {
           method: "POST",
-          body: JSON.stringify({
-            folder_id: selectedFolder.id,
-            document_ids: selectedDocuments.map((doc) => doc.id),
-          }),
+          body: JSON.stringify(
+            maintenanceTarget(selectionMode, selectedTarget),
+          ),
         },
       );
       setDryRun(parseDryRun(workflow, raw));
@@ -653,9 +706,8 @@ function MaintenanceOperationCard({
 
   async function applyOperation() {
     if (
-      !pickerReady ||
-      !selectedFolder ||
-      selectedDocuments.length === 0 ||
+      !operationReady ||
+      !selectedTarget ||
       !dryRun ||
       dryRun.workflow !== workflow ||
       actionableCount(dryRun) === 0 ||
@@ -682,8 +734,7 @@ function MaintenanceOperationCard({
         {
           method: "POST",
           body: JSON.stringify({
-            folder_id: selectedFolder.id,
-            document_ids: selectedDocuments.map((doc) => doc.id),
+            ...maintenanceTarget(selectionMode, selectedTarget),
             confirm_apply: true,
           }),
         },
@@ -711,39 +762,49 @@ function MaintenanceOperationCard({
       <h3 id={`transcript-maintenance-${workflow}-title`}>{copy.title}</h3>
       <p>{copy.description}</p>
       <p className="muted">
-        Сначала выберите папку, затем явно выберите документы. Dry-run ничего
-        не изменяет. Тексты документов не возвращаются в браузер.
+        Выберите режим и объект. Dry-run ничего не изменит. Тексты документов
+        не возвращаются в браузер.
       </p>
+      <label
+        htmlFor={`transcript-maintenance-${workflow}-selection-mode`}
+      >
+        Что обработать
+      </label>
+      <select
+        id={`transcript-maintenance-${workflow}-selection-mode`}
+        value={selectionMode}
+        disabled={!operationReady || busy !== null}
+        onChange={(event) =>
+          changeSelectionMode(
+            event.target.value as TranscriptMaintenanceSelectionMode,
+          )
+        }
+      >
+        <option value="folder_tree">Папка и все подпапки</option>
+        <option value="single_document">Один конкретный Google Doc</option>
+      </select>
       <div className="actions">
         <button
           type="button"
-          disabled={!pickerReady || busy !== null}
-          onClick={chooseFolder}
+          disabled={!operationReady || busy !== null}
+          onClick={chooseTarget}
         >
-          {busy === "folder-picker"
-            ? "Открываем папки…"
-            : selectedFolder
-              ? "Сменить папку"
-              : "Выбрать папку"}
-        </button>
-        <button
-          type="button"
-          disabled={!pickerReady || !selectedFolder || busy !== null}
-          onClick={chooseDocuments}
-        >
-          {busy === "document-picker"
-            ? "Открываем документы…"
-            : selectedDocuments.length > 0
-              ? "Изменить документы"
-              : "Выбрать документы"}
+          {busy === "target-picker"
+            ? "Открываем Google Drive…"
+            : selectedTarget
+              ? selectionMode === "folder_tree"
+                ? "Сменить папку"
+                : "Сменить документ"
+              : selectionMode === "folder_tree"
+                ? "Выбрать папку"
+                : "Выбрать документ"}
         </button>
         <button
           type="button"
           className="primary"
           disabled={
-            !pickerReady ||
-            !selectedFolder ||
-            selectedDocuments.length === 0 ||
+            !operationReady ||
+            !selectedTarget ||
             busy !== null
           }
           onClick={runDryRun}
@@ -751,10 +812,19 @@ function MaintenanceOperationCard({
           {busy === "dry-run" ? "Проверяем…" : "Запустить dry-run"}
         </button>
       </div>
-      {selectedFolder && (
+      {selectedTarget && (
         <p className="folder-status" role="status">
-          Папка: <b>{selectedFolder.name}</b>. Выбрано документов:{" "}
-          <b>{selectedDocuments.length}</b>.
+          {selectionMode === "folder_tree" ? (
+            <>
+              Корневая папка: <b>{selectedTarget.name}</b>. Будут проверены
+              Google Docs в ней и всех подпапках.
+            </>
+          ) : (
+            <>
+              Выбран документ: <b>{selectedTarget.name}</b>. Будет проверен
+              только этот Google Doc.
+            </>
+          )}
         </p>
       )}
       {message && (
@@ -763,18 +833,23 @@ function MaintenanceOperationCard({
         </p>
       )}
       {dryRun && dryRun.workflow === workflow && (
-        <DryRunResult result={dryRun} />
+        <DryRunResult
+          result={dryRun}
+          selectionMode={selectionMode}
+        />
       )}
       {dryRun && dryRun.workflow === workflow && (
         <div className="catalog-migration-apply">
           <p>
-            Перед применением сервер заново проверит эту папку и тот же набор
-            документов. Preview не считается полномочием на другую операцию.
+            {selectionMode === "folder_tree"
+              ? "Перед применением сервер заново просканирует эту корневую папку и все подпапки."
+              : "Перед применением сервер заново проверит именно этот Google Doc."}{" "}
+            Preview не считается полномочием на другую операцию.
           </p>
           <button
             type="button"
             className="primary"
-            disabled={!pickerReady || busy !== null || actionable === 0}
+            disabled={!operationReady || busy !== null || actionable === 0}
             onClick={applyOperation}
           >
             {busy === "apply"
@@ -796,15 +871,105 @@ export function TranscriptCatalogMigrationPanel({
   googleConnected,
   googleLoading,
   pickerReady,
+  maintenanceOauthResult,
 }: {
   csrf: string;
   onCsrf: (csrf: string) => void;
   googleConnected: boolean;
   googleLoading: boolean;
   pickerReady: boolean;
+  maintenanceOauthResult: GoogleMaintenanceOauthResult | null;
 }) {
   const mutate: Mutate = <T,>(path: string, options: RequestInit) =>
     mutateWithCsrfRetry<T>(path, csrf, onCsrf, options);
+  const [maintenanceConnection, setMaintenanceConnection] =
+    useState<GoogleMaintenanceConnection | null>(null);
+  const [maintenanceLoading, setMaintenanceLoading] = useState(true);
+  const [maintenanceStarting, setMaintenanceStarting] = useState(false);
+  const [maintenanceMessage, setMaintenanceMessage] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    if (!googleConnected) {
+      setMaintenanceConnection(null);
+      setMaintenanceLoading(false);
+      return () => {
+        active = false;
+      };
+    }
+    setMaintenanceLoading(true);
+    setMaintenanceMessage("");
+    api<GoogleMaintenanceConnection>("/google/maintenance/connection")
+      .then((connection) => {
+        if (active) setMaintenanceConnection(connection);
+      })
+      .catch(() => {
+        if (!active) return;
+        setMaintenanceConnection(null);
+        setMaintenanceMessage(
+          "Не удалось проверить доступ Google для обслуживания.",
+        );
+      })
+      .finally(() => {
+        if (active) setMaintenanceLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [
+    googleConnected,
+    maintenanceOauthResult,
+  ]);
+
+  async function connectMaintenance() {
+    if (
+      maintenanceStarting ||
+      !pickerReady ||
+      maintenanceConnection?.configured === false
+    ) {
+      return;
+    }
+    setMaintenanceStarting(true);
+    setMaintenanceMessage("");
+    try {
+      const result = await mutate<GoogleOauthStart>(
+        "/google/maintenance/oauth/start",
+        { method: "POST" },
+      );
+      window.location.assign(result.authorization_url);
+    } catch {
+      setMaintenanceMessage(
+        "Не удалось начать подключение доступа для обслуживания.",
+      );
+      setMaintenanceStarting(false);
+    }
+  }
+
+  async function disconnectMaintenance() {
+    setMaintenanceMessage("");
+    try {
+      const connection = await mutate<GoogleMaintenanceConnection>(
+        "/google/maintenance/connection",
+        { method: "DELETE" },
+      );
+      setMaintenanceConnection(connection);
+    } catch {
+      setMaintenanceMessage(
+        "Не удалось отключить доступ Google для обслуживания.",
+      );
+    }
+  }
+
+  const maintenanceReady = maintenanceConnection?.ready === true;
+  const operationReady = pickerReady && maintenanceReady;
+  const oauthMessage =
+    maintenanceOauthResult === "connected"
+      ? !maintenanceLoading && maintenanceReady
+        ? googleMaintenanceOauthMessages.connected
+        : ""
+      : maintenanceOauthResult
+        ? googleMaintenanceOauthMessages[maintenanceOauthResult]
+        : "";
 
   return (
     <section
@@ -816,10 +981,90 @@ export function TranscriptCatalogMigrationPanel({
         Две независимые операции
       </h2>
       <p>
-        Стандартизация изменяет только выбранные Google Docs. Добавление в
-        манифест изменяет только метаданные Studio. Выбор, dry-run и
-        подтверждение у них раздельные.
+        Для каждой операции отдельно выберите папку со всеми подпапками либо
+        один Google Doc. Стандартизация изменяет только подходящие документы,
+        а добавление в манифест — только метаданные Studio. Режим, объект,
+        dry-run и подтверждение у операций раздельные.
       </p>
+      <section
+        className="card transcript-maintenance-access"
+        aria-labelledby="transcript-maintenance-access-title"
+      >
+        <span className="tag">Отдельное разрешение</span>
+        <h3 id="transcript-maintenance-access-title">
+          Доступ Google для обслуживания
+        </h3>
+        <p>
+          Для серверной проверки выбранных папок или документов нужен
+          отдельный доступ к метаданным Drive и Google Docs. Его токены не
+          передаются в браузер. Выберите тот же Google-аккаунт, который
+          подключён выше.
+        </p>
+        {maintenanceLoading ? (
+          <p className="notice">Проверяем доступ для обслуживания…</p>
+        ) : maintenanceReady ? (
+          <p className="notice" role="status">
+            Расширенный доступ подключён
+            {maintenanceConnection?.google_email
+              ? `: ${maintenanceConnection.google_email}`
+              : ""}
+            .
+          </p>
+        ) : (
+          <p className="notice">
+            Расширенный доступ ещё не готов. Операции обслуживания
+            заблокированы.
+          </p>
+        )}
+        {oauthMessage && (
+          <p className="notice" role="status">
+            {oauthMessage}
+          </p>
+        )}
+        {maintenanceConnection?.configured === false && (
+          <p className="error" role="alert">
+            OAuth для обслуживания не настроен на сервере.
+          </p>
+        )}
+        {maintenanceConnection &&
+          !maintenanceConnection.account_match &&
+          maintenanceConnection.connected && (
+            <p className="error" role="alert">
+              Подключён другой Google-аккаунт. Переподключите доступ.
+            </p>
+          )}
+        <div className="actions">
+          {!maintenanceReady && (
+            <button
+              type="button"
+              className="primary"
+              disabled={
+                maintenanceLoading ||
+                maintenanceStarting ||
+                !pickerReady ||
+                maintenanceConnection?.configured === false
+              }
+              onClick={connectMaintenance}
+            >
+              {maintenanceStarting
+                ? "Открываем Google…"
+                : maintenanceConnection?.reconnect_required
+                  ? "Переподключить доступ"
+                  : "Подключить доступ"}
+            </button>
+          )}
+          {maintenanceConnection?.connected && (
+            <button type="button" onClick={disconnectMaintenance}>
+              Отключить доступ
+            </button>
+          )}
+        </div>
+        {maintenanceMessage && (
+          <p className="error" role="alert">
+            {maintenanceMessage}
+          </p>
+        )}
+      </section>
       {googleLoading && (
         <p className="notice">Проверяем подключение Google Drive…</p>
       )}
@@ -828,18 +1073,26 @@ export function TranscriptCatalogMigrationPanel({
       )}
       {!googleLoading && googleConnected && !pickerReady && (
         <p className="notice">
-          Обновите подключение Google Drive, чтобы выбрать документы.
+          Обновите подключение Google Drive, чтобы выбрать объект.
         </p>
       )}
+      {!googleLoading &&
+        pickerReady &&
+        !maintenanceLoading &&
+        !maintenanceReady && (
+          <p className="notice">
+            Подключите отдельный доступ для обслуживания перед выбором объекта.
+          </p>
+        )}
       <div className="transcript-maintenance-grid">
         <MaintenanceOperationCard
           workflow="standardization"
-          pickerReady={pickerReady}
+          operationReady={operationReady}
           mutate={mutate}
         />
         <MaintenanceOperationCard
           workflow="catalog_import"
-          pickerReady={pickerReady}
+          operationReady={operationReady}
           mutate={mutate}
         />
       </div>

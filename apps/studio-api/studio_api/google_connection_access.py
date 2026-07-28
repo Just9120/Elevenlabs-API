@@ -3,9 +3,17 @@ from __future__ import annotations
 from enum import Enum
 from sqlalchemy.orm import Session
 
-from .google_oauth import GoogleOAuthConfigError, load_google_oauth_config
+from .google_oauth import (
+    GoogleOAuthConfigError,
+    load_google_maintenance_oauth_config,
+    load_google_oauth_config,
+)
 from .models import GoogleConnection, GoogleConnectionStatus, GoogleProvider
-from .google_scopes import has_drive_file_scope, has_picker_browser_scope_boundary
+from .google_scopes import (
+    has_drive_file_scope,
+    has_maintenance_server_scope_boundary,
+    has_picker_browser_scope_boundary,
+)
 from .google_drive import (
     GoogleAccessTokenRefreshError,
     GoogleAccessTokenRefreshReason,
@@ -20,6 +28,9 @@ class GoogleConnectionAccessReason(str, Enum):
     token_unavailable = "google_token_unavailable"
     config_unavailable = "google_config_unavailable"
     scope_unavailable = "google_scope_unavailable"
+    maintenance_missing = "google_maintenance_connection_missing"
+    maintenance_inactive = "google_maintenance_connection_inactive"
+    maintenance_account_mismatch = "google_maintenance_account_mismatch"
 
 
 class GoogleConnectionAccessError(RuntimeError):
@@ -47,8 +58,30 @@ def require_picker_browser_scope_boundary(conn: GoogleConnection) -> None:
     if not has_picker_browser_scope_boundary(conn.scopes):
         raise GoogleConnectionAccessError(GoogleConnectionAccessReason.scope_unavailable)
 
+
+def require_maintenance_server_scope_boundary(
+    conn: GoogleConnection,
+) -> None:
+    if not has_maintenance_server_scope_boundary(conn.maintenance_scopes):
+        raise GoogleConnectionAccessError(
+            GoogleConnectionAccessReason.scope_unavailable
+        )
+
+
 def google_token_aad(user_id: str, connection_id: str) -> bytes:
     return aad(user_id, connection_id, "refresh", "google")
+
+
+def google_maintenance_token_aad(
+    user_id: str,
+    connection_id: str,
+) -> bytes:
+    return aad(
+        user_id,
+        connection_id,
+        "maintenance-refresh",
+        "google",
+    )
 
 
 def refresh_access_token(config, refresh_token: str) -> str:
@@ -83,3 +116,60 @@ def refresh_user_google_drive_access_token(db: Session, *, user_id: str, setting
         raise GoogleConnectionAccessError(GoogleConnectionAccessReason.config_unavailable) from exc
     except Exception as exc:
         raise GoogleConnectionAccessError(GoogleConnectionAccessReason.token_unavailable) from exc
+
+
+def refresh_user_google_maintenance_access_token(
+    db: Session,
+    *,
+    user_id: str,
+    settings,
+) -> str:
+    conn = active_google_connection_for_user(db, user_id=user_id)
+    if conn.maintenance_revoked_at is not None:
+        raise GoogleConnectionAccessError(
+            GoogleConnectionAccessReason.maintenance_inactive
+        )
+    if (
+        not conn.maintenance_refresh_token_ciphertext
+        or not conn.maintenance_refresh_token_nonce
+        or not conn.maintenance_key_id
+    ):
+        raise GoogleConnectionAccessError(
+            GoogleConnectionAccessReason.maintenance_missing
+        )
+    if (
+        not conn.google_subject
+        or not conn.maintenance_google_subject
+        or conn.google_subject != conn.maintenance_google_subject
+    ):
+        raise GoogleConnectionAccessError(
+            GoogleConnectionAccessReason.maintenance_account_mismatch
+        )
+    require_maintenance_server_scope_boundary(conn)
+    try:
+        cfg = load_google_maintenance_oauth_config(settings)
+        refresh_token = decrypt(
+            conn.maintenance_refresh_token_ciphertext,
+            conn.maintenance_refresh_token_nonce,
+            master_key_from_b64(settings.master_key_b64()),
+            google_maintenance_token_aad(user_id, conn.id),
+        )
+        return refresh_access_token(cfg, refresh_token)
+    except GoogleAccessTokenRefreshError as exc:
+        reason = (
+            GoogleConnectionAccessReason.reauthorization_required
+            if exc.reason
+            == GoogleAccessTokenRefreshReason.authentication_rejected
+            else GoogleConnectionAccessReason.token_unavailable
+        )
+        raise GoogleConnectionAccessError(reason) from exc
+    except GoogleConnectionAccessError:
+        raise
+    except GoogleOAuthConfigError as exc:
+        raise GoogleConnectionAccessError(
+            GoogleConnectionAccessReason.config_unavailable
+        ) from exc
+    except Exception as exc:
+        raise GoogleConnectionAccessError(
+            GoogleConnectionAccessReason.token_unavailable
+        ) from exc

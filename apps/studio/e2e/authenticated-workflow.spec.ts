@@ -266,7 +266,7 @@ test('transcript maintenance stays fail-closed without Google authority', async 
   });
   await expect(maintenance).toBeVisible();
   await expect(maintenance).toContainText(
-    'Стандартизация изменяет только выбранные Google Docs.',
+    'Для каждой операции отдельно выберите папку со всеми подпапками либо один Google Doc.',
   );
   await expect(
     maintenance.getByText('Сначала подключите Google Drive выше.'),
@@ -277,11 +277,21 @@ test('transcript maintenance stays fail-closed without Google authority', async 
   ]) {
     const operation = page.getByRole('region', { name: operationName });
     await expect(operation).toContainText('Отдельная операция');
+    const targetMode = operation.getByRole('combobox', {
+      name: 'Что обработать',
+    });
+    await expect(targetMode).toBeDisabled();
+    await expect(targetMode).toHaveValue('folder_tree');
+    await expect(
+      targetMode.getByRole('option', { name: 'Папка и все подпапки' }),
+    ).toHaveCount(1);
+    await expect(
+      targetMode.getByRole('option', {
+        name: 'Один конкретный Google Doc',
+      }),
+    ).toHaveCount(1);
     await expect(
       operation.getByRole('button', { name: 'Выбрать папку' }),
-    ).toBeDisabled();
-    await expect(
-      operation.getByRole('button', { name: 'Выбрать документы' }),
     ).toBeDisabled();
     await expect(
       operation.getByRole('button', { name: 'Запустить dry-run' }),

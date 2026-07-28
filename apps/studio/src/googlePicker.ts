@@ -3,9 +3,8 @@ export type PickerMode =
   | "output-folder"
   | "catalog-folder"
   | "transcript-folder"
-  | "transcript-documents";
+  | "transcript-document";
 export type PickerSelection = { id: string; name?: string; mimeType?: string };
-export type PickerOptions = { parentId?: string };
 export type PickerResult =
   | { action: "picked"; docs: PickerSelection[] }
   | { action: "cancel" }
@@ -21,8 +20,8 @@ type PickerCallback = (data: unknown) => void;
 type PickerInstance = { setVisible: (visible: boolean) => void };
 type PickerView = {
   setIncludeFolders?: (value: boolean) => PickerView;
+  setMimeTypes?: (mimeTypes: string) => PickerView;
   setSelectFolderEnabled?: (value: boolean) => PickerView;
-  setMimeTypes?: (value: string) => PickerView;
   setMode: (mode: string) => PickerView;
   setParent: (parentId: string) => PickerView;
 };
@@ -38,7 +37,7 @@ type PickerBuilder = {
   setTitle: (title: string) => PickerBuilder;
   setOrigin: (origin: string) => PickerBuilder;
   setMaxItems: (maxItems: number) => PickerBuilder;
-  setSelectableMimeTypes: (mimeTypes: string) => PickerBuilder;
+  setSelectableMimeTypes?: (mimeTypes: string) => PickerBuilder;
   build: () => PickerInstance;
 };
 type PickerApi = {
@@ -66,10 +65,8 @@ const OUTPUT_FOLDER_PICKER_TITLE = "Выберите папку для резу�
 const CATALOG_FOLDER_PICKER_TITLE = "Выберите папку каталога транскриптов";
 const TRANSCRIPT_FOLDER_PICKER_TITLE =
   "Выберите папку с транскриптами";
-const TRANSCRIPT_DOCUMENT_PICKER_TITLE =
-  "Выберите Google Docs в выбранной папке";
+const TRANSCRIPT_DOCUMENT_PICKER_TITLE = "Выберите один Google Doc";
 const GOOGLE_DOC_MIME_TYPE = "application/vnd.google-apps.document";
-const DRIVE_ID_PATTERN = /^[A-Za-z0-9_-]{1,256}$/;
 const PICKER_MIN_WIDTH = 566;
 const PICKER_MIN_HEIGHT = 350;
 const PICKER_VIEWPORT_MARGIN = 48;
@@ -185,25 +182,14 @@ function selectedDocs(data: unknown): PickerSelection[] {
 export async function openGooglePicker(
   mode: PickerMode,
   session: PickerSession,
-  options: PickerOptions = {},
 ): Promise<PickerResult> {
   const folderMode =
     mode === "output-folder" ||
     mode === "catalog-folder" ||
     mode === "transcript-folder";
-  const transcriptDocumentMode = mode === "transcript-documents";
+  const documentMode = mode === "transcript-document";
   let token = session.access_token;
   session.access_token = "";
-  const parentId = transcriptDocumentMode
-    ? options.parentId?.trim() ?? ""
-    : MY_DRIVE_ROOT_PARENT;
-  if (transcriptDocumentMode && !DRIVE_ID_PATTERN.test(parentId)) {
-    token = "";
-    return {
-      action: "error",
-      message: "Сначала выберите папку для документов",
-    };
-  }
   try {
     await loadGooglePicker();
   } catch (error) {
@@ -242,12 +228,12 @@ export async function openGooglePicker(
         folderMode ? pickerApi.ViewId.FOLDERS : pickerApi.ViewId.DOCS,
       );
       view.setMode(pickerApi.DocsViewMode.LIST);
-      view.setParent(parentId);
-      view.setIncludeFolders?.(!transcriptDocumentMode);
+      view.setParent(MY_DRIVE_ROOT_PARENT);
+      view.setIncludeFolders?.(true);
       if (folderMode) {
         view.setSelectFolderEnabled?.(true);
       }
-      if (transcriptDocumentMode) {
+      if (documentMode) {
         view.setMimeTypes?.(GOOGLE_DOC_MIME_TYPE);
       }
       const { width, height } = computeGooglePickerSize(
@@ -259,10 +245,10 @@ export async function openGooglePicker(
       builder.setLocale(PICKER_LOCALE);
       builder.setSize(width, height);
       builder.setTitle(
-        transcriptDocumentMode
+        documentMode
           ? TRANSCRIPT_DOCUMENT_PICKER_TITLE
           : mode === "transcript-folder"
-            ? TRANSCRIPT_FOLDER_PICKER_TITLE
+          ? TRANSCRIPT_FOLDER_PICKER_TITLE
           : mode === "catalog-folder"
             ? CATALOG_FOLDER_PICKER_TITLE
             : folderMode
@@ -270,12 +256,12 @@ export async function openGooglePicker(
               : SOURCE_PICKER_TITLE,
       );
       builder.setOrigin(window.location.origin);
-      builder.setMaxItems(folderMode ? 1 : 50);
-      if (mode === "sources" || transcriptDocumentMode) {
-        builder.enableFeature(pickerApi.Feature.MULTISELECT_ENABLED);
+      builder.setMaxItems(folderMode || documentMode ? 1 : 50);
+      if (documentMode) {
+        builder.setSelectableMimeTypes?.(GOOGLE_DOC_MIME_TYPE);
       }
-      if (transcriptDocumentMode) {
-        builder.setSelectableMimeTypes(GOOGLE_DOC_MIME_TYPE);
+      if (mode === "sources") {
+        builder.enableFeature(pickerApi.Feature.MULTISELECT_ENABLED);
       }
       builder.setOAuthToken(token);
       builder.setDeveloperKey(session.api_key);

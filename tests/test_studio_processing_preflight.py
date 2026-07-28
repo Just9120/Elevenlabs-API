@@ -32,7 +32,7 @@ def make_repo(tmp_path: Path, **state: str) -> tuple[Path, Path]:
     secret_dir = tmp_path / "secrets"
     secret_dir.mkdir()
     secrets = {}
-    for name in ["pg", "master", "s3id", "s3secret", "google"]:
+    for name in ["pg", "master", "s3id", "s3secret", "google", "google_maintenance"]:
         p = secret_dir / name
         value = {
             "s3id": "a" * 32,
@@ -56,6 +56,10 @@ STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE={secrets['google']}
 STUDIO_GOOGLE_OAUTH_REDIRECT_URI=https://secret.example/api/google/oauth/callback
 STUDIO_GOOGLE_OAUTH_SCOPES=openid email https://www.googleapis.com/auth/drive.file
 STUDIO_GOOGLE_OAUTH_STATE_TTL_SECONDS=600
+STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_ID=maintenance-client-private@example.com
+STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE={secrets['google_maintenance']}
+STUDIO_GOOGLE_MAINTENANCE_OAUTH_REDIRECT_URI=https://secret.example/api/google/oauth/callback
+STUDIO_GOOGLE_MAINTENANCE_OAUTH_SCOPES=openid email https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/documents
 STUDIO_GOOGLE_PICKER_API_KEY=public-picker-key
 STUDIO_GOOGLE_PICKER_APP_ID=123456789012
 STUDIO_WORKER_POLL_INTERVAL_SECONDS=5
@@ -92,7 +96,7 @@ esac
         "studio-worker": state.get("worker", "missing"),
     }
     worker_count = int(state.get("worker_count", "0"))
-    current = state.get("current", "0016_transcript_catalog_entries")
+    current = state.get("current", "0017_google_maintenance_oauth")
     _write_exe(bin_dir / "docker", f"""#!/usr/bin/env bash
 set -euo pipefail
 printf 'docker %s\n' "$*" >> {str(log)!r}
@@ -157,9 +161,9 @@ def test_successful_host_preflight(tmp_path: Path) -> None:
     assert proc.stdout.count("STUDIO_PROCESSING_HOST_PREFLIGHT_OK") == 1
     assert "STUDIO_PROCESSING_HOST_PREFLIGHT_BLOCKED" not in proc.stdout
     assert "authenticated smoke-account login | not-run" in proc.stdout
-    assert "repository Alembic head | pass | exactly one repository Alembic head matches expected source head: 0016_transcript_catalog_entries" in proc.stdout
-    assert "production Alembic revision | pass | exactly one known production database revision was reported: 0016_transcript_catalog_entries" in proc.stdout
-    assert "revision equality | pass | production database revision 0016_transcript_catalog_entries equals repository head 0016_transcript_catalog_entries" in proc.stdout
+    assert "repository Alembic head | pass | exactly one repository Alembic head matches expected source head: 0017_google_maintenance_oauth" in proc.stdout
+    assert "production Alembic revision | pass | exactly one known production database revision was reported: 0017_google_maintenance_oauth" in proc.stdout
+    assert "revision equality | pass | production database revision 0017_google_maintenance_oauth equals repository head 0017_google_maintenance_oauth" in proc.stdout
     assert any(
         "exec -T studio-api python -m studio_api.container_entrypoint "
         "--drop-only alembic current" in c
@@ -267,8 +271,8 @@ def test_revision_safety_cases(tmp_path: Path) -> None:
     assert proc.returncode == 0
     case = tmp_path / "nohead"
     proc, calls, repo = run_preflight(case)
-    f = repo / "apps/studio-api/alembic/versions/0016_transcript_catalog_entries.py"
-    f.write_text(f.read_text().replace('revision = "0016_transcript_catalog_entries"', 'revision = "0016_wrong_head"'), encoding="utf-8")
+    f = repo / "apps/studio-api/alembic/versions/0017_google_maintenance_oauth.py"
+    f.write_text(f.read_text().replace('revision = "0017_google_maintenance_oauth"', 'revision = "0017_wrong_head"'), encoding="utf-8")
     proc = subprocess.run(["bash", str(SCRIPT), str(repo), "main", "Just9120/Elevenlabs-API", SHA], cwd=repo, env={**os.environ, "PATH": f"{case/'bin'}:{os.environ['PATH']}"}, text=True, capture_output=True, timeout=15)
     assert proc.returncode != 0
 
@@ -302,7 +306,7 @@ def test_revision_output_is_known_normalized_metadata_only(tmp_path: Path) -> No
     )
     assert mismatch.returncode != 0
     assert "production Alembic revision | pass | exactly one known production database revision was reported: 0011_diagnostic_debug_sessions" in mismatch.stdout
-    assert "revision equality | blocked | production database revision 0011_diagnostic_debug_sessions does not equal repository head 0016_transcript_catalog_entries" in mismatch.stdout
+    assert "revision equality | blocked | production database revision 0011_diagnostic_debug_sessions does not equal repository head 0017_google_maintenance_oauth" in mismatch.stdout
     assert_no_secret_output(mismatch)
     assert_no_forbidden(calls)
 
@@ -334,7 +338,7 @@ def test_workflow_contract() -> None:
 REQUIRED_ROWS = [
     "deploy directory identity", "repository remote identity", "branch identity", "commit identity", "tracked working tree",
     "runtime env presence", "runtime setting completeness",
-    "POSTGRES_PASSWORD secret-file presence", "CREDENTIAL_MASTER_KEY secret-file presence", "SOURCE_S3_ACCESS_KEY_ID secret-file presence", "SOURCE_S3_SECRET_ACCESS_KEY secret-file presence", "GOOGLE_OAUTH_CLIENT_SECRET secret-file presence",
+    "POSTGRES_PASSWORD secret-file presence", "CREDENTIAL_MASTER_KEY secret-file presence", "SOURCE_S3_ACCESS_KEY_ID secret-file presence", "SOURCE_S3_SECRET_ACCESS_KEY secret-file presence", "GOOGLE_OAUTH_CLIENT_SECRET secret-file presence", "GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET secret-file presence",
     "postgres service count/status", "redis service count/status", "studio-api service count/status", "studio-web service count/status", "studio-worker service count/status",
     "PostgreSQL health", "Redis health", "localhost API health", "localhost web health", "public API health", "public web health",
     "repository Alembic head", "production Alembic revision", "revision equality",
@@ -389,6 +393,10 @@ def test_semantic_runtime_validation_blocks_before_docker(tmp_path: Path) -> Non
         ("APP_PUBLIC_URL", "http://studio.example"),
         ("STUDIO_SOURCE_S3_ENDPOINT_URL", "not-a-url"),
         ("STUDIO_GOOGLE_OAUTH_REDIRECT_URI", "http://studio.example/callback"),
+        ("STUDIO_GOOGLE_MAINTENANCE_OAUTH_REDIRECT_URI", "http://studio.example/callback"),
+        ("STUDIO_GOOGLE_OAUTH_SCOPES", "openid email"),
+        ("STUDIO_GOOGLE_MAINTENANCE_OAUTH_SCOPES", "openid email https://www.googleapis.com/auth/documents"),
+        ("STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_ID", "client-private@example.com"),
         ("STUDIO_WORKER_POLL_INTERVAL_SECONDS", "abc"),
         ("STUDIO_WORKER_ERROR_BACKOFF_SECONDS", "-1"),
         ("STUDIO_SOURCE_MAX_UPLOAD_BYTES", "0"),
@@ -404,6 +412,63 @@ def test_semantic_runtime_validation_blocks_before_docker(tmp_path: Path) -> Non
         assert row_statuses(proc.stdout)["runtime setting completeness"] == "blocked"
         assert not any(c.startswith("docker ") for c in calls)
         assert_complete_table(proc)
+
+
+def test_maintenance_oauth_requires_separate_secret_file(tmp_path: Path) -> None:
+    repo, bin_dir = make_repo(tmp_path)
+    env_path = repo / "deploy/studio/.env"
+    lines = env_path.read_text(encoding="utf-8").splitlines()
+    primary_secret = next(
+        line.split("=", 1)[1]
+        for line in lines
+        if line.startswith("STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE=")
+    )
+    env_path.write_text(
+        "\n".join(
+            (
+                f"STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE={primary_secret}"
+                if line.startswith(
+                    "STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE="
+                )
+                else line
+            )
+            for line in lines
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    proc = subprocess.run(
+        [
+            "bash",
+            str(SCRIPT),
+            str(repo),
+            "main",
+            "Just9120/Elevenlabs-API",
+            SHA,
+        ],
+        cwd=repo,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"},
+        text=True,
+        capture_output=True,
+        timeout=10,
+    )
+    calls = (
+        (tmp_path / "calls.log").read_text(encoding="utf-8").splitlines()
+        if (tmp_path / "calls.log").exists()
+        else []
+    )
+
+    assert proc.returncode != 0
+    assert (
+        row_statuses(proc.stdout)[
+            "GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET secret-file presence"
+        ]
+        == "blocked"
+    )
+    assert "maintenance OAuth requires a separate client secret file" in proc.stdout
+    assert not any(call.startswith("docker ") for call in calls)
+    assert_complete_table(proc)
 
 
 def test_service_aggregation_fail_closed(tmp_path: Path) -> None:
@@ -565,6 +630,9 @@ STUDIO_GOOGLE_OAUTH_CLIENT_ID=client
 STUDIO_GOOGLE_OAUTH_REDIRECT_URI=https://secret.example/api/google/oauth/callback
 STUDIO_GOOGLE_OAUTH_SCOPES=openid email https://www.googleapis.com/auth/drive.file
 STUDIO_GOOGLE_OAUTH_STATE_TTL_SECONDS=600
+STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_ID=maintenance-client
+STUDIO_GOOGLE_MAINTENANCE_OAUTH_REDIRECT_URI=https://secret.example/api/google/oauth/callback
+STUDIO_GOOGLE_MAINTENANCE_OAUTH_SCOPES=openid email https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/documents
 STUDIO_GOOGLE_PICKER_API_KEY=picker
 STUDIO_GOOGLE_PICKER_APP_ID=123
 STUDIO_WORKER_POLL_INTERVAL_SECONDS=5
@@ -577,7 +645,7 @@ STUDIO_WORKER_LEASE_TTL_SECONDS=3600
 
 def test_worker_lease_heartbeat_too_large_blocks_preflight(tmp_path: Path) -> None:
     env = (ROOT / "deploy/studio/.env.example").read_text(encoding="utf-8")
-    env = env.replace("__REQUIRED_TEMP_SOURCE_S3_ENDPOINT_URL__", "https://private-r2.invalid").replace("__REQUIRED_TEMP_SOURCE_S3_REGION__", "auto").replace("__REQUIRED_TEMP_SOURCE_S3_BUCKET__", "bucket").replace("__REQUIRED_GOOGLE_OAUTH_CLIENT_ID__", "client").replace("__REQUIRED_PUBLIC_RESTRICTED_PICKER_API_KEY__", "picker").replace("__REQUIRED_GOOGLE_CLOUD_PROJECT_NUMBER__", "123").replace("STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE=", "STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE=/tmp/nonexistent")
+    env = env.replace("__REQUIRED_TEMP_SOURCE_S3_ENDPOINT_URL__", "https://private-r2.invalid").replace("__REQUIRED_TEMP_SOURCE_S3_REGION__", "auto").replace("__REQUIRED_TEMP_SOURCE_S3_BUCKET__", "bucket").replace("__REQUIRED_GOOGLE_OAUTH_CLIENT_ID__", "client").replace("__REQUIRED_GOOGLE_MAINTENANCE_OAUTH_CLIENT_ID__", "maintenance-client").replace("__REQUIRED_PUBLIC_RESTRICTED_PICKER_API_KEY__", "picker").replace("__REQUIRED_GOOGLE_CLOUD_PROJECT_NUMBER__", "123").replace("STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE=", "STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE=/tmp/nonexistent").replace("STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE=", "STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE=/tmp/nonexistent-maintenance")
     env = env.replace("STUDIO_WORKER_LEASE_TTL_SECONDS=3600", "STUDIO_WORKER_LEASE_TTL_SECONDS=300").replace("STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS=60", "STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS=101")
     proc, _, _ = run_preflight(tmp_path, env_text=env)
     assert proc.returncode != 0

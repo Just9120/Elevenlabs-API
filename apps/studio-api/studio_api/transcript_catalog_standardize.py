@@ -322,9 +322,12 @@ def normalize_standardization_snapshot(
         end_index = max(end_index, raw_end_index)
         paragraph = structural_element.get("paragraph")
         if paragraph is None:
+            raw_start_index = structural_element.get("startIndex", 0)
             if (
                 "sectionBreak" in structural_element
-                and structural_element.get("startIndex") == 0
+                and not isinstance(raw_start_index, bool)
+                and isinstance(raw_start_index, int)
+                and raw_start_index == 0
                 and raw_end_index == 1
             ):
                 continue
@@ -554,8 +557,10 @@ def _response_mapping(response: httpx.Response) -> Mapping[str, Any]:
 def _raise_for_read_status(status_code: int) -> None:
     if 200 <= status_code < 300:
         return
-    if status_code in {401, 403}:
+    if status_code == 401:
         reason = CatalogGoogleWriteReason.authentication_rejected
+    elif status_code == 403:
+        reason = CatalogGoogleWriteReason.request_rejected
     elif status_code == 404:
         reason = CatalogGoogleWriteReason.document_not_found
     elif status_code == 429:
@@ -570,8 +575,10 @@ def _raise_for_read_status(status_code: int) -> None:
 def _raise_for_write_status(status_code: int) -> None:
     if 200 <= status_code < 300:
         return
-    if status_code in {401, 403}:
+    if status_code == 401:
         reason = CatalogGoogleWriteReason.authentication_rejected
+    elif status_code == 403:
+        reason = CatalogGoogleWriteReason.request_rejected
     elif status_code == 404:
         reason = CatalogGoogleWriteReason.document_not_found
     elif status_code == 429:

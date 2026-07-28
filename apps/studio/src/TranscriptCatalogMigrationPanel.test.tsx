@@ -13,8 +13,25 @@ const json = (body: unknown, ok = true, status = 200) =>
   } as Response);
 
 const selectionSummary = {
-  selected_document_count: 2,
+  google_document_count: 2,
+  nested_folder_count: 3,
+  skipped_non_document_count: 4,
+  pages_scanned: 5,
   unreadable_document_count: 0,
+};
+const readyMaintenanceConnection = {
+  connected: true,
+  status: "active",
+  google_email: "safe.user@example.com",
+  scopes:
+    "openid email https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/documents",
+  connected_at: "2026-07-28T00:00:00Z",
+  revoked_at: null,
+  configured: true,
+  account_match: true,
+  scope_ready: true,
+  ready: true,
+  reconnect_required: false,
 };
 
 const standardizationDryRun = {
@@ -136,6 +153,47 @@ const catalogApply = {
   selection_summary: selectionSummary,
 };
 
+const singleSelectionSummary = {
+  google_document_count: 1,
+  nested_folder_count: 0,
+  skipped_non_document_count: 0,
+  pages_scanned: 0,
+  unreadable_document_count: 0,
+};
+const singleStandardizationDryRun = {
+  ...standardizationDryRun,
+  items: [standardizationDryRun.items[0]],
+  summary: {
+    standardize_document_count: 1,
+    unchanged_count: 0,
+    blocked_count: 0,
+  },
+  selection_summary: singleSelectionSummary,
+};
+const singleCatalogDryRun = {
+  ...catalogDryRun,
+  items: [catalogDryRun.items[0]],
+  summary: {
+    import_metadata_count: 1,
+    unchanged_count: 0,
+    blocked_count: 0,
+  },
+  selection_summary: singleSelectionSummary,
+};
+const singleCatalogApply = {
+  ...catalogApply,
+  items: [catalogApply.items[0]],
+  summary: {
+    imported_count: 1,
+    already_applied_count: 0,
+    unchanged_count: 0,
+    blocked_count: 0,
+    standardization_required_count: 0,
+    conflict_count: 0,
+  },
+  selection_summary: singleSelectionSummary,
+};
+
 function renderPanel(pickerReady = true) {
   return render(
     <TranscriptCatalogMigrationPanel
@@ -144,6 +202,7 @@ function renderPanel(pickerReady = true) {
       googleConnected={pickerReady}
       googleLoading={false}
       pickerReady={pickerReady}
+      maintenanceOauthResult={null}
     />,
   );
 }
@@ -185,10 +244,16 @@ describe("TranscriptCatalogMigrationPanel", () => {
     })) {
       expect(button).toBeDisabled();
     }
+    expect(
+      screen.queryByRole("button", { name: "Выбрать документы" }),
+    ).not.toBeInTheDocument();
   });
 
-  it("runs separate folder, document, dry-run, and apply flows", async () => {
+  it("runs separate recursive folder, dry-run, and apply flows", async () => {
     const fetchMock = vi.fn((url: string) => {
+      if (url.endsWith("/api/google/maintenance/connection")) {
+        return json(readyMaintenanceConnection);
+      }
       if (url.endsWith("/api/google/picker/session")) {
         return sessionResponse();
       }
@@ -231,27 +296,13 @@ describe("TranscriptCatalogMigrationPanel", () => {
       })
       .mockResolvedValueOnce({
         action: "picked",
-        docs: [
-          { id: "private-standard-first", name: "Лекция для обновления" },
-          { id: "private-standard-second", name: "Актуальная лекция" },
-        ],
-      })
-      .mockResolvedValueOnce({
-        action: "picked",
         docs: [{ id: "private-catalog-folder", name: "Архив каталога" }],
-      })
-      .mockResolvedValueOnce({
-        action: "picked",
-        docs: [
-          { id: "private-catalog-first", name: "Лекция для каталога" },
-          {
-            id: "private-catalog-second",
-            name: "Нестандартизированная лекция",
-          },
-        ],
       });
 
     renderPanel();
+    expect(
+      await screen.findByText(/Расширенный доступ подключён/),
+    ).toBeInTheDocument();
     const standardization = screen.getByRole("region", {
       name: "Стандартизация Google Docs",
     });
@@ -264,23 +315,14 @@ describe("TranscriptCatalogMigrationPanel", () => {
         name: "Выбрать папку",
       }),
     );
-    await userEvent.click(
-      within(standardization).getByRole("button", {
-        name: "Выбрать документы",
-      }),
-    );
     expect(picker).toHaveBeenNthCalledWith(
       1,
       "transcript-folder",
       expect.objectContaining({ access_token: "private-access-token" }),
     );
-    expect(picker).toHaveBeenNthCalledWith(
-      2,
-      "transcript-documents",
-      expect.objectContaining({ access_token: "private-access-token" }),
-      { parentId: "private-standard-folder" },
+    expect(standardization).toHaveTextContent(
+      "Будут проверены Google Docs в ней и всех подпапках",
     );
-    expect(standardization).toHaveTextContent("Выбрано документов: 2");
 
     await userEvent.click(
       within(standardization).getByRole("button", {
@@ -291,6 +333,11 @@ describe("TranscriptCatalogMigrationPanel", () => {
       "Результат dry-run: Стандартизация Google Docs",
     );
     expect(standardPreview).toHaveTextContent("Лекция для обновления");
+    expect(standardPreview).toHaveTextContent("Google Docs найдено");
+    expect(standardPreview).toHaveTextContent("Вложенных папок: 3");
+    expect(standardPreview).toHaveTextContent(
+      "Пропущено других файлов: 4",
+    );
     expect(standardPreview).not.toHaveTextContent(
       "Добавить метаданные в манифест",
     );
@@ -309,10 +356,10 @@ describe("TranscriptCatalogMigrationPanel", () => {
     await userEvent.click(
       within(catalog).getByRole("button", { name: "Выбрать папку" }),
     );
-    await userEvent.click(
-      within(catalog).getByRole("button", {
-        name: "Выбрать документы",
-      }),
+    expect(picker).toHaveBeenNthCalledWith(
+      2,
+      "transcript-folder",
+      expect.objectContaining({ access_token: "private-access-token" }),
     );
     await userEvent.click(
       within(catalog).getByRole("button", { name: "Запустить dry-run" }),
@@ -349,11 +396,8 @@ describe("TranscriptCatalogMigrationPanel", () => {
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({
+          selection_mode: "folder_tree",
           folder_id: "private-standard-folder",
-          document_ids: [
-            "private-standard-first",
-            "private-standard-second",
-          ],
         }),
         headers: expect.objectContaining({
           "x-csrf-token": "csrf-safe",
@@ -369,11 +413,8 @@ describe("TranscriptCatalogMigrationPanel", () => {
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({
+          selection_mode: "folder_tree",
           folder_id: "private-catalog-folder",
-          document_ids: [
-            "private-catalog-first",
-            "private-catalog-second",
-          ],
           confirm_apply: true,
         }),
       }),
@@ -381,9 +422,7 @@ describe("TranscriptCatalogMigrationPanel", () => {
     for (const privateValue of [
       "private-access-token",
       "private-standard-folder",
-      "private-standard-first",
       "private-catalog-folder",
-      "private-catalog-first",
     ]) {
       expect(document.body).not.toHaveTextContent(privateValue);
     }
@@ -391,10 +430,189 @@ describe("TranscriptCatalogMigrationPanel", () => {
     expect(sessionStorage.length).toBe(0);
   });
 
+  it("supports an independent single-document mode for each operation", async () => {
+    const fetchMock = vi.fn((url: string) => {
+      if (url.endsWith("/api/google/maintenance/connection")) {
+        return json(readyMaintenanceConnection);
+      }
+      if (url.endsWith("/api/google/picker/session")) {
+        return sessionResponse();
+      }
+      if (
+        url.endsWith(
+          "/api/transcript-maintenance/standardization/dry-run",
+        )
+      ) {
+        return json(singleStandardizationDryRun);
+      }
+      if (
+        url.endsWith(
+          "/api/transcript-maintenance/catalog-import/dry-run",
+        )
+      ) {
+        return json(singleCatalogDryRun);
+      }
+      if (
+        url.endsWith(
+          "/api/transcript-maintenance/catalog-import/apply",
+        )
+      ) {
+        return json(singleCatalogApply);
+      }
+      return json({}, false, 404);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const picker = vi
+      .spyOn(googlePicker, "openGooglePicker")
+      .mockResolvedValueOnce({
+        action: "picked",
+        docs: [
+          {
+            id: "private-standard-document",
+            name: "Один документ стандартизации",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        action: "picked",
+        docs: [
+          {
+            id: "private-catalog-document",
+            name: "Один документ манифеста",
+          },
+        ],
+      });
+
+    renderPanel();
+    expect(
+      await screen.findByText(/Расширенный доступ подключён/),
+    ).toBeInTheDocument();
+    const standardization = screen.getByRole("region", {
+      name: "Стандартизация Google Docs",
+    });
+    const catalog = screen.getByRole("region", {
+      name: "Манифест Studio",
+    });
+    const standardMode = within(standardization).getByRole("combobox", {
+      name: "Что обработать",
+    });
+    const catalogMode = within(catalog).getByRole("combobox", {
+      name: "Что обработать",
+    });
+
+    await userEvent.selectOptions(standardMode, "single_document");
+    expect(standardMode).toHaveValue("single_document");
+    expect(catalogMode).toHaveValue("folder_tree");
+    await userEvent.click(
+      within(standardization).getByRole("button", {
+        name: "Выбрать документ",
+      }),
+    );
+    expect(picker).toHaveBeenNthCalledWith(
+      1,
+      "transcript-document",
+      expect.objectContaining({ access_token: "private-access-token" }),
+    );
+    await userEvent.click(
+      within(standardization).getByRole("button", {
+        name: "Запустить dry-run",
+      }),
+    );
+    const standardPreview = await within(standardization).findByLabelText(
+      "Результат dry-run: Стандартизация Google Docs",
+    );
+    expect(standardPreview).toHaveTextContent(
+      "Проверен один выбранный Google Doc",
+    );
+    expect(standardPreview).not.toHaveTextContent("Вложенных папок");
+
+    await userEvent.selectOptions(catalogMode, "single_document");
+    expect(standardMode).toHaveValue("single_document");
+    await userEvent.click(
+      within(catalog).getByRole("button", {
+        name: "Выбрать документ",
+      }),
+    );
+    expect(picker).toHaveBeenNthCalledWith(
+      2,
+      "transcript-document",
+      expect.objectContaining({ access_token: "private-access-token" }),
+    );
+    await userEvent.click(
+      within(catalog).getByRole("button", {
+        name: "Запустить dry-run",
+      }),
+    );
+    await within(catalog).findByLabelText(
+      "Результат dry-run: Манифест Studio",
+    );
+    await userEvent.click(
+      within(catalog).getByRole("button", {
+        name: "Добавить в манифест Studio (1)",
+      }),
+    );
+    expect(
+      await within(catalog).findByRole("heading", {
+        name: "Манифест Studio обновлён",
+      }),
+    ).toBeInTheDocument();
+
+    const standardDryRequest = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith(
+        "/api/transcript-maintenance/standardization/dry-run",
+      ),
+    );
+    expect(standardDryRequest?.[1]).toEqual(
+      expect.objectContaining({
+        body: JSON.stringify({
+          selection_mode: "single_document",
+          document_id: "private-standard-document",
+        }),
+      }),
+    );
+    const catalogApplyRequest = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith(
+        "/api/transcript-maintenance/catalog-import/apply",
+      ),
+    );
+    expect(catalogApplyRequest?.[1]).toEqual(
+      expect.objectContaining({
+        body: JSON.stringify({
+          selection_mode: "single_document",
+          document_id: "private-catalog-document",
+          confirm_apply: true,
+        }),
+      }),
+    );
+
+    await userEvent.selectOptions(standardMode, "folder_tree");
+    expect(
+      within(standardization).queryByLabelText(
+        "Результат dry-run: Стандартизация Google Docs",
+      ),
+    ).not.toBeInTheDocument();
+    expect(
+      within(standardization).getByRole("button", {
+        name: "Выбрать папку",
+      }),
+    ).toBeEnabled();
+    expect(catalogMode).toHaveValue("single_document");
+    for (const privateValue of [
+      "private-access-token",
+      "private-standard-document",
+      "private-catalog-document",
+    ]) {
+      expect(document.body).not.toHaveTextContent(privateValue);
+    }
+  });
+
   it("clears the preview after selection changes", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string) => {
+        if (url.endsWith("/api/google/maintenance/connection")) {
+          return json(readyMaintenanceConnection);
+        }
         if (url.endsWith("/api/google/picker/session")) {
           return sessionResponse();
         }
@@ -408,25 +626,18 @@ describe("TranscriptCatalogMigrationPanel", () => {
       })
       .mockResolvedValueOnce({
         action: "picked",
-        docs: [
-          { id: "private-first", name: "Лекция 1" },
-          { id: "private-second", name: "Лекция 2" },
-        ],
-      })
-      .mockResolvedValueOnce({
-        action: "picked",
-        docs: [{ id: "private-third", name: "Лекция 3" }],
+        docs: [{ id: "private-other-folder", name: "Другой архив" }],
       });
     renderPanel();
+    expect(
+      await screen.findByText(/Расширенный доступ подключён/),
+    ).toBeInTheDocument();
     const region = screen.getByRole("region", {
       name: "Стандартизация Google Docs",
     });
 
     await userEvent.click(
       within(region).getByRole("button", { name: "Выбрать папку" }),
-    );
-    await userEvent.click(
-      within(region).getByRole("button", { name: "Выбрать документы" }),
     );
     await userEvent.click(
       within(region).getByRole("button", { name: "Запустить dry-run" }),
@@ -436,7 +647,7 @@ describe("TranscriptCatalogMigrationPanel", () => {
     );
 
     await userEvent.click(
-      within(region).getByRole("button", { name: "Изменить документы" }),
+      within(region).getByRole("button", { name: "Сменить папку" }),
     );
 
     expect(
@@ -449,13 +660,16 @@ describe("TranscriptCatalogMigrationPanel", () => {
         name: "Подтвердить стандартизацию (1)",
       }),
     ).not.toBeInTheDocument();
-    expect(region).toHaveTextContent("Выбрано документов: 1");
+    expect(region).toHaveTextContent("Корневая папка: Другой архив");
   });
 
   it("requires a fresh dry-run after a safe apply failure", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string) => {
+        if (url.endsWith("/api/google/maintenance/connection")) {
+          return json(readyMaintenanceConnection);
+        }
         if (url.endsWith("/api/google/picker/session")) {
           return sessionResponse();
         }
@@ -479,24 +693,17 @@ describe("TranscriptCatalogMigrationPanel", () => {
       .mockResolvedValueOnce({
         action: "picked",
         docs: [{ id: "private-folder", name: "Изменяемый архив" }],
-      })
-      .mockResolvedValueOnce({
-        action: "picked",
-        docs: [
-          { id: "private-first", name: "Лекция 1" },
-          { id: "private-second", name: "Лекция 2" },
-        ],
       });
     renderPanel();
+    expect(
+      await screen.findByText(/Расширенный доступ подключён/),
+    ).toBeInTheDocument();
     const region = screen.getByRole("region", {
       name: "Стандартизация Google Docs",
     });
 
     await userEvent.click(
       within(region).getByRole("button", { name: "Выбрать папку" }),
-    );
-    await userEvent.click(
-      within(region).getByRole("button", { name: "Выбрать документы" }),
     );
     await userEvent.click(
       within(region).getByRole("button", { name: "Запустить dry-run" }),
@@ -524,5 +731,67 @@ describe("TranscriptCatalogMigrationPanel", () => {
     expect(
       within(region).getByRole("button", { name: "Запустить dry-run" }),
     ).toBeEnabled();
+  });
+
+  it("blocks operations until the server-only grant is ready", async () => {
+    const fetchMock = vi.fn((url: string) => {
+      if (url.endsWith("/api/google/maintenance/connection")) {
+        return json({
+          ...readyMaintenanceConnection,
+          connected: false,
+          status: null,
+          google_email: null,
+          scopes: null,
+          connected_at: null,
+          account_match: false,
+          scope_ready: false,
+          ready: false,
+        });
+      }
+      if (url.endsWith("/api/google/maintenance/oauth/start")) {
+        return json(
+          { detail: "private backend OAuth error" },
+          false,
+          503,
+        );
+      }
+      return json({}, false, 404);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderPanel();
+
+    expect(
+      await screen.findByText(
+        "Расширенный доступ ещё не готов. Операции обслуживания заблокированы.",
+      ),
+    ).toBeInTheDocument();
+    for (const button of screen.getAllByRole("button", {
+      name: "Выбрать папку",
+    })) {
+      expect(button).toBeDisabled();
+    }
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Подключить доступ" }),
+    );
+
+    expect(
+      await screen.findByText(
+        "Не удалось начать подключение доступа для обслуживания.",
+      ),
+    ).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(
+      "private backend OAuth error",
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/google/maintenance/oauth/start",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          "x-csrf-token": "csrf-safe",
+        }),
+      }),
+    );
   });
 });

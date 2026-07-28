@@ -34,10 +34,22 @@ export type MaintenanceReason =
   | "catalog_conflict"
   | "document_unreadable"
   | "standardization_required"
-  | "catalog_metadata_conflict";
+  | "catalog_metadata_conflict"
+  | "catalog_document_unavailable"
+  | "catalog_document_write_rejected"
+  | "catalog_document_revision_changed"
+  | "catalog_document_multiple_tabs"
+  | "catalog_document_content_unsupported"
+  | "catalog_document_classification_changed"
+  | "catalog_document_empty"
+  | "catalog_document_limit_exceeded"
+  | "catalog_document_response_invalid";
 
 export type TranscriptSelectionSummary = {
-  selected_document_count: number;
+  google_document_count: number;
+  nested_folder_count: number;
+  skipped_non_document_count: number;
+  pages_scanned: number;
   unreadable_document_count: number;
 };
 
@@ -169,6 +181,15 @@ const CATALOG_OUTCOMES = new Set<CatalogImportOutcome>([
 ]);
 const STANDARDIZATION_REASONS = new Set<MaintenanceReason>([
   "document_unreadable",
+  "catalog_document_unavailable",
+  "catalog_document_write_rejected",
+  "catalog_document_revision_changed",
+  "catalog_document_multiple_tabs",
+  "catalog_document_content_unsupported",
+  "catalog_document_classification_changed",
+  "catalog_document_empty",
+  "catalog_document_limit_exceeded",
+  "catalog_document_response_invalid",
 ]);
 const CATALOG_REASONS = new Set<MaintenanceReason>([
   "catalog_conflict",
@@ -234,7 +255,13 @@ function summary<K extends string>(
 function selectionSummary(value: unknown): TranscriptSelectionSummary {
   return summary(
     value,
-    ["selected_document_count", "unreadable_document_count"] as const,
+    [
+      "google_document_count",
+      "nested_folder_count",
+      "skipped_non_document_count",
+      "pages_scanned",
+      "unreadable_document_count",
+    ] as const,
     "selection summary",
   );
 }

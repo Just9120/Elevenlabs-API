@@ -40,6 +40,14 @@ class Settings(BaseSettings):
     google_oauth_redirect_uri: str | None = None
     google_oauth_scopes: str = "openid email https://www.googleapis.com/auth/drive.file"
     google_oauth_state_ttl_seconds: int = 600
+    google_maintenance_oauth_client_id: str | None = None
+    google_maintenance_oauth_client_secret_file: str | None = None
+    google_maintenance_oauth_redirect_uri: str | None = None
+    google_maintenance_oauth_scopes: str = (
+        "openid email "
+        "https://www.googleapis.com/auth/drive.metadata.readonly "
+        "https://www.googleapis.com/auth/documents"
+    )
     google_picker_api_key: str | None = None
     google_picker_app_id: str | None = None
     worker_poll_interval_seconds: int = Field(default=5, ge=1, le=60)

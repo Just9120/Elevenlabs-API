@@ -1,10 +1,16 @@
 import {
   consumeGoogleOauthResult,
+  consumeGoogleMaintenanceOauthResult,
+  googleMaintenanceOauthMessages,
   googleOauthMessages,
+  type GoogleMaintenanceOauthResult,
   type GoogleOauthResult,
 } from "./googleOauthResult";
 
 const knownResults = Object.keys(googleOauthMessages) as GoogleOauthResult[];
+const knownMaintenanceResults = Object.keys(
+  googleMaintenanceOauthMessages,
+) as GoogleMaintenanceOauthResult[];
 
 describe("Google OAuth result", () => {
   afterEach(() => {
@@ -44,6 +50,21 @@ describe("Google OAuth result", () => {
     expect(window.location.hash).toBe("#safe");
   });
 
+  it.each(knownMaintenanceResults)(
+    "consumes the allowlisted maintenance %s result",
+    (result) => {
+      window.history.replaceState(
+        {},
+        "",
+        `/settings?google_maintenance_oauth=${result}&keep=1#safe`,
+      );
+
+      expect(consumeGoogleMaintenanceOauthResult()).toBe(result);
+      expect(window.location.search).toBe("?keep=1");
+      expect(window.location.hash).toBe("#safe");
+    },
+  );
+
   it("does not replace history when the result is absent", () => {
     window.history.replaceState({}, "", "/projects?keep=1#safe");
     const replaceState = vi.spyOn(window.history, "replaceState");
@@ -65,6 +86,17 @@ describe("Google OAuth result", () => {
         "Google Drive не подключён. Повторите авторизацию и подтвердите запрошенный доступ.",
       offline_access_missing:
         "Google Drive не подключён. Повторите авторизацию и подтвердите запрошенный доступ.",
+      scope_unavailable:
+        "Google Drive не подключён: предоставлены не все обязательные разрешения.",
+      account_identity_missing:
+        "Google Drive не подключён: Google не подтвердил аккаунт.",
+      account_mismatch:
+        "Google Drive не подключён: выбран другой Google-аккаунт.",
+      primary_connection_required:
+        "Сначала подключите основной доступ Google Drive.",
     });
+    expect(googleMaintenanceOauthMessages.account_mismatch).toBe(
+      "Выберите тот же Google-аккаунт, который подключён к Studio.",
+    );
   });
 });
