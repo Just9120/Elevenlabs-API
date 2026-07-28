@@ -18,8 +18,8 @@ from .rate_limit import RateLimiter
 from .security import *
 from .source_storage import get_source_storage, normalize_source_display_filename
 from .source_policy import SOURCE_RETENTION_TTL_OPTIONS_SECONDS, UploadedObjectMetadataIssue, browser_source_upload_policy, is_supported_source_mime_type, normalize_source_mime_type, uploaded_object_metadata_issue, validate_source_size
-from .google_connection_access import GoogleConnectionAccessError, GoogleConnectionAccessReason, active_google_connection_for_user, google_token_aad, refresh_user_google_drive_access_token, require_drive_file_scope, require_picker_browser_scope_boundary
-from .google_scopes import has_drive_file_scope, has_picker_browser_scope_boundary
+from .google_connection_access import GoogleConnectionAccessError, GoogleConnectionAccessReason, active_google_connection_for_user, google_maintenance_token_aad, google_token_aad, refresh_user_google_drive_access_token, require_drive_file_scope, require_picker_browser_scope_boundary
+from .google_scopes import has_drive_file_scope, has_maintenance_server_scope_boundary, has_picker_browser_scope_boundary
 from .job_lifecycle import safe_failure_metadata_value
 from .job_processing_lifecycle import request_job_cancellation
 from .diagnostics import REGISTRY, cleanup_expired_diagnostics, cursor_context, decode_cursor_payload, encode_cursor, markdown_escape, new_correlation_id, new_request_id, sanitize_build_id, sanitize_inbound_correlation, valid_correlation_id, valid_uuid, write_diagnostic_event
@@ -1239,21 +1239,170 @@ def google_config_or_503():
     except GoogleOAuthConfigError:
         raise config_unavailable()
 
+def google_maintenance_config_or_503():
+    from .google_oauth import (
+        GoogleOAuthConfigError,
+        config_unavailable,
+        load_google_maintenance_oauth_config,
+    )
+    try:
+        return load_google_maintenance_oauth_config(settings)
+    except GoogleOAuthConfigError:
+        raise config_unavailable()
+
+def google_maintenance_connection_payload(c: GoogleConnection|None):
+    try:
+        google_maintenance_config_or_503()
+        configured=True
+    except HTTPException:
+        configured=False
+    token_present=bool(
+        c
+        and c.maintenance_refresh_token_ciphertext
+        and c.maintenance_refresh_token_nonce
+        and c.maintenance_key_id
+    )
+    connected=bool(token_present and c and c.maintenance_revoked_at is None)
+    account_match=bool(
+        c
+        and c.google_subject
+        and c.maintenance_google_subject
+        and c.google_subject == c.maintenance_google_subject
+    )
+    scope_ready=bool(
+        c
+        and has_maintenance_server_scope_boundary(c.maintenance_scopes)
+    )
+    primary_ready=bool(
+        c
+        and c.status == GoogleConnectionStatus.active
+        and has_picker_browser_scope_boundary(c.scopes)
+        and c.google_subject
+    )
+    ready=bool(
+        configured
+        and connected
+        and account_match
+        and scope_ready
+        and primary_ready
+    )
+    if not c or (
+        not token_present
+        and c.maintenance_connected_at is None
+        and c.maintenance_revoked_at is None
+    ):
+        connection_status=None
+    elif c.maintenance_revoked_at is not None:
+        connection_status="revoked"
+    elif token_present:
+        connection_status="active"
+    else:
+        connection_status="incomplete"
+    return {
+        "connected": connected,
+        "status": connection_status,
+        "google_email": c.maintenance_google_email if c else None,
+        "scopes": c.maintenance_scopes if c else None,
+        "connected_at": (
+            c.maintenance_connected_at.isoformat()
+            if c and c.maintenance_connected_at
+            else None
+        ),
+        "revoked_at": (
+            c.maintenance_revoked_at.isoformat()
+            if c and c.maintenance_revoked_at
+            else None
+        ),
+        "configured": configured,
+        "account_match": account_match,
+        "scope_ready": scope_ready,
+        "ready": ready,
+        "reconnect_required": bool(connection_status and not ready),
+    }
+
 @app.get("/api/google/connection")
 def get_google_connection(pair=Depends(current_session), db: Session=Depends(get_db)):
     _,user=pair
     return google_connection_payload(current_google_connection(db, user))
+
+@app.get("/api/google/maintenance/connection")
+def get_google_maintenance_connection(pair=Depends(current_session), db: Session=Depends(get_db)):
+    _,user=pair
+    return google_maintenance_connection_payload(
+        current_google_connection(db, user)
+    )
+
+def _start_google_oauth(
+    *,
+    db: Session,
+    session,
+    user: User,
+    config,
+    purpose: str,
+    event_type: str,
+):
+    from .google_oauth import authorization_url
+    raw_state=new_token()
+    state=GoogleOAuthState(
+        user_id=user.id,
+        session_id=session.id,
+        state_hash=token_hash(raw_state),
+        purpose=purpose,
+        expires_at=utcnow()+timedelta(
+            seconds=settings.google_oauth_state_ttl_seconds
+        ),
+    )
+    db.add(state)
+    audit(
+        db,
+        event_type,
+        actor_user_id=user.id,
+        subject_user_id=user.id,
+        session_id=session.id,
+    )
+    db.commit()
+    return {
+        "authorization_url": authorization_url(config, raw_state),
+        "expires_at": state.expires_at.isoformat(),
+    }
 
 @app.post("/api/google/oauth/start")
 def start_google_oauth(request: Request, response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     sess,user=pair; limiter.check("google:oauth:start:"+user.id, 20, 3600); _browser_capability_cache_headers(response)
     cleanup_expired_auth_state()
     cfg=google_config_or_503()
-    from .google_oauth import authorization_url
-    raw_state=new_token()
-    state=GoogleOAuthState(user_id=user.id, session_id=sess.id, state_hash=token_hash(raw_state), expires_at=utcnow()+timedelta(seconds=settings.google_oauth_state_ttl_seconds))
-    db.add(state); audit(db,"google.oauth_started",actor_user_id=user.id,subject_user_id=user.id,session_id=sess.id); db.commit()
-    return {"authorization_url": authorization_url(cfg, raw_state), "expires_at": state.expires_at.isoformat()}
+    from .google_oauth import PRIMARY_OAUTH_PURPOSE
+    return _start_google_oauth(
+        db=db,
+        session=sess,
+        user=user,
+        config=cfg,
+        purpose=PRIMARY_OAUTH_PURPOSE,
+        event_type="google.oauth_started",
+    )
+
+@app.post("/api/google/maintenance/oauth/start")
+def start_google_maintenance_oauth(response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    sess,user=pair; limiter.check("google:maintenance:oauth:start:"+user.id, 20, 3600); _browser_capability_cache_headers(response)
+    cleanup_expired_auth_state()
+    conn=current_google_connection(db, user)
+    if (
+        not conn
+        or conn.status != GoogleConnectionStatus.active
+        or not conn.google_subject
+        or not has_picker_browser_scope_boundary(conn.scopes)
+    ):
+        raise HTTPException(409, "google_primary_connection_required")
+    cfg=google_maintenance_config_or_503()
+    from .google_oauth import MAINTENANCE_OAUTH_PURPOSE
+    return _start_google_oauth(
+        db=db,
+        session=sess,
+        user=user,
+        config=cfg,
+        purpose=MAINTENANCE_OAUTH_PURPOSE,
+        event_type="google.maintenance_oauth_started",
+    )
 
 GOOGLE_OAUTH_RESULTS = {
     "connected",
@@ -1262,50 +1411,228 @@ GOOGLE_OAUTH_RESULTS = {
     "invalid_state",
     "exchange_failed",
     "offline_access_missing",
+    "scope_unavailable",
+    "account_identity_missing",
+    "account_mismatch",
+    "primary_connection_required",
 }
 
-def google_oauth_redirect(result: str) -> RedirectResponse:
+def google_oauth_redirect(
+    result: str,
+    *,
+    purpose: str="primary",
+) -> RedirectResponse:
+    from .google_oauth import MAINTENANCE_OAUTH_PURPOSE
     if result not in GOOGLE_OAUTH_RESULTS:
         result = "invalid_callback"
+    query_key=(
+        "google_maintenance_oauth"
+        if purpose == MAINTENANCE_OAUTH_PURPOSE
+        else "google_oauth"
+    )
     base = settings.app_origin.rstrip("/")
-    response = RedirectResponse(f"{base}/?google_oauth={result}", status_code=status.HTTP_303_SEE_OTHER)
+    response = RedirectResponse(
+        f"{base}/?{query_key}={result}",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
     response.headers["Cache-Control"] = "no-store"
     return response
 
+def google_oauth_failed_redirect(
+    db: Session,
+    *,
+    row: GoogleOAuthState|None,
+    purpose: str,
+    result: str,
+) -> RedirectResponse:
+    from .google_oauth import MAINTENANCE_OAUTH_PURPOSE
+    audit(
+        db,
+        (
+            "google.maintenance_oauth_failed"
+            if purpose == MAINTENANCE_OAUTH_PURPOSE
+            else "google.oauth_failed"
+        ),
+        actor_user_id=row.user_id if row else None,
+        subject_user_id=row.user_id if row else None,
+    )
+    db.commit()
+    return google_oauth_redirect(result, purpose=purpose)
+
 @app.get("/api/google/oauth/callback")
 def google_oauth_callback(state: str|None=None, code: str|None=None, error: str|None=None, db: Session=Depends(get_db)):
+    from .google_oauth import (
+        GOOGLE_OAUTH_PURPOSES,
+        MAINTENANCE_OAUTH_PURPOSE,
+        PRIMARY_OAUTH_PURPOSE,
+    )
+    row=(
+        db.query(GoogleOAuthState)
+        .filter_by(state_hash=token_hash(state))
+        .first()
+        if state
+        else None
+    )
+    purpose=(
+        row.purpose
+        if row and row.purpose in GOOGLE_OAUTH_PURPOSES
+        else PRIMARY_OAUTH_PURPOSE
+    )
     if error:
-        audit(db,"google.oauth_failed"); db.commit(); return google_oauth_redirect("cancelled")
+        if (
+            row
+            and row.purpose in GOOGLE_OAUTH_PURPOSES
+            and row.used_at is None
+            and row.expires_at > utcnow()
+        ):
+            row.used_at=utcnow()
+            return google_oauth_failed_redirect(
+                db,
+                row=row,
+                purpose=purpose,
+                result="cancelled",
+            )
+        return google_oauth_failed_redirect(
+            db,
+            row=None,
+            purpose=purpose,
+            result="cancelled",
+        )
     if not state or not code:
-        return google_oauth_redirect("invalid_callback")
-    row=db.query(GoogleOAuthState).filter_by(state_hash=token_hash(state)).first()
-    if not row or row.used_at is not None or row.expires_at <= utcnow():
-        return google_oauth_redirect("invalid_state")
-    cfg=google_config_or_503()
+        return google_oauth_redirect(
+            "invalid_callback",
+            purpose=purpose,
+        )
+    if (
+        not row
+        or row.purpose not in GOOGLE_OAUTH_PURPOSES
+        or row.used_at is not None
+        or row.expires_at <= utcnow()
+    ):
+        return google_oauth_redirect("invalid_state", purpose=purpose)
+    cfg=(
+        google_maintenance_config_or_503()
+        if purpose == MAINTENANCE_OAUTH_PURPOSE
+        else google_config_or_503()
+    )
     from .google_oauth import exchange_code_for_tokens
+    now=utcnow()
+    row.used_at=now
     try:
         tokens=exchange_code_for_tokens(cfg, code)
     except Exception:
-        audit(db,"google.oauth_failed",actor_user_id=row.user_id,subject_user_id=row.user_id); db.commit(); return google_oauth_redirect("exchange_failed")
+        return google_oauth_failed_redirect(
+            db,
+            row=row,
+            purpose=purpose,
+            result="exchange_failed",
+        )
     if not tokens.refresh_token:
-        audit(db,"google.oauth_failed",actor_user_id=row.user_id,subject_user_id=row.user_id); db.commit(); return google_oauth_redirect("offline_access_missing")
+        return google_oauth_failed_redirect(
+            db,
+            row=row,
+            purpose=purpose,
+            result="offline_access_missing",
+        )
+    if not tokens.google_subject:
+        return google_oauth_failed_redirect(
+            db,
+            row=row,
+            purpose=purpose,
+            result="account_identity_missing",
+        )
+    granted_scopes=tokens.scope or cfg.scopes
+    scope_ready=(
+        has_maintenance_server_scope_boundary(granted_scopes)
+        if purpose == MAINTENANCE_OAUTH_PURPOSE
+        else has_picker_browser_scope_boundary(granted_scopes)
+    )
+    if not scope_ready:
+        return google_oauth_failed_redirect(
+            db,
+            row=row,
+            purpose=purpose,
+            result="scope_unavailable",
+        )
     conn=db.query(GoogleConnection).filter_by(user_id=row.user_id, provider=GoogleProvider.google).first()
-    now=utcnow()
+    if purpose == MAINTENANCE_OAUTH_PURPOSE:
+        if not conn or conn.status != GoogleConnectionStatus.active:
+            return google_oauth_failed_redirect(
+                db,
+                row=row,
+                purpose=purpose,
+                result="primary_connection_required",
+            )
+        if (
+            not conn.google_subject
+            or conn.google_subject != tokens.google_subject
+        ):
+            return google_oauth_failed_redirect(
+                db,
+                row=row,
+                purpose=purpose,
+                result="account_mismatch",
+            )
+        ct,nonce=encrypt(
+            tokens.refresh_token,
+            key(),
+            google_maintenance_token_aad(row.user_id, conn.id),
+        )
+        conn.maintenance_google_subject=tokens.google_subject
+        conn.maintenance_google_email=tokens.google_email
+        conn.maintenance_scopes=granted_scopes
+        conn.maintenance_refresh_token_ciphertext=ct
+        conn.maintenance_refresh_token_nonce=nonce
+        conn.maintenance_key_id=settings.credential_key_id
+        conn.maintenance_connected_at=now
+        conn.maintenance_revoked_at=None
+        conn.updated_at=now
+        audit(
+            db,
+            "google.maintenance_connected",
+            actor_user_id=row.user_id,
+            subject_user_id=row.user_id,
+        )
+        db.commit()
+        return google_oauth_redirect("connected", purpose=purpose)
     if not conn:
         conn=GoogleConnection(user_id=row.user_id, provider=GoogleProvider.google, created_at=now)
         db.add(conn); db.flush()
+    if (
+        conn.maintenance_google_subject
+        and conn.maintenance_google_subject != tokens.google_subject
+    ):
+        conn.maintenance_refresh_token_ciphertext=None
+        conn.maintenance_refresh_token_nonce=None
+        conn.maintenance_key_id=None
+        conn.maintenance_revoked_at=now
     ct,nonce=encrypt(tokens.refresh_token, key(), google_token_aad(row.user_id, conn.id))
-    conn.status=GoogleConnectionStatus.active; conn.google_subject=tokens.google_subject; conn.google_email=tokens.google_email; conn.scopes=tokens.scope or cfg.scopes; conn.refresh_token_ciphertext=ct; conn.refresh_token_nonce=nonce; conn.key_id=settings.credential_key_id; conn.connected_at=now; conn.revoked_at=None; conn.updated_at=now
-    row.used_at=now
+    conn.status=GoogleConnectionStatus.active; conn.google_subject=tokens.google_subject; conn.google_email=tokens.google_email; conn.scopes=granted_scopes; conn.refresh_token_ciphertext=ct; conn.refresh_token_nonce=nonce; conn.key_id=settings.credential_key_id; conn.connected_at=now; conn.revoked_at=None; conn.updated_at=now
     audit(db,"google.connected",actor_user_id=row.user_id,subject_user_id=row.user_id); db.commit()
-    return google_oauth_redirect("connected")
+    return google_oauth_redirect("connected", purpose=purpose)
+
+@app.delete("/api/google/maintenance/connection")
+def delete_google_maintenance_connection(pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("google:maintenance:disconnect:"+user.id, 20, 3600)
+    conn=current_google_connection(db, user)
+    if not conn:
+        return google_maintenance_connection_payload(None)
+    now=utcnow()
+    conn.maintenance_refresh_token_ciphertext=None
+    conn.maintenance_refresh_token_nonce=None
+    conn.maintenance_key_id=None
+    conn.maintenance_revoked_at=now
+    conn.updated_at=now
+    audit(db,"google.maintenance_disconnected",actor_user_id=user.id,subject_user_id=user.id)
+    db.commit()
+    return google_maintenance_connection_payload(conn)
 
 @app.delete("/api/google/connection")
 def delete_google_connection(pair=Depends(require_csrf), db: Session=Depends(get_db)):
     _,user=pair; limiter.check("google:disconnect:"+user.id, 20, 3600)
     conn=current_google_connection(db, user)
     if not conn: return google_connection_payload(None)
-    now=utcnow(); conn.status=GoogleConnectionStatus.revoked; conn.refresh_token_ciphertext=None; conn.refresh_token_nonce=None; conn.key_id=None; conn.revoked_at=now; conn.updated_at=now
+    now=utcnow(); conn.status=GoogleConnectionStatus.revoked; conn.refresh_token_ciphertext=None; conn.refresh_token_nonce=None; conn.key_id=None; conn.revoked_at=now; conn.maintenance_refresh_token_ciphertext=None; conn.maintenance_refresh_token_nonce=None; conn.maintenance_key_id=None; conn.maintenance_revoked_at=now; conn.updated_at=now
     audit(db,"google.disconnected",actor_user_id=user.id,subject_user_id=user.id); db.commit(); return google_connection_payload(conn)
 
 

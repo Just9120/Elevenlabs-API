@@ -1093,18 +1093,80 @@ def configure_google_oauth(monkeypatch, tmp_path):
     from studio_api import main as main_mod
     secret = tmp_path / "google_client_secret"
     secret.write_text("google-client-secret-test", encoding="utf-8")
-    main_mod.settings.google_oauth_client_id = "google-client-id-test.apps.googleusercontent.com"
-    main_mod.settings.google_oauth_client_secret_file = str(secret)
-    main_mod.settings.app_origin = "https://studio.test"
-    main_mod.settings.google_oauth_redirect_uri = "https://studio.test/api/google/oauth/callback"
-    main_mod.settings.google_oauth_scopes = "openid email https://www.googleapis.com/auth/drive.file"
-    main_mod.settings.google_oauth_state_ttl_seconds = 600
+    monkeypatch.setattr(
+        main_mod.settings,
+        "google_oauth_client_id",
+        "google-client-id-test.apps.googleusercontent.com",
+    )
+    monkeypatch.setattr(
+        main_mod.settings,
+        "google_oauth_client_secret_file",
+        str(secret),
+    )
+    monkeypatch.setattr(
+        main_mod.settings,
+        "app_origin",
+        "https://studio.test",
+    )
+    monkeypatch.setattr(
+        main_mod.settings,
+        "google_oauth_redirect_uri",
+        "https://studio.test/api/google/oauth/callback",
+    )
+    monkeypatch.setattr(
+        main_mod.settings,
+        "google_oauth_scopes",
+        "openid email https://www.googleapis.com/auth/drive.file",
+    )
+    monkeypatch.setattr(
+        main_mod.settings,
+        "google_oauth_state_ttl_seconds",
+        600,
+    )
+    return secret
+
+
+def configure_google_maintenance_oauth(monkeypatch, tmp_path):
+    from studio_api import main as main_mod
+
+    secret = tmp_path / "google_maintenance_client_secret"
+    secret.write_text(
+        "google-maintenance-client-secret-test",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        main_mod.settings,
+        "google_maintenance_oauth_client_id",
+        "google-maintenance-client-id-test.apps.googleusercontent.com",
+    )
+    monkeypatch.setattr(
+        main_mod.settings,
+        "google_maintenance_oauth_client_secret_file",
+        str(secret),
+    )
+    monkeypatch.setattr(
+        main_mod.settings,
+        "google_maintenance_oauth_redirect_uri",
+        "https://studio.test/api/google/oauth/callback",
+    )
+    monkeypatch.setattr(
+        main_mod.settings,
+        "google_maintenance_oauth_scopes",
+        (
+            "openid email "
+            "https://www.googleapis.com/auth/drive.metadata.readonly "
+            "https://www.googleapis.com/auth/documents"
+        ),
+    )
     return secret
 
 
 def test_google_connection_requires_authentication():
     c = TestClient(app)
     assert c.get("/api/google/connection").status_code == 401
+    assert c.get("/api/google/maintenance/connection").status_code == 401
+    assert c.post("/api/google/maintenance/oauth/start").status_code == 401
+    assert c.delete("/api/google/maintenance/connection").status_code == 401
 
 
 def test_google_connection_status_no_connection():
@@ -1194,7 +1256,7 @@ def test_google_oauth_callback_rejects_missing_invalid_expired_and_used_state(mo
     r = c.post("/api/google/oauth/start", headers={"origin": "https://studio.test", "x-csrf-token": csrf})
     state = parse_qs(urlparse(r.json()["authorization_url"]).query)["state"][0]
     from studio_api.google_oauth import GoogleTokenResult
-    monkeypatch.setattr("studio_api.google_oauth.exchange_code_for_tokens", lambda cfg, code: GoogleTokenResult("refresh-safe", None, None, "openid email", "sub", "g@example.com"))
+    monkeypatch.setattr("studio_api.google_oauth.exchange_code_for_tokens", lambda cfg, code: GoogleTokenResult("refresh-safe", None, None, "openid email https://www.googleapis.com/auth/drive.file", "sub", "g@example.com"))
     assert_oauth_redirect(c.get(f"/api/google/oauth/callback?state={state}&code=code"), "connected")
     assert_oauth_redirect(c.get(f"/api/google/oauth/callback?state={state}&code=code"), "invalid_state")
 
@@ -1230,6 +1292,20 @@ def test_google_oauth_callback_stores_encrypted_token_and_safe_metadata_disconne
         assert conn.refresh_token_ciphertext and conn.refresh_token_nonce
         assert raw_refresh.encode() not in conn.refresh_token_ciphertext
         assert decrypt(conn.refresh_token_ciphertext, conn.refresh_token_nonce, master_key_from_b64(base64.b64encode(b"1" * 32).decode()), aad(conn.user_id, conn.id, "refresh", "google")) == raw_refresh
+        maintenance_ct, maintenance_nonce = encrypt(
+            "maintenance-refresh-token-to-wipe",
+            master_key_from_b64(base64.b64encode(b"1" * 32).decode()),
+            aad(
+                conn.user_id,
+                conn.id,
+                "maintenance-refresh",
+                "google",
+            ),
+        )
+        conn.maintenance_refresh_token_ciphertext = maintenance_ct
+        conn.maintenance_refresh_token_nonce = maintenance_nonce
+        conn.maintenance_key_id = "studio-v1"
+        db.commit()
     finally:
         db.close()
     r = c.delete("/api/google/connection", headers={"origin": "https://studio.test", "x-csrf-token": csrf})
@@ -1240,6 +1316,9 @@ def test_google_oauth_callback_stores_encrypted_token_and_safe_metadata_disconne
         from studio_api.models import GoogleConnection
         conn = db.query(GoogleConnection).one()
         assert conn.refresh_token_ciphertext is None and conn.refresh_token_nonce is None and conn.key_id is None
+        assert conn.maintenance_refresh_token_ciphertext is None
+        assert conn.maintenance_refresh_token_nonce is None
+        assert conn.maintenance_key_id is None
     finally:
         db.close()
 
@@ -1297,7 +1376,7 @@ def add_google_connection_for_user(email: str, refresh_token: str, status="activ
     db = SessionLocal()
     try:
         user = db.query(User).filter_by(email=email).one()
-        conn = GoogleConnection(user_id=user.id, provider=GoogleProvider.google, status=GoogleConnectionStatus(status), google_email="drive-user@gmail.com", scopes="openid email https://www.googleapis.com/auth/drive.file", connected_at=utcnow())
+        conn = GoogleConnection(user_id=user.id, provider=GoogleProvider.google, status=GoogleConnectionStatus(status), google_subject="same-google-subject", google_email="drive-user@gmail.com", scopes="openid email https://www.googleapis.com/auth/drive.file", connected_at=utcnow())
         db.add(conn); db.flush()
         ct, nonce = encrypt(refresh_token, master_key_from_b64(base64.b64encode(b"1" * 32).decode()), aad(user.id, conn.id, "refresh", "google"))
         conn.refresh_token_ciphertext = ct
@@ -1305,6 +1384,302 @@ def add_google_connection_for_user(email: str, refresh_token: str, status="activ
         conn.key_id = "studio-v1"
         db.commit()
         return conn.id
+    finally:
+        db.close()
+
+
+def assert_maintenance_oauth_redirect(
+    response,
+    result,
+    forbidden_values=None,
+):
+    assert response.status_code == 303
+    assert response.headers["cache-control"] == "no-store"
+    location = response.headers["location"]
+    assert (
+        location
+        == f"https://studio.test/?google_maintenance_oauth={result}"
+    )
+    forbidden = [
+        "code=",
+        "state=",
+        "access_token=",
+        "refresh_token=",
+        "id_token=",
+        "maintenance-refresh-token",
+        "maintenance-access-token",
+        "maintenance-id-token",
+    ]
+    forbidden.extend(forbidden_values or [])
+    assert all(value not in location for value in forbidden)
+
+
+def test_google_maintenance_oauth_requires_primary_connection(
+    monkeypatch,
+    tmp_path,
+):
+    configure_google_maintenance_oauth(monkeypatch, tmp_path)
+    email = "maintenance-primary-required@example.com"
+    password = admin(email)
+    client = TestClient(app)
+    csrf = login(client, password, email)
+
+    assert (
+        client.get("/api/google/maintenance/connection").status_code
+        == 200
+    )
+    assert (
+        client.post("/api/google/maintenance/oauth/start").status_code
+        == 403
+    )
+    response = client.post(
+        "/api/google/maintenance/oauth/start",
+        headers={
+            "origin": "https://studio.test",
+            "x-csrf-token": csrf,
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "google_primary_connection_required"
+    assert "secret" not in response.text.lower()
+
+
+def test_google_maintenance_oauth_is_separate_and_server_only(
+    monkeypatch,
+    tmp_path,
+):
+    configure_google_oauth(monkeypatch, tmp_path)
+    configure_google_maintenance_oauth(monkeypatch, tmp_path)
+    from studio_api.google_oauth import (
+        GoogleTokenResult,
+        MAINTENANCE_OAUTH_PURPOSE,
+    )
+    from studio_api.google_connection_access import (
+        google_maintenance_token_aad,
+    )
+
+    primary_refresh = "primary-refresh-token"
+    maintenance_refresh = "maintenance-refresh-token"
+    maintenance_access = "maintenance-access-token"
+    maintenance_id = "maintenance-id-token"
+    email = "maintenance-oauth@example.com"
+    password = admin(email)
+    client = TestClient(app, follow_redirects=False)
+    csrf = login(client, password, email)
+    add_google_connection_for_user(email, primary_refresh)
+
+    started = client.post(
+        "/api/google/maintenance/oauth/start",
+        headers={
+            "origin": "https://studio.test",
+            "x-csrf-token": csrf,
+        },
+    )
+    assert started.status_code == 200
+    assert started.headers["cache-control"] == "no-store"
+    assert started.headers["pragma"] == "no-cache"
+    from urllib.parse import parse_qs, urlparse
+    query = parse_qs(
+        urlparse(started.json()["authorization_url"]).query
+    )
+    assert query["client_id"] == [
+        "google-maintenance-client-id-test.apps.googleusercontent.com"
+    ]
+    assert query["scope"] == [
+        (
+            "openid email "
+            "https://www.googleapis.com/auth/drive.metadata.readonly "
+            "https://www.googleapis.com/auth/documents"
+        )
+    ]
+    assert "drive.file" not in query["scope"][0]
+    state = query["state"][0]
+    db = SessionLocal()
+    try:
+        from studio_api.models import GoogleOAuthState
+
+        oauth_state = db.query(GoogleOAuthState).one()
+        assert oauth_state.purpose == MAINTENANCE_OAUTH_PURPOSE
+        assert oauth_state.state_hash != state
+    finally:
+        db.close()
+
+    def fake_exchange(config, code):
+        assert config.client_id.startswith(
+            "google-maintenance-client-id-test"
+        )
+        assert code == "maintenance-code"
+        return GoogleTokenResult(
+            maintenance_refresh,
+            maintenance_access,
+            maintenance_id,
+            query["scope"][0],
+            "same-google-subject",
+            "drive-user@gmail.com",
+        )
+
+    monkeypatch.setattr(
+        "studio_api.google_oauth.exchange_code_for_tokens",
+        fake_exchange,
+    )
+    callback = client.get(
+        f"/api/google/oauth/callback?state={state}&code=maintenance-code"
+    )
+    assert_maintenance_oauth_redirect(callback, "connected")
+    status_response = client.get(
+        "/api/google/maintenance/connection"
+    )
+    assert status_response.status_code == 200
+    status_payload = status_response.json()
+    assert status_payload["connected"] is True
+    assert status_payload["configured"] is True
+    assert status_payload["account_match"] is True
+    assert status_payload["scope_ready"] is True
+    assert status_payload["ready"] is True
+    assert maintenance_refresh not in status_response.text
+    assert maintenance_access not in status_response.text
+    assert maintenance_id not in status_response.text
+
+    db = SessionLocal()
+    try:
+        from studio_api.models import GoogleConnection
+
+        connection = db.query(GoogleConnection).one()
+        master_key = master_key_from_b64(
+            base64.b64encode(b"1" * 32).decode()
+        )
+        assert decrypt(
+            connection.refresh_token_ciphertext,
+            connection.refresh_token_nonce,
+            master_key,
+            aad(
+                connection.user_id,
+                connection.id,
+                "refresh",
+                "google",
+            ),
+        ) == primary_refresh
+        assert decrypt(
+            connection.maintenance_refresh_token_ciphertext,
+            connection.maintenance_refresh_token_nonce,
+            master_key,
+            google_maintenance_token_aad(
+                connection.user_id,
+                connection.id,
+            ),
+        ) == maintenance_refresh
+    finally:
+        db.close()
+
+    disconnected = client.delete(
+        "/api/google/maintenance/connection",
+        headers={
+            "origin": "https://studio.test",
+            "x-csrf-token": csrf,
+        },
+    )
+    assert disconnected.status_code == 200
+    assert disconnected.json()["connected"] is False
+    assert disconnected.json()["status"] == "revoked"
+    assert client.get("/api/google/connection").json()["connected"] is True
+    db = SessionLocal()
+    try:
+        from studio_api.models import GoogleConnection
+
+        connection = db.query(GoogleConnection).one()
+        assert connection.refresh_token_ciphertext is not None
+        assert connection.maintenance_refresh_token_ciphertext is None
+        assert connection.maintenance_refresh_token_nonce is None
+        assert connection.maintenance_key_id is None
+    finally:
+        db.close()
+
+
+@pytest.mark.parametrize(
+    ("google_subject", "scopes", "expected_result"),
+    [
+        (
+            "different-google-subject",
+            (
+                "openid email "
+                "https://www.googleapis.com/auth/drive.metadata.readonly "
+                "https://www.googleapis.com/auth/documents"
+            ),
+            "account_mismatch",
+        ),
+        (
+            "same-google-subject",
+            (
+                "openid email "
+                "https://www.googleapis.com/auth/drive.metadata.readonly "
+                "https://www.googleapis.com/auth/documents "
+                "https://www.googleapis.com/auth/drive"
+            ),
+            "scope_unavailable",
+        ),
+    ],
+)
+def test_google_maintenance_oauth_rejects_wrong_account_or_broad_grant(
+    monkeypatch,
+    tmp_path,
+    google_subject,
+    scopes,
+    expected_result,
+):
+    configure_google_oauth(monkeypatch, tmp_path)
+    configure_google_maintenance_oauth(monkeypatch, tmp_path)
+    from studio_api.google_oauth import GoogleTokenResult
+
+    email = f"maintenance-{expected_result}@example.com"
+    password = admin(email)
+    client = TestClient(app, follow_redirects=False)
+    csrf = login(client, password, email)
+    add_google_connection_for_user(email, "primary-refresh-token")
+    started = client.post(
+        "/api/google/maintenance/oauth/start",
+        headers={
+            "origin": "https://studio.test",
+            "x-csrf-token": csrf,
+        },
+    )
+    from urllib.parse import parse_qs, urlparse
+    state = parse_qs(
+        urlparse(started.json()["authorization_url"]).query
+    )["state"][0]
+    monkeypatch.setattr(
+        "studio_api.google_oauth.exchange_code_for_tokens",
+        lambda _config, _code: GoogleTokenResult(
+            "rejected-maintenance-refresh-token",
+            "rejected-maintenance-access-token",
+            "rejected-maintenance-id-token",
+            scopes,
+            google_subject,
+            "other@gmail.com",
+        ),
+    )
+
+    callback = client.get(
+        f"/api/google/oauth/callback?state={state}&code=maintenance-code"
+    )
+
+    assert_maintenance_oauth_redirect(
+        callback,
+        expected_result,
+        [
+            "rejected-maintenance-refresh-token",
+            "rejected-maintenance-access-token",
+            "rejected-maintenance-id-token",
+        ],
+    )
+    db = SessionLocal()
+    try:
+        from studio_api.models import GoogleConnection
+
+        connection = db.query(GoogleConnection).one()
+        assert connection.maintenance_refresh_token_ciphertext is None
+        assert connection.maintenance_refresh_token_nonce is None
+        assert connection.maintenance_key_id is None
     finally:
         db.close()
 

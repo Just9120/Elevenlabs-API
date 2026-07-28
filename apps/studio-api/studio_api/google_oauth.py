@@ -14,6 +14,12 @@ from .google_scopes import (
 AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
+PRIMARY_OAUTH_PURPOSE = "primary"
+MAINTENANCE_OAUTH_PURPOSE = "maintenance"
+GOOGLE_OAUTH_PURPOSES = {
+    PRIMARY_OAUTH_PURPOSE,
+    MAINTENANCE_OAUTH_PURPOSE,
+}
 
 
 @dataclass(frozen=True)
