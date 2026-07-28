@@ -1597,7 +1597,7 @@ def test_job_lease_migration_real_0005_shape_upgrades_to_head():
             assert {"lease_owner_id", "lease_generation", "claimed_at", "lease_expires_at", "attempt_count", "cancel_requested_at"}.issubset(cols)
             indexes = [idx["name"] for idx in inspector.get_indexes("transcription_jobs")]
             assert indexes.count("ix_transcription_jobs_status_lease_expires_created") == 1
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0016_transcript_catalog_entries"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0017_google_maintenance_oauth"
 
 
 
@@ -1632,7 +1632,7 @@ def test_job_output_migration_clean_chain_constraints_and_0007_roundtrip():
         run_alembic("head", env=env)
         with temp_engine.begin() as conn:
             assert "transcription_job_outputs" in inspect(conn).get_table_names()
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0016_transcript_catalog_entries"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0017_google_maintenance_oauth"
 
 
 
@@ -4709,7 +4709,7 @@ def test_job_destination_migration_0008_0009_upgrade_downgrade_backfill(tmp_path
         with temp_engine.begin() as conn:
             assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0009_job_output_destinations"
         cfg = Config(str(ALEMBIC))
-        assert ScriptDirectory.from_config(cfg).get_current_head() == "0016_transcript_catalog_entries"
+        assert ScriptDirectory.from_config(cfg).get_current_head() == "0017_google_maintenance_oauth"
     finally:
         temp_engine.dispose()
         cleanup_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")

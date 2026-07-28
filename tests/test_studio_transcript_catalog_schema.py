@@ -125,7 +125,7 @@ def test_transcript_catalog_migration_is_the_single_head():
     config = Config(str(ROOT / "apps/studio-api/alembic.ini"))
     script = ScriptDirectory.from_config(config)
 
-    assert script.get_heads() == ["0016_transcript_catalog_entries"]
-    assert script.get_current_head() == "0016_transcript_catalog_entries"
+    assert script.get_heads() == ["0017_google_maintenance_oauth"]
+    assert script.get_current_head() == "0017_google_maintenance_oauth"
     revision = script.get_revision("0016_transcript_catalog_entries")
     assert revision.down_revision == "0015_user_source_retention"
