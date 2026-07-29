@@ -29,7 +29,7 @@ Studio PWA is a web platform contour in development. Source-level architecture i
 | Studio frontend | `apps/studio/` | Browser UI for sessions, projects, sources, credentials, primary Google/Picker connection, separate maintenance consent, preparation, jobs, outputs, diagnostics, standardization, and `Манифест Studio`; `src/apiClient.ts` owns same-origin JSON/CSRF retry transport and its safe diagnostic emission. | Current merge/CI/deployment evidence belongs in `docs/delivery-plan.md`; source presence is not live Google evidence. |
 | Studio API | `apps/studio-api/studio_api/` | FastAPI app, auth/session boundaries, owner-scoped APIs, job/source/credential/output/diagnostic/catalog services, separate maintenance OAuth/token refresh, exact-document revalidation, and bounded recursive folder traversal. | Current merge/CI/deployment evidence belongs in `docs/delivery-plan.md`; newer schema/config requires a separately verified API rollout. |
 | Database | PostgreSQL via Studio deployment | Durable users/preferences/projects/sources/credentials/jobs/outputs/diagnostics/catalog state plus separately encrypted maintenance grant fields. | Repository migrations are present through `0017_google_maintenance_oauth`; production revision evidence is tracked separately in `docs/delivery-plan.md`. |
-| Alembic migrations | `apps/studio-api/alembic/versions/` | Schema authority for Studio persistence. | Current repository candidate head is `0017_google_maintenance_oauth`; standard CD does not apply it. |
+| Alembic migrations | `apps/studio-api/alembic/versions/` | Schema authority for Studio persistence. | Current repository head is `0017_google_maintenance_oauth`; ordinary component CD does not apply it. A separately enabled, protected release lane may apply exactly one reviewed direct additive successor. |
 | Redis | Studio deployment | Platform support service; not a processing queue/lock/retry authority unless separately designed. | Production health is operator evidence, not source evidence. |
 | Object storage | S3/R2-compatible source storage | Private temporary/local-upload source bytes. | Object keys/source bytes remain server-only; the upload initiator returns one bounded PUT-only browser capability. Pending uploads and verified-source retention use separate persisted expiry windows. |
 | Worker | `apps/studio-api/studio_api/worker.py` and related runner/orchestrator modules | Poll/claim/process at most bounded work according to lease and lifecycle rules. | Exactly one production worker is operator-evidenced healthy at image revision `900bf5b`; multi-worker behavior and a retained prior-image rollback candidate remain unproven. |
@@ -37,7 +37,7 @@ Studio PWA is a web platform contour in development. Source-level architecture i
 | Google integration | Google OAuth/Drive/Docs modules under `apps/studio-api/studio_api/` | Narrow primary `drive.file` Picker capability, separately encrypted server-only maintenance grant, safe exact-document validation or Drive traversal, Google Docs reads/writes, and output creation. | Primary Picker/output evidence does not prove the separate maintenance grant or either maintenance target mode. |
 | Transcript maintenance | `transcript_catalog*.py`, `transcript_maintenance*.py`, migrations `0016`/`0017`, and frontend maintenance panel/model modules | Two owner-scoped operations with independent `folder_tree` or `single_document` targets: in-place standardization or PostgreSQL-only `Манифест Studio` import, with fresh server revalidation and explicit conflict outcomes. | Source and targeted-test state is tracked in `docs/delivery-plan.md`; migration/config/deployment/live dry-run/apply evidence remains separate. |
 | Diagnostics | API/frontend diagnostic modules and migrations `0010`/`0011` | Safe diagnostic event/report/debug-session foundation. | Source present; evidence must remain redacted. |
-| Deployment | `deploy/studio/`, `.github/workflows/` | Component deployment and preflight automation boundaries. | Deployment changes are governed by `docs/ci-cd-rules.md`; standard CD must not deploy workers or run migrations. |
+| Deployment | `deploy/studio/`, `.github/workflows/` | Ordinary component deployment plus a distinct approval-gated stateful release boundary. | Ordinary CD must not deploy workers or run migrations. The migration lane is disabled by default and requires a protected environment, a dedicated root forced command, exact-main identity, a new verified backup, one additive migration, exact API image deployment, and health evidence. |
 
 ## Runtime boundaries
 
@@ -116,7 +116,19 @@ Lease loss, cancellation uncertainty, provider/Google errors, output-side-effect
 
 The repository contains Studio deployment and workflow files, but architecture does not authorize deployment behavior. CI/CD and runtime safety rules are in `docs/ci-cd-rules.md`; operator procedures are in `docs/runbooks/studio-platform-ops.md`.
 
-Current important distinction: web/API deployment, migration application, maintenance OAuth runtime configuration, worker-running, bounded core processing evidence, and transcript-maintenance rollout are separate states. Standard CD must not silently run migrations, start workers, populate secrets, or claim maintenance/processing readiness. Current factual revisions, run IDs, component outcomes, and blockers belong in `docs/delivery-plan.md`; current processing invariants are in `docs/studio-processing-contract.md`.
+Current important distinction: web/API deployment, migration application,
+maintenance OAuth runtime configuration, worker-running, bounded core processing
+evidence, and transcript-maintenance rollout are separate states. Ordinary
+component CD must not silently run migrations, start workers, populate secrets,
+or claim maintenance/processing readiness. The protected migration lane is a
+separate stateful release path: GitHub environment approval selects only an
+exact-SHA forced command, while the VPS runner owns candidate-image identity,
+new tagged backup and isolated dump verification, exactly one additive
+migration, API-only recreation, and health checks. It never owns worker,
+provider, Google, nginx, restore, downgrade, retry, or rollback actions. Current
+factual revisions, run IDs, component outcomes, and blockers belong in
+`docs/delivery-plan.md`; current processing invariants are in
+`docs/studio-processing-contract.md`.
 
 ## Worker operational boundary
 

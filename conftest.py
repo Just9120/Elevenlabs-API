@@ -7,6 +7,8 @@ PORTABLE_EXCLUDED_TEST_MODULES = frozenset(
     {
         "test_backup_studio_postgres_r2.py",
         "test_manage_studio_worker.py",
+        "test_migrate_studio_platform.py",
+        "test_studio_migration_release.py",
         "test_studio_api_core.py",
         "test_studio_platform_component_deploy.py",
         "test_studio_processing_e2e.py",

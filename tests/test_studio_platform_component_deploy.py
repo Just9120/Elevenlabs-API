@@ -407,6 +407,7 @@ def test_workflow_summarizes_component_decisions_and_safe_skips() -> None:
     assert "if: needs.detect-components.outputs.web == 'true'" in workflow
     assert (
         "if: always() && needs.detect-components.outputs.api == 'true' && "
+        "needs.detect-components.outputs.migration_release != 'true' && "
         "(needs.detect-components.outputs.web != 'true' || "
         "needs.deploy-web.result == 'success')"
     ) in workflow
@@ -426,15 +427,27 @@ def test_workflow_summarizes_component_decisions_and_safe_skips() -> None:
         assert "worker_dependency_changed=true" in case_body
     assert "automatic_cd_disabled" in detection
     assert "if: always()" in summary
-    for job in ("detect-components", "deploy-web", "deploy-api", "deploy-worker"):
+    for job in (
+        "detect-components",
+        "deploy-web",
+        "deploy-api",
+        "release-api-migration",
+        "deploy-worker",
+    ):
         assert f"- {job}" in summary
-    for job in ("deploy-web", "deploy-api", "deploy-worker"):
+    for job in (
+        "deploy-web",
+        "deploy-api",
+        "release-api-migration",
+        "deploy-worker",
+    ):
         assert f"needs.{job}.result" in summary
     assert '>> "$GITHUB_STEP_SUMMARY"' in summary
     assert (
-        "migration changes require the separate backup and migration procedure"
+        "guarded migration release lane is disabled"
         in summary
     )
+    assert "studio-production-migration environment" in summary
     assert "A worker runtime dependency changed" in summary
     assert "worker deployment remains manual-only" in summary
     assert "A green workflow does not mean every component was deployed." in summary
