@@ -52,12 +52,14 @@ def test_model_table_constraints_and_audit_separate(db):
     assert {c.name for c in m.DiagnosticEvent.__table__.columns} >= {"owner_user_id","project_id","job_id","level","component","event_code","metadata_json","dedup_fingerprint","expires_at"}
     assert "dedup_fingerprint" not in {c.name for c in m.AuditEvent.__table__.columns}
 
-def test_writer_sanitizes_retains_and_deduplicates(db):
+def test_writer_sanitizes_retains_and_deduplicates(db, monkeypatch):
+    import studio_api.diagnostics as diagnostics
     from studio_api import models as m
     from studio_api.diagnostics import write_diagnostic_event
     u,p,j=user_project_job(db)
     Session=sessionmaker(bind=db.bind, expire_on_commit=False)
     now=datetime(2026,7,16,12,0,0)
+    monkeypatch.setattr(diagnostics, "cleanup_expired_diagnostics", lambda *a, **k: None)
     assert write_diagnostic_event(owner_user_id=u.id, component="api", event_code="UNKNOWN", session_factory=Session).accepted is False
     assert write_diagnostic_event(owner_user_id=u.id, component="api", event_code="JOB_CREATED", project_id=p.id, job_id=j.id, metadata={"source_count": 1, "token": "secret"}, session_factory=Session).accepted is False
     assert write_diagnostic_event(owner_user_id=u.id, component="api", event_code="JOB_CREATED", project_id=p.id, job_id=j.id, metadata={"source_count": 1, "credential_selected": True}, session_factory=Session, now=now).persisted
@@ -170,10 +172,12 @@ def test_writer_scope_ownership_and_project_job_coherence(db):
     assert write_diagnostic_event(owner_user_id=u.id, component="api", event_code="JOB_CREATED", project_id=other_project.id, job_id=other_job.id, metadata=meta, session_factory=Session).accepted is False
     assert db.query(m.DiagnosticEvent).count() == 0
 
-def test_concurrent_dedup_increments_are_not_lost(tmp_path):
+def test_concurrent_dedup_increments_are_not_lost(tmp_path, monkeypatch):
     from studio_api.db import Base
+    import studio_api.diagnostics as diagnostics
     import studio_api.models as m
     from studio_api.diagnostics import write_diagnostic_event
+    monkeypatch.setattr(diagnostics, "cleanup_expired_diagnostics", lambda *a, **k: None)
     engine = create_engine(f"sqlite+pysqlite:///{tmp_path/'diag.db'}", connect_args={"check_same_thread": False, "timeout": 30})
     Base.metadata.create_all(engine)
     Session=sessionmaker(bind=engine, expire_on_commit=False)
@@ -326,11 +330,13 @@ def test_unhandled_middleware_keeps_diagnostic_writer_failure_non_recursive(monk
 def test_default_period_signed_cursor_can_be_used_without_repeating_period(db, monkeypatch):
     from fastapi.testclient import TestClient
     import studio_api.main as main
+    import studio_api.diagnostics as diagnostics
     from studio_api import models as m
     from studio_api.diagnostics import write_diagnostic_event
     u,p,j=user_project_job(db)
     other=m.User(email="cursor-other@example.com", role=m.UserRole.user, status=m.UserStatus.active); db.add(other); db.commit()
     Session=sessionmaker(bind=db.bind, expire_on_commit=False)
+    monkeypatch.setattr(diagnostics, "cleanup_expired_diagnostics", lambda *a, **k: None)
     for i in range(4):
         write_diagnostic_event(owner_user_id=u.id, component="api", event_code="JOB_CREATED", project_id=p.id, job_id=j.id, metadata={"source_count": i+1, "credential_selected": False}, session_factory=Session, now=datetime(2026,7,16,12,i,0))
     sess=m.Session(user_id=u.id, token_hash="hash", csrf_hash="csrf", expires_at=datetime(2027,1,1)); db.add(sess); db.commit()
@@ -341,30 +347,34 @@ def test_default_period_signed_cursor_can_be_used_without_repeating_period(db, m
     monkeypatch.setattr(main, "utcnow", lambda: datetime(2026,7,16,13,0,0))
     monkeypatch.setattr(main.limiter, "check", lambda *a, **k: None)
     monkeypatch.setattr(main, "cleanup_expired_diagnostics", lambda *a, **k: None)
-    client=TestClient(main.app)
-    first=client.get("/api/diagnostics/events?page_size=2")
-    assert first.status_code == 200 and len(first.json()["events"]) == 2 and first.json()["next_cursor"]
-    cursor=first.json()["next_cursor"]
-    second=client.get(f"/api/diagnostics/events?page_size=2&cursor={cursor}")
-    assert second.status_code == 200 and len(second.json()["events"]) == 2
-    assert {e["id"] for e in first.json()["events"]}.isdisjoint({e["id"] for e in second.json()["events"]})
-    explicit=client.get(f"/api/diagnostics/events?page_size=2&start={first.json()['period']['start']}&end={first.json()['period']['end']}&cursor={cursor}")
-    assert explicit.status_code == 200
-    assert client.get(f"/api/diagnostics/events?page_size=2&level=ERROR&cursor={cursor}").status_code == 422
-    assert client.get(f"/api/diagnostics/events?page_size=2&cursor={cursor}A").status_code == 422
-    other_sess=m.Session(user_id=other.id, token_hash="otherhash", csrf_hash="csrf", expires_at=datetime(2027,1,1)); db.add(other_sess); db.commit()
-    main.app.dependency_overrides[main.current_session]=lambda: (other_sess, other)
-    assert client.get(f"/api/diagnostics/events?page_size=2&cursor={cursor}").status_code == 422
-    main.app.dependency_overrides.clear()
+    try:
+        client=TestClient(main.app)
+        first=client.get("/api/diagnostics/events?page_size=2")
+        assert first.status_code == 200 and len(first.json()["events"]) == 2 and first.json()["next_cursor"]
+        cursor=first.json()["next_cursor"]
+        second=client.get(f"/api/diagnostics/events?page_size=2&cursor={cursor}")
+        assert second.status_code == 200 and len(second.json()["events"]) == 2
+        assert {e["id"] for e in first.json()["events"]}.isdisjoint({e["id"] for e in second.json()["events"]})
+        explicit=client.get(f"/api/diagnostics/events?page_size=2&start={first.json()['period']['start']}&end={first.json()['period']['end']}&cursor={cursor}")
+        assert explicit.status_code == 200
+        assert client.get(f"/api/diagnostics/events?page_size=2&level=ERROR&cursor={cursor}").status_code == 422
+        assert client.get(f"/api/diagnostics/events?page_size=2&cursor={cursor}A").status_code == 422
+        other_sess=m.Session(user_id=other.id, token_hash="otherhash", csrf_hash="csrf", expires_at=datetime(2027,1,1)); db.add(other_sess); db.commit()
+        main.app.dependency_overrides[main.current_session]=lambda: (other_sess, other)
+        assert client.get(f"/api/diagnostics/events?page_size=2&cursor={cursor}").status_code == 422
+    finally:
+        main.app.dependency_overrides.clear()
 
 def test_query_cursor_system_and_markdown_report(db, monkeypatch):
     from fastapi.testclient import TestClient
     import studio_api.main as main
+    import studio_api.diagnostics as diagnostics
     from studio_api import models as m
     from studio_api.diagnostics import write_diagnostic_event
     u,p,j=user_project_job(db)
     other=m.User(email="other@example.com", role=m.UserRole.user, status=m.UserStatus.active); db.add(other); db.commit()
     Session=sessionmaker(bind=db.bind, expire_on_commit=False)
+    monkeypatch.setattr(diagnostics, "cleanup_expired_diagnostics", lambda *a, **k: None)
     for i in range(3):
         write_diagnostic_event(owner_user_id=u.id, component="api", event_code="JOB_CREATED", project_id=p.id, job_id=j.id, metadata={"source_count": i+1, "credential_selected": False}, session_factory=Session, now=datetime(2026,7,16,12,i,0))
     write_diagnostic_event(owner_user_id=other.id, component="api", event_code="JOB_CREATED", metadata={"source_count": 1, "credential_selected": False}, session_factory=Session)
@@ -377,29 +387,32 @@ def test_query_cursor_system_and_markdown_report(db, monkeypatch):
     main.app.dependency_overrides[main.require_csrf]=override_csrf
     monkeypatch.setattr(main.limiter, "check", lambda *a, **k: None)
     monkeypatch.setattr(main, "cleanup_expired_diagnostics", lambda *a, **k: None)
-    client=TestClient(main.app)
-    db.expire_all()
-    r=client.get("/api/diagnostics/events?page_size=2&start=2026-07-16T00:00:00&end=2026-07-17T00:00:00")
-    assert r.status_code == 200 and len(r.json()["events"]) == 2 and r.json()["next_cursor"]
-    cursor = r.json()["next_cursor"]
-    second=client.get(f"/api/diagnostics/events?page_size=2&start=2026-07-16T00:00:00&end=2026-07-17T00:00:00&cursor={cursor}")
-    assert second.status_code == 200 and {e["id"] for e in second.json()["events"]}.isdisjoint({e["id"] for e in r.json()["events"]})
-    replacement = "A" if cursor[0] != "A" else "B"
-    tampered = replacement + cursor[1:]
-    assert tampered != cursor
-    assert client.get(f"/api/diagnostics/events?page_size=2&start=2026-07-16T00:00:00&end=2026-07-17T00:00:00&cursor={tampered}").status_code == 422
-    assert client.get(f"/api/diagnostics/events?page_size=2&start=2026-07-16T00:00:00&end=2026-07-17T00:00:00&level=ERROR&cursor={cursor}").status_code == 422
-    assert client.get("/api/diagnostics/events?cursor=" + ("a"*1201)).status_code == 422
-    assert "dedup_fingerprint" not in str(r.json()) and "expires_at" not in str(r.json()) and "other@example.com" not in str(r.json())
-    assert client.get("/api/diagnostics/events?start=2026-01-01T00:00:00&end=2026-01-10T00:00:00").status_code == 422
-    sysr=client.get("/api/diagnostics/system").json()
-    assert set(sysr["build"]) == {"web","api","worker"} and "sqlite" not in str(sysr) and "example.com" not in str(sysr)
-    report=client.post("/api/diagnostics/report.md", json={"start":"2026-07-16T00:00:00","end":"2026-07-17T00:00:00","project_id":p.id,"job_id":j.id}, headers={"Origin":"https://studio.test", "X-CSRF-Token":"x"})
-    assert report.status_code == 200
-    assert report.headers["content-type"].startswith("text/markdown") and "studio-diagnostics-report.md" in report.headers["content-disposition"]
-    text=report.text
-    assert "Chronological diagnostic timeline" in text and "Event counts by level" in text and "Secret Project" not in text and "<script" not in text and "http://" not in text and "https://" not in text
-    main.app.dependency_overrides.clear()
+    monkeypatch.setattr(main, "utcnow", lambda: datetime(2026,7,17,12,0,0))
+    try:
+        client=TestClient(main.app)
+        db.expire_all()
+        r=client.get("/api/diagnostics/events?page_size=2&start=2026-07-16T00:00:00&end=2026-07-17T00:00:00")
+        assert r.status_code == 200 and len(r.json()["events"]) == 2 and r.json()["next_cursor"]
+        cursor = r.json()["next_cursor"]
+        second=client.get(f"/api/diagnostics/events?page_size=2&start=2026-07-16T00:00:00&end=2026-07-17T00:00:00&cursor={cursor}")
+        assert second.status_code == 200 and {e["id"] for e in second.json()["events"]}.isdisjoint({e["id"] for e in r.json()["events"]})
+        replacement = "A" if cursor[0] != "A" else "B"
+        tampered = replacement + cursor[1:]
+        assert tampered != cursor
+        assert client.get(f"/api/diagnostics/events?page_size=2&start=2026-07-16T00:00:00&end=2026-07-17T00:00:00&cursor={tampered}").status_code == 422
+        assert client.get(f"/api/diagnostics/events?page_size=2&start=2026-07-16T00:00:00&end=2026-07-17T00:00:00&level=ERROR&cursor={cursor}").status_code == 422
+        assert client.get("/api/diagnostics/events?cursor=" + ("a"*1201)).status_code == 422
+        assert "dedup_fingerprint" not in str(r.json()) and "expires_at" not in str(r.json()) and "other@example.com" not in str(r.json())
+        assert client.get("/api/diagnostics/events?start=2026-01-01T00:00:00&end=2026-01-10T00:00:00").status_code == 422
+        sysr=client.get("/api/diagnostics/system").json()
+        assert set(sysr["build"]) == {"web","api","worker"} and "sqlite" not in str(sysr) and "example.com" not in str(sysr)
+        report=client.post("/api/diagnostics/report.md", json={"start":"2026-07-16T00:00:00","end":"2026-07-17T00:00:00","project_id":p.id,"job_id":j.id}, headers={"Origin":"https://studio.test", "X-CSRF-Token":"x"})
+        assert report.status_code == 200
+        assert report.headers["content-type"].startswith("text/markdown") and "studio-diagnostics-report.md" in report.headers["content-disposition"]
+        text=report.text
+        assert "Chronological diagnostic timeline" in text and "Event counts by level" in text and "Secret Project" not in text and "<script" not in text and "http://" not in text and "https://" not in text
+    finally:
+        main.app.dependency_overrides.clear()
 
 def test_report_requires_real_same_origin_and_csrf(db, monkeypatch):
     from fastapi.testclient import TestClient
