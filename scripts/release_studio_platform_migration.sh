@@ -157,7 +157,7 @@ PY
 [[ "$STUDIO_EXPECTED_COMMIT" =~ ^[0-9a-f]{40}$ ]] \
   || blocked "expected_commit_invalid"
 
-for tool in curl docker find id pg_restore restic runuser sed stat "$PYTHON_BIN"; do
+for tool in curl docker find id restic runuser sed stat "$PYTHON_BIN"; do
   command -v "$tool" >/dev/null || blocked "required_tool_missing"
 done
 id "$STUDIO_REPOSITORY_USER" >/dev/null 2>&1 \
@@ -294,6 +294,17 @@ require_healthy_service postgres
 require_healthy_service redis
 require_healthy_service studio-api
 require_worker_stopped
+
+postgres_container_id="$(compose ps -q postgres 2>/dev/null)" \
+  || blocked "postgres_container_probe_failed"
+[[ -n "$postgres_container_id" && "$postgres_container_id" != *$'\n'* ]] \
+  || blocked "postgres_container_count"
+postgres_image_id="$(
+  docker inspect --format '{{.Image}}' "$postgres_container_id" 2>/dev/null
+)" || blocked "postgres_image_probe_failed"
+[[ "$postgres_image_id" =~ ^sha256:[0-9a-f]{64}$ ]] \
+  || blocked "postgres_image_invalid"
+
 curl -fsS -o /dev/null --max-time 5 \
   http://127.0.0.1:8182/api/healthz </dev/null \
   || blocked "pre_migration_api_health_failed"
@@ -377,8 +388,20 @@ mapfile -d '' -t dump_files < <(
 )
 [[ "${#dump_files[@]}" -eq 1 && -s "${dump_files[0]}" ]] \
   || blocked "backup_dump_invalid"
-pg_restore --list "${dump_files[0]}" >/dev/null 2>&1 \
-  || blocked "backup_pg_restore_list_invalid"
+if ! docker run --rm \
+  --pull never \
+  --network none \
+  --read-only \
+  --cap-drop ALL \
+  --security-opt no-new-privileges \
+  --pids-limit 32 \
+  --tmpfs /var/lib/postgresql/data:rw,noexec,nosuid,nodev,size=65536 \
+  --mount "type=bind,src=${dump_files[0]},dst=/tmp/studio-postgres.dump,readonly" \
+  --entrypoint pg_restore \
+  "$postgres_image_id" \
+  --list /tmp/studio-postgres.dump </dev/null >/dev/null 2>&1; then
+  blocked "backup_pg_restore_list_invalid"
+fi
 
 phase="migration"
 if ! STUDIO_DEPLOY_DIR="$STUDIO_DEPLOY_DIR" \

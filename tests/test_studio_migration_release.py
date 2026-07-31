@@ -16,6 +16,7 @@ COMMIT = "a" * 40
 OLD_REVISION = "0016_transcript_catalog_entries"
 NEW_REVISION = "0017_google_maintenance_oauth"
 IMAGE_ID = "sha256:" + ("b" * 64)
+POSTGRES_IMAGE_ID = "sha256:" + ("e" * 64)
 OLD_SNAPSHOT = "c" * 64
 NEW_SNAPSHOT = "d" * 64
 
@@ -37,6 +38,7 @@ def run_release(
     tmp_path: Path,
     *,
     release_safety: str = "additive",
+    pg_restore_ok: bool = True,
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     checkout = tmp_path / "checkout"
     fake_bin = tmp_path / "bin"
@@ -232,17 +234,36 @@ if [[ "$1" == "compose" ]]; then
 elif [[ "$1 $2" == "image inspect" ]]; then
   echo {IMAGE_ID!r}
 elif [[ "$1" == "run" ]]; then
-  printf '%s\\t%s\\t%s\\n' {NEW_REVISION!r} {OLD_REVISION!r} {release_safety!r}
+  if [[ "$*" == *"--entrypoint python"* ]]; then
+    printf '%s\\t%s\\t%s\\n' {NEW_REVISION!r} {OLD_REVISION!r} {release_safety!r}
+  elif [[ "$*" == *"--entrypoint pg_restore"* ]]; then
+    [[ "$*" == *"--pull never"* ]]
+    [[ "$*" == *"--network none"* ]]
+    [[ "$*" == *"--read-only"* ]]
+    [[ "$*" == *"--cap-drop ALL"* ]]
+    [[ "$*" == *"--security-opt no-new-privileges"* ]]
+    [[ "$*" == *"--pids-limit 32"* ]]
+    [[ "$*" == *"--tmpfs /var/lib/postgresql/data:"* ]]
+    [[ "$*" == *"dst=/tmp/studio-postgres.dump,readonly"* ]]
+    [[ "$*" == *"--list /tmp/studio-postgres.dump"* ]]
+    [[ {str(pg_restore_ok).lower()} == true ]]
+  else
+    exit 49
+  fi
 elif [[ "$1" == "inspect" ]]; then
   if [[ "$*" == *".State.Health"* ]]; then
     echo healthy
   elif [[ "$*" == *".Image"* ]]; then
-    echo {IMAGE_ID!r}
+    if [[ "${{@: -1}}" == "postgres-container" ]]; then
+      echo {POSTGRES_IMAGE_ID!r}
+    else
+      echo {IMAGE_ID!r}
+    fi
   else
     exit 48
   fi
 else
-  exit 49
+  exit 50
 fi
 """,
     )
@@ -267,7 +288,6 @@ else
 fi
 """,
     )
-    _write_exe(fake_bin / "pg_restore", "#!/usr/bin/env bash\nexit 0\n")
     _write_exe(
         fake_bin / "curl",
         f"#!/usr/bin/env bash\nprintf 'curl %s\\n' \"$*\" >> {str(calls)!r}\n",
@@ -326,7 +346,20 @@ def test_release_orders_candidate_backup_verification_migration_and_api() -> Non
     assert " snapshots " in f" {calls[restic_indices[0]]} "
     assert " snapshots " in f" {calls[restic_indices[1]]} "
     assert " restore " in f" {calls[restic_indices[2]]} "
-    assert restic_indices[2] < _index(calls, "migrate snapshot=")
+    pg_restore_index = _index(calls, "--entrypoint pg_restore")
+    assert restic_indices[2] < pg_restore_index
+    assert pg_restore_index < _index(calls, "migrate snapshot=")
+    pg_restore_call = calls[pg_restore_index]
+    assert POSTGRES_IMAGE_ID in pg_restore_call
+    assert "--pull never" in pg_restore_call
+    assert "--network none" in pg_restore_call
+    assert "--read-only" in pg_restore_call
+    assert "--cap-drop ALL" in pg_restore_call
+    assert "--security-opt no-new-privileges" in pg_restore_call
+    assert "--pids-limit 32" in pg_restore_call
+    assert "--tmpfs /var/lib/postgresql/data:" in pg_restore_call
+    assert "dst=/tmp/studio-postgres.dump,readonly" in pg_restore_call
+    assert "--list /tmp/studio-postgres.dump" in pg_restore_call
     assert _index(calls, "migrate snapshot=") < _index(
         calls, "up -d --no-deps --force-recreate studio-api"
     )
@@ -345,6 +378,18 @@ def test_non_additive_candidate_blocks_before_backup_or_migration(tmp_path: Path
     assert proc.returncode == 2
     assert "reason=candidate_migration_not_additive" in proc.stderr
     assert not any(call == "backup" for call in calls)
+    assert not any(call.startswith("migrate ") for call in calls)
+    assert not any("force-recreate studio-api" in call for call in calls)
+
+
+def test_failed_isolated_pg_restore_check_blocks_before_migration(
+    tmp_path: Path,
+) -> None:
+    proc, calls = run_release(tmp_path, pg_restore_ok=False)
+
+    assert proc.returncode == 2
+    assert "reason=backup_pg_restore_list_invalid" in proc.stderr
+    assert any("--entrypoint pg_restore" in call for call in calls)
     assert not any(call.startswith("migrate ") for call in calls)
     assert not any("force-recreate studio-api" in call for call in calls)
 
@@ -371,7 +416,14 @@ def test_release_has_no_automatic_retry_downgrade_or_database_restore() -> None:
     assert "docker compose down" not in release
     assert "postgresql://" not in release
     assert release.count('bash "$MIGRATION_SCRIPT"') == 1
-    assert "pg_restore --list" in release
+    assert "command -v pg_restore" not in release
+    assert "--entrypoint pg_restore" in release
+    assert '"$postgres_image_id"' in release
+    assert "--pull never" in release
+    assert "--network none" in release
+    assert "--read-only" in release
+    assert "--tmpfs /var/lib/postgresql/data:" in release
+    assert "--list /tmp/studio-postgres.dump" in release
     assert "pg_restore --clean" not in release
     assert "pg_restore --create" not in release
 

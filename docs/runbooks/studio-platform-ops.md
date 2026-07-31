@@ -109,7 +109,10 @@ Migration rollout order is strict:
    backup boundary.
 4. Identify that new snapshot relative to the pre-run inventory, restore it only
    into an isolated temporary verification directory, and require one non-empty
-   custom dump with a valid `pg_restore --list`.
+   custom dump with a valid `pg_restore --list`. Run that parser in a
+   network-disabled, read-only helper container from the immutable image ID of
+   the already healthy PostgreSQL service; do not require a separately managed
+   host PostgreSQL client.
 5. Run the migration once only after explicit operator or protected-environment
    approval.
 6. Verify production database revision equals repository Alembic head
@@ -139,7 +142,11 @@ backup/OAuth secret files, healthy PostgreSQL/Redis/API, and a stopped worker.
 It builds the API candidate, verifies the one direct additive migration,
 creates and restores a new tagged snapshot for dump validation, migrates once,
 recreates only API from the captured image ID, and emits success only after
-local/public health.
+local/public health. Dump parsing uses the exact running PostgreSQL image ID in
+an ephemeral container with no network, a read-only root filesystem, dropped
+capabilities, no image pull, and only the restored dump mounted read-only. An
+ephemeral tmpfs covers the image-declared PostgreSQL data path so the validation
+does not create or attach a persistent Docker volume.
 
 One-time setup must be completed in this order:
 
