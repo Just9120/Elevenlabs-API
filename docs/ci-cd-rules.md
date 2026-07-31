@@ -216,7 +216,9 @@ present:
 - a new tagged pre-migration snapshot is created, identified relative to the
   pre-run inventory, restored only into an isolated temporary verification
   directory, and accepted only after one non-empty custom dump passes
-  `pg_restore --list`;
+  `pg_restore --list` in a network-disabled, read-only helper container bound
+  to the immutable image identity of the healthy production PostgreSQL
+  service, without an image pull or persistent Docker volume;
 - the migration executes once, revision equality is rechecked, only the API is
   recreated from the captured image, and localhost plus public health pass
   before a success marker is emitted.
