@@ -56,6 +56,12 @@ describe("JobProgressPipeline", () => {
     expect(steps[3]).toHaveTextContent("Транскрибация ElevenLabs");
     expect(steps[3]).toHaveTextContent("Выполняется");
     expect(steps[5]).toHaveTextContent("Создание Google Docs");
+    expect(
+      within(pipeline).getByRole("progressbar", {
+        name: "Подтверждённый прогресс",
+      }),
+    ).toHaveAttribute("value", "50");
+    expect(within(pipeline).getAllByText("50%", { exact: true })).toHaveLength(2);
   });
 
   it("keeps the last confirmed state visible after a refresh failure", () => {

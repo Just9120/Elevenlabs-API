@@ -172,7 +172,7 @@ describe("JobCard", () => {
     });
 
     expect(screen.getByRole("status")).toHaveTextContent(
-      "Задача завершена — результат доступен ниже.",
+      "Задача завершена на 100% — результат доступен ниже.",
     );
     await userEvent.click(
       screen.getByRole("button", { name: "Убрать в историю" }),

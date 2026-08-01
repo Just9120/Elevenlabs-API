@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   JOB_PROGRESS_STAGE_KEYS,
+  confirmedProgressPercent,
   parseProjectJobProgressResponse,
+  terminalProgressState,
+  type JobProgressState,
 } from "./jobProgressModel";
 
 const valid = {
@@ -43,6 +46,23 @@ const valid = {
 describe("job progress response parser", () => {
   it("accepts the exact safe checkpoint contract", () => {
     expect(parseProjectJobProgressResponse(valid)).toEqual(valid);
+  });
+
+  it("computes only confirmed checkpoints and completes a pinned terminal job", () => {
+    const parsed = parseProjectJobProgressResponse(valid);
+    expect(parsed).not.toBeNull();
+    const state: JobProgressState = {
+      loading: false,
+      error: "",
+      data: parsed!.jobs[0],
+    };
+
+    expect(confirmedProgressPercent(state.data!)).toBe(50);
+    const completed = terminalProgressState(state, "completed");
+    expect(completed?.data?.job_status).toBe("completed");
+    expect(completed?.data?.current_stage).toBeNull();
+    expect(completed?.data?.completed_source_count).toBe(1);
+    expect(confirmedProgressPercent(completed!.data!)).toBe(100);
   });
 
   it("fails closed on private extras and inconsistent authority", () => {

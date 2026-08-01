@@ -90,6 +90,7 @@ import {
 } from "./jobRecoveryModel";
 import {
   parseProjectJobProgressResponse,
+  terminalProgressState,
   type JobProgressState,
 } from "./jobProgressModel";
 import {
@@ -1385,7 +1386,6 @@ function PreparationPanel({
   const currentJobIds = currentJobs.map((job) => job.id).sort().join(",");
   useEffect(() => {
     if (!currentJobIds) {
-      setProgress({});
       return;
     }
     let stopped = false;
@@ -1463,7 +1463,9 @@ function PreparationPanel({
         progress={
           ["queued", "processing"].includes(job.status)
             ? progress[job.id]
-            : undefined
+            : pinnedTerminal
+              ? terminalProgressState(progress[job.id], job.status)
+              : undefined
         }
         onOpen={loadDetail}
         onCancel={cancelJob}

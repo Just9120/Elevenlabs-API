@@ -36,7 +36,7 @@ export type JobSourceProgress = {
 };
 export type JobProgress = {
   job_id: string;
-  job_status: Extract<JobСтатус, "queued" | "processing">;
+  job_status: JobСтатус;
   tracking_precision: "checkpoint";
   completed_source_count: number;
   total_source_count: number;
@@ -50,6 +50,78 @@ export type JobProgressState = {
   error: string;
   data: JobProgress | null;
 };
+
+const TERMINAL_JOB_STATUSES = new Set<JobСтатус>([
+  "completed",
+  "failed",
+  "cancelled",
+]);
+
+export function confirmedProgressPercent(progress: JobProgress) {
+  const applicableStages = progress.sources.flatMap((source) =>
+    source.stages.filter((stage) => stage.status !== "not_applicable"),
+  );
+  if (applicableStages.length === 0) {
+    return progress.job_status === "completed" ? 100 : 0;
+  }
+  const completedStages = applicableStages.filter(
+    (stage) => stage.status === "completed",
+  ).length;
+  return Math.floor((completedStages / applicableStages.length) * 100);
+}
+
+export function terminalProgressState(
+  state: JobProgressState | undefined,
+  jobStatus: JobСтатус,
+): JobProgressState | undefined {
+  if (!state?.data || !TERMINAL_JOB_STATUSES.has(jobStatus)) return state;
+  const terminalStageStatus =
+    jobStatus === "failed" ? "failed" : jobStatus === "cancelled" ? "cancelled" : null;
+  const sources = state.data.sources.map((source) => {
+    if (source.status === "skipped") return source;
+    if (jobStatus === "completed") {
+      return {
+        ...source,
+        status: "completed" as const,
+        stages: source.stages.map((stage) => ({
+          ...stage,
+          status:
+            stage.status === "not_applicable"
+              ? ("not_applicable" as const)
+              : ("completed" as const),
+        })),
+      };
+    }
+    return {
+      ...source,
+      status:
+        source.status === "processing"
+          ? (jobStatus as "failed" | "cancelled")
+          : source.status,
+      stages: source.stages.map((stage) => ({
+        ...stage,
+        status:
+          stage.status === "active" && terminalStageStatus
+            ? terminalStageStatus
+            : stage.status,
+      })),
+    };
+  });
+  return {
+    ...state,
+    loading: false,
+    data: {
+      ...state.data,
+      job_status: jobStatus,
+      completed_source_count:
+        jobStatus === "completed"
+          ? state.data.total_source_count
+          : state.data.completed_source_count,
+      current_stage: jobStatus === "completed" ? null : state.data.current_stage,
+      sources,
+    },
+  };
+}
 
 const STAGE_STATUSES = new Set<JobProgressStageStatus>([
   "pending",
