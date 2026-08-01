@@ -131,6 +131,9 @@ def test_catalog_metadata_apply_is_idempotent_on_postgresql():
     from studio_api.transcript_catalog_apply import (
         apply_catalog_migration_metadata,
     )
+    from studio_api.transcript_catalog_dry_run import (
+        load_catalog_import_authorities,
+    )
     from studio_api.transcript_catalog_migration import (
         CatalogDocumentStandardStatus,
         CatalogImportAuthorityStatus,
@@ -166,6 +169,13 @@ def test_catalog_metadata_apply_is_idempotent_on_postgresql():
         first_id = first_row.id
         first_imported_at = first_row.imported_at
 
+        with SessionLocal() as fresh_db:
+            authority = load_catalog_import_authorities(
+                fresh_db,
+                owner_user_id=owner.id,
+                document_ids=("catalog-apply-document",),
+            )["catalog-apply-document"]
+
         second = apply_catalog_migration_metadata(
             db,
             owner_user_id=owner.id,
@@ -177,6 +187,8 @@ def test_catalog_metadata_apply_is_idempotent_on_postgresql():
         ).scalar_one()
 
         assert first["items"][0]["outcome"] == "imported"
+        assert authority.import_status.value == "imported_exact"
+        assert authority.settings_status.value == "indeterminate"
         assert second["items"][0]["outcome"] == "already_applied"
         assert repeated.id == first_id
         assert repeated.imported_at == first_imported_at

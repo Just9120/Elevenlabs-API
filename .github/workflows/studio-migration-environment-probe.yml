@@ -1,0 +1,64 @@
+name: Studio Migration Environment Probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_commit:
+        description: 'Exact main commit to bind to this no-op probe (40-character SHA)'
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: studio-migration-environment-probe
+  cancel-in-progress: false
+
+jobs:
+  probe-required-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: studio-production-migration
+    steps:
+      - name: Validate no-op probe scope
+        shell: bash
+        env:
+          DISPATCH_REF: ${{ github.ref }}
+          EXPECTED_COMMIT: ${{ inputs.expected_commit }}
+          RUN_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$DISPATCH_REF" != "refs/heads/main" ]]; then
+            echo "Probe must be dispatched from main" >&2
+            exit 1
+          fi
+          if [[ ! "$EXPECTED_COMMIT" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "expected_commit must be exactly one 40-character hexadecimal SHA" >&2
+            exit 1
+          fi
+          if [[ ! "$RUN_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "GitHub run SHA is invalid" >&2
+            exit 1
+          fi
+          if [[ "${EXPECTED_COMMIT,,}" != "$RUN_SHA" ]]; then
+            echo "expected_commit does not match the dispatched main SHA" >&2
+            exit 1
+          fi
+          printf 'STUDIO_MIGRATION_ENVIRONMENT_PROBE_SCOPE_OK commit=%s\n' \
+            "${RUN_SHA:0:12}"
+
+      - name: Record no-op probe boundary
+        shell: bash
+        env:
+          RUN_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## Studio migration environment probe"
+            echo
+            printf -- '- Environment-bound job started for `%s`.\n' "$RUN_SHA"
+            echo "- No checkout, credential, SSH, API, database, or VPS action was requested."
+            echo "- Confirm separately in the run timeline that GitHub displayed Waiting and recorded reviewer approval."
+          } >> "$GITHUB_STEP_SUMMARY"
+          printf 'STUDIO_MIGRATION_ENVIRONMENT_PROBE_NOOP_OK commit=%s\n' \
+            "${RUN_SHA:0:12}"

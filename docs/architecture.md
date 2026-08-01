@@ -32,7 +32,7 @@ Studio PWA is a web platform contour in development. Source-level architecture i
 | Alembic migrations | `apps/studio-api/alembic/versions/` | Schema authority for Studio persistence. | Current repository head is `0017_google_maintenance_oauth`; ordinary component CD does not apply it. A separately enabled, protected release lane may apply exactly one reviewed direct additive successor. |
 | Redis | Studio deployment | Platform support service; not a processing queue/lock/retry authority unless separately designed. | Production health is operator evidence, not source evidence. |
 | Object storage | S3/R2-compatible source storage | Private temporary/local-upload source bytes. | Object keys/source bytes remain server-only; the upload initiator returns one bounded PUT-only browser capability. Pending uploads and verified-source retention use separate persisted expiry windows. |
-| Worker | `apps/studio-api/studio_api/worker.py` and related runner/orchestrator modules | Poll/claim/process at most bounded work according to lease and lifecycle rules. | Exactly one production worker is operator-evidenced healthy at image revision `900bf5b`; multi-worker behavior and a retained prior-image rollback candidate remain unproven. |
+| Worker | `apps/studio-api/studio_api/worker.py` and related runner/orchestrator modules | Poll/claim/process at most bounded work according to lease and lifecycle rules. | Worker deployment is manual-only. Current running/stopped identity and canary evidence belong in `docs/delivery-plan.md`; multi-worker behavior remains unproven. |
 | Provider path | ElevenLabs modules under `apps/studio-api/studio_api/` | Owner-scoped BYOK transcription execution. | One bounded ElevenLabs canary completed; dedicated option/video/long-media/multi-file canaries remain. OpenAI Studio processing is deferred. |
 | Google integration | Google OAuth/Drive/Docs modules under `apps/studio-api/studio_api/` | Narrow primary `drive.file` Picker capability, separately encrypted server-only maintenance grant, safe exact-document validation or Drive traversal, Google Docs reads/writes, and output creation. | Primary Picker/output evidence does not prove the separate maintenance grant or either maintenance target mode. |
 | Transcript maintenance | `transcript_catalog*.py`, `transcript_maintenance*.py`, migrations `0016`/`0017`, and frontend maintenance panel/model modules | Two owner-scoped operations with independent `folder_tree` or `single_document` targets: in-place standardization or PostgreSQL-only `Манифест Studio` import, with fresh server revalidation and explicit conflict outcomes. | Source and targeted-test state is tracked in `docs/delivery-plan.md`; migration/config/deployment/live dry-run/apply evidence remains separate. |
@@ -86,6 +86,16 @@ The current catalog authority defines one canonical settings tuple (`elevenlabs`
 
 Transcript maintenance is not part of job creation. Standardization and `Манифест Studio` each own a separate target mode, selected target, preview, confirmation, and result. For dry-run and again for apply, the API revalidates the exact selected native Google Doc or traverses the selected root and descendants under explicit page/item/folder bounds. Recursive traversal rejects cycles, malformed listings, duplicate identities, repeated page tokens, incomplete search, or exceeded limits. Standardization skips current documents and may rewrite only eligible non-current documents in place. `Манифест Studio` skips already-target entries and may persist only eligible current-document metadata. Per-document unsafe/inaccessible outcomes do not abort safe siblings in folder mode; connection-wide auth, rate-limit, availability, timeout, or global scan failures abort.
 
+Manifest membership authority is the owner-scoped reconciliation of two durable
+PostgreSQL evidence sources: historical `TranscriptionJobOutput` rows and
+`TranscriptCatalogEntry` rows written by manifest apply. A catalog row alone is
+sufficient to classify that document as already imported on every later
+dry-run, including a new database session. Historical output evidence may add
+exact effective settings; incompatible exact settings, malformed authority, or
+ambiguous evidence fails closed as a conflict. This maintenance-membership
+lookup is distinct from the source-linked accepted-output matching used by paid
+transcription preflight.
+
 Preflight exposes this authority as `partial` with reason `unlinked_catalog_entries_excluded`. It can block accidental repeated paid transcription against current accepted Studio output evidence and exact source-linked catalog evidence, and create repeats the decision under PostgreSQL source locks so a concurrent output-persistence transaction cannot pass unnoticed. The worker repeats the accepted-evidence comparison at the final provider boundary and treats an equivalent in-flight or unresolved provider attempt with a durable provider-start checkpoint as a conflict; only an attempt explicitly classified retry-safe is exempt. The same identity lock serializes that comparison with the current attempt's own provider-start commit, covering two jobs that were both queued before either had an accepted output and preventing a new job from bypassing an uncertain failed attempt. A losing job cannot be retried from its stale decision; the user must run a fresh preflight after the winning job's outcome is known. The deprecated multi-source create route uses the same catalog comparison but can only create when no accepted evidence exists; callers must use batch preflight/create for an explicit paid reprocess decision. The browser receives only the category, accepted-output count, and required/reprocess resolution. The explicit reprocess flag participates in the canonical request and idempotency hash; there is no implicit overwrite, provider retry, skip, or reuse.
 
 The authority remains partial by design: the separately initiated maintenance operations can standardize and import approved legacy evidence, but a document without explicit source identity cannot participate in duplicate matching and indeterminate settings require an explicit reprocess decision. The authority does not infer linkage from a document name, detect a separately uploaded copy of the same local file, treat queued/processing jobs as accepted outputs, or turn a bounded maintenance operation into continuous Drive synchronization. Reuse/skip needs an explicit accepted-output linkage design and is not inferred from a match.
@@ -121,12 +131,16 @@ maintenance OAuth runtime configuration, worker-running, bounded core processing
 evidence, and transcript-maintenance rollout are separate states. Ordinary
 component CD must not silently run migrations, start workers, populate secrets,
 or claim maintenance/processing readiness. The protected migration lane is a
-separate stateful release path: GitHub environment approval selects only an
-exact-SHA forced command, while the VPS runner owns candidate-image identity,
-new tagged backup and isolated dump verification, exactly one additive
-migration, API-only recreation, and health checks. It never owns worker,
-provider, Google, nginx, restore, downgrade, retry, or rollback actions. Current
-factual revisions, run IDs, component outcomes, and blockers belong in
+separate stateful release path: an environment-bound job can expose the
+exact-SHA forced-command release only after the externally configured
+protection rules allow it to proceed, while the VPS runner owns candidate-image
+identity, new tagged backup and isolated dump verification, exactly one
+additive migration, API-only recreation, and health checks. Workflow binding or
+success alone does not prove a reviewer pause; the separate no-op environment
+probe validates that external control without checkout, secrets, or VPS access.
+The release lane never owns worker, provider, Google, nginx, restore, downgrade,
+retry, or rollback actions. Current factual revisions, run IDs, component
+outcomes, and blockers belong in
 `docs/delivery-plan.md`; current processing invariants are in
 `docs/studio-processing-contract.md`.
 

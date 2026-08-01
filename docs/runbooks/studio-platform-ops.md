@@ -129,8 +129,10 @@ manual commands remain a fallback for a diagnosed operator task.
 `.github/workflows/studio-platform-cd.yml` detects Alembic changes but keeps the
 lane disabled unless repository variable
 `STUDIO_MIGRATION_RELEASE_ENABLED=true`. A selected release job enters GitHub
-environment `studio-production-migration`, waits for its required reviewer, and
-only then receives its dedicated environment secrets. It sends exactly
+environment `studio-production-migration`. When that environment is correctly
+protected, GitHub pauses the job for its required reviewer before environment
+secrets or VPS steps become available. Environment binding or a green job alone
+is not evidence that the pause and approval occurred. The job sends exactly
 `release <main-sha>` to a dedicated root SSH key whose forced command is
 `/usr/local/sbin/studio-migration-release-wrapper`.
 
@@ -198,10 +200,22 @@ One-time setup must be completed in this order:
    files with mode `0400` or `0600`. Runtime `.env` must contain complete,
    distinct primary/maintenance OAuth configuration without multiline or
    placeholder assignments.
-7. Set `STUDIO_MIGRATION_RELEASE_ENABLED=true` last. For the first rollout,
-   dispatch `component=migration` from `main`, then approve the waiting
-   environment deployment in the GitHub UI. Later merged migration changes may
-   select the same approval gate automatically.
+7. Keep `STUDIO_MIGRATION_RELEASE_ENABLED=false` and dispatch the separate
+   `Studio Migration Environment Probe` workflow from `main`, supplying the
+   exact current 40-character `main` SHA. This environment-bound probe has no
+   checkout, token permissions, secrets, SSH, database, API, or VPS action.
+   Verify that GitHub first shows the job as `Waiting`, approve it as the
+   configured required reviewer, and then verify the deployment review history
+   records that approval. If the job starts immediately or no review is
+   recorded, stop and repair environment protection; a green probe alone is not
+   approval evidence.
+8. Set `STUDIO_MIGRATION_RELEASE_ENABLED=true` only when one reviewed migration
+   is actually pending and every release prerequisite is current. For the first
+   intended rollout, dispatch `component=migration` from `main`, then approve
+   the waiting environment deployment in the GitHub UI. Later merged migration
+   changes may select the same approval gate automatically. If production is
+   already at repository Alembic head, leave the variable `false` and do not
+   dispatch the migration release merely to test the gate.
 
 The lane never starts or deploys the worker, calls providers or Google, reloads
 nginx, restores into PostgreSQL, downgrades, retries, or rolls back. A manual
@@ -304,7 +318,12 @@ Google Docs standardization and **Манифест Studio** are two separately i
 
 1. Apply once from the reviewed PWA panel. Do not send the endpoint manually or start parallel apply requests.
 2. A per-document inaccessible, unreadable, empty, unsafe, unsupported, or conflicting candidate is reported as blocked without aborting safe siblings. A global authorization, rate-limit, availability, timeout, malformed-scan, or traversal-limit failure aborts the operation. On a global or incomplete result, stop and do not retry blindly.
-3. Review aggregate apply outcomes, then run a new dry-run for the same mode, target, and operation. Successfully standardized documents should now be current; successfully imported catalog entries should now be unchanged/already present.
+3. Review aggregate apply outcomes, then run a new dry-run for the same mode,
+   target, and operation. Successfully standardized documents should now be
+   current; successfully imported catalog entries should now be
+   unchanged/already present. If a successfully imported entry is offered for
+   import again, do not apply again: record only safe aggregate evidence and
+   stop for source/deployed-image/catalog-authority reconciliation.
 4. For standardization only, manually inspect approved canary copies or Google version history to confirm content preservation and the intended `transcript_doc_v1.2` structure. Do not copy transcript text into evidence. **Манифест Studio** must leave Google Docs unchanged.
 5. Confirm that neither operation created a transcription job, provider attempt, output document, or worker activity. Record only safe aggregate or normalized audit evidence.
 

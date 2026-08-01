@@ -385,6 +385,14 @@ describe("TranscriptCatalogMigrationPanel", () => {
         name: "Манифест Studio обновлён",
       }),
     ).toBeInTheDocument();
+    expect(catalog).toHaveTextContent(
+      "Результат сохранён в каталоге Studio",
+    );
+    expect(
+      within(catalog).queryByRole("button", {
+        name: /Добавить в манифест Studio/,
+      }),
+    ).not.toBeInTheDocument();
     expect(window.confirm).toHaveBeenCalledTimes(2);
 
     const standardDryRequest = fetchMock.mock.calls.find(([url]) =>
@@ -556,6 +564,14 @@ describe("TranscriptCatalogMigrationPanel", () => {
         name: "Манифест Studio обновлён",
       }),
     ).toBeInTheDocument();
+    expect(catalog).toHaveTextContent(
+      "Новый dry-run должен показать сохранённые документы как уже учтённые",
+    );
+    expect(
+      within(catalog).queryByRole("button", {
+        name: /Добавить в манифест Studio/,
+      }),
+    ).not.toBeInTheDocument();
 
     const standardDryRequest = fetchMock.mock.calls.find(([url]) =>
       String(url).endsWith(

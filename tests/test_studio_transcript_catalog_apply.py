@@ -45,7 +45,13 @@ def catalog_db(monkeypatch, tmp_path):
         str(master_key_file),
     )
 
-    from studio_api.models import TranscriptCatalogEntry, User
+    from studio_api.models import (
+        ProviderCredential,
+        TranscriptCatalogEntry,
+        TranscriptionJob,
+        TranscriptionJobOutput,
+        User,
+    )
 
     engine = create_engine("sqlite+pysqlite:///:memory:")
 
@@ -54,6 +60,9 @@ def catalog_db(monkeypatch, tmp_path):
         dbapi_connection.execute("PRAGMA foreign_keys=ON")
 
     User.__table__.create(engine)
+    ProviderCredential.__table__.create(engine)
+    TranscriptionJob.__table__.create(engine)
+    TranscriptionJobOutput.__table__.create(engine)
     TranscriptCatalogEntry.__table__.create(engine)
     with Session(engine) as db:
         db.add_all(
@@ -141,6 +150,98 @@ def test_catalog_metadata_apply_is_idempotent_and_browser_safe(catalog_db):
     encoded = json.dumps((first, second), ensure_ascii=False)
     assert "private-document" not in encoded
     assert "owner-a" not in encoded
+
+
+def test_catalog_import_dry_run_is_unchanged_after_committed_apply(
+    catalog_db,
+):
+    from studio_api.models import TranscriptCatalogEntry
+    from studio_api.transcript_catalog_apply import (
+        apply_transcript_catalog_import_metadata,
+    )
+    from studio_api.transcript_catalog_scan import (
+        CatalogGoogleDocumentMetadata,
+    )
+    from studio_api.transcript_maintenance_dry_run import (
+        TranscriptMaintenanceSelectionMode,
+        build_transcript_catalog_import_dry_run,
+        inspect_transcript_catalog_import_selection,
+    )
+
+    document_id = "private-lifecycle-document"
+    current_text = (
+        "Current\n\nTranscript metadata\n"
+        "Provider: ElevenLabs\n"
+        "Model: scribe_v2\n"
+        "Language: ru\n"
+        "Speakers: yes\n"
+        "Created at: 2026-07-01 10:00 UTC\n\n"
+        "Transcript\n\nprivate-body"
+    )
+
+    class Reader:
+        def inspect_document(self, **kwargs):
+            assert kwargs["document_id"] == document_id
+            return CatalogGoogleDocumentMetadata(
+                document_id,
+                "Lifecycle document",
+                "2026-07-01T10:00:00Z",
+                "2026-07-02T10:00:00Z",
+            )
+
+        def read_document_text(self, **kwargs):
+            assert kwargs["document_id"] == document_id
+            return current_text
+
+    target = {
+        "owner_user_id": "owner-a",
+        "access_token": "private-access-token",
+        "selection_mode": TranscriptMaintenanceSelectionMode.single_document,
+        "document_id": document_id,
+        "reader": Reader(),
+    }
+    before = build_transcript_catalog_import_dry_run(
+        catalog_db,
+        **target,
+    )
+    inspection = inspect_transcript_catalog_import_selection(
+        catalog_db,
+        **target,
+    )
+
+    applied = apply_transcript_catalog_import_metadata(
+        catalog_db,
+        owner_user_id="owner-a",
+        candidates=inspection.candidates,
+    )
+    catalog_db.commit()
+
+    with Session(catalog_db.get_bind()) as fresh_db:
+        after = build_transcript_catalog_import_dry_run(
+            fresh_db,
+            **target,
+        )
+        persisted_rows = fresh_db.execute(
+            select(TranscriptCatalogEntry)
+        ).scalars().all()
+
+    assert before["items"][0]["action"] == "import_metadata"
+    assert applied["items"][0]["outcome"] == "imported"
+    assert after["items"][0] == {
+        "position": 0,
+        "name": "Lifecycle document",
+        "standard_status": "current",
+        "import_status": "imported_exact",
+        "settings_status": "indeterminate",
+        "action": "unchanged",
+        "reason_code": None,
+    }
+    assert after["summary"]["import_metadata_count"] == 0
+    assert after["summary"]["unchanged_count"] == 1
+    assert len(persisted_rows) == 1
+    encoded = json.dumps(after, ensure_ascii=False)
+    assert document_id not in encoded
+    assert "private-access-token" not in encoded
 
 
 def test_catalog_metadata_apply_leaves_transaction_control_to_caller(
