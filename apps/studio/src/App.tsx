@@ -92,6 +92,11 @@ import {
   parseProjectJobProgressResponse,
   type JobProgressState,
 } from "./jobProgressModel";
+import {
+  groupVisibleJobs,
+  jobStatusSnapshot,
+  newlyTerminalJobs,
+} from "./jobVisibilityModel";
 import { TranscriptionAnalyticsPanel } from "./TranscriptionAnalyticsPanel";
 import { TranscriptCatalogMigrationPanel } from "./TranscriptCatalogMigrationPanel";
 import "./styles.css";
@@ -453,6 +458,9 @@ function PreparationPanel({
   const [reconciliations, setReconciliations] = useState<Record<string, OutputReconciliationState>>({});
   const [retries, setRetries] = useState<Record<string, JobRetryState>>({});
   const [progress, setProgress] = useState<Record<string, JobProgressState>>({});
+  const [pinnedTerminalJobIds, setPinnedTerminalJobIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [removedSourceIds, setRemovedSourceIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -477,6 +485,9 @@ function PreparationPanel({
   const localUploadCsrfRef = useRef(csrf);
   const rowElementRefs = useRef(new Map<string, HTMLLIElement>());
   const reloadJobsRef = useRef(onReloadJobs);
+  const previousJobStatusesRef = useRef<ReturnType<
+    typeof jobStatusSnapshot
+  > | null>(null);
   useEffect(() => {
     localUploadCsrfRef.current = csrf;
   }, [csrf]);
@@ -494,6 +505,8 @@ function PreparationPanel({
     setPreflight(null);
     setMessage("");
     setProgress({});
+    setPinnedTerminalJobIds(new Set());
+    previousJobStatusesRef.current = null;
     setLanguageMode(DEFAULT_TRANSCRIPTION_LANGUAGE_MODE);
     setDiarizationEnabled(false);
     setRecentlyAddedRow(null);
@@ -1349,12 +1362,26 @@ function PreparationPanel({
     }
   }
   const displayJobs = mergeJobsWithBatchOrder(jobs.items ?? [], batchJobs);
-  const currentJobs = displayJobs.filter((job) =>
-    ["queued", "processing"].includes(job.status),
-  );
-  const recentJobs = displayJobs.filter((job) =>
-    ["completed", "failed", "cancelled"].includes(job.status),
-  );
+  const {
+    current: currentJobs,
+    pinnedTerminal: pinnedTerminalJobs,
+    recent: recentJobs,
+  } = groupVisibleJobs(displayJobs, pinnedTerminalJobIds);
+  useEffect(() => {
+    const transitioned = newlyTerminalJobs(
+      previousJobStatusesRef.current,
+      displayJobs,
+    );
+    previousJobStatusesRef.current = jobStatusSnapshot(displayJobs);
+    if (transitioned.length === 0) return;
+
+    setPinnedTerminalJobIds((current) => {
+      const next = new Set(current);
+      for (const job of transitioned) next.add(job.id);
+      return next;
+    });
+    for (const job of transitioned) void loadDetail(job.id);
+  }, [displayJobs]);
   const currentJobIds = currentJobs.map((job) => job.id).sort().join(",");
   useEffect(() => {
     if (!currentJobIds) {
@@ -1422,7 +1449,7 @@ function PreparationPanel({
       if (timer !== undefined) window.clearTimeout(timer);
     };
   }, [currentJobIds, project.id]);
-  function renderJobCard(job: TranscriptionJob) {
+  function renderJobCard(job: TranscriptionJob, pinnedTerminal = false) {
     const currentDetail = detail[job.id];
     const detailedJob = currentDetail?.job;
     return (
@@ -1442,6 +1469,14 @@ function PreparationPanel({
         onCancel={cancelJob}
         onCheckReconciliation={checkReconciliation}
         onRetry={retryJob}
+        pinnedTerminal={pinnedTerminal}
+        onDismissTerminal={(jobId) =>
+          setPinnedTerminalJobIds((current) => {
+            const next = new Set(current);
+            next.delete(jobId);
+            return next;
+          })
+        }
       />
     );
   }
@@ -2087,10 +2122,14 @@ function PreparationPanel({
         <h4>Текущие задачи</h4>
         {jobs.loading && <p role="status">Загрузка задач…</p>}
         {jobs.error && <p className="error">{jobs.error}</p>}
-        {jobs.loaded && !jobs.loading && currentJobs.length === 0 && (
+        {jobs.loaded &&
+          !jobs.loading &&
+          currentJobs.length === 0 &&
+          pinnedTerminalJobs.length === 0 && (
           <p className="notice">Текущих задач нет.</p>
         )}
         {currentJobs.map((job) => renderJobCard(job))}
+        {pinnedTerminalJobs.map((job) => renderJobCard(job, true))}
       </section>
       <details className="recent-jobs">
         <summary>Недавние задачи · {recentJobs.length}</summary>
