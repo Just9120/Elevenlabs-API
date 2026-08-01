@@ -296,6 +296,8 @@ class TranscriptionJobSourceAttempt(Base):
     failure_code: Mapped[str|None]=mapped_column(String(80))
     provider_request_started_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     provider_response_returned_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    provider_total_parts: Mapped[int|None]=mapped_column(Integer)
+    provider_completed_parts: Mapped[int]=mapped_column(Integer, default=0, server_default=text("0"))
     failed_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now)
@@ -303,6 +305,9 @@ class TranscriptionJobSourceAttempt(Base):
     __table_args__=(
         UniqueConstraint("job_source_id", "attempt_number", name="uq_source_attempt_job_source_attempt"),
         CheckConstraint("attempt_number >= 1", name="ck_source_attempt_attempt_number_positive"),
+        CheckConstraint("provider_total_parts IS NULL OR provider_total_parts > 0", name="ck_source_attempt_provider_total_parts_positive"),
+        CheckConstraint("provider_completed_parts >= 0", name="ck_source_attempt_provider_completed_parts_nonnegative"),
+        CheckConstraint("provider_total_parts IS NULL OR provider_completed_parts <= provider_total_parts", name="ck_source_attempt_provider_parts_bounded"),
         Index("ix_source_attempts_job_id", "job_id"),
         Index("ix_source_attempts_job_source_id", "job_source_id"),
         Index("ix_source_attempts_retry_disposition", "retry_disposition"),

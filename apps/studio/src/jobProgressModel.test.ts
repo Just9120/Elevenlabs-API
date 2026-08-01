@@ -22,6 +22,7 @@ const valid = {
           position: 0,
           name: "Interview.mp4",
           status: "processing",
+          provider_parts: { completed: 1, total: 4 },
           stages: JOB_PROGRESS_STAGE_KEYS.map((key) => ({
             key,
             status:
@@ -57,7 +58,7 @@ describe("job progress response parser", () => {
       data: parsed!.jobs[0],
     };
 
-    expect(confirmedProgressPercent(state.data!)).toBe(50);
+    expect(confirmedProgressPercent(state.data!)).toBe(54);
     const completed = terminalProgressState(state, "completed");
     expect(completed?.data?.job_status).toBe("completed");
     expect(completed?.data?.current_stage).toBeNull();
@@ -94,6 +95,21 @@ describe("job progress response parser", () => {
                       }
                     : stage,
                 ),
+              },
+            ],
+          },
+        ],
+      }),
+    ).toBeNull();
+    expect(
+      parseProjectJobProgressResponse({
+        jobs: [
+          {
+            ...valid.jobs[0],
+            sources: [
+              {
+                ...valid.jobs[0].sources[0],
+                provider_parts: { completed: 5, total: 4 },
               },
             ],
           },

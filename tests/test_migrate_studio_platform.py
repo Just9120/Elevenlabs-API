@@ -188,7 +188,7 @@ def test_current_head_must_declare_additive_release_safety() -> None:
         / "studio-api"
         / "alembic"
         / "versions"
-        / "0017_google_maintenance_oauth.py"
+        / "0018_job_part_progress.py"
     ).read_text(encoding="utf-8")
 
     assert 'release_safety = "additive"' in migration

@@ -122,16 +122,41 @@ def _transition(row, *, allowed_from, to_stage, disposition, now, idempotent=Tru
         raise RuntimeError("retry_state_invalid_transition")
     row.stage=to_stage; row.retry_disposition=disposition; row.updated_at=now; return row
 
-def mark_attempt_provider_started(db, *, job_id, job_source_id, lease_owner_id, lease_generation, now):
+def mark_attempt_provider_started(db, *, job_id, job_source_id, lease_owner_id, lease_generation, now, total_parts=None):
     _job,_rel,row=_current_attempt(db, job_id=job_id, job_source_id=job_source_id, lease_owner_id=lease_owner_id, lease_generation=lease_generation, now=now, require_processing_lease=True)
     _transition(row, allowed_from={Stage.prepared}, to_stage=Stage.provider_request_started, disposition=Disp.undetermined, now=now)
+    if total_parts is not None:
+        total_parts = int(total_parts)
+        if total_parts < 1:
+            raise RuntimeError("retry_state_provider_part_count_invalid")
+        if row.provider_total_parts not in {None, total_parts}:
+            raise RuntimeError("retry_state_provider_part_count_conflict")
+        row.provider_total_parts = total_parts
+        row.provider_completed_parts = int(row.provider_completed_parts or 0)
     row.provider_request_started_at = row.provider_request_started_at or now
+    db.flush(); return row
+
+def mark_attempt_provider_part_completed(db, *, job_id, job_source_id, lease_owner_id, lease_generation, completed_parts, now):
+    _job,_rel,row=_current_attempt(db, job_id=job_id, job_source_id=job_source_id, lease_owner_id=lease_owner_id, lease_generation=lease_generation, now=now, require_processing_lease=True)
+    if row.stage != Stage.provider_request_started or row.provider_total_parts is None:
+        raise RuntimeError("retry_state_provider_part_progress_unavailable")
+    completed_parts = int(completed_parts)
+    current = int(row.provider_completed_parts or 0)
+    total = int(row.provider_total_parts)
+    if completed_parts == current:
+        return row
+    if completed_parts != current + 1 or completed_parts > total:
+        raise RuntimeError("retry_state_provider_part_progress_invalid")
+    row.provider_completed_parts = completed_parts
+    row.updated_at = now
     db.flush(); return row
 
 def mark_attempt_provider_returned(db, *, job_id, job_source_id, lease_owner_id=None, lease_generation=None, now):
     _job,_rel,row=_current_attempt(db, job_id=job_id, job_source_id=job_source_id, lease_owner_id=lease_owner_id, lease_generation=lease_generation, now=now, require_processing_lease=lease_owner_id is not None, allow_cancel=True)
     _transition(row, allowed_from={Stage.provider_request_started}, to_stage=Stage.provider_response_returned, disposition=Disp.provider_result_lost, now=now)
     row.provider_response_returned_at = row.provider_response_returned_at or now
+    if row.provider_total_parts is not None:
+        row.provider_completed_parts = row.provider_total_parts
     db.flush(); return row
 
 def classify_source_attempt_failure(db, *, job_source_id, failure_code, now, job_id=None, lease_owner_id=None, lease_generation=None):

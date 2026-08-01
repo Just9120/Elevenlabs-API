@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PREFIX="[studio-processing-preflight]"
-EXPECTED_HEAD="0017_google_maintenance_oauth"
+EXPECTED_HEAD="0018_job_part_progress"
 COMPOSE_FILE="deploy/studio/compose.platform.yml"
 ENV_FILE="deploy/studio/.env"
 VERSIONS_DIR="apps/studio-api/alembic/versions"

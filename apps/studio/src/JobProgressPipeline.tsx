@@ -72,6 +72,12 @@ export function JobProgressPipeline({
           <b>
             {source.position + 1}. {source.name}
           </b>
+          {source.provider_parts && (
+            <span className="muted">
+              Части ElevenLabs: {source.provider_parts.completed} из{" "}
+              {source.provider_parts.total}
+            </span>
+          )}
           <ol className="job-progress-steps">
             {source.stages.map((stage) => (
               <li

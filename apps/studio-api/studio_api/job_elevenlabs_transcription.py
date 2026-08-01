@@ -38,7 +38,7 @@ from .media_preparation import (
 from .models import CredentialStatus, JobStatus, Project, ProviderCredential, ProviderCredentialVersion, Source, TranscriptionJob
 from .security import utcnow
 from .diagnostics import resolve_job_correlation_id, write_diagnostic_event
-from .job_retry_recovery import classify_source_attempt_failure, mark_attempt_provider_returned, mark_attempt_provider_started
+from .job_retry_recovery import classify_source_attempt_failure, mark_attempt_provider_part_completed, mark_attempt_provider_returned, mark_attempt_provider_started
 from .source_storage import safe_filename
 from .transcript_catalog import (
     ExistingResultMatchStatus,
@@ -176,7 +176,7 @@ def transcribe_processing_job_source_with_elevenlabs(
                     _emit_provider(db, job_id, "SOURCE_READY", {"attempt_number": _attempt(db, job_id)})
                     _emit_provider(db, job_id, "PROVIDER_REQUEST_STARTED", {"attempt_number": _attempt(db, job_id)})
                     try:
-                        mark_attempt_provider_started(db, job_id=job_id, job_source_id=job_source_id, lease_owner_id=lease_owner_id, lease_generation=lease_generation, now=clock())
+                        mark_attempt_provider_started(db, job_id=job_id, job_source_id=job_source_id, lease_owner_id=lease_owner_id, lease_generation=lease_generation, now=clock(), total_parts=len(prepared_batch.parts))
                         db.commit()
                     except Exception as exc:
                         db.rollback()
@@ -229,6 +229,31 @@ def transcribe_processing_job_source_with_elevenlabs(
                                 _best_effort_classify(db, job_id, job_source_id, lease_owner_id, lease_generation, mapped.value, clock)
                                 raise JobElevenLabsTranscriptionError(mapped) from exc
                             part_results.append(part_result)
+                            _post_provider_revalidate_or_fail(
+                                db,
+                                job_id,
+                                job_source_id,
+                                lease_owner_id,
+                                lease_generation,
+                                clock,
+                            )
+                            try:
+                                mark_attempt_provider_part_completed(
+                                    db,
+                                    job_id=job_id,
+                                    job_source_id=job_source_id,
+                                    lease_owner_id=lease_owner_id,
+                                    lease_generation=lease_generation,
+                                    completed_parts=len(part_results),
+                                    now=clock(),
+                                )
+                                db.commit()
+                            except Exception as exc:
+                                db.rollback()
+                                mapped = JobElevenLabsTranscriptionReason.partial_provider_result
+                                _emit_provider_failure(db, job_id, mapped)
+                                _best_effort_classify(db, job_id, job_source_id, lease_owner_id, lease_generation, mapped.value, clock)
+                                raise JobElevenLabsTranscriptionError(mapped) from exc
                         try:
                             mark_attempt_provider_returned(db, job_id=job_id, job_source_id=job_source_id, lease_owner_id=lease_owner_id, lease_generation=lease_generation, now=clock())
                             db.commit()

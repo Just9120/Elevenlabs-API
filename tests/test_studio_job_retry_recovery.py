@@ -59,11 +59,11 @@ def test_retry_recovery_model_metadata_contract(studio_model_modules):
     assert indexes["ix_source_attempts_job_retry_disposition"] == ("job_id", "retry_disposition")
 
 
-def test_alembic_single_head_is_transcript_catalog_entries():
+def test_alembic_single_head_is_job_part_progress():
     cfg = Config("apps/studio-api/alembic.ini")
     script = ScriptDirectory.from_config(cfg)
-    assert script.get_heads() == ["0017_google_maintenance_oauth"]
-    assert script.get_current_head() == "0017_google_maintenance_oauth"
+    assert script.get_heads() == ["0018_job_part_progress"]
+    assert script.get_current_head() == "0018_job_part_progress"
 
 from datetime import datetime, timedelta
 from sqlalchemy import create_engine
@@ -149,6 +149,67 @@ def test_prepare_current_attempt_sources_requires_exact_processing_context_and_a
         prepare_current_attempt_sources(sqlite_db, job_id=job.id, lease_owner_id="wrong", lease_generation=7, now=now)
     with pytest.raises(RuntimeError, match="retry_state_processing_context_invalid"):
         prepare_current_attempt_sources(sqlite_db, job_id=job.id, lease_owner_id="worker", lease_generation=8, now=now)
+
+
+def test_provider_part_progress_is_durable_monotonic_and_bounded(sqlite_db):
+    from studio_api.job_retry_recovery import (
+        mark_attempt_provider_part_completed,
+        mark_attempt_provider_returned,
+        mark_attempt_provider_started,
+    )
+
+    m, now, _user, _project, job, rels = _job_with_sources(
+        sqlite_db,
+        source_count=1,
+    )
+    _attempt(sqlite_db, m, job, rels[0])
+
+    row = mark_attempt_provider_started(
+        sqlite_db,
+        job_id=job.id,
+        job_source_id=rels[0].id,
+        lease_owner_id="worker",
+        lease_generation=7,
+        total_parts=2,
+        now=now,
+    )
+    sqlite_db.commit()
+    assert (row.provider_completed_parts, row.provider_total_parts) == (0, 2)
+
+    row = mark_attempt_provider_part_completed(
+        sqlite_db,
+        job_id=job.id,
+        job_source_id=rels[0].id,
+        lease_owner_id="worker",
+        lease_generation=7,
+        completed_parts=1,
+        now=now,
+    )
+    sqlite_db.commit()
+    assert row.provider_completed_parts == 1
+
+    with pytest.raises(RuntimeError, match="provider_part_progress_invalid"):
+        mark_attempt_provider_part_completed(
+            sqlite_db,
+            job_id=job.id,
+            job_source_id=rels[0].id,
+            lease_owner_id="worker",
+            lease_generation=7,
+            completed_parts=3,
+            now=now,
+        )
+    sqlite_db.rollback()
+
+    row = mark_attempt_provider_returned(
+        sqlite_db,
+        job_id=job.id,
+        job_source_id=rels[0].id,
+        lease_owner_id="worker",
+        lease_generation=7,
+        now=now,
+    )
+    sqlite_db.commit()
+    assert row.provider_completed_parts == row.provider_total_parts == 2
 
 
 def test_multisource_prepared_rows_allow_recovery_and_explicit_retry(sqlite_db):

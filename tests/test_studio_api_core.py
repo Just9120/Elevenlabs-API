@@ -1980,7 +1980,7 @@ def test_job_lease_migration_real_0005_shape_upgrades_to_head():
             assert {"lease_owner_id", "lease_generation", "claimed_at", "lease_expires_at", "attempt_count", "cancel_requested_at"}.issubset(cols)
             indexes = [idx["name"] for idx in inspector.get_indexes("transcription_jobs")]
             assert indexes.count("ix_transcription_jobs_status_lease_expires_created") == 1
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0017_google_maintenance_oauth"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0018_job_part_progress"
 
 
 
@@ -2015,7 +2015,7 @@ def test_job_output_migration_clean_chain_constraints_and_0007_roundtrip():
         run_alembic("head", env=env)
         with temp_engine.begin() as conn:
             assert "transcription_job_outputs" in inspect(conn).get_table_names()
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0017_google_maintenance_oauth"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0018_job_part_progress"
 
 
 
@@ -2681,7 +2681,13 @@ JOB_PROGRESS_TOP_KEYS = {
     "current_stage",
     "sources",
 }
-JOB_PROGRESS_SOURCE_KEYS = {"position", "name", "status", "stages"}
+JOB_PROGRESS_SOURCE_KEYS = {
+    "position",
+    "name",
+    "status",
+    "provider_parts",
+    "stages",
+}
 JOB_PROGRESS_STAGE_KEYS = {"key", "status", "applicability"}
 
 
@@ -4476,7 +4482,7 @@ def _assert_job_retry_recovery_schema(inspector, conn):
     assert "transcription_output_reconciliations" in inspector.get_table_names()
     cols = {c["name"]: c for c in inspector.get_columns("transcription_job_source_attempts")}
     assert set(TranscriptionJobSourceAttempt.__table__.c.keys()).issubset(cols)
-    assert {"id", "owner_user_id", "project_id", "job_id", "job_source_id", "attempt_number", "stage", "retry_disposition", "failure_code", "provider_request_started_at", "provider_response_returned_at", "failed_at", "completed_at", "created_at", "updated_at"}.issubset(cols)
+    assert {"id", "owner_user_id", "project_id", "job_id", "job_source_id", "attempt_number", "stage", "retry_disposition", "failure_code", "provider_request_started_at", "provider_response_returned_at", "provider_total_parts", "provider_completed_parts", "failed_at", "completed_at", "created_at", "updated_at"}.issubset(cols)
     uniques = {tuple(u["column_names"]) for u in inspector.get_unique_constraints("transcription_job_source_attempts")}
     assert ("job_source_id", "attempt_number") in uniques
     checks = {c["name"] for c in inspector.get_check_constraints("transcription_job_source_attempts")}
@@ -5092,7 +5098,7 @@ def test_job_destination_migration_0008_0009_upgrade_downgrade_backfill(tmp_path
         with temp_engine.begin() as conn:
             assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0009_job_output_destinations"
         cfg = Config(str(ALEMBIC))
-        assert ScriptDirectory.from_config(cfg).get_current_head() == "0017_google_maintenance_oauth"
+        assert ScriptDirectory.from_config(cfg).get_current_head() == "0018_job_part_progress"
     finally:
         temp_engine.dispose()
         cleanup_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")

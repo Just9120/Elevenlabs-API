@@ -32,6 +32,10 @@ export type JobSourceProgress = {
     | "failed"
     | "cancelled"
     | "skipped";
+  provider_parts: {
+    completed: number;
+    total: number;
+  } | null;
   stages: JobProgressStage[];
 };
 export type JobProgress = {
@@ -59,15 +63,31 @@ const TERMINAL_JOB_STATUSES = new Set<JobСтатус>([
 
 export function confirmedProgressPercent(progress: JobProgress) {
   const applicableStages = progress.sources.flatMap((source) =>
-    source.stages.filter((stage) => stage.status !== "not_applicable"),
+    source.stages
+      .filter((stage) => stage.status !== "not_applicable")
+      .map((stage) => ({ source, stage })),
   );
   if (applicableStages.length === 0) {
     return progress.job_status === "completed" ? 100 : 0;
   }
-  const completedStages = applicableStages.filter(
-    (stage) => stage.status === "completed",
-  ).length;
-  return Math.floor((completedStages / applicableStages.length) * 100);
+  const confirmedStageUnits = applicableStages.reduce(
+    (total, { source, stage }) => {
+      if (stage.status === "completed") return total + 1;
+      if (
+        stage.key === "provider_processing" &&
+        stage.status === "active" &&
+        source.provider_parts
+      ) {
+        return (
+          total +
+          source.provider_parts.completed / source.provider_parts.total
+        );
+      }
+      return total;
+    },
+    0,
+  );
+  return Math.floor((confirmedStageUnits / applicableStages.length) * 100);
 }
 
 export function terminalProgressState(
@@ -222,11 +242,18 @@ function parseJobProgress(value: unknown): JobProgress | null {
 function parseSourceProgress(value: unknown): JobSourceProgress | null {
   if (
     !isRecord(value) ||
-    !hasExactKeys(value, ["position", "name", "status", "stages"]) ||
+    !hasExactKeys(value, [
+      "position",
+      "name",
+      "status",
+      "provider_parts",
+      "stages",
+    ]) ||
     !isNonNegativeInteger(value.position) ||
     typeof value.name !== "string" ||
     value.name.length === 0 ||
     !SOURCE_STATUSES.has(value.status as JobSourceProgress["status"]) ||
+    !isProviderParts(value.provider_parts) ||
     !Array.isArray(value.stages) ||
     value.stages.length !== JOB_PROGRESS_STAGE_KEYS.length
   )
@@ -269,6 +296,20 @@ function isNonNegativeInteger(value: unknown): value is number {
 
 function isNullableNonNegativeInteger(value: unknown) {
   return value === null || isNonNegativeInteger(value);
+}
+
+function isProviderParts(
+  value: unknown,
+): value is JobSourceProgress["provider_parts"] {
+  if (value === null) return true;
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, ["completed", "total"]) &&
+    isNonNegativeInteger(value.completed) &&
+    isNonNegativeInteger(value.total) &&
+    value.total > 0 &&
+    value.completed <= value.total
+  );
 }
 
 function isNullableStageKey(value: unknown): value is JobProgressStageKey | null {

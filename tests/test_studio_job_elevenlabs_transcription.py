@@ -1012,6 +1012,14 @@ def test_prepared_parts_reach_provider_in_order_and_merge(db, models):
         "part-001.m4a",
         "part-002.m4a",
     ]
+    db.expire_all()
+    attempt = (
+        db.query(models.TranscriptionJobSourceAttempt)
+        .filter_by(job_source_id=rel.id)
+        .one()
+    )
+    assert attempt.provider_total_parts == 2
+    assert attempt.provider_completed_parts == 2
     assert all(stream.closed for stream in streams)
 
 
@@ -1071,6 +1079,8 @@ def test_second_part_failure_is_never_classified_retry_safe(db, models):
     db.expire_all()
     attempt = db.query(models.TranscriptionJobSourceAttempt).filter_by(job_source_id=rel.id).one()
     assert transport.calls == 2
+    assert attempt.provider_total_parts == 2
+    assert attempt.provider_completed_parts == 1
     assert attempt.failure_code == "partial_provider_result"
     assert attempt.retry_disposition == models.SourceAttemptRetryDisposition.provider_outcome_uncertain
 
