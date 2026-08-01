@@ -5,7 +5,7 @@
 - ✅ `PWA-TRANSCRIPT-MAINTENANCE-RECURSIVE-02 + TARGET-MODES-03 / source` — PR #196 merged as `d2cb556`; repository and Studio CI passed. Standardization and **Манифест Studio** have independent targets and support one bounded recursive folder tree or exactly one Google Doc through the separate maintenance OAuth boundary.
 - ✅ `PWA-GATED-MIGRATION-CD-01 / source and release` — PR #197 introduced the disabled protected lane; PR #198 merged the portable dump-validation fix as `45c2ce0`. Exact-main CI runs `30658692173` and `30658692170` passed. Manual exact-main CD run `30694223143` completed `release-api-migration`; web, ordinary API deploy, and worker jobs were skipped.
 - ✅ `PWA-MAINTENANCE-OAUTH-ROLLOUT-01` — operator evidence confirms a verified pre-migration snapshot, production revision `0017_google_maintenance_oauth`, exact API replacement/health, and a same-account maintenance connection. `studio-worker` remains intentionally stopped. `STUDIO_MIGRATION_RELEASE_ENABLED=false` was reverified through GitHub CLI on 2026-08-01.
-- 👉 `PWA-CATALOG-DURABLE-IDEMPOTENCE-04` — active on `codex/transcript-maintenance-hardening`. A production folder apply inserted one current document into **Манифест Studio**, but the next dry-run incorrectly offered it for import again. The loader read historical transcription outputs and ignored durable `transcript_catalog_entries`. The branch now reconciles both owner-scoped authorities fail-closed, adds portable and PostgreSQL lifecycle coverage, and clarifies the PWA post-apply boundary.
+- 👉 `PWA-CATALOG-DURABLE-IDEMPOTENCE-04` — active in draft PR #199. A production folder apply inserted one current document into **Манифест Studio**, but the next dry-run incorrectly offered it for import again. The loader read historical transcription outputs and ignored durable `transcript_catalog_entries`. The branch now reconciles both owner-scoped authorities fail-closed, adds portable and PostgreSQL lifecycle coverage, and clarifies the PWA post-apply boundary. Repository CI, Studio build/tests, and Chromium browser E2E are green for source revision `8bc6f2b`; merge, deployment, and the production post-apply dry-run remain absent.
 - 📋 `PWA-MIGRATION-ENVIRONMENT-PROBE-02` — next after merge. Dispatch the no-op environment probe from exact `main`, verify the job visibly enters `Waiting`, approve it, and verify the deployment review history. Do not enable or rerun the migration release: production is already at repository Alembic head.
 - 📋 `PWA-TRANSCRIPT-MAINTENANCE-CANARY-04` — after deploying this fix, repeat the same non-mutating manifest dry-run and require `unchanged/already present`. Then complete the missing bounded matrix: one actual nested-folder target and one single-document target for each operation. Every apply remains a separate explicit user decision.
 - 📋 `PWA-TRUSTED-PROXY-01 / production evidence` — the exact-peer source contract is merged; bounded production peer observation and separately reviewed runtime configuration remain absent.
@@ -30,7 +30,7 @@
 | Stable Colab batch | **100%** | Accepted current scope; no reopen without a product or maintenance decision. |
 | Selected Studio v1 source/CI on `main` | **98% (`39/40`)** | The previously complete source set lost one gate when production disproved durable manifest idempotence. The branch contains the fix, but unmerged source and local tests do not restore exact-main CI readiness. |
 | Transcript-maintenance source acceptance on `main` | **90% (`9/10`)** | OAuth separation, target modes, traversal, parsing, isolation, fresh apply validation, and independent UI state are merged; durable post-apply rediscovery is the open gate. |
-| Transcript-maintenance source acceptance on branch | **90% verified + 10% pending CI** | The tenth behavior is implemented and locally covered. It counts complete only after required CI passes on the PR head. |
+| Transcript-maintenance source acceptance on PR candidate | **100% (`10/10`)** | All ten source gates, including durable post-apply rediscovery, passed required CI on PR #199 source revision `8bc6f2b`. This is candidate source/CI evidence, not merged-main or production evidence. |
 | Transcript-maintenance rollout | **50% (`2/4`)** | Complete gates: `0017` plus runtime/OAuth, and exact API identity/health. Partial gates: operation/mode dry-run matrix and bounded apply/post-apply evidence. Partial gates do not count. |
 | Protected migration lane operational evidence | **80% (`4/5`)** | Source/CI, environment/VPS boundary, one exact release, and disabled post-release flag are evidenced. A visible waiting state plus recorded reviewer approval remains unproven. |
 | Bounded earlier processing canary | **100% of its exact scenario** | The earlier one-small-source ElevenLabs-to-Google-Docs canary remains valid only for that exact baseline/scenario and does not authorize the stopped worker now. |
@@ -49,6 +49,8 @@ The denominators are explicit acceptance gates, not subjective confidence. Local
 6. Required CI is green, web/API deployment identities match the merge SHA, and the same production target returns `unchanged/already present` on a fresh dry-run.
 
 Non-goals: no project-spec change, Alembic revision, worker start/deploy, migration rerun, provider/Google write, catalog cleanup, or production apply.
+
+Acceptance checks 1–5 and the PR-head CI portion of check 6 are green on PR #199. Check 6 remains open for merge-SHA deployment identity and the fresh production `unchanged/already present` result.
 
 ## Next item
 
@@ -70,8 +72,7 @@ Non-goals: no project-spec change, Alembic revision, worker start/deploy, migrat
 
 ## Current blockers
 
-- The current branch has no PR-head CI or deployment evidence yet.
-- PostgreSQL/Redis are not running in the local Windows workspace; the PostgreSQL regression compiles but must be executed by repository CI.
+- PR #199 is still draft and has no merge or deployment evidence. Its source revision CI is green; the final PR head must remain green before merge.
 - Production still runs the unfixed `main@45c2ce0`; do not repeat the manifest apply.
 - Required-reviewer configuration exists, but a visible waiting state and recorded approval have not been independently demonstrated.
 - No current rollout evidence covers actual descendant traversal, the single-document maintenance route, or standardization apply.
@@ -79,11 +80,12 @@ Non-goals: no project-spec change, Alembic revision, worker start/deploy, migrat
 
 ## Validation notes
 
-- Branch: `codex/transcript-maintenance-hardening`; before this dashboard reconciliation it was `0 behind / 7 ahead` of local `main` through commit `214e1ea`. This reconciliation is task/commit 8.
+- Branch: `codex/transcript-maintenance-hardening`; before this PR evidence update it was `0 behind / 10 ahead` of local `main` at `8bc6f2b`. This evidence-only update is task/commit 11.
 - Backend focused checks: catalog dry-run `9 passed`; catalog apply/lifecycle `10 passed`; combined catalog/maintenance set `31 passed` before the added lifecycle case; lightweight CI checks passed.
 - Frontend focused check: `TranscriptCatalogMigrationPanel.test.tsx` reports `6 passed`.
 - Workflow-focused checks: environment probe/release and deployment-summary contracts pass in the targeted sets.
-- PostgreSQL-only test currently fails at fixture setup locally because `127.0.0.1:5432` is unavailable; no application assertion ran. This is an explicit CI dependency, not a passing local result.
+- PostgreSQL/Redis are unavailable in the local Windows workspace, so the PostgreSQL-only assertion did not run locally. PR-head repository CI supplied both services and passed the full suite, including that regression.
+- PR #199 source-revision evidence for `8bc6f2b`: repository CI run `30701413008` passed `checks`; Studio PWA CI run `30701413006` passed `studio` and `browser-e2e`. The PR was mergeable and remained draft before this evidence-only dashboard update.
 - Exact-main live evidence refreshed through GitHub CLI: PR #198 merge `45c2ce0`; CI runs `30658692173` and `30658692170`; migration release run `30694223143`; release job succeeded while web/API/worker jobs were skipped.
 - Self-review: the branch changes only durable catalog authority, related PWA messaging/tests, a no-op environment probe, truthful CD reporting, and subordinate operator/delivery documentation. It changes no product scope, migration, secret, VPS runtime, worker state, or Google document.
 
