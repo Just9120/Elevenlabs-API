@@ -447,7 +447,12 @@ def test_workflow_summarizes_component_decisions_and_safe_skips() -> None:
         "guarded migration release lane is disabled"
         in summary
     )
+    assert "migration_decision=protected-release-selected" in summary
     assert "studio-production-migration environment" in summary
+    assert "Environment binding alone does not prove" in summary
+    assert "verify the deployment review history" in summary
+    assert "migration release required approval" not in summary
+    assert "migration_decision=approved-release" not in summary
     assert "A worker runtime dependency changed" in summary
     assert "worker deployment remains manual-only" in summary
     assert "A green workflow does not mean every component was deployed." in summary

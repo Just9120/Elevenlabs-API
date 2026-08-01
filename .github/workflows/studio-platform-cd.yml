@@ -429,7 +429,7 @@ jobs:
           worker_decision=skip
           [[ "$WEB_SELECTED" == "true" ]] && web_decision=deploy
           [[ "$API_SELECTED" == "true" ]] && api_decision=deploy
-          [[ "$MIGRATION_SELECTED" == "true" ]] && migration_decision=approved-release
+          [[ "$MIGRATION_SELECTED" == "true" ]] && migration_decision=protected-release-selected
           [[ "$WORKER_SELECTED" == "true" ]] && worker_decision=deploy
 
           WEB_REASON="${WEB_REASON:-detection_unavailable}"
@@ -452,7 +452,8 @@ jobs:
               echo "- API deployment was intentionally skipped because the guarded migration release lane is disabled."
             fi
             if [[ "$MIGRATION_REASON" == "source_changed_approval_required" || "$MIGRATION_REASON" == "manual_selection_approval_required" ]]; then
-              echo "- The migration release required approval in the protected studio-production-migration environment before any VPS action."
+              echo "- The selected migration job is bound to the protected studio-production-migration environment before any VPS action."
+              echo "- Environment binding alone does not prove a reviewer pause or approval; verify the deployment review history."
             fi
             if [[ "$WORKER_REASON" == "manual_only_dependency_changed" ]]; then
               echo "- A worker runtime dependency changed, but worker deployment remains manual-only."
