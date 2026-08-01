@@ -115,8 +115,8 @@ Migration rollout order is strict:
    host PostgreSQL client.
 5. Run the migration once only after explicit operator or protected-environment
    approval.
-6. Verify production database revision equals repository Alembic head
-   `0017_google_maintenance_oauth`.
+6. Verify production database revision equals the reviewed repository Alembic
+   head (`0018_job_part_progress` for the current progress candidate).
 7. Recreate only `studio-api` from the already captured candidate image, verify
    running image identity, then verify localhost and public API health.
 
@@ -243,8 +243,8 @@ the exact current and target revisions, and the captured API image ID:
 STUDIO_DEPLOY_DIR=/opt/elevenlabs-studio \
 STUDIO_PRE_MIGRATION_BACKUP_CONFIRMED=yes \
 STUDIO_PRE_MIGRATION_BACKUP_SNAPSHOT=__REQUIRED_64_HEX_SNAPSHOT_ID__ \
-STUDIO_EXPECTED_MIGRATION_FROM=0016_transcript_catalog_entries \
-STUDIO_EXPECTED_MIGRATION_TO=0017_google_maintenance_oauth \
+STUDIO_EXPECTED_MIGRATION_FROM=0017_google_maintenance_oauth \
+STUDIO_EXPECTED_MIGRATION_TO=0018_job_part_progress \
 STUDIO_EXPECTED_API_IMAGE_ID=sha256:__REQUIRED_64_HEX_IMAGE_ID__ \
   scripts/migrate_studio_platform.sh
 ```
@@ -300,7 +300,7 @@ Google Docs standardization and **Манифест Studio** are two separately i
 ### Preconditions
 
 - Use only merged `main` with green required CI and verified web/API commit and image identities.
-- Create and record a successful tagged pre-migration PostgreSQL backup before applying repository Alembic head `0017_google_maintenance_oauth`; use either the approved manual boundary or the separately protected migration lane, never ordinary component CD.
+- Production migration `0017_google_maintenance_oauth` is sufficient for the merged transcript-maintenance feature. Do not apply unrelated candidate `0018_job_part_progress` merely to run a maintenance canary. If the current progress candidate has already merged and is part of the intended release, create and verify a new tagged pre-migration backup and use the protected migration lane before deploying its API/worker consumers.
 - Verify public and localhost health, API migration readiness, and an authenticated owner-scoped session.
 - Verify the primary Picker connection remains limited to `openid email drive.file`, then complete the separate server-only maintenance consent with the same Google account and exact maintenance scope boundary.
 - Prepare a small approved recursive canary root containing copies or otherwise explicitly approved representative documents and one approved single-document canary. The server scans the entire selected root tree in folder mode and only the exact selected native Google Doc in document mode; stop if either boundary differs from the approved target.
@@ -359,14 +359,14 @@ Before any processing rollout or canary, verify without printing sensitive value
 - credential master key and encrypted BYOK records are usable;
 - exactly one intended active ElevenLabs BYOK credential exists for the smoke account;
 - writable Google output folder selection exists;
-- production database revision is known and compared to repository Alembic head `0017_google_maintenance_oauth`;
+- production database revision is known and compared to the exact reviewed repository Alembic head (`0018_job_part_progress` for the current progress candidate);
 - exactly one worker instance is intended for the canary.
 
 ## Controlled worker rollout sequence
 
 1. Keep `studio-worker` stopped until migration and runtime readiness are confirmed.
 2. Create/confirm the tagged pre-migration database backup if a migration or stateful rollout is involved.
-3. Verify production database revision equals repository head `0017_google_maintenance_oauth` where the deployment is expected to be current.
+3. Verify production database revision equals the exact reviewed repository head where the deployment is expected to be current (`0018_job_part_progress` for the current progress candidate).
 4. Deploy web/API only through the approved isolated component deployment model.
 5. Verify intended commit/image identity, running component identity, localhost health, public health, authenticated session behavior, and output endpoint availability without exposing another owner’s data.
 6. Start exactly one `studio-worker` from the intended image with no public HTTP port.
@@ -544,7 +544,7 @@ runs canaries, calls providers/Google, or performs automatic rollback.
 
 ## Output reconciliation operations boundary
 
-`PWA-OUTPUT-RECONCILIATION-01` uses schema introduced by `0012_output_reconciliation_cases` and is part of the operator-evidenced production baseline migrated through `0015_user_source_retention`. The later catalog and maintenance OAuth migrations `0016_transcript_catalog_entries` and `0017_google_maintenance_oauth` do not gate reconciliation behavior. Any future API/worker revision still requires schema compatibility and component identity checks; ordinary component CD must not run migrations.
+`PWA-OUTPUT-RECONCILIATION-01` uses schema introduced by `0012_output_reconciliation_cases` and is part of the operator-evidenced production baseline migrated through `0015_user_source_retention`. The later catalog, maintenance OAuth, and progress migrations `0016_transcript_catalog_entries`, `0017_google_maintenance_oauth`, and `0018_job_part_progress` do not gate reconciliation behavior. Any future API/worker revision still requires schema compatibility and component identity checks; ordinary component CD must not run migrations.
 
 When a job fails with `output_reconciliation_required`, the owner may use the Studio PWA action or API check endpoint to query Drive by the internal opaque appProperty token and the job output-folder snapshot. Operators must not ask users for raw Google document IDs, must not create duplicate Google Docs, must not delete possible duplicates, must not retry provider processing as reconciliation, and must not inspect transcript/document bodies as evidence. Zero matches remain unresolved for later explicit checks. Multiple matches are a conflict requiring manual investigation outside the automated path.
 
@@ -560,4 +560,4 @@ The bounded production canary produced one resolved reconciliation case and requ
 
 ## Source cleanup operations note
 
-Repository Alembic head is `0017_google_maintenance_oauth`. The older source-cleanup and retention schema through `0015_user_source_retention` has separate production evidence; the currently deployed production head must still be verified rather than inferred from repository source. Source cleanup is durable PostgreSQL state on `sources`; the allowlisted per-user retention preference is durable PostgreSQL state on `users`. Cleanup is processed as bounded worker idle maintenance after normal job claim/orchestration finds no job. Safe diagnostics use normalized source deletion/retention/cleanup events and must not log object keys, buckets, filenames, Drive file IDs, presigned URLs, raw storage errors, or secrets. The authenticated smoke proved that source removal queued background cleanup, but it did not inspect the later physical R2 deletion outcome.
+Current branch Alembic head is `0018_job_part_progress`; operator-verified production remains at `0017_google_maintenance_oauth` until a separately evidenced release. The older source-cleanup and retention schema through `0015_user_source_retention` has separate production evidence; the currently deployed production head must still be verified rather than inferred from repository source. Source cleanup is durable PostgreSQL state on `sources`; the allowlisted per-user retention preference is durable PostgreSQL state on `users`. Cleanup is processed as bounded worker idle maintenance after normal job claim/orchestration finds no job. Safe diagnostics use normalized source deletion/retention/cleanup events and must not log object keys, buckets, filenames, Drive file IDs, presigned URLs, raw storage errors, or secrets. The authenticated smoke proved that source removal queued background cleanup, but it did not inspect the later physical R2 deletion outcome.

@@ -37,7 +37,7 @@ Durable Colab invariants:
 - The Colab launcher executes repository code from `GITHUB_REF`; only trusted reviewed refs may be used, and a reviewed commit SHA is preferred for reproducible runs.
 - Long-media behavior and manifest behavior remain Colab baseline capabilities for parity analysis, not automatically proven Studio capabilities.
 
-Realtime Colab is a separate experimental validation path. Its current runbook is `docs/runbooks/realtime-colab.md`; it does not replace the stable batch Colab workflow.
+Realtime Colab is a separate experimental validation path. Its current runbook is `docs/runbooks/realtime-colab.md`; it does not replace the stable batch Colab workflow. Studio is expected to bring this capability into a separate tab on the existing PWA transcription page through workstream `PWA-REALTIME-TRANSCRIPTION-01`. That future tab must preserve batch behavior and must not inherit production-readiness claims from the experimental Colab prototype.
 
 
 ## Stable Colab product contract
@@ -150,7 +150,7 @@ Source currently present in the repository includes:
 
 These controlled E2E scenarios are repository validation, not production evidence. The API-to-worker scenario does not exercise a real browser, provider account, Google account, deployed worker, or public host. The authenticated browser scenario exercises real Chromium but still uses isolated services and controlled external boundaries. Neither scenario may be used to claim production provider/Google behavior or exactly-once output creation.
 
-The current repository candidate Alembic head is `0017_google_maintenance_oauth` under `apps/studio-api/alembic/versions/`; operator-verified production PostgreSQL remains at `0016_transcript_catalog_entries`. The earlier catalog migration was protected by a verified tagged backup, and the intended API image identity, migration equality, and health were verified after deployment. Migration `0017`, maintenance OAuth runtime configuration, and both maintenance target modes require their own rollout evidence.
+The current branch candidate Alembic head is `0018_job_part_progress` under `apps/studio-api/alembic/versions/`; operator-verified production PostgreSQL and merged `main` remain at `0017_google_maintenance_oauth`. The production `0017` rollout used a verified tagged backup and separately verified migration/API health. Candidate `0018`, its API/worker consumers, and the new progress UI require their own protected rollout evidence.
 
 ## Studio PWA selected transcription scope
 
@@ -166,6 +166,7 @@ Required Studio transcription capabilities:
 - Existing local multi-file intake and Google Picker multi-file intake must be validated end to end. Google Drive folder ingestion and recursive source traversal are not part of ordinary transcription intake; this does not exclude the separately bounded recursive existing-document maintenance workflow.
 - Before job creation, an explicit preflight must show safe source metadata, size and duration where available, selected language, speaker-separation mode, output destinations, existing-result matches, and the planned process/skip outcome. It must not expose source bytes, private storage identity, tokens, transcript bodies, or raw Google/provider payloads.
 - The PWA must show a user-facing staged progress pipeline, including applicable preparation, audio extraction, splitting, provider processing, part merge, and Google Docs output stages. Internal lease/claim authority remains server-only.
+- A newly terminal job must remain visible with its safe result until the user explicitly dismisses it into history. Displayed percentage must advance only from confirmed server checkpoints. For multi-part provider work, durable bounded completed/total part counters may contribute fractional progress inside the provider stage; elapsed time must never fabricate progress. Transcript content, raw provider payloads, private source/storage identity, failure detail, and lease authority remain forbidden in the progress DTO.
 - New Google Docs transcripts must follow `transcript_doc_v1.2`, including its structured metadata and readable paragraph normalization.
 - User-facing aggregate analytics may report safe counts, outcomes, selected provider/model/options, and stage durations. It must not contain transcript/document bodies, secrets, private source paths, raw external payloads, or private Google identifiers/URLs.
 
@@ -194,7 +195,7 @@ Selected-scope completion requires source and applicable browser/service-backed 
 
 ## Studio production status and remaining capabilities
 
-The bounded small-source Studio processing path is production-live with operator evidence: its original controlled canary ran against the `0015_user_source_retention` baseline with verified web/API identities, exactly one healthy worker from the commit-specific `900bf5b` image, and one operator-approved Drive source producing exactly one persisted `google_docs_transcript` and one non-empty native Google Doc without retry. Production PostgreSQL was subsequently protected by a verified tagged backup and migrated to `0016_transcript_catalog_entries`; intended API identity/health, the public Picker referrer prerequisite, and authenticated Picker loading were also verified. This proves only those controlled gates; it does not prove every selected capability, broader workload stability, exactly-once behavior under arbitrary failures, or the now-separate standardization and catalog-import outcomes.
+The bounded small-source Studio processing path is production-live with operator evidence: its original controlled canary ran against the `0015_user_source_retention` baseline with verified web/API identities, exactly one healthy worker from the commit-specific `900bf5b` image, and one operator-approved Drive source producing exactly one persisted `google_docs_transcript` and one non-empty native Google Doc without retry. Production PostgreSQL was subsequently protected by verified tagged backups and migrated through `0017_google_maintenance_oauth`; exact-main web/API and worker deployment/status evidence now exists for `main@bd8d513`, and the operator completed another real batch transcription successfully. That later run exposed terminal progress/result continuity as a usability defect. These facts prove only the controlled gates; they do not prove every selected capability, broader workload stability, exactly-once behavior under arbitrary failures, the candidate `0018` progress path, or every maintenance outcome.
 
 Production-evidenced baseline capabilities:
 
@@ -302,7 +303,7 @@ Catalog import is ready only when:
 Studio processing can be considered production-live only after all of the following have factual operator evidence:
 
 1. Repository source and CI are verified for the intended commit.
-2. Production database migration head matches the intended repository head where required. Production currently reports `0016_transcript_catalog_entries`, while the recursive-maintenance candidate requires `0017_google_maintenance_oauth`; the bounded original processing canary ran against the older `0015_user_source_retention` baseline.
+2. Production database migration head matches the intended repository head where required. Production currently reports `0017_google_maintenance_oauth`; the progress candidate requires the direct additive successor `0018_job_part_progress`, while the bounded original processing canary ran against the older `0015_user_source_retention` baseline.
 3. Web/API deployment identity and health are verified.
 4. Exactly one intended worker instance is deployed from the intended image and shown idle before the smoke.
 5. One controlled operator-approved job uses one small supported source, one owner-scoped ElevenLabs BYOK credential, one valid Google connection, and one writable output folder.
@@ -321,12 +322,14 @@ Current delivery sequencing is in `docs/delivery-plan.md`. The durable workstrea
 - `PWA-TRANSCRIPTION-OPTIONS-01` — typed Russian-default/auto-detect language selection and required ElevenLabs speaker separation are source-complete across PWA, API, worker, and Google Docs output; dedicated live canaries remain.
 - `PWA-MEDIA-PREPARATION-01` — server-side video audio extraction plus deterministic long-media size/duration split and merge are source-complete; dedicated live canaries remain.
 - `PWA-MULTI-SOURCE-VALIDATION-01` — local and Google Picker multi-file intake is source-complete with automated evidence; broader production processing validation remains, and folder/recursive ingestion is a non-goal.
-- `PWA-PREFLIGHT-PROGRESS-01` — safe preflight and staged progress are source-complete, with the provider-attempt authority deployed.
+- `PWA-PREFLIGHT-PROGRESS-01` — safe preflight and staged progress are source-complete, with the original provider-attempt authority deployed.
+- `PWA-JOB-PROGRESS-02` — active branch work keeps a newly terminal job/result visible until explicit dismissal and adds confirmed checkpoint plus durable prepared-part progress through `0018_job_part_progress`. Source validation may be complete on a branch without implying merge, migration, API/worker deployment, or production UI evidence.
 - `PWA-TRANSCRIPT-CATALOG-MIGRATION-01` — superseded by explicit product decision; the old combined standardize-and-import action is no longer the target contract and its compatibility routes fail closed.
-- `PWA-TRANSCRIPT-STANDARDIZATION-01` — independent `folder_tree` or `single_document` dry-run/apply for in-place `transcript_doc_v1.2` normalization, with no catalog persistence. The current candidate implements the source and targeted evidence; exact-head CI, migration `0017`, maintenance OAuth rollout, and production dry-run/apply remain.
-- `PWA-TRANSCRIPT-CATALOG-IMPORT-01` — independent `folder_tree` or `single_document` dry-run/apply for minimal source-linked catalog and duplicate-authority metadata, with no Google Doc mutation. The current candidate implements the source and targeted evidence; exact-head CI, migration `0017`, maintenance OAuth rollout, and production dry-run/apply remain.
+- `PWA-TRANSCRIPT-STANDARDIZATION-01` — independent `folder_tree` or `single_document` dry-run/apply for in-place `transcript_doc_v1.2` normalization, with no catalog persistence. Source, exact-main CI, migration `0017`, and maintenance OAuth rollout are present; the complete production target-mode dry-run/apply matrix remains.
+- `PWA-TRANSCRIPT-CATALOG-IMPORT-01` — independent `folder_tree` or `single_document` dry-run/apply for minimal source-linked catalog and duplicate-authority metadata, with no Google Doc mutation. Source, durable rediscovery, exact-main CI, migration `0017`, and maintenance OAuth rollout are present; the complete production target-mode dry-run/apply matrix remains.
 - `PWA-TRANSCRIPTION-ANALYTICS-01` — safe aggregate outcomes and stage-duration analytics are source-complete; broader production evidence remains.
 - `PWA-TRANSCRIPT-CATALOG-SYNC-01` — deferred design for a Google Drive-backed continuously refreshed PWA catalog and its system-of-record boundary; no continuous sync is implemented.
+- `PWA-REALTIME-TRANSCRIPTION-01` — planned separate tab on the existing Studio transcription page, derived from the experimental Colab realtime contour. The first accepted slice requires a server-issued single-use realtime capability, browser microphone capture, safe partial/committed presentation, deterministic Stop/permission handling, and no batch-job, Google Docs, catalog, analytics, or transcript-body persistence side effects.
 - OpenAI processing, keyterms, manual speaker rename, manual cutting/concatenation, and Drive folder/recursive intake remain deferred or excluded as defined above.
 
 Source-complete delivery items remain listed for traceability and still require applicable rollout evidence:

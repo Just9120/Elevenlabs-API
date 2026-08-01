@@ -38,6 +38,7 @@ This is the current Studio processing contract. It is not a delivery plan, PR hi
 - Every prepared ElevenLabs input is duration-probed server-side. It is split before the first provider request when it exceeds either 25 MiB or 1,320 seconds; parts target 20 MiB and at most 1,320 seconds, are mono AAC at 96 kbit/s, overlap by two seconds, are capped at 256 deterministic ordered parts, and may not exceed the deployment source-size limit in aggregate.
 - Part creation is shell-free, timeout-bounded, size-validated, and temporary. Merge assigns the overlap interval to the earlier part, removes an exact repeated word prefix when present, shifts retained word timestamps onto the source timeline, and fails closed if a multi-part response cannot provide the word timing needed for deterministic ownership.
 - Provider calls run in part order with lifecycle revalidation between calls. The provider timeout is 1,800 seconds per part and Google Docs upload timeout is 120 seconds. Once any part has returned successfully, a later provider failure is classified as an uncertain partial result and the whole source is not automatically retried.
+- The current attempt may persist only bounded integer provider-part progress: one prepared total greater than zero and a monotonically increasing completed count no greater than that total. The provider-start checkpoint and total commit before the first call; each successful part count commits only after post-call lifecycle/lease revalidation. A lost or invalid progress commit after provider work fails closed as a partial-provider-result boundary.
 
 ## Transaction and commit ownership
 
@@ -88,6 +89,7 @@ If cancellation, lease loss, owner/generation mismatch, project/source mutation,
 - Partial outputs may be returned for an owned job; job status remains the lifecycle authority.
 - Browser payloads may include only validated safe Google web URL metadata and aggregate output metadata.
 - Browser payloads must not include transcript body, Google document ID, folder ID, lease metadata, provider payloads, Google payloads, source bytes, object keys, private paths, or secret values.
+- Browser progress may expose only the safe source display name, fixed stage states, and bounded completed/total provider-part counters. Percentage must derive only from confirmed checkpoints; time-based simulated movement is prohibited.
 
 ## Known limitations
 
