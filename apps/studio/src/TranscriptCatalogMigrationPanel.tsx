@@ -510,6 +510,9 @@ function CatalogApplyResult({
 }: {
   result: TranscriptCatalogImportApply;
 }) {
+  const persistedCount =
+    result.summary.imported_count + result.summary.already_applied_count;
+
   return (
     <>
       <Summary
@@ -529,6 +532,13 @@ function CatalogApplyResult({
           },
         ]}
       />
+      {persistedCount > 0 && (
+        <p className="muted" role="status">
+          Результат сохранён в каталоге Studio. Повторно применять эту
+          операцию не нужно. Новый dry-run должен показать сохранённые
+          документы как уже учтённые.
+        </p>
+      )}
       <div className="catalog-migration-table-wrap">
         <table className="catalog-migration-table">
           <thead>
