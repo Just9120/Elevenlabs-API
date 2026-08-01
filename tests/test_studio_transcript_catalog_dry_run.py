@@ -87,6 +87,168 @@ def test_catalog_import_authority_is_owner_scoped_and_fail_closed():
     }
 
 
+def test_persisted_catalog_authority_makes_repeated_dry_run_unchanged():
+    from studio_api.transcript_catalog_dry_run import (
+        classify_catalog_import_authorities,
+        classify_persisted_catalog_authorities,
+        reconcile_catalog_import_authorities,
+    )
+
+    document_ids = ("private-imported-document",)
+    output_authorities = classify_catalog_import_authorities(
+        owner_user_id="owner-user",
+        document_ids=document_ids,
+        rows=(),
+    )
+    catalog_authorities = classify_persisted_catalog_authorities(
+        owner_user_id="owner-user",
+        document_ids=document_ids,
+        rows=(
+            (
+                "private-imported-document",
+                "owner-user",
+                "indeterminate",
+                None,
+                None,
+                None,
+                None,
+            ),
+        ),
+    )
+
+    reconciled = reconcile_catalog_import_authorities(
+        document_ids=document_ids,
+        output_authorities=output_authorities,
+        catalog_authorities=catalog_authorities,
+    )
+
+    authority = reconciled["private-imported-document"]
+    assert authority.import_status.value == "imported_exact"
+    assert authority.settings_status.value == "indeterminate"
+
+
+def test_catalog_and_output_authority_disagreement_fails_closed():
+    from studio_api.transcript_catalog import EffectiveTranscriptionSettings
+    from studio_api.transcript_catalog_dry_run import (
+        CatalogImportAuthority,
+        reconcile_catalog_import_authorities,
+    )
+    from studio_api.transcript_catalog_migration import (
+        CatalogImportAuthorityStatus,
+        CatalogSettingsAuthorityStatus,
+    )
+
+    document_ids = ("private-conflicting-document",)
+    output_authorities = {
+        "private-conflicting-document": CatalogImportAuthority(
+            CatalogImportAuthorityStatus.imported_exact,
+            CatalogSettingsAuthorityStatus.exact,
+            EffectiveTranscriptionSettings(
+                provider="elevenlabs",
+                model="scribe_v2",
+                language_mode="ru",
+                diarization_enabled=True,
+            ),
+        )
+    }
+    catalog_authorities = {
+        "private-conflicting-document": CatalogImportAuthority(
+            CatalogImportAuthorityStatus.imported_exact,
+            CatalogSettingsAuthorityStatus.exact,
+            EffectiveTranscriptionSettings(
+                provider="elevenlabs",
+                model="scribe_v2",
+                language_mode="detect",
+                diarization_enabled=True,
+            ),
+        )
+    }
+
+    reconciled = reconcile_catalog_import_authorities(
+        document_ids=document_ids,
+        output_authorities=output_authorities,
+        catalog_authorities=catalog_authorities,
+    )
+
+    authority = reconciled["private-conflicting-document"]
+    assert authority.import_status.value == "conflict"
+    assert authority.settings_status.value == "indeterminate"
+
+
+def test_incoherent_catalog_authority_fails_closed():
+    from studio_api.transcript_catalog_dry_run import (
+        CatalogImportAuthority,
+        reconcile_catalog_import_authorities,
+    )
+    from studio_api.transcript_catalog_migration import (
+        CatalogImportAuthorityStatus,
+        CatalogSettingsAuthorityStatus,
+    )
+
+    document_ids = ("private-incoherent-document",)
+    reconciled = reconcile_catalog_import_authorities(
+        document_ids=document_ids,
+        output_authorities={
+            "private-incoherent-document": CatalogImportAuthority(
+                CatalogImportAuthorityStatus.not_imported,
+                CatalogSettingsAuthorityStatus.indeterminate,
+            )
+        },
+        catalog_authorities={
+            "private-incoherent-document": CatalogImportAuthority(
+                CatalogImportAuthorityStatus.imported_exact,
+                CatalogSettingsAuthorityStatus.exact,
+            )
+        },
+    )
+
+    authority = reconciled["private-incoherent-document"]
+    assert authority.import_status.value == "conflict"
+    assert authority.settings_status.value == "indeterminate"
+
+
+def test_persisted_catalog_authority_rejects_ambiguous_or_malformed_rows():
+    from studio_api.transcript_catalog_dry_run import (
+        classify_persisted_catalog_authorities,
+    )
+
+    authorities = classify_persisted_catalog_authorities(
+        owner_user_id="owner-user",
+        document_ids=("duplicate", "malformed", "other-owner"),
+        rows=(
+            ("duplicate", "owner-user", "indeterminate", None, None, None, None),
+            ("duplicate", "owner-user", "indeterminate", None, None, None, None),
+            (
+                "malformed",
+                "owner-user",
+                "indeterminate",
+                "unexpected-provider",
+                None,
+                None,
+                None,
+            ),
+            (
+                "other-owner",
+                "other-user",
+                "indeterminate",
+                None,
+                None,
+                None,
+                None,
+            ),
+        ),
+    )
+
+    assert {
+        document_id: authority.import_status.value
+        for document_id, authority in authorities.items()
+    } == {
+        "duplicate": "conflict",
+        "malformed": "conflict",
+        "other-owner": "conflict",
+    }
+
+
 def test_catalog_dry_run_combines_scan_authority_and_safe_payload():
     from studio_api.transcript_catalog_dry_run import (
         CatalogImportAuthority,
