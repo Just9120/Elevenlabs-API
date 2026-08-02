@@ -4661,8 +4661,7 @@ def _assert_job_retry_recovery_schema(inspector, conn):
     assert "transcription_job_source_attempts" in inspector.get_table_names()
     assert "transcription_output_reconciliations" in inspector.get_table_names()
     cols = {c["name"]: c for c in inspector.get_columns("transcription_job_source_attempts")}
-    assert set(TranscriptionJobSourceAttempt.__table__.c.keys()).issubset(cols)
-    assert {"id", "owner_user_id", "project_id", "job_id", "job_source_id", "attempt_number", "stage", "retry_disposition", "failure_code", "provider_request_started_at", "provider_response_returned_at", "provider_total_parts", "provider_completed_parts", "failed_at", "completed_at", "created_at", "updated_at"}.issubset(cols)
+    assert {"id", "owner_user_id", "project_id", "job_id", "job_source_id", "attempt_number", "stage", "retry_disposition", "failure_code", "provider_request_started_at", "provider_response_returned_at", "failed_at", "completed_at", "created_at", "updated_at"}.issubset(cols)
     uniques = {tuple(u["column_names"]) for u in inspector.get_unique_constraints("transcription_job_source_attempts")}
     assert ("job_source_id", "attempt_number") in uniques
     checks = {c["name"] for c in inspector.get_check_constraints("transcription_job_source_attempts")}

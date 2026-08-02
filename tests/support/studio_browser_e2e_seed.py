@@ -113,6 +113,7 @@ def seed() -> None:
             lease_generation=1,
             started_at=now - timedelta(minutes=2),
             finished_at=now - timedelta(minutes=1),
+            terminal_dismissed_at=now - timedelta(minutes=1),
         )
         db.add(job)
         db.flush()
@@ -183,6 +184,7 @@ def seed() -> None:
             lease_generation=1,
             started_at=now - timedelta(seconds=45),
             finished_at=now - timedelta(seconds=30),
+            terminal_dismissed_at=now - timedelta(seconds=30),
             error_code="provider_timeout",
             error_message="provider_timeout",
         )
@@ -228,6 +230,7 @@ def seed() -> None:
             lease_generation=1,
             started_at=now - timedelta(seconds=38),
             finished_at=now - timedelta(seconds=28),
+            terminal_dismissed_at=now - timedelta(seconds=28),
             error_code="provider_rate_limited",
             error_message="provider_rate_limited",
         )
@@ -271,6 +274,7 @@ def seed() -> None:
             lease_generation=1,
             started_at=now - timedelta(seconds=25),
             finished_at=now - timedelta(seconds=10),
+            terminal_dismissed_at=now - timedelta(seconds=10),
             error_code="output_reconciliation_required",
             error_message="output_reconciliation_required",
         )
