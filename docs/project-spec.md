@@ -188,7 +188,7 @@ Explicitly deferred or excluded from the current selected scope:
 - keyterms are deferred;
 - OpenAI job processing is deferred; the ability to store an OpenAI credential must not be presented as proof that OpenAI transcription is available;
 - manual post-transcription speaker renaming is deferred;
-- user-directed media cutting and multi-file media concatenation are deferred pending a separate workflow design;
+- arbitrary user-directed media cutting and multi-file media concatenation remain deferred. The selected Studio scope now includes one narrow manual two-project split: before launch, one source may be divided at one whole-second boundary into `[start, boundary)` and `[boundary, end]`, producing two independent jobs and Google Docs in two different explicitly verified folders. The boundary and destinations are immutable after creation;
 - Google Drive folder ingestion and recursive traversal for new transcription sources are excluded in favor of validating explicit multi-file selection. Recursive existing-document maintenance remains a separate operation and does not create sources or jobs.
 
 Selected-scope completion requires source and applicable browser/service-backed evidence for the typed language and diarization options, multi-file intake, video preparation, long-media split/merge, safe preflight/progress, independently confirmed standardization and catalog import, duplicate protection, and aggregate analytics. The existing one-small-source production canary remains necessary but does not prove these additional capabilities.
@@ -266,7 +266,7 @@ The public Studio host must enforce one browser security-header policy across th
 ### Provider and output boundaries
 
 - ElevenLabs is the implemented source-level Studio provider path and the selected PWA v1 provider. Russian-default/auto-detect language selection and optional speaker separation are required additions to its typed job options.
-- OpenAI processing, keyterms, manual speaker renaming, and user-directed media cutting/concatenation are deferred until separately designed and authorized. Persisted credential support alone is not a processing capability.
+- OpenAI processing, keyterms, manual speaker renaming, arbitrary media cutting, and concatenation remain deferred until separately designed and authorized. The separately authorized Studio two-project split is limited to one source, one whole-second boundary, two non-overlapping outputs, and two different verified folders configured before launch. Persisted credential support alone is not a processing capability.
 - Video audio preparation and automatic long-media split/merge must remain server-side, bounded, deterministic, and covered by explicit temporary-artifact cleanup. The browser must not become the media-processing authority.
 - Provider transcript content is ephemeral server-side processing data unless explicitly persisted by an approved product rule; current browser-safe output APIs must not expose transcript/document body text.
 - Google Docs output uses safe owner-scoped document reference metadata only. Exactly-once Google document creation is not claimed. Existing-document standardization and catalog import are explicit maintenance actions, not ordinary job execution. Standardization owns only in-place Google Doc normalization; catalog import owns only PostgreSQL catalog metadata persistence.
