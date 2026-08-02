@@ -255,6 +255,91 @@ def test_video_extraction_flows_into_probe_and_single_prepared_part(tmp_path):
         assert batch.parts[0].stream.read() == b"extracted-audio"
 
 
+@pytest.mark.parametrize(
+    "start_seconds,end_seconds,expected_start,expected_duration",
+    [
+        (0, 610, "0.000", "610.000"),
+        (610, None, "610.000", "590.000"),
+    ],
+)
+def test_manual_clip_is_created_before_provider_parts(
+    tmp_path,
+    start_seconds,
+    end_seconds,
+    expected_start,
+    expected_duration,
+):
+    from studio_api.media_preparation import prepare_elevenlabs_media_parts
+
+    commands = []
+    probe_durations = iter(("1200", expected_duration))
+
+    def runner(command, **kwargs):
+        commands.append(command)
+        if command[0] == "ffprobe":
+            return subprocess.CompletedProcess(command, 0, stdout=next(probe_durations))
+        Path(command[-1]).write_bytes(b"manual-clip")
+        return subprocess.CompletedProcess(command, 0)
+
+    with prepare_elevenlabs_media_parts(
+        stream=BytesIO(b"full-source"),
+        original_filename="private.mp3",
+        mime_type="audio/mpeg",
+        byte_count=11,
+        max_output_bytes=100,
+        media_clip_start_seconds=start_seconds,
+        media_clip_end_seconds=end_seconds,
+        runner=runner,
+        temporary_directory=str(tmp_path),
+    ) as batch:
+        assert [command[0] for command in commands] == ["ffprobe", "ffmpeg", "ffprobe"]
+        clip_command = commands[1]
+        assert clip_command[clip_command.index("-ss") + 1] == expected_start
+        assert clip_command[clip_command.index("-t") + 1] == expected_duration
+        assert batch.duration_seconds == float(expected_duration)
+        assert len(batch.parts) == 1
+        assert batch.parts[0].mime_type == "audio/mp4"
+        assert batch.parts[0].stream.read() == b"manual-clip"
+
+
+@pytest.mark.parametrize(
+    "start_seconds,end_seconds",
+    [(1200, None), (1201, None), (0, 1201), (610, 610)],
+)
+def test_manual_clip_outside_probed_duration_fails_before_ffmpeg(
+    tmp_path,
+    start_seconds,
+    end_seconds,
+):
+    from studio_api.media_preparation import (
+        MediaPreparationError,
+        prepare_elevenlabs_media_parts,
+    )
+
+    calls = []
+
+    def runner(command, **kwargs):
+        calls.append(command)
+        assert command[0] == "ffprobe"
+        return subprocess.CompletedProcess(command, 0, stdout="1200")
+
+    with pytest.raises(MediaPreparationError, match="media_clip_out_of_bounds"):
+        with prepare_elevenlabs_media_parts(
+            stream=BytesIO(b"full-source"),
+            original_filename="private.mp3",
+            mime_type="audio/mpeg",
+            byte_count=11,
+            max_output_bytes=100,
+            media_clip_start_seconds=start_seconds,
+            media_clip_end_seconds=end_seconds,
+            runner=runner,
+            temporary_directory=str(tmp_path),
+        ):
+            pass
+
+    assert len(calls) == 1
+
+
 def test_long_media_is_split_in_deterministic_overlapping_order_and_cleaned(tmp_path):
     from studio_api.media_preparation import prepare_elevenlabs_media_parts
 

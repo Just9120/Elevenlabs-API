@@ -805,6 +805,47 @@ def test_video_is_prepared_before_provider_and_revalidated_after_preparation(db,
     assert transport.calls == []
 
 
+def test_immutable_media_clip_reaches_preparation_boundary(db, models):
+    from studio_api.media_preparation import PreparedMediaInput
+
+    *_, job, rel, now = make_job(db, models)
+    job.media_clip_start_seconds = 610
+    job.media_clip_end_seconds = None
+    db.flush()
+    preparation_calls = []
+    transport = CaptureTransport()
+
+    @contextmanager
+    def prepare(**kwargs):
+        preparation_calls.append(kwargs)
+        stream = BytesIO(b"second-project")
+        try:
+            yield PreparedMediaInput(
+                filename="second-project.m4a",
+                mime_type="audio/mp4",
+                byte_count=14,
+                stream=stream,
+                duration_seconds=590,
+            )
+        finally:
+            stream.close()
+
+    with run_boundary(
+        db,
+        models,
+        job,
+        rel,
+        transport,
+        now,
+        media_preparer=prepare,
+    ):
+        pass
+
+    assert preparation_calls[0]["media_clip_start_seconds"] == 610
+    assert preparation_calls[0]["media_clip_end_seconds"] is None
+    assert len(transport.calls) == 1
+
+
 def test_media_preparation_failure_blocks_provider_with_safe_reason(db, models):
     from studio_api.job_elevenlabs_transcription import (
         JobElevenLabsTranscriptionError,

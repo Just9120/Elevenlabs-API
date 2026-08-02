@@ -34,6 +34,7 @@ class MediaPreparationReason(str, Enum):
     media_duration_unavailable = "media_duration_unavailable"
     media_split_failed = "media_split_failed"
     media_part_too_large = "media_part_too_large"
+    media_clip_out_of_bounds = "media_clip_out_of_bounds"
 
 
 class MediaPreparationError(RuntimeError):
@@ -147,6 +148,8 @@ def prepare_elevenlabs_media_parts(
     mime_type: str,
     byte_count: int,
     max_output_bytes: int,
+    media_clip_start_seconds: int | None = None,
+    media_clip_end_seconds: int | None = None,
     runner: Callable[..., object] = subprocess.run,
     temporary_directory: str | None = None,
 ) -> Iterator[PreparedMediaBatch]:
@@ -170,16 +173,48 @@ def prepare_elevenlabs_media_parts(
                 _copy_input(prepared.stream, prepared_path)
                 prepared_size = _validated_output_size(prepared_path, max_output_bytes)
                 duration = _probe_duration_seconds(runner, prepared_path)
+                clip_requested = (
+                    media_clip_start_seconds is not None
+                    or media_clip_end_seconds is not None
+                )
+                if clip_requested:
+                    clip_start, clip_end = _validated_manual_clip_bounds(
+                        start_seconds=media_clip_start_seconds,
+                        end_seconds=media_clip_end_seconds,
+                        source_duration_seconds=duration,
+                    )
+                    clip_path = root / "manual-clip.m4a"
+                    prepared_size = _create_manual_clip(
+                        runner=runner,
+                        prepared_path=prepared_path,
+                        output_path=clip_path,
+                        start_seconds=clip_start,
+                        duration_seconds=clip_end - clip_start,
+                        max_output_bytes=max_output_bytes,
+                    )
+                    prepared_path = clip_path
+                    duration = _probe_duration_seconds(runner, prepared_path)
                 split_reason = _split_reason(prepared_size, duration)
                 if split_reason is None:
-                    prepared.stream.seek(0)
+                    if clip_requested:
+                        prepared_stream = prepared_path.open("rb")
+                        part_streams.append(prepared_stream)
+                        part_filename = f"{_safe_stem(prepared.filename)}.m4a"
+                        part_mime_type = "audio/mp4"
+                        part_size = prepared_size
+                    else:
+                        prepared.stream.seek(0)
+                        prepared_stream = prepared.stream
+                        part_filename = prepared.filename
+                        part_mime_type = prepared.mime_type
+                        part_size = prepared.byte_count
                     batch = PreparedMediaBatch(
                         parts=(
                             PreparedMediaInput(
-                                filename=prepared.filename,
-                                mime_type=prepared.mime_type,
-                                byte_count=prepared.byte_count,
-                                stream=prepared.stream,
+                                filename=part_filename,
+                                mime_type=part_mime_type,
+                                byte_count=part_size,
+                                stream=prepared_stream,
                                 audio_extracted=prepared.audio_extracted,
                                 duration_seconds=duration,
                             ),
@@ -243,6 +278,80 @@ def _copy_input(stream: BinaryIO, destination: Path) -> None:
         raise MediaPreparationError(
             MediaPreparationReason.media_preparation_failed,
         ) from exc
+
+
+def _validated_manual_clip_bounds(
+    *,
+    start_seconds: int | None,
+    end_seconds: int | None,
+    source_duration_seconds: float,
+) -> tuple[float, float]:
+    start = float(start_seconds or 0)
+    end = float(end_seconds) if end_seconds is not None else source_duration_seconds
+    if (
+        start < 0
+        or end <= start
+        or start >= source_duration_seconds
+        or end > source_duration_seconds
+    ):
+        raise MediaPreparationError(
+            MediaPreparationReason.media_clip_out_of_bounds,
+        )
+    return start, end
+
+
+def _create_manual_clip(
+    *,
+    runner: Callable[..., object],
+    prepared_path: Path,
+    output_path: Path,
+    start_seconds: float,
+    duration_seconds: float,
+    max_output_bytes: int,
+) -> int:
+    command = [
+        "ffmpeg",
+        "-nostdin",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-ss",
+        f"{start_seconds:.3f}",
+        "-t",
+        f"{duration_seconds:.3f}",
+        "-i",
+        str(prepared_path),
+        "-map",
+        "0:a:0",
+        "-vn",
+        "-ac",
+        "1",
+        "-c:a",
+        "aac",
+        "-b:a",
+        ELEVENLABS_PART_AUDIO_BITRATE,
+        str(output_path),
+    ]
+    try:
+        runner(
+            command,
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=FFMPEG_PART_EXTRACTION_TIMEOUT_SECONDS,
+        )
+    except FileNotFoundError as exc:
+        raise MediaPreparationError(MediaPreparationReason.ffmpeg_unavailable) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise MediaPreparationError(
+            MediaPreparationReason.media_preparation_timeout,
+        ) from exc
+    except (subprocess.CalledProcessError, OSError) as exc:
+        raise MediaPreparationError(
+            MediaPreparationReason.media_preparation_failed,
+        ) from exc
+    return _validated_output_size(output_path, max_output_bytes)
 
 
 def _run_ffmpeg(

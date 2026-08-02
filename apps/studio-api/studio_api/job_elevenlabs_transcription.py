@@ -67,6 +67,7 @@ class JobElevenLabsTranscriptionReason(str, Enum):
     media_duration_unavailable = "media_duration_unavailable"
     media_split_failed = "media_split_failed"
     media_part_too_large = "media_part_too_large"
+    media_clip_out_of_bounds = "media_clip_out_of_bounds"
     existing_result_conflict = "existing_result_conflict"
     lifecycle_changed_before_provider_call = "lifecycle_changed_before_provider_call"
     credential_or_output_identity_changed_before_provider_call = "credential_or_output_identity_changed_before_provider_call"
@@ -156,23 +157,47 @@ def transcribe_processing_job_source_with_elevenlabs(
                 raise JobElevenLabsTranscriptionError(JobElevenLabsTranscriptionReason.source_materialization_unavailable) from exc
             try:
                 try:
+                    initial_job_snapshot = _load_credential_db_only(
+                        db,
+                        job_id,
+                        lease_owner_id,
+                        lease_generation,
+                        clock(),
+                        settings,
+                    )
+                    media_clip = initial_job_snapshot["catalog_settings"]
                     prepared_cm = media_preparer(
                         stream=source.stream,
                         original_filename=safe_filename(source.original_filename),
                         mime_type=source.mime_type,
                         byte_count=source.byte_count,
                         max_output_bytes=settings.source_max_upload_bytes,
+                        media_clip_start_seconds=media_clip.media_clip_start_seconds,
+                        media_clip_end_seconds=media_clip.media_clip_end_seconds,
                     )
                     prepared_batch = _enter_prepared_media_batch(prepared_cm)
                 except MediaPreparationError as exc:
                     mapped = _map_media_preparation_reason(exc.reason)
                     _best_effort_classify(db, job_id, job_source_id, lease_owner_id, lease_generation, mapped.value, clock)
                     raise JobElevenLabsTranscriptionError(mapped) from exc
+                except JobElevenLabsTranscriptionError:
+                    raise
                 except Exception as exc:
                     _best_effort_classify(db, job_id, job_source_id, lease_owner_id, lease_generation, "media_preparation_failed", clock)
                     raise JobElevenLabsTranscriptionError(JobElevenLabsTranscriptionReason.media_preparation_failed) from exc
                 try:
-                    provider_settings = _final_pre_provider_revalidate(db, job_id, job_source_id, lease_owner_id, lease_generation, settings, clock(), prereq, source)
+                    provider_settings = _final_pre_provider_revalidate(
+                        db,
+                        job_id,
+                        job_source_id,
+                        lease_owner_id,
+                        lease_generation,
+                        settings,
+                        clock(),
+                        prereq,
+                        source,
+                        expected_catalog_settings=initial_job_snapshot["catalog_settings"],
+                    )
                     _emit_provider(db, job_id, "SOURCE_READY", {"attempt_number": _attempt(db, job_id)})
                     _emit_provider(db, job_id, "PROVIDER_REQUEST_STARTED", {"attempt_number": _attempt(db, job_id)})
                     try:
@@ -353,7 +378,17 @@ def _merge_inputs(
 
 
 def _final_pre_provider_revalidate(
-    db, job_id, job_source_id, owner, generation, settings, now, prereq, source
+    db,
+    job_id,
+    job_source_id,
+    owner,
+    generation,
+    settings,
+    now,
+    prereq,
+    source,
+    *,
+    expected_catalog_settings=None,
 ) -> TranscriptionProviderSettings:
     try:
         cred_snap = _load_credential_db_only(db, job_id, owner, generation, now, settings)
@@ -368,7 +403,15 @@ def _final_pre_provider_revalidate(
         or cred_snap["credential_id"] != getattr(prereq, "_credential").credential_id
         or cred_snap["version_id"] != prereq.credential_version_id
     )
-    if credential_identity_changed or out_snap.output_drive_folder_id != prereq.output_drive_folder_id:
+    settings_identity_changed = (
+        expected_catalog_settings is not None
+        and cred_snap["catalog_settings"] != expected_catalog_settings
+    )
+    if (
+        credential_identity_changed
+        or settings_identity_changed
+        or out_snap.output_drive_folder_id != prereq.output_drive_folder_id
+    ):
         raise JobElevenLabsTranscriptionError(
             JobElevenLabsTranscriptionReason.credential_or_output_identity_changed_before_provider_call
         )

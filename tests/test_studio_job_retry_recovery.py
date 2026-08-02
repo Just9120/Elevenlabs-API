@@ -50,6 +50,7 @@ def test_retry_recovery_model_metadata_contract(studio_model_modules):
     assert {"provider_authentication_rejected", "provider_request_rejected", "provider_rate_limited"} <= studio_model_modules["SAFE_PROVIDER_FAILURES"]
     assert {"provider_timeout", "provider_unavailable", "malformed_provider_response", "partial_provider_result", "unknown"} <= studio_model_modules["UNCERTAIN_PROVIDER_FAILURES"]
     assert {"ffmpeg_unavailable", "media_preparation_timeout", "media_preparation_failed", "prepared_media_too_large", "media_duration_unavailable", "media_split_failed", "media_part_too_large"} <= studio_model_modules["PRE_PROVIDER_SAFE_FAILURES"]
+    assert "media_clip_out_of_bounds" not in studio_model_modules["PRE_PROVIDER_SAFE_FAILURES"]
     assert {"owner_user_id", "project_id", "job_id", "job_source_id", "attempt_number", "stage", "retry_disposition"} <= set(table.c.keys())
     assert {tuple(c.name for c in constraint.columns) for constraint in table.constraints if getattr(constraint, "columns", None)} >= {("job_source_id", "attempt_number")}
     indexes = {idx.name: tuple(col.name for col in idx.columns) for idx in table.indexes}
