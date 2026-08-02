@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Iterable, Sequence
 
+from .media_clip import normalize_media_clip_range
 from .transcription_options import browser_language_mode, job_diarization_enabled
 
 
@@ -43,6 +44,8 @@ class EffectiveTranscriptionSettings:
     model: str
     language_mode: str
     diarization_enabled: bool
+    media_clip_start_seconds: int | None = None
+    media_clip_end_seconds: int | None = None
 
 
 @dataclass(frozen=True)
@@ -71,6 +74,8 @@ def current_effective_settings(
     *,
     language_mode: str,
     diarization_enabled: bool,
+    media_clip_start_seconds: int | None = None,
+    media_clip_end_seconds: int | None = None,
 ) -> EffectiveTranscriptionSettings:
     normalized_language = (
         language_mode.strip().lower() if isinstance(language_mode, str) else ""
@@ -82,6 +87,8 @@ def current_effective_settings(
     return elevenlabs_effective_settings(
         language_mode=normalized_language,
         diarization_enabled=diarization_enabled,
+        media_clip_start_seconds=media_clip_start_seconds,
+        media_clip_end_seconds=media_clip_end_seconds,
     )
 
 
@@ -89,17 +96,25 @@ def elevenlabs_effective_settings(
     *,
     language_mode: str,
     diarization_enabled: bool,
+    media_clip_start_seconds: int | None = None,
+    media_clip_end_seconds: int | None = None,
 ) -> EffectiveTranscriptionSettings:
     normalized_language = _catalog_language_mode(language_mode)
     if normalized_language is None:
         raise ValueError("Unsupported transcription language mode")
     if not isinstance(diarization_enabled, bool):
         raise ValueError("Diarization selection must be boolean")
+    clip = normalize_media_clip_range(
+        media_clip_start_seconds,
+        media_clip_end_seconds,
+    )
     return EffectiveTranscriptionSettings(
         provider=CURRENT_TRANSCRIPTION_PROVIDER,
         model=CURRENT_TRANSCRIPTION_MODEL,
         language_mode=normalized_language,
         diarization_enabled=bool(diarization_enabled),
+        media_clip_start_seconds=clip.start_seconds,
+        media_clip_end_seconds=clip.end_seconds,
     )
 
 
@@ -126,6 +141,8 @@ def effective_settings_from_persisted_job(
     credential_provider: Any,
     language: str | None,
     options_json: str | None,
+    media_clip_start_seconds: int | None = None,
+    media_clip_end_seconds: int | None = None,
 ) -> EffectiveTranscriptionSettings | None:
     explicit_provider = _enum_value(job_provider).strip().lower()
     selected_provider = explicit_provider or _enum_value(credential_provider).strip().lower()
@@ -135,11 +152,11 @@ def effective_settings_from_persisted_job(
         or language_mode is None
     ):
         return None
-    return EffectiveTranscriptionSettings(
-        provider=CURRENT_TRANSCRIPTION_PROVIDER,
-        model=CURRENT_TRANSCRIPTION_MODEL,
+    return elevenlabs_effective_settings(
         language_mode=language_mode,
         diarization_enabled=job_diarization_enabled(options_json),
+        media_clip_start_seconds=media_clip_start_seconds,
+        media_clip_end_seconds=media_clip_end_seconds,
     )
 
 
@@ -147,17 +164,25 @@ def accepted_evidence_from_rows(
     rows: Iterable[Sequence[Any]],
 ) -> tuple[AcceptedTranscriptEvidence, ...]:
     evidence: list[AcceptedTranscriptEvidence] = []
-    for (
-        source_id,
-        source_type,
-        drive_file_id,
-        job_provider,
-        credential_provider,
-        language,
-        options_json,
-        output_kind,
-        transcript_standard,
-    ) in rows:
+    for raw_row in rows:
+        row = tuple(raw_row)
+        if len(row) == 9:
+            row = (*row[:7], None, None, *row[7:])
+        if len(row) != 11:
+            continue
+        (
+            source_id,
+            source_type,
+            drive_file_id,
+            job_provider,
+            credential_provider,
+            language,
+            options_json,
+            media_clip_start_seconds,
+            media_clip_end_seconds,
+            output_kind,
+            transcript_standard,
+        ) = row
         if output_kind != GOOGLE_DOCS_TRANSCRIPT_OUTPUT_KIND:
             continue
         identity = catalog_source_identity(
@@ -173,6 +198,8 @@ def accepted_evidence_from_rows(
                     credential_provider=credential_provider,
                     language=language,
                     options_json=options_json,
+                    media_clip_start_seconds=media_clip_start_seconds,
+                    media_clip_end_seconds=media_clip_end_seconds,
                 ),
                 transcript_standard=str(transcript_standard or ""),
             )
@@ -343,6 +370,8 @@ def load_existing_result_matches(
             ProviderCredential.provider,
             TranscriptionJob.language,
             TranscriptionJob.options_json,
+            TranscriptionJob.media_clip_start_seconds,
+            TranscriptionJob.media_clip_end_seconds,
             TranscriptionJobOutput.output_kind,
             TranscriptionJobOutput.transcript_standard,
             TranscriptionJobOutput.document_id,
@@ -380,10 +409,10 @@ def load_existing_result_matches(
     output_document_ids = {
         document_id
         for row in output_rows
-        if (document_id := _clean_private_identity(row[9]))
+        if (document_id := _clean_private_identity(row[11]))
     }
     accepted_evidence = list(
-        accepted_evidence_from_rows(row[:9] for row in output_rows)
+        accepted_evidence_from_rows(row[:11] for row in output_rows)
     )
 
     catalog_identity_filters = []
@@ -522,6 +551,8 @@ def load_provider_attempt_authorities(
             ProviderCredential.provider,
             TranscriptionJob.language,
             TranscriptionJob.options_json,
+            TranscriptionJob.media_clip_start_seconds,
+            TranscriptionJob.media_clip_end_seconds,
             TranscriptionJob.status,
             TranscriptionJobSourceAttempt.retry_disposition,
         )
@@ -573,6 +604,8 @@ def load_provider_attempt_authorities(
                 credential_provider=credential_provider,
                 language=language,
                 options_json=options_json,
+                media_clip_start_seconds=media_clip_start_seconds,
+                media_clip_end_seconds=media_clip_end_seconds,
             ),
             job_status=_enum_value(job_status),
             retry_disposition=_enum_value(retry_disposition),
@@ -585,6 +618,8 @@ def load_provider_attempt_authorities(
             credential_provider,
             language,
             options_json,
+            media_clip_start_seconds,
+            media_clip_end_seconds,
             job_status,
             retry_disposition,
         ) in query.all()

@@ -500,6 +500,8 @@ def _load_credential_db_only(db, job_id, owner, generation, now, settings):
         "catalog_settings": elevenlabs_effective_settings(
             language_mode=browser_language_mode(job.language),
             diarization_enabled=job_diarization_enabled(job.options_json),
+            media_clip_start_seconds=job.media_clip_start_seconds,
+            media_clip_end_seconds=job.media_clip_end_seconds,
         ),
         "existing_result_reprocess_authorized": (
             job_existing_result_reprocess_authorized(job.options_json)
