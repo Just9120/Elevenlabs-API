@@ -143,6 +143,16 @@ export function terminalProgressState(
   };
 }
 
+export function updateRequestedProgressStates(
+  current: Record<string, JobProgressState>,
+  requestedIds: readonly string[],
+  update: (jobId: string, previous: JobProgressState | undefined) => JobProgressState,
+) {
+  const next = { ...current };
+  for (const jobId of requestedIds) next[jobId] = update(jobId, current[jobId]);
+  return next;
+}
+
 const STAGE_STATUSES = new Set<JobProgressStageStatus>([
   "pending",
   "active",

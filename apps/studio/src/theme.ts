@@ -14,10 +14,12 @@ function isStudioThemePreference(value: unknown): value is StudioThemePreference
 }
 
 export function readStudioThemePreference(
-  storage: Pick<Storage, "getItem"> = window.localStorage,
+  storage?: Pick<Storage, "getItem">,
 ): StudioThemePreference {
   try {
-    const stored = storage.getItem(STUDIO_THEME_STORAGE_KEY);
+    const stored = (storage ?? window.localStorage).getItem(
+      STUDIO_THEME_STORAGE_KEY,
+    );
     return isStudioThemePreference(stored) ? stored : "system";
   } catch {
     return "system";
@@ -53,10 +55,13 @@ export function applyStudioTheme(
 
 export function setStudioThemePreference(
   preference: StudioThemePreference,
-  storage: Pick<Storage, "setItem"> = window.localStorage,
+  storage?: Pick<Storage, "setItem">,
 ) {
   try {
-    storage.setItem(STUDIO_THEME_STORAGE_KEY, preference);
+    (storage ?? window.localStorage).setItem(
+      STUDIO_THEME_STORAGE_KEY,
+      preference,
+    );
   } catch {
     // A blocked storage API must not prevent applying a non-sensitive UI choice.
   }
@@ -72,7 +77,10 @@ export function initializeStudioTheme() {
   if (!systemListenerInstalled && media?.addEventListener) {
     systemListenerInstalled = true;
     media.addEventListener("change", (event) => {
-      const current = readStudioThemePreference();
+      const applied = document.documentElement.dataset.themePreference;
+      const current = isStudioThemePreference(applied)
+        ? applied
+        : readStudioThemePreference();
       if (current === "system") applyStudioTheme(current, event.matches);
     });
   }

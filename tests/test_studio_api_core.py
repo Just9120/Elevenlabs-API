@@ -529,6 +529,52 @@ def test_transcription_jobs_auth_and_csrf_required():
     assert c.post(f"/api/jobs/{jid}/cancel").status_code == 403
 
 
+def test_terminal_job_dismissal_is_durable_owner_scoped_and_idempotent():
+    c, headers, pid = create_logged_in_project("job-dismiss-owner@example.com")
+    other, other_headers, _ = create_logged_in_project("job-dismiss-other@example.com")
+    db = SessionLocal()
+    try:
+        project = db.get(Project, pid)
+        terminal = TranscriptionJob(
+            project_id=pid,
+            owner_user_id=project.owner_user_id,
+            status=JobStatus.completed,
+            finished_at=utcnow(),
+        )
+        active = TranscriptionJob(
+            project_id=pid,
+            owner_user_id=project.owner_user_id,
+            status=JobStatus.processing,
+        )
+        db.add_all([terminal, active])
+        db.commit()
+        terminal_id, active_id = terminal.id, active.id
+    finally:
+        db.close()
+
+    before = c.get(f"/api/projects/{pid}/jobs").json()["jobs"]
+    assert next(job for job in before if job["id"] == terminal_id)[
+        "terminal_dismissed_at"
+    ] is None
+    assert c.post(f"/api/jobs/{terminal_id}/dismiss").status_code == 403
+    assert other.post(
+        f"/api/jobs/{terminal_id}/dismiss", headers=other_headers
+    ).status_code == 404
+    assert c.post(f"/api/jobs/{active_id}/dismiss", headers=headers).status_code == 409
+
+    first = c.post(f"/api/jobs/{terminal_id}/dismiss", headers=headers)
+    assert first.status_code == 200
+    dismissed_at = first.json()["terminal_dismissed_at"]
+    assert dismissed_at
+    second = c.post(f"/api/jobs/{terminal_id}/dismiss", headers=headers)
+    assert second.status_code == 200
+    assert second.json()["terminal_dismissed_at"] == dismissed_at
+    after = c.get(f"/api/projects/{pid}/jobs").json()["jobs"]
+    assert next(job for job in after if job["id"] == terminal_id)[
+        "terminal_dismissed_at"
+    ] == dismissed_at
+
+
 def test_legacy_job_selects_sole_active_elevenlabs_credential_for_blank_id():
     c, headers, pid = create_logged_in_project("jobs-blank-credential@example.com")
     sid = create_gdrive_source(c, headers, pid)

@@ -394,7 +394,8 @@ def safe_job_output_folder_payload(job: TranscriptionJob):
 def job_payload(job: TranscriptionJob, include_sources=False):
     clip_start=getattr(job,"media_clip_start_seconds",None); clip_end=getattr(job,"media_clip_end_seconds",None)
     media_clip=None if clip_start is None and clip_end is None else {"start_seconds":clip_start,"end_seconds":clip_end}
-    payload={"id": job.id, "project_id": job.project_id, "status": job.status.value, "title": job.title, "provider": job.provider, "language_mode": browser_language_mode(getattr(job, "language", None)), "diarization_enabled": job_diarization_enabled(getattr(job, "options_json", None)), "media_clip": media_clip, "source_count": len(job.sources), "created_at": job.created_at.isoformat(), "updated_at": job.updated_at.isoformat(), "cancelled_at": job.cancelled_at.isoformat() if job.cancelled_at else None, "cancel_requested_at": job.cancel_requested_at.isoformat() if job.cancel_requested_at else None, "attempt_count": job.attempt_count or 0, "started_at": job.started_at.isoformat() if job.started_at else None, "finished_at": job.finished_at.isoformat() if job.finished_at else None, "error_code": safe_failure_metadata_value(job.error_code), "error_message": safe_failure_metadata_value(job.error_message), "output_folder": safe_job_output_folder_payload(job)}
+    terminal_dismissed_at=getattr(job,"terminal_dismissed_at",None)
+    payload={"id": job.id, "project_id": job.project_id, "status": job.status.value, "title": job.title, "provider": job.provider, "language_mode": browser_language_mode(getattr(job, "language", None)), "diarization_enabled": job_diarization_enabled(getattr(job, "options_json", None)), "media_clip": media_clip, "terminal_dismissed_at": terminal_dismissed_at.isoformat() if terminal_dismissed_at else None, "source_count": len(job.sources), "created_at": job.created_at.isoformat(), "updated_at": job.updated_at.isoformat(), "cancelled_at": job.cancelled_at.isoformat() if job.cancelled_at else None, "cancel_requested_at": job.cancel_requested_at.isoformat() if job.cancel_requested_at else None, "attempt_count": job.attempt_count or 0, "started_at": job.started_at.isoformat() if job.started_at else None, "finished_at": job.finished_at.isoformat() if job.finished_at else None, "error_code": safe_failure_metadata_value(job.error_code), "error_message": safe_failure_metadata_value(job.error_message), "output_folder": safe_job_output_folder_payload(job)}
     if include_sources: payload["sources"]=[job_source_payload(s) for s in sorted(job.sources, key=lambda item: item.position)]
     return payload
 
@@ -996,6 +997,17 @@ def create_transcription_job(project_id: str, data: TranscriptionJobCreateIn, re
 def get_transcription_job(job_id: str, pair=Depends(current_session), db: Session=Depends(get_db)):
     _,user=pair; job=owned_job_or_404(db,user,job_id)
     return job_payload(job, include_sources=True)
+
+@app.post("/api/jobs/{job_id}/dismiss")
+def dismiss_terminal_job(job_id: str, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("job:dismiss:"+user.id, 240, 3600); job=owned_job_or_404(db,user,job_id)
+    if job.status not in (JobStatus.completed, JobStatus.failed, JobStatus.cancelled):
+        raise HTTPException(409, "Только завершённую задачу можно убрать в историю")
+    if job.terminal_dismissed_at is None:
+        now=utcnow(); job.terminal_dismissed_at=now; job.updated_at=now
+        audit(db,"job.dismissed",actor_user_id=user.id,subject_user_id=user.id,project_id=job.project_id,job_id=job.id)
+        db.commit(); db.refresh(job)
+    return job_payload(job)
 
 @app.get("/api/jobs/{job_id}/retry")
 def get_job_retry(job_id: str, pair=Depends(current_session), db: Session=Depends(get_db)):

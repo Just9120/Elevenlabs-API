@@ -4,6 +4,7 @@ import {
   confirmedProgressPercent,
   parseProjectJobProgressResponse,
   terminalProgressState,
+  updateRequestedProgressStates,
   type JobProgressState,
 } from "./jobProgressModel";
 
@@ -64,6 +65,32 @@ describe("job progress response parser", () => {
     expect(completed?.data?.current_stage).toBeNull();
     expect(completed?.data?.completed_source_count).toBe(1);
     expect(confirmedProgressPercent(completed!.data!)).toBe(100);
+  });
+
+  it("preserves a pinned terminal snapshot while another job keeps polling", () => {
+    const parsed = parseProjectJobProgressResponse(valid)!;
+    const terminal: JobProgressState = {
+      loading: false,
+      error: "",
+      data: parsed.jobs[0],
+    };
+    const current = {
+      "job-terminal": terminal,
+      "job-active": terminal,
+    };
+
+    const next = updateRequestedProgressStates(
+      current,
+      ["job-active"],
+      (_jobId, previous) => ({
+        loading: true,
+        error: "",
+        data: previous?.data ?? null,
+      }),
+    );
+
+    expect(next["job-terminal"]).toBe(terminal);
+    expect(next["job-active"].loading).toBe(true);
   });
 
   it("fails closed on private extras and inconsistent authority", () => {

@@ -40,7 +40,7 @@ export function JobCard({
   onCheckReconciliation: (jobId: string) => void | Promise<void>;
   onRetry: (jobId: string) => void | Promise<void>;
   pinnedTerminal?: boolean;
-  onDismissTerminal?: (jobId: string) => void;
+  onDismissTerminal?: (jobId: string) => void | Promise<void>;
 }) {
   const detailedJob = detail?.job;
   const terminal = ["completed", "failed", "cancelled"].includes(job.status);

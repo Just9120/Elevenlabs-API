@@ -199,6 +199,7 @@ class TranscriptionJob(Base):
     batch_position: Mapped[int|None]=mapped_column(Integer)
     media_clip_start_seconds: Mapped[int|None]=mapped_column(Integer)
     media_clip_end_seconds: Mapped[int|None]=mapped_column(Integer)
+    terminal_dismissed_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now)
     updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now, onupdate=now)
     cancelled_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))

@@ -57,6 +57,7 @@ export type TranscriptionJob = {
   language_mode?: string | null;
   diarization_enabled?: boolean;
   media_clip?: JobMediaClip | null;
+  terminal_dismissed_at?: string | null;
   source_count: number;
   sources?: JobSource[];
   created_at: string;

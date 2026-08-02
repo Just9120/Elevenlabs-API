@@ -258,6 +258,6 @@ def queue_retry(db, *, owner_user_id, job_id, now):
     if job.status==JobStatus.queued:
         return RetryQueueResult(job=job, readiness=ready, transitioned=False)
     if ready.available and not is_lease_active(job, now):
-        job.status=JobStatus.queued; job.finished_at=None; job.error_code=None; job.error_message=None; job.updated_at=now; invalidate_job_lease(job); db.flush()
+        job.status=JobStatus.queued; job.finished_at=None; job.error_code=None; job.error_message=None; job.terminal_dismissed_at=None; job.updated_at=now; invalidate_job_lease(job); db.flush()
         return RetryQueueResult(job=job, readiness=compute_explicit_retry_readiness(db, job, now=now), transitioned=True)
     return RetryQueueResult(job=job, readiness=ready, transitioned=False)

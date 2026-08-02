@@ -62,4 +62,18 @@ describe("Studio theme preference", () => {
     expect(document.documentElement.dataset.themePreference).toBe("system");
     expect(window.localStorage.getItem(STUDIO_THEME_STORAGE_KEY)).toBeNull();
   });
+
+  it("survives a blocked localStorage getter during bootstrap and updates", () => {
+    const getter = vi
+      .spyOn(window, "localStorage", "get")
+      .mockImplementation(() => {
+        throw new DOMException("blocked", "SecurityError");
+      });
+
+    expect(readStudioThemePreference()).toBe("system");
+    expect(() => setStudioThemePreference("dark")).not.toThrow();
+    expect(document.documentElement.dataset.theme).toBe("dark");
+
+    getter.mockRestore();
+  });
 });

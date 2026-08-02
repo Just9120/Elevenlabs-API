@@ -1,4 +1,4 @@
-"""add durable provider part progress counters
+"""add durable provider part progress and terminal visibility
 
 Revision ID: 0018_job_part_progress
 Revises: 0017_google_maintenance_oauth
@@ -16,13 +16,13 @@ depends_on = None
 release_safety = "additive"
 
 
-def _column_names(bind) -> set[str]:
+def _column_names(bind, table_name: str) -> set[str]:
     inspector = sa.inspect(bind)
-    if "transcription_job_source_attempts" not in inspector.get_table_names():
+    if table_name not in inspector.get_table_names():
         return set()
     return {
         column["name"]
-        for column in inspector.get_columns("transcription_job_source_attempts")
+        for column in inspector.get_columns(table_name)
     }
 
 
@@ -41,7 +41,7 @@ def _check_names(bind) -> set[str]:
 
 def upgrade():
     bind = op.get_bind()
-    columns = _column_names(bind)
+    columns = _column_names(bind, "transcription_job_source_attempts")
     if "provider_total_parts" not in columns:
         op.add_column(
             "transcription_job_source_attempts",
@@ -57,6 +57,18 @@ def upgrade():
                 server_default=sa.text("0"),
             ),
         )
+
+    if "terminal_dismissed_at" not in _column_names(bind, "transcription_jobs"):
+        op.add_column(
+            "transcription_jobs",
+            sa.Column("terminal_dismissed_at", sa.DateTime(timezone=True), nullable=True),
+        )
+    op.execute(
+        "UPDATE transcription_jobs "
+        "SET terminal_dismissed_at = COALESCE(finished_at, cancelled_at, updated_at, created_at) "
+        "WHERE terminal_dismissed_at IS NULL "
+        "AND status IN ('completed', 'failed', 'cancelled')"
+    )
 
     checks = _check_names(bind)
     if "ck_source_attempt_provider_total_parts_positive" not in checks:
@@ -81,6 +93,8 @@ def upgrade():
 
 def downgrade():
     bind = op.get_bind()
+    if "terminal_dismissed_at" in _column_names(bind, "transcription_jobs"):
+        op.drop_column("transcription_jobs", "terminal_dismissed_at")
     checks = _check_names(bind)
     for name in (
         "ck_source_attempt_provider_parts_bounded",
@@ -94,7 +108,7 @@ def downgrade():
                 type_="check",
             )
 
-    columns = _column_names(bind)
+    columns = _column_names(bind, "transcription_job_source_attempts")
     if "provider_completed_parts" in columns:
         op.drop_column(
             "transcription_job_source_attempts",

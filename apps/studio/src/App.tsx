@@ -94,13 +94,10 @@ import {
 import {
   parseProjectJobProgressResponse,
   terminalProgressState,
+  updateRequestedProgressStates,
   type JobProgressState,
 } from "./jobProgressModel";
-import {
-  groupVisibleJobs,
-  jobStatusSnapshot,
-  newlyTerminalJobs,
-} from "./jobVisibilityModel";
+import { groupVisibleJobs } from "./jobVisibilityModel";
 import { TranscriptionAnalyticsPanel } from "./TranscriptionAnalyticsPanel";
 import { TranscriptCatalogMigrationPanel } from "./TranscriptCatalogMigrationPanel";
 import {
@@ -467,9 +464,6 @@ function PreparationPanel({
   const [reconciliations, setReconciliations] = useState<Record<string, OutputReconciliationState>>({});
   const [retries, setRetries] = useState<Record<string, JobRetryState>>({});
   const [progress, setProgress] = useState<Record<string, JobProgressState>>({});
-  const [pinnedTerminalJobIds, setPinnedTerminalJobIds] = useState<Set<string>>(
-    () => new Set(),
-  );
   const [removedSourceIds, setRemovedSourceIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -494,9 +488,6 @@ function PreparationPanel({
   const localUploadCsrfRef = useRef(csrf);
   const rowElementRefs = useRef(new Map<string, HTMLLIElement>());
   const reloadJobsRef = useRef(onReloadJobs);
-  const previousJobStatusesRef = useRef<ReturnType<
-    typeof jobStatusSnapshot
-  > | null>(null);
   useEffect(() => {
     localUploadCsrfRef.current = csrf;
   }, [csrf]);
@@ -514,8 +505,6 @@ function PreparationPanel({
     setPreflight(null);
     setMessage("");
     setProgress({});
-    setPinnedTerminalJobIds(new Set());
-    previousJobStatusesRef.current = null;
     setLanguageMode(DEFAULT_TRANSCRIPTION_LANGUAGE_MODE);
     setDiarizationEnabled(false);
     setRecentlyAddedRow(null);
@@ -1433,21 +1422,11 @@ function PreparationPanel({
     current: currentJobs,
     pinnedTerminal: pinnedTerminalJobs,
     recent: recentJobs,
-  } = groupVisibleJobs(displayJobs, pinnedTerminalJobIds);
+  } = groupVisibleJobs(displayJobs);
   useEffect(() => {
-    const transitioned = newlyTerminalJobs(
-      previousJobStatusesRef.current,
-      displayJobs,
-    );
-    previousJobStatusesRef.current = jobStatusSnapshot(displayJobs);
-    if (transitioned.length === 0) return;
-
-    setPinnedTerminalJobIds((current) => {
-      const next = new Set(current);
-      for (const job of transitioned) next.add(job.id);
-      return next;
-    });
-    for (const job of transitioned) void loadDetail(job.id);
+    for (const job of pinnedTerminalJobs) {
+      if (!detail[job.id]) void loadDetail(job.id);
+    }
   }, [displayJobs]);
   const currentJobIds = currentJobs.map((job) => job.id).sort().join(",");
   useEffect(() => {
@@ -1460,15 +1439,11 @@ function PreparationPanel({
     const requestedIds = currentJobIds.split(",");
     const refresh = async () => {
       setProgress((current) => {
-        const next: Record<string, JobProgressState> = {};
-        for (const jobId of requestedIds) {
-          next[jobId] = {
-            loading: !current[jobId]?.data,
+        return updateRequestedProgressStates(current, requestedIds, (_jobId, previous) => ({
+            loading: !previous?.data,
             error: "",
-            data: current[jobId]?.data ?? null,
-          };
-        }
-        return next;
+            data: previous?.data ?? null,
+          }));
       });
       try {
         const raw = await api<unknown>(`/projects/${project.id}/jobs/progress`);
@@ -1478,15 +1453,11 @@ function PreparationPanel({
         confirmedResponse = true;
         const byId = new Map(parsed.jobs.map((item) => [item.job_id, item]));
         setProgress((current) => {
-          const next: Record<string, JobProgressState> = {};
-          for (const jobId of requestedIds) {
-            next[jobId] = {
+          return updateRequestedProgressStates(current, requestedIds, (jobId, previous) => ({
               loading: false,
               error: "",
-              data: byId.get(jobId) ?? current[jobId]?.data ?? null,
-            };
-          }
-          return next;
+              data: byId.get(jobId) ?? previous?.data ?? null,
+            }));
         });
         if (requestedIds.some((jobId) => !byId.has(jobId))) {
           reloadJobsRef.current(project.id);
@@ -1496,15 +1467,11 @@ function PreparationPanel({
       } catch {
         if (stopped) return;
         setProgress((current) => {
-          const next: Record<string, JobProgressState> = {};
-          for (const jobId of requestedIds) {
-            next[jobId] = {
+          return updateRequestedProgressStates(current, requestedIds, (_jobId, previous) => ({
               loading: false,
               error: "progress_unavailable",
-              data: current[jobId]?.data ?? null,
-            };
-          }
-          return next;
+              data: previous?.data ?? null,
+            }));
         });
         if (confirmedResponse) timer = window.setTimeout(refresh, 10000);
       }
@@ -1515,6 +1482,29 @@ function PreparationPanel({
       if (timer !== undefined) window.clearTimeout(timer);
     };
   }, [currentJobIds, project.id]);
+  async function dismissTerminalJob(jobId: string) {
+    setMessage("");
+    try {
+      const dismissed = await csrfMutate<TranscriptionJob>(
+        `/jobs/${jobId}/dismiss`,
+        csrf,
+        onCsrf,
+        { method: "POST" },
+      );
+      setDetail((current) => ({
+        ...current,
+        [jobId]: { loading: false, error: "", job: dismissed },
+      }));
+      setProgress((current) => {
+        const next = { ...current };
+        delete next[jobId];
+        return next;
+      });
+      await onReloadJobs(project.id);
+    } catch {
+      setMessage("Не удалось убрать задачу в историю. Повторите позже.");
+    }
+  }
   function renderJobCard(job: TranscriptionJob, pinnedTerminal = false) {
     const currentDetail = detail[job.id];
     const detailedJob = currentDetail?.job;
@@ -1538,13 +1528,7 @@ function PreparationPanel({
         onCheckReconciliation={checkReconciliation}
         onRetry={retryJob}
         pinnedTerminal={pinnedTerminal}
-        onDismissTerminal={(jobId) =>
-          setPinnedTerminalJobIds((current) => {
-            const next = new Set(current);
-            next.delete(jobId);
-            return next;
-          })
-        }
+        onDismissTerminal={dismissTerminalJob}
       />
     );
   }

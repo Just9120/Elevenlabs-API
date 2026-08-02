@@ -34,7 +34,6 @@ export function newlyTerminalJobs(
 
 export function groupVisibleJobs(
   jobs: TranscriptionJob[],
-  pinnedTerminalJobIds: ReadonlySet<string>,
 ): VisibleJobGroups {
   const current: TranscriptionJob[] = [];
   const pinnedTerminal: TranscriptionJob[] = [];
@@ -42,7 +41,11 @@ export function groupVisibleJobs(
 
   for (const job of jobs) {
     if (ACTIVE_JOB_STATUSES.has(job.status)) current.push(job);
-    else if (pinnedTerminalJobIds.has(job.id)) pinnedTerminal.push(job);
+    else if (
+      TERMINAL_JOB_STATUSES.has(job.status) &&
+      job.terminal_dismissed_at === null
+    )
+      pinnedTerminal.push(job);
     else if (TERMINAL_JOB_STATUSES.has(job.status)) recent.push(job);
   }
 

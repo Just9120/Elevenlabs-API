@@ -6,7 +6,11 @@ import {
   newlyTerminalJobs,
 } from "./jobVisibilityModel";
 
-function job(id: string, status: JobСтатус): TranscriptionJob {
+function job(
+  id: string,
+  status: JobСтатус,
+  terminalDismissedAt?: string | null,
+): TranscriptionJob {
   return {
     id,
     project_id: "project-1",
@@ -15,6 +19,7 @@ function job(id: string, status: JobСтатус): TranscriptionJob {
     provider: "elevenlabs",
     language_mode: "ru",
     diarization_enabled: false,
+    terminal_dismissed_at: terminalDismissedAt,
     source_count: 1,
     created_at: "2026-08-02T12:00:00Z",
     updated_at: "2026-08-02T12:00:00Z",
@@ -52,10 +57,10 @@ describe("job visibility", () => {
   it("keeps pinned terminal jobs out of collapsed history", () => {
     const jobs = [
       job("processing", "processing"),
-      job("just-completed", "completed"),
-      job("old-completed", "completed"),
+      job("just-completed", "completed", null),
+      job("old-completed", "completed", "2026-08-02T12:02:00Z"),
     ];
-    const grouped = groupVisibleJobs(jobs, new Set(["just-completed"]));
+    const grouped = groupVisibleJobs(jobs);
 
     expect(grouped.current.map((item) => item.id)).toEqual(["processing"]);
     expect(grouped.pinnedTerminal.map((item) => item.id)).toEqual([
@@ -63,5 +68,16 @@ describe("job visibility", () => {
     ]);
     expect(grouped.recent.map((item) => item.id)).toEqual(["old-completed"]);
     expect(jobStatusSnapshot(jobs).get("processing")).toBe("processing");
+  });
+
+  it("restores an undismissed terminal job after a remount", () => {
+    const grouped = groupVisibleJobs([
+      job("persisted-terminal", "completed", null),
+    ]);
+
+    expect(grouped.pinnedTerminal.map((item) => item.id)).toEqual([
+      "persisted-terminal",
+    ]);
+    expect(grouped.recent).toEqual([]);
   });
 });

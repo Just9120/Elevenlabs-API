@@ -215,13 +215,16 @@ def test_provider_part_progress_is_durable_monotonic_and_bounded(sqlite_db):
 
 def test_multisource_prepared_rows_allow_recovery_and_explicit_retry(sqlite_db):
     from studio_api.job_processing_lifecycle import recover_expired_processing_job
-    from studio_api.job_retry_recovery import compute_explicit_retry_readiness
+    from studio_api.job_retry_recovery import compute_explicit_retry_readiness, queue_retry
     m, now, _user, _project, job, rels = _job_with_sources(sqlite_db, source_count=2, expired=True)
     for rel in rels: _attempt(sqlite_db, m, job, rel)
     result = recover_expired_processing_job(sqlite_db, job_id=job.id, now=now)
     assert result.status == m.JobStatus.queued
-    job.status = m.JobStatus.failed; job.lease_owner_id = None; job.lease_expires_at = None; sqlite_db.commit()
+    job.status = m.JobStatus.failed; job.lease_owner_id = None; job.lease_expires_at = None; job.terminal_dismissed_at = now; sqlite_db.commit()
     assert compute_explicit_retry_readiness(sqlite_db, job, now=now).available is True
+    retry = queue_retry(sqlite_db, owner_user_id=job.owner_user_id, job_id=job.id, now=now)
+    assert retry is not None and retry.transitioned is True
+    assert retry.job.terminal_dismissed_at is None
 
 
 def test_partial_output_preserved_and_prepared_next_source_is_safe(sqlite_db):
