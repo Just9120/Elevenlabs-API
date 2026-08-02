@@ -7,6 +7,7 @@
 - ✅ `PWA-WORKER-OPS-01 / current baseline` — manual exact-main worker deployment run `30721775811` succeeded and status run `30721817365` completed for `main@bd8d513`. The operator then completed a real batch transcription successfully. That run is useful bounded production evidence, not proof of every media/options/failure scenario.
 - 👉 `PWA-JOB-PROGRESS-02` — active on `codex/pwa-job-progress-02`. The candidate keeps a newly terminal job visible, loads its result, exposes an explicit **Убрать в историю** action, calculates progress only from confirmed checkpoints, and persists safe completed/total ElevenLabs part counters through additive migration `0018_job_part_progress`. Local source gates are complete; CI, merge, protected migration, API/worker deployment, and production canary are absent.
 - 👉 `PWA-TWO-PROJECT-SPLIT-01` — included in the same branch batch. An optional composer control expands one source into two immutable complementary clip jobs, requires two different verified output folders, validates duration before the first provider request, clips server-side, scopes duplicate authority by clip, and labels both parts in job history. Local source gates are complete through additive migration `0019_job_media_clip`; CI and every rollout gate are absent.
+- 👉 `PWA-APPEARANCE-LAYOUT-01` — included as the final UI commit in the branch batch. Account settings offer system/light/dark appearance, the choice remains browser-local, and the desktop projects workspace uses all width available after the sidebar. Local source gates are complete; merge, web deployment, and live Chrome visual evidence are absent.
 - 📋 `PWA-REALTIME-TRANSCRIPTION-01` — next product epic. Bring the existing experimental realtime Colab capability into a separate tab on the same PWA transcription page. Design must preserve the single-use-token, browser capture, WebSocket, transcript-content, and no-Google-Docs boundaries before implementation.
 - 📋 `PWA-TRANSCRIPT-MAINTENANCE-CANARY-04` — complete the bounded recursive-folder and single-document dry-run/apply matrix. Every state-changing apply remains a separate explicit user decision.
 - 📋 `PWA-TRUSTED-PROXY-01 / production evidence` — source contract is merged; bounded production peer observation and separately reviewed runtime configuration remain absent.
@@ -19,6 +20,7 @@
 - The successful job exposed a real usability defect: on terminal transition its active progress card disappeared into history. The current branch fixes that observed behavior rather than expanding speculative test coverage.
 - Batch progress remains HTTP-polled and evidence-based. The server can report part-level movement only after each prepared ElevenLabs part returns successfully. A single unsplit provider request has no truthful intermediate percentage because the synchronous provider response exposes no such checkpoint.
 - The two-project option is deliberately pre-launch and narrow: one source, one whole-second boundary, exactly two parts and two different folders. Once created, each job is independent and immutable; arbitrary editing/cutting remains excluded.
+- The screenshot width loss is a source CSS constraint, not a PWA platform limitation: the previous main element was centered behind a `1360px` maximum. The branch removes that cap, keeps the responsive breakpoint, and narrows the project selector column so the transcription builder receives the reclaimed space.
 - Migrations `0018_job_part_progress` and `0019_job_media_clip` are additive but still stateful. Ordinary component CD must not apply them. The protected migration lane, exact API/worker deployment, and bounded production UI canaries remain required after merge.
 
 ## Readiness snapshot
@@ -32,6 +34,8 @@
 | `PWA-JOB-PROGRESS-02` production rollout | **0% (`0/4`)** | Required gates are merged CI; branch schema/API rollout through `0019`; worker identity/health; real UI canary. None applies to the unmerged branch. |
 | `PWA-TWO-PROJECT-SPLIT-01` local source candidate | **100% (`6/6`)** | Composer UX, complementary API validation, immutable persistence, clip-aware duplicate authority, pre-provider server clipping, and focused validation are present on the branch. |
 | `PWA-TWO-PROJECT-SPLIT-01` production rollout | **0% (`0/5`)** | Required gates are merged CI; `0018`/`0019` plus API rollout; worker identity/health; two-folder dry-run; real two-output canary. None applies to the unmerged branch. |
+| `PWA-APPEARANCE-LAYOUT-01` local source candidate | **100% (`4/4`)** | Three-way preference, browser-local persistence/system resolution, semantic light/dark palette, full-width responsive layout, and focused validation are present on the branch. |
+| `PWA-APPEARANCE-LAYOUT-01` production rollout | **0% (`0/2`)** | Required gates are merged web deployment and one live Chrome visual smoke across light/dark plus desktop/narrow layout. Neither applies to the unmerged branch. |
 | Protected migration lane operational evidence | **100% (`5/5`)** | Source/CI, VPS forced-command boundary, successful protected release, disabled post-release flag, and visible reviewer wait/approval are evidenced. |
 | Transcript-maintenance source acceptance on `main` | **100% (`10/10`)** | Durable post-apply rediscovery fix and required CI are merged. |
 | Transcript-maintenance rollout | **50% (`2/4`)** | Runtime/OAuth/schema and exact API identity/health are evidenced; full target-mode dry-run/apply matrix is not. |
@@ -69,6 +73,17 @@ Non-goals: no WebSocket for batch jobs, no fabricated within-request ElevenLabs 
 
 Checks 1–7 are complete on the local branch. Check 8 is entirely open.
 
+`PWA-APPEARANCE-LAYOUT-01` acceptance checks:
+
+1. Account settings expose system, light, and dark choices and apply them immediately.
+2. The preference persists only in browser local storage; system mode resolves from `prefers-color-scheme` and changes no server/account state.
+3. Semantic color tokens cover the existing PWA surfaces in both light and dark modes, including controls, status cards, analytics, and job progress.
+4. The desktop main area has no fixed maximum width, the project selector column is compact, and the existing narrow-screen single-column breakpoint remains intact.
+5. Focused frontend tests, TypeScript, ESLint, lightweight repository checks, and documentation validation pass.
+6. Required PR/exact-main CI, web deployment, and one live Chrome light/dark plus wide/narrow visual smoke are separately evidenced.
+
+Checks 1–5 are complete on the local branch. Check 6 is entirely open.
+
 ## Next item
 
 `PWA-REALTIME-TRANSCRIPTION-01` starts with a focused contract/design task:
@@ -82,7 +97,7 @@ Checks 1–7 are complete on the local branch. Check 8 is entirely open.
 
 ## Near backlog
 
-1. Merge and roll out the progress plus two-project split branch through its stateful release gates.
+1. Merge and roll out the progress, two-project split, and appearance/layout batch through their distinct stateful and web-only release gates.
 2. Design and implement the first safe microphone-only Studio realtime slice.
 3. Complete transcript-maintenance target-mode canaries.
 4. Verify trusted reverse-proxy peer identity before any runtime value change.
@@ -98,14 +113,15 @@ Checks 1–7 are complete on the local branch. Check 8 is entirely open.
 
 ## Validation notes
 
-- Branch: `codex/pwa-job-progress-02`, based on clean `main@bd8d513`; after the progress and split source implementation it is `0 behind / 12 ahead` before this documentation commit.
+- Branch: `codex/pwa-job-progress-02`, based on clean `main@bd8d513`; it is `0 behind / 14 ahead` before the final appearance/layout commit.
 - Final focused backend split gate: `55 passed` across clip normalization, media preparation, batch preflight, duplicate/catalog authority, browser DTOs, and schema shape. Earlier progress-focused suites remain separate commit evidence.
 - Final focused frontend gate: `150 passed` across the complete App suite plus composer, job-model, and job-card suites; TypeScript build and targeted ESLint passed.
+- Final appearance/layout gate: `128 passed` across theme initialization, PWA bootstrap, and the complete App suite; TypeScript, targeted ESLint, production Vite/PWA build, `git diff --check`, and lightweight repository checks passed.
 - Lightweight repository checks passed. PostgreSQL-backed integration tests still require the service-backed CI environment and were not counted as local passes.
 - Operational test attempt was correctly limited by local prerequisites: Bash is unavailable and local PostgreSQL at `127.0.0.1:5432` is not running. This is not CI evidence and does not count as a pass.
 - GitHub evidence refreshed on 2026-08-02: PR #199 merge `bd8d513`; exact-main CI runs `30702706377` and `30702706378`; web/API CD run `30702706409`; no-op review probe `30718275780`; manual worker deployment `30721775811`; worker status `30721817365`.
 - Operator evidence: a real production batch transcription completed successfully after worker activation; the terminal progress card disappeared until found in history, which is the observed defect for this item.
-- Self-review: the package changes job-result continuity, browser-safe progress projection, fenced integer part counters, and the narrowly authorized two-project split with immutable clip bounds. It does not permit arbitrary editing after launch, add WebSockets to batch, expose content, implement realtime, deploy, migrate, or mutate production.
+- Self-review: the package changes job-result continuity, browser-safe progress projection, fenced integer part counters, the narrowly authorized two-project split with immutable clip bounds, and browser-local appearance/full-width layout. It does not permit arbitrary editing after launch, add WebSockets to batch, expose content, store theme in account state, implement realtime, deploy, migrate, or mutate production.
 
 ## Repeatable engineering pipeline
 

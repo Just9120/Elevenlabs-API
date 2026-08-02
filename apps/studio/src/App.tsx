@@ -103,6 +103,11 @@ import {
 } from "./jobVisibilityModel";
 import { TranscriptionAnalyticsPanel } from "./TranscriptionAnalyticsPanel";
 import { TranscriptCatalogMigrationPanel } from "./TranscriptCatalogMigrationPanel";
+import {
+  readStudioThemePreference,
+  setStudioThemePreference,
+  type StudioThemePreference,
+} from "./theme";
 import "./styles.css";
 
 type AccountPreferences = {
@@ -3127,6 +3132,8 @@ function SettingsPage({
   >("loading");
   const [retentionSaving, setRetentionSaving] = useState(false);
   const [retentionMessage, setRetentionMessage] = useState("");
+  const [themePreference, setThemePreference] =
+    useState<StudioThemePreference>(() => readStudioThemePreference());
   const [error, setError] = useState("");
   const [createCredentialOpen, setCreateCredentialOpen] = useState(false);
   const [replacingCredentialId, setReplacingCredentialId] = useState<
@@ -3340,6 +3347,29 @@ function SettingsPage({
             <button className="secondary" onClick={onLogout}>
               Выйти
             </button>
+          </section>
+          <h3>Оформление</h3>
+          <section className="card theme-preferences">
+            <label>
+              Тема интерфейса
+              <select
+                aria-label="Тема интерфейса"
+                value={themePreference}
+                onChange={(event) => {
+                  const preference = event.target.value as StudioThemePreference;
+                  setThemePreference(preference);
+                  setStudioThemePreference(preference);
+                }}
+              >
+                <option value="system">Системная</option>
+                <option value="light">Светлая</option>
+                <option value="dark">Тёмная</option>
+              </select>
+            </label>
+            <p className="muted">
+              Системная тема следует настройке устройства. Выбор сохраняется
+              только в этом браузере и не содержит данных аккаунта.
+            </p>
           </section>
           <h3>Хранение локальных файлов</h3>
           <section className="card retention-preferences">

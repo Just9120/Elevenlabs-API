@@ -4,6 +4,7 @@ import { registerSW } from "virtual:pwa-register";
 import App from "./App";
 import { PwaErrorBoundary } from "./PwaErrorBoundary";
 import { emitPwaServiceWorkerError, installPwaGlobalErrorHandlers } from "./pwaDiagnostics";
+import { initializeStudioTheme } from "./theme";
 
 let pwaRuntimeInitialized = false;
 let appRendered = false;
@@ -30,5 +31,6 @@ export function renderStudioApp() {
   );
 }
 
+initializeStudioTheme();
 initializePwaRuntime();
 renderStudioApp();

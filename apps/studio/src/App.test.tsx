@@ -561,6 +561,9 @@ describe("Studio PWA", () => {
       .forEach((node) => node.remove());
     localStorage.clear();
     sessionStorage.clear();
+    delete document.documentElement.dataset.theme;
+    delete document.documentElement.dataset.themePreference;
+    document.documentElement.style.colorScheme = "";
     let localUploadIndex = 0;
     const localUploadMetadata = new Map<
       string,
@@ -2796,6 +2799,19 @@ describe("Studio PWA", () => {
     expect(
       screen.getByRole("button", { name: "Проверить задачи (1)" }),
     ).toBeEnabled();
+  });
+
+  it("offers and persists system, light, and dark appearance choices", async () => {
+    renderApp();
+    await openSettingsPage();
+    const selector = screen.getByLabelText("Тема интерфейса");
+    expect(selector).toHaveValue("system");
+    await userEvent.selectOptions(selector, "dark");
+    expect(localStorage.getItem("studio-theme-preference")).toBe("dark");
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    await userEvent.selectOptions(selector, "light");
+    expect(localStorage.getItem("studio-theme-preference")).toBe("light");
+    expect(document.documentElement.dataset.theme).toBe("light");
   });
 
   it("builds two project jobs from one source and a manual boundary", async () => {
@@ -7173,6 +7189,9 @@ describe("Studio PWA", () => {
     expect(css).toMatch(
       /button:where\(\s*:not\(\.primary\):not\(\.danger\)\s*\)/,
     );
+    expect(css).toContain(':root[data-theme="dark"]');
+    expect(css).toMatch(/\.shell > main\s*\{[^}]*width:\s*100%/s);
+    expect(css).not.toContain("width: min(100%, 1360px)");
     expect(css).not.toContain("!important");
     expect(css).toContain(".app-nav button");
     expect(css).toContain(".tabs button");
@@ -7391,7 +7410,7 @@ describe("settings diagnostics", () => {
     window.history.replaceState({}, "", "/");
   });
 
-  it("restores and updates URL-backed platform navigation without browser storage", async () => {
+  it("restores URL-backed navigation without browser-stored navigation state", async () => {
     const addSpy = vi.spyOn(window, "addEventListener");
     const removeSpy = vi.spyOn(window, "removeEventListener");
     const localGet = vi.spyOn(Storage.prototype, "getItem");
@@ -7459,7 +7478,9 @@ describe("settings diagnostics", () => {
     expect(
       addSpy.mock.calls.filter(([type]) => type === "popstate"),
     ).toHaveLength(5);
-    expect(localGet).not.toHaveBeenCalled();
+    expect(
+      localGet.mock.calls.every(([key]) => key === "studio-theme-preference"),
+    ).toBe(true);
     expect(localSet).not.toHaveBeenCalled();
     cleanup();
     window.history.replaceState({}, "", "/");
