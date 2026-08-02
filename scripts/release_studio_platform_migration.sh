@@ -152,6 +152,8 @@ PY
 [[ "${STUDIO_RELEASE_LOCK_HELD:-}" == "yes" ]] || blocked "release_lock_not_held"
 [[ -n "${STUDIO_DEPLOY_DIR:-}" ]] || blocked "deploy_directory_missing"
 [[ -n "${STUDIO_EXPECTED_COMMIT:-}" ]] || blocked "expected_commit_missing"
+[[ "${STUDIO_REQUESTED_MIGRATION_TARGET:-}" =~ ^(head|[[:alnum:]_]+)$ ]] \
+  || blocked "requested_migration_target_invalid"
 [[ "${STUDIO_REPOSITORY_USER:-}" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] \
   || blocked "repository_user_invalid"
 [[ "$STUDIO_EXPECTED_COMMIT" =~ ^[0-9a-f]{40}$ ]] \
@@ -321,29 +323,51 @@ if ! migration_metadata="$(
   docker run --rm --entrypoint python "$API_IMAGE" -c '
 from alembic.config import Config
 from alembic.script import ScriptDirectory
+import sys
 
 script = ScriptDirectory.from_config(Config("/app/alembic.ini"))
 heads = script.get_heads()
 if len(heads) != 1:
     raise SystemExit(1)
-revision = script.get_revision(heads[0])
+repository_head = heads[0]
+requested = sys.argv[1]
+target = repository_head if requested == "head" else requested
+revision = script.get_revision(target)
+if revision is None:
+    raise SystemExit(1)
+
+cursor = script.get_revision(repository_head)
+ancestors = set()
+while cursor is not None:
+    ancestors.add(cursor.revision)
+    parent = cursor.down_revision
+    if parent is None:
+        break
+    if not isinstance(parent, str):
+        raise SystemExit(1)
+    cursor = script.get_revision(parent)
+if target not in ancestors:
+    raise SystemExit(1)
+
 down_revision = revision.down_revision
 release_safety = getattr(revision.module, "release_safety", None)
 if not isinstance(down_revision, str):
     raise SystemExit(1)
-print(heads[0], down_revision, release_safety or "", sep="\t")
-' </dev/null 2>/dev/null
+print(target, down_revision, release_safety or "", repository_head, sep="\t")
+' "$STUDIO_REQUESTED_MIGRATION_TARGET" </dev/null 2>/dev/null
 )"; then
   blocked "candidate_migration_metadata_failed"
 fi
 [[ "$migration_metadata" != *$'\n'* ]] \
   || blocked "candidate_migration_metadata_count"
-IFS=$'\t' read -r target_revision source_revision release_safety \
+IFS=$'\t' read -r target_revision source_revision release_safety repository_head \
   <<<"$migration_metadata"
 [[ "$target_revision" =~ ^[[:alnum:]_]+$ ]] \
   || blocked "candidate_head_invalid"
 [[ "$source_revision" =~ ^[[:alnum:]_]+$ ]] \
   || blocked "candidate_down_revision_invalid"
+[[ "$repository_head" =~ ^[[:alnum:]_]+$ ]] \
+  || blocked "candidate_repository_head_invalid"
 [[ "$target_revision" != "$source_revision" ]] \
   || blocked "candidate_migration_not_required"
 [[ "$release_safety" == "additive" ]] \
@@ -409,6 +433,7 @@ if ! STUDIO_DEPLOY_DIR="$STUDIO_DEPLOY_DIR" \
   STUDIO_PRE_MIGRATION_BACKUP_SNAPSHOT="$snapshot_id" \
   STUDIO_EXPECTED_MIGRATION_FROM="$source_revision" \
   STUDIO_EXPECTED_MIGRATION_TO="$target_revision" \
+  STUDIO_EXPECTED_REPOSITORY_HEAD="$repository_head" \
   STUDIO_EXPECTED_API_IMAGE_ID="$candidate_image_id" \
   bash "$MIGRATION_SCRIPT" </dev/null; then
   blocked "migration_failed"
@@ -418,18 +443,22 @@ post_revision="$(probe_current_revision)"
 [[ "$post_revision" == "$target_revision" ]] \
   || blocked "post_migration_revision_mismatch"
 
-phase="api_deploy"
-compose up -d --no-deps --force-recreate studio-api </dev/null \
-  || blocked "api_recreate_failed"
-api_container="$(compose ps -q studio-api 2>/dev/null)" \
-  || blocked "api_container_probe_failed"
-[[ -n "$api_container" && "$api_container" != *$'\n'* ]] \
-  || blocked "api_container_count"
-running_image_id="$(
-  docker inspect --format '{{.Image}}' "$api_container" 2>/dev/null
-)" || blocked "api_image_probe_failed"
-[[ "$running_image_id" == "$candidate_image_id" ]] \
-  || blocked "api_image_mismatch"
+api_deployed="no"
+if [[ "$target_revision" == "$repository_head" ]]; then
+  phase="api_deploy"
+  compose up -d --no-deps --force-recreate studio-api </dev/null \
+    || blocked "api_recreate_failed"
+  api_container="$(compose ps -q studio-api 2>/dev/null)" \
+    || blocked "api_container_probe_failed"
+  [[ -n "$api_container" && "$api_container" != *$'\n'* ]] \
+    || blocked "api_container_count"
+  running_image_id="$(
+    docker inspect --format '{{.Image}}' "$api_container" 2>/dev/null
+  )" || blocked "api_image_probe_failed"
+  [[ "$running_image_id" == "$candidate_image_id" ]] \
+    || blocked "api_image_mismatch"
+  api_deployed="yes"
+fi
 
 local_health="failed"
 for _ in $(seq 1 30); do
@@ -446,10 +475,12 @@ curl -fsS -o /dev/null --max-time 8 \
   || blocked "public_api_health_failed"
 
 phase="complete"
-printf '%s OK commit=%s from=%s to=%s snapshot=%s image=%s\n' \
+printf '%s OK commit=%s from=%s to=%s head=%s snapshot=%s image=%s api_deployed=%s\n' \
   "$PREFIX" \
   "${STUDIO_EXPECTED_COMMIT:0:12}" \
   "$source_revision" \
   "$target_revision" \
+  "$repository_head" \
   "${snapshot_id:0:12}" \
-  "${candidate_image_id:0:19}"
+  "${candidate_image_id:0:19}" \
+  "$api_deployed"

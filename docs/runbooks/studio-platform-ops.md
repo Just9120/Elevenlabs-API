@@ -103,8 +103,10 @@ Health evidence should include only safe status booleans/markers, component name
 Migration rollout order is strict:
 
 1. Verify PostgreSQL and Redis health/stateful-service identity.
-2. Build the exact candidate API image and verify that exactly one direct
-   repository migration is pending and classified `additive`.
+2. Build the exact candidate API image and select exactly one direct migration
+   target on the repository head's single linear chain. Verify that target is
+   the current database revision's direct successor and is classified
+   `additive`.
 3. Create a new tagged pre-migration PostgreSQL backup through the approved
    backup boundary.
 4. Identify that new snapshot relative to the pre-run inventory, restore it only
@@ -115,10 +117,11 @@ Migration rollout order is strict:
    host PostgreSQL client.
 5. Run the migration once only after explicit operator or protected-environment
    approval.
-6. Verify production database revision equals the reviewed repository Alembic
-   head (`0018_job_part_progress` for the current progress candidate).
-7. Recreate only `studio-api` from the already captured candidate image, verify
-   running image identity, then verify localhost and public API health.
+6. Verify production database revision equals the explicitly reviewed target.
+7. For an intermediate target, preserve the running API and recheck localhost
+   and public health. For the repository head, recreate only `studio-api` from
+   the already captured candidate image, verify running image identity, then
+   verify localhost and public API health.
 
 Ordinary web/API/worker component CD does not own this sequence. The preferred
 automated path is the separately protected migration release lane below. The
@@ -133,18 +136,20 @@ environment `studio-production-migration`. When that environment is correctly
 protected, GitHub pauses the job for its required reviewer before environment
 secrets or VPS steps become available. Environment binding or a green job alone
 is not evidence that the pause and approval occurred. The job sends exactly
-`release <main-sha>` to a dedicated root SSH key whose forced command is
+`release <main-sha> <target>` to a dedicated root SSH key whose forced command is
 `/usr/local/sbin/studio-migration-release-wrapper`.
 
-The root-owned wrapper accepts no other command. It locks the release,
+The root-owned wrapper accepts only that command, where target is `head` or one
+bounded Alembic revision identifier. It locks the release,
 fast-forwards the clean `studio-deploy` checkout to the exact current remote
 `main`, materializes the versioned runner from that SHA, clears the SSH
 environment, and executes the runner. The runner requires root-owned protected
 backup/OAuth secret files, healthy PostgreSQL/Redis/API, and a stopped worker.
-It builds the API candidate, verifies the one direct additive migration,
+It builds the API candidate, verifies the selected one direct additive
+migration is an ancestor of the single repository head,
 creates and restores a new tagged snapshot for dump validation, migrates once,
-recreates only API from the captured image ID, and emits success only after
-local/public health. Dump parsing uses the exact running PostgreSQL image ID in
+recreates API from the captured image ID only for the repository-head target,
+and emits success only after local/public health. Dump parsing uses the exact running PostgreSQL image ID in
 an ephemeral container with no network, a read-only root filesystem, dropped
 capabilities, no image pull, and only the restored dump mounted read-only. An
 ephemeral tmpfs covers the image-declared PostgreSQL data path so the validation
@@ -209,13 +214,35 @@ One-time setup must be completed in this order:
    records that approval. If the job starts immediately or no review is
    recorded, stop and repair environment protection; a green probe alone is not
    approval evidence.
-8. Set `STUDIO_MIGRATION_RELEASE_ENABLED=true` only when one reviewed migration
-   is actually pending and every release prerequisite is current. For the first
-   intended rollout, dispatch `component=migration` from `main`, then approve
-   the waiting environment deployment in the GitHub UI. Later merged migration
-   changes may select the same approval gate automatically. If production is
-   already at repository Alembic head, leave the variable `false` and do not
-   dispatch the migration release merely to test the gate.
+8. Set `STUDIO_MIGRATION_RELEASE_ENABLED=true` only when a reviewed direct
+   migration is actually pending and every release prerequisite is current.
+   Dispatch `component=migration` from `main` with `migration_target` set to the
+   one direct successor, then approve the waiting environment deployment in the
+   GitHub UI. For consecutive pending revisions, repeat this as a new protected
+   run for each direct successor; never select the final head while an earlier
+   successor is still pending. `migration_target=head` remains appropriate when
+   the repository head itself is the one direct successor. Later merged
+   migration changes may select the same approval gate automatically. If
+   production is already at repository Alembic head, leave the variable `false`
+   and do not dispatch the migration release merely to test the gate.
+
+When a merged change modifies the forced-command wrapper contract, reinstall
+the reviewed exact-main wrapper before enabling the lane:
+
+```bash
+sudo install \
+  -o root -g root -m 0755 \
+  /opt/elevenlabs-studio/deploy/studio/studio-migration-release-wrapper.sh \
+  /usr/local/sbin/studio-migration-release-wrapper
+```
+
+For the current `0017 -> 0018 -> 0019` rollout, the protected sequence is:
+
+1. `migration_target=0018_job_part_progress`; approve and require
+   `api_deployed=no`.
+2. `migration_target=0019_job_media_clip`; approve and require
+   `api_deployed=yes` plus localhost/public API health.
+3. Disable the enable variable before the separate worker deployment.
 
 The lane never starts or deploys the worker, calls providers or Google, reloads
 nginx, restores into PostgreSQL, downgrades, retries, or rolls back. A manual
@@ -245,6 +272,7 @@ STUDIO_PRE_MIGRATION_BACKUP_CONFIRMED=yes \
 STUDIO_PRE_MIGRATION_BACKUP_SNAPSHOT=__REQUIRED_64_HEX_SNAPSHOT_ID__ \
 STUDIO_EXPECTED_MIGRATION_FROM=0017_google_maintenance_oauth \
 STUDIO_EXPECTED_MIGRATION_TO=0018_job_part_progress \
+STUDIO_EXPECTED_REPOSITORY_HEAD=0019_job_media_clip \
 STUDIO_EXPECTED_API_IMAGE_ID=sha256:__REQUIRED_64_HEX_IMAGE_ID__ \
   scripts/migrate_studio_platform.sh
 ```
