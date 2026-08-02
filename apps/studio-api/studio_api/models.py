@@ -197,6 +197,8 @@ class TranscriptionJob(Base):
     batch_idempotency_key: Mapped[str|None]=mapped_column(String(128))
     batch_request_hash: Mapped[str|None]=mapped_column(String(64))
     batch_position: Mapped[int|None]=mapped_column(Integer)
+    media_clip_start_seconds: Mapped[int|None]=mapped_column(Integer)
+    media_clip_end_seconds: Mapped[int|None]=mapped_column(Integer)
     created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now)
     updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now, onupdate=now)
     cancelled_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
@@ -212,7 +214,7 @@ class TranscriptionJob(Base):
     lease_expires_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     project: Mapped[Project]=relationship("Project", back_populates="jobs")
     sources: Mapped[list["TranscriptionJobSource"]]=relationship("TranscriptionJobSource", back_populates="job", order_by="TranscriptionJobSource.position")
-    __table_args__=(Index("ix_transcription_jobs_project_status_created", "project_id", "status", "created_at"), Index("ix_transcription_jobs_status_lease_expires_created", "status", "lease_expires_at", "created_at"), CheckConstraint("((batch_idempotency_key IS NULL AND batch_request_hash IS NULL AND batch_position IS NULL) OR (batch_idempotency_key IS NOT NULL AND batch_request_hash IS NOT NULL AND batch_position IS NOT NULL AND batch_position >= 0))", name="ck_transcription_jobs_batch_fields_all_or_none"), UniqueConstraint("owner_user_id", "project_id", "batch_idempotency_key", "batch_position", name="uq_transcription_jobs_batch_position"),)
+    __table_args__=(Index("ix_transcription_jobs_project_status_created", "project_id", "status", "created_at"), Index("ix_transcription_jobs_status_lease_expires_created", "status", "lease_expires_at", "created_at"), CheckConstraint("((batch_idempotency_key IS NULL AND batch_request_hash IS NULL AND batch_position IS NULL) OR (batch_idempotency_key IS NOT NULL AND batch_request_hash IS NOT NULL AND batch_position IS NOT NULL AND batch_position >= 0))", name="ck_transcription_jobs_batch_fields_all_or_none"), CheckConstraint("((media_clip_start_seconds IS NULL AND media_clip_end_seconds IS NULL) OR (COALESCE(media_clip_start_seconds, 0) >= 0 AND COALESCE(media_clip_start_seconds, 0) <= 604800 AND (media_clip_end_seconds IS NULL OR (media_clip_end_seconds > COALESCE(media_clip_start_seconds, 0) AND media_clip_end_seconds <= 604800)) AND NOT (media_clip_start_seconds = 0 AND media_clip_end_seconds IS NULL)))", name="ck_transcription_jobs_media_clip_range"), UniqueConstraint("owner_user_id", "project_id", "batch_idempotency_key", "batch_position", name="uq_transcription_jobs_batch_position"),)
 
     def apply_output_folder_snapshot(self, *, folder_id=None, folder_url=None, folder_name=None):
         from .job_output_folder_selection import normalize_drive_id, normalize_drive_url, normalize_optional_name

@@ -59,11 +59,11 @@ def test_retry_recovery_model_metadata_contract(studio_model_modules):
     assert indexes["ix_source_attempts_job_retry_disposition"] == ("job_id", "retry_disposition")
 
 
-def test_alembic_single_head_is_job_part_progress():
+def test_alembic_single_head_is_job_media_clip():
     cfg = Config("apps/studio-api/alembic.ini")
     script = ScriptDirectory.from_config(cfg)
-    assert script.get_heads() == ["0018_job_part_progress"]
-    assert script.get_current_head() == "0018_job_part_progress"
+    assert script.get_heads() == ["0019_job_media_clip"]
+    assert script.get_current_head() == "0019_job_media_clip"
 
 from datetime import datetime, timedelta
 from sqlalchemy import create_engine

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PREFIX="[studio-processing-preflight]"
-EXPECTED_HEAD="0018_job_part_progress"
+EXPECTED_HEAD="0019_job_media_clip"
 COMPOSE_FILE="deploy/studio/compose.platform.yml"
 ENV_FILE="deploy/studio/.env"
 VERSIONS_DIR="apps/studio-api/alembic/versions"
