@@ -3668,6 +3668,7 @@ def test_batch_preflight_is_safe_ordered_and_does_not_create_rows(monkeypatch):
         }
         and item["planned_outcome"] == "process"
         and item["source"]["duration_seconds"] is None
+        and item["media_clip"] is None
         for item in data["items"]
     )
     assert calls.count(("folder", "shared")) == 1
@@ -3681,6 +3682,139 @@ def test_batch_preflight_is_safe_ordered_and_does_not_create_rows(monkeypatch):
         "https://drive.google.com/drive/folders/shared",
     ):
         assert private_value not in r.text
+
+
+def test_batch_two_project_split_preflights_and_persists_complementary_jobs(monkeypatch):
+    _install_batch_folder_mocks(monkeypatch)
+    c, csrf, _user_id, pid, source_a, _source_b, cred_id = _batch_setup(
+        "batch-two-project-split@example.com"
+    )
+    body = {
+        "provider_credential_id": cred_id,
+        "language": "ru",
+        "options": {"diarize": True},
+        "items": [
+            {
+                "source_id": source_a,
+                "output_folder_id": "project-one",
+                "title": "Созвон — проект 1",
+                "media_clip_start_seconds": 0,
+                "media_clip_end_seconds": 610,
+            },
+            {
+                "source_id": source_a,
+                "output_folder_id": "project-two",
+                "title": "Созвон — проект 2",
+                "media_clip_start_seconds": 610,
+                "media_clip_end_seconds": None,
+            },
+        ],
+    }
+    headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+
+    preview = c.post(
+        f"/api/projects/{pid}/jobs/batch/preflight",
+        json=body,
+        headers=headers,
+    )
+
+    assert preview.status_code == 200
+    assert preview.json()["summary"] == {
+        "process_count": 2,
+        "skip_count": 0,
+        "blocked_count": 0,
+    }
+    assert [item["media_clip"] for item in preview.json()["items"]] == [
+        {"start_seconds": 0, "end_seconds": 610},
+        {"start_seconds": 610, "end_seconds": None},
+    ]
+
+    created = c.post(
+        f"/api/projects/{pid}/jobs/batch",
+        json=body,
+        headers={**headers, "Idempotency-Key": "batch-two-project-split-key"},
+    )
+
+    assert created.status_code == 200
+    assert created.json()["created_count"] == 2
+    db = SessionLocal()
+    try:
+        jobs = (
+            db.query(TranscriptionJob)
+            .filter(TranscriptionJob.project_id == pid)
+            .order_by(TranscriptionJob.batch_position)
+            .all()
+        )
+        assert [
+            (job.media_clip_start_seconds, job.media_clip_end_seconds)
+            for job in jobs
+        ] == [(0, 610), (610, None)]
+        assert [job.output_drive_folder_id for job in jobs] == [
+            "project-one",
+            "project-two",
+        ]
+        assert jobs[0].batch_request_hash == jobs[1].batch_request_hash
+    finally:
+        db.close()
+
+
+@pytest.mark.parametrize(
+    "items",
+    [
+        [
+            {
+                "source_id": "SOURCE",
+                "output_folder_id": "one",
+                "media_clip_start_seconds": 0,
+                "media_clip_end_seconds": 610,
+            }
+        ],
+        [
+            {
+                "source_id": "SOURCE",
+                "output_folder_id": "same",
+                "media_clip_start_seconds": 0,
+                "media_clip_end_seconds": 610,
+            },
+            {
+                "source_id": "SOURCE",
+                "output_folder_id": "same",
+                "media_clip_start_seconds": 610,
+                "media_clip_end_seconds": None,
+            },
+        ],
+        [
+            {
+                "source_id": "SOURCE",
+                "output_folder_id": "one",
+                "media_clip_start_seconds": 0,
+                "media_clip_end_seconds": 610,
+            },
+            {
+                "source_id": "SOURCE",
+                "output_folder_id": "two",
+                "media_clip_start_seconds": 611,
+                "media_clip_end_seconds": None,
+            },
+        ],
+    ],
+)
+def test_batch_two_project_split_rejects_incomplete_same_folder_or_gapped_plan(monkeypatch, items):
+    _install_batch_folder_mocks(monkeypatch)
+    c, csrf, _user_id, pid, source_a, _source_b, cred_id = _batch_setup(
+        f"batch-invalid-split-{len(items)}-{items[-1]['output_folder_id']}@example.com"
+    )
+    for item in items:
+        item["source_id"] = source_a
+
+    response = c.post(
+        f"/api/projects/{pid}/jobs/batch/preflight",
+        json={"provider_credential_id": cred_id, "items": items},
+        headers={"origin": "https://studio.test", "x-csrf-token": csrf},
+    )
+
+    assert response.status_code == 422
+    assert _count_batch_rows() == (0, 0)
 
 
 def test_batch_create_rechecks_existing_result_and_requires_explicit_reprocessing(monkeypatch):

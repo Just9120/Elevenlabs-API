@@ -100,6 +100,7 @@ def test_batch_preflight_payload_is_ordered_explicit_and_browser_safe():
     assert payload["items"][0] == {
         "position": 0,
         "title": "First",
+        "media_clip": None,
         "source": {
             "name": "Interview.mp4",
             "source_type": "google_drive",

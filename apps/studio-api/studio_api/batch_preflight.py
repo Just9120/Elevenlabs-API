@@ -23,6 +23,8 @@ def build_batch_preflight_payload(
     provider_attempt_authorities: dict[
         str, ProviderAttemptAuthorityStatus
     ],
+    decision_keys: Sequence[str] | None = None,
+    media_clips: Sequence[Any] | None = None,
 ) -> dict[str, Any]:
     """Build a browser-safe preview from validated targets and catalog evidence."""
     if not (
@@ -32,6 +34,12 @@ def build_batch_preflight_payload(
         == len(reprocess_existing)
     ):
         raise ValueError("Preflight inputs must have equal lengths")
+    keys = tuple(decision_keys) if decision_keys is not None else tuple(
+        str(getattr(source, "id", "")) for source in sources
+    )
+    clips = tuple(media_clips) if media_clips is not None else (None,) * len(sources)
+    if len(keys) != len(sources) or len(clips) != len(sources):
+        raise ValueError("Preflight decision inputs must have equal lengths")
 
     items = []
     for position, (source, folder, title, explicit_reprocess) in enumerate(
@@ -44,10 +52,11 @@ def build_batch_preflight_payload(
         )
     ):
         source_id = getattr(source, "id", None)
-        match = existing_result_matches.get(source_id)
+        decision_key = keys[position]
+        match = existing_result_matches.get(decision_key)
         if match is None:
             raise ValueError("Preflight catalog decision is missing")
-        provider_attempt_authority = provider_attempt_authorities.get(source_id)
+        provider_attempt_authority = provider_attempt_authorities.get(decision_key)
         if provider_attempt_authority is None:
             raise ValueError("Preflight provider-attempt authority is missing")
         existing_result_conflict = (
@@ -74,6 +83,7 @@ def build_batch_preflight_payload(
             {
                 "position": position,
                 "title": _optional_text(title, 160),
+                "media_clip": _media_clip_payload(clips[position]),
                 "source": {
                     "name": _optional_text(
                         getattr(source, "original_filename", None), 255
@@ -159,3 +169,12 @@ def _provider_attempt_authority_payload(
             "reason_code": "equivalent_provider_outcome_unresolved",
         }
     raise ValueError("Unsupported provider-attempt authority")
+
+
+def _media_clip_payload(clip: Any) -> dict[str, int | None] | None:
+    if clip is None or bool(getattr(clip, "is_full_source", False)):
+        return None
+    return {
+        "start_seconds": getattr(clip, "start_seconds", None),
+        "end_seconds": getattr(clip, "end_seconds", None),
+    }
