@@ -50,6 +50,7 @@ def test_retry_recovery_model_metadata_contract(studio_model_modules):
     assert {"provider_authentication_rejected", "provider_request_rejected", "provider_rate_limited"} <= studio_model_modules["SAFE_PROVIDER_FAILURES"]
     assert {"provider_timeout", "provider_unavailable", "malformed_provider_response", "partial_provider_result", "unknown"} <= studio_model_modules["UNCERTAIN_PROVIDER_FAILURES"]
     assert {"ffmpeg_unavailable", "media_preparation_timeout", "media_preparation_failed", "prepared_media_too_large", "media_duration_unavailable", "media_split_failed", "media_part_too_large"} <= studio_model_modules["PRE_PROVIDER_SAFE_FAILURES"]
+    assert "media_clip_out_of_bounds" not in studio_model_modules["PRE_PROVIDER_SAFE_FAILURES"]
     assert {"owner_user_id", "project_id", "job_id", "job_source_id", "attempt_number", "stage", "retry_disposition"} <= set(table.c.keys())
     assert {tuple(c.name for c in constraint.columns) for constraint in table.constraints if getattr(constraint, "columns", None)} >= {("job_source_id", "attempt_number")}
     indexes = {idx.name: tuple(col.name for col in idx.columns) for idx in table.indexes}
@@ -59,11 +60,11 @@ def test_retry_recovery_model_metadata_contract(studio_model_modules):
     assert indexes["ix_source_attempts_job_retry_disposition"] == ("job_id", "retry_disposition")
 
 
-def test_alembic_single_head_is_transcript_catalog_entries():
+def test_alembic_single_head_is_job_media_clip():
     cfg = Config("apps/studio-api/alembic.ini")
     script = ScriptDirectory.from_config(cfg)
-    assert script.get_heads() == ["0017_google_maintenance_oauth"]
-    assert script.get_current_head() == "0017_google_maintenance_oauth"
+    assert script.get_heads() == ["0019_job_media_clip"]
+    assert script.get_current_head() == "0019_job_media_clip"
 
 from datetime import datetime, timedelta
 from sqlalchemy import create_engine
@@ -151,15 +152,79 @@ def test_prepare_current_attempt_sources_requires_exact_processing_context_and_a
         prepare_current_attempt_sources(sqlite_db, job_id=job.id, lease_owner_id="worker", lease_generation=8, now=now)
 
 
+def test_provider_part_progress_is_durable_monotonic_and_bounded(sqlite_db):
+    from studio_api.job_retry_recovery import (
+        mark_attempt_provider_part_completed,
+        mark_attempt_provider_returned,
+        mark_attempt_provider_started,
+    )
+
+    m, now, _user, _project, job, rels = _job_with_sources(
+        sqlite_db,
+        source_count=1,
+    )
+    _attempt(sqlite_db, m, job, rels[0])
+
+    row = mark_attempt_provider_started(
+        sqlite_db,
+        job_id=job.id,
+        job_source_id=rels[0].id,
+        lease_owner_id="worker",
+        lease_generation=7,
+        total_parts=2,
+        now=now,
+    )
+    sqlite_db.commit()
+    assert (row.provider_completed_parts, row.provider_total_parts) == (0, 2)
+
+    row = mark_attempt_provider_part_completed(
+        sqlite_db,
+        job_id=job.id,
+        job_source_id=rels[0].id,
+        lease_owner_id="worker",
+        lease_generation=7,
+        completed_parts=1,
+        now=now,
+    )
+    sqlite_db.commit()
+    assert row.provider_completed_parts == 1
+
+    with pytest.raises(RuntimeError, match="provider_part_progress_invalid"):
+        mark_attempt_provider_part_completed(
+            sqlite_db,
+            job_id=job.id,
+            job_source_id=rels[0].id,
+            lease_owner_id="worker",
+            lease_generation=7,
+            completed_parts=3,
+            now=now,
+        )
+    sqlite_db.rollback()
+
+    row = mark_attempt_provider_returned(
+        sqlite_db,
+        job_id=job.id,
+        job_source_id=rels[0].id,
+        lease_owner_id="worker",
+        lease_generation=7,
+        now=now,
+    )
+    sqlite_db.commit()
+    assert row.provider_completed_parts == row.provider_total_parts == 2
+
+
 def test_multisource_prepared_rows_allow_recovery_and_explicit_retry(sqlite_db):
     from studio_api.job_processing_lifecycle import recover_expired_processing_job
-    from studio_api.job_retry_recovery import compute_explicit_retry_readiness
+    from studio_api.job_retry_recovery import compute_explicit_retry_readiness, queue_retry
     m, now, _user, _project, job, rels = _job_with_sources(sqlite_db, source_count=2, expired=True)
     for rel in rels: _attempt(sqlite_db, m, job, rel)
     result = recover_expired_processing_job(sqlite_db, job_id=job.id, now=now)
     assert result.status == m.JobStatus.queued
-    job.status = m.JobStatus.failed; job.lease_owner_id = None; job.lease_expires_at = None; sqlite_db.commit()
+    job.status = m.JobStatus.failed; job.lease_owner_id = None; job.lease_expires_at = None; job.terminal_dismissed_at = now; sqlite_db.commit()
     assert compute_explicit_retry_readiness(sqlite_db, job, now=now).available is True
+    retry = queue_retry(sqlite_db, owner_user_id=job.owner_user_id, job_id=job.id, now=now)
+    assert retry is not None and retry.transitioned is True
+    assert retry.job.terminal_dismissed_at is None
 
 
 def test_partial_output_preserved_and_prepared_next_source_is_safe(sqlite_db):

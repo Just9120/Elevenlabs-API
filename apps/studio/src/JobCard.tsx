@@ -26,6 +26,8 @@ export function JobCard({
   onCancel,
   onCheckReconciliation,
   onRetry,
+  pinnedTerminal = false,
+  onDismissTerminal,
 }: {
   job: TranscriptionJob;
   detail: JobDetailState | undefined;
@@ -37,13 +39,37 @@ export function JobCard({
   onCancel: (jobId: string) => void | Promise<void>;
   onCheckReconciliation: (jobId: string) => void | Promise<void>;
   onRetry: (jobId: string) => void | Promise<void>;
+  pinnedTerminal?: boolean;
+  onDismissTerminal?: (jobId: string) => void | Promise<void>;
 }) {
   const detailedJob = detail?.job;
   const terminal = ["completed", "failed", "cancelled"].includes(job.status);
 
   return (
-    <article className={`source-card ${terminal ? "terminal-job" : ""}`}>
+    <article
+      className={`source-card ${terminal ? "terminal-job" : ""}${
+        pinnedTerminal ? " pinned-terminal-job" : ""
+      }`}
+    >
       <JobCardSummary job={job} />
+      {pinnedTerminal && (
+        <div className="job-terminal-notice" role="status" aria-live="polite">
+          <strong>
+            {job.status === "completed"
+              ? "Задача завершена на 100% — результат доступен ниже."
+              : job.status === "failed"
+                ? "Задача завершилась ошибкой."
+                : "Задача отменена."}
+          </strong>
+          <button
+            className="secondary"
+            type="button"
+            onClick={() => onDismissTerminal?.(job.id)}
+          >
+            Убрать в историю
+          </button>
+        </div>
+      )}
       <JobProgressPipeline jobId={job.id} state={progress} />
       <JobCardActions job={job} onOpen={onOpen} onCancel={onCancel} />
       {detail?.loading && <p role="status">Загрузка деталей задачи…</p>}

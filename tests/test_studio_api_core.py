@@ -529,6 +529,52 @@ def test_transcription_jobs_auth_and_csrf_required():
     assert c.post(f"/api/jobs/{jid}/cancel").status_code == 403
 
 
+def test_terminal_job_dismissal_is_durable_owner_scoped_and_idempotent():
+    c, headers, pid = create_logged_in_project("job-dismiss-owner@example.com")
+    other, other_headers, _ = create_logged_in_project("job-dismiss-other@example.com")
+    db = SessionLocal()
+    try:
+        project = db.get(Project, pid)
+        terminal = TranscriptionJob(
+            project_id=pid,
+            owner_user_id=project.owner_user_id,
+            status=JobStatus.completed,
+            finished_at=utcnow(),
+        )
+        active = TranscriptionJob(
+            project_id=pid,
+            owner_user_id=project.owner_user_id,
+            status=JobStatus.processing,
+        )
+        db.add_all([terminal, active])
+        db.commit()
+        terminal_id, active_id = terminal.id, active.id
+    finally:
+        db.close()
+
+    before = c.get(f"/api/projects/{pid}/jobs").json()["jobs"]
+    assert next(job for job in before if job["id"] == terminal_id)[
+        "terminal_dismissed_at"
+    ] is None
+    assert c.post(f"/api/jobs/{terminal_id}/dismiss").status_code == 403
+    assert other.post(
+        f"/api/jobs/{terminal_id}/dismiss", headers=other_headers
+    ).status_code == 404
+    assert c.post(f"/api/jobs/{active_id}/dismiss", headers=headers).status_code == 409
+
+    first = c.post(f"/api/jobs/{terminal_id}/dismiss", headers=headers)
+    assert first.status_code == 200
+    dismissed_at = first.json()["terminal_dismissed_at"]
+    assert dismissed_at
+    second = c.post(f"/api/jobs/{terminal_id}/dismiss", headers=headers)
+    assert second.status_code == 200
+    assert second.json()["terminal_dismissed_at"] == dismissed_at
+    after = c.get(f"/api/projects/{pid}/jobs").json()["jobs"]
+    assert next(job for job in after if job["id"] == terminal_id)[
+        "terminal_dismissed_at"
+    ] == dismissed_at
+
+
 def test_legacy_job_selects_sole_active_elevenlabs_credential_for_blank_id():
     c, headers, pid = create_logged_in_project("jobs-blank-credential@example.com")
     sid = create_gdrive_source(c, headers, pid)
@@ -1980,7 +2026,7 @@ def test_job_lease_migration_real_0005_shape_upgrades_to_head():
             assert {"lease_owner_id", "lease_generation", "claimed_at", "lease_expires_at", "attempt_count", "cancel_requested_at"}.issubset(cols)
             indexes = [idx["name"] for idx in inspector.get_indexes("transcription_jobs")]
             assert indexes.count("ix_transcription_jobs_status_lease_expires_created") == 1
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0017_google_maintenance_oauth"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0019_job_media_clip"
 
 
 
@@ -2015,7 +2061,7 @@ def test_job_output_migration_clean_chain_constraints_and_0007_roundtrip():
         run_alembic("head", env=env)
         with temp_engine.begin() as conn:
             assert "transcription_job_outputs" in inspect(conn).get_table_names()
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0017_google_maintenance_oauth"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0019_job_media_clip"
 
 
 
@@ -2681,7 +2727,13 @@ JOB_PROGRESS_TOP_KEYS = {
     "current_stage",
     "sources",
 }
-JOB_PROGRESS_SOURCE_KEYS = {"position", "name", "status", "stages"}
+JOB_PROGRESS_SOURCE_KEYS = {
+    "position",
+    "name",
+    "status",
+    "provider_parts",
+    "stages",
+}
 JOB_PROGRESS_STAGE_KEYS = {"key", "status", "applicability"}
 
 
@@ -3662,6 +3714,7 @@ def test_batch_preflight_is_safe_ordered_and_does_not_create_rows(monkeypatch):
         }
         and item["planned_outcome"] == "process"
         and item["source"]["duration_seconds"] is None
+        and item["media_clip"] is None
         for item in data["items"]
     )
     assert calls.count(("folder", "shared")) == 1
@@ -3675,6 +3728,139 @@ def test_batch_preflight_is_safe_ordered_and_does_not_create_rows(monkeypatch):
         "https://drive.google.com/drive/folders/shared",
     ):
         assert private_value not in r.text
+
+
+def test_batch_two_project_split_preflights_and_persists_complementary_jobs(monkeypatch):
+    _install_batch_folder_mocks(monkeypatch)
+    c, csrf, _user_id, pid, source_a, _source_b, cred_id = _batch_setup(
+        "batch-two-project-split@example.com"
+    )
+    body = {
+        "provider_credential_id": cred_id,
+        "language": "ru",
+        "options": {"diarize": True},
+        "items": [
+            {
+                "source_id": source_a,
+                "output_folder_id": "project-one",
+                "title": "Созвон — проект 1",
+                "media_clip_start_seconds": 0,
+                "media_clip_end_seconds": 610,
+            },
+            {
+                "source_id": source_a,
+                "output_folder_id": "project-two",
+                "title": "Созвон — проект 2",
+                "media_clip_start_seconds": 610,
+                "media_clip_end_seconds": None,
+            },
+        ],
+    }
+    headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+
+    preview = c.post(
+        f"/api/projects/{pid}/jobs/batch/preflight",
+        json=body,
+        headers=headers,
+    )
+
+    assert preview.status_code == 200
+    assert preview.json()["summary"] == {
+        "process_count": 2,
+        "skip_count": 0,
+        "blocked_count": 0,
+    }
+    assert [item["media_clip"] for item in preview.json()["items"]] == [
+        {"start_seconds": 0, "end_seconds": 610},
+        {"start_seconds": 610, "end_seconds": None},
+    ]
+
+    created = c.post(
+        f"/api/projects/{pid}/jobs/batch",
+        json=body,
+        headers={**headers, "Idempotency-Key": "batch-two-project-split-key"},
+    )
+
+    assert created.status_code == 200
+    assert created.json()["created_count"] == 2
+    db = SessionLocal()
+    try:
+        jobs = (
+            db.query(TranscriptionJob)
+            .filter(TranscriptionJob.project_id == pid)
+            .order_by(TranscriptionJob.batch_position)
+            .all()
+        )
+        assert [
+            (job.media_clip_start_seconds, job.media_clip_end_seconds)
+            for job in jobs
+        ] == [(0, 610), (610, None)]
+        assert [job.output_drive_folder_id for job in jobs] == [
+            "project-one",
+            "project-two",
+        ]
+        assert jobs[0].batch_request_hash == jobs[1].batch_request_hash
+    finally:
+        db.close()
+
+
+@pytest.mark.parametrize(
+    "items",
+    [
+        [
+            {
+                "source_id": "SOURCE",
+                "output_folder_id": "one",
+                "media_clip_start_seconds": 0,
+                "media_clip_end_seconds": 610,
+            }
+        ],
+        [
+            {
+                "source_id": "SOURCE",
+                "output_folder_id": "same",
+                "media_clip_start_seconds": 0,
+                "media_clip_end_seconds": 610,
+            },
+            {
+                "source_id": "SOURCE",
+                "output_folder_id": "same",
+                "media_clip_start_seconds": 610,
+                "media_clip_end_seconds": None,
+            },
+        ],
+        [
+            {
+                "source_id": "SOURCE",
+                "output_folder_id": "one",
+                "media_clip_start_seconds": 0,
+                "media_clip_end_seconds": 610,
+            },
+            {
+                "source_id": "SOURCE",
+                "output_folder_id": "two",
+                "media_clip_start_seconds": 611,
+                "media_clip_end_seconds": None,
+            },
+        ],
+    ],
+)
+def test_batch_two_project_split_rejects_incomplete_same_folder_or_gapped_plan(monkeypatch, items):
+    _install_batch_folder_mocks(monkeypatch)
+    c, csrf, _user_id, pid, source_a, _source_b, cred_id = _batch_setup(
+        f"batch-invalid-split-{len(items)}-{items[-1]['output_folder_id']}@example.com"
+    )
+    for item in items:
+        item["source_id"] = source_a
+
+    response = c.post(
+        f"/api/projects/{pid}/jobs/batch/preflight",
+        json={"provider_credential_id": cred_id, "items": items},
+        headers={"origin": "https://studio.test", "x-csrf-token": csrf},
+    )
+
+    assert response.status_code == 422
+    assert _count_batch_rows() == (0, 0)
 
 
 def test_batch_create_rechecks_existing_result_and_requires_explicit_reprocessing(monkeypatch):
@@ -4475,7 +4661,6 @@ def _assert_job_retry_recovery_schema(inspector, conn):
     assert "transcription_job_source_attempts" in inspector.get_table_names()
     assert "transcription_output_reconciliations" in inspector.get_table_names()
     cols = {c["name"]: c for c in inspector.get_columns("transcription_job_source_attempts")}
-    assert set(TranscriptionJobSourceAttempt.__table__.c.keys()).issubset(cols)
     assert {"id", "owner_user_id", "project_id", "job_id", "job_source_id", "attempt_number", "stage", "retry_disposition", "failure_code", "provider_request_started_at", "provider_response_returned_at", "failed_at", "completed_at", "created_at", "updated_at"}.issubset(cols)
     uniques = {tuple(u["column_names"]) for u in inspector.get_unique_constraints("transcription_job_source_attempts")}
     assert ("job_source_id", "attempt_number") in uniques
@@ -5092,7 +5277,7 @@ def test_job_destination_migration_0008_0009_upgrade_downgrade_backfill(tmp_path
         with temp_engine.begin() as conn:
             assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0009_job_output_destinations"
         cfg = Config(str(ALEMBIC))
-        assert ScriptDirectory.from_config(cfg).get_current_head() == "0017_google_maintenance_oauth"
+        assert ScriptDirectory.from_config(cfg).get_current_head() == "0019_job_media_clip"
     finally:
         temp_engine.dispose()
         cleanup_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")

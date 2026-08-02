@@ -33,11 +33,11 @@ def test_google_maintenance_grant_has_separate_encrypted_columns(
     assert "purpose" in GoogleOAuthState.__table__.columns
 
 
-def test_google_maintenance_oauth_migration_is_single_head():
+def test_google_maintenance_oauth_migration_precedes_current_head():
     script = ScriptDirectory.from_config(Config(str(ALEMBIC)))
 
-    assert script.get_heads() == ["0017_google_maintenance_oauth"]
-    assert script.get_current_head() == "0017_google_maintenance_oauth"
+    assert script.get_heads() == ["0019_job_media_clip"]
+    assert script.get_current_head() == "0019_job_media_clip"
     revision = script.get_revision("0017_google_maintenance_oauth")
     assert revision is not None
     assert revision.down_revision == "0016_transcript_catalog_entries"

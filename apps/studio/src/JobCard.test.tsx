@@ -156,4 +156,27 @@ describe("JobCard", () => {
       "terminal-job",
     );
   });
+
+  it("keeps a newly completed job visible until it is dismissed to history", async () => {
+    const onDismissTerminal = vi.fn();
+    renderCard({
+      job: {
+        ...job,
+        status: "completed",
+        error_code: null,
+        error_message: null,
+        finished_at: "2026-08-02T12:01:00Z",
+      },
+      pinnedTerminal: true,
+      onDismissTerminal,
+    });
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Задача завершена на 100% — результат доступен ниже.",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Убрать в историю" }),
+    );
+    expect(onDismissTerminal).toHaveBeenCalledWith("job-1");
+  });
 });

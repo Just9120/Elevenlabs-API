@@ -1,8 +1,11 @@
 import {
+  buildBatchCreateRequest,
   composerSignature,
+  formatSplitBoundary,
   makeIdempotencyKey,
   mergeJobsWithBatchOrder,
   newComposerRow,
+  parseSplitBoundary,
   parseBatchPreflightResponse,
   type ComposerRow,
 } from "./batchComposerModel";
@@ -44,6 +47,11 @@ describe("batch composer model", () => {
       output_folder: null,
       title: "",
       reprocess_existing: false,
+      split_to_two_projects: false,
+      split_boundary: "",
+      second_output_folder: null,
+      second_title: "",
+      second_reprocess_existing: false,
     });
   });
 
@@ -59,6 +67,11 @@ describe("batch composer model", () => {
         },
         title: "  Interview  ",
         reprocess_existing: true,
+        split_to_two_projects: false,
+        split_boundary: "",
+        second_output_folder: null,
+        second_title: "",
+        second_reprocess_existing: false,
       },
       {
         id: "browser-only-row-id-2",
@@ -66,6 +79,11 @@ describe("batch composer model", () => {
         output_folder: null,
         title: "   ",
         reprocess_existing: false,
+        split_to_two_projects: false,
+        split_boundary: "",
+        second_output_folder: null,
+        second_title: "",
+        second_reprocess_existing: false,
       },
     ];
 
@@ -95,6 +113,62 @@ describe("batch composer model", () => {
     );
   });
 
+  it("parses a manual boundary and expands one row into complementary jobs", () => {
+    expect(parseSplitBoundary("10:10")).toBe(610);
+    expect(parseSplitBoundary("1:02:03")).toBe(3723);
+    expect(formatSplitBoundary(610)).toBe("10:10");
+    expect(formatSplitBoundary(3723)).toBe("1:02:03");
+    expect(parseSplitBoundary("10:60")).toBeNull();
+    expect(parseSplitBoundary("0:00")).toBeNull();
+    expect(parseSplitBoundary("text")).toBeNull();
+
+    const row = newComposerRow();
+    const request = buildBatchCreateRequest(
+      [
+        {
+          ...row,
+          source_id: "source-1",
+          output_folder: {
+            folder_id: "project-one",
+            name: "Project one",
+            web_view_url: null,
+          },
+          title: "First project",
+          split_to_two_projects: true,
+          split_boundary: "10:10",
+          second_output_folder: {
+            folder_id: "project-two",
+            name: "Project two",
+            web_view_url: null,
+          },
+          second_title: "Second project",
+        },
+      ],
+      "credential-1",
+      "ru",
+      false,
+    );
+
+    expect(request.items).toEqual([
+      {
+        source_id: "source-1",
+        output_folder_id: "project-one",
+        title: "First project",
+        reprocess_existing: false,
+        media_clip_start_seconds: 0,
+        media_clip_end_seconds: 610,
+      },
+      {
+        source_id: "source-1",
+        output_folder_id: "project-two",
+        title: "Second project",
+        reprocess_existing: false,
+        media_clip_start_seconds: 610,
+        media_clip_end_seconds: null,
+      },
+    ]);
+  });
+
   it("prefixes the opaque idempotency identifier", () => {
     vi.spyOn(crypto, "randomUUID").mockReturnValue(
       "00000000-0000-4000-8000-000000000002",
@@ -119,6 +193,7 @@ describe("batch composer model", () => {
         {
           position: 0,
           title: null,
+          media_clip: null,
           source: {
             name: "Safe source",
             source_type: "google_drive",

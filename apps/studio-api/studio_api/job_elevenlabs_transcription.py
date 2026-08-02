@@ -38,7 +38,7 @@ from .media_preparation import (
 from .models import CredentialStatus, JobStatus, Project, ProviderCredential, ProviderCredentialVersion, Source, TranscriptionJob
 from .security import utcnow
 from .diagnostics import resolve_job_correlation_id, write_diagnostic_event
-from .job_retry_recovery import classify_source_attempt_failure, mark_attempt_provider_returned, mark_attempt_provider_started
+from .job_retry_recovery import classify_source_attempt_failure, mark_attempt_provider_part_completed, mark_attempt_provider_returned, mark_attempt_provider_started
 from .source_storage import safe_filename
 from .transcript_catalog import (
     ExistingResultMatchStatus,
@@ -67,6 +67,7 @@ class JobElevenLabsTranscriptionReason(str, Enum):
     media_duration_unavailable = "media_duration_unavailable"
     media_split_failed = "media_split_failed"
     media_part_too_large = "media_part_too_large"
+    media_clip_out_of_bounds = "media_clip_out_of_bounds"
     existing_result_conflict = "existing_result_conflict"
     lifecycle_changed_before_provider_call = "lifecycle_changed_before_provider_call"
     credential_or_output_identity_changed_before_provider_call = "credential_or_output_identity_changed_before_provider_call"
@@ -156,27 +157,51 @@ def transcribe_processing_job_source_with_elevenlabs(
                 raise JobElevenLabsTranscriptionError(JobElevenLabsTranscriptionReason.source_materialization_unavailable) from exc
             try:
                 try:
+                    initial_job_snapshot = _load_credential_db_only(
+                        db,
+                        job_id,
+                        lease_owner_id,
+                        lease_generation,
+                        clock(),
+                        settings,
+                    )
+                    media_clip = initial_job_snapshot["catalog_settings"]
                     prepared_cm = media_preparer(
                         stream=source.stream,
                         original_filename=safe_filename(source.original_filename),
                         mime_type=source.mime_type,
                         byte_count=source.byte_count,
                         max_output_bytes=settings.source_max_upload_bytes,
+                        media_clip_start_seconds=media_clip.media_clip_start_seconds,
+                        media_clip_end_seconds=media_clip.media_clip_end_seconds,
                     )
                     prepared_batch = _enter_prepared_media_batch(prepared_cm)
                 except MediaPreparationError as exc:
                     mapped = _map_media_preparation_reason(exc.reason)
                     _best_effort_classify(db, job_id, job_source_id, lease_owner_id, lease_generation, mapped.value, clock)
                     raise JobElevenLabsTranscriptionError(mapped) from exc
+                except JobElevenLabsTranscriptionError:
+                    raise
                 except Exception as exc:
                     _best_effort_classify(db, job_id, job_source_id, lease_owner_id, lease_generation, "media_preparation_failed", clock)
                     raise JobElevenLabsTranscriptionError(JobElevenLabsTranscriptionReason.media_preparation_failed) from exc
                 try:
-                    provider_settings = _final_pre_provider_revalidate(db, job_id, job_source_id, lease_owner_id, lease_generation, settings, clock(), prereq, source)
+                    provider_settings = _final_pre_provider_revalidate(
+                        db,
+                        job_id,
+                        job_source_id,
+                        lease_owner_id,
+                        lease_generation,
+                        settings,
+                        clock(),
+                        prereq,
+                        source,
+                        expected_catalog_settings=initial_job_snapshot["catalog_settings"],
+                    )
                     _emit_provider(db, job_id, "SOURCE_READY", {"attempt_number": _attempt(db, job_id)})
                     _emit_provider(db, job_id, "PROVIDER_REQUEST_STARTED", {"attempt_number": _attempt(db, job_id)})
                     try:
-                        mark_attempt_provider_started(db, job_id=job_id, job_source_id=job_source_id, lease_owner_id=lease_owner_id, lease_generation=lease_generation, now=clock())
+                        mark_attempt_provider_started(db, job_id=job_id, job_source_id=job_source_id, lease_owner_id=lease_owner_id, lease_generation=lease_generation, now=clock(), total_parts=len(prepared_batch.parts))
                         db.commit()
                     except Exception as exc:
                         db.rollback()
@@ -229,6 +254,31 @@ def transcribe_processing_job_source_with_elevenlabs(
                                 _best_effort_classify(db, job_id, job_source_id, lease_owner_id, lease_generation, mapped.value, clock)
                                 raise JobElevenLabsTranscriptionError(mapped) from exc
                             part_results.append(part_result)
+                            _post_provider_revalidate_or_fail(
+                                db,
+                                job_id,
+                                job_source_id,
+                                lease_owner_id,
+                                lease_generation,
+                                clock,
+                            )
+                            try:
+                                mark_attempt_provider_part_completed(
+                                    db,
+                                    job_id=job_id,
+                                    job_source_id=job_source_id,
+                                    lease_owner_id=lease_owner_id,
+                                    lease_generation=lease_generation,
+                                    completed_parts=len(part_results),
+                                    now=clock(),
+                                )
+                                db.commit()
+                            except Exception as exc:
+                                db.rollback()
+                                mapped = JobElevenLabsTranscriptionReason.partial_provider_result
+                                _emit_provider_failure(db, job_id, mapped)
+                                _best_effort_classify(db, job_id, job_source_id, lease_owner_id, lease_generation, mapped.value, clock)
+                                raise JobElevenLabsTranscriptionError(mapped) from exc
                         try:
                             mark_attempt_provider_returned(db, job_id=job_id, job_source_id=job_source_id, lease_owner_id=lease_owner_id, lease_generation=lease_generation, now=clock())
                             db.commit()
@@ -328,7 +378,17 @@ def _merge_inputs(
 
 
 def _final_pre_provider_revalidate(
-    db, job_id, job_source_id, owner, generation, settings, now, prereq, source
+    db,
+    job_id,
+    job_source_id,
+    owner,
+    generation,
+    settings,
+    now,
+    prereq,
+    source,
+    *,
+    expected_catalog_settings=None,
 ) -> TranscriptionProviderSettings:
     try:
         cred_snap = _load_credential_db_only(db, job_id, owner, generation, now, settings)
@@ -343,7 +403,15 @@ def _final_pre_provider_revalidate(
         or cred_snap["credential_id"] != getattr(prereq, "_credential").credential_id
         or cred_snap["version_id"] != prereq.credential_version_id
     )
-    if credential_identity_changed or out_snap.output_drive_folder_id != prereq.output_drive_folder_id:
+    settings_identity_changed = (
+        expected_catalog_settings is not None
+        and cred_snap["catalog_settings"] != expected_catalog_settings
+    )
+    if (
+        credential_identity_changed
+        or settings_identity_changed
+        or out_snap.output_drive_folder_id != prereq.output_drive_folder_id
+    ):
         raise JobElevenLabsTranscriptionError(
             JobElevenLabsTranscriptionReason.credential_or_output_identity_changed_before_provider_call
         )
@@ -475,6 +543,8 @@ def _load_credential_db_only(db, job_id, owner, generation, now, settings):
         "catalog_settings": elevenlabs_effective_settings(
             language_mode=browser_language_mode(job.language),
             diarization_enabled=job_diarization_enabled(job.options_json),
+            media_clip_start_seconds=job.media_clip_start_seconds,
+            media_clip_end_seconds=job.media_clip_end_seconds,
         ),
         "existing_result_reprocess_authorized": (
             job_existing_result_reprocess_authorized(job.options_json)

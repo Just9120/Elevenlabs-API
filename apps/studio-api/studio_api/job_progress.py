@@ -273,8 +273,26 @@ def _source_progress_payload(
         "name": str(getattr(source, "original_filename", "") or "").strip()
         or "Файл без имени",
         "status": source_status,
+        "provider_parts": _provider_parts_payload(attempt),
         "stages": stages,
     }
+
+
+def _provider_parts_payload(attempt) -> dict | None:
+    if attempt is None:
+        return None
+    total = getattr(attempt, "provider_total_parts", None)
+    completed = getattr(attempt, "provider_completed_parts", 0)
+    if total is None:
+        return None
+    try:
+        total = int(total)
+        completed = int(completed or 0)
+    except (TypeError, ValueError):
+        return None
+    if total < 1 or completed < 0 or completed > total:
+        return None
+    return {"completed": completed, "total": total}
 
 
 def _attempt_phase_index(attempt) -> int:

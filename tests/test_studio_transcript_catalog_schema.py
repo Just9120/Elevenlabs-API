@@ -121,11 +121,11 @@ def test_transcript_catalog_model_enums_match_migration_contract(
     } == {"google_drive_file", "studio_source"}
 
 
-def test_transcript_catalog_migration_is_the_single_head():
+def test_transcript_catalog_migration_remains_in_the_single_head_chain():
     config = Config(str(ROOT / "apps/studio-api/alembic.ini"))
     script = ScriptDirectory.from_config(config)
 
-    assert script.get_heads() == ["0017_google_maintenance_oauth"]
-    assert script.get_current_head() == "0017_google_maintenance_oauth"
+    assert script.get_heads() == ["0019_job_media_clip"]
+    assert script.get_current_head() == "0019_job_media_clip"
     revision = script.get_revision("0016_transcript_catalog_entries")
     assert revision.down_revision == "0015_user_source_retention"

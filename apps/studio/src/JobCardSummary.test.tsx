@@ -70,4 +70,17 @@ describe("JobCardSummary", () => {
     expect(screen.getByText(/Отмена запрошена:/)).toBeInTheDocument();
     expect(screen.getByText("Ошибка: Provider failed")).toBeInTheDocument();
   });
+
+  it("keeps a split job identifiable in active state and history", () => {
+    render(
+      <JobCardSummary
+        job={{
+          ...job,
+          media_clip: { start_seconds: 610, end_seconds: null },
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Часть созвона: 10:10 — конец")).toBeInTheDocument();
+  });
 });

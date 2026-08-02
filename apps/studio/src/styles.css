@@ -1,7 +1,5 @@
 :root {
   font-family: Inter, system-ui, sans-serif;
-  color: #172033;
-  background: #f6f7fb;
   --studio-bg: #f6f7fb;
   --studio-surface: #ffffff;
   --studio-soft: #f8fafc;
@@ -11,8 +9,99 @@
   --studio-primary: #315efb;
   --studio-primary-dark: #1e3a8a;
   --studio-danger: #c2410c;
+  --studio-on-primary: #ffffff;
+  --studio-secondary-bg: #eef2ff;
+  --studio-secondary-text: #1e293b;
+  --studio-input-bg: #ffffff;
+  --studio-input-border: #cbd5e1;
+  --studio-code-bg: #111827;
+  --studio-code-text: #bfdbfe;
+  --studio-sidebar-bg: #111827;
+  --studio-sidebar-text: #ffffff;
+  --studio-sidebar-muted: #a5b4fc;
+  --studio-nav-text: #dbeafe;
+  --studio-nav-active: #312e81;
+  --studio-danger-soft: #fff7ed;
+  --studio-hero-start: #ffffff;
+  --studio-hero-end: #e0e7ff;
+  --studio-notice-bg: #eef2ff;
+  --studio-error: #b91c1c;
+  --studio-accent: #6d28d9;
+  --studio-focus: rgba(49, 94, 251, 0.35);
+  --studio-focus-inverse: rgba(255, 255, 255, 0.95);
+  --studio-focus-shadow: rgba(49, 94, 251, 0.45);
+  --studio-active-bg: #eef2ff;
+  --studio-active-shadow: rgba(49, 94, 251, 0.12);
+  --studio-dashed-border: #818cf8;
+  --studio-panel-border: #dbeafe;
+  --studio-success-bg: #f0fdf4;
+  --studio-success-soft: #dcfce7;
+  --studio-success-border: #86efac;
+  --studio-success-text: #166534;
+  --studio-timeline-text: #475569;
+  --studio-glass: rgba(255, 255, 255, 0.06);
+  --studio-analytics-start: #f8fbff;
+  --studio-analytics-end: #ffffff;
+  --studio-progress-track: #dbeafe;
+  --studio-progress-marker-border: #94a3b8;
+  --studio-progress-marker-bg: #ffffff;
+  --studio-progress-complete: #16a34a;
+  --studio-progress-active-border: #2563eb;
+  --studio-progress-active-bg: #60a5fa;
+  --studio-progress-active-ring: #dbeafe;
+  --studio-progress-failed-border: #dc2626;
+  --studio-progress-failed-bg: #fecaca;
   --studio-radius: 16px;
   --studio-shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
+  color: var(--studio-text);
+  background: var(--studio-bg);
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  --studio-bg: #0b1220;
+  --studio-surface: #111827;
+  --studio-soft: #172033;
+  --studio-text: #e5edf8;
+  --studio-muted: #9caec4;
+  --studio-border: #334155;
+  --studio-primary: #6d8cff;
+  --studio-primary-dark: #a5b4fc;
+  --studio-danger: #fb923c;
+  --studio-secondary-bg: #1e293b;
+  --studio-secondary-text: #e2e8f0;
+  --studio-input-bg: #0f172a;
+  --studio-input-border: #475569;
+  --studio-code-bg: #020617;
+  --studio-sidebar-bg: #020617;
+  --studio-nav-active: #3730a3;
+  --studio-danger-soft: #321a18;
+  --studio-hero-start: #111827;
+  --studio-hero-end: #1e1b4b;
+  --studio-notice-bg: #172554;
+  --studio-error: #fca5a5;
+  --studio-accent: #c4b5fd;
+  --studio-focus: rgba(109, 140, 255, 0.55);
+  --studio-active-bg: #1e293b;
+  --studio-active-shadow: rgba(109, 140, 255, 0.2);
+  --studio-panel-border: #334155;
+  --studio-success-bg: #052e16;
+  --studio-success-soft: #14532d;
+  --studio-success-border: #166534;
+  --studio-success-text: #86efac;
+  --studio-timeline-text: #94a3b8;
+  --studio-analytics-start: #0f172a;
+  --studio-analytics-end: #111827;
+  --studio-progress-track: #334155;
+  --studio-progress-marker-border: #64748b;
+  --studio-progress-marker-bg: #0f172a;
+  --studio-progress-complete: #22c55e;
+  --studio-progress-active-border: #60a5fa;
+  --studio-progress-active-bg: #3b82f6;
+  --studio-progress-active-ring: #1e3a8a;
+  --studio-progress-failed-border: #ef4444;
+  --studio-progress-failed-bg: #7f1d1d;
+  --studio-shadow: 0 14px 34px rgba(0, 0, 0, 0.32);
+  color-scheme: dark;
 }
 * {
   box-sizing: border-box;
@@ -47,8 +136,8 @@ button,
 }
 button:where(:not(.primary):not(.danger)),
 .secondary {
-  background: #eef2ff;
-  color: #1e293b;
+  background: var(--studio-secondary-bg);
+  color: var(--studio-secondary-text);
   border-color: var(--studio-border);
 }
 button:disabled {
@@ -70,17 +159,18 @@ select:focus-visible,
 textarea:focus-visible,
 summary:focus-visible,
 .button-like:focus-visible {
-  outline: 3px solid rgba(49, 94, 251, 0.35);
+  outline: 3px solid var(--studio-focus);
   outline-offset: 2px;
 }
 input,
 select,
 textarea {
   min-width: 0;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--studio-input-border);
   border-radius: 12px;
   padding: 0.75rem;
-  background: white;
+  background: var(--studio-input-bg);
+  color: var(--studio-text);
 }
 select {
   width: 100%;
@@ -112,8 +202,8 @@ code {
   display: inline-block;
   max-width: 100%;
   overflow-wrap: anywhere;
-  background: #111827;
-  color: #bfdbfe;
+  background: var(--studio-code-bg);
+  color: var(--studio-code-text);
   padding: 0.8rem;
   border-radius: 12px;
 }
@@ -124,8 +214,8 @@ code {
   grid-template-columns: clamp(230px, 18vw, 250px) minmax(0, 1fr);
 }
 .app-sidebar {
-  background: #111827;
-  color: white;
+  background: var(--studio-sidebar-bg);
+  color: var(--studio-sidebar-text);
   padding: 1.5rem;
   position: sticky;
   top: 0;
@@ -139,7 +229,7 @@ code {
 .brand span {
   display: block;
   font-size: 0.8rem;
-  color: #a5b4fc;
+  color: var(--studio-sidebar-muted);
 }
 .app-nav {
   display: grid;
@@ -152,16 +242,17 @@ code {
   align-items: center;
   text-align: left;
   background: transparent;
-  color: #dbeafe;
+  color: var(--studio-nav-text);
 }
 .app-nav button.active,
 .app-nav button:hover {
-  background: #312e81;
-  color: white;
+  background: var(--studio-nav-active);
+  color: var(--studio-sidebar-text);
 }
 .shell > main {
-  width: min(100%, 1360px);
-  margin: 0 auto;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
   padding: clamp(1rem, 2vw, 2rem);
   display: grid;
   align-content: start;
@@ -170,13 +261,13 @@ code {
 
 .primary {
   background: var(--studio-primary);
-  color: white;
+  color: var(--studio-on-primary);
   font-weight: 800;
 }
 .danger {
-  border-color: color-mix(in srgb, var(--studio-danger) 45%, white);
+  border-color: color-mix(in srgb, var(--studio-danger) 45%, var(--studio-on-primary));
   color: var(--studio-danger);
-  background: #fff7ed;
+  background: var(--studio-danger-soft);
 }
 .card,
 .hero {
@@ -189,16 +280,16 @@ code {
 .hero {
   min-height: 0;
   align-content: center;
-  background: linear-gradient(135deg, #fff, #e0e7ff);
+  background: linear-gradient(135deg, var(--studio-hero-start), var(--studio-hero-end));
 }
 .notice {
-  background: #eef2ff;
+  background: var(--studio-notice-bg);
   border-left: 4px solid var(--studio-primary);
   padding: 1rem;
   border-radius: 14px;
 }
 .error {
-  color: #b91c1c;
+  color: var(--studio-error);
   font-weight: 700;
 }
 .muted {
@@ -208,7 +299,7 @@ code {
 .eyebrow,
 .tag,
 .summary-label {
-  color: #6d28d9;
+  color: var(--studio-accent);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   font-weight: 800;
@@ -268,9 +359,9 @@ code {
   justify-self: start;
 }
 .file-picker-control:focus-within .button-like {
-  outline: 3px solid rgba(255, 255, 255, 0.95);
+  outline: 3px solid var(--studio-focus-inverse);
   outline-offset: 3px;
-  box-shadow: 0 0 0 5px rgba(49, 94, 251, 0.45);
+  box-shadow: 0 0 0 5px var(--studio-focus-shadow);
 }
 .meta {
   display: grid;
@@ -349,7 +440,7 @@ code {
 
 .workspace-layout {
   display: grid;
-  grid-template-columns: minmax(240px, 310px) minmax(0, 1fr);
+  grid-template-columns: minmax(210px, 250px) minmax(0, 1fr);
   gap: 1rem;
   align-items: start;
 }
@@ -377,8 +468,8 @@ code {
 }
 .project-list-item.active {
   border-color: var(--studio-primary);
-  background: #eef2ff;
-  box-shadow: 0 0 0 3px rgba(49, 94, 251, 0.12);
+  background: var(--studio-active-bg);
+  box-shadow: 0 0 0 3px var(--studio-active-shadow);
 }
 .project-list-item small,
 .project-list-item span {
@@ -443,10 +534,10 @@ code {
 .job-readiness,
 .empty-state,
 .account-card {
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--studio-input-border);
   border-radius: 16px;
   padding: 1rem;
-  background: #fff;
+  background: var(--studio-surface);
 }
 .source-add-grid {
   display: grid;
@@ -463,11 +554,11 @@ code {
 .drop {
   display: grid;
   place-items: center;
-  border: 2px dashed #818cf8;
+  border: 2px dashed var(--studio-dashed-border);
   border-radius: 22px;
   padding: 2rem;
   margin: 1rem 0;
-  background: #f8fafc;
+  background: var(--studio-soft);
 }
 .compact {
   padding: 1rem;
@@ -519,6 +610,20 @@ code {
 .account-card div {
   display: grid;
   gap: 0.2rem;
+}
+.theme-preferences {
+  display: grid;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+.theme-preferences label {
+  display: grid;
+  gap: 0.45rem;
+  max-width: 24rem;
+  font-weight: 700;
+}
+.theme-preferences p {
+  margin: 0;
 }
 .retention-preferences {
   margin-bottom: 1rem;
@@ -668,17 +773,17 @@ code {
   gap: 0.75rem;
   align-items: end;
   padding: 1rem;
-  border: 1px solid #dbeafe;
+  border: 1px solid var(--studio-panel-border);
   border-radius: 18px;
-  background: #fff;
+  background: var(--studio-surface);
 }
 .segment label {
   display: grid;
   gap: 0.35rem;
 }
 .pill {
-  background: #dcfce7;
-  color: #166534;
+  background: var(--studio-success-soft);
+  color: var(--studio-success-text);
   border-radius: 999px;
   padding: 0.7rem 1rem;
 }
@@ -689,7 +794,7 @@ code {
 }
 .timeline li span {
   display: block;
-  color: #475569;
+  color: var(--studio-timeline-text);
 }
 
 @media (max-width: 900px) {
@@ -820,7 +925,7 @@ code {
 @keyframes composer-row-added {
   from {
     border-color: var(--studio-primary);
-    box-shadow: 0 0 0 4px rgba(49, 94, 251, 0.2);
+    box-shadow: 0 0 0 4px var(--studio-active-shadow);
     transform: translateY(-0.25rem);
   }
   to {
@@ -859,6 +964,31 @@ code {
   display: grid;
   gap: 0.4rem;
   overflow-wrap: anywhere;
+}
+.split-project-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  padding: 0.7rem;
+  border: 1px solid var(--studio-border);
+  border-radius: 12px;
+  background: var(--studio-soft);
+}
+.split-project-toggle input {
+  margin-top: 0.2rem;
+}
+.split-project-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.75rem;
+  padding: 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--studio-primary) 35%, var(--studio-border));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--studio-primary) 4%, var(--studio-surface));
+}
+.split-project-panel > .error {
+  grid-column: 1 / -1;
+  margin: 0;
 }
 .field-label {
   font-weight: 700;
@@ -949,6 +1079,9 @@ code {
   .composer-row-grid {
     grid-template-columns: 1fr;
   }
+  .split-project-panel {
+    grid-template-columns: 1fr;
+  }
   .composer-add-row {
     justify-items: start;
     text-align: left;
@@ -987,7 +1120,7 @@ code {
 
 .recent-project-item {
   align-items: center;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--studio-glass);
   border: 1px solid var(--studio-border);
   border-radius: 1rem;
   color: inherit;
@@ -1066,7 +1199,7 @@ code {
   min-width: 0;
   border-radius: 10px;
   padding: 0.45rem 0.55rem;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--studio-glass);
 }
 .diagnostics-metadata dt {
   font-weight: 800;
@@ -1089,7 +1222,7 @@ code {
   background: var(--studio-soft);
 }
 .debug-active {
-  border-color: color-mix(in srgb, var(--studio-primary) 50%, white);
+  border-color: color-mix(in srgb, var(--studio-primary) 50%, var(--studio-on-primary));
 }
 .debug-countdown,
 .pwa-event-label {
@@ -1126,7 +1259,7 @@ code {
 }
 
 .provider-ready {
-  color: #166534;
+  color: var(--studio-success-text);
   font-size: 0.92rem;
   margin-top: 0.2rem;
 }
@@ -1178,6 +1311,24 @@ code {
   width: auto;
 }
 
+.job-terminal-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid var(--studio-success-border);
+  border-radius: 12px;
+  background: var(--studio-success-bg);
+  color: var(--studio-success-text);
+}
+
+.job-terminal-notice button {
+  width: auto;
+}
+
 .recent-jobs {
   margin-top: 1rem;
 }
@@ -1189,9 +1340,9 @@ code {
 
 .transcription-analytics {
   margin-top: 1rem;
-  border: 1px solid #dbeafe;
+  border: 1px solid var(--studio-panel-border);
   border-radius: 16px;
-  background: linear-gradient(145deg, #f8fbff, #ffffff);
+  background: linear-gradient(145deg, var(--studio-analytics-start), var(--studio-analytics-end));
 }
 
 .transcription-analytics > summary {
@@ -1229,9 +1380,9 @@ code {
   display: grid;
   gap: 0.35rem;
   padding: 0.85rem;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--studio-border);
   border-radius: 12px;
-  background: #fff;
+  background: var(--studio-surface);
 }
 
 .analytics-total-grid strong,
@@ -1248,7 +1399,7 @@ code {
 .analytics-outcomes span {
   padding: 0.45rem 0.65rem;
   border-radius: 999px;
-  background: #eef2ff;
+  background: var(--studio-notice-bg);
 }
 
 .analytics-duration-grid {
@@ -1297,13 +1448,17 @@ code {
   opacity: 0.82;
 }
 
+.pinned-terminal-job {
+  opacity: 1;
+}
+
 .job-progress {
   display: grid;
   gap: 0.6rem;
   padding: 0.85rem;
-  border: 1px solid #dbeafe;
+  border: 1px solid var(--studio-panel-border);
   border-radius: 14px;
-  background: #f8fbff;
+  background: var(--studio-analytics-start);
 }
 
 .job-progress-header {
@@ -1311,6 +1466,30 @@ code {
   flex-wrap: wrap;
   justify-content: space-between;
   gap: 0.5rem 1rem;
+}
+
+.job-progress-meter {
+  width: 100%;
+  height: 0.85rem;
+  overflow: hidden;
+  border: 0;
+  border-radius: 999px;
+  accent-color: var(--studio-primary);
+}
+
+.job-progress-meter::-webkit-progress-bar {
+  border-radius: 999px;
+  background: var(--studio-progress-track);
+}
+
+.job-progress-meter::-webkit-progress-value {
+  border-radius: 999px;
+  background: var(--studio-primary);
+}
+
+.job-progress-meter::-moz-progress-bar {
+  border-radius: 999px;
+  background: var(--studio-primary);
 }
 
 .job-progress-source {
@@ -1341,9 +1520,9 @@ code {
 .job-progress-marker {
   width: 0.65rem;
   height: 0.65rem;
-  border: 2px solid #94a3b8;
+  border: 2px solid var(--studio-progress-marker-border);
   border-radius: 999px;
-  background: #fff;
+  background: var(--studio-progress-marker-bg);
 }
 
 .progress-completed,
@@ -1352,23 +1531,23 @@ code {
 }
 
 .progress-completed .job-progress-marker {
-  border-color: #16a34a;
-  background: #16a34a;
+  border-color: var(--studio-progress-complete);
+  background: var(--studio-progress-complete);
 }
 
 .progress-active .job-progress-marker {
-  border-color: #2563eb;
-  background: #60a5fa;
-  box-shadow: 0 0 0 3px #dbeafe;
+  border-color: var(--studio-progress-active-border);
+  background: var(--studio-progress-active-bg);
+  box-shadow: 0 0 0 3px var(--studio-progress-active-ring);
 }
 
 .progress-failed {
-  color: #b91c1c;
+  color: var(--studio-error);
 }
 
 .progress-failed .job-progress-marker {
-  border-color: #dc2626;
-  background: #fecaca;
+  border-color: var(--studio-progress-failed-border);
+  background: var(--studio-progress-failed-bg);
 }
 
 .progress-cancelled,

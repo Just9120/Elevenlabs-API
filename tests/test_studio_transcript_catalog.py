@@ -464,3 +464,85 @@ def test_provider_attempt_authority_prioritizes_in_flight_over_unresolved():
     )
 
     assert authority["candidate"] == ProviderAttemptAuthorityStatus.in_flight
+
+
+def test_media_clip_range_participates_in_existing_result_identity():
+    from studio_api.transcript_catalog import (
+        ExistingResultMatchStatus,
+        accepted_evidence_from_rows,
+        classify_existing_results,
+        current_effective_settings,
+    )
+
+    candidate = source(
+        "source-clip",
+        source_type="google_drive",
+        drive_file_id="drive-clip",
+    )
+    base_row = evidence_row(
+        source_id=candidate.id,
+        source_type="google_drive",
+        drive_file_id=candidate.drive_file_id,
+        options_json='{"diarize":false}',
+    )
+    evidence = accepted_evidence_from_rows(
+        [(*base_row[:7], 0, 610, *base_row[7:])]
+    )
+    first = current_effective_settings(
+        language_mode="ru",
+        diarization_enabled=False,
+        media_clip_start_seconds=0,
+        media_clip_end_seconds=610,
+    )
+    second = current_effective_settings(
+        language_mode="ru",
+        diarization_enabled=False,
+        media_clip_start_seconds=610,
+        media_clip_end_seconds=None,
+    )
+
+    assert classify_existing_results(
+        sources=(candidate,), evidence=evidence, target_settings=first
+    )[candidate.id].status == ExistingResultMatchStatus.accepted_match
+    assert classify_existing_results(
+        sources=(candidate,), evidence=evidence, target_settings=second
+    )[candidate.id].status == ExistingResultMatchStatus.no_match
+
+
+def test_media_clip_range_participates_in_provider_attempt_identity():
+    from studio_api.transcript_catalog import (
+        ProviderAttemptAuthorityStatus,
+        ProviderAttemptEvidence,
+        catalog_source_identity,
+        classify_provider_attempt_authorities,
+        current_effective_settings,
+    )
+
+    candidate = source("source-clip-provider")
+    first = current_effective_settings(
+        language_mode="ru",
+        diarization_enabled=False,
+        media_clip_start_seconds=0,
+        media_clip_end_seconds=610,
+    )
+    second = current_effective_settings(
+        language_mode="ru",
+        diarization_enabled=False,
+        media_clip_start_seconds=610,
+        media_clip_end_seconds=None,
+    )
+    evidence = (
+        ProviderAttemptEvidence(
+            source_identity=catalog_source_identity(candidate),
+            settings=first,
+            job_status="processing",
+            retry_disposition="undetermined",
+        ),
+    )
+
+    assert classify_provider_attempt_authorities(
+        sources=(candidate,), evidence=evidence, target_settings=first
+    )[candidate.id] == ProviderAttemptAuthorityStatus.in_flight
+    assert classify_provider_attempt_authorities(
+        sources=(candidate,), evidence=evidence, target_settings=second
+    )[candidate.id] == ProviderAttemptAuthorityStatus.available

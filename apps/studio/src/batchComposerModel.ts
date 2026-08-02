@@ -17,6 +17,11 @@ export type ComposerRow = {
   output_folder: VerifiedOutputFolder | null;
   title: string;
   reprocess_existing: boolean;
+  split_to_two_projects: boolean;
+  split_boundary: string;
+  second_output_folder: VerifiedOutputFolder | null;
+  second_title: string;
+  second_reprocess_existing: boolean;
 };
 export type BatchCreateResponse = {
   jobs: TranscriptionJob[];
@@ -32,11 +37,22 @@ export type BatchCreateRequest = {
     output_folder_id: string;
     title: string | null;
     reprocess_existing: boolean;
+    media_clip_start_seconds?: number | null;
+    media_clip_end_seconds?: number | null;
   }[];
+};
+export type ExpandedComposerItem = {
+  row_id: string;
+  segment: "full" | "first" | "second";
+  request_item: BatchCreateRequest["items"][number];
 };
 export type BatchPreflightItem = {
   position: number;
   title: string | null;
+  media_clip: {
+    start_seconds: number | null;
+    end_seconds: number | null;
+  } | null;
   source: {
     name: string;
     source_type: "local_upload" | "google_drive" | "unknown";
@@ -88,6 +104,11 @@ export function newComposerRow(): ComposerRow {
     output_folder: null,
     title: "",
     reprocess_existing: false,
+    split_to_two_projects: false,
+    split_boundary: "",
+    second_output_folder: null,
+    second_title: "",
+    second_reprocess_existing: false,
   };
 }
 
@@ -97,14 +118,98 @@ export function composerSignature(
   languageMode: TranscriptionLanguageMode,
   diarizationEnabled: boolean,
 ) {
-  return JSON.stringify(
-    buildBatchCreateRequest(
-      rows,
+  try {
+    return JSON.stringify(
+      buildBatchCreateRequest(
+        rows,
+        credentialId,
+        languageMode,
+        diarizationEnabled,
+      ),
+    );
+  } catch {
+    return JSON.stringify({
       credentialId,
       languageMode,
       diarizationEnabled,
-    ),
-  );
+      invalid_rows: rows.map((row) => ({
+        id: row.id,
+        source_id: row.source_id,
+        split_boundary: row.split_boundary,
+      })),
+    });
+  }
+}
+
+export function parseSplitBoundary(value: string): number | null {
+  const text = value.trim();
+  const parts = text.split(":");
+  if (parts.length !== 2 && parts.length !== 3) return null;
+  if (!parts.every((part) => /^\d+$/.test(part))) return null;
+  const numbers = parts.map(Number);
+  const [hours, minutes, seconds] =
+    numbers.length === 3
+      ? [numbers[0], numbers[1], numbers[2]]
+      : [0, numbers[0], numbers[1]];
+  if (seconds >= 60 || (parts.length === 3 && minutes >= 60)) return null;
+  const total = hours * 3600 + minutes * 60 + seconds;
+  return Number.isSafeInteger(total) && total > 0 && total <= 604800
+    ? total
+    : null;
+}
+
+export function formatSplitBoundary(totalSeconds: number): string {
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return hours > 0
+    ? `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
+    : `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+export function expandComposerRows(rows: ComposerRow[]): ExpandedComposerItem[] {
+  return rows.flatMap<ExpandedComposerItem>((row) => {
+    const base = {
+      source_id: row.source_id,
+      output_folder_id: row.output_folder?.folder_id ?? "",
+      title: row.title.trim() || null,
+      reprocess_existing: row.reprocess_existing,
+    };
+    if (!row.split_to_two_projects) {
+      return [
+        {
+          row_id: row.id,
+          segment: "full" as const,
+          request_item: base,
+        },
+      ];
+    }
+    const boundary = parseSplitBoundary(row.split_boundary);
+    if (boundary === null) throw new Error("Invalid split boundary");
+    return [
+      {
+        row_id: row.id,
+        segment: "first" as const,
+        request_item: {
+          ...base,
+          media_clip_start_seconds: 0,
+          media_clip_end_seconds: boundary,
+        },
+      },
+      {
+        row_id: row.id,
+        segment: "second" as const,
+        request_item: {
+          source_id: row.source_id,
+          output_folder_id: row.second_output_folder?.folder_id ?? "",
+          title: row.second_title.trim() || null,
+          reprocess_existing: row.second_reprocess_existing,
+          media_clip_start_seconds: boundary,
+          media_clip_end_seconds: null,
+        },
+      },
+    ];
+  });
 }
 
 export function buildBatchCreateRequest(
@@ -117,12 +222,7 @@ export function buildBatchCreateRequest(
     provider_credential_id: credentialId || null,
     language: languageMode,
     options: { diarize: diarizationEnabled },
-    items: rows.map((row) => ({
-      source_id: row.source_id,
-      output_folder_id: row.output_folder?.folder_id ?? "",
-      title: row.title.trim() || null,
-      reprocess_existing: row.reprocess_existing,
-    })),
+    items: expandComposerRows(rows).map((item) => item.request_item),
   };
 }
 
@@ -201,6 +301,7 @@ function isPreflightItem(value: unknown, expectedPosition: number) {
     !hasExactKeys(value, [
       "position",
       "title",
+      "media_clip",
       "source",
       "output_destination",
       "existing_result_match",
@@ -216,6 +317,7 @@ function isPreflightItem(value: unknown, expectedPosition: number) {
     ]) ||
     value.position !== expectedPosition ||
     !isNullableString(value.title) ||
+    !isMediaClip(value.media_clip) ||
     typeof value.source.name !== "string" ||
     !["local_upload", "google_drive", "unknown"].includes(
       String(value.source.source_type),
@@ -301,6 +403,20 @@ function isPreflightItem(value: unknown, expectedPosition: number) {
     coherentOutcome &&
     value.source.name.length > 0 &&
     value.output_destination.name.length > 0
+  );
+}
+
+function isMediaClip(value: unknown) {
+  if (value === null) return true;
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, ["start_seconds", "end_seconds"]) &&
+    (value.start_seconds === null || isNonNegativeInteger(value.start_seconds)) &&
+    (value.end_seconds === null || isNonNegativeInteger(value.end_seconds)) &&
+    (value.start_seconds !== null || value.end_seconds !== null) &&
+    (value.end_seconds === null ||
+      value.start_seconds === null ||
+      value.end_seconds > value.start_seconds)
   );
 }
 

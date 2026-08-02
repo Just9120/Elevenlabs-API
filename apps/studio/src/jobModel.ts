@@ -44,6 +44,10 @@ export type JobDetailState = {
 };
 export type JobOutputFolder = { name: string; web_view_url: string | null };
 export type TranscriptionLanguageMode = "ru" | "detect";
+export type JobMediaClip = {
+  start_seconds: number | null;
+  end_seconds: number | null;
+};
 export type TranscriptionJob = {
   id: string;
   project_id: string;
@@ -52,6 +56,8 @@ export type TranscriptionJob = {
   provider: string | null;
   language_mode?: string | null;
   diarization_enabled?: boolean;
+  media_clip?: JobMediaClip | null;
+  terminal_dismissed_at?: string | null;
   source_count: number;
   sources?: JobSource[];
   created_at: string;
@@ -74,6 +80,29 @@ export type JobState = {
 
 export function jobTitle(job: TranscriptionJob) {
   return job.title?.trim() || `Транскрибация от ${formatTime(job.created_at)}`;
+}
+
+export function jobMediaClipLabel(job: TranscriptionJob) {
+  const clip = job.media_clip;
+  if (!clip) return null;
+  const format = (seconds: number) => {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const remainder = seconds % 60;
+    return hours > 0
+      ? `${hours}:${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`
+      : `${minutes}:${String(remainder).padStart(2, "0")}`;
+  };
+  if ((clip.start_seconds ?? 0) === 0 && clip.end_seconds !== null) {
+    return `Начало — ${format(clip.end_seconds)}`;
+  }
+  if (clip.start_seconds !== null && clip.end_seconds === null) {
+    return `${format(clip.start_seconds)} — конец`;
+  }
+  if (clip.start_seconds !== null && clip.end_seconds !== null) {
+    return `${format(clip.start_seconds)} — ${format(clip.end_seconds)}`;
+  }
+  return null;
 }
 
 export function transcriptionLanguageModeLabel(value: string | null | undefined) {

@@ -45,6 +45,8 @@ def attempt(
     number: int = 1,
     provider_started=False,
     provider_returned=False,
+    provider_total_parts=None,
+    provider_completed_parts=0,
     failure_code=None,
 ):
     return SimpleNamespace(
@@ -57,6 +59,8 @@ def attempt(
         provider_response_returned_at=datetime(2026, 7, 23)
         if provider_returned
         else None,
+        provider_total_parts=provider_total_parts,
+        provider_completed_parts=provider_completed_parts,
         failure_code=failure_code,
     )
 
@@ -96,6 +100,8 @@ def test_progress_projects_checkpoint_authority_without_private_execution_fields
                 "relation-video",
                 "provider_request_started",
                 provider_started=True,
+                provider_total_parts=4,
+                provider_completed_parts=1,
             ),
             attempt("relation-audio", "prepared"),
         ],
@@ -116,6 +122,11 @@ def test_progress_projects_checkpoint_authority_without_private_execution_fields
     assert payload["current_stage"] == "provider_processing"
     assert payload["sources"][0]["status"] == "processing"
     assert payload["sources"][1]["status"] == "queued"
+    assert payload["sources"][0]["provider_parts"] == {
+        "completed": 1,
+        "total": 4,
+    }
+    assert payload["sources"][1]["provider_parts"] is None
     first = stages_by_key(payload)
     assert first["preparation"]["status"] == "completed"
     assert first["audio_extraction"] == {
@@ -141,6 +152,8 @@ def test_progress_projects_checkpoint_authority_without_private_execution_fields
         "lease",
         "claim",
         "failure_code",
+        "provider_total_parts",
+        "provider_completed_parts",
     ):
         assert marker not in encoded
 

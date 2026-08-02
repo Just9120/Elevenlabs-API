@@ -33,11 +33,14 @@ This is the current Studio processing contract. It is not a delivery plan, PR hi
 - A relation with persisted output must not repeat provider transcription or Google Docs creation.
 - Existing output coverage is considered before deciding whether more external work is required.
 - A materialized source with a server-validated `video/*` MIME type is converted server-side to AAC/M4A before ElevenLabs submission. The browser does not choose or perform this conversion.
+- An optional manual two-project split is represented as two independent single-source jobs with immutable complementary clip ranges and different persisted output-folder snapshots. The first range owns `[0, boundary)` and the second owns `[boundary, source end]`; the boundary is an integer second greater than zero. Configuration cannot change after job creation.
+- Manual clip bounds are validated against the duration-probed prepared source before the first provider request. An invalid or out-of-duration range fails closed without a provider call. Each valid clip is created as a temporary server-side AAC/M4A input before the ordinary long-media split policy is evaluated; no clipped media or transcript body is persisted in Studio.
 - Video preparation invokes `ffmpeg` without a shell, selects the first audio stream, has a 1,800-second timeout, refuses an empty or deployment-limit-exceeding output, and keeps input/output artifacts inside one temporary directory that is closed after the provider boundary.
 - Video-preparation failures are normalized before the provider request-start marker. Lifecycle, lease, cancellation, source, credential, and output identity are revalidated after preparation and immediately before provider submission.
 - Every prepared ElevenLabs input is duration-probed server-side. It is split before the first provider request when it exceeds either 25 MiB or 1,320 seconds; parts target 20 MiB and at most 1,320 seconds, are mono AAC at 96 kbit/s, overlap by two seconds, are capped at 256 deterministic ordered parts, and may not exceed the deployment source-size limit in aggregate.
 - Part creation is shell-free, timeout-bounded, size-validated, and temporary. Merge assigns the overlap interval to the earlier part, removes an exact repeated word prefix when present, shifts retained word timestamps onto the source timeline, and fails closed if a multi-part response cannot provide the word timing needed for deterministic ownership.
 - Provider calls run in part order with lifecycle revalidation between calls. The provider timeout is 1,800 seconds per part and Google Docs upload timeout is 120 seconds. Once any part has returned successfully, a later provider failure is classified as an uncertain partial result and the whole source is not automatically retried.
+- The current attempt may persist only bounded integer provider-part progress: one prepared total greater than zero and a monotonically increasing completed count no greater than that total. The provider-start checkpoint and total commit before the first call; each successful part count commits only after post-call lifecycle/lease revalidation. A lost or invalid progress commit after provider work fails closed as a partial-provider-result boundary.
 
 ## Transaction and commit ownership
 
@@ -88,6 +91,7 @@ If cancellation, lease loss, owner/generation mismatch, project/source mutation,
 - Partial outputs may be returned for an owned job; job status remains the lifecycle authority.
 - Browser payloads may include only validated safe Google web URL metadata and aggregate output metadata.
 - Browser payloads must not include transcript body, Google document ID, folder ID, lease metadata, provider payloads, Google payloads, source bytes, object keys, private paths, or secret values.
+- Browser progress may expose only the safe source display name, fixed stage states, and bounded completed/total provider-part counters. Percentage must derive only from confirmed checkpoints; time-based simulated movement is prohibited.
 
 ## Known limitations
 

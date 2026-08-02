@@ -3,6 +3,7 @@ import type {
   JobProgressStageKey,
   JobProgressState,
 } from "./jobProgressModel";
+import { confirmedProgressPercent } from "./jobProgressModel";
 
 const STAGE_LABELS: Record<JobProgressStageKey, string> = {
   preparation: "Подготовка источника",
@@ -40,6 +41,7 @@ export function JobProgressPipeline({
     );
 
   const progress = state.data;
+  const percent = confirmedProgressPercent(progress);
   return (
     <section
       className="job-progress"
@@ -48,19 +50,34 @@ export function JobProgressPipeline({
     >
       <div className="job-progress-header">
         <strong>Этапы обработки</strong>
-        <span>
-          Готово файлов: {progress.completed_source_count} из{" "}
-          {progress.total_source_count}
-        </span>
+        <strong>{percent}%</strong>
       </div>
+      <progress
+        className="job-progress-meter"
+        max={100}
+        value={percent}
+        aria-label="Подтверждённый прогресс"
+      >
+        {percent}%
+      </progress>
+      <span>
+        Готово файлов: {progress.completed_source_count} из{" "}
+        {progress.total_source_count}
+      </span>
       <p className="muted">
-        Статусы обновляются после подтверждённых серверных этапов.
+        Процент обновляется только после подтверждённых серверных этапов.
       </p>
       {progress.sources.map((source) => (
         <div className="job-progress-source" key={source.position}>
           <b>
             {source.position + 1}. {source.name}
           </b>
+          {source.provider_parts && (
+            <span className="muted">
+              Части ElevenLabs: {source.provider_parts.completed} из{" "}
+              {source.provider_parts.total}
+            </span>
+          )}
           <ol className="job-progress-steps">
             {source.stages.map((stage) => (
               <li

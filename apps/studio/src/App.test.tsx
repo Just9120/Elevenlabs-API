@@ -38,7 +38,12 @@ function batchPreflightJson(init?: RequestInit) {
   const request = JSON.parse(String(init?.body ?? "{}")) as {
     language?: "ru" | "detect";
     options?: { diarize?: boolean };
-    items?: { title?: string | null; reprocess_existing?: boolean }[];
+    items?: {
+      title?: string | null;
+      reprocess_existing?: boolean;
+      media_clip_start_seconds?: number | null;
+      media_clip_end_seconds?: number | null;
+    }[];
   };
   const items = request.items ?? [];
   return json({
@@ -53,6 +58,14 @@ function batchPreflightJson(init?: RequestInit) {
     items: items.map((item, position) => ({
       position,
       title: item.title ?? null,
+      media_clip:
+        item.media_clip_start_seconds != null ||
+        item.media_clip_end_seconds != null
+          ? {
+              start_seconds: item.media_clip_start_seconds ?? null,
+              end_seconds: item.media_clip_end_seconds ?? null,
+            }
+          : null,
       source: {
         name: `Safe source ${position + 1}`,
         source_type: position % 2 === 0 ? "google_drive" : "local_upload",
@@ -548,6 +561,9 @@ describe("Studio PWA", () => {
       .forEach((node) => node.remove());
     localStorage.clear();
     sessionStorage.clear();
+    delete document.documentElement.dataset.theme;
+    delete document.documentElement.dataset.themePreference;
+    document.documentElement.style.colorScheme = "";
     let localUploadIndex = 0;
     const localUploadMetadata = new Map<
       string,
@@ -2785,6 +2801,89 @@ describe("Studio PWA", () => {
     ).toBeEnabled();
   });
 
+  it("offers and persists system, light, and dark appearance choices", async () => {
+    renderApp();
+    await openSettingsPage();
+    const selector = screen.getByLabelText("Тема интерфейса");
+    expect(selector).toHaveValue("system");
+    await userEvent.selectOptions(selector, "dark");
+    expect(localStorage.getItem("studio-theme-preference")).toBe("dark");
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    await userEvent.selectOptions(selector, "light");
+    expect(localStorage.getItem("studio-theme-preference")).toBe("light");
+    expect(document.documentElement.dataset.theme).toBe("light");
+  });
+
+  it("builds two project jobs from one source and a manual boundary", async () => {
+    renderApp();
+    await openProjectsPage();
+    await chooseExistingSource(1, "Лекция 1");
+    await chooseResultFolder(1, "folder-project-one");
+
+    await userEvent.click(
+      screen.getByLabelText(
+        "Разделить созвон на два проекта и создать два документа",
+      ),
+    );
+    expect(
+      screen.getByRole("button", { name: "Проверить задачи (2)" }),
+    ).toBeDisabled();
+    await userEvent.type(
+      screen.getByLabelText("Граница разделения строки 1"),
+      "10:10",
+    );
+    vi.spyOn(googlePicker, "openGooglePicker").mockResolvedValueOnce({
+      action: "picked",
+      docs: [{ id: "folder-project-two" }],
+    } as Awaited<ReturnType<typeof googlePicker.openGooglePicker>>);
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Выбрать папку второй части для строки 1",
+      }),
+    );
+    await userEvent.type(
+      screen.getByLabelText("Название задачи для строки 1"),
+      "Проект один",
+    );
+    await userEvent.type(
+      screen.getByLabelText("Название второй части строки 1"),
+      "Проект два",
+    );
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Проверить задачи (2)" }),
+    );
+    const preview = await screen.findByLabelText(
+      "Проверка перед созданием задач",
+    );
+    expect(preview).toHaveTextContent("Часть файла: Начало — 10:10");
+    expect(preview).toHaveTextContent("Часть файла: 10:10 — конец");
+    const preflightCall = (
+      fetch as unknown as ReturnType<typeof vi.fn>
+    ).mock.calls.find(
+      ([url, init]) =>
+        url === "/api/projects/p1/jobs/batch/preflight" &&
+        init?.method === "POST",
+    );
+    const body = JSON.parse(String(preflightCall?.[1]?.body));
+    expect(body.items).toEqual([
+      expect.objectContaining({
+        source_id: "s1",
+        output_folder_id: "folder-project-one",
+        title: "Проект один",
+        media_clip_start_seconds: 0,
+        media_clip_end_seconds: 610,
+      }),
+      expect.objectContaining({
+        source_id: "s1",
+        output_folder_id: "folder-project-two",
+        title: "Проект два",
+        media_clip_start_seconds: 610,
+        media_clip_end_seconds: null,
+      }),
+    ]);
+  });
+
   it("blocks an existing result until the user explicitly accepts paid reprocessing", async () => {
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = baseFetch.getMockImplementation();
@@ -2812,6 +2911,7 @@ describe("Studio PWA", () => {
             {
               position: 0,
               title: request.items?.[0]?.title ?? null,
+              media_clip: null,
               source: {
                 name: "Safe source 1",
                 source_type: "google_drive",
@@ -2955,6 +3055,7 @@ describe("Studio PWA", () => {
               {
                 position: 0,
                 title: null,
+                media_clip: null,
                 source: {
                   name: "Safe source 1",
                   source_type: "google_drive",
@@ -3406,12 +3507,14 @@ describe("Studio PWA", () => {
                     position: 0,
                     name: "ready-drive.mp4",
                     status: "queued",
+                    provider_parts: null,
                     stages: progressStages(null),
                   },
                   {
                     position: 1,
                     name: "ready-local.ogg",
                     status: "queued",
+                    provider_parts: null,
                     stages: progressStages(null, false),
                   },
                 ],
@@ -3429,6 +3532,7 @@ describe("Studio PWA", () => {
                     position: 0,
                     name: "processing.mp4",
                     status: "processing",
+                    provider_parts: null,
                     stages: progressStages("provider_processing"),
                   },
                 ],
@@ -4204,6 +4308,13 @@ describe("Studio PWA", () => {
             ],
             created_count: 1,
             replayed: true,
+          });
+        if (url.endsWith("/api/jobs/job-created/outputs"))
+          return json({
+            job_id: "job-created",
+            job_status: "completed",
+            output_count: 0,
+            outputs: [],
           });
         return json({ ok: true });
       },
@@ -7078,6 +7189,9 @@ describe("Studio PWA", () => {
     expect(css).toMatch(
       /button:where\(\s*:not\(\.primary\):not\(\.danger\)\s*\)/,
     );
+    expect(css).toContain(':root[data-theme="dark"]');
+    expect(css).toMatch(/\.shell > main\s*\{[^}]*width:\s*100%/s);
+    expect(css).not.toContain("width: min(100%, 1360px)");
     expect(css).not.toContain("!important");
     expect(css).toContain(".app-nav button");
     expect(css).toContain(".tabs button");
@@ -7296,7 +7410,7 @@ describe("settings diagnostics", () => {
     window.history.replaceState({}, "", "/");
   });
 
-  it("restores and updates URL-backed platform navigation without browser storage", async () => {
+  it("restores URL-backed navigation without browser-stored navigation state", async () => {
     const addSpy = vi.spyOn(window, "addEventListener");
     const removeSpy = vi.spyOn(window, "removeEventListener");
     const localGet = vi.spyOn(Storage.prototype, "getItem");
@@ -7364,7 +7478,9 @@ describe("settings diagnostics", () => {
     expect(
       addSpy.mock.calls.filter(([type]) => type === "popstate"),
     ).toHaveLength(5);
-    expect(localGet).not.toHaveBeenCalled();
+    expect(
+      localGet.mock.calls.every(([key]) => key === "studio-theme-preference"),
+    ).toBe(true);
     expect(localSet).not.toHaveBeenCalled();
     cleanup();
     window.history.replaceState({}, "", "/");

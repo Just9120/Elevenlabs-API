@@ -19,6 +19,7 @@ const state: JobProgressState = {
         position: 0,
         name: "Interview.mp4",
         status: "processing",
+        provider_parts: { completed: 1, total: 4 },
         stages: [
           { key: "preparation", status: "completed", applicability: "required" },
           {
@@ -56,6 +57,13 @@ describe("JobProgressPipeline", () => {
     expect(steps[3]).toHaveTextContent("Транскрибация ElevenLabs");
     expect(steps[3]).toHaveTextContent("Выполняется");
     expect(steps[5]).toHaveTextContent("Создание Google Docs");
+    expect(
+      within(pipeline).getByRole("progressbar", {
+        name: "Подтверждённый прогресс",
+      }),
+    ).toHaveAttribute("value", "54");
+    expect(within(pipeline).getAllByText("54%", { exact: true })).toHaveLength(2);
+    expect(pipeline).toHaveTextContent("Части ElevenLabs: 1 из 4");
   });
 
   it("keeps the last confirmed state visible after a refresh failure", () => {

@@ -1,6 +1,7 @@
 import { formatTime } from "./formatters";
 import {
   isApprovedOutputUrl,
+  jobMediaClipLabel,
   jobTitle,
   jobСтатусLabel,
   type TranscriptionJob,
@@ -8,11 +9,13 @@ import {
 import { ResourceExternalLink } from "./resourceLinks";
 
 export function JobCardSummary({ job }: { job: TranscriptionJob }) {
+  const mediaClipLabel = jobMediaClipLabel(job);
   return (
     <>
       <b>{jobTitle(job)}</b>
       <span>Статус: {jobСтатусLabel(job.status)}</span>
       <span>Файлов: {job.source_count}</span>
+      {mediaClipLabel && <span>Часть созвона: {mediaClipLabel}</span>}
       <span>Создана: {formatTime(job.created_at)}</span>
       {job.output_folder && (
         <span>

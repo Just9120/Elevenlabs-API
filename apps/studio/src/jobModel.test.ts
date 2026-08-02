@@ -2,6 +2,7 @@ import {
   isApprovedOutputUrl,
   jobSourceProcessingСтатус,
   jobSourceProcessingСтатусLabel,
+  jobMediaClipLabel,
   jobTitle,
   jobСтатусLabel,
   outputSourceLabel,
@@ -75,6 +76,22 @@ describe("job model", () => {
     expect(jobTitle({ ...job, title: " " })).toBe(
       `Транскрибация от ${new Date(job.created_at).toLocaleString("ru-RU")}`,
     );
+  });
+
+  it("labels complementary media clips without exposing storage details", () => {
+    expect(
+      jobMediaClipLabel({
+        ...job,
+        media_clip: { start_seconds: 0, end_seconds: 610 },
+      }),
+    ).toBe("Начало — 10:10");
+    expect(
+      jobMediaClipLabel({
+        ...job,
+        media_clip: { start_seconds: 610, end_seconds: null },
+      }),
+    ).toBe("10:10 — конец");
+    expect(jobMediaClipLabel(job)).toBeNull();
   });
 
   it("sorts a copy of job sources and handles missing sources", () => {

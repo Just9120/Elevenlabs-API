@@ -822,11 +822,35 @@ test('queued cancellation performs one bounded API mutation', async ({
     ),
   ).toBeVisible();
   await expect(
+    queuedCard.getByText('Статус: Отменена'),
+  ).toBeVisible();
+  await expect(
+    queuedCard.getByRole('button', { name: 'Отменить' }),
+  ).toHaveCount(0);
+  await expect(
+    queuedCard.getByRole('button', { name: 'Убрать в историю' }),
+  ).toBeVisible();
+  await expect(currentJobs).toContainText(PROCESSING_CANCELLATION_JOB);
+
+  const dismissResponsePromise = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      response.url().endsWith('/dismiss'),
+  );
+  await queuedCard
+    .getByRole('button', { name: 'Убрать в историю' })
+    .click();
+  const dismissResponse = await dismissResponsePromise;
+  expect(dismissResponse.status()).toBe(200);
+  const dismissed = await dismissResponse.json();
+  expect(String(dismissed.terminal_dismissed_at ?? '')).toMatch(
+    /^\d{4}-\d{2}-\d{2}T/,
+  );
+  await expect(
     currentJobs
       .locator('article.source-card')
       .filter({ hasText: QUEUED_CANCELLATION_JOB }),
   ).toHaveCount(0);
-  await expect(currentJobs).toContainText(PROCESSING_CANCELLATION_JOB);
 
   await page.getByText('Недавние задачи · 5', { exact: true }).click();
   const cancelledCard = page
@@ -838,9 +862,12 @@ test('queued cancellation performs one bounded API mutation', async ({
     cancelledCard.getByRole('button', { name: 'Отменить' }),
   ).toHaveCount(0);
 
-  expect(integrationRequests).toHaveLength(1);
+  expect(integrationRequests).toHaveLength(2);
   expect(integrationRequests[0]).toMatch(
     /^POST http:\/\/127\.0\.0\.1:4173\/api\/jobs\/[0-9a-f-]{36}\/cancel$/,
+  );
+  expect(integrationRequests[1]).toMatch(
+    /^POST http:\/\/127\.0\.0\.1:4173\/api\/jobs\/[0-9a-f-]{36}\/dismiss$/,
   );
 });
 
