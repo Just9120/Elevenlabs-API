@@ -73,10 +73,13 @@ import {
   DEFAULT_TRANSCRIPTION_LANGUAGE_MODE,
   composerSignature,
   buildBatchCreateRequest,
+  expandComposerRows,
+  formatSplitBoundary,
   makeIdempotencyKey,
   mergeJobsWithBatchOrder,
   newComposerRow,
   parseBatchPreflightResponse,
+  parseSplitBoundary,
   type BatchCreateResponse,
   type BatchPreflightResponse,
   type ComposerRow,
@@ -649,13 +652,30 @@ function PreparationPanel({
       .filter((row) => row.source_id && !usableSourceIds.has(row.source_id))
       .map((row) => row.id),
   );
-  const duplicatePairs = new Set<string>();
-  const seenPairs = new Set<string>();
+  const duplicateRowIds = new Set<string>();
+  const seenPairs = new Map<string, string>();
   rows.forEach((row) => {
     if (!row.source_id || !row.output_folder?.folder_id) return;
-    const pair = `${row.source_id}\u0000${row.output_folder.folder_id}`;
-    if (seenPairs.has(pair)) duplicatePairs.add(pair);
-    seenPairs.add(pair);
+    const boundary = row.split_to_two_projects
+      ? parseSplitBoundary(row.split_boundary)
+      : null;
+    const scopes = row.split_to_two_projects && boundary !== null
+      ? [
+          `${row.source_id}\u0000${row.output_folder.folder_id}\u00000\u0000${boundary}`,
+          row.second_output_folder?.folder_id
+            ? `${row.source_id}\u0000${row.second_output_folder.folder_id}\u0000${boundary}\u0000end`
+            : "",
+        ]
+      : [`${row.source_id}\u0000${row.output_folder.folder_id}\u0000full`];
+    scopes.filter(Boolean).forEach((scope) => {
+      const previousRowId = seenPairs.get(scope);
+      if (previousRowId) {
+        duplicateRowIds.add(previousRowId);
+        duplicateRowIds.add(row.id);
+      } else {
+        seenPairs.set(scope, row.id);
+      }
+    });
   });
   const googlePickerGuidance = (() => {
     if (!googleConnection?.connected) return "Google Drive не подключён.";
@@ -688,8 +708,30 @@ function PreparationPanel({
         reason: `Строка ${rowNumber}: выберите папку результата`,
       };
     }
-    const pair = `${row.source_id}\u0000${row.output_folder.folder_id}`;
-    if (duplicatePairs.has(pair)) {
+    if (row.split_to_two_projects) {
+      const boundary = parseSplitBoundary(row.split_boundary);
+      if (boundary === null) {
+        return {
+          ready: false,
+          reason: `Строка ${rowNumber}: укажите границу в формате ММ:СС или ЧЧ:ММ:СС`,
+        };
+      }
+      if (!row.second_output_folder?.folder_id) {
+        return {
+          ready: false,
+          reason: `Строка ${rowNumber}: выберите папку второй части`,
+        };
+      }
+      if (
+        row.second_output_folder.folder_id === row.output_folder.folder_id
+      ) {
+        return {
+          ready: false,
+          reason: `Строка ${rowNumber}: для двух проектов нужны разные папки`,
+        };
+      }
+    }
+    if (duplicateRowIds.has(row.id)) {
       return {
         ready: false,
         reason: `Строка ${rowNumber}: такая пара файла и папки уже добавлена`,
@@ -714,6 +756,17 @@ function PreparationPanel({
   const submitting = submissionStage !== null;
   const activePreflight =
     preflight?.signature === signature ? preflight.data : null;
+  const expandedComposerItems = (() => {
+    try {
+      return expandComposerRows(rows);
+    } catch {
+      return [];
+    }
+  })();
+  const plannedJobCount = rows.reduce(
+    (count, row) => count + (row.split_to_two_projects ? 2 : 1),
+    0,
+  );
   const activeProviderAuthorityBlocked =
     activePreflight?.items.some(
       (item) => item.provider_attempt_authority.status === "blocked",
@@ -777,6 +830,7 @@ function PreparationPanel({
           ...next[targetIndex],
           source_id: first.id,
           reprocess_existing: false,
+          second_reprocess_existing: false,
         };
       }
       next.push(
@@ -1084,7 +1138,10 @@ function PreparationPanel({
       return next;
     });
   }
-  async function chooseRowFolder(rowId: string) {
+  async function chooseRowFolder(
+    rowId: string,
+    target: "first" | "second" = "first",
+  ) {
     if (
       googleConnection?.picker_ready !== true ||
       pickerBusy ||
@@ -1124,13 +1181,17 @@ function PreparationPanel({
         onCsrf,
         { method: "POST", body: JSON.stringify({ folder_id: folderId }) },
       );
-      updateRow(rowId, {
-        output_folder: {
+      const outputFolder = {
           folder_id: folderId,
           name: verified.name || "Папка Google Drive",
           web_view_url: verified.web_view_url,
-        },
-      });
+      };
+      updateRow(
+        rowId,
+        target === "second"
+          ? { second_output_folder: outputFolder }
+          : { output_folder: outputFolder },
+      );
     } catch (err) {
       setMessage(
         googlePickerFailureMessage(err) ??
@@ -1155,8 +1216,8 @@ function PreparationPanel({
       setMessage("Добавьте хотя бы одну строку подготовки.");
       return;
     }
-    if (rows.some((row) => !row.source_id || !row.output_folder?.folder_id)) {
-      setMessage("В каждой строке выберите готовый файл и папку результата.");
+    if (firstReadinessBlocker) {
+      setMessage(firstReadinessBlocker);
       return;
     }
     if (invalidSourceRowIds.size > 0) {
@@ -1165,7 +1226,7 @@ function PreparationPanel({
       );
       return;
     }
-    if (duplicatePairs.size > 0) {
+    if (duplicateRowIds.size > 0) {
       setMessage(
         "Одинаковые пары файла и папки результата нельзя отправить дважды.",
       );
@@ -1190,7 +1251,7 @@ function PreparationPanel({
         const response = parseBatchPreflightResponse(rawResponse);
         if (
           !response ||
-          response.items.length !== rows.length
+          response.items.length !== requestBody.items.length
         ) {
           throw new Error("Invalid batch preflight response");
         }
@@ -1590,6 +1651,7 @@ function PreparationPanel({
                   current.map((row) => ({
                     ...row,
                     reprocess_existing: false,
+                    second_reprocess_existing: false,
                   })),
                 );
               }}
@@ -1609,6 +1671,7 @@ function PreparationPanel({
                   current.map((row) => ({
                     ...row,
                     reprocess_existing: false,
+                    second_reprocess_existing: false,
                   })),
                 );
               }}
@@ -1668,11 +1731,7 @@ function PreparationPanel({
           <ol>
             {rows.map((row, index) => {
               const selectedSource = sourceById(row.source_id);
-              const pairKey =
-                row.source_id && row.output_folder?.folder_id
-                  ? `${row.source_id}\u0000${row.output_folder.folder_id}`
-                  : "";
-              const duplicate = pairKey && duplicatePairs.has(pairKey);
+              const duplicate = duplicateRowIds.has(row.id);
               const rowReadiness = rowReadinessResults[index];
               const rowReady = rowReadiness.ready;
               return (
@@ -1743,6 +1802,7 @@ function PreparationPanel({
                             updateRow(row.id, {
                               source_id: e.target.value,
                               reprocess_existing: false,
+                              second_reprocess_existing: false,
                             });
                             if (e.target.value) clearRowIntakeError(row.id);
                           }}
@@ -1853,7 +1913,11 @@ function PreparationPanel({
                       )}
                     </section>
                     <div className="folder-cell">
-                      <span className="field-label">Папка результата</span>
+                      <span className="field-label">
+                        {row.split_to_two_projects
+                          ? "Папка первой части"
+                          : "Папка результата"}
+                      </span>
                       <span>
                         {row.output_folder?.name || "Папка не выбрана"}
                       </span>
@@ -1876,7 +1940,9 @@ function PreparationPanel({
                       </button>
                     </div>
                     <label>
-                      Название документа
+                      {row.split_to_two_projects
+                        ? "Название первой части"
+                        : "Название документа"}
                       <input
                         value={row.title}
                         onChange={(e) =>
@@ -1892,6 +1958,121 @@ function PreparationPanel({
                       </small>
                     </label>
                   </div>
+                  <label className="split-project-toggle">
+                    <input
+                      type="checkbox"
+                      checked={row.split_to_two_projects}
+                      onChange={(event) =>
+                        updateRow(row.id, {
+                          split_to_two_projects: event.target.checked,
+                          reprocess_existing: false,
+                          second_reprocess_existing: false,
+                        })
+                      }
+                    />
+                    <span>
+                      Разделить созвон на два проекта и создать два документа
+                    </span>
+                  </label>
+                  {row.split_to_two_projects && (
+                    <section
+                      className="split-project-panel"
+                      aria-label={
+                        "Разделение строки " + (index + 1) + " на два проекта"
+                      }
+                    >
+                      <label>
+                        Граница между проектами
+                        <input
+                          value={row.split_boundary}
+                          onChange={(event) =>
+                            updateRow(row.id, {
+                              split_boundary: event.target.value,
+                              reprocess_existing: false,
+                              second_reprocess_existing: false,
+                            })
+                          }
+                          inputMode="numeric"
+                          placeholder="10:10"
+                          aria-label={
+                            "Граница разделения строки " + (index + 1)
+                          }
+                        />
+                        <small className="muted">
+                          Формат ММ:СС или ЧЧ:ММ:СС. Первая часть: начало —
+                          {parseSplitBoundary(row.split_boundary) === null
+                            ? " граница"
+                            : " " +
+                              formatSplitBoundary(
+                                parseSplitBoundary(row.split_boundary) ?? 0,
+                              )}
+                          ; вторая: от границы до конца.
+                        </small>
+                      </label>
+                      <div className="folder-cell">
+                        <span className="field-label">Папка второй части</span>
+                        <span>
+                          {row.second_output_folder?.name ||
+                            "Папка не выбрана"}
+                        </span>
+                        {row.second_output_folder?.web_view_url &&
+                          isApprovedOutputUrl(
+                            row.second_output_folder.web_view_url,
+                          ) && (
+                            <ResourceExternalLink
+                              href={row.second_output_folder.web_view_url}
+                              label="Открыть папку"
+                              ariaLabel={
+                                "Открыть папку второй части строки " +
+                                (index + 1) +
+                                " в Google Drive"
+                              }
+                            />
+                          )}
+                        <button
+                          type="button"
+                          className="secondary"
+                          disabled={
+                            !googleConnection?.picker_ready || pickerBusy
+                          }
+                          onClick={() =>
+                            void chooseRowFolder(row.id, "second")
+                          }
+                          aria-label={
+                            "Выбрать папку второй части для строки " +
+                            (index + 1)
+                          }
+                        >
+                          {row.second_output_folder?.folder_id
+                            ? "Изменить"
+                            : "Выбрать"}
+                        </button>
+                      </div>
+                      <label>
+                        Название второй части
+                        <input
+                          value={row.second_title}
+                          onChange={(event) =>
+                            updateRow(row.id, {
+                              second_title: event.target.value,
+                            })
+                          }
+                          maxLength={160}
+                          placeholder="Необязательно"
+                          aria-label={
+                            "Название второй части строки " + (index + 1)
+                          }
+                        />
+                      </label>
+                      {row.output_folder?.folder_id &&
+                        row.second_output_folder?.folder_id ===
+                          row.output_folder.folder_id && (
+                          <p className="error">
+                            Выберите разные папки для двух проектов.
+                          </p>
+                        )}
+                    </section>
+                  )}
                   {invalidSourceRowIds.has(row.id) && (
                     <p className="error">
                       Выбранный файл больше недоступен. Выберите готовый файл
@@ -1964,7 +2145,15 @@ function PreparationPanel({
                         "equivalent_provider_outcome_unresolved"
                       ? "Предыдущая транскрибация имеет неопределённый результат. Сначала проверьте её статус; повторная обработка заблокирована."
                       : null;
-                const row = rows[item.position];
+                const expandedItem = expandedComposerItems[item.position];
+                const row = rows.find(
+                  (candidate) => candidate.id === expandedItem?.row_id,
+                );
+                const clipLabel = item.media_clip
+                  ? item.media_clip.start_seconds === 0
+                    ? `Начало — ${formatSplitBoundary(item.media_clip.end_seconds ?? 0)}`
+                    : `${formatSplitBoundary(item.media_clip.start_seconds ?? 0)} — конец`
+                  : null;
                 return (
                   <li key={item.position}>
                     <div>
@@ -1987,6 +2176,7 @@ function PreparationPanel({
                           : `${Math.round(item.source.duration_seconds)} сек.`}
                       </span>
                       <span>{matchLabel}</span>
+                      {clipLabel && <span>Часть файла: {clipLabel}</span>}
                       {providerAuthorityLabel && (
                         <span className="error">{providerAuthorityLabel}</span>
                       )}
@@ -2008,16 +2198,26 @@ function PreparationPanel({
                           <label className="reprocess-decision">
                             <input
                               type="checkbox"
-                              checked={row.reprocess_existing}
+                              checked={
+                                expandedItem?.segment === "second"
+                                  ? row.second_reprocess_existing
+                                  : row.reprocess_existing
+                              }
                               disabled={
                                 item.provider_attempt_authority.status ===
                                 "blocked"
                               }
-                              onChange={(event) =>
-                                updateRow(row.id, {
-                                  reprocess_existing: event.target.checked,
-                                })
-                              }
+                              onChange={(event) => {
+                                const reprocess = event.target.checked;
+                                updateRow(
+                                  row.id,
+                                  expandedItem?.segment === "second"
+                                    ? {
+                                        second_reprocess_existing: reprocess,
+                                      }
+                                    : { reprocess_existing: reprocess },
+                                );
+                              }}
                               aria-label={`Транскрибировать заново строку ${item.position + 1}`}
                             />
                             <span>
@@ -2044,6 +2244,7 @@ function PreparationPanel({
         <div className="composer-footer">
           <div>
             <b>Строк: {rows.length}</b>
+            <span>Будет создано задач: {plannedJobCount}</span>
             <span>
               Готово: {completeRowCount} из {rows.length}
             </span>
@@ -2055,8 +2256,8 @@ function PreparationPanel({
               : submissionStage === "create"
                 ? "Создание задач…"
                 : activePreflight
-                  ? `Подтвердить и создать (${rows.length})`
-                  : `Проверить задачи (${rows.length})`}
+                  ? `Подтвердить и создать (${plannedJobCount})`
+                  : `Проверить задачи (${plannedJobCount})`}
           </button>
         </div>
       </form>
@@ -2102,6 +2303,7 @@ function PreparationPanel({
                       ...row,
                       source_id: "",
                       reprocess_existing: false,
+                      second_reprocess_existing: false,
                     }
                   : row,
               ),

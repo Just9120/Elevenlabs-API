@@ -99,16 +99,12 @@ describe("batch composer model", () => {
           output_folder_id: "folder-1",
           title: "Interview",
           reprocess_existing: true,
-          media_clip_start_seconds: null,
-          media_clip_end_seconds: null,
         },
         {
           source_id: "source-2",
           output_folder_id: "",
           title: null,
           reprocess_existing: false,
-          media_clip_start_seconds: null,
-          media_clip_end_seconds: null,
         },
       ],
     });

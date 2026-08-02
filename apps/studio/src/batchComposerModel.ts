@@ -37,8 +37,8 @@ export type BatchCreateRequest = {
     output_folder_id: string;
     title: string | null;
     reprocess_existing: boolean;
-    media_clip_start_seconds: number | null;
-    media_clip_end_seconds: number | null;
+    media_clip_start_seconds?: number | null;
+    media_clip_end_seconds?: number | null;
   }[];
 };
 export type ExpandedComposerItem = {
@@ -168,7 +168,7 @@ export function formatSplitBoundary(totalSeconds: number): string {
 }
 
 export function expandComposerRows(rows: ComposerRow[]): ExpandedComposerItem[] {
-  return rows.flatMap((row) => {
+  return rows.flatMap<ExpandedComposerItem>((row) => {
     const base = {
       source_id: row.source_id,
       output_folder_id: row.output_folder?.folder_id ?? "",
@@ -180,11 +180,7 @@ export function expandComposerRows(rows: ComposerRow[]): ExpandedComposerItem[] 
         {
           row_id: row.id,
           segment: "full" as const,
-          request_item: {
-            ...base,
-            media_clip_start_seconds: null,
-            media_clip_end_seconds: null,
-          },
+          request_item: base,
         },
       ];
     }

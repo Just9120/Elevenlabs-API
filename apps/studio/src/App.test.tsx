@@ -38,7 +38,12 @@ function batchPreflightJson(init?: RequestInit) {
   const request = JSON.parse(String(init?.body ?? "{}")) as {
     language?: "ru" | "detect";
     options?: { diarize?: boolean };
-    items?: { title?: string | null; reprocess_existing?: boolean }[];
+    items?: {
+      title?: string | null;
+      reprocess_existing?: boolean;
+      media_clip_start_seconds?: number | null;
+      media_clip_end_seconds?: number | null;
+    }[];
   };
   const items = request.items ?? [];
   return json({
@@ -53,6 +58,14 @@ function batchPreflightJson(init?: RequestInit) {
     items: items.map((item, position) => ({
       position,
       title: item.title ?? null,
+      media_clip:
+        item.media_clip_start_seconds != null ||
+        item.media_clip_end_seconds != null
+          ? {
+              start_seconds: item.media_clip_start_seconds ?? null,
+              end_seconds: item.media_clip_end_seconds ?? null,
+            }
+          : null,
       source: {
         name: `Safe source ${position + 1}`,
         source_type: position % 2 === 0 ? "google_drive" : "local_upload",
@@ -2785,6 +2798,76 @@ describe("Studio PWA", () => {
     ).toBeEnabled();
   });
 
+  it("builds two project jobs from one source and a manual boundary", async () => {
+    renderApp();
+    await openProjectsPage();
+    await chooseExistingSource(1, "Лекция 1");
+    await chooseResultFolder(1, "folder-project-one");
+
+    await userEvent.click(
+      screen.getByLabelText(
+        "Разделить созвон на два проекта и создать два документа",
+      ),
+    );
+    expect(
+      screen.getByRole("button", { name: "Проверить задачи (2)" }),
+    ).toBeDisabled();
+    await userEvent.type(
+      screen.getByLabelText("Граница разделения строки 1"),
+      "10:10",
+    );
+    vi.spyOn(googlePicker, "openGooglePicker").mockResolvedValueOnce({
+      action: "picked",
+      docs: [{ id: "folder-project-two" }],
+    } as Awaited<ReturnType<typeof googlePicker.openGooglePicker>>);
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Выбрать папку второй части для строки 1",
+      }),
+    );
+    await userEvent.type(
+      screen.getByLabelText("Название задачи для строки 1"),
+      "Проект один",
+    );
+    await userEvent.type(
+      screen.getByLabelText("Название второй части строки 1"),
+      "Проект два",
+    );
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Проверить задачи (2)" }),
+    );
+    const preview = await screen.findByLabelText(
+      "Проверка перед созданием задач",
+    );
+    expect(preview).toHaveTextContent("Часть файла: Начало — 10:10");
+    expect(preview).toHaveTextContent("Часть файла: 10:10 — конец");
+    const preflightCall = (
+      fetch as unknown as ReturnType<typeof vi.fn>
+    ).mock.calls.find(
+      ([url, init]) =>
+        url === "/api/projects/p1/jobs/batch/preflight" &&
+        init?.method === "POST",
+    );
+    const body = JSON.parse(String(preflightCall?.[1]?.body));
+    expect(body.items).toEqual([
+      expect.objectContaining({
+        source_id: "s1",
+        output_folder_id: "folder-project-one",
+        title: "Проект один",
+        media_clip_start_seconds: 0,
+        media_clip_end_seconds: 610,
+      }),
+      expect.objectContaining({
+        source_id: "s1",
+        output_folder_id: "folder-project-two",
+        title: "Проект два",
+        media_clip_start_seconds: 610,
+        media_clip_end_seconds: null,
+      }),
+    ]);
+  });
+
   it("blocks an existing result until the user explicitly accepts paid reprocessing", async () => {
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = baseFetch.getMockImplementation();
@@ -2812,6 +2895,7 @@ describe("Studio PWA", () => {
             {
               position: 0,
               title: request.items?.[0]?.title ?? null,
+              media_clip: null,
               source: {
                 name: "Safe source 1",
                 source_type: "google_drive",
@@ -2955,6 +3039,7 @@ describe("Studio PWA", () => {
               {
                 position: 0,
                 title: null,
+                media_clip: null,
                 source: {
                   name: "Safe source 1",
                   source_type: "google_drive",
