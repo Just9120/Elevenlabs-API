@@ -30,6 +30,7 @@ JOB_KEYS = {
     "provider",
     "language_mode",
     "diarization_enabled",
+    "media_clip",
     "source_count",
     "created_at",
     "updated_at",
@@ -123,3 +124,35 @@ def test_job_browser_payload_omits_credential_and_worker_authority(
     assert "lease_generation" not in payload
     assert payload["language_mode"] == "detect"
     assert payload["diarization_enabled"] is False
+    assert payload["media_clip"] is None
+
+
+def test_job_browser_payload_exposes_only_safe_clip_bounds(browser_serializers):
+    _, job_payload, JobStatus = browser_serializers
+    job = SimpleNamespace(
+        id="job-clip",
+        project_id="project-public",
+        status=JobStatus.queued,
+        title="Second project",
+        provider="elevenlabs",
+        sources=[],
+        created_at=NOW,
+        updated_at=NOW,
+        cancelled_at=None,
+        cancel_requested_at=None,
+        attempt_count=0,
+        started_at=None,
+        finished_at=None,
+        error_code=None,
+        error_message=None,
+        output_drive_folder_id=None,
+        output_drive_folder_url=None,
+        output_drive_folder_name=None,
+        media_clip_start_seconds=610,
+        media_clip_end_seconds=None,
+    )
+
+    assert job_payload(job)["media_clip"] == {
+        "start_seconds": 610,
+        "end_seconds": None,
+    }
