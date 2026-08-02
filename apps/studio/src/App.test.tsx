@@ -3491,12 +3491,14 @@ describe("Studio PWA", () => {
                     position: 0,
                     name: "ready-drive.mp4",
                     status: "queued",
+                    provider_parts: null,
                     stages: progressStages(null),
                   },
                   {
                     position: 1,
                     name: "ready-local.ogg",
                     status: "queued",
+                    provider_parts: null,
                     stages: progressStages(null, false),
                   },
                 ],
@@ -3514,6 +3516,7 @@ describe("Studio PWA", () => {
                     position: 0,
                     name: "processing.mp4",
                     status: "processing",
+                    provider_parts: null,
                     stages: progressStages("provider_processing"),
                   },
                 ],
@@ -4289,6 +4292,13 @@ describe("Studio PWA", () => {
             ],
             created_count: 1,
             replayed: true,
+          });
+        if (url.endsWith("/api/jobs/job-created/outputs"))
+          return json({
+            job_id: "job-created",
+            job_status: "completed",
+            output_count: 0,
+            outputs: [],
           });
         return json({ ok: true });
       },
