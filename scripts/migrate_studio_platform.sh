@@ -37,7 +37,8 @@ probe_revision() {
 : "${STUDIO_PRE_MIGRATION_BACKUP_CONFIRMED:?set to yes after tagged pre-migration backup}"
 : "${STUDIO_PRE_MIGRATION_BACKUP_SNAPSHOT:?set verified pre-migration restic snapshot ID}"
 : "${STUDIO_EXPECTED_MIGRATION_FROM:?set expected current database revision}"
-: "${STUDIO_EXPECTED_MIGRATION_TO:?set expected candidate Alembic head}"
+: "${STUDIO_EXPECTED_MIGRATION_TO:?set expected direct migration target}"
+: "${STUDIO_EXPECTED_REPOSITORY_HEAD:?set expected candidate Alembic head}"
 : "${STUDIO_EXPECTED_API_IMAGE_ID:?set expected candidate API image ID}"
 
 [[ "$STUDIO_PRE_MIGRATION_BACKUP_CONFIRMED" == "yes" ]] \
@@ -48,6 +49,8 @@ probe_revision() {
   || fail "expected_from_invalid"
 [[ "$STUDIO_EXPECTED_MIGRATION_TO" =~ ^[[:alnum:]_]+$ ]] \
   || fail "expected_to_invalid"
+[[ "$STUDIO_EXPECTED_REPOSITORY_HEAD" =~ ^[[:alnum:]_]+$ ]] \
+  || fail "expected_repository_head_invalid"
 [[ "$STUDIO_EXPECTED_MIGRATION_FROM" != "$STUDIO_EXPECTED_MIGRATION_TO" ]] \
   || fail "migration_not_required"
 [[ "$STUDIO_EXPECTED_API_IMAGE_ID" =~ ^sha256:[0-9a-f]{64}$ ]] \
@@ -67,12 +70,13 @@ current_revision="$(probe_revision current)"
 head_revision="$(probe_revision heads)"
 [[ "$current_revision" == "$STUDIO_EXPECTED_MIGRATION_FROM" ]] \
   || fail "current_revision_mismatch"
-[[ "$head_revision" == "$STUDIO_EXPECTED_MIGRATION_TO" ]] \
+[[ "$head_revision" == "$STUDIO_EXPECTED_REPOSITORY_HEAD" ]] \
   || fail "head_revision_mismatch"
 
 if ! docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
   run --rm --no-deps -T studio-api \
-  alembic -c /app/alembic.ini upgrade head </dev/null; then
+  alembic -c /app/alembic.ini upgrade \
+  "$STUDIO_EXPECTED_MIGRATION_TO" </dev/null; then
   fail "upgrade_failed"
 fi
 

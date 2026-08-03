@@ -17,6 +17,11 @@ on:
           - api
           - migration
           - worker
+      migration_target:
+        description: 'One direct additive Alembic target; use head for the repository head'
+        required: true
+        default: head
+        type: string
 
 permissions:
   contents: read
@@ -280,6 +285,7 @@ jobs:
           MIGRATION_KNOWN_HOSTS: ${{ secrets.STUDIO_MIGRATION_KNOWN_HOSTS }}
           RELEASE_SHA: ${{ github.sha }}
           RELEASE_REF: ${{ github.ref }}
+          RELEASE_TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.migration_target || 'head' }}
         run: |
           set -euo pipefail
           [[ "$RELEASE_REF" == "refs/heads/main" ]] || {
@@ -288,6 +294,10 @@ jobs:
           }
           [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] || {
             echo "migration release SHA is invalid" >&2
+            exit 1
+          }
+          [[ "$RELEASE_TARGET" =~ ^(head|[[:alnum:]_]+)$ ]] || {
+            echo "migration release target is invalid" >&2
             exit 1
           }
           for name in MIGRATION_DEPLOY_HOST MIGRATION_SSH_KEY MIGRATION_KNOWN_HOSTS; do
@@ -315,6 +325,7 @@ jobs:
         env:
           MIGRATION_DEPLOY_HOST: ${{ secrets.STUDIO_MIGRATION_DEPLOY_HOST }}
           RELEASE_SHA: ${{ github.sha }}
+          RELEASE_TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.migration_target || 'head' }}
         run: |
           set -euo pipefail
           output_file="$(mktemp)"
@@ -325,7 +336,7 @@ jobs:
             -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile=~/.ssh/studio_migration_known_hosts \
             "root@$MIGRATION_DEPLOY_HOST" \
-            "release $RELEASE_SHA" >"$output_file" 2>&1; then
+            "release $RELEASE_SHA $RELEASE_TARGET" >"$output_file" 2>&1; then
             cat "$output_file"
             exit 1
           fi

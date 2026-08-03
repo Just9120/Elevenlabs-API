@@ -25,6 +25,7 @@ def run_migration(
     head: str = "new_revision",
     expected_from: str = "old_revision",
     expected_to: str = "new_revision",
+    expected_repository_head: str = "new_revision",
     image_id: str = IMAGE_ID,
     expected_image_id: str = IMAGE_ID,
     upgrade_exit: str = "0",
@@ -63,12 +64,13 @@ case "$last" in
   heads)
     printf '%s\\n' {head!r}
     ;;
-  head)
+  {expected_to})
+    [[ "$*" == *" upgrade "* ]] || exit 43
     if [[ {upgrade_exit!r} != "0" ]]; then
       exit {upgrade_exit}
     fi
     if [[ {str(persist_upgrade).lower()!r} == "true" ]]; then
-      printf '%s' {head!r} > {str(state)!r}
+      printf '%s' {expected_to!r} > {str(state)!r}
     fi
     ;;
   *)
@@ -86,6 +88,7 @@ esac
         "STUDIO_PRE_MIGRATION_BACKUP_SNAPSHOT": snapshot,
         "STUDIO_EXPECTED_MIGRATION_FROM": expected_from,
         "STUDIO_EXPECTED_MIGRATION_TO": expected_to,
+        "STUDIO_EXPECTED_REPOSITORY_HEAD": expected_repository_head,
         "STUDIO_EXPECTED_API_IMAGE_ID": expected_image_id,
     }
     proc = subprocess.run(
@@ -101,7 +104,7 @@ esac
 
 
 def _upgrade_calls(calls: list[str]) -> list[str]:
-    return [line for line in calls if " upgrade head" in line]
+    return [line for line in calls if " upgrade " in line]
 
 
 def test_migration_requires_verified_snapshot_before_docker_use(tmp_path: Path) -> None:
@@ -126,11 +129,29 @@ def test_migration_checks_exact_candidate_and_revisions_then_runs_once(
         i for i, line in enumerate(calls) if line.endswith(" heads")
     )
     assert next(i for i, line in enumerate(calls) if line.endswith(" heads")) < next(
-        i for i, line in enumerate(calls) if " upgrade head" in line
+        i for i, line in enumerate(calls) if " upgrade new_revision" in line
     )
-    assert next(i for i, line in enumerate(calls) if " upgrade head" in line) < max(
+    assert next(
+        i for i, line in enumerate(calls) if " upgrade new_revision" in line
+    ) < max(
         i for i, line in enumerate(calls) if line.endswith(" current")
     )
+
+
+def test_migration_can_apply_one_explicit_target_before_repository_head(
+    tmp_path: Path,
+) -> None:
+    proc, calls = run_migration(
+        tmp_path,
+        head="final_revision",
+        expected_to="middle_revision",
+        expected_repository_head="final_revision",
+    )
+
+    assert proc.returncode == 0, proc.stderr + proc.stdout
+    assert len(_upgrade_calls(calls)) == 1
+    assert " upgrade middle_revision" in _upgrade_calls(calls)[0]
+    assert "to=middle_revision" in proc.stdout
 
 
 def test_candidate_image_mismatch_blocks_before_revision_probe(tmp_path: Path) -> None:

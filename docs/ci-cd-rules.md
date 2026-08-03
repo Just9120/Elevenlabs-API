@@ -211,17 +211,25 @@ present:
   before backup or migration;
 - PostgreSQL and Redis are healthy, the worker is safely stopped, and required
   runtime secret files are present without printing their values;
-- exactly one direct Alembic successor is pending and that revision explicitly
-  declares the reviewed `additive` release class;
+- each approved run selects exactly one direct Alembic successor, either the
+  repository head or an explicit ancestor target on the repository head's
+  single linear chain, and that target revision explicitly declares the
+  reviewed `additive` release class;
 - a new tagged pre-migration snapshot is created, identified relative to the
   pre-run inventory, restored only into an isolated temporary verification
   directory, and accepted only after one non-empty custom dump passes
   `pg_restore --list` in a network-disabled, read-only helper container bound
   to the immutable image identity of the healthy production PostgreSQL
   service, without an image pull or persistent Docker volume;
-- the migration executes once, revision equality is rechecked, only the API is
-  recreated from the captured image, and localhost plus public health pass
-  before a success marker is emitted.
+- the migration executes once and revision equality is rechecked. An
+  intermediate target preserves the running API and rechecks its health; only
+  the final repository-head target recreates the API from the captured image.
+  Localhost plus public health must pass before either success marker is
+  emitted.
+
+Consecutive pending migrations require one protected approval, one new verified
+backup, and one workflow run per direct successor. A single run must never
+traverse multiple revisions.
 
 The lane must not run a downgrade, database restore, automatic retry, automatic
 rollback, worker deployment, provider call, Google side effect, nginx change,

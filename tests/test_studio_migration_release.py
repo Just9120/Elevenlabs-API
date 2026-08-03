@@ -14,6 +14,7 @@ CD_WORKFLOW = ROOT / ".github" / "workflows" / "studio-platform-cd.yml"
 STUDIO_CI_WORKFLOW = ROOT / ".github" / "workflows" / "studio-ci.yml"
 COMMIT = "a" * 40
 OLD_REVISION = "0017_google_maintenance_oauth"
+MIDDLE_REVISION = "0018_job_part_progress"
 NEW_REVISION = "0019_job_media_clip"
 IMAGE_ID = "sha256:" + ("b" * 64)
 POSTGRES_IMAGE_ID = "sha256:" + ("e" * 64)
@@ -39,6 +40,10 @@ def run_release(
     *,
     release_safety: str = "additive",
     pg_restore_ok: bool = True,
+    requested_target: str = "head",
+    target_revision: str = NEW_REVISION,
+    source_revision: str = OLD_REVISION,
+    repository_head: str = NEW_REVISION,
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     checkout = tmp_path / "checkout"
     fake_bin = tmp_path / "bin"
@@ -130,7 +135,7 @@ printf 'migrate snapshot=%s from=%s to=%s image=%s\\n' \
   "${{STUDIO_EXPECTED_MIGRATION_TO}}" \
   "${{STUDIO_EXPECTED_API_IMAGE_ID}}" >> {str(calls)!r}
 [[ -f {str(backup_complete)!r} ]]
-printf '%s' {NEW_REVISION!r} > {str(revision_state)!r}
+printf '%s' "${{STUDIO_EXPECTED_MIGRATION_TO}}" > {str(revision_state)!r}
 """,
     )
     _write_exe(
@@ -235,7 +240,8 @@ elif [[ "$1 $2" == "image inspect" ]]; then
   echo {IMAGE_ID!r}
 elif [[ "$1" == "run" ]]; then
   if [[ "$*" == *"--entrypoint python"* ]]; then
-    printf '%s\\t%s\\t%s\\n' {NEW_REVISION!r} {OLD_REVISION!r} {release_safety!r}
+    printf '%s\\t%s\\t%s\\t%s\\n' \\
+      {target_revision!r} {source_revision!r} {release_safety!r} {repository_head!r}
   elif [[ "$*" == *"--entrypoint pg_restore"* ]]; then
     [[ "$*" == *"--pull never"* ]]
     [[ "$*" == *"--network none"* ]]
@@ -302,6 +308,7 @@ fi
         "STUDIO_BACKUP_ENV_FILE": _bash_path(backup_env),
         "STUDIO_DEPLOY_DIR": _bash_path(checkout),
         "STUDIO_EXPECTED_COMMIT": COMMIT,
+        "STUDIO_REQUESTED_MIGRATION_TARGET": requested_target,
         "STUDIO_REPOSITORY_USER": "studio-deploy",
         "STUDIO_RELEASE_LOCK_HELD": "yes",
         "TEST_FAKE_PATH": _bash_path(fake_bin),
@@ -382,6 +389,41 @@ def test_non_additive_candidate_blocks_before_backup_or_migration(tmp_path: Path
     assert not any("force-recreate studio-api" in call for call in calls)
 
 
+def test_intermediate_direct_additive_target_migrates_without_api_deploy(
+    tmp_path: Path,
+) -> None:
+    proc, calls = run_release(
+        tmp_path,
+        requested_target=MIDDLE_REVISION,
+        target_revision=MIDDLE_REVISION,
+        source_revision=OLD_REVISION,
+        repository_head=NEW_REVISION,
+    )
+
+    assert proc.returncode == 0, proc.stderr + proc.stdout + "\n" + "\n".join(calls)
+    assert f"to={MIDDLE_REVISION}" in proc.stdout
+    assert f"head={NEW_REVISION}" in proc.stdout
+    assert "api_deployed=no" in proc.stdout
+    assert any(call.startswith("migrate ") for call in calls)
+    assert not any("force-recreate studio-api" in call for call in calls)
+    assert sum(call.startswith("curl ") for call in calls) >= 3
+
+
+def test_requested_target_must_be_one_direct_successor(tmp_path: Path) -> None:
+    proc, calls = run_release(
+        tmp_path,
+        requested_target=NEW_REVISION,
+        target_revision=NEW_REVISION,
+        source_revision=MIDDLE_REVISION,
+        repository_head=NEW_REVISION,
+    )
+
+    assert proc.returncode == 2
+    assert "reason=migration_is_not_exactly_one_linear_revision" in proc.stderr
+    assert not any(call == "backup" for call in calls)
+    assert not any(call.startswith("migrate ") for call in calls)
+
+
 def test_failed_isolated_pg_restore_check_blocks_before_migration(
     tmp_path: Path,
 ) -> None:
@@ -397,8 +439,9 @@ def test_failed_isolated_pg_restore_check_blocks_before_migration(
 def test_forced_command_wrapper_never_executes_original_command() -> None:
     wrapper = WRAPPER.read_text(encoding="utf-8")
 
-    assert r"^release\ ([0-9a-f]{40})$" in wrapper
+    assert r"^release\ ([0-9a-f]{40})\ (head|[[:alnum:]_]+)$" in wrapper
     assert 'requested_commit="${BASH_REMATCH[1]}"' in wrapper
+    assert 'requested_target="${BASH_REMATCH[2]}"' in wrapper
     assert '[[ "$remote_commit" == "$requested_commit" ]]' in wrapper
     assert 'repo_git show "${requested_commit}:${RELEASE_SCRIPT}"' in wrapper
     assert "env -i" in wrapper
@@ -443,6 +486,7 @@ def test_cd_migration_lane_is_disabled_by_default_and_environment_gated() -> Non
     assert "automatic_migration_release_disabled" in detection
     assert "manual_migration_release_disabled" in detection
     assert "environment: studio-production-migration" in release_job
+    assert "inputs.migration_target" in release_job
     assert "inputs.component == 'migration'" in release_job
     assert "needs.detect-components.outputs.migration_release == 'true'" in release_job
     assert "needs.deploy-web.result == 'success'" in release_job
@@ -461,7 +505,7 @@ def test_cd_uses_only_dedicated_forced_command_identity_for_migration() -> None:
     ):
         assert secret in release_job
     assert '"root@$MIGRATION_DEPLOY_HOST"' in release_job
-    assert '"release $RELEASE_SHA"' in release_job
+    assert '"release $RELEASE_SHA $RELEASE_TARGET"' in release_job
     assert "StrictHostKeyChecking=yes" in release_job
     assert "UserKnownHostsFile=~/.ssh/studio_migration_known_hosts" in release_job
     assert "[studio-migration-release] OK commit=" in release_job
@@ -492,7 +536,10 @@ def test_embedded_release_python_programs_compile() -> None:
     docker_program = release.split(
         'docker run --rm --entrypoint python "$API_IMAGE" -c \'\n',
         1,
-    )[1].split("\n' </dev/null", 1)[0]
+    )[1].split(
+        "\n' \"$STUDIO_REQUESTED_MIGRATION_TARGET\" </dev/null",
+        1,
+    )[0]
 
     assert len(heredoc_programs) == 3
     for index, program in enumerate((*heredoc_programs, docker_program), start=1):

@@ -32,9 +32,10 @@ repo_git() {
 
 [[ "$(id -u)" -eq 0 ]] || fail "not_root"
 [[ -z "${SSH_TTY:-}" ]] || fail "pty_not_allowed"
-[[ "${SSH_ORIGINAL_COMMAND:-}" =~ ^release\ ([0-9a-f]{40})$ ]] \
+[[ "${SSH_ORIGINAL_COMMAND:-}" =~ ^release\ ([0-9a-f]{40})\ (head|[[:alnum:]_]+)$ ]] \
   || fail "command_not_allowed"
 requested_commit="${BASH_REMATCH[1]}"
+requested_target="${BASH_REMATCH[2]}"
 
 for tool in bash chmod env flock git id mktemp readlink rm runuser stat; do
   command -v "$tool" >/dev/null || fail "missing_$tool"
@@ -101,8 +102,10 @@ env -i \
   PATH="$PATH" \
   STUDIO_DEPLOY_DIR="$DEPLOY_DIR" \
   STUDIO_EXPECTED_COMMIT="$requested_commit" \
+  STUDIO_REQUESTED_MIGRATION_TARGET="$requested_target" \
   STUDIO_REPOSITORY_USER="$REPO_USER" \
   STUDIO_RELEASE_LOCK_HELD=yes \
   bash "$temporary_script" </dev/null
 
-printf '%s OK commit=%s\n' "$PREFIX" "${requested_commit:0:12}"
+printf '%s OK commit=%s target=%s\n' \
+  "$PREFIX" "${requested_commit:0:12}" "$requested_target"
