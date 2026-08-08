@@ -500,6 +500,115 @@ code {
 .tab-panel {
   padding-top: 0.5rem;
 }
+.transcription-mode-tabs {
+  margin-top: 1.25rem;
+}
+.live-transcription {
+  display: grid;
+  gap: 1rem;
+  padding-top: 0.5rem;
+}
+.live-intro {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+.live-intro h3,
+.live-config-card h4,
+.live-transcript-card h4 {
+  margin-top: 0;
+}
+.live-status {
+  flex: 0 0 auto;
+  border: 1px solid var(--studio-border);
+  border-radius: 999px;
+  padding: 0.55rem 0.8rem;
+  background: var(--studio-soft);
+  color: var(--studio-muted);
+  font-weight: 700;
+}
+.live-status-connected,
+.live-status-transcribing {
+  border-color: var(--studio-success-border);
+  background: var(--studio-success-bg);
+  color: var(--studio-success-text);
+}
+.live-config-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+.live-config-card,
+.live-transcript-card {
+  display: grid;
+  gap: 0.85rem;
+  border: 1px solid var(--studio-border);
+  border-radius: 16px;
+  padding: 1rem;
+  background: var(--studio-soft);
+}
+.live-config-card .check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  border: 1px solid var(--studio-input-border);
+  border-radius: 12px;
+  padding: 0.8rem;
+  background: var(--studio-surface);
+}
+.live-config-card .check-row input {
+  width: auto;
+  margin-top: 0.2rem;
+}
+.live-config-card .check-row span,
+.live-config-card .check-row small {
+  display: block;
+}
+.live-config-card .check-row small {
+  margin-top: 0.2rem;
+  color: var(--studio-muted);
+}
+.live-transcript-card {
+  background: var(--studio-surface);
+}
+.live-partial,
+.live-committed {
+  border: 1px solid var(--studio-input-border);
+  padding: 0.9rem;
+  background: var(--studio-soft);
+}
+.live-partial {
+  border-radius: 14px 14px 0 0;
+}
+.live-partial span {
+  color: var(--studio-muted);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+.live-partial p,
+.live-committed p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.live-committed {
+  min-height: 180px;
+  max-height: 420px;
+  overflow: auto;
+  border-top: 0;
+  border-radius: 0 0 14px 14px;
+}
+.live-committed p:not(.muted) {
+  margin: 0 0 0.7rem;
+  border: 1px solid var(--studio-border);
+  border-radius: 10px;
+  padding: 0.75rem;
+  background: var(--studio-surface);
+}
+.live-boundaries summary {
+  cursor: pointer;
+  font-weight: 700;
+}
 .project-form {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
@@ -812,6 +921,7 @@ code {
     padding: 1rem;
   }
   .workspace-layout,
+  .live-config-grid,
   .summary-grid,
   .transcript-maintenance-grid,
   .catalog-migration-summary,

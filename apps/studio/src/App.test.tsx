@@ -1024,6 +1024,38 @@ describe("Studio PWA", () => {
     );
   });
 
+  it("keeps batch transcription intact and opens Live inside the selected project", async () => {
+    renderApp();
+    await openProjectsPage();
+    expect(
+      await screen.findByRole("form", { name: "Композитор пакетных задач" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("tab", { name: "Пакетная транскрибация" }),
+    ).toHaveAttribute("aria-selected", "true");
+
+    await userEvent.click(
+      screen.getByRole("tab", { name: "Live-транскрибация" }),
+    );
+    expect(
+      await screen.findByRole("region", { name: "Live-транскрибация" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("form", { name: "Композитор пакетных задач" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Микрофон или аудиовход")).toBeChecked();
+    expect(screen.getByLabelText("Звук вкладки или экрана")).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "Начать" })).toBeEnabled();
+    expect(screen.getByText(/не сохраняется в Studio/i)).toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("tab", { name: "Пакетная транскрибация" }),
+    );
+    expect(
+      await screen.findByRole("form", { name: "Композитор пакетных задач" }),
+    ).toBeInTheDocument();
+  });
+
   it("opens approved Drive resource links in new tabs with compact action labels", async () => {
     renderApp();
     await openProjectsPage();
