@@ -25,6 +25,7 @@ from .job_processing_lifecycle import request_job_cancellation
 from .diagnostics import REGISTRY, cleanup_expired_diagnostics, cursor_context, decode_cursor_payload, encode_cursor, markdown_escape, new_correlation_id, new_request_id, sanitize_build_id, sanitize_inbound_correlation, valid_correlation_id, valid_uuid, write_diagnostic_event
 from .job_output_read import browser_job_output_payload, load_browser_job_output_rows
 from .job_progress import load_browser_job_progress_payloads
+from .realtime_capability import RealtimeCapabilityError, RealtimeCapabilityReason, create_realtime_capability
 from .transcription_analytics import load_transcription_analytics_payload
 from .job_output_reconciliation import OutputReconciliationError, OutputReconciliationReason, check_job_output_reconciliation, reconciliation_status_payload
 from .job_retry_recovery import compute_explicit_retry_readiness, queue_retry, requires_provider_cost_confirmation
@@ -43,7 +44,7 @@ from .transcript_catalog import (
     load_provider_attempt_authorities,
     lock_catalog_source_identities,
 )
-from .transcription_options import DEFAULT_TRANSCRIPTION_LANGUAGE_MODE, EXISTING_RESULT_REPROCESS_AUTHORITY_OPTION, TranscriptionLanguageMode, browser_language_mode, job_diarization_enabled, stored_language_mode, stored_transcription_options
+from .transcription_options import DEFAULT_TRANSCRIPTION_LANGUAGE_MODE, EXISTING_RESULT_REPROCESS_AUTHORITY_OPTION, TranscriptionLanguageMode, browser_language_mode, job_diarization_enabled, provider_language_code, stored_language_mode, stored_transcription_options
 from .transcript_catalog_routes import router as transcript_catalog_router
 
 settings=get_settings()
@@ -52,6 +53,7 @@ app.include_router(transcript_catalog_router)
 limiter=RateLimiter()
 LOGGER=logging.getLogger("studio_api.api")
 _API_ENDPOINT_GROUPS=(
+    ("/api/realtime", "realtime"),
     ("/api/diagnostics", "diagnostics"),
     ("/api/jobs", "jobs"),
     ("/api/sources", "sources"),
@@ -172,6 +174,11 @@ class TranscriptionJobOptionsIn(BaseModel):
 class JobRetryIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     confirm_remaining_provider_cost: StrictBool=False
+
+class RealtimeCapabilityIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    provider_credential_id: str|None=Field(default=None, max_length=36)
+    language: TranscriptionLanguageMode=DEFAULT_TRANSCRIPTION_LANGUAGE_MODE
 
 class TranscriptionJobBatchCreateIn(BaseModel):
     provider_credential_id: str|None=Field(default=None, max_length=36)
@@ -666,6 +673,117 @@ def _resolve_active_elevenlabs_credential_id(db, user, requested_credential_id) 
     if len(credentials) == 0:
         raise HTTPException(422, "Добавьте активный ключ ElevenLabs в настройках.")
     raise HTTPException(422, "Выберите профиль подключения ElevenLabs.")
+
+def _open_active_elevenlabs_api_key(
+    db: Session,
+    user: User,
+    credential_id: str,
+) -> str:
+    credential = db.get(ProviderCredential, credential_id)
+    if (
+        not credential
+        or credential.user_id != user.id
+        or credential.provider != CredentialProvider.elevenlabs
+        or credential.status != CredentialStatus.active
+        or credential.deleted_at is not None
+        or not credential.active_version_id
+    ):
+        raise HTTPException(422, "Выберите активный профиль ElevenLabs.")
+    version = db.get(ProviderCredentialVersion, credential.active_version_id)
+    if (
+        not version
+        or version.credential_id != credential.id
+        or version.revoked_at is not None
+        or version.deleted_at is not None
+        or version.ciphertext is None
+        or version.nonce is None
+        or version.key_id != settings.credential_key_id
+    ):
+        raise HTTPException(503, "Профиль ElevenLabs временно недоступен.")
+    try:
+        return decrypt(
+            version.ciphertext,
+            version.nonce,
+            master_key_from_b64(settings.master_key_b64()),
+            aad(user.id, credential.id, version.id, credential.provider.value),
+        )
+    except Exception as exc:
+        raise HTTPException(
+            503,
+            "Профиль ElevenLabs временно недоступен.",
+        ) from exc
+
+def _raise_realtime_capability_failure(
+    request: Request,
+    user: User,
+    *,
+    reason: RealtimeCapabilityReason,
+) -> None:
+    status_code, retryable = {
+        RealtimeCapabilityReason.provider_authentication_rejected: (422, False),
+        RealtimeCapabilityReason.provider_request_rejected: (422, False),
+        RealtimeCapabilityReason.provider_rate_limited: (429, True),
+        RealtimeCapabilityReason.provider_timeout: (504, True),
+        RealtimeCapabilityReason.provider_unavailable: (502, True),
+        RealtimeCapabilityReason.malformed_provider_response: (502, True),
+    }[reason]
+    write_diagnostic_event(
+        owner_user_id=user.id,
+        component="api",
+        event_code="REALTIME_CAPABILITY_FAILED",
+        request_id=getattr(request.state, "request_id", None),
+        correlation_id=getattr(request.state, "correlation_id", None),
+        metadata={
+            "reason": reason.value,
+            "retryable": retryable,
+            "http_status_category": f"{status_code // 100}xx",
+        },
+    )
+    raise HTTPException(status_code, {"reason": reason.value})
+
+@app.post("/api/projects/{project_id}/realtime/capability")
+def create_project_realtime_capability(
+    project_id: str,
+    data: RealtimeCapabilityIn,
+    request: Request,
+    response: Response,
+    pair=Depends(require_csrf),
+    db: Session=Depends(get_db),
+):
+    _, user = pair
+    limiter.check("realtime:capability:" + user.id, 20, 300)
+    project = owned_project_or_404(db, user, project_id)
+    _browser_capability_cache_headers(response)
+    credential_id = _resolve_active_elevenlabs_credential_id(
+        db,
+        user,
+        data.provider_credential_id,
+    )
+    api_key = _open_active_elevenlabs_api_key(db, user, credential_id)
+    try:
+        capability = create_realtime_capability(
+            api_key,
+            language_code=provider_language_code(data.language.value),
+        )
+    except RealtimeCapabilityError as exc:
+        _raise_realtime_capability_failure(
+            request,
+            user,
+            reason=exc.reason,
+        )
+    write_diagnostic_event(
+        owner_user_id=user.id,
+        component="api",
+        event_code="REALTIME_CAPABILITY_ISSUED",
+        project_id=project.id,
+        request_id=getattr(request.state, "request_id", None),
+        correlation_id=getattr(request.state, "correlation_id", None),
+        metadata={
+            "model": capability.model_id,
+            "expires_in_seconds": capability.expires_in_seconds,
+        },
+    )
+    return capability.browser_payload()
 
 def _existing_batch_is_complete(existing, request_hash: str, expected_count: int) -> bool:
     if len(existing) != expected_count:

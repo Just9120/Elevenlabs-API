@@ -39,6 +39,7 @@ from studio_api.job_claim_lease import JobLeaseError, JobLeaseFailureReason, acq
 from studio_api.job_processing_lifecycle import JobProcessingError, JobProcessingFailureReason, acknowledge_job_cancellation, begin_job_processing, fail_job_processing, recover_expired_processing_job
 from studio_api.google_docs_output import GoogleDocsCreateResult, new_google_docs_transcript_artifact
 from studio_api.job_output_persistence import JobOutputPersistenceError, JobOutputPersistenceReason, _load_locked_output_authority, persist_processing_job_source_output_and_maybe_complete
+from studio_api.realtime_capability import RealtimeCapability, RealtimeCapabilityError, RealtimeCapabilityReason
 
 ALEMBIC = ROOT / "apps/studio-api/alembic.ini"
 
@@ -358,6 +359,165 @@ def test_credential_lifecycle_no_raw_secret_echo_and_audit_safe():
     try:
         assert raw not in "\n".join(a.metadata_json for a in db.query(AuditEvent).all())
         assert all(v.ciphertext is None for v in db.query(ProviderCredentialVersion).all())
+    finally:
+        db.close()
+
+
+def test_realtime_capability_route_requires_owner_csrf_and_returns_no_store(monkeypatch):
+    from studio_api import main as main_mod
+
+    owner_email = "realtime-owner@example.com"
+    other_email = "realtime-other@example.com"
+    owner_password = admin(owner_email)
+    other_password = admin(other_email)
+    owner_client = TestClient(app)
+    other_client = TestClient(app)
+    owner_csrf = login(owner_client, owner_password, owner_email)
+    other_csrf = login(other_client, other_password, other_email)
+    owner_headers = {
+        "origin": "https://studio.test",
+        "x-csrf-token": owner_csrf,
+    }
+    other_headers = {
+        "origin": "https://studio.test",
+        "x-csrf-token": other_csrf,
+    }
+
+    project = owner_client.post(
+        "/api/projects",
+        json={"title": "Realtime"},
+        headers=owner_headers,
+    ).json()
+    credential = owner_client.post(
+        "/api/credentials",
+        json={
+            "provider": "elevenlabs",
+            "label": "Realtime",
+            "raw_value": "sk_realtime_main_secret",
+        },
+        headers=owner_headers,
+    ).json()
+
+    captured = {}
+
+    def fake_capability(api_key, *, language_code):
+        captured.update(api_key=api_key, language_code=language_code)
+        return RealtimeCapability(
+            websocket_url=(
+                "wss://api.elevenlabs.io/v1/speech-to-text/realtime"
+                "?token=sutkn_browser_only"
+            ),
+        )
+
+    monkeypatch.setattr(main_mod, "create_realtime_capability", fake_capability)
+    path = f"/api/projects/{project['id']}/realtime/capability"
+    body = {
+        "provider_credential_id": credential["id"],
+        "language": "ru",
+    }
+
+    assert TestClient(app).post(path, json=body).status_code == 401
+    assert owner_client.post(
+        path,
+        json=body,
+        headers={"origin": "https://studio.test"},
+    ).status_code == 403
+    assert owner_client.post(
+        path,
+        json=body,
+        headers={"origin": "https://evil.test", "x-csrf-token": owner_csrf},
+    ).status_code == 403
+    assert other_client.post(path, json=body, headers=other_headers).status_code == 404
+
+    response = owner_client.post(path, json=body, headers=owner_headers)
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["pragma"] == "no-cache"
+    assert response.json() == {
+        "websocket_url": (
+            "wss://api.elevenlabs.io/v1/speech-to-text/realtime"
+            "?token=sutkn_browser_only"
+        ),
+        "expires_in_seconds": 900,
+        "model_id": "scribe_v2_realtime",
+        "audio_format": "pcm_16000",
+        "commit_strategy": "vad",
+    }
+    assert captured == {
+        "api_key": "sk_realtime_main_secret",
+        "language_code": "ru",
+    }
+    assert "sk_realtime_main_secret" not in response.text
+
+    db = SessionLocal()
+    try:
+        event = db.query(DiagnosticEvent).filter_by(
+            event_code="REALTIME_CAPABILITY_ISSUED",
+        ).one()
+        assert "sk_realtime_main_secret" not in event.metadata_json
+        assert "sutkn_browser_only" not in event.metadata_json
+    finally:
+        db.close()
+
+
+@pytest.mark.parametrize(
+    ("reason", "status_code"),
+    [
+        (RealtimeCapabilityReason.provider_authentication_rejected, 422),
+        (RealtimeCapabilityReason.provider_request_rejected, 422),
+        (RealtimeCapabilityReason.provider_rate_limited, 429),
+        (RealtimeCapabilityReason.provider_timeout, 504),
+        (RealtimeCapabilityReason.provider_unavailable, 502),
+        (RealtimeCapabilityReason.malformed_provider_response, 502),
+    ],
+)
+def test_realtime_capability_route_reduces_provider_failure_to_safe_reason(
+    monkeypatch,
+    reason,
+    status_code,
+):
+    from studio_api import main as main_mod
+
+    email = f"realtime-{reason.value}@example.com"
+    password = admin(email)
+    client = TestClient(app)
+    csrf = login(client, password, email)
+    headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+    project = client.post(
+        "/api/projects",
+        json={"title": "Realtime failure"},
+        headers=headers,
+    ).json()
+    client.post(
+        "/api/credentials",
+        json={
+            "provider": "elevenlabs",
+            "label": "Realtime",
+            "raw_value": "sk_realtime_main_secret",
+        },
+        headers=headers,
+    )
+
+    def fail(*_args, **_kwargs):
+        raise RealtimeCapabilityError(reason)
+
+    monkeypatch.setattr(main_mod, "create_realtime_capability", fail)
+    response = client.post(
+        f"/api/projects/{project['id']}/realtime/capability",
+        json={"language": "detect"},
+        headers=headers,
+    )
+    assert response.status_code == status_code
+    assert response.json() == {"detail": {"reason": reason.value}}
+    assert "sk_realtime_main_secret" not in response.text
+
+    db = SessionLocal()
+    try:
+        event = db.query(DiagnosticEvent).filter_by(
+            event_code="REALTIME_CAPABILITY_FAILED",
+        ).one()
+        assert reason.value in event.metadata_json
+        assert "sk_realtime_main_secret" not in event.metadata_json
     finally:
         db.close()
 
