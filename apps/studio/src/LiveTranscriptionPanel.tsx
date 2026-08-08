@@ -75,6 +75,7 @@ export function LiveTranscriptionPanel({ projectId, csrf, onCsrf }: Props) {
   const [partial, setPartial] = useState("");
   const [segments, setSegments] = useState<string[]>([]);
   const [error, setError] = useState("");
+  const [inputLevel, setInputLevel] = useState(0);
   const controllerRef = useRef<RealtimeSessionController | null>(null);
 
   const running = [
@@ -158,6 +159,7 @@ export function LiveTranscriptionPanel({ projectId, csrf, onCsrf }: Props) {
         onCommitted: (text) =>
           setSegments((current) => [...current, text]),
         onError: setError,
+        onInputLevel: setInputLevel,
       },
       {
         requestCapability: async () => {
@@ -230,6 +232,12 @@ export function LiveTranscriptionPanel({ projectId, csrf, onCsrf }: Props) {
   }
 
   const sourceReady = displayAudio || microphone;
+  const inputPercent = Math.round(inputLevel * 100);
+  const inputSignalLabel = running
+    ? inputPercent >= 2
+      ? "Сигнал есть"
+      : "Тишина или очень тихий сигнал"
+    : "Измерение начнётся после запуска";
   return (
     <section
       className="live-transcription"
@@ -302,6 +310,21 @@ export function LiveTranscriptionPanel({ projectId, csrf, onCsrf }: Props) {
           {!sourceReady && (
             <p className="error">Выберите хотя бы один источник аудио.</p>
           )}
+          <div className="live-input-level">
+            <div className="split">
+              <b>Входной сигнал</b>
+              <span>{inputSignalLabel} · {inputPercent}%</span>
+            </div>
+            <meter
+              aria-label="Уровень входного аудио"
+              min="0"
+              max="100"
+              value={inputPercent}
+            />
+            <small>
+              Рассчитывается только в браузере и не сохраняется.
+            </small>
+          </div>
         </section>
 
         <section className="live-config-card">

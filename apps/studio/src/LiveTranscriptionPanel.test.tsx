@@ -2,9 +2,14 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+type MockCallbacks = {
+  onStatus: (value: string) => void;
+  onInputLevel: (value: number) => void;
+};
+
 const controllerState = vi.hoisted(() => ({
   instances: [] as Array<{
-    callbacks: Record<string, (value: string) => void>;
+    callbacks: MockCallbacks;
     dependencies: { requestCapability: () => Promise<unknown> };
     start: ReturnType<typeof vi.fn>;
     stop: ReturnType<typeof vi.fn>;
@@ -14,17 +19,18 @@ const controllerState = vi.hoisted(() => ({
 
 vi.mock("./realtimeSession", () => ({
   RealtimeSessionController: class {
-    callbacks: Record<string, (value: string) => void>;
+    callbacks: MockCallbacks;
     dependencies: { requestCapability: () => Promise<unknown> };
     start = vi.fn(async () => {
       this.callbacks.onStatus("requesting_permission");
       await this.dependencies.requestCapability();
       this.callbacks.onStatus("connected");
+      this.callbacks.onInputLevel(0.42);
     });
     stop = vi.fn(() => this.callbacks.onStatus("stopped"));
     dispose = vi.fn();
     constructor(
-      callbacks: Record<string, (value: string) => void>,
+      callbacks: MockCallbacks,
       dependencies: { requestCapability: () => Promise<unknown> },
     ) {
       this.callbacks = callbacks;
@@ -104,6 +110,7 @@ describe("LiveTranscriptionPanel", () => {
     await userEvent.click(start);
 
     await screen.findByText("Соединение установлено");
+    expect(screen.getByText("Сигнал есть · 42%")).toBeInTheDocument();
     const capabilityCall = vi.mocked(fetch).mock.calls.find(
       ([url]) =>
         String(url).endsWith(

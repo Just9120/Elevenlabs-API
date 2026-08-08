@@ -569,6 +569,21 @@ code {
   margin-top: 0.2rem;
   color: var(--studio-muted);
 }
+.live-input-level {
+  display: grid;
+  gap: 0.45rem;
+  border-top: 1px solid var(--studio-border);
+  padding-top: 0.85rem;
+}
+.live-input-level span,
+.live-input-level small {
+  color: var(--studio-muted);
+}
+.live-input-level meter {
+  width: 100%;
+  height: 0.8rem;
+  accent-color: var(--studio-accent);
+}
 .live-transcript-card {
   background: var(--studio-surface);
 }

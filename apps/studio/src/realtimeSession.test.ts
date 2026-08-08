@@ -124,6 +124,7 @@ describe("RealtimeSessionController", () => {
     const partials: string[] = [];
     const committed: string[] = [];
     const errors: string[] = [];
+    const inputLevels: number[] = [];
     const timerCallbacks: Array<() => void> = [];
     const timerDelays: number[] = [];
     const controller = new RealtimeSessionController(
@@ -132,6 +133,7 @@ describe("RealtimeSessionController", () => {
         onPartial: (text) => partials.push(text),
         onCommitted: (text) => committed.push(text),
         onError: (message) => errors.push(message),
+        onInputLevel: (level) => inputLevels.push(level),
       },
       {
         requestCapability: vi.fn().mockResolvedValue(capability),
@@ -202,6 +204,7 @@ describe("RealtimeSessionController", () => {
       },
     } as AudioProcessingEvent);
     expect(socket.send).toHaveBeenCalledTimes(1);
+    expect(inputLevels.at(-1)).toBeCloseTo(1);
     expect(JSON.parse(String(vi.mocked(socket.send).mock.calls[0][0]))).toMatchObject({
       message_type: "input_audio_chunk",
       sample_rate: 16_000,
@@ -210,6 +213,7 @@ describe("RealtimeSessionController", () => {
     controller.stop();
     expect(timerDelays).toEqual([10_000, 2_000]);
     expect(microphone.stop).toHaveBeenCalled();
+    expect(inputLevels.at(-1)).toBe(0);
     expect(JSON.parse(String(vi.mocked(socket.send).mock.calls[1][0]))).toEqual({
       message_type: "input_audio_chunk",
       audio_base_64: "",

@@ -28,6 +28,7 @@ type RealtimeSessionCallbacks = {
   onPartial: (text: string) => void;
   onCommitted: (text: string) => void;
   onError: (message: string) => void;
+  onInputLevel?: (level: number) => void;
 };
 
 type AudioNodeLike = { disconnect: () => void };
@@ -76,6 +77,14 @@ function safeDisconnect(node: AudioNodeLike | null) {
   } catch {
     // Already disconnected.
   }
+}
+
+function normalizedInputLevel(input: Float32Array) {
+  if (input.length === 0) return 0;
+  let squareTotal = 0;
+  for (const sample of input) squareTotal += sample * sample;
+  const rms = Math.sqrt(squareTotal / input.length);
+  return Math.min(1, rms * 4);
 }
 
 function knownRealtimeError(code: string) {
@@ -308,6 +317,7 @@ export class RealtimeSessionController {
       const websocket = attempt.websocket;
       if (!websocket || websocket.readyState !== WebSocket.OPEN) return;
       const mono = event.inputBuffer.getChannelData(0);
+      this.callbacks.onInputLevel?.(normalizedInputLevel(mono));
       const downsampled = downsampleMono(mono, context.sampleRate);
       websocket.send(realtimeAudioMessage(floatToPcm16Base64(downsampled)));
     };
@@ -397,6 +407,7 @@ export class RealtimeSessionController {
   }
 
   private releaseMedia(attempt: Attempt) {
+    this.callbacks.onInputLevel?.(0);
     if (attempt.processor) {
       attempt.processor.onaudioprocess = null;
       safeDisconnect(attempt.processor);
