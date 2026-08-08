@@ -710,12 +710,10 @@ def _raise_realtime_capability_failure(
         RealtimeCapabilityReason.provider_unavailable: (502, True),
         RealtimeCapabilityReason.malformed_provider_response: (502, True),
     }[reason]
-    write_diagnostic_event(
-        owner_user_id=user.id,
-        component="api",
+    _write_realtime_diagnostic_event(
+        request,
+        user,
         event_code="REALTIME_CAPABILITY_FAILED",
-        request_id=getattr(request.state, "request_id", None),
-        correlation_id=getattr(request.state, "correlation_id", None),
         metadata={
             "reason": reason.value,
             "retryable": retryable,
@@ -723,6 +721,35 @@ def _raise_realtime_capability_failure(
         },
     )
     raise HTTPException(status_code, {"reason": reason.value})
+
+
+def _write_realtime_diagnostic_event(
+    request: Request,
+    user: User,
+    *,
+    event_code: str,
+    metadata: dict,
+    project_id: str | None = None,
+) -> None:
+    request_id = getattr(request.state, "request_id", None)
+    correlation_id = getattr(request.state, "correlation_id", None)
+    try:
+        write_diagnostic_event(
+            owner_user_id=user.id,
+            component="api",
+            event_code=event_code,
+            project_id=project_id,
+            request_id=request_id,
+            correlation_id=correlation_id,
+            metadata=metadata,
+        )
+    except Exception:
+        LOGGER.warning(
+            "realtime_diagnostic_write_failed request_id=%s correlation_id=%s event_code=%s",
+            request_id,
+            correlation_id,
+            event_code,
+        )
 
 @app.post("/api/projects/{project_id}/realtime/capability")
 def create_project_realtime_capability(
@@ -754,13 +781,11 @@ def create_project_realtime_capability(
             user,
             reason=exc.reason,
         )
-    write_diagnostic_event(
-        owner_user_id=user.id,
-        component="api",
+    _write_realtime_diagnostic_event(
+        request,
+        user,
         event_code="REALTIME_CAPABILITY_ISSUED",
         project_id=project.id,
-        request_id=getattr(request.state, "request_id", None),
-        correlation_id=getattr(request.state, "correlation_id", None),
         metadata={
             "model": capability.model_id,
             "expires_in_seconds": capability.expires_in_seconds,

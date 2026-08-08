@@ -459,6 +459,19 @@ def test_realtime_capability_route_requires_owner_csrf_and_returns_no_store(monk
     finally:
         db.close()
 
+    def diagnostic_failure(**_kwargs):
+        raise RuntimeError("diagnostic storage unavailable")
+
+    monkeypatch.setattr(main_mod, "write_diagnostic_event", diagnostic_failure)
+    response_without_diagnostic = owner_client.post(
+        path,
+        json=body,
+        headers=owner_headers,
+    )
+    assert response_without_diagnostic.status_code == 200
+    assert "sutkn_browser_only" in response_without_diagnostic.text
+    assert "sk_realtime_main_secret" not in response_without_diagnostic.text
+
 
 @pytest.mark.parametrize(
     ("reason", "status_code"),
@@ -520,6 +533,20 @@ def test_realtime_capability_route_reduces_provider_failure_to_safe_reason(
         assert "sk_realtime_main_secret" not in event.metadata_json
     finally:
         db.close()
+
+    def diagnostic_failure(**_kwargs):
+        raise RuntimeError("diagnostic storage unavailable")
+
+    monkeypatch.setattr(main_mod, "write_diagnostic_event", diagnostic_failure)
+    response_without_diagnostic = client.post(
+        f"/api/projects/{project['id']}/realtime/capability",
+        json={"language": "detect"},
+        headers=headers,
+    )
+    assert response_without_diagnostic.status_code == status_code
+    assert response_without_diagnostic.json() == {
+        "detail": {"reason": reason.value},
+    }
 
 
 def test_aes_gcm_unique_nonce_and_aad_binding():
