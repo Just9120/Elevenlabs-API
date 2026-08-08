@@ -173,13 +173,26 @@ describe("RealtimeSessionController", () => {
     socket.onmessage?.(
       new MessageEvent("message", {
         data: JSON.stringify({
+          message_type: "final_transcript",
+          text: "уточнённый черновик",
+        }),
+      }),
+    );
+    socket.onmessage?.(
+      new MessageEvent("message", {
+        data: JSON.stringify({
           message_type: "committed_transcript",
           text: "готовый фрагмент",
         }),
       }),
     );
     expect(statuses.at(-1)).toBe("transcribing");
-    expect(partials).toEqual(["", "черновик", ""]);
+    expect(partials).toEqual([
+      "",
+      "черновик",
+      "уточнённый черновик",
+      "",
+    ]);
     expect(committed).toEqual(["готовый фрагмент"]);
     expect(errors).toEqual([""]);
 

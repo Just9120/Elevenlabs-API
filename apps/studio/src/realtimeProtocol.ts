@@ -134,14 +134,16 @@ export function parseRealtimeEvent(value: unknown): RealtimeTranscriptEvent {
       data.final_transcript,
   );
   if (!text) return { kind: "ignored" };
+  if (eventType.includes("commit")) {
+    return { kind: "committed", text };
+  }
+  if (eventType === "final_transcript") {
+    return { kind: "partial", text };
+  }
   if (eventType.includes("partial") || data.is_final === false) {
     return { kind: "partial", text };
   }
-  if (
-    eventType.includes("commit") ||
-    eventType.includes("final") ||
-    data.is_final === true
-  ) {
+  if (data.is_final === true) {
     return { kind: "committed", text };
   }
   return { kind: "partial", text };

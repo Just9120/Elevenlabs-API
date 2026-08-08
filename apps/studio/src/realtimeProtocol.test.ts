@@ -83,7 +83,7 @@ describe("realtime protocol", () => {
         message_type: "final_transcript",
         text: " финальный фрагмент ",
       }),
-    ).toEqual({ kind: "committed", text: "финальный фрагмент" });
+    ).toEqual({ kind: "partial", text: "финальный фрагмент" });
     expect(
       parseRealtimeEvent({ message_type: "error", error_code: "quota" }),
     ).toEqual({ kind: "error", code: "quota" });
