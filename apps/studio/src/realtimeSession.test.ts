@@ -61,6 +61,7 @@ function audioFixture() {
 function websocketFixture() {
   const socket = {
     readyState: 0,
+    bufferedAmount: 0,
     send: vi.fn(),
     close: vi.fn(),
     onopen: null as (() => void) | null,
@@ -265,6 +266,49 @@ describe("RealtimeSessionController", () => {
     expect(microphone.stop).toHaveBeenCalledOnce();
     expect(errors.at(-1)).toContain("10 секунд");
     expect(statuses.at(-1)).toBe("closed");
+    expect(controller.active).toBe(false);
+  });
+
+  it("fails closed when websocket audio backpressure becomes unsafe", async () => {
+    const microphone = mediaFixture();
+    const audio = audioFixture();
+    const socket = websocketFixture();
+    const errors: string[] = [];
+    const statuses: RealtimeSessionStatus[] = [];
+    const controller = new RealtimeSessionController(
+      {
+        onStatus: (status) => statuses.push(status),
+        onPartial: vi.fn(),
+        onCommitted: vi.fn(),
+        onError: (message) => errors.push(message),
+      },
+      {
+        requestCapability: vi.fn().mockResolvedValue(capability),
+        mediaDevices: {
+          getUserMedia: vi.fn().mockResolvedValue(microphone.stream),
+        },
+        createAudioContext: () => audio.context,
+        createWebSocket: () => socket,
+        setTimer: vi.fn(() => 31),
+        clearTimer: vi.fn(),
+      },
+    );
+
+    await controller.start({ displayAudio: false, microphone: true });
+    (socket as unknown as { readyState: number; bufferedAmount: number }).readyState = 1;
+    (socket as unknown as { bufferedAmount: number }).bufferedAmount = 600_000;
+    socket.onopen?.(new Event("open"));
+    audio.processor.onaudioprocess?.({
+      inputBuffer: {
+        getChannelData: () => new Float32Array(48).fill(0.2),
+      },
+    } as AudioProcessingEvent);
+
+    expect(socket.send).not.toHaveBeenCalled();
+    expect(socket.close).toHaveBeenCalledWith(1000, "Переполнение очереди аудио");
+    expect(errors.at(-1)).toContain("не накапливать задержку");
+    expect(statuses.at(-1)).toBe("closed");
+    expect(microphone.stop).toHaveBeenCalled();
     expect(controller.active).toBe(false);
   });
 

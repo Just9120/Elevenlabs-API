@@ -65,6 +65,7 @@ const PERMISSION_ERRORS = new Set([
 const CONNECTION_TIMEOUT_MS = 10_000;
 const FINAL_COMMIT_GRACE_MS = 2_000;
 const AUDIO_PROCESSOR_BUFFER_SIZE = 8_192;
+const MAX_WEBSOCKET_BUFFERED_BYTES = 512 * 1024;
 
 function stopStream(stream: MediaStream) {
   stream.getTracks().forEach((track) => track.stop());
@@ -329,6 +330,14 @@ export class RealtimeSessionController {
       if (!websocket || websocket.readyState !== WebSocket.OPEN) return;
       const mono = event.inputBuffer.getChannelData(0);
       this.callbacks.onInputLevel?.(normalizedInputLevel(mono));
+      if (websocket.bufferedAmount > MAX_WEBSOCKET_BUFFERED_BYTES) {
+        this.callbacks.onError(
+          "Соединение не успевает отправлять аудио. Сессия остановлена, чтобы не накапливать задержку; проверьте сеть и начните заново.",
+        );
+        this.closeSocket(attempt, "Переполнение очереди аудио");
+        this.finish(attempt, "closed");
+        return;
+      }
       const downsampled = downsampleMono(mono, context.sampleRate);
       websocket.send(realtimeAudioMessage(floatToPcm16Base64(downsampled)));
     };
