@@ -37,7 +37,18 @@ Durable Colab invariants:
 - The Colab launcher executes repository code from `GITHUB_REF`; only trusted reviewed refs may be used, and a reviewed commit SHA is preferred for reproducible runs.
 - Long-media behavior and manifest behavior remain Colab baseline capabilities for parity analysis, not automatically proven Studio capabilities.
 
-Realtime Colab is a separate experimental validation path. Its current runbook is `docs/runbooks/realtime-colab.md`; it does not replace the stable batch Colab workflow. Studio is expected to bring this capability into a separate tab on the existing PWA transcription page through workstream `PWA-REALTIME-TRANSCRIPTION-01`. That future tab must preserve batch behavior and must not inherit production-readiness claims from the experimental Colab prototype.
+Realtime Colab is a separate experimental validation path. Its current runbook is `docs/runbooks/realtime-colab.md`; it does not replace the stable batch Colab workflow. Studio brings the first browser-only slice into a separate tab on the existing PWA transcription page through workstream `PWA-REALTIME-TRANSCRIPTION-01`. The tab preserves batch behavior and does not inherit production-readiness claims from the experimental Colab prototype or source presence.
+
+The accepted Studio Live first-slice contract is:
+
+- an authenticated owner opens Live inside one selected project and explicitly chooses microphone, display/tab audio, or both;
+- browser capture permission is resolved before the API spends a single-use capability;
+- the API resolves the selected active owner-scoped ElevenLabs credential server-side and returns only a `no-store`, CSRF-protected, short-lived one-use `scribe_v2_realtime` WebSocket capability;
+- the main BYOK key, provider response bodies, transcript content, media bytes, and capability URL/token are not persisted or emitted to diagnostics;
+- VAD produces ordered partial and committed text in the current browser tab, with explicit copy, `.txt` download, and clear actions;
+- Stop, permission rejection, source-ended, socket error, connection timeout, page hide, and component unmount deterministically release capture; automatic reconnect and token reuse are prohibited;
+- a new attempt requests a new capability, tabs are independent, and server-side issuance rate limits remain the concurrency/cost bound for this slice;
+- Live does not create batch jobs, sources, Google Docs, catalog entries, analytics events, or durable transcript-body state.
 
 
 ## Stable Colab product contract
@@ -337,7 +348,7 @@ Current delivery sequencing is in `docs/delivery-plan.md`. The durable workstrea
 - `PWA-TRANSCRIPT-CATALOG-IMPORT-01` — independent `folder_tree` or `single_document` dry-run/apply for minimal source-linked catalog and duplicate-authority metadata, with no Google Doc mutation. Source, durable rediscovery, exact-main CI, migration `0017`, and maintenance OAuth rollout are present; the complete production target-mode dry-run/apply matrix remains.
 - `PWA-TRANSCRIPTION-ANALYTICS-01` — safe aggregate outcomes and stage-duration analytics are source-complete; broader production evidence remains.
 - `PWA-TRANSCRIPT-CATALOG-SYNC-01` — deferred design for a Google Drive-backed continuously refreshed PWA catalog and its system-of-record boundary; no continuous sync is implemented.
-- `PWA-REALTIME-TRANSCRIPTION-01` — planned separate tab on the existing Studio transcription page, derived from the experimental Colab realtime contour. The first accepted slice requires a server-issued single-use realtime capability, browser microphone capture, safe partial/committed presentation, deterministic Stop/permission handling, and no batch-job, Google Docs, catalog, analytics, or transcript-body persistence side effects.
+- `PWA-REALTIME-TRANSCRIPTION-01` — active source candidate adds the separate Studio transcription tab, server-issued single-use realtime capability, microphone/display/mixed browser capture, safe partial/committed presentation, deterministic lifecycle cleanup, and no batch-job, Google Docs, catalog, analytics, or transcript-body persistence side effects. Merge, service-backed CI, host-header rollout, and live capture canaries remain separate delivery gates.
 - OpenAI processing, keyterms, manual speaker rename, manual cutting/concatenation, and Drive folder/recursive intake remain deferred or excluded as defined above.
 
 Source-complete delivery items remain listed for traceability and still require applicable rollout evidence:
