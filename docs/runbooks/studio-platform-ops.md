@@ -236,13 +236,15 @@ sudo install \
   /usr/local/sbin/studio-migration-release-wrapper
 ```
 
-For the current `0017 -> 0018 -> 0019` rollout, the protected sequence is:
+For the current candidate chain `0017 -> 0018 -> 0019 -> 0020`, first read and verify the exact production revision. Apply only the still-pending direct successors, one approval and one verified backup per run:
 
 1. `migration_target=0018_job_part_progress`; approve and require
    `api_deployed=no`.
 2. `migration_target=0019_job_media_clip`; approve and require
+   `api_deployed=no` while repository head remains `0020`.
+3. `migration_target=0020_partial_provider_checkpoints`; approve and require
    `api_deployed=yes` plus localhost/public API health.
-3. Disable the enable variable before the separate worker deployment.
+4. Disable the enable variable before the separate worker deployment.
 
 The lane never starts or deploys the worker, calls providers or Google, reloads
 nginx, restores into PostgreSQL, downgrades, retries, or rolls back. A manual
@@ -272,7 +274,7 @@ STUDIO_PRE_MIGRATION_BACKUP_CONFIRMED=yes \
 STUDIO_PRE_MIGRATION_BACKUP_SNAPSHOT=__REQUIRED_64_HEX_SNAPSHOT_ID__ \
 STUDIO_EXPECTED_MIGRATION_FROM=0017_google_maintenance_oauth \
 STUDIO_EXPECTED_MIGRATION_TO=0018_job_part_progress \
-STUDIO_EXPECTED_REPOSITORY_HEAD=0019_job_media_clip \
+STUDIO_EXPECTED_REPOSITORY_HEAD=0020_partial_provider_checkpoints \
 STUDIO_EXPECTED_API_IMAGE_ID=sha256:__REQUIRED_64_HEX_IMAGE_ID__ \
   scripts/migrate_studio_platform.sh
 ```
@@ -441,6 +443,17 @@ Stopping the worker must not automatically requeue, delete, retry, downgrade, re
 
 Output-side-effect uncertainty requires a separate reconciliation item. API/web rollback requires an explicitly reviewed database-compatible operator decision.
 
+### Partial-provider continuation
+
+`partial_provider_result` is not automatic retry authority. On candidate `0020`, the owner-scoped job detail may offer one of two explicit actions:
+
+- continue only missing ElevenLabs parts when an exact contiguous set of encrypted, unexpired completed-part checkpoints validates; or
+- restart the full file only when checkpoints are unavailable and the last durable underlying failure is safely classified as provider authentication rejection, request rejection, or rate limiting.
+
+Both actions require an explicit provider-cost confirmation. A continuation may still charge for every missing part. A full restart may charge for the entire file. Never simulate either action with SQL, direct worker invocation, direct provider calls, or job-status edits. Automatic lease recovery must remain blocked for this state.
+
+Before approving an owner retry, inspect browser-safe metadata only: job status, aggregate error, safe provider category, completed/total parts, checkpoint availability, attempt count, and selected action. Do not inspect transcript content, checkpoint ciphertext, raw provider response, source bytes, secrets, or external document identifiers. Stop if the category is timeout, unavailable, malformed response, lifecycle/lease loss, persistence failure, unknown, or if readiness reports unavailable. Checkpoints expire within 24 hours and are removed on completed output, cancellation, explicit full restart, or worker cleanup; expiry is expected and is not a reason to bypass the API gate.
+
 ## Residual limitations
 
 Current known limitations remain:
@@ -588,4 +601,4 @@ The bounded production canary produced one resolved reconciliation case and requ
 
 ## Source cleanup operations note
 
-Current branch Alembic head is `0018_job_part_progress`; operator-verified production remains at `0017_google_maintenance_oauth` until a separately evidenced release. The older source-cleanup and retention schema through `0015_user_source_retention` has separate production evidence; the currently deployed production head must still be verified rather than inferred from repository source. Source cleanup is durable PostgreSQL state on `sources`; the allowlisted per-user retention preference is durable PostgreSQL state on `users`. Cleanup is processed as bounded worker idle maintenance after normal job claim/orchestration finds no job. Safe diagnostics use normalized source deletion/retention/cleanup events and must not log object keys, buckets, filenames, Drive file IDs, presigned URLs, raw storage errors, or secrets. The authenticated smoke proved that source removal queued background cleanup, but it did not inspect the later physical R2 deletion outcome.
+Current branch Alembic head is `0020_partial_provider_checkpoints`. The currently deployed production head must be read from PostgreSQL and verified rather than inferred from repository source or live screenshots. The older source-cleanup and retention schema through `0015_user_source_retention` has separate production evidence. Source cleanup is durable PostgreSQL state on `sources`; the allowlisted per-user retention preference is durable PostgreSQL state on `users`. Cleanup is processed as bounded worker idle maintenance after normal job claim/orchestration finds no job. Safe diagnostics use normalized source deletion/retention/cleanup events and must not log object keys, buckets, filenames, Drive file IDs, presigned URLs, raw storage errors, or secrets. The authenticated smoke proved that source removal queued background cleanup, but it did not inspect the later physical R2 deletion outcome.
