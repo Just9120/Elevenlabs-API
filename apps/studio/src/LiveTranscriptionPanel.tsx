@@ -18,6 +18,8 @@ type Props = {
   csrf: string;
   onCsrf: (csrf: string) => void;
   active: boolean;
+  initialSegments?: string[];
+  onSegmentsChange?: (segments: string[]) => void;
 };
 
 const STATUS_LABELS: Record<RealtimeSessionStatus, string> = {
@@ -87,6 +89,8 @@ export function LiveTranscriptionPanel({
   csrf,
   onCsrf,
   active,
+  initialSegments = [],
+  onSegmentsChange,
 }: Props) {
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [credentialId, setCredentialId] = useState("");
@@ -100,7 +104,9 @@ export function LiveTranscriptionPanel({
   const [language, setLanguage] = useState("ru");
   const [status, setStatus] = useState<RealtimeSessionStatus>("ready");
   const [partial, setPartial] = useState("");
-  const [segments, setSegments] = useState<string[]>([]);
+  const [segments, setSegments] = useState<string[]>(() => [
+    ...initialSegments,
+  ]);
   const [error, setError] = useState("");
   const [exportNotice, setExportNotice] = useState("");
   const [inputLevel, setInputLevel] = useState(0);
@@ -264,7 +270,11 @@ export function LiveTranscriptionPanel({
         },
         onPartial: setPartial,
         onCommitted: (text) =>
-          setSegments((current) => [...current, text]),
+          setSegments((current) => {
+            const next = [...current, text];
+            onSegmentsChange?.(next);
+            return next;
+          }),
         onError: setError,
         onInputLevel: setInputLevel,
       },
@@ -338,6 +348,7 @@ export function LiveTranscriptionPanel({
     )
       return;
     setSegments([]);
+    onSegmentsChange?.([]);
     setPartial("");
     setExportNotice("");
   }

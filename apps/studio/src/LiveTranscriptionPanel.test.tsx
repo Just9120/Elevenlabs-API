@@ -291,6 +291,28 @@ describe("LiveTranscriptionPanel", () => {
     expect(runningNavigation.defaultPrevented).toBe(true);
   });
 
+  it("restores only committed text supplied from current React memory", async () => {
+    const onSegmentsChange = vi.fn();
+    render(
+      <LiveTranscriptionPanel
+        projectId="project-safe"
+        csrf="csrf-safe"
+        onCsrf={vi.fn()}
+        active
+        initialSegments={["Первый проектный фрагмент", "Второй фрагмент"]}
+        onSegmentsChange={onSegmentsChange}
+      />,
+    );
+
+    expect(await screen.findByText("Realtime · v4")).toBeInTheDocument();
+    expect(screen.getByText("Первый проектный фрагмент")).toBeInTheDocument();
+    expect(screen.getByText("Второй фрагмент")).toBeInTheDocument();
+    expect(screen.getByLabelText("Статистика live-сессии")).toHaveTextContent(
+      "Фрагментов: 2",
+    );
+    expect(onSegmentsChange).not.toHaveBeenCalled();
+  });
+
   it("requires an active ElevenLabs profile", async () => {
     vi.mocked(fetch).mockImplementation((url: string) =>
       url.endsWith("/api/credentials")

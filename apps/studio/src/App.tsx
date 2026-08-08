@@ -2545,6 +2545,9 @@ function ProjectsPage({
   const [transcriptionMode, setTranscriptionMode] = useState<"batch" | "live">(
     "batch",
   );
+  const [liveTranscripts, setLiveTranscripts] = useState<
+    Record<string, string[]>
+  >({});
   const setPickerBusy = (busy: boolean) => {
     setActivePicker(busy);
   };
@@ -2944,6 +2947,13 @@ function ProjectsPage({
                   csrf={csrf}
                   onCsrf={onCsrf}
                   active={transcriptionMode === "live"}
+                  initialSegments={liveTranscripts[selectedProject.id] ?? []}
+                  onSegmentsChange={(segments) =>
+                    setLiveTranscripts((current) => ({
+                      ...current,
+                      [selectedProject.id]: segments,
+                    }))
+                  }
                 />
               </div>
             </article>
