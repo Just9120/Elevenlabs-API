@@ -290,6 +290,40 @@ describe("RealtimeSessionController", () => {
     expect(controller.active).toBe(false);
   });
 
+  it("never exposes a capability URL from a WebSocket constructor failure", async () => {
+    const microphone = mediaFixture();
+    const audio = audioFixture();
+    const errors: string[] = [];
+    const controller = new RealtimeSessionController(
+      {
+        onStatus: vi.fn(),
+        onPartial: vi.fn(),
+        onCommitted: vi.fn(),
+        onError: (message) => errors.push(message),
+      },
+      {
+        requestCapability: vi.fn().mockResolvedValue(capability),
+        mediaDevices: {
+          getUserMedia: vi.fn().mockResolvedValue(microphone.stream),
+        },
+        createAudioContext: () => audio.context,
+        createWebSocket: (url) => {
+          throw new Error(`CSP rejected ${url}`);
+        },
+        setTimer: vi.fn(() => 37),
+        clearTimer: vi.fn(),
+      },
+    );
+
+    await controller.start({ displayAudio: false, microphone: true });
+
+    expect(errors.at(-1)).toContain("защищённое realtime-соединение");
+    expect(errors.join(" ")).not.toContain("sutkn_test");
+    expect(errors.join(" ")).not.toContain("wss://");
+    expect(microphone.stop).toHaveBeenCalledOnce();
+    expect(controller.active).toBe(false);
+  });
+
   it("aborts a stalled capability request and releases capture", async () => {
     const microphone = mediaFixture();
     const audio = audioFixture();

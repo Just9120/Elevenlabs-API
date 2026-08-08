@@ -399,7 +399,15 @@ export class RealtimeSessionController {
       websocket.send(realtimeAudioMessage(floatToPcm16Base64(downsampled)));
     };
 
-    const websocket = this.deps.createWebSocket(capability.websocket_url);
+    let websocket: WebSocket;
+    try {
+      websocket = this.deps.createWebSocket(capability.websocket_url);
+    } catch (error) {
+      throw new Error(
+        "Браузер не смог открыть защищённое realtime-соединение. Проверьте сетевые ограничения и начните новую сессию.",
+        { cause: error },
+      );
+    }
     attempt.websocket = websocket;
     attempt.connectionTimer = this.deps.setTimer(() => {
       attempt.connectionTimer = null;
