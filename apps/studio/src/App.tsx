@@ -2515,6 +2515,7 @@ function OverviewPage({
 }
 
 function ProjectsPage({
+  active,
   csrf,
   onCsrf,
   requestedProjectId,
@@ -2522,6 +2523,7 @@ function ProjectsPage({
   requestedProjectsView,
   onRequestedProjectsViewHandled,
 }: {
+  active: boolean;
   csrf: string;
   onCsrf: (csrf: string) => void;
   requestedProjectId: string | null;
@@ -2946,7 +2948,7 @@ function ProjectsPage({
                   projectId={selectedProject.id}
                   csrf={csrf}
                   onCsrf={onCsrf}
-                  active={transcriptionMode === "live"}
+                  active={active && transcriptionMode === "live"}
                   initialSegments={liveTranscripts[selectedProject.id] ?? []}
                   onSegmentsChange={(segments) =>
                     setLiveTranscripts((current) => ({
@@ -4409,6 +4411,7 @@ function PlatformShell() {
         {projectsOpened && (
           <div hidden={page !== "projects"}>
             <ProjectsPage
+              active={page === "projects"}
               csrf={csrf}
               onCsrf={(token) => {
                 setSession((current) => ({ ...current, csrf: token }));

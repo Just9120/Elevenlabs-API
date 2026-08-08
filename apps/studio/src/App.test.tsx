@@ -1059,6 +1059,29 @@ describe("Studio PWA", () => {
     expect(screen.getByRole("button", { name: "Начать" })).toBeEnabled();
     expect(screen.getByText(/не сохраняется в Studio/i)).toBeInTheDocument();
 
+    const navigation = screen.getByRole("navigation", {
+      name: "Основная навигация",
+    });
+    await userEvent.click(within(navigation).getByRole("button", { name: "Обзор" }));
+    await waitFor(() =>
+      expect(
+        within(navigation).getByRole("button", { name: "Обзор" }),
+      ).toHaveAttribute("aria-current", "page"),
+    );
+    expect(
+      screen.getByRole("region", {
+        name: "Live-транскрибация",
+        hidden: true,
+      }),
+    ).toBe(livePanel);
+
+    await userEvent.click(
+      within(navigation).getByRole("button", { name: "Проекты" }),
+    );
+    expect(
+      await screen.findByRole("region", { name: "Live-транскрибация" }),
+    ).toBe(livePanel);
+
     await userEvent.click(
       screen.getByRole("tab", { name: "Пакетная транскрибация" }),
     );
