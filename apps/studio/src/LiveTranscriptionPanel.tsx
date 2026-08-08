@@ -73,6 +73,14 @@ function formatElapsed(totalSeconds: number) {
     : minuteSecond;
 }
 
+function transcriptFilename(now = new Date()) {
+  const timestamp = now
+    .toISOString()
+    .replace(/\.\d{3}Z$/, "Z")
+    .replace(/[:T]/g, "-");
+  return `studio-live-transcript-${timestamp}.txt`;
+}
+
 export function LiveTranscriptionPanel({ projectId, csrf, onCsrf }: Props) {
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [credentialId, setCredentialId] = useState("");
@@ -88,6 +96,7 @@ export function LiveTranscriptionPanel({ projectId, csrf, onCsrf }: Props) {
   const [partial, setPartial] = useState("");
   const [segments, setSegments] = useState<string[]>([]);
   const [error, setError] = useState("");
+  const [exportNotice, setExportNotice] = useState("");
   const [inputLevel, setInputLevel] = useState(0);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [followTranscript, setFollowTranscript] = useState(true);
@@ -199,6 +208,7 @@ export function LiveTranscriptionPanel({ projectId, csrf, onCsrf }: Props) {
   async function start() {
     if (running) return;
     setError("");
+    setExportNotice("");
     sessionStartedAtRef.current = null;
     setElapsedSeconds(0);
     setFollowTranscript(true);
@@ -274,7 +284,9 @@ export function LiveTranscriptionPanel({ projectId, csrf, onCsrf }: Props) {
     if (!transcript) return;
     try {
       await navigator.clipboard.writeText(transcript);
+      setExportNotice("Текст скопирован в буфер обмена.");
     } catch {
+      setExportNotice("");
       setError("Браузер не разрешил копирование. Используйте скачивание.");
     }
   }
@@ -286,9 +298,10 @@ export function LiveTranscriptionPanel({ projectId, csrf, onCsrf }: Props) {
     );
     const link = document.createElement("a");
     link.href = url;
-    link.download = "studio-live-transcript.txt";
+    link.download = transcriptFilename();
     link.click();
-    URL.revokeObjectURL(url);
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    setExportNotice("Текст сохранён в файл .txt.");
   }
 
   function clearTranscript() {
@@ -301,6 +314,7 @@ export function LiveTranscriptionPanel({ projectId, csrf, onCsrf }: Props) {
       return;
     setSegments([]);
     setPartial("");
+    setExportNotice("");
   }
 
   const sourceReady =
@@ -465,6 +479,11 @@ export function LiveTranscriptionPanel({ projectId, csrf, onCsrf }: Props) {
       {error && (
         <p className="error" role="alert">
           {error}
+        </p>
+      )}
+      {exportNotice && (
+        <p className="notice" role="status">
+          {exportNotice}
         </p>
       )}
 

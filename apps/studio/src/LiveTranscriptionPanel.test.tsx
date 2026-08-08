@@ -96,6 +96,18 @@ describe("LiveTranscriptionPanel", () => {
         removeEventListener: vi.fn(),
       },
     });
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+    });
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn().mockReturnValue("blob:live-transcript"),
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: vi.fn(),
+    });
   });
 
   afterEach(() => cleanup());
@@ -178,6 +190,45 @@ describe("LiveTranscriptionPanel", () => {
     expect(
       screen.getByRole("button", { name: "Автопрокрутка: выкл" }),
     ).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("confirms copy and downloads a timestamped browser-only transcript", async () => {
+    const click = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => undefined);
+
+    render(
+      <LiveTranscriptionPanel
+        projectId="project-safe"
+        csrf="csrf-safe"
+        onCsrf={vi.fn()}
+      />,
+    );
+    const start = await screen.findByRole("button", { name: "Начать" });
+    await waitFor(() => expect(start).toBeEnabled());
+    await userEvent.click(start);
+    act(() => {
+      controllerState.instances[0].callbacks.onCommitted("Итоговый текст");
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Копировать" }));
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("Итоговый текст");
+    expect(
+      await screen.findByText("Текст скопирован в буфер обмена."),
+    ).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Скачать .txt" }));
+    expect(URL.createObjectURL).toHaveBeenCalledOnce();
+    expect(click).toHaveBeenCalledOnce();
+    const anchor = click.mock.instances[0];
+    expect(anchor.download).toMatch(
+      /^studio-live-transcript-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}Z\.txt$/,
+    );
+    expect(anchor.href).toBe("blob:live-transcript");
+    expect(await screen.findByText("Текст сохранён в файл .txt.")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:live-transcript"),
+    );
   });
 
   it("requires an active ElevenLabs profile", async () => {
