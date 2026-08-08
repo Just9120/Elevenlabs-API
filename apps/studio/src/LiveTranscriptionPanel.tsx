@@ -17,6 +17,7 @@ type Props = {
   projectId: string;
   csrf: string;
   onCsrf: (csrf: string) => void;
+  active: boolean;
 };
 
 const STATUS_LABELS: Record<RealtimeSessionStatus, string> = {
@@ -81,7 +82,12 @@ function transcriptFilename(now = new Date()) {
   return `studio-live-transcript-${timestamp}.txt`;
 }
 
-export function LiveTranscriptionPanel({ projectId, csrf, onCsrf }: Props) {
+export function LiveTranscriptionPanel({
+  projectId,
+  csrf,
+  onCsrf,
+  active,
+}: Props) {
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [credentialId, setCredentialId] = useState("");
   const [credentialsLoading, setCredentialsLoading] = useState(true);
@@ -204,6 +210,25 @@ export function LiveTranscriptionPanel({ projectId, csrf, onCsrf }: Props) {
       dispose();
     };
   }, [projectId]);
+
+  useEffect(() => {
+    const controller = controllerRef.current;
+    if (active || !controller?.active) return;
+    controller.stop();
+    setExportNotice(
+      "Live-сессия остановлена при переходе в пакетный режим. Текст сохранён в этой вкладке.",
+    );
+  }, [active]);
+
+  useEffect(() => {
+    if (!running && !transcript) return;
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warnBeforeUnload);
+    return () => window.removeEventListener("beforeunload", warnBeforeUnload);
+  }, [running, transcript]);
 
   async function start() {
     if (running) return;
@@ -566,6 +591,10 @@ export function LiveTranscriptionPanel({ projectId, csrf, onCsrf }: Props) {
             получает новый одноразовый доступ.
           </li>
           <li>Обновление или закрытие вкладки останавливает захват.</li>
+          <li>
+            Пока идёт сессия или в памяти есть текст, браузер предупреждает
+            перед обновлением или закрытием вкладки.
+          </li>
           <li>
             Другие вкладки браузера не получают этот текст и не продолжают
             текущую сессию.

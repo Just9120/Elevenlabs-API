@@ -1047,9 +1047,10 @@ describe("Studio PWA", () => {
     await userEvent.click(
       screen.getByRole("tab", { name: "Live-транскрибация" }),
     );
-    expect(
-      await screen.findByRole("region", { name: "Live-транскрибация" }),
-    ).toBeInTheDocument();
+    const livePanel = await screen.findByRole("region", {
+      name: "Live-транскрибация",
+    });
+    expect(livePanel).toBeInTheDocument();
     expect(
       screen.queryByRole("form", { name: "Композитор пакетных задач" }),
     ).not.toBeInTheDocument();
@@ -1064,6 +1065,13 @@ describe("Studio PWA", () => {
     expect(
       await screen.findByRole("form", { name: "Композитор пакетных задач" }),
     ).toBeInTheDocument();
+    expect(
+      screen.getByRole("region", {
+        name: "Live-транскрибация",
+        hidden: true,
+      }),
+    ).toBe(livePanel);
+    expect(livePanel.closest('[role="tabpanel"]')).toHaveAttribute("hidden");
   });
 
   it("opens approved Drive resource links in new tabs with compact action labels", async () => {

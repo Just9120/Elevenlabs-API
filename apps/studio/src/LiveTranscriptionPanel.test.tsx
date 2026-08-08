@@ -10,6 +10,7 @@ type MockCallbacks = {
 
 const controllerState = vi.hoisted(() => ({
   instances: [] as Array<{
+    active: boolean;
     callbacks: MockCallbacks;
     dependencies: { requestCapability: () => Promise<unknown> };
     start: ReturnType<typeof vi.fn>;
@@ -20,15 +21,20 @@ const controllerState = vi.hoisted(() => ({
 
 vi.mock("./realtimeSession", () => ({
   RealtimeSessionController: class {
+    active = false;
     callbacks: MockCallbacks;
     dependencies: { requestCapability: () => Promise<unknown> };
     start = vi.fn(async () => {
+      this.active = true;
       this.callbacks.onStatus("requesting_permission");
       await this.dependencies.requestCapability();
       this.callbacks.onStatus("connected");
       this.callbacks.onInputLevel(0.42);
     });
-    stop = vi.fn(() => this.callbacks.onStatus("stopped"));
+    stop = vi.fn(() => {
+      this.active = false;
+      this.callbacks.onStatus("stopped");
+    });
     dispose = vi.fn();
     constructor(
       callbacks: MockCallbacks,
@@ -118,6 +124,7 @@ describe("LiveTranscriptionPanel", () => {
         projectId="project-safe"
         csrf="csrf-safe"
         onCsrf={vi.fn()}
+        active
       />,
     );
     const start = await screen.findByRole("button", { name: "Начать" });
@@ -162,6 +169,7 @@ describe("LiveTranscriptionPanel", () => {
         projectId="project-safe"
         csrf="csrf-safe"
         onCsrf={vi.fn()}
+        active
       />,
     );
     const start = await screen.findByRole("button", { name: "Начать" });
@@ -202,6 +210,7 @@ describe("LiveTranscriptionPanel", () => {
         projectId="project-safe"
         csrf="csrf-safe"
         onCsrf={vi.fn()}
+        active
       />,
     );
     const start = await screen.findByRole("button", { name: "Начать" });
@@ -231,6 +240,57 @@ describe("LiveTranscriptionPanel", () => {
     );
   });
 
+  it("stops hidden capture and keeps the transcript mounted across mode switches", async () => {
+    const props = {
+      projectId: "project-safe",
+      csrf: "csrf-safe",
+      onCsrf: vi.fn(),
+    };
+    const { rerender } = render(
+      <LiveTranscriptionPanel {...props} active />,
+    );
+    const start = await screen.findByRole("button", { name: "Начать" });
+    await waitFor(() => expect(start).toBeEnabled());
+    await userEvent.click(start);
+    act(() => {
+      controllerState.instances[0].callbacks.onCommitted("Сохранённый текст");
+    });
+
+    rerender(<LiveTranscriptionPanel {...props} active={false} />);
+
+    expect(controllerState.instances[0].stop).toHaveBeenCalledOnce();
+    expect(screen.getByText("Сохранённый текст")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Live-сессия остановлена при переходе/),
+    ).toBeInTheDocument();
+
+    rerender(<LiveTranscriptionPanel {...props} active />);
+    expect(screen.getByText("Сохранённый текст")).toBeInTheDocument();
+  });
+
+  it("warns before browser navigation while live text can be lost", async () => {
+    render(
+      <LiveTranscriptionPanel
+        projectId="project-safe"
+        csrf="csrf-safe"
+        onCsrf={vi.fn()}
+        active
+      />,
+    );
+    const untouched = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(untouched);
+    expect(untouched.defaultPrevented).toBe(false);
+
+    const start = await screen.findByRole("button", { name: "Начать" });
+    await waitFor(() => expect(start).toBeEnabled());
+    await userEvent.click(start);
+    const runningNavigation = new Event("beforeunload", {
+      cancelable: true,
+    });
+    window.dispatchEvent(runningNavigation);
+    expect(runningNavigation.defaultPrevented).toBe(true);
+  });
+
   it("requires an active ElevenLabs profile", async () => {
     vi.mocked(fetch).mockImplementation((url: string) =>
       url.endsWith("/api/credentials")
@@ -242,6 +302,7 @@ describe("LiveTranscriptionPanel", () => {
         projectId="project-safe"
         csrf="csrf-safe"
         onCsrf={vi.fn()}
+        active
       />,
     );
     expect(await screen.findByText("Активный профиль не найден")).toBeInTheDocument();
@@ -263,6 +324,7 @@ describe("LiveTranscriptionPanel", () => {
         projectId="project-safe"
         csrf="csrf-safe"
         onCsrf={vi.fn()}
+        active
       />,
     );
 
@@ -292,6 +354,7 @@ describe("LiveTranscriptionPanel", () => {
         projectId="project-safe"
         csrf="csrf-safe"
         onCsrf={vi.fn()}
+        active
       />,
     );
     const start = await screen.findByRole("button", { name: "Начать" });

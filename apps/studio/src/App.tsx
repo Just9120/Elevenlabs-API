@@ -2890,23 +2890,32 @@ function ProjectsPage({
                 aria-label="Режим транскрибации"
               >
                 <button
+                  id="transcription-tab-batch"
                   type="button"
                   role="tab"
+                  aria-controls="transcription-panel-batch"
                   aria-selected={transcriptionMode === "batch"}
                   onClick={() => setTranscriptionMode("batch")}
                 >
                   Пакетная транскрибация
                 </button>
                 <button
+                  id="transcription-tab-live"
                   type="button"
                   role="tab"
+                  aria-controls="transcription-panel-live"
                   aria-selected={transcriptionMode === "live"}
                   onClick={() => setTranscriptionMode("live")}
                 >
                   Live-транскрибация
                 </button>
               </div>
-              {transcriptionMode === "batch" ? (
+              <div
+                id="transcription-panel-batch"
+                role="tabpanel"
+                aria-labelledby="transcription-tab-batch"
+                hidden={transcriptionMode !== "batch"}
+              >
                 <PreparationPanel
                   key={selectedProject.id}
                   project={selectedProject}
@@ -2922,14 +2931,21 @@ function ProjectsPage({
                   onReloadJobs={loadJobs}
                   onError={setError}
                 />
-              ) : (
+              </div>
+              <div
+                id="transcription-panel-live"
+                role="tabpanel"
+                aria-labelledby="transcription-tab-live"
+                hidden={transcriptionMode !== "live"}
+              >
                 <LiveTranscriptionPanel
                   key={selectedProject.id}
                   projectId={selectedProject.id}
                   csrf={csrf}
                   onCsrf={onCsrf}
+                  active={transcriptionMode === "live"}
                 />
-              )}
+              </div>
             </article>
           ) : (
             <p className="notice">Выберите проект.</p>
