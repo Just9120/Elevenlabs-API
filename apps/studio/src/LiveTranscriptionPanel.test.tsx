@@ -69,7 +69,7 @@ describe("LiveTranscriptionPanel", () => {
         ) {
           return response({
             websocket_url:
-              "wss://api.elevenlabs.io/v1/speech-to-text/realtime?token=sutkn_browser_secret",
+              "wss://api.elevenlabs.io/v1/speech-to-text/realtime?model_id=scribe_v2_realtime&token=sutkn_browser_secret&audio_format=pcm_16000&commit_strategy=vad&language_code=ru",
             expires_in_seconds: 900,
             model_id: "scribe_v2_realtime",
             audio_format: "pcm_16000",

@@ -6,7 +6,7 @@ import {
 
 const capability = {
   websocket_url:
-    "wss://api.elevenlabs.io/v1/speech-to-text/realtime?token=sutkn_test",
+    "wss://api.elevenlabs.io/v1/speech-to-text/realtime?model_id=scribe_v2_realtime&token=sutkn_test&audio_format=pcm_16000&commit_strategy=vad",
   expires_in_seconds: 900,
   model_id: "scribe_v2_realtime",
   audio_format: "pcm_16000",
@@ -125,6 +125,7 @@ describe("RealtimeSessionController", () => {
     const committed: string[] = [];
     const errors: string[] = [];
     const timerCallbacks: Array<() => void> = [];
+    const timerDelays: number[] = [];
     const controller = new RealtimeSessionController(
       {
         onStatus: (status) => statuses.push(status),
@@ -140,8 +141,9 @@ describe("RealtimeSessionController", () => {
         },
         createAudioContext: () => audio.context,
         createWebSocket: () => socket,
-        setTimer: (callback) => {
+        setTimer: (callback, milliseconds) => {
           timerCallbacks.push(callback);
+          timerDelays.push(milliseconds);
           return timerCallbacks.length;
         },
         clearTimer: vi.fn(),
@@ -193,6 +195,7 @@ describe("RealtimeSessionController", () => {
     });
 
     controller.stop();
+    expect(timerDelays).toEqual([10_000, 2_000]);
     expect(microphone.stop).toHaveBeenCalled();
     expect(JSON.parse(String(vi.mocked(socket.send).mock.calls[1][0]))).toEqual({
       message_type: "input_audio_chunk",

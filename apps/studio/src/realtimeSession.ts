@@ -63,6 +63,8 @@ const PERMISSION_ERRORS = new Set([
   "AbortError",
 ]);
 const CONNECTION_TIMEOUT_MS = 10_000;
+const FINAL_COMMIT_GRACE_MS = 2_000;
+const AUDIO_PROCESSOR_BUFFER_SIZE = 8_192;
 
 function stopStream(stream: MediaStream) {
   stream.getTracks().forEach((track) => track.stop());
@@ -185,7 +187,7 @@ export class RealtimeSessionController {
       attempt.closeTimer = this.deps.setTimer(() => {
         this.closeSocket(attempt);
         this.finish(attempt, "stopped");
-      }, 750);
+      }, FINAL_COMMIT_GRACE_MS);
       return;
     }
     this.closeSocket(attempt);
@@ -223,7 +225,7 @@ export class RealtimeSessionController {
       }
       streams.push(stream);
       attempt.mediaStreams.push(stream);
-      stream.getAudioTracks().forEach((track) => {
+      stream.getTracks().forEach((track) => {
         track.addEventListener(
           "ended",
           () => {
@@ -289,7 +291,11 @@ export class RealtimeSessionController {
     const context = attempt.audioContext;
     if (!context) throw new Error("AudioContext не подготовлен.");
     const source = context.createMediaStreamSource(stream);
-    const processor = context.createScriptProcessor(4096, 1, 1);
+    const processor = context.createScriptProcessor(
+      AUDIO_PROCESSOR_BUFFER_SIZE,
+      1,
+      1,
+    );
     const silentOutput = context.createGain();
     silentOutput.gain.value = 0;
     source.connect(processor);

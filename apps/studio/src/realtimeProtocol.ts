@@ -15,6 +15,28 @@ export type RealtimeTranscriptEvent =
 
 const REALTIME_HOST = "api.elevenlabs.io";
 const REALTIME_PATH = "/v1/speech-to-text/realtime";
+const REALTIME_QUERY_KEYS = new Set([
+  "audio_format",
+  "commit_strategy",
+  "language_code",
+  "model_id",
+  "token",
+]);
+const REALTIME_ERROR_EVENTS = new Set([
+  "auth_error",
+  "chunk_size_exceeded",
+  "commit_throttled",
+  "error",
+  "input_error",
+  "insufficient_audio_activity",
+  "queue_overflow",
+  "quota_exceeded",
+  "rate_limited",
+  "resource_exhausted",
+  "session_time_limit_exceeded",
+  "transcriber_error",
+  "unaccepted_terms",
+]);
 
 export function parseRealtimeCapability(value: unknown): RealtimeCapability {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -41,11 +63,34 @@ export function parseRealtimeCapability(value: unknown): RealtimeCapability {
   if (
     url.protocol !== "wss:" ||
     url.hostname !== REALTIME_HOST ||
+    Boolean(url.port) ||
     url.pathname !== REALTIME_PATH ||
     Boolean(url.username) ||
     Boolean(url.password) ||
-    Boolean(url.hash) ||
-    !url.searchParams.get("token")
+    Boolean(url.hash)
+  ) {
+    throw new Error("Сервер вернул небезопасный realtime-адрес.");
+  }
+  const queryKeys = [...new Set(url.searchParams.keys())];
+  const tokenValues = url.searchParams.getAll("token");
+  const token = tokenValues[0] ?? "";
+  const languageValues = url.searchParams.getAll("language_code");
+  if (
+    queryKeys.some((key) => !REALTIME_QUERY_KEYS.has(key)) ||
+    tokenValues.length !== 1 ||
+    !token ||
+    token.length > 4096 ||
+    token !== token.trim() ||
+    [...token].some((character) => character.charCodeAt(0) < 33) ||
+    url.searchParams.getAll("model_id").length !== 1 ||
+    url.searchParams.get("model_id") !== candidate.model_id ||
+    url.searchParams.getAll("audio_format").length !== 1 ||
+    url.searchParams.get("audio_format") !== candidate.audio_format ||
+    url.searchParams.getAll("commit_strategy").length !== 1 ||
+    url.searchParams.get("commit_strategy") !== candidate.commit_strategy ||
+    languageValues.length > 1 ||
+    (languageValues.length === 1 &&
+      !/^[a-z]{2,3}$/i.test(languageValues[0]))
   ) {
     throw new Error("Сервер вернул небезопасный realtime-адрес.");
   }
@@ -67,11 +112,17 @@ export function parseRealtimeEvent(value: unknown): RealtimeTranscriptEvent {
   if (eventType.includes("session_started")) {
     return { kind: "session_started" };
   }
-  if (eventType.includes("error") || data.error || data.error_code) {
+  if (
+    REALTIME_ERROR_EVENTS.has(eventType) ||
+    eventType.includes("error") ||
+    data.error ||
+    data.error_code
+  ) {
     return {
       kind: "error",
       code:
         scalarText(data.error_code ?? data.code ?? data.error) ||
+        eventType ||
         "realtime_error",
     };
   }

@@ -9,7 +9,7 @@ import {
 
 const capability = {
   websocket_url:
-    "wss://api.elevenlabs.io/v1/speech-to-text/realtime?token=sutkn_test",
+    "wss://api.elevenlabs.io/v1/speech-to-text/realtime?model_id=scribe_v2_realtime&token=sutkn_test&audio_format=pcm_16000&commit_strategy=vad",
   expires_in_seconds: 900,
   model_id: "scribe_v2_realtime",
   audio_format: "pcm_16000",
@@ -23,6 +23,27 @@ describe("realtime protocol", () => {
       parseRealtimeCapability({
         ...capability,
         websocket_url: "wss://evil.example/realtime?token=private",
+      }),
+    ).toThrow(/небезопасный realtime-адрес/);
+    expect(() =>
+      parseRealtimeCapability({
+        ...capability,
+        websocket_url:
+          "wss://api.elevenlabs.io:444/v1/speech-to-text/realtime?model_id=scribe_v2_realtime&audio_format=pcm_16000&commit_strategy=vad&token=private",
+      }),
+    ).toThrow(/небезопасный realtime-адрес/);
+    expect(() =>
+      parseRealtimeCapability({
+        ...capability,
+        websocket_url:
+          "wss://api.elevenlabs.io/v1/speech-to-text/realtime?model_id=other&audio_format=pcm_16000&commit_strategy=vad&token=private",
+      }),
+    ).toThrow(/небезопасный realtime-адрес/);
+    expect(() =>
+      parseRealtimeCapability({
+        ...capability,
+        websocket_url:
+          "wss://api.elevenlabs.io/v1/speech-to-text/realtime?model_id=scribe_v2_realtime&audio_format=pcm_16000&commit_strategy=vad&token=one&token=two",
       }),
     ).toThrow(/небезопасный realtime-адрес/);
     expect(() =>
@@ -58,8 +79,18 @@ describe("realtime protocol", () => {
       }),
     ).toEqual({ kind: "committed", text: "готово" });
     expect(
+      parseRealtimeEvent({
+        message_type: "final_transcript",
+        text: " финальный фрагмент ",
+      }),
+    ).toEqual({ kind: "committed", text: "финальный фрагмент" });
+    expect(
       parseRealtimeEvent({ message_type: "error", error_code: "quota" }),
     ).toEqual({ kind: "error", code: "quota" });
+    expect(parseRealtimeEvent({ message_type: "rate_limited" })).toEqual({
+      kind: "error",
+      code: "rate_limited",
+    });
     expect(parseRealtimeEvent({ private: "ignored" })).toEqual({
       kind: "ignored",
     });

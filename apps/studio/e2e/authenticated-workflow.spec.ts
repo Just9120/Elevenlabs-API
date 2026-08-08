@@ -314,7 +314,7 @@ test('Live tab captures browser audio and keeps transcript browser-only', async 
       contentType: 'application/json',
       body: JSON.stringify({
         websocket_url:
-          'wss://api.elevenlabs.io/v1/speech-to-text/realtime?token=sutkn_browser_e2e',
+          'wss://api.elevenlabs.io/v1/speech-to-text/realtime?model_id=scribe_v2_realtime&token=sutkn_browser_e2e&audio_format=pcm_16000&commit_strategy=vad&language_code=ru',
         expires_in_seconds: 900,
         model_id: 'scribe_v2_realtime',
         audio_format: 'pcm_16000',
