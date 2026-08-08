@@ -341,8 +341,17 @@ test('Live tab captures browser audio and keeps transcript browser-only', async 
   expect(capabilityRequests).toBe(1);
   await expect(live).not.toContainText('sutkn_browser_e2e');
 
-  await live.getByRole('button', { name: 'Остановить' }).click();
+  await navigation.getByRole('button', { name: 'Обзор', exact: true }).click();
+  await expect(live).toBeHidden();
+  await navigation.getByRole('button', { name: 'Проекты', exact: true }).click();
+  await expect(live).toBeVisible();
   await expect(live.getByText('Остановлено')).toBeVisible();
+  await expect(live.getByText('подтверждённый текст')).toBeVisible();
+
+  await page.getByRole('tab', { name: 'Пакетная транскрибация' }).click();
+  await expect(live).toBeHidden();
+  await page.getByRole('tab', { name: 'Live-транскрибация' }).click();
+  await expect(live.getByText('подтверждённый текст')).toBeVisible();
   expect(capabilityRequests).toBe(1);
 });
 
