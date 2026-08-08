@@ -8,8 +8,8 @@
 - ✅ `PWA-JOB-PROGRESS-02 / source` — PR #200 merged as `6e0eb183`; PR-head and exact-main repository/Studio CI passed. The source keeps terminal jobs visible until explicit dismissal and persists confirmed provider-part progress through additive migration `0018_job_part_progress`.
 - ✅ `PWA-TWO-PROJECT-SPLIT-01 / source` — PR #200 merged as `6e0eb183`; the optional composer flow creates two immutable complementary clip jobs and persists their bounds through additive migration `0019_job_media_clip`.
 - ✅ `PWA-APPEARANCE-LAYOUT-01 / web` — PR #200 merged and exact-main component CD deployed the web surface. System/light/dark appearance and the full-width desktop workspace are live-source capabilities; a bounded live Chrome visual smoke is still absent.
-- ✅ `STUDIO-MIGRATION-STAGED-01 / source` — PR #201 merged as `cb1a0e3`. The protected lane can select exactly one direct additive successor per approval, preserves the current API at an intermediate target, and deploys API only when repository head is reached. Exact current production revision and post-merge protected release evidence must still be rediscovered before the next stateful rollout.
-- 👉 `PWA-PARTIAL-PROVIDER-RESUME-01` — active on `codex/pwa-partial-provider-resume`. A real split workload proved the failure mode: the first internal ElevenLabs part completed and a later part failed, while only aggregate `partial_provider_result` remained and safe continuation was unavailable. Candidate `0020` preserves the safe root category and TTL-bounded encrypted completed-part checkpoints, blocks automatic recovery, and requires explicit cost confirmation for remaining-part continuation or eligible full restart.
+- ✅ `STUDIO-MIGRATION-STAGED-01 / production evidence` — PR #201 merged as `cb1a0e3`. Protected run `31255557765` visibly waited for approval, created verified pre-migration snapshot `91f483f8bf45`, applied only `0019_job_media_clip -> 0020_provider_part_checkpoints`, and deployed the exact-head API. The enable variable was then returned to `false`.
+- 👉 `PWA-PARTIAL-PROVIDER-RESUME-01` — PR #202 merged as `66fb098`; exact-main repository and Studio CI passed. Production is migrated to `0020`, the matching API is healthy, and manual worker run `31255817558` deployed the exact merge image. A real split workload proved the original partial-failure mode; one explicit live continuation canary remains and must not be manufactured by forcing a paid provider failure.
 - 📋 `PWA-REALTIME-TRANSCRIPTION-01` — next product epic. Bring the existing experimental realtime Colab capability into a separate tab on the same PWA transcription page. Design must preserve the single-use-token, browser capture, WebSocket, transcript-content, and no-Google-Docs boundaries before implementation.
 - 📋 `PWA-TRANSCRIPT-MAINTENANCE-CANARY-04` — complete the bounded recursive-folder and single-document dry-run/apply matrix. Every state-changing apply remains a separate explicit user decision.
 - 📋 `PWA-TRUSTED-PROXY-01 / production evidence` — source contract is merged; bounded production peer observation and separately reviewed runtime configuration remain absent.
@@ -18,20 +18,20 @@
 ## Audit conclusion
 
 - Stable Colab batch remains accepted at **100%** for its current scope. Realtime Colab remains a separate experimental contour.
-- Current merged source is `main@cb1a0e374d92ae7afbc0c9a8bb902571ff66137d` (PR #201). Operator screenshots and successful split output prove that progress and two-project split behavior reached a live runtime, but the captured evidence does not establish the exact current PostgreSQL revision or deployed image identity. Those values must be rediscovered before candidate `0020`; live behavior is not substituted for migration/deploy proof.
+- Current merged source is `main@66fb0984965ee43746caa398cda0f0b799a4e78c` (PR #202). Exact-main CI passed. Protected run `31255557765` established production revision `0019_job_media_clip`, created and verified pre-migration snapshot `91f483f8bf45`, applied only direct successor `0020_provider_part_checkpoints`, deployed the API from the exact merge, and passed health gates. Manual worker run `31255817558` then deployed exact commit `66fb098` as image `sha256:f5065193221b...` and reached `STUDIO_PLATFORM_WORKER_DEPLOY_OK`.
 - The successful job exposed a real usability defect: on terminal transition its active progress card disappeared into history. PR #200 contains the source fix; production proof still depends on the staged schema/API/worker rollout and a real UI canary.
 - Final branch review found two continuity gaps in the first local implementation: dismissal authority was component-local and concurrent polling discarded the terminal snapshot. The corrective commit makes dismissal owner-scoped and durable in PostgreSQL, backfills pre-existing terminal history as already dismissed, and retains non-requested progress snapshots until explicit dismissal.
 - Batch progress remains HTTP-polled and evidence-based. The server can report part-level movement only after each prepared ElevenLabs part returns successfully. A single unsplit provider request has no truthful intermediate percentage because the synchronous provider response exposes no such checkpoint.
 - The two-project option is deliberately pre-launch and narrow: one source, one whole-second boundary, exactly two parts and two different folders. Once created, each job is independent and immutable; arbitrary editing/cutting remains excluded.
 - The screenshot width loss is a source CSS constraint, not a PWA platform limitation: the previous main element was centered behind a `1360px` maximum. The branch removes that cap, keeps the responsive breakpoint, and narrows the project selector column so the transcription builder receives the reclaimed space.
-- Migrations `0018_job_part_progress`, `0019_job_media_clip`, and candidate `0020_provider_part_checkpoints` are additive but still stateful. Ordinary component CD must not apply them. The protected one-successor migration lane, exact API/worker deployment, and bounded production UI canary remain required after merge.
+- Migrations `0018_job_part_progress`, `0019_job_media_clip`, and `0020_provider_part_checkpoints` are additive but still stateful. Production is now at exact head `0020` through the protected one-successor lane; matching API and worker deployment evidence is retained. Ordinary component CD must still not apply migrations, and the explicit partial-provider continuation remains unproven until a bounded live canary occurs.
 
 ## Readiness snapshot
 
 | Contour/dimension | Evidence-based estimate | Meaning |
 | --- | ---: | --- |
 | Stable Colab batch | **100%** | Accepted current scope and operational fallback. |
-| Selected Studio v1 baseline source/CI on `main` | **100% (`40/40`)** | PR #200 is merged and exact-main repository/Studio CI passed. This is source/CI, not universal production proof. |
+| Selected Studio v1 baseline source/CI on `main` | **100% (`40/40`)** | PR #202 is merged and exact-main repository/Studio CI passed. This is source/CI, not universal production proof. |
 | Studio batch production usability baseline | **80% (`4/5`)** | Exact source/CI, current schema/API/web, intended worker, and a real successful job are evidenced. The terminal progress/result continuity gate failed in real use. |
 | `PWA-JOB-PROGRESS-02` merged source | **100% (`4/4`)** | Durable terminal visibility/dismissal, concurrent checkpoint continuity, durable N/M parts, and focused validation/documentation are merged with green exact-main CI. |
 | `PWA-JOB-PROGRESS-02` production rollout | **50% (`2/4`)** | Merged CI and live progress/result behavior are observed. Exact database/API and worker image identity evidence for that run was not retained. |
@@ -40,8 +40,8 @@
 | `PWA-APPEARANCE-LAYOUT-01` merged source | **100% (`4/4`)** | Three-way preference, browser-local persistence/system resolution, semantic light/dark palette, full-width responsive layout, and focused validation are merged. |
 | `PWA-APPEARANCE-LAYOUT-01` production rollout | **50% (`1/2`)** | Exact-main web deployment is present; one live Chrome visual smoke across light/dark plus desktop/narrow layout is absent. |
 | `STUDIO-MIGRATION-STAGED-01` source fix | **100% (`4/4`)** | Explicit one-successor implementation, focused validation, PR CI, and merge are present. Live releases remain operational evidence, not source completeness. |
-| `PWA-PARTIAL-PROVIDER-RESUME-01` branch source | **100% (`7/7`)** | Safe root-cause preservation, encrypted checkpoint storage, remaining-part resume, explicit restart fallback, lifecycle cleanup, focused backend/frontend evidence, and green PR #202 CI are present. Merge and exact-main CI remain separate gates. |
-| `PWA-PARTIAL-PROVIDER-RESUME-01` production rollout | **0% (`0/4`)** | Merge/CI, protected `0020` release plus API, exact worker rollout, and one controlled live continuation canary are all absent. |
+| `PWA-PARTIAL-PROVIDER-RESUME-01` merged source | **100% (`7/7`)** | Safe root-cause preservation, encrypted checkpoint storage, remaining-part resume, explicit restart fallback, lifecycle cleanup, focused backend/frontend evidence, merge, and green exact-main CI are present. |
+| `PWA-PARTIAL-PROVIDER-RESUME-01` production rollout | **75% (`3/4`)** | Merge/CI, protected `0020` release plus exact API, and exact worker rollout are evidenced. One controlled live continuation canary remains. |
 | Protected migration lane pre-fix baseline evidence | **100% (`5/5`)** | Historical source/CI, VPS forced-command boundary, successful single-revision protected release, disabled post-release flag, and visible reviewer wait/approval are evidenced. The new staged-target contract is tracked separately above. |
 | Transcript-maintenance source acceptance on `main` | **100% (`10/10`)** | Durable post-apply rediscovery fix and required CI are merged. |
 | Transcript-maintenance rollout | **50% (`2/4`)** | Runtime/OAuth/schema and exact API identity/health are evidenced; full target-mode dry-run/apply matrix is not. |
@@ -62,7 +62,7 @@ The denominators are explicit gates. Local code, a green workflow summary with s
 7. Successful output persistence, cancellation, explicit full restart, and TTL cleanup remove checkpoint authority. Browsers and diagnostics never receive payload/cryptographic/internal-scope fields.
 8. Targeted backend/frontend tests, full portable/repository checks, build/lint, migration-chain tests, PR/exact-main CI, protected `0020` release, API/worker rollout, and one live continuation canary are separately evidenced.
 
-Checks 1–7 are implemented and validated on the local branch. Local validation and PR #202 CI are complete; merge, exact-main CI, and every production part of check 8 remain open.
+Checks 1–7 are merged and validated with green exact-main CI. In check 8, the protected `0020` release, exact API, and exact worker rollout are complete; only a controlled live continuation canary remains open.
 
 Non-goals: no automatic provider retry, no reuse of uncertain missing-part outcomes, no plaintext transcript/checkpoint browser persistence, no WebSocket requirement for batch, no VPS mutation, no migration/deploy, and no relaxation of approval/backup/rollback gates in this source task.
 
@@ -118,18 +118,16 @@ Checks 1–5 are merged and the exact-main web deployment is complete. The live 
 
 ## Near backlog
 
-1. Review and merge PR #202, then verify the exact merged `main` CI before any production action for `PWA-PARTIAL-PROVIDER-RESUME-01`.
-2. Rediscover exact production revision/image state, then release only the next direct migration successor; candidate `0020` requires matching API and worker rollout before its canary.
-3. Design and implement the first safe microphone-only Studio realtime slice.
-4. Add favorite Google Drive destination folders so repeated transcription setup does not require reopening Picker each time.
-5. Complete transcript-maintenance target-mode canaries.
-6. Verify trusted reverse-proxy peer identity before any runtime value change.
-7. Collect external-consumer evidence for deprecated compatibility routes.
+1. Use the next naturally occurring eligible partial-provider failure for one explicit continuation canary; do not deliberately create a paid provider failure merely for evidence.
+2. Design and implement the first safe microphone-only Studio realtime slice.
+3. Add favorite Google Drive destination folders so repeated transcription setup does not require reopening Picker each time.
+4. Complete transcript-maintenance target-mode canaries.
+5. Verify trusted reverse-proxy peer identity before any runtime value change.
+6. Collect external-consumer evidence for deprecated compatibility routes.
 
 ## Current blockers
 
-- PR #202 is open with green branch CI but is not merged. Candidate `0020` has no protected migration, API, worker, or live-continuation evidence.
-- Exact production PostgreSQL revision plus running API/worker image identities were not captured with the later live split screenshots and must be rediscovered before a stateful release.
+- PR #202 is merged with green exact-main CI. Production migration `0020`, matching API, and exact worker identity are evidenced; the explicit live-continuation behavior is not yet production-canary proven.
 - PostgreSQL integration tests still need the service-backed CI environment. Focused local tests do not replace CI or rollout evidence.
 - Exact part progress is available only for media split into multiple provider requests. The current synchronous provider call exposes no honest within-part percentage.
 - Studio realtime is not implemented; only the separate experimental Colab prototype and its partial runtime evidence exist.
@@ -137,9 +135,9 @@ Checks 1–5 are merged and the exact-main web deployment is complete. The live 
 
 ## Validation notes
 
-- Current branch: `codex/pwa-partial-provider-resume`, based on clean `main@cb1a0e3`.
+- Rollout evidence branch: `codex/provider-resume-rollout-evidence`, based on clean `main@66fb098`.
 - Incident evidence: a real two-project split completed technically; a later split job reached internal provider part `1/2`, then failed on the second part. The aggregate error hid the fixed safe provider category and no continuation action was available.
-- Current branch evidence: focused backend/recovery tests passed (`130 passed`); portable Python passed (`925 passed, 5 skipped`); full Studio frontend Vitest passed (`332 passed`); TypeScript, ESLint, Vite/PWA production build, migration-release tests (`11 passed`), lightweight repository checks, and `git diff --check` passed. PR #202 run `31253629976` and browser-E2E run `31253629969` exposed that the original 33-character Alembic identifier exceeded the existing `alembic_version.version_num VARCHAR(32)` limit; the candidate was narrowed to the 30-character `0020_provider_part_checkpoints`, then portable Python (`925 passed, 5 skipped`), migration-release (`11 passed`), lightweight checks, and diff checks passed locally. Service-backed reruns `31253942235` (`checks`) and `31253942231` (`studio`, `browser-e2e`) passed. Windows/MSYS path semantics prevent the Bash-backed processing-preflight simulation from being counted as a valid local result; merge/exact-main CI and live continuation remain separate gates.
+- Source evidence: focused backend/recovery tests passed (`130 passed`); portable Python passed (`925 passed, 5 skipped`); full Studio frontend Vitest passed (`332 passed`); TypeScript, ESLint, Vite/PWA production build, migration-release tests (`11 passed`), lightweight repository checks, and `git diff --check` passed. PR #202 run `31253629976` and browser-E2E run `31253629969` exposed that the original 33-character Alembic identifier exceeded the existing `alembic_version.version_num VARCHAR(32)` limit; the candidate was narrowed to the 30-character `0020_provider_part_checkpoints`. Service-backed reruns `31253942235` (`checks`) and `31253942231` (`studio`, `browser-e2e`) passed, followed by exact-main runs `31254860835` and `31254860818`. Production run `31255557765` applied `0020` with verified snapshot `91f483f8bf45` and exact API deployment; worker run `31255817558` deployed exact commit `66fb098` and passed identity/schema/health gates. Live continuation remains separate.
 - Final focused backend split gate: `55 passed` across clip normalization, media preparation, batch preflight, duplicate/catalog authority, browser DTOs, and schema shape. Earlier progress-focused suites remain separate commit evidence.
 - Final focused frontend gate: `150 passed` across the complete App suite plus composer, job-model, and job-card suites; TypeScript build and targeted ESLint passed.
 - Final appearance/layout gate: `128 passed` across theme initialization, PWA bootstrap, and the complete App suite; TypeScript, targeted ESLint, production Vite/PWA build, `git diff --check`, and lightweight repository checks passed.
