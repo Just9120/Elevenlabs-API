@@ -42,12 +42,14 @@ type Attempt = {
   processor: ScriptProcessorNode | null;
   nodes: AudioNodeLike[];
   websocket: WebSocket | null;
+  capabilityAbort: AbortController | null;
+  capabilityTimer: number | null;
   connectionTimer: number | null;
   closeTimer: number | null;
 };
 
 type RealtimeSessionDependencies = {
-  requestCapability: () => Promise<unknown>;
+  requestCapability: (signal: AbortSignal) => Promise<unknown>;
   mediaDevices?: Partial<
     Pick<MediaDevices, "getDisplayMedia" | "getUserMedia">
   >;
@@ -63,6 +65,7 @@ const PERMISSION_ERRORS = new Set([
   "AbortError",
 ]);
 const CONNECTION_TIMEOUT_MS = 10_000;
+const CAPABILITY_TIMEOUT_MS = 25_000;
 const FINAL_COMMIT_GRACE_MS = 2_000;
 const AUDIO_PROCESSOR_BUFFER_SIZE = 8_192;
 const MAX_WEBSOCKET_BUFFERED_BYTES = 512 * 1024;
@@ -174,6 +177,8 @@ export class RealtimeSessionController {
       processor: null,
       nodes: [],
       websocket: null,
+      capabilityAbort: null,
+      capabilityTimer: null,
       connectionTimer: null,
       closeTimer: null,
     };
@@ -191,8 +196,33 @@ export class RealtimeSessionController {
       this.assertActive(attempt);
 
       this.callbacks.onStatus("connecting");
+      const capabilityAbort = new AbortController();
+      attempt.capabilityAbort = capabilityAbort;
+      let capabilityTimedOut = false;
+      attempt.capabilityTimer = this.deps.setTimer(() => {
+        attempt.capabilityTimer = null;
+        if (!this.owns(attempt) || attempt.cancelled) return;
+        capabilityTimedOut = true;
+        capabilityAbort.abort();
+      }, CAPABILITY_TIMEOUT_MS);
+      let capabilityValue: unknown;
+      try {
+        capabilityValue = await this.deps.requestCapability(
+          capabilityAbort.signal,
+        );
+      } catch (error) {
+        if (capabilityTimedOut) {
+          throw new Error(
+            "Studio API не подготовил realtime-доступ за 25 секунд. Проверьте сеть и начните новую сессию.",
+            { cause: error },
+          );
+        }
+        throw error;
+      } finally {
+        this.clearCapabilityRequest(attempt, false);
+      }
       const capability = parseRealtimeCapability(
-        await this.deps.requestCapability(),
+        capabilityValue,
       );
       this.assertActive(attempt);
       this.connect(attempt, capability, stream);
@@ -209,6 +239,7 @@ export class RealtimeSessionController {
     }
     attempt.cancelled = true;
     attempt.userStopRequested = true;
+    this.clearCapabilityRequest(attempt);
     this.callbacks.onPartial("");
     this.callbacks.onStatus("stopping");
     this.releaseMedia(attempt);
@@ -497,6 +528,18 @@ export class RealtimeSessionController {
     attempt.connectionTimer = null;
   }
 
+  private clearCapabilityRequest(attempt: Attempt, abort = true) {
+    if (attempt.capabilityTimer !== null) {
+      this.deps.clearTimer(attempt.capabilityTimer);
+      attempt.capabilityTimer = null;
+    }
+    const controller = attempt.capabilityAbort;
+    attempt.capabilityAbort = null;
+    if (abort && controller && !controller.signal.aborted) {
+      controller.abort();
+    }
+  }
+
   private finish(
     attempt: Attempt,
     status: RealtimeSessionStatus,
@@ -504,6 +547,7 @@ export class RealtimeSessionController {
   ) {
     if (attempt.cleanupDone) return;
     attempt.cleanupDone = true;
+    this.clearCapabilityRequest(attempt);
     this.releaseMedia(attempt);
     this.closeSocket(attempt);
     if (this.owns(attempt)) {

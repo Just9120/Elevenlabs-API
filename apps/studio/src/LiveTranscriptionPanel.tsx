@@ -234,7 +234,7 @@ export function LiveTranscriptionPanel({ projectId, csrf, onCsrf }: Props) {
         onInputLevel: setInputLevel,
       },
       {
-        requestCapability: async () => {
+        requestCapability: async (signal) => {
           try {
             return await mutateWithCsrfRetry(
               `/projects/${projectId}/realtime/capability`,
@@ -242,6 +242,7 @@ export function LiveTranscriptionPanel({ projectId, csrf, onCsrf }: Props) {
               onCsrf,
               {
                 method: "POST",
+                signal,
                 body: JSON.stringify({
                   provider_credential_id: credentialId || null,
                   language,

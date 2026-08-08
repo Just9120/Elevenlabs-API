@@ -234,7 +234,7 @@ describe("RealtimeSessionController", () => {
     });
 
     controller.stop();
-    expect(timerDelays).toEqual([10_000, 2_000]);
+    expect(timerDelays).toEqual([25_000, 10_000, 2_000]);
     expect(microphone.stop).toHaveBeenCalled();
     expect(inputLevels.at(-1)).toBe(0);
     expect(JSON.parse(String(vi.mocked(socket.send).mock.calls[1][0]))).toEqual({
@@ -272,8 +272,7 @@ describe("RealtimeSessionController", () => {
         createAudioContext: () => audio.context,
         createWebSocket: () => socket,
         setTimer: (callback, milliseconds) => {
-          expect(milliseconds).toBe(10_000);
-          connectTimeout = callback;
+          if (milliseconds === 10_000) connectTimeout = callback;
           return 23;
         },
         clearTimer: vi.fn(),
@@ -288,6 +287,61 @@ describe("RealtimeSessionController", () => {
     expect(microphone.stop).toHaveBeenCalledOnce();
     expect(errors.at(-1)).toContain("10 секунд");
     expect(statuses.at(-1)).toBe("closed");
+    expect(controller.active).toBe(false);
+  });
+
+  it("aborts a stalled capability request and releases capture", async () => {
+    const microphone = mediaFixture();
+    const audio = audioFixture();
+    const requestEntered = deferred<void>();
+    const errors: string[] = [];
+    const statuses: RealtimeSessionStatus[] = [];
+    let capabilitySignal: AbortSignal | undefined;
+    let capabilityTimeout: (() => void) | undefined;
+    const controller = new RealtimeSessionController(
+      {
+        onStatus: (status) => statuses.push(status),
+        onPartial: vi.fn(),
+        onCommitted: vi.fn(),
+        onError: (message) => errors.push(message),
+      },
+      {
+        requestCapability: (signal) => {
+          capabilitySignal = signal;
+          requestEntered.resolve(undefined);
+          return new Promise((_resolve, reject) => {
+            signal.addEventListener(
+              "abort",
+              () => reject(new DOMException("Aborted", "AbortError")),
+              { once: true },
+            );
+          });
+        },
+        mediaDevices: {
+          getUserMedia: vi.fn().mockResolvedValue(microphone.stream),
+        },
+        createAudioContext: () => audio.context,
+        createWebSocket: vi.fn(),
+        setTimer: (callback, milliseconds) => {
+          if (milliseconds === 25_000) capabilityTimeout = callback;
+          return 41;
+        },
+        clearTimer: vi.fn(),
+      },
+    );
+
+    const starting = controller.start({
+      displayAudio: false,
+      microphone: true,
+    });
+    await requestEntered.promise;
+    capabilityTimeout?.();
+    await starting;
+
+    expect(capabilitySignal?.aborted).toBe(true);
+    expect(microphone.stop).toHaveBeenCalled();
+    expect(errors.at(-1)).toContain("25 секунд");
+    expect(statuses.at(-1)).toBe("ready");
     expect(controller.active).toBe(false);
   });
 
