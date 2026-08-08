@@ -546,6 +546,16 @@ async function openFocusedJobsList() {
 describe("Studio PWA", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: {
+        addEventListener: vi.fn(),
+        enumerateDevices: vi.fn().mockResolvedValue([]),
+        getDisplayMedia: vi.fn(),
+        getUserMedia: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+    });
     Object.defineProperty(window, "location", {
       value: originalLocation,
       writable: true,
