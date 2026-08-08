@@ -136,13 +136,17 @@ export function LiveTranscriptionPanel({ projectId, csrf, onCsrf }: Props) {
     return () => mediaDevices.removeEventListener("devicechange", handler);
   }, []);
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    const dispose = () => {
       controllerRef.current?.dispose();
       controllerRef.current = null;
-    },
-    [projectId],
-  );
+    };
+    window.addEventListener("pagehide", dispose);
+    return () => {
+      window.removeEventListener("pagehide", dispose);
+      dispose();
+    };
+  }, [projectId]);
 
   async function start() {
     if (running) return;

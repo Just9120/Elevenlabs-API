@@ -124,7 +124,7 @@ describe("RealtimeSessionController", () => {
     const partials: string[] = [];
     const committed: string[] = [];
     const errors: string[] = [];
-    let finishStop: (() => void) | undefined;
+    const timerCallbacks: Array<() => void> = [];
     const controller = new RealtimeSessionController(
       {
         onStatus: (status) => statuses.push(status),
@@ -141,8 +141,8 @@ describe("RealtimeSessionController", () => {
         createAudioContext: () => audio.context,
         createWebSocket: () => socket,
         setTimer: (callback) => {
-          finishStop = callback;
-          return 17;
+          timerCallbacks.push(callback);
+          return timerCallbacks.length;
         },
         clearTimer: vi.fn(),
       },
@@ -200,9 +200,51 @@ describe("RealtimeSessionController", () => {
       sample_rate: 16_000,
       commit: true,
     });
-    finishStop?.();
+    timerCallbacks.at(-1)?.();
     expect(socket.close).toHaveBeenCalledWith(1000, "Остановлено пользователем");
     expect(statuses.at(-1)).toBe("stopped");
+    expect(controller.active).toBe(false);
+  });
+
+  it("closes media when the realtime socket does not connect in time", async () => {
+    const microphone = mediaFixture();
+    const audio = audioFixture();
+    const socket = websocketFixture();
+    const statuses: RealtimeSessionStatus[] = [];
+    const errors: string[] = [];
+    let connectTimeout: (() => void) | undefined;
+    const controller = new RealtimeSessionController(
+      {
+        onStatus: (status) => statuses.push(status),
+        onPartial: vi.fn(),
+        onCommitted: vi.fn(),
+        onError: (message) => errors.push(message),
+      },
+      {
+        requestCapability: vi.fn().mockResolvedValue(capability),
+        mediaDevices: {
+          getDisplayMedia: vi.fn(),
+          getUserMedia: vi.fn().mockResolvedValue(microphone.stream),
+        },
+        createAudioContext: () => audio.context,
+        createWebSocket: () => socket,
+        setTimer: (callback, milliseconds) => {
+          expect(milliseconds).toBe(10_000);
+          connectTimeout = callback;
+          return 23;
+        },
+        clearTimer: vi.fn(),
+      },
+    );
+
+    await controller.start({ displayAudio: false, microphone: true });
+    expect(statuses.at(-1)).toBe("connecting");
+    connectTimeout?.();
+
+    expect(socket.close).toHaveBeenCalledWith(1000, "Тайм-аут подключения");
+    expect(microphone.stop).toHaveBeenCalledOnce();
+    expect(errors.at(-1)).toContain("10 секунд");
+    expect(statuses.at(-1)).toBe("closed");
     expect(controller.active).toBe(false);
   });
 

@@ -144,4 +144,22 @@ describe("LiveTranscriptionPanel", () => {
     expect(await screen.findByText("Активный профиль не найден")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Начать" })).toBeDisabled();
   });
+
+  it("disposes capture when the browser page is hidden", async () => {
+    render(
+      <LiveTranscriptionPanel
+        projectId="project-safe"
+        csrf="csrf-safe"
+        onCsrf={vi.fn()}
+      />,
+    );
+    const start = await screen.findByRole("button", { name: "Начать" });
+    await waitFor(() => expect(start).toBeEnabled());
+    await userEvent.click(start);
+    await screen.findByText("Соединение установлено");
+
+    window.dispatchEvent(new Event("pagehide"));
+
+    expect(controllerState.instances[0].dispose).toHaveBeenCalledOnce();
+  });
 });

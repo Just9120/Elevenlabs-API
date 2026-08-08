@@ -41,6 +41,7 @@ type Attempt = {
   processor: ScriptProcessorNode | null;
   nodes: AudioNodeLike[];
   websocket: WebSocket | null;
+  connectionTimer: number | null;
   closeTimer: number | null;
 };
 
@@ -61,6 +62,7 @@ const PERMISSION_ERRORS = new Set([
   "PermissionDeniedError",
   "AbortError",
 ]);
+const CONNECTION_TIMEOUT_MS = 10_000;
 
 function stopStream(stream: MediaStream) {
   stream.getTracks().forEach((track) => track.stop());
@@ -135,6 +137,7 @@ export class RealtimeSessionController {
       processor: null,
       nodes: [],
       websocket: null,
+      connectionTimer: null,
       closeTimer: null,
     };
     this.current = attempt;
@@ -305,8 +308,24 @@ export class RealtimeSessionController {
 
     const websocket = this.deps.createWebSocket(capability.websocket_url);
     attempt.websocket = websocket;
+    attempt.connectionTimer = this.deps.setTimer(() => {
+      attempt.connectionTimer = null;
+      if (
+        !this.owns(attempt) ||
+        attempt.cleanupDone ||
+        websocket.readyState !== WebSocket.CONNECTING
+      ) {
+        return;
+      }
+      this.callbacks.onError(
+        "ElevenLabs не установил realtime-соединение за 10 секунд. Начните новую сессию.",
+      );
+      this.closeSocket(attempt, "Тайм-аут подключения");
+      this.finish(attempt, "closed");
+    }, CONNECTION_TIMEOUT_MS);
     websocket.onopen = () => {
       if (!this.owns(attempt) || attempt.cancelled) return;
+      this.clearConnectionTimer(attempt);
       this.callbacks.onStatus("connected");
     };
     websocket.onmessage = (message) => {
@@ -326,7 +345,10 @@ export class RealtimeSessionController {
         this.callbacks.onPartial("");
         this.callbacks.onCommitted(event.text);
       } else if (event.kind === "error") {
+        if (attempt.userStopRequested) return;
         this.callbacks.onError(knownRealtimeError(event.code));
+        this.closeSocket(attempt, "Ошибка провайдера");
+        this.finish(attempt, "closed");
       }
     };
     websocket.onerror = () => {
@@ -334,6 +356,8 @@ export class RealtimeSessionController {
       this.callbacks.onError(
         "Соединение realtime прервалось. Новая попытка получит новый одноразовый доступ.",
       );
+      this.closeSocket(attempt, "Ошибка соединения");
+      this.finish(attempt, "closed");
     };
     websocket.onclose = () => {
       if (!this.owns(attempt)) return;
@@ -383,7 +407,8 @@ export class RealtimeSessionController {
     }
   }
 
-  private closeSocket(attempt: Attempt) {
+  private closeSocket(attempt: Attempt, reason = "Остановлено пользователем") {
+    this.clearConnectionTimer(attempt);
     if (attempt.closeTimer !== null) {
       this.deps.clearTimer(attempt.closeTimer);
       attempt.closeTimer = null;
@@ -396,11 +421,17 @@ export class RealtimeSessionController {
         websocket.readyState === WebSocket.CONNECTING)
     ) {
       try {
-        websocket.close(1000, "Остановлено пользователем");
+        websocket.close(1000, reason);
       } catch {
         // Browser is already closing it.
       }
     }
+  }
+
+  private clearConnectionTimer(attempt: Attempt) {
+    if (attempt.connectionTimer === null) return;
+    this.deps.clearTimer(attempt.connectionTimer);
+    attempt.connectionTimer = null;
   }
 
   private finish(
