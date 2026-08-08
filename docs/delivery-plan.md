@@ -40,7 +40,7 @@
 | `PWA-APPEARANCE-LAYOUT-01` merged source | **100% (`4/4`)** | Three-way preference, browser-local persistence/system resolution, semantic light/dark palette, full-width responsive layout, and focused validation are merged. |
 | `PWA-APPEARANCE-LAYOUT-01` production rollout | **50% (`1/2`)** | Exact-main web deployment is present; one live Chrome visual smoke across light/dark plus desktop/narrow layout is absent. |
 | `STUDIO-MIGRATION-STAGED-01` source fix | **100% (`4/4`)** | Explicit one-successor implementation, focused validation, PR CI, and merge are present. Live releases remain operational evidence, not source completeness. |
-| `PWA-PARTIAL-PROVIDER-RESUME-01` branch source | **86% (`6/7`)** | Safe root-cause preservation, encrypted checkpoint storage, remaining-part resume, explicit restart fallback, lifecycle cleanup, and focused backend/frontend evidence are present. Draft PR #202 exists; green PR/exact-main CI is absent. |
+| `PWA-PARTIAL-PROVIDER-RESUME-01` branch source | **100% (`7/7`)** | Safe root-cause preservation, encrypted checkpoint storage, remaining-part resume, explicit restart fallback, lifecycle cleanup, focused backend/frontend evidence, and green PR #202 CI are present. Merge and exact-main CI remain separate gates. |
 | `PWA-PARTIAL-PROVIDER-RESUME-01` production rollout | **0% (`0/4`)** | Merge/CI, protected `0020` release plus API, exact worker rollout, and one controlled live continuation canary are all absent. |
 | Protected migration lane pre-fix baseline evidence | **100% (`5/5`)** | Historical source/CI, VPS forced-command boundary, successful single-revision protected release, disabled post-release flag, and visible reviewer wait/approval are evidenced. The new staged-target contract is tracked separately above. |
 | Transcript-maintenance source acceptance on `main` | **100% (`10/10`)** | Durable post-apply rediscovery fix and required CI are merged. |
@@ -62,7 +62,7 @@ The denominators are explicit gates. Local code, a green workflow summary with s
 7. Successful output persistence, cancellation, explicit full restart, and TTL cleanup remove checkpoint authority. Browsers and diagnostics never receive payload/cryptographic/internal-scope fields.
 8. Targeted backend/frontend tests, full portable/repository checks, build/lint, migration-chain tests, PR/exact-main CI, protected `0020` release, API/worker rollout, and one live continuation canary are separately evidenced.
 
-Checks 1–7 are implemented and validated on the local branch. Local validation is complete; draft PR #202 exists, while green PR/exact-main CI and every production part of check 8 remain open.
+Checks 1–7 are implemented and validated on the local branch. Local validation and PR #202 CI are complete; merge, exact-main CI, and every production part of check 8 remain open.
 
 Non-goals: no automatic provider retry, no reuse of uncertain missing-part outcomes, no plaintext transcript/checkpoint browser persistence, no WebSocket requirement for batch, no VPS mutation, no migration/deploy, and no relaxation of approval/backup/rollback gates in this source task.
 
@@ -118,7 +118,7 @@ Checks 1–5 are merged and the exact-main web deployment is complete. The live 
 
 ## Near backlog
 
-1. Complete local validation and PR/CI for `PWA-PARTIAL-PROVIDER-RESUME-01`.
+1. Review and merge PR #202, then verify the exact merged `main` CI before any production action for `PWA-PARTIAL-PROVIDER-RESUME-01`.
 2. Rediscover exact production revision/image state, then release only the next direct migration successor; candidate `0020` requires matching API and worker rollout before its canary.
 3. Design and implement the first safe microphone-only Studio realtime slice.
 4. Add favorite Google Drive destination folders so repeated transcription setup does not require reopening Picker each time.
@@ -128,7 +128,7 @@ Checks 1–5 are merged and the exact-main web deployment is complete. The live 
 
 ## Current blockers
 
-- The current partial-provider branch is not pushed or reviewed. Candidate `0020` has no migration, API, worker, or live-continuation evidence.
+- PR #202 is open with green branch CI but is not merged. Candidate `0020` has no protected migration, API, worker, or live-continuation evidence.
 - Exact production PostgreSQL revision plus running API/worker image identities were not captured with the later live split screenshots and must be rediscovered before a stateful release.
 - PostgreSQL integration tests still need the service-backed CI environment. Focused local tests do not replace CI or rollout evidence.
 - Exact part progress is available only for media split into multiple provider requests. The current synchronous provider call exposes no honest within-part percentage.
@@ -139,7 +139,7 @@ Checks 1–5 are merged and the exact-main web deployment is complete. The live 
 
 - Current branch: `codex/pwa-partial-provider-resume`, based on clean `main@cb1a0e3`.
 - Incident evidence: a real two-project split completed technically; a later split job reached internal provider part `1/2`, then failed on the second part. The aggregate error hid the fixed safe provider category and no continuation action was available.
-- Current branch evidence: focused backend/recovery tests passed (`130 passed`); portable Python passed (`925 passed, 5 skipped`); full Studio frontend Vitest passed (`332 passed`); TypeScript, ESLint, Vite/PWA production build, migration-release tests (`11 passed`), lightweight repository checks, and `git diff --check` passed. PR #202 run `31253629976` and browser-E2E run `31253629969` exposed that the original 33-character Alembic identifier exceeded the existing `alembic_version.version_num VARCHAR(32)` limit; the candidate was narrowed to the 30-character `0020_provider_part_checkpoints`, then portable Python (`925 passed, 5 skipped`), migration-release (`11 passed`), lightweight checks, and diff checks passed locally. Windows/MSYS path semantics prevent the Bash-backed processing-preflight simulation from being counted as a valid local result; the rerun of service-backed CI remains the gate for that surface. CI and live continuation remain separate gates.
+- Current branch evidence: focused backend/recovery tests passed (`130 passed`); portable Python passed (`925 passed, 5 skipped`); full Studio frontend Vitest passed (`332 passed`); TypeScript, ESLint, Vite/PWA production build, migration-release tests (`11 passed`), lightweight repository checks, and `git diff --check` passed. PR #202 run `31253629976` and browser-E2E run `31253629969` exposed that the original 33-character Alembic identifier exceeded the existing `alembic_version.version_num VARCHAR(32)` limit; the candidate was narrowed to the 30-character `0020_provider_part_checkpoints`, then portable Python (`925 passed, 5 skipped`), migration-release (`11 passed`), lightweight checks, and diff checks passed locally. Service-backed reruns `31253942235` (`checks`) and `31253942231` (`studio`, `browser-e2e`) passed. Windows/MSYS path semantics prevent the Bash-backed processing-preflight simulation from being counted as a valid local result; merge/exact-main CI and live continuation remain separate gates.
 - Final focused backend split gate: `55 passed` across clip normalization, media preparation, batch preflight, duplicate/catalog authority, browser DTOs, and schema shape. Earlier progress-focused suites remain separate commit evidence.
 - Final focused frontend gate: `150 passed` across the complete App suite plus composer, job-model, and job-card suites; TypeScript build and targeted ESLint passed.
 - Final appearance/layout gate: `128 passed` across theme initialization, PWA bootstrap, and the complete App suite; TypeScript, targeted ESLint, production Vite/PWA build, `git diff --check`, and lightweight repository checks passed.
