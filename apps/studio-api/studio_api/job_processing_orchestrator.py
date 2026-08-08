@@ -29,6 +29,7 @@ from .job_lease_heartbeat import (
 from .job_output_persistence import persist_processing_job_source_output_and_maybe_complete
 from .job_output_reconciliation import mark_reconciliation_required
 from .job_retry_recovery import prepare_current_attempt_sources, classify_source_attempt_failure, mark_attempt_provider_started, mark_attempt_provider_returned, mark_attempt_google_handoff, mark_attempt_output_reconciliation_required, mark_attempt_completed
+from .provider_part_checkpoints import delete_provider_part_checkpoints
 from .job_processing_lifecycle import (
     acknowledge_job_cancellation,
     begin_job_processing,
@@ -293,6 +294,7 @@ def orchestrate_processing_job(
                     artifact=artifact,
                     now=clock(),
                 )
+                delete_provider_part_checkpoints(db, job_source_id=rel.id)
                 try:
                     _commit(db, JobProcessingOrchestrationReason.output_reconciliation_required)
                     _emit(db, job_id, "OUTPUT_PERSISTED", metadata={"output_count": persisted.persisted_output_count, "attempt_number": _attempt(db, job_id)})

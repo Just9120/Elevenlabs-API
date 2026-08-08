@@ -12,6 +12,7 @@ from .job_claim_readiness import build_claim_readiness
 from .job_lifecycle import safe_failure_metadata_value
 from .models import JobStatus, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, JobSourceStatus
 from sqlalchemy import func
+from .provider_part_checkpoints import delete_provider_part_checkpoints
 
 
 class JobProcessingFailureReason(str, Enum):
@@ -86,6 +87,8 @@ def request_job_cancellation(db: Session, *, job_id: str, now: datetime) -> tupl
         changed = True
         event_type = "job.cancel_requested"
     if changed:
+        if job.status == JobStatus.cancelled:
+            delete_provider_part_checkpoints(db, job_id=job.id)
         db.flush()
     return _result(job), changed, event_type
 
@@ -99,6 +102,7 @@ def acknowledge_job_cancellation(db: Session, *, job_id: str, lease_owner_id: st
     job.cancelled_at = now
     job.finished_at = now
     job.updated_at = now
+    delete_provider_part_checkpoints(db, job_id=job.id)
     invalidate_job_lease(job)
     db.flush()
     return _result(job)
@@ -128,6 +132,7 @@ def recover_expired_processing_job(db: Session, *, job_id: str, now: datetime) -
         job.status = JobStatus.cancelled
         job.cancelled_at = now
         job.finished_at = now
+        delete_provider_part_checkpoints(db, job_id=job.id)
     else:
         rel_ids=[r.id for r in db.execute(select(TranscriptionJobSource).where(TranscriptionJobSource.job_id==job.id, TranscriptionJobSource.status!=JobSourceStatus.skipped)).scalars().all()]
         output_count = db.execute(select(func.count(TranscriptionJobOutput.id)).where(TranscriptionJobOutput.job_id==job.id, TranscriptionJobOutput.job_source_id.in_(rel_ids or ["__none__"]))).scalar_one()

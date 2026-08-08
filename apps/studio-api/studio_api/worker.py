@@ -69,6 +69,7 @@ def run_worker_loop(
     logger: logging.Logger = LOGGER,
     owner_id_factory: Callable[[], str] = build_worker_owner_id,
     source_cleanup_runner: Callable | None = None,
+    provider_checkpoint_cleanup_runner: Callable | None = None,
 ) -> int:
     if iteration is None:
         from .job_processing_runner import claim_next_and_orchestrate_processing_job
@@ -119,12 +120,31 @@ def run_worker_loop(
             cleanup_db = session_factory()
             try:
                 from datetime import datetime, timezone
+                if provider_checkpoint_cleanup_runner is None and source_cleanup_runner is None:
+                    from .provider_part_checkpoints import cleanup_expired_provider_part_checkpoints as checkpoint_cleanup_runner
+                else:
+                    checkpoint_cleanup_runner = provider_checkpoint_cleanup_runner
                 if source_cleanup_runner is None:
                     from .source_deletion import run_one_source_cleanup as cleanup_runner
                 else:
                     cleanup_runner = source_cleanup_runner
 
-                if cleanup_runner(cleanup_db, settings=settings, owner_id=f"{owner_id}:source-cleanup", now=datetime.now(timezone.utc), should_stop=stop_event.is_set):
+                cleanup_now = datetime.now(timezone.utc)
+                expired_checkpoint_count = (
+                    checkpoint_cleanup_runner(cleanup_db, now=cleanup_now)
+                    if checkpoint_cleanup_runner is not None
+                    else 0
+                )
+                if expired_checkpoint_count:
+                    cleanup_db.commit()
+                    logger.info(
+                        "studio_worker_provider_part_checkpoints_expired",
+                        extra={
+                            "event": "studio_worker_provider_part_checkpoints_expired",
+                            "checkpoint_count": expired_checkpoint_count,
+                        },
+                    )
+                if cleanup_runner(cleanup_db, settings=settings, owner_id=f"{owner_id}:source-cleanup", now=cleanup_now, should_stop=stop_event.is_set):
                     logger.info("studio_worker_source_cleanup_processed", extra={"event": "studio_worker_source_cleanup_processed"})
             except Exception:
                 _safe_rollback(cleanup_db, logger)

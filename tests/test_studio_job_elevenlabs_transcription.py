@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import uuid
+import base64
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import timedelta
@@ -24,6 +25,10 @@ class Settings:
     credential_key_id: str = "credential-key-v1"
     source_max_upload_bytes: int = 1000
     source_s3_bucket: str = "bucket"
+    provider_part_checkpoint_ttl_seconds: int = 86400
+
+    def master_key_b64(self) -> str:
+        return base64.b64encode(b"1" * 32).decode("ascii")
 
 
 @pytest.fixture()
@@ -1064,7 +1069,7 @@ def test_prepared_parts_reach_provider_in_order_and_merge(db, models):
     assert all(stream.closed for stream in streams)
 
 
-def test_second_part_failure_is_never_classified_retry_safe(db, models):
+def test_second_part_failure_preserves_encrypted_checkpoint_and_safe_cause(db, models):
     from studio_api.elevenlabs_transcription import (
         ElevenLabsTranscriptionError,
         ElevenLabsTranscriptionReason,
@@ -1123,7 +1128,110 @@ def test_second_part_failure_is_never_classified_retry_safe(db, models):
     assert attempt.provider_total_parts == 2
     assert attempt.provider_completed_parts == 1
     assert attempt.failure_code == "partial_provider_result"
+    assert attempt.provider_failure_code == "provider_rate_limited"
     assert attempt.retry_disposition == models.SourceAttemptRetryDisposition.provider_outcome_uncertain
+    checkpoint = db.query(models.TranscriptionProviderPartCheckpoint).one()
+    assert checkpoint.part_index == 0
+    assert checkpoint.total_parts == 2
+    assert b"first" not in checkpoint.ciphertext
+
+
+def test_explicit_partial_resume_calls_only_unfinished_provider_part(db, models):
+    from studio_api.elevenlabs_transcription import (
+        ElevenLabsTranscriptionError,
+        ElevenLabsTranscriptionReason,
+        normalize_elevenlabs_transcript_response,
+    )
+    from studio_api.job_elevenlabs_transcription import JobElevenLabsTranscriptionError
+    from studio_api.job_retry_recovery import (
+        compute_explicit_retry_readiness,
+        compute_expired_recovery_readiness,
+        prepare_current_attempt_sources,
+        queue_retry,
+    )
+    from studio_api.media_preparation import PreparedMediaBatch, PreparedMediaInput
+
+    *_, job, rel, now = make_job(db, models)
+
+    @contextmanager
+    def prepare(**kwargs):
+        streams = [BytesIO(b"one"), BytesIO(b"two")]
+        try:
+            yield PreparedMediaBatch(
+                parts=(
+                    PreparedMediaInput("part-001.m4a", "audio/mp4", 3, streams[0], part_count=2, duration_seconds=10),
+                    PreparedMediaInput("part-002.m4a", "audio/mp4", 3, streams[1], part_index=2, part_count=2, timeline_offset_seconds=8, duration_seconds=5),
+                ),
+                duration_seconds=13,
+                split_reason="duration",
+            )
+        finally:
+            for stream in streams:
+                stream.close()
+
+    class FirstAttemptTransport:
+        calls = 0
+
+        def transcribe(self, **kwargs):
+            self.calls += 1
+            if self.calls == 2:
+                raise ElevenLabsTranscriptionError(ElevenLabsTranscriptionReason.provider_rate_limited)
+            return normalize_elevenlabs_transcript_response(
+                {"text": "alpha", "words": [{"text": "alpha", "start": 0, "end": 1}]}
+            )
+
+    with pytest.raises(JobElevenLabsTranscriptionError, match="partial_provider_result"):
+        with run_boundary(db, models, job, rel, FirstAttemptTransport(), now, media_preparer=prepare):
+            pass
+
+    job.lease_expires_at = now - timedelta(seconds=1)
+    automatic = compute_expired_recovery_readiness(db, job, now=now)
+    assert automatic.available is False
+    assert automatic.reason.value == "provider_outcome_uncertain"
+    job.status = models.JobStatus.failed
+    job.lease_owner_id = None
+    job.lease_expires_at = None
+    db.commit()
+    readiness = compute_explicit_retry_readiness(db, job, now=now)
+    assert readiness.available is True
+    assert readiness.reason.value == "partial_provider_resume_available"
+    assert readiness.resumable_provider_part_count == 1
+    assert readiness.provider_total_part_count == 2
+    assert readiness.provider_failure_code == "provider_rate_limited"
+
+    queued = queue_retry(db, owner_user_id=job.owner_user_id, job_id=job.id, now=now)
+    assert queued is not None and queued.transitioned is True
+    job.status = models.JobStatus.processing
+    job.attempt_count = 2
+    job.lease_owner_id = "worker"
+    job.lease_generation = 7
+    job.lease_expires_at = now + timedelta(minutes=5)
+    db.commit()
+    prepare_current_attempt_sources(
+        db,
+        job_id=job.id,
+        lease_owner_id="worker",
+        lease_generation=7,
+        now=now,
+    )
+    db.commit()
+
+    class ResumeTransport:
+        calls = 0
+
+        def transcribe(self, **kwargs):
+            self.calls += 1
+            assert kwargs["filename"] == "part-002.m4a"
+            return normalize_elevenlabs_transcript_response(
+                {"text": " beta", "words": [{"text": " beta", "start": 2, "end": 3}]}
+            )
+
+    transport = ResumeTransport()
+    with run_boundary(db, models, job, rel, transport, now, media_preparer=prepare) as result:
+        assert result.text == "alpha beta"
+    assert transport.calls == 1
+    attempt = db.query(models.TranscriptionJobSourceAttempt).filter_by(job_source_id=rel.id, attempt_number=2).one()
+    assert attempt.provider_completed_parts == attempt.provider_total_parts == 2
 
 
 def test_diagnostics_source_provider_success_order_and_correlation(monkeypatch, db, models):
