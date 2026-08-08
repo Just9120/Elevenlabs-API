@@ -242,7 +242,7 @@ For the current candidate chain `0017 -> 0018 -> 0019 -> 0020`, first read and v
    `api_deployed=no`.
 2. `migration_target=0019_job_media_clip`; approve and require
    `api_deployed=no` while repository head remains `0020`.
-3. `migration_target=0020_partial_provider_checkpoints`; approve and require
+3. `migration_target=0020_provider_part_checkpoints`; approve and require
    `api_deployed=yes` plus localhost/public API health.
 4. Disable the enable variable before the separate worker deployment.
 
@@ -274,7 +274,7 @@ STUDIO_PRE_MIGRATION_BACKUP_CONFIRMED=yes \
 STUDIO_PRE_MIGRATION_BACKUP_SNAPSHOT=__REQUIRED_64_HEX_SNAPSHOT_ID__ \
 STUDIO_EXPECTED_MIGRATION_FROM=0017_google_maintenance_oauth \
 STUDIO_EXPECTED_MIGRATION_TO=0018_job_part_progress \
-STUDIO_EXPECTED_REPOSITORY_HEAD=0020_partial_provider_checkpoints \
+STUDIO_EXPECTED_REPOSITORY_HEAD=0020_provider_part_checkpoints \
 STUDIO_EXPECTED_API_IMAGE_ID=sha256:__REQUIRED_64_HEX_IMAGE_ID__ \
   scripts/migrate_studio_platform.sh
 ```
@@ -601,4 +601,4 @@ The bounded production canary produced one resolved reconciliation case and requ
 
 ## Source cleanup operations note
 
-Current branch Alembic head is `0020_partial_provider_checkpoints`. The currently deployed production head must be read from PostgreSQL and verified rather than inferred from repository source or live screenshots. The older source-cleanup and retention schema through `0015_user_source_retention` has separate production evidence. Source cleanup is durable PostgreSQL state on `sources`; the allowlisted per-user retention preference is durable PostgreSQL state on `users`. Cleanup is processed as bounded worker idle maintenance after normal job claim/orchestration finds no job. Safe diagnostics use normalized source deletion/retention/cleanup events and must not log object keys, buckets, filenames, Drive file IDs, presigned URLs, raw storage errors, or secrets. The authenticated smoke proved that source removal queued background cleanup, but it did not inspect the later physical R2 deletion outcome.
+Current branch Alembic head is `0020_provider_part_checkpoints`. The currently deployed production head must be read from PostgreSQL and verified rather than inferred from repository source or live screenshots. The older source-cleanup and retention schema through `0015_user_source_retention` has separate production evidence. Source cleanup is durable PostgreSQL state on `sources`; the allowlisted per-user retention preference is durable PostgreSQL state on `users`. Cleanup is processed as bounded worker idle maintenance after normal job claim/orchestration finds no job. Safe diagnostics use normalized source deletion/retention/cleanup events and must not log object keys, buckets, filenames, Drive file IDs, presigned URLs, raw storage errors, or secrets. The authenticated smoke proved that source removal queued background cleanup, but it did not inspect the later physical R2 deletion outcome.

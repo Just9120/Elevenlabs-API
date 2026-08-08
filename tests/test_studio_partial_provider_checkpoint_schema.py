@@ -50,12 +50,12 @@ def test_partial_provider_checkpoint_model_is_encrypted_bounded_and_scoped():
 def test_partial_provider_checkpoint_migration_is_direct_additive_head():
     config = Config("apps/studio-api/alembic.ini")
     script = ScriptDirectory.from_config(config)
-    revision = script.get_revision("0020_partial_provider_checkpoints")
+    revision = script.get_revision("0020_provider_part_checkpoints")
     assert revision.down_revision == "0019_job_media_clip"
-    assert script.get_current_head() == "0020_partial_provider_checkpoints"
+    assert script.get_current_head() == "0020_provider_part_checkpoints"
 
     migration = (
         ROOT
-        / "apps/studio-api/alembic/versions/0020_partial_provider_checkpoints.py"
+        / "apps/studio-api/alembic/versions/0020_provider_part_checkpoints.py"
     ).read_text(encoding="utf-8")
     assert 'release_safety = "additive"' in migration

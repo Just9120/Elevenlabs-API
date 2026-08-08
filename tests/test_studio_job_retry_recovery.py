@@ -63,8 +63,8 @@ def test_retry_recovery_model_metadata_contract(studio_model_modules):
 def test_alembic_single_head_is_partial_provider_checkpoints():
     cfg = Config("apps/studio-api/alembic.ini")
     script = ScriptDirectory.from_config(cfg)
-    assert script.get_heads() == ["0020_partial_provider_checkpoints"]
-    assert script.get_current_head() == "0020_partial_provider_checkpoints"
+    assert script.get_heads() == ["0020_provider_part_checkpoints"]
+    assert script.get_current_head() == "0020_provider_part_checkpoints"
 
 
 def test_partial_provider_actions_require_explicit_cost_confirmation():

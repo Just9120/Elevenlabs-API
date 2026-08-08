@@ -1,6 +1,6 @@
 """add encrypted checkpoints for completed provider parts
 
-Revision ID: 0020_partial_provider_checkpoints
+Revision ID: 0020_provider_part_checkpoints
 Revises: 0019_job_media_clip
 Create Date: 2026-08-08
 """
@@ -9,7 +9,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "0020_partial_provider_checkpoints"
+revision = "0020_provider_part_checkpoints"
 down_revision = "0019_job_media_clip"
 branch_labels = None
 depends_on = None
