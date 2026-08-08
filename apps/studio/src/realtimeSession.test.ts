@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   RealtimeSessionController,
+  realtimeProviderErrorMessage,
   type RealtimeSessionStatus,
 } from "./realtimeSession";
 
@@ -75,6 +76,27 @@ function websocketFixture() {
 describe("RealtimeSessionController", () => {
   beforeEach(() => {
     vi.stubGlobal("WebSocket", { CONNECTING: 0, OPEN: 1 });
+  });
+
+  it("maps safe provider codes to distinct operator actions", () => {
+    expect(realtimeProviderErrorMessage("session_time_limit_exceeded")).toContain(
+      "максимальная длительность",
+    );
+    expect(realtimeProviderErrorMessage("rate_limited")).toContain(
+      "частоту realtime-запросов",
+    );
+    expect(realtimeProviderErrorMessage("quota_exceeded")).toContain(
+      "баланс ElevenLabs",
+    );
+    expect(realtimeProviderErrorMessage("queue_overflow")).toContain(
+      "Очередь ElevenLabs",
+    );
+    expect(realtimeProviderErrorMessage("input_error")).toContain(
+      "аудиопоток",
+    );
+    expect(
+      realtimeProviderErrorMessage("insufficient_audio_activity"),
+    ).toContain("речевой активности");
   });
 
   it("requests browser permission before consuming a capability", async () => {

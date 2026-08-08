@@ -87,15 +87,41 @@ function normalizedInputLevel(input: Float32Array) {
   return Math.min(1, rms * 4);
 }
 
-function knownRealtimeError(code: string) {
+export function realtimeProviderErrorMessage(code: string) {
   const normalized = code.toLowerCase();
-  if (normalized.includes("quota") || normalized.includes("limit")) {
-    return "Лимит ElevenLabs исчерпан или временно ограничен.";
+  if (normalized.includes("session_time_limit")) {
+    return "Достигнута максимальная длительность одной realtime-сессии. Сохраните текст и начните новую сессию.";
   }
-  if (normalized.includes("auth") || normalized.includes("token")) {
+  if (
+    normalized.includes("rate_limited") ||
+    normalized.includes("commit_throttled")
+  ) {
+    return "ElevenLabs временно ограничил частоту realtime-запросов. Повторите запуск позже.";
+  }
+  if (
+    normalized.includes("quota") ||
+    normalized.includes("resource_exhausted")
+  ) {
+    return "Квота или доступный баланс ElevenLabs исчерпаны.";
+  }
+  if (
+    normalized.includes("auth") ||
+    normalized.includes("token") ||
+    normalized.includes("unaccepted_terms")
+  ) {
     return "Одноразовый realtime-доступ отклонён. Запустите новую сессию.";
   }
-  if (normalized.includes("audio")) {
+  if (normalized.includes("queue_overflow")) {
+    return "Очередь ElevenLabs переполнена. Проверьте сеть и начните новую сессию.";
+  }
+  if (normalized.includes("insufficient_audio_activity")) {
+    return "ElevenLabs не обнаружил достаточной речевой активности. Проверьте выбранный источник и уровень сигнала.";
+  }
+  if (
+    normalized.includes("audio") ||
+    normalized.includes("chunk") ||
+    normalized.includes("input_error")
+  ) {
     return "ElevenLabs отклонил аудиопоток. Выберите источник и начните заново.";
   }
   return "Realtime-сессия завершилась ошибкой. Начните новую сессию.";
@@ -382,7 +408,7 @@ export class RealtimeSessionController {
         this.callbacks.onCommitted(event.text);
       } else if (event.kind === "error") {
         if (attempt.userStopRequested) return;
-        this.callbacks.onError(knownRealtimeError(event.code));
+        this.callbacks.onError(realtimeProviderErrorMessage(event.code));
         this.closeSocket(attempt, "Ошибка провайдера");
         this.finish(attempt, "closed");
       }
