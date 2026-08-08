@@ -26,6 +26,7 @@ from .diagnostics import REGISTRY, cleanup_expired_diagnostics, cursor_context, 
 from .job_output_read import browser_job_output_payload, load_browser_job_output_rows
 from .job_progress import load_browser_job_progress_payloads
 from .realtime_capability import RealtimeCapabilityError, RealtimeCapabilityReason, create_realtime_capability
+from .endpoint_group import diagnostic_endpoint_group
 from .transcription_analytics import load_transcription_analytics_payload
 from .job_output_reconciliation import OutputReconciliationError, OutputReconciliationReason, check_job_output_reconciliation, reconciliation_status_payload
 from .job_retry_recovery import compute_explicit_retry_readiness, queue_retry, requires_provider_cost_confirmation
@@ -52,24 +53,6 @@ app=FastAPI(docs_url="/docs" if settings.enable_api_docs else None, redoc_url=No
 app.include_router(transcript_catalog_router)
 limiter=RateLimiter()
 LOGGER=logging.getLogger("studio_api.api")
-_API_ENDPOINT_GROUPS=(
-    ("/api/realtime", "realtime"),
-    ("/api/diagnostics", "diagnostics"),
-    ("/api/jobs", "jobs"),
-    ("/api/sources", "sources"),
-    ("/api/transcript-catalog", "transcript_catalog"),
-    ("/api/google", "google"),
-    ("/api/credentials", "credentials"),
-    ("/api/projects", "projects"),
-    ("/api/auth", "auth"),
-)
-
-def diagnostic_endpoint_group(path: str) -> str:
-    value=path if isinstance(path, str) else ""
-    for prefix, group in _API_ENDPOINT_GROUPS:
-        if value == prefix or value.startswith(prefix + "/"):
-            return group
-    return "unknown"
 
 @app.middleware("http")
 async def request_correlation_middleware(request: Request, call_next):
