@@ -181,6 +181,171 @@ test('authenticated user creates a project and reads a completed job result', as
   await expect(page.getByRole('heading', { name: 'Вход' })).toBeVisible();
 });
 
+test('Live tab captures browser audio and keeps transcript browser-only', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const audioTrack = {
+      stop() {},
+      addEventListener() {},
+    };
+    const stream = {
+      getTracks: () => [audioTrack],
+      getAudioTracks: () => [audioTrack],
+    };
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: {
+        enumerateDevices: async () => [
+          {
+            deviceId: 'browser-e2e-mic',
+            groupId: 'browser-e2e-group',
+            kind: 'audioinput',
+            label: 'Browser E2E microphone',
+            toJSON: () => ({}),
+          },
+        ],
+        getUserMedia: async () => stream,
+        getDisplayMedia: async () => stream,
+        addEventListener() {},
+        removeEventListener() {},
+      },
+    });
+    class FakeAudioContext {
+      state = 'running';
+      sampleRate = 48_000;
+      destination = {};
+      async resume() {}
+      async close() {}
+      createMediaStreamSource() {
+        return { connect() {}, disconnect() {} };
+      }
+      createMediaStreamDestination() {
+        return { stream, disconnect() {} };
+      }
+      createScriptProcessor() {
+        return { onaudioprocess: null, connect() {}, disconnect() {} };
+      }
+      createGain() {
+        return {
+          gain: { value: 1 },
+          connect() {},
+          disconnect() {},
+        };
+      }
+    }
+    class FakeWebSocket {
+      static CONNECTING = 0;
+      static OPEN = 1;
+      static CLOSED = 3;
+      readyState = FakeWebSocket.CONNECTING;
+      onopen: ((event: Event) => void) | null = null;
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onerror: ((event: Event) => void) | null = null;
+      onclose: ((event: CloseEvent) => void) | null = null;
+      constructor() {
+        window.setTimeout(() => {
+          this.readyState = FakeWebSocket.OPEN;
+          this.onopen?.(new Event('open'));
+          this.onmessage?.(
+            new MessageEvent('message', {
+              data: JSON.stringify({ message_type: 'session_started' }),
+            }),
+          );
+          this.onmessage?.(
+            new MessageEvent('message', {
+              data: JSON.stringify({
+                message_type: 'partial_transcript',
+                text: 'предварительный текст',
+              }),
+            }),
+          );
+          this.onmessage?.(
+            new MessageEvent('message', {
+              data: JSON.stringify({
+                message_type: 'committed_transcript',
+                text: 'подтверждённый текст',
+              }),
+            }),
+          );
+        }, 0);
+      }
+      send() {}
+      close() {
+        this.readyState = FakeWebSocket.CLOSED;
+        this.onclose?.(new CloseEvent('close', { code: 1000 }));
+      }
+    }
+    Object.defineProperty(window, 'AudioContext', {
+      configurable: true,
+      value: FakeAudioContext,
+    });
+    Object.defineProperty(window, 'WebSocket', {
+      configurable: true,
+      value: FakeWebSocket,
+    });
+  });
+  await page.route('**/api/credentials', async (route) => {
+    if (route.request().method() !== 'GET') return route.continue();
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        credentials: [
+          {
+            id: 'browser-e2e-realtime-credential',
+            provider: 'elevenlabs',
+            label: 'Browser E2E realtime',
+            status: 'active',
+            active_version: 1,
+          },
+        ],
+      }),
+    });
+  });
+  let capabilityRequests = 0;
+  await page.route('**/api/projects/*/realtime/capability', async (route) => {
+    capabilityRequests += 1;
+    expect(route.request().method()).toBe('POST');
+    expect(route.request().postDataJSON()).toMatchObject({
+      provider_credential_id: 'browser-e2e-realtime-credential',
+      language: 'ru',
+    });
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        websocket_url:
+          'wss://api.elevenlabs.io/v1/speech-to-text/realtime?token=sutkn_browser_e2e',
+        expires_in_seconds: 900,
+        model_id: 'scribe_v2_realtime',
+        audio_format: 'pcm_16000',
+        commit_strategy: 'vad',
+      }),
+    });
+  });
+
+  const navigation = await login(page);
+  await navigation.getByRole('button', { name: 'Проекты', exact: true }).click();
+  await page
+    .getByRole('button', { name: new RegExp(`^${RESULT_PROJECT}`) })
+    .click();
+  await page.getByRole('tab', { name: 'Live-транскрибация' }).click();
+  const live = page.getByRole('region', { name: 'Live-транскрибация' });
+  await expect(live).toBeVisible();
+  await expect(live.getByLabel('Устройство ввода')).toContainText(
+    'Browser E2E microphone',
+  );
+
+  await live.getByRole('button', { name: 'Начать' }).click();
+  await expect(live.getByText('Распознаём речь')).toBeVisible();
+  await expect(live.getByText('подтверждённый текст')).toBeVisible();
+  expect(capabilityRequests).toBe(1);
+  await expect(live).not.toContainText('sutkn_browser_e2e');
+
+  await live.getByRole('button', { name: 'Остановить' }).click();
+  await expect(live.getByText('Остановлено')).toBeVisible();
+  expect(capabilityRequests).toBe(1);
+});
+
 test('preparation stays fail-closed without external integrations', async ({
   page,
 }) => {
