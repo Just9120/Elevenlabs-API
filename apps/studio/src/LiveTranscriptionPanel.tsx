@@ -67,7 +67,9 @@ export function LiveTranscriptionPanel({ projectId, csrf, onCsrf }: Props) {
   const [credentialId, setCredentialId] = useState("");
   const [credentialsLoading, setCredentialsLoading] = useState(true);
   const [displayAudio, setDisplayAudio] = useState(false);
-  const [microphone, setMicrophone] = useState(true);
+  const [microphone, setMicrophone] = useState(() =>
+    Boolean(navigator.mediaDevices?.getUserMedia),
+  );
   const [microphoneDeviceId, setMicrophoneDeviceId] = useState("");
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [language, setLanguage] = useState("ru");
@@ -77,6 +79,12 @@ export function LiveTranscriptionPanel({ projectId, csrf, onCsrf }: Props) {
   const [error, setError] = useState("");
   const [inputLevel, setInputLevel] = useState(0);
   const controllerRef = useRef<RealtimeSessionController | null>(null);
+  const microphoneSupported = Boolean(
+    navigator.mediaDevices?.getUserMedia,
+  );
+  const displayAudioSupported = Boolean(
+    navigator.mediaDevices?.getDisplayMedia,
+  );
 
   const running = [
     "requesting_permission",
@@ -120,7 +128,15 @@ export function LiveTranscriptionPanel({ projectId, csrf, onCsrf }: Props) {
     if (!navigator.mediaDevices?.enumerateDevices) return;
     try {
       const available = await navigator.mediaDevices.enumerateDevices();
-      setDevices(available.filter((device) => device.kind === "audioinput"));
+      const audioInputs = available.filter(
+        (device) => device.kind === "audioinput",
+      );
+      setDevices(audioInputs);
+      setMicrophoneDeviceId((selected) =>
+        selected && !audioInputs.some((device) => device.deviceId === selected)
+          ? ""
+          : selected,
+      );
     } catch {
       setError(
         "Браузер пока не показывает аудиоустройства. После первого разрешения список обновится.",
@@ -154,7 +170,12 @@ export function LiveTranscriptionPanel({ projectId, csrf, onCsrf }: Props) {
     setError("");
     const controller = new RealtimeSessionController(
       {
-        onStatus: setStatus,
+        onStatus: (nextStatus) => {
+          setStatus(nextStatus);
+          if (nextStatus === "connected" && microphone) {
+            void refreshDevices();
+          }
+        },
         onPartial: setPartial,
         onCommitted: (text) =>
           setSegments((current) => [...current, text]),
@@ -191,7 +212,6 @@ export function LiveTranscriptionPanel({ projectId, csrf, onCsrf }: Props) {
       microphone,
       microphoneDeviceId: microphoneDeviceId || undefined,
     });
-    if (microphone) void refreshDevices();
   }
 
   function stop() {
@@ -231,7 +251,9 @@ export function LiveTranscriptionPanel({ projectId, csrf, onCsrf }: Props) {
     setPartial("");
   }
 
-  const sourceReady = displayAudio || microphone;
+  const sourceReady =
+    (displayAudio && displayAudioSupported) ||
+    (microphone && microphoneSupported);
   const inputPercent = Math.round(inputLevel * 100);
   const inputSignalLabel = running
     ? inputPercent >= 2
@@ -265,13 +287,15 @@ export function LiveTranscriptionPanel({ projectId, csrf, onCsrf }: Props) {
               type="checkbox"
               aria-label="Звук вкладки или экрана"
               checked={displayAudio}
-              disabled={running}
+              disabled={running || !displayAudioSupported}
               onChange={(event) => setDisplayAudio(event.target.checked)}
             />
             <span>
               <b>Звук вкладки или экрана</b>
               <small>
-                В окне Chrome выберите источник и включите передачу аудио.
+                {displayAudioSupported
+                  ? "В окне Chrome выберите источник и включите передачу аудио."
+                  : "Этот браузер не поддерживает захват звука вкладки или экрана."}
               </small>
             </span>
           </label>
@@ -280,12 +304,16 @@ export function LiveTranscriptionPanel({ projectId, csrf, onCsrf }: Props) {
               type="checkbox"
               aria-label="Микрофон или аудиовход"
               checked={microphone}
-              disabled={running}
+              disabled={running || !microphoneSupported}
               onChange={(event) => setMicrophone(event.target.checked)}
             />
             <span>
               <b>Микрофон или аудиовход</b>
-              <small>Можно смешать с системным звуком.</small>
+              <small>
+                {microphoneSupported
+                  ? "Можно смешать с системным звуком."
+                  : "Этот браузер не поддерживает захват микрофона."}
+              </small>
             </span>
           </label>
           {microphone && (

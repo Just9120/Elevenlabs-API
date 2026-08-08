@@ -48,9 +48,8 @@ type Attempt = {
 
 type RealtimeSessionDependencies = {
   requestCapability: () => Promise<unknown>;
-  mediaDevices?: Pick<
-    MediaDevices,
-    "getDisplayMedia" | "getUserMedia"
+  mediaDevices?: Partial<
+    Pick<MediaDevices, "getDisplayMedia" | "getUserMedia">
   >;
   createAudioContext?: () => AudioContext;
   createWebSocket?: (url: string) => WebSocket;
@@ -251,8 +250,14 @@ export class RealtimeSessionController {
     };
     try {
       if (options.displayAudio) {
+        const getDisplayMedia = this.deps.mediaDevices.getDisplayMedia;
+        if (typeof getDisplayMedia !== "function") {
+          throw new Error(
+            "Этот браузер не поддерживает захват звука вкладки или экрана.",
+          );
+        }
         const display = register(
-          await this.deps.mediaDevices.getDisplayMedia({
+          await getDisplayMedia.call(this.deps.mediaDevices, {
             video: true,
             audio: true,
           }),
@@ -264,8 +269,14 @@ export class RealtimeSessionController {
         }
       }
       if (options.microphone) {
+        const getUserMedia = this.deps.mediaDevices.getUserMedia;
+        if (typeof getUserMedia !== "function") {
+          throw new Error(
+            "Этот браузер не поддерживает захват микрофона или аудиовхода.",
+          );
+        }
         register(
-          await this.deps.mediaDevices.getUserMedia({
+          await getUserMedia.call(this.deps.mediaDevices, {
             audio: options.microphoneDeviceId
               ? { deviceId: { exact: options.microphoneDeviceId } }
               : true,

@@ -89,6 +89,8 @@ describe("LiveTranscriptionPanel", () => {
       configurable: true,
       value: {
         enumerateDevices: vi.fn().mockResolvedValue([]),
+        getUserMedia: vi.fn(),
+        getDisplayMedia: vi.fn(),
         addEventListener: vi.fn(),
         removeEventListener: vi.fn(),
       },
@@ -129,6 +131,9 @@ describe("LiveTranscriptionPanel", () => {
     });
     expect(document.body.textContent).not.toContain("sutkn_browser_secret");
     expect(document.body.textContent).not.toContain("websocket_url");
+    await waitFor(() =>
+      expect(navigator.mediaDevices.enumerateDevices).toHaveBeenCalledTimes(2),
+    );
 
     await userEvent.click(screen.getByRole("button", { name: "Остановить" }));
     expect(controllerState.instances[0].stop).toHaveBeenCalledOnce();
@@ -150,6 +155,44 @@ describe("LiveTranscriptionPanel", () => {
     );
     expect(await screen.findByText("Активный профиль не найден")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Начать" })).toBeDisabled();
+  });
+
+  it("fails closed when browser audio capture is unavailable", async () => {
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: {
+        enumerateDevices: vi.fn().mockResolvedValue([]),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+    });
+
+    render(
+      <LiveTranscriptionPanel
+        projectId="project-safe"
+        csrf="csrf-safe"
+        onCsrf={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByText("Этот браузер не поддерживает захват микрофона."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Этот браузер не поддерживает захват звука вкладки или экрана.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Начать" })).toBeDisabled();
+    expect(
+      screen.getByRole("checkbox", { name: "Микрофон или аудиовход" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("checkbox", { name: "Микрофон или аудиовход" }),
+    ).not.toBeChecked();
+    expect(
+      screen.getByRole("checkbox", { name: "Звук вкладки или экрана" }),
+    ).toBeDisabled();
   });
 
   it("disposes capture when the browser page is hidden", async () => {

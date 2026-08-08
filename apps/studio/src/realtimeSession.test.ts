@@ -300,4 +300,31 @@ describe("RealtimeSessionController", () => {
     expect(display.stop).toHaveBeenCalled();
     expect(microphone.stop).toHaveBeenCalled();
   });
+
+  it("reports unsupported browser capture before issuing a capability", async () => {
+    const requestCapability = vi.fn().mockResolvedValue(capability);
+    const errors: string[] = [];
+    const statuses: RealtimeSessionStatus[] = [];
+    const controller = new RealtimeSessionController(
+      {
+        onStatus: (status) => statuses.push(status),
+        onPartial: vi.fn(),
+        onCommitted: vi.fn(),
+        onError: (message) => errors.push(message),
+      },
+      {
+        requestCapability,
+        mediaDevices: {},
+      },
+    );
+
+    await controller.start({ displayAudio: true, microphone: false });
+
+    expect(requestCapability).not.toHaveBeenCalled();
+    expect(errors.at(-1)).toBe(
+      "Этот браузер не поддерживает захват звука вкладки или экрана.",
+    );
+    expect(statuses.at(-1)).toBe("ready");
+    expect(controller.active).toBe(false);
+  });
 });
