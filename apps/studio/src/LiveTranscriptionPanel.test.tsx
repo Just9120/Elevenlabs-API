@@ -1,10 +1,11 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 type MockCallbacks = {
   onStatus: (value: string) => void;
   onInputLevel: (value: number) => void;
+  onCommitted: (value: string) => void;
 };
 
 const controllerState = vi.hoisted(() => ({
@@ -113,6 +114,9 @@ describe("LiveTranscriptionPanel", () => {
 
     await screen.findByText("Соединение установлено");
     expect(screen.getByText("Сигнал есть · 42%")).toBeInTheDocument();
+    expect(screen.getByLabelText("Статистика live-сессии")).toHaveTextContent(
+      "Сессия: 00:00 · Фрагментов: 0 · Символов: 0",
+    );
     const capabilityCall = vi.mocked(fetch).mock.calls.find(
       ([url]) =>
         String(url).endsWith(
@@ -138,6 +142,42 @@ describe("LiveTranscriptionPanel", () => {
     await userEvent.click(screen.getByRole("button", { name: "Остановить" }));
     expect(controllerState.instances[0].stop).toHaveBeenCalledOnce();
     expect(screen.getByText("Остановлено")).toBeInTheDocument();
+  });
+
+  it("keeps long live output observable with stats and opt-out follow", async () => {
+    render(
+      <LiveTranscriptionPanel
+        projectId="project-safe"
+        csrf="csrf-safe"
+        onCsrf={vi.fn()}
+      />,
+    );
+    const start = await screen.findByRole("button", { name: "Начать" });
+    await waitFor(() => expect(start).toBeEnabled());
+    await userEvent.click(start);
+
+    const committed = screen.getByLabelText("Подтверждённая транскрипция");
+    Object.defineProperty(committed, "scrollHeight", {
+      configurable: true,
+      value: 480,
+    });
+    act(() => {
+      controllerState.instances[0].callbacks.onCommitted("Готовый фрагмент");
+    });
+
+    expect(await screen.findByText("Готовый фрагмент")).toBeInTheDocument();
+    expect(screen.getByLabelText("Статистика live-сессии")).toHaveTextContent(
+      "Фрагментов: 1 · Символов: 16",
+    );
+    await waitFor(() => expect(committed.scrollTop).toBe(480));
+
+    const follow = screen.getByRole("button", {
+      name: "Автопрокрутка: вкл",
+    });
+    await userEvent.click(follow);
+    expect(
+      screen.getByRole("button", { name: "Автопрокрутка: выкл" }),
+    ).toHaveAttribute("aria-pressed", "false");
   });
 
   it("requires an active ElevenLabs profile", async () => {

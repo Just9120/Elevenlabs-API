@@ -62,6 +62,17 @@ function credentialLabel(credential: Credential) {
     : credential.label;
 }
 
+function formatElapsed(totalSeconds: number) {
+  const bounded = Math.max(0, Math.floor(totalSeconds));
+  const hours = Math.floor(bounded / 3600);
+  const minutes = Math.floor((bounded % 3600) / 60);
+  const seconds = bounded % 60;
+  const minuteSecond = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  return hours > 0
+    ? `${String(hours).padStart(2, "0")}:${minuteSecond}`
+    : minuteSecond;
+}
+
 export function LiveTranscriptionPanel({ projectId, csrf, onCsrf }: Props) {
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [credentialId, setCredentialId] = useState("");
@@ -78,7 +89,11 @@ export function LiveTranscriptionPanel({ projectId, csrf, onCsrf }: Props) {
   const [segments, setSegments] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [inputLevel, setInputLevel] = useState(0);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [followTranscript, setFollowTranscript] = useState(true);
   const controllerRef = useRef<RealtimeSessionController | null>(null);
+  const sessionStartedAtRef = useRef<number | null>(null);
+  const committedRef = useRef<HTMLDivElement | null>(null);
   const microphoneSupported = Boolean(
     navigator.mediaDevices?.getUserMedia,
   );
@@ -94,6 +109,22 @@ export function LiveTranscriptionPanel({ projectId, csrf, onCsrf }: Props) {
     "stopping",
   ].includes(status);
   const transcript = useMemo(() => segments.join("\n"), [segments]);
+
+  useEffect(() => {
+    const startedAt = sessionStartedAtRef.current;
+    if (!running || startedAt === null) return;
+    const updateElapsed = () =>
+      setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000));
+    updateElapsed();
+    const timer = window.setInterval(updateElapsed, 1000);
+    return () => window.clearInterval(timer);
+  }, [running, status]);
+
+  useEffect(() => {
+    const committed = committedRef.current;
+    if (!committed || !followTranscript) return;
+    committed.scrollTop = committed.scrollHeight;
+  }, [segments, followTranscript]);
 
   useEffect(() => {
     let current = true;
@@ -168,9 +199,29 @@ export function LiveTranscriptionPanel({ projectId, csrf, onCsrf }: Props) {
   async function start() {
     if (running) return;
     setError("");
+    sessionStartedAtRef.current = null;
+    setElapsedSeconds(0);
+    setFollowTranscript(true);
     const controller = new RealtimeSessionController(
       {
         onStatus: (nextStatus) => {
+          if (
+            (nextStatus === "connected" || nextStatus === "transcribing") &&
+            sessionStartedAtRef.current === null
+          ) {
+            sessionStartedAtRef.current = Date.now();
+            setElapsedSeconds(0);
+          }
+          if (
+            (nextStatus === "stopped" || nextStatus === "closed") &&
+            sessionStartedAtRef.current !== null
+          ) {
+            setElapsedSeconds(
+              Math.floor(
+                (Date.now() - sessionStartedAtRef.current) / 1000,
+              ),
+            );
+          }
           setStatus(nextStatus);
           if (nextStatus === "connected" && microphone) {
             void refreshDevices();
@@ -423,8 +474,19 @@ export function LiveTranscriptionPanel({ projectId, csrf, onCsrf }: Props) {
             <p className="muted">
               Не сохраняется в Studio, Google Docs, каталог или аналитику.
             </p>
+            <p className="muted" aria-label="Статистика live-сессии">
+              Сессия: {formatElapsed(elapsedSeconds)} · Фрагментов:{" "}
+              {segments.length} · Символов: {transcript.length}
+            </p>
           </div>
           <div className="actions">
+            <button
+              type="button"
+              aria-pressed={followTranscript}
+              onClick={() => setFollowTranscript((current) => !current)}
+            >
+              Автопрокрутка: {followTranscript ? "вкл" : "выкл"}
+            </button>
             <button
               type="button"
               disabled={!transcript}
@@ -452,7 +514,18 @@ export function LiveTranscriptionPanel({ projectId, csrf, onCsrf }: Props) {
           <span>Предварительно</span>
           <p>{partial || "Речь появится здесь до подтверждения фрагмента."}</p>
         </div>
-        <div className="live-committed" aria-live="polite">
+        <div
+          ref={committedRef}
+          className="live-committed"
+          aria-label="Подтверждённая транскрипция"
+          aria-live="polite"
+          onScroll={(event) => {
+            const target = event.currentTarget;
+            const distanceFromBottom =
+              target.scrollHeight - target.scrollTop - target.clientHeight;
+            setFollowTranscript(distanceFromBottom <= 32);
+          }}
+        >
           {segments.length === 0 ? (
             <p className="muted">
               Подтверждённых фрагментов пока нет.
