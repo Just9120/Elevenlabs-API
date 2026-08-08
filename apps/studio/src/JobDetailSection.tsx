@@ -7,6 +7,9 @@ import {
   type TranscriptionJob,
 } from "./jobModel";
 import {
+  isPartialProviderResume,
+  isPartialProviderRestart,
+  providerFailureLabel,
   retryUnavailableLabel,
   type JobRetryState,
 } from "./jobRecoveryModel";
@@ -24,6 +27,8 @@ export function JobDetailSection({
   onRetry: (jobId: string) => void | Promise<void>;
 }) {
   const unavailable = retryUnavailableLabel(retry?.data?.reason);
+  const partialResume = isPartialProviderResume(retry?.data);
+  const partialRestart = isPartialProviderRestart(retry?.data);
 
   return (
     <section aria-label={`Job detail ${job.id}`}>
@@ -51,13 +56,35 @@ export function JobDetailSection({
       {job.status === "failed" && (
         <div className="resource-actions" aria-label="Safe retry action">
           {retry?.data?.available ? (
-            <button
-              type="button"
-              onClick={() => void onRetry(job.id)}
-              disabled={retry.posting}
-            >
-              Повторить безопасную обработку
-            </button>
+            <>
+              {partialResume && (
+                <span className="notice">
+                  Сохранено частей: {retry.data.resumable_provider_part_count ?? 0} из{" "}
+                  {retry.data.provider_total_part_count ?? 0}. Уже готовые части не будут
+                  повторно отправлены в ElevenLabs. Причина остановки:{" "}
+                  {providerFailureLabel(retry.data.provider_failure_code)}.
+                </span>
+              )}
+              {partialRestart && (
+                <span className="notice">
+                  Сохранённые части больше недоступны. При продолжении весь файл
+                  будет отправлен в ElevenLabs заново и может повторно списать
+                  средства. Причина предыдущей остановки:{" "}
+                  {providerFailureLabel(retry.data.provider_failure_code)}.
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => void onRetry(job.id)}
+                disabled={retry.posting}
+              >
+                {partialResume
+                  ? "Продолжить оставшиеся части"
+                  : partialRestart
+                    ? "Начать транскрибацию заново"
+                  : "Повторить безопасную обработку"}
+              </button>
+            </>
           ) : unavailable ? (
             <span className="notice">{unavailable}</span>
           ) : null}

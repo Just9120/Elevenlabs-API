@@ -1387,8 +1387,14 @@ function PreparationPanel({
   async function retryJob(jobId: string) {
     setRetries((current) => ({ ...current, [jobId]: { ...(current[jobId] ?? { loading:false, error:"", message:"", data:null }), posting: true, error: "", message: "" } }));
     try {
-      const result = await csrfMutate<JobRetryResponse>(`/jobs/${jobId}/retry`, csrf, onCsrf, { method: "POST" });
-      setRetries((current) => ({ ...current, [jobId]: { ...(current[jobId] ?? { loading:false, error:"", data:null }), posting: false, data: result, message: "Безопасный повтор поставлен в очередь." } }));
+      const partialMode = ["partial_provider_resume_available", "partial_provider_restart_available"].includes(retries[jobId]?.data?.reason ?? "");
+      const result = await csrfMutate<JobRetryResponse>(`/jobs/${jobId}/retry`, csrf, onCsrf, {
+        method: "POST",
+        body: partialMode
+          ? JSON.stringify({ confirm_remaining_provider_cost: true })
+          : undefined,
+      });
+      setRetries((current) => ({ ...current, [jobId]: { ...(current[jobId] ?? { loading:false, error:"", data:null }), posting: false, data: result, message: partialMode ? "Подтверждённая обработка поставлена в очередь." : "Безопасный повтор поставлен в очередь." } }));
       await loadDetail(jobId);
       onReloadJobs(project.id);
     } catch {

@@ -125,7 +125,7 @@ def test_transcript_catalog_migration_remains_in_the_single_head_chain():
     config = Config(str(ROOT / "apps/studio-api/alembic.ini"))
     script = ScriptDirectory.from_config(config)
 
-    assert script.get_heads() == ["0019_job_media_clip"]
-    assert script.get_current_head() == "0019_job_media_clip"
+    assert script.get_heads() == ["0020_provider_part_checkpoints"]
+    assert script.get_current_head() == "0020_provider_part_checkpoints"
     revision = script.get_revision("0016_transcript_catalog_entries")
     assert revision.down_revision == "0015_user_source_retention"

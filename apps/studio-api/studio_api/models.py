@@ -1,6 +1,6 @@
 import enum, uuid
 from datetime import datetime, timezone
-from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint, text
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, Float, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .db import Base
 from .source_policy import DEFAULT_SOURCE_RETENTION_TTL_SECONDS
@@ -297,6 +297,7 @@ class TranscriptionJobSourceAttempt(Base):
     stage: Mapped[SourceAttemptStage]=mapped_column(Enum(SourceAttemptStage), nullable=False, default=SourceAttemptStage.prepared)
     retry_disposition: Mapped[SourceAttemptRetryDisposition]=mapped_column(Enum(SourceAttemptRetryDisposition), nullable=False, default=SourceAttemptRetryDisposition.undetermined)
     failure_code: Mapped[str|None]=mapped_column(String(80))
+    provider_failure_code: Mapped[str|None]=mapped_column(String(80))
     provider_request_started_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     provider_response_returned_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     provider_total_parts: Mapped[int|None]=mapped_column(Integer)
@@ -315,6 +316,38 @@ class TranscriptionJobSourceAttempt(Base):
         Index("ix_source_attempts_job_source_id", "job_source_id"),
         Index("ix_source_attempts_retry_disposition", "retry_disposition"),
         Index("ix_source_attempts_job_retry_disposition", "job_id", "retry_disposition"),
+    )
+
+class TranscriptionProviderPartCheckpoint(Base):
+    __tablename__="transcription_provider_part_checkpoints"
+    id: Mapped[str]=mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_user_id: Mapped[str]=mapped_column(ForeignKey("users.id"), nullable=False)
+    project_id: Mapped[str]=mapped_column(ForeignKey("projects.id"), nullable=False)
+    job_id: Mapped[str]=mapped_column(ForeignKey("transcription_jobs.id"), nullable=False)
+    job_source_id: Mapped[str]=mapped_column(ForeignKey("transcription_job_sources.id"), nullable=False)
+    part_index: Mapped[int]=mapped_column(Integer, nullable=False)
+    total_parts: Mapped[int]=mapped_column(Integer, nullable=False)
+    timeline_offset_seconds: Mapped[float]=mapped_column(Float, nullable=False)
+    duration_seconds: Mapped[float]=mapped_column(Float, nullable=False)
+    provider: Mapped[str]=mapped_column(String(40), nullable=False)
+    model: Mapped[str]=mapped_column(String(80), nullable=False)
+    ciphertext: Mapped[bytes]=mapped_column(LargeBinary, nullable=False)
+    nonce: Mapped[bytes]=mapped_column(LargeBinary, nullable=False)
+    key_id: Mapped[str]=mapped_column(String(80), nullable=False)
+    payload_hmac: Mapped[str]=mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now)
+    expires_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False)
+    __table_args__=(
+        UniqueConstraint("job_source_id", "part_index", name="uq_provider_part_checkpoint_source_part"),
+        CheckConstraint("part_index >= 0", name="ck_provider_part_checkpoint_index_nonnegative"),
+        CheckConstraint("total_parts > 1", name="ck_provider_part_checkpoint_total_parts_multiple"),
+        CheckConstraint("part_index < total_parts", name="ck_provider_part_checkpoint_index_bounded"),
+        CheckConstraint("timeline_offset_seconds >= 0", name="ck_provider_part_checkpoint_offset_nonnegative"),
+        CheckConstraint("duration_seconds > 0", name="ck_provider_part_checkpoint_duration_positive"),
+        CheckConstraint("length(payload_hmac) = 64", name="ck_provider_part_checkpoint_hmac_length"),
+        Index("ix_provider_part_checkpoints_job_source", "job_source_id", "part_index"),
+        Index("ix_provider_part_checkpoints_expiry", "expires_at"),
+        Index("ix_provider_part_checkpoints_job", "job_id"),
     )
 
 class TranscriptionOutputReconciliation(Base):

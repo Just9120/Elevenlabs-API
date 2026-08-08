@@ -131,6 +131,65 @@ describe("JobDetailSection", () => {
     expect(onRetry).toHaveBeenCalledWith("job-1");
   });
 
+  it("explains partial provider progress and resumes only remaining parts", async () => {
+    const onRetry = vi.fn();
+    render(
+      <JobDetailSection
+        job={job}
+        outputs={null}
+        retry={retry({
+          data: {
+            ...retry().data!,
+            reason: "partial_provider_resume_available",
+            resumable_provider_part_count: 1,
+            provider_total_part_count: 2,
+            provider_failure_code: "provider_rate_limited",
+          },
+        })}
+        onRetry={onRetry}
+      />,
+    );
+
+    const action = screen.getByLabelText("Safe retry action");
+    expect(action).toHaveTextContent("Сохранено частей: 1 из 2");
+    expect(action).toHaveTextContent("ElevenLabs ограничил частоту запросов");
+    expect(action).toHaveTextContent("не будут повторно отправлены");
+    await userEvent.click(
+      within(action).getByRole("button", {
+        name: "Продолжить оставшиеся части",
+      }),
+    );
+    expect(onRetry).toHaveBeenCalledWith("job-1");
+  });
+
+  it("distinguishes an expired-checkpoint full provider restart", () => {
+    render(
+      <JobDetailSection
+        job={job}
+        outputs={null}
+        retry={retry({
+          data: {
+            ...retry().data!,
+            reason: "partial_provider_restart_available",
+            provider_total_part_count: 2,
+            provider_failure_code: "provider_request_rejected",
+          },
+        })}
+        onRetry={vi.fn()}
+      />,
+    );
+
+    const action = screen.getByLabelText("Safe retry action");
+    expect(action).toHaveTextContent("весь файл");
+    expect(action).toHaveTextContent("повторно списать средства");
+    expect(action).toHaveTextContent("ElevenLabs отклонил эту часть файла");
+    expect(
+      within(action).getByRole("button", {
+        name: "Начать транскрибацию заново",
+      }),
+    ).toBeInTheDocument();
+  });
+
   it("shows unavailable, pending, message, and error retry states", () => {
     const unavailable = retry({
       posting: true,

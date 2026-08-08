@@ -9,6 +9,7 @@ from .job_claim_lease import is_lease_active, invalidate_job_lease
 from .job_claim_readiness import build_claim_readiness_from_preflight
 from .job_processing_preflight import build_processing_preflight
 from .models import (JobSourceStatus, JobStatus, OutputReconciliationStatus, SourceAttemptRetryDisposition as Disp, SourceAttemptStage as Stage, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, TranscriptionJobSourceAttempt, TranscriptionOutputReconciliation)
+from .provider_part_checkpoints import checkpoint_resume_count, delete_provider_part_checkpoints
 
 MAX_PROCESSING_ATTEMPTS = 3
 SAFE_PROVIDER_FAILURES = {"provider_authentication_rejected", "provider_request_rejected", "provider_rate_limited"}
@@ -16,13 +17,13 @@ UNCERTAIN_PROVIDER_FAILURES = {"provider_timeout", "provider_unavailable", "malf
 PRE_PROVIDER_SAFE_FAILURES = {"prerequisites_unavailable", "source_materialization_unavailable", "ffmpeg_unavailable", "media_preparation_timeout", "media_preparation_failed", "prepared_media_too_large", "media_duration_unavailable", "media_split_failed", "media_part_too_large", "lifecycle_changed_before_provider_call", "credential_or_output_identity_changed_before_provider_call", "pipeline_retry_state_prepare_failed", "pipeline_retry_state_persistence_failed", "retry_state_persistence_failed", "pipeline_transcription_failed", "pipeline_output_reconciliation_prepare_failed"}
 
 class RetryReason(str, Enum):
-    available="available"; job_not_failed="job_not_failed"; cancelled="cancelled"; completed="completed"; attempt_limit_reached="attempt_limit_reached"; provider_outcome_uncertain="provider_outcome_uncertain"; provider_result_lost="provider_result_lost"; output_reconciliation_required="output_reconciliation_required"; legacy_or_unknown_execution_state="legacy_or_unknown_execution_state"; prerequisites_unavailable="prerequisites_unavailable"; non_retryable="non_retryable"
+    available="available"; partial_provider_resume_available="partial_provider_resume_available"; partial_provider_restart_available="partial_provider_restart_available"; job_not_failed="job_not_failed"; cancelled="cancelled"; completed="completed"; attempt_limit_reached="attempt_limit_reached"; provider_outcome_uncertain="provider_outcome_uncertain"; provider_result_lost="provider_result_lost"; output_reconciliation_required="output_reconciliation_required"; legacy_or_unknown_execution_state="legacy_or_unknown_execution_state"; prerequisites_unavailable="prerequisites_unavailable"; non_retryable="non_retryable"
 
 @dataclass(frozen=True)
 class RetryReadiness:
-    available: bool; reason: RetryReason; attempt_count: int; max_attempts: int; missing_output_count: int; retry_safe_source_count: int
+    available: bool; reason: RetryReason; attempt_count: int; max_attempts: int; missing_output_count: int; retry_safe_source_count: int; resumable_provider_part_count: int = 0; provider_total_part_count: int = 0; provider_failure_code: str | None = None
     def payload(self, job):
-        return {"job_id": job.id, "job_status": job.status.value, "available": self.available, "reason": self.reason.value, "attempt_count": self.attempt_count, "max_attempts": self.max_attempts, "missing_output_count": self.missing_output_count, "retry_safe_source_count": self.retry_safe_source_count}
+        return {"job_id": job.id, "job_status": job.status.value, "available": self.available, "reason": self.reason.value, "attempt_count": self.attempt_count, "max_attempts": self.max_attempts, "missing_output_count": self.missing_output_count, "retry_safe_source_count": self.retry_safe_source_count, "resumable_provider_part_count": self.resumable_provider_part_count, "provider_total_part_count": self.provider_total_part_count, "provider_failure_code": self.provider_failure_code}
 
 @dataclass(frozen=True)
 class RetryQueueResult:
@@ -122,7 +123,7 @@ def _transition(row, *, allowed_from, to_stage, disposition, now, idempotent=Tru
         raise RuntimeError("retry_state_invalid_transition")
     row.stage=to_stage; row.retry_disposition=disposition; row.updated_at=now; return row
 
-def mark_attempt_provider_started(db, *, job_id, job_source_id, lease_owner_id, lease_generation, now, total_parts=None):
+def mark_attempt_provider_started(db, *, job_id, job_source_id, lease_owner_id, lease_generation, now, total_parts=None, completed_parts=0):
     _job,_rel,row=_current_attempt(db, job_id=job_id, job_source_id=job_source_id, lease_owner_id=lease_owner_id, lease_generation=lease_generation, now=now, require_processing_lease=True)
     _transition(row, allowed_from={Stage.prepared}, to_stage=Stage.provider_request_started, disposition=Disp.undetermined, now=now)
     if total_parts is not None:
@@ -132,7 +133,10 @@ def mark_attempt_provider_started(db, *, job_id, job_source_id, lease_owner_id, 
         if row.provider_total_parts not in {None, total_parts}:
             raise RuntimeError("retry_state_provider_part_count_conflict")
         row.provider_total_parts = total_parts
-        row.provider_completed_parts = int(row.provider_completed_parts or 0)
+        completed_parts = int(completed_parts or 0)
+        if completed_parts < 0 or completed_parts >= total_parts:
+            raise RuntimeError("retry_state_provider_part_progress_invalid")
+        row.provider_completed_parts = completed_parts
     row.provider_request_started_at = row.provider_request_started_at or now
     db.flush(); return row
 
@@ -159,7 +163,7 @@ def mark_attempt_provider_returned(db, *, job_id, job_source_id, lease_owner_id=
         row.provider_completed_parts = row.provider_total_parts
     db.flush(); return row
 
-def classify_source_attempt_failure(db, *, job_source_id, failure_code, now, job_id=None, lease_owner_id=None, lease_generation=None):
+def classify_source_attempt_failure(db, *, job_source_id, failure_code, now, job_id=None, lease_owner_id=None, lease_generation=None, provider_failure_code=None):
     try:
         if job_id is not None:
             _job,_rel,row=_current_attempt(db, job_id=job_id, job_source_id=job_source_id, lease_owner_id=lease_owner_id, lease_generation=lease_generation, now=now, require_processing_lease=lease_owner_id is not None)
@@ -171,7 +175,12 @@ def classify_source_attempt_failure(db, *, job_source_id, failure_code, now, job
     if row.retry_disposition == Disp.completed:
         return row
     code=str(failure_code or "unknown")
-    row.stage=Stage.failed; row.failure_code=code; row.failed_at=row.failed_at or now; row.updated_at=now
+    row.stage=Stage.failed; row.failure_code=code
+    if provider_failure_code:
+        row.provider_failure_code=str(provider_failure_code)
+    elif code != "partial_provider_result":
+        row.provider_failure_code=None
+    row.failed_at=row.failed_at or now; row.updated_at=now
     if code in SAFE_PROVIDER_FAILURES or (row.provider_request_started_at is None and code in PRE_PROVIDER_SAFE_FAILURES): row.retry_disposition=Disp.retry_safe
     elif code in {"output_reconciliation_required", "existing_reconciliation_case"}: row.retry_disposition=Disp.output_reconciliation_required
     elif row.provider_response_returned_at is not None: row.retry_disposition=Disp.provider_result_lost
@@ -222,7 +231,7 @@ def _evaluate(db, job, *, mode: Literal["explicit", "recovery"], now: datetime|N
     else:
         if job.status!=JobStatus.processing: return RetryReadiness(False, RetryReason.job_not_failed, attempts, MAX_PROCESSING_ATTEMPTS, 0, 0)
         if now is not None and is_lease_active(job, now): return RetryReadiness(False, RetryReason.non_retryable, attempts, MAX_PROCESSING_ATTEMPTS, 0, 0)
-    rels=_required(db, job.id); missing=[]; safe=0; reason=None
+    rels=_required(db, job.id); missing=[]; safe=0; reason=None; resumable_parts=0; provider_total_parts=0; provider_failure_code=None
     for rel in rels:
         if _has_output(db, rel.id): continue
         missing.append(rel)
@@ -233,17 +242,46 @@ def _evaluate(db, job, *, mode: Literal["explicit", "recovery"], now: datetime|N
             else: reason=reason or RetryReason.legacy_or_unknown_execution_state
         elif att.stage==Stage.prepared and att.provider_request_started_at is None: safe+=1
         elif att.retry_disposition==Disp.retry_safe and (att.provider_request_started_at is None or att.failure_code in SAFE_PROVIDER_FAILURES): safe+=1
+        elif att.failure_code=="partial_provider_result":
+            resumed = (
+                checkpoint_resume_count(
+                    db,
+                    job_source_id=rel.id,
+                    total_parts=att.provider_total_parts,
+                    completed_parts=int(att.provider_completed_parts or 0),
+                    now=now or datetime.utcnow(),
+                )
+                if mode == "explicit"
+                else 0
+            )
+            if resumed:
+                safe+=1; resumable_parts+=resumed; provider_total_parts+=int(att.provider_total_parts or 0); provider_failure_code=att.provider_failure_code
+            elif mode == "explicit" and att.provider_failure_code in SAFE_PROVIDER_FAILURES:
+                safe+=1; provider_total_parts+=int(att.provider_total_parts or 0); provider_failure_code=att.provider_failure_code
+            else:
+                reason=reason or RetryReason.provider_outcome_uncertain
         elif att.retry_disposition==Disp.provider_outcome_uncertain or att.stage==Stage.provider_request_started: reason=reason or RetryReason.provider_outcome_uncertain
         elif att.retry_disposition==Disp.provider_result_lost or att.stage in {Stage.provider_response_returned, Stage.google_handoff}: reason=reason or RetryReason.provider_result_lost
         elif att.retry_disposition==Disp.output_reconciliation_required: reason=reason or RetryReason.output_reconciliation_required
         else: reason=reason or RetryReason.non_retryable
-    if attempts >= MAX_PROCESSING_ATTEMPTS: return RetryReadiness(False, RetryReason.attempt_limit_reached, attempts, MAX_PROCESSING_ATTEMPTS, len(missing), safe)
-    if not missing: return RetryReadiness(False, RetryReason.completed, attempts, MAX_PROCESSING_ATTEMPTS, 0, safe)
-    if safe==len(missing) and _projected_queued_ready(job, now=now): return RetryReadiness(True, RetryReason.available, attempts, MAX_PROCESSING_ATTEMPTS, len(missing), safe)
-    return RetryReadiness(False, reason or RetryReason.prerequisites_unavailable, attempts, MAX_PROCESSING_ATTEMPTS, len(missing), safe)
+    if attempts >= MAX_PROCESSING_ATTEMPTS: return RetryReadiness(False, RetryReason.attempt_limit_reached, attempts, MAX_PROCESSING_ATTEMPTS, len(missing), safe, resumable_parts, provider_total_parts)
+    if not missing: return RetryReadiness(False, RetryReason.completed, attempts, MAX_PROCESSING_ATTEMPTS, 0, safe, resumable_parts, provider_total_parts)
+    if safe==len(missing) and _projected_queued_ready(job, now=now):
+        if provider_total_parts and not resumable_parts:
+            retry_reason = RetryReason.partial_provider_restart_available
+        else:
+            retry_reason = RetryReason.partial_provider_resume_available if resumable_parts else RetryReason.available
+        return RetryReadiness(True, retry_reason, attempts, MAX_PROCESSING_ATTEMPTS, len(missing), safe, resumable_parts, provider_total_parts, provider_failure_code)
+    return RetryReadiness(False, reason or RetryReason.prerequisites_unavailable, attempts, MAX_PROCESSING_ATTEMPTS, len(missing), safe, resumable_parts, provider_total_parts, provider_failure_code)
 
 def compute_explicit_retry_readiness(db, job, *, now: datetime|None=None):
     return _evaluate(db, job, mode="explicit", now=now)
+
+def requires_provider_cost_confirmation(readiness: RetryReadiness) -> bool:
+    return readiness.reason in {
+        RetryReason.partial_provider_resume_available,
+        RetryReason.partial_provider_restart_available,
+    }
 
 def compute_expired_recovery_readiness(db, job, *, now: datetime):
     return _evaluate(db, job, mode="recovery", now=now)
@@ -258,6 +296,8 @@ def queue_retry(db, *, owner_user_id, job_id, now):
     if job.status==JobStatus.queued:
         return RetryQueueResult(job=job, readiness=ready, transitioned=False)
     if ready.available and not is_lease_active(job, now):
+        if ready.reason == RetryReason.partial_provider_restart_available:
+            delete_provider_part_checkpoints(db, job_id=job.id)
         job.status=JobStatus.queued; job.finished_at=None; job.error_code=None; job.error_message=None; job.terminal_dismissed_at=None; job.updated_at=now; invalidate_job_lease(job); db.flush()
         return RetryQueueResult(job=job, readiness=compute_explicit_retry_readiness(db, job, now=now), transitioned=True)
     return RetryQueueResult(job=job, readiness=ready, transitioned=False)

@@ -37,6 +37,11 @@ from .media_preparation import (
 )
 from .models import CredentialStatus, JobStatus, Project, ProviderCredential, ProviderCredentialVersion, Source, TranscriptionJob
 from .security import utcnow
+from .provider_part_checkpoints import (
+    ProviderPartCheckpointError,
+    load_provider_part_checkpoints,
+    save_provider_part_checkpoint,
+)
 from .diagnostics import resolve_job_correlation_id, write_diagnostic_event
 from .job_retry_recovery import classify_source_attempt_failure, mark_attempt_provider_part_completed, mark_attempt_provider_returned, mark_attempt_provider_started
 from .source_storage import safe_filename
@@ -199,16 +204,44 @@ def transcribe_processing_job_source_with_elevenlabs(
                         expected_catalog_settings=initial_job_snapshot["catalog_settings"],
                     )
                     _emit_provider(db, job_id, "SOURCE_READY", {"attempt_number": _attempt(db, job_id)})
+                    part_results: list[ElevenLabsTranscriptResult] = []
+                    try:
+                        part_results.extend(
+                            load_provider_part_checkpoints(
+                                db,
+                                job_id=job_id,
+                                job_source_id=job_source_id,
+                                parts=prepared_batch.parts,
+                                settings=settings,
+                                now=clock(),
+                            )
+                        )
+                    except ProviderPartCheckpointError as exc:
+                        _best_effort_classify(
+                            db,
+                            job_id,
+                            job_source_id,
+                            lease_owner_id,
+                            lease_generation,
+                            exc.reason.value,
+                            clock,
+                        )
+                        raise JobElevenLabsTranscriptionError(
+                            JobElevenLabsTranscriptionReason.retry_state_persistence_failed
+                        ) from exc
                     _emit_provider(db, job_id, "PROVIDER_REQUEST_STARTED", {"attempt_number": _attempt(db, job_id)})
                     try:
-                        mark_attempt_provider_started(db, job_id=job_id, job_source_id=job_source_id, lease_owner_id=lease_owner_id, lease_generation=lease_generation, now=clock(), total_parts=len(prepared_batch.parts))
+                        mark_attempt_provider_started(db, job_id=job_id, job_source_id=job_source_id, lease_owner_id=lease_owner_id, lease_generation=lease_generation, now=clock(), total_parts=len(prepared_batch.parts), completed_parts=len(part_results))
                         db.commit()
                     except Exception as exc:
                         db.rollback()
+                        for checkpoint_result in part_results:
+                            checkpoint_result.revoke()
                         raise JobElevenLabsTranscriptionError(JobElevenLabsTranscriptionReason.retry_state_persistence_failed) from exc
-                    part_results: list[ElevenLabsTranscriptResult] = []
                     try:
                         for part_index, prepared in enumerate(prepared_batch.parts):
+                            if part_index < len(part_results):
+                                continue
                             if part_index:
                                 _post_provider_revalidate_or_fail(
                                     db,
@@ -229,13 +262,14 @@ def transcribe_processing_job_source_with_elevenlabs(
                                     diarize=provider_settings.diarize,
                                 )
                             except ElevenLabsTranscriptionError as exc:
+                                provider_failure = _map_provider_reason(exc.reason)
                                 mapped = (
                                     JobElevenLabsTranscriptionReason.partial_provider_result
                                     if part_results
-                                    else _map_provider_reason(exc.reason)
+                                    else provider_failure
                                 )
-                                _emit_provider_failure(db, job_id, mapped)
-                                _best_effort_classify(db, job_id, job_source_id, lease_owner_id, lease_generation, mapped.value, clock)
+                                _emit_provider_failure(db, job_id, mapped, diagnostic_code=provider_failure.value)
+                                _best_effort_classify(db, job_id, job_source_id, lease_owner_id, lease_generation, mapped.value, clock, provider_failure_code=provider_failure.value)
                                 raise JobElevenLabsTranscriptionError(mapped) from exc
                             except Exception as exc:
                                 mapped = (
@@ -263,6 +297,19 @@ def transcribe_processing_job_source_with_elevenlabs(
                                 clock,
                             )
                             try:
+                                if len(prepared_batch.parts) > 1:
+                                    save_provider_part_checkpoint(
+                                        db,
+                                        job_id=job_id,
+                                        job_source_id=job_source_id,
+                                        part_index=part_index,
+                                        total_parts=len(prepared_batch.parts),
+                                        timeline_offset_seconds=prepared.timeline_offset_seconds,
+                                        duration_seconds=prepared.duration_seconds,
+                                        result=part_result,
+                                        settings=settings,
+                                        now=clock(),
+                                    )
                                 mark_attempt_provider_part_completed(
                                     db,
                                     job_id=job_id,
@@ -687,9 +734,9 @@ def _emit_provider(db, job_id, event_code, metadata):
         pass
 
 
-def _best_effort_classify(db, job_id, job_source_id, owner, generation, code, clock):
+def _best_effort_classify(db, job_id, job_source_id, owner, generation, code, clock, *, provider_failure_code=None):
     try:
-        classify_source_attempt_failure(db, job_id=job_id, job_source_id=job_source_id, lease_owner_id=owner, lease_generation=generation, failure_code=code, now=clock())
+        classify_source_attempt_failure(db, job_id=job_id, job_source_id=job_source_id, lease_owner_id=owner, lease_generation=generation, failure_code=code, provider_failure_code=provider_failure_code, now=clock())
         db.commit()
     except Exception:
         db.rollback()

@@ -23,6 +23,9 @@ export type JobRetryResponse = {
   max_attempts: number;
   missing_output_count: number;
   retry_safe_source_count: number;
+  resumable_provider_part_count?: number;
+  provider_total_part_count?: number;
+  provider_failure_code?: string | null;
 };
 
 export type JobRetryState = {
@@ -61,4 +64,24 @@ export function retryUnavailableLabel(reason: string | undefined) {
   }
   if (reason && reason !== "available") return "Повтор недоступен";
   return "";
+}
+
+export function isPartialProviderResume(data: JobRetryResponse | null | undefined) {
+  return data?.reason === "partial_provider_resume_available";
+}
+
+export function isPartialProviderRestart(data: JobRetryResponse | null | undefined) {
+  return data?.reason === "partial_provider_restart_available";
+}
+
+export function providerFailureLabel(code: string | null | undefined) {
+  const labels: Record<string, string> = {
+    provider_authentication_rejected: "ElevenLabs отклонил API-ключ",
+    provider_request_rejected: "ElevenLabs отклонил эту часть файла",
+    provider_rate_limited: "ElevenLabs ограничил частоту запросов",
+    provider_timeout: "ElevenLabs не ответил вовремя",
+    provider_unavailable: "ElevenLabs временно недоступен",
+    malformed_provider_response: "ElevenLabs вернул некорректный ответ",
+  };
+  return code ? labels[code] ?? "Не удалось обработать следующую часть" : "Не удалось обработать следующую часть";
 }

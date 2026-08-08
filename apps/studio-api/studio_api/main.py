@@ -27,7 +27,7 @@ from .job_output_read import browser_job_output_payload, load_browser_job_output
 from .job_progress import load_browser_job_progress_payloads
 from .transcription_analytics import load_transcription_analytics_payload
 from .job_output_reconciliation import OutputReconciliationError, OutputReconciliationReason, check_job_output_reconciliation, reconciliation_status_payload
-from .job_retry_recovery import compute_explicit_retry_readiness, queue_retry
+from .job_retry_recovery import compute_explicit_retry_readiness, queue_retry, requires_provider_cost_confirmation
 from .google_docs_output import OUTPUT_RECONCILIATION_APP_PROPERTY
 from .google_drive import GoogleDriveReconciliationError, list_reconciliation_candidates
 from .job_output_folder_selection import VerifiedOutputFolderSelection, verify_output_folder_selection
@@ -168,6 +168,10 @@ class BatchJobItemIn(BaseModel):
 class TranscriptionJobOptionsIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     diarize: StrictBool=False
+
+class JobRetryIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm_remaining_provider_cost: StrictBool=False
 
 class TranscriptionJobBatchCreateIn(BaseModel):
     provider_credential_id: str|None=Field(default=None, max_length=36)
@@ -1016,9 +1020,12 @@ def get_job_retry(job_id: str, pair=Depends(current_session), db: Session=Depend
     return compute_explicit_retry_readiness(db, job, now=utcnow().replace(tzinfo=None)).payload(job)
 
 @app.post("/api/jobs/{job_id}/retry")
-def post_job_retry(job_id: str, request: Request, pair=Depends(require_csrf), db: Session=Depends(get_db), _=Depends(require_same_origin)):
+def post_job_retry(job_id: str, request: Request, data: JobRetryIn | None = None, pair=Depends(require_csrf), db: Session=Depends(get_db), _=Depends(require_same_origin)):
     _,user=pair; limiter.check("job:retry:post:"+user.id, 10, 3600)
     job=owned_job_or_404(db,user,job_id)
+    initial_readiness = compute_explicit_retry_readiness(db, job, now=utcnow().replace(tzinfo=None))
+    if requires_provider_cost_confirmation(initial_readiness) and not (data and data.confirm_remaining_provider_cost):
+        raise HTTPException(409, "Требуется подтверждение стоимости оставшихся частей")
     write_diagnostic_event(owner_user_id=user.id, component="api", event_code="JOB_RETRY_REQUESTED", project_id=job.project_id, job_id=job.id, request_id=getattr(request.state,"request_id",None), correlation_id=getattr(request.state,"correlation_id",None), metadata={"attempt_number": job.attempt_count or 0, "retry_available": False, "boundary":"retry_api"})
     audit(db,"job.retry_requested",actor_user_id=user.id,subject_user_id=user.id,project_id=job.project_id,job_id=job.id)
     result = queue_retry(db, owner_user_id=user.id, job_id=job.id, now=utcnow().replace(tzinfo=None))

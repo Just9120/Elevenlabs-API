@@ -60,11 +60,36 @@ def test_retry_recovery_model_metadata_contract(studio_model_modules):
     assert indexes["ix_source_attempts_job_retry_disposition"] == ("job_id", "retry_disposition")
 
 
-def test_alembic_single_head_is_job_media_clip():
+def test_alembic_single_head_is_partial_provider_checkpoints():
     cfg = Config("apps/studio-api/alembic.ini")
     script = ScriptDirectory.from_config(cfg)
-    assert script.get_heads() == ["0019_job_media_clip"]
-    assert script.get_current_head() == "0019_job_media_clip"
+    assert script.get_heads() == ["0020_provider_part_checkpoints"]
+    assert script.get_current_head() == "0020_provider_part_checkpoints"
+
+
+def test_partial_provider_actions_require_explicit_cost_confirmation():
+    from studio_api.job_retry_recovery import (
+        RetryReadiness,
+        RetryReason,
+        requires_provider_cost_confirmation,
+    )
+
+    common = dict(
+        available=True,
+        attempt_count=1,
+        max_attempts=3,
+        missing_output_count=1,
+        retry_safe_source_count=1,
+    )
+    assert requires_provider_cost_confirmation(
+        RetryReadiness(reason=RetryReason.partial_provider_resume_available, **common)
+    )
+    assert requires_provider_cost_confirmation(
+        RetryReadiness(reason=RetryReason.partial_provider_restart_available, **common)
+    )
+    assert not requires_provider_cost_confirmation(
+        RetryReadiness(reason=RetryReason.available, **common)
+    )
 
 from datetime import datetime, timedelta
 from sqlalchemy import create_engine
@@ -237,6 +262,65 @@ def test_partial_output_preserved_and_prepared_next_source_is_safe(sqlite_db):
     job.status = m.JobStatus.processing; job.lease_owner_id = "worker"; job.lease_expires_at = now + timedelta(minutes=1); sqlite_db.commit()
     assert prepare_current_attempt_sources(sqlite_db, job_id=job.id, lease_owner_id="worker", lease_generation=7, now=now) == ()
     assert sqlite_db.query(m.TranscriptionJobSourceAttempt).filter_by(job_source_id=rels[0].id).count() == 0
+
+
+def test_expired_partial_checkpoint_requires_explicit_full_restart(sqlite_db):
+    from studio_api.job_retry_recovery import compute_explicit_retry_readiness, queue_retry
+
+    m, now, _user, _project, job, rels = _job_with_sources(
+        sqlite_db,
+        source_count=1,
+        status="failed",
+    )
+    job.lease_owner_id = None
+    job.lease_expires_at = None
+    attempt = _attempt(
+        sqlite_db,
+        m,
+        job,
+        rels[0],
+        stage=m.SourceAttemptStage.failed,
+        disposition=m.SourceAttemptRetryDisposition.provider_outcome_uncertain,
+        started=True,
+    )
+    attempt.failure_code = "partial_provider_result"
+    attempt.provider_failure_code = "provider_rate_limited"
+    attempt.provider_total_parts = 2
+    attempt.provider_completed_parts = 1
+    sqlite_db.add(
+        m.TranscriptionProviderPartCheckpoint(
+            owner_user_id=job.owner_user_id,
+            project_id=job.project_id,
+            job_id=job.id,
+            job_source_id=rels[0].id,
+            part_index=0,
+            total_parts=2,
+            timeline_offset_seconds=0,
+            duration_seconds=10,
+            provider="elevenlabs",
+            model="scribe_v2",
+            ciphertext=b"ciphertext",
+            nonce=b"nonce",
+            key_id="key-v1",
+            payload_hmac="a" * 64,
+            created_at=now - timedelta(hours=2),
+            expires_at=now - timedelta(seconds=1),
+        )
+    )
+    sqlite_db.commit()
+
+    readiness = compute_explicit_retry_readiness(sqlite_db, job, now=now)
+    assert readiness.available is True
+    assert readiness.reason.value == "partial_provider_restart_available"
+    assert readiness.resumable_provider_part_count == 0
+    queued = queue_retry(
+        sqlite_db,
+        owner_user_id=job.owner_user_id,
+        job_id=job.id,
+        now=now,
+    )
+    assert queued is not None and queued.transitioned is True
+    assert sqlite_db.query(m.TranscriptionProviderPartCheckpoint).count() == 0
 
 
 @pytest.mark.parametrize("stage,disp,reason", [
