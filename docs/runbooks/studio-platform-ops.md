@@ -319,7 +319,42 @@ Only `studio-api` receives and copies the maintenance client secret. Do not moun
 
 Picker readiness is separate from OAuth readiness. `STUDIO_GOOGLE_PICKER_API_KEY` and `STUDIO_GOOGLE_PICKER_APP_ID` must be configured, non-empty, and not placeholder values. OAuth connection, Picker configuration, and writable output folder selection are three different preconditions. Do not record Picker key/app ID values in validation evidence.
 
-The host nginx file is the single browser security-header authority. Keep script and frame sources limited to the documented Google Picker hosts; do not add `unsafe-eval` or wildcard script sources. Its `Referrer-Policy` must be `origin`: the website-restricted Picker developer key needs the public origin, while paths and query strings remain undisclosed. Do not weaken the API-key website restriction to compensate for a missing referrer. The PWA's presigned local-upload PUT keeps its explicit `no-referrer` override. The runtime-configured upload destination currently requires general HTTPS in `connect-src`; narrow it only after all intended production S3/R2 origins are explicit and a real Picker/upload smoke test is available. Standard component CD does not apply or reload host nginx, so header rollout and `nginx -t` remain explicit operator actions.
+The host nginx file is the single browser security-header authority. Keep script and frame sources limited to the documented Google Picker hosts; do not add `unsafe-eval` or wildcard script sources. Its `Referrer-Policy` must be `origin`: the website-restricted Picker developer key needs the public origin, while paths and query strings remain undisclosed. Do not weaken the API-key website restriction to compensate for a missing referrer. The PWA's presigned local-upload PUT keeps its explicit `no-referrer` override. The runtime-configured upload destination currently requires general HTTPS in `connect-src`; narrow it only after all intended production S3/R2 origins are explicit and a real Picker/upload smoke test is available. Standard component CD still does not apply or reload host nginx. Once separately bootstrapped, the protected manual Studio edge lane may update only the canonical security-header snippet under the boundary below.
+
+### Protected Studio host-edge release
+
+Bootstrap is a separate root/operator action. Before enabling the workflow:
+
+1. Review `deploy/studio/studio-edge-release-wrapper.sh`, install it as
+   `/usr/local/sbin/studio-edge-release-wrapper`, root-owned and mode `0755`,
+   and verify its installed hash against the merged source without printing key
+   material.
+2. Create a dedicated SSH key for this lane. Add only its public key to root's
+   `authorized_keys` with
+   `restrict,command="/usr/local/sbin/studio-edge-release-wrapper"`. Do not
+   reuse the component or migration deployment identity.
+3. Create the protected GitHub environment `studio-production-edge`, restrict
+   it to `main`, and require the intended human reviewer. Add environment
+   secrets `STUDIO_EDGE_DEPLOY_HOST`, `STUDIO_EDGE_SSH_KEY`, and
+   `STUDIO_EDGE_KNOWN_HOSTS` without copying their values into evidence.
+4. Keep repository variable `STUDIO_EDGE_RELEASE_ENABLED=false` except for one
+   reviewed release window. Confirm the active site contains exactly one
+   include of `/etc/nginx/snippets/studio-security-headers.conf`; the lane will
+   not edit the site to create or repair that include.
+
+For a reviewed release, use `Studio Edge CD` manual dispatch with the full
+current `main` SHA. Approve only after repository/Studio CI for that SHA is
+green and the intended canonical snippet diff is reviewed. The workflow must
+show both `[studio-edge-release] OK` and
+`[studio-edge-release-wrapper] OK`; then verify the public response and the
+feature whose browser policy changed. Return the enable variable to `false`.
+
+On failure, stop. The release program automatically restores the exact prior
+snippet only when mutation already began, runs `nginx -t`, and reloads nginx.
+Do not blindly rerun a failed release, manually edit the snippet concurrently,
+or treat a green skipped job as deployment evidence. Inspect the safe phase,
+reason, rollback state, backup path, exact checkout SHA, and public health
+before selecting a separate recovery action.
 
 Roll out OAuth/Picker and maintenance config through API deployment only when runtime files are ready and production is migrated through `0017_google_maintenance_oauth`. Validate the primary and maintenance connection states separately with authenticated owner-scoped flows, confirm maintenance consent is required before maintenance actions, and confirm unauthenticated connection/status endpoints still reject as expected.
 

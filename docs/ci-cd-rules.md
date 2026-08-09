@@ -243,6 +243,37 @@ authorize blind retry. If safe output reports `migration_applied=yes`, another
 workflow run is prohibited until an operator has diagnosed schema and API image
 state and selected a separate recovery action.
 
+### Protected host-edge release lane
+
+The Studio public-host nginx boundary is not an ordinary web/API component and
+is not a stateful migration. It may use a separate manual-only protected release
+lane when all of these controls remain present:
+
+- the workflow has no `push` or `pull_request` trigger and accepts only one full
+  lowercase commit SHA;
+- a disabled-by-default repository variable and the
+  `studio-production-edge` protected environment both gate the release;
+- the selected SHA is the exact current `main` checkout before production
+  credentials become useful;
+- GitHub Actions uses a dedicated SSH identity whose root-owned forced command
+  accepts only `release <40-hex-sha>`; it must not expose arbitrary shell;
+- the VPS fast-forwards a clean trusted `main` checkout and materializes the
+  release program from that exact remote-main commit;
+- the only mutable runtime target is the allowlisted root-owned Studio security
+  header snippet. The active site must already include that exact snippet;
+- the release creates a timestamped backup before change, validates the six
+  allowlisted header directives, runs `nginx -t`, reloads nginx, and verifies
+  both local-TLS and public-TLS exact header values plus local/public API health;
+- any failure after mutation restores the exact backup, revalidates nginx, and
+  reloads it. Success requires both wrapper and release-program markers.
+
+This lane must not modify the active site, repository source files, `.env`,
+Docker/Compose, API/web/worker containers, PostgreSQL, Redis, migrations,
+volumes, credentials, Google resources, or provider state. Installing the
+forced-command wrapper, authorized key, GitHub environment, secrets, and enable
+variable is a separate operator-reviewed bootstrap; the workflow must not
+bootstrap its own trust boundary.
+
 ---
 
 ## Forbidden by default
