@@ -1,0 +1,143 @@
+name: Studio Edge CD
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_commit:
+        description: 'Exact main commit to release to the Studio host edge'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: studio-edge-production
+  cancel-in-progress: false
+
+jobs:
+  validate-selection:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      release_sha: ${{ steps.validate.outputs.release_sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Validate exact-main release selection
+        id: validate
+        shell: bash
+        env:
+          EDGE_RELEASE_ENABLED: ${{ vars.STUDIO_EDGE_RELEASE_ENABLED }}
+          EXPECTED_COMMIT: ${{ inputs.expected_commit }}
+        run: |
+          set -euo pipefail
+
+          [[ "$EDGE_RELEASE_ENABLED" == "true" ]] || {
+            echo "Studio edge release is disabled" >&2
+            exit 1
+          }
+          [[ "$EXPECTED_COMMIT" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "expected_commit must be a full lowercase commit SHA" >&2
+            exit 1
+          }
+          [[ "${{ github.ref }}" == "refs/heads/main" ]] || {
+            echo "Studio edge releases are allowed only from main" >&2
+            exit 1
+          }
+
+          checked_out_commit="$(git rev-parse HEAD)"
+          [[ "$checked_out_commit" == "$EXPECTED_COMMIT" ]] || {
+            echo "expected_commit is not the current remote main" >&2
+            exit 1
+          }
+          echo "release_sha=$EXPECTED_COMMIT" >> "$GITHUB_OUTPUT"
+
+  release-edge:
+    needs: validate-selection
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: studio-production-edge
+    steps:
+      - name: Validate dedicated edge deployment secrets
+        shell: bash
+        env:
+          DEPLOY_HOST: ${{ secrets.STUDIO_EDGE_DEPLOY_HOST }}
+          DEPLOY_SSH_KEY: ${{ secrets.STUDIO_EDGE_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.STUDIO_EDGE_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          for name in DEPLOY_HOST DEPLOY_SSH_KEY DEPLOY_KNOWN_HOSTS; do
+            [[ -n "${!name}" ]] || {
+              echo "required Studio edge deployment secret is missing: $name" >&2
+              exit 1
+            }
+          done
+
+      - name: Configure dedicated forced-command SSH identity
+        shell: bash
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.STUDIO_EDGE_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.STUDIO_EDGE_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/studio_edge_deploy_key
+          chmod 600 ~/.ssh/studio_edge_deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/studio_edge_known_hosts
+          chmod 600 ~/.ssh/studio_edge_known_hosts
+
+      - name: Release exact main commit to the Studio host edge
+        id: release
+        shell: bash
+        env:
+          DEPLOY_HOST: ${{ secrets.STUDIO_EDGE_DEPLOY_HOST }}
+          RELEASE_SHA: ${{ needs.validate-selection.outputs.release_sha }}
+        run: |
+          set -euo pipefail
+          output_file="$RUNNER_TEMP/studio-edge-release-output.txt"
+
+          set +e
+          ssh \
+            -i ~/.ssh/studio_edge_deploy_key \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile=~/.ssh/studio_edge_known_hosts \
+            "root@$DEPLOY_HOST" \
+            "release $RELEASE_SHA" \
+            >"$output_file" 2>&1
+          release_rc=$?
+          set -e
+
+          sed -n '1,200p' "$output_file"
+          [[ "$release_rc" -eq 0 ]] || {
+            echo "Studio edge release failed" >&2
+            exit "$release_rc"
+          }
+          grep -Fq "[studio-edge-release] OK commit=${RELEASE_SHA:0:12}" "$output_file"
+          grep -Fq "[studio-edge-release-wrapper] OK commit=${RELEASE_SHA:0:12}" "$output_file"
+          echo "release_sha=$RELEASE_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Remove deployment key
+        if: always()
+        shell: bash
+        run: rm -f ~/.ssh/studio_edge_deploy_key
+
+      - name: Record deployment evidence
+        if: success()
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ steps.release.outputs.release_sha }}
+        run: |
+          {
+            echo '## Studio host edge release'
+            echo
+            echo "- Exact main commit: \`$RELEASE_SHA\`"
+            echo '- Protected environment: `studio-production-edge`'
+            echo '- Dedicated forced-command wrapper: verified'
+            echo '- Nginx syntax, public headers, and API health: verified by the release program'
+          } >> "$GITHUB_STEP_SUMMARY"

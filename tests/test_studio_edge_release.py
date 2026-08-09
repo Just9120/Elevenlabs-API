@@ -13,6 +13,8 @@ ROOT = Path(__file__).resolve().parents[1]
 RELEASE_SCRIPT = ROOT / "scripts" / "release_studio_edge.sh"
 WRAPPER = ROOT / "deploy" / "studio" / "studio-edge-release-wrapper.sh"
 HEADERS = ROOT / "deploy" / "studio" / "studio-security-headers.conf"
+CD_WORKFLOW = ROOT / ".github" / "workflows" / "studio-edge-cd.yml"
+STUDIO_CI_WORKFLOW = ROOT / ".github" / "workflows" / "studio-ci.yml"
 
 
 def _embedded_python_programs() -> list[str]:
@@ -126,3 +128,49 @@ def test_shell_programs_have_valid_syntax() -> None:
             timeout=10,
         )
         assert proc.returncode == 0, proc.stderr
+
+
+def test_edge_cd_is_manual_exact_main_and_protected() -> None:
+    workflow = CD_WORKFLOW.read_text(encoding="utf-8")
+
+    assert "workflow_dispatch:" in workflow
+    assert "push:" not in workflow
+    assert "pull_request:" not in workflow
+    assert "expected_commit:" in workflow
+    assert 'vars.STUDIO_EDGE_RELEASE_ENABLED' in workflow
+    assert '[[ "$EDGE_RELEASE_ENABLED" == "true" ]]' in workflow
+    assert '[[ "${{ github.ref }}" == "refs/heads/main" ]]' in workflow
+    assert '[[ "$checked_out_commit" == "$EXPECTED_COMMIT" ]]' in workflow
+    assert "environment: studio-production-edge" in workflow
+    assert "cancel-in-progress: false" in workflow
+
+
+def test_edge_cd_uses_only_dedicated_forced_command_identity() -> None:
+    workflow = CD_WORKFLOW.read_text(encoding="utf-8")
+
+    for secret in (
+        "STUDIO_EDGE_DEPLOY_HOST",
+        "STUDIO_EDGE_SSH_KEY",
+        "STUDIO_EDGE_KNOWN_HOSTS",
+    ):
+        assert secret in workflow
+    assert '"root@$DEPLOY_HOST"' in workflow
+    assert '"release $RELEASE_SHA"' in workflow
+    assert "StrictHostKeyChecking=yes" in workflow
+    assert "UserKnownHostsFile=~/.ssh/studio_edge_known_hosts" in workflow
+    assert "[studio-edge-release] OK commit=" in workflow
+    assert "[studio-edge-release-wrapper] OK commit=" in workflow
+    assert "bash -s" not in workflow
+    assert "nginx -t" not in workflow
+    assert "systemctl reload nginx" not in workflow
+
+
+def test_studio_ci_watches_edge_release_contract_files() -> None:
+    workflow = STUDIO_CI_WORKFLOW.read_text(encoding="utf-8")
+
+    for path in (
+        ".github/workflows/studio-edge-cd.yml",
+        "scripts/release_studio_edge.sh",
+        "tests/test_studio_edge_release.py",
+    ):
+        assert workflow.count(f"- '{path}'") == 2
