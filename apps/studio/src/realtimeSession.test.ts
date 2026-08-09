@@ -427,6 +427,7 @@ describe("RealtimeSessionController", () => {
     const microphone = mediaFixture();
     const audio = audioFixture();
     const socket = websocketFixture();
+    const getDisplayMedia = vi.fn().mockResolvedValue(display.stream);
     const controller = new RealtimeSessionController(
       {
         onStatus: vi.fn(),
@@ -437,7 +438,7 @@ describe("RealtimeSessionController", () => {
       {
         requestCapability: vi.fn().mockResolvedValue(capability),
         mediaDevices: {
-          getDisplayMedia: vi.fn().mockResolvedValue(display.stream),
+          getDisplayMedia,
           getUserMedia: vi.fn().mockResolvedValue(microphone.stream),
         },
         createAudioContext: () => audio.context,
@@ -448,6 +449,14 @@ describe("RealtimeSessionController", () => {
     );
 
     await controller.start({ displayAudio: true, microphone: true });
+    expect(getDisplayMedia).toHaveBeenCalledWith({
+      video: true,
+      audio: true,
+      selfBrowserSurface: "exclude",
+      surfaceSwitching: "include",
+      systemAudio: "include",
+      windowAudio: "system",
+    });
     expect(audio.context.createMediaStreamDestination).toHaveBeenCalledTimes(1);
     expect(audio.context.createMediaStreamSource).toHaveBeenCalledTimes(3);
     controller.dispose();

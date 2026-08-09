@@ -59,6 +59,22 @@ type RealtimeSessionDependencies = {
   clearTimer?: (timer: number) => void;
 };
 
+type DisplayAudioCaptureOptions = DisplayMediaStreamOptions & {
+  selfBrowserSurface?: "include" | "exclude";
+  surfaceSwitching?: "include" | "exclude";
+  systemAudio?: "include" | "exclude";
+  windowAudio?: "exclude" | "window" | "system";
+};
+
+export const DISPLAY_AUDIO_CAPTURE_OPTIONS: DisplayAudioCaptureOptions = {
+  video: true,
+  audio: true,
+  selfBrowserSurface: "exclude",
+  surfaceSwitching: "include",
+  systemAudio: "include",
+  windowAudio: "system",
+};
+
 const PERMISSION_ERRORS = new Set([
   "NotAllowedError",
   "PermissionDeniedError",
@@ -315,10 +331,10 @@ export class RealtimeSessionController {
           );
         }
         const display = register(
-          await getDisplayMedia.call(this.deps.mediaDevices, {
-            video: true,
-            audio: true,
-          }),
+          await getDisplayMedia.call(
+            this.deps.mediaDevices,
+            DISPLAY_AUDIO_CAPTURE_OPTIONS,
+          ),
         );
         if (display.getAudioTracks().length === 0) {
           throw new Error(
