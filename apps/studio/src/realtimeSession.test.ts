@@ -234,7 +234,7 @@ describe("RealtimeSessionController", () => {
     });
 
     controller.stop();
-    expect(timerDelays).toEqual([25_000, 10_000, 2_000]);
+    expect(timerDelays).toEqual([25_000, 10_000, 10_000, 2_000]);
     expect(microphone.stop).toHaveBeenCalled();
     expect(inputLevels.at(-1)).toBe(0);
     expect(JSON.parse(String(vi.mocked(socket.send).mock.calls[1][0]))).toEqual({
@@ -286,6 +286,50 @@ describe("RealtimeSessionController", () => {
     expect(socket.close).toHaveBeenCalledWith(1000, "Тайм-аут подключения");
     expect(microphone.stop).toHaveBeenCalledOnce();
     expect(errors.at(-1)).toContain("10 секунд");
+    expect(statuses.at(-1)).toBe("closed");
+    expect(controller.active).toBe(false);
+  });
+
+  it("closes media when the provider never starts the realtime session", async () => {
+    const microphone = mediaFixture();
+    const audio = audioFixture();
+    const socket = websocketFixture();
+    const statuses: RealtimeSessionStatus[] = [];
+    const errors: string[] = [];
+    const tenSecondTimers: Array<() => void> = [];
+    const controller = new RealtimeSessionController(
+      {
+        onStatus: (status) => statuses.push(status),
+        onPartial: vi.fn(),
+        onCommitted: vi.fn(),
+        onError: (message) => errors.push(message),
+      },
+      {
+        requestCapability: vi.fn().mockResolvedValue(capability),
+        mediaDevices: {
+          getUserMedia: vi.fn().mockResolvedValue(microphone.stream),
+        },
+        createAudioContext: () => audio.context,
+        createWebSocket: () => socket,
+        setTimer: (callback, milliseconds) => {
+          if (milliseconds === 10_000) tenSecondTimers.push(callback);
+          return tenSecondTimers.length + 50;
+        },
+        clearTimer: vi.fn(),
+      },
+    );
+
+    await controller.start({ displayAudio: false, microphone: true });
+    (socket as unknown as { readyState: number }).readyState = 1;
+    socket.onopen?.(new Event("open"));
+    expect(statuses.at(-1)).toBe("connected");
+    expect(tenSecondTimers).toHaveLength(2);
+
+    tenSecondTimers[1]();
+
+    expect(errors.at(-1)).toContain("не подтвердил realtime-сессию");
+    expect(socket.close).toHaveBeenCalledWith(1000, "Тайм-аут запуска сессии");
+    expect(microphone.stop).toHaveBeenCalled();
     expect(statuses.at(-1)).toBe("closed");
     expect(controller.active).toBe(false);
   });

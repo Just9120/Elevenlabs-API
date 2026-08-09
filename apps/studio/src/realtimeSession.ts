@@ -45,6 +45,7 @@ type Attempt = {
   capabilityAbort: AbortController | null;
   capabilityTimer: number | null;
   connectionTimer: number | null;
+  sessionTimer: number | null;
   closeTimer: number | null;
 };
 
@@ -81,6 +82,7 @@ const PERMISSION_ERRORS = new Set([
   "AbortError",
 ]);
 const CONNECTION_TIMEOUT_MS = 10_000;
+const SESSION_START_TIMEOUT_MS = 10_000;
 const CAPABILITY_TIMEOUT_MS = 25_000;
 const FINAL_COMMIT_GRACE_MS = 2_000;
 const AUDIO_PROCESSOR_BUFFER_SIZE = 8_192;
@@ -196,6 +198,7 @@ export class RealtimeSessionController {
       capabilityAbort: null,
       capabilityTimer: null,
       connectionTimer: null,
+      sessionTimer: null,
       closeTimer: null,
     };
     this.current = attempt;
@@ -444,6 +447,15 @@ export class RealtimeSessionController {
       if (!this.owns(attempt) || attempt.cancelled) return;
       this.clearConnectionTimer(attempt);
       this.callbacks.onStatus("connected");
+      attempt.sessionTimer = this.deps.setTimer(() => {
+        attempt.sessionTimer = null;
+        if (!this.owns(attempt) || attempt.cleanupDone) return;
+        this.callbacks.onError(
+          "ElevenLabs открыл соединение, но не подтвердил realtime-сессию за 10 секунд. Начните новую сессию.",
+        );
+        this.closeSocket(attempt, "Тайм-аут запуска сессии");
+        this.finish(attempt, "closed");
+      }, SESSION_START_TIMEOUT_MS);
     };
     websocket.onmessage = (message) => {
       if (!this.owns(attempt) || attempt.cleanupDone) return;
@@ -455,10 +467,15 @@ export class RealtimeSessionController {
       }
       const event = parseRealtimeEvent(parsed);
       if (event.kind === "session_started") {
+        this.clearSessionTimer(attempt);
         this.callbacks.onStatus("transcribing");
       } else if (event.kind === "partial") {
+        this.clearSessionTimer(attempt);
+        this.callbacks.onStatus("transcribing");
         this.callbacks.onPartial(event.text);
       } else if (event.kind === "committed") {
+        this.clearSessionTimer(attempt);
+        this.callbacks.onStatus("transcribing");
         this.callbacks.onPartial("");
         this.callbacks.onCommitted(event.text);
       } else if (event.kind === "error") {
@@ -527,6 +544,7 @@ export class RealtimeSessionController {
 
   private closeSocket(attempt: Attempt, reason = "Остановлено пользователем") {
     this.clearConnectionTimer(attempt);
+    this.clearSessionTimer(attempt);
     if (attempt.closeTimer !== null) {
       this.deps.clearTimer(attempt.closeTimer);
       attempt.closeTimer = null;
@@ -550,6 +568,12 @@ export class RealtimeSessionController {
     if (attempt.connectionTimer === null) return;
     this.deps.clearTimer(attempt.connectionTimer);
     attempt.connectionTimer = null;
+  }
+
+  private clearSessionTimer(attempt: Attempt) {
+    if (attempt.sessionTimer === null) return;
+    this.deps.clearTimer(attempt.sessionTimer);
+    attempt.sessionTimer = null;
   }
 
   private clearCapabilityRequest(attempt: Attempt, abort = true) {
