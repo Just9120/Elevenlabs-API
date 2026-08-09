@@ -29,7 +29,7 @@ function mediaFixture() {
     getTracks: () => [track],
     getAudioTracks: () => [track],
   } as unknown as MediaStream;
-  return { stream, stop };
+  return { stream, stop, track };
 }
 
 function audioFixture() {
@@ -137,6 +137,146 @@ describe("RealtimeSessionController", () => {
     expect(display.stop).toHaveBeenCalled();
     expect(requestCapability).not.toHaveBeenCalled();
     expect(statuses.at(-1)).toBe("stopped");
+  });
+
+  it("does not consume a capability when browser permission is rejected", async () => {
+    const requestCapability = vi.fn().mockResolvedValue(capability);
+    const statuses: RealtimeSessionStatus[] = [];
+    const errors: string[] = [];
+    const controller = new RealtimeSessionController(
+      {
+        onStatus: (status) => statuses.push(status),
+        onPartial: vi.fn(),
+        onCommitted: vi.fn(),
+        onError: (message) => errors.push(message),
+      },
+      {
+        requestCapability,
+        mediaDevices: {
+          getUserMedia: vi
+            .fn()
+            .mockRejectedValue(new DOMException("Denied", "NotAllowedError")),
+        },
+      },
+    );
+
+    await controller.start({ displayAudio: false, microphone: true });
+
+    expect(requestCapability).not.toHaveBeenCalled();
+    expect(errors.at(-1)).toContain("отменено или отклонено");
+    expect(statuses).toEqual(["requesting_permission", "ready"]);
+    expect(controller.active).toBe(false);
+  });
+
+  it("rejects display capture without an audio track before issuing a capability", async () => {
+    const stop = vi.fn();
+    const display = {
+      getTracks: () => [{ stop, addEventListener: vi.fn() }],
+      getAudioTracks: () => [],
+    } as unknown as MediaStream;
+    const requestCapability = vi.fn().mockResolvedValue(capability);
+    const errors: string[] = [];
+    const controller = new RealtimeSessionController(
+      {
+        onStatus: vi.fn(),
+        onPartial: vi.fn(),
+        onCommitted: vi.fn(),
+        onError: (message) => errors.push(message),
+      },
+      {
+        requestCapability,
+        mediaDevices: {
+          getDisplayMedia: vi.fn().mockResolvedValue(display),
+        },
+      },
+    );
+
+    await controller.start({ displayAudio: true, microphone: false });
+
+    expect(requestCapability).not.toHaveBeenCalled();
+    expect(stop).toHaveBeenCalled();
+    expect(errors.at(-1)).toContain("не передал звук");
+    expect(controller.active).toBe(false);
+  });
+
+  it("stops cleanly when the user cancels a pending capability request", async () => {
+    const microphone = mediaFixture();
+    const requestEntered = deferred<void>();
+    const statuses: RealtimeSessionStatus[] = [];
+    let capabilitySignal: AbortSignal | undefined;
+    const controller = new RealtimeSessionController(
+      {
+        onStatus: (status) => statuses.push(status),
+        onPartial: vi.fn(),
+        onCommitted: vi.fn(),
+        onError: vi.fn(),
+      },
+      {
+        requestCapability: (signal) => {
+          capabilitySignal = signal;
+          requestEntered.resolve(undefined);
+          return new Promise((_resolve, reject) => {
+            signal.addEventListener(
+              "abort",
+              () => reject(new DOMException("Aborted", "AbortError")),
+              { once: true },
+            );
+          });
+        },
+        mediaDevices: {
+          getUserMedia: vi.fn().mockResolvedValue(microphone.stream),
+        },
+        createAudioContext: () => audioFixture().context,
+        setTimer: vi.fn(() => 17),
+        clearTimer: vi.fn(),
+      },
+    );
+
+    const starting = controller.start({ displayAudio: false, microphone: true });
+    await requestEntered.promise;
+    controller.stop();
+    await starting;
+
+    expect(capabilitySignal?.aborted).toBe(true);
+    expect(microphone.stop).toHaveBeenCalled();
+    expect(statuses.at(-1)).toBe("stopped");
+    expect(controller.active).toBe(false);
+  });
+
+  it("stops the session when a captured source ends", async () => {
+    const microphone = mediaFixture();
+    const audio = audioFixture();
+    const errors: string[] = [];
+    const statuses: RealtimeSessionStatus[] = [];
+    const controller = new RealtimeSessionController(
+      {
+        onStatus: (status) => statuses.push(status),
+        onPartial: vi.fn(),
+        onCommitted: vi.fn(),
+        onError: (message) => errors.push(message),
+      },
+      {
+        requestCapability: vi.fn().mockResolvedValue(capability),
+        mediaDevices: {
+          getUserMedia: vi.fn().mockResolvedValue(microphone.stream),
+        },
+        createAudioContext: () => audio.context,
+        createWebSocket: () => websocketFixture(),
+        setTimer: vi.fn(() => 19),
+        clearTimer: vi.fn(),
+      },
+    );
+
+    await controller.start({ displayAudio: false, microphone: true });
+    const ended = microphone.track.addEventListener.mock.calls.find(
+      ([event]) => event === "ended",
+    )?.[1] as EventListener | undefined;
+    ended?.(new Event("ended"));
+
+    expect(errors.at(-1)).toContain("Источник аудио остановлен");
+    expect(microphone.stop).toHaveBeenCalled();
+    expect(statuses.at(-1)).toBe("stopped");
+    expect(controller.active).toBe(false);
   });
 
   it("streams PCM, presents partial and committed text, and stops cleanly", async () => {
