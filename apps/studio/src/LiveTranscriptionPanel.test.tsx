@@ -118,6 +118,27 @@ describe("LiveTranscriptionPanel", () => {
 
   afterEach(() => cleanup());
 
+  it("prioritizes tab or system audio and keeps microphone opt-in", async () => {
+    render(
+      <LiveTranscriptionPanel
+        projectId="project-safe"
+        csrf="csrf-safe"
+        onCsrf={vi.fn()}
+        active
+      />,
+    );
+
+    expect(await screen.findByText("Realtime · v4")).toBeInTheDocument();
+    expect(
+      screen.getByRole("checkbox", { name: "Звук вкладки или экрана" }),
+    ).toBeChecked();
+    expect(
+      screen.getByRole("checkbox", { name: "Микрофон или аудиовход" }),
+    ).not.toBeChecked();
+    expect(screen.queryByLabelText("Устройство ввода")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Начать" })).toBeEnabled();
+  });
+
   it("requests a project-scoped one-use capability without rendering it", async () => {
     render(
       <LiveTranscriptionPanel
@@ -155,7 +176,7 @@ describe("LiveTranscriptionPanel", () => {
     expect(document.body.textContent).not.toContain("sutkn_browser_secret");
     expect(document.body.textContent).not.toContain("websocket_url");
     await waitFor(() =>
-      expect(navigator.mediaDevices.enumerateDevices).toHaveBeenCalledTimes(2),
+      expect(navigator.mediaDevices.enumerateDevices).toHaveBeenCalledOnce(),
     );
 
     await userEvent.click(screen.getByRole("button", { name: "Остановить" }));

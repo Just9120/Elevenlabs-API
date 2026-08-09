@@ -1054,8 +1054,8 @@ describe("Studio PWA", () => {
     expect(
       screen.queryByRole("form", { name: "Композитор пакетных задач" }),
     ).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Микрофон или аудиовход")).toBeChecked();
-    expect(screen.getByLabelText("Звук вкладки или экрана")).not.toBeChecked();
+    expect(screen.getByLabelText("Микрофон или аудиовход")).not.toBeChecked();
+    expect(screen.getByLabelText("Звук вкладки или экрана")).toBeChecked();
     expect(screen.getByRole("button", { name: "Начать" })).toBeEnabled();
     expect(screen.getByText(/не сохраняется в Studio/i)).toBeInTheDocument();
 

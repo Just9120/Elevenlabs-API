@@ -331,6 +331,9 @@ test('Live tab captures browser audio and keeps transcript browser-only', async 
   await page.getByRole('tab', { name: 'Live-транскрибация' }).click();
   const live = page.getByRole('region', { name: 'Live-транскрибация' });
   await expect(live).toBeVisible();
+  await expect(live.getByLabel('Звук вкладки или экрана')).toBeChecked();
+  await expect(live.getByLabel('Микрофон или аудиовход')).not.toBeChecked();
+  await live.getByLabel('Микрофон или аудиовход').check();
   await expect(live.getByLabel('Устройство ввода')).toContainText(
     'Browser E2E microphone',
   );

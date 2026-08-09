@@ -95,8 +95,11 @@ export function LiveTranscriptionPanel({
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [credentialId, setCredentialId] = useState("");
   const [credentialsLoading, setCredentialsLoading] = useState(true);
-  const [displayAudio, setDisplayAudio] = useState(false);
+  const [displayAudio, setDisplayAudio] = useState(() =>
+    Boolean(navigator.mediaDevices?.getDisplayMedia),
+  );
   const [microphone, setMicrophone] = useState(() =>
+    !navigator.mediaDevices?.getDisplayMedia &&
     Boolean(navigator.mediaDevices?.getUserMedia),
   );
   const [microphoneDeviceId, setMicrophoneDeviceId] = useState("");
