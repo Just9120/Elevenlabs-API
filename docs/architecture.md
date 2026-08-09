@@ -158,6 +158,16 @@ outcomes, and blockers belong in
 `docs/delivery-plan.md`; current processing invariants are in
 `docs/studio-processing-contract.md`.
 
+Host browser-header delivery has its own non-stateful protected edge path. The
+repository owns one canonical six-header snippet, while the active host site
+only includes the fixed runtime snippet path. A manual exact-main workflow may
+reach a dedicated root forced command after environment approval; the VPS
+release program can back up and replace only that snippet, syntax-check/reload
+nginx, verify exact local/public headers and API health, and restore the backup
+on post-mutation failure. This path owns no site rewrite, container, database,
+worker, secret, Google, or provider operation and is distinct from both ordinary
+component CD and the protected migration lane.
+
 ## Worker operational boundary
 
 The `studio-worker` is a distinct manual-only runtime component that uses the Studio API source build context but has its own operational image namespace (`elevenlabs-studio-worker:*`), process command, and Docker healthcheck. Worker health means only worker PID shape, configuration load, and PostgreSQL read-only `SELECT 1`; it is not a job-progress authority, provider/Google readiness check, lease-correctness proof, canary result, or production-live processing claim.

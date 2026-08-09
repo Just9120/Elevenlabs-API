@@ -4,6 +4,7 @@ import re
 
 ROOT = Path(__file__).resolve().parents[1]
 HOST_NGINX = ROOT / "deploy/studio/studio.librechat.online.nginx.conf"
+HOST_HEADERS = ROOT / "deploy/studio/studio-security-headers.conf"
 CONTAINER_NGINX = ROOT / "apps/studio/nginx.conf"
 
 
@@ -12,7 +13,8 @@ def _normalized_config(path: Path) -> str:
 
 
 def test_public_host_owns_complete_browser_security_header_policy():
-    config = _normalized_config(HOST_NGINX)
+    site_config = _normalized_config(HOST_NGINX)
+    config = _normalized_config(HOST_HEADERS)
     required_headers = [
         "Content-Security-Policy",
         "Strict-Transport-Security",
@@ -25,14 +27,18 @@ def test_public_host_owns_complete_browser_security_header_policy():
         assert len(re.findall(rf"add_header {re.escape(header)} ", config, re.IGNORECASE)) == 1
         assert re.search(rf"add_header {re.escape(header)} .*? always;", config, re.IGNORECASE)
 
-    assert "location /api/" in config and "location /" in config
-    assert config.index("add_header Content-Security-Policy") < config.index("location /api/")
-    assert "proxy_hide_header Cache-Control" not in config
-    assert "proxy_hide_header Pragma" not in config
+    assert (
+        "include /etc/nginx/snippets/studio-security-headers.conf;"
+        in site_config
+    )
+    assert not re.search(r"add_header\s+", site_config, re.IGNORECASE)
+    assert "location /api/" in site_config and "location /" in site_config
+    assert "proxy_hide_header Cache-Control" not in site_config
+    assert "proxy_hide_header Pragma" not in site_config
 
 
 def test_public_referrer_policy_exposes_only_origin_for_google_picker():
-    config = _normalized_config(HOST_NGINX)
+    config = _normalized_config(HOST_HEADERS)
 
     assert len(re.findall(r"add_header Referrer-Policy ", config, re.IGNORECASE)) == 1
     assert 'add_header Referrer-Policy "origin" always;' in config
@@ -40,7 +46,7 @@ def test_public_referrer_policy_exposes_only_origin_for_google_picker():
 
 
 def test_csp_is_picker_compatible_without_script_wildcards_or_eval():
-    config = _normalized_config(HOST_NGINX)
+    config = _normalized_config(HOST_HEADERS)
     match = re.search(r'add_header Content-Security-Policy "([^"]+)" always;', config)
     assert match
     csp = match.group(1)
@@ -77,7 +83,7 @@ def test_csp_is_picker_compatible_without_script_wildcards_or_eval():
 
 
 def test_permissions_policy_allows_only_same_origin_realtime_capture():
-    config = _normalized_config(HOST_NGINX)
+    config = _normalized_config(HOST_HEADERS)
     match = re.search(r'add_header Permissions-Policy "([^"]+)" always;', config)
     assert match
     policy = match.group(1)
