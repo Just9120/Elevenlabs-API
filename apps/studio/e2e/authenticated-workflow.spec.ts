@@ -340,7 +340,9 @@ test('Live tab captures browser audio and keeps transcript browser-only', async 
 
   await live.getByRole('button', { name: 'Начать' }).click();
   await expect(live.getByText('Распознаём речь')).toBeVisible();
-  await expect(live.getByText('подтверждённый текст')).toBeVisible();
+  await expect(
+    live.getByText('подтверждённый текст', { exact: true }),
+  ).toBeVisible();
   expect(capabilityRequests).toBe(1);
   await expect(live).not.toContainText('sutkn_browser_e2e');
 
@@ -349,12 +351,16 @@ test('Live tab captures browser audio and keeps transcript browser-only', async 
   await navigation.getByRole('button', { name: 'Проекты', exact: true }).click();
   await expect(live).toBeVisible();
   await expect(live.getByText('Остановлено')).toBeVisible();
-  await expect(live.getByText('подтверждённый текст')).toBeVisible();
+  await expect(
+    live.getByText('подтверждённый текст', { exact: true }),
+  ).toBeVisible();
 
   await page.getByRole('tab', { name: 'Пакетная транскрибация' }).click();
   await expect(live).toBeHidden();
   await page.getByRole('tab', { name: 'Live-транскрибация' }).click();
-  await expect(live.getByText('подтверждённый текст')).toBeVisible();
+  await expect(
+    live.getByText('подтверждённый текст', { exact: true }),
+  ).toBeVisible();
   expect(capabilityRequests).toBe(1);
 });
 

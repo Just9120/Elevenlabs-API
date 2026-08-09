@@ -143,6 +143,11 @@ def test_event_registry_is_event_specific_and_redacts_values(db):
     assert sanitize_metadata("JOB_CREATED", {"source_count": 1, "credential_selected": False, "attempt_number": 1}) is None
     assert sanitize_metadata("PROCESSING_STARTED", {"attempt_number": 1, "source_count": 1}) is None
     assert sanitize_metadata("PROVIDER_REQUEST_FAILED", {"boundary": "provider_transport", "error_code": "provider_timeout", "retryable": True, "attempt_number": 1})
+    assert sanitize_metadata("REALTIME_CAPABILITY_ISSUED", {"model": "scribe_v2_realtime", "expires_in_seconds": 300})
+    assert sanitize_metadata("REALTIME_CAPABILITY_FAILED", {"reason": "provider_timeout", "retryable": True, "http_status_category": "5xx"})
+    assert sanitize_metadata("API_REQUEST_FAILED", {"endpoint_group": "realtime", "http_status_category": "5xx"})
+    assert sanitize_metadata("REALTIME_CAPABILITY_ISSUED", {"model": "scribe_v2", "expires_in_seconds": 300}) is None
+    assert sanitize_metadata("REALTIME_CAPABILITY_FAILED", {"reason": "provider_secret", "retryable": False, "http_status_category": "4xx"}) is None
     bad_values = [
         "sk_live_secret_123",
         "Bearer abcdef",
