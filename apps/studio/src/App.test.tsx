@@ -546,6 +546,16 @@ async function openFocusedJobsList() {
 describe("Studio PWA", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: {
+        addEventListener: vi.fn(),
+        enumerateDevices: vi.fn().mockResolvedValue([]),
+        getDisplayMedia: vi.fn(),
+        getUserMedia: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+    });
     Object.defineProperty(window, "location", {
       value: originalLocation,
       writable: true,
@@ -1022,6 +1032,69 @@ describe("Studio PWA", () => {
       "/api/auth/session",
       expect.objectContaining({ credentials: "same-origin" }),
     );
+  });
+
+  it("keeps batch transcription intact and opens Live inside the selected project", async () => {
+    renderApp();
+    await openProjectsPage();
+    expect(
+      await screen.findByRole("form", { name: "Композитор пакетных задач" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("tab", { name: "Пакетная транскрибация" }),
+    ).toHaveAttribute("aria-selected", "true");
+
+    await userEvent.click(
+      screen.getByRole("tab", { name: "Live-транскрибация" }),
+    );
+    const livePanel = await screen.findByRole("region", {
+      name: "Live-транскрибация",
+    });
+    expect(livePanel).toBeInTheDocument();
+    expect(
+      screen.queryByRole("form", { name: "Композитор пакетных задач" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Микрофон или аудиовход")).not.toBeChecked();
+    expect(screen.getByLabelText("Звук вкладки или экрана")).toBeChecked();
+    expect(screen.getByRole("button", { name: "Начать" })).toBeEnabled();
+    expect(screen.getByText(/не сохраняется в Studio/i)).toBeInTheDocument();
+
+    const navigation = screen.getByRole("navigation", {
+      name: "Основная навигация",
+    });
+    await userEvent.click(within(navigation).getByRole("button", { name: "Обзор" }));
+    await waitFor(() =>
+      expect(
+        within(navigation).getByRole("button", { name: "Обзор" }),
+      ).toHaveAttribute("aria-current", "page"),
+    );
+    expect(
+      screen.getByRole("region", {
+        name: "Live-транскрибация",
+        hidden: true,
+      }),
+    ).toBe(livePanel);
+
+    await userEvent.click(
+      within(navigation).getByRole("button", { name: "Проекты" }),
+    );
+    expect(
+      await screen.findByRole("region", { name: "Live-транскрибация" }),
+    ).toBe(livePanel);
+
+    await userEvent.click(
+      screen.getByRole("tab", { name: "Пакетная транскрибация" }),
+    );
+    expect(
+      await screen.findByRole("form", { name: "Композитор пакетных задач" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("region", {
+        name: "Live-транскрибация",
+        hidden: true,
+      }),
+    ).toBe(livePanel);
+    expect(livePanel.closest('[role="tabpanel"]')).toHaveAttribute("hidden");
   });
 
   it("opens approved Drive resource links in new tabs with compact action labels", async () => {

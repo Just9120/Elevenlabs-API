@@ -66,10 +66,28 @@ def test_csp_is_picker_compatible_without_script_wildcards_or_eval():
         "https://drive.google.com",
         "https://accounts.google.com",
     ]
-    assert directives["connect-src"] == ["'self'", "https:"]
+    assert directives["connect-src"] == [
+        "'self'",
+        "https:",
+        "wss://api.elevenlabs.io",
+    ]
     assert directives["worker-src"] == ["'self'", "blob:"]
     assert directives["manifest-src"] == ["'self'"]
     assert "upgrade-insecure-requests" in directives
+
+
+def test_permissions_policy_allows_only_same_origin_realtime_capture():
+    config = _normalized_config(HOST_NGINX)
+    match = re.search(r'add_header Permissions-Policy "([^"]+)" always;', config)
+    assert match
+    policy = match.group(1)
+
+    assert "microphone=(self)" in policy
+    assert "display-capture=(self)" in policy
+    assert "camera=()" in policy
+    assert "geolocation=()" in policy
+    assert "microphone=*" not in policy
+    assert "display-capture=*" not in policy
 
 
 def test_internal_static_container_does_not_compete_with_host_policy():

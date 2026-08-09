@@ -100,6 +100,7 @@ import {
 import { groupVisibleJobs } from "./jobVisibilityModel";
 import { TranscriptionAnalyticsPanel } from "./TranscriptionAnalyticsPanel";
 import { TranscriptCatalogMigrationPanel } from "./TranscriptCatalogMigrationPanel";
+import { LiveTranscriptionPanel } from "./LiveTranscriptionPanel";
 import {
   readStudioThemePreference,
   setStudioThemePreference,
@@ -2514,6 +2515,7 @@ function OverviewPage({
 }
 
 function ProjectsPage({
+  active,
   csrf,
   onCsrf,
   requestedProjectId,
@@ -2521,6 +2523,7 @@ function ProjectsPage({
   requestedProjectsView,
   onRequestedProjectsViewHandled,
 }: {
+  active: boolean;
   csrf: string;
   onCsrf: (csrf: string) => void;
   requestedProjectId: string | null;
@@ -2541,6 +2544,12 @@ function ProjectsPage({
   const [error, setError] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
   const [activePicker, setActivePicker] = useState(false);
+  const [transcriptionMode, setTranscriptionMode] = useState<"batch" | "live">(
+    "batch",
+  );
+  const [liveTranscripts, setLiveTranscripts] = useState<
+    Record<string, string[]>
+  >({});
   const setPickerBusy = (busy: boolean) => {
     setActivePicker(busy);
   };
@@ -2746,6 +2755,7 @@ function ProjectsPage({
     if (!jobs[selectedProject.id]?.loaded && !jobs[selectedProject.id]?.loading)
       loadJobs(selectedProject.id);
   }, [selectedProject?.id]);
+  useEffect(() => setTranscriptionMode("batch"), [selectedProject?.id]);
   return (
     <section className="page">
       <header className="page-header split">
@@ -2879,21 +2889,75 @@ function ProjectsPage({
                   </div>
                 </header>
               )}
-              <PreparationPanel
-                key={selectedProject.id}
-                project={selectedProject}
-                csrf={csrf}
-                onCsrf={onCsrf}
-                jobs={selectedJobs}
-                sources={selectedSources}
-                googleConnection={googleConnection}
-                pickerBusy={activePicker}
-                setPickerBusy={setPickerBusy}
-                onLoadSources={loadSources}
-                onReloadSources={loadSources}
-                onReloadJobs={loadJobs}
-                onError={setError}
-              />
+              <div
+                className="tabs transcription-mode-tabs"
+                role="tablist"
+                aria-label="Режим транскрибации"
+              >
+                <button
+                  id="transcription-tab-batch"
+                  type="button"
+                  role="tab"
+                  aria-controls="transcription-panel-batch"
+                  aria-selected={transcriptionMode === "batch"}
+                  onClick={() => setTranscriptionMode("batch")}
+                >
+                  Пакетная транскрибация
+                </button>
+                <button
+                  id="transcription-tab-live"
+                  type="button"
+                  role="tab"
+                  aria-controls="transcription-panel-live"
+                  aria-selected={transcriptionMode === "live"}
+                  onClick={() => setTranscriptionMode("live")}
+                >
+                  Live-транскрибация
+                </button>
+              </div>
+              <div
+                id="transcription-panel-batch"
+                role="tabpanel"
+                aria-labelledby="transcription-tab-batch"
+                hidden={transcriptionMode !== "batch"}
+              >
+                <PreparationPanel
+                  key={selectedProject.id}
+                  project={selectedProject}
+                  csrf={csrf}
+                  onCsrf={onCsrf}
+                  jobs={selectedJobs}
+                  sources={selectedSources}
+                  googleConnection={googleConnection}
+                  pickerBusy={activePicker}
+                  setPickerBusy={setPickerBusy}
+                  onLoadSources={loadSources}
+                  onReloadSources={loadSources}
+                  onReloadJobs={loadJobs}
+                  onError={setError}
+                />
+              </div>
+              <div
+                id="transcription-panel-live"
+                role="tabpanel"
+                aria-labelledby="transcription-tab-live"
+                hidden={transcriptionMode !== "live"}
+              >
+                <LiveTranscriptionPanel
+                  key={selectedProject.id}
+                  projectId={selectedProject.id}
+                  csrf={csrf}
+                  onCsrf={onCsrf}
+                  active={active && transcriptionMode === "live"}
+                  initialSegments={liveTranscripts[selectedProject.id] ?? []}
+                  onSegmentsChange={(segments) =>
+                    setLiveTranscripts((current) => ({
+                      ...current,
+                      [selectedProject.id]: segments,
+                    }))
+                  }
+                />
+              </div>
             </article>
           ) : (
             <p className="notice">Выберите проект.</p>
@@ -4347,6 +4411,7 @@ function PlatformShell() {
         {projectsOpened && (
           <div hidden={page !== "projects"}>
             <ProjectsPage
+              active={page === "projects"}
               csrf={csrf}
               onCsrf={(token) => {
                 setSession((current) => ({ ...current, csrf: token }));

@@ -69,7 +69,7 @@ ERROR_CODES = frozenset({
 HTTP_STATUS_CATEGORIES = frozenset({"1xx", "2xx", "3xx", "4xx", "5xx", "unknown"})
 RECONCILIATION_CASE_STATUSES = frozenset({"prepared","creation_returned","reconciliation_required","resolved","conflict"})
 FINAL_STATUSES = frozenset({"processing", "cancelled", "failed", "completed"})
-ENDPOINT_GROUPS = frozenset({"diagnostics", "jobs", "sources", "google", "credentials", "projects", "transcript_catalog", "auth", "unknown"})
+ENDPOINT_GROUPS = frozenset({"diagnostics", "jobs", "sources", "google", "credentials", "projects", "realtime", "transcript_catalog", "auth", "unknown"})
 PWA_BOUNDARIES = frozenset({"app", "react_boundary", "route", "api_request", "service_worker", "unknown"})
 PWA_ERROR_CODES = frozenset({"app_error", "unhandled_rejection", "api_request_failed", "route_error", "service_worker_error", "unknown"})
 SOURCE_TYPES = frozenset({"local_upload", "google_drive"})
@@ -84,6 +84,14 @@ GOOGLE_PICKER_SESSION_FAILURE_REASONS = frozenset({
     "google_config_unavailable",
     "google_scope_unavailable",
     "google_picker_not_configured",
+})
+REALTIME_CAPABILITY_FAILURE_REASONS = frozenset({
+    "provider_authentication_rejected",
+    "provider_request_rejected",
+    "provider_rate_limited",
+    "provider_unavailable",
+    "provider_timeout",
+    "malformed_provider_response",
 })
 
 def R(kind: str, *, min: int | None = None, max: int | None = None, choices: frozenset[str] | None = None, required: bool = False) -> MetaRule:
@@ -130,6 +138,8 @@ REGISTRY: dict[str, EventDef] = {
     "OUTPUT_RECONCILIATION_CONFLICT": EventDef(frozenset({"api"}), "WARNING", {"case_status": R("enum", choices=RECONCILIATION_CASE_STATUSES, required=True), "resolved": R("bool"), "aggregate_count": R("int", min=0, max=50)}),
     "OUTPUT_RECONCILIATION_FAILED": EventDef(frozenset({"api"}), "WARNING", {"case_status": R("enum", choices=RECONCILIATION_CASE_STATUSES, required=True), "resolved": R("bool")}),
     "GOOGLE_PICKER_SESSION_FAILED": EventDef(frozenset({"api"}), "WARNING", {"reason": R("enum", choices=GOOGLE_PICKER_SESSION_FAILURE_REASONS, required=True), "retryable": R("bool", required=True), "http_status_category": R("enum", choices=HTTP_STATUS_CATEGORIES, required=True)}),
+    "REALTIME_CAPABILITY_ISSUED": EventDef(frozenset({"api"}), "INFO", {"model": R("enum", choices=frozenset({"scribe_v2_realtime"}), required=True), "expires_in_seconds": R("int", min=1, max=900, required=True)}),
+    "REALTIME_CAPABILITY_FAILED": EventDef(frozenset({"api"}), "WARNING", {"reason": R("enum", choices=REALTIME_CAPABILITY_FAILURE_REASONS, required=True), "retryable": R("bool", required=True), "http_status_category": R("enum", choices=HTTP_STATUS_CATEGORIES, required=True)}),
     "API_REQUEST_FAILED": EventDef(frozenset({"api"}), "WARNING", {"endpoint_group": R("enum", choices=ENDPOINT_GROUPS, required=True), "http_status_category": R("enum", choices=HTTP_STATUS_CATEGORIES, required=True)}),
     "API_UNHANDLED_EXCEPTION": EventDef(frozenset({"api"}), "ERROR", {"endpoint_group": R("enum", choices=ENDPOINT_GROUPS, required=True), "http_status_category": R("enum", choices=frozenset({"5xx"}), required=True)}),
     "PWA_APP_ERROR": EventDef(frozenset({"web"}), "ERROR", {"boundary": R("enum", choices=PWA_BOUNDARIES), "error_code": R("enum", choices=PWA_ERROR_CODES), "retryable": R("bool"), "duration_ms": R("int", min=0, max=86400000), "http_status_category": R("enum", choices=HTTP_STATUS_CATEGORIES), "endpoint_group": R("enum", choices=ENDPOINT_GROUPS)}),
