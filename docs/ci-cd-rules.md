@@ -251,8 +251,11 @@ lane when all of these controls remain present:
 
 - the workflow has no `push` or `pull_request` trigger and accepts only one full
   lowercase commit SHA;
-- a disabled-by-default repository variable and the
-  `studio-production-edge` protected environment both gate the release;
+- a disabled-by-default repository variable and the existing
+  `studio-production-migration` protected environment both gate the release.
+  Migration and edge releases share this human-approval boundary, while their
+  SSH identities, forced commands, enable variables, and secret names remain
+  separate;
 - the selected SHA is the exact current `main` checkout before production
   credentials become useful;
 - GitHub Actions uses a dedicated SSH identity whose root-owned forced command
@@ -270,9 +273,10 @@ lane when all of these controls remain present:
 This lane must not modify the active site, repository source files, `.env`,
 Docker/Compose, API/web/worker containers, PostgreSQL, Redis, migrations,
 volumes, credentials, Google resources, or provider state. Installing the
-forced-command wrapper, authorized key, GitHub environment, secrets, and enable
-variable is a separate operator-reviewed bootstrap; the workflow must not
-bootstrap its own trust boundary.
+forced-command wrapper and authorized key, and adding the lane-specific secrets
+and enable variable to the existing protected environment, is a separate
+operator-reviewed bootstrap; the workflow must not bootstrap its own trust
+boundary.
 
 ---
 

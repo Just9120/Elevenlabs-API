@@ -11,7 +11,7 @@
 - ✅ `STUDIO-MIGRATION-STAGED-01 / production evidence` — PR #201 merged as `cb1a0e3`. Protected run `31255557765` visibly waited for approval, created verified pre-migration snapshot `91f483f8bf45`, applied only `0019_job_media_clip -> 0020_provider_part_checkpoints`, and deployed the exact-head API. The enable variable was then returned to `false`.
 - 👉 `PWA-PARTIAL-PROVIDER-RESUME-01` — PR #202 merged as `66fb098`; exact-main repository and Studio CI passed. Production is migrated to `0020`, the matching API is healthy, and manual worker run `31255817558` deployed the exact merge image. A real split workload proved the original partial-failure mode; one explicit live continuation canary remains and must not be manufactured by forcing a paid provider failure.
 - ✅ `PWA-REALTIME-TRANSCRIPTION-01 / merged and primary live path` — PR #203 merged as `8a306f8`. Exact-main repository/Studio CI passed, component CD deployed web and API, the host policy was separately corrected, and a real Chrome tab/display-audio session produced growing confirmed fragments before a clean explicit Stop. Microphone-only, mixed capture, and the remaining negative lifecycle canaries are still open gate-6 evidence.
-- 👉 `PWA-STUDIO-EDGE-CD-01` — active source candidate on `codex/studio-edge-cd-01`. The branch canonicalizes the six public browser headers and adds a manual exact-main, protected-environment, dedicated forced-command release path with backup, exact header/health postchecks, and automatic snippet rollback. Merge, trust-boundary bootstrap, and one approved live release remain open.
+- 👉 `PWA-STUDIO-EDGE-CD-01` — PR #204 merged as `3ec5b48`; exact-main repository/Studio CI passed, and the dedicated VPS wrapper/key bootstrap is complete. The lane reuses the existing protected `studio-production-migration` human-approval boundary while retaining separate edge secrets and a separate forced-command identity. One approved live release and its browser canary remain open.
 - 📋 `PWA-TRANSCRIPT-MAINTENANCE-CANARY-04` — complete the bounded recursive-folder and single-document dry-run/apply matrix. Every state-changing apply remains a separate explicit user decision.
 - 📋 `PWA-TRUSTED-PROXY-01 / production evidence` — source contract is merged; bounded production peer observation and separately reviewed runtime configuration remain absent.
 - 📋 `PWA-LEGACY-SUCCESSOR-DISCOVERY-01 / consumer decision` — compatibility APIs advertise successors, but removal/support still requires external-consumer evidence and an explicit decision.
@@ -19,7 +19,7 @@
 ## Audit conclusion
 
 - Stable Colab batch remains accepted at **100%** for its current scope. Realtime Colab remains a separate experimental contour.
-- Current merged source is `main@8a306f8c6734200a803389acdfc4e2de9aa27802` (PR #203). Exact-main CI runs `31300547847` and `31300547843` passed. Component CD run `31300547844` deployed web and API; migration and worker jobs were correctly skipped. Earlier protected run `31255557765` established production revision `0020_provider_part_checkpoints`, and manual worker run `31255817558` deployed exact commit `66fb098` as image `sha256:f5065193221b...`.
+- Current merged source is `main@3ec5b4822199fcce9ea499d068a343e57cfb8b0b` (PR #204). Exact-main CI runs `31312073115` and `31312073139` passed. The earlier component CD run `31300547844` deployed web and API for `8a306f8`; migration and worker jobs were correctly skipped. Earlier protected run `31255557765` established production revision `0020_provider_part_checkpoints`, and manual worker run `31255817558` deployed exact commit `66fb098` as image `sha256:f5065193221b...`.
 - The successful job exposed a real usability defect: on terminal transition its active progress card disappeared into history. PR #200 contains the source fix; production proof still depends on the staged schema/API/worker rollout and a real UI canary.
 - Final branch review found two continuity gaps in the first local implementation: dismissal authority was component-local and concurrent polling discarded the terminal snapshot. The corrective commit makes dismissal owner-scoped and durable in PostgreSQL, backfills pre-existing terminal history as already dismissed, and retains non-requested progress snapshots until explicit dismissal.
 - Batch progress remains HTTP-polled and evidence-based. The server can report part-level movement only after each prepared ElevenLabs part returns successfully. A single unsplit provider request has no truthful intermediate percentage because the synchronous provider response exposes no such checkpoint.
@@ -49,7 +49,7 @@
 | Transcript-maintenance source acceptance on `main` | **100% (`10/10`)** | Durable post-apply rediscovery fix and required CI are merged. |
 | Transcript-maintenance rollout | **50% (`2/4`)** | Runtime/OAuth/schema and exact API identity/health are evidenced; full target-mode dry-run/apply matrix is not. |
 | `PWA-REALTIME-TRANSCRIPTION-01` | **83% (`5/6`)** | Checks 1–5, merge, exact-main CI, API/web deployment, public-host policy, and one real tab/display-audio session are evidenced. Gate 6 remains incomplete until microphone-only, mixed, and negative lifecycle canaries are recorded. |
-| `PWA-STUDIO-EDGE-CD-01` source candidate | **75% (`3/4`)** | Canonical configuration, fail-closed VPS release/wrapper, and manual protected workflow plus focused tests are present locally. Merge/bootstrap/one live protected release form the final gate. |
+| `PWA-STUDIO-EDGE-CD-01` | **80% (`4/5`)** | Canonical configuration, fail-closed release/wrapper, protected workflow, green merge/exact-main CI, and the dedicated VPS bootstrap are evidenced. One approved live release plus its browser canary form the final gate. |
 
 The denominators are explicit gates. Local code, a green workflow summary with skipped jobs, or an idle healthy worker cannot advance a deployment, migration, provider, or canary gate by itself.
 
@@ -60,10 +60,10 @@ The denominators are explicit gates. Local code, a green workflow summary with s
 1. The public browser policy has one canonical repository snippet containing exactly the six allowlisted headers; the host site includes the fixed runtime snippet and contains no competing header directives.
 2. A root-owned forced-command wrapper accepts only `release <exact-main-sha>`, fast-forwards a clean trusted checkout, and executes the release program from that exact commit under an empty environment.
 3. The release program can change only the active header snippet, creates a timestamped backup, validates the allowlist, runs `nginx -t`, reloads nginx, verifies exact local/public headers and API health, and restores the backup on post-mutation failure.
-4. A manual-only workflow is disabled by default, requires the current full `main` SHA, uses the protected `studio-production-edge` environment and dedicated SSH identity, and requires both success markers.
+4. A manual-only workflow is disabled by default, requires the current full `main` SHA, reuses the protected `studio-production-migration` human-approval environment with separately named edge secrets and a dedicated SSH identity, and requires both success markers.
 5. Focused source/config/workflow tests, shell/YAML validation, repository checks, PR/exact-main CI, merge, operator bootstrap, one approved protected release, and a bounded live browser feature canary are separately evidenced.
 
-Checks 1–4 are implemented on `codex/studio-edge-cd-01`; focused tests and local syntax validation are present. Check 5 remains open for broader local checks, PR/exact-main CI, merge, bootstrap, first release, and browser canary. The lane does not authorize application deploy, site rewrite, Docker, database, migration, worker, secret, Google, provider, or volume operations.
+Checks 1–4 are merged with green exact-main CI, and the dedicated VPS trust-boundary bootstrap is complete. Check 5 remains open for this shared-environment correction, the first approved release, and its browser canary. The lane does not authorize application deploy, site rewrite, Docker, database, migration, worker, secret, Google, provider, or volume operations.
 
 `PWA-REALTIME-TRANSCRIPTION-01` acceptance evidence:
 
@@ -121,8 +121,8 @@ Checks 1–5 are merged and the exact-main web deployment is complete. The live 
 
 Close `PWA-STUDIO-EDGE-CD-01` without broadening its host-header boundary:
 
-1. Complete local repository checks, publish the candidate, and require exact PR-head plus exact-main CI before any bootstrap or release.
-2. Separately install and hash-check the root-owned wrapper and dedicated forced-command public key on the VPS; create `studio-production-edge`, its reviewer/`main` protection, three environment secrets, and disabled repository variable without exposing values.
+1. Merge the focused workflow correction that reuses the existing protected `studio-production-migration` approval boundary; keep the edge SSH identity and secret names separate from migration.
+2. Require green PR-head and exact-main CI for that correction. The VPS wrapper/key bootstrap, edge secrets, and disabled repository variable are already present.
 3. Enable the lane for one reviewed window and dispatch the exact current `main` SHA. Require both success markers and verify the public headers/API health evidence; then return the enable variable to `false`.
 4. Run one bounded browser canary for the capability affected by the released policy. Do not infer feature success from nginx or workflow health alone.
 
@@ -140,7 +140,7 @@ Close `PWA-STUDIO-EDGE-CD-01` without broadening its host-header boundary:
 - PostgreSQL integration tests still need the service-backed CI environment. Focused local tests do not replace CI or rollout evidence.
 - Exact part progress is available only for media split into multiple provider requests. The current synchronous provider call exposes no honest within-part percentage.
 - Studio Realtime's primary tab/display-audio path is live-evidenced, but microphone-only, mixed, and negative lifecycle canaries remain absent.
-- Studio edge CD is source-only until PR CI/merge, the dedicated VPS/GitHub trust boundary, and one protected exact-main release are evidenced.
+- Studio edge CD is merged and its dedicated VPS trust boundary is bootstrapped, but the shared-environment workflow correction and one protected exact-main release are still required.
 - Transcript-maintenance rollout still lacks the complete target-mode canary matrix.
 
 ## Validation notes
