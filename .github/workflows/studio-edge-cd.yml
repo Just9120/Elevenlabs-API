@@ -60,7 +60,7 @@ jobs:
     needs: validate-selection
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    environment: studio-production-edge
+    environment: studio-production-migration
     steps:
       - name: Validate dedicated edge deployment secrets
         shell: bash
@@ -137,7 +137,7 @@ jobs:
             echo '## Studio host edge release'
             echo
             echo "- Exact main commit: \`$RELEASE_SHA\`"
-            echo '- Protected environment: `studio-production-edge`'
+            echo '- Protected environment: `studio-production-migration`'
             echo '- Dedicated forced-command wrapper: verified'
             echo '- Nginx syntax, public headers, and API health: verified by the release program'
           } >> "$GITHUB_STEP_SUMMARY"

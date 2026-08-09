@@ -141,7 +141,7 @@ def test_edge_cd_is_manual_exact_main_and_protected() -> None:
     assert '[[ "$EDGE_RELEASE_ENABLED" == "true" ]]' in workflow
     assert '[[ "${{ github.ref }}" == "refs/heads/main" ]]' in workflow
     assert '[[ "$checked_out_commit" == "$EXPECTED_COMMIT" ]]' in workflow
-    assert "environment: studio-production-edge" in workflow
+    assert "environment: studio-production-migration" in workflow
     assert "cancel-in-progress: false" in workflow
 
 

@@ -333,10 +333,12 @@ Bootstrap is a separate root/operator action. Before enabling the workflow:
    `authorized_keys` with
    `restrict,command="/usr/local/sbin/studio-edge-release-wrapper"`. Do not
    reuse the component or migration deployment identity.
-3. Create the protected GitHub environment `studio-production-edge`, restrict
-   it to `main`, and require the intended human reviewer. Add environment
-   secrets `STUDIO_EDGE_DEPLOY_HOST`, `STUDIO_EDGE_SSH_KEY`, and
-   `STUDIO_EDGE_KNOWN_HOSTS` without copying their values into evidence.
+3. Reuse the existing protected GitHub environment
+   `studio-production-migration`, already restricted to `main` and the intended
+   human reviewer. Add the separately named environment secrets
+   `STUDIO_EDGE_DEPLOY_HOST`, `STUDIO_EDGE_SSH_KEY`, and
+   `STUDIO_EDGE_KNOWN_HOSTS` without copying their values into evidence. Do not
+   reuse the migration SSH identity for the edge lane.
 4. Keep repository variable `STUDIO_EDGE_RELEASE_ENABLED=false` except for one
    reviewed release window. Confirm the active site contains exactly one
    include of `/etc/nginx/snippets/studio-security-headers.conf`; the lane will
