@@ -388,4 +388,32 @@ describe("LiveTranscriptionPanel", () => {
 
     expect(controllerState.instances[0].dispose).toHaveBeenCalledOnce();
   });
+
+  it("stops capture when the document becomes hidden", async () => {
+    render(
+      <LiveTranscriptionPanel
+        projectId="project-safe"
+        csrf="csrf-safe"
+        onCsrf={vi.fn()}
+        active
+      />,
+    );
+    const start = await screen.findByRole("button", { name: "Начать" });
+    await waitFor(() => expect(start).toBeEnabled());
+    await userEvent.click(start);
+    await screen.findByText("Соединение установлено");
+    const visibilityState = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockReturnValue("hidden");
+
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+
+    expect(controllerState.instances[0].stop).toHaveBeenCalledOnce();
+    expect(
+      await screen.findByText(/вкладка стала скрытой/),
+    ).toBeInTheDocument();
+    visibilityState.mockRestore();
+  });
 });

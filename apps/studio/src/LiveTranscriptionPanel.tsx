@@ -210,9 +210,20 @@ export function LiveTranscriptionPanel({
       controllerRef.current?.dispose();
       controllerRef.current = null;
     };
+    const stopWhenHidden = () => {
+      if (document.visibilityState !== "hidden") return;
+      const controller = controllerRef.current;
+      if (!controller?.active) return;
+      controller.stop();
+      setExportNotice(
+        "Live-сессия остановлена, когда вкладка стала скрытой. Подтверждённый текст сохранён в этой вкладке.",
+      );
+    };
     window.addEventListener("pagehide", dispose);
+    document.addEventListener("visibilitychange", stopWhenHidden);
     return () => {
       window.removeEventListener("pagehide", dispose);
+      document.removeEventListener("visibilitychange", stopWhenHidden);
       dispose();
     };
   }, [projectId]);
@@ -601,7 +612,10 @@ export function LiveTranscriptionPanel({
             При разрыве связи автоматического reconnect нет: новая попытка
             получает новый одноразовый доступ.
           </li>
-          <li>Обновление или закрытие вкладки останавливает захват.</li>
+          <li>
+            Переход на другую вкладку, сворачивание, обновление или закрытие
+            текущей вкладки останавливает захват.
+          </li>
           <li>
             Пока идёт сессия или в памяти есть текст, браузер предупреждает
             перед обновлением или закрытием вкладки.
