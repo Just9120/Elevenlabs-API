@@ -6015,6 +6015,59 @@ describe("Studio PWA", () => {
     expect(outputCalls[0]?.[1]?.headers).not.toHaveProperty("x-csrf-token");
   });
 
+  it("bounds stalled job detail reads and leaves safe retryable UI", async () => {
+    installFocusedOutputFixture({ jobStatus: "processing" });
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const stalledPaths = new Set([
+      "/api/jobs/job-focused",
+      "/api/jobs/job-focused/retry",
+      "/api/jobs/job-focused/output-reconciliation",
+      "/api/jobs/job-focused/outputs",
+    ]);
+    const requestSignals: AbortSignal[] = [];
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (stalledPaths.has(String(url)) && !init?.method) {
+        const signal = init?.signal;
+        if (!signal) throw new Error("job detail request signal is missing");
+        requestSignals.push(signal);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({});
+    });
+
+    await openFocusedJobsList();
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "Открыть" }));
+      expect(screen.getByText("Загрузка деталей задачи…")).toBeInTheDocument();
+      expect(screen.getByText("Загрузка результатов…")).toBeInTheDocument();
+      expect(requestSignals).toHaveLength(4);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_000);
+      });
+
+      expect(requestSignals.every((signal) => signal.aborted)).toBe(true);
+      expect(
+        screen.getByText("Не удалось загрузить детали задачи."),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText("Не удалось загрузить результаты."),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByText("Загрузка деталей задачи…"),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByText("Загрузка результатов…"),
+      ).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps only the latest repeated job detail refresh", async () => {
     installFocusedOutputFixture();
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;

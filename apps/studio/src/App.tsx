@@ -23,7 +23,9 @@ import {
 } from "./apiClient";
 import {
   beginLatestRequest,
+  cancelLatestRequests,
   isLatestRequest,
+  LATEST_REQUEST_CANCEL_REASON,
   settleLatestRequest,
 } from "./latestRequest";
 import {
@@ -388,6 +390,7 @@ function isExpectedCompletedLocalSource(
   );
 }
 const ELEVENLABS_CREDENTIAL_SESSION_KEY = "studio.elevenlabsCredentialId";
+const JOB_DETAIL_REQUEST_TIMEOUT_MS = 15_000;
 async function bootstrapSession(): Promise<{
   user: User;
   csrf: string;
@@ -505,6 +508,9 @@ function PreparationPanel({
   const rowElementRefs = useRef(new Map<string, HTMLLIElement>());
   const reloadJobsRef = useRef(onReloadJobs);
   const jobRequestEpochsRef = useRef(new Map<string, number>());
+  const jobRequestControllersRef = useRef(
+    new Map<string, AbortController>(),
+  );
   const cancellingJobIdsRef = useRef(new Set<string>());
   const retryingJobIdsRef = useRef(new Set<string>());
   const reconcilingJobIdsRef = useRef(new Set<string>());
@@ -515,6 +521,14 @@ function PreparationPanel({
   useEffect(() => {
     reloadJobsRef.current = onReloadJobs;
   }, [onReloadJobs]);
+  useEffect(
+    () => () =>
+      cancelLatestRequests(
+        jobRequestEpochsRef.current,
+        jobRequestControllersRef.current,
+      ),
+    [],
+  );
   useEffect(() => {
     setRows([newComposerRow()]);
     setCreatedSources([]);
@@ -1348,6 +1362,29 @@ function PreparationPanel({
       setSubmissionStage(null);
     }
   }
+  function settleLatestJobRead<T>(
+    key: string,
+    path: string,
+    onSuccess: (value: T) => void,
+    onFailure: (error: unknown) => void,
+  ) {
+    return settleLatestRequest(
+      jobRequestEpochsRef.current,
+      key,
+      (signal) =>
+        api<T>(path, {
+          signal,
+          ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+        }),
+      onSuccess,
+      onFailure,
+      {
+        controllers: jobRequestControllersRef.current,
+        timeoutMs: JOB_DETAIL_REQUEST_TIMEOUT_MS,
+      },
+    );
+  }
+
   async function loadDetail(jobId: string) {
     setDetail((current) => ({
       ...current,
@@ -1358,10 +1395,9 @@ function PreparationPanel({
       [jobId]: { loading: true, error: "", data: current[jobId]?.data ?? null },
     }));
     await Promise.all([
-      settleLatestRequest(
-        jobRequestEpochsRef.current,
+      settleLatestJobRead<TranscriptionJob>(
         `detail:${jobId}`,
-        () => api<TranscriptionJob>(`/jobs/${jobId}`),
+        `/jobs/${jobId}`,
         (loaded) =>
           setDetail((current) => ({
             ...current,
@@ -1377,10 +1413,9 @@ function PreparationPanel({
             },
           })),
       ),
-      settleLatestRequest(
-        jobRequestEpochsRef.current,
+      settleLatestJobRead<JobRetryResponse>(
         `retry:${jobId}`,
-        () => api<JobRetryResponse>(`/jobs/${jobId}/retry`),
+        `/jobs/${jobId}/retry`,
         (data) =>
           setRetries((current) => ({
             ...current,
@@ -1404,13 +1439,9 @@ function PreparationPanel({
             },
           })),
       ),
-      settleLatestRequest(
-        jobRequestEpochsRef.current,
+      settleLatestJobRead<OutputReconciliationResponse>(
         `reconciliation:${jobId}`,
-        () =>
-          api<OutputReconciliationResponse>(
-            `/jobs/${jobId}/output-reconciliation`,
-          ),
+        `/jobs/${jobId}/output-reconciliation`,
         (data) =>
           setReconciliations((current) => ({
             ...current,
@@ -1434,10 +1465,9 @@ function PreparationPanel({
             },
           })),
       ),
-      settleLatestRequest(
-        jobRequestEpochsRef.current,
+      settleLatestJobRead<JobOutputsResponse>(
         `outputs:${jobId}`,
-        () => api<JobOutputsResponse>(`/jobs/${jobId}/outputs`),
+        `/jobs/${jobId}/outputs`,
         (data) =>
           setOutputs((current) => ({
             ...current,
