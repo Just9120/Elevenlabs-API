@@ -5998,6 +5998,135 @@ describe("Studio PWA", () => {
     expect(outputCalls[0]?.[1]?.headers).not.toHaveProperty("x-csrf-token");
   });
 
+  it("keeps only the latest repeated job detail refresh", async () => {
+    installFocusedOutputFixture();
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let detailCalls = 0;
+    let outputCalls = 0;
+    let resolveStaleDetail: ((response: Response) => void) | undefined;
+    let resolveStaleOutputs: ((response: Response) => void) | undefined;
+    const staleDetail = new Promise<Response>((resolve) => {
+      resolveStaleDetail = resolve;
+    });
+    const staleOutputs = new Promise<Response>((resolve) => {
+      resolveStaleOutputs = resolve;
+    });
+    const detailBody = (sourceName: string) => ({
+      id: "job-focused",
+      project_id: "p1",
+      status: "processing",
+      title: "Focused output job",
+      provider: null,
+      provider_credential_id: "cred-active",
+      source_count: 1,
+      created_at: "2026-07-02T00:00:00Z",
+      updated_at: "2026-07-02T00:01:00Z",
+      cancelled_at: null,
+      cancel_requested_at: null,
+      attempt_count: 1,
+      started_at: "2026-07-02T00:00:30Z",
+      finished_at: null,
+      error_code: null,
+      error_message: null,
+      sources: [
+        {
+          id: "source-detail-id-not-output-id",
+          project_id: "p1",
+          position: 0,
+          job_source_status: "queued",
+          source_type: "google_drive",
+          original_filename: sourceName,
+          mime_type: "audio/mpeg",
+          size_bytes: 1234,
+          drive_file_id: null,
+          drive_file_url: null,
+          upload_status: "uploaded",
+          uploaded_at: "2026-07-01T00:01:00Z",
+          expires_at: null,
+          deleted_at: null,
+          delete_reason: null,
+          created_at: "2026-07-01T00:00:00Z",
+          updated_at: "2026-07-01T00:00:00Z",
+        },
+      ],
+    });
+    const outputsBody = (sourceName: string) => ({
+      job_id: "job-focused",
+      job_status: "processing",
+      output_count: 1,
+      outputs: [
+        {
+          source_id: "source-id-not-rendered",
+          source_position: 0,
+          source_name: sourceName,
+          source_type: "google_drive",
+          output_kind: "transcript",
+          transcript_standard: "transcript_doc_v1.2",
+          web_view_url:
+            "https://docs.google.com/document/d/focused-safe/edit",
+          link_available: true,
+          document_character_count: 456,
+          document_created_at: "2026-07-02T00:10:00Z",
+          persisted_at: "2026-07-02T00:11:00Z",
+        },
+      ],
+    });
+
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      const requestUrl = String(url);
+      if (requestUrl.endsWith("/api/jobs/job-focused") && !init?.method) {
+        detailCalls += 1;
+        return detailCalls === 1
+          ? staleDetail
+          : json(detailBody("fresh-detail.mp3"));
+      }
+      if (
+        requestUrl.endsWith("/api/jobs/job-focused/outputs") &&
+        !init?.method
+      ) {
+        outputCalls += 1;
+        return outputCalls === 1
+          ? staleOutputs
+          : json(outputsBody("fresh-output"));
+      }
+      return defaultFetch?.(url, init) ?? json({});
+    });
+
+    await openFocusedJobsList();
+    await userEvent.click(screen.getByRole("button", { name: "Открыть" }));
+    await waitFor(() => {
+      expect(detailCalls).toBe(1);
+      expect(outputCalls).toBe(1);
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Открыть" }));
+    await waitFor(() => {
+      expect(detailCalls).toBe(2);
+      expect(outputCalls).toBe(2);
+    });
+
+    expect(
+      await screen.findByLabelText("Job detail job-focused"),
+    ).toHaveTextContent("fresh-detail.mp3");
+    expect(
+      await screen.findByLabelText("Результаты job-focused"),
+    ).toHaveTextContent("fresh-output");
+
+    await act(async () => {
+      resolveStaleDetail?.(await json(detailBody("stale-detail.mp3")));
+      resolveStaleOutputs?.(await json(outputsBody("stale-output")));
+    });
+
+    expect(screen.getByLabelText("Job detail job-focused")).toHaveTextContent(
+      "fresh-detail.mp3",
+    );
+    expect(screen.getByLabelText("Результаты job-focused")).toHaveTextContent(
+      "fresh-output",
+    );
+    expect(document.body.textContent).not.toContain("stale-detail.mp3");
+    expect(document.body.textContent).not.toContain("stale-output");
+  });
+
   it("renders the explicit empty job outputs state without output links", async () => {
     installFocusedOutputFixture({
       jobStatus: "queued",

@@ -13,3 +13,24 @@ export function isLatestRequest(
 ): boolean {
   return epochs.get(key) === epoch;
 }
+
+export async function settleLatestRequest<T>(
+  epochs: RequestEpochs,
+  key: string,
+  request: () => Promise<T>,
+  onSuccess: (value: T) => void,
+  onFailure: (error: unknown) => void,
+): Promise<boolean> {
+  const epoch = beginLatestRequest(epochs, key);
+  let value: T;
+  try {
+    value = await request();
+  } catch (error) {
+    if (!isLatestRequest(epochs, key, epoch)) return false;
+    onFailure(error);
+    return true;
+  }
+  if (!isLatestRequest(epochs, key, epoch)) return false;
+  onSuccess(value);
+  return true;
+}

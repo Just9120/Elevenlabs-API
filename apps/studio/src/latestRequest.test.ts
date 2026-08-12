@@ -1,22 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { beginLatestRequest, isLatestRequest } from "./latestRequest";
-
-async function settleTracked<T>(
-  epochs: Map<string, number>,
-  key: string,
-  request: () => Promise<T>,
-  onSuccess: (value: T) => void,
-  onFailure: (error: unknown) => void,
-) {
-  const epoch = beginLatestRequest(epochs, key);
-  try {
-    const value = await request();
-    if (isLatestRequest(epochs, key, epoch)) onSuccess(value);
-  } catch (error) {
-    if (isLatestRequest(epochs, key, epoch)) onFailure(error);
-  }
-}
+import { settleLatestRequest } from "./latestRequest";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -36,14 +20,14 @@ describe("latest request ordering", () => {
     const onSuccess = vi.fn();
     const onFailure = vi.fn();
 
-    const olderRun = settleTracked(
+    const olderRun = settleLatestRequest(
       epochs,
       "jobs:project-1",
       () => older.promise,
       onSuccess,
       onFailure,
     );
-    const newerRun = settleTracked(
+    const newerRun = settleLatestRequest(
       epochs,
       "jobs:project-1",
       () => newer.promise,
@@ -52,9 +36,9 @@ describe("latest request ordering", () => {
     );
 
     newer.resolve("fresh");
-    await newerRun;
+    await expect(newerRun).resolves.toBe(true);
     older.resolve("stale");
-    await olderRun;
+    await expect(olderRun).resolves.toBe(false);
 
     expect(onSuccess).toHaveBeenCalledOnce();
     expect(onSuccess).toHaveBeenCalledWith("fresh");
@@ -68,14 +52,14 @@ describe("latest request ordering", () => {
     const onSuccess = vi.fn();
     const onFailure = vi.fn();
 
-    const olderRun = settleTracked(
+    const olderRun = settleLatestRequest(
       epochs,
       "sources:project-1",
       () => older.promise,
       onSuccess,
       onFailure,
     );
-    const newerRun = settleTracked(
+    const newerRun = settleLatestRequest(
       epochs,
       "sources:project-1",
       () => newer.promise,
@@ -84,12 +68,12 @@ describe("latest request ordering", () => {
     );
 
     older.reject(new Error("stale failure"));
-    await olderRun;
+    await expect(olderRun).resolves.toBe(false);
     expect(onFailure).not.toHaveBeenCalled();
 
     const latestError = new Error("latest failure");
     newer.reject(latestError);
-    await newerRun;
+    await expect(newerRun).resolves.toBe(true);
     expect(onFailure).toHaveBeenCalledOnce();
     expect(onFailure).toHaveBeenCalledWith(latestError);
     expect(onSuccess).not.toHaveBeenCalled();
@@ -100,14 +84,14 @@ describe("latest request ordering", () => {
     const onSuccess = vi.fn();
 
     await Promise.all([
-      settleTracked(
+      settleLatestRequest(
         epochs,
         "jobs:project-1",
         async () => "jobs",
         onSuccess,
         vi.fn(),
       ),
-      settleTracked(
+      settleLatestRequest(
         epochs,
         "sources:project-1",
         async () => "sources",

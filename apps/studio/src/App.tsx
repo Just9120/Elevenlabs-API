@@ -24,6 +24,7 @@ import {
 import {
   beginLatestRequest,
   isLatestRequest,
+  settleLatestRequest,
 } from "./latestRequest";
 import {
   parsePlatformRoute,
@@ -497,6 +498,7 @@ function PreparationPanel({
   const localUploadCsrfRef = useRef(csrf);
   const rowElementRefs = useRef(new Map<string, HTMLLIElement>());
   const reloadJobsRef = useRef(onReloadJobs);
+  const jobRequestEpochsRef = useRef(new Map<string, number>());
   useEffect(() => {
     localUploadCsrfRef.current = csrf;
   }, [csrf]);
@@ -1339,46 +1341,103 @@ function PreparationPanel({
       ...current,
       [jobId]: { loading: true, error: "", data: current[jobId]?.data ?? null },
     }));
-    void api<TranscriptionJob>(`/jobs/${jobId}`)
-      .then((loaded) =>
-        setDetail((current) => ({
-          ...current,
-          [jobId]: { loading: false, error: "", job: loaded },
-        })),
-      )
-      .catch(() =>
-        setDetail((current) => ({
-          ...current,
-          [jobId]: {
-            loading: false,
-            error: "Не удалось загрузить детали задачи.",
-            job: current[jobId]?.job ?? null,
-          },
-        })),
-      );
-    void api<JobRetryResponse>(`/jobs/${jobId}/retry`)
-      .then((data) => setRetries((current) => ({ ...current, [jobId]: { loading: false, posting: false, error: "", message: "", data } })))
-      .catch(() => setRetries((current) => ({ ...current, [jobId]: { loading: false, posting: false, error: "", message: "", data: null } })));
-    void api<OutputReconciliationResponse>(`/jobs/${jobId}/output-reconciliation`)
-      .then((data) => setReconciliations((current) => ({ ...current, [jobId]: { loading: false, checking: false, error: "", message: "", data } })))
-      .catch(() => setReconciliations((current) => ({ ...current, [jobId]: { loading: false, checking: false, error: "", message: "", data: null } })));
-    void api<JobOutputsResponse>(`/jobs/${jobId}/outputs`)
-      .then((data) =>
-        setOutputs((current) => ({
-          ...current,
-          [jobId]: { loading: false, error: "", data },
-        })),
-      )
-      .catch(() =>
-        setOutputs((current) => ({
-          ...current,
-          [jobId]: {
-            loading: false,
-            error: "Не удалось загрузить результаты.",
-            data: current[jobId]?.data ?? null,
-          },
-        })),
-      );
+    await Promise.all([
+      settleLatestRequest(
+        jobRequestEpochsRef.current,
+        `detail:${jobId}`,
+        () => api<TranscriptionJob>(`/jobs/${jobId}`),
+        (loaded) =>
+          setDetail((current) => ({
+            ...current,
+            [jobId]: { loading: false, error: "", job: loaded },
+          })),
+        () =>
+          setDetail((current) => ({
+            ...current,
+            [jobId]: {
+              loading: false,
+              error: "Не удалось загрузить детали задачи.",
+              job: current[jobId]?.job ?? null,
+            },
+          })),
+      ),
+      settleLatestRequest(
+        jobRequestEpochsRef.current,
+        `retry:${jobId}`,
+        () => api<JobRetryResponse>(`/jobs/${jobId}/retry`),
+        (data) =>
+          setRetries((current) => ({
+            ...current,
+            [jobId]: {
+              loading: false,
+              posting: false,
+              error: "",
+              message: "",
+              data,
+            },
+          })),
+        () =>
+          setRetries((current) => ({
+            ...current,
+            [jobId]: {
+              loading: false,
+              posting: false,
+              error: "",
+              message: "",
+              data: null,
+            },
+          })),
+      ),
+      settleLatestRequest(
+        jobRequestEpochsRef.current,
+        `reconciliation:${jobId}`,
+        () =>
+          api<OutputReconciliationResponse>(
+            `/jobs/${jobId}/output-reconciliation`,
+          ),
+        (data) =>
+          setReconciliations((current) => ({
+            ...current,
+            [jobId]: {
+              loading: false,
+              checking: false,
+              error: "",
+              message: "",
+              data,
+            },
+          })),
+        () =>
+          setReconciliations((current) => ({
+            ...current,
+            [jobId]: {
+              loading: false,
+              checking: false,
+              error: "",
+              message: "",
+              data: null,
+            },
+          })),
+      ),
+      settleLatestRequest(
+        jobRequestEpochsRef.current,
+        `outputs:${jobId}`,
+        () => api<JobOutputsResponse>(`/jobs/${jobId}/outputs`),
+        (data) =>
+          setOutputs((current) => ({
+            ...current,
+            [jobId]: { loading: false, error: "", data },
+          })),
+        () =>
+          setOutputs((current) => ({
+            ...current,
+            [jobId]: {
+              loading: false,
+              error: "Не удалось загрузить результаты.",
+              data: current[jobId]?.data ?? null,
+            },
+          })),
+      ),
+    ]);
   }
   async function checkReconciliation(jobId: string) {
     setReconciliations((current) => ({ ...current, [jobId]: { ...(current[jobId] ?? { loading:false, error:"", message:"", data:null }), checking: true, error: "", message: "" } }));
@@ -1386,7 +1445,7 @@ function PreparationPanel({
       const result = await csrfMutate<OutputReconciliationCheckResponse>(`/jobs/${jobId}/output-reconciliation/check`, csrf, onCsrf, { method: "POST" });
       const message = result.resolved > 0 ? "Документ найден и восстановлен." : result.conflicts > 0 ? "Обнаружено несколько подходящих документов. Автоматическое восстановление заблокировано." : "Документ пока не найден в Google Drive.";
       setReconciliations((current) => ({ ...current, [jobId]: { ...(current[jobId] ?? { loading:false, error:"", data:null }), checking: false, message } }));
-      await loadDetail(jobId);
+      void loadDetail(jobId);
       onReloadJobs(project.id);
     } catch (err) {
       setReconciliations((current) => ({ ...current, [jobId]: { ...(current[jobId] ?? { loading:false, message:"", data:null }), checking: false, error: err instanceof ApiError && err.status === 409 ? "Google connection недоступен или reconciliation сейчас невозможен." : "Не удалось проверить Google Drive." } }));
@@ -1404,7 +1463,7 @@ function PreparationPanel({
           : undefined,
       });
       setRetries((current) => ({ ...current, [jobId]: { ...(current[jobId] ?? { loading:false, error:"", data:null }), posting: false, data: result, message: partialMode ? "Подтверждённая обработка поставлена в очередь." : "Безопасный повтор поставлен в очередь." } }));
-      await loadDetail(jobId);
+      void loadDetail(jobId);
       onReloadJobs(project.id);
     } catch {
       setRetries((current) => ({ ...current, [jobId]: { ...(current[jobId] ?? { loading:false, message:"", data:null }), posting: false, error: "Повтор сейчас недоступен." } }));

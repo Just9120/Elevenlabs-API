@@ -2,7 +2,8 @@
 
 ## Current dashboard
 
-- 👉 `PWA-PROJECT-LIST-ORDERING-04 / local source` — same-project sources/jobs reloads now use latest-request-wins epochs, so a slower stale success or failure cannot replace newer authoritative state. Local CODE/TEST gates pass; publication and CI are intentionally absent.
+- 👉 `PWA-JOB-DETAIL-ORDERING-05 / local source` — repeated job detail, outputs, retry, and reconciliation reads now use independent latest-request-wins epochs; post-mutation jobs reload remains immediate. Local CODE/TEST gates pass; publication and CI are intentionally absent.
+- 🟦 `PWA-PROJECT-LIST-ORDERING-04 / local source` — same-project sources/jobs reloads now use latest-request-wins epochs, so a slower stale success or failure cannot replace newer authoritative state. Local CODE/TEST gates pass; publication and CI are intentionally absent.
 - 🟦 `PWA-JOB-PROGRESS-POLLING-03 / local source` — rejected and stalled `/jobs/progress` requests now recover through bounded timeout/backoff; missing-job reconciliation keeps polling alive, and cleanup aborts in-flight work without false API-failure diagnostics. Local CODE/TEST gates pass; publication and CI are intentionally absent.
 - ✅ `PWA-CATALOG-DURABLE-IDEMPOTENCE-04` — PR #199 merged as `bd8d513`. PR-head and exact-main repository/Studio CI passed. Exact-main component CD deployed web and API; the migration release job was correctly skipped.
 - ✅ `PWA-MIGRATION-ENVIRONMENT-PROBE-02` — exact-main run `30718275780` remained environment-gated for about 20 minutes before the approved no-op job started. This supplies the previously missing required-review evidence without VPS or migration action.
@@ -37,6 +38,7 @@
 | --- | ---: | --- |
 | Project, all current scope | **N/A (numerator/denominator are not defined)** | `project-spec.md` does not provide one closed, non-overlapping project-wide acceptance set; inventing a percentage would violate the agreed method. |
 | Stable Colab batch + Realtime | **100% (operator-accepted current scope)** | Four months of stable use cover both implemented Colab contours; this does not assert that no focused gaps remain. |
+| `PWA-JOB-DETAIL-ORDERING-05` | **75% (`3/4`)** | Detail/output ordering, retry/reconciliation metadata ordering, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
 | `PWA-JOB-PROGRESS-POLLING-03` | **80% (`4/5`)** | Rejected/stalled request recovery, bounded backoff/abort cleanup, reconciliation continuity, and full applicable local gates are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
 | `PWA-PROJECT-LIST-ORDERING-04` | **75% (`3/4`)** | Sources ordering, jobs ordering, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
 | Selected Studio v1 baseline source/CI on `main` | **100% (`40/40`)** | PR #203 is merged and exact-main repository/Studio CI passed. This is source/CI, not universal production proof. |
@@ -60,6 +62,19 @@ The denominators are explicit gates. Local code, a green workflow summary with s
 
 ## Active item
 
+`PWA-JOB-DETAIL-ORDERING-05` acceptance checks:
+
+1. For repeated loads of one job, only the newest detail and outputs requests may commit success or failure state; a stale response cannot restore obsolete source/output data or replace a newer safe error.
+2. Retry and output-reconciliation metadata use independent per-job request epochs, so a stale response cannot restore obsolete action availability. After a successful retry or reconciliation mutation, authoritative jobs reload remains immediate and is not blocked by the four detail reads.
+3. Shared ordering tests, a component-level repeated-open regression, complete App tests, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
+4. Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+
+Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Check 4 is intentionally open under the current local-only instruction.
+
+Non-goals: no API/backend/schema changes, no global request cache, no mutation retry, no deploy, and no production mutation.
+
+## Previous local items
+
 `PWA-PROJECT-LIST-ORDERING-04` acceptance checks:
 
 1. For repeated source-list loads of one project, only the newest request may commit success or failure state; stale responses cannot restore removed sources or erase newly loaded sources.
@@ -71,7 +86,7 @@ Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `
 
 Non-goals: no request cancellation, API/backend/schema changes, cache persistence, cross-owner state, deploy, or production mutation.
 
-## Previous local item
+### Polling resilience
 
 `PWA-JOB-PROGRESS-POLLING-03` acceptance checks:
 
@@ -151,7 +166,7 @@ Checks 1–5 are merged and the exact-main web deployment is complete. The live 
 
 ## Next item
 
-Continue local PWA stability hardening after the request-ordering commit: inspect detail/retry/reconciliation request ordering and duplicate-action boundaries, select one evidence-backed defect with bounded blast radius, and implement it as the next atomic task. `PWA-STUDIO-EDGE-CD-01` remains an operational follow-up and does not pre-empt the current local-only PWA priority.
+Continue local PWA stability hardening after the job-detail ordering commit: inspect duplicate mutation-action boundaries and timeout/cancellation behavior of non-progress reads, select one evidence-backed defect with bounded blast radius, and implement it as the next atomic task. `PWA-STUDIO-EDGE-CD-01` remains an operational follow-up and does not pre-empt the current local-only PWA priority.
 
 ## Near backlog
 
@@ -172,6 +187,7 @@ Continue local PWA stability hardening after the request-ordering commit: inspec
 
 ## Validation notes
 
+- `PWA-JOB-DETAIL-ORDERING-05` local evidence: ordering helper `3/3`, component repeated-open regression `1/1`, complete App suite `125/125`, full Studio Vitest `375/375`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. Evidence covers stale success and failure suppression, independent resource keys, and integration wiring for out-of-order detail/output responses. Jobs reconciliation remains immediate after retry/reconciliation mutations. No PR, CI, deploy, or live evidence is claimed.
 - `PWA-PROJECT-LIST-ORDERING-04` local evidence: ordering helper `3/3`, complete App suite `124/124`, full Studio Vitest `374/374`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. Tests prove stale success suppression, stale failure suppression, newest failure visibility, and independent resource keys. One pre-commit run caught and prevented an accidental recursive helper implementation; the corrected implementation passed all repeated gates. No PR, CI, deploy, or live evidence is claimed.
 - `PWA-JOB-PROGRESS-POLLING-03` local evidence: focused polling Vitest `7/7` plus API abort diagnostics `6/6`; full Studio Vitest `371/371`; TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. Fake-timer evidence covers initial rejection, bounded exponential backoff, cadence reset, 15-second stalled-request abort, retry after timeout, reconciliation continuity, timer cleanup, in-flight abort, suppression of the exact intentional stop reason, and continued timeout-abort diagnostics. The first Vite attempt exposed an incomplete local pnpm link layout (`workbox-window` unresolved); an npm-compatible hoisted local `node_modules` layout fixed the environment without manifest/lockfile changes. No PR, CI, deploy, or live evidence is claimed.
 - Rollout evidence branch: `codex/provider-resume-rollout-evidence`, based on clean `main@66fb098`.
