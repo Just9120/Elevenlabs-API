@@ -22,6 +22,10 @@ import {
   requestJson,
 } from "./apiClient";
 import {
+  beginLatestRequest,
+  isLatestRequest,
+} from "./latestRequest";
+import {
   parsePlatformRoute,
   pushPlatformRoute,
   resolveRequestedProjectsView,
@@ -2545,6 +2549,7 @@ function ProjectsPage({
   const [liveTranscripts, setLiveTranscripts] = useState<
     Record<string, string[]>
   >({});
+  const requestEpochsRef = useRef(new Map<string, number>());
   const setPickerBusy = (busy: boolean) => {
     setActivePicker(busy);
   };
@@ -2604,6 +2609,8 @@ function ProjectsPage({
       .catch(() => setGoogleConnection(null));
   }, []);
   const loadSources = (projectId: string) => {
+    const requestKey = "sources:" + projectId;
+    const requestEpoch = beginLatestRequest(requestEpochsRef.current, requestKey);
     setSources((v) => ({
       ...v,
       [projectId]: {
@@ -2614,6 +2621,7 @@ function ProjectsPage({
     }));
     api<{ sources: Source[] }>(`/projects/${projectId}/sources`)
       .then((r) =>
+        isLatestRequest(requestEpochsRef.current, requestKey, requestEpoch) &&
         setSources((v) => ({
           ...v,
           [projectId]: {
@@ -2625,6 +2633,7 @@ function ProjectsPage({
         })),
       )
       .catch((err) =>
+        isLatestRequest(requestEpochsRef.current, requestKey, requestEpoch) &&
         setSources((v) => ({
           ...v,
           [projectId]: {
@@ -2640,6 +2649,8 @@ function ProjectsPage({
       );
   };
   const loadJobs = (projectId: string) => {
+    const requestKey = "jobs:" + projectId;
+    const requestEpoch = beginLatestRequest(requestEpochsRef.current, requestKey);
     setJobs((v) => ({
       ...v,
       [projectId]: {
@@ -2650,6 +2661,7 @@ function ProjectsPage({
     }));
     api<{ jobs: TranscriptionJob[] }>(`/projects/${projectId}/jobs`)
       .then((r) =>
+        isLatestRequest(requestEpochsRef.current, requestKey, requestEpoch) &&
         setJobs((v) => ({
           ...v,
           [projectId]: {
@@ -2661,6 +2673,7 @@ function ProjectsPage({
         })),
       )
       .catch(() =>
+        isLatestRequest(requestEpochsRef.current, requestKey, requestEpoch) &&
         setJobs((v) => ({
           ...v,
           [projectId]: {

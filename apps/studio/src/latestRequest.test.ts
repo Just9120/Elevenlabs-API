@@ -1,0 +1,123 @@
+import { describe, expect, it, vi } from "vitest";
+
+import { beginLatestRequest, isLatestRequest } from "./latestRequest";
+
+async function settleTracked<T>(
+  epochs: Map<string, number>,
+  key: string,
+  request: () => Promise<T>,
+  onSuccess: (value: T) => void,
+  onFailure: (error: unknown) => void,
+) {
+  const epoch = beginLatestRequest(epochs, key);
+  try {
+    const value = await request();
+    if (isLatestRequest(epochs, key, epoch)) onSuccess(value);
+  } catch (error) {
+    if (isLatestRequest(epochs, key, epoch)) onFailure(error);
+  }
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+describe("latest request ordering", () => {
+  it("ignores an older success that settles after a newer request", async () => {
+    const epochs = new Map<string, number>();
+    const older = deferred<string>();
+    const newer = deferred<string>();
+    const onSuccess = vi.fn();
+    const onFailure = vi.fn();
+
+    const olderRun = settleTracked(
+      epochs,
+      "jobs:project-1",
+      () => older.promise,
+      onSuccess,
+      onFailure,
+    );
+    const newerRun = settleTracked(
+      epochs,
+      "jobs:project-1",
+      () => newer.promise,
+      onSuccess,
+      onFailure,
+    );
+
+    newer.resolve("fresh");
+    await newerRun;
+    older.resolve("stale");
+    await olderRun;
+
+    expect(onSuccess).toHaveBeenCalledOnce();
+    expect(onSuccess).toHaveBeenCalledWith("fresh");
+    expect(onFailure).not.toHaveBeenCalled();
+  });
+
+  it("ignores a stale failure but surfaces the latest failure", async () => {
+    const epochs = new Map<string, number>();
+    const older = deferred<string>();
+    const newer = deferred<string>();
+    const onSuccess = vi.fn();
+    const onFailure = vi.fn();
+
+    const olderRun = settleTracked(
+      epochs,
+      "sources:project-1",
+      () => older.promise,
+      onSuccess,
+      onFailure,
+    );
+    const newerRun = settleTracked(
+      epochs,
+      "sources:project-1",
+      () => newer.promise,
+      onSuccess,
+      onFailure,
+    );
+
+    older.reject(new Error("stale failure"));
+    await olderRun;
+    expect(onFailure).not.toHaveBeenCalled();
+
+    const latestError = new Error("latest failure");
+    newer.reject(latestError);
+    await newerRun;
+    expect(onFailure).toHaveBeenCalledOnce();
+    expect(onFailure).toHaveBeenCalledWith(latestError);
+    expect(onSuccess).not.toHaveBeenCalled();
+  });
+
+  it("tracks independent request keys separately", async () => {
+    const epochs = new Map<string, number>();
+    const onSuccess = vi.fn();
+
+    await Promise.all([
+      settleTracked(
+        epochs,
+        "jobs:project-1",
+        async () => "jobs",
+        onSuccess,
+        vi.fn(),
+      ),
+      settleTracked(
+        epochs,
+        "sources:project-1",
+        async () => "sources",
+        onSuccess,
+        vi.fn(),
+      ),
+    ]);
+
+    expect(onSuccess).toHaveBeenCalledTimes(2);
+    expect(onSuccess).toHaveBeenCalledWith("jobs");
+    expect(onSuccess).toHaveBeenCalledWith("sources");
+  });
+});

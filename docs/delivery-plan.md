@@ -2,7 +2,8 @@
 
 ## Current dashboard
 
-- 👉 `PWA-JOB-PROGRESS-POLLING-03 / local source` — rejected and stalled `/jobs/progress` requests now recover through bounded timeout/backoff; missing-job reconciliation keeps polling alive, and cleanup aborts in-flight work without false API-failure diagnostics. Local CODE/TEST gates pass; publication and CI are intentionally absent.
+- 👉 `PWA-PROJECT-LIST-ORDERING-04 / local source` — same-project sources/jobs reloads now use latest-request-wins epochs, so a slower stale success or failure cannot replace newer authoritative state. Local CODE/TEST gates pass; publication and CI are intentionally absent.
+- 🟦 `PWA-JOB-PROGRESS-POLLING-03 / local source` — rejected and stalled `/jobs/progress` requests now recover through bounded timeout/backoff; missing-job reconciliation keeps polling alive, and cleanup aborts in-flight work without false API-failure diagnostics. Local CODE/TEST gates pass; publication and CI are intentionally absent.
 - ✅ `PWA-CATALOG-DURABLE-IDEMPOTENCE-04` — PR #199 merged as `bd8d513`. PR-head and exact-main repository/Studio CI passed. Exact-main component CD deployed web and API; the migration release job was correctly skipped.
 - ✅ `PWA-MIGRATION-ENVIRONMENT-PROBE-02` — exact-main run `30718275780` remained environment-gated for about 20 minutes before the approved no-op job started. This supplies the previously missing required-review evidence without VPS or migration action.
 - ✅ `PWA-WORKER-OPS-01 / current baseline` — manual exact-main worker deployment run `30721775811` succeeded and status run `30721817365` completed for `main@bd8d513`. The operator then completed a real batch transcription successfully. That run is useful bounded production evidence, not proof of every media/options/failure scenario.
@@ -37,6 +38,7 @@
 | Project, all current scope | **N/A (numerator/denominator are not defined)** | `project-spec.md` does not provide one closed, non-overlapping project-wide acceptance set; inventing a percentage would violate the agreed method. |
 | Stable Colab batch + Realtime | **100% (operator-accepted current scope)** | Four months of stable use cover both implemented Colab contours; this does not assert that no focused gaps remain. |
 | `PWA-JOB-PROGRESS-POLLING-03` | **80% (`4/5`)** | Rejected/stalled request recovery, bounded backoff/abort cleanup, reconciliation continuity, and full applicable local gates are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
+| `PWA-PROJECT-LIST-ORDERING-04` | **75% (`3/4`)** | Sources ordering, jobs ordering, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
 | Selected Studio v1 baseline source/CI on `main` | **100% (`40/40`)** | PR #203 is merged and exact-main repository/Studio CI passed. This is source/CI, not universal production proof. |
 | Studio batch production usability baseline | **80% (`4/5`)** | Exact source/CI, current schema/API/web, intended worker, and a real successful job are evidenced. The terminal progress/result continuity gate failed in real use. |
 | `PWA-JOB-PROGRESS-02` merged source | **100% (`4/4`)** | Durable terminal visibility/dismissal, concurrent checkpoint continuity, durable N/M parts, and focused validation/documentation are merged with green exact-main CI. |
@@ -57,6 +59,19 @@
 The denominators are explicit gates. Local code, a green workflow summary with skipped jobs, or an idle healthy worker cannot advance a deployment, migration, provider, or canary gate by itself.
 
 ## Active item
+
+`PWA-PROJECT-LIST-ORDERING-04` acceptance checks:
+
+1. For repeated source-list loads of one project, only the newest request may commit success or failure state; stale responses cannot restore removed sources or erase newly loaded sources.
+2. For repeated job-list loads of one project, only the newest request may commit success or failure state; stale responses cannot hide newly created/retried jobs or replace fresh status.
+3. Request epochs are isolated by resource and project key. Focused ordering tests, complete App tests, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
+4. Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+
+Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Check 4 is intentionally open under the current local-only instruction.
+
+Non-goals: no request cancellation, API/backend/schema changes, cache persistence, cross-owner state, deploy, or production mutation.
+
+## Previous local item
 
 `PWA-JOB-PROGRESS-POLLING-03` acceptance checks:
 
@@ -136,7 +151,7 @@ Checks 1–5 are merged and the exact-main web deployment is complete. The live 
 
 ## Next item
 
-Continue local PWA stability hardening after the polling commit: inspect one adjacent batch job lifecycle/recovery boundary, select one evidence-backed defect with bounded blast radius, and implement it as the next atomic task. `PWA-STUDIO-EDGE-CD-01` remains an operational follow-up and does not pre-empt the current local-only PWA priority.
+Continue local PWA stability hardening after the request-ordering commit: inspect detail/retry/reconciliation request ordering and duplicate-action boundaries, select one evidence-backed defect with bounded blast radius, and implement it as the next atomic task. `PWA-STUDIO-EDGE-CD-01` remains an operational follow-up and does not pre-empt the current local-only PWA priority.
 
 ## Near backlog
 
@@ -157,6 +172,7 @@ Continue local PWA stability hardening after the polling commit: inspect one adj
 
 ## Validation notes
 
+- `PWA-PROJECT-LIST-ORDERING-04` local evidence: ordering helper `3/3`, complete App suite `124/124`, full Studio Vitest `374/374`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. Tests prove stale success suppression, stale failure suppression, newest failure visibility, and independent resource keys. One pre-commit run caught and prevented an accidental recursive helper implementation; the corrected implementation passed all repeated gates. No PR, CI, deploy, or live evidence is claimed.
 - `PWA-JOB-PROGRESS-POLLING-03` local evidence: focused polling Vitest `7/7` plus API abort diagnostics `6/6`; full Studio Vitest `371/371`; TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. Fake-timer evidence covers initial rejection, bounded exponential backoff, cadence reset, 15-second stalled-request abort, retry after timeout, reconciliation continuity, timer cleanup, in-flight abort, suppression of the exact intentional stop reason, and continued timeout-abort diagnostics. The first Vite attempt exposed an incomplete local pnpm link layout (`workbox-window` unresolved); an npm-compatible hoisted local `node_modules` layout fixed the environment without manifest/lockfile changes. No PR, CI, deploy, or live evidence is claimed.
 - Rollout evidence branch: `codex/provider-resume-rollout-evidence`, based on clean `main@66fb098`.
 - Incident evidence: a real two-project split completed technically; a later split job reached internal provider part `1/2`, then failed on the second part. The aggregate error hid the fixed safe provider category and no continuation action was available.
