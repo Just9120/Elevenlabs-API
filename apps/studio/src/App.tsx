@@ -477,6 +477,9 @@ function PreparationPanel({
   const [cancellingJobIds, setCancellingJobIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const [dismissingJobIds, setDismissingJobIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [removedSourceIds, setRemovedSourceIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -505,6 +508,7 @@ function PreparationPanel({
   const cancellingJobIdsRef = useRef(new Set<string>());
   const retryingJobIdsRef = useRef(new Set<string>());
   const reconcilingJobIdsRef = useRef(new Set<string>());
+  const dismissingJobIdsRef = useRef(new Set<string>());
   useEffect(() => {
     localUploadCsrfRef.current = csrf;
   }, [csrf]);
@@ -525,7 +529,9 @@ function PreparationPanel({
     cancellingJobIdsRef.current.clear();
     retryingJobIdsRef.current.clear();
     reconcilingJobIdsRef.current.clear();
+    dismissingJobIdsRef.current.clear();
     setCancellingJobIds(new Set());
+    setDismissingJobIds(new Set());
     setLanguageMode(DEFAULT_TRANSCRIPTION_LANGUAGE_MODE);
     setDiarizationEnabled(false);
     setRecentlyAddedRow(null);
@@ -1577,6 +1583,9 @@ function PreparationPanel({
     );
   }, [currentJobIds, project.id]);
   async function dismissTerminalJob(jobId: string) {
+    if (dismissingJobIdsRef.current.has(jobId)) return;
+    dismissingJobIdsRef.current.add(jobId);
+    setDismissingJobIds((current) => new Set(current).add(jobId));
     setMessage("");
     try {
       const dismissed = await csrfMutate<TranscriptionJob>(
@@ -1597,6 +1606,13 @@ function PreparationPanel({
       await onReloadJobs(project.id);
     } catch {
       setMessage("Не удалось убрать задачу в историю. Повторите позже.");
+    } finally {
+      dismissingJobIdsRef.current.delete(jobId);
+      setDismissingJobIds((current) => {
+        const next = new Set(current);
+        next.delete(jobId);
+        return next;
+      });
     }
   }
   function renderJobCard(job: TranscriptionJob, pinnedTerminal = false) {
@@ -1623,6 +1639,7 @@ function PreparationPanel({
         onCheckReconciliation={checkReconciliation}
         onRetry={retryJob}
         pinnedTerminal={pinnedTerminal}
+        dismissPending={dismissingJobIds.has(job.id)}
         onDismissTerminal={dismissTerminalJob}
       />
     );

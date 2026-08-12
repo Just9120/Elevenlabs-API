@@ -28,6 +28,7 @@ export function JobCard({
   onCheckReconciliation,
   onRetry,
   pinnedTerminal = false,
+  dismissPending = false,
   onDismissTerminal,
 }: {
   job: TranscriptionJob;
@@ -42,6 +43,7 @@ export function JobCard({
   onCheckReconciliation: (jobId: string) => void | Promise<void>;
   onRetry: (jobId: string) => void | Promise<void>;
   pinnedTerminal?: boolean;
+  dismissPending?: boolean;
   onDismissTerminal?: (jobId: string) => void | Promise<void>;
 }) {
   const detailedJob = detail?.job;
@@ -66,6 +68,8 @@ export function JobCard({
           <button
             className="secondary"
             type="button"
+            disabled={dismissPending}
+            aria-busy={dismissPending}
             onClick={() => onDismissTerminal?.(job.id)}
           >
             Убрать в историю

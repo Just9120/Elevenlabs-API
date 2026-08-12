@@ -272,6 +272,7 @@ type OutputFixtureOptions = {
   outputsErrorBody?: unknown;
   retryResponse?: unknown;
   reconciliationResponse?: unknown;
+  terminalDismissedAt?: string | null;
 };
 
 function installFocusedOutputFixture(options: OutputFixtureOptions = {}) {
@@ -362,6 +363,7 @@ function installFocusedOutputFixture(options: OutputFixtureOptions = {}) {
               title: "Focused output job",
               provider: null,
               provider_credential_id: "cred-active",
+              terminal_dismissed_at: options.terminalDismissedAt ?? null,
               source_count: 1,
               created_at: "2026-07-02T00:00:00Z",
               updated_at: "2026-07-02T00:01:00Z",
@@ -421,6 +423,7 @@ function installFocusedOutputFixture(options: OutputFixtureOptions = {}) {
               title: "Focused output job",
               provider: null,
               provider_credential_id: "cred-active",
+              terminal_dismissed_at: options.terminalDismissedAt ?? null,
               source_count: 1,
               created_at: "2026-07-02T00:00:00Z",
               updated_at: "2026-07-02T00:01:00Z",
@@ -6139,6 +6142,89 @@ describe("Studio PWA", () => {
     );
     expect(document.body.textContent).not.toContain("stale-detail.mp3");
     expect(document.body.textContent).not.toContain("stale-output");
+  });
+
+  it("deduplicates terminal dismissal and unlocks after failure", async () => {
+    installFocusedOutputFixture({ jobStatus: "completed" });
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const dismissResolvers: Array<(response: Response) => void> = [];
+    let dismissCalls = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        String(url).endsWith("/api/jobs/job-focused/dismiss") &&
+        init?.method === "POST"
+      ) {
+        dismissCalls += 1;
+        return new Promise<Response>((resolve) => {
+          dismissResolvers.push(resolve);
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({});
+    });
+
+    await openFocusedJobsList();
+    const dismissButton = screen.getByRole("button", {
+      name: "Убрать в историю",
+    });
+    act(() => {
+      dismissButton.click();
+      dismissButton.click();
+    });
+
+    await waitFor(() => expect(dismissCalls).toBe(1));
+    expect(dismissButton).toBeDisabled();
+    expect(dismissButton).toHaveAttribute("aria-busy", "true");
+
+    await act(async () => {
+      dismissResolvers[0]?.(
+        await json({ detail: "raw dismissal failure" }, false, 500),
+      );
+    });
+    expect(
+      await screen.findByText(
+        "Не удалось убрать задачу в историю. Повторите позже.",
+      ),
+    ).toBeInTheDocument();
+    const unlockedButton = screen.getByRole("button", {
+      name: "Убрать в историю",
+    });
+    await waitFor(() => expect(unlockedButton).toBeEnabled());
+
+    await userEvent.click(unlockedButton);
+    await waitFor(() => expect(dismissCalls).toBe(2));
+    dismissResolvers[1]?.(
+      await json({
+        id: "job-focused",
+        project_id: "p1",
+        status: "completed",
+        title: "Focused output job",
+        provider: null,
+        provider_credential_id: "cred-active",
+        terminal_dismissed_at: "2026-07-02T00:04:00Z",
+        source_count: 1,
+        sources: [],
+        created_at: "2026-07-02T00:00:00Z",
+        updated_at: "2026-07-02T00:04:00Z",
+        cancelled_at: null,
+        cancel_requested_at: null,
+        attempt_count: 1,
+        started_at: "2026-07-02T00:00:30Z",
+        finished_at: "2026-07-02T00:03:00Z",
+        error_code: null,
+        error_message: null,
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(
+          ([url]) => url === "/api/projects/p1/jobs",
+        ).length,
+      ).toBeGreaterThan(1),
+    );
+
+    expect(dismissCalls).toBe(2);
+    expect(document.body.textContent).not.toContain("raw dismissal failure");
   });
 
   it("deduplicates in-flight cancellation and unlocks after failure", async () => {

@@ -2,7 +2,8 @@
 
 ## Current dashboard
 
-- 👉 `PWA-JOB-RECONCILIATION-DEDUP-08 / local source` — explicit Google Drive reconciliation now has a synchronous per-job in-flight guard; pending action is disabled/aria-busy and safe failure unlocks one explicit retry. Local CODE/TEST gates pass; publication and CI are intentionally absent.
+- 👉 `PWA-JOB-DISMISS-DEDUP-09 / local source` — durable terminal dismissal now has a synchronous per-job in-flight guard plus disabled/aria-busy UI; safe failure unlocks one explicit retry without exposing raw backend detail. Local CODE/TEST gates pass; publication and CI are intentionally absent.
+- 🟦 `PWA-JOB-RECONCILIATION-DEDUP-08 / local source` — explicit Google Drive reconciliation now has a synchronous per-job in-flight guard; pending action is disabled/aria-busy and safe failure unlocks one explicit retry. Local CODE/TEST gates pass; publication and CI are intentionally absent.
 - 🟦 `PWA-JOB-RETRY-DEDUP-07 / local source` — provider-cost-sensitive retry now has a synchronous per-job in-flight guard; pending action is disabled/aria-busy and safe failure unlocks one explicit retry. Local CODE/TEST gates pass; publication and CI are intentionally absent.
 - 🟦 `PWA-JOB-CANCEL-DEDUP-06 / local source` — queued and processing job cancellation now has a synchronous per-job in-flight guard plus disabled/aria-busy UI; failure unlocks one explicit retry without exposing raw backend detail. Local CODE/TEST gates pass; publication and CI are intentionally absent.
 - 🟦 `PWA-JOB-DETAIL-ORDERING-05 / local source` — repeated job detail, outputs, retry, and reconciliation reads now use independent latest-request-wins epochs; post-mutation jobs reload remains immediate. Local CODE/TEST gates pass; publication and CI are intentionally absent.
@@ -41,6 +42,7 @@
 | --- | ---: | --- |
 | Project, all current scope | **N/A (numerator/denominator are not defined)** | `project-spec.md` does not provide one closed, non-overlapping project-wide acceptance set; inventing a percentage would violate the agreed method. |
 | Stable Colab batch + Realtime | **100% (operator-accepted current scope)** | Four months of stable use cover both implemented Colab contours; this does not assert that no focused gaps remain. |
+| `PWA-JOB-DISMISS-DEDUP-09` | **75% (`3/4`)** | Terminal-dismiss mutation deduplication, accessible pending/failure-unlock behavior, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
 | `PWA-JOB-RECONCILIATION-DEDUP-08` | **75% (`3/4`)** | Reconciliation mutation deduplication, accessible pending/failure-unlock behavior, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
 | `PWA-JOB-RETRY-DEDUP-07` | **75% (`3/4`)** | Provider-cost retry deduplication, accessible pending/failure-unlock behavior, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
 | `PWA-JOB-CANCEL-DEDUP-06` | **75% (`3/4`)** | In-flight mutation deduplication, accessible pending/unlock behavior, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
@@ -68,6 +70,21 @@ The denominators are explicit gates. Local code, a green workflow summary with s
 
 ## Active item
 
+`PWA-JOB-DISMISS-DEDUP-09` acceptance checks:
+
+1. Two terminal-dismiss attempts for the same job while the first request is in flight produce at most one mutation request; the synchronous per-job guard does not depend on a React rerender.
+2. The pinned-terminal dismissal control is disabled and exposes `aria-busy=true` while pending. A safe failure message unlocks one explicit retry, raw backend detail is not rendered, and a successful response preserves the authoritative jobs reload and existing backend idempotency contract.
+3. Focused App and JobCard regressions, complete suites, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
+4. Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+
+Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Check 4 is intentionally open under the current local-only instruction.
+
+Non-goals: no terminal-visibility/business-rule change, backend idempotency or audit change, API/schema changes, deploy, or production mutation.
+
+## Previous local items
+
+### Output reconciliation deduplication
+
 `PWA-JOB-RECONCILIATION-DEDUP-08` acceptance checks:
 
 1. Two output-reconciliation checks for the same job while the first request is in flight produce at most one mutation request; the synchronous per-job guard does not depend on a React rerender.
@@ -78,8 +95,6 @@ The denominators are explicit gates. Local code, a green workflow summary with s
 Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Check 4 is intentionally open under the current local-only instruction.
 
 Non-goals: no reconciliation eligibility/business-rule change, backend idempotency change, automatic Google Drive check, API/schema changes, deploy, or production mutation.
-
-## Previous local items
 
 ### Provider-cost retry deduplication
 
@@ -213,7 +228,7 @@ Checks 1–5 are merged and the exact-main web deployment is complete. The live 
 
 ## Next item
 
-Continue local PWA stability hardening after the reconciliation guard: inspect terminal-dismiss mutation guards and timeout/cancellation behavior of non-progress reads, select one evidence-backed defect with bounded blast radius, and implement it as the next atomic task. `PWA-STUDIO-EDGE-CD-01` remains an operational follow-up and does not pre-empt the current local-only PWA priority.
+Continue local PWA stability hardening after the terminal-dismiss guard: inspect project-switch ownership of in-flight mutations and timeout/cancellation behavior of non-progress reads, select one evidence-backed defect with bounded blast radius, and implement it as the next atomic task. `PWA-STUDIO-EDGE-CD-01` remains an operational follow-up and does not pre-empt the current local-only PWA priority.
 
 ## Near backlog
 
@@ -234,6 +249,7 @@ Continue local PWA stability hardening after the reconciliation guard: inspect t
 
 ## Validation notes
 
+- `PWA-JOB-DISMISS-DEDUP-09` local evidence: App terminal-dismiss regression `1/1`, complete JobCard suite `4/4`, complete App suite `129/129`, full Studio Vitest `383/383`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. A same-act double click produces one POST; pending action is disabled with `aria-busy`, failure unlocks explicit retry, authoritative jobs reload remains intact, and raw backend detail remains absent from the DOM. The first focused run exposed an incomplete fixture that omitted canonical `terminal_dismissed_at: null`; the corrected fixture and repeated gates pass. No PR, CI, deploy, or live evidence is claimed.
 - `PWA-JOB-RECONCILIATION-DEDUP-08` local evidence: App reconciliation regression `1/1`, complete OutputReconciliationNotice suite `2/2`, complete App suite `128/128`, full Studio Vitest `381/381`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. A same-act double click produces one POST; pending action is disabled with `aria-busy`, failure unlocks explicit retry, the existing authoritative jobs/detail reload remains intact, and raw backend detail remains absent from the DOM. No PR, CI, deploy, Google Drive call, or live evidence is claimed.
 - `PWA-JOB-RETRY-DEDUP-07` local evidence: App provider-cost retry regression `1/1`, complete JobDetailSection suite `8/8`, complete App suite `127/127`, full Studio Vitest `380/380`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. A same-act double click produces one POST; pending action is disabled with `aria-busy`, failure unlocks explicit retry, both explicit partial requests preserve `{confirm_remaining_provider_cost: true}`, and raw backend detail remains absent from the DOM. No PR, CI, deploy, provider call, or live evidence is claimed.
 - `PWA-JOB-CANCEL-DEDUP-06` local evidence: focused cancellation regressions `6/6`, complete App suite `126/126`, complete JobCardActions suite `8/8`, full Studio Vitest `378/378`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. A same-act double click produces one POST; pending queued/processing controls are disabled with `aria-busy`, a failed request unlocks explicit retry, and raw backend detail remains absent from the DOM. No PR, CI, deploy, or live evidence is claimed.
