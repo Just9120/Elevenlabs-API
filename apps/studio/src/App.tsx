@@ -1443,7 +1443,7 @@ function PreparationPanel({
     }
     const requestedIds = currentJobIds.split(",");
     return startJobProgressPolling(
-      async ({ isStopped }) => {
+      async ({ isStopped, signal }) => {
         setProgress((current) => {
           return updateRequestedProgressStates(current, requestedIds, (_jobId, previous) => ({
               loading: !previous?.data,
@@ -1451,7 +1451,9 @@ function PreparationPanel({
               data: previous?.data ?? null,
             }));
         });
-        const raw = await api<unknown>(`/projects/${project.id}/jobs/progress`);
+        const raw = await api<unknown>(`/projects/${project.id}/jobs/progress`, {
+          signal,
+        });
         const parsed = parseProjectJobProgressResponse(raw);
         if (!parsed) throw new Error("Invalid job progress response");
         if (isStopped()) return;

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   JOB_PROGRESS_POLL_INTERVAL_MS,
+  JOB_PROGRESS_REQUEST_TIMEOUT_MS,
   JOB_PROGRESS_RETRY_MAX_DELAY_MS,
   jobProgressRetryDelay,
   startJobProgressPolling,
@@ -49,6 +50,23 @@ describe("job progress polling", () => {
     expect(jobProgressRetryDelay(20)).toBe(JOB_PROGRESS_RETRY_MAX_DELAY_MS);
   });
 
+  it("aborts a stalled request and retries after the bounded failure delay", async () => {
+    const task = vi.fn(({ signal }: { signal: AbortSignal }) => {
+      return new Promise<void>((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(new Error("aborted")));
+      });
+    });
+    const onFailure = vi.fn();
+
+    const stop = startJobProgressPolling(task, onFailure);
+    await vi.advanceTimersByTimeAsync(JOB_PROGRESS_REQUEST_TIMEOUT_MS);
+
+    expect(onFailure).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(JOB_PROGRESS_POLL_INTERVAL_MS);
+    expect(task).toHaveBeenCalledTimes(2);
+    stop();
+  });
+
   it("keeps polling after a successful refresh reconciles missing jobs", async () => {
     const reconcileMissingJobs = vi.fn();
     const task = vi.fn().mockImplementation(async () => {
@@ -84,6 +102,21 @@ describe("job progress polling", () => {
     resolveTask?.();
     await settlePromises();
 
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("aborts the in-flight request when stopped", () => {
+    let requestSignal: AbortSignal | undefined;
+    const task = vi.fn(({ signal }: { signal: AbortSignal }) => {
+      requestSignal = signal;
+      return new Promise<void>(() => undefined);
+    });
+
+    const stop = startJobProgressPolling(task, vi.fn());
+    expect(requestSignal?.aborted).toBe(false);
+
+    stop();
+    expect(requestSignal?.aborted).toBe(true);
     expect(vi.getTimerCount()).toBe(0);
   });
 });

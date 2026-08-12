@@ -2,7 +2,7 @@
 
 ## Current dashboard
 
-- 👉 `PWA-JOB-PROGRESS-POLLING-03 / local source` — initial `/jobs/progress` failures now retry with bounded backoff; recovery restores normal cadence, missing-job reconciliation keeps polling alive, and cleanup prevents stale timers. Local CODE/TEST gates pass; publication and CI are intentionally absent.
+- 👉 `PWA-JOB-PROGRESS-POLLING-03 / local source` — rejected and stalled `/jobs/progress` requests now recover through bounded timeout/backoff; missing-job reconciliation keeps polling alive, and cleanup aborts in-flight work plus stale timers. Local CODE/TEST gates pass; publication and CI are intentionally absent.
 - ✅ `PWA-CATALOG-DURABLE-IDEMPOTENCE-04` — PR #199 merged as `bd8d513`. PR-head and exact-main repository/Studio CI passed. Exact-main component CD deployed web and API; the migration release job was correctly skipped.
 - ✅ `PWA-MIGRATION-ENVIRONMENT-PROBE-02` — exact-main run `30718275780` remained environment-gated for about 20 minutes before the approved no-op job started. This supplies the previously missing required-review evidence without VPS or migration action.
 - ✅ `PWA-WORKER-OPS-01 / current baseline` — manual exact-main worker deployment run `30721775811` succeeded and status run `30721817365` completed for `main@bd8d513`. The operator then completed a real batch transcription successfully. That run is useful bounded production evidence, not proof of every media/options/failure scenario.
@@ -36,7 +36,7 @@
 | --- | ---: | --- |
 | Project, all current scope | **N/A (numerator/denominator are not defined)** | `project-spec.md` does not provide one closed, non-overlapping project-wide acceptance set; inventing a percentage would violate the agreed method. |
 | Stable Colab batch + Realtime | **100% (operator-accepted current scope)** | Four months of stable use cover both implemented Colab contours; this does not assert that no focused gaps remain. |
-| `PWA-JOB-PROGRESS-POLLING-03` | **75% (`3/4`)** | Lifecycle fix, regression coverage, and full applicable local gates are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
+| `PWA-JOB-PROGRESS-POLLING-03` | **80% (`4/5`)** | Rejected/stalled request recovery, bounded backoff/abort cleanup, reconciliation continuity, and full applicable local gates are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
 | Selected Studio v1 baseline source/CI on `main` | **100% (`40/40`)** | PR #203 is merged and exact-main repository/Studio CI passed. This is source/CI, not universal production proof. |
 | Studio batch production usability baseline | **80% (`4/5`)** | Exact source/CI, current schema/API/web, intended worker, and a real successful job are evidenced. The terminal progress/result continuity gate failed in real use. |
 | `PWA-JOB-PROGRESS-02` merged source | **100% (`4/4`)** | Durable terminal visibility/dismissal, concurrent checkpoint continuity, durable N/M parts, and focused validation/documentation are merged with green exact-main CI. |
@@ -60,12 +60,13 @@ The denominators are explicit gates. Local code, a green workflow summary with s
 
 `PWA-JOB-PROGRESS-POLLING-03` acceptance checks:
 
-1. An initial or later transient `/jobs/progress` failure cannot permanently stop polling; retry does not depend on a previously confirmed response.
-2. Consecutive failures use bounded exponential backoff up to 30 seconds; success resets the normal five-second cadence and outages preserve the last confirmed snapshot.
-3. Missing requested jobs trigger authoritative jobs reconciliation without terminating polling; project switch/unmount cancels timers and prevents an in-flight response from scheduling stale work. Focused tests, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
-4. Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+1. An initial or later transient `/jobs/progress` rejection cannot permanently stop polling; retry does not depend on a previously confirmed response.
+2. A stalled request is aborted after 15 seconds and enters the same bounded retry path; project switch/unmount aborts the current request immediately.
+3. Consecutive failures use bounded exponential backoff up to 30 seconds; success resets the normal five-second cadence and outages preserve the last confirmed snapshot.
+4. Missing requested jobs trigger authoritative jobs reconciliation without terminating polling; cleanup prevents stale scheduling. Focused tests, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
+5. Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Check 4 is intentionally open: the current instruction is local implementation without push or PR.
+Checks 1–4 are complete locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Check 5 is intentionally open: the current instruction is local implementation without push or PR.
 
 Non-goals: no API/worker/schema/provider changes, no changed progress semantics, no fabricated within-request percentage, no deploy, and no production mutation.
 
@@ -156,7 +157,7 @@ Continue local PWA stability hardening after the polling commit: inspect one adj
 
 ## Validation notes
 
-- `PWA-JOB-PROGRESS-POLLING-03` local evidence: focused Vitest `5/5`; full Studio Vitest `367/367`; TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. The first Vite attempt exposed an incomplete local pnpm link layout (`workbox-window` unresolved); an npm-compatible hoisted local `node_modules` layout fixed the environment without manifest/lockfile changes, and the repeated production build passed. No PR, CI, deploy, or live evidence is claimed.
+- `PWA-JOB-PROGRESS-POLLING-03` local evidence: focused Vitest `7/7`; full Studio Vitest `369/369`; TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. Fake-timer evidence covers initial rejection, bounded exponential backoff, cadence reset, 15-second stalled-request abort, retry after timeout, reconciliation continuity, timer cleanup, and in-flight abort. The first Vite attempt exposed an incomplete local pnpm link layout (`workbox-window` unresolved); an npm-compatible hoisted local `node_modules` layout fixed the environment without manifest/lockfile changes. No PR, CI, deploy, or live evidence is claimed.
 - Rollout evidence branch: `codex/provider-resume-rollout-evidence`, based on clean `main@66fb098`.
 - Incident evidence: a real two-project split completed technically; a later split job reached internal provider part `1/2`, then failed on the second part. The aggregate error hid the fixed safe provider category and no continuation action was available.
 - Source evidence: focused backend/recovery tests passed (`130 passed`); portable Python passed (`925 passed, 5 skipped`); full Studio frontend Vitest passed (`332 passed`); TypeScript, ESLint, Vite/PWA production build, migration-release tests (`11 passed`), lightweight repository checks, and `git diff --check` passed. PR #202 run `31253629976` and browser-E2E run `31253629969` exposed that the original 33-character Alembic identifier exceeded the existing `alembic_version.version_num VARCHAR(32)` limit; the candidate was narrowed to the 30-character `0020_provider_part_checkpoints`. Service-backed reruns `31253942235` (`checks`) and `31253942231` (`studio`, `browser-e2e`) passed, followed by exact-main runs `31254860835` and `31254860818`. Production run `31255557765` applied `0020` with verified snapshot `91f483f8bf45` and exact API deployment; worker run `31255817558` deployed exact commit `66fb098` and passed identity/schema/health gates. Live continuation remains separate.

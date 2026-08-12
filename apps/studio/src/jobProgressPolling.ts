@@ -1,8 +1,10 @@
 export const JOB_PROGRESS_POLL_INTERVAL_MS = 5_000;
 export const JOB_PROGRESS_RETRY_MAX_DELAY_MS = 30_000;
+export const JOB_PROGRESS_REQUEST_TIMEOUT_MS = 15_000;
 
 type PollingContext = {
   isStopped: () => boolean;
+  signal: AbortSignal;
 };
 
 type TimerDependencies = {
@@ -30,8 +32,9 @@ export function startJobProgressPolling(
 ): () => void {
   let stopped = false;
   let timerId: number | undefined;
+  let requestTimeoutId: number | undefined;
+  let requestController: AbortController | undefined;
   let consecutiveFailures = 0;
-  const context: PollingContext = { isStopped: () => stopped };
 
   const schedule = (delayMs: number) => {
     if (stopped) return;
@@ -42,8 +45,14 @@ export function startJobProgressPolling(
   };
 
   const refresh = async () => {
+    const controller = new AbortController();
+    requestController = controller;
+    requestTimeoutId = timerDependencies.setTimeout(
+      () => controller.abort(),
+      JOB_PROGRESS_REQUEST_TIMEOUT_MS,
+    );
     try {
-      await task(context);
+      await task({ isStopped: () => stopped, signal: controller.signal });
       if (stopped) return;
       consecutiveFailures = 0;
       schedule(JOB_PROGRESS_POLL_INTERVAL_MS);
@@ -52,6 +61,12 @@ export function startJobProgressPolling(
       consecutiveFailures += 1;
       onFailure();
       schedule(jobProgressRetryDelay(consecutiveFailures));
+    } finally {
+      if (requestTimeoutId !== undefined) {
+        timerDependencies.clearTimeout(requestTimeoutId);
+        requestTimeoutId = undefined;
+      }
+      if (requestController === controller) requestController = undefined;
     }
   };
 
@@ -60,5 +75,11 @@ export function startJobProgressPolling(
   return () => {
     stopped = true;
     if (timerId !== undefined) timerDependencies.clearTimeout(timerId);
+    if (requestTimeoutId !== undefined) {
+      timerDependencies.clearTimeout(requestTimeoutId);
+      requestTimeoutId = undefined;
+    }
+    requestController?.abort();
+    requestController = undefined;
   };
 }
