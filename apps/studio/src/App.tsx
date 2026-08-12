@@ -97,6 +97,7 @@ import {
   updateRequestedProgressStates,
   type JobProgressState,
 } from "./jobProgressModel";
+import { startJobProgressPolling } from "./jobProgressPolling";
 import { groupVisibleJobs } from "./jobVisibilityModel";
 import { TranscriptionAnalyticsPanel } from "./TranscriptionAnalyticsPanel";
 import { TranscriptCatalogMigrationPanel } from "./TranscriptCatalogMigrationPanel";
@@ -1440,24 +1441,20 @@ function PreparationPanel({
     if (!currentJobIds) {
       return;
     }
-    let stopped = false;
-    let timer: number | undefined;
-    let confirmedResponse = false;
     const requestedIds = currentJobIds.split(",");
-    const refresh = async () => {
-      setProgress((current) => {
-        return updateRequestedProgressStates(current, requestedIds, (_jobId, previous) => ({
-            loading: !previous?.data,
-            error: "",
-            data: previous?.data ?? null,
-          }));
-      });
-      try {
+    return startJobProgressPolling(
+      async ({ isStopped }) => {
+        setProgress((current) => {
+          return updateRequestedProgressStates(current, requestedIds, (_jobId, previous) => ({
+              loading: !previous?.data,
+              error: "",
+              data: previous?.data ?? null,
+            }));
+        });
         const raw = await api<unknown>(`/projects/${project.id}/jobs/progress`);
         const parsed = parseProjectJobProgressResponse(raw);
         if (!parsed) throw new Error("Invalid job progress response");
-        if (stopped) return;
-        confirmedResponse = true;
+        if (isStopped()) return;
         const byId = new Map(parsed.jobs.map((item) => [item.job_id, item]));
         setProgress((current) => {
           return updateRequestedProgressStates(current, requestedIds, (jobId, previous) => ({
@@ -1467,12 +1464,10 @@ function PreparationPanel({
             }));
         });
         if (requestedIds.some((jobId) => !byId.has(jobId))) {
-          reloadJobsRef.current(project.id);
-          return;
+          void reloadJobsRef.current(project.id);
         }
-        timer = window.setTimeout(refresh, 5000);
-      } catch {
-        if (stopped) return;
+      },
+      () => {
         setProgress((current) => {
           return updateRequestedProgressStates(current, requestedIds, (_jobId, previous) => ({
               loading: false,
@@ -1480,14 +1475,8 @@ function PreparationPanel({
               data: previous?.data ?? null,
             }));
         });
-        if (confirmedResponse) timer = window.setTimeout(refresh, 10000);
-      }
-    };
-    void refresh();
-    return () => {
-      stopped = true;
-      if (timer !== undefined) window.clearTimeout(timer);
-    };
+      },
+    );
   }, [currentJobIds, project.id]);
   async function dismissTerminalJob(jobId: string) {
     setMessage("");
