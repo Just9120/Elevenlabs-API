@@ -270,6 +270,7 @@ type OutputFixtureOptions = {
   outputsOk?: boolean;
   detailErrorBody?: unknown;
   outputsErrorBody?: unknown;
+  retryResponse?: unknown;
 };
 
 function installFocusedOutputFixture(options: OutputFixtureOptions = {}) {
@@ -378,6 +379,12 @@ function installFocusedOutputFixture(options: OutputFixtureOptions = {}) {
             },
           ],
         });
+      if (
+        options.retryResponse !== undefined &&
+        url.endsWith("/api/jobs/job-focused/retry") &&
+        !init?.method
+      )
+        return json(options.retryResponse);
       if (url.endsWith("/api/jobs/job-focused/outputs"))
         return options.outputsOk === false
           ? json(
@@ -6201,6 +6208,101 @@ describe("Studio PWA", () => {
     expect(document.body.textContent).not.toContain("raw cancellation failure");
   });
 
+  it("deduplicates provider-cost retry and unlocks after failure", async () => {
+    const retryResponse = {
+      job_id: "job-focused",
+      job_status: "failed",
+      available: true,
+      reason: "partial_provider_resume_available",
+      attempt_count: 1,
+      max_attempts: 3,
+      missing_output_count: 1,
+      retry_safe_source_count: 1,
+      resumable_provider_part_count: 1,
+      provider_total_part_count: 2,
+      provider_failure_code: "provider_rate_limited",
+    };
+    installFocusedOutputFixture({ jobStatus: "failed", retryResponse });
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const retryResolvers: Array<(response: Response) => void> = [];
+    let retryCalls = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        String(url).endsWith("/api/jobs/job-focused/retry") &&
+        init?.method === "POST"
+      ) {
+        retryCalls += 1;
+        return new Promise<Response>((resolve) => {
+          retryResolvers.push(resolve);
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({});
+    });
+
+    await openFocusedJobsList();
+    await userEvent.click(screen.getByRole("button", { name: "Открыть" }));
+    const retryButton = await screen.findByRole("button", {
+      name: "Продолжить оставшиеся части",
+    });
+    act(() => {
+      retryButton.click();
+      retryButton.click();
+    });
+
+    await waitFor(() => expect(retryCalls).toBe(1));
+    expect(retryButton).toBeDisabled();
+    expect(retryButton).toHaveAttribute("aria-busy", "true");
+
+    await act(async () => {
+      retryResolvers[0]?.(
+        await json({ detail: "raw provider retry failure" }, false, 500),
+      );
+    });
+    expect(
+      await screen.findByText("Повтор сейчас недоступен."),
+    ).toBeInTheDocument();
+    const unlockedButton = screen.getByRole("button", {
+      name: "Продолжить оставшиеся части",
+    });
+    await waitFor(() => expect(unlockedButton).toBeEnabled());
+
+    await userEvent.click(unlockedButton);
+    await waitFor(() => expect(retryCalls).toBe(2));
+    retryResolvers[1]?.(
+      await json({
+        ...retryResponse,
+        job_status: "queued",
+        available: false,
+        reason: "already_queued",
+        attempt_count: 2,
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(
+          ([url]) => url === "/api/projects/p1/jobs",
+        ).length,
+      ).toBeGreaterThan(1),
+    );
+
+    const retryPosts = (
+      fetch as unknown as ReturnType<typeof vi.fn>
+    ).mock.calls.filter(
+      ([url, init]) =>
+        url === "/api/jobs/job-focused/retry" && init?.method === "POST",
+    );
+    expect(retryPosts).toHaveLength(2);
+    expect(
+      retryPosts.map(([, init]) => JSON.parse(String(init?.body))),
+    ).toEqual([
+      { confirm_remaining_provider_cost: true },
+      { confirm_remaining_provider_cost: true },
+    ]);
+    expect(document.body.textContent).not.toContain(
+      "raw provider retry failure",
+    );
+  });
   it("renders the explicit empty job outputs state without output links", async () => {
     installFocusedOutputFixture({
       jobStatus: "queued",

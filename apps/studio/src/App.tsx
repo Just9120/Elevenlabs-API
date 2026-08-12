@@ -503,6 +503,7 @@ function PreparationPanel({
   const reloadJobsRef = useRef(onReloadJobs);
   const jobRequestEpochsRef = useRef(new Map<string, number>());
   const cancellingJobIdsRef = useRef(new Set<string>());
+  const retryingJobIdsRef = useRef(new Set<string>());
   useEffect(() => {
     localUploadCsrfRef.current = csrf;
   }, [csrf]);
@@ -521,6 +522,7 @@ function PreparationPanel({
     setMessage("");
     setProgress({});
     cancellingJobIdsRef.current.clear();
+    retryingJobIdsRef.current.clear();
     setCancellingJobIds(new Set());
     setLanguageMode(DEFAULT_TRANSCRIPTION_LANGUAGE_MODE);
     setDiarizationEnabled(false);
@@ -1459,6 +1461,8 @@ function PreparationPanel({
   }
 
   async function retryJob(jobId: string) {
+    if (retryingJobIdsRef.current.has(jobId)) return;
+    retryingJobIdsRef.current.add(jobId);
     setRetries((current) => ({ ...current, [jobId]: { ...(current[jobId] ?? { loading:false, error:"", message:"", data:null }), posting: true, error: "", message: "" } }));
     try {
       const partialMode = ["partial_provider_resume_available", "partial_provider_restart_available"].includes(retries[jobId]?.data?.reason ?? "");
@@ -1473,6 +1477,8 @@ function PreparationPanel({
       onReloadJobs(project.id);
     } catch {
       setRetries((current) => ({ ...current, [jobId]: { ...(current[jobId] ?? { loading:false, message:"", data:null }), posting: false, error: "Повтор сейчас недоступен." } }));
+    } finally {
+      retryingJobIdsRef.current.delete(jobId);
     }
   }
 

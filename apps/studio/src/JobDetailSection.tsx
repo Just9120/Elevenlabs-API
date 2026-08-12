@@ -77,6 +77,7 @@ export function JobDetailSection({
                 type="button"
                 onClick={() => void onRetry(job.id)}
                 disabled={retry.posting}
+                aria-busy={retry.posting}
               >
                 {partialResume
                   ? "Продолжить оставшиеся части"
