@@ -2,7 +2,7 @@
 
 ## Current dashboard
 
-- 👉 `DEPENDENCY-AUDIT-02 / current branch` — ветка `codex/dependency-audit-remediation` создана от чистого `main@7871b31`. Минимальные исправления закрывают шесть актуальных advisories через `brace-expansion 5.0.9`, `fast-uri 3.1.5`, `nanoid 3.3.17` и `cryptography 50.0.0`; локальные Node/Python audits и применимые test/build gates зелёные, PR/CI evidence ещё отсутствует.
+- 👉 `DEPENDENCY-AUDIT-02 / current branch` — ветка `codex/dependency-audit-remediation` создана от чистого `main@7871b31`. Минимальные исправления закрывают шесть актуальных advisories через `brace-expansion 5.0.9`, `fast-uri 3.1.5`, `nanoid 3.3.17` и `cryptography 50.0.0`; local gates, PR-head CI и отдельный Dependency Audit зелёные, exact-main evidence ещё отсутствует.
 - ✅ `PWA-CATALOG-DURABLE-IDEMPOTENCE-04` — PR #199 merged as `bd8d513`. PR-head and exact-main repository/Studio CI passed. Exact-main component CD deployed web and API; the migration release job was correctly skipped.
 - ✅ `PWA-MIGRATION-ENVIRONMENT-PROBE-02` — exact-main run `30718275780` remained environment-gated for about 20 minutes before the approved no-op job started. This supplies the previously missing required-review evidence without VPS or migration action.
 - ✅ `PWA-WORKER-OPS-01 / current baseline` — manual exact-main worker deployment run `30721775811` succeeded and status run `30721817365` completed for `main@bd8d513`. The operator then completed a real batch transcription successfully. That run is useful bounded production evidence, not proof of every media/options/failure scenario.
@@ -34,7 +34,7 @@
 
 | Contour/dimension | Evidence-based estimate | Meaning |
 | --- | ---: | --- |
-| `DEPENDENCY-AUDIT-02` | **75% (`3/4`)** | Уязвимые версии устранены, generated locks/constraints синхронизированы, локальные audits/tests/build зелёные; PR-head и exact-main GitHub evidence составляют оставшийся критерий. |
+| `DEPENDENCY-AUDIT-02` | **75% (`3/4`)** | Уязвимые версии устранены, generated locks/constraints синхронизированы, local gates, PR-head CI и отдельный audit зелёные; exact-main GitHub evidence остаётся незакрытой частью критерия 4. |
 | Stable Colab batch | **100%** | Accepted current scope and operational fallback. |
 | Selected Studio v1 baseline source/CI on `main` | **100% (`40/40`)** | PR #203 is merged and exact-main repository/Studio CI passed. This is source/CI, not universal production proof. |
 | Studio batch production usability baseline | **80% (`4/5`)** | Exact source/CI, current schema/API/web, intended worker, and a real successful job are evidenced. The terminal progress/result continuity gate failed in real use. |
@@ -57,7 +57,7 @@ The denominators are explicit gates. Local code, a green workflow summary with s
 
 | Item | SPEC | CODE | TEST | CI | DEPLOY | LIVE |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `DEPENDENCY-AUDIT-02` | N/A | ✅ | ✅ | — | N/A | N/A |
+| `DEPENDENCY-AUDIT-02` | N/A | ✅ | ✅ | ◐ | N/A | N/A |
 
 Для `DEPENDENCY-AUDIT-02` процент — невзвешенная доля выполненных acceptance criteria: `3/4 = 75%`. Evidence является отдельным READY gate и не подменяет этот расчёт.
 
@@ -71,7 +71,7 @@ The denominators are explicit gates. Local code, a green workflow summary with s
 3. Локально проходят `npm audit`, `pip-audit`, frontend lint/Vitest/build, portable Python suite, lightweight repository checks и `git diff --check`.
 4. Atomic PR получает green PR-head CI и отдельный Dependency Audit; после merge подтверждаются exact-main CI и exact-main Dependency Audit.
 
-Checks 1–3 выполнены. Check 4 остаётся открытым до публикации ветки и получения GitHub evidence. Задача не меняет product acceptance criteria, runtime behavior, schema, deployment topology или проценты функциональных эпиков Colab/PWA.
+Checks 1–3 выполнены. В check 4 PR-head CI runs `31621305426` и `31621305604`, а также Dependency Audit run `31621388211` зелёные; exact-main CI/audit остаются открытыми. Задача не меняет product acceptance criteria, runtime behavior, schema, deployment topology или проценты функциональных эпиков Colab/PWA.
 
 `PWA-STUDIO-EDGE-CD-01` acceptance checks:
 
@@ -160,7 +160,7 @@ Checks 1–5 are merged and the exact-main web deployment is complete. The live 
 
 - PR #202 is merged with green exact-main CI. Production migration `0020`, matching API, and exact worker identity are evidenced; the explicit live-continuation behavior is not yet production-canary proven.
 - PostgreSQL integration tests still need the service-backed CI environment. Focused local tests do not replace CI or rollout evidence.
-- `DEPENDENCY-AUDIT-02` локально закрывает известные advisories, но CI Evidence отсутствует до push/PR; READY пока запрещён.
+- `DEPENDENCY-AUDIT-02` закрывает известные advisories и имеет green PR-head CI/audit, но exact-main CI/audit Evidence отсутствует до merge; READY пока запрещён.
 - Exact part progress is available only for media split into multiple provider requests. The current synchronous provider call exposes no honest within-part percentage.
 - Studio Realtime's primary tab/display-audio path is live-evidenced, but microphone-only, mixed, and negative lifecycle canaries remain absent.
 - Studio edge CD is merged and its dedicated VPS trust boundary is bootstrapped; one protected exact-main release and its browser canary remain open.
@@ -170,7 +170,7 @@ Checks 1–5 are merged and the exact-main web deployment is complete. The live 
 
 - Rollout evidence branch: `codex/provider-resume-rollout-evidence`, based on clean `main@66fb098`.
 - Incident evidence: a real two-project split completed technically; a later split job reached internal provider part `1/2`, then failed on the second part. The aggregate error hid the fixed safe provider category and no continuation action was available.
-- Dependency remediation branch: `codex/dependency-audit-remediation`, base `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Локально: `npm audit` — 0 vulnerabilities; `pip-audit --strict` — no known vulnerabilities; frontend lint, `362 passed` Vitest и production build; portable Python — `952 passed, 6 skipped`; lightweight repository checks и `git diff --check` прошли. PostgreSQL service-backed и GitHub CI evidence остаются отдельными gates.
+- Dependency remediation branch: `codex/dependency-audit-remediation`, base `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Локально: `npm audit` — 0 vulnerabilities; `pip-audit --strict` — no known vulnerabilities; frontend lint, `362 passed` Vitest и production build; portable Python — `952 passed, 6 skipped`; lightweight repository checks и `git diff --check` прошли. На code commit `021226e`: repository CI run `31621305426` green; Studio run `31621305604` green для `studio` и `browser-e2e` (failure-artifact upload ожидаемо skipped); manual Dependency Audit run `31621388211` green для Node и Python. Exact-main evidence остаётся отдельным gate.
 - Source evidence: focused backend/recovery tests passed (`130 passed`); portable Python passed (`925 passed, 5 skipped`); full Studio frontend Vitest passed (`332 passed`); TypeScript, ESLint, Vite/PWA production build, migration-release tests (`11 passed`), lightweight repository checks, and `git diff --check` passed. PR #202 run `31253629976` and browser-E2E run `31253629969` exposed that the original 33-character Alembic identifier exceeded the existing `alembic_version.version_num VARCHAR(32)` limit; the candidate was narrowed to the 30-character `0020_provider_part_checkpoints`. Service-backed reruns `31253942235` (`checks`) and `31253942231` (`studio`, `browser-e2e`) passed, followed by exact-main runs `31254860835` and `31254860818`. Production run `31255557765` applied `0020` with verified snapshot `91f483f8bf45` and exact API deployment; worker run `31255817558` deployed exact commit `66fb098` and passed identity/schema/health gates. Live continuation remains separate.
 - Realtime evidence: PR #203 merged as exact main `8a306f8`; runs `31300547847` (repository CI), `31300547843` (Studio CI/browser E2E), and `31300547844` (web/API component CD) passed. Migration and worker jobs were skipped. After separately correcting active host Permissions-Policy and CSP drift, a real Chrome tab/display-audio session reached live recognition, confirmed fragment/symbol counters increased, and explicit Stop completed cleanly. No transcript text or capability value is retained as evidence.
 - Edge-CD branch evidence: focused header/release/workflow tests pass locally; both shell programs pass `bash -n`, both workflows parse as YAML, and `git diff --check` passes. This is source evidence only; no VPS bootstrap or release is claimed.
