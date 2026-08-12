@@ -2,7 +2,8 @@
 
 ## Current dashboard
 
-- 👉 `PWA-JOB-READ-TIMEOUT-10 / local source` — job detail, outputs, retry metadata, and reconciliation metadata reads now have a 15-second bound, same-resource supersede abort, and teardown cancellation; safe detail/output failures replace indefinite loading. Local CODE/TEST gates pass; publication and CI are intentionally absent.
+- 👉 `PWA-PROJECT-COLLECTION-TIMEOUT-11 / local source` — same-project sources/jobs collection reads now have a 15-second bound, same-resource supersede abort, and teardown cancellation; failed refreshes preserve last-known items and expose safe Russian messages. Local CODE/TEST gates pass; publication and CI are intentionally absent.
+- 🟦 `PWA-JOB-READ-TIMEOUT-10 / local source` — job detail, outputs, retry metadata, and reconciliation metadata reads now have a 15-second bound, same-resource supersede abort, and teardown cancellation; safe detail/output failures replace indefinite loading. Local CODE/TEST gates pass; publication and CI are intentionally absent.
 - 🟦 `PWA-JOB-DISMISS-DEDUP-09 / local source` — durable terminal dismissal now has a synchronous per-job in-flight guard plus disabled/aria-busy UI; safe failure unlocks one explicit retry without exposing raw backend detail. Local CODE/TEST gates pass; publication and CI are intentionally absent.
 - 🟦 `PWA-JOB-RECONCILIATION-DEDUP-08 / local source` — explicit Google Drive reconciliation now has a synchronous per-job in-flight guard; pending action is disabled/aria-busy and safe failure unlocks one explicit retry. Local CODE/TEST gates pass; publication and CI are intentionally absent.
 - 🟦 `PWA-JOB-RETRY-DEDUP-07 / local source` — provider-cost-sensitive retry now has a synchronous per-job in-flight guard; pending action is disabled/aria-busy and safe failure unlocks one explicit retry. Local CODE/TEST gates pass; publication and CI are intentionally absent.
@@ -43,6 +44,7 @@
 | --- | ---: | --- |
 | Project, all current scope | **N/A (numerator/denominator are not defined)** | `project-spec.md` does not provide one closed, non-overlapping project-wide acceptance set; inventing a percentage would violate the agreed method. |
 | Stable Colab batch + Realtime | **100% (operator-accepted current scope)** | Four months of stable use cover both implemented Colab contours; this does not assert that no focused gaps remain. |
+| `PWA-PROJECT-COLLECTION-TIMEOUT-11` | **75% (`3/4`)** | Bounded source/job collection reads, safe cancellation and last-known-data preservation, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
 | `PWA-JOB-READ-TIMEOUT-10` | **75% (`3/4`)** | Four bounded job-read paths, safe timeout/supersede/teardown behavior, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
 | `PWA-JOB-DISMISS-DEDUP-09` | **75% (`3/4`)** | Terminal-dismiss mutation deduplication, accessible pending/failure-unlock behavior, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
 | `PWA-JOB-RECONCILIATION-DEDUP-08` | **75% (`3/4`)** | Reconciliation mutation deduplication, accessible pending/failure-unlock behavior, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
@@ -72,6 +74,21 @@ The denominators are explicit gates. Local code, a green workflow summary with s
 
 ## Active item
 
+`PWA-PROJECT-COLLECTION-TIMEOUT-11` acceptance checks:
+
+1. Same-project sources and jobs collection GETs receive independent AbortSignals and cannot remain pending beyond 15 seconds; only the matching project/resource key is affected.
+2. A newer collection read aborts the older same-key request without committing stale failure or emitting an intentional-abort diagnostic. ProjectsPage teardown invalidates and aborts all active collection reads; real timeout/failure resolves loading to safe Russian UI while preserving last-known successfully loaded items.
+3. Focused collection-timeout and failed-refresh preservation regressions, complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
+4. Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+
+Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Check 4 is intentionally open under the current local-only instruction.
+
+Non-goals: no mutation timeout or retry, no global API timeout, no backend/API/schema change, no project-list or Google-connection behavior change, deploy, or production mutation.
+
+## Previous local items
+
+### Job detail read timeouts
+
 `PWA-JOB-READ-TIMEOUT-10` acceptance checks:
 
 1. Job detail, outputs, retry metadata, and output-reconciliation metadata GETs receive independent AbortSignals and cannot remain pending beyond 15 seconds; only the matching resource/job key is affected.
@@ -83,7 +100,6 @@ Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `
 
 Non-goals: no mutation timeout or retry, no global API timeout, no backend/API/schema change, no progress-polling behavior change, deploy, or production mutation.
 
-## Previous local items
 
 ### Terminal dismissal deduplication
 
@@ -243,7 +259,7 @@ Checks 1–5 are merged and the exact-main web deployment is complete. The live 
 
 ## Next item
 
-Continue local PWA stability hardening after bounded job-detail reads: add bounded latest-request cancellation to same-project sources/jobs collection reads, then separately design project-switch ownership for in-flight mutations without weakening backend authority. `PWA-STUDIO-EDGE-CD-01` remains an operational follow-up and does not pre-empt the current local-only PWA priority.
+Continue local PWA stability hardening after bounded project collection reads: design and implement project-scoped ownership for in-flight mutations so switching projects cannot lose local pending authority or enable a duplicate user action, without weakening backend idempotency/authority. `PWA-STUDIO-EDGE-CD-01` remains an operational follow-up and does not pre-empt the current local-only PWA priority.
 
 ## Near backlog
 
@@ -264,6 +280,7 @@ Continue local PWA stability hardening after bounded job-detail reads: add bound
 
 ## Validation notes
 
+- `PWA-PROJECT-COLLECTION-TIMEOUT-11` local evidence: focused collection timeout and failed-refresh preservation regressions `2/2`, complete App suite `131/131`, full Studio Vitest `388/388`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. Sources/jobs collection requests receive independent signals and abort after 15 seconds; teardown/supersede cancellation is silent, while real failure resolves loading to safe Russian UI and retains last-known items. The production timeout remains 15 seconds; tests accelerate only that exact timer. No PR, CI, deploy, or live evidence is claimed.
 - `PWA-JOB-READ-TIMEOUT-10` local evidence: latestRequest ordering/abort/timeout/teardown suite `6/6`, App stalled-read regression `1/1`, complete App suite `130/130`, full Studio Vitest `387/387`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. All four job-read signals abort at 15 seconds, detail/output loading resolves to safe retryable UI, a newer same-key request cancels its predecessor without stale failure, and teardown cancellation is explicitly ignored by API diagnostics while timeout aborts remain observable. The first App run exposed the existing terminal auto-load path and was narrowed to a processing-job fixture so timeout and supersede cases remain independent. No PR, CI, deploy, or live evidence is claimed.
 - `PWA-JOB-DISMISS-DEDUP-09` local evidence: App terminal-dismiss regression `1/1`, complete JobCard suite `4/4`, complete App suite `129/129`, full Studio Vitest `383/383`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. A same-act double click produces one POST; pending action is disabled with `aria-busy`, failure unlocks explicit retry, authoritative jobs reload remains intact, and raw backend detail remains absent from the DOM. The first focused run exposed an incomplete fixture that omitted canonical `terminal_dismissed_at: null`; the corrected fixture and repeated gates pass. No PR, CI, deploy, or live evidence is claimed.
 - `PWA-JOB-RECONCILIATION-DEDUP-08` local evidence: App reconciliation regression `1/1`, complete OutputReconciliationNotice suite `2/2`, complete App suite `128/128`, full Studio Vitest `381/381`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. A same-act double click produces one POST; pending action is disabled with `aria-busy`, failure unlocks explicit retry, the existing authoritative jobs/detail reload remains intact, and raw backend detail remains absent from the DOM. No PR, CI, deploy, Google Drive call, or live evidence is claimed.

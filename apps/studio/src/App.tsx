@@ -22,9 +22,7 @@ import {
   requestJson,
 } from "./apiClient";
 import {
-  beginLatestRequest,
   cancelLatestRequests,
-  isLatestRequest,
   LATEST_REQUEST_CANCEL_REASON,
   settleLatestRequest,
 } from "./latestRequest";
@@ -391,6 +389,7 @@ function isExpectedCompletedLocalSource(
 }
 const ELEVENLABS_CREDENTIAL_SESSION_KEY = "studio.elevenlabsCredentialId";
 const JOB_DETAIL_REQUEST_TIMEOUT_MS = 15_000;
+const PROJECT_COLLECTION_REQUEST_TIMEOUT_MS = 15_000;
 async function bootstrapSession(): Promise<{
   user: User;
   csrf: string;
@@ -2686,6 +2685,7 @@ function ProjectsPage({
     Record<string, string[]>
   >({});
   const requestEpochsRef = useRef(new Map<string, number>());
+  const requestControllersRef = useRef(new Map<string, AbortController>());
   const setPickerBusy = (busy: boolean) => {
     setActivePicker(busy);
   };
@@ -2715,6 +2715,14 @@ function ProjectsPage({
       .finally(() => setLoading(false));
   };
   useEffect(load, []);
+  useEffect(
+    () => () =>
+      cancelLatestRequests(
+        requestEpochsRef.current,
+        requestControllersRef.current,
+      ),
+    [],
+  );
   useEffect(() => {
     if (!requestedProjectId) return;
     if (projects.some((project) => project.id === requestedProjectId)) {
@@ -2745,81 +2753,92 @@ function ProjectsPage({
       .catch(() => setGoogleConnection(null));
   }, []);
   const loadSources = (projectId: string) => {
-    const requestKey = "sources:" + projectId;
-    const requestEpoch = beginLatestRequest(requestEpochsRef.current, requestKey);
-    setSources((v) => ({
-      ...v,
+    const requestKey = `sources:${projectId}`;
+    setSources((current) => ({
+      ...current,
       [projectId]: {
-        ...(v[projectId] ?? emptySourceState),
+        ...(current[projectId] ?? emptySourceState),
         loading: true,
         error: "",
       },
     }));
-    api<{ sources: Source[] }>(`/projects/${projectId}/sources`)
-      .then((r) =>
-        isLatestRequest(requestEpochsRef.current, requestKey, requestEpoch) &&
-        setSources((v) => ({
-          ...v,
+    void settleLatestRequest(
+      requestEpochsRef.current,
+      requestKey,
+      (signal) =>
+        api<{ sources: Source[] }>(`/projects/${projectId}/sources`, {
+          signal,
+          ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+        }),
+      (result) =>
+        setSources((current) => ({
+          ...current,
           [projectId]: {
             loading: false,
             error: "",
             loaded: true,
-            items: r.sources,
+            items: result.sources,
           },
         })),
-      )
-      .catch((err) =>
-        isLatestRequest(requestEpochsRef.current, requestKey, requestEpoch) &&
-        setSources((v) => ({
-          ...v,
+      () =>
+        setSources((current) => ({
+          ...current,
           [projectId]: {
             loading: false,
-            error:
-              err instanceof Error
-                ? err.message
-                : "Не удалось загрузить sources.",
+            error: "Не удалось загрузить файлы проекта.",
             loaded: true,
-            items: [],
+            items: current[projectId]?.items ?? [],
           },
         })),
-      );
+      {
+        controllers: requestControllersRef.current,
+        timeoutMs: PROJECT_COLLECTION_REQUEST_TIMEOUT_MS,
+      },
+    );
   };
   const loadJobs = (projectId: string) => {
-    const requestKey = "jobs:" + projectId;
-    const requestEpoch = beginLatestRequest(requestEpochsRef.current, requestKey);
-    setJobs((v) => ({
-      ...v,
+    const requestKey = `jobs:${projectId}`;
+    setJobs((current) => ({
+      ...current,
       [projectId]: {
-        ...(v[projectId] ?? emptyJobState),
+        ...(current[projectId] ?? emptyJobState),
         loading: true,
         error: "",
       },
     }));
-    api<{ jobs: TranscriptionJob[] }>(`/projects/${projectId}/jobs`)
-      .then((r) =>
-        isLatestRequest(requestEpochsRef.current, requestKey, requestEpoch) &&
-        setJobs((v) => ({
-          ...v,
+    void settleLatestRequest(
+      requestEpochsRef.current,
+      requestKey,
+      (signal) =>
+        api<{ jobs: TranscriptionJob[] }>(`/projects/${projectId}/jobs`, {
+          signal,
+          ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+        }),
+      (result) =>
+        setJobs((current) => ({
+          ...current,
           [projectId]: {
             loading: false,
             error: "",
             loaded: true,
-            items: r.jobs,
+            items: result.jobs,
           },
         })),
-      )
-      .catch(() =>
-        isLatestRequest(requestEpochsRef.current, requestKey, requestEpoch) &&
-        setJobs((v) => ({
-          ...v,
+      () =>
+        setJobs((current) => ({
+          ...current,
           [projectId]: {
             loading: false,
-            error: "Не удалось загрузить jobs.",
+            error: "Не удалось загрузить задачи проекта.",
             loaded: true,
-            items: [],
+            items: current[projectId]?.items ?? [],
           },
         })),
-      );
+      {
+        controllers: requestControllersRef.current,
+        timeoutMs: PROJECT_COLLECTION_REQUEST_TIMEOUT_MS,
+      },
+    );
   };
   async function save(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();

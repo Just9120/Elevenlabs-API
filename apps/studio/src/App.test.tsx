@@ -1371,10 +1371,17 @@ describe("Studio PWA", () => {
     ).toBeInTheDocument();
   });
 
-  it("keeps a source visible when a successful delete response is inconsistent", async () => {
+  it("keeps a source visible when an inconsistent delete reload fails", async () => {
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = baseFetch.getMockImplementation();
+    let failSourceReload = false;
     baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        failSourceReload &&
+        url.endsWith("/api/projects/p1/sources") &&
+        !init?.method
+      )
+        return json({ detail: "raw source reload failure" }, false, 500);
       if (
         url.endsWith("/api/sources/s-local") &&
         init?.method === "DELETE"
@@ -1389,6 +1396,8 @@ describe("Studio PWA", () => {
     renderApp();
     await openProjectsPage();
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
+    expect(await screen.findByText("local-temp.ogg")).toBeInTheDocument();
+    failSourceReload = true;
     await userEvent.click(
       screen.getByRole("button", { name: "Убрать из проекта: local-temp.ogg" }),
     );
@@ -1398,7 +1407,11 @@ describe("Studio PWA", () => {
         "Сервер вернул несогласованное подтверждение удаления. Список файлов обновлён.",
       ),
     ).toBeInTheDocument();
+    expect(
+      await screen.findByText("Не удалось загрузить файлы проекта."),
+    ).toBeInTheDocument();
     expect(screen.getByText("local-temp.ogg")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("raw source reload failure");
     expect(
       screen.queryByText(/Временная копия поставлена в очередь/),
     ).not.toBeInTheDocument();
@@ -5972,6 +5985,58 @@ describe("Studio PWA", () => {
     ).toBe(false);
     expect(window.localStorage.length).toBe(0);
     expect(window.sessionStorage.length).toBe(0);
+  });
+
+  it("bounds stalled project source and job collection reads", async () => {
+    installFocusedOutputFixture({ jobStatus: "completed" });
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const stalledPaths = new Set([
+      "/api/projects/p1/sources",
+      "/api/projects/p1/jobs",
+    ]);
+    const requestSignals: AbortSignal[] = [];
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (stalledPaths.has(String(url)) && !init?.method) {
+        const signal = init?.signal;
+        if (!signal) throw new Error("project collection signal is missing");
+        requestSignals.push(signal);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({});
+    });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 15_000 ? 0 : delay,
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      renderApp();
+      await openProjectsPage();
+      await screen.findByRole("form", {
+        name: "Композитор пакетных задач",
+      });
+
+      expect(
+        await screen.findByText("Не удалось загрузить файлы проекта."),
+      ).toBeInTheDocument();
+      expect(
+        await screen.findByText("Не удалось загрузить задачи проекта."),
+      ).toBeInTheDocument();
+      expect(requestSignals).toHaveLength(2);
+      expect(requestSignals.every((signal) => signal.aborted)).toBe(true);
+      expect(screen.queryByText("Загрузка файлов…")).not.toBeInTheDocument();
+      expect(screen.queryByText("Загрузка задач…")).not.toBeInTheDocument();
+    } finally {
+      timeoutSpy.mockRestore();
+    }
   });
 
   it("does not request job outputs until explicit job detail opening", async () => {
