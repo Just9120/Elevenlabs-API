@@ -271,6 +271,7 @@ type OutputFixtureOptions = {
   detailErrorBody?: unknown;
   outputsErrorBody?: unknown;
   retryResponse?: unknown;
+  reconciliationResponse?: unknown;
 };
 
 function installFocusedOutputFixture(options: OutputFixtureOptions = {}) {
@@ -379,6 +380,12 @@ function installFocusedOutputFixture(options: OutputFixtureOptions = {}) {
             },
           ],
         });
+      if (
+        options.reconciliationResponse !== undefined &&
+        url.endsWith("/api/jobs/job-focused/output-reconciliation") &&
+        !init?.method
+      )
+        return json(options.reconciliationResponse);
       if (
         options.retryResponse !== undefined &&
         url.endsWith("/api/jobs/job-focused/retry") &&
@@ -6206,6 +6213,95 @@ describe("Studio PWA", () => {
     ).toBeInTheDocument();
     expect(cancelCalls).toBe(2);
     expect(document.body.textContent).not.toContain("raw cancellation failure");
+  });
+
+  it("deduplicates output reconciliation and unlocks after failure", async () => {
+    const reconciliationResponse = {
+      job_id: "job-focused",
+      job_status: "failed",
+      available: true,
+      counts: { reconciliation_required: 1 },
+      cases: [],
+    };
+    installFocusedOutputFixture({
+      jobStatus: "failed",
+      reconciliationResponse,
+    });
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const reconciliationResolvers: Array<(response: Response) => void> = [];
+    let reconciliationCalls = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        String(url).endsWith(
+          "/api/jobs/job-focused/output-reconciliation/check",
+        ) && init?.method === "POST"
+      ) {
+        reconciliationCalls += 1;
+        return new Promise<Response>((resolve) => {
+          reconciliationResolvers.push(resolve);
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({});
+    });
+
+    await openFocusedJobsList();
+    await userEvent.click(screen.getByRole("button", { name: "Открыть" }));
+    const reconciliationButton = await screen.findByRole("button", {
+      name: "Проверить созданный документ в Google Drive",
+    });
+    act(() => {
+      reconciliationButton.click();
+      reconciliationButton.click();
+    });
+
+    await waitFor(() => expect(reconciliationCalls).toBe(1));
+    expect(reconciliationButton).toBeDisabled();
+    expect(reconciliationButton).toHaveAttribute("aria-busy", "true");
+
+    await act(async () => {
+      reconciliationResolvers[0]?.(
+        await json({ detail: "raw reconciliation failure" }, false, 500),
+      );
+    });
+    expect(
+      await screen.findByText("Не удалось проверить Google Drive."),
+    ).toBeInTheDocument();
+    const unlockedButton = screen.getByRole("button", {
+      name: "Проверить созданный документ в Google Drive",
+    });
+    await waitFor(() => expect(unlockedButton).toBeEnabled());
+
+    await userEvent.click(unlockedButton);
+    await waitFor(() => expect(reconciliationCalls).toBe(2));
+    reconciliationResolvers[1]?.(
+      await json({
+        job_id: "job-focused",
+        checked: 1,
+        resolved: 1,
+        unresolved: 0,
+        conflicts: 0,
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(
+          ([url]) => url === "/api/projects/p1/jobs",
+        ).length,
+      ).toBeGreaterThan(1),
+    );
+
+    const reconciliationPosts = (
+      fetch as unknown as ReturnType<typeof vi.fn>
+    ).mock.calls.filter(
+      ([url, init]) =>
+        url === "/api/jobs/job-focused/output-reconciliation/check" &&
+        init?.method === "POST",
+    );
+    expect(reconciliationPosts).toHaveLength(2);
+    expect(document.body.textContent).not.toContain(
+      "raw reconciliation failure",
+    );
   });
 
   it("deduplicates provider-cost retry and unlocks after failure", async () => {

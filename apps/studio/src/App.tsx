@@ -504,6 +504,7 @@ function PreparationPanel({
   const jobRequestEpochsRef = useRef(new Map<string, number>());
   const cancellingJobIdsRef = useRef(new Set<string>());
   const retryingJobIdsRef = useRef(new Set<string>());
+  const reconcilingJobIdsRef = useRef(new Set<string>());
   useEffect(() => {
     localUploadCsrfRef.current = csrf;
   }, [csrf]);
@@ -523,6 +524,7 @@ function PreparationPanel({
     setProgress({});
     cancellingJobIdsRef.current.clear();
     retryingJobIdsRef.current.clear();
+    reconcilingJobIdsRef.current.clear();
     setCancellingJobIds(new Set());
     setLanguageMode(DEFAULT_TRANSCRIPTION_LANGUAGE_MODE);
     setDiarizationEnabled(false);
@@ -1448,6 +1450,8 @@ function PreparationPanel({
     ]);
   }
   async function checkReconciliation(jobId: string) {
+    if (reconcilingJobIdsRef.current.has(jobId)) return;
+    reconcilingJobIdsRef.current.add(jobId);
     setReconciliations((current) => ({ ...current, [jobId]: { ...(current[jobId] ?? { loading:false, error:"", message:"", data:null }), checking: true, error: "", message: "" } }));
     try {
       const result = await csrfMutate<OutputReconciliationCheckResponse>(`/jobs/${jobId}/output-reconciliation/check`, csrf, onCsrf, { method: "POST" });
@@ -1457,6 +1461,8 @@ function PreparationPanel({
       onReloadJobs(project.id);
     } catch (err) {
       setReconciliations((current) => ({ ...current, [jobId]: { ...(current[jobId] ?? { loading:false, message:"", data:null }), checking: false, error: err instanceof ApiError && err.status === 409 ? "Google connection недоступен или reconciliation сейчас невозможен." : "Не удалось проверить Google Drive." } }));
+    } finally {
+      reconcilingJobIdsRef.current.delete(jobId);
     }
   }
 
