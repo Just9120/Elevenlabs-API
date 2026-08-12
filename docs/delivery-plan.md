@@ -2,7 +2,8 @@
 
 ## Current dashboard
 
-- 👉 `PWA-JOB-DETAIL-ORDERING-05 / local source` — repeated job detail, outputs, retry, and reconciliation reads now use independent latest-request-wins epochs; post-mutation jobs reload remains immediate. Local CODE/TEST gates pass; publication and CI are intentionally absent.
+- 👉 `PWA-JOB-CANCEL-DEDUP-06 / local source` — queued and processing job cancellation now has a synchronous per-job in-flight guard plus disabled/aria-busy UI; failure unlocks one explicit retry without exposing raw backend detail. Local CODE/TEST gates pass; publication and CI are intentionally absent.
+- 🟦 `PWA-JOB-DETAIL-ORDERING-05 / local source` — repeated job detail, outputs, retry, and reconciliation reads now use independent latest-request-wins epochs; post-mutation jobs reload remains immediate. Local CODE/TEST gates pass; publication and CI are intentionally absent.
 - 🟦 `PWA-PROJECT-LIST-ORDERING-04 / local source` — same-project sources/jobs reloads now use latest-request-wins epochs, so a slower stale success or failure cannot replace newer authoritative state. Local CODE/TEST gates pass; publication and CI are intentionally absent.
 - 🟦 `PWA-JOB-PROGRESS-POLLING-03 / local source` — rejected and stalled `/jobs/progress` requests now recover through bounded timeout/backoff; missing-job reconciliation keeps polling alive, and cleanup aborts in-flight work without false API-failure diagnostics. Local CODE/TEST gates pass; publication and CI are intentionally absent.
 - ✅ `PWA-CATALOG-DURABLE-IDEMPOTENCE-04` — PR #199 merged as `bd8d513`. PR-head and exact-main repository/Studio CI passed. Exact-main component CD deployed web and API; the migration release job was correctly skipped.
@@ -38,6 +39,7 @@
 | --- | ---: | --- |
 | Project, all current scope | **N/A (numerator/denominator are not defined)** | `project-spec.md` does not provide one closed, non-overlapping project-wide acceptance set; inventing a percentage would violate the agreed method. |
 | Stable Colab batch + Realtime | **100% (operator-accepted current scope)** | Four months of stable use cover both implemented Colab contours; this does not assert that no focused gaps remain. |
+| `PWA-JOB-CANCEL-DEDUP-06` | **75% (`3/4`)** | In-flight mutation deduplication, accessible pending/unlock behavior, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
 | `PWA-JOB-DETAIL-ORDERING-05` | **75% (`3/4`)** | Detail/output ordering, retry/reconciliation metadata ordering, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
 | `PWA-JOB-PROGRESS-POLLING-03` | **80% (`4/5`)** | Rejected/stalled request recovery, bounded backoff/abort cleanup, reconciliation continuity, and full applicable local gates are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
 | `PWA-PROJECT-LIST-ORDERING-04` | **75% (`3/4`)** | Sources ordering, jobs ordering, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
@@ -62,6 +64,21 @@ The denominators are explicit gates. Local code, a green workflow summary with s
 
 ## Active item
 
+`PWA-JOB-CANCEL-DEDUP-06` acceptance checks:
+
+1. Two cancellation attempts for the same job while the first request is in flight produce at most one mutation request; the synchronous guard does not depend on a React rerender.
+2. Queued and processing cancellation controls are disabled and expose `aria-busy=true` while pending. A safe failure message unlocks one explicit retry, raw backend detail is not rendered, and a successful response preserves the existing authoritative jobs reload.
+3. Focused action/component regressions, complete App and JobCard suites, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
+4. Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+
+Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Check 4 is intentionally open under the current local-only instruction.
+
+Non-goals: no backend idempotency contract, API/schema changes, automatic mutation retry, cancellation semantics change, deploy, or production mutation.
+
+## Previous local items
+
+### Job detail ordering
+
 `PWA-JOB-DETAIL-ORDERING-05` acceptance checks:
 
 1. For repeated loads of one job, only the newest detail and outputs requests may commit success or failure state; a stale response cannot restore obsolete source/output data or replace a newer safe error.
@@ -73,7 +90,7 @@ Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `
 
 Non-goals: no API/backend/schema changes, no global request cache, no mutation retry, no deploy, and no production mutation.
 
-## Previous local items
+### Project list ordering
 
 `PWA-PROJECT-LIST-ORDERING-04` acceptance checks:
 
@@ -166,7 +183,7 @@ Checks 1–5 are merged and the exact-main web deployment is complete. The live 
 
 ## Next item
 
-Continue local PWA stability hardening after the job-detail ordering commit: inspect duplicate mutation-action boundaries and timeout/cancellation behavior of non-progress reads, select one evidence-backed defect with bounded blast radius, and implement it as the next atomic task. `PWA-STUDIO-EDGE-CD-01` remains an operational follow-up and does not pre-empt the current local-only PWA priority.
+Continue local PWA stability hardening after the cancellation-dedup commit: inspect retry/reconciliation/dismiss mutation guards and timeout/cancellation behavior of non-progress reads, select one evidence-backed defect with bounded blast radius, and implement it as the next atomic task. `PWA-STUDIO-EDGE-CD-01` remains an operational follow-up and does not pre-empt the current local-only PWA priority.
 
 ## Near backlog
 
@@ -187,6 +204,7 @@ Continue local PWA stability hardening after the job-detail ordering commit: ins
 
 ## Validation notes
 
+- `PWA-JOB-CANCEL-DEDUP-06` local evidence: focused cancellation regressions `6/6`, complete App suite `126/126`, complete JobCardActions suite `8/8`, full Studio Vitest `378/378`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. A same-act double click produces one POST; pending queued/processing controls are disabled with `aria-busy`, a failed request unlocks explicit retry, and raw backend detail remains absent from the DOM. No PR, CI, deploy, or live evidence is claimed.
 - `PWA-JOB-DETAIL-ORDERING-05` local evidence: ordering helper `3/3`, component repeated-open regression `1/1`, complete App suite `125/125`, full Studio Vitest `375/375`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. Evidence covers stale success and failure suppression, independent resource keys, and integration wiring for out-of-order detail/output responses. Jobs reconciliation remains immediate after retry/reconciliation mutations. No PR, CI, deploy, or live evidence is claimed.
 - `PWA-PROJECT-LIST-ORDERING-04` local evidence: ordering helper `3/3`, complete App suite `124/124`, full Studio Vitest `374/374`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. Tests prove stale success suppression, stale failure suppression, newest failure visibility, and independent resource keys. One pre-commit run caught and prevented an accidental recursive helper implementation; the corrected implementation passed all repeated gates. No PR, CI, deploy, or live evidence is claimed.
 - `PWA-JOB-PROGRESS-POLLING-03` local evidence: focused polling Vitest `7/7` plus API abort diagnostics `6/6`; full Studio Vitest `371/371`; TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. Fake-timer evidence covers initial rejection, bounded exponential backoff, cadence reset, 15-second stalled-request abort, retry after timeout, reconciliation continuity, timer cleanup, in-flight abort, suppression of the exact intentional stop reason, and continued timeout-abort diagnostics. The first Vite attempt exposed an incomplete local pnpm link layout (`workbox-window` unresolved); an npm-compatible hoisted local `node_modules` layout fixed the environment without manifest/lockfile changes. No PR, CI, deploy, or live evidence is claimed.

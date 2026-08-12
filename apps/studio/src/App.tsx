@@ -474,6 +474,9 @@ function PreparationPanel({
   const [reconciliations, setReconciliations] = useState<Record<string, OutputReconciliationState>>({});
   const [retries, setRetries] = useState<Record<string, JobRetryState>>({});
   const [progress, setProgress] = useState<Record<string, JobProgressState>>({});
+  const [cancellingJobIds, setCancellingJobIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [removedSourceIds, setRemovedSourceIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -499,6 +502,7 @@ function PreparationPanel({
   const rowElementRefs = useRef(new Map<string, HTMLLIElement>());
   const reloadJobsRef = useRef(onReloadJobs);
   const jobRequestEpochsRef = useRef(new Map<string, number>());
+  const cancellingJobIdsRef = useRef(new Set<string>());
   useEffect(() => {
     localUploadCsrfRef.current = csrf;
   }, [csrf]);
@@ -516,6 +520,8 @@ function PreparationPanel({
     setPreflight(null);
     setMessage("");
     setProgress({});
+    cancellingJobIdsRef.current.clear();
+    setCancellingJobIds(new Set());
     setLanguageMode(DEFAULT_TRANSCRIPTION_LANGUAGE_MODE);
     setDiarizationEnabled(false);
     setRecentlyAddedRow(null);
@@ -1471,6 +1477,9 @@ function PreparationPanel({
   }
 
   async function cancelJob(jobId: string) {
+    if (cancellingJobIdsRef.current.has(jobId)) return;
+    cancellingJobIdsRef.current.add(jobId);
+    setCancellingJobIds((current) => new Set(current).add(jobId));
     setMessage("");
     try {
       const cancelled = await csrfMutate<TranscriptionJob>(
@@ -1489,6 +1498,14 @@ function PreparationPanel({
       onReloadJobs(project.id);
     } catch {
       setMessage("Не удалось отменить задачу. Повторите позже.");
+    } finally {
+      cancellingJobIdsRef.current.delete(jobId);
+      setCancellingJobIds((current) => {
+        if (!current.has(jobId)) return current;
+        const next = new Set(current);
+        next.delete(jobId);
+        return next;
+      });
     }
   }
   const displayJobs = mergeJobsWithBatchOrder(jobs.items ?? [], batchJobs);
@@ -1590,6 +1607,7 @@ function PreparationPanel({
         }
         onOpen={loadDetail}
         onCancel={cancelJob}
+        cancelPending={cancellingJobIds.has(job.id)}
         onCheckReconciliation={checkReconciliation}
         onRetry={retryJob}
         pinnedTerminal={pinnedTerminal}

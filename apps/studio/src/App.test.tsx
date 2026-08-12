@@ -6127,6 +6127,80 @@ describe("Studio PWA", () => {
     expect(document.body.textContent).not.toContain("stale-output");
   });
 
+  it("deduplicates in-flight cancellation and unlocks after failure", async () => {
+    installFocusedOutputFixture({ jobStatus: "queued" });
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const cancelResolvers: Array<(response: Response) => void> = [];
+    let cancelCalls = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        String(url).endsWith("/api/jobs/job-focused/cancel") &&
+        init?.method === "POST"
+      ) {
+        cancelCalls += 1;
+        return new Promise<Response>((resolve) => {
+          cancelResolvers.push(resolve);
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({});
+    });
+
+    await openFocusedJobsList();
+    const cancelButton = screen.getByRole("button", { name: "Отменить" });
+    act(() => {
+      cancelButton.click();
+      cancelButton.click();
+    });
+
+    await waitFor(() => expect(cancelCalls).toBe(1));
+    expect(cancelButton).toBeDisabled();
+    expect(cancelButton).toHaveAttribute("aria-busy", "true");
+
+    await act(async () => {
+      cancelResolvers[0]?.(
+        await json({ detail: "raw cancellation failure" }, false, 500),
+      );
+    });
+    expect(
+      await screen.findByText("Не удалось отменить задачу. Повторите позже."),
+    ).toBeInTheDocument();
+    const retryButton = screen.getByRole("button", { name: "Отменить" });
+    await waitFor(() => expect(retryButton).toBeEnabled());
+
+    await userEvent.click(retryButton);
+    await waitFor(() => expect(cancelCalls).toBe(2));
+    cancelResolvers[1]?.(
+      await json({
+        id: "job-focused",
+        project_id: "p1",
+        status: "cancelled",
+        title: "Focused output job",
+        provider: null,
+        provider_credential_id: "cred-active",
+        source_count: 1,
+        sources: [],
+        created_at: "2026-07-02T00:00:00Z",
+        updated_at: "2026-07-02T00:02:00Z",
+        cancelled_at: "2026-07-02T00:02:00Z",
+        cancel_requested_at: null,
+        attempt_count: 0,
+        started_at: null,
+        finished_at: "2026-07-02T00:02:00Z",
+        error_code: null,
+        error_message: null,
+      }),
+    );
+
+    expect(
+      await screen.findByText(
+        "Запрос отмены отправлен. Уже созданные результаты останутся доступны.",
+      ),
+    ).toBeInTheDocument();
+    expect(cancelCalls).toBe(2);
+    expect(document.body.textContent).not.toContain("raw cancellation failure");
+  });
+
   it("renders the explicit empty job outputs state without output links", async () => {
     installFocusedOutputFixture({
       jobStatus: "queued",
