@@ -76,7 +76,7 @@ The Studio API container applies `apps/studio-api/constraints.txt` to `apps/stud
 After an intentional Python dependency change, regenerate both constraints with the pinned generator and review the complete diff before testing:
 
 ```bash
-python -m pip install pip-tools==7.6.0
+python -m pip install pip==25.3 pip-tools==7.6.0
 python -m piptools compile --resolver=backtracking --strip-extras --newline=LF --output-file=apps/studio-api/constraints.txt apps/studio-api/requirements.txt
 python -m piptools compile --resolver=backtracking --strip-extras --newline=LF --output-file=constraints-dev.txt requirements-dev.txt
 ```

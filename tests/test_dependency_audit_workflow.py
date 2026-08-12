@@ -96,8 +96,23 @@ def test_studio_uses_the_supported_eslint_runtime_contract():
     assert packages["node_modules/eslint"]["version"] == "10.8.0"
     assert packages["node_modules/@eslint/js"]["version"] == "10.0.1"
     assert packages["node_modules/minimatch"]["version"] == "10.2.5"
-    assert packages["node_modules/brace-expansion"]["version"] == "5.0.8"
+    assert packages["node_modules/brace-expansion"]["version"] == "5.0.9"
     assert "node_modules/@eslint/eslintrc" not in packages
+
+
+def test_studio_lock_pins_current_security_overrides():
+    package = json.loads((STUDIO / "package.json").read_text(encoding="utf-8"))
+    lock = json.loads((STUDIO / "package-lock.json").read_text(encoding="utf-8"))
+    packages = lock["packages"]
+    expected = {
+        "brace-expansion": "5.0.9",
+        "fast-uri": "3.1.5",
+        "nanoid": "3.3.17",
+    }
+
+    for dependency, version in expected.items():
+        assert package["overrides"][dependency] == version
+        assert packages[f"node_modules/{dependency}"]["version"] == version
 
 
 def test_studio_build_tool_override_uses_the_supported_filelist_graph():

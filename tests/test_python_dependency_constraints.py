@@ -25,6 +25,7 @@ def test_runtime_direct_pins_are_identical_in_both_constraint_sets():
     assert direct
     assert all(runtime.get(name) == version for name, version in direct.items())
     assert all(dev.get(name) == version for name, version in runtime.items())
+    assert direct["cryptography"] == "50.0.0"
     assert "python-multipart" not in runtime
     assert dev["pytest"]
     assert dev["httpx2"] == "2.7.0"
