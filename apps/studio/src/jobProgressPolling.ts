@@ -1,6 +1,9 @@
 export const JOB_PROGRESS_POLL_INTERVAL_MS = 5_000;
 export const JOB_PROGRESS_RETRY_MAX_DELAY_MS = 30_000;
 export const JOB_PROGRESS_REQUEST_TIMEOUT_MS = 15_000;
+export const JOB_PROGRESS_POLLING_STOP_REASON = Symbol(
+  "job_progress_polling_stopped",
+);
 
 type PollingContext = {
   isStopped: () => boolean;
@@ -79,7 +82,7 @@ export function startJobProgressPolling(
       timerDependencies.clearTimeout(requestTimeoutId);
       requestTimeoutId = undefined;
     }
-    requestController?.abort();
+    requestController?.abort(JOB_PROGRESS_POLLING_STOP_REASON);
     requestController = undefined;
   };
 }

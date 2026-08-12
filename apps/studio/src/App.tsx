@@ -97,7 +97,10 @@ import {
   updateRequestedProgressStates,
   type JobProgressState,
 } from "./jobProgressModel";
-import { startJobProgressPolling } from "./jobProgressPolling";
+import {
+  JOB_PROGRESS_POLLING_STOP_REASON,
+  startJobProgressPolling,
+} from "./jobProgressPolling";
 import { groupVisibleJobs } from "./jobVisibilityModel";
 import { TranscriptionAnalyticsPanel } from "./TranscriptionAnalyticsPanel";
 import { TranscriptCatalogMigrationPanel } from "./TranscriptCatalogMigrationPanel";
@@ -1453,6 +1456,7 @@ function PreparationPanel({
         });
         const raw = await api<unknown>(`/projects/${project.id}/jobs/progress`, {
           signal,
+          ignoredAbortReason: JOB_PROGRESS_POLLING_STOP_REASON,
         });
         const parsed = parseProjectJobProgressResponse(raw);
         if (!parsed) throw new Error("Invalid job progress response");
