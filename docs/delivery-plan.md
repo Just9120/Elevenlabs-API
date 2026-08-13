@@ -2,6 +2,7 @@
 
 ## Current dashboard
 
+- 👉 `PWA-OVERVIEW-COLLECTION-BOUNDARY-29 / local source` — Overview project and credential summaries now use the shared exact collection validators; both reads are independently bounded, latest-request-wins, teardown-abortable, and explicitly retryable while preserving the other summary and last-known valid data. Local CODE/TEST gates pass; publication and CI remain open.
 - 👉 `PWA-GOOGLE-CONNECTION-CONSUMERS-28 / local source` — Overview, Projects, and Settings now share one exact Google connection requester; Overview/Projects reads are bounded, latest-request-wins, abortable on teardown, and explicitly retryable. Projects refreshes when reactivated, ignores late pre-remount responses, and disables both Picker entrypoints whenever connection authority is loading or unavailable. Local CODE/TEST gates pass; publication and CI remain open.
 - 👉 `PWA-GOOGLE-CONNECTION-BOUNDARY-27 / local source` — the Settings connection GET is exact-contract validated, latest-request-wins, abortable, and bounded to 15 seconds; OAuth start/disconnect use parent-owned synchronous single-flight, a 20-second bound, safe authoritative reconciliation, and no automatic mutation replay. OAuth redirects are restricted to the exact Google origin/path/query/scope contract, logout invalidates late settlement, and sequential disconnect replay is terminal/audit-idempotent. Frontend/static gates pass; the service-backed backend regression and publication/CI remain open.
 - 👉 `PWA-RETENTION-PREFERENCE-BOUNDARY-26 / local source` — account-retention GET is exact-contract validated, latest-request-wins, abortable, and bounded to 15 seconds; PATCH uses parent-owned synchronous single-flight, a 20-second bound, one authoritative reconciliation on uncertainty, last-known-state preservation, and no automatic replay. Local CODE/TEST gates pass; publication and CI remain open.
@@ -57,36 +58,41 @@
 
 ## Readiness snapshot
 
+Percentage means completed functional acceptance criteria divided by all functional acceptance criteria, without weights. SPEC/CODE/TEST/CI/DEPLOY/LIVE remain separate READY gates and are not added to the percentage denominator. Rows explicitly named delivery/rollout Evidence are gate coverage, not feature-completion percentages.
+
 | Contour/dimension | Evidence-based estimate | Meaning |
 | --- | ---: | --- |
-| Project, all current scope | **N/A (numerator/denominator are not defined)** | `project-spec.md` does not provide one closed, non-overlapping project-wide acceptance set; inventing a percentage would violate the agreed method. |
-| Stable Colab batch + Realtime | **100% (operator-accepted current scope)** | Four months of stable use cover both implemented Colab contours; this does not assert that no focused gaps remain. |
-| `PWA-GOOGLE-CONNECTION-CONSUMERS-28` | **75% (`3/4`)** | Shared exact DTO validation, bounded/latest-wins Overview and Projects reads, explicit retry, reactivation refresh, stale-response rejection, fail-closed Picker gating, and full applicable local validation are complete. Publication plus required PR-head/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
-| `PWA-GOOGLE-CONNECTION-BOUNDARY-27` | **75% (`3/4`)** | Exact semantic DTO/redirect capability validation, bounded latest-wins reads, remount-safe OAuth/disconnect ownership, logout invalidation, ambiguity reconciliation without replay, sequential disconnect audit idempotence, and all available local gates are complete. The service-backed backend regression plus publication/required CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ◐, CI —, DEPLOY N/A, LIVE N/A. |
-| `PWA-RETENTION-PREFERENCE-BOUNDARY-26` | **75% (`3/4`)** | Exact five-option DTO validation, bounded latest-wins reads, remount-safe PATCH ownership/outcomes, authoritative ambiguity confirmation, last-known-state preservation, and full applicable local validation are complete. Publication plus required PR-head/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
-| `PWA-CREDENTIAL-LIFECYCLE-BOUNDARY-25` | **75% (`3/4`)** | Terminal backend deletion/idempotent revoke-delete replay behavior, validated bounded list reads, exact remount-safe mutation ownership, fail-closed ambiguity reconciliation, immediate raw-input clearing, and all available local frontend/static gates are complete. The service-backed backend regression plus publication/required CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ◐, CI —, DEPLOY N/A, LIVE N/A. |
-| `PWA-PROJECT-MUTATION-BOUNDARY-24` | **75% (`3/4`)** | Validated bounded project-list reads, exact create/update/archive single-flight ownership, fail-closed ambiguity reconciliation, project-scoped safe outcomes, draft preservation, and full applicable local validation are complete. Publication plus required PR-head/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
-| `PWA-GOOGLE-PICKER-REMOUNT-23` | **75% (`3/4`)** | Exact owner-scoped source/folder Picker lifecycle, remount-safe pending UI, duplicate blocking, project-isolated safe outcomes, and full applicable local validation are complete. Publication plus required PR-head/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
-| `PWA-GOOGLE-SELECTION-BOUNDARY-22` | **75% (`3/4`)** | Bounded single-attempt source creation with authoritative list refresh on ambiguity, bounded folder verification, runtime DTO validation, safe unlock, and full applicable local validation are complete. Publication plus required PR-head/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
-| `PWA-GOOGLE-PICKER-TIMEOUT-21` | **75% (`3/4`)** | Bounded and validated composer session acquisition, bounded callback lifecycle with safe unlock/token cleanup, and full applicable local validation are complete. Publication plus required PR-head/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
-| `PWA-LOCAL-UPLOAD-REMOUNT-20` | **75% (`3/4`)** | Persistent ID-only ownership, detached-operation blocking, project-isolated safe outcomes, explicit-retry clearing, same-panel row concurrency, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
-| `PWA-LOCAL-UPLOAD-BOUNDARY-19` | **75% (`3/4`)** | Bounded initiation/PUT execution, fail-closed non-idempotent initiation ambiguity, exact-source PUT recovery without object replay, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
-| `PWA-SOURCE-DELETE-REMOUNT-18` | **75% (`3/4`)** | Persistent exact-source ownership, remount-safe pending UI, project-isolated safe outcomes, explicit-retry clearing, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
-| `PWA-LOCAL-UPLOAD-COMPLETE-17` | **75% (`3/4`)** | Bounded completion, exact uploaded/pending recovery authority, one safe completion-only replay, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
-| `PWA-SOURCE-DELETE-RECOVERY-16` | **75% (`3/4`)** | Same-act deletion deduplication, bounded DELETE plus exact-ID authoritative reconciliation, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
-| `PWA-BATCH-CREATE-RECOVERY-15` | **75% (`3/4`)** | Bounded preflight/create execution, persistent exact-key/body recovery without automatic POST replay, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
-| `PWA-JOB-MUTATION-TIMEOUT-14` | **75% (`3/4`)** | Bounded non-retrying POST execution, endpoint-specific authoritative timeout reconciliation, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
-| `PWA-JOB-MUTATION-OUTCOME-13` | **75% (`3/4`)** | Safe owner-scoped outcomes, remount/project isolation and explicit-retry clearing, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
-| `PWA-JOB-MUTATION-OWNERSHIP-12` | **75% (`3/4`)** | Persistent four-kind mutation ownership, project-switch duplicate prevention/unlock behavior, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
-| `PWA-PROJECT-COLLECTION-TIMEOUT-11` | **75% (`3/4`)** | Bounded source/job collection reads, safe cancellation and last-known-data preservation, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
-| `PWA-JOB-READ-TIMEOUT-10` | **75% (`3/4`)** | Four bounded job-read paths, safe timeout/supersede/teardown behavior, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
-| `PWA-JOB-DISMISS-DEDUP-09` | **75% (`3/4`)** | Terminal-dismiss mutation deduplication, accessible pending/failure-unlock behavior, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
-| `PWA-JOB-RECONCILIATION-DEDUP-08` | **75% (`3/4`)** | Reconciliation mutation deduplication, accessible pending/failure-unlock behavior, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
-| `PWA-JOB-RETRY-DEDUP-07` | **75% (`3/4`)** | Provider-cost retry deduplication, accessible pending/failure-unlock behavior, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
-| `PWA-JOB-CANCEL-DEDUP-06` | **75% (`3/4`)** | In-flight mutation deduplication, accessible pending/unlock behavior, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
-| `PWA-JOB-DETAIL-ORDERING-05` | **75% (`3/4`)** | Detail/output ordering, retry/reconciliation metadata ordering, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
-| `PWA-JOB-PROGRESS-POLLING-03` | **80% (`4/5`)** | Rejected/stalled request recovery, bounded backoff/abort cleanup, reconciliation continuity, and full applicable local gates are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
-| `PWA-PROJECT-LIST-ORDERING-04` | **75% (`3/4`)** | Sources ordering, jobs ordering, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
+| Project, all current scope | **N/A (numerator/denominator are not defined)** | `project-spec.md` still lacks one closed, non-overlapping project-wide acceptance set. This is a canonical coverage gap, not permission to average epic percentages. |
+| Project delta after task 29 | **N/A → N/A** | The task closes a newly explicit stability feature but cannot change an undefined canonical project denominator. A project percentage requires a separately authorized atomic AC normalization in `project-spec.md`. |
+| Stable Colab batch + Realtime | **100% (`2/2` operator-accepted contours)** | The current explicit owner evidence accepts both implemented Colab contours after about four months of stable use. This does not erase the subordinate Realtime runbook's stale/manual-gap conflict; that conflict is an Evidence/readiness issue. |
+| Studio PWA Live functional contract | **100% (`7/7`)** | All seven accepted first-slice behavior criteria in `project-spec.md` are implemented at source level. READY remains gated separately: delivery evidence is `5/6`, with microphone-only, mixed, and negative lifecycle canaries still open. |
+| `PWA-OVERVIEW-COLLECTION-BOUNDARY-29` | **100% (`3/3`)** | Exact shared collection validation, independent bounded/latest-wins/teardown reads, safe per-summary retry, last-known-data preservation, and full applicable local validation are complete. Status remains IN PROGRESS because publication and required CI Evidence are absent. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
+| `PWA-GOOGLE-CONNECTION-CONSUMERS-28` | **100% (`3/3`)** | Shared exact DTO validation, bounded/latest-wins Overview and Projects reads, explicit retry, reactivation refresh, stale-response rejection, fail-closed Picker gating, and full applicable local validation are complete. Publication plus required PR-head/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
+| `PWA-GOOGLE-CONNECTION-BOUNDARY-27` | **100% (`3/3`)** | Exact semantic DTO/redirect capability validation, bounded latest-wins reads, remount-safe OAuth/disconnect ownership, logout invalidation, ambiguity reconciliation without replay, sequential disconnect audit idempotence, and all available local gates are complete. The service-backed backend regression plus publication/required CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ◐, CI —, DEPLOY N/A, LIVE N/A. |
+| `PWA-RETENTION-PREFERENCE-BOUNDARY-26` | **100% (`3/3`)** | Exact five-option DTO validation, bounded latest-wins reads, remount-safe PATCH ownership/outcomes, authoritative ambiguity confirmation, last-known-state preservation, and full applicable local validation are complete. Publication plus required PR-head/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
+| `PWA-CREDENTIAL-LIFECYCLE-BOUNDARY-25` | **100% (`3/3`)** | Terminal backend deletion/idempotent revoke-delete replay behavior, validated bounded list reads, exact remount-safe mutation ownership, fail-closed ambiguity reconciliation, immediate raw-input clearing, and all available local frontend/static gates are complete. The service-backed backend regression plus publication/required CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ◐, CI —, DEPLOY N/A, LIVE N/A. |
+| `PWA-PROJECT-MUTATION-BOUNDARY-24` | **100% (`3/3`)** | Validated bounded project-list reads, exact create/update/archive single-flight ownership, fail-closed ambiguity reconciliation, project-scoped safe outcomes, draft preservation, and full applicable local validation are complete. Publication plus required PR-head/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
+| `PWA-GOOGLE-PICKER-REMOUNT-23` | **100% (`3/3`)** | Exact owner-scoped source/folder Picker lifecycle, remount-safe pending UI, duplicate blocking, project-isolated safe outcomes, and full applicable local validation are complete. Publication plus required PR-head/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
+| `PWA-GOOGLE-SELECTION-BOUNDARY-22` | **100% (`3/3`)** | Bounded single-attempt source creation with authoritative list refresh on ambiguity, bounded folder verification, runtime DTO validation, safe unlock, and full applicable local validation are complete. Publication plus required PR-head/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
+| `PWA-GOOGLE-PICKER-TIMEOUT-21` | **100% (`3/3`)** | Bounded and validated composer session acquisition, bounded callback lifecycle with safe unlock/token cleanup, and full applicable local validation are complete. Publication plus required PR-head/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
+| `PWA-LOCAL-UPLOAD-REMOUNT-20` | **100% (`3/3`)** | Persistent ID-only ownership, detached-operation blocking, project-isolated safe outcomes, explicit-retry clearing, same-panel row concurrency, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
+| `PWA-LOCAL-UPLOAD-BOUNDARY-19` | **100% (`3/3`)** | Bounded initiation/PUT execution, fail-closed non-idempotent initiation ambiguity, exact-source PUT recovery without object replay, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
+| `PWA-SOURCE-DELETE-REMOUNT-18` | **100% (`3/3`)** | Persistent exact-source ownership, remount-safe pending UI, project-isolated safe outcomes, explicit-retry clearing, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
+| `PWA-LOCAL-UPLOAD-COMPLETE-17` | **100% (`3/3`)** | Bounded completion, exact uploaded/pending recovery authority, one safe completion-only replay, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
+| `PWA-SOURCE-DELETE-RECOVERY-16` | **100% (`3/3`)** | Same-act deletion deduplication, bounded DELETE plus exact-ID authoritative reconciliation, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
+| `PWA-BATCH-CREATE-RECOVERY-15` | **100% (`3/3`)** | Bounded preflight/create execution, persistent exact-key/body recovery without automatic POST replay, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
+| `PWA-JOB-MUTATION-TIMEOUT-14` | **100% (`3/3`)** | Bounded non-retrying POST execution, endpoint-specific authoritative timeout reconciliation, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
+| `PWA-JOB-MUTATION-OUTCOME-13` | **100% (`3/3`)** | Safe owner-scoped outcomes, remount/project isolation and explicit-retry clearing, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
+| `PWA-JOB-MUTATION-OWNERSHIP-12` | **100% (`3/3`)** | Persistent four-kind mutation ownership, project-switch duplicate prevention/unlock behavior, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
+| `PWA-PROJECT-COLLECTION-TIMEOUT-11` | **100% (`3/3`)** | Bounded source/job collection reads, safe cancellation and last-known-data preservation, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
+| `PWA-JOB-READ-TIMEOUT-10` | **100% (`3/3`)** | Four bounded job-read paths, safe timeout/supersede/teardown behavior, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
+| `PWA-JOB-DISMISS-DEDUP-09` | **100% (`3/3`)** | Terminal-dismiss mutation deduplication, accessible pending/failure-unlock behavior, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
+| `PWA-JOB-RECONCILIATION-DEDUP-08` | **100% (`3/3`)** | Reconciliation mutation deduplication, accessible pending/failure-unlock behavior, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
+| `PWA-JOB-RETRY-DEDUP-07` | **100% (`3/3`)** | Provider-cost retry deduplication, accessible pending/failure-unlock behavior, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
+| `PWA-JOB-CANCEL-DEDUP-06` | **100% (`3/3`)** | In-flight mutation deduplication, accessible pending/unlock behavior, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
+| `PWA-JOB-DETAIL-ORDERING-05` | **100% (`3/3`)** | Detail/output ordering, retry/reconciliation metadata ordering, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
+| `PWA-JOB-PROGRESS-POLLING-03` | **100% (`4/4`)** | Rejected/stalled request recovery, bounded backoff/abort cleanup, reconciliation continuity, and full applicable local gates are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
+| `PWA-PROJECT-LIST-ORDERING-04` | **100% (`3/3`)** | Sources ordering, jobs ordering, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
 | Selected Studio v1 baseline source/CI on `main` | **100% (`40/40`)** | PR #203 is merged and exact-main repository/Studio CI passed. This is source/CI, not universal production proof. |
 | Studio batch production usability baseline | **80% (`4/5`)** | Exact source/CI, current schema/API/web, intended worker, and a real successful job are evidenced. The terminal progress/result continuity gate failed in real use. |
 | `PWA-JOB-PROGRESS-02` merged source | **100% (`4/4`)** | Durable terminal visibility/dismissal, concurrent checkpoint continuity, durable N/M parts, and focused validation/documentation are merged with green exact-main CI. |
@@ -101,25 +107,38 @@
 | Protected migration lane pre-fix baseline evidence | **100% (`5/5`)** | Historical source/CI, VPS forced-command boundary, successful single-revision protected release, disabled post-release flag, and visible reviewer wait/approval are evidenced. The new staged-target contract is tracked separately above. |
 | Transcript-maintenance source acceptance on `main` | **100% (`10/10`)** | Durable post-apply rediscovery fix and required CI are merged. |
 | Transcript-maintenance rollout | **50% (`2/4`)** | Runtime/OAuth/schema and exact API identity/health are evidenced; full target-mode dry-run/apply matrix is not. |
-| `PWA-REALTIME-TRANSCRIPTION-01` | **83% (`5/6`)** | Checks 1–5, merge, exact-main CI, API/web deployment, public-host policy, and one real tab/display-audio session are evidenced. Gate 6 remains incomplete until microphone-only, mixed, and negative lifecycle canaries are recorded. |
+| `PWA-REALTIME-TRANSCRIPTION-01` delivery Evidence | **83% (`5/6`)** | Checks 1–5, merge, exact-main CI, API/web deployment, public-host policy, and one real tab/display-audio session are evidenced. Gate 6 remains incomplete until microphone-only, mixed, and negative lifecycle canaries are recorded. |
 | `PWA-STUDIO-EDGE-CD-01` | **80% (`4/5`)** | Canonical configuration, fail-closed release/wrapper, protected workflow, green merge/exact-main CI, and the dedicated VPS bootstrap are evidenced. One approved live release plus its browser canary form the final gate. |
 
-The denominators are explicit gates. Local code, a green workflow summary with skipped jobs, or an idle healthy worker cannot advance a deployment, migration, provider, or canary gate by itself.
+For rows explicitly named delivery/rollout Evidence, the denominators are readiness gates. Local code, a green workflow summary with skipped jobs, or an idle healthy worker cannot advance a deployment, migration, provider, or canary gate by itself.
 
 ## Active item
 
-`PWA-GOOGLE-CONNECTION-CONSUMERS-28` acceptance checks:
+`PWA-OVERVIEW-COLLECTION-BOUNDARY-29` functional acceptance checks:
+
+1. Overview project and credential summaries use the same exact runtime-validated collection requesters as Projects and Settings. Malformed or duplicate IDs fail closed without rendering raw response fields.
+2. Both Overview reads are independently latest-request-wins, bounded to 15 seconds, and cancelled on teardown. Each summary exposes its own safe retry; a failed refresh preserves last-known valid data and cannot erase an independently successful summary.
+3. Focused Overview boundary regressions `3/3`, complete App suite `184/184`, full Studio Vitest `447/447`, TypeScript, full ESLint, production build, lightweight checks, and `git diff --check` pass.
+
+Functional completion is **100% (`3/3`)** on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`.
+
+Readiness gate: branch publication, required PR-head/exact-main CI, and merge remain separately required before READY. They are intentionally open under the current local-only instruction, so lifecycle status remains IN PROGRESS despite 100% functional completion.
+
+Non-goals: no Projects mutations, Settings credential mutations, Google/OAuth behavior, API/schema/migration, deploy, or production mutation.
+
+## Previous local items
+
+### Google connection consumers
+
+`PWA-GOOGLE-CONNECTION-CONSUMERS-28` functional acceptance checks:
 
 1. Overview, Projects, and Settings use one exact runtime-validated Google connection requester; no Overview/Projects consumer can accept a malformed or semantically contradictory DTO. The shared request contract carries cancellation without broad component or API churn.
 2. Overview and Projects reads are latest-request-wins, bounded to 15 seconds, and cancelled on component teardown. Both expose an explicit safe retry; Projects performs a new authoritative read whenever its persistently mounted page is reactivated after Settings or another route, and a late response from the prior activation cannot replace the newer state.
 3. Projects distinguishes loading/unavailable authority from a confirmed disconnected account. While loading or unavailable, source and folder Picker entrypoints are disabled and programmatic folder entry fails closed; raw response fields are not rendered. Focused consumer regressions `3/3`, complete App suite `181/181`, full Studio Vitest `444/444`, TypeScript, full ESLint, production build, lightweight checks, and `git diff --check` pass.
-4. Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Check 4 is intentionally open under the current local-only instruction.
+Functional completion is **100% (`3/3`)** locally. Readiness remains IN PROGRESS because branch publication, required PR-head/exact-main CI, and merge are intentionally open under the current local-only instruction.
 
 Non-goals: no Overview project/credential read change, OAuth mutation, maintenance OAuth, Picker session/selection change, backend/API/schema/migration, deploy, or production mutation.
-
-## Previous local items
 
 ### Primary Google connection lifecycle
 
@@ -128,9 +147,9 @@ Non-goals: no Overview project/credential read change, OAuth mutation, maintenan
 1. The Settings browser surface accepts only the exact server-authoritative Google connection DTO and its semantic invariants: active status is the only connected state, Picker readiness equals configured plus scope-ready, reconnect is required only for a connected account missing Picker scope, and a null status carries no stale account metadata. OAuth start accepts only an HTTPS `accounts.google.com/o/oauth2/v2/auth` capability with the exact single-valued query contract and exact `openid email drive.file` scope set.
 2. Initial/repeated `GET /google/connection` requests are latest-request-wins, abortable, and bounded to 15 seconds. OAuth start and disconnect, including any CSRF refresh, are bounded to 20 seconds and guarded synchronously by one parent-owned operation; Settings → Projects → Settings restores disabled/`aria-busy` state and same-act duplicates cannot issue another mutation. Logout/login invalidates stale ownership and a late OAuth success cannot redirect a new session.
 3. Timeout, transport loss, HTTP 408/5xx, or malformed mutation success triggers one bounded authoritative connection GET and never automatically repeats POST or DELETE. Disconnect is confirmed only by authoritative revoked/null state; active state is preserved as connected, while OAuth start remains safely unconfirmed because connection state cannot prove capability creation. Sequential backend disconnect replay returns the original terminal metadata without changing the timestamp or duplicating the audit event. Focused Google regressions `11/11`, complete App suite `178/178`, full Studio Vitest `441/441`, TypeScript, full ESLint, production build, Python syntax checks, lightweight checks, and `git diff --check` pass; the authored service-backed regression is not locally executable because bundled Python lacks `pytest`.
-4. Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Check 4 is intentionally open under the current local-only instruction.
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no maintenance OAuth, Google Picker composer flow, OAuth callback/start-server business-rule, token format/encryption, API shape, schema/migration, concurrent database-lock redesign, browser persistence, automatic mutation replay, deploy, or production mutation.
 
@@ -141,9 +160,9 @@ Non-goals: no maintenance OAuth, Google Picker composer flow, OAuth callback/sta
 1. The browser accepts only the exact server-authoritative five-value retention DTO defined by `project-spec.md` and backend source: one hour, 24 hours, three days, seven days, and 30 days, with the selected value present in that ordered set. The setting remains owner-scoped PostgreSQL state, applies only to future verified local-upload completions, and never changes Google Drive inputs, Google Docs outputs, existing expiry, or browser storage.
 2. Initial/repeated `GET /account/preferences` requests are latest-request-wins, abortable, and bounded to 15 seconds. PATCH, including any CSRF refresh, is bounded to 20 seconds and guarded synchronously by one parent-owned operation; Settings → Projects → Settings restores disabled/`aria-busy` state and a same-act duplicate cannot issue a second PATCH.
 3. Timeout, transport loss, HTTP 408/5xx, or malformed success triggers one bounded authoritative GET and never automatically repeats PATCH. Exact selected TTL confirms success; a different authoritative TTL restores that value; failed reconciliation restores the last confirmed value. Safe outcomes survive remount, detached settlement gets one post-remount refresh, raw backend detail is never rendered, and logout/login invalidates stale ownership. Focused retention regressions `7/7`, complete App suite `171/171`, full Studio Vitest `434/434`, TypeScript, full ESLint, production build, lightweight checks, and `git diff --check` pass.
-4. Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Check 4 is intentionally open under the current local-only instruction.
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no retention option/default/business-rule change, backend/API/schema/migration/audit change, storage cleanup execution, browser persistence, automatic PATCH replay, Google OAuth/connection change, deploy, or production mutation.
 
@@ -154,9 +173,9 @@ Non-goals: no retention option/default/business-rule change, backend/API/schema/
 1. Repository evidence defines the server authority: create and replace have no idempotency/correlation input and are never replayed automatically; revoked credentials may be replaced explicitly; permanent deletion is terminal, hides the row from owner lists, clears every encrypted version exactly once, and rejects later replace/revoke. Repeated revoke/delete returns success without another state transition or audit event.
 2. Settings credential-list reads accept only canonical unique DTOs, are latest-request-wins, abortable, and bounded to 15 seconds. Create, replace, revoke, and delete, including any CSRF refresh, are bounded to 20 seconds and guarded synchronously by create or exact credential ID. Parent-owned pending/outcome state survives Settings remounts, and matching controls expose disabled/`aria-busy` state.
 3. Timeout, transport loss, HTTP 408/5xx, or malformed success triggers at most one bounded authoritative list reconciliation and never automatically repeats a mutation. Replace is confirmed only by a newer active version; revoke only by exact revoked state; delete only by exact ID absence; create remains explicitly ambiguous without correlation. Raw key input is cleared immediately after capture, never enters parent/browser state, and raw backend detail is never rendered. Focused credential regressions `11/11`, complete App suite `165/165`, full Studio Vitest `428/428`, TypeScript, full ESLint, production build, Python syntax, lightweight checks, and `git diff --check` pass.
-4. The new service-backed PostgreSQL/Redis credential regression, branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+Readiness gate: The new service-backed PostgreSQL/Redis credential regression, branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Check 4 is open: the bundled local Python runtime has no `pytest`, and the current instruction remains local-only without push or PR.
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is open: the bundled local Python runtime has no `pytest`, and the current instruction remains local-only without push or PR.
 
 Non-goals: no automatic create/replace/revoke/delete replay, idempotency-key/API-shape/schema/migration change, browser persistence of secrets or mutation bodies, Google OAuth/connection or retention-preference change, deploy, or production mutation. The existing unique `(user_id, provider, label)` constraint still reserves a deleted label; changing that requires a separate product/schema decision.
 
@@ -168,9 +187,9 @@ Non-goals: no automatic create/replace/revoke/delete replay, idempotency-key/API
 1. Repository evidence defines the safe boundary: project creation has no idempotency/correlation input, update targets one owner-scoped project, archive removes the active row and is not safely replayable from an ambiguous browser outcome. Active project-list responses must contain canonical project DTOs with unique IDs before they can replace browser state.
 2. Initial and reconciliation `GET /projects` requests are latest-request-wins, abortable, and bounded to 15 seconds. Create, update, and archive, including any CSRF refresh, are bounded to 20 seconds and guarded synchronously by exact operation/project key; matching controls expose disabled/`aria-busy` pending state and a same-act duplicate cannot issue a second mutation.
 3. Timeout, transport loss, HTTP 408/5xx, or malformed success never triggers automatic mutation replay. One authoritative collection read leaves create explicitly ambiguous because no exact correlation exists, confirms update only from exact requested fields plus evidence of change, and confirms archive only from project absence. Outcomes remain project-scoped, raw backend detail is not rendered, a failed create preserves its form, and same-project metadata refresh preserves unrelated composer state. Focused regressions, complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
-4. Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Check 4 is intentionally open under the current local-only instruction.
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no backend idempotency/API/schema/business-rule change, no automatic create/update/archive replay, no durable/browser-storage mutation state, no global API timeout, deploy, or production mutation.
 
@@ -181,9 +200,9 @@ Non-goals: no backend idempotency/API/schema/business-rule change, no automatic 
 1. Replace the unowned global Picker boolean with one synchronous parent-owned operation carrying only `projectId`, `panelId`, `rowId`, and source/first-folder/second-folder kind. A second source or folder attempt in any project is rejected before rerender until the exact matching operation settles; an old or mismatched settlement cannot unlock a newer operation.
 2. A → B → A while Picker interaction, source creation, or folder verification is pending preserves a project-scoped pending explanation and disabled controls. Settlement while the originating PreparationPanel is detached stores only predefined safe text and tone for its project; project B cannot see project A's result, and the next explicit project-A Picker attempt clears the prior outcome.
 3. Source success explains that authoritative project sources were refreshed and rows must be selected again after remount; folder success explains that the non-persisted row selection must be repeated. No token, Google Drive file/folder ID, selected document, API payload, or raw error enters parent state or browser storage. The focused source/folder remount regression, related Google Picker cluster, complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
-4. Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Check 4 is intentionally open under the current local-only instruction.
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no Picker token or Drive identity persistence, no automatic source/folder replay, no composer draft persistence redesign, no backend/API/schema/OAuth change, deploy, or production mutation.
 
@@ -194,9 +213,9 @@ Non-goals: no Picker token or Drive identity persistence, no automatic source/fo
 1. Repository evidence records the recovery boundary: Google Picker source creation is state-changing, accepts no `Idempotency-Key`, and its public source DTO deliberately omits Drive file IDs, so an ambiguous response cannot be matched exactly from the active-sources list. Output-folder verification is non-persisting and therefore needs no mutation replay.
 2. Source creation, including any CSRF refresh, stops waiting after 20 seconds and is attempted exactly once per explicit selection. Timeout, transport loss, HTTP 408, or 5xx triggers one authoritative sources reload, predefined safe text, and no automatic POST replay or row placement; definitive 4xx behavior remains explicit. A successful response must contain the exact ordered batch size and canonical project-owned source DTOs before rows are changed.
 3. Output-folder verification, including any CSRF refresh, stops waiting after 20 seconds, validates a non-empty name plus nullable/string `web_view_url`, never mutates a row on timeout/failure/malformed data, and always releases source and folder Picker controls. Focused regressions, complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
-4. Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Check 4 is intentionally open under the current local-only instruction.
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no backend/API/schema/idempotency change, no exact automatic recovery where the API exposes no correlation identity, no automatic source-creation replay, no Google Picker remount-ownership redesign, deploy, or production mutation.
 
@@ -207,9 +226,9 @@ Non-goals: no backend/API/schema/idempotency change, no exact automatic recovery
 1. Both composer entrypoints acquire the secret-bearing Google Picker session through one 20-second request bound shared with any CSRF refresh, and validate non-empty token/public configuration plus `scope_ready === true` before opening Picker. Timeout, transport loss, and malformed payload fail closed with predefined safe text, release composer controls, create no source/folder selection mutation, and are not automatically replayed outside the existing CSRF-rejection contract.
 2. The existing 10-second script-loader guard remains intact. Once Picker is built, a five-minute interaction deadline closes it, clears the request-local token copy, settles one safe error, and lets each caller's `finally` release its synchronous ref and shared `pickerBusy` lock. The idempotent settlement guard ignores any callback arriving after timeout.
 3. Regressions prove one aborted session POST per explicit attempt, no automatic replay, malformed-session rejection without token exposure, callback-timeout close/unlock, ignored late selection, and no source mutation. Existing cancel/error/duplicate/folder tests, complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
-4. Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Check 4 is intentionally open under the current local-only instruction.
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no backend/API/OAuth/schema change, no automatic source/folder mutation replay, no timeout yet for post-selection source creation or folder verification, no maintenance-panel session refactor, deploy, or production mutation.
 
@@ -220,9 +239,9 @@ Non-goals: no backend/API/OAuth/schema change, no automatic source/folder mutati
 1. `ProjectsPage` owns a synchronous operation registry containing only project, panel-instance, and row IDs. It rejects an exact same-act duplicate before React rerender while preserving independent uploads for different rows in the same mounted panel. Because composer row IDs are regenerated after project remount, any still-pending operation from an older panel instance conservatively blocks all new local intake only in its originating project until settlement.
 2. Returning A → B → A while initiation/PUT/completion is pending restores disabled/`aria-busy` input plus a safe pending status. Off-panel settlement stores only predefined project-scoped failure/partial/success text; no `File`, presigned capability, filename, raw response, or failure cause enters parent or browser persistence. A new explicit selection after unlock clears prior outcomes for that project before one new chain begins.
 3. One A → B → A regression proves pending restoration, duplicate rejection, project isolation, off-panel safe failure, explicit-retry clearing, later success persistence, authoritative source-list refresh, and exact initiation/PUT/completion counts. Existing same-row dedup/multi-file tests, complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
-4. Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Check 4 is intentionally open under the current local-only instruction.
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no `File`/capability persistence, no automatic initiation or PUT replay, no composer-draft persistence redesign, backend/API/schema/storage change, deploy, or production mutation.
 
@@ -232,9 +251,9 @@ Non-goals: no `File`/capability persistence, no automatic initiation or PUT repl
 1. Repository evidence records the recovery boundary: initiation commits a new pending source before returning a presigned capability, accepts no `Idempotency-Key`, and cannot be identified uniquely from active-sources filename/MIME/size data; after a valid response, PUT recovery has exact `source_id` authority and uses only the existing verified completion/reconciliation path.
 2. Each initiation POST, any CSRF refresh, and each object PUT stop waiting after 20 seconds. Timeout, transport loss, HTTP 408, or 5xx initiation ambiguity causes one safe sources reload and no automatic POST or PUT; timeout/transport ambiguity after PUT causes no second PUT and invokes only bounded exact-source completion/reconciliation. Definitive storage HTTP rejection remains fail-closed.
 3. Regressions cover stalled initiation abort, ambiguous 5xx initiation, stalled PUT abort, exact request counts, source reload, safe unlock/recovery, and absence of raw response/private upload identity. Complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
-4. Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Check 4 is intentionally open under the current local-only instruction.
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no initiation idempotency/API/schema change, no automatic initiation or object PUT replay, no browser persistence of files/capabilities, backend/storage mutation, deploy, or production mutation.
 
@@ -245,9 +264,9 @@ Non-goals: no initiation idempotency/API/schema change, no automatic initiation 
 1. A synchronous exact-source deletion registry and its predefined result notices live in persistent `ProjectsPage` memory, remain keyed by source ID and originating project, and cannot be reset by a `PreparationPanel` project remount.
 2. Returning A → B → A while DELETE or its authoritative reconciliation is pending restores disabled/`aria-busy` UI and rejects another DELETE before React rerender. Settlement is visible only in the originating project, never renders raw backend detail, and an explicit retry clears only the matching previous outcome before one new request.
 3. A project-switch regression proves one DELETE while pending, a fail-closed 5xx/reconciliation outcome after settlement on another project, retry unlock and outcome clearing, a second confirmed deletion, project isolation, authoritative source disappearance, and no raw failure text. Complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
-4. Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Check 4 is intentionally open under the current local-only instruction.
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no automatic DELETE replay, backend/API/schema/business-rule change, browser persistence, storage cleanup execution, deploy, or production mutation.
 
@@ -258,9 +277,9 @@ Non-goals: no automatic DELETE replay, backend/API/schema/business-rule change, 
 1. Repository evidence establishes completion replay authority: backend completion returns an already uploaded exact source without another storage `HEAD`, preserves `uploaded_at`/`expires_at`, and does not extend retention; pending completion revalidates exact object metadata and source/project state under a row lock before commit.
 2. Each completion POST and any CSRF refresh share a 20-second deadline. Timeout or retryable ambiguity triggers one separately bounded no-store active-sources read: an exact validated `uploaded` source completes locally without replay; only an exact matching `pending` source permits one bounded completion replay. No path repeats source initiation or object PUT.
 3. Regressions cover ambiguous PUT recovery, authoritative uploaded suppression, pending-state replay, stalled completion abort/replay, single initiation/PUT counts, safe failure text, and no raw upload identity. Complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
-4. Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Check 4 is intentionally open under the current local-only instruction.
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no initiation/PUT retry, backend/API/schema/storage change, browser persistence of upload capability/source body, source-deletion change, deploy, or production mutation.
 
@@ -271,9 +290,9 @@ Non-goals: no initiation/PUT retry, backend/API/schema/storage change, browser p
 1. Repository evidence establishes deletion authority: the backend locks the owner-scoped source and referencing jobs, repeated accepted deletion preserves timestamps and creates no duplicate audit/diagnostic events, and the owner-scoped active-sources list excludes exactly the durably deleted source.
 2. A synchronous per-source guard rejects same-act duplicate removal before React rerender. DELETE and any CSRF refresh share a 20-second deadline and are never replayed automatically; timeout, transport loss, HTTP 408, and 5xx trigger one separately bounded active-sources read. Only absence of the exact source ID confirms deletion; presence, malformed data, read failure, or read timeout preserves the source and reports a predefined ambiguous outcome.
 3. Regressions cover one DELETE under duplicate clicks, deadline abort plus confirmed absence, fail-closed source presence after transport/5xx ambiguity, safe text, and explicit-retry unlock. Complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
-4. Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Check 4 is intentionally open under the current local-only instruction.
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no automatic DELETE replay, backend/API/schema/business-rule change, browser persistence, storage cleanup execution, local-upload completion change, deploy, or production mutation.
 
@@ -285,9 +304,9 @@ Non-goals: no automatic DELETE replay, backend/API/schema/business-rule change, 
 1. Repository evidence establishes the recovery authority: a complete exact replay is project/owner/key/request-hash scoped, returns the original ordered jobs with `replayed: true`, and is protected by the backend unique constraint/transaction. The ordinary jobs list is explicitly not treated as batch-membership evidence because its browser DTO omits the idempotency key and batch positions.
 2. Batch preflight and create stop waiting after 20 seconds with one shared abort signal across any CSRF refresh. A timed-out or transport-ambiguous create is never repeated automatically; its exact request body and `Idempotency-Key` remain in owner-scoped memory across A → B → A, block a new key, and require one explicit user replay.
 3. Regression tests prove one POST before timeout, abort at the deadline, no hidden second POST, project isolation, and byte-identical body/key on explicit replay. Complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
-4. Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Check 4 is intentionally open under the current local-only instruction.
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no automatic POST replay, jobs-list inference, backend/API/schema/business-rule change, browser persistence of request bodies, provider or Google Drive call, deploy, or production mutation.
 
@@ -300,9 +319,9 @@ Non-goals: no automatic POST replay, jobs-list inference, backend/API/schema/bus
 1. Cancel, provider-cost retry, output reconciliation, and terminal dismissal stop waiting after 20 seconds. The same abort signal also bounds a CSRF refresh, and no timed-out mutation is ever repeated automatically.
 2. A timeout triggers one separately bounded authoritative read before ownership is released: job detail confirms cancellation only through `cancelled`/`cancel_requested_at` and dismissal only through `terminal_dismissed_at`; retry readiness confirms queueing/running/completion or an advanced attempt; reconciliation metadata confirms only an observable status/count/check-time transition.
 3. Confirmed and still-ambiguous outcomes use predefined safe owner-scoped notices. Integration tests prove exactly one POST for each action, the matching GET reconciliation, and no raw backend/provider/Google response in UI or storage; helper/API tests, complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
-4. Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Check 4 is intentionally open under the current local-only instruction.
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no automatic POST retry, backend idempotency/business-rule change, API/schema change, provider or Google Drive call in local tests, deploy, or production mutation.
 
@@ -314,9 +333,9 @@ Non-goals: no automatic POST retry, backend idempotency/business-rule change, AP
 1. Settlement of cancel, provider retry, output reconciliation, and terminal dismissal produces only predefined safe success/failure notices in persistent ProjectsPage memory, keyed by mutation kind/job and scoped to the originating project; no raw response, path, identifier, or transcript body is copied into notice text or browser storage.
 2. A notice remains available after the originating PreparationPanel remounts, is absent in another project, and is cleared when the user explicitly begins the same mutation again. Current-panel retry/reconciliation inline feedback suppresses the owner notice so text is not duplicated; cancel/dismiss feedback uses the owner path directly.
 3. Existing four-kind dedup regressions, A → B → A failure/success/clearing/isolation regression, complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
-4. Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Check 4 is intentionally open under the current local-only instruction.
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals for this completed item: no mutation timeout, automatic retry, durable/browser-storage notice persistence, backend idempotency/business-rule change, API/schema change, deploy, or production mutation.
 
@@ -328,9 +347,9 @@ Non-goals for this completed item: no mutation timeout, automatic retry, durable
 1. A synchronous owner-scoped registry in persistent ProjectsPage tracks cancel, provider retry, output reconciliation, and terminal dismissal independently by mutation kind and job ID; PreparationPanel project remounts cannot clear it.
 2. Every covered mutation rejects a duplicate begin before React rerender. Returning to the originating project while the request is pending restores disabled/`aria-busy` UI, and settlement releases only the matching key for one explicit retry without exposing raw backend detail.
 3. Existing four-kind dedup regressions, a real A → B → A pending-cancellation regression, complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
-4. Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Check 4 is intentionally open under the current local-only instruction.
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no mutation timeout, automatic retry, backend idempotency/business-rule change, cross-project success/failure message persistence, API/schema change, deploy, or production mutation.
 
@@ -342,9 +361,9 @@ Non-goals: no mutation timeout, automatic retry, backend idempotency/business-ru
 1. Same-project sources and jobs collection GETs receive independent AbortSignals and cannot remain pending beyond 15 seconds; only the matching project/resource key is affected.
 2. A newer collection read aborts the older same-key request without committing stale failure or emitting an intentional-abort diagnostic. ProjectsPage teardown invalidates and aborts all active collection reads; real timeout/failure resolves loading to safe Russian UI while preserving last-known successfully loaded items.
 3. Focused collection-timeout and failed-refresh preservation regressions, complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
-4. Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Check 4 is intentionally open under the current local-only instruction.
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no mutation timeout or retry, no global API timeout, no backend/API/schema change, no project-list or Google-connection behavior change, deploy, or production mutation.
 
@@ -356,9 +375,9 @@ Non-goals: no mutation timeout or retry, no global API timeout, no backend/API/s
 1. Job detail, outputs, retry metadata, and output-reconciliation metadata GETs receive independent AbortSignals and cannot remain pending beyond 15 seconds; only the matching resource/job key is affected.
 2. A newer read aborts the older same-key request without committing stale failure or emitting an intentional-abort diagnostic. PreparationPanel teardown invalidates and aborts all active job reads; a real timeout remains observable and replaces indefinite detail/output loading with existing safe messages.
 3. Focused ordering/timeout tests, complete App and latestRequest suites, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
-4. Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Check 4 is intentionally open under the current local-only instruction.
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no mutation timeout or retry, no global API timeout, no backend/API/schema change, no progress-polling behavior change, deploy, or production mutation.
 
@@ -370,9 +389,9 @@ Non-goals: no mutation timeout or retry, no global API timeout, no backend/API/s
 1. Two terminal-dismiss attempts for the same job while the first request is in flight produce at most one mutation request; the synchronous per-job guard does not depend on a React rerender.
 2. The pinned-terminal dismissal control is disabled and exposes `aria-busy=true` while pending. A safe failure message unlocks one explicit retry, raw backend detail is not rendered, and a successful response preserves the authoritative jobs reload and existing backend idempotency contract.
 3. Focused App and JobCard regressions, complete suites, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
-4. Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Check 4 is intentionally open under the current local-only instruction.
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no terminal-visibility/business-rule change, backend idempotency or audit change, API/schema changes, deploy, or production mutation.
 
@@ -383,9 +402,9 @@ Non-goals: no terminal-visibility/business-rule change, backend idempotency or a
 1. Two output-reconciliation checks for the same job while the first request is in flight produce at most one mutation request; the synchronous per-job guard does not depend on a React rerender.
 2. The explicit Google Drive check is disabled and exposes `aria-busy=true` while pending. A safe failure message unlocks one explicit retry, raw backend detail is not rendered, and no automatic reconciliation is introduced.
 3. Focused App and OutputReconciliationNotice regressions, complete suites, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
-4. Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Check 4 is intentionally open under the current local-only instruction.
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no reconciliation eligibility/business-rule change, backend idempotency change, automatic Google Drive check, API/schema changes, deploy, or production mutation.
 
@@ -396,9 +415,9 @@ Non-goals: no reconciliation eligibility/business-rule change, backend idempoten
 1. Two retry attempts for the same job while the first request is in flight produce at most one mutation request; this includes partial resume/restart requests carrying explicit remaining-provider-cost confirmation and does not depend on a React rerender.
 2. An available retry control is disabled and exposes `aria-busy=true` while pending. A safe failure message unlocks one explicit retry, raw backend detail is not rendered, and no automatic provider retry is introduced.
 3. Focused App and JobDetailSection regressions, complete suites, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
-4. Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Check 4 is intentionally open under the current local-only instruction.
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no retry eligibility/business-rule change, backend idempotency change, automatic provider retry, API/schema changes, deploy, or production mutation.
 
@@ -409,9 +428,9 @@ Non-goals: no retry eligibility/business-rule change, backend idempotency change
 1. Two cancellation attempts for the same job while the first request is in flight produce at most one mutation request; the synchronous guard does not depend on a React rerender.
 2. Queued and processing cancellation controls are disabled and expose `aria-busy=true` while pending. A safe failure message unlocks one explicit retry, raw backend detail is not rendered, and a successful response preserves the existing authoritative jobs reload.
 3. Focused action/component regressions, complete App and JobCard suites, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
-4. Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Check 4 is intentionally open under the current local-only instruction.
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no backend idempotency contract, API/schema changes, automatic mutation retry, cancellation semantics change, deploy, or production mutation.
 
@@ -422,9 +441,9 @@ Non-goals: no backend idempotency contract, API/schema changes, automatic mutati
 1. For repeated loads of one job, only the newest detail and outputs requests may commit success or failure state; a stale response cannot restore obsolete source/output data or replace a newer safe error.
 2. Retry and output-reconciliation metadata use independent per-job request epochs, so a stale response cannot restore obsolete action availability. After a successful retry or reconciliation mutation, authoritative jobs reload remains immediate and is not blocked by the four detail reads.
 3. Shared ordering tests, a component-level repeated-open regression, complete App tests, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
-4. Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Check 4 is intentionally open under the current local-only instruction.
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no API/backend/schema changes, no global request cache, no mutation retry, no deploy, and no production mutation.
 
@@ -435,9 +454,9 @@ Non-goals: no API/backend/schema changes, no global request cache, no mutation r
 1. For repeated source-list loads of one project, only the newest request may commit success or failure state; stale responses cannot restore removed sources or erase newly loaded sources.
 2. For repeated job-list loads of one project, only the newest request may commit success or failure state; stale responses cannot hide newly created/retried jobs or replace fresh status.
 3. Request epochs are isolated by resource and project key. Focused ordering tests, complete App tests, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
-4. Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Check 4 is intentionally open under the current local-only instruction.
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
 
 Non-goals: no request cancellation, API/backend/schema changes, cache persistence, cross-owner state, deploy, or production mutation.
 
@@ -449,9 +468,9 @@ Non-goals: no request cancellation, API/backend/schema changes, cache persistenc
 2. A stalled request is aborted after 15 seconds and enters the same bounded retry path; project switch/unmount aborts the current request immediately. Intentional cleanup abort is excluded from API-failure diagnostics while timeout/unexpected abort remains observable.
 3. Consecutive failures use bounded exponential backoff up to 30 seconds; success resets the normal five-second cadence and outages preserve the last confirmed snapshot.
 4. Missing requested jobs trigger authoritative jobs reconciliation without terminating polling; cleanup prevents stale scheduling. Focused tests, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
-5. Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
 
-Checks 1–4 are complete locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Check 5 is intentionally open: the current instruction is local implementation without push or PR.
+Functional completion is **100% (`4/4`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open: the current instruction is local implementation without push or PR.
 
 Non-goals: no API/worker/schema/provider changes, no changed progress semantics, no fabricated within-request percentage, no deploy, and no production mutation.
 
@@ -521,7 +540,7 @@ Checks 1–5 are merged and the exact-main web deployment is complete. The live 
 
 ## Next item
 
-Continue local PWA stability hardening with the remaining Overview collection reads. Apply the existing exact project and credential collection parsers to the dashboard, add 15-second latest-request-wins/teardown boundaries and explicit per-summary retry, preserve independently successful summaries, and reject malformed/duplicate data without rendering raw detail. Keep Projects mutations, Settings credential mutations, Google/OAuth, API/schema, deployment, and production state outside this item.
+Harden the remaining Preparation prerequisite reads: the selected-project credential collection and local-upload policy currently use component-local boolean cancellation only, have no request deadline/latest-request ordering, and the credential path bypasses the shared exact validator. Add bounded validated reads, teardown cancellation, and safe explicit recovery without changing credential mutations, upload mutation semantics, API/schema, deployment, or production state.
 
 ## Near backlog
 
@@ -542,6 +561,7 @@ Continue local PWA stability hardening with the remaining Overview collection re
 
 ## Validation notes
 
+- `PWA-OVERVIEW-COLLECTION-BOUNDARY-29` local evidence: focused collection-boundary regressions `3/3`, the two adjusted cross-page timeout regressions `2/2`, complete App suite `184/184`, and full Studio Vitest `447/447` passed. Overview projects and credentials share the exact collection requesters used by their primary consumers; duplicate/malformed collections fail closed without raw-field rendering. Both summaries have independent 15-second latest-request-wins/teardown boundaries and explicit retry while preserving the other summary and any last-known valid data. The first full App run exposed two obsolete signal-count assumptions: navigation now correctly aborts the new Overview request before the destination page creates and times out its own request; the assertions were tightened to verify both aborts. TypeScript, full ESLint, and Vite/PWA production build pass. No backend/API/schema, mutation, deploy, or production state is changed.
 - `PWA-GOOGLE-CONNECTION-CONSUMERS-28` local evidence: focused Overview/Projects connection regressions `3/3`, complete App suite `181/181`, and standalone full Studio Vitest `444/444` passed. Overview aborts a stalled read after 15 seconds, reports only safe unavailable state, and succeeds through explicit retry. Projects rejects a contradictory DTO without rendering its raw field, distinguishes unavailable from disconnected, disables source and folder Picker controls, refreshes on every active return, and ignores a late connected response after a newer disconnected read. The two older Settings regressions were updated only for the now-intentional additional Overview/Projects GETs and remain green. TypeScript, full ESLint, and Vite/PWA production build pass. A first parallel four-process gate also completed all `444/444` assertions but hit a post-suite `tinypool` teardown exception; the standalone rerun exited cleanly and is the claimed test evidence. No OAuth mutation, backend/API/schema, deploy, or production mutation is claimed.
 - `PWA-GOOGLE-CONNECTION-BOUNDARY-27` local evidence: focused Settings connection regressions `11/11`, complete App suite `178/178`, and full Studio Vitest `441/441` passed. Stalled/malformed connection reads fail closed after 15 seconds with explicit retry and no raw detail. OAuth start and disconnect reject same-act duplicates, expose disabled/`aria-busy`, abort after 20 seconds, perform one authoritative connection read on uncertainty, and never replay POST/DELETE automatically. The exact Google authorization origin/path/query/scope contract rejects hostile or malformed redirect capabilities; logout invalidates late success before navigation. Settings → Projects → Settings preserves detached disconnect ownership/outcome and requests exactly one post-remount refresh. Sequential backend disconnect replay preserves the original terminal timestamp, wipes primary and maintenance token material, and emits one audit event. Python syntax, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` pass. The backend service regression is authored but was not executed locally because bundled Python lacks `pytest`, so TEST remains partial and CI remains open. No maintenance OAuth, Picker, API shape/schema/migration, deploy, or production mutation is claimed.
 - `PWA-RETENTION-PREFERENCE-BOUNDARY-26` local evidence: focused retention regressions `7/7`, complete App suite `171/171`, and full Studio Vitest `434/434` passed. Stalled/malformed initial GET fails closed after 15 seconds without rendering choices; PATCH rejects a same-act duplicate, exposes disabled/`aria-busy`, aborts after 20 seconds, performs exactly one authoritative read, and is never replayed automatically. A → Projects → Settings preserves pending ownership, detached 5xx settlement is confirmed from the exact selected server TTL, then performs one post-remount refresh without repeated extra reads. Failed write plus failed reconciliation restores the last confirmed TTL and renders neither raw write nor read detail. TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` pass. Backend source/test evidence already proves exact five-option validation and repeated-same-value audit idempotence; no backend/API/schema/audit, storage cleanup, Google, deploy, or production mutation is claimed.

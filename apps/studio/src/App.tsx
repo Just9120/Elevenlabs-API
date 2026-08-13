@@ -195,6 +195,17 @@ function parseCredentialCollection(candidate: unknown): Credential[] | null {
   }
   return credentials;
 }
+async function requestCredentialCollection(
+  signal?: AbortSignal,
+): Promise<Credential[]> {
+  const candidate = await api<unknown>("/credentials", {
+    signal,
+    ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+  });
+  const credentials = parseCredentialCollection(candidate);
+  if (credentials === null) throw new Error("invalid_credentials_response");
+  return credentials;
+}
 function isExpectedCredentialCreateResponse(
   candidate: unknown,
 ): candidate is Pick<Credential, "id" | "provider" | "label" | "status" | "masked_value"> {
@@ -326,6 +337,17 @@ function parseProjectCollection(candidate: unknown): Project[] | null {
   if (new Set(projects.map((project) => project.id)).size !== projects.length) {
     return null;
   }
+  return projects;
+}
+async function requestProjectCollection(
+  signal?: AbortSignal,
+): Promise<Project[]> {
+  const candidate = await api<unknown>("/projects", {
+    signal,
+    ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+  });
+  const projects = parseProjectCollection(candidate);
+  if (projects === null) throw new Error("invalid_projects_response");
   return projects;
 }
 type UploadInit = {
@@ -729,12 +751,10 @@ async function readGoogleConnectionBounded(): Promise<GoogleConnection | null> {
 async function readCredentialCollectionBounded(): Promise<Credential[] | null> {
   try {
     const result = await runBoundedRequest(
-      (signal) => api<unknown>("/credentials", { signal }),
+      (signal) => requestCredentialCollection(signal),
       CREDENTIAL_COLLECTION_REQUEST_TIMEOUT_MS,
     );
-    return result.status === "completed"
-      ? parseCredentialCollection(result.value)
-      : null;
+    return result.status === "completed" ? result.value : null;
   } catch {
     return null;
   }
@@ -3721,18 +3741,38 @@ function OverviewPage({
     useState<GoogleConnection | null>(null);
   const [googleLoading, setGoogleLoading] = useState(true);
   const [googleError, setGoogleError] = useState(false);
-  const googleRequestEpochsRef = useRef(new Map<string, number>());
-  const googleRequestControllersRef = useRef(
-    new Map<string, AbortController>(),
-  );
+  const requestEpochsRef = useRef(new Map<string, number>());
+  const requestControllersRef = useRef(new Map<string, AbortController>());
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [credentialsLoading, setCredentialsLoading] = useState(true);
   const [credentialsError, setCredentialsError] = useState(false);
+  const loadProjects = () => {
+    setProjectsLoading(true);
+    setProjectsError(false);
+    void settleLatestRequest(
+      requestEpochsRef.current,
+      "overview:projects",
+      requestProjectCollection,
+      (nextProjects) => {
+        setProjects(nextProjects.filter((project) => !project.archived_at));
+        setProjectsError(false);
+        setProjectsLoading(false);
+      },
+      () => {
+        setProjectsError(true);
+        setProjectsLoading(false);
+      },
+      {
+        controllers: requestControllersRef.current,
+        timeoutMs: PROJECT_COLLECTION_REQUEST_TIMEOUT_MS,
+      },
+    );
+  };
   const loadGoogleConnection = () => {
     setGoogleLoading(true);
     setGoogleError(false);
     void settleLatestRequest(
-      googleRequestEpochsRef.current,
+      requestEpochsRef.current,
       "overview:google-connection",
       requestGoogleConnection,
       (connection) => {
@@ -3745,31 +3785,43 @@ function OverviewPage({
         setGoogleLoading(false);
       },
       {
-        controllers: googleRequestControllersRef.current,
+        controllers: requestControllersRef.current,
         timeoutMs: GOOGLE_CONNECTION_REQUEST_TIMEOUT_MS,
       },
     );
   };
+  const loadCredentials = () => {
+    setCredentialsLoading(true);
+    setCredentialsError(false);
+    void settleLatestRequest(
+      requestEpochsRef.current,
+      "overview:credentials",
+      requestCredentialCollection,
+      (nextCredentials) => {
+        setCredentials(nextCredentials);
+        setCredentialsError(false);
+        setCredentialsLoading(false);
+      },
+      () => {
+        setCredentialsError(true);
+        setCredentialsLoading(false);
+      },
+      {
+        controllers: requestControllersRef.current,
+        timeoutMs: CREDENTIAL_COLLECTION_REQUEST_TIMEOUT_MS,
+      },
+    );
+  };
   useEffect(() => {
-    api<{ projects: Project[] }>("/projects")
-      .then((r) =>
-        setProjects(
-          (r.projects ?? []).filter((project) => !project.archived_at),
-        ),
-      )
-      .catch(() => setProjectsError(true))
-      .finally(() => setProjectsLoading(false));
+    loadProjects();
     loadGoogleConnection();
-    api<{ credentials: Credential[] }>("/credentials")
-      .then((r) => setCredentials(r.credentials ?? []))
-      .catch(() => setCredentialsError(true))
-      .finally(() => setCredentialsLoading(false));
+    loadCredentials();
   }, []);
   useEffect(
     () => () =>
       cancelLatestRequests(
-        googleRequestEpochsRef.current,
-        googleRequestControllersRef.current,
+        requestEpochsRef.current,
+        requestControllersRef.current,
       ),
     [],
   );
@@ -3833,6 +3885,11 @@ function OverviewPage({
                 ? "Недоступно"
                 : projects.length}
           </strong>
+          {projectsError && (
+            <button type="button" onClick={loadProjects}>
+              Повторить
+            </button>
+          )}
         </article>
         <article className="card summary-card" aria-label="Google Drive">
           <span className="summary-label">Google Drive</span>
@@ -3852,6 +3909,11 @@ function OverviewPage({
                 ? "Недоступно"
                 : activeCredentials.length}
           </strong>
+          {credentialsError && (
+            <button type="button" onClick={loadCredentials}>
+              Повторить
+            </button>
+          )}
         </article>
       </div>
       {(projectsError || googleError || credentialsError) && (
@@ -4214,15 +4276,7 @@ function ProjectsPage({
     await settleLatestRequest(
       requestEpochsRef.current,
       "projects",
-      async (signal) => {
-        const candidate = await api<unknown>("/projects", {
-          signal,
-          ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
-        });
-        const parsed = parseProjectCollection(candidate);
-        if (parsed === null) throw new Error("invalid_projects_response");
-        return parsed;
-      },
+      requestProjectCollection,
       (nextProjects) => {
         observed = nextProjects;
         setProjects(nextProjects);
@@ -5332,15 +5386,7 @@ function SettingsPage({
     await settleLatestRequest(
       credentialRequestEpochsRef.current,
       "settings:credentials",
-      async (signal) => {
-        const candidate = await api<unknown>("/credentials", {
-          signal,
-          ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
-        });
-        const parsed = parseCredentialCollection(candidate);
-        if (parsed === null) throw new Error("invalid_credentials_response");
-        return parsed;
-      },
+      requestCredentialCollection,
       (nextCredentials) => {
         observed = nextCredentials;
         setCredentials(nextCredentials);

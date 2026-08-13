@@ -57,6 +57,31 @@ function googleOauthStartFixture(overrides: Record<string, unknown> = {}) {
     ...overrides,
   };
 }
+function projectFixture(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "project-fixture",
+    title: "Fixture project",
+    description: null,
+    created_at: "2026-08-13T10:00:00Z",
+    updated_at: "2026-08-13T11:00:00Z",
+    archived_at: null,
+    output_drive_folder_id: null,
+    output_drive_folder_url: null,
+    output_drive_folder_name: null,
+    ...overrides,
+  };
+}
+function credentialFixture(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "credential-fixture",
+    provider: "elevenlabs",
+    label: "Fixture credential",
+    status: "active",
+    masked_value: "••••safe",
+    active_version: 1,
+    ...overrides,
+  };
+}
 function batchPreflightJson(init?: RequestInit) {
   const request = JSON.parse(String(init?.body ?? "{}")) as {
     language?: "ru" | "detect";
@@ -2030,6 +2055,187 @@ describe("Studio PWA", () => {
     expect(connectionReads).toBe(4);
   });
 
+  it("bounds dashboard project and credential reads with independent retries", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const projectSignals: AbortSignal[] = [];
+    const credentialSignals: AbortSignal[] = [];
+    let projectReads = 0;
+    let credentialReads = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/projects" && !init?.method) {
+        projectReads += 1;
+        if (projectReads > 1) return defaultFetch?.(url, init) ?? json({ projects: [] });
+        const signal = init.signal;
+        if (!signal) throw new Error("Project signal is missing");
+        projectSignals.push(signal);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+        });
+      }
+      if (url === "/api/credentials" && !init?.method) {
+        credentialReads += 1;
+        if (credentialReads > 1)
+          return defaultFetch?.(url, init) ?? json({ credentials: [] });
+        const signal = init.signal;
+        if (!signal) throw new Error("Credential signal is missing");
+        credentialSignals.push(signal);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 15_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      renderApp();
+      await waitForPlatformOverview();
+      const projectsCard = screen.getByLabelText("Проекты");
+      const credentialsCard = screen.getByLabelText("Активные ключи");
+      await waitFor(() => expect(projectsCard).toHaveTextContent("Недоступно"));
+      await waitFor(() => expect(credentialsCard).toHaveTextContent("Недоступно"));
+      expect(screen.getByLabelText("Google Drive")).toHaveTextContent("Подключён");
+      expect(projectSignals[0]?.aborted).toBe(true);
+      expect(credentialSignals[0]?.aborted).toBe(true);
+
+      await userEvent.click(
+        within(projectsCard).getByRole("button", { name: "Повторить" }),
+      );
+      await userEvent.click(
+        within(credentialsCard).getByRole("button", { name: "Повторить" }),
+      );
+      await waitFor(() => expect(projectsCard).toHaveTextContent("1"));
+      await waitFor(() => expect(credentialsCard).toHaveTextContent("1"));
+      expect(projectReads).toBe(2);
+      expect(credentialReads).toBe(2);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("rejects duplicate dashboard collections without rendering raw fields", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let projectReads = 0;
+    let credentialReads = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/projects" && !init?.method) {
+        projectReads += 1;
+        if (projectReads === 1) {
+          return json({
+            projects: [
+              projectFixture({ id: "duplicate", title: "raw-project-value" }),
+              projectFixture({ id: "duplicate", title: "other duplicate" }),
+            ],
+          });
+        }
+      }
+      if (url === "/api/credentials" && !init?.method) {
+        credentialReads += 1;
+        if (credentialReads === 1) {
+          return json({
+            credentials: [
+              credentialFixture({
+                id: "duplicate",
+                masked_value: "raw-credential-value",
+              }),
+              credentialFixture({ id: "duplicate", label: "duplicate label" }),
+            ],
+          });
+        }
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await waitForPlatformOverview();
+    const projectsCard = screen.getByLabelText("Проекты");
+    const credentialsCard = screen.getByLabelText("Активные ключи");
+    await waitFor(() => expect(projectsCard).toHaveTextContent("Недоступно"));
+    await waitFor(() => expect(credentialsCard).toHaveTextContent("Недоступно"));
+    expect(document.body.textContent).not.toContain("raw-project-value");
+    expect(document.body.textContent).not.toContain("raw-credential-value");
+
+    await userEvent.click(
+      within(projectsCard).getByRole("button", { name: "Повторить" }),
+    );
+    await userEvent.click(
+      within(credentialsCard).getByRole("button", { name: "Повторить" }),
+    );
+    await waitFor(() => expect(projectsCard).toHaveTextContent("1"));
+    await waitFor(() => expect(credentialsCard).toHaveTextContent("1"));
+  });
+
+  it("ignores a late dashboard project retry after Overview remount", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let projectReads = 0;
+    let olderRetrySignal: AbortSignal | undefined;
+    let resolveOlderRetry: ((response: Response) => void) | undefined;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/projects" && !init?.method) {
+        projectReads += 1;
+        if (projectReads === 1)
+          return json({ detail: "raw-project-failure" }, false, 503);
+        if (projectReads === 2) {
+          olderRetrySignal = init.signal;
+          return new Promise<Response>((resolve) => {
+            resolveOlderRetry = resolve;
+          });
+        }
+        if (projectReads === 4) {
+          return json({
+            projects: [
+              projectFixture({ id: "new-1", title: "Newest one" }),
+              projectFixture({ id: "new-2", title: "Newest two" }),
+            ],
+          });
+        }
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await waitForPlatformOverview();
+    const initialProjectsCard = screen.getByLabelText("Проекты");
+    await waitFor(() =>
+      expect(initialProjectsCard).toHaveTextContent("Недоступно"),
+    );
+    await userEvent.click(
+      within(initialProjectsCard).getByRole("button", { name: "Повторить" }),
+    );
+    await waitFor(() => expect(resolveOlderRetry).toBeDefined());
+
+    await openProjectsPage();
+    expect(olderRetrySignal?.aborted).toBe(true);
+    await openPlatformNavPage("Обзор");
+    await waitForPlatformOverview();
+    const currentProjectsCard = screen.getByLabelText("Проекты");
+    await waitFor(() => expect(currentProjectsCard).toHaveTextContent("2"));
+    expect(await screen.findByText("Newest one")).toBeInTheDocument();
+    expect(projectReads).toBe(4);
+
+    await act(async () =>
+      resolveOlderRetry?.(
+        await json({
+          projects: [projectFixture({ id: "old", title: "Late older result" })],
+        }),
+      ),
+    );
+    expect(currentProjectsCard).toHaveTextContent("2");
+    expect(screen.queryByText("Late older result")).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("raw-project-failure");
+  });
+
   it("opens the project creation form only for the dashboard new-project action", async () => {
     renderApp();
     await waitForPlatformOverview();
@@ -3666,8 +3872,9 @@ describe("Studio PWA", () => {
           "Не удалось загрузить ключи провайдеров. Повторите попытку.",
         ),
       ).toBeInTheDocument();
-      expect(credentialSignals).toHaveLength(1);
+      expect(credentialSignals).toHaveLength(2);
       expect(credentialSignals[0]?.aborted).toBe(true);
+      expect(credentialSignals[1]?.aborted).toBe(true);
       expect(
         screen.getByRole("button", { name: "Добавить ключ" }),
       ).toBeDisabled();
@@ -4069,8 +4276,9 @@ describe("Studio PWA", () => {
       expect(
         await screen.findByText("Не удалось загрузить проекты."),
       ).toBeInTheDocument();
-      expect(projectSignals).toHaveLength(1);
+      expect(projectSignals).toHaveLength(2);
       expect(projectSignals[0]?.aborted).toBe(true);
+      expect(projectSignals[1]?.aborted).toBe(true);
     } finally {
       timeoutSpy.mockRestore();
     }
