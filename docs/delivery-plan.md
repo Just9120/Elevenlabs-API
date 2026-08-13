@@ -2,6 +2,7 @@
 
 ## Current dashboard
 
+- 👉 `PWA-SOURCE-DELETE-RECOVERY-16 / local source` — source removal now has a synchronous per-source guard, a 20-second DELETE deadline, and one owner-scoped sources-list reconciliation before reporting a predefined confirmed or ambiguous outcome. No DELETE is repeated automatically. Local CODE/TEST gates pass; publication and CI are intentionally absent.
 - 👉 `PWA-BATCH-CREATE-RECOVERY-15 / local source` — batch preflight and create now stop waiting after 20 seconds; an ambiguous create remains owner-scoped across project switches and blocks a new key until the user explicitly replays the exact request body with the same `Idempotency-Key`. Local CODE/TEST gates pass; publication and CI are intentionally absent.
 - 👉 `PWA-JOB-MUTATION-TIMEOUT-14 / local source` — cancel, provider retry, output reconciliation, and terminal dismissal now stop waiting after 20 seconds, never retry a POST automatically, and perform one bounded authoritative GET before reporting a predefined confirmed or ambiguous outcome. Local CODE/TEST gates pass; publication and CI are intentionally absent.
 - 🟦 `PWA-JOB-MUTATION-OUTCOME-13 / local source` — safe cancel, retry, output-reconciliation, and terminal-dismiss outcomes now survive originating-panel remounts in owner-scoped browser memory; notices stay project-isolated, clear on explicit retry, and never render raw backend detail. Local CODE/TEST gates pass; publication and CI are intentionally absent.
@@ -48,6 +49,7 @@
 | --- | ---: | --- |
 | Project, all current scope | **N/A (numerator/denominator are not defined)** | `project-spec.md` does not provide one closed, non-overlapping project-wide acceptance set; inventing a percentage would violate the agreed method. |
 | Stable Colab batch + Realtime | **100% (operator-accepted current scope)** | Four months of stable use cover both implemented Colab contours; this does not assert that no focused gaps remain. |
+| `PWA-SOURCE-DELETE-RECOVERY-16` | **75% (`3/4`)** | Same-act deletion deduplication, bounded DELETE plus exact-ID authoritative reconciliation, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
 | `PWA-BATCH-CREATE-RECOVERY-15` | **75% (`3/4`)** | Bounded preflight/create execution, persistent exact-key/body recovery without automatic POST replay, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
 | `PWA-JOB-MUTATION-TIMEOUT-14` | **75% (`3/4`)** | Bounded non-retrying POST execution, endpoint-specific authoritative timeout reconciliation, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
 | `PWA-JOB-MUTATION-OUTCOME-13` | **75% (`3/4`)** | Safe owner-scoped outcomes, remount/project isolation and explicit-retry clearing, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
@@ -82,6 +84,20 @@ The denominators are explicit gates. Local code, a green workflow summary with s
 
 ## Active item
 
+`PWA-SOURCE-DELETE-RECOVERY-16` acceptance checks:
+
+1. Repository evidence establishes deletion authority: the backend locks the owner-scoped source and referencing jobs, repeated accepted deletion preserves timestamps and creates no duplicate audit/diagnostic events, and the owner-scoped active-sources list excludes exactly the durably deleted source.
+2. A synchronous per-source guard rejects same-act duplicate removal before React rerender. DELETE and any CSRF refresh share a 20-second deadline and are never replayed automatically; timeout, transport loss, HTTP 408, and 5xx trigger one separately bounded active-sources read. Only absence of the exact source ID confirms deletion; presence, malformed data, read failure, or read timeout preserves the source and reports a predefined ambiguous outcome.
+3. Regressions cover one DELETE under duplicate clicks, deadline abort plus confirmed absence, fail-closed source presence after transport/5xx ambiguity, safe text, and explicit-retry unlock. Complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
+4. Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+
+Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Check 4 is intentionally open under the current local-only instruction.
+
+Non-goals: no automatic DELETE replay, backend/API/schema/business-rule change, browser persistence, storage cleanup execution, local-upload completion change, deploy, or production mutation.
+
+## Previous local items
+
+### Bounded batch creation and exact idempotent recovery
 `PWA-BATCH-CREATE-RECOVERY-15` acceptance checks:
 
 1. Repository evidence establishes the recovery authority: a complete exact replay is project/owner/key/request-hash scoped, returns the original ordered jobs with `replayed: true`, and is protected by the backend unique constraint/transaction. The ordinary jobs list is explicitly not treated as batch-membership evidence because its browser DTO omits the idempotency key and batch positions.
@@ -93,7 +109,7 @@ Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `
 
 Non-goals: no automatic POST replay, jobs-list inference, backend/API/schema/business-rule change, browser persistence of request bodies, provider or Google Drive call, deploy, or production mutation.
 
-## Previous local items
+
 
 ### Bounded job mutations and authoritative timeout reconciliation
 
@@ -323,7 +339,7 @@ Checks 1–5 are merged and the exact-main web deployment is complete. The live 
 
 ## Next item
 
-Continue local PWA stability hardening with source lifecycle mutations: verify backend idempotency and authoritative recovery for source removal and local-upload completion, then bound the highest-risk stalled path without duplicating stored sources or hiding an accepted deletion. `PWA-STUDIO-EDGE-CD-01` remains an operational follow-up and does not pre-empt the current local-only PWA priority.
+Continue local PWA stability hardening with local-upload completion: bound a stalled completion without repeating initiation or object PUT, reconcile the exact source through the owner-scoped sources list, and preserve the backend replay/retention invariants. `PWA-STUDIO-EDGE-CD-01` remains an operational follow-up and does not pre-empt the current local-only PWA priority.
 
 ## Near backlog
 
@@ -344,6 +360,7 @@ Continue local PWA stability hardening with source lifecycle mutations: verify b
 
 ## Validation notes
 
+- `PWA-SOURCE-DELETE-RECOVERY-16` local evidence: backend source-deletion code/tests verify owner/project locking, job-readiness gates, repeat idempotence, stable deletion/cleanup timestamps, and no duplicate audit/diagnostic events; the active-sources endpoint excludes deleted rows. Recovery regressions cover deadline/dedup/confirmed absence `1/1`, transport ambiguity with source presence `1/1`, and 5xx ambiguity with source presence `1/1`. Complete App suite `140/140`, full Studio Vitest `403/403`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. DELETE and CSRF refresh share the 20-second signal; no DELETE is automatically replayed, and raw error detail is absent. The first full run correctly exposed that the old 5xx test treated a state-changing server error as definitive; it now verifies the fail-closed ambiguous outcome after source-list reconciliation. No backend/API/schema change, cleanup execution, PR, CI, deploy, or live evidence is claimed.
 - `PWA-BATCH-CREATE-RECOVERY-15` local evidence: backend route/model/tests verify owner/project/idempotency-key/request-hash replay, ordered complete-batch recovery, transaction rollback, and a unique `(owner_id, project_id, batch_idempotency_key, batch_position)` constraint. The ordinary jobs-list DTO omits batch identity, so no unsafe list inference was implemented. Preflight/create timeout regressions `2/2`, A → B → A exact-replay/isolation regression `1/1`, complete App suite `138/138`, full Studio Vitest `401/401`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. Preflight and create share a 20-second bound; a timed-out create issues exactly one POST, and explicit recovery reuses the exact body/key without browser storage. No backend/API/schema change, automatic POST replay, PR, CI, deploy, provider/Google call, or live evidence is claimed.
 - `PWA-JOB-MUTATION-TIMEOUT-14` local evidence: endpoint audit verified durable idempotency for cancel/dismiss, transactional queue authority for retry, and fail-closed Google reconciliation metadata. Bounded-request helper tests `5/5`, timeout integration regressions `4/4`, API client tests `7/7`, complete App suite `136/136`, full Studio Vitest `399/399`, TypeScript, full ESLint, Vite/PWA production build, and `git diff --check` passed. Each timeout produces exactly one POST followed by the endpoint-specific authoritative GET; provider-cost retry and Google Drive check are never automatically repeated, CSRF refresh shares the deadline signal, and confirmed/ambiguous text is predefined. Initial integration runs exposed two fixture-only assumptions: the test timer also accelerated existing 15-second detail reads, and terminal failed jobs preloaded readiness before explicit open. A distinct 20-second mutation deadline plus abort-driven fixture transition resolved both without weakening production assertions. No PR, CI, deploy, provider/Google call, or live evidence is claimed.
 - `PWA-JOB-MUTATION-OUTCOME-13` local evidence: existing same-act mutation regressions plus the expanded project-switch outcome regression `5/5`, complete App suite `132/132`, full Studio Vitest `389/389`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. A safe cancellation failure remains visible after remount, disappears on explicit retry, the later safe success is absent in project B and visible on return to project A, and raw backend detail remains absent. Retry/reconciliation current-panel inline feedback suppresses duplicate owner notices; all notice state remains owner-scoped in memory only. One intermediate focused run caught a mechanically malformed template-literal path before tests executed; all four paths were restored by function-bounded replacement and TypeScript plus all final gates pass. No mutation timeout, automatic retry, PR, CI, deploy, or live evidence is claimed.

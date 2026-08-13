@@ -1363,6 +1363,112 @@ describe("Studio PWA", () => {
     ).toHaveLength(1);
   });
 
+  it("bounds and deduplicates stalled source deletion before reconciling absence", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const requestSignals: AbortSignal[] = [];
+    let deleteStarted = false;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        url === "/api/projects/p1/sources" &&
+        !init?.method &&
+        deleteStarted
+      ) {
+        return json({ sources: [] });
+      }
+      if (url === "/api/sources/s1" && init?.method === "DELETE") {
+        deleteStarted = true;
+        const signal = init.signal;
+        if (!signal) throw new Error("source deletion signal is missing");
+        requestSignals.push(signal);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
+    const removeButton = screen.getByRole("button", {
+      name: "Убрать из проекта: Лекция 1. Личность как психологическое явление.flac",
+    });
+
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(removeButton);
+      fireEvent.click(removeButton);
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(requestSignals).toHaveLength(1);
+      expect(removeButton).toBeDisabled();
+      expect(removeButton).toHaveAttribute("aria-busy", "true");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+
+      expect(requestSignals[0]?.aborted).toBe(true);
+      expect(
+        baseFetch.mock.calls.some(
+          ([url, init]) =>
+            url === "/api/projects/p1/sources" &&
+            init?.cache === "no-store",
+        ),
+      ).toBe(true);
+      expect(
+        baseFetch.mock.calls.filter(
+          ([url, init]) =>
+            url === "/api/sources/s1" && init?.method === "DELETE",
+        ),
+      ).toHaveLength(1);
+      expect(screen.getByText("Файл убран из проекта.")).toBeInTheDocument();
+      expect(
+        screen.queryByText("Лекция 1. Личность как психологическое явление.flac"),
+      ).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("keeps a source visible when an ambiguous deletion is not reconciled", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/sources/s1" && init?.method === "DELETE") {
+        return Promise.reject(new TypeError("raw transport detail"));
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
+    const removeButton = screen.getByRole("button", {
+      name: "Убрать из проекта: Лекция 1. Личность как психологическое явление.flac",
+    });
+    await userEvent.click(removeButton);
+
+    expect(
+      await screen.findByText(
+        "Сервер не подтвердил удаление файла. Список файлов обновлён; подождите и повторите при необходимости.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Лекция 1. Личность как психологическое явление.flac"),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(removeButton).toBeEnabled());
+    expect(removeButton).toHaveAttribute("aria-busy", "false");
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          url === "/api/sources/s1" && init?.method === "DELETE",
+      ),
+    ).toHaveLength(1);
+    expect(document.body).not.toHaveTextContent("raw transport detail");
+  });
   it("reports queued background cleanup after removing an uploaded local source", async () => {
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = baseFetch.getMockImplementation();
@@ -1461,7 +1567,7 @@ describe("Studio PWA", () => {
     expect(document.body.textContent).not.toContain("retry_stage");
   });
 
-  it("keeps the source card and shows a safe project-removal error on failed removal", async () => {
+  it("keeps the source card and shows a safe ambiguous outcome after a 5xx removal", async () => {
     (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       (url: string, init?: RequestInit) => {
         if (url.endsWith("/api/auth/session"))
@@ -1552,7 +1658,9 @@ describe("Studio PWA", () => {
       }),
     );
     expect(
-      await screen.findByText("Не удалось убрать файл из проекта."),
+      await screen.findByText(
+        "Сервер не подтвердил удаление файла. Список файлов обновлён; подождите и повторите при необходимости.",
+      ),
     ).toBeInTheDocument();
     expect(screen.getByText("safe-drive.mp4")).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("удален с Google Drive");

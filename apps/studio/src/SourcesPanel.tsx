@@ -1,4 +1,6 @@
-import { ApiError, mutateWithCsrfRetry } from "./apiClient";
+import { useRef, useState } from "react";
+import { ApiError, api, mutateWithCsrfRetry } from "./apiClient";
+import { runBoundedRequest } from "./jobMutationRequest";
 import { formatBytes, formatTime } from "./formatters";
 import { isSafeDisplayUrl, ResourceExternalLink } from "./resourceLinks";
 import {
@@ -35,6 +37,33 @@ function isExpectedDeletionResponse(
   );
 }
 
+function isAmbiguousDeletionFailure(error: unknown) {
+  return (
+    error instanceof TypeError ||
+    (error instanceof ApiError && (error.status === 408 || error.status >= 500))
+  );
+}
+
+function sourceListConfirmsAbsence(value: unknown, sourceId: string) {
+  if (!value || typeof value !== "object" || !("sources" in value)) {
+    return false;
+  }
+  const items = (value as { sources?: unknown }).sources;
+  if (!Array.isArray(items)) return false;
+  const ids: string[] = [];
+  for (const item of items) {
+    if (
+      !item ||
+      typeof item !== "object" ||
+      typeof (item as { id?: unknown }).id !== "string"
+    ) {
+      return false;
+    }
+    ids.push((item as { id: string }).id);
+  }
+  return !ids.includes(sourceId);
+}
+
 function safeConfirm(message: string) {
   try {
     return window.confirm(message) !== false;
@@ -63,30 +92,90 @@ export function SourcesPanel({
   ) => void;
   onError: (message: string) => void;
 }) {
+  const pendingDeletionIdsRef = useRef(new Set<string>());
+  const [pendingDeletionIds, setPendingDeletionIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+
+  function beginDeletion(id: string) {
+    if (pendingDeletionIdsRef.current.has(id)) return false;
+    pendingDeletionIdsRef.current.add(id);
+    setPendingDeletionIds(new Set(pendingDeletionIdsRef.current));
+    return true;
+  }
+
+  function finishDeletion(id: string) {
+    if (!pendingDeletionIdsRef.current.delete(id)) return;
+    setPendingDeletionIds(new Set(pendingDeletionIdsRef.current));
+  }
+
+  function applyConfirmedDeletion(
+    source: Source,
+    storageCleanup?: SourceDeletionResponse["storage_cleanup"],
+  ) {
+    onSourceRemoved?.(source, storageCleanup);
+    onReload(project.id);
+  }
+
+  async function reconcileAmbiguousDeletion(source: Source) {
+    try {
+      const result = await runBoundedRequest((signal) =>
+        api<unknown>(`/projects/${project.id}/sources`, {
+          signal,
+          cache: "no-store",
+        }),
+      );
+      if (
+        result.status === "completed" &&
+        sourceListConfirmsAbsence(result.value, source.id)
+      ) {
+        applyConfirmedDeletion(source);
+        return;
+      }
+    } catch {
+      // The predefined ambiguous outcome below remains authoritative.
+    }
+    onError(
+      "Сервер не подтвердил удаление файла. Список файлов обновлён; подождите и повторите при необходимости.",
+    );
+    onReload(project.id);
+  }
+
   async function deleteSource(id: string) {
     const source = sources.items.find((item) => item.id === id);
+    if (!source || pendingDeletionIdsRef.current.has(id)) return;
     const message =
-      source?.source_type === "google_drive"
+      source.source_type === "google_drive"
         ? "Источник будет убран только из Studio. Файл останется на Google Drive."
         : "Источник будет убран из Studio. Временная копия будет удалена из хранилища после безопасной проверки связанных задач.";
-    if (!safeConfirm(message)) return;
+    if (!safeConfirm(message) || !beginDeletion(id)) return;
     try {
-      const result = await mutateWithCsrfRetry<SourceDeletionResponse>(
-        `/sources/${id}`,
-        csrf,
-        onCsrf,
-        { method: "DELETE" },
+      const bounded = await runBoundedRequest((signal) =>
+        mutateWithCsrfRetry<SourceDeletionResponse>(
+          `/sources/${id}`,
+          csrf,
+          onCsrf,
+          { method: "DELETE", signal },
+        ),
       );
-      if (!source || !isExpectedDeletionResponse(result, source)) {
+      if (bounded.status === "timed_out") {
+        await reconcileAmbiguousDeletion(source);
+        return;
+      }
+      const result = bounded.value;
+      if (!isExpectedDeletionResponse(result, source)) {
         onError(
           "Сервер вернул несогласованное подтверждение удаления. Список файлов обновлён.",
         );
         onReload(project.id);
         return;
       }
-      onSourceRemoved?.(source, result.storage_cleanup);
-      onReload(project.id);
+      applyConfirmedDeletion(source, result.storage_cleanup);
     } catch (error) {
+      if (isAmbiguousDeletionFailure(error)) {
+        await reconcileAmbiguousDeletion(source);
+        return;
+      }
       const detail =
         error instanceof ApiError &&
         error.data &&
@@ -111,6 +200,8 @@ export function SourcesPanel({
           ? messages[reason]
           : "Не удалось убрать файл из проекта.",
       );
+    } finally {
+      finishDeletion(id);
     }
   }
 
@@ -155,8 +246,12 @@ export function SourcesPanel({
               type="button"
               onClick={() => deleteSource(source.id)}
               aria-label={`Убрать из проекта: ${source.original_filename}`}
+              disabled={pendingDeletionIds.has(source.id)}
+              aria-busy={pendingDeletionIds.has(source.id)}
             >
-              Убрать из проекта
+              {pendingDeletionIds.has(source.id)
+                ? "Удаление…"
+                : "Убрать из проекта"}
             </button>
           </div>
           <details>
