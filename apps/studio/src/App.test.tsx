@@ -6720,6 +6720,293 @@ describe("Studio PWA", () => {
       "raw provider retry failure",
     );
   });
+  it("confirms timed-out cancellation with an authoritative job read and no second POST", async () => {
+    installFocusedOutputFixture({ jobStatus: "queued" });
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let cancelPosts = 0;
+    let authoritativeReads = 0;
+    let mutationSignal: AbortSignal | undefined;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      const requestUrl = String(url);
+      if (
+        requestUrl.endsWith("/api/jobs/job-focused/cancel") &&
+        init?.method === "POST"
+      ) {
+        cancelPosts += 1;
+        mutationSignal = init.signal;
+        return new Promise<Response>((_resolve, reject) =>
+          init.signal?.addEventListener("abort", () => reject(init.signal?.reason)),
+        );
+      }
+      if (requestUrl.endsWith("/api/jobs/job-focused") && !init?.method) {
+        authoritativeReads += 1;
+        return json({
+          id: "job-focused",
+          project_id: "p1",
+          status: "cancelled",
+          title: "Focused output job",
+          provider: null,
+          terminal_dismissed_at: null,
+          source_count: 1,
+          sources: [],
+          created_at: "2026-07-02T00:00:00Z",
+          updated_at: "2026-07-02T00:02:00Z",
+          cancelled_at: "2026-07-02T00:02:00Z",
+          cancel_requested_at: null,
+          attempt_count: 1,
+          started_at: null,
+          finished_at: "2026-07-02T00:02:00Z",
+          error_code: null,
+          error_message: null,
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({});
+    });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 20_000 ? 0 : delay,
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      await openFocusedJobsList();
+      await userEvent.click(
+        screen.getByRole("button", { name: "Отменить" }),
+      );
+
+      expect(
+        await screen.findByText(
+          "Сервер не ответил вовремя, но отмена подтверждена по актуальному состоянию задачи.",
+        ),
+      ).toBeInTheDocument();
+      expect(cancelPosts).toBe(1);
+      expect(authoritativeReads).toBe(1);
+      expect(mutationSignal?.aborted).toBe(true);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("reports an unconfirmed timed-out dismissal without repeating the POST", async () => {
+    installFocusedOutputFixture({ jobStatus: "completed" });
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let dismissPosts = 0;
+    let authoritativeReads = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      const requestUrl = String(url);
+      if (
+        requestUrl.endsWith("/api/jobs/job-focused/dismiss") &&
+        init?.method === "POST"
+      ) {
+        dismissPosts += 1;
+        return new Promise<Response>((_resolve, reject) =>
+          init.signal?.addEventListener("abort", () => reject(init.signal?.reason)),
+        );
+      }
+      if (requestUrl.endsWith("/api/jobs/job-focused") && !init?.method) {
+        authoritativeReads += 1;
+        return defaultFetch?.(url, init) ?? json({});
+      }
+      return defaultFetch?.(url, init) ?? json({});
+    });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 20_000 ? 0 : delay,
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      await openFocusedJobsList();
+      const readsBeforeDismiss = authoritativeReads;
+      await userEvent.click(
+        screen.getByRole("button", { name: "Убрать в историю" }),
+      );
+
+      expect(
+        await screen.findByText(
+          "Сервер не ответил вовремя. Перенос в историю не подтверждён; обновите состояние перед повтором.",
+        ),
+      ).toBeInTheDocument();
+      expect(dismissPosts).toBe(1);
+      expect(authoritativeReads).toBeGreaterThan(readsBeforeDismiss);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("confirms a timed-out provider-cost retry from readiness without repeating the POST", async () => {
+    const beforeRetry = {
+      job_id: "job-focused",
+      job_status: "failed",
+      available: true,
+      reason: "partial_provider_resume_available",
+      attempt_count: 1,
+      max_attempts: 3,
+      missing_output_count: 1,
+      retry_safe_source_count: 1,
+      resumable_provider_part_count: 1,
+      provider_total_part_count: 2,
+      provider_failure_code: "provider_rate_limited",
+    };
+    installFocusedOutputFixture({
+      jobStatus: "failed",
+      retryResponse: beforeRetry,
+    });
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let retryPosts = 0;
+    let readinessReads = 0;
+    let retryTimedOut = false;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      const requestUrl = String(url);
+      if (
+        requestUrl.endsWith("/api/jobs/job-focused/retry") &&
+        init?.method === "POST"
+      ) {
+        retryPosts += 1;
+        return new Promise<Response>((_resolve, reject) =>
+          init.signal?.addEventListener("abort", () => {
+            retryTimedOut = true;
+            reject(init.signal?.reason);
+          }),
+        );
+      }
+      if (
+        requestUrl.endsWith("/api/jobs/job-focused/retry") &&
+        !init?.method
+      ) {
+        readinessReads += 1;
+        return json(
+          retryTimedOut
+            ? {
+                ...beforeRetry,
+                job_status: "queued",
+                available: false,
+                reason: "job_not_failed",
+              }
+            : beforeRetry,
+        );
+      }
+      return defaultFetch?.(url, init) ?? json({});
+    });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 20_000 ? 0 : delay,
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      await openFocusedJobsList();
+      await userEvent.click(screen.getByRole("button", { name: "Открыть" }));
+      const readsBeforeRetry = readinessReads;
+      await userEvent.click(
+        await screen.findByRole("button", {
+          name: "Продолжить оставшиеся части",
+        }),
+      );
+
+      expect(
+        await screen.findByText(
+          "Сервер не ответил вовремя, но повтор подтверждён по актуальному состоянию задачи.",
+        ),
+      ).toBeInTheDocument();
+      expect(retryPosts).toBe(1);
+      expect(readinessReads).toBeGreaterThan(readsBeforeRetry);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("reports an unchanged reconciliation state after timeout without repeating the Google check", async () => {
+    const reconciliationState = {
+      job_id: "job-focused",
+      job_status: "failed",
+      available: true,
+      counts: { reconciliation_required: 1 },
+      cases: [
+        {
+          job_source_id: "source-1",
+          status: "reconciliation_required",
+          resolved: false,
+          last_checked_at: null,
+        },
+      ],
+    };
+    installFocusedOutputFixture({
+      jobStatus: "failed",
+      reconciliationResponse: reconciliationState,
+    });
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let reconciliationPosts = 0;
+    let reconciliationReads = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      const requestUrl = String(url);
+      if (
+        requestUrl.endsWith(
+          "/api/jobs/job-focused/output-reconciliation/check",
+        ) &&
+        init?.method === "POST"
+      ) {
+        reconciliationPosts += 1;
+        return new Promise<Response>((_resolve, reject) =>
+          init.signal?.addEventListener("abort", () => reject(init.signal?.reason)),
+        );
+      }
+      if (
+        requestUrl.endsWith("/api/jobs/job-focused/output-reconciliation") &&
+        !init?.method
+      ) {
+        reconciliationReads += 1;
+        return json(reconciliationState);
+      }
+      return defaultFetch?.(url, init) ?? json({});
+    });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 20_000 ? 0 : delay,
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      await openFocusedJobsList();
+      await userEvent.click(screen.getByRole("button", { name: "Открыть" }));
+      const readsBeforeCheck = reconciliationReads;
+      await userEvent.click(
+        await screen.findByRole("button", {
+          name: "Проверить созданный документ в Google Drive",
+        }),
+      );
+
+      expect(
+        await screen.findByText(
+          "Сервер не ответил вовремя. Результат проверки не подтверждён; обновите состояние перед повтором.",
+        ),
+      ).toBeInTheDocument();
+      expect(reconciliationPosts).toBe(1);
+      expect(reconciliationReads).toBeGreaterThan(readsBeforeCheck);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
   it("renders the explicit empty job outputs state without output links", async () => {
     installFocusedOutputFixture({
       jobStatus: "queued",

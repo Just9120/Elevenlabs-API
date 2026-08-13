@@ -97,6 +97,13 @@ import {
   type OutputReconciliationState,
 } from "./jobRecoveryModel";
 import {
+  cancellationIsConfirmed,
+  dismissalIsConfirmed,
+  reconciliationCheckIsConfirmed,
+  retryIsConfirmed,
+  runBoundedRequest,
+} from "./jobMutationRequest";
+import {
   parseProjectJobProgressResponse,
   terminalProgressState,
   updateRequestedProgressStates,
@@ -410,6 +417,16 @@ async function csrfMutate<T>(
   options: RequestInit,
 ): Promise<T> {
   return mutateWithCsrfRetry<T>(path, csrf, onCsrf, options);
+}
+async function readAfterJobMutationTimeout<T>(path: string): Promise<T | null> {
+  try {
+    const result = await runBoundedRequest((signal) =>
+      api<T>(path, { signal }),
+    );
+    return result.status === "completed" ? result.value : null;
+  } catch {
+    return null;
+  }
 }
 function safeConfirm(message: string) {
   try {
@@ -1497,6 +1514,7 @@ function PreparationPanel({
   async function checkReconciliation(jobId: string) {
     if (!beginJobMutation("reconciliation", jobId)) return;
     let notice: JobMutationNotice | undefined;
+    const beforeReconciliation = reconciliations[jobId]?.data ?? null;
     setReconciliations((current) => ({
       ...current,
       [jobId]: {
@@ -1512,12 +1530,50 @@ function PreparationPanel({
       },
     }));
     try {
-      const result = await csrfMutate<OutputReconciliationCheckResponse>(
-        `/jobs/${jobId}/output-reconciliation/check`,
-        csrf,
-        onCsrf,
-        { method: "POST" },
+      const request = await runBoundedRequest((signal) =>
+        csrfMutate<OutputReconciliationCheckResponse>(
+          `/jobs/${jobId}/output-reconciliation/check`,
+          csrf,
+          onCsrf,
+          { method: "POST", signal },
+        ),
       );
+      if (request.status === "timed_out") {
+        const observed =
+          await readAfterJobMutationTimeout<OutputReconciliationResponse>(
+            `/jobs/${jobId}/output-reconciliation`,
+          );
+        const confirmed =
+          observed !== null &&
+          reconciliationCheckIsConfirmed(beforeReconciliation, observed);
+        const message = confirmed
+          ? "Сервер не ответил вовремя, но завершение проверки подтверждено по актуальному состоянию."
+          : "Сервер не ответил вовремя. Результат проверки не подтверждён; обновите состояние перед повтором.";
+        setReconciliations((current) => ({
+          ...current,
+          [jobId]: {
+            ...(current[jobId] ?? {
+              loading: false,
+              data: null,
+            }),
+            checking: false,
+            data: observed ?? current[jobId]?.data ?? null,
+            error: confirmed ? "" : message,
+            message: confirmed ? message : "",
+          },
+        }));
+        notice = {
+          projectId: project.id,
+          kind: "reconciliation",
+          jobId,
+          message,
+          tone: confirmed ? "notice" : "error",
+        };
+        void loadDetail(jobId);
+        onReloadJobs(project.id);
+        return;
+      }
+      const result = request.value;
       const message =
         result.resolved > 0
           ? "Документ найден и восстановлен."
@@ -1573,6 +1629,7 @@ function PreparationPanel({
   async function retryJob(jobId: string) {
     if (!beginJobMutation("retry", jobId)) return;
     let notice: JobMutationNotice | undefined;
+    const beforeRetry = retries[jobId]?.data ?? null;
     setRetries((current) => ({
       ...current,
       [jobId]: {
@@ -1591,18 +1648,55 @@ function PreparationPanel({
       const partialMode = [
         "partial_provider_resume_available",
         "partial_provider_restart_available",
-      ].includes(retries[jobId]?.data?.reason ?? "");
-      const result = await csrfMutate<JobRetryResponse>(
-        `/jobs/${jobId}/retry`,
-        csrf,
-        onCsrf,
-        {
-          method: "POST",
-          body: partialMode
-            ? JSON.stringify({ confirm_remaining_provider_cost: true })
-            : undefined,
-        },
+      ].includes(beforeRetry?.reason ?? "");
+      const request = await runBoundedRequest((signal) =>
+        csrfMutate<JobRetryResponse>(
+          `/jobs/${jobId}/retry`,
+          csrf,
+          onCsrf,
+          {
+            method: "POST",
+            signal,
+            body: partialMode
+              ? JSON.stringify({ confirm_remaining_provider_cost: true })
+              : undefined,
+          },
+        ),
       );
+      if (request.status === "timed_out") {
+        const observed = await readAfterJobMutationTimeout<JobRetryResponse>(
+          `/jobs/${jobId}/retry`,
+        );
+        const confirmed =
+          observed !== null && retryIsConfirmed(beforeRetry, observed);
+        const message = confirmed
+          ? "Сервер не ответил вовремя, но повтор подтверждён по актуальному состоянию задачи."
+          : "Сервер не ответил вовремя. Статус повтора не подтверждён; проверьте задачу перед новым запуском.";
+        setRetries((current) => ({
+          ...current,
+          [jobId]: {
+            ...(current[jobId] ?? {
+              loading: false,
+              data: null,
+            }),
+            posting: false,
+            data: observed ?? current[jobId]?.data ?? null,
+            error: confirmed ? "" : message,
+            message: confirmed ? message : "",
+          },
+        }));
+        notice = {
+          projectId: project.id,
+          kind: "retry",
+          jobId,
+          message,
+          tone: confirmed ? "notice" : "error",
+        };
+        void loadDetail(jobId);
+        onReloadJobs(project.id);
+        return;
+      }
+      const result = request.value;
       const message = partialMode
         ? "Подтверждённая обработка поставлена в очередь."
         : "Безопасный повтор поставлен в очередь.";
@@ -1655,12 +1749,39 @@ function PreparationPanel({
     let notice: JobMutationNotice | undefined;
     setMessage("");
     try {
-      const cancelled = await csrfMutate<TranscriptionJob>(
-        `/jobs/${jobId}/cancel`,
-        csrf,
-        onCsrf,
-        { method: "POST" },
+      const request = await runBoundedRequest((signal) =>
+        csrfMutate<TranscriptionJob>(
+          `/jobs/${jobId}/cancel`,
+          csrf,
+          onCsrf,
+          { method: "POST", signal },
+        ),
       );
+      if (request.status === "timed_out") {
+        const observed = await readAfterJobMutationTimeout<TranscriptionJob>(
+          `/jobs/${jobId}`,
+        );
+        const confirmed =
+          observed !== null && cancellationIsConfirmed(observed);
+        if (observed) {
+          setDetail((current) => ({
+            ...current,
+            [jobId]: { loading: false, error: "", job: observed },
+          }));
+        }
+        notice = {
+          projectId: project.id,
+          kind: "cancel",
+          jobId,
+          message: confirmed
+            ? "Сервер не ответил вовремя, но отмена подтверждена по актуальному состоянию задачи."
+            : "Сервер не ответил вовремя. Актуальное состояние не подтверждает отмену; проверьте задачу перед повтором.",
+          tone: confirmed ? "notice" : "error",
+        };
+        onReloadJobs(project.id);
+        return;
+      }
+      const cancelled = request.value;
       setDetail((current) => ({
         ...current,
         [jobId]: { loading: false, error: "", job: cancelled },
@@ -1747,12 +1868,46 @@ function PreparationPanel({
     let notice: JobMutationNotice | undefined;
     setMessage("");
     try {
-      const dismissed = await csrfMutate<TranscriptionJob>(
-        `/jobs/${jobId}/dismiss`,
-        csrf,
-        onCsrf,
-        { method: "POST" },
+      const request = await runBoundedRequest((signal) =>
+        csrfMutate<TranscriptionJob>(
+          `/jobs/${jobId}/dismiss`,
+          csrf,
+          onCsrf,
+          { method: "POST", signal },
+        ),
       );
+      if (request.status === "timed_out") {
+        const observed = await readAfterJobMutationTimeout<TranscriptionJob>(
+          `/jobs/${jobId}`,
+        );
+        const confirmed =
+          observed !== null && dismissalIsConfirmed(observed);
+        if (observed) {
+          setDetail((current) => ({
+            ...current,
+            [jobId]: { loading: false, error: "", job: observed },
+          }));
+        }
+        if (confirmed) {
+          setProgress((current) => {
+            const next = { ...current };
+            delete next[jobId];
+            return next;
+          });
+        }
+        notice = {
+          projectId: project.id,
+          kind: "dismiss",
+          jobId,
+          message: confirmed
+            ? "Сервер не ответил вовремя, но перенос в историю подтверждён по актуальному состоянию."
+            : "Сервер не ответил вовремя. Перенос в историю не подтверждён; обновите состояние перед повтором.",
+          tone: confirmed ? "notice" : "error",
+        };
+        onReloadJobs(project.id);
+        return;
+      }
+      const dismissed = request.value;
       setDetail((current) => ({
         ...current,
         [jobId]: { loading: false, error: "", job: dismissed },

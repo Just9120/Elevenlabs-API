@@ -55,7 +55,39 @@ describe("CSRF mutation retry contract", () => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
     },
   );
-});
+
+  it("uses the mutation abort signal for CSRF refresh and never replays after abort", async () => {
+    const controller = new AbortController();
+    const timeoutReason = Symbol("mutation_timeout");
+    let refreshSignal: AbortSignal | undefined;
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        json({ detail: { reason: "csrf_token_invalid" } }, 403),
+      )
+      .mockImplementationOnce((_url: string, init?: RequestInit) => {
+        refreshSignal = init?.signal;
+        return new Promise<Response>((_resolve, reject) =>
+          init?.signal?.addEventListener("abort", () =>
+            reject(init.signal?.reason),
+          ),
+        );
+      });
+    const onCsrf = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const pending = mutateWithCsrfRetry("/jobs/job-1/retry", "csrf-old", onCsrf, {
+      method: "POST",
+      signal: controller.signal,
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    controller.abort(timeoutReason);
+
+    await expect(pending).rejects.toBe(timeoutReason);
+    expect(refreshSignal).toBe(controller.signal);
+    expect(onCsrf).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });});
 describe("API abort diagnostics", () => {
   it("suppresses only the explicitly ignored abort reason", async () => {
     const ignoredReason = Symbol("expected_abort");

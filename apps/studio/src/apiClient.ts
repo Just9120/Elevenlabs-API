@@ -145,7 +145,7 @@ export async function mutateWithCsrfRetry<T>(
     try {
       const refreshed = await requestJson<{ csrf_token: string }>(
         "/auth/csrf",
-        { method: "POST" },
+        { method: "POST", signal: options.signal },
       );
       onCsrf(refreshed.csrf_token);
       return await requestJson<T>(path, options, refreshed.csrf_token);
