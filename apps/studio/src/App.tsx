@@ -248,6 +248,21 @@ const emptyJobState: JobState = {
   loaded: false,
   items: [],
 };
+function isExpectedGooglePickerSession(
+  candidate: unknown,
+): candidate is PickerSession {
+  if (!candidate || typeof candidate !== "object") return false;
+  const session = candidate as Partial<PickerSession>;
+  return (
+    typeof session.access_token === "string" &&
+    session.access_token.trim().length > 0 &&
+    typeof session.api_key === "string" &&
+    session.api_key.trim().length > 0 &&
+    typeof session.app_id === "string" &&
+    session.app_id.trim().length > 0 &&
+    session.scope_ready === true
+  );
+}
 function isExpectedPickerSourceBatch(
   value: unknown,
   expectedCount: number,
@@ -1110,6 +1125,36 @@ function PreparationPanel({
     );
   }
 
+  async function acquireGooglePickerSession() {
+    let bounded;
+    try {
+      bounded = await runBoundedRequest((signal) =>
+        csrfMutate<unknown>(
+          "/google/picker/session",
+          csrf,
+          onCsrf,
+          { method: "POST", signal },
+        ),
+      );
+    } catch (err) {
+      if (!(err instanceof TypeError)) throw err;
+      throw new Error(
+        "Не удалось открыть Google Picker. Проверьте соединение и повторите попытку.",
+        { cause: err },
+      );
+    }
+    if (bounded.status === "timed_out") {
+      throw new Error(
+        "Google Picker не ответил вовремя. Повторите попытку.",
+      );
+    }
+    if (!isExpectedGooglePickerSession(bounded.value)) {
+      throw new Error(
+        "Сервер вернул некорректную сессию Google Picker. Повторите попытку позже.",
+      );
+    }
+    return bounded.value;
+  }
   async function chooseRowDriveSources(rowId: string) {
     if (pickerBusy || rowSourcePickerRef.current) return;
     rowSourcePickerRef.current = true;
@@ -1120,12 +1165,7 @@ function PreparationPanel({
       [rowId]: "Открываем Google Drive Picker…",
     }));
     try {
-      const session = await csrfMutate<PickerSession>(
-        "/google/picker/session",
-        csrf,
-        onCsrf,
-        { method: "POST" },
-      );
+      const session = await acquireGooglePickerSession();
       const result = await googlePicker.openGooglePicker("sources", session);
       if (result.action === "cancel") {
         setRowIntakeStatus((current) => ({
@@ -1442,12 +1482,7 @@ function PreparationPanel({
     setPickerBusy(true);
     setMessage("");
     try {
-      const session = await csrfMutate<PickerSession>(
-        "/google/picker/session",
-        csrf,
-        onCsrf,
-        { method: "POST" },
-      );
+      const session = await acquireGooglePickerSession();
       const result = await googlePicker.openGooglePicker(
         "output-folder",
         session,

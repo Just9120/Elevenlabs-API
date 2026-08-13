@@ -539,6 +539,22 @@ async function chooseResultFolder(
     action: "picked",
     docs: [{ id: folderId }],
   } as Awaited<ReturnType<typeof googlePicker.openGooglePicker>>);
+  const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+  const previousFetch = fetchMock.getMockImplementation();
+  fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+    if (
+      url.endsWith("/api/google/picker/session") &&
+      init?.method === "POST"
+    ) {
+      return json({
+        access_token: "ya29.test-access-token",
+        api_key: "public-picker-key",
+        app_id: "123456789",
+        scope_ready: true,
+      });
+    }
+    return previousFetch?.(url, init) ?? json({ ok: true });
+  });
   await userEvent.click(
     await screen.findByRole("button", {
       name: `Выбрать папку результата для строки ${rowNumber}`,
@@ -5806,6 +5822,162 @@ describe("Studio PWA", () => {
     expect(document.body.textContent).not.toContain("raw-google-payload");
   });
 
+  it("bounds stalled Google Picker sessions without replay and releases the source action", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const sessionSignals: AbortSignal[] = [];
+    let sessionCalls = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        url.endsWith("/api/google/picker/session") &&
+        init?.method === "POST"
+      ) {
+        sessionCalls += 1;
+        const signal = init.signal;
+        if (!signal) throw new Error("Picker session signal is missing");
+        sessionSignals.push(signal);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 20_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      renderApp();
+      await openProjectsPage();
+      const button = await screen.findByRole("button", {
+        name: "Выбрать файлы Google Drive",
+      });
+      await userEvent.click(button);
+
+      expect(
+        await screen.findByText(
+          "Google Picker не ответил вовремя. Повторите попытку.",
+        ),
+      ).toBeInTheDocument();
+      expect(sessionCalls).toBe(1);
+      expect(sessionSignals).toHaveLength(1);
+      expect(sessionSignals[0]?.aborted).toBe(true);
+      expect(button).toBeEnabled();
+      expect(
+        document.head.querySelector(
+          'script[data-studio-google-picker="true"]',
+        ),
+      ).toBeNull();
+      expect(
+        baseFetch.mock.calls.some(
+          ([url]) => url === "/api/projects/p1/sources/google-picker",
+        ),
+      ).toBe(false);
+
+      await userEvent.click(button);
+      await waitFor(() => expect(sessionCalls).toBe(2));
+      await waitFor(() => expect(sessionSignals[1]?.aborted).toBe(true));
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("fails closed on a malformed Google Picker session without exposing its payload", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        url.endsWith("/api/google/picker/session") &&
+        init?.method === "POST"
+      ) {
+        return json({
+          access_token: "raw-private-google-token",
+          api_key: " ",
+          app_id: "app",
+          scope_ready: true,
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+    const button = await screen.findByRole("button", {
+      name: "Выбрать файлы Google Drive",
+    });
+    await userEvent.click(button);
+
+    expect(
+      await screen.findByText(
+        "Сервер вернул некорректную сессию Google Picker. Повторите попытку позже.",
+      ),
+    ).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain(
+      "raw-private-google-token",
+    );
+    expect(button).toBeEnabled();
+    expect(
+      document.head.querySelector(
+        'script[data-studio-google-picker="true"]',
+      ),
+    ).toBeNull();
+    expect(
+      baseFetch.mock.calls.some(
+        ([url]) => url === "/api/projects/p1/sources/google-picker",
+      ),
+    ).toBe(false);
+  });
+
+  it("closes an unresponsive Google Picker and ignores a late selection", async () => {
+    const picker = installFakeGooglePicker();
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 300_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      renderApp();
+      await openProjectsPage();
+      const button = await screen.findByRole("button", {
+        name: "Выбрать файлы Google Drive",
+      });
+      await userEvent.click(button);
+      await picker.loadScript();
+      await picker.waitForCallback();
+
+      expect(
+        await screen.findByText(
+          "Время выбора в Google Picker истекло. Повторите попытку.",
+        ),
+      ).toBeInTheDocument();
+      expect(picker.setVisible).toHaveBeenNthCalledWith(1, true);
+      expect(picker.setVisible).toHaveBeenNthCalledWith(2, false);
+      expect(button).toBeEnabled();
+
+      picker.trigger({ action: "picked", docs: [{ id: "late-file" }] });
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(
+        (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
+          ([url]) => url === "/api/projects/p1/sources/google-picker",
+        ),
+      ).toBe(false);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
   it("shows an actionable safe message when Picker session requires reconnect", async () => {
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = baseFetch.getMockImplementation();
