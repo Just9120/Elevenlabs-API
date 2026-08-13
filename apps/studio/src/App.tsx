@@ -495,6 +495,52 @@ type SessionBootstrapState = {
   csrf: string;
   error: string;
 };
+function parseBootstrapUser(candidate: unknown): User | null {
+  if (!candidate || typeof candidate !== "object") return null;
+  const user = candidate as Record<string, unknown>;
+  if (
+    typeof user.email !== "string" ||
+    user.email.length === 0 ||
+    user.email.length > 320 ||
+    user.email !== user.email.trim() ||
+    !user.email.includes("@") ||
+    (user.role !== "admin" && user.role !== "user")
+  ) {
+    return null;
+  }
+  return { email: user.email, role: user.role };
+}
+function parseAuthenticatedSessionResponse(candidate: unknown): User | null {
+  if (!candidate || typeof candidate !== "object") return null;
+  const response = candidate as Record<string, unknown>;
+  if (response.authenticated !== true) return null;
+  return parseBootstrapUser(response.user);
+}
+function parseBootstrapCsrfResponse(
+  candidate: unknown,
+  expectedUser: User,
+): string | null {
+  if (!candidate || typeof candidate !== "object") return null;
+  const response = candidate as Record<string, unknown>;
+  if (
+    typeof response.csrf_token !== "string" ||
+    response.csrf_token.length === 0 ||
+    response.csrf_token.length > 4096
+  ) {
+    return null;
+  }
+  if (Object.prototype.hasOwnProperty.call(response, "user")) {
+    const responseUser = parseBootstrapUser(response.user);
+    if (
+      !responseUser ||
+      responseUser.email !== expectedUser.email ||
+      responseUser.role !== expectedUser.role
+    ) {
+      return null;
+    }
+  }
+  return response.csrf_token;
+}
 const emptySourceState = {
   loading: false,
   error: "",
@@ -700,21 +746,28 @@ const CREDENTIAL_COLLECTION_REQUEST_TIMEOUT_MS = 15_000;
 const CREDENTIAL_MUTATION_REQUEST_TIMEOUT_MS = 20_000;
 const ACCOUNT_PREFERENCES_REQUEST_TIMEOUT_MS = 15_000;
 const SOURCE_UPLOAD_POLICY_REQUEST_TIMEOUT_MS = 15_000;
+const SESSION_BOOTSTRAP_REQUEST_TIMEOUT_MS = 15_000;
 const ACCOUNT_PREFERENCES_MUTATION_TIMEOUT_MS = 20_000;
 const GOOGLE_CONNECTION_REQUEST_TIMEOUT_MS = 15_000;
 const GOOGLE_CONNECTION_MUTATION_TIMEOUT_MS = 20_000;
-async function bootstrapSession(): Promise<{
+async function bootstrapSession(signal?: AbortSignal): Promise<{
   user: User;
   csrf: string;
-} | null> {
-  const session = await api<{ authenticated: boolean; user?: User }>(
-    "/auth/session",
-  );
-  if (!session.authenticated || !session.user) return null;
-  const csrf = await api<{ csrf_token: string }>("/auth/csrf", {
-    method: "POST",
+}> {
+  const sessionCandidate = await api<unknown>("/auth/session", {
+    signal,
+    ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
   });
-  return { user: session.user, csrf: csrf.csrf_token };
+  const user = parseAuthenticatedSessionResponse(sessionCandidate);
+  if (!user) throw new Error("invalid_auth_session_response");
+  const csrfCandidate = await api<unknown>("/auth/csrf", {
+    method: "POST",
+    signal,
+    ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+  });
+  const csrf = parseBootstrapCsrfResponse(csrfCandidate, user);
+  if (!csrf) throw new Error("invalid_auth_csrf_response");
+  return { user, csrf };
 }
 async function csrfMutate<T>(
   path: string,
@@ -7195,14 +7248,28 @@ function PlatformShell() {
     csrf: "",
     error: "",
   });
+  const sessionRequestEpochsRef = useRef(new Map<string, number>());
+  const sessionRequestControllersRef = useRef(
+    new Map<string, AbortController>(),
+  );
+  const sessionGenerationRef = useRef(0);
+  const invalidateSessionBootstrap = () => {
+    sessionGenerationRef.current += 1;
+    cancelLatestRequests(
+      sessionRequestEpochsRef.current,
+      sessionRequestControllersRef.current,
+    );
+  };
   const checkSession = () => {
+    const generation = sessionGenerationRef.current + 1;
+    sessionGenerationRef.current = generation;
     setSession({ status: "checking", user: null, csrf: "", error: "" });
-    bootstrapSession()
-      .then((result) => {
-        if (!result) {
-          setSession({ status: "anonymous", user: null, csrf: "", error: "" });
-          return;
-        }
+    void settleLatestRequest(
+      sessionRequestEpochsRef.current,
+      "platform:session-bootstrap",
+      bootstrapSession,
+      (result) => {
+        if (sessionGenerationRef.current !== generation) return;
         setSession({
           status: "authenticated",
           user: result.user,
@@ -7211,10 +7278,12 @@ function PlatformShell() {
         });
         updatePwaDiagnosticsCsrf(result.csrf);
         configurePwaDiagnosticsDebugState({ active: false });
-      })
-      .catch((err) => {
+      },
+      (err) => {
+        if (sessionGenerationRef.current !== generation) return;
         if (err instanceof ApiError && err.status === 401) {
           setSession({ status: "anonymous", user: null, csrf: "", error: "" });
+          clearPwaDiagnosticsSession();
           return;
         }
         setSession({
@@ -7223,9 +7292,17 @@ function PlatformShell() {
           csrf: "",
           error: "Не удалось проверить сессию. Повторите попытку.",
         });
-      });
+      },
+      {
+        controllers: sessionRequestControllersRef.current,
+        timeoutMs: SESSION_BOOTSTRAP_REQUEST_TIMEOUT_MS,
+      },
+    );
   };
-  useEffect(checkSession, []);
+  useEffect(() => {
+    checkSession();
+    return () => invalidateSessionBootstrap();
+  }, []);
   if (session.status === "checking")
     return (
       <main className="auth">
@@ -7238,7 +7315,7 @@ function PlatformShell() {
     return (
       <main className="auth">
         <section className="card">
-          <p className="error">{session.error}</p>
+          <p className="error" role="alert">{session.error}</p>
           <button type="button" className="primary" onClick={checkSession}>
             Повторить
           </button>
@@ -7249,6 +7326,7 @@ function PlatformShell() {
     return (
       <Login
         onLogin={(u, t) => {
+          invalidateSessionBootstrap();
           clearSettingsMutationSession();
           setSession({ status: "authenticated", user: u, csrf: t, error: "" });
           updatePwaDiagnosticsCsrf(t);
@@ -7260,6 +7338,7 @@ function PlatformShell() {
   const user = session.user;
   const csrf = session.csrf;
   const logout = async () => {
+    invalidateSessionBootstrap();
     let token = csrf;
     if (!token) {
       const refreshed = await requestJson<{ csrf_token: string }>(

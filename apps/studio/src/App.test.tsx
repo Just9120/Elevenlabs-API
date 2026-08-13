@@ -1,3 +1,4 @@
+import { StrictMode } from "react";
 import {
   act,
   cleanup,
@@ -9987,6 +9988,215 @@ describe("Studio PWA", () => {
     await waitForPlatformOverview();
   });
 
+  it("bounds and retries both authenticated bootstrap stages", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const sessionSignals: AbortSignal[] = [];
+    const csrfSignals: AbortSignal[] = [];
+    let secondAttemptSessionSignal: AbortSignal | undefined;
+    let sessionReads = 0;
+    let csrfReads = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/auth/session")) {
+        sessionReads += 1;
+        const signal = init?.signal;
+        if (!signal) throw new Error("Session bootstrap signal is missing");
+        if (sessionReads === 1) {
+          sessionSignals.push(signal);
+          return new Promise<Response>((_resolve, reject) => {
+            signal.addEventListener("abort", () => reject(signal.reason));
+          });
+        }
+        if (sessionReads === 2) secondAttemptSessionSignal = signal;
+        return json({
+          authenticated: true,
+          user: { email: "current@example.com", role: "admin" },
+        });
+      }
+      if (url.endsWith("/api/auth/csrf") && init?.method === "POST") {
+        csrfReads += 1;
+        const signal = init.signal;
+        if (!signal) throw new Error("CSRF bootstrap signal is missing");
+        if (csrfReads === 1) {
+          csrfSignals.push(signal);
+          return new Promise<Response>((_resolve, reject) => {
+            signal.addEventListener("abort", () => reject(signal.reason));
+          });
+        }
+        return json({
+          csrf_token: "csrf-current",
+          user: { email: "current@example.com", role: "admin" },
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 15_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      renderApp();
+      expect(
+        await screen.findByText(
+          "Не удалось проверить сессию. Повторите попытку.",
+        ),
+      ).toBeInTheDocument();
+      expect(sessionSignals).toHaveLength(1);
+      expect(sessionSignals[0]?.aborted).toBe(true);
+      expect(
+        screen.queryByRole("heading", { name: "Вход" }),
+      ).not.toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole("button", { name: "Повторить" }));
+      await waitFor(() => expect(csrfSignals).toHaveLength(1));
+      expect(csrfSignals[0]).toBe(secondAttemptSessionSignal);
+      expect(csrfSignals[0]?.aborted).toBe(true);
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        "Не удалось проверить сессию",
+      );
+
+      await userEvent.click(screen.getByRole("button", { name: "Повторить" }));
+      await waitForPlatformOverview();
+      expect(sessionReads).toBe(3);
+      expect(csrfReads).toBe(2);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("rejects malformed bootstrap responses without rendering raw fields", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let sessionReads = 0;
+    let csrfReads = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/auth/session")) {
+        sessionReads += 1;
+        if (sessionReads === 1) {
+          return json({
+            authenticated: true,
+            user: { email: "safe@example.com", role: "raw-session-role" },
+            raw_session_field: "raw-session-secret",
+          });
+        }
+        return json({
+          authenticated: true,
+          user: { email: "safe@example.com", role: "user" },
+        });
+      }
+      if (url.endsWith("/api/auth/csrf") && init?.method === "POST") {
+        csrfReads += 1;
+        if (csrfReads === 1) {
+          return json({
+            csrf_token: "raw-csrf-token",
+            user: { email: "other@example.com", role: "user" },
+            raw_csrf_field: "raw-csrf-secret",
+          });
+        }
+        return json({
+          csrf_token: "csrf-safe",
+          user: { email: "safe@example.com", role: "user" },
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Не удалось проверить сессию",
+    );
+    expect(document.body.textContent).not.toContain("raw-session-role");
+    expect(document.body.textContent).not.toContain("raw-session-secret");
+    expect(
+      screen.queryByRole("heading", { name: "Вход" }),
+    ).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Повторить" }));
+    await waitFor(() => expect(csrfReads).toBe(1));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Не удалось проверить сессию",
+    );
+    expect(document.body.textContent).not.toContain("raw-csrf-token");
+    expect(document.body.textContent).not.toContain("raw-csrf-secret");
+    expect(document.body.textContent).not.toContain("other@example.com");
+
+    await userEvent.click(screen.getByRole("button", { name: "Повторить" }));
+    await waitForPlatformOverview();
+    expect(sessionReads).toBe(3);
+    expect(csrfReads).toBe(2);
+  });
+
+  it("aborts and ignores an older StrictMode bootstrap across session generations", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let sessionReads = 0;
+    let csrfReads = 0;
+    let olderSignal: AbortSignal | undefined;
+    let resolveOlderSession: ((response: Response) => void) | undefined;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/auth/session")) {
+        sessionReads += 1;
+        if (sessionReads === 1) {
+          olderSignal = init?.signal;
+          return new Promise<Response>((resolve) => {
+            resolveOlderSession = resolve;
+          });
+        }
+        return json({
+          authenticated: true,
+          user: { email: "current@example.com", role: "admin" },
+        });
+      }
+      if (url.endsWith("/api/auth/csrf") && init?.method === "POST") {
+        csrfReads += 1;
+        const lateOlderAttempt = csrfReads > 1;
+        return json({
+          csrf_token: lateOlderAttempt ? "csrf-older" : "csrf-current",
+          user: lateOlderAttempt
+            ? { email: "older@example.com", role: "user" }
+            : { email: "current@example.com", role: "admin" },
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    render(
+      <StrictMode>
+        <App />
+      </StrictMode>,
+    );
+    await waitForPlatformOverview();
+    expect(sessionReads).toBeGreaterThanOrEqual(2);
+    expect(olderSignal?.aborted).toBe(true);
+    expect(resolveOlderSession).toBeDefined();
+
+    await act(async () => {
+      resolveOlderSession?.(
+        await json({
+          authenticated: true,
+          user: { email: "older@example.com", role: "user" },
+          raw_session_field: "late-raw-session-field",
+        }),
+      );
+    });
+    await waitFor(() => expect(csrfReads).toBeGreaterThanOrEqual(2));
+    await openSettingsPage();
+    expect(await screen.findByText("current@example.com")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("older@example.com");
+    expect(document.body.textContent).not.toContain("late-raw-session-field");
+
+    await userEvent.click(screen.getByRole("button", { name: "Выйти" }));
+    expect(
+      await screen.findByRole("heading", { name: "Вход" }),
+    ).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("older@example.com");
+  });
   it("waits for confirmed Google connection before showing OAuth success", async () => {
     window.history.pushState(
       {},
@@ -12916,7 +13126,7 @@ describe("Settings DEBUG session controls", () => {
         if (url.endsWith("/api/auth/session"))
           return json({
             authenticated: true,
-            user: { email: "safe@example.test", role: "owner" },
+            user: { email: "safe@example.test", role: "user" },
           });
         if (url.endsWith("/api/auth/csrf"))
           return json({ csrf_token: "csrf-safe" });
@@ -13038,7 +13248,7 @@ describe("Settings DEBUG session controls", () => {
         if (url.endsWith("/api/auth/session"))
           return json({
             authenticated: true,
-            user: { email: "safe@example.test", role: "owner" },
+            user: { email: "safe@example.test", role: "user" },
           });
         if (url.endsWith("/api/auth/csrf"))
           return json({ csrf_token: "csrf-safe" });
@@ -13122,7 +13332,7 @@ describe("Settings DEBUG session controls", () => {
         if (url.endsWith("/api/auth/session"))
           return json({
             authenticated: true,
-            user: { email: "safe@example.test", role: "owner" },
+            user: { email: "safe@example.test", role: "user" },
           });
         if (url.endsWith("/api/auth/csrf") && init?.method === "POST")
           return json({ csrf_token: newToken });
