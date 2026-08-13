@@ -445,7 +445,10 @@ type JobMutationNotice = {
   message: string;
   tone: "notice" | "error";
 };
-type BatchSubmission = {
+type LocalUploadCompletionState =
+  | { status: "uploaded"; source: Source }
+  | { status: "pending" }
+  | { status: "unavailable" };type BatchSubmission = {
   signature: string;
   key: string;
   requestBody: BatchCreateRequest;
@@ -916,43 +919,135 @@ function PreparationPanel({
       return next.length > 0 ? next : [newComposerRow()];
     });
   }
+  async function readLocalUploadCompletionState(
+    sourceId: string,
+    mimeType: string,
+    sizeBytes: number,
+  ): Promise<LocalUploadCompletionState> {
+    try {
+      const result = await runBoundedRequest((signal) =>
+        api<unknown>(`/projects/${project.id}/sources`, {
+          signal,
+          cache: "no-store",
+        }),
+      );
+      if (result.status === "timed_out") return { status: "unavailable" };
+      const value = result.value;
+      if (!value || typeof value !== "object" || !("sources" in value)) {
+        return { status: "unavailable" };
+      }
+      const items = (value as { sources?: unknown }).sources;
+      if (!Array.isArray(items)) return { status: "unavailable" };
+      const matches = items.filter(
+        (item) =>
+          item &&
+          typeof item === "object" &&
+          (item as { id?: unknown }).id === sourceId,
+      );
+      if (matches.length !== 1) return { status: "unavailable" };
+      const source = matches[0];
+      const expected = { sourceId, projectId: project.id, mimeType, sizeBytes };
+      if (isExpectedCompletedLocalSource(source, expected)) {
+        return { status: "uploaded", source };
+      }
+      if (
+        source &&
+        typeof source === "object" &&
+        (source as Partial<Source>).project_id === project.id &&
+        (source as Partial<Source>).source_type === "local_upload" &&
+        (source as Partial<Source>).upload_status === "pending" &&
+        (source as Partial<Source>).mime_type === mimeType &&
+        (source as Partial<Source>).size_bytes === sizeBytes &&
+        (source as Partial<Source>).deleted_at === null
+      ) {
+        return { status: "pending" };
+      }
+      return { status: "unavailable" };
+    } catch {
+      return { status: "unavailable" };
+    }
+  }
+
   async function completeLocalUpload(
     sourceId: string,
     mimeType: string,
     sizeBytes: number,
   ) {
-    const complete = () =>
-      csrfMutate<unknown>(
-        `/sources/${sourceId}/local-upload/complete`,
-        localUploadCsrfRef.current,
-        (token) => {
-          localUploadCsrfRef.current = token;
-          onCsrf(token);
-        },
-        { method: "POST" },
+    const completeOnce = () =>
+      runBoundedRequest((signal) =>
+        csrfMutate<unknown>(
+          `/sources/${sourceId}/local-upload/complete`,
+          localUploadCsrfRef.current,
+          (token) => {
+            localUploadCsrfRef.current = token;
+            onCsrf(token);
+          },
+          { method: "POST", signal },
+        ),
       );
-    let completed: unknown;
+    const expected = {
+      sourceId,
+      projectId: project.id,
+      mimeType,
+      sizeBytes,
+    };
+    const validateCompleted = (candidate: unknown) => {
+      if (!isExpectedCompletedLocalSource(candidate, expected)) {
+        onReloadSources(project.id);
+        throw new Error(
+          "Сервер вернул несогласованное подтверждение загрузки. Список файлов обновлён; проверьте его перед повторной попыткой.",
+        );
+      }
+      return candidate;
+    };
+    const reconcile = () =>
+      readLocalUploadCompletionState(sourceId, mimeType, sizeBytes);
+
+    let first;
     try {
-      completed = await complete();
+      first = await completeOnce();
     } catch (err) {
       if (!isRetryableLocalUploadCompletionFailure(err)) throw err;
-      completed = await complete();
+      first = { status: "timed_out" as const };
     }
-    if (
-      !isExpectedCompletedLocalSource(completed, {
-        sourceId,
-        projectId: project.id,
-        mimeType,
-        sizeBytes,
-      })
-    ) {
+    if (first.status === "completed") {
+      return validateCompleted(first.value);
+    }
+
+    const firstState = await reconcile();
+    if (firstState.status === "uploaded") return firstState.source;
+    if (firstState.status !== "pending") {
       onReloadSources(project.id);
       throw new Error(
-        "Сервер вернул несогласованное подтверждение загрузки. Список файлов обновлён; проверьте его перед повторной попыткой.",
+        "Сервер не подтвердил завершение загрузки. Список файлов обновлён; подождите и повторите при необходимости.",
       );
     }
-    return completed;
+
+    let second;
+    let secondError: unknown;
+    try {
+      second = await completeOnce();
+    } catch (err) {
+      secondError = err;
+      second = { status: "timed_out" as const };
+    }
+    if (second.status === "completed") {
+      return validateCompleted(second.value);
+    }
+    const finalState = await reconcile();
+    if (finalState.status === "uploaded") return finalState.source;
+    if (
+      secondError &&
+      !isRetryableLocalUploadCompletionFailure(secondError)
+    ) {
+      throw secondError;
+    }
+    onReloadSources(project.id);
+    throw new Error(
+      "Сервер не подтвердил завершение загрузки. Список файлов обновлён; подождите и повторите при необходимости.",
+    );
   }
+
   async function chooseRowDriveSources(rowId: string) {
     if (pickerBusy || rowSourcePickerRef.current) return;
     rowSourcePickerRef.current = true;

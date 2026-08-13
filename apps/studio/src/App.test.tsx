@@ -8117,12 +8117,104 @@ describe("Studio PWA", () => {
     ).toHaveLength(1);
   });
 
+  it("accepts an authoritative uploaded source without replaying completion", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let completionCalls = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        url === "/api/projects/p1/sources" &&
+        !init?.method &&
+        completionCalls === 1
+      ) {
+        return json({
+          sources: [
+            {
+              id: "local-source-1",
+              project_id: "p1",
+              source_type: "local_upload",
+              original_filename: "local-source-1.ogg",
+              mime_type: "audio/ogg",
+              size_bytes: 7,
+              drive_file_id: null,
+              drive_file_url: null,
+              upload_status: "uploaded",
+              uploaded_at: "2099-01-01T00:00:00Z",
+              expires_at: "2099-01-02T00:00:00Z",
+              deleted_at: null,
+              delete_reason: null,
+              created_at: "2026-07-01T00:00:00Z",
+              updated_at: "2026-07-01T00:00:00Z",
+            },
+          ],
+        });
+      }
+      if (
+        String(url).endsWith("/local-upload/complete") &&
+        init?.method === "POST"
+      ) {
+        completionCalls += 1;
+        return Promise.reject(new TypeError("synthetic lost response"));
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+    const row = await screen.findByLabelText("Источник строки 1");
+    const input = within(row).getByLabelText(
+      "Выбрать файлы с устройства для строки 1",
+    ) as HTMLInputElement;
+    await userEvent.upload(
+      input,
+      new File(["recover"], "completed-reconcile.ogg", {
+        type: "audio/ogg",
+      }),
+    );
+
+    await within(row).findByText("Загружено файлов: 1.");
+    expect(completionCalls).toBe(1);
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          String(url).endsWith(
+            "/api/projects/p1/sources/local-upload/initiate",
+          ) && init?.method === "POST",
+      ),
+    ).toHaveLength(1);
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          String(url).startsWith("https://upload.example/presigned") &&
+          init?.method === "PUT",
+      ),
+    ).toHaveLength(1);
+    expect(document.body).not.toHaveTextContent("synthetic lost response");
+  });
   it("retries local upload completion without repeating initiation or PUT", async () => {
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = baseFetch.getMockImplementation();
     let rejectedCompletion = false;
     baseFetch.mockImplementation((url: string, init?: RequestInit) => {
       if (
+        url === "/api/projects/p1/sources" &&
+        !init?.method &&
+        rejectedCompletion
+      ) {
+        return json({
+          sources: [
+            {
+              id: "local-source-1",
+              project_id: "p1",
+              source_type: "local_upload",
+              upload_status: "pending",
+              mime_type: "audio/ogg",
+              size_bytes: 7,
+              deleted_at: null,
+            },
+          ],
+        });
+      }      if (
         String(url).endsWith("/local-upload/complete") &&
         init?.method === "POST" &&
         !rejectedCompletion
@@ -8145,6 +8237,13 @@ describe("Studio PWA", () => {
     );
 
     await within(row).findByText("Загружено файлов: 1.");
+    expect(
+      baseFetch.mock.calls.some(
+        ([url, init]) =>
+          url === "/api/projects/p1/sources" &&
+          init?.cache === "no-store",
+      ),
+    ).toBe(true);
     expect(
       baseFetch.mock.calls.filter(
         ([url, init]) =>
@@ -8169,6 +8268,99 @@ describe("Studio PWA", () => {
     ).toHaveLength(2);
   });
 
+  it("bounds stalled upload completion and replays only after pending reconciliation", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const completionSignals: AbortSignal[] = [];
+    let completionCalls = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        url === "/api/projects/p1/sources" &&
+        !init?.method &&
+        completionCalls === 1
+      ) {
+        return json({
+          sources: [
+            {
+              id: "local-source-1",
+              project_id: "p1",
+              source_type: "local_upload",
+              upload_status: "pending",
+              mime_type: "audio/ogg",
+              size_bytes: 7,
+              deleted_at: null,
+            },
+          ],
+        });
+      }
+      if (
+        String(url).endsWith("/local-upload/complete") &&
+        init?.method === "POST"
+      ) {
+        completionCalls += 1;
+        if (completionCalls === 1) {
+          const signal = init.signal;
+          if (!signal) throw new Error("upload completion signal is missing");
+          completionSignals.push(signal);
+          return new Promise<Response>((_resolve, reject) => {
+            signal.addEventListener("abort", () => reject(signal.reason));
+          });
+        }
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 20_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+    try {
+      renderApp();
+      await openProjectsPage();
+      const row = await screen.findByLabelText("Источник строки 1");
+      const input = within(row).getByLabelText(
+        "Выбрать файлы с устройства для строки 1",
+      ) as HTMLInputElement;
+
+      await userEvent.upload(
+        input,
+        new File(["recover"], "complete-timeout.ogg", { type: "audio/ogg" }),
+      );
+
+      await within(row).findByText("Загружено файлов: 1.");
+      expect(completionSignals).toHaveLength(1);
+      expect(completionSignals[0]?.aborted).toBe(true);
+      expect(completionCalls).toBe(2);
+      expect(
+        baseFetch.mock.calls.filter(
+          ([url, init]) =>
+            String(url).endsWith(
+              "/api/projects/p1/sources/local-upload/initiate",
+            ) && init?.method === "POST",
+        ),
+      ).toHaveLength(1);
+      expect(
+        baseFetch.mock.calls.filter(
+          ([url, init]) =>
+            String(url).startsWith("https://upload.example/presigned") &&
+            init?.method === "PUT",
+        ),
+      ).toHaveLength(1);
+      expect(
+        baseFetch.mock.calls.some(
+          ([url, init]) =>
+            url === "/api/projects/p1/sources" &&
+            init?.cache === "no-store",
+        ),
+      ).toBe(true);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
   it("blocks a second local selection while the row upload is still running", async () => {
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = baseFetch.getMockImplementation();
