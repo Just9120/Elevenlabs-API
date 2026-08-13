@@ -79,3 +79,7 @@ export function parseAuthenticatedLoginResponse(
   if (!csrf) return null;
   return { user, csrf };
 }
+
+export function parseLogoutResponse(candidate: unknown): boolean {
+  return isRecord(candidate) && candidate.ok === true;
+}

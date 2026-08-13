@@ -20,7 +20,6 @@ import {
   api,
   batchMutateWithCsrfRetry,
   mutateWithCsrfRetry,
-  requestJson,
 } from "./apiClient";
 import {
   cancelLatestRequests,
@@ -71,6 +70,7 @@ import { Login } from "./Login";
 import {
   parseAuthenticatedSessionResponse,
   parseCsrfResponse,
+  parseLogoutResponse,
   type User,
 } from "./authContracts";
 import { PlatformSidebar } from "./PlatformSidebar";
@@ -706,6 +706,7 @@ const CREDENTIAL_MUTATION_REQUEST_TIMEOUT_MS = 20_000;
 const ACCOUNT_PREFERENCES_REQUEST_TIMEOUT_MS = 15_000;
 const SOURCE_UPLOAD_POLICY_REQUEST_TIMEOUT_MS = 15_000;
 const SESSION_BOOTSTRAP_REQUEST_TIMEOUT_MS = 15_000;
+const LOGOUT_REQUEST_TIMEOUT_MS = 20_000;
 const ACCOUNT_PREFERENCES_MUTATION_TIMEOUT_MS = 20_000;
 const GOOGLE_CONNECTION_REQUEST_TIMEOUT_MS = 15_000;
 const GOOGLE_CONNECTION_MUTATION_TIMEOUT_MS = 20_000;
@@ -727,6 +728,32 @@ async function bootstrapSession(signal?: AbortSignal): Promise<{
   const csrf = parseCsrfResponse(csrfCandidate, user);
   if (!csrf) throw new Error("invalid_auth_csrf_response");
   return { user, csrf };
+}
+async function requestLogout(
+  currentCsrf: string,
+  user: User,
+  signal?: AbortSignal,
+): Promise<void> {
+  let csrf = currentCsrf;
+  if (!csrf) {
+    const csrfCandidate = await api<unknown>("/auth/csrf", {
+      method: "POST",
+      signal,
+      ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+    });
+    const refreshedCsrf = parseCsrfResponse(csrfCandidate, user);
+    if (!refreshedCsrf) throw new Error("invalid_logout_csrf_response");
+    csrf = refreshedCsrf;
+  }
+  const responseCandidate = await api<unknown>("/auth/logout", {
+    method: "POST",
+    signal,
+    ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+    headers: { "x-csrf-token": csrf },
+  });
+  if (!parseLogoutResponse(responseCandidate)) {
+    throw new Error("invalid_logout_response");
+  }
 }
 async function csrfMutate<T>(
   path: string,
@@ -5243,6 +5270,8 @@ function SettingsPage({
   csrf,
   onCsrf,
   onLogout,
+  logoutPending,
+  logoutError,
   oauthResult,
   maintenanceOauthResult,
   credentialMutations,
@@ -5267,6 +5296,8 @@ function SettingsPage({
   csrf: string;
   onCsrf: (csrf: string) => void;
   onLogout: () => void;
+  logoutPending: boolean;
+  logoutError: string;
   oauthResult: GoogleOauthResult | null;
   maintenanceOauthResult: GoogleMaintenanceOauthResult | null;
   credentialMutations: CredentialMutationOperation[];
@@ -6048,10 +6079,15 @@ function SettingsPage({
               <b>{user.email}</b>
               <span className="muted">{user.role}</span>
             </div>
-            <button className="secondary" onClick={onLogout}>
-              Выйти
+            <button
+              className="secondary"
+              onClick={onLogout}
+              disabled={logoutPending}
+            >
+              {logoutPending ? "Выходим…" : "Выйти"}
             </button>
           </section>
+          {logoutError && <p className="error" role="alert">{logoutError}</p>}
           <h3>Оформление</h3>
           <section className="card theme-preferences">
             <label>
@@ -7207,6 +7243,11 @@ function PlatformShell() {
     csrf: "",
     error: "",
   });
+  const [logoutState, setLogoutState] = useState({
+    pending: false,
+    error: "",
+  });
+  const logoutPendingRef = useRef(false);
   const sessionRequestEpochsRef = useRef(new Map<string, number>());
   const sessionRequestControllersRef = useRef(
     new Map<string, AbortController>(),
@@ -7286,6 +7327,8 @@ function PlatformShell() {
       <Login
         onLogin={(u, t) => {
           invalidateSessionBootstrap();
+          logoutPendingRef.current = false;
+          setLogoutState({ pending: false, error: "" });
           clearSettingsMutationSession();
           setSession({ status: "authenticated", user: u, csrf: t, error: "" });
           updatePwaDiagnosticsCsrf(t);
@@ -7296,29 +7339,76 @@ function PlatformShell() {
     );
   const user = session.user;
   const csrf = session.csrf;
-  const logout = async () => {
+  const finishAnonymousLogout = () => {
     invalidateSessionBootstrap();
-    let token = csrf;
-    if (!token) {
-      const refreshed = await requestJson<{ csrf_token: string }>(
-        "/auth/csrf",
-        {
-          method: "POST",
-        },
-      );
-      token = refreshed.csrf_token;
-      setSession((current) => ({ ...current, csrf: token }));
-      updatePwaDiagnosticsCsrf(token);
-      configurePwaDiagnosticsDebugState({ active: false });
-    }
-    await api("/auth/logout", {
-      method: "POST",
-      headers: { "x-csrf-token": token },
-    }).catch(() => undefined);
+    logoutPendingRef.current = false;
+    setLogoutState({ pending: false, error: "" });
     navigate("dashboard");
     clearSettingsMutationSession();
     setSession({ status: "anonymous", user: null, csrf: "", error: "" });
     clearPwaDiagnosticsSession();
+  };
+  const showLogoutFailure = () => {
+    logoutPendingRef.current = false;
+    setLogoutState({
+      pending: false,
+      error: "Не удалось подтвердить выход. Повторите попытку.",
+    });
+  };
+  const reconcileLogout = (generation: number) => {
+    void settleLatestRequest(
+      sessionRequestEpochsRef.current,
+      "platform:logout-reconcile",
+      bootstrapSession,
+      (result) => {
+        if (sessionGenerationRef.current !== generation) return;
+        setSession({
+          status: "authenticated",
+          user: result.user,
+          csrf: result.csrf,
+          error: "",
+        });
+        updatePwaDiagnosticsCsrf(result.csrf);
+        configurePwaDiagnosticsDebugState({ active: false });
+        showLogoutFailure();
+      },
+      (failure) => {
+        if (sessionGenerationRef.current !== generation) return;
+        if (failure instanceof ApiError && failure.status === 401) {
+          finishAnonymousLogout();
+          return;
+        }
+        showLogoutFailure();
+      },
+      {
+        controllers: sessionRequestControllersRef.current,
+        timeoutMs: SESSION_BOOTSTRAP_REQUEST_TIMEOUT_MS,
+      },
+    );
+  };
+  const logout = () => {
+    if (logoutPendingRef.current) return;
+    invalidateSessionBootstrap();
+    const generation = sessionGenerationRef.current;
+    logoutPendingRef.current = true;
+    setLogoutState({ pending: true, error: "" });
+    void settleLatestRequest(
+      sessionRequestEpochsRef.current,
+      "platform:logout",
+      (signal) => requestLogout(csrf, user, signal),
+      () => {
+        if (sessionGenerationRef.current !== generation) return;
+        finishAnonymousLogout();
+      },
+      () => {
+        if (sessionGenerationRef.current !== generation) return;
+        reconcileLogout(generation);
+      },
+      {
+        controllers: sessionRequestControllersRef.current,
+        timeoutMs: LOGOUT_REQUEST_TIMEOUT_MS,
+      },
+    );
   };
   return (
     <div className="shell">
@@ -7381,6 +7471,8 @@ function PlatformShell() {
               updatePwaDiagnosticsCsrf(token);
             }}
             onLogout={logout}
+            logoutPending={logoutState.pending}
+            logoutError={logoutState.error}
             oauthResult={oauthResult}
             maintenanceOauthResult={maintenanceOauthResult}
             credentialMutations={credentialMutations}

@@ -3,6 +3,7 @@
 ## Current dashboard
 
 - ✅ `PWA-STABILITY-HARDENING-PR207 / merged baseline` — PR #207 merged 30 atomic commits as `main@26ecae6`. PR-head and exact-main repository/Studio/browser CI passed; component CD deployed and identity-checked web and API, and public HTTPS health returned 200 for both endpoints. Migration and worker were correctly not selected.
+- ✅ `PWA-AUTH-LOGOUT-BOUNDARY-33 / local complete` — logout is bounded and single-flight, and ambiguous responses reconcile against authoritative session state without replaying the logout POST. Functional completion is `3/3 = 100%`; lifecycle remains IN PROGRESS until required GitHub CI is available. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A.
 - ✅ `PWA-AUTH-LOGIN-BOUNDARY-32 / local complete` — the pre-auth bootstrap read and two-stage login mutation are bounded, runtime-validated, teardown-safe, and single-flight without changing backend auth rules, cookies, or API shapes. Functional completion is `3/3 = 100%`; lifecycle remains IN PROGRESS until required GitHub CI is available. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A.
 - ✅ `PWA-AUTH-SESSION-BOOTSTRAP-31 / local complete` — the bounded, validated, latest-wins root bootstrap is implemented on `codex/pwa-session-bootstrap-hardening`, based on `main@26ecae6`. All three functional criteria and the complete local gate pass. Functional completion is `3/3 = 100%`; lifecycle remains IN PROGRESS until required GitHub CI is available. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A.
 - ✅ `PWA-CATALOG-DURABLE-IDEMPOTENCE-04` — PR #199 merged as `bd8d513`. PR-head and exact-main repository/Studio CI passed. Exact-main component CD deployed web and API; the migration release job was correctly skipped.
@@ -39,9 +40,10 @@ Percentage means completed functional acceptance criteria divided by all functio
 | Contour/dimension | Evidence-based estimate | Meaning |
 | --- | ---: | --- |
 | Project, all current scope | **N/A (numerator/denominator are not defined)** | `project-spec.md` still lacks one closed, non-overlapping project-wide acceptance set. This is a canonical coverage gap, not permission to average epic percentages. |
-| Project delta after task 32 | **N/A → N/A** | PR #207 closes delivery gates for tasks 03–30, while tasks 31 and 32 each complete their local functional denominator at `3/3`; none supplies the undefined canonical project-wide denominator. A project percentage still requires a separately authorized atomic AC normalization in `project-spec.md`. |
+| Project delta after task 33 | **N/A → N/A** | PR #207 closes delivery gates for tasks 03–30, while tasks 31–33 each complete their local functional denominator at `3/3`; none supplies the undefined canonical project-wide denominator. A project percentage still requires a separately authorized atomic AC normalization in `project-spec.md`. |
 | Stable Colab batch + Realtime | **100% (`2/2` operator-accepted contours)** | The current explicit owner evidence accepts both implemented Colab contours after about four months of stable use. This does not erase the subordinate Realtime runbook's stale/manual-gap conflict; that conflict is an Evidence/readiness issue. |
 | Studio PWA Live functional contract | **100% (`7/7`)** | All seven accepted first-slice behavior criteria in `project-spec.md` are implemented at source level. READY remains gated separately: delivery evidence is `5/6`, with microphone-only, mixed, and negative lifecycle canaries still open. |
+| `PWA-AUTH-LOGOUT-BOUNDARY-33` | **100% (`3/3`)** | Bounded single-flight logout, validated success, authoritative ambiguity reconciliation without POST replay, safe retry UI, teardown invalidation, and the complete local gate are implemented. Status remains IN PROGRESS because publication and required GitHub CI have not occurred. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
 | `PWA-AUTH-LOGIN-BOUNDARY-32` | **100% (`3/3`)** | The bounded pre-auth bootstrap read, single-flight two-stage login mutation, shared auth DTO validation, teardown ownership, safe errors, and complete local gate are implemented. Status remains IN PROGRESS because publication and required GitHub CI have not occurred. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
 | `PWA-AUTH-SESSION-BOOTSTRAP-31` | **100% (`3/3`)** | The bounded two-stage request, DTO validation, fail-closed recovery, session-generation isolation, and complete local validation are implemented. Status remains IN PROGRESS because publication and required GitHub CI have not occurred. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
 | `PWA-PREPARATION-PREREQUISITE-BOUNDARY-30` | **100% (`3/3`)** | Shared validated credential/policy requesters, independent 15-second latest-wins/teardown boundaries, safe explicit retry, fail-closed controls, stale-remount suppression, and full applicable local validation are complete. PR #207 is merged; PR-head and exact-main CI passed, so status is READY. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI ✅, DEPLOY N/A, LIVE N/A. |
@@ -93,17 +95,17 @@ For rows explicitly named delivery/rollout Evidence, the denominators are readin
 
 ## Active item
 
-`PWA-AUTH-LOGIN-BOUNDARY-32` functional acceptance checks:
+`PWA-AUTH-LOGOUT-BOUNDARY-33` functional acceptance checks:
 
-1. `GET /auth/bootstrap-status` is runtime-validated, bounded, latest-wins, and cancelled on teardown. The login form is hidden until an authoritative `bootstrap_required: false`; timeout, transport/HTTP failure, or malformed success fails closed with predefined Russian UI and explicit retry.
-2. `POST /auth/login-context` and `POST /auth/login` share one bounded AbortSignal, permit only one in-flight submit, perform no automatic mutation replay, and are cancelled on teardown. Context and authenticated login responses are runtime-validated before `onLogin`; failures re-enable explicit retry and never render raw backend fields or arbitrary error messages.
-3. Focused bootstrap/login regressions, the complete App/Studio suites, TypeScript, ESLint, production build, lightweight repository checks, and `git diff --check` pass.
+1. Optional CSRF refresh and `POST /auth/logout` share one bounded AbortSignal, allow only one in-flight logout, validate the success DTO, expose accessible pending state, and are cancelled by root-shell teardown/session-generation invalidation.
+2. An ambiguous timeout, transport/HTTP failure, or malformed success never replays the logout POST. One separately bounded authenticated bootstrap reconciliation treats authoritative `401` as logged out; otherwise it retains or restores the authenticated user with a fresh CSRF token, shows a predefined safe error, and permits explicit retry without rendering raw fields.
+3. Focused logout regressions, the complete App/Studio suites, TypeScript, ESLint, production build, lightweight repository checks, and `git diff --check` pass.
 
-Functional completion is **100% (`3/3`)** on `codex/pwa-session-bootstrap-hardening`, based on `main@26ecae6e6cd0ec0c8a3fd2307b7434970c11edf4`. Focused Login regressions `5/5`, related App auth regressions `4/4`, the complete App suite `190/190`, the complete Studio suite `458/458`, TypeScript, ESLint, production build, lightweight repository checks, and `git diff --check` pass.
+Functional completion is **100% (`3/3`)** on `codex/pwa-session-bootstrap-hardening`, based on `main@26ecae6e6cd0ec0c8a3fd2307b7434970c11edf4`. Focused logout/session regressions `6/6`, the complete App suite `193/193`, the complete Studio suite `461/461`, TypeScript, ESLint, production build, lightweight repository checks, and `git diff --check` pass.
 
 Readiness gate is separate: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. Lifecycle status is IN PROGRESS pending publication and required GitHub CI.
 
-Non-goals: no backend auth business-rule, password policy, cookie, session-storage, API-shape, OAuth, migration, CI/CD, deploy, or production-state change.
+Non-goals: no backend auth business-rule, cookie/session lifetime, API-shape, OAuth, migration, CI/CD, deploy, or production-state change.
 
 ## Deferred operational item
 
@@ -171,7 +173,7 @@ Checks 1–5 are merged and the exact-main web deployment is complete. The live 
 
 ## Next item
 
-After task 32 reaches its local gates, inspect exactly one remaining root-shell authentication/session boundary and select it only with direct code evidence. No additional scope is pre-authorized by this placeholder.
+After task 33 reaches its local gates, inspect exactly one remaining account/session mutation boundary and select it only with direct code evidence. No additional scope is pre-authorized by this placeholder.
 
 ## Near backlog
 
@@ -192,6 +194,7 @@ After task 32 reaches its local gates, inspect exactly one remaining root-shell 
 
 ## Validation notes
 
+- Logout-boundary task 33: focused logout/session regressions passed (`6/6`), the complete App suite passed (`193/193`), and the complete Studio suite passed (`461/461` in `37/37` files). TypeScript, ESLint, the Vite/PWA production build (`1618` modules), lightweight repository checks, and `git diff --check` passed. Coverage includes synchronous duplicate-click exclusion, a shared bounded signal for optional CSRF refresh and logout, validated `ok: true`, one bounded authenticated bootstrap reconciliation after timeout/malformed success, no logout POST replay, authoritative anonymous `401`, authenticated recovery with a fresh CSRF token and explicit retry, raw-field suppression, and root-shell teardown cancellation. No backend, cookie/session-lifetime, API-shape, OAuth, migration, CI/CD, deploy, or production-state change is included.
 - Login-boundary task 32: focused Login regressions passed (`5/5`), related App auth regressions passed (`4/4`), the complete App suite passed (`190/190`), and the complete Studio suite passed (`458/458` in `37/37` files). TypeScript, ESLint, the Vite/PWA production build (`1618` modules), lightweight repository checks, and `git diff --check` passed. Coverage includes hidden-until-authoritative bootstrap UI, bootstrap timeout and malformed-response retry, the valid operator-only bootstrap state, one shared bounded signal for both login POST stages, synchronous single-flight ownership, explicit retry after timeout, shared auth DTO validation, raw-field suppression, and teardown cancellation with late-success rejection. No backend, password-policy, cookie, OAuth, API-shape, migration, CI/CD, deploy, or production-state change is included.
 - Session-bootstrap task 31: focused auth regressions passed (`6/6`), the complete App suite passed (`190/190`), and the complete Studio suite passed (`453/453`). TypeScript, ESLint, the Vite/PWA production build (`1617` modules), lightweight repository checks, and `git diff --check` passed. Coverage includes timeouts in both bootstrap stages, shared AbortSignal propagation, explicit retry, malformed and cross-user DTO rejection without raw-field rendering, StrictMode teardown, stale-generation suppression, and logout invalidation. No backend, cookie, OAuth, API-shape, migration, CI/CD, deploy, or production-state change is included.
 - Rollout evidence branch: `codex/provider-resume-rollout-evidence`, based on clean `main@66fb098`.

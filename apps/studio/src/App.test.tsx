@@ -764,6 +764,7 @@ describe("Studio PWA", () => {
             user: { email: "user@example.com", role: "admin" },
             csrf_token: "csrf",
           });
+        if (url.endsWith("/api/auth/logout")) return json({ ok: true });
         if (url.endsWith("/api/projects") && init?.method === "POST")
           return json({
             id: "p2",
@@ -10199,6 +10200,156 @@ describe("Studio PWA", () => {
     ).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("older@example.com");
   });
+
+  it("reconciles an ambiguous logout without replaying the mutation", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let sessionReads = 0;
+    let csrfReads = 0;
+    let logoutCalls = 0;
+    let timedOutLogoutSignal: AbortSignal | undefined;
+    const logoutTokens: string[] = [];
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/auth/session")) {
+        sessionReads += 1;
+        return json({
+          authenticated: true,
+          user: { email: "logout@example.com", role: "admin" },
+        });
+      }
+      if (url.endsWith("/api/auth/csrf") && init?.method === "POST") {
+        csrfReads += 1;
+        return json({
+          csrf_token: csrfReads === 1 ? "csrf-initial" : "csrf-reconciled",
+          user: { email: "logout@example.com", role: "admin" },
+        });
+      }
+      if (url.endsWith("/api/auth/logout") && init?.method === "POST") {
+        logoutCalls += 1;
+        logoutTokens.push(String(new Headers(init.headers).get("x-csrf-token")));
+        if (logoutCalls === 1) {
+          timedOutLogoutSignal = init.signal;
+          if (!timedOutLogoutSignal) {
+            throw new Error("Logout signal is missing");
+          }
+          return new Promise<Response>((_resolve, reject) => {
+            timedOutLogoutSignal?.addEventListener("abort", () =>
+              reject(timedOutLogoutSignal?.reason),
+            );
+          });
+        }
+        return json({ ok: true });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 20_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      renderApp();
+      await openSettingsPage();
+      const logoutButton = screen.getByRole("button", { name: "Выйти" });
+      fireEvent.click(logoutButton);
+      fireEvent.click(logoutButton);
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        "Не удалось подтвердить выход",
+      );
+      expect(screen.getByText("logout@example.com")).toBeInTheDocument();
+      expect(timedOutLogoutSignal?.aborted).toBe(true);
+      expect(logoutCalls).toBe(1);
+      expect(sessionReads).toBe(2);
+      expect(csrfReads).toBe(2);
+
+      await userEvent.click(screen.getByRole("button", { name: "Выйти" }));
+      expect(
+        await screen.findByRole("heading", { name: "Вход" }),
+      ).toBeInTheDocument();
+      expect(logoutCalls).toBe(2);
+      expect(logoutTokens).toEqual(["csrf-initial", "csrf-reconciled"]);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("accepts an authoritative anonymous reconciliation after malformed logout success", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let sessionReads = 0;
+    let logoutCalls = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/auth/session")) {
+        sessionReads += 1;
+        if (sessionReads > 1) {
+          return json({ detail: "raw-session-ended" }, false, 401);
+        }
+        return json({
+          authenticated: true,
+          user: { email: "logout@example.com", role: "user" },
+        });
+      }
+      if (url.endsWith("/api/auth/csrf") && init?.method === "POST") {
+        return json({
+          csrf_token: "csrf-initial",
+          user: { email: "logout@example.com", role: "user" },
+        });
+      }
+      if (url.endsWith("/api/auth/logout") && init?.method === "POST") {
+        logoutCalls += 1;
+        return json({ ok: "raw-ok", raw_logout_field: "raw-logout-secret" });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openSettingsPage();
+    await userEvent.click(screen.getByRole("button", { name: "Выйти" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Вход" }),
+    ).toBeInTheDocument();
+    expect(logoutCalls).toBe(1);
+    expect(sessionReads).toBe(2);
+    expect(document.body.textContent).not.toContain("raw-ok");
+    expect(document.body.textContent).not.toContain("raw-logout-secret");
+    expect(document.body.textContent).not.toContain("raw-session-ended");
+  });
+
+  it("aborts logout ownership on root-shell teardown and ignores late success", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let logoutSignal: AbortSignal | undefined;
+    let resolveLogout: ((response: Response) => void) | undefined;
+    let sessionReads = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/auth/session")) sessionReads += 1;
+      if (url.endsWith("/api/auth/logout") && init?.method === "POST") {
+        logoutSignal = init.signal;
+        return new Promise<Response>((resolve) => {
+          resolveLogout = resolve;
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    const rendered = render(<App />);
+    await openSettingsPage();
+    await userEvent.click(screen.getByRole("button", { name: "Выйти" }));
+    await waitFor(() => expect(resolveLogout).toBeDefined());
+
+    rendered.unmount();
+    expect(logoutSignal?.aborted).toBe(true);
+    await act(async () => resolveLogout?.(await json({ ok: true })));
+    expect(sessionReads).toBe(1);
+  });
+
   it("waits for confirmed Google connection before showing OAuth success", async () => {
     window.history.pushState(
       {},
