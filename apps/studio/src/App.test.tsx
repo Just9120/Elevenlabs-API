@@ -760,6 +760,7 @@ describe("Studio PWA", () => {
           return json({ login_csrf_token: "login-csrf" });
         if (url.endsWith("/api/auth/login"))
           return json({
+            authenticated: true,
             user: { email: "user@example.com", role: "admin" },
             csrf_token: "csrf",
           });
@@ -9917,6 +9918,7 @@ describe("Studio PWA", () => {
         return json({ login_csrf_token: "login-csrf" });
       if (url.endsWith("/api/auth/login"))
         return json({
+          authenticated: true,
           user: { email: "user@example.com", role: "admin" },
           csrf_token: "csrf-login",
         });

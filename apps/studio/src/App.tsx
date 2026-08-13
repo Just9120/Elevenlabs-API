@@ -67,7 +67,12 @@ import {
   type SourceDeletionNotice,
 } from "./SourcesPanel";
 import { JobCard } from "./JobCard";
-import { Login, type User } from "./Login";
+import { Login } from "./Login";
+import {
+  parseAuthenticatedSessionResponse,
+  parseCsrfResponse,
+  type User,
+} from "./authContracts";
 import { PlatformSidebar } from "./PlatformSidebar";
 import {
   isApprovedOutputUrl,
@@ -495,52 +500,6 @@ type SessionBootstrapState = {
   csrf: string;
   error: string;
 };
-function parseBootstrapUser(candidate: unknown): User | null {
-  if (!candidate || typeof candidate !== "object") return null;
-  const user = candidate as Record<string, unknown>;
-  if (
-    typeof user.email !== "string" ||
-    user.email.length === 0 ||
-    user.email.length > 320 ||
-    user.email !== user.email.trim() ||
-    !user.email.includes("@") ||
-    (user.role !== "admin" && user.role !== "user")
-  ) {
-    return null;
-  }
-  return { email: user.email, role: user.role };
-}
-function parseAuthenticatedSessionResponse(candidate: unknown): User | null {
-  if (!candidate || typeof candidate !== "object") return null;
-  const response = candidate as Record<string, unknown>;
-  if (response.authenticated !== true) return null;
-  return parseBootstrapUser(response.user);
-}
-function parseBootstrapCsrfResponse(
-  candidate: unknown,
-  expectedUser: User,
-): string | null {
-  if (!candidate || typeof candidate !== "object") return null;
-  const response = candidate as Record<string, unknown>;
-  if (
-    typeof response.csrf_token !== "string" ||
-    response.csrf_token.length === 0 ||
-    response.csrf_token.length > 4096
-  ) {
-    return null;
-  }
-  if (Object.prototype.hasOwnProperty.call(response, "user")) {
-    const responseUser = parseBootstrapUser(response.user);
-    if (
-      !responseUser ||
-      responseUser.email !== expectedUser.email ||
-      responseUser.role !== expectedUser.role
-    ) {
-      return null;
-    }
-  }
-  return response.csrf_token;
-}
 const emptySourceState = {
   loading: false,
   error: "",
@@ -765,7 +724,7 @@ async function bootstrapSession(signal?: AbortSignal): Promise<{
     signal,
     ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
   });
-  const csrf = parseBootstrapCsrfResponse(csrfCandidate, user);
+  const csrf = parseCsrfResponse(csrfCandidate, user);
   if (!csrf) throw new Error("invalid_auth_csrf_response");
   return { user, csrf };
 }
