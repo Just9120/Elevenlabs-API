@@ -699,6 +699,7 @@ const PROJECT_MUTATION_REQUEST_TIMEOUT_MS = 20_000;
 const CREDENTIAL_COLLECTION_REQUEST_TIMEOUT_MS = 15_000;
 const CREDENTIAL_MUTATION_REQUEST_TIMEOUT_MS = 20_000;
 const ACCOUNT_PREFERENCES_REQUEST_TIMEOUT_MS = 15_000;
+const SOURCE_UPLOAD_POLICY_REQUEST_TIMEOUT_MS = 15_000;
 const ACCOUNT_PREFERENCES_MUTATION_TIMEOUT_MS = 20_000;
 const GOOGLE_CONNECTION_REQUEST_TIMEOUT_MS = 15_000;
 const GOOGLE_CONNECTION_MUTATION_TIMEOUT_MS = 20_000;
@@ -747,6 +748,17 @@ async function readGoogleConnectionBounded(): Promise<GoogleConnection | null> {
   } catch {
     return null;
   }
+}
+async function requestSourceUploadPolicy(
+  signal?: AbortSignal,
+): Promise<SourceUploadPolicy> {
+  const candidate = await api<unknown>("/sources/upload-policy", {
+    signal,
+    ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+  });
+  const policy = normalizeSourceUploadPolicy(candidate);
+  if (!policy) throw new Error("invalid_source_upload_policy_response");
+  return policy;
 }
 async function readCredentialCollectionBounded(): Promise<Credential[] | null> {
   try {
@@ -1075,6 +1087,10 @@ function PreparationPanel({
   const jobRequestControllersRef = useRef(
     new Map<string, AbortController>(),
   );
+  const prerequisiteRequestEpochsRef = useRef(new Map<string, number>());
+  const prerequisiteRequestControllersRef = useRef(
+    new Map<string, AbortController>(),
+  );
 
   useEffect(() => {
     localUploadCsrfRef.current = csrf;
@@ -1087,6 +1103,14 @@ function PreparationPanel({
       cancelLatestRequests(
         jobRequestEpochsRef.current,
         jobRequestControllersRef.current,
+      ),
+    [],
+  );
+  useEffect(
+    () => () =>
+      cancelLatestRequests(
+        prerequisiteRequestEpochsRef.current,
+        prerequisiteRequestControllersRef.current,
       ),
     [],
   );
@@ -1136,48 +1160,51 @@ function PreparationPanel({
     );
     return () => window.clearTimeout(statusTimeout);
   }, [rowAdditionStatus]);
-  useEffect(() => {
-    let cancelled = false;
+  const loadCredentials = () => {
     setCredentialsLoading(true);
     setCredentialsError("");
-    api<{ credentials: Credential[] }>("/credentials")
-      .then((r) => {
-        if (!cancelled) setCredentials(r.credentials);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setCredentials([]);
-          setCredentialsError("Не удалось загрузить подключение ElevenLabs.");
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setCredentialsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-  useEffect(() => {
-    let cancelled = false;
+    void settleLatestRequest(
+      prerequisiteRequestEpochsRef.current,
+      "preparation:credentials",
+      requestCredentialCollection,
+      (nextCredentials) => {
+        setCredentials(nextCredentials);
+        setCredentialsLoading(false);
+      },
+      () => {
+        setCredentialsError("Не удалось загрузить подключение ElevenLabs.");
+        setCredentialsLoading(false);
+      },
+      {
+        controllers: prerequisiteRequestControllersRef.current,
+        timeoutMs: CREDENTIAL_COLLECTION_REQUEST_TIMEOUT_MS,
+      },
+    );
+  };
+  const loadSourceUploadPolicy = () => {
     setSourceUploadPolicy(null);
     setSourceUploadPolicyError("");
-    api<unknown>("/sources/upload-policy")
-      .then((value) => {
-        if (cancelled) return;
-        const policy = normalizeSourceUploadPolicy(value);
-        if (!policy) throw new Error("Invalid source upload policy");
+    void settleLatestRequest(
+      prerequisiteRequestEpochsRef.current,
+      "preparation:source-upload-policy",
+      requestSourceUploadPolicy,
+      (policy) => {
         setSourceUploadPolicy(policy);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setSourceUploadPolicy(null);
+      },
+      () => {
         setSourceUploadPolicyError(
           "Не удалось загрузить правила локальной загрузки. Загрузка с устройства временно недоступна.",
         );
-      });
-    return () => {
-      cancelled = true;
-    };
+      },
+      {
+        controllers: prerequisiteRequestControllersRef.current,
+        timeoutMs: SOURCE_UPLOAD_POLICY_REQUEST_TIMEOUT_MS,
+      },
+    );
+  };
+  useEffect(() => {
+    loadCredentials();
+    loadSourceUploadPolicy();
   }, []);
   const activeElevenLabsCredentials = credentials.filter(
     (credential) =>
@@ -2930,7 +2957,14 @@ function PreparationPanel({
             </p>
           </div>
           {credentialsLoading && <p role="status">Загрузка подключения…</p>}
-          {credentialsError && <p className="notice">{credentialsError}</p>}
+          {credentialsError && (
+            <div className="notice" role="alert">
+              <p>{credentialsError}</p>
+              <button type="button" onClick={loadCredentials}>
+                Повторить загрузку подключения ElevenLabs
+              </button>
+            </div>
+          )}
           {!credentialsLoading &&
             !credentialsError &&
             activeElevenLabsCredentials.length === 0 && (
@@ -3055,7 +3089,12 @@ function PreparationPanel({
         ) : sourceUploadPolicy ? (
           <p className="notice">Локальная загрузка временно недоступна.</p>
         ) : sourceUploadPolicyError ? (
-          <p className="notice">{sourceUploadPolicyError}</p>
+          <div className="notice" role="alert">
+            <p>{sourceUploadPolicyError}</p>
+            <button type="button" onClick={loadSourceUploadPolicy}>
+              Повторить загрузку правил
+            </button>
+          </div>
         ) : (
           <p className="muted">Загружаем правила локальной загрузки…</p>
         )}

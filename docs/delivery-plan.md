@@ -2,6 +2,7 @@
 
 ## Current dashboard
 
+- 👉 `PWA-PREPARATION-PREREQUISITE-BOUNDARY-30 / local source` — Preparation credential and source-upload-policy reads now use validated independent latest-request boundaries, 15-second deadlines, teardown aborts, and explicit safe retry. Malformed data fails closed, and late A→B→A settlements cannot alter the active composer. Local CODE/TEST gates pass; publication and CI remain open.
 - 👉 `PWA-OVERVIEW-COLLECTION-BOUNDARY-29 / local source` — Overview project and credential summaries now use the shared exact collection validators; both reads are independently bounded, latest-request-wins, teardown-abortable, and explicitly retryable while preserving the other summary and last-known valid data. Local CODE/TEST gates pass; publication and CI remain open.
 - 👉 `PWA-GOOGLE-CONNECTION-CONSUMERS-28 / local source` — Overview, Projects, and Settings now share one exact Google connection requester; Overview/Projects reads are bounded, latest-request-wins, abortable on teardown, and explicitly retryable. Projects refreshes when reactivated, ignores late pre-remount responses, and disables both Picker entrypoints whenever connection authority is loading or unavailable. Local CODE/TEST gates pass; publication and CI remain open.
 - 👉 `PWA-GOOGLE-CONNECTION-BOUNDARY-27 / local source` — the Settings connection GET is exact-contract validated, latest-request-wins, abortable, and bounded to 15 seconds; OAuth start/disconnect use parent-owned synchronous single-flight, a 20-second bound, safe authoritative reconciliation, and no automatic mutation replay. OAuth redirects are restricted to the exact Google origin/path/query/scope contract, logout invalidates late settlement, and sequential disconnect replay is terminal/audit-idempotent. Frontend/static gates pass; the service-backed backend regression and publication/CI remain open.
@@ -63,9 +64,10 @@ Percentage means completed functional acceptance criteria divided by all functio
 | Contour/dimension | Evidence-based estimate | Meaning |
 | --- | ---: | --- |
 | Project, all current scope | **N/A (numerator/denominator are not defined)** | `project-spec.md` still lacks one closed, non-overlapping project-wide acceptance set. This is a canonical coverage gap, not permission to average epic percentages. |
-| Project delta after task 29 | **N/A → N/A** | The task closes a newly explicit stability feature but cannot change an undefined canonical project denominator. A project percentage requires a separately authorized atomic AC normalization in `project-spec.md`. |
+| Project delta after task 30 | **N/A → N/A** | Tasks 29 and 30 close newly explicit stability features but cannot change an undefined canonical project denominator. A project percentage requires a separately authorized atomic AC normalization in `project-spec.md`. |
 | Stable Colab batch + Realtime | **100% (`2/2` operator-accepted contours)** | The current explicit owner evidence accepts both implemented Colab contours after about four months of stable use. This does not erase the subordinate Realtime runbook's stale/manual-gap conflict; that conflict is an Evidence/readiness issue. |
 | Studio PWA Live functional contract | **100% (`7/7`)** | All seven accepted first-slice behavior criteria in `project-spec.md` are implemented at source level. READY remains gated separately: delivery evidence is `5/6`, with microphone-only, mixed, and negative lifecycle canaries still open. |
+| `PWA-PREPARATION-PREREQUISITE-BOUNDARY-30` | **100% (`3/3`)** | Shared validated credential/policy requesters, independent 15-second latest-wins/teardown boundaries, safe explicit retry, fail-closed controls, stale-remount suppression, and full applicable local validation are complete. Status remains IN PROGRESS because publication and required CI Evidence are absent. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
 | `PWA-OVERVIEW-COLLECTION-BOUNDARY-29` | **100% (`3/3`)** | Exact shared collection validation, independent bounded/latest-wins/teardown reads, safe per-summary retry, last-known-data preservation, and full applicable local validation are complete. Status remains IN PROGRESS because publication and required CI Evidence are absent. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
 | `PWA-GOOGLE-CONNECTION-CONSUMERS-28` | **100% (`3/3`)** | Shared exact DTO validation, bounded/latest-wins Overview and Projects reads, explicit retry, reactivation refresh, stale-response rejection, fail-closed Picker gating, and full applicable local validation are complete. Publication plus required PR-head/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
 | `PWA-GOOGLE-CONNECTION-BOUNDARY-27` | **100% (`3/3`)** | Exact semantic DTO/redirect capability validation, bounded latest-wins reads, remount-safe OAuth/disconnect ownership, logout invalidation, ambiguity reconciliation without replay, sequential disconnect audit idempotence, and all available local gates are complete. The service-backed backend regression plus publication/required CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ◐, CI —, DEPLOY N/A, LIVE N/A. |
@@ -114,20 +116,31 @@ For rows explicitly named delivery/rollout Evidence, the denominators are readin
 
 ## Active item
 
+`PWA-PREPARATION-PREREQUISITE-BOUNDARY-30` functional acceptance checks:
+
+1. Preparation obtains credentials through the shared validated collection requester and obtains the local-upload policy through its existing runtime validator. The two resources use independent latest-request keys, 15-second deadlines, and teardown AbortSignals.
+2. Timeout, transport failure, malformed/duplicate credential data, and malformed policy data fail closed with predefined Russian UI and separate explicit retry controls. Job submission and local device upload remain disabled without valid authority; A → B → A aborts old reads and late settlement cannot alter the active composer or render raw fields.
+3. Focused prerequisite regressions `3/3`, complete App suite `187/187`, full Studio Vitest `450/450`, TypeScript, full ESLint, production build, lightweight checks, and `git diff --check` pass.
+
+Functional completion is **100% (`3/3`)** on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`.
+
+Readiness gate: branch publication, required PR-head/exact-main CI, and merge remain separately required before READY. They are intentionally open under the current local-only instruction, so lifecycle status remains IN PROGRESS despite 100% functional completion.
+
+Non-goals: no credential mutation, local-upload mutation/recovery semantics, Google/Picker behavior, API/schema/migration, deploy, or production mutation.
+
+## Previous local items
+
+### Overview collection boundaries
+
 `PWA-OVERVIEW-COLLECTION-BOUNDARY-29` functional acceptance checks:
 
 1. Overview project and credential summaries use the same exact runtime-validated collection requesters as Projects and Settings. Malformed or duplicate IDs fail closed without rendering raw response fields.
 2. Both Overview reads are independently latest-request-wins, bounded to 15 seconds, and cancelled on teardown. Each summary exposes its own safe retry; a failed refresh preserves last-known valid data and cannot erase an independently successful summary.
 3. Focused Overview boundary regressions `3/3`, complete App suite `184/184`, full Studio Vitest `447/447`, TypeScript, full ESLint, production build, lightweight checks, and `git diff --check` pass.
 
-Functional completion is **100% (`3/3`)** on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`.
-
-Readiness gate: branch publication, required PR-head/exact-main CI, and merge remain separately required before READY. They are intentionally open under the current local-only instruction, so lifecycle status remains IN PROGRESS despite 100% functional completion.
+Functional completion is **100% (`3/3`)** locally. Readiness remains IN PROGRESS because branch publication, required PR-head/exact-main CI, and merge are intentionally open under the current local-only instruction.
 
 Non-goals: no Projects mutations, Settings credential mutations, Google/OAuth behavior, API/schema/migration, deploy, or production mutation.
-
-## Previous local items
-
 ### Google connection consumers
 
 `PWA-GOOGLE-CONNECTION-CONSUMERS-28` functional acceptance checks:
@@ -540,7 +553,7 @@ Checks 1–5 are merged and the exact-main web deployment is complete. The live 
 
 ## Next item
 
-Harden the remaining Preparation prerequisite reads: the selected-project credential collection and local-upload policy currently use component-local boolean cancellation only, have no request deadline/latest-request ordering, and the credential path bypasses the shared exact validator. Add bounded validated reads, teardown cancellation, and safe explicit recovery without changing credential mutations, upload mutation semantics, API/schema, deployment, or production state.
+Harden authenticated session bootstrap. `GET /auth/session` followed by CSRF acquisition currently has no deadline, AbortSignal, latest-attempt ownership, or teardown invalidation, so a stalled request can leave the entire PWA indefinitely on “Проверяем сессию…”. Add a bounded two-stage attempt, safe explicit retry, stale-attempt suppression, and logout/session-generation isolation without changing auth business rules, cookies, API shape, backend, deployment, or production state.
 
 ## Near backlog
 
@@ -561,6 +574,7 @@ Harden the remaining Preparation prerequisite reads: the selected-project creden
 
 ## Validation notes
 
+- `PWA-PREPARATION-PREREQUISITE-BOUNDARY-30` local evidence: focused timeout/retry, malformed-response, and A → B → A teardown regressions `3/3`, complete App suite `187/187`, and full Studio Vitest `450/450` passed. Credential and source-upload-policy reads have independent 15-second latest-request boundaries, timeout and project remount abort their exact signals, and recovery requires separate explicit retry. The credential path reuses the shared duplicate-rejecting validator; malformed policy data is rejected by the existing browser-safe policy validator. Both failures disable their dependent controls and render only predefined text. The first focused runs corrected test-only assumptions about duplicate safe blocker text and shared credential consumers; the first full App run exposed one obsolete fixture that still returned backend-impossible `status=deleted`, which was removed while secret-like extra-field non-rendering coverage remains. TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` pass. No credential/upload mutation, backend/API/schema, deploy, or production state is changed.
 - `PWA-OVERVIEW-COLLECTION-BOUNDARY-29` local evidence: focused collection-boundary regressions `3/3`, the two adjusted cross-page timeout regressions `2/2`, complete App suite `184/184`, and full Studio Vitest `447/447` passed. Overview projects and credentials share the exact collection requesters used by their primary consumers; duplicate/malformed collections fail closed without raw-field rendering. Both summaries have independent 15-second latest-request-wins/teardown boundaries and explicit retry while preserving the other summary and any last-known valid data. The first full App run exposed two obsolete signal-count assumptions: navigation now correctly aborts the new Overview request before the destination page creates and times out its own request; the assertions were tightened to verify both aborts. TypeScript, full ESLint, and Vite/PWA production build pass. No backend/API/schema, mutation, deploy, or production state is changed.
 - `PWA-GOOGLE-CONNECTION-CONSUMERS-28` local evidence: focused Overview/Projects connection regressions `3/3`, complete App suite `181/181`, and standalone full Studio Vitest `444/444` passed. Overview aborts a stalled read after 15 seconds, reports only safe unavailable state, and succeeds through explicit retry. Projects rejects a contradictory DTO without rendering its raw field, distinguishes unavailable from disconnected, disables source and folder Picker controls, refreshes on every active return, and ignores a late connected response after a newer disconnected read. The two older Settings regressions were updated only for the now-intentional additional Overview/Projects GETs and remain green. TypeScript, full ESLint, and Vite/PWA production build pass. A first parallel four-process gate also completed all `444/444` assertions but hit a post-suite `tinypool` teardown exception; the standalone rerun exited cleanly and is the claimed test evidence. No OAuth mutation, backend/API/schema, deploy, or production mutation is claimed.
 - `PWA-GOOGLE-CONNECTION-BOUNDARY-27` local evidence: focused Settings connection regressions `11/11`, complete App suite `178/178`, and full Studio Vitest `441/441` passed. Stalled/malformed connection reads fail closed after 15 seconds with explicit retry and no raw detail. OAuth start and disconnect reject same-act duplicates, expose disabled/`aria-busy`, abort after 20 seconds, perform one authoritative connection read on uncertainty, and never replay POST/DELETE automatically. The exact Google authorization origin/path/query/scope contract rejects hostile or malformed redirect capabilities; logout invalidates late success before navigation. Settings → Projects → Settings preserves detached disconnect ownership/outcome and requests exactly one post-remount refresh. Sequential backend disconnect replay preserves the original terminal timestamp, wipes primary and maintenance token material, and emits one audit event. Python syntax, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` pass. The backend service regression is authored but was not executed locally because bundled Python lacks `pytest`, so TEST remains partial and CI remains open. No maintenance OAuth, Picker, API shape/schema/migration, deploy, or production mutation is claimed.

@@ -5263,14 +5263,6 @@ describe("Studio PWA", () => {
                 masked_value: "••••9999",
                 active_version: 1,
               },
-              {
-                id: "cred-deleted",
-                provider: "openai",
-                label: "Deleted STT",
-                status: "deleted",
-                masked_value: "••••0000",
-                active_version: 1,
-              },
             ],
           });
         if (url.endsWith("/api/projects"))
@@ -11271,6 +11263,272 @@ describe("Studio PWA", () => {
           init?.method === "POST",
       ),
     ).toHaveLength(1);
+  });
+
+  it("bounds and retries Preparation prerequisite reads independently", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const credentialSignals: AbortSignal[] = [];
+    const policySignals: AbortSignal[] = [];
+    let credentialReads = 0;
+    let policyReads = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/credentials") && !init?.method) {
+        credentialReads += 1;
+        if (credentialReads === 2) {
+          const signal = init.signal;
+          if (!signal) throw new Error("Preparation credential signal is missing");
+          credentialSignals.push(signal);
+          return new Promise<Response>((_resolve, reject) => {
+            signal.addEventListener("abort", () => reject(signal.reason));
+          });
+        }
+      }
+      if (url.endsWith("/api/sources/upload-policy") && !init?.method) {
+        policyReads += 1;
+        if (policyReads === 1) {
+          const signal = init.signal;
+          if (!signal) throw new Error("Upload-policy signal is missing");
+          policySignals.push(signal);
+          return new Promise<Response>((_resolve, reject) => {
+            signal.addEventListener("abort", () => reject(signal.reason));
+          });
+        }
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 15_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      renderApp();
+      await openProjectsPage();
+      await screen.findByRole("form", { name: "Композитор пакетных задач" });
+      expect(
+        await screen.findByRole("button", {
+          name: "Повторить загрузку подключения ElevenLabs",
+        }),
+      ).toBeInTheDocument();
+      expect(
+        await screen.findByText(/Не удалось загрузить правила локальной загрузки/),
+      ).toBeInTheDocument();
+      expect(credentialSignals).toHaveLength(1);
+      expect(policySignals).toHaveLength(1);
+      expect(credentialSignals[0]?.aborted).toBe(true);
+      expect(policySignals[0]?.aborted).toBe(true);
+      const credentialReadsBeforeRetry = credentialReads;
+      const policyReadsBeforeRetry = policyReads;
+
+      await userEvent.click(
+        screen.getByRole("button", {
+          name: "Повторить загрузку подключения ElevenLabs",
+        }),
+      );
+      await userEvent.click(
+        screen.getByRole("button", { name: "Повторить загрузку правил" }),
+      );
+
+      expect(await screen.findByText("Подключён и готов")).toBeInTheDocument();
+      const row = await screen.findByLabelText("Источник строки 1");
+      await waitFor(() =>
+        expect(
+          within(row).getByLabelText(
+            "Выбрать файлы с устройства для строки 1",
+          ),
+        ).toBeEnabled(),
+      );
+      expect(credentialReads).toBe(credentialReadsBeforeRetry + 1);
+      expect(policyReads).toBe(policyReadsBeforeRetry + 1);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("rejects malformed Preparation prerequisite responses without raw fields", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let credentialReads = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/credentials") && !init?.method) {
+        credentialReads += 1;
+        if (credentialReads === 2) {
+          return json({
+            credentials: [
+              credentialFixture({
+                id: "duplicate-preparation",
+                label: "raw-credential-field",
+              }),
+              credentialFixture({ id: "duplicate-preparation" }),
+            ],
+          });
+        }
+      }
+      if (url.endsWith("/api/sources/upload-policy") && !init?.method) {
+        return json({
+          local_upload_enabled: true,
+          max_upload_bytes: "raw-policy-field",
+          supported_mime_prefixes: ["audio/"],
+          supported_mime_types: [],
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
+    expect(
+      await screen.findByRole("button", {
+        name: "Повторить загрузку подключения ElevenLabs",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Не удалось загрузить правила локальной загрузки/),
+    ).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("raw-credential-field");
+    expect(document.body.textContent).not.toContain("raw-policy-field");
+    const row = await screen.findByLabelText("Источник строки 1");
+    expect(
+      within(row).getByLabelText(
+        "Выбрать файлы с устройства для строки 1",
+      ),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: /Проверить задачи/ }),
+    ).toBeDisabled();
+  });
+
+  it("aborts and ignores late Preparation prerequisites across project remounts", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let credentialReads = 0;
+    let policyReads = 0;
+    let olderCredentialSignal: AbortSignal | undefined;
+    let olderPolicySignal: AbortSignal | undefined;
+    let resolveOlderCredentials: ((response: Response) => void) | undefined;
+    let resolveOlderPolicy: ((response: Response) => void) | undefined;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/projects") && !init?.method) {
+        return json({
+          projects: [
+            projectFixture({
+              id: "p1",
+              title: "Research calls",
+              created_at: "2026-07-01T00:00:00Z",
+              updated_at: "2026-07-01T00:00:00Z",
+            }),
+            projectFixture({
+              id: "p2",
+              title: "Project Two",
+              created_at: "2026-07-02T00:00:00Z",
+              updated_at: "2026-07-02T00:00:00Z",
+            }),
+          ],
+        });
+      }
+      if (
+        (url.endsWith("/api/projects/p2/sources") ||
+          url.endsWith("/api/projects/p2/jobs")) &&
+        !init?.method
+      ) {
+        return json(url.endsWith("/sources") ? { sources: [] } : { jobs: [] });
+      }
+      if (url.endsWith("/api/credentials") && !init?.method) {
+        credentialReads += 1;
+        if (credentialReads === 2) {
+          olderCredentialSignal = init.signal;
+          return new Promise<Response>((resolve) => {
+            resolveOlderCredentials = resolve;
+          });
+        }
+        if (credentialReads > 2) {
+          return json({
+            credentials: [
+              credentialFixture({
+                id: `current-${credentialReads}`,
+                label: `Current ${credentialReads}`,
+              }),
+            ],
+          });
+        }
+      }
+      if (url.endsWith("/api/sources/upload-policy") && !init?.method) {
+        policyReads += 1;
+        if (policyReads === 1) {
+          olderPolicySignal = init.signal;
+          return new Promise<Response>((resolve) => {
+            resolveOlderPolicy = resolve;
+          });
+        }
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
+    await waitFor(() => expect(resolveOlderCredentials).toBeDefined());
+    await waitFor(() => expect(resolveOlderPolicy).toBeDefined());
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Project Two .*02\.07\.2026/ }),
+    );
+    expect(olderCredentialSignal?.aborted).toBe(true);
+    expect(olderPolicySignal?.aborted).toBe(true);
+    expect(await screen.findByText("Подключён и готов")).toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Research calls .*01\.07\.2026/ }),
+    );
+    expect(await screen.findByText("Подключён и готов")).toBeInTheDocument();
+    const row = await screen.findByLabelText("Источник строки 1");
+    await waitFor(() =>
+      expect(
+        within(row).getByLabelText(
+          "Выбрать файлы с устройства для строки 1",
+        ),
+      ).toBeEnabled(),
+    );
+
+    const credentialReadsBeforeLate = credentialReads;
+    const policyReadsBeforeLate = policyReads;
+    await act(async () => {
+      resolveOlderCredentials?.(
+        await json({
+          credentials: [
+            credentialFixture({ id: "old-1", label: "Late old profile one" }),
+            credentialFixture({ id: "old-2", label: "Late old profile two" }),
+          ],
+        }),
+      );
+      resolveOlderPolicy?.(
+        await json({
+          local_upload_enabled: false,
+          max_upload_bytes: 1,
+          supported_mime_prefixes: ["audio/"],
+          supported_mime_types: [],
+        }),
+      );
+    });
+
+    expect(screen.queryByText("Late old profile one")).not.toBeInTheDocument();
+    expect(screen.queryByText("Late old profile two")).not.toBeInTheDocument();
+    expect(
+      within(row).getByLabelText(
+        "Выбрать файлы с устройства для строки 1",
+      ),
+    ).toBeEnabled();
+    expect(credentialReadsBeforeLate).toBeGreaterThanOrEqual(4);
+    expect(policyReadsBeforeLate).toBeGreaterThanOrEqual(3);
+    expect(credentialReads).toBe(credentialReadsBeforeLate);
+    expect(policyReads).toBe(policyReadsBeforeLate);
   });
 
   it("uses the server upload-size policy before initiating a local upload", async () => {
