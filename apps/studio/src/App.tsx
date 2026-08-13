@@ -296,8 +296,48 @@ type DiagnosticsDebugSession = {
   active: boolean;
   started_at?: string | null;
   expires_at?: string | null;
-  server_time?: string | null;
 };
+function parseDiagnosticsDebugSession(
+  candidate: unknown,
+): DiagnosticsDebugSession | null {
+  if (!candidate || typeof candidate !== "object") return null;
+  const response = candidate as Record<string, unknown>;
+  if (typeof response.active !== "boolean") return null;
+  if (!response.active) {
+    return { active: false, started_at: null, expires_at: null };
+  }
+  if (
+    typeof response.started_at !== "string" ||
+    typeof response.expires_at !== "string"
+  ) {
+    return null;
+  }
+  const startedAt = Date.parse(response.started_at);
+  const expiresAt = Date.parse(response.expires_at);
+  if (
+    !Number.isFinite(startedAt) ||
+    !Number.isFinite(expiresAt) ||
+    expiresAt <= startedAt
+  ) {
+    return null;
+  }
+  return {
+    active: true,
+    started_at: response.started_at,
+    expires_at: response.expires_at,
+  };
+}
+async function requestDiagnosticsDebugSession(
+  signal?: AbortSignal,
+): Promise<DiagnosticsDebugSession> {
+  const candidate = await api<unknown>("/diagnostics/debug-session", {
+    signal,
+    ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+  });
+  const status = parseDiagnosticsDebugSession(candidate);
+  if (!status) throw new Error("invalid_diagnostics_debug_session_response");
+  return status;
+}
 type Project = {
   id: string;
   title: string;
@@ -707,6 +747,8 @@ const ACCOUNT_PREFERENCES_REQUEST_TIMEOUT_MS = 15_000;
 const SOURCE_UPLOAD_POLICY_REQUEST_TIMEOUT_MS = 15_000;
 const SESSION_BOOTSTRAP_REQUEST_TIMEOUT_MS = 15_000;
 const LOGOUT_REQUEST_TIMEOUT_MS = 20_000;
+const DIAGNOSTICS_DEBUG_REQUEST_TIMEOUT_MS = 15_000;
+const DIAGNOSTICS_DEBUG_MUTATION_TIMEOUT_MS = 20_000;
 const ACCOUNT_PREFERENCES_MUTATION_TIMEOUT_MS = 20_000;
 const GOOGLE_CONNECTION_REQUEST_TIMEOUT_MS = 15_000;
 const GOOGLE_CONNECTION_MUTATION_TIMEOUT_MS = 20_000;
@@ -6573,9 +6615,14 @@ function DiagnosticsSettings({
     "loading",
   );
   const [debugActionState, setDebugActionState] = useState("");
+  const [debugMutationPending, setDebugMutationPending] = useState(false);
   const [debugDuration, setDebugDuration] = useState("10");
   const [debugTick, setDebugTick] = useState(0);
-  const debugRefreshInFlight = useRef(false);
+  const debugMutationPendingRef = useRef(false);
+  const debugRequestEpochsRef = useRef(new Map<string, number>());
+  const debugRequestControllersRef = useRef(
+    new Map<string, AbortController>(),
+  );
   const expiredDebugRefreshRequested = useRef(false);
   const loadEvents = (cursor?: string) => {
     setEventsState("loading");
@@ -6625,29 +6672,47 @@ function DiagnosticsSettings({
     (name: keyof DiagnosticsFilters) =>
     (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
       setFilters((current) => ({ ...current, [name]: event.target.value }));
+  const applyDebugSession = (status: DiagnosticsDebugSession) => {
+    setDebugSession(status);
+    configurePwaDiagnosticsDebugState({
+      active: status.active,
+      expiresAt: status.expires_at,
+    });
+    setDebugState("ready");
+  };
   const loadDebugSession = (options: { keepReady?: boolean } = {}) => {
-    if (debugRefreshInFlight.current) return;
-    debugRefreshInFlight.current = true;
     if (!options.keepReady) setDebugState("loading");
-    api<DiagnosticsDebugSession>("/diagnostics/debug-session")
-      .then((status) => {
+    void settleLatestRequest(
+      debugRequestEpochsRef.current,
+      "diagnostics:debug-session-read",
+      requestDiagnosticsDebugSession,
+      (status) => {
         expiredDebugRefreshRequested.current = false;
-        setDebugSession(status);
-        configurePwaDiagnosticsDebugState({
-          active: status.active,
-          expiresAt: status.expires_at,
-        });
-        setDebugState("ready");
-      })
-      .catch(() => {
+        applyDebugSession(status);
+      },
+      () => {
         configurePwaDiagnosticsDebugState({ active: false });
         setDebugState("error");
-      })
-      .finally(() => {
-        debugRefreshInFlight.current = false;
-      });
+      },
+      {
+        controllers: debugRequestControllersRef.current,
+        timeoutMs: DIAGNOSTICS_DEBUG_REQUEST_TIMEOUT_MS,
+      },
+    );
   };
-  useEffect(loadDebugSession, [csrf]);
+  useEffect(() => {
+    loadDebugSession();
+  }, [csrf]);
+  useEffect(
+    () => () => {
+      debugMutationPendingRef.current = false;
+      cancelLatestRequests(
+        debugRequestEpochsRef.current,
+        debugRequestControllersRef.current,
+      );
+    },
+    [],
+  );
   useEffect(() => {
     const timer = window.setInterval(
       () => setDebugTick((value) => value + 1),
@@ -6672,51 +6737,113 @@ function DiagnosticsSettings({
     expiredDebugRefreshRequested.current = true;
     loadDebugSession({ keepReady: true });
   }, [debugTick, debugSession?.active, debugSession?.expires_at, csrf]);
-  const startDebug = async () => {
-    setDebugActionState("Включаем DEBUG…");
-    try {
-      const status = await csrfMutate<DiagnosticsDebugSession>(
-        "/diagnostics/debug-session",
-        csrf,
-        onCsrf,
-        {
-          method: "POST",
-          body: JSON.stringify({ duration_minutes: Number(debugDuration) }),
-        },
-      );
-      setDebugSession(status);
-      configurePwaDiagnosticsDebugState({
-        active: status.active,
-        expiresAt: status.expires_at,
-      });
-      setDebugActionState("DEBUG включена.");
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 409) {
-        loadDebugSession();
+  const finishDebugMutation = () => {
+    debugMutationPendingRef.current = false;
+    setDebugMutationPending(false);
+  };
+  const reconcileDebugMutation = (
+    kind: "start" | "stop",
+    conflict = false,
+  ) => {
+    setDebugActionState("Проверяем актуальный статус DEBUG…");
+    void settleLatestRequest(
+      debugRequestEpochsRef.current,
+      "diagnostics:debug-session-read",
+      requestDiagnosticsDebugSession,
+      (status) => {
+        applyDebugSession(status);
+        finishDebugMutation();
+        if (kind === "start") {
+          setDebugActionState(
+            status.active
+              ? conflict
+                ? "DEBUG уже активна в другой вкладке. Статус обновлён."
+                : "DEBUG включена. Статус подтверждён."
+              : "Не удалось подтвердить включение DEBUG. Повторите попытку.",
+          );
+          return;
+        }
         setDebugActionState(
-          "DEBUG уже активна в другой вкладке. Статус обновлён.",
+          status.active
+            ? "Не удалось подтвердить остановку DEBUG. Повторите попытку."
+            : "DEBUG остановлена. Статус подтверждён.",
         );
-        return;
-      }
-      setDebugActionState("Не удалось включить DEBUG.");
-    }
+      },
+      () => {
+        finishDebugMutation();
+        setDebugActionState(
+          kind === "start"
+            ? "Не удалось подтвердить включение DEBUG. Повторите попытку."
+            : "Не удалось подтвердить остановку DEBUG. Повторите попытку.",
+        );
+      },
+      {
+        controllers: debugRequestControllersRef.current,
+        timeoutMs: DIAGNOSTICS_DEBUG_REQUEST_TIMEOUT_MS,
+      },
+    );
   };
-  const stopDebug = async () => {
-    setDebugActionState("Останавливаем DEBUG…");
-    try {
-      await csrfMutate<DiagnosticsDebugSession>(
-        "/diagnostics/debug-session",
-        csrf,
-        onCsrf,
-        { method: "DELETE" },
-      );
-      configurePwaDiagnosticsDebugState({ active: false });
-      loadDebugSession();
-      setDebugActionState("DEBUG остановлена.");
-    } catch {
-      setDebugActionState("Не удалось остановить DEBUG.");
-    }
+  const mutateDebugSession = (kind: "start" | "stop") => {
+    if (debugMutationPendingRef.current) return;
+    debugMutationPendingRef.current = true;
+    setDebugMutationPending(true);
+    setDebugActionState(
+      kind === "start" ? "Включаем DEBUG…" : "Останавливаем DEBUG…",
+    );
+    void settleLatestRequest(
+      debugRequestEpochsRef.current,
+      "diagnostics:debug-session-mutation",
+      async (signal) => {
+        const candidate = await csrfMutate<unknown>(
+          "/diagnostics/debug-session",
+          csrf,
+          onCsrf,
+          {
+            method: kind === "start" ? "POST" : "DELETE",
+            signal,
+            ...(kind === "start"
+              ? {
+                  body: JSON.stringify({
+                    duration_minutes: Number(debugDuration),
+                  }),
+                }
+              : {}),
+          },
+        );
+        const status = parseDiagnosticsDebugSession(candidate);
+        if (!status) {
+          throw new Error("invalid_diagnostics_debug_session_response");
+        }
+        return status;
+      },
+      (status) => {
+        const confirmed = kind === "start" ? status.active : !status.active;
+        if (!confirmed) {
+          reconcileDebugMutation(kind);
+          return;
+        }
+        applyDebugSession(status);
+        finishDebugMutation();
+        setDebugActionState(
+          kind === "start" ? "DEBUG включена." : "DEBUG остановлена.",
+        );
+      },
+      (failure) => {
+        reconcileDebugMutation(
+          kind,
+          kind === "start" &&
+            failure instanceof ApiError &&
+            failure.status === 409,
+        );
+      },
+      {
+        controllers: debugRequestControllersRef.current,
+        timeoutMs: DIAGNOSTICS_DEBUG_MUTATION_TIMEOUT_MS,
+      },
+    );
   };
+  const startDebug = () => mutateDebugSession("start");
+  const stopDebug = () => mutateDebugSession("stop");
 
   const exportReport = async () => {
     setExportState("Готовим Markdown-отчёт…");
@@ -6947,7 +7074,7 @@ function DiagnosticsSettings({
           <div className="error">
             <p>Не удалось загрузить статус DEBUG.</p>
             <button type="button" onClick={() => loadDebugSession()}>
-              Повторить
+              Повторить проверку DEBUG
             </button>
           </div>
         )}
@@ -6962,7 +7089,8 @@ function DiagnosticsSettings({
             <button
               type="button"
               className="danger"
-              disabled={debugActionState.endsWith("…")}
+              disabled={debugMutationPending}
+              aria-busy={debugMutationPending || undefined}
               onClick={stopDebug}
             >
               Остановить DEBUG
@@ -6990,7 +7118,8 @@ function DiagnosticsSettings({
             <button
               type="button"
               className="primary"
-              disabled={debugActionState.endsWith("…")}
+              disabled={debugMutationPending}
+              aria-busy={debugMutationPending || undefined}
               onClick={startDebug}
             >
               Включить DEBUG

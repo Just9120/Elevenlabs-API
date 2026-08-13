@@ -13640,6 +13640,209 @@ describe("Settings DEBUG session controls", () => {
     expect(postedPwaEventsFrom(fetchMock).at(-1)?.level).toBeUndefined();
   });
 
+  it("bounds and validates DEBUG status reads before explicit retry", async () => {
+    const { fetchMock } = installSettingsFetch([]);
+    const defaultFetch = fetchMock.getMockImplementation();
+    const debugSignals: AbortSignal[] = [];
+    let debugGets = 0;
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (
+          url.endsWith("/api/diagnostics/debug-session") &&
+          (!init?.method || init.method === "GET")
+        ) {
+          debugGets += 1;
+          if (debugGets === 1) {
+            const signal = init?.signal;
+            if (!signal) throw new Error("DEBUG status signal is missing");
+            debugSignals.push(signal);
+            return new Promise<Response>((_resolve, reject) => {
+              signal.addEventListener("abort", () => reject(signal.reason));
+            });
+          }
+          if (debugGets === 2) {
+            return json({
+              active: "raw-active",
+              raw_debug_field: "raw-debug-secret",
+            });
+          }
+          return json({ active: false, raw_ignored_field: "raw-ignored" });
+        }
+        return defaultFetch?.(input, init) ?? json({});
+      },
+    );
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 15_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      await openDiagnostics();
+      expect(
+        await screen.findByText("Не удалось загрузить статус DEBUG."),
+      ).toBeInTheDocument();
+      expect(debugSignals[0]?.aborted).toBe(true);
+
+      await userEvent.click(
+        screen.getByRole("button", { name: "Повторить проверку DEBUG" }),
+      );
+      expect(
+        await screen.findByText("Не удалось загрузить статус DEBUG."),
+      ).toBeInTheDocument();
+      expect(document.body.textContent).not.toContain("raw-active");
+      expect(document.body.textContent).not.toContain("raw-debug-secret");
+
+      await userEvent.click(
+        screen.getByRole("button", { name: "Повторить проверку DEBUG" }),
+      );
+      expect(await screen.findByText("DEBUG не активна")).toBeInTheDocument();
+      expect(document.body.textContent).not.toContain("raw-ignored");
+      expect(debugGets).toBe(3);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("reconciles bounded DEBUG start and stop without mutation replay", async () => {
+    const { fetchMock } = installSettingsFetch([]);
+    const defaultFetch = fetchMock.getMockImplementation();
+    let debugGets = 0;
+    let startCalls = 0;
+    let stopCalls = 0;
+    let startSignal: AbortSignal | undefined;
+    const startedAt = new Date(Date.now()).toISOString();
+    const expiresAt = new Date(Date.now() + 600000).toISOString();
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (
+          url.endsWith("/api/diagnostics/debug-session") &&
+          (!init?.method || init.method === "GET")
+        ) {
+          debugGets += 1;
+          return debugGets === 2
+            ? json({ active: true, started_at: startedAt, expires_at: expiresAt })
+            : json({ active: false });
+        }
+        if (
+          url.endsWith("/api/diagnostics/debug-session") &&
+          init?.method === "POST"
+        ) {
+          startCalls += 1;
+          startSignal = init.signal;
+          if (!startSignal) throw new Error("DEBUG start signal is missing");
+          return new Promise<Response>((_resolve, reject) => {
+            startSignal?.addEventListener("abort", () =>
+              reject(startSignal?.reason),
+            );
+          });
+        }
+        if (
+          url.endsWith("/api/diagnostics/debug-session") &&
+          init?.method === "DELETE"
+        ) {
+          stopCalls += 1;
+          return json({
+            active: "raw-stopped",
+            raw_stop_field: "raw-stop-secret",
+          });
+        }
+        return defaultFetch?.(input, init) ?? json({});
+      },
+    );
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 20_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      await openDiagnostics();
+      const start = await screen.findByRole("button", {
+        name: "Включить DEBUG",
+      });
+      fireEvent.click(start);
+      fireEvent.click(start);
+      expect(
+        await screen.findByText("DEBUG включена. Статус подтверждён."),
+      ).toBeInTheDocument();
+      expect(startSignal?.aborted).toBe(true);
+      expect(startCalls).toBe(1);
+      expect(debugGets).toBe(2);
+
+      const stop = screen.getByRole("button", { name: "Остановить DEBUG" });
+      fireEvent.click(stop);
+      fireEvent.click(stop);
+      expect(
+        await screen.findByText("DEBUG остановлена. Статус подтверждён."),
+      ).toBeInTheDocument();
+      expect(stopCalls).toBe(1);
+      expect(debugGets).toBe(3);
+      expect(document.body.textContent).not.toContain("raw-stopped");
+      expect(document.body.textContent).not.toContain("raw-stop-secret");
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("aborts DEBUG mutation ownership on diagnostics teardown", async () => {
+    const { fetchMock } = installSettingsFetch([
+      { active: false, started_at: null, expires_at: null },
+    ]);
+    const defaultFetch = fetchMock.getMockImplementation();
+    let startSignal: AbortSignal | undefined;
+    let resolveStart: ((response: Response) => void) | undefined;
+    let startCalls = 0;
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (
+          url.endsWith("/api/diagnostics/debug-session") &&
+          init?.method === "POST"
+        ) {
+          startCalls += 1;
+          startSignal = init.signal;
+          return new Promise<Response>((resolve) => {
+            resolveStart = resolve;
+          });
+        }
+        return defaultFetch?.(input, init) ?? json({});
+      },
+    );
+
+    await openDiagnostics();
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Включить DEBUG" }),
+    );
+    await waitFor(() => expect(resolveStart).toBeDefined());
+    await userEvent.click(screen.getByRole("tab", { name: "Аккаунт" }));
+
+    expect(startSignal?.aborted).toBe(true);
+    await act(async () =>
+      resolveStart?.(
+        await json({
+          active: true,
+          started_at: new Date(Date.now()).toISOString(),
+          expires_at: new Date(Date.now() + 600000).toISOString(),
+        }),
+      ),
+    );
+    expect(startCalls).toBe(1);
+    expect(
+      screen.queryByText("DEBUG включена."),
+    ).not.toBeInTheDocument();
+  });
+
   it("expires local DEBUG once and failed refresh does not poll every second", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const expiresAt = new Date(Date.now() + 1000).toISOString();
