@@ -2,7 +2,8 @@
 
 ## Current dashboard
 
-- 👉 `PWA-GOOGLE-PICKER-TIMEOUT-21 / local source` — composer Google Picker session acquisition now has a shared 20-second bound and runtime capability validation; the Picker interaction itself closes after five minutes without a callback, releases all composer controls, clears token material, and ignores late callbacks without creating source/folder mutations. Local CODE/TEST gates pass; publication and CI are intentionally absent.
+- 👉 `PWA-GOOGLE-SELECTION-BOUNDARY-22 / local source` — post-selection Google source creation and output-folder verification now have 20-second bounds, fail-closed runtime response validation, safe unlock, and no automatic replay of ambiguous source creation. Local CODE/TEST gates pass; publication and CI are intentionally absent.
+- 🟦 `PWA-GOOGLE-PICKER-TIMEOUT-21 / local source` — composer Google Picker session acquisition now has a shared 20-second bound and runtime capability validation; the Picker interaction itself closes after five minutes without a callback, releases all composer controls, clears token material, and ignores late callbacks without creating source/folder mutations. Local CODE/TEST gates pass; publication and CI are intentionally absent.
 - 🟦 `PWA-LOCAL-UPLOAD-REMOUNT-20 / local source` — local-upload ownership and safe outcomes now live above the remountable PreparationPanel. Same-panel rows retain independent concurrency; after A → B → A, a detached operation conservatively blocks new intake for its project until settlement, then exposes only project-scoped safe failure/success. Local CODE/TEST gates pass; publication and CI are intentionally absent.
 - 🟦 `PWA-LOCAL-UPLOAD-BOUNDARY-19 / local source` — local-upload initiation and object PUT now share bounded 20-second execution. Ambiguous initiation is never replayed and cannot start PUT; ambiguous PUT is never repeated and can proceed only through the exact-source completion/reconciliation authority. Local CODE/TEST gates pass; publication and CI are intentionally absent.
 - 🟦 `PWA-SOURCE-DELETE-REMOUNT-18 / local source` — source-removal ownership and predefined outcomes now survive PreparationPanel remounts in ProjectsPage memory. A → B → A restores disabled/`aria-busy`, blocks duplicate DELETE, keeps outcomes project-isolated, and clears only the matching outcome on explicit retry. Local CODE/TEST gates pass; publication and CI are intentionally absent.
@@ -54,6 +55,7 @@
 | --- | ---: | --- |
 | Project, all current scope | **N/A (numerator/denominator are not defined)** | `project-spec.md` does not provide one closed, non-overlapping project-wide acceptance set; inventing a percentage would violate the agreed method. |
 | Stable Colab batch + Realtime | **100% (operator-accepted current scope)** | Four months of stable use cover both implemented Colab contours; this does not assert that no focused gaps remain. |
+| `PWA-GOOGLE-SELECTION-BOUNDARY-22` | **75% (`3/4`)** | Bounded single-attempt source creation with authoritative list refresh on ambiguity, bounded folder verification, runtime DTO validation, safe unlock, and full applicable local validation are complete. Publication plus required PR-head/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
 | `PWA-GOOGLE-PICKER-TIMEOUT-21` | **75% (`3/4`)** | Bounded and validated composer session acquisition, bounded callback lifecycle with safe unlock/token cleanup, and full applicable local validation are complete. Publication plus required PR-head/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
 | `PWA-LOCAL-UPLOAD-REMOUNT-20` | **75% (`3/4`)** | Persistent ID-only ownership, detached-operation blocking, project-isolated safe outcomes, explicit-retry clearing, same-panel row concurrency, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
 | `PWA-LOCAL-UPLOAD-BOUNDARY-19` | **75% (`3/4`)** | Bounded initiation/PUT execution, fail-closed non-idempotent initiation ambiguity, exact-source PUT recovery without object replay, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
@@ -94,6 +96,21 @@ The denominators are explicit gates. Local code, a green workflow summary with s
 
 ## Active item
 
+`PWA-GOOGLE-SELECTION-BOUNDARY-22` acceptance checks:
+
+1. Repository evidence records the recovery boundary: Google Picker source creation is state-changing, accepts no `Idempotency-Key`, and its public source DTO deliberately omits Drive file IDs, so an ambiguous response cannot be matched exactly from the active-sources list. Output-folder verification is non-persisting and therefore needs no mutation replay.
+2. Source creation, including any CSRF refresh, stops waiting after 20 seconds and is attempted exactly once per explicit selection. Timeout, transport loss, HTTP 408, or 5xx triggers one authoritative sources reload, predefined safe text, and no automatic POST replay or row placement; definitive 4xx behavior remains explicit. A successful response must contain the exact ordered batch size and canonical project-owned source DTOs before rows are changed.
+3. Output-folder verification, including any CSRF refresh, stops waiting after 20 seconds, validates a non-empty name plus nullable/string `web_view_url`, never mutates a row on timeout/failure/malformed data, and always releases source and folder Picker controls. Focused regressions, complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
+4. Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+
+Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Check 4 is intentionally open under the current local-only instruction.
+
+Non-goals: no backend/API/schema/idempotency change, no exact automatic recovery where the API exposes no correlation identity, no automatic source-creation replay, no Google Picker remount-ownership redesign, deploy, or production mutation.
+
+## Previous local items
+
+### Bounded Google Picker session and interaction lifecycle
+
 `PWA-GOOGLE-PICKER-TIMEOUT-21` acceptance checks:
 
 1. Both composer entrypoints acquire the secret-bearing Google Picker session through one 20-second request bound shared with any CSRF refresh, and validate non-empty token/public configuration plus `scope_ready === true` before opening Picker. Timeout, transport loss, and malformed payload fail closed with predefined safe text, release composer controls, create no source/folder selection mutation, and are not automatically replayed outside the existing CSRF-rejection contract.
@@ -104,8 +121,6 @@ The denominators are explicit gates. Local code, a green workflow summary with s
 Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Check 4 is intentionally open under the current local-only instruction.
 
 Non-goals: no backend/API/OAuth/schema change, no automatic source/folder mutation replay, no timeout yet for post-selection source creation or folder verification, no maintenance-panel session refactor, deploy, or production mutation.
-
-## Previous local items
 
 ### Local-upload ownership and outcomes across remounts
 
@@ -415,7 +430,7 @@ Checks 1–5 are merged and the exact-main web deployment is complete. The live 
 
 ## Next item
 
-Continue local PWA stability hardening by bounding the post-selection Google mutations. Source creation through `/projects/{project_id}/sources/google-picker` is state-changing and currently lacks both a deadline and a safe exact-result recovery authority, so it must not be automatically replayed after timeout/transport ambiguity; row-folder verification also needs a bounded request and guaranteed UI unlock. `PWA-STUDIO-EDGE-CD-01` remains an operational follow-up and does not pre-empt the current local-only PWA priority.
+Continue local PWA stability hardening by auditing Google Picker operation ownership and safe outcomes across project switches and PreparationPanel remounts. The shared `pickerBusy` lock survives the panel, but request-local operation kind/project identity and any off-panel completion result are not represented as project-scoped UI state; the next focused task must first verify the exact stale-settlement and A → B → A behavior, then persist only minimal safe ownership/outcome data if the evidence confirms a user-visible gap. `PWA-STUDIO-EDGE-CD-01` remains an operational follow-up and does not pre-empt the current local-only PWA priority.
 
 ## Near backlog
 
@@ -436,6 +451,7 @@ Continue local PWA stability hardening by bounding the post-selection Google mut
 
 ## Validation notes
 
+- `PWA-GOOGLE-SELECTION-BOUNDARY-22` local evidence: focused source/folder deadline, ambiguity, validation, and unlock regressions `4/4`, complete App suite `154/154`, full Studio Vitest `417/417`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. A stalled source POST is aborted after 20 seconds, a 5xx remains ambiguous, both issue exactly one POST and one authoritative sources reload without row placement or raw detail; stalled folder verification aborts and unlocks all Picker actions, while malformed verification cannot enter row state. The first full regression run exposed six legacy custom fixtures that returned non-canonical `{}` verification payloads; the project-agnostic shared helper now preserves any valid scenario DTO and supplies only the historical canonical fallback, without weakening production validation. No backend/API/schema/idempotency change, automatic mutation replay, PR, CI, deploy, or live evidence is claimed.
 - `PWA-GOOGLE-PICKER-TIMEOUT-21` local evidence: focused deadline/validation regressions `3/3`, complete App suite `150/150`, full Studio Vitest `413/413`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. A stalled session is aborted after 20 seconds with one POST per explicit attempt and no Picker/selection mutation; malformed capability data is rejected without rendering its token; a Picker that never calls back is hidden after five minutes, releases the source/folder lock, and ignores a late `picked` callback. Six legacy composer tests initially failed because their custom fixtures returned `{}` for the session endpoint while stubbing Picker itself; the shared test helper now supplies the real validated session shape, preserving rather than weakening production validation. No backend/API/OAuth/schema change, automatic selection mutation replay, PR, CI, deploy, or live evidence is claimed.
 - `PWA-LOCAL-UPLOAD-REMOUNT-20` local evidence: the A → B → A ownership/outcome regression `1/1`, complete App suite `147/147`, full Studio Vitest `410/410`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. The original input returns disabled and `aria-busy`, a programmatic duplicate keeps initiation at one, project B sees neither pending nor result text, and off-panel storage failure is reduced to predefined safe project-A text. Explicit retry clears that outcome, produces exactly one additional initiation/PUT, completes once, refreshes the authoritative source list, and exposes the safe success only after another project-A remount. Parent state contains only operation IDs and predefined notices; `File`, presigned URL/headers, filenames, and raw failure data remain component/request-local and are not persisted. No backend/API/schema/storage change, PR, CI, deploy, or live evidence is claimed.
 - `PWA-LOCAL-UPLOAD-BOUNDARY-19` local evidence: backend route/tests show that initiation creates and commits a fresh pending source without idempotency input, while completion is exact-source, owner/project constrained, metadata verified, race revalidated, and replay-safe. Frontend regressions cover stalled initiation `1/1`, ambiguous 5xx initiation `1/1`, and stalled PUT `1/1`; complete App suite `146/146`, full Studio Vitest `409/409`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. The initiation cases emit one POST, no PUT/completion, safe text, and one sources refresh; the PUT case aborts one PUT and succeeds only through one exact-source completion, with no second initiation/PUT or raw response/upload identity. No backend/API/schema/storage change, browser persistence, PR, CI, deploy, or live evidence is claimed.

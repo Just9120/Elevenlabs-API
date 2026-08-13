@@ -289,6 +289,17 @@ function isExpectedPickerSourceBatch(
     return true;
   });
 }
+function isExpectedVerifiedGooglePickerFolder(
+  candidate: unknown,
+): candidate is { name: string; web_view_url: string | null } {
+  if (!candidate || typeof candidate !== "object") return false;
+  const folder = candidate as { name?: unknown; web_view_url?: unknown };
+  return (
+    typeof folder.name === "string" &&
+    folder.name.trim().length > 0 &&
+    (folder.web_view_url === null || typeof folder.web_view_url === "string")
+  );
+}
 function credentialProfileLabel(c: Credential) {
   return c.active_version ? `${c.label} · v${c.active_version}` : c.label;
 }
@@ -1155,6 +1166,59 @@ function PreparationPanel({
     }
     return bounded.value;
   }
+  async function createGooglePickerSourceBatch(fileIds: string[]) {
+    let bounded;
+    try {
+      bounded = await runBoundedRequest((signal) =>
+        csrfMutate<unknown>(
+          `/projects/${project.id}/sources/google-picker`,
+          csrf,
+          onCsrf,
+          {
+            method: "POST",
+            body: JSON.stringify({ file_ids: fileIds }),
+            signal,
+          },
+        ),
+      );
+    } catch (err) {
+      const definitiveClientFailure =
+        err instanceof ApiError &&
+        err.status >= 400 &&
+        err.status < 500 &&
+        err.status !== 408;
+      if (definitiveClientFailure) throw err;
+      onReloadSources(project.id);
+      throw new Error(
+        "Сервер не подтвердил добавление файлов Google Drive. Список файлов обновлён; проверьте его перед повторным выбором.",
+        { cause: err },
+      );
+    }
+    if (bounded.status === "timed_out") {
+      onReloadSources(project.id);
+      throw new Error(
+        "Сервер не подтвердил добавление файлов Google Drive. Список файлов обновлён; проверьте его перед повторным выбором.",
+      );
+    }
+    const payload = bounded.value;
+    const orderedSources =
+      payload && typeof payload === "object" && "sources" in payload
+        ? (payload as { sources?: unknown }).sources
+        : undefined;
+    if (
+      !isExpectedPickerSourceBatch(
+        orderedSources,
+        fileIds.length,
+        project.id,
+      )
+    ) {
+      onReloadSources(project.id);
+      throw new Error(
+        "Сервер вернул неполный ответ для выбранных файлов. Список файлов обновлён; проверьте добавленные файлы перед повторным выбором.",
+      );
+    }
+    return orderedSources;
+  }
   async function chooseRowDriveSources(rowId: string) {
     if (pickerBusy || rowSourcePickerRef.current) return;
     rowSourcePickerRef.current = true;
@@ -1206,25 +1270,7 @@ function PreparationPanel({
         }));
         return;
       }
-      const created = await csrfMutate<{ sources: unknown }>(
-        `/projects/${project.id}/sources/google-picker`,
-        csrf,
-        onCsrf,
-        { method: "POST", body: JSON.stringify({ file_ids: fileIds }) },
-      );
-      const orderedSources = created.sources;
-      if (
-        !isExpectedPickerSourceBatch(
-          orderedSources,
-          fileIds.length,
-          project.id,
-        )
-      ) {
-        onReloadSources(project.id);
-        throw new Error(
-          "Сервер вернул неполный ответ для выбранных файлов. Список файлов обновлён; проверьте добавленные файлы перед повторным выбором.",
-        );
-      }
+      const orderedSources = await createGooglePickerSourceBatch(fileIds);
       placeSourcesInRows(rowId, orderedSources);
       setRowIntakeStatus((current) => ({
         ...current,
@@ -1497,19 +1543,46 @@ function PreparationPanel({
         setMessage("Выберите одну папку Google Drive.");
         return;
       }
-      const verified = await batchMutateWithCsrfRetry<{
-        name: string;
-        web_view_url: string | null;
-      }>(
-        `/projects/${project.id}/output-folders/google-picker/verify`,
-        csrf,
-        onCsrf,
-        { method: "POST", body: JSON.stringify({ folder_id: folderId }) },
-      );
+      let boundedVerification;
+      try {
+        boundedVerification = await runBoundedRequest((signal) =>
+          batchMutateWithCsrfRetry<unknown>(
+            `/projects/${project.id}/output-folders/google-picker/verify`,
+            csrf,
+            onCsrf,
+            {
+              method: "POST",
+              body: JSON.stringify({ folder_id: folderId }),
+              signal,
+            },
+          ),
+        );
+      } catch (err) {
+        setMessage(
+          googlePickerFailureMessage(err) ??
+            (err instanceof ApiError && err.status === 422
+              ? "Выбранная папка Google Drive недоступна для записи."
+              : "Не удалось проверить папку результата. Повторите попытку."),
+        );
+        return;
+      }
+      if (boundedVerification.status === "timed_out") {
+        setMessage(
+          "Проверка папки результата заняла слишком много времени. Повторите выбор.",
+        );
+        return;
+      }
+      if (!isExpectedVerifiedGooglePickerFolder(boundedVerification.value)) {
+        setMessage(
+          "Сервер вернул некорректные данные папки результата. Повторите выбор позже.",
+        );
+        return;
+      }
+      const verified = boundedVerification.value;
       const outputFolder = {
-          folder_id: folderId,
-          name: verified.name || "Папка Google Drive",
-          web_view_url: verified.web_view_url,
+        folder_id: folderId,
+        name: verified.name,
+        web_view_url: verified.web_view_url,
       };
       updateRow(
         rowId,

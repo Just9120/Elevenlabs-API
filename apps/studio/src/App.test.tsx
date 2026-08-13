@@ -541,7 +541,7 @@ async function chooseResultFolder(
   } as Awaited<ReturnType<typeof googlePicker.openGooglePicker>>);
   const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
   const previousFetch = fetchMock.getMockImplementation();
-  fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
     if (
       url.endsWith("/api/google/picker/session") &&
       init?.method === "POST"
@@ -551,6 +551,37 @@ async function chooseResultFolder(
         api_key: "public-picker-key",
         app_id: "123456789",
         scope_ready: true,
+      });
+    }
+    if (
+      url.includes("/api/projects/") &&
+      url.endsWith("/output-folders/google-picker/verify") &&
+      init?.method === "POST"
+    ) {
+      if (!expectedDisplayName) {
+        const previousResponse = await previousFetch?.(url, init);
+        if (previousResponse) {
+          const candidate = (await previousResponse
+            .clone()
+            .json()
+            .catch(() => null)) as {
+            name?: unknown;
+            web_view_url?: unknown;
+          } | null;
+          if (
+            candidate &&
+            typeof candidate.name === "string" &&
+            candidate.name.trim() &&
+            (candidate.web_view_url === null ||
+              typeof candidate.web_view_url === "string")
+          ) {
+            return previousResponse;
+          }
+        }
+      }
+      return json({
+        name: expectedDisplayName ?? "Папка Google Drive",
+        web_view_url: `https://drive.google.com/drive/folders/${folderId}`,
       });
     }
     return previousFetch?.(url, init) ?? json({ ok: true });
@@ -5978,6 +6009,222 @@ describe("Studio PWA", () => {
       timeoutSpy.mockRestore();
     }
   });
+  it("bounds ambiguous Google source creation without replay and refreshes sources", async () => {
+    const picker = installFakeGooglePicker();
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const mutationSignals: AbortSignal[] = [];
+    let mutationCalls = 0;
+    let sourceReadsAfterMutation = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        url === "/api/projects/p1/sources" &&
+        !init?.method &&
+        mutationCalls > 0
+      ) {
+        sourceReadsAfterMutation += 1;
+      }
+      if (
+        url === "/api/projects/p1/sources/google-picker" &&
+        init?.method === "POST"
+      ) {
+        mutationCalls += 1;
+        const signal = init.signal;
+        if (!signal) throw new Error("Google source signal is missing");
+        mutationSignals.push(signal);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 20_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      renderApp();
+      await openProjectsPage();
+      const button = await screen.findByRole("button", {
+        name: "Выбрать файлы Google Drive",
+      });
+      await userEvent.click(button);
+      await picker.loadScript();
+      await picker.waitForCallback();
+      picker.trigger({ action: "picked", docs: [{ id: "file-timeout" }] });
+
+      expect(
+        await screen.findByText(
+          "Сервер не подтвердил добавление файлов Google Drive. Список файлов обновлён; проверьте его перед повторным выбором.",
+        ),
+      ).toBeInTheDocument();
+      expect(mutationCalls).toBe(1);
+      expect(mutationSignals).toHaveLength(1);
+      expect(mutationSignals[0]?.aborted).toBe(true);
+      await waitFor(() => expect(sourceReadsAfterMutation).toBeGreaterThan(0));
+      expect(button).toBeEnabled();
+      expect(
+        screen.getByLabelText("Источник строки 1"),
+      ).not.toHaveTextContent("file-timeout");
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("treats a Google source 5xx as ambiguous without exposing or replaying it", async () => {
+    const picker = installFakeGooglePicker();
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let mutationCalls = 0;
+    let sourceReadsAfterMutation = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        url === "/api/projects/p1/sources" &&
+        !init?.method &&
+        mutationCalls > 0
+      ) {
+        sourceReadsAfterMutation += 1;
+      }
+      if (
+        url === "/api/projects/p1/sources/google-picker" &&
+        init?.method === "POST"
+      ) {
+        mutationCalls += 1;
+        return json(
+          { detail: "raw-private-google-source-failure" },
+          false,
+          503,
+        );
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+    const button = await screen.findByRole("button", {
+      name: "Выбрать файлы Google Drive",
+    });
+    await userEvent.click(button);
+    await picker.loadScript();
+    await picker.waitForCallback();
+    picker.trigger({ action: "picked", docs: [{ id: "file-503" }] });
+
+    expect(
+      await screen.findByText(
+        "Сервер не подтвердил добавление файлов Google Drive. Список файлов обновлён; проверьте его перед повторным выбором.",
+      ),
+    ).toBeInTheDocument();
+    expect(mutationCalls).toBe(1);
+    await waitFor(() => expect(sourceReadsAfterMutation).toBeGreaterThan(0));
+    expect(button).toBeEnabled();
+    expect(document.body.textContent).not.toContain(
+      "raw-private-google-source-failure",
+    );
+  });
+
+  it("bounds stalled Google folder verification and releases all Picker actions", async () => {
+    vi.spyOn(googlePicker, "openGooglePicker").mockResolvedValueOnce({
+      action: "picked",
+      docs: [{ id: "folder-timeout" }],
+    } as Awaited<ReturnType<typeof googlePicker.openGooglePicker>>);
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const verifySignals: AbortSignal[] = [];
+    let verifyCalls = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        url === "/api/projects/p1/output-folders/google-picker/verify" &&
+        init?.method === "POST"
+      ) {
+        verifyCalls += 1;
+        const signal = init.signal;
+        if (!signal) throw new Error("Folder verify signal is missing");
+        verifySignals.push(signal);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 20_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      renderApp();
+      await openProjectsPage();
+      const folderButton = await screen.findByRole("button", {
+        name: "Выбрать папку результата для строки 1",
+      });
+      await userEvent.click(folderButton);
+
+      expect(
+        await screen.findByText(
+          "Проверка папки результата заняла слишком много времени. Повторите выбор.",
+        ),
+      ).toBeInTheDocument();
+      expect(verifyCalls).toBe(1);
+      expect(verifySignals).toHaveLength(1);
+      expect(verifySignals[0]?.aborted).toBe(true);
+      expect(folderButton).toBeEnabled();
+      expect(folderButton).toHaveTextContent("Выбрать");
+      expect(
+        screen.getByRole("button", { name: "Выбрать файлы Google Drive" }),
+      ).toBeEnabled();
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("rejects malformed Google folder verification without using its values", async () => {
+    vi.spyOn(googlePicker, "openGooglePicker").mockResolvedValueOnce({
+      action: "picked",
+      docs: [{ id: "folder-malformed" }],
+    } as Awaited<ReturnType<typeof googlePicker.openGooglePicker>>);
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        url === "/api/projects/p1/output-folders/google-picker/verify" &&
+        init?.method === "POST"
+      ) {
+        return json({
+          name: " ",
+          web_view_url: "https://drive.example/raw-private-folder",
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+    const folderButton = await screen.findByRole("button", {
+      name: "Выбрать папку результата для строки 1",
+    });
+    await userEvent.click(folderButton);
+
+    expect(
+      await screen.findByText(
+        "Сервер вернул некорректные данные папки результата. Повторите выбор позже.",
+      ),
+    ).toBeInTheDocument();
+    expect(folderButton).toBeEnabled();
+    expect(folderButton).toHaveTextContent("Выбрать");
+    expect(document.body.textContent).not.toContain("raw-private-folder");
+  });
+
   it("shows an actionable safe message when Picker session requires reconnect", async () => {
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = baseFetch.getMockImplementation();
