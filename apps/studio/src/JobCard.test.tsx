@@ -179,4 +179,19 @@ describe("JobCard", () => {
     );
     expect(onDismissTerminal).toHaveBeenCalledWith("job-1");
   });
+
+  it("disables terminal dismissal while its request is pending", async () => {
+    const onDismissTerminal = vi.fn();
+    renderCard({
+      pinnedTerminal: true,
+      dismissPending: true,
+      onDismissTerminal,
+    });
+
+    const button = screen.getByRole("button", { name: "Убрать в историю" });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("aria-busy", "true");
+    await userEvent.click(button);
+    expect(onDismissTerminal).not.toHaveBeenCalled();
+  });
 });

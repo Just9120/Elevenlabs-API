@@ -19,6 +19,7 @@ export function OutputReconciliationNotice({
       <button
         type="button"
         disabled={state.checking}
+        aria-busy={state.checking}
         onClick={() => void onCheck(jobId)}
       >
         {state.checking

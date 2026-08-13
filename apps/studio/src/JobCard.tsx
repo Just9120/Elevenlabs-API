@@ -24,9 +24,11 @@ export function JobCard({
   progress,
   onOpen,
   onCancel,
+  cancelPending = false,
   onCheckReconciliation,
   onRetry,
   pinnedTerminal = false,
+  dismissPending = false,
   onDismissTerminal,
 }: {
   job: TranscriptionJob;
@@ -37,9 +39,11 @@ export function JobCard({
   progress: JobProgressState | undefined;
   onOpen: (jobId: string) => void | Promise<void>;
   onCancel: (jobId: string) => void | Promise<void>;
+  cancelPending?: boolean;
   onCheckReconciliation: (jobId: string) => void | Promise<void>;
   onRetry: (jobId: string) => void | Promise<void>;
   pinnedTerminal?: boolean;
+  dismissPending?: boolean;
   onDismissTerminal?: (jobId: string) => void | Promise<void>;
 }) {
   const detailedJob = detail?.job;
@@ -64,6 +68,8 @@ export function JobCard({
           <button
             className="secondary"
             type="button"
+            disabled={dismissPending}
+            aria-busy={dismissPending}
             onClick={() => onDismissTerminal?.(job.id)}
           >
             Убрать в историю
@@ -71,7 +77,12 @@ export function JobCard({
         </div>
       )}
       <JobProgressPipeline jobId={job.id} state={progress} />
-      <JobCardActions job={job} onOpen={onOpen} onCancel={onCancel} />
+      <JobCardActions
+        job={job}
+        onOpen={onOpen}
+        onCancel={onCancel}
+        cancelPending={cancelPending}
+      />
       {detail?.loading && <p role="status">Загрузка деталей задачи…</p>}
       {detail?.error && <p className="error">{detail.error}</p>}
       {outputs?.loading && <p role="status">Загрузка результатов…</p>}

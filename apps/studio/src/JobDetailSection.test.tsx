@@ -131,6 +131,25 @@ describe("JobDetailSection", () => {
     expect(onRetry).toHaveBeenCalledWith("job-1");
   });
 
+  it("disables an available retry while its request is pending", async () => {
+    const onRetry = vi.fn();
+    render(
+      <JobDetailSection
+        job={job}
+        outputs={null}
+        retry={retry({ posting: true })}
+        onRetry={onRetry}
+      />,
+    );
+
+    const button = screen.getByRole("button", {
+      name: "Повторить безопасную обработку",
+    });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("aria-busy", "true");
+    await userEvent.click(button);
+    expect(onRetry).not.toHaveBeenCalled();
+  });
   it("explains partial provider progress and resumes only remaining parts", async () => {
     const onRetry = vi.fn();
     render(

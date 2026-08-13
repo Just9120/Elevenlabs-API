@@ -2,6 +2,7 @@ import {
   ChangeEvent,
   FormEvent,
   useEffect,
+  useId,
   useRef,
   useState,
 } from "react";
@@ -21,6 +22,11 @@ import {
   mutateWithCsrfRetry,
   requestJson,
 } from "./apiClient";
+import {
+  cancelLatestRequests,
+  LATEST_REQUEST_CANCEL_REASON,
+  settleLatestRequest,
+} from "./latestRequest";
 import {
   parsePlatformRoute,
   pushPlatformRoute,
@@ -56,7 +62,10 @@ import {
   type Source,
 } from "./sourceModel";
 import { isSafeDisplayUrl, ResourceExternalLink } from "./resourceLinks";
-import { SourcesPanel } from "./SourcesPanel";
+import {
+  SourcesPanel,
+  type SourceDeletionNotice,
+} from "./SourcesPanel";
 import { JobCard } from "./JobCard";
 import { Login, type User } from "./Login";
 import { PlatformSidebar } from "./PlatformSidebar";
@@ -80,6 +89,7 @@ import {
   newComposerRow,
   parseBatchPreflightResponse,
   parseSplitBoundary,
+  type BatchCreateRequest,
   type BatchCreateResponse,
   type BatchPreflightResponse,
   type ComposerRow,
@@ -92,11 +102,22 @@ import {
   type OutputReconciliationState,
 } from "./jobRecoveryModel";
 import {
+  cancellationIsConfirmed,
+  dismissalIsConfirmed,
+  reconciliationCheckIsConfirmed,
+  retryIsConfirmed,
+  runBoundedRequest,
+} from "./jobMutationRequest";
+import {
   parseProjectJobProgressResponse,
   terminalProgressState,
   updateRequestedProgressStates,
   type JobProgressState,
 } from "./jobProgressModel";
+import {
+  JOB_PROGRESS_POLLING_STOP_REASON,
+  startJobProgressPolling,
+} from "./jobProgressPolling";
 import { groupVisibleJobs } from "./jobVisibilityModel";
 import { TranscriptionAnalyticsPanel } from "./TranscriptionAnalyticsPanel";
 import { TranscriptCatalogMigrationPanel } from "./TranscriptCatalogMigrationPanel";
@@ -108,18 +129,119 @@ import {
 } from "./theme";
 import "./styles.css";
 
+const SOURCE_RETENTION_TTL_OPTIONS_SECONDS = [
+  3600, 86400, 259200, 604800, 2592000,
+] as const;
 type AccountPreferences = {
   source_retention_ttl_seconds: number;
   allowed_source_retention_ttl_seconds: number[];
 };
+function isExpectedAccountPreferences(
+  candidate: unknown,
+): candidate is AccountPreferences {
+  if (!candidate || typeof candidate !== "object") return false;
+  const preferences = candidate as Partial<AccountPreferences>;
+  return (
+    Number.isInteger(preferences.source_retention_ttl_seconds) &&
+    Array.isArray(preferences.allowed_source_retention_ttl_seconds) &&
+    preferences.allowed_source_retention_ttl_seconds.length ===
+      SOURCE_RETENTION_TTL_OPTIONS_SECONDS.length &&
+    preferences.allowed_source_retention_ttl_seconds.every(
+      (seconds, index) =>
+        seconds === SOURCE_RETENTION_TTL_OPTIONS_SECONDS[index],
+    ) &&
+    preferences.allowed_source_retention_ttl_seconds.includes(
+      preferences.source_retention_ttl_seconds as number,
+    )
+  );
+}
 type Credential = {
   id: string;
   provider: "elevenlabs" | "openai";
   label: string;
-  status: string;
-  masked_value?: string;
-  active_version?: number;
+  status: "active" | "revoked";
+  masked_value: string | null;
+  active_version: number | null;
 };
+function isExpectedCredential(candidate: unknown): candidate is Credential {
+  if (!candidate || typeof candidate !== "object") return false;
+  const credential = candidate as Partial<Credential>;
+  return (
+    typeof credential.id === "string" &&
+    credential.id.length > 0 &&
+    (credential.provider === "elevenlabs" || credential.provider === "openai") &&
+    typeof credential.label === "string" &&
+    credential.label.trim().length > 0 &&
+    (credential.status === "active" || credential.status === "revoked") &&
+    (credential.masked_value === null ||
+      (typeof credential.masked_value === "string" &&
+        credential.masked_value.length > 0)) &&
+    (credential.active_version === null ||
+      (Number.isInteger(credential.active_version) &&
+        (credential.active_version as number) > 0))
+  );
+}
+function parseCredentialCollection(candidate: unknown): Credential[] | null {
+  if (!candidate || typeof candidate !== "object") return null;
+  const credentials = (candidate as { credentials?: unknown }).credentials;
+  if (!Array.isArray(credentials) || !credentials.every(isExpectedCredential)) {
+    return null;
+  }
+  if (
+    new Set(credentials.map((credential) => credential.id)).size !==
+    credentials.length
+  ) {
+    return null;
+  }
+  return credentials;
+}
+async function requestCredentialCollection(
+  signal?: AbortSignal,
+): Promise<Credential[]> {
+  const candidate = await api<unknown>("/credentials", {
+    signal,
+    ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+  });
+  const credentials = parseCredentialCollection(candidate);
+  if (credentials === null) throw new Error("invalid_credentials_response");
+  return credentials;
+}
+function isExpectedCredentialCreateResponse(
+  candidate: unknown,
+): candidate is Pick<Credential, "id" | "provider" | "label" | "status" | "masked_value"> {
+  if (!candidate || typeof candidate !== "object") return false;
+  const response = candidate as Record<string, unknown>;
+  return (
+    typeof response.id === "string" &&
+    response.id.length > 0 &&
+    (response.provider === "elevenlabs" || response.provider === "openai") &&
+    typeof response.label === "string" &&
+    response.label.trim().length > 0 &&
+    response.status === "active" &&
+    typeof response.masked_value === "string" &&
+    response.masked_value.length > 0
+  );
+}
+function isExpectedCredentialReplaceResponse(
+  candidate: unknown,
+): candidate is { ok: true; active_version: number; masked_value: string } {
+  if (!candidate || typeof candidate !== "object") return false;
+  const response = candidate as Record<string, unknown>;
+  return (
+    response.ok === true &&
+    Number.isInteger(response.active_version) &&
+    (response.active_version as number) > 0 &&
+    typeof response.masked_value === "string" &&
+    response.masked_value.length > 0
+  );
+}
+function isExpectedOkResponse(candidate: unknown): candidate is { ok: true } {
+  return (
+    Boolean(candidate) &&
+    typeof candidate === "object" &&
+    (candidate as { ok?: unknown }).ok === true
+  );
+}
 type Audit = { id: string; type: string; created_at: string };
 type DiagnosticsSystem = {
   environment?: string;
@@ -182,6 +304,52 @@ type Project = {
   updated_at: string;
   archived_at: string | null;
 };
+function isExpectedProject(candidate: unknown): candidate is Project {
+  if (!candidate || typeof candidate !== "object") return false;
+  const project = candidate as Partial<Project>;
+  const nullableString = (value: unknown) =>
+    value === null || typeof value === "string";
+  const nullableDate = (value: unknown) =>
+    value === null ||
+    (typeof value === "string" && Number.isFinite(Date.parse(value)));
+  return (
+    typeof project.id === "string" &&
+    project.id.length > 0 &&
+    typeof project.title === "string" &&
+    project.title.length > 0 &&
+    nullableString(project.description) &&
+    nullableString(project.output_drive_folder_id) &&
+    nullableString(project.output_drive_folder_url) &&
+    nullableString(project.output_drive_folder_name) &&
+    typeof project.created_at === "string" &&
+    Number.isFinite(Date.parse(project.created_at)) &&
+    typeof project.updated_at === "string" &&
+    Number.isFinite(Date.parse(project.updated_at)) &&
+    nullableDate(project.archived_at)
+  );
+}
+function parseProjectCollection(candidate: unknown): Project[] | null {
+  if (!candidate || typeof candidate !== "object") return null;
+  const projects = (candidate as { projects?: unknown }).projects;
+  if (!Array.isArray(projects) || !projects.every(isExpectedProject)) {
+    return null;
+  }
+  if (new Set(projects.map((project) => project.id)).size !== projects.length) {
+    return null;
+  }
+  return projects;
+}
+async function requestProjectCollection(
+  signal?: AbortSignal,
+): Promise<Project[]> {
+  const candidate = await api<unknown>("/projects", {
+    signal,
+    ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+  });
+  const projects = parseProjectCollection(candidate);
+  if (projects === null) throw new Error("invalid_projects_response");
+  return projects;
+}
 type UploadInit = {
   source_id: string;
   upload: {
@@ -193,17 +361,129 @@ type UploadInit = {
 };
 type GoogleConnection = {
   connected: boolean;
-  status: string | null;
+  status: "active" | "revoked" | "error" | null;
   google_email: string | null;
   scopes: string | null;
   connected_at: string | null;
   revoked_at: string | null;
-  picker_ready?: boolean;
-  picker_configured?: boolean;
-  picker_scope_ready?: boolean;
-  reconnect_required?: boolean;
+  picker_ready: boolean;
+  picker_configured: boolean;
+  picker_scope_ready: boolean;
+  reconnect_required: boolean;
 };
+type GoogleConnectionReadState = "loading" | "ready" | "unavailable";
 type GoogleOauthStart = { authorization_url: string; expires_at: string };
+function isExpectedGoogleConnection(
+  candidate: unknown,
+): candidate is GoogleConnection {
+  if (!candidate || typeof candidate !== "object") return false;
+  const connection = candidate as Partial<GoogleConnection>;
+  const nullableDate = (value: unknown) =>
+    value === null ||
+    (typeof value === "string" && Number.isFinite(Date.parse(value)));
+  const nullableString = (value: unknown, maxLength: number) =>
+    value === null ||
+    (typeof value === "string" && value.length > 0 && value.length <= maxLength);
+  const statusIsExpected =
+    connection.status === null ||
+    connection.status === "active" ||
+    connection.status === "revoked" ||
+    connection.status === "error";
+  if (
+    typeof connection.connected !== "boolean" ||
+    !statusIsExpected ||
+    !nullableString(connection.google_email, 320) ||
+    !nullableString(connection.scopes, 4096) ||
+    !nullableDate(connection.connected_at) ||
+    !nullableDate(connection.revoked_at) ||
+    typeof connection.picker_ready !== "boolean" ||
+    typeof connection.picker_configured !== "boolean" ||
+    typeof connection.picker_scope_ready !== "boolean" ||
+    typeof connection.reconnect_required !== "boolean"
+  ) {
+    return false;
+  }
+  return (
+    connection.connected === (connection.status === "active") &&
+    (!connection.picker_scope_ready || connection.connected) &&
+    connection.picker_ready ===
+      (connection.picker_configured && connection.picker_scope_ready) &&
+    connection.reconnect_required ===
+      (connection.connected && !connection.picker_scope_ready) &&
+    (connection.status !== null ||
+      (connection.google_email === null &&
+        connection.scopes === null &&
+        connection.connected_at === null &&
+        connection.revoked_at === null))
+  );
+}
+async function requestGoogleConnection(
+  signal?: AbortSignal,
+): Promise<GoogleConnection> {
+  const candidate = await api<unknown>("/google/connection", {
+    signal,
+    ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+  });
+  if (!isExpectedGoogleConnection(candidate)) {
+    throw new Error("invalid_google_connection_response");
+  }
+  return candidate;
+}
+function isExpectedGoogleOauthStart(
+  candidate: unknown,
+): candidate is GoogleOauthStart {
+  if (!candidate || typeof candidate !== "object") return false;
+  const response = candidate as Partial<GoogleOauthStart>;
+  if (
+    typeof response.authorization_url !== "string" ||
+    response.authorization_url.length > 8192 ||
+    typeof response.expires_at !== "string" ||
+    !Number.isFinite(Date.parse(response.expires_at))
+  ) {
+    return false;
+  }
+  try {
+    const url = new URL(response.authorization_url);
+    const allowedParameters = new Set([
+      "client_id",
+      "redirect_uri",
+      "response_type",
+      "scope",
+      "state",
+      "access_type",
+      "prompt",
+    ]);
+    if (
+      url.origin !== "https://accounts.google.com" ||
+      url.pathname !== "/o/oauth2/v2/auth" ||
+      url.username ||
+      url.password ||
+      url.hash ||
+      [...url.searchParams.keys()].some((key) => !allowedParameters.has(key)) ||
+      [...allowedParameters].some(
+        (key) => url.searchParams.getAll(key).length !== 1,
+      ) ||
+      url.searchParams.get("response_type") !== "code" ||
+      url.searchParams.get("access_type") !== "offline" ||
+      url.searchParams.get("prompt") !== "consent" ||
+      !url.searchParams.get("client_id") ||
+      !url.searchParams.get("redirect_uri") ||
+      !url.searchParams.get("state")
+    ) {
+      return false;
+    }
+    const scopes = url.searchParams.get("scope")?.split(" ") ?? [];
+    return (
+      scopes.length === 3 &&
+      new Set(scopes).size === scopes.length &&
+      scopes.includes("openid") &&
+      scopes.includes("email") &&
+      scopes.includes("https://www.googleapis.com/auth/drive.file")
+    );
+  } catch {
+    return false;
+  }
+}
 type SessionBootstrapСтатус =
   | "checking"
   | "authenticated"
@@ -227,6 +507,21 @@ const emptyJobState: JobState = {
   loaded: false,
   items: [],
 };
+function isExpectedGooglePickerSession(
+  candidate: unknown,
+): candidate is PickerSession {
+  if (!candidate || typeof candidate !== "object") return false;
+  const session = candidate as Partial<PickerSession>;
+  return (
+    typeof session.access_token === "string" &&
+    session.access_token.trim().length > 0 &&
+    typeof session.api_key === "string" &&
+    session.api_key.trim().length > 0 &&
+    typeof session.app_id === "string" &&
+    session.app_id.trim().length > 0 &&
+    session.scope_ready === true
+  );
+}
 function isExpectedPickerSourceBatch(
   value: unknown,
   expectedCount: number,
@@ -253,6 +548,17 @@ function isExpectedPickerSourceBatch(
     return true;
   });
 }
+function isExpectedVerifiedGooglePickerFolder(
+  candidate: unknown,
+): candidate is { name: string; web_view_url: string | null } {
+  if (!candidate || typeof candidate !== "object") return false;
+  const folder = candidate as { name?: unknown; web_view_url?: unknown };
+  return (
+    typeof folder.name === "string" &&
+    folder.name.trim().length > 0 &&
+    (folder.web_view_url === null || typeof folder.web_view_url === "string")
+  );
+}
 function credentialProfileLabel(c: Credential) {
   return c.active_version ? `${c.label} · v${c.active_version}` : c.label;
 }
@@ -266,6 +572,12 @@ function isRetryableLocalUploadCompletionFailure(err: unknown) {
         err.status >= 500))
   );
 }
+function isAmbiguousLocalUploadInitiationFailure(err: unknown) {
+  return (
+    err instanceof TypeError ||
+    (err instanceof ApiError && (err.status === 408 || err.status >= 500))
+  );
+}
 function localUploadHttpStatusCategory(status: number) {
   return status >= 100 && status <= 599
     ? (`${Math.floor(status / 100)}xx` as
@@ -276,13 +588,15 @@ function localUploadHttpStatusCategory(status: number) {
         | "5xx")
     : "unknown";
 }
-function reportLocalUploadPutFailure(status: number) {
+function reportLocalUploadPutFailure(status?: number) {
   emitPwaDiagnostic("PWA_API_REQUEST_FAILED", {
     boundary: "api_request",
     error_code: "api_request_failed",
     endpoint_group: "sources",
-    http_status_category: localUploadHttpStatusCategory(status),
-    retryable: status === 408 || status === 429 || status >= 500,
+    http_status_category:
+      status === undefined ? "unknown" : localUploadHttpStatusCategory(status),
+    retryable:
+      status === undefined || status === 408 || status === 429 || status >= 500,
   });
 }
 function localUploadPutFailureMessage(status: number) {
@@ -379,6 +693,16 @@ function isExpectedCompletedLocalSource(
   );
 }
 const ELEVENLABS_CREDENTIAL_SESSION_KEY = "studio.elevenlabsCredentialId";
+const JOB_DETAIL_REQUEST_TIMEOUT_MS = 15_000;
+const PROJECT_COLLECTION_REQUEST_TIMEOUT_MS = 15_000;
+const PROJECT_MUTATION_REQUEST_TIMEOUT_MS = 20_000;
+const CREDENTIAL_COLLECTION_REQUEST_TIMEOUT_MS = 15_000;
+const CREDENTIAL_MUTATION_REQUEST_TIMEOUT_MS = 20_000;
+const ACCOUNT_PREFERENCES_REQUEST_TIMEOUT_MS = 15_000;
+const SOURCE_UPLOAD_POLICY_REQUEST_TIMEOUT_MS = 15_000;
+const ACCOUNT_PREFERENCES_MUTATION_TIMEOUT_MS = 20_000;
+const GOOGLE_CONNECTION_REQUEST_TIMEOUT_MS = 15_000;
+const GOOGLE_CONNECTION_MUTATION_TIMEOUT_MS = 20_000;
 async function bootstrapSession(): Promise<{
   user: User;
   csrf: string;
@@ -400,6 +724,63 @@ async function csrfMutate<T>(
 ): Promise<T> {
   return mutateWithCsrfRetry<T>(path, csrf, onCsrf, options);
 }
+async function readAccountPreferencesBounded(): Promise<AccountPreferences | null> {
+  try {
+    const result = await runBoundedRequest(
+      (signal) => api<unknown>("/account/preferences", { signal }),
+      ACCOUNT_PREFERENCES_REQUEST_TIMEOUT_MS,
+    );
+    return result.status === "completed" &&
+      isExpectedAccountPreferences(result.value)
+      ? result.value
+      : null;
+  } catch {
+    return null;
+  }
+}
+async function readGoogleConnectionBounded(): Promise<GoogleConnection | null> {
+  try {
+    const result = await runBoundedRequest(
+      (signal) => requestGoogleConnection(signal),
+      GOOGLE_CONNECTION_REQUEST_TIMEOUT_MS,
+    );
+    return result.status === "completed" ? result.value : null;
+  } catch {
+    return null;
+  }
+}
+async function requestSourceUploadPolicy(
+  signal?: AbortSignal,
+): Promise<SourceUploadPolicy> {
+  const candidate = await api<unknown>("/sources/upload-policy", {
+    signal,
+    ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+  });
+  const policy = normalizeSourceUploadPolicy(candidate);
+  if (!policy) throw new Error("invalid_source_upload_policy_response");
+  return policy;
+}
+async function readCredentialCollectionBounded(): Promise<Credential[] | null> {
+  try {
+    const result = await runBoundedRequest(
+      (signal) => requestCredentialCollection(signal),
+      CREDENTIAL_COLLECTION_REQUEST_TIMEOUT_MS,
+    );
+    return result.status === "completed" ? result.value : null;
+  } catch {
+    return null;
+  }
+}
+async function readAfterJobMutationTimeout<T>(path: string): Promise<T | null> {
+  try {
+    const result = await runBoundedRequest((signal) =>
+      api<T>(path, { signal }),
+    );
+    return result.status === "completed" ? result.value : null;
+  } catch {
+    return null;
+  }
+}
 function safeConfirm(message: string) {
   try {
     return window.confirm(message) === true;
@@ -408,6 +789,141 @@ function safeConfirm(message: string) {
   }
 }
 export const __appDiagnosticsTest = { api, csrfMutate };
+type JobMutationKind = "cancel" | "retry" | "reconciliation" | "dismiss";
+type JobMutationNotice = {
+  projectId: string;
+  kind: JobMutationKind;
+  jobId: string;
+  message: string;
+  tone: "notice" | "error";
+};
+type ProjectMutationKind = "create" | "update" | "archive";
+type ProjectMutationOperation = {
+  kind: ProjectMutationKind;
+  projectId: string | null;
+};
+type ProjectMutationNotice = ProjectMutationOperation & {
+  message: string;
+  tone: "notice" | "error";
+};
+type CredentialMutationKind = "create" | "replace" | "revoke" | "delete";
+type CredentialMutationOperation = {
+  kind: CredentialMutationKind;
+  credentialId: string | null;
+  generation: number;
+};
+type CredentialMutationNotice = Pick<
+  CredentialMutationOperation,
+  "kind" | "credentialId"
+> & {
+  message: string;
+  tone: "notice" | "error";
+};
+type RetentionMutationOperation = { generation: number };
+type RetentionMutationNotice = {
+  message: string;
+  tone: "notice" | "error";
+  refreshOnMount: boolean;
+};
+type GoogleConnectionMutationKind = "oauth-start" | "disconnect";
+type GoogleConnectionMutationOperation = {
+  kind: GoogleConnectionMutationKind;
+  generation: number;
+};
+type GoogleConnectionMutationNotice = {
+  kind: GoogleConnectionMutationKind;
+  message: string;
+  tone: "notice" | "error";
+  refreshOnMount: boolean;
+};
+function credentialMutationKey(
+  operation: Pick<CredentialMutationOperation, "credentialId">,
+) {
+  return operation.credentialId ?? "create";
+}
+function credentialMutationOperationMatches(
+  left: CredentialMutationOperation,
+  right: CredentialMutationOperation,
+) {
+  return (
+    left.kind === right.kind &&
+    left.credentialId === right.credentialId &&
+    left.generation === right.generation
+  );
+}
+function isAmbiguousCredentialMutationFailure(error: unknown) {
+  return (
+    error instanceof TypeError ||
+    (error instanceof ApiError && (error.status === 408 || error.status >= 500))
+  );
+}
+function isAmbiguousRetentionMutationFailure(error: unknown) {
+  return (
+    error instanceof TypeError ||
+    (error instanceof ApiError && (error.status === 408 || error.status >= 500))
+  );
+}
+function isAmbiguousGoogleConnectionMutationFailure(error: unknown) {
+  return (
+    error instanceof TypeError ||
+    (error instanceof ApiError && (error.status === 408 || error.status >= 500))
+  );
+}
+function projectMutationKey(operation: ProjectMutationOperation) {
+  return `${operation.kind}:${operation.projectId ?? "new"}`;
+}
+function isAmbiguousProjectMutationFailure(error: unknown) {
+  return (
+    error instanceof TypeError ||
+    (error instanceof ApiError && (error.status === 408 || error.status >= 500))
+  );
+}
+type LocalUploadCompletionState =
+  | { status: "uploaded"; source: Source }
+  | { status: "pending" }
+  | { status: "unavailable" };
+
+type LocalUploadOperation = {
+  projectId: string;
+  panelId: string;
+  rowId: string;
+};
+
+type LocalUploadNotice = LocalUploadOperation & {
+  message: string;
+  tone: "notice" | "error";
+};
+
+type GooglePickerOperationKind = "sources" | "folder:first" | "folder:second";
+type GooglePickerOperation = {
+  projectId: string;
+  panelId: string;
+  rowId: string;
+  kind: GooglePickerOperationKind;
+};
+type GooglePickerNotice = GooglePickerOperation & {
+  message: string;
+  tone: "notice" | "error";
+};
+type GooglePickerOutcome = Pick<GooglePickerNotice, "message" | "tone">;
+
+function googlePickerOperationKey(operation: GooglePickerOperation) {
+  return `${operation.projectId}:${operation.panelId}:${operation.rowId}:${operation.kind}`;
+}
+
+function localUploadOperationKey(operation: LocalUploadOperation) {
+  return `${operation.projectId}:${operation.panelId}:${operation.rowId}`;
+}
+
+type BatchSubmission = {
+  signature: string;
+  key: string;
+  requestBody: BatchCreateRequest;
+  status: "pending" | "ambiguous";
+};
+function jobMutationKey(kind: JobMutationKind, jobId: string) {
+  return `${kind}:${jobId}`;
+}
 function PreparationPanel({
   project,
   csrf,
@@ -415,12 +931,32 @@ function PreparationPanel({
   jobs,
   sources,
   googleConnection,
-  pickerBusy,
-  setPickerBusy,
+  googleConnectionState,
+  onReloadGoogleConnection,
+  activeGooglePicker,
+  googlePickerNotices,
+  beginGooglePicker,
+  finishGooglePicker,
   onLoadSources,
   onReloadSources,
   onReloadJobs,
-  onError,
+  pendingJobMutations,
+  jobMutationNotices,
+  beginJobMutation,
+  finishJobMutation,
+  pendingSourceDeletions,
+  sourceDeletionNotices,
+  beginSourceDeletion,
+  finishSourceDeletion,
+  pendingLocalUploads,
+  localUploadNotices,
+  beginLocalUpload,
+  finishLocalUpload,
+  batchSubmission,
+  beginBatchSubmission,
+  retryBatchSubmission,
+  markBatchSubmissionAmbiguous,
+  clearBatchSubmission,
 }: {
   project: Project;
   csrf: string;
@@ -428,13 +964,78 @@ function PreparationPanel({
   jobs: JobState;
   sources: typeof emptySourceState;
   googleConnection: GoogleConnection | null;
-  pickerBusy: boolean;
-  setPickerBusy: (busy: boolean) => void;
+  googleConnectionState: GoogleConnectionReadState;
+  onReloadGoogleConnection: () => void;
+  activeGooglePicker: GooglePickerOperation | null;
+  googlePickerNotices: Readonly<Record<string, GooglePickerNotice>>;
+  beginGooglePicker: (operation: GooglePickerOperation) => boolean;
+  finishGooglePicker: (
+    operation: GooglePickerOperation,
+    outcome?: GooglePickerOutcome,
+  ) => void;
   onLoadSources: (projectId: string) => void;
   onReloadSources: (projectId: string) => void;
   onReloadJobs: (projectId: string) => void;
-  onError: (message: string) => void;
+  pendingJobMutations: ReadonlySet<string>;
+  jobMutationNotices: Readonly<Record<string, JobMutationNotice>>;
+  beginJobMutation: (kind: JobMutationKind, jobId: string) => boolean;
+  finishJobMutation: (
+    kind: JobMutationKind,
+    jobId: string,
+    notice?: JobMutationNotice,
+  ) => void;
+  pendingSourceDeletions: ReadonlySet<string>;
+  sourceDeletionNotices: Readonly<Record<string, SourceDeletionNotice>>;
+  beginSourceDeletion: (sourceId: string) => boolean;
+  finishSourceDeletion: (
+    sourceId: string,
+    notice: SourceDeletionNotice,
+  ) => void;
+  pendingLocalUploads: readonly LocalUploadOperation[];
+  localUploadNotices: Readonly<Record<string, LocalUploadNotice>>;
+  beginLocalUpload: (operation: LocalUploadOperation) => boolean;
+  finishLocalUpload: (
+    operation: LocalUploadOperation,
+    notice: LocalUploadNotice,
+  ) => void;
+  batchSubmission: BatchSubmission | null;
+  beginBatchSubmission: (
+    submission: Omit<BatchSubmission, "status">,
+  ) => boolean;
+  retryBatchSubmission: (key: string) => boolean;
+  markBatchSubmissionAmbiguous: (key: string) => void;
+  clearBatchSubmission: (key: string) => void;
 }) {
+  const googlePickerPanelId = useId();
+  const pickerBusy = activeGooglePicker !== null;
+  const detachedGooglePickerPending =
+    activeGooglePicker?.projectId === project.id &&
+    activeGooglePicker.panelId !== googlePickerPanelId;
+  const googlePickerBusyInOtherProject =
+    activeGooglePicker !== null && activeGooglePicker.projectId !== project.id;
+  const visibleGooglePickerNotices = Object.values(googlePickerNotices).filter(
+    (notice) =>
+      notice.projectId === project.id && notice.panelId !== googlePickerPanelId,
+  );
+  const localUploadPanelId = useId();
+  const projectPendingLocalUploads = pendingLocalUploads.filter(
+    (operation) => operation.projectId === project.id,
+  );
+  const detachedLocalUploadPending = projectPendingLocalUploads.some(
+    (operation) => operation.panelId !== localUploadPanelId,
+  );
+  const localUploadBusyRows = new Set(
+    projectPendingLocalUploads
+      .filter((operation) => operation.panelId === localUploadPanelId)
+      .map((operation) => operation.rowId),
+  );
+  const localUploadIsBusy = (rowId: string) =>
+    detachedLocalUploadPending || localUploadBusyRows.has(rowId);
+  const visibleLocalUploadNotices = Object.values(localUploadNotices).filter(
+    (notice) =>
+      notice.projectId === project.id &&
+      notice.panelId !== localUploadPanelId,
+  );
   const [rows, setRows] = useState<ComposerRow[]>(() => [newComposerRow()]);
   const [selectedCredentialId, setSelectedCredentialId] = useState("");
   const [languageMode, setLanguageMode] = useState<TranscriptionLanguageMode>(
@@ -456,15 +1057,12 @@ function PreparationPanel({
     data: BatchPreflightResponse;
   } | null>(null);
   const [batchJobs, setBatchJobs] = useState<TranscriptionJob[]>([]);
-  const [pendingKey, setPendingKey] = useState<{
-    signature: string;
-    key: string;
-  } | null>(null);
   const [detail, setDetail] = useState<Record<string, JobDetailState>>({});
   const [outputs, setOutputs] = useState<Record<string, JobOutputsState>>({});
   const [reconciliations, setReconciliations] = useState<Record<string, OutputReconciliationState>>({});
   const [retries, setRetries] = useState<Record<string, JobRetryState>>({});
   const [progress, setProgress] = useState<Record<string, JobProgressState>>({});
+
   const [removedSourceIds, setRemovedSourceIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -480,21 +1078,42 @@ function PreparationPanel({
     number: number;
   } | null>(null);
   const [rowAdditionStatus, setRowAdditionStatus] = useState("");
-  const [localUploadBusyRows, setLocalUploadBusyRows] = useState<Set<string>>(
-    () => new Set(),
-  );
   const rowFolderPickerRef = useRef(false);
   const rowSourcePickerRef = useRef(false);
-  const localUploadBusyRowsRef = useRef(new Set<string>());
   const localUploadCsrfRef = useRef(csrf);
   const rowElementRefs = useRef(new Map<string, HTMLLIElement>());
   const reloadJobsRef = useRef(onReloadJobs);
+  const jobRequestEpochsRef = useRef(new Map<string, number>());
+  const jobRequestControllersRef = useRef(
+    new Map<string, AbortController>(),
+  );
+  const prerequisiteRequestEpochsRef = useRef(new Map<string, number>());
+  const prerequisiteRequestControllersRef = useRef(
+    new Map<string, AbortController>(),
+  );
+
   useEffect(() => {
     localUploadCsrfRef.current = csrf;
   }, [csrf]);
   useEffect(() => {
     reloadJobsRef.current = onReloadJobs;
   }, [onReloadJobs]);
+  useEffect(
+    () => () =>
+      cancelLatestRequests(
+        jobRequestEpochsRef.current,
+        jobRequestControllersRef.current,
+      ),
+    [],
+  );
+  useEffect(
+    () => () =>
+      cancelLatestRequests(
+        prerequisiteRequestEpochsRef.current,
+        prerequisiteRequestControllersRef.current,
+      ),
+    [],
+  );
   useEffect(() => {
     setRows([newComposerRow()]);
     setCreatedSources([]);
@@ -502,16 +1121,14 @@ function PreparationPanel({
     setRowIntakeStatus({});
     setRowIntakeErrors({});
     setBatchJobs([]);
-    setPendingKey(null);
     setPreflight(null);
     setMessage("");
     setProgress({});
+
     setLanguageMode(DEFAULT_TRANSCRIPTION_LANGUAGE_MODE);
     setDiarizationEnabled(false);
     setRecentlyAddedRow(null);
     setRowAdditionStatus("");
-    localUploadBusyRowsRef.current.clear();
-    setLocalUploadBusyRows(new Set());
   }, [project.id]);
   useEffect(() => {
     if (!recentlyAddedRow) return;
@@ -543,48 +1160,51 @@ function PreparationPanel({
     );
     return () => window.clearTimeout(statusTimeout);
   }, [rowAdditionStatus]);
-  useEffect(() => {
-    let cancelled = false;
+  const loadCredentials = () => {
     setCredentialsLoading(true);
     setCredentialsError("");
-    api<{ credentials: Credential[] }>("/credentials")
-      .then((r) => {
-        if (!cancelled) setCredentials(r.credentials);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setCredentials([]);
-          setCredentialsError("Не удалось загрузить подключение ElevenLabs.");
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setCredentialsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-  useEffect(() => {
-    let cancelled = false;
+    void settleLatestRequest(
+      prerequisiteRequestEpochsRef.current,
+      "preparation:credentials",
+      requestCredentialCollection,
+      (nextCredentials) => {
+        setCredentials(nextCredentials);
+        setCredentialsLoading(false);
+      },
+      () => {
+        setCredentialsError("Не удалось загрузить подключение ElevenLabs.");
+        setCredentialsLoading(false);
+      },
+      {
+        controllers: prerequisiteRequestControllersRef.current,
+        timeoutMs: CREDENTIAL_COLLECTION_REQUEST_TIMEOUT_MS,
+      },
+    );
+  };
+  const loadSourceUploadPolicy = () => {
     setSourceUploadPolicy(null);
     setSourceUploadPolicyError("");
-    api<unknown>("/sources/upload-policy")
-      .then((value) => {
-        if (cancelled) return;
-        const policy = normalizeSourceUploadPolicy(value);
-        if (!policy) throw new Error("Invalid source upload policy");
+    void settleLatestRequest(
+      prerequisiteRequestEpochsRef.current,
+      "preparation:source-upload-policy",
+      requestSourceUploadPolicy,
+      (policy) => {
         setSourceUploadPolicy(policy);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setSourceUploadPolicy(null);
+      },
+      () => {
         setSourceUploadPolicyError(
           "Не удалось загрузить правила локальной загрузки. Загрузка с устройства временно недоступна.",
         );
-      });
-    return () => {
-      cancelled = true;
-    };
+      },
+      {
+        controllers: prerequisiteRequestControllersRef.current,
+        timeoutMs: SOURCE_UPLOAD_POLICY_REQUEST_TIMEOUT_MS,
+      },
+    );
+  };
+  useEffect(() => {
+    loadCredentials();
+    loadSourceUploadPolicy();
   }, []);
   const activeElevenLabsCredentials = credentials.filter(
     (credential) =>
@@ -632,11 +1252,6 @@ function PreparationPanel({
     diarizationEnabled,
   );
   useEffect(() => {
-    setPendingKey((current) =>
-      current && current.signature !== signature ? null : current,
-    );
-  }, [signature]);
-  useEffect(() => {
     if (preflight && preflight.signature !== signature) {
       setPreflight(null);
       setMessage("");
@@ -673,6 +1288,7 @@ function PreparationPanel({
     });
   });
   const googlePickerGuidance = (() => {
+    if (googleConnectionState !== "ready") return "";
     if (!googleConnection?.connected) return "Google Drive не подключён.";
     if (googleConnection.reconnect_required)
       return "Переподключите Google Drive в настройках, чтобы выбрать файлы.";
@@ -683,7 +1299,9 @@ function PreparationPanel({
     return "";
   })();
   const driveSourcePickerEnabled = Boolean(
-    googleConnection?.picker_ready && !googlePickerGuidance,
+    googleConnectionState === "ready" &&
+      googleConnection?.picker_ready &&
+      !googlePickerGuidance,
   );
 
   const rowReadinessResults = rows.map((row, index) => {
@@ -748,7 +1366,8 @@ function PreparationPanel({
           ? "Выберите профиль подключения ElevenLabs"
           : "Добавьте активный ключ ElevenLabs в настройках"
         : "";
-  const submitting = submissionStage !== null;
+  const submitting =
+    submissionStage !== null || batchSubmission?.status === "pending";
   const activePreflight =
     preflight?.signature === signature ? preflight.data : null;
   const expandedComposerItems = (() => {
@@ -772,8 +1391,10 @@ function PreparationPanel({
     ? submissionStage === "preflight"
       ? "Проверяем план…"
       : "Создание задач…"
-    : credentialBlocker
-      ? credentialBlocker
+    : batchSubmission?.status === "ambiguous"
+      ? "Сначала подтвердите исход предыдущей отправки"
+      : credentialBlocker
+        ? credentialBlocker
       : rows.length === 0
         ? "Добавьте хотя бы одну строку"
         : firstReadinessBlocker
@@ -785,6 +1406,7 @@ function PreparationPanel({
             : "";
   const canSubmit =
     !submitting &&
+    batchSubmission === null &&
     !credentialsLoading &&
     !credentialsError &&
     Boolean(selectedCredentialId) &&
@@ -837,65 +1459,243 @@ function PreparationPanel({
       return next.length > 0 ? next : [newComposerRow()];
     });
   }
+  async function readLocalUploadCompletionState(
+    sourceId: string,
+    mimeType: string,
+    sizeBytes: number,
+  ): Promise<LocalUploadCompletionState> {
+    try {
+      const result = await runBoundedRequest((signal) =>
+        api<unknown>(`/projects/${project.id}/sources`, {
+          signal,
+          cache: "no-store",
+        }),
+      );
+      if (result.status === "timed_out") return { status: "unavailable" };
+      const value = result.value;
+      if (!value || typeof value !== "object" || !("sources" in value)) {
+        return { status: "unavailable" };
+      }
+      const items = (value as { sources?: unknown }).sources;
+      if (!Array.isArray(items)) return { status: "unavailable" };
+      const matches = items.filter(
+        (item) =>
+          item &&
+          typeof item === "object" &&
+          (item as { id?: unknown }).id === sourceId,
+      );
+      if (matches.length !== 1) return { status: "unavailable" };
+      const source = matches[0];
+      const expected = { sourceId, projectId: project.id, mimeType, sizeBytes };
+      if (isExpectedCompletedLocalSource(source, expected)) {
+        return { status: "uploaded", source };
+      }
+      if (
+        source &&
+        typeof source === "object" &&
+        (source as Partial<Source>).project_id === project.id &&
+        (source as Partial<Source>).source_type === "local_upload" &&
+        (source as Partial<Source>).upload_status === "pending" &&
+        (source as Partial<Source>).mime_type === mimeType &&
+        (source as Partial<Source>).size_bytes === sizeBytes &&
+        (source as Partial<Source>).deleted_at === null
+      ) {
+        return { status: "pending" };
+      }
+      return { status: "unavailable" };
+    } catch {
+      return { status: "unavailable" };
+    }
+  }
+
   async function completeLocalUpload(
     sourceId: string,
     mimeType: string,
     sizeBytes: number,
   ) {
-    const complete = () =>
-      csrfMutate<unknown>(
-        `/sources/${sourceId}/local-upload/complete`,
-        localUploadCsrfRef.current,
-        (token) => {
-          localUploadCsrfRef.current = token;
-          onCsrf(token);
-        },
-        { method: "POST" },
+    const completeOnce = () =>
+      runBoundedRequest((signal) =>
+        csrfMutate<unknown>(
+          `/sources/${sourceId}/local-upload/complete`,
+          localUploadCsrfRef.current,
+          (token) => {
+            localUploadCsrfRef.current = token;
+            onCsrf(token);
+          },
+          { method: "POST", signal },
+        ),
       );
-    let completed: unknown;
+    const expected = {
+      sourceId,
+      projectId: project.id,
+      mimeType,
+      sizeBytes,
+    };
+    const validateCompleted = (candidate: unknown) => {
+      if (!isExpectedCompletedLocalSource(candidate, expected)) {
+        onReloadSources(project.id);
+        throw new Error(
+          "Сервер вернул несогласованное подтверждение загрузки. Список файлов обновлён; проверьте его перед повторной попыткой.",
+        );
+      }
+      return candidate;
+    };
+    const reconcile = () =>
+      readLocalUploadCompletionState(sourceId, mimeType, sizeBytes);
+
+    let first;
     try {
-      completed = await complete();
+      first = await completeOnce();
     } catch (err) {
       if (!isRetryableLocalUploadCompletionFailure(err)) throw err;
-      completed = await complete();
+      first = { status: "timed_out" as const };
     }
+    if (first.status === "completed") {
+      return validateCompleted(first.value);
+    }
+
+    const firstState = await reconcile();
+    if (firstState.status === "uploaded") return firstState.source;
+    if (firstState.status !== "pending") {
+      onReloadSources(project.id);
+      throw new Error(
+        "Сервер не подтвердил завершение загрузки. Список файлов обновлён; подождите и повторите при необходимости.",
+      );
+    }
+
+    let second;
+    let secondError: unknown;
+    try {
+      second = await completeOnce();
+    } catch (err) {
+      secondError = err;
+      second = { status: "timed_out" as const };
+    }
+    if (second.status === "completed") {
+      return validateCompleted(second.value);
+    }
+    const finalState = await reconcile();
+    if (finalState.status === "uploaded") return finalState.source;
     if (
-      !isExpectedCompletedLocalSource(completed, {
-        sourceId,
-        projectId: project.id,
-        mimeType,
-        sizeBytes,
-      })
+      secondError &&
+      !isRetryableLocalUploadCompletionFailure(secondError)
+    ) {
+      throw secondError;
+    }
+    onReloadSources(project.id);
+    throw new Error(
+      "Сервер не подтвердил завершение загрузки. Список файлов обновлён; подождите и повторите при необходимости.",
+    );
+  }
+
+  async function acquireGooglePickerSession() {
+    let bounded;
+    try {
+      bounded = await runBoundedRequest((signal) =>
+        csrfMutate<unknown>(
+          "/google/picker/session",
+          csrf,
+          onCsrf,
+          { method: "POST", signal },
+        ),
+      );
+    } catch (err) {
+      if (!(err instanceof TypeError)) throw err;
+      throw new Error(
+        "Не удалось открыть Google Picker. Проверьте соединение и повторите попытку.",
+        { cause: err },
+      );
+    }
+    if (bounded.status === "timed_out") {
+      throw new Error(
+        "Google Picker не ответил вовремя. Повторите попытку.",
+      );
+    }
+    if (!isExpectedGooglePickerSession(bounded.value)) {
+      throw new Error(
+        "Сервер вернул некорректную сессию Google Picker. Повторите попытку позже.",
+      );
+    }
+    return bounded.value;
+  }
+  async function createGooglePickerSourceBatch(fileIds: string[]) {
+    let bounded;
+    try {
+      bounded = await runBoundedRequest((signal) =>
+        csrfMutate<unknown>(
+          `/projects/${project.id}/sources/google-picker`,
+          csrf,
+          onCsrf,
+          {
+            method: "POST",
+            body: JSON.stringify({ file_ids: fileIds }),
+            signal,
+          },
+        ),
+      );
+    } catch (err) {
+      const definitiveClientFailure =
+        err instanceof ApiError &&
+        err.status >= 400 &&
+        err.status < 500 &&
+        err.status !== 408;
+      if (definitiveClientFailure) throw err;
+      onReloadSources(project.id);
+      throw new Error(
+        "Сервер не подтвердил добавление файлов Google Drive. Список файлов обновлён; проверьте его перед повторным выбором.",
+        { cause: err },
+      );
+    }
+    if (bounded.status === "timed_out") {
+      onReloadSources(project.id);
+      throw new Error(
+        "Сервер не подтвердил добавление файлов Google Drive. Список файлов обновлён; проверьте его перед повторным выбором.",
+      );
+    }
+    const payload = bounded.value;
+    const orderedSources =
+      payload && typeof payload === "object" && "sources" in payload
+        ? (payload as { sources?: unknown }).sources
+        : undefined;
+    if (
+      !isExpectedPickerSourceBatch(
+        orderedSources,
+        fileIds.length,
+        project.id,
+      )
     ) {
       onReloadSources(project.id);
       throw new Error(
-        "Сервер вернул несогласованное подтверждение загрузки. Список файлов обновлён; проверьте его перед повторной попыткой.",
+        "Сервер вернул неполный ответ для выбранных файлов. Список файлов обновлён; проверьте добавленные файлы перед повторным выбором.",
       );
     }
-    return completed;
+    return orderedSources;
   }
   async function chooseRowDriveSources(rowId: string) {
-    if (pickerBusy || rowSourcePickerRef.current) return;
+    const operation: GooglePickerOperation = {
+      projectId: project.id,
+      panelId: googlePickerPanelId,
+      rowId,
+      kind: "sources",
+    };
+    if (rowSourcePickerRef.current || !beginGooglePicker(operation)) return;
     rowSourcePickerRef.current = true;
-    setPickerBusy(true);
+    let outcome: GooglePickerOutcome | undefined;
     setRowIntakeErrors((current) => ({ ...current, [rowId]: "" }));
     setRowIntakeStatus((current) => ({
       ...current,
       [rowId]: "Открываем Google Drive Picker…",
     }));
     try {
-      const session = await csrfMutate<PickerSession>(
-        "/google/picker/session",
-        csrf,
-        onCsrf,
-        { method: "POST" },
-      );
+      const session = await acquireGooglePickerSession();
       const result = await googlePicker.openGooglePicker("sources", session);
       if (result.action === "cancel") {
+        const message = "Выбор файлов отменён.";
         setRowIntakeStatus((current) => ({
           ...current,
-          [rowId]: "Выбор файлов отменён.",
+          [rowId]: message,
         }));
+        outcome = { message, tone: "notice" };
         return;
       }
       if (result.action === "error") {
@@ -904,6 +1704,7 @@ function PreparationPanel({
           ...current,
           [rowId]: result.message,
         }));
+        outcome = { message: result.message, tone: "error" };
         return;
       }
       if (
@@ -914,72 +1715,114 @@ function PreparationPanel({
             !isSupportedSourceMimeType(doc.mimeType, sourceUploadPolicy),
         )
       ) {
+        const message =
+          "В выборе есть файлы, не поддерживаемые текущими правилами.";
         setRowIntakeStatus((current) => ({ ...current, [rowId]: "" }));
         setRowIntakeErrors((current) => ({
           ...current,
-          [rowId]:
-            "В выборе есть файлы, не поддерживаемые текущими правилами.",
+          [rowId]: message,
         }));
+        outcome = { message, tone: "error" };
         return;
       }
       const fileIds = result.docs.map((doc) => doc.id);
       if (fileIds.length === 0) {
+        const message = "Google Picker не вернул файлы.";
         setRowIntakeStatus((current) => ({
           ...current,
-          [rowId]: "Google Picker не вернул файлы.",
+          [rowId]: message,
         }));
+        outcome = { message, tone: "error" };
         return;
       }
-      const created = await csrfMutate<{ sources: unknown }>(
-        `/projects/${project.id}/sources/google-picker`,
-        csrf,
-        onCsrf,
-        { method: "POST", body: JSON.stringify({ file_ids: fileIds }) },
-      );
-      const orderedSources = created.sources;
-      if (
-        !isExpectedPickerSourceBatch(
-          orderedSources,
-          fileIds.length,
-          project.id,
-        )
-      ) {
-        onReloadSources(project.id);
-        throw new Error(
-          "Сервер вернул неполный ответ для выбранных файлов. Список файлов обновлён; проверьте добавленные файлы перед повторным выбором.",
-        );
-      }
+      const orderedSources = await createGooglePickerSourceBatch(fileIds);
       placeSourcesInRows(rowId, orderedSources);
       setRowIntakeStatus((current) => ({
         ...current,
         [rowId]: `Добавлено файлов: ${orderedSources.length}.`,
       }));
       onReloadSources(project.id);
+      outcome = {
+        message:
+          "Файлы Google Drive добавлены в проект. Выберите их в нужных строках заново.",
+        tone: "notice",
+      };
     } catch (err) {
       const pickerFailure = googlePickerFailureMessage(err);
+      const message =
+        pickerFailure ??
+        (err instanceof ApiError && err.status === 422
+          ? "Один или несколько файлов не поддерживаются. Выберите аудио, видео или OGG."
+          : err instanceof Error
+            ? err.message
+            : "Не удалось выбрать файлы Google Drive.");
       setRowIntakeStatus((current) => ({ ...current, [rowId]: "" }));
       setRowIntakeErrors((current) => ({
         ...current,
-        [rowId]:
-          pickerFailure ??
-          (err instanceof ApiError && err.status === 422
-            ? "Один или несколько файлов не поддерживаются. Выберите аудио, видео или OGG."
-            : err instanceof Error
-              ? err.message
-              : "Не удалось выбрать файлы Google Drive."),
+        [rowId]: message,
       }));
+      outcome = { message, tone: "error" };
     } finally {
       rowSourcePickerRef.current = false;
-      setPickerBusy(false);
+      finishGooglePicker(operation, outcome);
     }
   }
+  async function initiateLocalUpload(
+    originalFilename: string,
+    mimeType: string,
+    sizeBytes: number,
+  ) {
+    let bounded;
+    try {
+      bounded = await runBoundedRequest((signal) =>
+        csrfMutate<unknown>(
+          `/projects/${project.id}/sources/local-upload/initiate`,
+          localUploadCsrfRef.current,
+          (token) => {
+            localUploadCsrfRef.current = token;
+            onCsrf(token);
+          },
+          {
+            method: "POST",
+            body: JSON.stringify({
+              original_filename: originalFilename,
+              mime_type: mimeType,
+              size_bytes: sizeBytes,
+            }),
+            signal,
+          },
+        ),
+      );
+    } catch (err) {
+      if (!isAmbiguousLocalUploadInitiationFailure(err)) throw err;
+      onReloadSources(project.id);
+      throw new Error(
+        "Сервер не подтвердил подготовку загрузки. Список файлов обновлён; проверьте его перед новой попыткой.",
+        { cause: err },
+      );
+    }
+    if (bounded.status === "timed_out") {
+      onReloadSources(project.id);
+      throw new Error(
+        "Сервер не подтвердил подготовку загрузки. Список файлов обновлён; проверьте его перед новой попыткой.",
+      );
+    }
+    if (!isSafeLocalUploadInit(bounded.value, mimeType)) {
+      onReloadSources(project.id);
+      throw new Error(
+        "Сервер вернул небезопасный ответ для загрузки. Список файлов обновлён; повторите попытку позже.",
+      );
+    }
+    return bounded.value;
+  }
+
   async function uploadRowLocalSources(
     rowId: string,
     e: ChangeEvent<HTMLInputElement>,
   ) {
     const files = Array.from(e.target.files ?? []);
     e.target.value = "";
-    if (files.length === 0 || localUploadBusyRowsRef.current.has(rowId)) return;
+    if (files.length === 0 || localUploadIsBusy(rowId)) return;
     if (!sourceUploadPolicy?.local_upload_enabled) {
       setRowIntakeErrors((current) => ({
         ...current,
@@ -989,8 +1832,18 @@ function PreparationPanel({
       }));
       return;
     }
-    localUploadBusyRowsRef.current.add(rowId);
-    setLocalUploadBusyRows((current) => new Set(current).add(rowId));
+    const operation: LocalUploadOperation = {
+      projectId: project.id,
+      panelId: localUploadPanelId,
+      rowId,
+    };
+    if (!beginLocalUpload(operation)) return;
+    let persistentNotice: LocalUploadNotice = {
+      ...operation,
+      message:
+        "Локальная загрузка не завершена. Проверьте список файлов проекта перед повторной попыткой.",
+      tone: "error",
+    };
     try {
       const successful: Source[] = [];
       const failures: string[] = [];
@@ -1019,45 +1872,37 @@ function PreparationPanel({
           }));
           const expectedContentType =
             file.type || "application/octet-stream";
-          const initiatedRaw = await csrfMutate<unknown>(
-            `/projects/${project.id}/sources/local-upload/initiate`,
-            localUploadCsrfRef.current,
-            (token) => {
-              localUploadCsrfRef.current = token;
-              onCsrf(token);
-            },
-            {
-              method: "POST",
-              body: JSON.stringify({
-              original_filename: file.name,
-                mime_type: expectedContentType,
-                size_bytes: file.size,
-              }),
-            },
+          const initiated = await initiateLocalUpload(
+            file.name,
+            expectedContentType,
+            file.size,
           );
-          if (!isSafeLocalUploadInit(initiatedRaw, expectedContentType)) {
-            onReloadSources(project.id);
-            throw new Error(
-              "Сервер вернул небезопасный ответ для загрузки. Список файлов обновлён; повторите попытку позже.",
-            );
-          }
-          const initiated = initiatedRaw;
           setRowIntakeStatus((current) => ({
             ...current,
             [rowId]: `${file.name} — загрузка…`,
           }));
-          let put: Response;
+          let put: Response | null = null;
+          let putIsAmbiguous = false;
           try {
-            put = await fetch(initiated.upload.url, {
-              method: initiated.upload.method,
-              headers: initiated.upload.headers,
-              body: file,
-              cache: "no-store",
-              credentials: "omit",
-              redirect: "error",
-              referrerPolicy: "no-referrer",
-            });
+            const boundedPut = await runBoundedRequest((signal) =>
+              fetch(initiated.upload.url, {
+                method: initiated.upload.method,
+                headers: initiated.upload.headers,
+                body: file,
+                cache: "no-store",
+                credentials: "omit",
+                redirect: "error",
+                referrerPolicy: "no-referrer",
+                signal,
+              }),
+            );
+            if (boundedPut.status === "completed") put = boundedPut.value;
+            else putIsAmbiguous = true;
           } catch {
+            putIsAmbiguous = true;
+          }
+          if (putIsAmbiguous) {
+            reportLocalUploadPutFailure();
             setRowIntakeStatus((current) => ({
               ...current,
               [rowId]: `${file.name} — проверяем результат загрузки…`,
@@ -1070,6 +1915,9 @@ function PreparationPanel({
             successful.push(recovered);
             placeSourcesInRows(rowId, [recovered]);
             continue;
+          }
+          if (put === null) {
+            throw new Error("Не удалось загрузить файл во временное хранилище.");
           }
           if (!put.ok) {
             reportLocalUploadPutFailure(put.status);
@@ -1104,13 +1952,18 @@ function PreparationPanel({
           ...current,
           [rowId]: failures.join(" "),
         }));
+      persistentNotice = {
+        ...operation,
+        message:
+          failures.length === 0
+            ? "Локальная загрузка завершена. Обновлённый список файлов доступен в проекте."
+            : successful.length > 0
+              ? "Локальная загрузка завершена частично. Проверьте список файлов проекта и повторите неудачные файлы при необходимости."
+              : "Локальная загрузка не завершена. Проверьте список файлов проекта перед повторной попыткой.",
+        tone: failures.length === 0 ? "notice" : "error",
+      };
     } finally {
-      localUploadBusyRowsRef.current.delete(rowId);
-      setLocalUploadBusyRows((current) => {
-        const next = new Set(current);
-        next.delete(rowId);
-        return next;
-      });
+      finishLocalUpload(operation, persistentNotice);
     }
   }
 
@@ -1137,49 +1990,82 @@ function PreparationPanel({
     rowId: string,
     target: "first" | "second" = "first",
   ) {
-    if (
-      googleConnection?.picker_ready !== true ||
-      pickerBusy ||
-      rowFolderPickerRef.current
-    )
-      return;
+    if (!driveSourcePickerEnabled || rowFolderPickerRef.current) return;
+    const operation: GooglePickerOperation = {
+      projectId: project.id,
+      panelId: googlePickerPanelId,
+      rowId,
+      kind: target === "second" ? "folder:second" : "folder:first",
+    };
+    if (!beginGooglePicker(operation)) return;
     rowFolderPickerRef.current = true;
-    setPickerBusy(true);
+    let outcome: GooglePickerOutcome | undefined;
     setMessage("");
     try {
-      const session = await csrfMutate<PickerSession>(
-        "/google/picker/session",
-        csrf,
-        onCsrf,
-        { method: "POST" },
-      );
+      const session = await acquireGooglePickerSession();
       const result = await googlePicker.openGooglePicker(
         "output-folder",
         session,
       );
-      if (result.action === "cancel") return;
+      if (result.action === "cancel") {
+        outcome = { message: "Выбор папки отменён.", tone: "notice" };
+        return;
+      }
       if (result.action === "error") {
         setMessage(result.message);
+        outcome = { message: result.message, tone: "error" };
         return;
       }
       const folderId = result.docs[0]?.id;
       if (!folderId) {
-        setMessage("Выберите одну папку Google Drive.");
+        const message = "Выберите одну папку Google Drive.";
+        setMessage(message);
+        outcome = { message, tone: "error" };
         return;
       }
-      const verified = await batchMutateWithCsrfRetry<{
-        name: string;
-        web_view_url: string | null;
-      }>(
-        `/projects/${project.id}/output-folders/google-picker/verify`,
-        csrf,
-        onCsrf,
-        { method: "POST", body: JSON.stringify({ folder_id: folderId }) },
-      );
+      let boundedVerification;
+      try {
+        boundedVerification = await runBoundedRequest((signal) =>
+          batchMutateWithCsrfRetry<unknown>(
+            `/projects/${project.id}/output-folders/google-picker/verify`,
+            csrf,
+            onCsrf,
+            {
+              method: "POST",
+              body: JSON.stringify({ folder_id: folderId }),
+              signal,
+            },
+          ),
+        );
+      } catch (err) {
+        const message =
+          googlePickerFailureMessage(err) ??
+          (err instanceof ApiError && err.status === 422
+            ? "Выбранная папка Google Drive недоступна для записи."
+            : "Не удалось проверить папку результата. Повторите попытку.");
+        setMessage(message);
+        outcome = { message, tone: "error" };
+        return;
+      }
+      if (boundedVerification.status === "timed_out") {
+        const message =
+          "Проверка папки результата заняла слишком много времени. Повторите выбор.";
+        setMessage(message);
+        outcome = { message, tone: "error" };
+        return;
+      }
+      if (!isExpectedVerifiedGooglePickerFolder(boundedVerification.value)) {
+        const message =
+          "Сервер вернул некорректные данные папки результата. Повторите выбор позже.";
+        setMessage(message);
+        outcome = { message, tone: "error" };
+        return;
+      }
+      const verified = boundedVerification.value;
       const outputFolder = {
-          folder_id: folderId,
-          name: verified.name || "Папка Google Drive",
-          web_view_url: verified.web_view_url,
+        folder_id: folderId,
+        name: verified.name,
+        web_view_url: verified.web_view_url,
       };
       updateRow(
         rowId,
@@ -1187,16 +2073,106 @@ function PreparationPanel({
           ? { second_output_folder: outputFolder }
           : { output_folder: outputFolder },
       );
+      outcome = {
+        message:
+          "Папка Google Drive проверена, но прежняя строка больше не открыта. Выберите папку для строки повторно.",
+        tone: "notice",
+      };
     } catch (err) {
-      setMessage(
+      const message =
         googlePickerFailureMessage(err) ??
         (err instanceof Error
           ? err.message
-          : "Не удалось проверить папку результата."),
-      );
+          : "Не удалось проверить папку результата.");
+      setMessage(message);
+      outcome = { message, tone: "error" };
     } finally {
       rowFolderPickerRef.current = false;
-      setPickerBusy(false);
+      finishGooglePicker(operation, outcome);
+    }
+  }
+  async function performBatchCreation(
+    requestBody: BatchCreateRequest,
+    key: string,
+  ) {
+    try {
+      const result = await runBoundedRequest((signal) =>
+        batchMutateWithCsrfRetry<BatchCreateResponse>(
+          `/projects/${project.id}/jobs/batch`,
+          csrf,
+          onCsrf,
+          {
+            method: "POST",
+            headers: { "Idempotency-Key": key },
+            body: JSON.stringify(requestBody),
+            signal,
+          },
+        ),
+      );
+      if (result.status === "timed_out") {
+        markBatchSubmissionAmbiguous(key);
+        setMessage("");
+        return;
+      }
+      const response = result.value;
+      clearBatchSubmission(key);
+      setBatchJobs(response.jobs);
+      setRows([newComposerRow()]);
+      setPreflight(null);
+      setMessage(
+        response.replayed
+          ? `Повтор подтверждён: создано независимых задач: ${response.created_count}.`
+          : `Создано независимых задач: ${response.created_count}.`,
+      );
+      onReloadJobs(project.id);
+    } catch (err) {
+      const definitiveClientFailure =
+        err instanceof ApiError &&
+        err.status >= 400 &&
+        err.status < 500 &&
+        err.status !== 408;
+      if (definitiveClientFailure) clearBatchSubmission(key);
+      else markBatchSubmissionAmbiguous(key);
+      if (
+        err instanceof ApiError &&
+        err.status === 409 &&
+        apiErrorDetailReason(err) === "provider_authority_conflict"
+      ) {
+        setPreflight(null);
+        setMessage(
+          "Появилась активная или неразрешённая предыдущая транскрибация. Задачи не созданы; проверьте план заново после разрешения её статуса.",
+        );
+      } else if (err instanceof ApiError && err.status === 409) {
+        setPreflight(null);
+        setMessage(
+          "План изменился или появился существующий результат. Повторите проверку и примите явное решение; задачи не созданы.",
+        );
+      } else if (err instanceof ApiError && err.status === 422) {
+        setPreflight(null);
+        setMessage(
+          "Пакет не прошёл проверку. Строки сохранены — исправьте файлы или папки и отправьте снова.",
+        );
+      } else if (definitiveClientFailure) {
+        setMessage(
+          "Сервер отклонил создание пакета. Задачи не созданы; проверьте план и повторите отправку.",
+        );
+      } else {
+        setMessage("");
+      }
+    }
+  }
+  async function replayAmbiguousBatch() {
+    if (!batchSubmission || batchSubmission.status !== "ambiguous") return;
+    if (!retryBatchSubmission(batchSubmission.key)) return;
+    setMessage("");
+    setSubmissionStage("create");
+    try {
+      await performBatchCreation(
+        batchSubmission.requestBody,
+        batchSubmission.key,
+      );
+    } finally {
+      setSubmissionStage(null);
     }
   }
   async function createBatch(e: FormEvent<HTMLFormElement>) {
@@ -1234,16 +2210,28 @@ function PreparationPanel({
       diarizationEnabled,
     );
     const confirming = activePreflight !== null;
+    if (batchSubmission) {
+      setMessage("Сначала подтвердите исход предыдущей отправки пакета.");
+      return;
+    }
     setSubmissionStage(confirming ? "create" : "preflight");
     try {
       if (!confirming) {
-        const rawResponse = await batchMutateWithCsrfRetry<unknown>(
-          `/projects/${project.id}/jobs/batch/preflight`,
-          csrf,
-          onCsrf,
-          { method: "POST", body: JSON.stringify(requestBody) },
+        const result = await runBoundedRequest((signal) =>
+          batchMutateWithCsrfRetry<unknown>(
+            `/projects/${project.id}/jobs/batch/preflight`,
+            csrf,
+            onCsrf,
+            { method: "POST", body: JSON.stringify(requestBody), signal },
+          ),
         );
-        const response = parseBatchPreflightResponse(rawResponse);
+        if (result.status === "timed_out") {
+          setMessage(
+            "Проверка плана заняла слишком много времени. Задачи не создавались; повторите проверку.",
+          );
+          return;
+        }
+        const response = parseBatchPreflightResponse(result.value);
         if (
           !response ||
           response.items.length !== requestBody.items.length
@@ -1263,65 +2251,47 @@ function PreparationPanel({
         );
         return;
       }
-      const key =
-        pendingKey?.signature === signature
-          ? pendingKey.key
-          : makeIdempotencyKey();
-      setPendingKey({ signature, key });
-      const response = await batchMutateWithCsrfRetry<BatchCreateResponse>(
-        `/projects/${project.id}/jobs/batch`,
-        csrf,
-        onCsrf,
-        {
-          method: "POST",
-          headers: { "Idempotency-Key": key },
-          body: JSON.stringify(requestBody),
-        },
-      );
-      setBatchJobs(response.jobs);
-      setRows([newComposerRow()]);
-      setPendingKey(null);
-      setPreflight(null);
-      setMessage(
-        response.replayed
-          ? `Повтор подтверждён: создано независимых задач: ${response.created_count}.`
-          : `Создано независимых задач: ${response.created_count}.`,
-      );
-      onReloadJobs(project.id);
-    } catch (err) {
-      if (!confirming) {
+      const key = makeIdempotencyKey();
+      if (!beginBatchSubmission({ signature, key, requestBody })) {
         setMessage(
-          err instanceof ApiError && err.status === 422
-            ? "План не прошёл серверную проверку. Исправьте файлы, папки или профиль ElevenLabs."
-            : "Не удалось проверить план. Задачи не созданы; повторите проверку.",
+          "Отправка пакета уже выполняется или требует подтверждения исхода.",
         );
-      } else if (
-        err instanceof ApiError &&
-        err.status === 409 &&
-        apiErrorDetailReason(err) === "provider_authority_conflict"
-      ) {
-        setPendingKey(null);
-        setPreflight(null);
-        setMessage(
-          "Появилась активная или неразрешённая предыдущая транскрибация. Задачи не созданы; проверьте план заново после разрешения её статуса.",
-        );
-      } else if (err instanceof ApiError && err.status === 409) {
-        setMessage(
-          "План изменился или появился существующий результат. Повторите проверку и примите явное решение; задачи не созданы.",
-        );
-      } else if (err instanceof ApiError && err.status === 422) {
-        setMessage(
-          "Пакет не прошёл проверку. Строки сохранены — исправьте файлы или папки и отправьте снова.",
-        );
-      } else {
-        setMessage(
-          "Не удалось создать пакет задач. Строки и ключ повтора сохранены — можно повторить отправку без изменений.",
-        );
+        return;
       }
+      await performBatchCreation(requestBody, key);
+    } catch (err) {
+      setMessage(
+        err instanceof ApiError && err.status === 422
+          ? "План не прошёл серверную проверку. Исправьте файлы, папки или профиль ElevenLabs."
+          : "Не удалось проверить план. Задачи не созданы; повторите проверку.",
+      );
     } finally {
       setSubmissionStage(null);
     }
   }
+  function settleLatestJobRead<T>(
+    key: string,
+    path: string,
+    onSuccess: (value: T) => void,
+    onFailure: (error: unknown) => void,
+  ) {
+    return settleLatestRequest(
+      jobRequestEpochsRef.current,
+      key,
+      (signal) =>
+        api<T>(path, {
+          signal,
+          ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+        }),
+      onSuccess,
+      onFailure,
+      {
+        controllers: jobRequestControllersRef.current,
+        timeoutMs: JOB_DETAIL_REQUEST_TIMEOUT_MS,
+      },
+    );
+  }
+
   async function loadDetail(jobId: string) {
     setDetail((current) => ({
       ...current,
@@ -1331,97 +2301,391 @@ function PreparationPanel({
       ...current,
       [jobId]: { loading: true, error: "", data: current[jobId]?.data ?? null },
     }));
-    void api<TranscriptionJob>(`/jobs/${jobId}`)
-      .then((loaded) =>
-        setDetail((current) => ({
-          ...current,
-          [jobId]: { loading: false, error: "", job: loaded },
-        })),
-      )
-      .catch(() =>
-        setDetail((current) => ({
-          ...current,
-          [jobId]: {
-            loading: false,
-            error: "Не удалось загрузить детали задачи.",
-            job: current[jobId]?.job ?? null,
-          },
-        })),
-      );
-    void api<JobRetryResponse>(`/jobs/${jobId}/retry`)
-      .then((data) => setRetries((current) => ({ ...current, [jobId]: { loading: false, posting: false, error: "", message: "", data } })))
-      .catch(() => setRetries((current) => ({ ...current, [jobId]: { loading: false, posting: false, error: "", message: "", data: null } })));
-    void api<OutputReconciliationResponse>(`/jobs/${jobId}/output-reconciliation`)
-      .then((data) => setReconciliations((current) => ({ ...current, [jobId]: { loading: false, checking: false, error: "", message: "", data } })))
-      .catch(() => setReconciliations((current) => ({ ...current, [jobId]: { loading: false, checking: false, error: "", message: "", data: null } })));
-    void api<JobOutputsResponse>(`/jobs/${jobId}/outputs`)
-      .then((data) =>
-        setOutputs((current) => ({
-          ...current,
-          [jobId]: { loading: false, error: "", data },
-        })),
-      )
-      .catch(() =>
-        setOutputs((current) => ({
-          ...current,
-          [jobId]: {
-            loading: false,
-            error: "Не удалось загрузить результаты.",
-            data: current[jobId]?.data ?? null,
-          },
-        })),
-      );
+    await Promise.all([
+      settleLatestJobRead<TranscriptionJob>(
+        `detail:${jobId}`,
+        `/jobs/${jobId}`,
+        (loaded) =>
+          setDetail((current) => ({
+            ...current,
+            [jobId]: { loading: false, error: "", job: loaded },
+          })),
+        () =>
+          setDetail((current) => ({
+            ...current,
+            [jobId]: {
+              loading: false,
+              error: "Не удалось загрузить детали задачи.",
+              job: current[jobId]?.job ?? null,
+            },
+          })),
+      ),
+      settleLatestJobRead<JobRetryResponse>(
+        `retry:${jobId}`,
+        `/jobs/${jobId}/retry`,
+        (data) =>
+          setRetries((current) => ({
+            ...current,
+            [jobId]: {
+              loading: false,
+              posting: false,
+              error: "",
+              message: "",
+              data,
+            },
+          })),
+        () =>
+          setRetries((current) => ({
+            ...current,
+            [jobId]: {
+              loading: false,
+              posting: false,
+              error: "",
+              message: "",
+              data: null,
+            },
+          })),
+      ),
+      settleLatestJobRead<OutputReconciliationResponse>(
+        `reconciliation:${jobId}`,
+        `/jobs/${jobId}/output-reconciliation`,
+        (data) =>
+          setReconciliations((current) => ({
+            ...current,
+            [jobId]: {
+              loading: false,
+              checking: false,
+              error: "",
+              message: "",
+              data,
+            },
+          })),
+        () =>
+          setReconciliations((current) => ({
+            ...current,
+            [jobId]: {
+              loading: false,
+              checking: false,
+              error: "",
+              message: "",
+              data: null,
+            },
+          })),
+      ),
+      settleLatestJobRead<JobOutputsResponse>(
+        `outputs:${jobId}`,
+        `/jobs/${jobId}/outputs`,
+        (data) =>
+          setOutputs((current) => ({
+            ...current,
+            [jobId]: { loading: false, error: "", data },
+          })),
+        () =>
+          setOutputs((current) => ({
+            ...current,
+            [jobId]: {
+              loading: false,
+              error: "Не удалось загрузить результаты.",
+              data: current[jobId]?.data ?? null,
+            },
+          })),
+      ),
+    ]);
   }
   async function checkReconciliation(jobId: string) {
-    setReconciliations((current) => ({ ...current, [jobId]: { ...(current[jobId] ?? { loading:false, error:"", message:"", data:null }), checking: true, error: "", message: "" } }));
+    if (!beginJobMutation("reconciliation", jobId)) return;
+    let notice: JobMutationNotice | undefined;
+    const beforeReconciliation = reconciliations[jobId]?.data ?? null;
+    setReconciliations((current) => ({
+      ...current,
+      [jobId]: {
+        ...(current[jobId] ?? {
+          loading: false,
+          error: "",
+          message: "",
+          data: null,
+        }),
+        checking: true,
+        error: "",
+        message: "",
+      },
+    }));
     try {
-      const result = await csrfMutate<OutputReconciliationCheckResponse>(`/jobs/${jobId}/output-reconciliation/check`, csrf, onCsrf, { method: "POST" });
-      const message = result.resolved > 0 ? "Документ найден и восстановлен." : result.conflicts > 0 ? "Обнаружено несколько подходящих документов. Автоматическое восстановление заблокировано." : "Документ пока не найден в Google Drive.";
-      setReconciliations((current) => ({ ...current, [jobId]: { ...(current[jobId] ?? { loading:false, error:"", data:null }), checking: false, message } }));
-      await loadDetail(jobId);
+      const request = await runBoundedRequest((signal) =>
+        csrfMutate<OutputReconciliationCheckResponse>(
+          `/jobs/${jobId}/output-reconciliation/check`,
+          csrf,
+          onCsrf,
+          { method: "POST", signal },
+        ),
+      );
+      if (request.status === "timed_out") {
+        const observed =
+          await readAfterJobMutationTimeout<OutputReconciliationResponse>(
+            `/jobs/${jobId}/output-reconciliation`,
+          );
+        const confirmed =
+          observed !== null &&
+          reconciliationCheckIsConfirmed(beforeReconciliation, observed);
+        const message = confirmed
+          ? "Сервер не ответил вовремя, но завершение проверки подтверждено по актуальному состоянию."
+          : "Сервер не ответил вовремя. Результат проверки не подтверждён; обновите состояние перед повтором.";
+        setReconciliations((current) => ({
+          ...current,
+          [jobId]: {
+            ...(current[jobId] ?? {
+              loading: false,
+              data: null,
+            }),
+            checking: false,
+            data: observed ?? current[jobId]?.data ?? null,
+            error: confirmed ? "" : message,
+            message: confirmed ? message : "",
+          },
+        }));
+        notice = {
+          projectId: project.id,
+          kind: "reconciliation",
+          jobId,
+          message,
+          tone: confirmed ? "notice" : "error",
+        };
+        void loadDetail(jobId);
+        onReloadJobs(project.id);
+        return;
+      }
+      const result = request.value;
+      const message =
+        result.resolved > 0
+          ? "Документ найден и восстановлен."
+          : result.conflicts > 0
+            ? "Обнаружено несколько подходящих документов. Автоматическое восстановление заблокировано."
+            : "Документ пока не найден в Google Drive.";
+      setReconciliations((current) => ({
+        ...current,
+        [jobId]: {
+          ...(current[jobId] ?? { loading: false, error: "", data: null }),
+          checking: false,
+          message,
+        },
+      }));
+      notice = {
+        projectId: project.id,
+        kind: "reconciliation",
+        jobId,
+        message,
+        tone: "notice",
+      };
+      void loadDetail(jobId);
       onReloadJobs(project.id);
     } catch (err) {
-      setReconciliations((current) => ({ ...current, [jobId]: { ...(current[jobId] ?? { loading:false, message:"", data:null }), checking: false, error: err instanceof ApiError && err.status === 409 ? "Google connection недоступен или reconciliation сейчас невозможен." : "Не удалось проверить Google Drive." } }));
+      const message =
+        err instanceof ApiError && err.status === 409
+          ? "Google connection недоступен или reconciliation сейчас невозможен."
+          : "Не удалось проверить Google Drive.";
+      setReconciliations((current) => ({
+        ...current,
+        [jobId]: {
+          ...(current[jobId] ?? {
+            loading: false,
+            message: "",
+            data: null,
+          }),
+          checking: false,
+          error: message,
+        },
+      }));
+      notice = {
+        projectId: project.id,
+        kind: "reconciliation",
+        jobId,
+        message,
+        tone: "error",
+      };
+    } finally {
+      finishJobMutation("reconciliation", jobId, notice);
     }
   }
 
   async function retryJob(jobId: string) {
-    setRetries((current) => ({ ...current, [jobId]: { ...(current[jobId] ?? { loading:false, error:"", message:"", data:null }), posting: true, error: "", message: "" } }));
+    if (!beginJobMutation("retry", jobId)) return;
+    let notice: JobMutationNotice | undefined;
+    const beforeRetry = retries[jobId]?.data ?? null;
+    setRetries((current) => ({
+      ...current,
+      [jobId]: {
+        ...(current[jobId] ?? {
+          loading: false,
+          error: "",
+          message: "",
+          data: null,
+        }),
+        posting: true,
+        error: "",
+        message: "",
+      },
+    }));
     try {
-      const partialMode = ["partial_provider_resume_available", "partial_provider_restart_available"].includes(retries[jobId]?.data?.reason ?? "");
-      const result = await csrfMutate<JobRetryResponse>(`/jobs/${jobId}/retry`, csrf, onCsrf, {
-        method: "POST",
-        body: partialMode
-          ? JSON.stringify({ confirm_remaining_provider_cost: true })
-          : undefined,
-      });
-      setRetries((current) => ({ ...current, [jobId]: { ...(current[jobId] ?? { loading:false, error:"", data:null }), posting: false, data: result, message: partialMode ? "Подтверждённая обработка поставлена в очередь." : "Безопасный повтор поставлен в очередь." } }));
-      await loadDetail(jobId);
+      const partialMode = [
+        "partial_provider_resume_available",
+        "partial_provider_restart_available",
+      ].includes(beforeRetry?.reason ?? "");
+      const request = await runBoundedRequest((signal) =>
+        csrfMutate<JobRetryResponse>(
+          `/jobs/${jobId}/retry`,
+          csrf,
+          onCsrf,
+          {
+            method: "POST",
+            signal,
+            body: partialMode
+              ? JSON.stringify({ confirm_remaining_provider_cost: true })
+              : undefined,
+          },
+        ),
+      );
+      if (request.status === "timed_out") {
+        const observed = await readAfterJobMutationTimeout<JobRetryResponse>(
+          `/jobs/${jobId}/retry`,
+        );
+        const confirmed =
+          observed !== null && retryIsConfirmed(beforeRetry, observed);
+        const message = confirmed
+          ? "Сервер не ответил вовремя, но повтор подтверждён по актуальному состоянию задачи."
+          : "Сервер не ответил вовремя. Статус повтора не подтверждён; проверьте задачу перед новым запуском.";
+        setRetries((current) => ({
+          ...current,
+          [jobId]: {
+            ...(current[jobId] ?? {
+              loading: false,
+              data: null,
+            }),
+            posting: false,
+            data: observed ?? current[jobId]?.data ?? null,
+            error: confirmed ? "" : message,
+            message: confirmed ? message : "",
+          },
+        }));
+        notice = {
+          projectId: project.id,
+          kind: "retry",
+          jobId,
+          message,
+          tone: confirmed ? "notice" : "error",
+        };
+        void loadDetail(jobId);
+        onReloadJobs(project.id);
+        return;
+      }
+      const result = request.value;
+      const message = partialMode
+        ? "Подтверждённая обработка поставлена в очередь."
+        : "Безопасный повтор поставлен в очередь.";
+      setRetries((current) => ({
+        ...current,
+        [jobId]: {
+          ...(current[jobId] ?? { loading: false, error: "", data: null }),
+          posting: false,
+          data: result,
+          message,
+        },
+      }));
+      notice = {
+        projectId: project.id,
+        kind: "retry",
+        jobId,
+        message,
+        tone: "notice",
+      };
+      void loadDetail(jobId);
       onReloadJobs(project.id);
     } catch {
-      setRetries((current) => ({ ...current, [jobId]: { ...(current[jobId] ?? { loading:false, message:"", data:null }), posting: false, error: "Повтор сейчас недоступен." } }));
+      const message = "Повтор сейчас недоступен.";
+      setRetries((current) => ({
+        ...current,
+        [jobId]: {
+          ...(current[jobId] ?? {
+            loading: false,
+            message: "",
+            data: null,
+          }),
+          posting: false,
+          error: message,
+        },
+      }));
+      notice = {
+        projectId: project.id,
+        kind: "retry",
+        jobId,
+        message,
+        tone: "error",
+      };
+    } finally {
+      finishJobMutation("retry", jobId, notice);
     }
   }
 
   async function cancelJob(jobId: string) {
+    if (!beginJobMutation("cancel", jobId)) return;
+    let notice: JobMutationNotice | undefined;
     setMessage("");
     try {
-      const cancelled = await csrfMutate<TranscriptionJob>(
-        `/jobs/${jobId}/cancel`,
-        csrf,
-        onCsrf,
-        { method: "POST" },
+      const request = await runBoundedRequest((signal) =>
+        csrfMutate<TranscriptionJob>(
+          `/jobs/${jobId}/cancel`,
+          csrf,
+          onCsrf,
+          { method: "POST", signal },
+        ),
       );
+      if (request.status === "timed_out") {
+        const observed = await readAfterJobMutationTimeout<TranscriptionJob>(
+          `/jobs/${jobId}`,
+        );
+        const confirmed =
+          observed !== null && cancellationIsConfirmed(observed);
+        if (observed) {
+          setDetail((current) => ({
+            ...current,
+            [jobId]: { loading: false, error: "", job: observed },
+          }));
+        }
+        notice = {
+          projectId: project.id,
+          kind: "cancel",
+          jobId,
+          message: confirmed
+            ? "Сервер не ответил вовремя, но отмена подтверждена по актуальному состоянию задачи."
+            : "Сервер не ответил вовремя. Актуальное состояние не подтверждает отмену; проверьте задачу перед повтором.",
+          tone: confirmed ? "notice" : "error",
+        };
+        onReloadJobs(project.id);
+        return;
+      }
+      const cancelled = request.value;
       setDetail((current) => ({
         ...current,
         [jobId]: { loading: false, error: "", job: cancelled },
       }));
-      setMessage(
-        "Запрос отмены отправлен. Уже созданные результаты останутся доступны.",
-      );
+      notice = {
+        projectId: project.id,
+        kind: "cancel",
+        jobId,
+        message:
+          "Запрос отмены отправлен. Уже созданные результаты останутся доступны.",
+        tone: "notice",
+      };
       onReloadJobs(project.id);
     } catch {
-      setMessage("Не удалось отменить задачу. Повторите позже.");
+      notice = {
+        projectId: project.id,
+        kind: "cancel",
+        jobId,
+        message: "Не удалось отменить задачу. Повторите позже.",
+        tone: "error",
+      };
+    } finally {
+      finishJobMutation("cancel", jobId, notice);
     }
   }
   const displayJobs = mergeJobsWithBatchOrder(jobs.items ?? [], batchJobs);
@@ -1440,24 +2704,23 @@ function PreparationPanel({
     if (!currentJobIds) {
       return;
     }
-    let stopped = false;
-    let timer: number | undefined;
-    let confirmedResponse = false;
     const requestedIds = currentJobIds.split(",");
-    const refresh = async () => {
-      setProgress((current) => {
-        return updateRequestedProgressStates(current, requestedIds, (_jobId, previous) => ({
-            loading: !previous?.data,
-            error: "",
-            data: previous?.data ?? null,
-          }));
-      });
-      try {
-        const raw = await api<unknown>(`/projects/${project.id}/jobs/progress`);
+    return startJobProgressPolling(
+      async ({ isStopped, signal }) => {
+        setProgress((current) => {
+          return updateRequestedProgressStates(current, requestedIds, (_jobId, previous) => ({
+              loading: !previous?.data,
+              error: "",
+              data: previous?.data ?? null,
+            }));
+        });
+        const raw = await api<unknown>(`/projects/${project.id}/jobs/progress`, {
+          signal,
+          ignoredAbortReason: JOB_PROGRESS_POLLING_STOP_REASON,
+        });
         const parsed = parseProjectJobProgressResponse(raw);
         if (!parsed) throw new Error("Invalid job progress response");
-        if (stopped) return;
-        confirmedResponse = true;
+        if (isStopped()) return;
         const byId = new Map(parsed.jobs.map((item) => [item.job_id, item]));
         setProgress((current) => {
           return updateRequestedProgressStates(current, requestedIds, (jobId, previous) => ({
@@ -1467,12 +2730,10 @@ function PreparationPanel({
             }));
         });
         if (requestedIds.some((jobId) => !byId.has(jobId))) {
-          reloadJobsRef.current(project.id);
-          return;
+          void reloadJobsRef.current(project.id);
         }
-        timer = window.setTimeout(refresh, 5000);
-      } catch {
-        if (stopped) return;
+      },
+      () => {
         setProgress((current) => {
           return updateRequestedProgressStates(current, requestedIds, (_jobId, previous) => ({
               loading: false,
@@ -1480,24 +2741,54 @@ function PreparationPanel({
               data: previous?.data ?? null,
             }));
         });
-        if (confirmedResponse) timer = window.setTimeout(refresh, 10000);
-      }
-    };
-    void refresh();
-    return () => {
-      stopped = true;
-      if (timer !== undefined) window.clearTimeout(timer);
-    };
+      },
+    );
   }, [currentJobIds, project.id]);
   async function dismissTerminalJob(jobId: string) {
+    if (!beginJobMutation("dismiss", jobId)) return;
+    let notice: JobMutationNotice | undefined;
     setMessage("");
     try {
-      const dismissed = await csrfMutate<TranscriptionJob>(
-        `/jobs/${jobId}/dismiss`,
-        csrf,
-        onCsrf,
-        { method: "POST" },
+      const request = await runBoundedRequest((signal) =>
+        csrfMutate<TranscriptionJob>(
+          `/jobs/${jobId}/dismiss`,
+          csrf,
+          onCsrf,
+          { method: "POST", signal },
+        ),
       );
+      if (request.status === "timed_out") {
+        const observed = await readAfterJobMutationTimeout<TranscriptionJob>(
+          `/jobs/${jobId}`,
+        );
+        const confirmed =
+          observed !== null && dismissalIsConfirmed(observed);
+        if (observed) {
+          setDetail((current) => ({
+            ...current,
+            [jobId]: { loading: false, error: "", job: observed },
+          }));
+        }
+        if (confirmed) {
+          setProgress((current) => {
+            const next = { ...current };
+            delete next[jobId];
+            return next;
+          });
+        }
+        notice = {
+          projectId: project.id,
+          kind: "dismiss",
+          jobId,
+          message: confirmed
+            ? "Сервер не ответил вовремя, но перенос в историю подтверждён по актуальному состоянию."
+            : "Сервер не ответил вовремя. Перенос в историю не подтверждён; обновите состояние перед повтором.",
+          tone: confirmed ? "notice" : "error",
+        };
+        onReloadJobs(project.id);
+        return;
+      }
+      const dismissed = request.value;
       setDetail((current) => ({
         ...current,
         [jobId]: { loading: false, error: "", job: dismissed },
@@ -1509,20 +2800,50 @@ function PreparationPanel({
       });
       await onReloadJobs(project.id);
     } catch {
-      setMessage("Не удалось убрать задачу в историю. Повторите позже.");
+      notice = {
+        projectId: project.id,
+        kind: "dismiss",
+        jobId,
+        message: "Не удалось убрать задачу в историю. Повторите позже.",
+        tone: "error",
+      };
+    } finally {
+      finishJobMutation("dismiss", jobId, notice);
     }
   }
   function renderJobCard(job: TranscriptionJob, pinnedTerminal = false) {
     const currentDetail = detail[job.id];
     const detailedJob = currentDetail?.job;
+    const reconciliation = reconciliations[job.id];
+    const retry = detailedJob ? retries[detailedJob.id] : undefined;
     return (
       <JobCard
         key={job.id}
         job={job}
         detail={currentDetail}
         outputs={outputs[job.id]}
-        reconciliation={reconciliations[job.id]}
-        retry={detailedJob ? retries[detailedJob.id] : undefined}
+        reconciliation={
+          reconciliation
+            ? {
+                ...reconciliation,
+                checking:
+                  reconciliation.checking ||
+                  pendingJobMutations.has(
+                    jobMutationKey("reconciliation", job.id),
+                  ),
+              }
+            : undefined
+        }
+        retry={
+          retry
+            ? {
+                ...retry,
+                posting:
+                  retry.posting ||
+                  pendingJobMutations.has(jobMutationKey("retry", job.id)),
+              }
+            : undefined
+        }
         progress={
           ["queued", "processing"].includes(job.status)
             ? progress[job.id]
@@ -1532,15 +2853,71 @@ function PreparationPanel({
         }
         onOpen={loadDetail}
         onCancel={cancelJob}
+        cancelPending={pendingJobMutations.has(
+          jobMutationKey("cancel", job.id),
+        )}
         onCheckReconciliation={checkReconciliation}
         onRetry={retryJob}
         pinnedTerminal={pinnedTerminal}
+        dismissPending={pendingJobMutations.has(
+          jobMutationKey("dismiss", job.id),
+        )}
         onDismissTerminal={dismissTerminalJob}
       />
     );
   }
+  const visibleJobMutationNotices = Object.values(jobMutationNotices).filter(
+    (notice) => {
+      if (notice.projectId !== project.id) return false;
+      if (notice.kind === "retry") {
+        const local = retries[notice.jobId];
+        return !(local?.message || local?.error);
+      }
+      if (notice.kind === "reconciliation") {
+        const local = reconciliations[notice.jobId];
+        return !(local?.message || local?.error);
+      }
+      return true;
+    },
+  );
   return (
     <section className="preparation" aria-label={`Подготовка ${project.title}`}>
+      {detachedGooglePickerPending && (
+        <p className="muted" role="status">
+          Выбор в Google Drive для этого проекта ещё выполняется. Дождитесь
+          завершения перед новой попыткой.
+        </p>
+      )}
+      {googlePickerBusyInOtherProject && (
+        <p className="muted" role="status">
+          Google Picker занят операцией в другом проекте. Дождитесь её
+          завершения.
+        </p>
+      )}
+      {visibleGooglePickerNotices.map((notice) => (
+        <p
+          key={googlePickerOperationKey(notice)}
+          className={notice.tone}
+          role="status"
+        >
+          {notice.message}
+        </p>
+      ))}
+      {detachedLocalUploadPending && (
+        <p className="muted" role="status">
+          Загрузка файлов для этого проекта ещё выполняется. Дождитесь
+          завершения перед новым выбором.
+        </p>
+      )}
+      {visibleLocalUploadNotices.map((notice) => (
+        <p
+          key={localUploadOperationKey(notice)}
+          className={notice.tone}
+          role="status"
+        >
+          {notice.message}
+        </p>
+      ))}
       <form
         className="job-creator composer"
         onSubmit={createBatch}
@@ -1580,7 +2957,14 @@ function PreparationPanel({
             </p>
           </div>
           {credentialsLoading && <p role="status">Загрузка подключения…</p>}
-          {credentialsError && <p className="notice">{credentialsError}</p>}
+          {credentialsError && (
+            <div className="notice" role="alert">
+              <p>{credentialsError}</p>
+              <button type="button" onClick={loadCredentials}>
+                Повторить загрузку подключения ElevenLabs
+              </button>
+            </div>
+          )}
           {!credentialsLoading &&
             !credentialsError &&
             activeElevenLabsCredentials.length === 0 && (
@@ -1705,9 +3089,27 @@ function PreparationPanel({
         ) : sourceUploadPolicy ? (
           <p className="notice">Локальная загрузка временно недоступна.</p>
         ) : sourceUploadPolicyError ? (
-          <p className="notice">{sourceUploadPolicyError}</p>
+          <div className="notice" role="alert">
+            <p>{sourceUploadPolicyError}</p>
+            <button type="button" onClick={loadSourceUploadPolicy}>
+              Повторить загрузку правил
+            </button>
+          </div>
         ) : (
           <p className="muted">Загружаем правила локальной загрузки…</p>
+        )}
+        {googleConnectionState === "loading" && (
+          <p className="muted" role="status">
+            Проверяем подключение Google Drive…
+          </p>
+        )}
+        {googleConnectionState === "unavailable" && (
+          <div className="notice" role="alert">
+            <p>Не удалось проверить подключение Google Drive.</p>
+            <button type="button" onClick={onReloadGoogleConnection}>
+              Повторить проверку Google Drive
+            </button>
+          </div>
         )}
         <fieldset className="composer-rows">
           <legend>Строки подготовки</legend>
@@ -1830,14 +3232,14 @@ function PreparationPanel({
                           <label
                             className={`button-like secondary${
                               sourceUploadPolicy?.local_upload_enabled &&
-                              !localUploadBusyRows.has(row.id)
+                              !localUploadIsBusy(row.id)
                                 ? ""
                                 : " disabled"
                             }`}
                             htmlFor={`local-source-upload-${row.id}`}
                             aria-disabled={
                               !sourceUploadPolicy?.local_upload_enabled ||
-                              localUploadBusyRows.has(row.id)
+                              localUploadIsBusy(row.id)
                             }
                           >
                             <span aria-hidden="true">С устройства</span>
@@ -1858,8 +3260,9 @@ function PreparationPanel({
                             }
                             disabled={
                               !sourceUploadPolicy?.local_upload_enabled ||
-                              localUploadBusyRows.has(row.id)
+                              localUploadIsBusy(row.id)
                             }
+                            aria-busy={localUploadIsBusy(row.id)}
                             onChange={(e) =>
                               void uploadRowLocalSources(row.id, e)
                             }
@@ -1928,7 +3331,7 @@ function PreparationPanel({
                       <button
                         type="button"
                         className="secondary"
-                        disabled={!googleConnection?.picker_ready || pickerBusy}
+                        disabled={!driveSourcePickerEnabled || pickerBusy}
                         onClick={() => void chooseRowFolder(row.id)}
                         aria-label={`Выбрать папку результата для строки ${index + 1}`}
                       >
@@ -2029,7 +3432,7 @@ function PreparationPanel({
                           type="button"
                           className="secondary"
                           disabled={
-                            !googleConnection?.picker_ready || pickerBusy
+                            !driveSourcePickerEnabled || pickerBusy
                           }
                           onClick={() =>
                             void chooseRowFolder(row.id, "second")
@@ -2268,6 +3671,34 @@ function PreparationPanel({
           {message}
         </p>
       )}
+      {batchSubmission?.status === "pending" && submissionStage === null && (
+        <p className="notice" role="status">
+          Подтверждение пакета выполняется. Дождитесь ответа перед новой отправкой.
+        </p>
+      )}
+      {batchSubmission?.status === "ambiguous" && (
+        <section
+          className="error"
+          aria-label="Неопределённый исход создания пакета"
+        >
+          <p>
+            Сервер не подтвердил исход отправки. Новая отправка заблокирована,
+            чтобы не создать дубликаты.
+          </p>
+          <button type="button" onClick={replayAmbiguousBatch}>
+            Повторить подтверждение пакета
+          </button>
+        </section>
+      )}
+      {visibleJobMutationNotices.map((notice) => (
+        <p
+          key={jobMutationKey(notice.kind, notice.jobId)}
+          className={notice.tone}
+          role="status"
+        >
+          {notice.message}
+        </p>
+      ))}
       <details className="sources project-files">
         <summary className="summary-row">Файлы проекта</summary>
         <SourcesPanel
@@ -2276,7 +3707,7 @@ function PreparationPanel({
           onCsrf={onCsrf}
           sources={visibleSources}
           onReload={onReloadSources}
-          onSourceRemoved={(source, storageCleanup) => {
+          onSourceRemoved={(source) => {
             const sourceId = source.id;
             setRemovedSourceIds((current) => new Set(current).add(sourceId));
             const affectedRowIds = rows
@@ -2304,17 +3735,11 @@ function PreparationPanel({
                   : row,
               ),
             );
-            setMessage(
-              storageCleanup === "pending"
-                ? source.upload_status === "pending"
-                  ? "Файл убран из проекта. Временная копия поставлена в очередь на удаление после завершения окна загрузки."
-                  : "Файл убран из проекта. Временная копия поставлена в очередь фонового удаления; выбранный срок хранения ждать не нужно."
-                : storageCleanup === "completed"
-                  ? "Файл убран из проекта. Временная копия уже удалена из хранилища."
-                  : "Файл убран из проекта.",
-            );
           }}
-          onError={onError}
+          pendingDeletionIds={pendingSourceDeletions}
+          deletionNotices={sourceDeletionNotices}
+          beginDeletion={beginSourceDeletion}
+          finishDeletion={finishSourceDeletion}
         />
       </details>
       <TranscriptionAnalyticsPanel key={project.id} projectId={project.id} />
@@ -2355,27 +3780,90 @@ function OverviewPage({
     useState<GoogleConnection | null>(null);
   const [googleLoading, setGoogleLoading] = useState(true);
   const [googleError, setGoogleError] = useState(false);
+  const requestEpochsRef = useRef(new Map<string, number>());
+  const requestControllersRef = useRef(new Map<string, AbortController>());
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [credentialsLoading, setCredentialsLoading] = useState(true);
   const [credentialsError, setCredentialsError] = useState(false);
+  const loadProjects = () => {
+    setProjectsLoading(true);
+    setProjectsError(false);
+    void settleLatestRequest(
+      requestEpochsRef.current,
+      "overview:projects",
+      requestProjectCollection,
+      (nextProjects) => {
+        setProjects(nextProjects.filter((project) => !project.archived_at));
+        setProjectsError(false);
+        setProjectsLoading(false);
+      },
+      () => {
+        setProjectsError(true);
+        setProjectsLoading(false);
+      },
+      {
+        controllers: requestControllersRef.current,
+        timeoutMs: PROJECT_COLLECTION_REQUEST_TIMEOUT_MS,
+      },
+    );
+  };
+  const loadGoogleConnection = () => {
+    setGoogleLoading(true);
+    setGoogleError(false);
+    void settleLatestRequest(
+      requestEpochsRef.current,
+      "overview:google-connection",
+      requestGoogleConnection,
+      (connection) => {
+        setGoogleConnection(connection);
+        setGoogleError(false);
+        setGoogleLoading(false);
+      },
+      () => {
+        setGoogleError(true);
+        setGoogleLoading(false);
+      },
+      {
+        controllers: requestControllersRef.current,
+        timeoutMs: GOOGLE_CONNECTION_REQUEST_TIMEOUT_MS,
+      },
+    );
+  };
+  const loadCredentials = () => {
+    setCredentialsLoading(true);
+    setCredentialsError(false);
+    void settleLatestRequest(
+      requestEpochsRef.current,
+      "overview:credentials",
+      requestCredentialCollection,
+      (nextCredentials) => {
+        setCredentials(nextCredentials);
+        setCredentialsError(false);
+        setCredentialsLoading(false);
+      },
+      () => {
+        setCredentialsError(true);
+        setCredentialsLoading(false);
+      },
+      {
+        controllers: requestControllersRef.current,
+        timeoutMs: CREDENTIAL_COLLECTION_REQUEST_TIMEOUT_MS,
+      },
+    );
+  };
   useEffect(() => {
-    api<{ projects: Project[] }>("/projects")
-      .then((r) =>
-        setProjects(
-          (r.projects ?? []).filter((project) => !project.archived_at),
-        ),
-      )
-      .catch(() => setProjectsError(true))
-      .finally(() => setProjectsLoading(false));
-    api<GoogleConnection>("/google/connection")
-      .then(setGoogleConnection)
-      .catch(() => setGoogleError(true))
-      .finally(() => setGoogleLoading(false));
-    api<{ credentials: Credential[] }>("/credentials")
-      .then((r) => setCredentials(r.credentials ?? []))
-      .catch(() => setCredentialsError(true))
-      .finally(() => setCredentialsLoading(false));
+    loadProjects();
+    loadGoogleConnection();
+    loadCredentials();
   }, []);
+  useEffect(
+    () => () =>
+      cancelLatestRequests(
+        requestEpochsRef.current,
+        requestControllersRef.current,
+      ),
+    [],
+  );
   const activeCredentials = credentials.filter(
     (credential) => credential.status === "active",
   );
@@ -2436,10 +3924,20 @@ function OverviewPage({
                 ? "Недоступно"
                 : projects.length}
           </strong>
+          {projectsError && (
+            <button type="button" onClick={loadProjects}>
+              Повторить
+            </button>
+          )}
         </article>
         <article className="card summary-card" aria-label="Google Drive">
           <span className="summary-label">Google Drive</span>
           <strong className="summary-value">{googleStatus}</strong>
+          {googleError && (
+            <button type="button" onClick={loadGoogleConnection}>
+              Повторить
+            </button>
+          )}
         </article>
         <article className="card summary-card" aria-label="Активные ключи">
           <span className="summary-label">Активные ключи</span>
@@ -2450,6 +3948,11 @@ function OverviewPage({
                 ? "Недоступно"
                 : activeCredentials.length}
           </strong>
+          {credentialsError && (
+            <button type="button" onClick={loadCredentials}>
+              Повторить
+            </button>
+          )}
         </article>
       </div>
       {(projectsError || googleError || credentialsError) && (
@@ -2543,42 +4046,323 @@ function ProjectsPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
-  const [activePicker, setActivePicker] = useState(false);
+  const pendingProjectMutationsRef = useRef(new Set<string>());
+  const [pendingProjectMutations, setPendingProjectMutations] = useState<
+    Set<string>
+  >(() => new Set());
+  const [projectMutationNotices, setProjectMutationNotices] = useState<
+    Record<string, ProjectMutationNotice>
+  >({});
+  const activeGooglePickerRef = useRef<GooglePickerOperation | null>(null);
+  const [activeGooglePicker, setActiveGooglePicker] =
+    useState<GooglePickerOperation | null>(null);
+  const [googlePickerNotices, setGooglePickerNotices] = useState<
+    Record<string, GooglePickerNotice>
+  >({});
   const [transcriptionMode, setTranscriptionMode] = useState<"batch" | "live">(
     "batch",
   );
   const [liveTranscripts, setLiveTranscripts] = useState<
     Record<string, string[]>
   >({});
-  const setPickerBusy = (busy: boolean) => {
-    setActivePicker(busy);
+  const requestEpochsRef = useRef(new Map<string, number>());
+  const requestControllersRef = useRef(new Map<string, AbortController>());
+  const pendingJobMutationsRef = useRef(new Set<string>());
+  const [pendingJobMutations, setPendingJobMutations] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [jobMutationNotices, setJobMutationNotices] = useState<
+    Record<string, JobMutationNotice>
+  >({});
+  const pendingSourceDeletionsRef = useRef(new Set<string>());
+  const [pendingSourceDeletions, setPendingSourceDeletions] = useState<
+    Set<string>
+  >(() => new Set());
+  const [sourceDeletionNotices, setSourceDeletionNotices] = useState<
+    Record<string, SourceDeletionNotice>
+  >({});
+  const beginSourceDeletion = (sourceId: string) => {
+    if (pendingSourceDeletionsRef.current.has(sourceId)) return false;
+    pendingSourceDeletionsRef.current.add(sourceId);
+    setPendingSourceDeletions(new Set(pendingSourceDeletionsRef.current));
+    setSourceDeletionNotices((current) => {
+      if (!current[sourceId]) return current;
+      const next = { ...current };
+      delete next[sourceId];
+      return next;
+    });
+    return true;
+  };
+  const finishSourceDeletion = (
+    sourceId: string,
+    notice: SourceDeletionNotice,
+  ) => {
+    if (!pendingSourceDeletionsRef.current.delete(sourceId)) return;
+    setPendingSourceDeletions(new Set(pendingSourceDeletionsRef.current));
+    setSourceDeletionNotices((current) => ({
+      ...current,
+      [sourceId]: notice,
+    }));
+  };
+  const localUploadOperationsRef = useRef(
+    new Map<string, LocalUploadOperation>(),
+  );
+  const [pendingLocalUploads, setPendingLocalUploads] = useState<
+    LocalUploadOperation[]
+  >([]);
+  const [localUploadNotices, setLocalUploadNotices] = useState<
+    Record<string, LocalUploadNotice>
+  >({});
+  const publishPendingLocalUploads = () =>
+    setPendingLocalUploads(
+      Array.from(localUploadOperationsRef.current.values()),
+    );
+  const beginLocalUpload = (operation: LocalUploadOperation) => {
+    if (
+      Array.from(localUploadOperationsRef.current.values()).some(
+        (current) =>
+          current.projectId === operation.projectId &&
+          current.panelId !== operation.panelId,
+      )
+    ) {
+      return false;
+    }
+    const key = localUploadOperationKey(operation);
+    if (localUploadOperationsRef.current.has(key)) return false;
+    localUploadOperationsRef.current.set(key, operation);
+    publishPendingLocalUploads();
+    setLocalUploadNotices((current) => {
+      const next: Record<string, LocalUploadNotice> = {};
+      Object.entries(current).forEach(([noticeKey, notice]) => {
+        if (notice.projectId !== operation.projectId) {
+          next[noticeKey] = notice;
+        }
+      });
+      return next;
+    });
+    return true;
+  };
+  const finishLocalUpload = (
+    operation: LocalUploadOperation,
+    notice: LocalUploadNotice,
+  ) => {
+    const key = localUploadOperationKey(operation);
+    if (!localUploadOperationsRef.current.delete(key)) return;
+    publishPendingLocalUploads();
+    setLocalUploadNotices((current) => ({
+      ...current,
+      [key]: { ...notice, ...operation },
+    }));
+  };
+  const batchSubmissionsRef = useRef(new Map<string, BatchSubmission>());
+  const [batchSubmissions, setBatchSubmissions] = useState<
+    Record<string, BatchSubmission>
+  >({});
+  const publishBatchSubmission = (
+    projectId: string,
+    submission: BatchSubmission | null,
+  ) => {
+    setBatchSubmissions((current) => {
+      const next = { ...current };
+      if (submission) next[projectId] = submission;
+      else delete next[projectId];
+      return next;
+    });
+  };
+  const beginBatchSubmission = (
+    projectId: string,
+    submission: Omit<BatchSubmission, "status">,
+  ) => {
+    if (batchSubmissionsRef.current.has(projectId)) return false;
+    const pending: BatchSubmission = { ...submission, status: "pending" };
+    batchSubmissionsRef.current.set(projectId, pending);
+    publishBatchSubmission(projectId, pending);
+    return true;
+  };
+  const retryBatchSubmission = (projectId: string, key: string) => {
+    const current = batchSubmissionsRef.current.get(projectId);
+    if (!current || current.key !== key || current.status !== "ambiguous") {
+      return false;
+    }
+    const pending: BatchSubmission = { ...current, status: "pending" };
+    batchSubmissionsRef.current.set(projectId, pending);
+    publishBatchSubmission(projectId, pending);
+    return true;
+  };
+  const markBatchSubmissionAmbiguous = (projectId: string, key: string) => {
+    const current = batchSubmissionsRef.current.get(projectId);
+    if (!current || current.key !== key) return;
+    const ambiguous: BatchSubmission = { ...current, status: "ambiguous" };
+    batchSubmissionsRef.current.set(projectId, ambiguous);
+    publishBatchSubmission(projectId, ambiguous);
+  };
+  const clearBatchSubmission = (projectId: string, key: string) => {
+    const current = batchSubmissionsRef.current.get(projectId);
+    if (!current || current.key !== key) return;
+    batchSubmissionsRef.current.delete(projectId);
+    publishBatchSubmission(projectId, null);
+  };
+  const beginJobMutation = (kind: JobMutationKind, jobId: string) => {
+    const key = jobMutationKey(kind, jobId);
+    if (pendingJobMutationsRef.current.has(key)) return false;
+    pendingJobMutationsRef.current.add(key);
+    setPendingJobMutations(new Set(pendingJobMutationsRef.current));
+    setJobMutationNotices((current) => {
+      if (!current[key]) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+    return true;
+  };
+  const finishJobMutation = (
+    kind: JobMutationKind,
+    jobId: string,
+    notice?: JobMutationNotice,
+  ) => {
+    const key = jobMutationKey(kind, jobId);
+    if (!pendingJobMutationsRef.current.delete(key)) return;
+    setPendingJobMutations(new Set(pendingJobMutationsRef.current));
+    if (notice)
+      setJobMutationNotices((current) => ({ ...current, [key]: notice }));
+  };
+  const beginGooglePicker = (operation: GooglePickerOperation) => {
+    if (activeGooglePickerRef.current) return false;
+    activeGooglePickerRef.current = operation;
+    setActiveGooglePicker(operation);
+    setGooglePickerNotices((current) => {
+      if (!current[operation.projectId]) return current;
+      const next = { ...current };
+      delete next[operation.projectId];
+      return next;
+    });
+    return true;
+  };
+  const finishGooglePicker = (
+    operation: GooglePickerOperation,
+    outcome?: GooglePickerOutcome,
+  ) => {
+    const activeOperation = activeGooglePickerRef.current;
+    if (
+      !activeOperation ||
+      googlePickerOperationKey(activeOperation) !==
+        googlePickerOperationKey(operation)
+    )
+      return;
+    activeGooglePickerRef.current = null;
+    setActiveGooglePicker(null);
+    if (outcome) {
+      setGooglePickerNotices((current) => ({
+        ...current,
+        [operation.projectId]: { ...operation, ...outcome },
+      }));
+    }
+  };
+  const beginProjectMutation = (operation: ProjectMutationOperation) => {
+    const key = projectMutationKey(operation);
+    if (pendingProjectMutationsRef.current.has(key)) return false;
+    pendingProjectMutationsRef.current.add(key);
+    setPendingProjectMutations(new Set(pendingProjectMutationsRef.current));
+    setProjectMutationNotices((current) => {
+      if (!current[key]) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+    return true;
+  };
+  const finishProjectMutation = (
+    operation: ProjectMutationOperation,
+    notice?: ProjectMutationNotice,
+  ) => {
+    const key = projectMutationKey(operation);
+    if (!pendingProjectMutationsRef.current.delete(key)) return;
+    setPendingProjectMutations(new Set(pendingProjectMutationsRef.current));
+    if (notice) {
+      setProjectMutationNotices((current) => ({
+        ...current,
+        [key]: notice,
+      }));
+    }
   };
   const [googleConnection, setGoogleConnection] =
     useState<GoogleConnection | null>(null);
-  const load = () => {
-    setLoading(true);
-    setError("");
-    api<{ projects: Project[] }>("/projects")
-      .then((r) => {
-        setProjects(r.projects);
-        setSelectedProjectId((current) => {
-          if (current && r.projects.some((project) => project.id === current))
-            return current;
-          return requestedProjectId &&
-            r.projects.some((project) => project.id === requestedProjectId)
-            ? requestedProjectId
-            : (r.projects[0]?.id ?? null);
-        });
-        if (r.projects.length === 0) setCreateOpen(true);
-      })
-      .catch((err) =>
-        setError(
-          err instanceof Error ? err.message : "Не удалось загрузить проекты.",
-        ),
-      )
-      .finally(() => setLoading(false));
+  const [googleConnectionState, setGoogleConnectionState] =
+    useState<GoogleConnectionReadState>("loading");
+  const loadGoogleConnection = () => {
+    setGoogleConnectionState("loading");
+    void settleLatestRequest(
+      requestEpochsRef.current,
+      "projects:google-connection",
+      requestGoogleConnection,
+      (connection) => {
+        setGoogleConnection(connection);
+        setGoogleConnectionState("ready");
+      },
+      () => setGoogleConnectionState("unavailable"),
+      {
+        controllers: requestControllersRef.current,
+        timeoutMs: GOOGLE_CONNECTION_REQUEST_TIMEOUT_MS,
+      },
+    );
   };
-  useEffect(load, []);
+  const load = async ({ reportFailure = true } = {}): Promise<
+    Project[] | null
+  > => {
+    let observed: Project[] | null = null;
+    setLoading(true);
+    if (reportFailure) setError("");
+    await settleLatestRequest(
+      requestEpochsRef.current,
+      "projects",
+      requestProjectCollection,
+      (nextProjects) => {
+        observed = nextProjects;
+        setProjects(nextProjects);
+        setSelectedProjectId((current) => {
+          if (
+            current &&
+            nextProjects.some((project) => project.id === current)
+          ) {
+            return current;
+          }
+          return requestedProjectId &&
+            nextProjects.some((project) => project.id === requestedProjectId)
+            ? requestedProjectId
+            : (nextProjects[0]?.id ?? null);
+        });
+        if (nextProjects.length === 0) setCreateOpen(true);
+        setLoading(false);
+        setError("");
+      },
+      (loadError) => {
+        if (reportFailure) {
+          setError(
+            loadError instanceof ApiError
+              ? loadError.message
+              : "Не удалось загрузить проекты.",
+          );
+        }
+        setLoading(false);
+      },
+      {
+        controllers: requestControllersRef.current,
+        timeoutMs: PROJECT_COLLECTION_REQUEST_TIMEOUT_MS,
+      },
+    );
+    return observed;
+  };
+  useEffect(() => {
+    void load();
+  }, []);
+  useEffect(
+    () => () =>
+      cancelLatestRequests(
+        requestEpochsRef.current,
+        requestControllersRef.current,
+      ),
+    [],
+  );
   useEffect(() => {
     if (!requestedProjectId) return;
     if (projects.some((project) => project.id === requestedProjectId)) {
@@ -2604,140 +4388,351 @@ function ProjectsPage({
     onRequestedProjectsViewHandled,
   ]);
   useEffect(() => {
-    api<GoogleConnection>("/google/connection")
-      .then(setGoogleConnection)
-      .catch(() => setGoogleConnection(null));
-  }, []);
+    if (active) loadGoogleConnection();
+  }, [active]);
   const loadSources = (projectId: string) => {
-    setSources((v) => ({
-      ...v,
+    const requestKey = `sources:${projectId}`;
+    setSources((current) => ({
+      ...current,
       [projectId]: {
-        ...(v[projectId] ?? emptySourceState),
+        ...(current[projectId] ?? emptySourceState),
         loading: true,
         error: "",
       },
     }));
-    api<{ sources: Source[] }>(`/projects/${projectId}/sources`)
-      .then((r) =>
-        setSources((v) => ({
-          ...v,
+    void settleLatestRequest(
+      requestEpochsRef.current,
+      requestKey,
+      (signal) =>
+        api<{ sources: Source[] }>(`/projects/${projectId}/sources`, {
+          signal,
+          ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+        }),
+      (result) =>
+        setSources((current) => ({
+          ...current,
           [projectId]: {
             loading: false,
             error: "",
             loaded: true,
-            items: r.sources,
+            items: result.sources,
           },
         })),
-      )
-      .catch((err) =>
-        setSources((v) => ({
-          ...v,
+      () =>
+        setSources((current) => ({
+          ...current,
           [projectId]: {
             loading: false,
-            error:
-              err instanceof Error
-                ? err.message
-                : "Не удалось загрузить sources.",
+            error: "Не удалось загрузить файлы проекта.",
             loaded: true,
-            items: [],
+            items: current[projectId]?.items ?? [],
           },
         })),
-      );
+      {
+        controllers: requestControllersRef.current,
+        timeoutMs: PROJECT_COLLECTION_REQUEST_TIMEOUT_MS,
+      },
+    );
   };
   const loadJobs = (projectId: string) => {
-    setJobs((v) => ({
-      ...v,
+    const requestKey = `jobs:${projectId}`;
+    setJobs((current) => ({
+      ...current,
       [projectId]: {
-        ...(v[projectId] ?? emptyJobState),
+        ...(current[projectId] ?? emptyJobState),
         loading: true,
         error: "",
       },
     }));
-    api<{ jobs: TranscriptionJob[] }>(`/projects/${projectId}/jobs`)
-      .then((r) =>
-        setJobs((v) => ({
-          ...v,
+    void settleLatestRequest(
+      requestEpochsRef.current,
+      requestKey,
+      (signal) =>
+        api<{ jobs: TranscriptionJob[] }>(`/projects/${projectId}/jobs`, {
+          signal,
+          ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+        }),
+      (result) =>
+        setJobs((current) => ({
+          ...current,
           [projectId]: {
             loading: false,
             error: "",
             loaded: true,
-            items: r.jobs,
+            items: result.jobs,
           },
         })),
-      )
-      .catch(() =>
-        setJobs((v) => ({
-          ...v,
+      () =>
+        setJobs((current) => ({
+          ...current,
           [projectId]: {
             loading: false,
-            error: "Не удалось загрузить jobs.",
+            error: "Не удалось загрузить задачи проекта.",
             loaded: true,
-            items: [],
+            items: current[projectId]?.items ?? [],
           },
         })),
-      );
+      {
+        controllers: requestControllersRef.current,
+        timeoutMs: PROJECT_COLLECTION_REQUEST_TIMEOUT_MS,
+      },
+    );
   };
   async function save(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    const operation: ProjectMutationOperation = {
+      kind: "create",
+      projectId: null,
+    };
+    if (!beginProjectMutation(operation)) return;
+    let notice: ProjectMutationNotice | undefined;
     setError("");
     const form = e.currentTarget;
     const fd = new FormData(form);
+    const title = String(fd.get("project_title") ?? "");
+    const description = String(fd.get("project_description") ?? "");
+    const reconcileAmbiguousCreate = async () => {
+      const observed = await load({ reportFailure: false });
+      notice = {
+        ...operation,
+        message: observed
+          ? "Сервер не подтвердил создание проекта. Список проектов обновлён; проверьте его перед повторной попыткой."
+          : "Сервер не подтвердил создание проекта, а обновить список не удалось. Не повторяйте отправку, пока не проверите проекты после обновления страницы.",
+        tone: "error",
+      };
+    };
     try {
-      const created = await csrfMutate<Project>("/projects", csrf, onCsrf, {
-        method: "POST",
-        body: JSON.stringify({
-          title: fd.get("project_title"),
-          description: fd.get("project_description"),
-        }),
-      });
+      const request = await runBoundedRequest(
+        (signal) =>
+          csrfMutate<unknown>("/projects", csrf, onCsrf, {
+            method: "POST",
+            signal,
+            body: JSON.stringify({ title, description }),
+          }),
+        PROJECT_MUTATION_REQUEST_TIMEOUT_MS,
+      );
+      if (request.status === "timed_out") {
+        await reconcileAmbiguousCreate();
+        return;
+      }
+      const created = request.value;
+      if (!isExpectedProject(created) || created.archived_at !== null) {
+        await reconcileAmbiguousCreate();
+        return;
+      }
       form.reset();
       setCreateOpen(false);
+      setProjects((current) => [
+        created,
+        ...current.filter((project) => project.id !== created.id),
+      ]);
       setSelectedProjectId(created.id);
-      load();
+      await load({ reportFailure: false });
+      notice = {
+        ...operation,
+        message: "Проект создан.",
+        tone: "notice",
+      };
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Не удалось создать проект.",
-      );
+      if (isAmbiguousProjectMutationFailure(err)) {
+        await reconcileAmbiguousCreate();
+      } else {
+        notice = {
+          ...operation,
+          message: "Не удалось создать проект. Проверьте данные и повторите.",
+          tone: "error",
+        };
+      }
+    } finally {
+      finishProjectMutation(operation, notice);
     }
   }
   async function update(e: FormEvent<HTMLFormElement>, id: string) {
     e.preventDefault();
+    const operation: ProjectMutationOperation = {
+      kind: "update",
+      projectId: id,
+    };
+    if (!beginProjectMutation(operation)) return;
+    let notice: ProjectMutationNotice | undefined;
     setError("");
     const fd = new FormData(e.currentTarget);
+    const title = String(fd.get("project_title") ?? "");
+    const description = String(fd.get("project_description") ?? "");
+    const beforeUpdate = projects.find((project) => project.id === id) ?? null;
+    const requestedStateChanged =
+      beforeUpdate !== null &&
+      (beforeUpdate.title !== title ||
+        (beforeUpdate.description ?? "") !== description);
+    const reconcileUpdate = async () => {
+      const observed = await load({ reportFailure: false });
+      const confirmed =
+        observed?.some(
+          (project) =>
+            project.id === id &&
+            project.title === title &&
+            (project.description ?? "") === description &&
+            (requestedStateChanged ||
+              (beforeUpdate !== null &&
+                project.updated_at !== beforeUpdate.updated_at)),
+        ) === true;
+      if (confirmed) setEditing((current) => (current === id ? null : current));
+      notice = {
+        ...operation,
+        message: confirmed
+          ? "Сервер не ответил ожидаемым образом, но сохранение подтверждено по актуальному списку проектов."
+          : observed
+            ? "Сервер не подтвердил сохранение. Список проектов обновлён; проверьте проект перед повторной попыткой."
+            : "Сервер не подтвердил сохранение, а обновить список проектов не удалось. Обновите страницу перед повторной попыткой.",
+        tone: confirmed ? "notice" : "error",
+      };
+    };
     try {
-      await csrfMutate<Project>(`/projects/${id}`, csrf, onCsrf, {
-        method: "PATCH",
-        body: JSON.stringify({
-          title: fd.get("project_title"),
-          description: fd.get("project_description"),
-        }),
-      });
-      setEditing(null);
-      load();
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Не удалось сохранить проект.",
+      const request = await runBoundedRequest(
+        (signal) =>
+          csrfMutate<unknown>(`/projects/${id}`, csrf, onCsrf, {
+            method: "PATCH",
+            signal,
+            body: JSON.stringify({ title, description }),
+          }),
+        PROJECT_MUTATION_REQUEST_TIMEOUT_MS,
       );
+      if (request.status === "timed_out") {
+        await reconcileUpdate();
+        return;
+      }
+      const updated = request.value;
+      if (
+        !isExpectedProject(updated) ||
+        updated.id !== id ||
+        updated.archived_at !== null
+      ) {
+        await reconcileUpdate();
+        return;
+      }
+      setProjects((current) =>
+        current.map((project) => (project.id === id ? updated : project)),
+      );
+      setEditing(null);
+      await load({ reportFailure: false });
+      notice = {
+        ...operation,
+        message: "Изменения проекта сохранены.",
+        tone: "notice",
+      };
+    } catch (err) {
+      if (isAmbiguousProjectMutationFailure(err)) {
+        await reconcileUpdate();
+      } else {
+        notice = {
+          ...operation,
+          message: "Не удалось сохранить проект. Проверьте данные и повторите.",
+          tone: "error",
+        };
+      }
+    } finally {
+      finishProjectMutation(operation, notice);
     }
   }
   async function archive(id: string) {
+    const operation: ProjectMutationOperation = {
+      kind: "archive",
+      projectId: id,
+    };
+    if (!beginProjectMutation(operation)) return;
+    let notice: ProjectMutationNotice | undefined;
     setError("");
+    const reconcileArchive = async () => {
+      const observed = await load({ reportFailure: false });
+      const confirmed =
+        observed !== null &&
+        !observed.some((project) => project.id === operation.projectId);
+      notice = {
+        ...operation,
+        message: confirmed
+          ? "Архивация подтверждена по актуальному списку проектов."
+          : observed
+            ? "Сервер не подтвердил архивацию. Проект остаётся в актуальном списке; проверьте его перед повторной попыткой."
+            : "Сервер не подтвердил архивацию, а обновить список проектов не удалось. Обновите страницу перед повторной попыткой.",
+        tone: confirmed ? "notice" : "error",
+      };
+    };
     try {
-      await csrfMutate<{ ok: boolean }>(
-        `/projects/${id}/archive`,
-        csrf,
-        onCsrf,
-        { method: "POST" },
+      const request = await runBoundedRequest(
+        (signal) =>
+          csrfMutate<unknown>(
+            `/projects/${id}/archive`,
+            csrf,
+            onCsrf,
+            { method: "POST", signal },
+          ),
+        PROJECT_MUTATION_REQUEST_TIMEOUT_MS,
       );
-      load();
+      if (request.status === "timed_out") {
+        await reconcileArchive();
+        return;
+      }
+      const response = request.value;
+      if (
+        !response ||
+        typeof response !== "object" ||
+        (response as { ok?: unknown }).ok !== true
+      ) {
+        await reconcileArchive();
+        return;
+      }
+      setProjects((current) =>
+        current.filter((project) => project.id !== id),
+      );
+      setSelectedProjectId((current) =>
+        current === id
+          ? (projects.find((project) => project.id !== id)?.id ?? null)
+          : current,
+      );
+      setEditing((current) => (current === id ? null : current));
+      await load({ reportFailure: false });
+      notice = {
+        ...operation,
+        message: "Проект архивирован.",
+        tone: "notice",
+      };
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Не удалось архивировать проект.",
-      );
+      if (isAmbiguousProjectMutationFailure(err)) {
+        await reconcileArchive();
+      } else {
+        notice = {
+          ...operation,
+          message: "Не удалось архивировать проект. Обновите список и повторите.",
+          tone: "error",
+        };
+      }
+    } finally {
+      finishProjectMutation(operation, notice);
     }
   }
   const selectedProject =
     projects.find((project) => project.id === selectedProjectId) ?? null;
+  const createMutationKey = projectMutationKey({
+    kind: "create",
+    projectId: null,
+  });
+  const createPending = pendingProjectMutations.has(createMutationKey);
+  const createNotice = projectMutationNotices[createMutationKey];
+  const updatePending = selectedProject
+    ? pendingProjectMutations.has(
+        projectMutationKey({ kind: "update", projectId: selectedProject.id }),
+      )
+    : false;
+  const archivePending = selectedProject
+    ? pendingProjectMutations.has(
+        projectMutationKey({ kind: "archive", projectId: selectedProject.id }),
+      )
+    : false;
+  const selectedProjectMutationNotices = selectedProject
+    ? Object.entries(projectMutationNotices).filter(
+        ([, notice]) => notice.projectId === selectedProject.id,
+      )
+    : [];
   const showCreate = createOpen || projects.length === 0;
   const selectedSources = selectedProject
     ? (sources[selectedProject.id] ?? emptySourceState)
@@ -2770,6 +4765,8 @@ function ProjectsPage({
           className="primary"
           type="button"
           aria-expanded={showCreate}
+          aria-busy={createPending || undefined}
+          disabled={createPending}
           onClick={() => {
             onRequestedProjectsViewHandled();
             setCreateOpen((v) => !v);
@@ -2779,7 +4776,11 @@ function ProjectsPage({
         </button>
       </header>
       {showCreate && (
-        <form className="card project-form" onSubmit={save}>
+        <form
+          className="card project-form"
+          aria-busy={createPending || undefined}
+          onSubmit={save}
+        >
           <h2>Новый проект</h2>
           <label>
             Название проекта
@@ -2790,11 +4791,29 @@ function ProjectsPage({
             <input name="project_description" maxLength={2000} />
           </label>
           <div className="actions">
-            <button className="primary">Создать</button>
-            <button type="button" onClick={() => setCreateOpen(false)}>
+            <button
+              className="primary"
+              aria-busy={createPending || undefined}
+              disabled={createPending}
+            >
+              {createPending ? "Создание…" : "Создать"}
+            </button>
+            <button
+              type="button"
+              disabled={createPending}
+              onClick={() => setCreateOpen(false)}
+            >
               Отмена
             </button>
           </div>
+          {createNotice && (
+            <p
+              className={createNotice.tone}
+              role={createNotice.tone === "error" ? "alert" : "status"}
+            >
+              {createNotice.message}
+            </p>
+          )}
         </form>
       )}
       {loading && <p role="status">Загрузка проектов…</p>}
@@ -2828,10 +4847,21 @@ function ProjectsPage({
         </section>
         <div className="project-detail">
           {selectedProject ? (
-            <article className="card workspace-card">
+            <>
+              {selectedProjectMutationNotices.map(([key, notice]) => (
+                <p
+                  key={key}
+                  className={notice.tone}
+                  role={notice.tone === "error" ? "alert" : "status"}
+                >
+                  {notice.message}
+                </p>
+              ))}
+              <article className="card workspace-card">
               {editing === selectedProject.id ? (
                 <form
                   className="project-edit compact"
+                  aria-busy={updatePending || undefined}
                   onSubmit={(e) => update(e, selectedProject.id)}
                 >
                   <label>
@@ -2852,8 +4882,18 @@ function ProjectsPage({
                     />
                   </label>
                   <div className="actions">
-                    <button className="primary">Сохранить</button>
-                    <button type="button" onClick={() => setEditing(null)}>
+                    <button
+                      className="primary"
+                      aria-busy={updatePending || undefined}
+                      disabled={updatePending}
+                    >
+                      {updatePending ? "Сохранение…" : "Сохранить"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={updatePending}
+                      onClick={() => setEditing(null)}
+                    >
                       Отмена
                     </button>
                   </div>
@@ -2875,6 +4915,7 @@ function ProjectsPage({
                   <div className="actions">
                     <button
                       type="button"
+                      disabled={archivePending}
                       onClick={() => setEditing(selectedProject.id)}
                     >
                       Редактировать
@@ -2882,9 +4923,11 @@ function ProjectsPage({
                     <button
                       className="danger"
                       type="button"
+                      aria-busy={archivePending || undefined}
+                      disabled={archivePending}
                       onClick={() => archive(selectedProject.id)}
                     >
-                      Архивировать
+                      {archivePending ? "Архивация…" : "Архивировать"}
                     </button>
                   </div>
                 </header>
@@ -2929,12 +4972,42 @@ function ProjectsPage({
                   jobs={selectedJobs}
                   sources={selectedSources}
                   googleConnection={googleConnection}
-                  pickerBusy={activePicker}
-                  setPickerBusy={setPickerBusy}
+                  googleConnectionState={googleConnectionState}
+                  onReloadGoogleConnection={loadGoogleConnection}
+                  activeGooglePicker={activeGooglePicker}
+                  googlePickerNotices={googlePickerNotices}
+                  beginGooglePicker={beginGooglePicker}
+                  finishGooglePicker={finishGooglePicker}
                   onLoadSources={loadSources}
                   onReloadSources={loadSources}
                   onReloadJobs={loadJobs}
-                  onError={setError}
+                  pendingJobMutations={pendingJobMutations}
+                  jobMutationNotices={jobMutationNotices}
+                  beginJobMutation={beginJobMutation}
+                  finishJobMutation={finishJobMutation}
+                  pendingSourceDeletions={pendingSourceDeletions}
+                  sourceDeletionNotices={sourceDeletionNotices}
+                  beginSourceDeletion={beginSourceDeletion}
+                  finishSourceDeletion={finishSourceDeletion}
+                  pendingLocalUploads={pendingLocalUploads}
+                  localUploadNotices={localUploadNotices}
+                  beginLocalUpload={beginLocalUpload}
+                  finishLocalUpload={finishLocalUpload}
+                  batchSubmission={
+                    batchSubmissions[selectedProject.id] ?? null
+                  }
+                  beginBatchSubmission={(submission) =>
+                    beginBatchSubmission(selectedProject.id, submission)
+                  }
+                  retryBatchSubmission={(key) =>
+                    retryBatchSubmission(selectedProject.id, key)
+                  }
+                  markBatchSubmissionAmbiguous={(key) =>
+                    markBatchSubmissionAmbiguous(selectedProject.id, key)
+                  }
+                  clearBatchSubmission={(key) =>
+                    clearBatchSubmission(selectedProject.id, key)
+                  }
                 />
               </div>
               <div
@@ -2959,6 +5032,7 @@ function ProjectsPage({
                 />
               </div>
             </article>
+            </>
           ) : (
             <p className="notice">Выберите проект.</p>
           )}
@@ -3159,6 +5233,21 @@ function SettingsPage({
   onLogout,
   oauthResult,
   maintenanceOauthResult,
+  credentialMutations,
+  credentialMutationNotices,
+  beginCredentialMutation,
+  finishCredentialMutation,
+  retentionMutation,
+  retentionMutationNotice,
+  beginRetentionMutation,
+  finishRetentionMutation,
+  acknowledgeRetentionMutationRefresh,
+  googleConnectionMutation,
+  googleConnectionMutationNotice,
+  beginGoogleConnectionMutation,
+  finishGoogleConnectionMutation,
+  isGoogleConnectionMutationActive,
+  acknowledgeGoogleConnectionMutationRefresh,
   section,
   onSectionChange,
 }: {
@@ -3168,117 +5257,424 @@ function SettingsPage({
   onLogout: () => void;
   oauthResult: GoogleOauthResult | null;
   maintenanceOauthResult: GoogleMaintenanceOauthResult | null;
+  credentialMutations: CredentialMutationOperation[];
+  credentialMutationNotices: Record<string, CredentialMutationNotice>;
+  beginCredentialMutation: (
+    kind: CredentialMutationKind,
+    credentialId: string | null,
+  ) => CredentialMutationOperation | null;
+  finishCredentialMutation: (
+    operation: CredentialMutationOperation,
+    notice?: CredentialMutationNotice,
+  ) => void;
+  retentionMutation: RetentionMutationOperation | null;
+  retentionMutationNotice: RetentionMutationNotice | null;
+  beginRetentionMutation: () => RetentionMutationOperation | null;
+  finishRetentionMutation: (
+    operation: RetentionMutationOperation,
+    notice?: RetentionMutationNotice,
+  ) => void;
+  acknowledgeRetentionMutationRefresh: () => void;
+  googleConnectionMutation: GoogleConnectionMutationOperation | null;
+  googleConnectionMutationNotice: GoogleConnectionMutationNotice | null;
+  beginGoogleConnectionMutation: (
+    kind: GoogleConnectionMutationKind,
+  ) => GoogleConnectionMutationOperation | null;
+  finishGoogleConnectionMutation: (
+    operation: GoogleConnectionMutationOperation,
+    notice?: GoogleConnectionMutationNotice,
+  ) => void;
+  isGoogleConnectionMutationActive: (
+    operation: GoogleConnectionMutationOperation,
+  ) => boolean;
+  acknowledgeGoogleConnectionMutationRefresh: () => void;
   section: SettingsSection;
   onSectionChange: (section: SettingsSection) => void;
 }) {
   const [credentials, setCredentials] = useState<Credential[]>([]);
+  const [credentialsLoading, setCredentialsLoading] = useState(true);
+  const [credentialsMessage, setCredentialsMessage] = useState("");
+  const credentialRequestEpochsRef = useRef(new Map<string, number>());
+  const credentialRequestControllersRef = useRef(
+    new Map<string, AbortController>(),
+  );
+  const settingsMountedRef = useRef(true);
   const [events, setEvents] = useState<Audit[]>([]);
   const [googleConnection, setGoogleConnection] =
     useState<GoogleConnection | null>(null);
   const [googleLoading, setGoogleLoading] = useState(true);
   const [googleMessage, setGoogleMessage] = useState("");
-  const [googleStarting, setGoogleStarting] = useState(false);
+  const googleRequestEpochsRef = useRef(new Map<string, number>());
+  const googleRequestControllersRef = useRef(new Map<string, AbortController>());
   const [accountPreferences, setAccountPreferences] =
     useState<AccountPreferences | null>(null);
+  const retentionRequestEpochsRef = useRef(new Map<string, number>());
+  const retentionRequestControllersRef = useRef(
+    new Map<string, AbortController>(),
+  );
   const [retentionSelection, setRetentionSelection] = useState("86400");
   const [retentionState, setRetentionState] = useState<
     "loading" | "ready" | "error"
   >("loading");
-  const [retentionSaving, setRetentionSaving] = useState(false);
   const [retentionMessage, setRetentionMessage] = useState("");
   const [themePreference, setThemePreference] =
     useState<StudioThemePreference>(() => readStudioThemePreference());
-  const [error, setError] = useState("");
   const [createCredentialOpen, setCreateCredentialOpen] = useState(false);
   const [replacingCredentialId, setReplacingCredentialId] = useState<
     string | null
   >(null);
-  const loadGoogleConnection = () => {
-    setGoogleLoading(true);
-    setGoogleMessage("");
-    api<GoogleConnection>("/google/connection")
-      .then((r) => setGoogleConnection(r))
-      .catch(() => {
-        setGoogleConnection(null);
-        setGoogleMessage("Google Drive сейчас недоступен.");
-      })
-      .finally(() => setGoogleLoading(false));
-  };
-  const loadAccountPreferences = () => {
-    setRetentionState("loading");
-    setRetentionMessage("");
-    api<AccountPreferences>("/account/preferences")
-      .then((preferences) => {
-        if (
-          !Array.isArray(preferences.allowed_source_retention_ttl_seconds) ||
-          !preferences.allowed_source_retention_ttl_seconds.includes(
-            preferences.source_retention_ttl_seconds,
-          )
-        ) {
-          throw new Error("invalid account preferences");
+  const loadGoogleConnection = async ({ reportFailure = true } = {}): Promise<
+    GoogleConnection | null
+  > => {
+    let observed: GoogleConnection | null = null;
+    const hadConnection = googleConnection !== null;
+    if (!hadConnection) setGoogleLoading(true);
+    if (reportFailure) setGoogleMessage("");
+    await settleLatestRequest(
+      googleRequestEpochsRef.current,
+      "settings:google-connection",
+      requestGoogleConnection,
+      (connection) => {
+        observed = connection;
+        setGoogleConnection(connection);
+        setGoogleLoading(false);
+        setGoogleMessage("");
+      },
+      () => {
+        setGoogleLoading(false);
+        if (reportFailure) {
+          setGoogleMessage(
+            hadConnection
+              ? "Не удалось обновить статус Google Drive. Последнее подтверждённое состояние сохранено."
+              : "Не удалось загрузить статус Google Drive. Повторите попытку.",
+          );
         }
+      },
+      {
+        controllers: googleRequestControllersRef.current,
+        timeoutMs: GOOGLE_CONNECTION_REQUEST_TIMEOUT_MS,
+      },
+    );
+    return observed;
+  };
+  const reconcileGoogleConnection = () =>
+    settingsMountedRef.current
+      ? loadGoogleConnection({ reportFailure: false })
+      : readGoogleConnectionBounded();
+  const loadAccountPreferences = async ({ reportFailure = true } = {}): Promise<
+    AccountPreferences | null
+  > => {
+    let observed: AccountPreferences | null = null;
+    const hadPreferences = accountPreferences !== null;
+    if (!hadPreferences) setRetentionState("loading");
+    if (reportFailure) setRetentionMessage("");
+    await settleLatestRequest(
+      retentionRequestEpochsRef.current,
+      "settings:account-preferences",
+      async (signal) => {
+        const candidate = await api<unknown>("/account/preferences", {
+          signal,
+          ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+        });
+        if (!isExpectedAccountPreferences(candidate)) {
+          throw new Error("invalid_account_preferences_response");
+        }
+        return candidate;
+      },
+      (preferences) => {
+        observed = preferences;
         setAccountPreferences(preferences);
         setRetentionSelection(
           String(preferences.source_retention_ttl_seconds),
         );
         setRetentionState("ready");
-      })
-      .catch(() => {
-        setAccountPreferences(null);
-        setRetentionState("error");
-      });
-  };
-  const load = () => {
-    api<{ credentials: Credential[] }>("/credentials").then((r) =>
-      setCredentials(r.credentials),
+        setRetentionMessage("");
+      },
+      () => {
+        setRetentionState(hadPreferences ? "ready" : "error");
+        if (reportFailure) {
+          setRetentionMessage(
+            hadPreferences
+              ? "Не удалось обновить настройку хранения. Последнее подтверждённое значение сохранено."
+              : "Не удалось загрузить настройку хранения. Повторите попытку.",
+          );
+        }
+      },
+      {
+        controllers: retentionRequestControllersRef.current,
+        timeoutMs: ACCOUNT_PREFERENCES_REQUEST_TIMEOUT_MS,
+      },
     );
-    api<{ events: Audit[] }>("/audit-events").then((r) => setEvents(r.events));
-    loadGoogleConnection();
-    loadAccountPreferences();
+    return observed;
   };
-  useEffect(load, []);
+  const reconcileAccountPreferences = () =>
+    settingsMountedRef.current
+      ? loadAccountPreferences({ reportFailure: false })
+      : readAccountPreferencesBounded();
+  const loadAuditEvents = () => {
+    api<{ events: Audit[] }>("/audit-events")
+      .then((result) => setEvents(result.events))
+      .catch(() => setEvents([]));
+  };
+  const loadCredentials = async ({ reportFailure = true } = {}): Promise<
+    Credential[] | null
+  > => {
+    let observed: Credential[] | null = null;
+    setCredentialsLoading(true);
+    if (reportFailure) setCredentialsMessage("");
+    await settleLatestRequest(
+      credentialRequestEpochsRef.current,
+      "settings:credentials",
+      requestCredentialCollection,
+      (nextCredentials) => {
+        observed = nextCredentials;
+        setCredentials(nextCredentials);
+        setCredentialsLoading(false);
+        setCredentialsMessage("");
+      },
+      () => {
+        if (reportFailure) {
+          setCredentialsMessage(
+            "Не удалось загрузить ключи провайдеров. Повторите попытку.",
+          );
+        }
+        setCredentialsLoading(false);
+      },
+      {
+        controllers: credentialRequestControllersRef.current,
+        timeoutMs: CREDENTIAL_COLLECTION_REQUEST_TIMEOUT_MS,
+      },
+    );
+    return observed;
+  };
+  const reconcileCredentials = () =>
+    settingsMountedRef.current
+      ? loadCredentials({ reportFailure: false })
+      : readCredentialCollectionBounded();
+  useEffect(() => {
+    settingsMountedRef.current = true;
+    void loadCredentials();
+    loadAuditEvents();
+    void loadGoogleConnection();
+    void loadAccountPreferences();
+    return () => {
+      settingsMountedRef.current = false;
+      cancelLatestRequests(
+        credentialRequestEpochsRef.current,
+        credentialRequestControllersRef.current,
+      );
+      cancelLatestRequests(
+        retentionRequestEpochsRef.current,
+        retentionRequestControllersRef.current,
+      );
+      cancelLatestRequests(
+        googleRequestEpochsRef.current,
+        googleRequestControllersRef.current,
+      );
+    };
+  }, []);
+  useEffect(() => {
+    if (retentionMutation || !retentionMutationNotice?.refreshOnMount) return;
+    acknowledgeRetentionMutationRefresh();
+    void loadAccountPreferences({ reportFailure: false });
+  }, [retentionMutation, retentionMutationNotice]);
+  useEffect(() => {
+    if (
+      googleConnectionMutation ||
+      !googleConnectionMutationNotice?.refreshOnMount
+    ) {
+      return;
+    }
+    acknowledgeGoogleConnectionMutationRefresh();
+    void loadGoogleConnection({ reportFailure: false });
+  }, [googleConnectionMutation, googleConnectionMutationNotice]);
   const safeMutate = <T,>(path: string, options: RequestInit) =>
     csrfMutate<T>(path, csrf, onCsrf, options);
   async function save(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    const operation = beginCredentialMutation("create", null);
+    if (!operation) return;
+    let notice: CredentialMutationNotice | undefined;
     const form = e.currentTarget;
     const fd = new FormData(form);
+    const provider = String(fd.get("provider") ?? "") as Credential["provider"];
+    const label = String(fd.get("credential_label") ?? "").trim();
+    const rawValue = String(fd.get("credential_raw_value") ?? "");
+    const rawInput = form.elements.namedItem(
+      "credential_raw_value",
+    ) as HTMLInputElement | null;
+    if (rawInput) rawInput.value = "";
+    const reconcileAmbiguousCreate = async () => {
+      const observed = await reconcileCredentials();
+      notice = {
+        kind: operation.kind,
+        credentialId: operation.credentialId,
+        message: observed
+          ? "Сервер не подтвердил создание ключа. Список обновлён; проверьте его перед повторной попыткой. Значение ключа нужно ввести заново."
+          : "Сервер не подтвердил создание ключа, а обновить список не удалось. Обновите страницу перед повторной попыткой; значение ключа нужно ввести заново.",
+        tone: "error",
+      };
+    };
     try {
-      await safeMutate("/credentials", {
-        method: "POST",
-        body: JSON.stringify({
-          provider: fd.get("provider"),
-          label: fd.get("credential_label"),
-          raw_value: fd.get("credential_raw_value"),
-        }),
-      });
-      form.reset();
-      setCreateCredentialOpen(false);
-      load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Ошибка");
+      const request = await runBoundedRequest(
+        (signal) =>
+          safeMutate<unknown>("/credentials", {
+            method: "POST",
+            signal,
+            body: JSON.stringify({ provider, label, raw_value: rawValue }),
+          }),
+        CREDENTIAL_MUTATION_REQUEST_TIMEOUT_MS,
+      );
+      if (request.status === "timed_out") {
+        await reconcileAmbiguousCreate();
+        return;
+      }
+      const created = request.value;
+      if (
+        !isExpectedCredentialCreateResponse(created) ||
+        created.provider !== provider ||
+        created.label !== label
+      ) {
+        await reconcileAmbiguousCreate();
+        return;
+      }
+      if (settingsMountedRef.current) {
+        form.reset();
+        setCreateCredentialOpen(false);
+        await loadCredentials({ reportFailure: false });
+      } else {
+        await readCredentialCollectionBounded();
+      }
+      notice = {
+        kind: operation.kind,
+        credentialId: operation.credentialId,
+        message: "Ключ провайдера создан.",
+        tone: "notice",
+      };
+    } catch (error) {
+      if (isAmbiguousCredentialMutationFailure(error)) {
+        await reconcileAmbiguousCreate();
+      } else {
+        notice = {
+          kind: operation.kind,
+          credentialId: operation.credentialId,
+          message: "Не удалось создать ключ. Проверьте данные и введите значение ключа заново.",
+          tone: "error",
+        };
+      }
+    } finally {
+      finishCredentialMutation(operation, notice);
+      if (settingsMountedRef.current) loadAuditEvents();
     }
   }
   async function replace(e: FormEvent<HTMLFormElement>, id: string) {
     e.preventDefault();
+    const selected = credentials.find((credential) => credential.id === id);
+    if (!selected) {
+      setCredentialsMessage("Выберите ключ для замены.");
+      return;
+    }
+    const operation = beginCredentialMutation("replace", id);
+    if (!operation) return;
+    let notice: CredentialMutationNotice | undefined;
     const form = e.currentTarget;
     const fd = new FormData(form);
-    const selected = credentials.find((c) => c.id === id);
-    if (!selected) return setError("Выберите ключ для замены.");
+    const rawValue = String(fd.get("replacement_credential_raw_value") ?? "");
+    const rawInput = form.elements.namedItem(
+      "replacement_credential_raw_value",
+    ) as HTMLInputElement | null;
+    if (rawInput) rawInput.value = "";
+    const previousVersion = selected.active_version;
+    const reconcileAmbiguousReplace = async () => {
+      const observed = await reconcileCredentials();
+      const confirmed =
+        observed?.some(
+          (credential) =>
+            credential.id === id &&
+            credential.status === "active" &&
+            credential.active_version !== null &&
+            (previousVersion === null ||
+              credential.active_version > previousVersion),
+        ) === true;
+      if (confirmed && settingsMountedRef.current) {
+        setReplacingCredentialId((current) => (current === id ? null : current));
+      }
+      notice = {
+        kind: operation.kind,
+        credentialId: operation.credentialId,
+        message: confirmed
+          ? "Замена ключа подтверждена по актуальному списку."
+          : observed
+            ? "Сервер не подтвердил замену ключа. Список обновлён; проверьте версию перед повторной попыткой. Значение ключа нужно ввести заново."
+            : "Сервер не подтвердил замену ключа, а обновить список не удалось. Обновите страницу перед повторной попыткой; значение ключа нужно ввести заново.",
+        tone: confirmed ? "notice" : "error",
+      };
+    };
     try {
-      await safeMutate(`/credentials/${id}/replace`, {
-        method: "POST",
-        body: JSON.stringify({
-          provider: selected.provider,
-          label: selected.label,
-          raw_value: fd.get("replacement_credential_raw_value"),
-        }),
-      });
-      form.reset();
-      setReplacingCredentialId(null);
-      load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Ошибка");
+      const request = await runBoundedRequest(
+        (signal) =>
+          safeMutate<unknown>(`/credentials/${id}/replace`, {
+            method: "POST",
+            signal,
+            body: JSON.stringify({
+              provider: selected.provider,
+              label: selected.label,
+              raw_value: rawValue,
+            }),
+          }),
+        CREDENTIAL_MUTATION_REQUEST_TIMEOUT_MS,
+      );
+      if (request.status === "timed_out") {
+        await reconcileAmbiguousReplace();
+        return;
+      }
+      const replaced = request.value;
+      if (
+        !isExpectedCredentialReplaceResponse(replaced) ||
+        (previousVersion !== null && replaced.active_version <= previousVersion)
+      ) {
+        await reconcileAmbiguousReplace();
+        return;
+      }
+      if (settingsMountedRef.current) {
+        setCredentials((current) =>
+          current.map((credential) =>
+            credential.id === id
+              ? {
+                  ...credential,
+                  status: "active",
+                  active_version: replaced.active_version,
+                  masked_value: replaced.masked_value,
+                }
+              : credential,
+          ),
+        );
+        form.reset();
+        setReplacingCredentialId(null);
+        await loadCredentials({ reportFailure: false });
+      } else {
+        await readCredentialCollectionBounded();
+      }
+      notice = {
+        kind: operation.kind,
+        credentialId: operation.credentialId,
+        message: "Ключ провайдера заменён.",
+        tone: "notice",
+      };
+    } catch (error) {
+      if (isAmbiguousCredentialMutationFailure(error)) {
+        await reconcileAmbiguousReplace();
+      } else {
+        notice = {
+          kind: operation.kind,
+          credentialId: operation.credentialId,
+          message: "Не удалось заменить ключ. Проверьте данные и введите значение ключа заново.",
+          tone: "error",
+        };
+      }
+    } finally {
+      finishCredentialMutation(operation, notice);
+      if (settingsMountedRef.current) loadAuditEvents();
     }
   }
   async function saveRetentionPreference(e: FormEvent<HTMLFormElement>) {
@@ -3292,65 +5688,300 @@ function SettingsPage({
       setRetentionMessage("Выберите доступный срок хранения.");
       return;
     }
-    setRetentionSaving(true);
+    const operation = beginRetentionMutation();
+    if (!operation) return;
+    let notice: RetentionMutationNotice | undefined;
+    const previousConfirmed = accountPreferences.source_retention_ttl_seconds;
     setRetentionMessage("");
+    const reconcileAmbiguousPreference = async () => {
+      const observed = await reconcileAccountPreferences();
+      const confirmed =
+        observed?.source_retention_ttl_seconds === selected;
+      if (!observed && settingsMountedRef.current) {
+        setRetentionSelection(String(previousConfirmed));
+        setRetentionState("ready");
+      }
+      notice = {
+        message: confirmed
+          ? "Сохранение срока подтверждено по актуальной настройке аккаунта."
+          : observed
+            ? "Сервер не подтвердил сохранение. Показано актуальное значение; проверьте его перед повторной попыткой."
+            : "Сервер не подтвердил сохранение, а обновить настройку не удалось. Сохранено последнее подтверждённое значение; обновите страницу перед повторной попыткой.",
+        tone: confirmed ? "notice" : "error",
+        refreshOnMount: !settingsMountedRef.current,
+      };
+    };
     try {
-      const preferences = await safeMutate<AccountPreferences>(
-        "/account/preferences",
-        {
-          method: "PATCH",
-          body: JSON.stringify({ source_retention_ttl_seconds: selected }),
-        },
+      const request = await runBoundedRequest(
+        (signal) =>
+          safeMutate<unknown>("/account/preferences", {
+            method: "PATCH",
+            signal,
+            body: JSON.stringify({
+              source_retention_ttl_seconds: selected,
+            }),
+          }),
+        ACCOUNT_PREFERENCES_MUTATION_TIMEOUT_MS,
       );
-      setAccountPreferences(preferences);
-      setRetentionSelection(
-        String(preferences.source_retention_ttl_seconds),
-      );
-      setRetentionMessage("Срок хранения сохранён.");
-    } catch {
-      setRetentionMessage("Не удалось сохранить срок хранения.");
+      if (request.status === "timed_out") {
+        await reconcileAmbiguousPreference();
+        return;
+      }
+      const preferences = request.value;
+      if (
+        !isExpectedAccountPreferences(preferences) ||
+        preferences.source_retention_ttl_seconds !== selected
+      ) {
+        await reconcileAmbiguousPreference();
+        return;
+      }
+      if (settingsMountedRef.current) {
+        setAccountPreferences(preferences);
+        setRetentionSelection(
+          String(preferences.source_retention_ttl_seconds),
+        );
+        setRetentionState("ready");
+      }
+      notice = {
+        message: "Срок хранения сохранён.",
+        tone: "notice",
+        refreshOnMount: !settingsMountedRef.current,
+      };
+    } catch (error) {
+      if (isAmbiguousRetentionMutationFailure(error)) {
+        await reconcileAmbiguousPreference();
+      } else {
+        if (settingsMountedRef.current) {
+          setRetentionSelection(String(previousConfirmed));
+          setRetentionState("ready");
+        }
+        notice = {
+          message: "Не удалось сохранить срок хранения. Проверьте значение и повторите.",
+          tone: "error",
+          refreshOnMount: false,
+        };
+      }
     } finally {
-      setRetentionSaving(false);
+      finishRetentionMutation(operation, notice);
+      if (settingsMountedRef.current) loadAuditEvents();
     }
-  }
-  const action = async (path: string, method = "POST") => {
-    setError("");
+  }  const mutateCredential = async (
+    kind: "revoke" | "delete",
+    credential: Credential,
+  ) => {
+    const operation = beginCredentialMutation(kind, credential.id);
+    if (!operation) return;
+    let notice: CredentialMutationNotice | undefined;
+    const reconcileAmbiguousMutation = async () => {
+      const observed = await reconcileCredentials();
+      const confirmed =
+        kind === "delete"
+          ? observed !== null &&
+            !observed.some((candidate) => candidate.id === credential.id)
+          : observed?.some(
+              (candidate) =>
+                candidate.id === credential.id && candidate.status === "revoked",
+            ) === true;
+      notice = {
+        kind: operation.kind,
+        credentialId: operation.credentialId,
+        message: confirmed
+          ? kind === "delete"
+            ? "Удаление ключа подтверждено по актуальному списку."
+            : "Отключение ключа подтверждено по актуальному списку."
+          : observed
+            ? `Сервер не подтвердил ${kind === "delete" ? "удаление" : "отключение"} ключа. Список обновлён; проверьте статус перед повторной попыткой.`
+            : `Сервер не подтвердил ${kind === "delete" ? "удаление" : "отключение"} ключа, а обновить список не удалось. Обновите страницу перед повторной попыткой.`,
+        tone: confirmed ? "notice" : "error",
+      };
+    };
     try {
-      await safeMutate(path, { method });
-      load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Ошибка");
+      const request = await runBoundedRequest(
+        (signal) =>
+          safeMutate<unknown>(
+            kind === "delete"
+              ? `/credentials/${credential.id}`
+              : `/credentials/${credential.id}/revoke`,
+            { method: kind === "delete" ? "DELETE" : "POST", signal },
+          ),
+        CREDENTIAL_MUTATION_REQUEST_TIMEOUT_MS,
+      );
+      if (request.status === "timed_out") {
+        await reconcileAmbiguousMutation();
+        return;
+      }
+      if (!isExpectedOkResponse(request.value)) {
+        await reconcileAmbiguousMutation();
+        return;
+      }
+      if (settingsMountedRef.current) {
+        setCredentials((current) =>
+          kind === "delete"
+            ? current.filter((candidate) => candidate.id !== credential.id)
+            : current.map((candidate) =>
+                candidate.id === credential.id
+                  ? { ...candidate, status: "revoked" }
+                  : candidate,
+              ),
+        );
+        if (kind === "delete") {
+          setReplacingCredentialId((current) =>
+            current === credential.id ? null : current,
+          );
+        }
+        await loadCredentials({ reportFailure: false });
+      } else {
+        await readCredentialCollectionBounded();
+      }
+      notice = {
+        kind: operation.kind,
+        credentialId: operation.credentialId,
+        message:
+          kind === "delete"
+            ? "Ключ провайдера удалён без возможности восстановления."
+            : "Ключ провайдера отключён.",
+        tone: "notice",
+      };
+    } catch (error) {
+      if (isAmbiguousCredentialMutationFailure(error)) {
+        await reconcileAmbiguousMutation();
+      } else {
+        notice = {
+          kind: operation.kind,
+          credentialId: operation.credentialId,
+          message:
+            kind === "delete"
+              ? "Не удалось удалить ключ. Обновите список и повторите."
+              : "Не удалось отключить ключ. Обновите список и повторите.",
+          tone: "error",
+        };
+      }
+    } finally {
+      finishCredentialMutation(operation, notice);
+      if (settingsMountedRef.current) loadAuditEvents();
     }
   };
   const connectGoogle = async () => {
-    if (googleStarting) return;
-    setGoogleStarting(true);
+    const operation = beginGoogleConnectionMutation("oauth-start");
+    if (!operation) return;
+    let notice: GoogleConnectionMutationNotice | undefined;
     setGoogleMessage("");
+    const reconcileAmbiguousStart = async () => {
+      if (!isGoogleConnectionMutationActive(operation)) return;
+      const observed = await reconcileGoogleConnection();
+      if (!isGoogleConnectionMutationActive(operation)) return;
+      notice = {
+        kind: operation.kind,
+        message: observed
+          ? "Сервер не подтвердил начало подключения. Статус Google Drive обновлён; не повторяйте запрос, пока не проверите состояние подключения."
+          : "Сервер не подтвердил начало подключения, а обновить статус Google Drive не удалось. Обновите страницу перед новой попыткой.",
+        tone: "error",
+        refreshOnMount: !settingsMountedRef.current,
+      };
+    };
     try {
-      const r = await safeMutate<GoogleOauthStart>("/google/oauth/start", {
-        method: "POST",
-      });
-      window.location.assign(r.authorization_url);
-    } catch {
-      setGoogleMessage(
-        "Не удалось начать подключение Google Drive. Попробуйте позже или проверьте настройки OAuth.",
+      const request = await runBoundedRequest(
+        (signal) =>
+          safeMutate<unknown>("/google/oauth/start", {
+            method: "POST",
+            signal,
+          }),
+        GOOGLE_CONNECTION_MUTATION_TIMEOUT_MS,
       );
-      setGoogleStarting(false);
+      if (
+        request.status === "timed_out" ||
+        !isExpectedGoogleOauthStart(request.value)
+      ) {
+        await reconcileAmbiguousStart();
+        return;
+      }
+      if (!isGoogleConnectionMutationActive(operation)) return;
+      window.location.assign(request.value.authorization_url);
+    } catch (error) {
+      if (isAmbiguousGoogleConnectionMutationFailure(error)) {
+        await reconcileAmbiguousStart();
+      } else {
+        notice = {
+          kind: operation.kind,
+          message:
+            "Не удалось начать подключение Google Drive. Попробуйте позже или проверьте настройки OAuth.",
+          tone: "error",
+          refreshOnMount: false,
+        };
+      }
+    } finally {
+      finishGoogleConnectionMutation(operation, notice);
+      if (settingsMountedRef.current) loadAuditEvents();
     }
   };
   const disconnectGoogle = async () => {
+    const operation = beginGoogleConnectionMutation("disconnect");
+    if (!operation) return;
+    let notice: GoogleConnectionMutationNotice | undefined;
     setGoogleMessage("");
+    const reconcileAmbiguousDisconnect = async () => {
+      if (!isGoogleConnectionMutationActive(operation)) return;
+      const observed = await reconcileGoogleConnection();
+      if (!isGoogleConnectionMutationActive(operation)) return;
+      const confirmed = Boolean(
+        observed &&
+          !observed.connected &&
+          (observed.status === "revoked" || observed.status === null),
+      );
+      notice = {
+        kind: operation.kind,
+        message: confirmed
+          ? "Отключение Google Drive подтверждено по актуальному состоянию."
+          : observed
+            ? "Сервер не подтвердил отключение. Показан актуальный статус; проверьте его перед повторной попыткой."
+            : "Сервер не подтвердил отключение, а обновить статус Google Drive не удалось. Обновите страницу перед повторной попыткой.",
+        tone: confirmed ? "notice" : "error",
+        refreshOnMount: !settingsMountedRef.current,
+      };
+    };
     try {
-      const r = await safeMutate<GoogleConnection>("/google/connection", {
-        method: "DELETE",
-      });
-      setGoogleConnection(r);
-    } catch {
-      setGoogleMessage("Не удалось отключить Google Drive. Попробуйте позже.");
+      const request = await runBoundedRequest(
+        (signal) =>
+          safeMutate<unknown>("/google/connection", {
+            method: "DELETE",
+            signal,
+          }),
+        GOOGLE_CONNECTION_MUTATION_TIMEOUT_MS,
+      );
+      if (
+        request.status === "timed_out" ||
+        !isExpectedGoogleConnection(request.value) ||
+        request.value.connected ||
+        (request.value.status !== "revoked" && request.value.status !== null)
+      ) {
+        await reconcileAmbiguousDisconnect();
+        return;
+      }
+      if (settingsMountedRef.current) setGoogleConnection(request.value);
+      notice = {
+        kind: operation.kind,
+        message: "Google Drive отключён.",
+        tone: "notice",
+        refreshOnMount: !settingsMountedRef.current,
+      };
+    } catch (error) {
+      if (isAmbiguousGoogleConnectionMutationFailure(error)) {
+        await reconcileAmbiguousDisconnect();
+      } else {
+        notice = {
+          kind: operation.kind,
+          message: "Не удалось отключить Google Drive. Обновите статус и повторите.",
+          tone: "error",
+          refreshOnMount: false,
+        };
+      }
+    } finally {
+      finishGoogleConnectionMutation(operation, notice);
+      if (settingsMountedRef.current) loadAuditEvents();
     }
   };
   const googleCanDisconnect = Boolean(
-    googleConnection?.connected || googleConnection?.status === "revoked",
+    googleConnection?.connected || googleConnection?.status === "error",
   );
   const oauthMessage =
     oauthResult === "connected"
@@ -3360,7 +5991,14 @@ function SettingsPage({
       : oauthResult
         ? googleOauthMessages[oauthResult]
         : "";
-  return (
+  const createCredentialPending = credentialMutations.some(
+    (operation) => operation.credentialId === null,
+  );
+  const credentialMutationFor = (credentialId: string) =>
+    credentialMutations.find(
+      (operation) => operation.credentialId === credentialId,
+    ) ?? null;
+  const credentialsUnavailable = credentialsLoading || Boolean(credentialsMessage);  return (
     <section className="card wide">
       <h2>Настройки</h2>
       <div className="tabs" role="tablist" aria-label="Разделы настроек">
@@ -3439,8 +6077,13 @@ function SettingsPage({
             )}
             {retentionState === "error" && (
               <div className="error">
-                <p>Не удалось загрузить настройку хранения.</p>
-                <button type="button" onClick={loadAccountPreferences}>
+                <p role="alert">
+                  {retentionMessage || "Не удалось загрузить настройку хранения."}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void loadAccountPreferences()}
+                >
                   Повторить
                 </button>
               </div>
@@ -3449,6 +6092,7 @@ function SettingsPage({
               <form
                 className="retention-preferences-form"
                 aria-label="Настройка хранения локальных файлов"
+                aria-busy={retentionMutation !== null || undefined}
                 onSubmit={saveRetentionPreference}
               >
                 <label>
@@ -3456,6 +6100,7 @@ function SettingsPage({
                   <select
                     aria-label="Срок хранения локальных файлов"
                     value={retentionSelection}
+                    disabled={retentionMutation !== null}
                     onChange={(event) => {
                       setRetentionSelection(event.target.value);
                       setRetentionMessage("");
@@ -3470,14 +6115,28 @@ function SettingsPage({
                     )}
                   </select>
                 </label>
-                <button className="primary" disabled={retentionSaving}>
-                  {retentionSaving ? "Сохраняем…" : "Сохранить срок"}
+                <button
+                  className="primary"
+                  disabled={retentionMutation !== null}
+                  aria-busy={retentionMutation !== null || undefined}
+                >
+                  {retentionMutation ? "Сохраняем…" : "Сохранить срок"}
                 </button>
               </form>
             )}
-            {retentionMessage && (
-              <p role="status" className="notice">
+            {retentionState !== "error" && retentionMessage && (
+              <p role="alert" className="error">
                 {retentionMessage}
+              </p>
+            )}
+            {retentionMutationNotice && (
+              <p
+                role={
+                  retentionMutationNotice.tone === "error" ? "alert" : "status"
+                }
+                className={retentionMutationNotice.tone}
+              >
+                {retentionMutationNotice.message}
               </p>
             )}
           </section>
@@ -3485,16 +6144,52 @@ function SettingsPage({
           <p className="notice">
             Ключи не сохраняются в браузере и никогда не отображаются обратно.
           </p>
+          {credentialMutations.length > 0 && (
+            <p role="status" className="notice">
+              Операция с ключом выполняется. Её статус сохранится при переходе между разделами.
+            </p>
+          )}
+          {Object.entries(credentialMutationNotices).map(([key, notice]) => (
+            <p
+              key={`${key}:${notice.kind}`}
+              className={notice.tone}
+              role={notice.tone === "error" ? "alert" : "status"}
+            >
+              {notice.message}
+            </p>
+          ))}
+          {credentialsMessage && (
+            <div className="error">
+              <p role="alert">{credentialsMessage}</p>
+              <button type="button" onClick={() => void loadCredentials()}>
+                Повторить
+              </button>
+            </div>
+          )}
+          {credentialsLoading && (
+            <p role="status">Загружаем ключи провайдеров…</p>
+          )}
           <button
             type="button"
             aria-expanded={createCredentialOpen}
+            aria-busy={createCredentialPending || undefined}
+            disabled={createCredentialPending || credentialsUnavailable}
             onClick={() => setCreateCredentialOpen((open) => !open)}
           >
-            Добавить ключ
+            {createCredentialPending ? "Создаём ключ…" : "Добавить ключ"}
           </button>
           {createCredentialOpen && (
-            <form className="inline" onSubmit={save} autoComplete="off">
-              <select name="provider" aria-label="Провайдер">
+            <form
+              className="inline"
+              onSubmit={save}
+              autoComplete="off"
+              aria-busy={createCredentialPending || undefined}
+            >
+              <select
+                name="provider"
+                aria-label="Провайдер"
+                disabled={createCredentialPending}
+              >
                 <option value="elevenlabs">ElevenLabs</option>
                 <option value="openai">OpenAI</option>
               </select>
@@ -3502,6 +6197,7 @@ function SettingsPage({
                 name="credential_label"
                 autoComplete="off"
                 placeholder="Метка"
+                disabled={createCredentialPending}
                 required
               />
               <input
@@ -3513,97 +6209,126 @@ function SettingsPage({
                 data-lpignore="true"
                 data-bwignore="true"
                 placeholder="Новый ключ"
+                disabled={createCredentialPending}
                 required
               />
-              <button className="primary">Создать</button>
+              <button className="primary" disabled={createCredentialPending}>
+                {createCredentialPending ? "Создаём…" : "Создать"}
+              </button>
               <button
                 type="button"
+                disabled={createCredentialPending}
                 onClick={() => setCreateCredentialOpen(false)}
               >
                 Отмена
               </button>
             </form>
           )}
-          {error && <p className="error">{error}</p>}
           <div className="grid">
-            {credentials.map((c) => (
-              <article className="card" key={c.id}>
-                <span className="tag">{c.provider}</span>
-                <h3>{c.label}</h3>
-                <p>
-                  {c.status} · v{c.active_version ?? "—"} · {c.masked_value}
-                </p>
-                <p className="muted">
-                  Отключение запрещает использовать ключ в задачах, но сохраняет
-                  его версии. Удаление навсегда стирает сохранённые значения
-                  ключа без возможности восстановления.
-                </p>
-                <div className="credential-actions">
-                  <button
-                    type="button"
-                    onClick={() => setReplacingCredentialId(c.id)}
-                  >
-                    Заменить
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (
-                        safeConfirm(
-                          `Отключить ключ «${c.label}»? Он станет недоступен для новых и выполняющихся задач, но история версий сохранится.`,
-                        )
-                      )
-                        void action(`/credentials/${c.id}/revoke`);
-                    }}
-                  >
-                    Отключить
-                  </button>
-                  <button
-                    type="button"
-                    className="danger"
-                    onClick={() => {
-                      if (
-                        safeConfirm(
-                          `Удалить ключ «${c.label}» навсегда? Все сохранённые значения будут стёрты без возможности восстановления.`,
-                        )
-                      )
-                        void action(`/credentials/${c.id}`, "DELETE");
-                    }}
-                  >
-                    Удалить навсегда
-                  </button>
-                </div>
-                {replacingCredentialId === c.id && (
-                  <form
-                    className="inline"
-                    onSubmit={(event) => replace(event, c.id)}
-                    aria-label={`Заменить ключ ${c.label}`}
-                    autoComplete="off"
-                  >
-                    <input
-                      name="replacement_credential_raw_value"
-                      type="password"
-                      autoComplete="new-password"
-                      spellCheck={false}
-                      data-1p-ignore="true"
-                      data-lpignore="true"
-                      data-bwignore="true"
-                      placeholder="Новый ключ для замены"
-                      required
-                    />
-                    <button className="primary">Сохранить</button>
+            {credentials.map((credential) => {
+              const activeMutation = credentialMutationFor(credential.id);
+              const mutationPending = activeMutation !== null;
+              return (
+                <article
+                  className="card"
+                  key={credential.id}
+                  aria-busy={mutationPending || undefined}
+                >
+                  <span className="tag">{credential.provider}</span>
+                  <h3>{credential.label}</h3>
+                  <p>
+                    {credential.status} · v{credential.active_version ?? "—"} ·{" "}
+                    {credential.masked_value ?? "—"}
+                  </p>
+                  <p className="muted">
+                    Отключение запрещает использовать ключ в задачах, но сохраняет
+                    его версии. Удаление навсегда стирает сохранённые значения
+                    ключа без возможности восстановления.
+                  </p>
+                  <div className="credential-actions">
                     <button
                       type="button"
-                      onClick={() => setReplacingCredentialId(null)}
+                      disabled={mutationPending || credentialsUnavailable}
+                      onClick={() => setReplacingCredentialId(credential.id)}
                     >
-                      Отмена
+                      Заменить
                     </button>
-                  </form>
-                )}
-              </article>
-            ))}
-          </div>
-          <h3>Google Drive</h3>
+                    <button
+                      type="button"
+                      disabled={mutationPending || credentialsUnavailable}
+                      aria-busy={activeMutation?.kind === "revoke" || undefined}
+                      onClick={() => {
+                        if (
+                          safeConfirm(
+                            `Отключить ключ «${credential.label}»? Он станет недоступен для новых и выполняющихся задач, но история версий сохранится.`,
+                          )
+                        ) {
+                          void mutateCredential("revoke", credential);
+                        }
+                      }}
+                    >
+                      {activeMutation?.kind === "revoke"
+                        ? "Отключаем…"
+                        : "Отключить"}
+                    </button>
+                    <button
+                      type="button"
+                      className="danger"
+                      disabled={mutationPending || credentialsUnavailable}
+                      aria-busy={activeMutation?.kind === "delete" || undefined}
+                      onClick={() => {
+                        if (
+                          safeConfirm(
+                            `Удалить ключ «${credential.label}» навсегда? Все сохранённые значения будут стёрты без возможности восстановления.`,
+                          )
+                        ) {
+                          void mutateCredential("delete", credential);
+                        }
+                      }}
+                    >
+                      {activeMutation?.kind === "delete"
+                        ? "Удаляем…"
+                        : "Удалить навсегда"}
+                    </button>
+                  </div>
+                  {replacingCredentialId === credential.id && (
+                    <form
+                      className="inline"
+                      onSubmit={(event) => replace(event, credential.id)}
+                      aria-label={`Заменить ключ ${credential.label}`}
+                      aria-busy={activeMutation?.kind === "replace" || undefined}
+                      autoComplete="off"
+                    >
+                      <input
+                        name="replacement_credential_raw_value"
+                        type="password"
+                        autoComplete="new-password"
+                        spellCheck={false}
+                        data-1p-ignore="true"
+                        data-lpignore="true"
+                        data-bwignore="true"
+                        placeholder="Новый ключ для замены"
+                        disabled={mutationPending}
+                        required
+                      />
+                      <button className="primary" disabled={mutationPending}>
+                        {activeMutation?.kind === "replace"
+                          ? "Сохраняем…"
+                          : "Сохранить"}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={mutationPending}
+                        onClick={() => setReplacingCredentialId(null)}
+                      >
+                        Отмена
+                      </button>
+                    </form>
+                  )}
+                </article>
+              );
+            })}
+          </div>          <h3>Google Drive</h3>
           <p
             className={
               googleConnection?.connected && googleConnection.picker_ready
@@ -3660,7 +6385,8 @@ function SettingsPage({
                   <button
                     className="primary"
                     type="button"
-                    disabled={googleStarting}
+                    disabled={googleConnectionMutation !== null}
+                    aria-busy={googleConnectionMutation !== null || undefined}
                     onClick={connectGoogle}
                   >
                     Переподключить Google Drive
@@ -3680,19 +6406,48 @@ function SettingsPage({
                 )}
                 <button
                   className="primary"
-                  disabled={googleStarting}
+                  disabled={googleConnectionMutation !== null}
+                  aria-busy={googleConnectionMutation !== null || undefined}
                   onClick={connectGoogle}
                 >
                   Подключить Google Drive
                 </button>
               </>
             ) : (
-              <p>Google Drive недоступен.</p>
+              <>
+                <p>Google Drive недоступен.</p>
+                <button
+                  type="button"
+                  disabled={googleConnectionMutation !== null}
+                  onClick={() => void loadGoogleConnection()}
+                >
+                  Повторить проверку Google Drive
+                </button>
+              </>
             )}
             {googleCanDisconnect && (
-              <button onClick={disconnectGoogle}>Отключить Google Drive</button>
+              <button
+                type="button"
+                disabled={googleConnectionMutation !== null}
+                aria-busy={googleConnectionMutation !== null || undefined}
+                onClick={disconnectGoogle}
+              >
+                Отключить Google Drive
+              </button>
             )}
             {googleMessage && <p className="error">{googleMessage}</p>}
+            {googleConnectionMutationNotice && (
+              <p
+                role={
+                  googleConnectionMutationNotice.tone === "error"
+                    ? "alert"
+                    : "status"
+                }
+                className={googleConnectionMutationNotice.tone}
+              >
+                {googleConnectionMutationNotice.message}
+              </p>
+            )}
           </article>
           <TranscriptCatalogMigrationPanel
             csrf={csrf}
@@ -4252,6 +7007,157 @@ function PlatformShell() {
     ProjectsViewRequest
   >(null);
   const [projectsOpened, setProjectsOpened] = useState(false);
+  const credentialMutationGenerationRef = useRef(0);
+  const activeCredentialMutationsRef = useRef(
+    new Map<string, CredentialMutationOperation>(),
+  );
+  const [credentialMutations, setCredentialMutations] = useState<
+    CredentialMutationOperation[]
+  >([]);
+  const [credentialMutationNotices, setCredentialMutationNotices] = useState<
+    Record<string, CredentialMutationNotice>
+  >({});
+  const publishCredentialMutations = () =>
+    setCredentialMutations(
+      Array.from(activeCredentialMutationsRef.current.values()),
+    );
+  const beginCredentialMutation = (
+    kind: CredentialMutationKind,
+    credentialId: string | null,
+  ): CredentialMutationOperation | null => {
+    const key = credentialId ?? "create";
+    if (activeCredentialMutationsRef.current.has(key)) return null;
+    const operation: CredentialMutationOperation = {
+      kind,
+      credentialId,
+      generation: credentialMutationGenerationRef.current,
+    };
+    activeCredentialMutationsRef.current.set(key, operation);
+    publishCredentialMutations();
+    setCredentialMutationNotices((current) => {
+      if (!current[key]) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+    return operation;
+  };
+  const finishCredentialMutation = (
+    operation: CredentialMutationOperation,
+    notice?: CredentialMutationNotice,
+  ) => {
+    const key = credentialMutationKey(operation);
+    const activeOperation = activeCredentialMutationsRef.current.get(key);
+    if (
+      !activeOperation ||
+      !credentialMutationOperationMatches(activeOperation, operation)
+    ) {
+      return;
+    }
+    activeCredentialMutationsRef.current.delete(key);
+    publishCredentialMutations();
+    if (notice) {
+      setCredentialMutationNotices((current) => ({
+        ...current,
+        [key]: notice,
+      }));
+    }
+  };
+  const clearCredentialMutationSession = () => {
+    credentialMutationGenerationRef.current += 1;
+    activeCredentialMutationsRef.current.clear();
+    setCredentialMutations([]);
+    setCredentialMutationNotices({});
+  };  const retentionMutationGenerationRef = useRef(0);
+  const activeRetentionMutationRef = useRef<RetentionMutationOperation | null>(
+    null,
+  );
+  const [retentionMutation, setRetentionMutation] =
+    useState<RetentionMutationOperation | null>(null);
+  const [retentionMutationNotice, setRetentionMutationNotice] =
+    useState<RetentionMutationNotice | null>(null);
+  const beginRetentionMutation = (): RetentionMutationOperation | null => {
+    if (activeRetentionMutationRef.current) return null;
+    const operation = {
+      generation: retentionMutationGenerationRef.current,
+    };
+    activeRetentionMutationRef.current = operation;
+    setRetentionMutation(operation);
+    setRetentionMutationNotice(null);
+    return operation;
+  };
+  const finishRetentionMutation = (
+    operation: RetentionMutationOperation,
+    notice?: RetentionMutationNotice,
+  ) => {
+    if (activeRetentionMutationRef.current !== operation) return;
+    activeRetentionMutationRef.current = null;
+    setRetentionMutation(null);
+    if (notice) setRetentionMutationNotice(notice);
+  };
+  const acknowledgeRetentionMutationRefresh = () => {
+    setRetentionMutationNotice((current) =>
+      current?.refreshOnMount
+        ? { ...current, refreshOnMount: false }
+        : current,
+    );
+  };
+  const clearRetentionMutationSession = () => {
+    retentionMutationGenerationRef.current += 1;
+    activeRetentionMutationRef.current = null;
+    setRetentionMutation(null);
+    setRetentionMutationNotice(null);
+  };
+  const googleConnectionMutationGenerationRef = useRef(0);
+  const activeGoogleConnectionMutationRef =
+    useRef<GoogleConnectionMutationOperation | null>(null);
+  const [googleConnectionMutation, setGoogleConnectionMutation] =
+    useState<GoogleConnectionMutationOperation | null>(null);
+  const [googleConnectionMutationNotice, setGoogleConnectionMutationNotice] =
+    useState<GoogleConnectionMutationNotice | null>(null);
+  const beginGoogleConnectionMutation = (
+    kind: GoogleConnectionMutationKind,
+  ): GoogleConnectionMutationOperation | null => {
+    if (activeGoogleConnectionMutationRef.current) return null;
+    const operation = {
+      kind,
+      generation: googleConnectionMutationGenerationRef.current,
+    };
+    activeGoogleConnectionMutationRef.current = operation;
+    setGoogleConnectionMutation(operation);
+    setGoogleConnectionMutationNotice(null);
+    return operation;
+  };
+  const finishGoogleConnectionMutation = (
+    operation: GoogleConnectionMutationOperation,
+    notice?: GoogleConnectionMutationNotice,
+  ) => {
+    if (activeGoogleConnectionMutationRef.current !== operation) return;
+    activeGoogleConnectionMutationRef.current = null;
+    setGoogleConnectionMutation(null);
+    if (notice) setGoogleConnectionMutationNotice(notice);
+  };
+  const isGoogleConnectionMutationActive = (
+    operation: GoogleConnectionMutationOperation,
+  ) => activeGoogleConnectionMutationRef.current === operation;
+  const acknowledgeGoogleConnectionMutationRefresh = () => {
+    setGoogleConnectionMutationNotice((current) =>
+      current?.refreshOnMount
+        ? { ...current, refreshOnMount: false }
+        : current,
+    );
+  };
+  const clearGoogleConnectionMutationSession = () => {
+    googleConnectionMutationGenerationRef.current += 1;
+    activeGoogleConnectionMutationRef.current = null;
+    setGoogleConnectionMutation(null);
+    setGoogleConnectionMutationNotice(null);
+  };
+  const clearSettingsMutationSession = () => {
+    clearCredentialMutationSession();
+    clearRetentionMutationSession();
+    clearGoogleConnectionMutationSession();
+  };
   const navigate = (
     nextPage: Page,
     nextSettingsSection: SettingsSection = "account",
@@ -4343,6 +7249,7 @@ function PlatformShell() {
     return (
       <Login
         onLogin={(u, t) => {
+          clearSettingsMutationSession();
           setSession({ status: "authenticated", user: u, csrf: t, error: "" });
           updatePwaDiagnosticsCsrf(t);
           configurePwaDiagnosticsDebugState({ active: false });
@@ -4371,6 +7278,7 @@ function PlatformShell() {
       headers: { "x-csrf-token": token },
     }).catch(() => undefined);
     navigate("dashboard");
+    clearSettingsMutationSession();
     setSession({ status: "anonymous", user: null, csrf: "", error: "" });
     clearPwaDiagnosticsSession();
   };
@@ -4437,6 +7345,25 @@ function PlatformShell() {
             onLogout={logout}
             oauthResult={oauthResult}
             maintenanceOauthResult={maintenanceOauthResult}
+            credentialMutations={credentialMutations}
+            credentialMutationNotices={credentialMutationNotices}
+            beginCredentialMutation={beginCredentialMutation}
+            finishCredentialMutation={finishCredentialMutation}
+            retentionMutation={retentionMutation}
+            retentionMutationNotice={retentionMutationNotice}
+            beginRetentionMutation={beginRetentionMutation}
+            finishRetentionMutation={finishRetentionMutation}
+            acknowledgeRetentionMutationRefresh={
+              acknowledgeRetentionMutationRefresh
+            }
+            googleConnectionMutation={googleConnectionMutation}
+            googleConnectionMutationNotice={googleConnectionMutationNotice}
+            beginGoogleConnectionMutation={beginGoogleConnectionMutation}
+            finishGoogleConnectionMutation={finishGoogleConnectionMutation}
+            isGoogleConnectionMutationActive={isGoogleConnectionMutationActive}
+            acknowledgeGoogleConnectionMutationRefresh={
+              acknowledgeGoogleConnectionMutationRefresh
+            }
             section={settingsSection}
             onSectionChange={(section) => navigate("settings", section)}
           />

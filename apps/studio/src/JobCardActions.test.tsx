@@ -64,6 +64,27 @@ describe("JobCardActions", () => {
     expect(screen.queryByText("Отмена запрошена")).not.toBeInTheDocument();
   });
 
+  it.each([
+    ["queued", "Отменить"],
+    ["processing", "Запросить отмену"],
+  ] as const)("disables pending %s cancellation", async (status, label) => {
+    const onCancel = vi.fn();
+    render(
+      <JobCardActions
+        job={job(status)}
+        onOpen={vi.fn()}
+        onCancel={onCancel}
+        cancelPending
+      />,
+    );
+
+    const button = screen.getByRole("button", { name: label });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("aria-busy", "true");
+    await userEvent.click(button);
+    expect(onCancel).not.toHaveBeenCalled();
+  });
+
   it("locks cancellation after a processing cancellation request", () => {
     render(
       <JobCardActions

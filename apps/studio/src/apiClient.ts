@@ -1,6 +1,10 @@
 import { emitPwaDiagnostic } from "./pwaDiagnostics";
 
 
+export type ApiRequestOptions = RequestInit & {
+  ignoredAbortReason?: unknown;
+};
+
 export class ApiError extends Error {
   status: number;
   data?: unknown;
@@ -82,17 +86,24 @@ export async function requestJson<T>(
 
 export async function api<T>(
   path: string,
-  options: RequestInit = {},
+  options: ApiRequestOptions = {},
 ): Promise<T> {
+  const { ignoredAbortReason, ...requestOptions } = options;
   const startedAt = performance.now();
   try {
-    return await requestJson<T>(path, options);
+    return await requestJson<T>(path, requestOptions);
   } catch (err) {
-    emitApiFailure(
-      path,
-      startedAt,
-      err instanceof ApiError ? err.status : undefined,
-    );
+    const ignoredAbort =
+      ignoredAbortReason !== undefined &&
+      requestOptions.signal?.aborted === true &&
+      requestOptions.signal.reason === ignoredAbortReason;
+    if (!ignoredAbort) {
+      emitApiFailure(
+        path,
+        startedAt,
+        err instanceof ApiError ? err.status : undefined,
+      );
+    }
     throw err;
   }
 }
@@ -134,7 +145,7 @@ export async function mutateWithCsrfRetry<T>(
     try {
       const refreshed = await requestJson<{ csrf_token: string }>(
         "/auth/csrf",
-        { method: "POST" },
+        { method: "POST", signal: options.signal },
       );
       onCsrf(refreshed.csrf_token);
       return await requestJson<T>(path, options, refreshed.csrf_token);

@@ -58,6 +58,7 @@ declare global {
 
 const SCRIPT_SELECTOR = 'script[data-studio-google-picker="true"]';
 const SCRIPT_TIMEOUT_MS = 10000;
+const PICKER_INTERACTION_TIMEOUT_MS = 300_000;
 const PICKER_LOCALE = "ru";
 const MY_DRIVE_ROOT_PARENT = "root";
 const SOURCE_PICKER_TITLE = "Выберите аудио или видео";
@@ -204,9 +205,14 @@ export async function openGooglePicker(
       return;
     }
     let completed = false;
+    let picker: PickerInstance | null = null;
+    let interactionTimeout: number | null = null;
     const finish = (result: PickerResult) => {
       if (completed) return;
       completed = true;
+      if (interactionTimeout !== null) {
+        window.clearTimeout(interactionTimeout);
+      }
       token = "";
       resolve(result);
     };
@@ -267,7 +273,19 @@ export async function openGooglePicker(
       builder.setDeveloperKey(session.api_key);
       builder.setAppId(session.app_id);
       builder.setCallback(callback);
-      builder.build().setVisible(true);
+      interactionTimeout = window.setTimeout(() => {
+        try {
+          picker?.setVisible(false);
+        } catch {
+          // The safe timeout result still releases caller-owned UI state.
+        }
+        finish({
+          action: "error",
+          message: "Время выбора в Google Picker истекло. Повторите попытку.",
+        });
+      }, PICKER_INTERACTION_TIMEOUT_MS);
+      picker = builder.build();
+      picker.setVisible(true);
     } catch {
       finish({ action: "error", message: "Не удалось открыть Google Picker" });
     }

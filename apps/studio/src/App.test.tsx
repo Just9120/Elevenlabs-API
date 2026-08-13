@@ -34,6 +34,54 @@ const json = (body: unknown, ok = true, status = 200) =>
           : new Blob([JSON.stringify(body)], { type: "application/json" }),
       ),
   } as Response);
+function googleConnectionFixture(overrides: Record<string, unknown> = {}) {
+  return {
+    connected: false,
+    status: null,
+    google_email: null,
+    scopes: null,
+    connected_at: null,
+    revoked_at: null,
+    picker_configured: false,
+    picker_scope_ready: false,
+    picker_ready: false,
+    reconnect_required: false,
+    ...overrides,
+  };
+}
+function googleOauthStartFixture(overrides: Record<string, unknown> = {}) {
+  return {
+    authorization_url:
+      "https://accounts.google.com/o/oauth2/v2/auth?client_id=test-client.apps.googleusercontent.com&redirect_uri=https%3A%2F%2Fstudio.test%2Fapi%2Fgoogle%2Foauth%2Fcallback&response_type=code&scope=openid+email+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.file&state=secret-state&access_type=offline&prompt=consent",
+    expires_at: "2026-08-13T12:00:00Z",
+    ...overrides,
+  };
+}
+function projectFixture(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "project-fixture",
+    title: "Fixture project",
+    description: null,
+    created_at: "2026-08-13T10:00:00Z",
+    updated_at: "2026-08-13T11:00:00Z",
+    archived_at: null,
+    output_drive_folder_id: null,
+    output_drive_folder_url: null,
+    output_drive_folder_name: null,
+    ...overrides,
+  };
+}
+function credentialFixture(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "credential-fixture",
+    provider: "elevenlabs",
+    label: "Fixture credential",
+    status: "active",
+    masked_value: "••••safe",
+    active_version: 1,
+    ...overrides,
+  };
+}
 function batchPreflightJson(init?: RequestInit) {
   const request = JSON.parse(String(init?.body ?? "{}")) as {
     language?: "ru" | "detect";
@@ -270,6 +318,10 @@ type OutputFixtureOptions = {
   outputsOk?: boolean;
   detailErrorBody?: unknown;
   outputsErrorBody?: unknown;
+  retryResponse?: unknown;
+  reconciliationResponse?: unknown;
+  terminalDismissedAt?: string | null;
+  includeSecondProject?: boolean;
 };
 
 function installFocusedOutputFixture(options: OutputFixtureOptions = {}) {
@@ -313,6 +365,21 @@ function installFocusedOutputFixture(options: OutputFixtureOptions = {}) {
               output_drive_folder_url: null,
               output_drive_folder_name: null,
             },
+            ...(options.includeSecondProject
+              ? [
+                  {
+                    id: "p2",
+                    title: "Project Two",
+                    description: null,
+                    created_at: "2026-07-02T00:00:00",
+                    updated_at: "2026-07-02T00:00:00",
+                    archived_at: null,
+                    output_drive_folder_id: null,
+                    output_drive_folder_url: null,
+                    output_drive_folder_name: null,
+                  },
+                ]
+              : []),
           ],
         });
       if (url.endsWith("/api/credentials"))
@@ -328,6 +395,10 @@ function installFocusedOutputFixture(options: OutputFixtureOptions = {}) {
             },
           ],
         });
+      if (url.endsWith("/api/projects/p2/sources") && !init?.method)
+        return json({ sources: [] });
+      if (url.endsWith("/api/projects/p2/jobs") && !init?.method)
+        return json({ jobs: [] });
       if (url.endsWith("/api/projects/p1/sources") && !init?.method)
         return json({
           sources: [
@@ -360,6 +431,7 @@ function installFocusedOutputFixture(options: OutputFixtureOptions = {}) {
               title: "Focused output job",
               provider: null,
               provider_credential_id: "cred-active",
+              terminal_dismissed_at: options.terminalDismissedAt ?? null,
               source_count: 1,
               created_at: "2026-07-02T00:00:00Z",
               updated_at: "2026-07-02T00:01:00Z",
@@ -378,6 +450,18 @@ function installFocusedOutputFixture(options: OutputFixtureOptions = {}) {
             },
           ],
         });
+      if (
+        options.reconciliationResponse !== undefined &&
+        url.endsWith("/api/jobs/job-focused/output-reconciliation") &&
+        !init?.method
+      )
+        return json(options.reconciliationResponse);
+      if (
+        options.retryResponse !== undefined &&
+        url.endsWith("/api/jobs/job-focused/retry") &&
+        !init?.method
+      )
+        return json(options.retryResponse);
       if (url.endsWith("/api/jobs/job-focused/outputs"))
         return options.outputsOk === false
           ? json(
@@ -407,6 +491,7 @@ function installFocusedOutputFixture(options: OutputFixtureOptions = {}) {
               title: "Focused output job",
               provider: null,
               provider_credential_id: "cred-active",
+              terminal_dismissed_at: options.terminalDismissedAt ?? null,
               source_count: 1,
               created_at: "2026-07-02T00:00:00Z",
               updated_at: "2026-07-02T00:01:00Z",
@@ -502,6 +587,53 @@ async function chooseResultFolder(
     action: "picked",
     docs: [{ id: folderId }],
   } as Awaited<ReturnType<typeof googlePicker.openGooglePicker>>);
+  const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+  const previousFetch = fetchMock.getMockImplementation();
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (
+      url.endsWith("/api/google/picker/session") &&
+      init?.method === "POST"
+    ) {
+      return json({
+        access_token: "ya29.test-access-token",
+        api_key: "public-picker-key",
+        app_id: "123456789",
+        scope_ready: true,
+      });
+    }
+    if (
+      url.includes("/api/projects/") &&
+      url.endsWith("/output-folders/google-picker/verify") &&
+      init?.method === "POST"
+    ) {
+      if (!expectedDisplayName) {
+        const previousResponse = await previousFetch?.(url, init);
+        if (previousResponse) {
+          const candidate = (await previousResponse
+            .clone()
+            .json()
+            .catch(() => null)) as {
+            name?: unknown;
+            web_view_url?: unknown;
+          } | null;
+          if (
+            candidate &&
+            typeof candidate.name === "string" &&
+            candidate.name.trim() &&
+            (candidate.web_view_url === null ||
+              typeof candidate.web_view_url === "string")
+          ) {
+            return previousResponse;
+          }
+        }
+      }
+      return json({
+        name: expectedDisplayName ?? "Папка Google Drive",
+        web_view_url: `https://drive.google.com/drive/folders/${folderId}`,
+      });
+    }
+    return previousFetch?.(url, init) ?? json({ ok: true });
+  });
   await userEvent.click(
     await screen.findByRole("button", {
       name: `Выбрать папку результата для строки ${rowNumber}`,
@@ -732,7 +864,7 @@ describe("Studio PWA", () => {
             ],
             next_page_token: null,
           });
-        if (url.endsWith("/api/credentials"))
+        if (url.endsWith("/api/credentials") && !init?.method)
           return json({
             credentials: [
               {
@@ -919,9 +1051,25 @@ describe("Studio PWA", () => {
             source_state: "deleted",
             storage_cleanup: "pending",
           });
-        if (url.endsWith("/api/credentials") && init?.method === "POST")
-          return json({ id: "c1" });
-        if (url.endsWith("/replace")) return json({ ok: true });
+        if (url.endsWith("/api/credentials") && init?.method === "POST") {
+          const request = JSON.parse(String(init.body)) as {
+            provider: "elevenlabs" | "openai";
+            label: string;
+          };
+          return json({
+            id: "c1",
+            provider: request.provider,
+            label: request.label,
+            status: "active",
+            masked_value: "••••safe",
+          });
+        }
+        if (url.endsWith("/replace"))
+          return json({
+            ok: true,
+            active_version: 2,
+            masked_value: "••••safe",
+          });
         if (url.endsWith("/api/credentials"))
           return json({
             credentials: [
@@ -974,14 +1122,15 @@ describe("Studio PWA", () => {
         )
           return json(new Blob(["# Safe report"], { type: "text/markdown" }));
         if (url.endsWith("/api/google/connection") && init?.method === "DELETE")
-          return json({
-            connected: false,
-            status: "revoked",
-            google_email: "safe.user@example.com",
-            scopes: "https://www.googleapis.com/auth/drive.file",
-            connected_at: "2026-07-01T00:00:00",
-            revoked_at: "2026-07-02T00:00:00",
-          });
+          return json(
+            googleConnectionFixture({
+              status: "revoked",
+              google_email: "safe.user@example.com",
+              scopes: "https://www.googleapis.com/auth/drive.file",
+              connected_at: "2026-07-01T00:00:00",
+              revoked_at: "2026-07-02T00:00:00",
+            }),
+          );
         if (url.endsWith("/api/google/maintenance/connection"))
           return json({
             connected: true,
@@ -1011,11 +1160,7 @@ describe("Studio PWA", () => {
             reconnect_required: false,
           });
         if (url.endsWith("/api/google/oauth/start") && init?.method === "POST")
-          return json({
-            authorization_url:
-              "https://accounts.google.com/o/oauth2/v2/auth?state=secret-state",
-            expires_at: null,
-          });
+          return json(googleOauthStartFixture());
         if (
           url.endsWith("/api/projects/p1/jobs/batch") &&
           init?.method === "POST"
@@ -1326,6 +1471,112 @@ describe("Studio PWA", () => {
     ).toHaveLength(1);
   });
 
+  it("bounds and deduplicates stalled source deletion before reconciling absence", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const requestSignals: AbortSignal[] = [];
+    let deleteStarted = false;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        url === "/api/projects/p1/sources" &&
+        !init?.method &&
+        deleteStarted
+      ) {
+        return json({ sources: [] });
+      }
+      if (url === "/api/sources/s1" && init?.method === "DELETE") {
+        deleteStarted = true;
+        const signal = init.signal;
+        if (!signal) throw new Error("source deletion signal is missing");
+        requestSignals.push(signal);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
+    const removeButton = screen.getByRole("button", {
+      name: "Убрать из проекта: Лекция 1. Личность как психологическое явление.flac",
+    });
+
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(removeButton);
+      fireEvent.click(removeButton);
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(requestSignals).toHaveLength(1);
+      expect(removeButton).toBeDisabled();
+      expect(removeButton).toHaveAttribute("aria-busy", "true");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+
+      expect(requestSignals[0]?.aborted).toBe(true);
+      expect(
+        baseFetch.mock.calls.some(
+          ([url, init]) =>
+            url === "/api/projects/p1/sources" &&
+            init?.cache === "no-store",
+        ),
+      ).toBe(true);
+      expect(
+        baseFetch.mock.calls.filter(
+          ([url, init]) =>
+            url === "/api/sources/s1" && init?.method === "DELETE",
+        ),
+      ).toHaveLength(1);
+      expect(screen.getByText("Файл убран из проекта.")).toBeInTheDocument();
+      expect(
+        screen.queryByText("Лекция 1. Личность как психологическое явление.flac"),
+      ).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("keeps a source visible when an ambiguous deletion is not reconciled", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/sources/s1" && init?.method === "DELETE") {
+        return Promise.reject(new TypeError("raw transport detail"));
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
+    const removeButton = screen.getByRole("button", {
+      name: "Убрать из проекта: Лекция 1. Личность как психологическое явление.flac",
+    });
+    await userEvent.click(removeButton);
+
+    expect(
+      await screen.findByText(
+        "Сервер не подтвердил удаление файла. Список файлов обновлён; подождите и повторите при необходимости.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Лекция 1. Личность как психологическое явление.flac"),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(removeButton).toBeEnabled());
+    expect(removeButton).toHaveAttribute("aria-busy", "false");
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          url === "/api/sources/s1" && init?.method === "DELETE",
+      ),
+    ).toHaveLength(1);
+    expect(document.body).not.toHaveTextContent("raw transport detail");
+  });
   it("reports queued background cleanup after removing an uploaded local source", async () => {
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = baseFetch.getMockImplementation();
@@ -1354,10 +1605,17 @@ describe("Studio PWA", () => {
     ).toBeInTheDocument();
   });
 
-  it("keeps a source visible when a successful delete response is inconsistent", async () => {
+  it("keeps a source visible when an inconsistent delete reload fails", async () => {
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = baseFetch.getMockImplementation();
+    let failSourceReload = false;
     baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        failSourceReload &&
+        url.endsWith("/api/projects/p1/sources") &&
+        !init?.method
+      )
+        return json({ detail: "raw source reload failure" }, false, 500);
       if (
         url.endsWith("/api/sources/s-local") &&
         init?.method === "DELETE"
@@ -1372,6 +1630,8 @@ describe("Studio PWA", () => {
     renderApp();
     await openProjectsPage();
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
+    expect(await screen.findByText("local-temp.ogg")).toBeInTheDocument();
+    failSourceReload = true;
     await userEvent.click(
       screen.getByRole("button", { name: "Убрать из проекта: local-temp.ogg" }),
     );
@@ -1381,7 +1641,11 @@ describe("Studio PWA", () => {
         "Сервер вернул несогласованное подтверждение удаления. Список файлов обновлён.",
       ),
     ).toBeInTheDocument();
+    expect(
+      await screen.findByText("Не удалось загрузить файлы проекта."),
+    ).toBeInTheDocument();
     expect(screen.getByText("local-temp.ogg")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("raw source reload failure");
     expect(
       screen.queryByText(/Временная копия поставлена в очередь/),
     ).not.toBeInTheDocument();
@@ -1411,7 +1675,7 @@ describe("Studio PWA", () => {
     expect(document.body.textContent).not.toContain("retry_stage");
   });
 
-  it("keeps the source card and shows a safe project-removal error on failed removal", async () => {
+  it("keeps the source card and shows a safe ambiguous outcome after a 5xx removal", async () => {
     (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       (url: string, init?: RequestInit) => {
         if (url.endsWith("/api/auth/session"))
@@ -1502,7 +1766,9 @@ describe("Studio PWA", () => {
       }),
     );
     expect(
-      await screen.findByText("Не удалось убрать файл из проекта."),
+      await screen.findByText(
+        "Сервер не подтвердил удаление файла. Список файлов обновлён; подождите и повторите при необходимости.",
+      ),
     ).toBeInTheDocument();
     expect(screen.getByText("safe-drive.mp4")).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("удален с Google Drive");
@@ -1637,6 +1903,337 @@ describe("Studio PWA", () => {
       ),
     ).not.toBeInTheDocument();
     expect(document.body.textContent).not.toContain("Traceback raw stack");
+  });
+
+  it("bounds the dashboard Google connection read and retries explicitly", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const connectionSignals: AbortSignal[] = [];
+    let connectionReads = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/google/connection" && !init?.method) {
+        connectionReads += 1;
+        if (connectionReads > 1) {
+          return json(
+            googleConnectionFixture({
+              connected: true,
+              status: "active",
+              google_email: "safe.user@example.com",
+              scopes: "openid email https://www.googleapis.com/auth/drive.file",
+              connected_at: "2026-08-13T12:00:00Z",
+              picker_configured: true,
+              picker_scope_ready: true,
+              picker_ready: true,
+            }),
+          );
+        }
+        const signal = init.signal;
+        if (!signal) throw new Error("Google connection signal is missing");
+        connectionSignals.push(signal);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 15_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      renderApp();
+      await waitForPlatformOverview();
+      const card = screen.getByLabelText("Google Drive");
+      await waitFor(() => expect(card).toHaveTextContent("Недоступно"));
+      expect(connectionSignals).toHaveLength(1);
+      expect(connectionSignals[0]?.aborted).toBe(true);
+      await userEvent.click(
+        within(card).getByRole("button", { name: "Повторить" }),
+      );
+      await waitFor(() => expect(card).toHaveTextContent("Подключён"));
+      expect(connectionReads).toBe(2);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("fails Projects Google connection closed on malformed data and retries", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let connectionReads = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/google/connection" && !init?.method) {
+        connectionReads += 1;
+        if (connectionReads === 2) {
+          return json(
+            googleConnectionFixture({
+              connected: true,
+              status: null,
+              raw_refresh_token: "raw-projects-google-secret",
+            }),
+          );
+        }
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
+    expect(
+      await screen.findByText("Не удалось проверить подключение Google Drive."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Выбрать файлы Google Drive" }),
+    ).toBeDisabled();
+    expect(document.body.textContent).not.toContain("raw-projects-google-secret");
+    expect(document.body.textContent).not.toContain("Google Drive не подключён.");
+
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Повторить проверку Google Drive",
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Выбрать файлы Google Drive" }),
+      ).toBeEnabled(),
+    );
+    expect(connectionReads).toBe(3);
+  });
+
+  it("keeps the latest Projects Google state after a late pre-remount read", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let connectionReads = 0;
+    let resolveFirstProjectsRead: ((response: Response) => void) | undefined;
+    const connected = googleConnectionFixture({
+      connected: true,
+      status: "active",
+      google_email: "safe.user@example.com",
+      scopes: "openid email https://www.googleapis.com/auth/drive.file",
+      connected_at: "2026-08-13T12:00:00Z",
+      picker_configured: true,
+      picker_scope_ready: true,
+      picker_ready: true,
+    });
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/google/connection" && !init?.method) {
+        connectionReads += 1;
+        if (connectionReads === 1) return json(connected);
+        if (connectionReads === 2) {
+          return new Promise<Response>((resolve) => {
+            resolveFirstProjectsRead = resolve;
+          });
+        }
+        return json(googleConnectionFixture());
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+    await waitFor(() => expect(resolveFirstProjectsRead).toBeDefined());
+    await openSettingsPage();
+    await screen.findByText("Google Drive не подключён");
+    await openProjectsPage();
+    expect(
+      await screen.findByText("Google Drive не подключён."),
+    ).toBeInTheDocument();
+    const driveButton = screen.getByRole("button", { name: "Выбрать файлы Google Drive" });
+    expect(driveButton).toBeDisabled();
+
+    await act(async () => resolveFirstProjectsRead?.(await json(connected)));
+    expect(screen.getByText("Google Drive не подключён.")).toBeInTheDocument();
+    expect(driveButton).toBeDisabled();
+    expect(connectionReads).toBe(4);
+  });
+
+  it("bounds dashboard project and credential reads with independent retries", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const projectSignals: AbortSignal[] = [];
+    const credentialSignals: AbortSignal[] = [];
+    let projectReads = 0;
+    let credentialReads = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/projects" && !init?.method) {
+        projectReads += 1;
+        if (projectReads > 1) return defaultFetch?.(url, init) ?? json({ projects: [] });
+        const signal = init.signal;
+        if (!signal) throw new Error("Project signal is missing");
+        projectSignals.push(signal);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+        });
+      }
+      if (url === "/api/credentials" && !init?.method) {
+        credentialReads += 1;
+        if (credentialReads > 1)
+          return defaultFetch?.(url, init) ?? json({ credentials: [] });
+        const signal = init.signal;
+        if (!signal) throw new Error("Credential signal is missing");
+        credentialSignals.push(signal);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 15_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      renderApp();
+      await waitForPlatformOverview();
+      const projectsCard = screen.getByLabelText("Проекты");
+      const credentialsCard = screen.getByLabelText("Активные ключи");
+      await waitFor(() => expect(projectsCard).toHaveTextContent("Недоступно"));
+      await waitFor(() => expect(credentialsCard).toHaveTextContent("Недоступно"));
+      expect(screen.getByLabelText("Google Drive")).toHaveTextContent("Подключён");
+      expect(projectSignals[0]?.aborted).toBe(true);
+      expect(credentialSignals[0]?.aborted).toBe(true);
+
+      await userEvent.click(
+        within(projectsCard).getByRole("button", { name: "Повторить" }),
+      );
+      await userEvent.click(
+        within(credentialsCard).getByRole("button", { name: "Повторить" }),
+      );
+      await waitFor(() => expect(projectsCard).toHaveTextContent("1"));
+      await waitFor(() => expect(credentialsCard).toHaveTextContent("1"));
+      expect(projectReads).toBe(2);
+      expect(credentialReads).toBe(2);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("rejects duplicate dashboard collections without rendering raw fields", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let projectReads = 0;
+    let credentialReads = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/projects" && !init?.method) {
+        projectReads += 1;
+        if (projectReads === 1) {
+          return json({
+            projects: [
+              projectFixture({ id: "duplicate", title: "raw-project-value" }),
+              projectFixture({ id: "duplicate", title: "other duplicate" }),
+            ],
+          });
+        }
+      }
+      if (url === "/api/credentials" && !init?.method) {
+        credentialReads += 1;
+        if (credentialReads === 1) {
+          return json({
+            credentials: [
+              credentialFixture({
+                id: "duplicate",
+                masked_value: "raw-credential-value",
+              }),
+              credentialFixture({ id: "duplicate", label: "duplicate label" }),
+            ],
+          });
+        }
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await waitForPlatformOverview();
+    const projectsCard = screen.getByLabelText("Проекты");
+    const credentialsCard = screen.getByLabelText("Активные ключи");
+    await waitFor(() => expect(projectsCard).toHaveTextContent("Недоступно"));
+    await waitFor(() => expect(credentialsCard).toHaveTextContent("Недоступно"));
+    expect(document.body.textContent).not.toContain("raw-project-value");
+    expect(document.body.textContent).not.toContain("raw-credential-value");
+
+    await userEvent.click(
+      within(projectsCard).getByRole("button", { name: "Повторить" }),
+    );
+    await userEvent.click(
+      within(credentialsCard).getByRole("button", { name: "Повторить" }),
+    );
+    await waitFor(() => expect(projectsCard).toHaveTextContent("1"));
+    await waitFor(() => expect(credentialsCard).toHaveTextContent("1"));
+  });
+
+  it("ignores a late dashboard project retry after Overview remount", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let projectReads = 0;
+    let olderRetrySignal: AbortSignal | undefined;
+    let resolveOlderRetry: ((response: Response) => void) | undefined;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/projects" && !init?.method) {
+        projectReads += 1;
+        if (projectReads === 1)
+          return json({ detail: "raw-project-failure" }, false, 503);
+        if (projectReads === 2) {
+          olderRetrySignal = init.signal;
+          return new Promise<Response>((resolve) => {
+            resolveOlderRetry = resolve;
+          });
+        }
+        if (projectReads === 4) {
+          return json({
+            projects: [
+              projectFixture({ id: "new-1", title: "Newest one" }),
+              projectFixture({ id: "new-2", title: "Newest two" }),
+            ],
+          });
+        }
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await waitForPlatformOverview();
+    const initialProjectsCard = screen.getByLabelText("Проекты");
+    await waitFor(() =>
+      expect(initialProjectsCard).toHaveTextContent("Недоступно"),
+    );
+    await userEvent.click(
+      within(initialProjectsCard).getByRole("button", { name: "Повторить" }),
+    );
+    await waitFor(() => expect(resolveOlderRetry).toBeDefined());
+
+    await openProjectsPage();
+    expect(olderRetrySignal?.aborted).toBe(true);
+    await openPlatformNavPage("Обзор");
+    await waitForPlatformOverview();
+    const currentProjectsCard = screen.getByLabelText("Проекты");
+    await waitFor(() => expect(currentProjectsCard).toHaveTextContent("2"));
+    expect(await screen.findByText("Newest one")).toBeInTheDocument();
+    expect(projectReads).toBe(4);
+
+    await act(async () =>
+      resolveOlderRetry?.(
+        await json({
+          projects: [projectFixture({ id: "old", title: "Late older result" })],
+        }),
+      ),
+    );
+    expect(currentProjectsCard).toHaveTextContent("2");
+    expect(screen.queryByText("Late older result")).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("raw-project-failure");
   });
 
   it("opens the project creation form only for the dashboard new-project action", async () => {
@@ -2267,23 +2864,304 @@ describe("Studio PWA", () => {
     expect(window.sessionStorage.length).toBe(0);
   });
 
+  it("bounds a stalled retention read and fails closed with retry", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const retentionSignals: AbortSignal[] = [];
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/account/preferences" && !init?.method) {
+        const signal = init.signal;
+        if (!signal) throw new Error("retention-read signal is missing");
+        retentionSignals.push(signal);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 15_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      renderApp();
+      await openSettingsPage();
+      expect(
+        await screen.findByText(
+          "Не удалось загрузить настройку хранения. Повторите попытку.",
+        ),
+      ).toBeInTheDocument();
+      expect(retentionSignals).toHaveLength(1);
+      expect(retentionSignals[0]?.aborted).toBe(true);
+      expect(screen.getByRole("button", { name: "Повторить" })).toBeEnabled();
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("rejects a malformed retention response before rendering choices", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) =>
+      url === "/api/account/preferences" && !init?.method
+        ? json({
+            source_retention_ttl_seconds: 86400,
+            allowed_source_retention_ttl_seconds: [86400],
+          })
+        : (defaultFetch?.(url, init) ?? json({ ok: true })),
+    );
+
+    renderApp();
+    await openSettingsPage();
+    expect(
+      await screen.findByText(
+        "Не удалось загрузить настройку хранения. Повторите попытку.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("combobox", {
+        name: "Срок хранения локальных файлов",
+      }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("bounds and deduplicates retention save with authoritative confirmation", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const mutationSignals: AbortSignal[] = [];
+    let serverTtl = 86400;
+    let preferenceReads = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/account/preferences" && !init?.method) {
+        preferenceReads += 1;
+        return json({
+          source_retention_ttl_seconds: serverTtl,
+          allowed_source_retention_ttl_seconds: [
+            3600, 86400, 259200, 604800, 2592000,
+          ],
+        });
+      }
+      if (url === "/api/account/preferences" && init?.method === "PATCH") {
+        serverTtl = JSON.parse(String(init.body)).source_retention_ttl_seconds;
+        const signal = init.signal;
+        if (!signal) throw new Error("retention-save signal is missing");
+        mutationSignals.push(signal);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openSettingsPage();
+    const retention = await screen.findByRole("combobox", {
+      name: "Срок хранения локальных файлов",
+    });
+    await userEvent.selectOptions(retention, "604800");
+    const form = retention.closest("form");
+    if (!form) throw new Error("retention form is missing");
+    const readsBeforeMutation = preferenceReads;
+
+    vi.useFakeTimers();
+    try {
+      fireEvent.submit(form);
+      fireEvent.submit(form);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(mutationSignals).toHaveLength(1);
+      expect(screen.getByRole("button", { name: "Сохраняем…" })).toBeDisabled();
+      expect(form).toHaveAttribute("aria-busy", "true");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+      vi.useRealTimers();
+      expect(
+        await screen.findByText(
+          "Сохранение срока подтверждено по актуальной настройке аккаунта.",
+        ),
+      ).toBeInTheDocument();
+      expect(mutationSignals[0]?.aborted).toBe(true);
+      expect(preferenceReads).toBe(readsBeforeMutation + 1);
+      expect(retention).toHaveValue("604800");
+      expect(screen.getByRole("button", { name: "Сохранить срок" })).toBeEnabled();
+      expect(
+        baseFetch.mock.calls.filter(
+          ([url, init]) =>
+            url === "/api/account/preferences" && init?.method === "PATCH",
+        ),
+      ).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps retention mutation ownership and result across Settings remount", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let serverTtl = 86400;
+    let preferenceReads = 0;
+    let resolvePatch: ((response: Response) => void) | undefined;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/account/preferences" && !init?.method) {
+        preferenceReads += 1;
+        return json({
+          source_retention_ttl_seconds: serverTtl,
+          allowed_source_retention_ttl_seconds: [
+            3600, 86400, 259200, 604800, 2592000,
+          ],
+        });
+      }
+      if (url === "/api/account/preferences" && init?.method === "PATCH") {
+        return new Promise<Response>((resolve) => {
+          resolvePatch = resolve;
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openSettingsPage();
+    const retention = await screen.findByRole("combobox", {
+      name: "Срок хранения локальных файлов",
+    });
+    await userEvent.selectOptions(retention, "604800");
+    const form = retention.closest("form");
+    if (!form) throw new Error("retention form is missing");
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+    await waitFor(() => expect(resolvePatch).toBeDefined());
+    expect(screen.getByRole("button", { name: "Сохраняем…" })).toBeDisabled();
+
+    await openProjectsPage();
+    await openSettingsPage();
+    expect(
+      await screen.findByRole("button", { name: "Сохраняем…" }),
+    ).toBeDisabled();
+    serverTtl = 604800;
+    const failedResponse = await json(
+      { detail: "raw-retention-failure-must-not-render" },
+      false,
+      503,
+    );
+    await act(async () => resolvePatch?.(failedResponse));
+    expect(
+      await screen.findByText(
+        "Сохранение срока подтверждено по актуальной настройке аккаунта.",
+      ),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("combobox", {
+          name: "Срок хранения локальных файлов",
+        }),
+      ).toHaveValue("604800"),
+    );
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          url === "/api/account/preferences" && init?.method === "PATCH",
+      ),
+    ).toHaveLength(1);
+    expect(document.body.textContent).not.toContain(
+      "raw-retention-failure-must-not-render",
+    );
+
+    const readsBeforeFinalReopen = preferenceReads;
+    await openProjectsPage();
+    await openSettingsPage();
+    await screen.findByRole("combobox", {
+      name: "Срок хранения локальных файлов",
+    });
+    expect(preferenceReads).toBe(readsBeforeFinalReopen + 1);
+  });
+
+  it("restores a different authoritative retention value after ambiguity", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let preferenceReads = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/account/preferences" && !init?.method) {
+        preferenceReads += 1;
+        return json({
+          source_retention_ttl_seconds:
+            preferenceReads === 1 ? 86400 : 259200,
+          allowed_source_retention_ttl_seconds: [
+            3600, 86400, 259200, 604800, 2592000,
+          ],
+        });
+      }
+      if (url === "/api/account/preferences" && init?.method === "PATCH")
+        return json({ detail: "raw-ambiguous-retention" }, false, 503);
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openSettingsPage();
+    const retention = await screen.findByRole("combobox", {
+      name: "Срок хранения локальных файлов",
+    });
+    await userEvent.selectOptions(retention, "604800");
+    await userEvent.click(screen.getByRole("button", { name: "Сохранить срок" }));
+    expect(
+      await screen.findByText(
+        "Сервер не подтвердил сохранение. Показано актуальное значение; проверьте его перед повторной попыткой.",
+      ),
+    ).toBeInTheDocument();
+    expect(retention).toHaveValue("259200");
+    expect(document.body.textContent).not.toContain("raw-ambiguous-retention");
+  });
+  it("restores the last confirmed retention value when reconciliation fails", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let preferenceReads = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/account/preferences" && !init?.method) {
+        preferenceReads += 1;
+        return preferenceReads === 1
+          ? json({
+              source_retention_ttl_seconds: 86400,
+              allowed_source_retention_ttl_seconds: [
+                3600, 86400, 259200, 604800, 2592000,
+              ],
+            })
+          : json({ detail: "raw-retention-read-failure" }, false, 500);
+      }
+      if (url === "/api/account/preferences" && init?.method === "PATCH")
+        return json({ detail: "raw-retention-write-failure" }, false, 503);
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openSettingsPage();
+    const retention = await screen.findByRole("combobox", {
+      name: "Срок хранения локальных файлов",
+    });
+    await userEvent.selectOptions(retention, "604800");
+    await userEvent.click(screen.getByRole("button", { name: "Сохранить срок" }));
+    expect(
+      await screen.findByText(
+        "Сервер не подтвердил сохранение, а обновить настройку не удалось. Сохранено последнее подтверждённое значение; обновите страницу перед повторной попыткой.",
+      ),
+    ).toBeInTheDocument();
+    expect(retention).toHaveValue("86400");
+    expect(document.body.textContent).not.toContain("raw-retention-read-failure");
+    expect(document.body.textContent).not.toContain("raw-retention-write-failure");
+  });
   it("renders disconnected Google Drive state", async () => {
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = baseFetch.getMockImplementation();
     baseFetch.mockImplementation((url: string, init?: RequestInit) => {
       if (url.endsWith("/api/google/connection"))
-        return json({
-          connected: false,
-          status: "disconnected",
-          google_email: null,
-          scopes: null,
-          connected_at: null,
-          revoked_at: null,
-          picker_configured: false,
-          picker_scope_ready: false,
-          picker_ready: false,
-          reconnect_required: false,
-        });
+        return json(googleConnectionFixture());
       return defaultFetch?.(url, init) ?? json({ ok: true });
     });
     renderApp();
@@ -2330,15 +3208,19 @@ describe("Studio PWA", () => {
           });
         if (url.endsWith("/api/audit-events")) return json({ events: [] });
         if (url.endsWith("/api/google/connection"))
-          return json({
-            connected: true,
-            status: "active",
-            google_email: "safe.user@example.com",
-            scopes: "https://www.googleapis.com/auth/drive.file",
-            connected_at: "2026-07-01T00:00:00",
-            revoked_at: null,
-            refresh_token: "raw-refresh-token-never-render",
-          });
+          return json(
+            googleConnectionFixture({
+              connected: true,
+              status: "active",
+              google_email: "safe.user@example.com",
+              scopes: "https://www.googleapis.com/auth/drive.file",
+              connected_at: "2026-07-01T00:00:00",
+              picker_configured: true,
+              picker_scope_ready: true,
+              picker_ready: true,
+              refresh_token: "raw-refresh-token-never-render",
+            }),
+          );
         return json({ ok: true });
       },
     );
@@ -2369,18 +3251,7 @@ describe("Studio PWA", () => {
     const defaultFetch = baseFetch.getMockImplementation();
     baseFetch.mockImplementation((url: string, init?: RequestInit) => {
       if (url.endsWith("/api/google/connection"))
-        return json({
-          connected: false,
-          status: "disconnected",
-          google_email: null,
-          scopes: null,
-          connected_at: null,
-          revoked_at: null,
-          picker_configured: false,
-          picker_scope_ready: false,
-          picker_ready: false,
-          reconnect_required: false,
-        });
+        return json(googleConnectionFixture());
       return defaultFetch?.(url, init) ?? json({ ok: true });
     });
     const assign = vi.fn();
@@ -2406,7 +3277,7 @@ describe("Studio PWA", () => {
       "x-csrf-token": "csrf-after-refresh",
     });
     expect(assign).toHaveBeenCalledWith(
-      "https://accounts.google.com/o/oauth2/v2/auth?state=secret-state",
+      String(googleOauthStartFixture().authorization_url),
     );
     expect(document.body).not.toHaveTextContent("secret-state");
     expect(window.localStorage.length).toBe(0);
@@ -2466,23 +3337,28 @@ describe("Studio PWA", () => {
         )
           return json(new Blob(["# Safe report"], { type: "text/markdown" }));
         if (url.endsWith("/api/google/connection") && init?.method === "DELETE")
-          return json({
-            connected: false,
-            status: "revoked",
-            google_email: "safe.user@example.com",
-            scopes: "https://www.googleapis.com/auth/drive.file",
-            connected_at: "2026-07-01T00:00:00",
-            revoked_at: "2026-07-02T00:00:00",
-          });
+          return json(
+            googleConnectionFixture({
+              status: "revoked",
+              google_email: "safe.user@example.com",
+              scopes: "https://www.googleapis.com/auth/drive.file",
+              connected_at: "2026-07-01T00:00:00",
+              revoked_at: "2026-07-02T00:00:00",
+            }),
+          );
         if (url.endsWith("/api/google/connection"))
-          return json({
-            connected: true,
-            status: "active",
-            google_email: "safe.user@example.com",
-            scopes: "https://www.googleapis.com/auth/drive.file",
-            connected_at: "2026-07-01T00:00:00",
-            revoked_at: null,
-          });
+          return json(
+            googleConnectionFixture({
+              connected: true,
+              status: "active",
+              google_email: "safe.user@example.com",
+              scopes: "https://www.googleapis.com/auth/drive.file",
+              connected_at: "2026-07-01T00:00:00",
+              picker_configured: true,
+              picker_scope_ready: true,
+              picker_ready: true,
+            }),
+          );
         return json({ ok: true });
       },
     );
@@ -2509,6 +3385,354 @@ describe("Studio PWA", () => {
     expect(await screen.findByText(/Статус: revoked/)).toBeInTheDocument();
   });
 
+  it("bounds stalled Google connection reads and exposes an explicit retry", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const connectionSignals: AbortSignal[] = [];
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/google/connection" && !init?.method) {
+        const signal = init.signal;
+        if (!signal) throw new Error("Google connection signal is missing");
+        connectionSignals.push(signal);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 15_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      renderApp();
+      await openSettingsPage();
+      expect(
+        await screen.findByText(
+          "Не удалось загрузить статус Google Drive. Повторите попытку.",
+        ),
+      ).toBeInTheDocument();
+      expect(connectionSignals).toHaveLength(2);
+      expect(connectionSignals.every((signal) => signal.aborted)).toBe(true);
+      const retry = screen.getByRole("button", {
+        name: "Повторить проверку Google Drive",
+      });
+      await userEvent.click(retry);
+      await waitFor(() => expect(connectionSignals).toHaveLength(3));
+      await waitFor(() => expect(connectionSignals[2]?.aborted).toBe(true));
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("rejects malformed Google connection state without rendering raw fields", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) =>
+      url === "/api/google/connection" && !init?.method
+        ? json(
+            googleConnectionFixture({
+              connected: true,
+              status: null,
+              raw_refresh_token: "raw-google-connection-secret",
+            }),
+          )
+        : (defaultFetch?.(url, init) ?? json({ ok: true })),
+    );
+
+    renderApp();
+    await openSettingsPage();
+    expect(
+      await screen.findByText(
+        "Не удалось загрузить статус Google Drive. Повторите попытку.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Подключить Google Drive" }),
+    ).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toContain(
+      "raw-google-connection-secret",
+    );
+  });
+
+  it("bounds and deduplicates OAuth start without replay after ambiguity", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const mutationSignals: AbortSignal[] = [];
+    let connectionReads = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/google/connection" && !init?.method) {
+        connectionReads += 1;
+        return json(googleConnectionFixture());
+      }
+      if (url === "/api/google/oauth/start" && init?.method === "POST") {
+        const signal = init.signal;
+        if (!signal) throw new Error("Google OAuth start signal is missing");
+        mutationSignals.push(signal);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    const assign = vi.fn();
+    Object.defineProperty(window, "location", {
+      value: { ...window.location, assign },
+      writable: true,
+    });
+
+    renderApp();
+    await openSettingsPage();
+    const connect = await screen.findByRole("button", {
+      name: "Подключить Google Drive",
+    });
+    const readsBeforeMutation = connectionReads;
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(connect);
+      fireEvent.click(connect);
+      await act(async () => Promise.resolve());
+      expect(mutationSignals).toHaveLength(1);
+      expect(connect).toBeDisabled();
+      expect(connect).toHaveAttribute("aria-busy", "true");
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+      vi.useRealTimers();
+      expect(
+        await screen.findByText(
+          "Сервер не подтвердил начало подключения. Статус Google Drive обновлён; не повторяйте запрос, пока не проверите состояние подключения.",
+        ),
+      ).toBeInTheDocument();
+      expect(mutationSignals[0]?.aborted).toBe(true);
+      expect(connectionReads).toBe(readsBeforeMutation + 1);
+      expect(assign).not.toHaveBeenCalled();
+      expect(
+        baseFetch.mock.calls.filter(
+          ([url, init]) =>
+            url === "/api/google/oauth/start" && init?.method === "POST",
+        ),
+      ).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("rejects an untrusted OAuth URL and performs one safe reconciliation", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let connectionReads = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/google/connection" && !init?.method) {
+        connectionReads += 1;
+        return json(googleConnectionFixture());
+      }
+      if (url === "/api/google/oauth/start" && init?.method === "POST")
+        return json(
+          googleOauthStartFixture({
+            authorization_url:
+              "https://evil.example/oauth?state=raw-google-oauth-secret",
+          }),
+        );
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    const assign = vi.fn();
+    Object.defineProperty(window, "location", {
+      value: { ...window.location, assign },
+      writable: true,
+    });
+
+    renderApp();
+    await openSettingsPage();
+    const readsBeforeMutation = connectionReads;
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Подключить Google Drive" }),
+    );
+    expect(
+      await screen.findByText(
+        "Сервер не подтвердил начало подключения. Статус Google Drive обновлён; не повторяйте запрос, пока не проверите состояние подключения.",
+      ),
+    ).toBeInTheDocument();
+    expect(connectionReads).toBe(readsBeforeMutation + 1);
+    expect(assign).not.toHaveBeenCalled();
+    expect(document.body.textContent).not.toContain("raw-google-oauth-secret");
+  });
+
+  it("keeps disconnect ownership and outcome across a Settings remount", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let connectionReads = 0;
+    let serverDisconnected = false;
+    let resolveDelete: ((response: Response) => void) | undefined;
+    const activeConnection = () =>
+      googleConnectionFixture({
+        connected: true,
+        status: "active",
+        google_email: "safe.user@example.com",
+        scopes: "openid email https://www.googleapis.com/auth/drive.file",
+        connected_at: "2026-07-01T00:00:00Z",
+        picker_configured: true,
+        picker_scope_ready: true,
+        picker_ready: true,
+      });
+    const revokedConnection = () =>
+      googleConnectionFixture({
+        status: "revoked",
+        google_email: "safe.user@example.com",
+        scopes: "openid email https://www.googleapis.com/auth/drive.file",
+        connected_at: "2026-07-01T00:00:00Z",
+        revoked_at: "2026-08-13T12:00:00Z",
+      });
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/google/connection" && !init?.method) {
+        connectionReads += 1;
+        return json(serverDisconnected ? revokedConnection() : activeConnection());
+      }
+      if (url === "/api/google/connection" && init?.method === "DELETE")
+        return new Promise<Response>((resolve) => {
+          resolveDelete = resolve;
+        });
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openSettingsPage();
+    const disconnect = await screen.findByRole("button", {
+      name: "Отключить Google Drive",
+    });
+    fireEvent.click(disconnect);
+    fireEvent.click(disconnect);
+    await waitFor(() => expect(resolveDelete).toBeDefined());
+    await openProjectsPage();
+    await openSettingsPage();
+    expect(
+      await screen.findByRole("button", { name: "Отключить Google Drive" }),
+    ).toBeDisabled();
+
+    serverDisconnected = true;
+    const failedResponse = await json(
+      { detail: "raw-google-disconnect-failure" },
+      false,
+      503,
+    );
+    await act(async () => resolveDelete?.(failedResponse));
+    expect(
+      await screen.findByText(
+        "Отключение Google Drive подтверждено по актуальному состоянию.",
+      ),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("Google Drive не подключён")).toBeInTheDocument();
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          url === "/api/google/connection" && init?.method === "DELETE",
+      ),
+    ).toHaveLength(1);
+    expect(document.body.textContent).not.toContain(
+      "raw-google-disconnect-failure",
+    );
+
+    const readsBeforeFinalReopen = connectionReads;
+    await openProjectsPage();
+    await openSettingsPage();
+    await screen.findByText("Google Drive не подключён");
+    expect(connectionReads).toBe(readsBeforeFinalReopen + 2);
+  });
+
+  it("keeps the authoritative connected state after an ambiguous disconnect", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let connectionReads = 0;
+    const activeConnection = googleConnectionFixture({
+      connected: true,
+      status: "active",
+      google_email: "safe.user@example.com",
+      scopes: "openid email https://www.googleapis.com/auth/drive.file",
+      connected_at: "2026-07-01T00:00:00Z",
+      picker_configured: true,
+      picker_scope_ready: true,
+      picker_ready: true,
+    });
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/google/connection" && !init?.method) {
+        connectionReads += 1;
+        return json(activeConnection);
+      }
+      if (url === "/api/google/connection" && init?.method === "DELETE")
+        return json({ detail: "raw-google-still-connected" }, false, 503);
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openSettingsPage();
+    const readsBeforeMutation = connectionReads;
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Отключить Google Drive" }),
+    );
+    expect(
+      await screen.findByText(
+        "Сервер не подтвердил отключение. Показан актуальный статус; проверьте его перед повторной попыткой.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Google Drive подключён")).toBeInTheDocument();
+    expect(connectionReads).toBe(readsBeforeMutation + 1);
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          url === "/api/google/connection" && init?.method === "DELETE",
+      ),
+    ).toHaveLength(1);
+    expect(document.body.textContent).not.toContain(
+      "raw-google-still-connected",
+    );
+  });
+  it("invalidates a late OAuth start response after logout", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let resolveStart: ((response: Response) => void) | undefined;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/google/connection" && !init?.method)
+        return json(googleConnectionFixture());
+      if (url === "/api/google/oauth/start" && init?.method === "POST")
+        return new Promise<Response>((resolve) => {
+          resolveStart = resolve;
+        });
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    const assign = vi.fn();
+    Object.defineProperty(window, "location", {
+      value: { ...window.location, assign },
+      writable: true,
+    });
+
+    renderApp();
+    await openSettingsPage();
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Подключить Google Drive" }),
+    );
+    await waitFor(() => expect(resolveStart).toBeDefined());
+    await userEvent.click(screen.getByRole("button", { name: "Выйти" }));
+    expect(
+      await screen.findByRole("heading", { name: "Вход" }),
+    ).toBeInTheDocument();
+
+    const successfulResponse = await json(googleOauthStartFixture());
+    await act(async () => resolveStart?.(successfulResponse));
+    expect(assign).not.toHaveBeenCalled();
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          url === "/api/google/oauth/start" && init?.method === "POST",
+      ),
+    ).toHaveLength(1);
+    expect(document.body.textContent).not.toContain("secret-state");
+  });
   it("supports credential replacement without rendering raw key", async () => {
     renderApp();
     await openSettingsPage();
@@ -2615,6 +3839,297 @@ describe("Studio PWA", () => {
     });
   });
 
+  it("bounds a stalled credential-list read and exposes a safe retry", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const credentialSignals: AbortSignal[] = [];
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/credentials" && !init?.method) {
+        const signal = init?.signal;
+        if (!signal) throw new Error("credential-list signal is missing");
+        credentialSignals.push(signal);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 15_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      renderApp();
+      await openSettingsPage();
+      expect(
+        await screen.findByText(
+          "Не удалось загрузить ключи провайдеров. Повторите попытку.",
+        ),
+      ).toBeInTheDocument();
+      expect(credentialSignals).toHaveLength(2);
+      expect(credentialSignals[0]?.aborted).toBe(true);
+      expect(credentialSignals[1]?.aborted).toBe(true);
+      expect(
+        screen.getByRole("button", { name: "Добавить ключ" }),
+      ).toBeDisabled();
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("rejects a malformed credential collection before rendering actions", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) =>
+      url === "/api/credentials" && !init?.method
+        ? json({ credentials: [{ id: "unsafe-incomplete-record" }] })
+        : (defaultFetch?.(url, init) ?? json({ ok: true })),
+    );
+
+    renderApp();
+    await openSettingsPage();
+    expect(
+      await screen.findByText(
+        "Не удалось загрузить ключи провайдеров. Повторите попытку.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("unsafe-incomplete-record")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Заменить" })).not.toBeInTheDocument();
+  });
+
+  it("bounds and deduplicates credential creation while clearing the raw value", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const createSignals: AbortSignal[] = [];
+    let credentialReads = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/credentials" && !init?.method) credentialReads += 1;
+      if (url === "/api/credentials" && init?.method === "POST") {
+        const signal = init.signal;
+        if (!signal) throw new Error("credential-create signal is missing");
+        createSignals.push(signal);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openSettingsPage();
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Добавить ключ" }),
+    );
+    const label = await screen.findByPlaceholderText("Метка");
+    const rawValue = screen.getByPlaceholderText("Новый ключ");
+    await userEvent.type(label, "deadline-safe");
+    await userEvent.type(rawValue, "raw-secret-cleared-immediately");
+    const form = label.closest("form");
+    if (!form) throw new Error("credential-create form is missing");
+    const readsBeforeCreate = credentialReads;
+
+    vi.useFakeTimers();
+    try {
+      fireEvent.submit(form);
+      fireEvent.submit(form);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(createSignals).toHaveLength(1);
+      expect(rawValue).toHaveValue("");
+      expect(label).toHaveValue("deadline-safe");
+      expect(
+        screen.getByRole("button", { name: "Создаём…" }),
+      ).toBeDisabled();
+      expect(
+        screen.getByRole("button", { name: "Создаём ключ…" }),
+      ).toHaveAttribute("aria-busy", "true");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+      vi.useRealTimers();
+      expect(
+        await screen.findByText(
+          "Сервер не подтвердил создание ключа. Список обновлён; проверьте его перед повторной попыткой. Значение ключа нужно ввести заново.",
+        ),
+      ).toBeInTheDocument();
+      expect(createSignals[0]?.aborted).toBe(true);
+      expect(credentialReads).toBe(readsBeforeCreate + 1);
+      expect(rawValue).toHaveValue("");
+      expect(label).toHaveValue("deadline-safe");
+      expect(screen.getByRole("button", { name: "Создать" })).toBeEnabled();
+      expect(
+        baseFetch.mock.calls.filter(
+          ([url, init]) =>
+            url === "/api/credentials" && init?.method === "POST",
+        ),
+      ).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps an ambiguous credential replacement owned across navigation", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let resolveReplace: ((response: Response) => void) | undefined;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        url === "/api/credentials/cred-active/replace" &&
+        init?.method === "POST"
+      ) {
+        return new Promise<Response>((resolve) => {
+          resolveReplace = resolve;
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openSettingsPage();
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Заменить" }),
+    );
+    const rawValue = screen.getByPlaceholderText("Новый ключ для замены");
+    await userEvent.type(rawValue, "raw-navigation-secret");
+    const form = rawValue.closest("form");
+    if (!form) throw new Error("credential-replace form is missing");
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+    await waitFor(() => expect(resolveReplace).toBeDefined());
+    expect(rawValue).toHaveValue("");
+    expect(
+      screen.getByRole("button", { name: "Сохраняем…" }),
+    ).toBeDisabled();
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          url === "/api/credentials/cred-active/replace" &&
+          init?.method === "POST",
+      ),
+    ).toHaveLength(1);
+
+    await openProjectsPage();
+    const failedResponse = await json(
+      { detail: "raw-provider-failure-must-not-render" },
+      false,
+      503,
+    );
+    await act(async () => resolveReplace?.(failedResponse));
+    await openSettingsPage();
+    expect(
+      await screen.findByText(
+        "Сервер не подтвердил замену ключа. Список обновлён; проверьте версию перед повторной попыткой. Значение ключа нужно ввести заново.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Заменить" })).toBeEnabled();
+    expect(document.body.textContent).not.toContain("raw-navigation-secret");
+    expect(document.body.textContent).not.toContain(
+      "raw-provider-failure-must-not-render",
+    );
+  });
+
+  it("confirms an ambiguous revoke only from the credential list", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let revoked = false;
+    let revokeCalls = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/credentials" && !init?.method) {
+        return json({
+          credentials: [
+            {
+              id: "cred-active",
+              provider: "elevenlabs",
+              label: "Primary STT",
+              status: revoked ? "revoked" : "active",
+              masked_value: "••••1234",
+              active_version: 2,
+            },
+          ],
+        });
+      }
+      if (
+        url === "/api/credentials/cred-active/revoke" &&
+        init?.method === "POST"
+      ) {
+        revokeCalls += 1;
+        revoked = true;
+        return json({ detail: "ambiguous-after-revoke" }, false, 503);
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openSettingsPage();
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Отключить" }),
+    );
+    expect(
+      await screen.findByText(
+        "Отключение ключа подтверждено по актуальному списку.",
+      ),
+    ).toBeInTheDocument();
+    expect(revokeCalls).toBe(1);
+    expect(screen.getByText(/revoked · v2/)).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("ambiguous-after-revoke");
+  });
+  it("confirms an ambiguous permanent deletion only from the credential list", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let deleted = false;
+    let deleteCalls = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/credentials" && !init?.method) {
+        return json({
+          credentials: deleted
+            ? []
+            : [
+                {
+                  id: "cred-active",
+                  provider: "elevenlabs",
+                  label: "Primary STT",
+                  status: "active",
+                  masked_value: "••••1234",
+                  active_version: 2,
+                },
+              ],
+        });
+      }
+      if (
+        url === "/api/credentials/cred-active" &&
+        init?.method === "DELETE"
+      ) {
+        deleteCalls += 1;
+        deleted = true;
+        return json({ detail: "ambiguous-after-delete" }, false, 503);
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openSettingsPage();
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Удалить навсегда" }),
+    );
+    expect(
+      await screen.findByText(
+        "Удаление ключа подтверждено по актуальному списку.",
+      ),
+    ).toBeInTheDocument();
+    expect(deleteCalls).toBe(1);
+    expect(
+      screen.queryByRole("heading", { name: "Primary STT" }),
+    ).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("ambiguous-after-delete");
+  });
   it("platform projects page loads /api/projects and renders populated projects", async () => {
     renderApp();
     await openProjectsPage();
@@ -2730,6 +4245,242 @@ describe("Studio PWA", () => {
     );
   });
 
+  it("bounds a stalled project-list read and exposes a safe retryable error", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const projectSignals: AbortSignal[] = [];
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/projects" && !init?.method) {
+        const signal = init?.signal;
+        if (!signal) throw new Error("project-list signal is missing");
+        projectSignals.push(signal);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 15_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      renderApp();
+      await openProjectsPage();
+      expect(
+        await screen.findByText("Не удалось загрузить проекты."),
+      ).toBeInTheDocument();
+      expect(projectSignals).toHaveLength(2);
+      expect(projectSignals[0]?.aborted).toBe(true);
+      expect(projectSignals[1]?.aborted).toBe(true);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("bounds and deduplicates project creation without losing the draft", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const createSignals: AbortSignal[] = [];
+    let projectReads = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/projects" && !init?.method) projectReads += 1;
+      if (url === "/api/projects" && init?.method === "POST") {
+        const signal = init.signal;
+        if (!signal) throw new Error("project-create signal is missing");
+        createSignals.push(signal);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+    await screen.findByRole("heading", { name: "Research calls" });
+    await userEvent.click(screen.getByRole("button", { name: "Новый проект" }));
+    const title = await screen.findByLabelText("Название проекта");
+    const description = screen.getByLabelText("Описание");
+    await userEvent.type(title, "Draft survives timeout");
+    await userEvent.type(description, "Do not reset this draft");
+    const form = title.closest("form");
+    if (!form) throw new Error("project-create form is missing");
+    const readsBeforeCreate = projectReads;
+    vi.useFakeTimers();
+    try {
+      fireEvent.submit(form);
+      fireEvent.submit(form);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(createSignals).toHaveLength(1);
+      expect(
+        screen.getByRole("button", { name: "Создание…" }),
+      ).toBeDisabled();
+      expect(
+        screen.getByRole("button", { name: "Создание…" }),
+      ).toHaveAttribute("aria-busy", "true");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+      vi.useRealTimers();
+      expect(
+        await screen.findByText(
+          "Сервер не подтвердил создание проекта. Список проектов обновлён; проверьте его перед повторной попыткой.",
+        ),
+      ).toBeInTheDocument();
+      expect(createSignals[0]?.aborted).toBe(true);
+      expect(projectReads).toBe(readsBeforeCreate + 1);
+      expect(title).toHaveValue("Draft survives timeout");
+      expect(description).toHaveValue("Do not reset this draft");
+      expect(screen.getByRole("button", { name: "Создать" })).toBeEnabled();
+      expect(
+        baseFetch.mock.calls.filter(
+          ([url, init]) =>
+            url === "/api/projects" && init?.method === "POST",
+        ),
+      ).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps an ambiguous project update owned by its project across a switch", async () => {
+    installFocusedOutputFixture({ includeSecondProject: true });
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let resolveUpdate: ((response: Response) => void) | undefined;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/projects/p1" && init?.method === "PATCH") {
+        return new Promise<Response>((resolve) => {
+          resolveUpdate = resolve;
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+    await screen.findByRole("heading", { name: "Research calls" });
+    await userEvent.click(screen.getByRole("button", { name: "Редактировать" }));
+    const title = screen.getByDisplayValue("Research calls");
+    await userEvent.clear(title);
+    await userEvent.type(title, "Ambiguous rename");
+    const form = title.closest("form");
+    if (!form) throw new Error("project-update form is missing");
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+    await waitFor(() => expect(resolveUpdate).toBeDefined());
+    expect(
+      screen.getByRole("button", { name: "Сохранение…" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Сохранение…" }),
+    ).toHaveAttribute("aria-busy", "true");
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          url === "/api/projects/p1" && init?.method === "PATCH",
+      ),
+    ).toHaveLength(1);
+
+    await userEvent.click(screen.getByRole("button", { name: /Project Two/ }));
+    expect(
+      await screen.findByRole("heading", { name: "Project Two" }),
+    ).toBeInTheDocument();
+    const failedResponse = await json(
+      { detail: "raw-private-project-update-failure" },
+      false,
+      503,
+    );
+    await act(async () => resolveUpdate?.(failedResponse));
+    await waitFor(() =>
+      expect(
+        baseFetch.mock.calls.filter(
+          ([url, init]) => url === "/api/projects" && !init?.method,
+        ).length,
+      ).toBeGreaterThan(1),
+    );
+    expect(
+      screen.queryByText(/Сервер не подтвердил сохранение/),
+    ).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toContain(
+      "raw-private-project-update-failure",
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: /Research calls/ }));
+    expect(
+      await screen.findByText(
+        "Сервер не подтвердил сохранение. Список проектов обновлён; проверьте проект перед повторной попыткой.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Сохранить" })).toBeEnabled();
+  });
+
+  it("confirms an ambiguous archive only from the authoritative project list", async () => {
+    installFocusedOutputFixture({ includeSecondProject: true });
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let archiveAttempted = false;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/projects/p1/archive" && init?.method === "POST") {
+        archiveAttempted = true;
+        return json(
+          { detail: "raw-private-project-archive-failure" },
+          false,
+          503,
+        );
+      }
+      if (url === "/api/projects" && !init?.method && archiveAttempted) {
+        return json({
+          projects: [
+            {
+              id: "p2",
+              title: "Project Two",
+              description: null,
+              created_at: "2026-07-02T00:00:00Z",
+              updated_at: "2026-07-02T00:00:00Z",
+              archived_at: null,
+              output_drive_folder_id: null,
+              output_drive_folder_url: null,
+              output_drive_folder_name: null,
+            },
+          ],
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+    await screen.findByRole("heading", { name: "Research calls" });
+    fireEvent.click(screen.getByRole("button", { name: "Архивировать" }));
+    fireEvent.click(screen.getByRole("button", { name: "Архивация…" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Project Two" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Research calls/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          url === "/api/projects/p1/archive" && init?.method === "POST",
+      ),
+    ).toHaveLength(1);
+    expect(document.body.textContent).not.toContain(
+      "raw-private-project-archive-failure",
+    );
+  });
   it("shows compact preparation readiness status", async () => {
     renderApp();
     await openProjectsPage();
@@ -3345,6 +5096,126 @@ describe("Studio PWA", () => {
     } as Response);
   });
 
+  it("bounds stalled batch preflight without creating jobs", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const requestSignals: AbortSignal[] = [];
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (isBatchPreflightRequest(url, init)) {
+        const signal = init?.signal;
+        if (!signal) throw new Error("batch preflight signal is missing");
+        requestSignals.push(signal);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+    await chooseExistingSource(1, "Лекция 1");
+    await chooseResultFolder(1);
+
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Проверить задачи (1)" }),
+      );
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(requestSignals).toHaveLength(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+
+      expect(requestSignals[0]?.aborted).toBe(true);
+      expect(
+        screen.getByText(
+          "Проверка плана заняла слишком много времени. Задачи не создавались; повторите проверку.",
+        ),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Проверить задачи (1)" }),
+      ).toBeEnabled();
+      expect(
+        baseFetch.mock.calls.some(
+          ([url, init]) =>
+            url === "/api/projects/p1/jobs/batch" &&
+            init?.method === "POST",
+        ),
+      ).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("bounds stalled batch creation without an automatic duplicate POST", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const requestSignals: AbortSignal[] = [];
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        url === "/api/projects/p1/jobs/batch" &&
+        init?.method === "POST"
+      ) {
+        const signal = init.signal;
+        if (!signal) throw new Error("batch create signal is missing");
+        requestSignals.push(signal);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+    await chooseExistingSource(1, "Лекция 1");
+    await chooseResultFolder(1);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Проверить задачи (1)" }),
+    );
+    await screen.findByLabelText("Проверка перед созданием задач");
+
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: "Подтвердить и создать (1)",
+        }),
+      );
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(requestSignals).toHaveLength(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+
+      expect(requestSignals[0]?.aborted).toBe(true);
+      expect(
+        screen.getByLabelText("Неопределённый исход создания пакета"),
+      ).toHaveTextContent("Новая отправка заблокирована");
+      expect(
+        screen.getByRole("button", {
+          name: "Повторить подтверждение пакета",
+        }),
+      ).toBeEnabled();
+      expect(
+        baseFetch.mock.calls.filter(
+          ([url, init]) =>
+            url === "/api/projects/p1/jobs/batch" &&
+            init?.method === "POST",
+        ),
+      ).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("creates, lists, details, and cancels project jobs safely with CSRF", async () => {
     const secretLike =
       "sk-live-raw-token refresh_token encrypted_ciphertext s3://secret-key https://upload.example/leak";
@@ -3390,14 +5261,6 @@ describe("Studio PWA", () => {
                 label: "Revoked STT",
                 status: "revoked",
                 masked_value: "••••9999",
-                active_version: 1,
-              },
-              {
-                id: "cred-deleted",
-                provider: "openai",
-                label: "Deleted STT",
-                status: "deleted",
-                masked_value: "••••0000",
                 active_version: 1,
               },
             ],
@@ -5112,7 +6975,8 @@ describe("Studio PWA", () => {
     expect(window.sessionStorage.length).toBe(0);
   });
 
-  it("isolates composer rows, messages, retry state, details, and outputs when switching projects", async () => {
+  it("isolates composer state and preserves ambiguous batch recovery across project switches", async () => {
+    let projectACreateCalls = 0;
     (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       (url: string, init?: RequestInit) => {
         if (url.endsWith("/api/auth/session"))
@@ -5317,8 +7181,17 @@ describe("Studio PWA", () => {
         if (
           url.endsWith("/api/projects/pA/jobs/batch") &&
           init?.method === "POST"
-        )
-          return Promise.reject(new Error("temporary batch outage"));
+        ) {
+          projectACreateCalls += 1;
+          if (projectACreateCalls === 1) {
+            return Promise.reject(new Error("temporary batch outage"));
+          }
+          return json({
+            jobs: [],
+            created_count: 1,
+            replayed: true,
+          });
+        }
         if (
           url.endsWith("/api/projects/pB/jobs/batch") &&
           init?.method === "POST"
@@ -5373,8 +7246,8 @@ describe("Studio PWA", () => {
     );
     await reviewAndConfirmBatch();
     expect(
-      await screen.findByText(/ключ повтора сохранены/),
-    ).toBeInTheDocument();
+      await screen.findByLabelText("Неопределённый исход создания пакета"),
+    ).toHaveTextContent("Новая отправка заблокирована");
 
     await userEvent.click(
       screen.getByRole("button", { name: /Project B .*02\.07\.2026/ }),
@@ -5386,7 +7259,7 @@ describe("Studio PWA", () => {
     ).not.toBeInTheDocument();
     expect(screen.queryByText("A default")).not.toBeInTheDocument();
     expect(
-      screen.queryByText(/ключ повтора сохранены/),
+      screen.queryByLabelText("Неопределённый исход создания пакета"),
     ).not.toBeInTheDocument();
     expect(screen.queryByText("A completed job")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Job detail job-a")).not.toBeInTheDocument();
@@ -5425,6 +7298,45 @@ describe("Studio PWA", () => {
         },
       ],
     });
+    const firstACreateCall = (
+      fetch as unknown as ReturnType<typeof vi.fn>
+    ).mock.calls.find(
+      ([url, init]) =>
+        url === "/api/projects/pA/jobs/batch" && init?.method === "POST",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /Project A .*01\.07\.2026/ }),
+    );
+    expect(
+      await screen.findByLabelText("Неопределённый исход создания пакета"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Проверить задачи (1)" }),
+    ).toBeDisabled();
+
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Повторить подтверждение пакета",
+      }),
+    );
+    expect(
+      await screen.findByText(
+        "Повтор подтверждён: создано независимых задач: 1.",
+      ),
+    ).toBeInTheDocument();
+    const aCreateCalls = (
+      fetch as unknown as ReturnType<typeof vi.fn>
+    ).mock.calls.filter(
+      ([url, init]) =>
+        url === "/api/projects/pA/jobs/batch" && init?.method === "POST",
+    );
+    expect(aCreateCalls).toHaveLength(2);
+    expect(aCreateCalls[1]?.[1]?.headers).toMatchObject({
+      "Idempotency-Key": (
+        firstACreateCall?.[1]?.headers as Record<string, string>
+      )["Idempotency-Key"],
+    });
+    expect(aCreateCalls[1]?.[1]?.body).toBe(firstACreateCall?.[1]?.body);
     expect(window.localStorage.length).toBe(0);
     expect(window.sessionStorage.length).toBe(0);
   });
@@ -5479,6 +7391,589 @@ describe("Studio PWA", () => {
     expect(document.body.textContent).not.toContain("raw-google-payload");
   });
 
+  it("bounds stalled Google Picker sessions without replay and releases the source action", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const sessionSignals: AbortSignal[] = [];
+    let sessionCalls = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        url.endsWith("/api/google/picker/session") &&
+        init?.method === "POST"
+      ) {
+        sessionCalls += 1;
+        const signal = init.signal;
+        if (!signal) throw new Error("Picker session signal is missing");
+        sessionSignals.push(signal);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 20_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      renderApp();
+      await openProjectsPage();
+      const button = await screen.findByRole("button", {
+        name: "Выбрать файлы Google Drive",
+      });
+      await userEvent.click(button);
+
+      expect(
+        await screen.findByText(
+          "Google Picker не ответил вовремя. Повторите попытку.",
+        ),
+      ).toBeInTheDocument();
+      expect(sessionCalls).toBe(1);
+      expect(sessionSignals).toHaveLength(1);
+      expect(sessionSignals[0]?.aborted).toBe(true);
+      expect(button).toBeEnabled();
+      expect(
+        document.head.querySelector(
+          'script[data-studio-google-picker="true"]',
+        ),
+      ).toBeNull();
+      expect(
+        baseFetch.mock.calls.some(
+          ([url]) => url === "/api/projects/p1/sources/google-picker",
+        ),
+      ).toBe(false);
+
+      await userEvent.click(button);
+      await waitFor(() => expect(sessionCalls).toBe(2));
+      await waitFor(() => expect(sessionSignals[1]?.aborted).toBe(true));
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("fails closed on a malformed Google Picker session without exposing its payload", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        url.endsWith("/api/google/picker/session") &&
+        init?.method === "POST"
+      ) {
+        return json({
+          access_token: "raw-private-google-token",
+          api_key: " ",
+          app_id: "app",
+          scope_ready: true,
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+    const button = await screen.findByRole("button", {
+      name: "Выбрать файлы Google Drive",
+    });
+    await userEvent.click(button);
+
+    expect(
+      await screen.findByText(
+        "Сервер вернул некорректную сессию Google Picker. Повторите попытку позже.",
+      ),
+    ).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain(
+      "raw-private-google-token",
+    );
+    expect(button).toBeEnabled();
+    expect(
+      document.head.querySelector(
+        'script[data-studio-google-picker="true"]',
+      ),
+    ).toBeNull();
+    expect(
+      baseFetch.mock.calls.some(
+        ([url]) => url === "/api/projects/p1/sources/google-picker",
+      ),
+    ).toBe(false);
+  });
+
+  it("closes an unresponsive Google Picker and ignores a late selection", async () => {
+    const picker = installFakeGooglePicker();
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 300_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      renderApp();
+      await openProjectsPage();
+      const button = await screen.findByRole("button", {
+        name: "Выбрать файлы Google Drive",
+      });
+      await userEvent.click(button);
+      await picker.loadScript();
+      await picker.waitForCallback();
+
+      expect(
+        await screen.findByText(
+          "Время выбора в Google Picker истекло. Повторите попытку.",
+        ),
+      ).toBeInTheDocument();
+      expect(picker.setVisible).toHaveBeenNthCalledWith(1, true);
+      expect(picker.setVisible).toHaveBeenNthCalledWith(2, false);
+      expect(button).toBeEnabled();
+
+      picker.trigger({ action: "picked", docs: [{ id: "late-file" }] });
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(
+        (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
+          ([url]) => url === "/api/projects/p1/sources/google-picker",
+        ),
+      ).toBe(false);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+  it("bounds ambiguous Google source creation without replay and refreshes sources", async () => {
+    const picker = installFakeGooglePicker();
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const mutationSignals: AbortSignal[] = [];
+    let mutationCalls = 0;
+    let sourceReadsAfterMutation = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        url === "/api/projects/p1/sources" &&
+        !init?.method &&
+        mutationCalls > 0
+      ) {
+        sourceReadsAfterMutation += 1;
+      }
+      if (
+        url === "/api/projects/p1/sources/google-picker" &&
+        init?.method === "POST"
+      ) {
+        mutationCalls += 1;
+        const signal = init.signal;
+        if (!signal) throw new Error("Google source signal is missing");
+        mutationSignals.push(signal);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 20_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      renderApp();
+      await openProjectsPage();
+      const button = await screen.findByRole("button", {
+        name: "Выбрать файлы Google Drive",
+      });
+      await userEvent.click(button);
+      await picker.loadScript();
+      await picker.waitForCallback();
+      picker.trigger({ action: "picked", docs: [{ id: "file-timeout" }] });
+
+      expect(
+        await screen.findByText(
+          "Сервер не подтвердил добавление файлов Google Drive. Список файлов обновлён; проверьте его перед повторным выбором.",
+        ),
+      ).toBeInTheDocument();
+      expect(mutationCalls).toBe(1);
+      expect(mutationSignals).toHaveLength(1);
+      expect(mutationSignals[0]?.aborted).toBe(true);
+      await waitFor(() => expect(sourceReadsAfterMutation).toBeGreaterThan(0));
+      expect(button).toBeEnabled();
+      expect(
+        screen.getByLabelText("Источник строки 1"),
+      ).not.toHaveTextContent("file-timeout");
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("treats a Google source 5xx as ambiguous without exposing or replaying it", async () => {
+    const picker = installFakeGooglePicker();
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let mutationCalls = 0;
+    let sourceReadsAfterMutation = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        url === "/api/projects/p1/sources" &&
+        !init?.method &&
+        mutationCalls > 0
+      ) {
+        sourceReadsAfterMutation += 1;
+      }
+      if (
+        url === "/api/projects/p1/sources/google-picker" &&
+        init?.method === "POST"
+      ) {
+        mutationCalls += 1;
+        return json(
+          { detail: "raw-private-google-source-failure" },
+          false,
+          503,
+        );
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+    const button = await screen.findByRole("button", {
+      name: "Выбрать файлы Google Drive",
+    });
+    await userEvent.click(button);
+    await picker.loadScript();
+    await picker.waitForCallback();
+    picker.trigger({ action: "picked", docs: [{ id: "file-503" }] });
+
+    expect(
+      await screen.findByText(
+        "Сервер не подтвердил добавление файлов Google Drive. Список файлов обновлён; проверьте его перед повторным выбором.",
+      ),
+    ).toBeInTheDocument();
+    expect(mutationCalls).toBe(1);
+    await waitFor(() => expect(sourceReadsAfterMutation).toBeGreaterThan(0));
+    expect(button).toBeEnabled();
+    expect(document.body.textContent).not.toContain(
+      "raw-private-google-source-failure",
+    );
+  });
+
+  it("bounds stalled Google folder verification and releases all Picker actions", async () => {
+    vi.spyOn(googlePicker, "openGooglePicker").mockResolvedValueOnce({
+      action: "picked",
+      docs: [{ id: "folder-timeout" }],
+    } as Awaited<ReturnType<typeof googlePicker.openGooglePicker>>);
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const verifySignals: AbortSignal[] = [];
+    let verifyCalls = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        url === "/api/projects/p1/output-folders/google-picker/verify" &&
+        init?.method === "POST"
+      ) {
+        verifyCalls += 1;
+        const signal = init.signal;
+        if (!signal) throw new Error("Folder verify signal is missing");
+        verifySignals.push(signal);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 20_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      renderApp();
+      await openProjectsPage();
+      const folderButton = await screen.findByRole("button", {
+        name: "Выбрать папку результата для строки 1",
+      });
+      await userEvent.click(folderButton);
+
+      expect(
+        await screen.findByText(
+          "Проверка папки результата заняла слишком много времени. Повторите выбор.",
+        ),
+      ).toBeInTheDocument();
+      expect(verifyCalls).toBe(1);
+      expect(verifySignals).toHaveLength(1);
+      expect(verifySignals[0]?.aborted).toBe(true);
+      expect(folderButton).toBeEnabled();
+      expect(folderButton).toHaveTextContent("Выбрать");
+      expect(
+        screen.getByRole("button", { name: "Выбрать файлы Google Drive" }),
+      ).toBeEnabled();
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("rejects malformed Google folder verification without using its values", async () => {
+    vi.spyOn(googlePicker, "openGooglePicker").mockResolvedValueOnce({
+      action: "picked",
+      docs: [{ id: "folder-malformed" }],
+    } as Awaited<ReturnType<typeof googlePicker.openGooglePicker>>);
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        url === "/api/projects/p1/output-folders/google-picker/verify" &&
+        init?.method === "POST"
+      ) {
+        return json({
+          name: " ",
+          web_view_url: "https://drive.example/raw-private-folder",
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+    const folderButton = await screen.findByRole("button", {
+      name: "Выбрать папку результата для строки 1",
+    });
+    await userEvent.click(folderButton);
+
+    expect(
+      await screen.findByText(
+        "Сервер вернул некорректные данные папки результата. Повторите выбор позже.",
+      ),
+    ).toBeInTheDocument();
+    expect(folderButton).toBeEnabled();
+    expect(folderButton).toHaveTextContent("Выбрать");
+    expect(document.body.textContent).not.toContain("raw-private-folder");
+  });
+
+  it("keeps Google Picker ownership and safe outcomes across project switches", async () => {
+    const picker = installFakeGooglePicker();
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const sourceResolvers: Array<(response: Response) => void> = [];
+    const folderResolvers: Array<(response: Response) => void> = [];
+    let sourceMutationCalls = 0;
+    let folderVerificationCalls = 0;
+    let sourceReadsAfterMutation = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/projects" && !init?.method) {
+        return json({
+          projects: [
+            {
+              id: "p1",
+              title: "Research calls",
+              description: "Customer interview notes",
+              created_at: "2026-07-01T00:00:00",
+              updated_at: "2026-07-01T00:00:00",
+              archived_at: null,
+              output_drive_folder_id: null,
+              output_drive_folder_url: null,
+              output_drive_folder_name: null,
+            },
+            {
+              id: "p2",
+              title: "Project Two",
+              description: null,
+              created_at: "2026-07-02T00:00:00",
+              updated_at: "2026-07-02T00:00:00",
+              archived_at: null,
+              output_drive_folder_id: null,
+              output_drive_folder_url: null,
+              output_drive_folder_name: null,
+            },
+          ],
+        });
+      }
+      if (url === "/api/projects/p2/sources" && !init?.method)
+        return json({ sources: [] });
+      if (url === "/api/projects/p2/jobs" && !init?.method)
+        return json({ jobs: [] });
+      if (
+        url === "/api/projects/p1/sources" &&
+        !init?.method &&
+        sourceMutationCalls > 0
+      ) {
+        sourceReadsAfterMutation += 1;
+      }
+      if (
+        url === "/api/projects/p1/sources/google-picker" &&
+        init?.method === "POST"
+      ) {
+        sourceMutationCalls += 1;
+        return new Promise<Response>((resolve) => {
+          sourceResolvers.push(resolve);
+        });
+      }
+      if (
+        url === "/api/projects/p1/output-folders/google-picker/verify" &&
+        init?.method === "POST"
+      ) {
+        folderVerificationCalls += 1;
+        return new Promise<Response>((resolve) => {
+          folderResolvers.push(resolve);
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+    const sourceButton = await screen.findByRole("button", {
+      name: "Выбрать файлы Google Drive",
+    });
+    await userEvent.click(sourceButton);
+    await picker.loadScript();
+    await picker.waitForCallback();
+    picker.trigger({ action: "picked", docs: [{ id: "file-remount" }] });
+    await waitFor(() => expect(sourceMutationCalls).toBe(1));
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Project Two/ }),
+    );
+    expect(
+      await screen.findByText(
+        "Google Picker занят операцией в другом проекте. Дождитесь её завершения.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Выбрать файлы Google Drive" }),
+    ).toBeDisabled();
+    expect(
+      screen.queryByText(/Файлы Google Drive добавлены в проект/),
+    ).not.toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Research calls/ }),
+    );
+    expect(
+      await screen.findByText(
+        "Выбор в Google Drive для этого проекта ещё выполняется. Дождитесь завершения перед новой попыткой.",
+      ),
+    ).toBeInTheDocument();
+    const restoredSourceButton = screen.getByRole("button", {
+      name: "Выбрать файлы Google Drive",
+    });
+    expect(restoredSourceButton).toBeDisabled();
+    restoredSourceButton.click();
+    expect(sourceMutationCalls).toBe(1);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Project Two/ }),
+    );
+    await act(async () => {
+      sourceResolvers[0]?.(
+        await json({
+          sources: [
+            {
+              id: "source-remount",
+              project_id: "p1",
+              source_type: "google_drive",
+              original_filename: "remount-source.mp4",
+              mime_type: "video/mp4",
+              size_bytes: 10,
+              drive_file_url: "https://drive.example/file-remount",
+              upload_status: "uploaded",
+              uploaded_at: "2026-07-01T00:00:00Z",
+              expires_at: null,
+              deleted_at: null,
+              delete_reason: null,
+              created_at: "2026-07-01T00:00:00Z",
+              updated_at: "2026-07-01T00:00:00Z",
+            },
+          ],
+        }),
+      );
+    });
+    await waitFor(() => expect(sourceReadsAfterMutation).toBeGreaterThan(0));
+    expect(
+      screen.queryByText(
+        "Файлы Google Drive добавлены в проект. Выберите их в нужных строках заново.",
+      ),
+    ).not.toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Research calls/ }),
+    );
+    expect(
+      await screen.findByText(
+        "Файлы Google Drive добавлены в проект. Выберите их в нужных строках заново.",
+      ),
+    ).toBeInTheDocument();
+    const folderButton = screen.getByRole("button", {
+      name: "Выбрать папку результата для строки 1",
+    });
+    await userEvent.click(folderButton);
+    await waitFor(() =>
+      expect(
+        picker.builderCalls.filter((call) => call.method === "setCallback"),
+      ).toHaveLength(2),
+    );
+    expect(
+      screen.queryByText(
+        "Файлы Google Drive добавлены в проект. Выберите их в нужных строках заново.",
+      ),
+    ).not.toBeInTheDocument();
+    picker.trigger({ action: "picked", docs: [{ id: "folder-remount" }] });
+    await waitFor(() => expect(folderVerificationCalls).toBe(1));
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Project Two/ }),
+    );
+    expect(
+      await screen.findByText(
+        "Google Picker занят операцией в другом проекте. Дождитесь её завершения.",
+      ),
+    ).toBeInTheDocument();
+    await act(async () => {
+      folderResolvers[0]?.(
+        await json({
+          name: "Verified remount folder",
+          web_view_url: "https://drive.example/folder-remount",
+        }),
+      );
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Выбрать файлы Google Drive" }),
+      ).toBeEnabled(),
+    );
+    expect(
+      screen.queryByText(/Папка Google Drive проверена/),
+    ).not.toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Research calls/ }),
+    );
+    expect(
+      await screen.findByText(
+        "Папка Google Drive проверена, но прежняя строка больше не открыта. Выберите папку для строки повторно.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "Выбрать папку результата для строки 1",
+      }),
+    ).toBeEnabled();
+    expect(sourceMutationCalls).toBe(1);
+    expect(folderVerificationCalls).toBe(1);
+  });
   it("shows an actionable safe message when Picker session requires reconnect", async () => {
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = baseFetch.getMockImplementation();
@@ -5788,11 +8283,7 @@ describe("Studio PWA", () => {
             reconnect_required: true,
           });
         if (url.endsWith("/api/google/oauth/start") && init?.method === "POST")
-          return json({
-            authorization_url:
-              "https://accounts.google.com/o/oauth2/v2/auth?state=safe",
-            expires_at: null,
-          });
+          return json(googleOauthStartFixture({}));
         return json({ credentials: [], events: [] });
       },
     );
@@ -5823,7 +8314,7 @@ describe("Studio PWA", () => {
       expect.objectContaining({ method: "POST" }),
     );
     expect(assign).toHaveBeenCalledWith(
-      "https://accounts.google.com/o/oauth2/v2/auth?state=safe",
+      String(googleOauthStartFixture().authorization_url),
     );
   });
 
@@ -5957,6 +8448,58 @@ describe("Studio PWA", () => {
     expect(window.sessionStorage.length).toBe(0);
   });
 
+  it("bounds stalled project source and job collection reads", async () => {
+    installFocusedOutputFixture({ jobStatus: "completed" });
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const stalledPaths = new Set([
+      "/api/projects/p1/sources",
+      "/api/projects/p1/jobs",
+    ]);
+    const requestSignals: AbortSignal[] = [];
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (stalledPaths.has(String(url)) && !init?.method) {
+        const signal = init?.signal;
+        if (!signal) throw new Error("project collection signal is missing");
+        requestSignals.push(signal);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({});
+    });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 15_000 ? 0 : delay,
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      renderApp();
+      await openProjectsPage();
+      await screen.findByRole("form", {
+        name: "Композитор пакетных задач",
+      });
+
+      expect(
+        await screen.findByText("Не удалось загрузить файлы проекта."),
+      ).toBeInTheDocument();
+      expect(
+        await screen.findByText("Не удалось загрузить задачи проекта."),
+      ).toBeInTheDocument();
+      expect(requestSignals).toHaveLength(2);
+      expect(requestSignals.every((signal) => signal.aborted)).toBe(true);
+      expect(screen.queryByText("Загрузка файлов…")).not.toBeInTheDocument();
+      expect(screen.queryByText("Загрузка задач…")).not.toBeInTheDocument();
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
   it("does not request job outputs until explicit job detail opening", async () => {
     installFocusedOutputFixture();
     renderApp();
@@ -5998,6 +8541,1259 @@ describe("Studio PWA", () => {
     expect(outputCalls[0]?.[1]?.headers).not.toHaveProperty("x-csrf-token");
   });
 
+  it("bounds stalled job detail reads and leaves safe retryable UI", async () => {
+    installFocusedOutputFixture({ jobStatus: "processing" });
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const stalledPaths = new Set([
+      "/api/jobs/job-focused",
+      "/api/jobs/job-focused/retry",
+      "/api/jobs/job-focused/output-reconciliation",
+      "/api/jobs/job-focused/outputs",
+    ]);
+    const requestSignals: AbortSignal[] = [];
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (stalledPaths.has(String(url)) && !init?.method) {
+        const signal = init?.signal;
+        if (!signal) throw new Error("job detail request signal is missing");
+        requestSignals.push(signal);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({});
+    });
+
+    await openFocusedJobsList();
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "Открыть" }));
+      expect(screen.getByText("Загрузка деталей задачи…")).toBeInTheDocument();
+      expect(screen.getByText("Загрузка результатов…")).toBeInTheDocument();
+      expect(requestSignals).toHaveLength(4);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_000);
+      });
+
+      expect(requestSignals.every((signal) => signal.aborted)).toBe(true);
+      expect(
+        screen.getByText("Не удалось загрузить детали задачи."),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText("Не удалось загрузить результаты."),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByText("Загрузка деталей задачи…"),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByText("Загрузка результатов…"),
+      ).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps only the latest repeated job detail refresh", async () => {
+    installFocusedOutputFixture();
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let detailCalls = 0;
+    let outputCalls = 0;
+    let resolveStaleDetail: ((response: Response) => void) | undefined;
+    let resolveStaleOutputs: ((response: Response) => void) | undefined;
+    const staleDetail = new Promise<Response>((resolve) => {
+      resolveStaleDetail = resolve;
+    });
+    const staleOutputs = new Promise<Response>((resolve) => {
+      resolveStaleOutputs = resolve;
+    });
+    const detailBody = (sourceName: string) => ({
+      id: "job-focused",
+      project_id: "p1",
+      status: "processing",
+      title: "Focused output job",
+      provider: null,
+      provider_credential_id: "cred-active",
+      source_count: 1,
+      created_at: "2026-07-02T00:00:00Z",
+      updated_at: "2026-07-02T00:01:00Z",
+      cancelled_at: null,
+      cancel_requested_at: null,
+      attempt_count: 1,
+      started_at: "2026-07-02T00:00:30Z",
+      finished_at: null,
+      error_code: null,
+      error_message: null,
+      sources: [
+        {
+          id: "source-detail-id-not-output-id",
+          project_id: "p1",
+          position: 0,
+          job_source_status: "queued",
+          source_type: "google_drive",
+          original_filename: sourceName,
+          mime_type: "audio/mpeg",
+          size_bytes: 1234,
+          drive_file_id: null,
+          drive_file_url: null,
+          upload_status: "uploaded",
+          uploaded_at: "2026-07-01T00:01:00Z",
+          expires_at: null,
+          deleted_at: null,
+          delete_reason: null,
+          created_at: "2026-07-01T00:00:00Z",
+          updated_at: "2026-07-01T00:00:00Z",
+        },
+      ],
+    });
+    const outputsBody = (sourceName: string) => ({
+      job_id: "job-focused",
+      job_status: "processing",
+      output_count: 1,
+      outputs: [
+        {
+          source_id: "source-id-not-rendered",
+          source_position: 0,
+          source_name: sourceName,
+          source_type: "google_drive",
+          output_kind: "transcript",
+          transcript_standard: "transcript_doc_v1.2",
+          web_view_url:
+            "https://docs.google.com/document/d/focused-safe/edit",
+          link_available: true,
+          document_character_count: 456,
+          document_created_at: "2026-07-02T00:10:00Z",
+          persisted_at: "2026-07-02T00:11:00Z",
+        },
+      ],
+    });
+
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      const requestUrl = String(url);
+      if (requestUrl.endsWith("/api/jobs/job-focused") && !init?.method) {
+        detailCalls += 1;
+        return detailCalls === 1
+          ? staleDetail
+          : json(detailBody("fresh-detail.mp3"));
+      }
+      if (
+        requestUrl.endsWith("/api/jobs/job-focused/outputs") &&
+        !init?.method
+      ) {
+        outputCalls += 1;
+        return outputCalls === 1
+          ? staleOutputs
+          : json(outputsBody("fresh-output"));
+      }
+      return defaultFetch?.(url, init) ?? json({});
+    });
+
+    await openFocusedJobsList();
+    await userEvent.click(screen.getByRole("button", { name: "Открыть" }));
+    await waitFor(() => {
+      expect(detailCalls).toBe(1);
+      expect(outputCalls).toBe(1);
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Открыть" }));
+    await waitFor(() => {
+      expect(detailCalls).toBe(2);
+      expect(outputCalls).toBe(2);
+    });
+
+    expect(
+      await screen.findByLabelText("Job detail job-focused"),
+    ).toHaveTextContent("fresh-detail.mp3");
+    expect(
+      await screen.findByLabelText("Результаты job-focused"),
+    ).toHaveTextContent("fresh-output");
+
+    await act(async () => {
+      resolveStaleDetail?.(await json(detailBody("stale-detail.mp3")));
+      resolveStaleOutputs?.(await json(outputsBody("stale-output")));
+    });
+
+    expect(screen.getByLabelText("Job detail job-focused")).toHaveTextContent(
+      "fresh-detail.mp3",
+    );
+    expect(screen.getByLabelText("Результаты job-focused")).toHaveTextContent(
+      "fresh-output",
+    );
+    expect(document.body.textContent).not.toContain("stale-detail.mp3");
+    expect(document.body.textContent).not.toContain("stale-output");
+  });
+
+  it("deduplicates terminal dismissal and unlocks after failure", async () => {
+    installFocusedOutputFixture({ jobStatus: "completed" });
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const dismissResolvers: Array<(response: Response) => void> = [];
+    let dismissCalls = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        String(url).endsWith("/api/jobs/job-focused/dismiss") &&
+        init?.method === "POST"
+      ) {
+        dismissCalls += 1;
+        return new Promise<Response>((resolve) => {
+          dismissResolvers.push(resolve);
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({});
+    });
+
+    await openFocusedJobsList();
+    const dismissButton = screen.getByRole("button", {
+      name: "Убрать в историю",
+    });
+    act(() => {
+      dismissButton.click();
+      dismissButton.click();
+    });
+
+    await waitFor(() => expect(dismissCalls).toBe(1));
+    expect(dismissButton).toBeDisabled();
+    expect(dismissButton).toHaveAttribute("aria-busy", "true");
+
+    await act(async () => {
+      dismissResolvers[0]?.(
+        await json({ detail: "raw dismissal failure" }, false, 500),
+      );
+    });
+    expect(
+      await screen.findByText(
+        "Не удалось убрать задачу в историю. Повторите позже.",
+      ),
+    ).toBeInTheDocument();
+    const unlockedButton = screen.getByRole("button", {
+      name: "Убрать в историю",
+    });
+    await waitFor(() => expect(unlockedButton).toBeEnabled());
+
+    await userEvent.click(unlockedButton);
+    await waitFor(() => expect(dismissCalls).toBe(2));
+    dismissResolvers[1]?.(
+      await json({
+        id: "job-focused",
+        project_id: "p1",
+        status: "completed",
+        title: "Focused output job",
+        provider: null,
+        provider_credential_id: "cred-active",
+        terminal_dismissed_at: "2026-07-02T00:04:00Z",
+        source_count: 1,
+        sources: [],
+        created_at: "2026-07-02T00:00:00Z",
+        updated_at: "2026-07-02T00:04:00Z",
+        cancelled_at: null,
+        cancel_requested_at: null,
+        attempt_count: 1,
+        started_at: "2026-07-02T00:00:30Z",
+        finished_at: "2026-07-02T00:03:00Z",
+        error_code: null,
+        error_message: null,
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(
+          ([url]) => url === "/api/projects/p1/jobs",
+        ).length,
+      ).toBeGreaterThan(1),
+    );
+
+    expect(dismissCalls).toBe(2);
+    expect(document.body.textContent).not.toContain("raw dismissal failure");
+  });
+
+  it("deduplicates in-flight cancellation and unlocks after failure", async () => {
+    installFocusedOutputFixture({ jobStatus: "queued" });
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const cancelResolvers: Array<(response: Response) => void> = [];
+    let cancelCalls = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        String(url).endsWith("/api/jobs/job-focused/cancel") &&
+        init?.method === "POST"
+      ) {
+        cancelCalls += 1;
+        return new Promise<Response>((resolve) => {
+          cancelResolvers.push(resolve);
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({});
+    });
+
+    await openFocusedJobsList();
+    const cancelButton = screen.getByRole("button", { name: "Отменить" });
+    act(() => {
+      cancelButton.click();
+      cancelButton.click();
+    });
+
+    await waitFor(() => expect(cancelCalls).toBe(1));
+    expect(cancelButton).toBeDisabled();
+    expect(cancelButton).toHaveAttribute("aria-busy", "true");
+
+    await act(async () => {
+      cancelResolvers[0]?.(
+        await json({ detail: "raw cancellation failure" }, false, 500),
+      );
+    });
+    expect(
+      await screen.findByText("Не удалось отменить задачу. Повторите позже."),
+    ).toBeInTheDocument();
+    const retryButton = screen.getByRole("button", { name: "Отменить" });
+    await waitFor(() => expect(retryButton).toBeEnabled());
+
+    await userEvent.click(retryButton);
+    await waitFor(() => expect(cancelCalls).toBe(2));
+    cancelResolvers[1]?.(
+      await json({
+        id: "job-focused",
+        project_id: "p1",
+        status: "cancelled",
+        title: "Focused output job",
+        provider: null,
+        provider_credential_id: "cred-active",
+        source_count: 1,
+        sources: [],
+        created_at: "2026-07-02T00:00:00Z",
+        updated_at: "2026-07-02T00:02:00Z",
+        cancelled_at: "2026-07-02T00:02:00Z",
+        cancel_requested_at: null,
+        attempt_count: 0,
+        started_at: null,
+        finished_at: "2026-07-02T00:02:00Z",
+        error_code: null,
+        error_message: null,
+      }),
+    );
+
+    expect(
+      await screen.findByText(
+        "Запрос отмены отправлен. Уже созданные результаты останутся доступны.",
+      ),
+    ).toBeInTheDocument();
+    expect(cancelCalls).toBe(2);
+    expect(document.body.textContent).not.toContain("raw cancellation failure");
+  });
+
+  it("keeps source deletion ownership and safe outcomes across project switches", async () => {
+    installFocusedOutputFixture({
+      jobStatus: "processing",
+      includeSecondProject: true,
+    });
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let deleteCalls = 0;
+    let deleteSettled = false;
+    let deleteConfirmed = false;
+    let sourceReadsAfterSettlement = 0;
+    const deleteResolvers: Array<(response: Response) => void> = [];
+    const ambiguousNotice =
+      "\u0421\u0435\u0440\u0432\u0435\u0440 \u043d\u0435 \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u043b \u0443\u0434\u0430\u043b\u0435\u043d\u0438\u0435 \u0444\u0430\u0439\u043b\u0430. \u0421\u043f\u0438\u0441\u043e\u043a \u0444\u0430\u0439\u043b\u043e\u0432 \u043e\u0431\u043d\u043e\u0432\u043b\u0451\u043d; \u043f\u043e\u0434\u043e\u0436\u0434\u0438\u0442\u0435 \u0438 \u043f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u0435 \u043f\u0440\u0438 \u043d\u0435\u043e\u0431\u0445\u043e\u0434\u0438\u043c\u043e\u0441\u0442\u0438.";
+    const successNotice = "\u0424\u0430\u0439\u043b \u0443\u0431\u0440\u0430\u043d \u0438\u0437 \u043f\u0440\u043e\u0435\u043a\u0442\u0430.";
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/projects/p1/sources" && !init?.method) {
+        if (deleteSettled) sourceReadsAfterSettlement += 1;
+        if (deleteConfirmed) return json({ sources: [] });
+      }
+      if (url === "/api/sources/source-focused" && init?.method === "DELETE") {
+        deleteCalls += 1;
+        return new Promise<Response>((resolve) => {
+          deleteResolvers.push(resolve);
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({});
+    });
+
+    await openFocusedJobsList();
+    const removeButton = screen.getByRole("button", {
+      name: "Убрать из проекта: focused-source.mp3",
+    });
+    await userEvent.click(removeButton);
+    await waitFor(() => expect(deleteCalls).toBe(1));
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Project Two/ }),
+    );
+    await screen.findByRole("form", {
+      name: "Композитор пакетных задач",
+    });
+    expect(
+      screen.queryByText(
+        "Сервер не подтвердил удаление файла. Список файлов обновлён; подождите и повторите при необходимости.",
+      ),
+    ).not.toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Research calls/ }),
+    );
+    const restoredRemoveButton = await screen.findByRole("button", {
+      name: "Убрать из проекта: focused-source.mp3",
+    });
+    expect(restoredRemoveButton).toBeDisabled();
+    expect(restoredRemoveButton).toHaveAttribute("aria-busy", "true");
+    restoredRemoveButton.click();
+    expect(deleteCalls).toBe(1);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Project Two/ }),
+    );
+    deleteSettled = true;
+    await act(async () => {
+      deleteResolvers[0]?.(await json({ detail: "raw delete failure" }, false, 500));
+    });
+    await waitFor(() => expect(sourceReadsAfterSettlement).toBeGreaterThan(0));
+    expect(
+      screen.queryByText(
+        "Сервер не подтвердил удаление файла. Список файлов обновлён; подождите и повторите при необходимости.",
+      ),
+    ).not.toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Research calls/ }),
+    );
+    expect(
+      await screen.findByText(
+        "Сервер не подтвердил удаление файла. Список файлов обновлён; подождите и повторите при необходимости.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "Убрать из проекта: focused-source.mp3",
+      }),
+    ).toBeEnabled();
+    expect(deleteCalls).toBe(1);
+    expect(document.body).not.toHaveTextContent("raw delete failure");
+
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "\u0423\u0431\u0440\u0430\u0442\u044c \u0438\u0437 \u043f\u0440\u043e\u0435\u043a\u0442\u0430: focused-source.mp3",
+      }),
+    );
+    await waitFor(() => expect(deleteCalls).toBe(2));
+    expect(screen.queryByText(ambiguousNotice)).not.toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Project Two/ }),
+    );
+    deleteConfirmed = true;
+    await act(async () => {
+      deleteResolvers[1]?.(
+        await json({
+          ok: true,
+          source_state: "deleted",
+          storage_cleanup: "not_applicable",
+        }),
+      );
+    });
+    expect(screen.queryByText(successNotice)).not.toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Research calls/ }),
+    );
+    expect(await screen.findByText(successNotice)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", {
+        name: "\u0423\u0431\u0440\u0430\u0442\u044c \u0438\u0437 \u043f\u0440\u043e\u0435\u043a\u0442\u0430: focused-source.mp3",
+      }),
+    ).not.toBeInTheDocument();
+    expect(deleteCalls).toBe(2);
+  });
+
+  it("keeps local upload ownership and safe outcomes across project switches", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const putResolvers: Array<(response: Response) => void> = [];
+    let completionCalls = 0;
+    let uploadSucceeded = false;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/projects" && !init?.method) {
+        return json({
+          projects: [
+            {
+              id: "p1",
+              title: "Research calls",
+              description: "Customer interview notes",
+              created_at: "2026-07-01T00:00:00",
+              updated_at: "2026-07-01T00:00:00",
+              archived_at: null,
+              output_drive_folder_id: "folder-123",
+              output_drive_folder_url:
+                "https://drive.example/folders/folder-123",
+              output_drive_folder_name: "Transcripts",
+            },
+            {
+              id: "p2",
+              title: "Project Two",
+              description: null,
+              created_at: "2026-07-02T00:00:00",
+              updated_at: "2026-07-02T00:00:00",
+              archived_at: null,
+              output_drive_folder_id: null,
+              output_drive_folder_url: null,
+              output_drive_folder_name: null,
+            },
+          ],
+        });
+      }
+      if (url === "/api/projects/p2/sources" && !init?.method) {
+        return json({ sources: [] });
+      }
+      if (url === "/api/projects/p2/jobs" && !init?.method) {
+        return json({ jobs: [] });
+      }
+      if (
+        url === "/api/projects/p1/sources" &&
+        !init?.method &&
+        uploadSucceeded
+      ) {
+        return json({
+          sources: [
+            {
+              id: "local-source-2",
+              project_id: "p1",
+              source_type: "local_upload",
+              original_filename: "local-source-2.ogg",
+              mime_type: "audio/ogg",
+              size_bytes: 7,
+              drive_file_id: null,
+              drive_file_url: null,
+              upload_status: "uploaded",
+              uploaded_at: "2099-01-01T00:00:00Z",
+              expires_at: "2099-01-02T00:00:00Z",
+              deleted_at: null,
+              delete_reason: null,
+              created_at: "2026-07-01T00:00:00Z",
+              updated_at: "2026-07-01T00:00:00Z",
+            },
+          ],
+        });
+      }
+      if (
+        String(url).startsWith("https://upload.example/presigned") &&
+        init?.method === "PUT"
+      ) {
+        return new Promise<Response>((resolve) => {
+          putResolvers.push(resolve);
+        });
+      }
+      if (
+        String(url).endsWith("/local-upload/complete") &&
+        init?.method === "POST"
+      ) {
+        completionCalls += 1;
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+    const firstRow = await screen.findByLabelText("Источник строки 1");
+    const firstInput = within(firstRow).getByLabelText(
+      "Выбрать файлы с устройства для строки 1",
+    ) as HTMLInputElement;
+    await userEvent.upload(
+      firstInput,
+      new File(["failed"], "first-off-panel.ogg", { type: "audio/ogg" }),
+    );
+    await waitFor(() => expect(putResolvers).toHaveLength(1));
+    expect(firstInput).toBeDisabled();
+    expect(firstInput).toHaveAttribute("aria-busy", "true");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Project Two/ }),
+    );
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
+    expect(
+      screen.queryByText(
+        "Загрузка файлов для этого проекта ещё выполняется. Дождитесь завершения перед новым выбором.",
+      ),
+    ).not.toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Research calls/ }),
+    );
+    expect(
+      await screen.findByText(
+        "Загрузка файлов для этого проекта ещё выполняется. Дождитесь завершения перед новым выбором.",
+      ),
+    ).toBeInTheDocument();
+    const restoredInput = screen.getByLabelText(
+      "Выбрать файлы с устройства для строки 1",
+    ) as HTMLInputElement;
+    expect(restoredInput).toBeDisabled();
+    expect(restoredInput).toHaveAttribute("aria-busy", "true");
+    fireEvent.change(restoredInput, {
+      target: {
+        files: [
+          new File(["duplicate"], "duplicate.ogg", { type: "audio/ogg" }),
+        ],
+      },
+    });
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          url === "/api/projects/p1/sources/local-upload/initiate" &&
+          init?.method === "POST",
+      ),
+    ).toHaveLength(1);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Project Two/ }),
+    );
+    await act(async () => {
+      putResolvers[0]?.(
+        await json({ detail: "raw off-panel storage failure" }, false, 500),
+      );
+    });
+    expect(
+      screen.queryByText(
+        "Локальная загрузка не завершена. Проверьте список файлов проекта перед повторной попыткой.",
+      ),
+    ).not.toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Research calls/ }),
+    );
+    expect(
+      await screen.findByText(
+        "Локальная загрузка не завершена. Проверьте список файлов проекта перед повторной попыткой.",
+      ),
+    ).toBeInTheDocument();
+    const retryInput = screen.getByLabelText(
+      "Выбрать файлы с устройства для строки 1",
+    ) as HTMLInputElement;
+    await waitFor(() => expect(retryInput).toBeEnabled());
+    expect(document.body).not.toHaveTextContent(
+      "raw off-panel storage failure",
+    );
+
+    await userEvent.upload(
+      retryInput,
+      new File(["success"], "second-off-panel.ogg", { type: "audio/ogg" }),
+    );
+    await waitFor(() => expect(putResolvers).toHaveLength(2));
+    expect(
+      screen.queryByText(
+        "Локальная загрузка не завершена. Проверьте список файлов проекта перед повторной попыткой.",
+      ),
+    ).not.toBeInTheDocument();
+    uploadSucceeded = true;
+    await act(async () => {
+      putResolvers[1]?.(await json({ ok: true }));
+    });
+    await within(screen.getByLabelText("Источник строки 1")).findByText(
+      "Загружено файлов: 1.",
+    );
+    expect(completionCalls).toBe(1);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Project Two/ }),
+    );
+    expect(
+      screen.queryByText(
+        "Локальная загрузка завершена. Обновлённый список файлов доступен в проекте.",
+      ),
+    ).not.toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: /Research calls/ }),
+    );
+    expect(
+      await screen.findByText(
+        "Локальная загрузка завершена. Обновлённый список файлов доступен в проекте.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("option", { name: /local-source-2\.ogg/ }),
+    ).toBeInTheDocument();
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          url === "/api/projects/p1/sources/local-upload/initiate" &&
+          init?.method === "POST",
+      ),
+    ).toHaveLength(2);
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          String(url).startsWith("https://upload.example/presigned") &&
+          init?.method === "PUT",
+      ),
+    ).toHaveLength(2);
+  });
+
+  it("keeps cancellation ownership and safe outcomes across project switches", async () => {
+    installFocusedOutputFixture({
+      jobStatus: "queued",
+      includeSecondProject: true,
+    });
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const cancelResolvers: Array<(response: Response) => void> = [];
+    let cancelCalls = 0;
+    const failureMessage =
+      "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043e\u0442\u043c\u0435\u043d\u0438\u0442\u044c \u0437\u0430\u0434\u0430\u0447\u0443. \u041f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u0435 \u043f\u043e\u0437\u0436\u0435.";
+    const successMessage =
+      "\u0417\u0430\u043f\u0440\u043e\u0441 \u043e\u0442\u043c\u0435\u043d\u044b \u043e\u0442\u043f\u0440\u0430\u0432\u043b\u0435\u043d. \u0423\u0436\u0435 \u0441\u043e\u0437\u0434\u0430\u043d\u043d\u044b\u0435 \u0440\u0435\u0437\u0443\u043b\u044c\u0442\u0430\u0442\u044b \u043e\u0441\u0442\u0430\u043d\u0443\u0442\u0441\u044f \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b.";
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        String(url).endsWith("/api/jobs/job-focused/cancel") &&
+        init?.method === "POST"
+      ) {
+        cancelCalls += 1;
+        return new Promise<Response>((resolve) => {
+          cancelResolvers.push(resolve);
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({});
+    });
+
+    await openFocusedJobsList();
+    const cancelButton = screen.getByRole("button", {
+      name: "\u041e\u0442\u043c\u0435\u043d\u0438\u0442\u044c",
+    });
+    await userEvent.click(cancelButton);
+    await waitFor(() => expect(cancelCalls).toBe(1));
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Project Two/ }),
+    );
+    await screen.findByRole("form", {
+      name: "\u041a\u043e\u043c\u043f\u043e\u0437\u0438\u0442\u043e\u0440 \u043f\u0430\u043a\u0435\u0442\u043d\u044b\u0445 \u0437\u0430\u0434\u0430\u0447",
+    });
+    await userEvent.click(
+      screen.getByRole("button", { name: /Research calls/ }),
+    );
+
+    const restoredCancelButton = await screen.findByRole("button", {
+      name: "\u041e\u0442\u043c\u0435\u043d\u0438\u0442\u044c",
+    });
+    expect(restoredCancelButton).toBeDisabled();
+    expect(restoredCancelButton).toHaveAttribute("aria-busy", "true");
+    restoredCancelButton.click();
+    expect(cancelCalls).toBe(1);
+
+    await act(async () => {
+      cancelResolvers[0]?.(
+        await json({ detail: "raw cancellation failure" }, false, 500),
+      );
+    });
+    await waitFor(() => expect(restoredCancelButton).toBeEnabled());
+    expect(await screen.findByText(failureMessage)).toBeInTheDocument();
+
+    await userEvent.click(restoredCancelButton);
+    await waitFor(() => expect(cancelCalls).toBe(2));
+    expect(screen.queryByText(failureMessage)).not.toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: /Project Two/ }),
+    );
+    await act(async () => {
+      cancelResolvers[1]?.(
+        await json({
+          id: "job-focused",
+          project_id: "p1",
+          status: "cancelled",
+          title: "Focused output job",
+          provider: null,
+          provider_credential_id: "cred-active",
+          terminal_dismissed_at: null,
+          source_count: 1,
+          sources: [],
+          created_at: "2026-07-02T00:00:00Z",
+          updated_at: "2026-07-02T00:02:00Z",
+          cancelled_at: "2026-07-02T00:02:00Z",
+          cancel_requested_at: null,
+          attempt_count: 1,
+          started_at: "2026-07-02T00:00:30Z",
+          finished_at: "2026-07-02T00:02:00Z",
+          error_code: null,
+          error_message: null,
+        }),
+      );
+    });
+    expect(screen.queryByText(successMessage)).not.toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: /Research calls/ }),
+    );
+    expect(await screen.findByText(successMessage)).toBeInTheDocument();
+    expect(cancelCalls).toBe(2);
+    expect(document.body.textContent).not.toContain("raw cancellation failure");
+  });
+  it("deduplicates output reconciliation and unlocks after failure", async () => {
+    const reconciliationResponse = {
+      job_id: "job-focused",
+      job_status: "failed",
+      available: true,
+      counts: { reconciliation_required: 1 },
+      cases: [],
+    };
+    installFocusedOutputFixture({
+      jobStatus: "failed",
+      reconciliationResponse,
+    });
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const reconciliationResolvers: Array<(response: Response) => void> = [];
+    let reconciliationCalls = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        String(url).endsWith(
+          "/api/jobs/job-focused/output-reconciliation/check",
+        ) && init?.method === "POST"
+      ) {
+        reconciliationCalls += 1;
+        return new Promise<Response>((resolve) => {
+          reconciliationResolvers.push(resolve);
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({});
+    });
+
+    await openFocusedJobsList();
+    await userEvent.click(screen.getByRole("button", { name: "Открыть" }));
+    const reconciliationButton = await screen.findByRole("button", {
+      name: "Проверить созданный документ в Google Drive",
+    });
+    act(() => {
+      reconciliationButton.click();
+      reconciliationButton.click();
+    });
+
+    await waitFor(() => expect(reconciliationCalls).toBe(1));
+    expect(reconciliationButton).toBeDisabled();
+    expect(reconciliationButton).toHaveAttribute("aria-busy", "true");
+
+    await act(async () => {
+      reconciliationResolvers[0]?.(
+        await json({ detail: "raw reconciliation failure" }, false, 500),
+      );
+    });
+    expect(
+      await screen.findByText("Не удалось проверить Google Drive."),
+    ).toBeInTheDocument();
+    const unlockedButton = screen.getByRole("button", {
+      name: "Проверить созданный документ в Google Drive",
+    });
+    await waitFor(() => expect(unlockedButton).toBeEnabled());
+
+    await userEvent.click(unlockedButton);
+    await waitFor(() => expect(reconciliationCalls).toBe(2));
+    reconciliationResolvers[1]?.(
+      await json({
+        job_id: "job-focused",
+        checked: 1,
+        resolved: 1,
+        unresolved: 0,
+        conflicts: 0,
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(
+          ([url]) => url === "/api/projects/p1/jobs",
+        ).length,
+      ).toBeGreaterThan(1),
+    );
+
+    const reconciliationPosts = (
+      fetch as unknown as ReturnType<typeof vi.fn>
+    ).mock.calls.filter(
+      ([url, init]) =>
+        url === "/api/jobs/job-focused/output-reconciliation/check" &&
+        init?.method === "POST",
+    );
+    expect(reconciliationPosts).toHaveLength(2);
+    expect(document.body.textContent).not.toContain(
+      "raw reconciliation failure",
+    );
+  });
+
+  it("deduplicates provider-cost retry and unlocks after failure", async () => {
+    const retryResponse = {
+      job_id: "job-focused",
+      job_status: "failed",
+      available: true,
+      reason: "partial_provider_resume_available",
+      attempt_count: 1,
+      max_attempts: 3,
+      missing_output_count: 1,
+      retry_safe_source_count: 1,
+      resumable_provider_part_count: 1,
+      provider_total_part_count: 2,
+      provider_failure_code: "provider_rate_limited",
+    };
+    installFocusedOutputFixture({ jobStatus: "failed", retryResponse });
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const retryResolvers: Array<(response: Response) => void> = [];
+    let retryCalls = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        String(url).endsWith("/api/jobs/job-focused/retry") &&
+        init?.method === "POST"
+      ) {
+        retryCalls += 1;
+        return new Promise<Response>((resolve) => {
+          retryResolvers.push(resolve);
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({});
+    });
+
+    await openFocusedJobsList();
+    await userEvent.click(screen.getByRole("button", { name: "Открыть" }));
+    const retryButton = await screen.findByRole("button", {
+      name: "Продолжить оставшиеся части",
+    });
+    act(() => {
+      retryButton.click();
+      retryButton.click();
+    });
+
+    await waitFor(() => expect(retryCalls).toBe(1));
+    expect(retryButton).toBeDisabled();
+    expect(retryButton).toHaveAttribute("aria-busy", "true");
+
+    await act(async () => {
+      retryResolvers[0]?.(
+        await json({ detail: "raw provider retry failure" }, false, 500),
+      );
+    });
+    expect(
+      await screen.findByText("Повтор сейчас недоступен."),
+    ).toBeInTheDocument();
+    const unlockedButton = screen.getByRole("button", {
+      name: "Продолжить оставшиеся части",
+    });
+    await waitFor(() => expect(unlockedButton).toBeEnabled());
+
+    await userEvent.click(unlockedButton);
+    await waitFor(() => expect(retryCalls).toBe(2));
+    retryResolvers[1]?.(
+      await json({
+        ...retryResponse,
+        job_status: "queued",
+        available: false,
+        reason: "already_queued",
+        attempt_count: 2,
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(
+          ([url]) => url === "/api/projects/p1/jobs",
+        ).length,
+      ).toBeGreaterThan(1),
+    );
+
+    const retryPosts = (
+      fetch as unknown as ReturnType<typeof vi.fn>
+    ).mock.calls.filter(
+      ([url, init]) =>
+        url === "/api/jobs/job-focused/retry" && init?.method === "POST",
+    );
+    expect(retryPosts).toHaveLength(2);
+    expect(
+      retryPosts.map(([, init]) => JSON.parse(String(init?.body))),
+    ).toEqual([
+      { confirm_remaining_provider_cost: true },
+      { confirm_remaining_provider_cost: true },
+    ]);
+    expect(document.body.textContent).not.toContain(
+      "raw provider retry failure",
+    );
+  });
+  it("confirms timed-out cancellation with an authoritative job read and no second POST", async () => {
+    installFocusedOutputFixture({ jobStatus: "queued" });
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let cancelPosts = 0;
+    let authoritativeReads = 0;
+    let mutationSignal: AbortSignal | undefined;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      const requestUrl = String(url);
+      if (
+        requestUrl.endsWith("/api/jobs/job-focused/cancel") &&
+        init?.method === "POST"
+      ) {
+        cancelPosts += 1;
+        mutationSignal = init.signal;
+        return new Promise<Response>((_resolve, reject) =>
+          init.signal?.addEventListener("abort", () => reject(init.signal?.reason)),
+        );
+      }
+      if (requestUrl.endsWith("/api/jobs/job-focused") && !init?.method) {
+        authoritativeReads += 1;
+        return json({
+          id: "job-focused",
+          project_id: "p1",
+          status: "cancelled",
+          title: "Focused output job",
+          provider: null,
+          terminal_dismissed_at: null,
+          source_count: 1,
+          sources: [],
+          created_at: "2026-07-02T00:00:00Z",
+          updated_at: "2026-07-02T00:02:00Z",
+          cancelled_at: "2026-07-02T00:02:00Z",
+          cancel_requested_at: null,
+          attempt_count: 1,
+          started_at: null,
+          finished_at: "2026-07-02T00:02:00Z",
+          error_code: null,
+          error_message: null,
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({});
+    });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 20_000 ? 0 : delay,
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      await openFocusedJobsList();
+      await userEvent.click(
+        screen.getByRole("button", { name: "Отменить" }),
+      );
+
+      expect(
+        await screen.findByText(
+          "Сервер не ответил вовремя, но отмена подтверждена по актуальному состоянию задачи.",
+        ),
+      ).toBeInTheDocument();
+      expect(cancelPosts).toBe(1);
+      expect(authoritativeReads).toBe(1);
+      expect(mutationSignal?.aborted).toBe(true);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("reports an unconfirmed timed-out dismissal without repeating the POST", async () => {
+    installFocusedOutputFixture({ jobStatus: "completed" });
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let dismissPosts = 0;
+    let authoritativeReads = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      const requestUrl = String(url);
+      if (
+        requestUrl.endsWith("/api/jobs/job-focused/dismiss") &&
+        init?.method === "POST"
+      ) {
+        dismissPosts += 1;
+        return new Promise<Response>((_resolve, reject) =>
+          init.signal?.addEventListener("abort", () => reject(init.signal?.reason)),
+        );
+      }
+      if (requestUrl.endsWith("/api/jobs/job-focused") && !init?.method) {
+        authoritativeReads += 1;
+        return defaultFetch?.(url, init) ?? json({});
+      }
+      return defaultFetch?.(url, init) ?? json({});
+    });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 20_000 ? 0 : delay,
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      await openFocusedJobsList();
+      const readsBeforeDismiss = authoritativeReads;
+      await userEvent.click(
+        screen.getByRole("button", { name: "Убрать в историю" }),
+      );
+
+      expect(
+        await screen.findByText(
+          "Сервер не ответил вовремя. Перенос в историю не подтверждён; обновите состояние перед повтором.",
+        ),
+      ).toBeInTheDocument();
+      expect(dismissPosts).toBe(1);
+      expect(authoritativeReads).toBeGreaterThan(readsBeforeDismiss);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("confirms a timed-out provider-cost retry from readiness without repeating the POST", async () => {
+    const beforeRetry = {
+      job_id: "job-focused",
+      job_status: "failed",
+      available: true,
+      reason: "partial_provider_resume_available",
+      attempt_count: 1,
+      max_attempts: 3,
+      missing_output_count: 1,
+      retry_safe_source_count: 1,
+      resumable_provider_part_count: 1,
+      provider_total_part_count: 2,
+      provider_failure_code: "provider_rate_limited",
+    };
+    installFocusedOutputFixture({
+      jobStatus: "failed",
+      retryResponse: beforeRetry,
+    });
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let retryPosts = 0;
+    let readinessReads = 0;
+    let retryTimedOut = false;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      const requestUrl = String(url);
+      if (
+        requestUrl.endsWith("/api/jobs/job-focused/retry") &&
+        init?.method === "POST"
+      ) {
+        retryPosts += 1;
+        return new Promise<Response>((_resolve, reject) =>
+          init.signal?.addEventListener("abort", () => {
+            retryTimedOut = true;
+            reject(init.signal?.reason);
+          }),
+        );
+      }
+      if (
+        requestUrl.endsWith("/api/jobs/job-focused/retry") &&
+        !init?.method
+      ) {
+        readinessReads += 1;
+        return json(
+          retryTimedOut
+            ? {
+                ...beforeRetry,
+                job_status: "queued",
+                available: false,
+                reason: "job_not_failed",
+              }
+            : beforeRetry,
+        );
+      }
+      return defaultFetch?.(url, init) ?? json({});
+    });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 20_000 ? 0 : delay,
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      await openFocusedJobsList();
+      await userEvent.click(screen.getByRole("button", { name: "Открыть" }));
+      const readsBeforeRetry = readinessReads;
+      await userEvent.click(
+        await screen.findByRole("button", {
+          name: "Продолжить оставшиеся части",
+        }),
+      );
+
+      expect(
+        await screen.findByText(
+          "Сервер не ответил вовремя, но повтор подтверждён по актуальному состоянию задачи.",
+        ),
+      ).toBeInTheDocument();
+      expect(retryPosts).toBe(1);
+      expect(readinessReads).toBeGreaterThan(readsBeforeRetry);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("reports an unchanged reconciliation state after timeout without repeating the Google check", async () => {
+    const reconciliationState = {
+      job_id: "job-focused",
+      job_status: "failed",
+      available: true,
+      counts: { reconciliation_required: 1 },
+      cases: [
+        {
+          job_source_id: "source-1",
+          status: "reconciliation_required",
+          resolved: false,
+          last_checked_at: null,
+        },
+      ],
+    };
+    installFocusedOutputFixture({
+      jobStatus: "failed",
+      reconciliationResponse: reconciliationState,
+    });
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let reconciliationPosts = 0;
+    let reconciliationReads = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      const requestUrl = String(url);
+      if (
+        requestUrl.endsWith(
+          "/api/jobs/job-focused/output-reconciliation/check",
+        ) &&
+        init?.method === "POST"
+      ) {
+        reconciliationPosts += 1;
+        return new Promise<Response>((_resolve, reject) =>
+          init.signal?.addEventListener("abort", () => reject(init.signal?.reason)),
+        );
+      }
+      if (
+        requestUrl.endsWith("/api/jobs/job-focused/output-reconciliation") &&
+        !init?.method
+      ) {
+        reconciliationReads += 1;
+        return json(reconciliationState);
+      }
+      return defaultFetch?.(url, init) ?? json({});
+    });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 20_000 ? 0 : delay,
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      await openFocusedJobsList();
+      await userEvent.click(screen.getByRole("button", { name: "Открыть" }));
+      const readsBeforeCheck = reconciliationReads;
+      await userEvent.click(
+        await screen.findByRole("button", {
+          name: "Проверить созданный документ в Google Drive",
+        }),
+      );
+
+      expect(
+        await screen.findByText(
+          "Сервер не ответил вовремя. Результат проверки не подтверждён; обновите состояние перед повтором.",
+        ),
+      ).toBeInTheDocument();
+      expect(reconciliationPosts).toBe(1);
+      expect(reconciliationReads).toBeGreaterThan(readsBeforeCheck);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
   it("renders the explicit empty job outputs state without output links", async () => {
     installFocusedOutputFixture({
       jobStatus: "queued",
@@ -6139,18 +9935,7 @@ describe("Studio PWA", () => {
         });
       if (url.endsWith("/api/audit-events")) return json({ events: [] });
       if (url.endsWith("/api/google/connection"))
-        return json({
-          connected: false,
-          status: "disconnected",
-          google_email: null,
-          scopes: null,
-          connected_at: null,
-          revoked_at: null,
-          picker_configured: false,
-          picker_scope_ready: false,
-          picker_ready: false,
-          reconnect_required: false,
-        });
+        return json(googleConnectionFixture());
       return json({ csrf_token: "csrf-after-refresh" });
     });
     renderApp();
@@ -6301,18 +10086,7 @@ describe("Studio PWA", () => {
     const defaultFetch = baseFetch.getMockImplementation();
     baseFetch.mockImplementation((url: string, init?: RequestInit) => {
       if (url.endsWith("/api/google/connection"))
-        return json({
-          connected: false,
-          status: "disconnected",
-          google_email: null,
-          scopes: null,
-          connected_at: null,
-          revoked_at: null,
-          picker_configured: false,
-          picker_scope_ready: false,
-          picker_ready: false,
-          reconnect_required: false,
-        });
+        return json(googleConnectionFixture());
       return defaultFetch?.(url, init) ?? json({ ok: true });
     });
     renderApp();
@@ -6337,7 +10111,9 @@ describe("Studio PWA", () => {
     });
     renderApp();
     expect(
-      await screen.findByText("Google Drive сейчас недоступен."),
+      await screen.findByText(
+        "Не удалось загрузить статус Google Drive. Повторите попытку.",
+      ),
     ).toBeInTheDocument();
     expect(
       screen.queryByText(
@@ -6778,6 +10554,203 @@ describe("Studio PWA", () => {
     ]);
   });
 
+  it("bounds ambiguous local upload initiation without replaying the POST", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const initiationSignals: AbortSignal[] = [];
+    let initiationCalls = 0;
+    let sourceReadsAfterInitiation = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        url === "/api/projects/p1/sources" &&
+        !init?.method &&
+        initiationCalls > 0
+      ) {
+        sourceReadsAfterInitiation += 1;
+      }
+      if (
+        url === "/api/projects/p1/sources/local-upload/initiate" &&
+        init?.method === "POST"
+      ) {
+        initiationCalls += 1;
+        const signal = init.signal;
+        if (!signal) throw new Error("upload initiation signal is missing");
+        initiationSignals.push(signal);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 20_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+    try {
+      renderApp();
+      await openProjectsPage();
+      const row = await screen.findByLabelText("Источник строки 1");
+      const input = within(row).getByLabelText(
+        "Выбрать файлы с устройства для строки 1",
+      ) as HTMLInputElement;
+
+      await userEvent.upload(
+        input,
+        new File(["stalled"], "initiation-timeout.ogg", {
+          type: "audio/ogg",
+        }),
+      );
+
+      expect(
+        await within(row).findByText(
+          /Сервер не подтвердил подготовку загрузки\. Список файлов обновлён/,
+        ),
+      ).toBeInTheDocument();
+      expect(initiationSignals).toHaveLength(1);
+      expect(initiationSignals[0]?.aborted).toBe(true);
+      expect(initiationCalls).toBe(1);
+      await waitFor(() => expect(sourceReadsAfterInitiation).toBeGreaterThan(0));
+      expect(input).toBeEnabled();
+      expect(
+        baseFetch.mock.calls.filter(
+          ([url, init]) =>
+            String(url).startsWith("https://upload.example/presigned") &&
+            init?.method === "PUT",
+        ),
+      ).toHaveLength(0);
+      expect(
+        baseFetch.mock.calls.filter(
+          ([url, init]) =>
+            String(url).endsWith("/local-upload/complete") &&
+            init?.method === "POST",
+        ),
+      ).toHaveLength(0);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("fails closed after an ambiguous initiation response without replay", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let initiationCalls = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        url === "/api/projects/p1/sources/local-upload/initiate" &&
+        init?.method === "POST"
+      ) {
+        initiationCalls += 1;
+        expect(init.signal).toBeInstanceOf(AbortSignal);
+        return json({ detail: "raw private initiation failure" }, false, 500);
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    renderApp();
+    await openProjectsPage();
+    const row = await screen.findByLabelText("Источник строки 1");
+    const input = within(row).getByLabelText(
+      "Выбрать файлы с устройства для строки 1",
+    ) as HTMLInputElement;
+
+    await userEvent.upload(
+      input,
+      new File(["ambiguous"], "initiation-500.ogg", { type: "audio/ogg" }),
+    );
+
+    expect(
+      await within(row).findByText(
+        /Сервер не подтвердил подготовку загрузки\. Список файлов обновлён/,
+      ),
+    ).toBeInTheDocument();
+    expect(initiationCalls).toBe(1);
+    expect(input).toBeEnabled();
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          String(url).startsWith("https://upload.example/presigned") &&
+          init?.method === "PUT",
+      ),
+    ).toHaveLength(0);
+    expect(document.body).not.toHaveTextContent(
+      "raw private initiation failure",
+    );
+  });
+  it("bounds a stalled local PUT and recovers without repeating object upload", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const putSignals: AbortSignal[] = [];
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        String(url).startsWith("https://upload.example/presigned") &&
+        init?.method === "PUT"
+      ) {
+        const signal = init.signal;
+        if (!signal) throw new Error("upload PUT signal is missing");
+        putSignals.push(signal);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 20_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+    try {
+      renderApp();
+      await openProjectsPage();
+      const row = await screen.findByLabelText("Источник строки 1");
+      const input = within(row).getByLabelText(
+        "Выбрать файлы с устройства для строки 1",
+      ) as HTMLInputElement;
+
+      await userEvent.upload(
+        input,
+        new File(["stalled"], "put-timeout.ogg", { type: "audio/ogg" }),
+      );
+
+      await within(row).findByText("Загружено файлов: 1.");
+      expect(putSignals).toHaveLength(1);
+      expect(putSignals[0]?.aborted).toBe(true);
+      expect(
+        baseFetch.mock.calls.filter(
+          ([url, init]) =>
+            url ===
+              "/api/projects/p1/sources/local-upload/initiate" &&
+            init?.method === "POST",
+        ),
+      ).toHaveLength(1);
+      expect(
+        baseFetch.mock.calls.filter(
+          ([url, init]) =>
+            String(url).startsWith("https://upload.example/presigned") &&
+            init?.method === "PUT",
+        ),
+      ).toHaveLength(1);
+      expect(
+        baseFetch.mock.calls.filter(
+          ([url, init]) =>
+            String(url).endsWith("/local-upload/complete") &&
+            init?.method === "POST",
+        ),
+      ).toHaveLength(1);
+      expect(row).toHaveTextContent("local-source-1.ogg");
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
   it("recovers an ambiguous local PUT through completion without creating a second source", async () => {
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = baseFetch.getMockImplementation();
@@ -6831,12 +10804,104 @@ describe("Studio PWA", () => {
     ).toHaveLength(1);
   });
 
+  it("accepts an authoritative uploaded source without replaying completion", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let completionCalls = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        url === "/api/projects/p1/sources" &&
+        !init?.method &&
+        completionCalls === 1
+      ) {
+        return json({
+          sources: [
+            {
+              id: "local-source-1",
+              project_id: "p1",
+              source_type: "local_upload",
+              original_filename: "local-source-1.ogg",
+              mime_type: "audio/ogg",
+              size_bytes: 7,
+              drive_file_id: null,
+              drive_file_url: null,
+              upload_status: "uploaded",
+              uploaded_at: "2099-01-01T00:00:00Z",
+              expires_at: "2099-01-02T00:00:00Z",
+              deleted_at: null,
+              delete_reason: null,
+              created_at: "2026-07-01T00:00:00Z",
+              updated_at: "2026-07-01T00:00:00Z",
+            },
+          ],
+        });
+      }
+      if (
+        String(url).endsWith("/local-upload/complete") &&
+        init?.method === "POST"
+      ) {
+        completionCalls += 1;
+        return Promise.reject(new TypeError("synthetic lost response"));
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+    const row = await screen.findByLabelText("Источник строки 1");
+    const input = within(row).getByLabelText(
+      "Выбрать файлы с устройства для строки 1",
+    ) as HTMLInputElement;
+    await userEvent.upload(
+      input,
+      new File(["recover"], "completed-reconcile.ogg", {
+        type: "audio/ogg",
+      }),
+    );
+
+    await within(row).findByText("Загружено файлов: 1.");
+    expect(completionCalls).toBe(1);
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          String(url).endsWith(
+            "/api/projects/p1/sources/local-upload/initiate",
+          ) && init?.method === "POST",
+      ),
+    ).toHaveLength(1);
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          String(url).startsWith("https://upload.example/presigned") &&
+          init?.method === "PUT",
+      ),
+    ).toHaveLength(1);
+    expect(document.body).not.toHaveTextContent("synthetic lost response");
+  });
   it("retries local upload completion without repeating initiation or PUT", async () => {
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = baseFetch.getMockImplementation();
     let rejectedCompletion = false;
     baseFetch.mockImplementation((url: string, init?: RequestInit) => {
       if (
+        url === "/api/projects/p1/sources" &&
+        !init?.method &&
+        rejectedCompletion
+      ) {
+        return json({
+          sources: [
+            {
+              id: "local-source-1",
+              project_id: "p1",
+              source_type: "local_upload",
+              upload_status: "pending",
+              mime_type: "audio/ogg",
+              size_bytes: 7,
+              deleted_at: null,
+            },
+          ],
+        });
+      }      if (
         String(url).endsWith("/local-upload/complete") &&
         init?.method === "POST" &&
         !rejectedCompletion
@@ -6859,6 +10924,13 @@ describe("Studio PWA", () => {
     );
 
     await within(row).findByText("Загружено файлов: 1.");
+    expect(
+      baseFetch.mock.calls.some(
+        ([url, init]) =>
+          url === "/api/projects/p1/sources" &&
+          init?.cache === "no-store",
+      ),
+    ).toBe(true);
     expect(
       baseFetch.mock.calls.filter(
         ([url, init]) =>
@@ -6883,6 +10955,99 @@ describe("Studio PWA", () => {
     ).toHaveLength(2);
   });
 
+  it("bounds stalled upload completion and replays only after pending reconciliation", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const completionSignals: AbortSignal[] = [];
+    let completionCalls = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        url === "/api/projects/p1/sources" &&
+        !init?.method &&
+        completionCalls === 1
+      ) {
+        return json({
+          sources: [
+            {
+              id: "local-source-1",
+              project_id: "p1",
+              source_type: "local_upload",
+              upload_status: "pending",
+              mime_type: "audio/ogg",
+              size_bytes: 7,
+              deleted_at: null,
+            },
+          ],
+        });
+      }
+      if (
+        String(url).endsWith("/local-upload/complete") &&
+        init?.method === "POST"
+      ) {
+        completionCalls += 1;
+        if (completionCalls === 1) {
+          const signal = init.signal;
+          if (!signal) throw new Error("upload completion signal is missing");
+          completionSignals.push(signal);
+          return new Promise<Response>((_resolve, reject) => {
+            signal.addEventListener("abort", () => reject(signal.reason));
+          });
+        }
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 20_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+    try {
+      renderApp();
+      await openProjectsPage();
+      const row = await screen.findByLabelText("Источник строки 1");
+      const input = within(row).getByLabelText(
+        "Выбрать файлы с устройства для строки 1",
+      ) as HTMLInputElement;
+
+      await userEvent.upload(
+        input,
+        new File(["recover"], "complete-timeout.ogg", { type: "audio/ogg" }),
+      );
+
+      await within(row).findByText("Загружено файлов: 1.");
+      expect(completionSignals).toHaveLength(1);
+      expect(completionSignals[0]?.aborted).toBe(true);
+      expect(completionCalls).toBe(2);
+      expect(
+        baseFetch.mock.calls.filter(
+          ([url, init]) =>
+            String(url).endsWith(
+              "/api/projects/p1/sources/local-upload/initiate",
+            ) && init?.method === "POST",
+        ),
+      ).toHaveLength(1);
+      expect(
+        baseFetch.mock.calls.filter(
+          ([url, init]) =>
+            String(url).startsWith("https://upload.example/presigned") &&
+            init?.method === "PUT",
+        ),
+      ).toHaveLength(1);
+      expect(
+        baseFetch.mock.calls.some(
+          ([url, init]) =>
+            url === "/api/projects/p1/sources" &&
+            init?.cache === "no-store",
+        ),
+      ).toBe(true);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
   it("blocks a second local selection while the row upload is still running", async () => {
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = baseFetch.getMockImplementation();
@@ -7098,6 +11263,272 @@ describe("Studio PWA", () => {
           init?.method === "POST",
       ),
     ).toHaveLength(1);
+  });
+
+  it("bounds and retries Preparation prerequisite reads independently", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const credentialSignals: AbortSignal[] = [];
+    const policySignals: AbortSignal[] = [];
+    let credentialReads = 0;
+    let policyReads = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/credentials") && !init?.method) {
+        credentialReads += 1;
+        if (credentialReads === 2) {
+          const signal = init.signal;
+          if (!signal) throw new Error("Preparation credential signal is missing");
+          credentialSignals.push(signal);
+          return new Promise<Response>((_resolve, reject) => {
+            signal.addEventListener("abort", () => reject(signal.reason));
+          });
+        }
+      }
+      if (url.endsWith("/api/sources/upload-policy") && !init?.method) {
+        policyReads += 1;
+        if (policyReads === 1) {
+          const signal = init.signal;
+          if (!signal) throw new Error("Upload-policy signal is missing");
+          policySignals.push(signal);
+          return new Promise<Response>((_resolve, reject) => {
+            signal.addEventListener("abort", () => reject(signal.reason));
+          });
+        }
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 15_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      renderApp();
+      await openProjectsPage();
+      await screen.findByRole("form", { name: "Композитор пакетных задач" });
+      expect(
+        await screen.findByRole("button", {
+          name: "Повторить загрузку подключения ElevenLabs",
+        }),
+      ).toBeInTheDocument();
+      expect(
+        await screen.findByText(/Не удалось загрузить правила локальной загрузки/),
+      ).toBeInTheDocument();
+      expect(credentialSignals).toHaveLength(1);
+      expect(policySignals).toHaveLength(1);
+      expect(credentialSignals[0]?.aborted).toBe(true);
+      expect(policySignals[0]?.aborted).toBe(true);
+      const credentialReadsBeforeRetry = credentialReads;
+      const policyReadsBeforeRetry = policyReads;
+
+      await userEvent.click(
+        screen.getByRole("button", {
+          name: "Повторить загрузку подключения ElevenLabs",
+        }),
+      );
+      await userEvent.click(
+        screen.getByRole("button", { name: "Повторить загрузку правил" }),
+      );
+
+      expect(await screen.findByText("Подключён и готов")).toBeInTheDocument();
+      const row = await screen.findByLabelText("Источник строки 1");
+      await waitFor(() =>
+        expect(
+          within(row).getByLabelText(
+            "Выбрать файлы с устройства для строки 1",
+          ),
+        ).toBeEnabled(),
+      );
+      expect(credentialReads).toBe(credentialReadsBeforeRetry + 1);
+      expect(policyReads).toBe(policyReadsBeforeRetry + 1);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("rejects malformed Preparation prerequisite responses without raw fields", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let credentialReads = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/credentials") && !init?.method) {
+        credentialReads += 1;
+        if (credentialReads === 2) {
+          return json({
+            credentials: [
+              credentialFixture({
+                id: "duplicate-preparation",
+                label: "raw-credential-field",
+              }),
+              credentialFixture({ id: "duplicate-preparation" }),
+            ],
+          });
+        }
+      }
+      if (url.endsWith("/api/sources/upload-policy") && !init?.method) {
+        return json({
+          local_upload_enabled: true,
+          max_upload_bytes: "raw-policy-field",
+          supported_mime_prefixes: ["audio/"],
+          supported_mime_types: [],
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
+    expect(
+      await screen.findByRole("button", {
+        name: "Повторить загрузку подключения ElevenLabs",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Не удалось загрузить правила локальной загрузки/),
+    ).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("raw-credential-field");
+    expect(document.body.textContent).not.toContain("raw-policy-field");
+    const row = await screen.findByLabelText("Источник строки 1");
+    expect(
+      within(row).getByLabelText(
+        "Выбрать файлы с устройства для строки 1",
+      ),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: /Проверить задачи/ }),
+    ).toBeDisabled();
+  });
+
+  it("aborts and ignores late Preparation prerequisites across project remounts", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let credentialReads = 0;
+    let policyReads = 0;
+    let olderCredentialSignal: AbortSignal | undefined;
+    let olderPolicySignal: AbortSignal | undefined;
+    let resolveOlderCredentials: ((response: Response) => void) | undefined;
+    let resolveOlderPolicy: ((response: Response) => void) | undefined;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/projects") && !init?.method) {
+        return json({
+          projects: [
+            projectFixture({
+              id: "p1",
+              title: "Research calls",
+              created_at: "2026-07-01T00:00:00Z",
+              updated_at: "2026-07-01T00:00:00Z",
+            }),
+            projectFixture({
+              id: "p2",
+              title: "Project Two",
+              created_at: "2026-07-02T00:00:00Z",
+              updated_at: "2026-07-02T00:00:00Z",
+            }),
+          ],
+        });
+      }
+      if (
+        (url.endsWith("/api/projects/p2/sources") ||
+          url.endsWith("/api/projects/p2/jobs")) &&
+        !init?.method
+      ) {
+        return json(url.endsWith("/sources") ? { sources: [] } : { jobs: [] });
+      }
+      if (url.endsWith("/api/credentials") && !init?.method) {
+        credentialReads += 1;
+        if (credentialReads === 2) {
+          olderCredentialSignal = init.signal;
+          return new Promise<Response>((resolve) => {
+            resolveOlderCredentials = resolve;
+          });
+        }
+        if (credentialReads > 2) {
+          return json({
+            credentials: [
+              credentialFixture({
+                id: `current-${credentialReads}`,
+                label: `Current ${credentialReads}`,
+              }),
+            ],
+          });
+        }
+      }
+      if (url.endsWith("/api/sources/upload-policy") && !init?.method) {
+        policyReads += 1;
+        if (policyReads === 1) {
+          olderPolicySignal = init.signal;
+          return new Promise<Response>((resolve) => {
+            resolveOlderPolicy = resolve;
+          });
+        }
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
+    await waitFor(() => expect(resolveOlderCredentials).toBeDefined());
+    await waitFor(() => expect(resolveOlderPolicy).toBeDefined());
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Project Two .*02\.07\.2026/ }),
+    );
+    expect(olderCredentialSignal?.aborted).toBe(true);
+    expect(olderPolicySignal?.aborted).toBe(true);
+    expect(await screen.findByText("Подключён и готов")).toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Research calls .*01\.07\.2026/ }),
+    );
+    expect(await screen.findByText("Подключён и готов")).toBeInTheDocument();
+    const row = await screen.findByLabelText("Источник строки 1");
+    await waitFor(() =>
+      expect(
+        within(row).getByLabelText(
+          "Выбрать файлы с устройства для строки 1",
+        ),
+      ).toBeEnabled(),
+    );
+
+    const credentialReadsBeforeLate = credentialReads;
+    const policyReadsBeforeLate = policyReads;
+    await act(async () => {
+      resolveOlderCredentials?.(
+        await json({
+          credentials: [
+            credentialFixture({ id: "old-1", label: "Late old profile one" }),
+            credentialFixture({ id: "old-2", label: "Late old profile two" }),
+          ],
+        }),
+      );
+      resolveOlderPolicy?.(
+        await json({
+          local_upload_enabled: false,
+          max_upload_bytes: 1,
+          supported_mime_prefixes: ["audio/"],
+          supported_mime_types: [],
+        }),
+      );
+    });
+
+    expect(screen.queryByText("Late old profile one")).not.toBeInTheDocument();
+    expect(screen.queryByText("Late old profile two")).not.toBeInTheDocument();
+    expect(
+      within(row).getByLabelText(
+        "Выбрать файлы с устройства для строки 1",
+      ),
+    ).toBeEnabled();
+    expect(credentialReadsBeforeLate).toBeGreaterThanOrEqual(4);
+    expect(policyReadsBeforeLate).toBeGreaterThanOrEqual(3);
+    expect(credentialReads).toBe(credentialReadsBeforeLate);
+    expect(policyReads).toBe(policyReadsBeforeLate);
   });
 
   it("uses the server upload-size policy before initiating a local upload", async () => {

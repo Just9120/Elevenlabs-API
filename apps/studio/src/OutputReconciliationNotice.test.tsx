@@ -59,6 +59,9 @@ describe("OutputReconciliationNotice", () => {
     expect(
       screen.getByRole("button", { name: "Проверяем Google Drive…" }),
     ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Проверяем Google Drive…" }),
+    ).toHaveAttribute("aria-busy", "true");
     expect(screen.getByRole("status")).toHaveTextContent(
       "Проверка завершена: 1",
     );
