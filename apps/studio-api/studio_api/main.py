@@ -1821,9 +1821,31 @@ def delete_google_connection(pair=Depends(require_csrf), db: Session=Depends(get
     _,user=pair; limiter.check("google:disconnect:"+user.id, 20, 3600)
     conn=current_google_connection(db, user)
     if not conn: return google_connection_payload(None)
-    now=utcnow(); conn.status=GoogleConnectionStatus.revoked; conn.refresh_token_ciphertext=None; conn.refresh_token_nonce=None; conn.key_id=None; conn.revoked_at=now; conn.maintenance_refresh_token_ciphertext=None; conn.maintenance_refresh_token_nonce=None; conn.maintenance_key_id=None; conn.maintenance_revoked_at=now; conn.updated_at=now
-    audit(db,"google.disconnected",actor_user_id=user.id,subject_user_id=user.id); db.commit(); return google_connection_payload(conn)
-
+    already_disconnected = (
+        conn.status == GoogleConnectionStatus.revoked
+        and conn.refresh_token_ciphertext is None
+        and conn.refresh_token_nonce is None
+        and conn.key_id is None
+        and conn.maintenance_refresh_token_ciphertext is None
+        and conn.maintenance_refresh_token_nonce is None
+        and conn.maintenance_key_id is None
+    )
+    if already_disconnected:
+        return google_connection_payload(conn)
+    now=utcnow()
+    conn.status=GoogleConnectionStatus.revoked
+    conn.refresh_token_ciphertext=None
+    conn.refresh_token_nonce=None
+    conn.key_id=None
+    conn.revoked_at=now
+    conn.maintenance_refresh_token_ciphertext=None
+    conn.maintenance_refresh_token_nonce=None
+    conn.maintenance_key_id=None
+    conn.maintenance_revoked_at=now
+    conn.updated_at=now
+    audit(db,"google.disconnected",actor_user_id=user.id,subject_user_id=user.id)
+    db.commit()
+    return google_connection_payload(conn)
 
 def google_drive_metadata_payload(meta):
     return {"id": meta.id, "name": meta.name, "mime_type": meta.mime_type, "size_bytes": meta.size_bytes, "web_view_link": meta.web_view_link, "created_time": meta.created_time, "modified_time": meta.modified_time, "is_folder": meta.is_folder}

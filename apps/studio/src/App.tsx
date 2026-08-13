@@ -339,17 +339,116 @@ type UploadInit = {
 };
 type GoogleConnection = {
   connected: boolean;
-  status: string | null;
+  status: "active" | "revoked" | "error" | null;
   google_email: string | null;
   scopes: string | null;
   connected_at: string | null;
   revoked_at: string | null;
-  picker_ready?: boolean;
-  picker_configured?: boolean;
-  picker_scope_ready?: boolean;
-  reconnect_required?: boolean;
+  picker_ready: boolean;
+  picker_configured: boolean;
+  picker_scope_ready: boolean;
+  reconnect_required: boolean;
 };
 type GoogleOauthStart = { authorization_url: string; expires_at: string };
+function isExpectedGoogleConnection(
+  candidate: unknown,
+): candidate is GoogleConnection {
+  if (!candidate || typeof candidate !== "object") return false;
+  const connection = candidate as Partial<GoogleConnection>;
+  const nullableDate = (value: unknown) =>
+    value === null ||
+    (typeof value === "string" && Number.isFinite(Date.parse(value)));
+  const nullableString = (value: unknown, maxLength: number) =>
+    value === null ||
+    (typeof value === "string" && value.length > 0 && value.length <= maxLength);
+  const statusIsExpected =
+    connection.status === null ||
+    connection.status === "active" ||
+    connection.status === "revoked" ||
+    connection.status === "error";
+  if (
+    typeof connection.connected !== "boolean" ||
+    !statusIsExpected ||
+    !nullableString(connection.google_email, 320) ||
+    !nullableString(connection.scopes, 4096) ||
+    !nullableDate(connection.connected_at) ||
+    !nullableDate(connection.revoked_at) ||
+    typeof connection.picker_ready !== "boolean" ||
+    typeof connection.picker_configured !== "boolean" ||
+    typeof connection.picker_scope_ready !== "boolean" ||
+    typeof connection.reconnect_required !== "boolean"
+  ) {
+    return false;
+  }
+  return (
+    connection.connected === (connection.status === "active") &&
+    (!connection.picker_scope_ready || connection.connected) &&
+    connection.picker_ready ===
+      (connection.picker_configured && connection.picker_scope_ready) &&
+    connection.reconnect_required ===
+      (connection.connected && !connection.picker_scope_ready) &&
+    (connection.status !== null ||
+      (connection.google_email === null &&
+        connection.scopes === null &&
+        connection.connected_at === null &&
+        connection.revoked_at === null))
+  );
+}
+function isExpectedGoogleOauthStart(
+  candidate: unknown,
+): candidate is GoogleOauthStart {
+  if (!candidate || typeof candidate !== "object") return false;
+  const response = candidate as Partial<GoogleOauthStart>;
+  if (
+    typeof response.authorization_url !== "string" ||
+    response.authorization_url.length > 8192 ||
+    typeof response.expires_at !== "string" ||
+    !Number.isFinite(Date.parse(response.expires_at))
+  ) {
+    return false;
+  }
+  try {
+    const url = new URL(response.authorization_url);
+    const allowedParameters = new Set([
+      "client_id",
+      "redirect_uri",
+      "response_type",
+      "scope",
+      "state",
+      "access_type",
+      "prompt",
+    ]);
+    if (
+      url.origin !== "https://accounts.google.com" ||
+      url.pathname !== "/o/oauth2/v2/auth" ||
+      url.username ||
+      url.password ||
+      url.hash ||
+      [...url.searchParams.keys()].some((key) => !allowedParameters.has(key)) ||
+      [...allowedParameters].some(
+        (key) => url.searchParams.getAll(key).length !== 1,
+      ) ||
+      url.searchParams.get("response_type") !== "code" ||
+      url.searchParams.get("access_type") !== "offline" ||
+      url.searchParams.get("prompt") !== "consent" ||
+      !url.searchParams.get("client_id") ||
+      !url.searchParams.get("redirect_uri") ||
+      !url.searchParams.get("state")
+    ) {
+      return false;
+    }
+    const scopes = url.searchParams.get("scope")?.split(" ") ?? [];
+    return (
+      scopes.length === 3 &&
+      new Set(scopes).size === scopes.length &&
+      scopes.includes("openid") &&
+      scopes.includes("email") &&
+      scopes.includes("https://www.googleapis.com/auth/drive.file")
+    );
+  } catch {
+    return false;
+  }
+}
 type SessionBootstrapСтатус =
   | "checking"
   | "authenticated"
@@ -566,6 +665,8 @@ const CREDENTIAL_COLLECTION_REQUEST_TIMEOUT_MS = 15_000;
 const CREDENTIAL_MUTATION_REQUEST_TIMEOUT_MS = 20_000;
 const ACCOUNT_PREFERENCES_REQUEST_TIMEOUT_MS = 15_000;
 const ACCOUNT_PREFERENCES_MUTATION_TIMEOUT_MS = 20_000;
+const GOOGLE_CONNECTION_REQUEST_TIMEOUT_MS = 15_000;
+const GOOGLE_CONNECTION_MUTATION_TIMEOUT_MS = 20_000;
 async function bootstrapSession(): Promise<{
   user: User;
   csrf: string;
@@ -595,6 +696,20 @@ async function readAccountPreferencesBounded(): Promise<AccountPreferences | nul
     );
     return result.status === "completed" &&
       isExpectedAccountPreferences(result.value)
+      ? result.value
+      : null;
+  } catch {
+    return null;
+  }
+}
+async function readGoogleConnectionBounded(): Promise<GoogleConnection | null> {
+  try {
+    const result = await runBoundedRequest(
+      (signal) => api<unknown>("/google/connection", { signal }),
+      GOOGLE_CONNECTION_REQUEST_TIMEOUT_MS,
+    );
+    return result.status === "completed" &&
+      isExpectedGoogleConnection(result.value)
       ? result.value
       : null;
   } catch {
@@ -668,6 +783,17 @@ type RetentionMutationNotice = {
   tone: "notice" | "error";
   refreshOnMount: boolean;
 };
+type GoogleConnectionMutationKind = "oauth-start" | "disconnect";
+type GoogleConnectionMutationOperation = {
+  kind: GoogleConnectionMutationKind;
+  generation: number;
+};
+type GoogleConnectionMutationNotice = {
+  kind: GoogleConnectionMutationKind;
+  message: string;
+  tone: "notice" | "error";
+  refreshOnMount: boolean;
+};
 function credentialMutationKey(
   operation: Pick<CredentialMutationOperation, "credentialId">,
 ) {
@@ -690,6 +816,12 @@ function isAmbiguousCredentialMutationFailure(error: unknown) {
   );
 }
 function isAmbiguousRetentionMutationFailure(error: unknown) {
+  return (
+    error instanceof TypeError ||
+    (error instanceof ApiError && (error.status === 408 || error.status >= 500))
+  );
+}
+function isAmbiguousGoogleConnectionMutationFailure(error: unknown) {
   return (
     error instanceof TypeError ||
     (error instanceof ApiError && (error.status === 408 || error.status >= 500))
@@ -4933,6 +5065,12 @@ function SettingsPage({
   beginRetentionMutation,
   finishRetentionMutation,
   acknowledgeRetentionMutationRefresh,
+  googleConnectionMutation,
+  googleConnectionMutationNotice,
+  beginGoogleConnectionMutation,
+  finishGoogleConnectionMutation,
+  isGoogleConnectionMutationActive,
+  acknowledgeGoogleConnectionMutationRefresh,
   section,
   onSectionChange,
 }: {
@@ -4960,6 +5098,19 @@ function SettingsPage({
     notice?: RetentionMutationNotice,
   ) => void;
   acknowledgeRetentionMutationRefresh: () => void;
+  googleConnectionMutation: GoogleConnectionMutationOperation | null;
+  googleConnectionMutationNotice: GoogleConnectionMutationNotice | null;
+  beginGoogleConnectionMutation: (
+    kind: GoogleConnectionMutationKind,
+  ) => GoogleConnectionMutationOperation | null;
+  finishGoogleConnectionMutation: (
+    operation: GoogleConnectionMutationOperation,
+    notice?: GoogleConnectionMutationNotice,
+  ) => void;
+  isGoogleConnectionMutationActive: (
+    operation: GoogleConnectionMutationOperation,
+  ) => boolean;
+  acknowledgeGoogleConnectionMutationRefresh: () => void;
   section: SettingsSection;
   onSectionChange: (section: SettingsSection) => void;
 }) {
@@ -4976,7 +5127,8 @@ function SettingsPage({
     useState<GoogleConnection | null>(null);
   const [googleLoading, setGoogleLoading] = useState(true);
   const [googleMessage, setGoogleMessage] = useState("");
-  const [googleStarting, setGoogleStarting] = useState(false);
+  const googleRequestEpochsRef = useRef(new Map<string, number>());
+  const googleRequestControllersRef = useRef(new Map<string, AbortController>());
   const [accountPreferences, setAccountPreferences] =
     useState<AccountPreferences | null>(null);
   const retentionRequestEpochsRef = useRef(new Map<string, number>());
@@ -4994,17 +5146,53 @@ function SettingsPage({
   const [replacingCredentialId, setReplacingCredentialId] = useState<
     string | null
   >(null);
-  const loadGoogleConnection = () => {
-    setGoogleLoading(true);
-    setGoogleMessage("");
-    api<GoogleConnection>("/google/connection")
-      .then((r) => setGoogleConnection(r))
-      .catch(() => {
-        setGoogleConnection(null);
-        setGoogleMessage("Google Drive сейчас недоступен.");
-      })
-      .finally(() => setGoogleLoading(false));
+  const loadGoogleConnection = async ({ reportFailure = true } = {}): Promise<
+    GoogleConnection | null
+  > => {
+    let observed: GoogleConnection | null = null;
+    const hadConnection = googleConnection !== null;
+    if (!hadConnection) setGoogleLoading(true);
+    if (reportFailure) setGoogleMessage("");
+    await settleLatestRequest(
+      googleRequestEpochsRef.current,
+      "settings:google-connection",
+      async (signal) => {
+        const candidate = await api<unknown>("/google/connection", {
+          signal,
+          ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+        });
+        if (!isExpectedGoogleConnection(candidate)) {
+          throw new Error("invalid_google_connection_response");
+        }
+        return candidate;
+      },
+      (connection) => {
+        observed = connection;
+        setGoogleConnection(connection);
+        setGoogleLoading(false);
+        setGoogleMessage("");
+      },
+      () => {
+        setGoogleLoading(false);
+        if (reportFailure) {
+          setGoogleMessage(
+            hadConnection
+              ? "Не удалось обновить статус Google Drive. Последнее подтверждённое состояние сохранено."
+              : "Не удалось загрузить статус Google Drive. Повторите попытку.",
+          );
+        }
+      },
+      {
+        controllers: googleRequestControllersRef.current,
+        timeoutMs: GOOGLE_CONNECTION_REQUEST_TIMEOUT_MS,
+      },
+    );
+    return observed;
   };
+  const reconcileGoogleConnection = () =>
+    settingsMountedRef.current
+      ? loadGoogleConnection({ reportFailure: false })
+      : readGoogleConnectionBounded();
   const loadAccountPreferences = async ({ reportFailure = true } = {}): Promise<
     AccountPreferences | null
   > => {
@@ -5107,7 +5295,7 @@ function SettingsPage({
     settingsMountedRef.current = true;
     void loadCredentials();
     loadAuditEvents();
-    loadGoogleConnection();
+    void loadGoogleConnection();
     void loadAccountPreferences();
     return () => {
       settingsMountedRef.current = false;
@@ -5119,6 +5307,10 @@ function SettingsPage({
         retentionRequestEpochsRef.current,
         retentionRequestControllersRef.current,
       );
+      cancelLatestRequests(
+        googleRequestEpochsRef.current,
+        googleRequestControllersRef.current,
+      );
     };
   }, []);
   useEffect(() => {
@@ -5126,6 +5318,16 @@ function SettingsPage({
     acknowledgeRetentionMutationRefresh();
     void loadAccountPreferences({ reportFailure: false });
   }, [retentionMutation, retentionMutationNotice]);
+  useEffect(() => {
+    if (
+      googleConnectionMutation ||
+      !googleConnectionMutationNotice?.refreshOnMount
+    ) {
+      return;
+    }
+    acknowledgeGoogleConnectionMutationRefresh();
+    void loadGoogleConnection({ reportFailure: false });
+  }, [googleConnectionMutation, googleConnectionMutationNotice]);
   const safeMutate = <T,>(path: string, options: RequestInit) =>
     csrfMutate<T>(path, csrf, onCsrf, options);
   async function save(e: FormEvent<HTMLFormElement>) {
@@ -5500,34 +5702,126 @@ function SettingsPage({
     }
   };
   const connectGoogle = async () => {
-    if (googleStarting) return;
-    setGoogleStarting(true);
+    const operation = beginGoogleConnectionMutation("oauth-start");
+    if (!operation) return;
+    let notice: GoogleConnectionMutationNotice | undefined;
     setGoogleMessage("");
+    const reconcileAmbiguousStart = async () => {
+      if (!isGoogleConnectionMutationActive(operation)) return;
+      const observed = await reconcileGoogleConnection();
+      if (!isGoogleConnectionMutationActive(operation)) return;
+      notice = {
+        kind: operation.kind,
+        message: observed
+          ? "Сервер не подтвердил начало подключения. Статус Google Drive обновлён; не повторяйте запрос, пока не проверите состояние подключения."
+          : "Сервер не подтвердил начало подключения, а обновить статус Google Drive не удалось. Обновите страницу перед новой попыткой.",
+        tone: "error",
+        refreshOnMount: !settingsMountedRef.current,
+      };
+    };
     try {
-      const r = await safeMutate<GoogleOauthStart>("/google/oauth/start", {
-        method: "POST",
-      });
-      window.location.assign(r.authorization_url);
-    } catch {
-      setGoogleMessage(
-        "Не удалось начать подключение Google Drive. Попробуйте позже или проверьте настройки OAuth.",
+      const request = await runBoundedRequest(
+        (signal) =>
+          safeMutate<unknown>("/google/oauth/start", {
+            method: "POST",
+            signal,
+          }),
+        GOOGLE_CONNECTION_MUTATION_TIMEOUT_MS,
       );
-      setGoogleStarting(false);
+      if (
+        request.status === "timed_out" ||
+        !isExpectedGoogleOauthStart(request.value)
+      ) {
+        await reconcileAmbiguousStart();
+        return;
+      }
+      if (!isGoogleConnectionMutationActive(operation)) return;
+      window.location.assign(request.value.authorization_url);
+    } catch (error) {
+      if (isAmbiguousGoogleConnectionMutationFailure(error)) {
+        await reconcileAmbiguousStart();
+      } else {
+        notice = {
+          kind: operation.kind,
+          message:
+            "Не удалось начать подключение Google Drive. Попробуйте позже или проверьте настройки OAuth.",
+          tone: "error",
+          refreshOnMount: false,
+        };
+      }
+    } finally {
+      finishGoogleConnectionMutation(operation, notice);
+      if (settingsMountedRef.current) loadAuditEvents();
     }
   };
   const disconnectGoogle = async () => {
+    const operation = beginGoogleConnectionMutation("disconnect");
+    if (!operation) return;
+    let notice: GoogleConnectionMutationNotice | undefined;
     setGoogleMessage("");
+    const reconcileAmbiguousDisconnect = async () => {
+      if (!isGoogleConnectionMutationActive(operation)) return;
+      const observed = await reconcileGoogleConnection();
+      if (!isGoogleConnectionMutationActive(operation)) return;
+      const confirmed = Boolean(
+        observed &&
+          !observed.connected &&
+          (observed.status === "revoked" || observed.status === null),
+      );
+      notice = {
+        kind: operation.kind,
+        message: confirmed
+          ? "Отключение Google Drive подтверждено по актуальному состоянию."
+          : observed
+            ? "Сервер не подтвердил отключение. Показан актуальный статус; проверьте его перед повторной попыткой."
+            : "Сервер не подтвердил отключение, а обновить статус Google Drive не удалось. Обновите страницу перед повторной попыткой.",
+        tone: confirmed ? "notice" : "error",
+        refreshOnMount: !settingsMountedRef.current,
+      };
+    };
     try {
-      const r = await safeMutate<GoogleConnection>("/google/connection", {
-        method: "DELETE",
-      });
-      setGoogleConnection(r);
-    } catch {
-      setGoogleMessage("Не удалось отключить Google Drive. Попробуйте позже.");
+      const request = await runBoundedRequest(
+        (signal) =>
+          safeMutate<unknown>("/google/connection", {
+            method: "DELETE",
+            signal,
+          }),
+        GOOGLE_CONNECTION_MUTATION_TIMEOUT_MS,
+      );
+      if (
+        request.status === "timed_out" ||
+        !isExpectedGoogleConnection(request.value) ||
+        request.value.connected ||
+        (request.value.status !== "revoked" && request.value.status !== null)
+      ) {
+        await reconcileAmbiguousDisconnect();
+        return;
+      }
+      if (settingsMountedRef.current) setGoogleConnection(request.value);
+      notice = {
+        kind: operation.kind,
+        message: "Google Drive отключён.",
+        tone: "notice",
+        refreshOnMount: !settingsMountedRef.current,
+      };
+    } catch (error) {
+      if (isAmbiguousGoogleConnectionMutationFailure(error)) {
+        await reconcileAmbiguousDisconnect();
+      } else {
+        notice = {
+          kind: operation.kind,
+          message: "Не удалось отключить Google Drive. Обновите статус и повторите.",
+          tone: "error",
+          refreshOnMount: false,
+        };
+      }
+    } finally {
+      finishGoogleConnectionMutation(operation, notice);
+      if (settingsMountedRef.current) loadAuditEvents();
     }
   };
   const googleCanDisconnect = Boolean(
-    googleConnection?.connected || googleConnection?.status === "revoked",
+    googleConnection?.connected || googleConnection?.status === "error",
   );
   const oauthMessage =
     oauthResult === "connected"
@@ -5931,7 +6225,8 @@ function SettingsPage({
                   <button
                     className="primary"
                     type="button"
-                    disabled={googleStarting}
+                    disabled={googleConnectionMutation !== null}
+                    aria-busy={googleConnectionMutation !== null || undefined}
                     onClick={connectGoogle}
                   >
                     Переподключить Google Drive
@@ -5951,19 +6246,48 @@ function SettingsPage({
                 )}
                 <button
                   className="primary"
-                  disabled={googleStarting}
+                  disabled={googleConnectionMutation !== null}
+                  aria-busy={googleConnectionMutation !== null || undefined}
                   onClick={connectGoogle}
                 >
                   Подключить Google Drive
                 </button>
               </>
             ) : (
-              <p>Google Drive недоступен.</p>
+              <>
+                <p>Google Drive недоступен.</p>
+                <button
+                  type="button"
+                  disabled={googleConnectionMutation !== null}
+                  onClick={() => void loadGoogleConnection()}
+                >
+                  Повторить проверку Google Drive
+                </button>
+              </>
             )}
             {googleCanDisconnect && (
-              <button onClick={disconnectGoogle}>Отключить Google Drive</button>
+              <button
+                type="button"
+                disabled={googleConnectionMutation !== null}
+                aria-busy={googleConnectionMutation !== null || undefined}
+                onClick={disconnectGoogle}
+              >
+                Отключить Google Drive
+              </button>
             )}
             {googleMessage && <p className="error">{googleMessage}</p>}
+            {googleConnectionMutationNotice && (
+              <p
+                role={
+                  googleConnectionMutationNotice.tone === "error"
+                    ? "alert"
+                    : "status"
+                }
+                className={googleConnectionMutationNotice.tone}
+              >
+                {googleConnectionMutationNotice.message}
+              </p>
+            )}
           </article>
           <TranscriptCatalogMigrationPanel
             csrf={csrf}
@@ -6624,9 +6948,55 @@ function PlatformShell() {
     setRetentionMutation(null);
     setRetentionMutationNotice(null);
   };
+  const googleConnectionMutationGenerationRef = useRef(0);
+  const activeGoogleConnectionMutationRef =
+    useRef<GoogleConnectionMutationOperation | null>(null);
+  const [googleConnectionMutation, setGoogleConnectionMutation] =
+    useState<GoogleConnectionMutationOperation | null>(null);
+  const [googleConnectionMutationNotice, setGoogleConnectionMutationNotice] =
+    useState<GoogleConnectionMutationNotice | null>(null);
+  const beginGoogleConnectionMutation = (
+    kind: GoogleConnectionMutationKind,
+  ): GoogleConnectionMutationOperation | null => {
+    if (activeGoogleConnectionMutationRef.current) return null;
+    const operation = {
+      kind,
+      generation: googleConnectionMutationGenerationRef.current,
+    };
+    activeGoogleConnectionMutationRef.current = operation;
+    setGoogleConnectionMutation(operation);
+    setGoogleConnectionMutationNotice(null);
+    return operation;
+  };
+  const finishGoogleConnectionMutation = (
+    operation: GoogleConnectionMutationOperation,
+    notice?: GoogleConnectionMutationNotice,
+  ) => {
+    if (activeGoogleConnectionMutationRef.current !== operation) return;
+    activeGoogleConnectionMutationRef.current = null;
+    setGoogleConnectionMutation(null);
+    if (notice) setGoogleConnectionMutationNotice(notice);
+  };
+  const isGoogleConnectionMutationActive = (
+    operation: GoogleConnectionMutationOperation,
+  ) => activeGoogleConnectionMutationRef.current === operation;
+  const acknowledgeGoogleConnectionMutationRefresh = () => {
+    setGoogleConnectionMutationNotice((current) =>
+      current?.refreshOnMount
+        ? { ...current, refreshOnMount: false }
+        : current,
+    );
+  };
+  const clearGoogleConnectionMutationSession = () => {
+    googleConnectionMutationGenerationRef.current += 1;
+    activeGoogleConnectionMutationRef.current = null;
+    setGoogleConnectionMutation(null);
+    setGoogleConnectionMutationNotice(null);
+  };
   const clearSettingsMutationSession = () => {
     clearCredentialMutationSession();
     clearRetentionMutationSession();
+    clearGoogleConnectionMutationSession();
   };
   const navigate = (
     nextPage: Page,
@@ -6825,6 +7195,14 @@ function PlatformShell() {
             finishRetentionMutation={finishRetentionMutation}
             acknowledgeRetentionMutationRefresh={
               acknowledgeRetentionMutationRefresh
+            }
+            googleConnectionMutation={googleConnectionMutation}
+            googleConnectionMutationNotice={googleConnectionMutationNotice}
+            beginGoogleConnectionMutation={beginGoogleConnectionMutation}
+            finishGoogleConnectionMutation={finishGoogleConnectionMutation}
+            isGoogleConnectionMutationActive={isGoogleConnectionMutationActive}
+            acknowledgeGoogleConnectionMutationRefresh={
+              acknowledgeGoogleConnectionMutationRefresh
             }
             section={settingsSection}
             onSectionChange={(section) => navigate("settings", section)}

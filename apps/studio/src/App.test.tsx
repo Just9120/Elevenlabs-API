@@ -34,6 +34,29 @@ const json = (body: unknown, ok = true, status = 200) =>
           : new Blob([JSON.stringify(body)], { type: "application/json" }),
       ),
   } as Response);
+function googleConnectionFixture(overrides: Record<string, unknown> = {}) {
+  return {
+    connected: false,
+    status: null,
+    google_email: null,
+    scopes: null,
+    connected_at: null,
+    revoked_at: null,
+    picker_configured: false,
+    picker_scope_ready: false,
+    picker_ready: false,
+    reconnect_required: false,
+    ...overrides,
+  };
+}
+function googleOauthStartFixture(overrides: Record<string, unknown> = {}) {
+  return {
+    authorization_url:
+      "https://accounts.google.com/o/oauth2/v2/auth?client_id=test-client.apps.googleusercontent.com&redirect_uri=https%3A%2F%2Fstudio.test%2Fapi%2Fgoogle%2Foauth%2Fcallback&response_type=code&scope=openid+email+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.file&state=secret-state&access_type=offline&prompt=consent",
+    expires_at: "2026-08-13T12:00:00Z",
+    ...overrides,
+  };
+}
 function batchPreflightJson(init?: RequestInit) {
   const request = JSON.parse(String(init?.body ?? "{}")) as {
     language?: "ru" | "detect";
@@ -1074,14 +1097,15 @@ describe("Studio PWA", () => {
         )
           return json(new Blob(["# Safe report"], { type: "text/markdown" }));
         if (url.endsWith("/api/google/connection") && init?.method === "DELETE")
-          return json({
-            connected: false,
-            status: "revoked",
-            google_email: "safe.user@example.com",
-            scopes: "https://www.googleapis.com/auth/drive.file",
-            connected_at: "2026-07-01T00:00:00",
-            revoked_at: "2026-07-02T00:00:00",
-          });
+          return json(
+            googleConnectionFixture({
+              status: "revoked",
+              google_email: "safe.user@example.com",
+              scopes: "https://www.googleapis.com/auth/drive.file",
+              connected_at: "2026-07-01T00:00:00",
+              revoked_at: "2026-07-02T00:00:00",
+            }),
+          );
         if (url.endsWith("/api/google/maintenance/connection"))
           return json({
             connected: true,
@@ -1111,11 +1135,7 @@ describe("Studio PWA", () => {
             reconnect_required: false,
           });
         if (url.endsWith("/api/google/oauth/start") && init?.method === "POST")
-          return json({
-            authorization_url:
-              "https://accounts.google.com/o/oauth2/v2/auth?state=secret-state",
-            expires_at: null,
-          });
+          return json(googleOauthStartFixture());
         if (
           url.endsWith("/api/projects/p1/jobs/batch") &&
           init?.method === "POST"
@@ -2785,18 +2805,7 @@ describe("Studio PWA", () => {
     const defaultFetch = baseFetch.getMockImplementation();
     baseFetch.mockImplementation((url: string, init?: RequestInit) => {
       if (url.endsWith("/api/google/connection"))
-        return json({
-          connected: false,
-          status: "disconnected",
-          google_email: null,
-          scopes: null,
-          connected_at: null,
-          revoked_at: null,
-          picker_configured: false,
-          picker_scope_ready: false,
-          picker_ready: false,
-          reconnect_required: false,
-        });
+        return json(googleConnectionFixture());
       return defaultFetch?.(url, init) ?? json({ ok: true });
     });
     renderApp();
@@ -2843,15 +2852,19 @@ describe("Studio PWA", () => {
           });
         if (url.endsWith("/api/audit-events")) return json({ events: [] });
         if (url.endsWith("/api/google/connection"))
-          return json({
-            connected: true,
-            status: "active",
-            google_email: "safe.user@example.com",
-            scopes: "https://www.googleapis.com/auth/drive.file",
-            connected_at: "2026-07-01T00:00:00",
-            revoked_at: null,
-            refresh_token: "raw-refresh-token-never-render",
-          });
+          return json(
+            googleConnectionFixture({
+              connected: true,
+              status: "active",
+              google_email: "safe.user@example.com",
+              scopes: "https://www.googleapis.com/auth/drive.file",
+              connected_at: "2026-07-01T00:00:00",
+              picker_configured: true,
+              picker_scope_ready: true,
+              picker_ready: true,
+              refresh_token: "raw-refresh-token-never-render",
+            }),
+          );
         return json({ ok: true });
       },
     );
@@ -2882,18 +2895,7 @@ describe("Studio PWA", () => {
     const defaultFetch = baseFetch.getMockImplementation();
     baseFetch.mockImplementation((url: string, init?: RequestInit) => {
       if (url.endsWith("/api/google/connection"))
-        return json({
-          connected: false,
-          status: "disconnected",
-          google_email: null,
-          scopes: null,
-          connected_at: null,
-          revoked_at: null,
-          picker_configured: false,
-          picker_scope_ready: false,
-          picker_ready: false,
-          reconnect_required: false,
-        });
+        return json(googleConnectionFixture());
       return defaultFetch?.(url, init) ?? json({ ok: true });
     });
     const assign = vi.fn();
@@ -2919,7 +2921,7 @@ describe("Studio PWA", () => {
       "x-csrf-token": "csrf-after-refresh",
     });
     expect(assign).toHaveBeenCalledWith(
-      "https://accounts.google.com/o/oauth2/v2/auth?state=secret-state",
+      String(googleOauthStartFixture().authorization_url),
     );
     expect(document.body).not.toHaveTextContent("secret-state");
     expect(window.localStorage.length).toBe(0);
@@ -2979,23 +2981,28 @@ describe("Studio PWA", () => {
         )
           return json(new Blob(["# Safe report"], { type: "text/markdown" }));
         if (url.endsWith("/api/google/connection") && init?.method === "DELETE")
-          return json({
-            connected: false,
-            status: "revoked",
-            google_email: "safe.user@example.com",
-            scopes: "https://www.googleapis.com/auth/drive.file",
-            connected_at: "2026-07-01T00:00:00",
-            revoked_at: "2026-07-02T00:00:00",
-          });
+          return json(
+            googleConnectionFixture({
+              status: "revoked",
+              google_email: "safe.user@example.com",
+              scopes: "https://www.googleapis.com/auth/drive.file",
+              connected_at: "2026-07-01T00:00:00",
+              revoked_at: "2026-07-02T00:00:00",
+            }),
+          );
         if (url.endsWith("/api/google/connection"))
-          return json({
-            connected: true,
-            status: "active",
-            google_email: "safe.user@example.com",
-            scopes: "https://www.googleapis.com/auth/drive.file",
-            connected_at: "2026-07-01T00:00:00",
-            revoked_at: null,
-          });
+          return json(
+            googleConnectionFixture({
+              connected: true,
+              status: "active",
+              google_email: "safe.user@example.com",
+              scopes: "https://www.googleapis.com/auth/drive.file",
+              connected_at: "2026-07-01T00:00:00",
+              picker_configured: true,
+              picker_scope_ready: true,
+              picker_ready: true,
+            }),
+          );
         return json({ ok: true });
       },
     );
@@ -3022,6 +3029,354 @@ describe("Studio PWA", () => {
     expect(await screen.findByText(/Статус: revoked/)).toBeInTheDocument();
   });
 
+  it("bounds stalled Google connection reads and exposes an explicit retry", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const connectionSignals: AbortSignal[] = [];
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/google/connection" && !init?.method) {
+        const signal = init.signal;
+        if (!signal) throw new Error("Google connection signal is missing");
+        connectionSignals.push(signal);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 15_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      renderApp();
+      await openSettingsPage();
+      expect(
+        await screen.findByText(
+          "Не удалось загрузить статус Google Drive. Повторите попытку.",
+        ),
+      ).toBeInTheDocument();
+      expect(connectionSignals).toHaveLength(1);
+      expect(connectionSignals[0]?.aborted).toBe(true);
+      const retry = screen.getByRole("button", {
+        name: "Повторить проверку Google Drive",
+      });
+      await userEvent.click(retry);
+      await waitFor(() => expect(connectionSignals).toHaveLength(2));
+      await waitFor(() => expect(connectionSignals[1]?.aborted).toBe(true));
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("rejects malformed Google connection state without rendering raw fields", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) =>
+      url === "/api/google/connection" && !init?.method
+        ? json(
+            googleConnectionFixture({
+              connected: true,
+              status: null,
+              raw_refresh_token: "raw-google-connection-secret",
+            }),
+          )
+        : (defaultFetch?.(url, init) ?? json({ ok: true })),
+    );
+
+    renderApp();
+    await openSettingsPage();
+    expect(
+      await screen.findByText(
+        "Не удалось загрузить статус Google Drive. Повторите попытку.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Подключить Google Drive" }),
+    ).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toContain(
+      "raw-google-connection-secret",
+    );
+  });
+
+  it("bounds and deduplicates OAuth start without replay after ambiguity", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const mutationSignals: AbortSignal[] = [];
+    let connectionReads = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/google/connection" && !init?.method) {
+        connectionReads += 1;
+        return json(googleConnectionFixture());
+      }
+      if (url === "/api/google/oauth/start" && init?.method === "POST") {
+        const signal = init.signal;
+        if (!signal) throw new Error("Google OAuth start signal is missing");
+        mutationSignals.push(signal);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    const assign = vi.fn();
+    Object.defineProperty(window, "location", {
+      value: { ...window.location, assign },
+      writable: true,
+    });
+
+    renderApp();
+    await openSettingsPage();
+    const connect = await screen.findByRole("button", {
+      name: "Подключить Google Drive",
+    });
+    const readsBeforeMutation = connectionReads;
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(connect);
+      fireEvent.click(connect);
+      await act(async () => Promise.resolve());
+      expect(mutationSignals).toHaveLength(1);
+      expect(connect).toBeDisabled();
+      expect(connect).toHaveAttribute("aria-busy", "true");
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+      vi.useRealTimers();
+      expect(
+        await screen.findByText(
+          "Сервер не подтвердил начало подключения. Статус Google Drive обновлён; не повторяйте запрос, пока не проверите состояние подключения.",
+        ),
+      ).toBeInTheDocument();
+      expect(mutationSignals[0]?.aborted).toBe(true);
+      expect(connectionReads).toBe(readsBeforeMutation + 1);
+      expect(assign).not.toHaveBeenCalled();
+      expect(
+        baseFetch.mock.calls.filter(
+          ([url, init]) =>
+            url === "/api/google/oauth/start" && init?.method === "POST",
+        ),
+      ).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("rejects an untrusted OAuth URL and performs one safe reconciliation", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let connectionReads = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/google/connection" && !init?.method) {
+        connectionReads += 1;
+        return json(googleConnectionFixture());
+      }
+      if (url === "/api/google/oauth/start" && init?.method === "POST")
+        return json(
+          googleOauthStartFixture({
+            authorization_url:
+              "https://evil.example/oauth?state=raw-google-oauth-secret",
+          }),
+        );
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    const assign = vi.fn();
+    Object.defineProperty(window, "location", {
+      value: { ...window.location, assign },
+      writable: true,
+    });
+
+    renderApp();
+    await openSettingsPage();
+    const readsBeforeMutation = connectionReads;
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Подключить Google Drive" }),
+    );
+    expect(
+      await screen.findByText(
+        "Сервер не подтвердил начало подключения. Статус Google Drive обновлён; не повторяйте запрос, пока не проверите состояние подключения.",
+      ),
+    ).toBeInTheDocument();
+    expect(connectionReads).toBe(readsBeforeMutation + 1);
+    expect(assign).not.toHaveBeenCalled();
+    expect(document.body.textContent).not.toContain("raw-google-oauth-secret");
+  });
+
+  it("keeps disconnect ownership and outcome across a Settings remount", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let connectionReads = 0;
+    let serverDisconnected = false;
+    let resolveDelete: ((response: Response) => void) | undefined;
+    const activeConnection = () =>
+      googleConnectionFixture({
+        connected: true,
+        status: "active",
+        google_email: "safe.user@example.com",
+        scopes: "openid email https://www.googleapis.com/auth/drive.file",
+        connected_at: "2026-07-01T00:00:00Z",
+        picker_configured: true,
+        picker_scope_ready: true,
+        picker_ready: true,
+      });
+    const revokedConnection = () =>
+      googleConnectionFixture({
+        status: "revoked",
+        google_email: "safe.user@example.com",
+        scopes: "openid email https://www.googleapis.com/auth/drive.file",
+        connected_at: "2026-07-01T00:00:00Z",
+        revoked_at: "2026-08-13T12:00:00Z",
+      });
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/google/connection" && !init?.method) {
+        connectionReads += 1;
+        return json(serverDisconnected ? revokedConnection() : activeConnection());
+      }
+      if (url === "/api/google/connection" && init?.method === "DELETE")
+        return new Promise<Response>((resolve) => {
+          resolveDelete = resolve;
+        });
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openSettingsPage();
+    const disconnect = await screen.findByRole("button", {
+      name: "Отключить Google Drive",
+    });
+    fireEvent.click(disconnect);
+    fireEvent.click(disconnect);
+    await waitFor(() => expect(resolveDelete).toBeDefined());
+    await openProjectsPage();
+    await openSettingsPage();
+    expect(
+      await screen.findByRole("button", { name: "Отключить Google Drive" }),
+    ).toBeDisabled();
+
+    serverDisconnected = true;
+    const failedResponse = await json(
+      { detail: "raw-google-disconnect-failure" },
+      false,
+      503,
+    );
+    await act(async () => resolveDelete?.(failedResponse));
+    expect(
+      await screen.findByText(
+        "Отключение Google Drive подтверждено по актуальному состоянию.",
+      ),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("Google Drive не подключён")).toBeInTheDocument();
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          url === "/api/google/connection" && init?.method === "DELETE",
+      ),
+    ).toHaveLength(1);
+    expect(document.body.textContent).not.toContain(
+      "raw-google-disconnect-failure",
+    );
+
+    const readsBeforeFinalReopen = connectionReads;
+    await openProjectsPage();
+    await openSettingsPage();
+    await screen.findByText("Google Drive не подключён");
+    expect(connectionReads).toBe(readsBeforeFinalReopen + 1);
+  });
+
+  it("keeps the authoritative connected state after an ambiguous disconnect", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let connectionReads = 0;
+    const activeConnection = googleConnectionFixture({
+      connected: true,
+      status: "active",
+      google_email: "safe.user@example.com",
+      scopes: "openid email https://www.googleapis.com/auth/drive.file",
+      connected_at: "2026-07-01T00:00:00Z",
+      picker_configured: true,
+      picker_scope_ready: true,
+      picker_ready: true,
+    });
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/google/connection" && !init?.method) {
+        connectionReads += 1;
+        return json(activeConnection);
+      }
+      if (url === "/api/google/connection" && init?.method === "DELETE")
+        return json({ detail: "raw-google-still-connected" }, false, 503);
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openSettingsPage();
+    const readsBeforeMutation = connectionReads;
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Отключить Google Drive" }),
+    );
+    expect(
+      await screen.findByText(
+        "Сервер не подтвердил отключение. Показан актуальный статус; проверьте его перед повторной попыткой.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Google Drive подключён")).toBeInTheDocument();
+    expect(connectionReads).toBe(readsBeforeMutation + 1);
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          url === "/api/google/connection" && init?.method === "DELETE",
+      ),
+    ).toHaveLength(1);
+    expect(document.body.textContent).not.toContain(
+      "raw-google-still-connected",
+    );
+  });
+  it("invalidates a late OAuth start response after logout", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let resolveStart: ((response: Response) => void) | undefined;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/google/connection" && !init?.method)
+        return json(googleConnectionFixture());
+      if (url === "/api/google/oauth/start" && init?.method === "POST")
+        return new Promise<Response>((resolve) => {
+          resolveStart = resolve;
+        });
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    const assign = vi.fn();
+    Object.defineProperty(window, "location", {
+      value: { ...window.location, assign },
+      writable: true,
+    });
+
+    renderApp();
+    await openSettingsPage();
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Подключить Google Drive" }),
+    );
+    await waitFor(() => expect(resolveStart).toBeDefined());
+    await userEvent.click(screen.getByRole("button", { name: "Выйти" }));
+    expect(
+      await screen.findByRole("heading", { name: "Вход" }),
+    ).toBeInTheDocument();
+
+    const successfulResponse = await json(googleOauthStartFixture());
+    await act(async () => resolveStart?.(successfulResponse));
+    expect(assign).not.toHaveBeenCalled();
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          url === "/api/google/oauth/start" && init?.method === "POST",
+      ),
+    ).toHaveLength(1);
+    expect(document.body.textContent).not.toContain("secret-state");
+  });
   it("supports credential replacement without rendering raw key", async () => {
     renderApp();
     await openSettingsPage();
@@ -7578,11 +7933,7 @@ describe("Studio PWA", () => {
             reconnect_required: true,
           });
         if (url.endsWith("/api/google/oauth/start") && init?.method === "POST")
-          return json({
-            authorization_url:
-              "https://accounts.google.com/o/oauth2/v2/auth?state=safe",
-            expires_at: null,
-          });
+          return json(googleOauthStartFixture({}));
         return json({ credentials: [], events: [] });
       },
     );
@@ -7613,7 +7964,7 @@ describe("Studio PWA", () => {
       expect.objectContaining({ method: "POST" }),
     );
     expect(assign).toHaveBeenCalledWith(
-      "https://accounts.google.com/o/oauth2/v2/auth?state=safe",
+      String(googleOauthStartFixture().authorization_url),
     );
   });
 
@@ -9234,18 +9585,7 @@ describe("Studio PWA", () => {
         });
       if (url.endsWith("/api/audit-events")) return json({ events: [] });
       if (url.endsWith("/api/google/connection"))
-        return json({
-          connected: false,
-          status: "disconnected",
-          google_email: null,
-          scopes: null,
-          connected_at: null,
-          revoked_at: null,
-          picker_configured: false,
-          picker_scope_ready: false,
-          picker_ready: false,
-          reconnect_required: false,
-        });
+        return json(googleConnectionFixture());
       return json({ csrf_token: "csrf-after-refresh" });
     });
     renderApp();
@@ -9396,18 +9736,7 @@ describe("Studio PWA", () => {
     const defaultFetch = baseFetch.getMockImplementation();
     baseFetch.mockImplementation((url: string, init?: RequestInit) => {
       if (url.endsWith("/api/google/connection"))
-        return json({
-          connected: false,
-          status: "disconnected",
-          google_email: null,
-          scopes: null,
-          connected_at: null,
-          revoked_at: null,
-          picker_configured: false,
-          picker_scope_ready: false,
-          picker_ready: false,
-          reconnect_required: false,
-        });
+        return json(googleConnectionFixture());
       return defaultFetch?.(url, init) ?? json({ ok: true });
     });
     renderApp();
@@ -9432,7 +9761,9 @@ describe("Studio PWA", () => {
     });
     renderApp();
     expect(
-      await screen.findByText("Google Drive сейчас недоступен."),
+      await screen.findByText(
+        "Не удалось загрузить статус Google Drive. Повторите попытку.",
+      ),
     ).toBeInTheDocument();
     expect(
       screen.queryByText(

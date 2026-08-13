@@ -1672,6 +1672,10 @@ def test_google_oauth_callback_stores_encrypted_token_and_safe_metadata_disconne
     r = c.delete("/api/google/connection", headers={"origin": "https://studio.test", "x-csrf-token": csrf})
     assert r.status_code == 200
     assert r.json()["connected"] is False and r.json()["status"] == "revoked"
+    first_disconnected = r.json()
+    replay = c.delete("/api/google/connection", headers={"origin": "https://studio.test", "x-csrf-token": csrf})
+    assert replay.status_code == 200
+    assert replay.json() == first_disconnected
     db = SessionLocal()
     try:
         from studio_api.models import GoogleConnection
@@ -1680,6 +1684,10 @@ def test_google_oauth_callback_stores_encrypted_token_and_safe_metadata_disconne
         assert conn.maintenance_refresh_token_ciphertext is None
         assert conn.maintenance_refresh_token_nonce is None
         assert conn.maintenance_key_id is None
+        assert db.query(AuditEvent).filter_by(
+            event_type="google.disconnected",
+            actor_user_id=conn.user_id,
+        ).count() == 1
     finally:
         db.close()
 
