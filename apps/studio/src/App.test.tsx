@@ -3395,6 +3395,126 @@ describe("Studio PWA", () => {
     } as Response);
   });
 
+  it("bounds stalled batch preflight without creating jobs", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const requestSignals: AbortSignal[] = [];
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (isBatchPreflightRequest(url, init)) {
+        const signal = init?.signal;
+        if (!signal) throw new Error("batch preflight signal is missing");
+        requestSignals.push(signal);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+    await chooseExistingSource(1, "Лекция 1");
+    await chooseResultFolder(1);
+
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Проверить задачи (1)" }),
+      );
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(requestSignals).toHaveLength(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+
+      expect(requestSignals[0]?.aborted).toBe(true);
+      expect(
+        screen.getByText(
+          "Проверка плана заняла слишком много времени. Задачи не создавались; повторите проверку.",
+        ),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Проверить задачи (1)" }),
+      ).toBeEnabled();
+      expect(
+        baseFetch.mock.calls.some(
+          ([url, init]) =>
+            url === "/api/projects/p1/jobs/batch" &&
+            init?.method === "POST",
+        ),
+      ).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("bounds stalled batch creation without an automatic duplicate POST", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const requestSignals: AbortSignal[] = [];
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        url === "/api/projects/p1/jobs/batch" &&
+        init?.method === "POST"
+      ) {
+        const signal = init.signal;
+        if (!signal) throw new Error("batch create signal is missing");
+        requestSignals.push(signal);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+    await chooseExistingSource(1, "Лекция 1");
+    await chooseResultFolder(1);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Проверить задачи (1)" }),
+    );
+    await screen.findByLabelText("Проверка перед созданием задач");
+
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: "Подтвердить и создать (1)",
+        }),
+      );
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(requestSignals).toHaveLength(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+
+      expect(requestSignals[0]?.aborted).toBe(true);
+      expect(
+        screen.getByLabelText("Неопределённый исход создания пакета"),
+      ).toHaveTextContent("Новая отправка заблокирована");
+      expect(
+        screen.getByRole("button", {
+          name: "Повторить подтверждение пакета",
+        }),
+      ).toBeEnabled();
+      expect(
+        baseFetch.mock.calls.filter(
+          ([url, init]) =>
+            url === "/api/projects/p1/jobs/batch" &&
+            init?.method === "POST",
+        ),
+      ).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("creates, lists, details, and cancels project jobs safely with CSRF", async () => {
     const secretLike =
       "sk-live-raw-token refresh_token encrypted_ciphertext s3://secret-key https://upload.example/leak";
@@ -5162,7 +5282,8 @@ describe("Studio PWA", () => {
     expect(window.sessionStorage.length).toBe(0);
   });
 
-  it("isolates composer rows, messages, retry state, details, and outputs when switching projects", async () => {
+  it("isolates composer state and preserves ambiguous batch recovery across project switches", async () => {
+    let projectACreateCalls = 0;
     (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       (url: string, init?: RequestInit) => {
         if (url.endsWith("/api/auth/session"))
@@ -5367,8 +5488,17 @@ describe("Studio PWA", () => {
         if (
           url.endsWith("/api/projects/pA/jobs/batch") &&
           init?.method === "POST"
-        )
-          return Promise.reject(new Error("temporary batch outage"));
+        ) {
+          projectACreateCalls += 1;
+          if (projectACreateCalls === 1) {
+            return Promise.reject(new Error("temporary batch outage"));
+          }
+          return json({
+            jobs: [],
+            created_count: 1,
+            replayed: true,
+          });
+        }
         if (
           url.endsWith("/api/projects/pB/jobs/batch") &&
           init?.method === "POST"
@@ -5423,8 +5553,8 @@ describe("Studio PWA", () => {
     );
     await reviewAndConfirmBatch();
     expect(
-      await screen.findByText(/ключ повтора сохранены/),
-    ).toBeInTheDocument();
+      await screen.findByLabelText("Неопределённый исход создания пакета"),
+    ).toHaveTextContent("Новая отправка заблокирована");
 
     await userEvent.click(
       screen.getByRole("button", { name: /Project B .*02\.07\.2026/ }),
@@ -5436,7 +5566,7 @@ describe("Studio PWA", () => {
     ).not.toBeInTheDocument();
     expect(screen.queryByText("A default")).not.toBeInTheDocument();
     expect(
-      screen.queryByText(/ключ повтора сохранены/),
+      screen.queryByLabelText("Неопределённый исход создания пакета"),
     ).not.toBeInTheDocument();
     expect(screen.queryByText("A completed job")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Job detail job-a")).not.toBeInTheDocument();
@@ -5475,6 +5605,45 @@ describe("Studio PWA", () => {
         },
       ],
     });
+    const firstACreateCall = (
+      fetch as unknown as ReturnType<typeof vi.fn>
+    ).mock.calls.find(
+      ([url, init]) =>
+        url === "/api/projects/pA/jobs/batch" && init?.method === "POST",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /Project A .*01\.07\.2026/ }),
+    );
+    expect(
+      await screen.findByLabelText("Неопределённый исход создания пакета"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Проверить задачи (1)" }),
+    ).toBeDisabled();
+
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Повторить подтверждение пакета",
+      }),
+    );
+    expect(
+      await screen.findByText(
+        "Повтор подтверждён: создано независимых задач: 1.",
+      ),
+    ).toBeInTheDocument();
+    const aCreateCalls = (
+      fetch as unknown as ReturnType<typeof vi.fn>
+    ).mock.calls.filter(
+      ([url, init]) =>
+        url === "/api/projects/pA/jobs/batch" && init?.method === "POST",
+    );
+    expect(aCreateCalls).toHaveLength(2);
+    expect(aCreateCalls[1]?.[1]?.headers).toMatchObject({
+      "Idempotency-Key": (
+        firstACreateCall?.[1]?.headers as Record<string, string>
+      )["Idempotency-Key"],
+    });
+    expect(aCreateCalls[1]?.[1]?.body).toBe(firstACreateCall?.[1]?.body);
     expect(window.localStorage.length).toBe(0);
     expect(window.sessionStorage.length).toBe(0);
   });

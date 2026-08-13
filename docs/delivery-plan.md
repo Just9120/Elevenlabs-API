@@ -2,6 +2,7 @@
 
 ## Current dashboard
 
+- 👉 `PWA-BATCH-CREATE-RECOVERY-15 / local source` — batch preflight and create now stop waiting after 20 seconds; an ambiguous create remains owner-scoped across project switches and blocks a new key until the user explicitly replays the exact request body with the same `Idempotency-Key`. Local CODE/TEST gates pass; publication and CI are intentionally absent.
 - 👉 `PWA-JOB-MUTATION-TIMEOUT-14 / local source` — cancel, provider retry, output reconciliation, and terminal dismissal now stop waiting after 20 seconds, never retry a POST automatically, and perform one bounded authoritative GET before reporting a predefined confirmed or ambiguous outcome. Local CODE/TEST gates pass; publication and CI are intentionally absent.
 - 🟦 `PWA-JOB-MUTATION-OUTCOME-13 / local source` — safe cancel, retry, output-reconciliation, and terminal-dismiss outcomes now survive originating-panel remounts in owner-scoped browser memory; notices stay project-isolated, clear on explicit retry, and never render raw backend detail. Local CODE/TEST gates pass; publication and CI are intentionally absent.
 - 🟦 `PWA-JOB-MUTATION-OWNERSHIP-12 / local source` — cancel, retry, output-reconciliation, and terminal-dismiss in-flight ownership now survives project switches; restored controls remain pending and duplicate POSTs stay blocked until the original request settles. Local CODE/TEST gates pass; publication and CI are intentionally absent.
@@ -47,6 +48,7 @@
 | --- | ---: | --- |
 | Project, all current scope | **N/A (numerator/denominator are not defined)** | `project-spec.md` does not provide one closed, non-overlapping project-wide acceptance set; inventing a percentage would violate the agreed method. |
 | Stable Colab batch + Realtime | **100% (operator-accepted current scope)** | Four months of stable use cover both implemented Colab contours; this does not assert that no focused gaps remain. |
+| `PWA-BATCH-CREATE-RECOVERY-15` | **75% (`3/4`)** | Bounded preflight/create execution, persistent exact-key/body recovery without automatic POST replay, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
 | `PWA-JOB-MUTATION-TIMEOUT-14` | **75% (`3/4`)** | Bounded non-retrying POST execution, endpoint-specific authoritative timeout reconciliation, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
 | `PWA-JOB-MUTATION-OUTCOME-13` | **75% (`3/4`)** | Safe owner-scoped outcomes, remount/project isolation and explicit-retry clearing, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
 | `PWA-JOB-MUTATION-OWNERSHIP-12` | **75% (`3/4`)** | Persistent four-kind mutation ownership, project-switch duplicate prevention/unlock behavior, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
@@ -80,6 +82,21 @@ The denominators are explicit gates. Local code, a green workflow summary with s
 
 ## Active item
 
+`PWA-BATCH-CREATE-RECOVERY-15` acceptance checks:
+
+1. Repository evidence establishes the recovery authority: a complete exact replay is project/owner/key/request-hash scoped, returns the original ordered jobs with `replayed: true`, and is protected by the backend unique constraint/transaction. The ordinary jobs list is explicitly not treated as batch-membership evidence because its browser DTO omits the idempotency key and batch positions.
+2. Batch preflight and create stop waiting after 20 seconds with one shared abort signal across any CSRF refresh. A timed-out or transport-ambiguous create is never repeated automatically; its exact request body and `Idempotency-Key` remain in owner-scoped memory across A → B → A, block a new key, and require one explicit user replay.
+3. Regression tests prove one POST before timeout, abort at the deadline, no hidden second POST, project isolation, and byte-identical body/key on explicit replay. Complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
+4. Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+
+Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Check 4 is intentionally open under the current local-only instruction.
+
+Non-goals: no automatic POST replay, jobs-list inference, backend/API/schema/business-rule change, browser persistence of request bodies, provider or Google Drive call, deploy, or production mutation.
+
+## Previous local items
+
+### Bounded job mutations and authoritative timeout reconciliation
+
 `PWA-JOB-MUTATION-TIMEOUT-14` acceptance checks:
 
 1. Cancel, provider-cost retry, output reconciliation, and terminal dismissal stop waiting after 20 seconds. The same abort signal also bounds a CSRF refresh, and no timed-out mutation is ever repeated automatically.
@@ -91,7 +108,6 @@ Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `
 
 Non-goals: no automatic POST retry, backend idempotency/business-rule change, API/schema change, provider or Google Drive call in local tests, deploy, or production mutation.
 
-## Previous local items
 
 ### Safe job mutation outcomes across project switches
 
@@ -307,7 +323,7 @@ Checks 1–5 are merged and the exact-main web deployment is complete. The live 
 
 ## Next item
 
-Continue local PWA stability hardening with the idempotency-key-backed batch creation path: verify its backend replay/response contract and authoritative jobs-list reconciliation, then bound a stalled create without creating duplicate jobs or hiding a partially accepted batch. `PWA-STUDIO-EDGE-CD-01` remains an operational follow-up and does not pre-empt the current local-only PWA priority.
+Continue local PWA stability hardening with source lifecycle mutations: verify backend idempotency and authoritative recovery for source removal and local-upload completion, then bound the highest-risk stalled path without duplicating stored sources or hiding an accepted deletion. `PWA-STUDIO-EDGE-CD-01` remains an operational follow-up and does not pre-empt the current local-only PWA priority.
 
 ## Near backlog
 
@@ -328,6 +344,7 @@ Continue local PWA stability hardening with the idempotency-key-backed batch cre
 
 ## Validation notes
 
+- `PWA-BATCH-CREATE-RECOVERY-15` local evidence: backend route/model/tests verify owner/project/idempotency-key/request-hash replay, ordered complete-batch recovery, transaction rollback, and a unique `(owner_id, project_id, batch_idempotency_key, batch_position)` constraint. The ordinary jobs-list DTO omits batch identity, so no unsafe list inference was implemented. Preflight/create timeout regressions `2/2`, A → B → A exact-replay/isolation regression `1/1`, complete App suite `138/138`, full Studio Vitest `401/401`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. Preflight and create share a 20-second bound; a timed-out create issues exactly one POST, and explicit recovery reuses the exact body/key without browser storage. No backend/API/schema change, automatic POST replay, PR, CI, deploy, provider/Google call, or live evidence is claimed.
 - `PWA-JOB-MUTATION-TIMEOUT-14` local evidence: endpoint audit verified durable idempotency for cancel/dismiss, transactional queue authority for retry, and fail-closed Google reconciliation metadata. Bounded-request helper tests `5/5`, timeout integration regressions `4/4`, API client tests `7/7`, complete App suite `136/136`, full Studio Vitest `399/399`, TypeScript, full ESLint, Vite/PWA production build, and `git diff --check` passed. Each timeout produces exactly one POST followed by the endpoint-specific authoritative GET; provider-cost retry and Google Drive check are never automatically repeated, CSRF refresh shares the deadline signal, and confirmed/ambiguous text is predefined. Initial integration runs exposed two fixture-only assumptions: the test timer also accelerated existing 15-second detail reads, and terminal failed jobs preloaded readiness before explicit open. A distinct 20-second mutation deadline plus abort-driven fixture transition resolved both without weakening production assertions. No PR, CI, deploy, provider/Google call, or live evidence is claimed.
 - `PWA-JOB-MUTATION-OUTCOME-13` local evidence: existing same-act mutation regressions plus the expanded project-switch outcome regression `5/5`, complete App suite `132/132`, full Studio Vitest `389/389`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. A safe cancellation failure remains visible after remount, disappears on explicit retry, the later safe success is absent in project B and visible on return to project A, and raw backend detail remains absent. Retry/reconciliation current-panel inline feedback suppresses duplicate owner notices; all notice state remains owner-scoped in memory only. One intermediate focused run caught a mechanically malformed template-literal path before tests executed; all four paths were restored by function-bounded replacement and TypeScript plus all final gates pass. No mutation timeout, automatic retry, PR, CI, deploy, or live evidence is claimed.
 - `PWA-JOB-MUTATION-OWNERSHIP-12` local evidence: four existing same-act mutation dedup regressions `4/4`, project-switch ownership regression `1/1`, complete App suite `132/132`, full Studio Vitest `389/389`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. A pending cancellation remains disabled and `aria-busy` after A → B → A remount, a second POST is rejected synchronously, settlement releases the matching owner-scoped key for explicit retry, and raw backend failures remain absent from the DOM. The same persistent registry is wired to retry, reconciliation, and dismissal, whose existing same-act regressions remain green. No mutation timeout, automatic retry, PR, CI, deploy, or live evidence is claimed.

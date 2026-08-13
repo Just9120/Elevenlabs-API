@@ -85,6 +85,7 @@ import {
   newComposerRow,
   parseBatchPreflightResponse,
   parseSplitBoundary,
+  type BatchCreateRequest,
   type BatchCreateResponse,
   type BatchPreflightResponse,
   type ComposerRow,
@@ -444,6 +445,12 @@ type JobMutationNotice = {
   message: string;
   tone: "notice" | "error";
 };
+type BatchSubmission = {
+  signature: string;
+  key: string;
+  requestBody: BatchCreateRequest;
+  status: "pending" | "ambiguous";
+};
 function jobMutationKey(kind: JobMutationKind, jobId: string) {
   return `${kind}:${jobId}`;
 }
@@ -464,6 +471,11 @@ function PreparationPanel({
   jobMutationNotices,
   beginJobMutation,
   finishJobMutation,
+  batchSubmission,
+  beginBatchSubmission,
+  retryBatchSubmission,
+  markBatchSubmissionAmbiguous,
+  clearBatchSubmission,
 }: {
   project: Project;
   csrf: string;
@@ -485,6 +497,13 @@ function PreparationPanel({
     jobId: string,
     notice?: JobMutationNotice,
   ) => void;
+  batchSubmission: BatchSubmission | null;
+  beginBatchSubmission: (
+    submission: Omit<BatchSubmission, "status">,
+  ) => boolean;
+  retryBatchSubmission: (key: string) => boolean;
+  markBatchSubmissionAmbiguous: (key: string) => void;
+  clearBatchSubmission: (key: string) => void;
 }) {
   const [rows, setRows] = useState<ComposerRow[]>(() => [newComposerRow()]);
   const [selectedCredentialId, setSelectedCredentialId] = useState("");
@@ -507,10 +526,6 @@ function PreparationPanel({
     data: BatchPreflightResponse;
   } | null>(null);
   const [batchJobs, setBatchJobs] = useState<TranscriptionJob[]>([]);
-  const [pendingKey, setPendingKey] = useState<{
-    signature: string;
-    key: string;
-  } | null>(null);
   const [detail, setDetail] = useState<Record<string, JobDetailState>>({});
   const [outputs, setOutputs] = useState<Record<string, JobOutputsState>>({});
   const [reconciliations, setReconciliations] = useState<Record<string, OutputReconciliationState>>({});
@@ -567,7 +582,6 @@ function PreparationPanel({
     setRowIntakeStatus({});
     setRowIntakeErrors({});
     setBatchJobs([]);
-    setPendingKey(null);
     setPreflight(null);
     setMessage("");
     setProgress({});
@@ -698,11 +712,6 @@ function PreparationPanel({
     diarizationEnabled,
   );
   useEffect(() => {
-    setPendingKey((current) =>
-      current && current.signature !== signature ? null : current,
-    );
-  }, [signature]);
-  useEffect(() => {
     if (preflight && preflight.signature !== signature) {
       setPreflight(null);
       setMessage("");
@@ -814,7 +823,8 @@ function PreparationPanel({
           ? "Выберите профиль подключения ElevenLabs"
           : "Добавьте активный ключ ElevenLabs в настройках"
         : "";
-  const submitting = submissionStage !== null;
+  const submitting =
+    submissionStage !== null || batchSubmission?.status === "pending";
   const activePreflight =
     preflight?.signature === signature ? preflight.data : null;
   const expandedComposerItems = (() => {
@@ -838,8 +848,10 @@ function PreparationPanel({
     ? submissionStage === "preflight"
       ? "Проверяем план…"
       : "Создание задач…"
-    : credentialBlocker
-      ? credentialBlocker
+    : batchSubmission?.status === "ambiguous"
+      ? "Сначала подтвердите исход предыдущей отправки"
+      : credentialBlocker
+        ? credentialBlocker
       : rows.length === 0
         ? "Добавьте хотя бы одну строку"
         : firstReadinessBlocker
@@ -851,6 +863,7 @@ function PreparationPanel({
             : "";
   const canSubmit =
     !submitting &&
+    batchSubmission === null &&
     !credentialsLoading &&
     !credentialsError &&
     Boolean(selectedCredentialId) &&
@@ -1265,6 +1278,90 @@ function PreparationPanel({
       setPickerBusy(false);
     }
   }
+  async function performBatchCreation(
+    requestBody: BatchCreateRequest,
+    key: string,
+  ) {
+    try {
+      const result = await runBoundedRequest((signal) =>
+        batchMutateWithCsrfRetry<BatchCreateResponse>(
+          `/projects/${project.id}/jobs/batch`,
+          csrf,
+          onCsrf,
+          {
+            method: "POST",
+            headers: { "Idempotency-Key": key },
+            body: JSON.stringify(requestBody),
+            signal,
+          },
+        ),
+      );
+      if (result.status === "timed_out") {
+        markBatchSubmissionAmbiguous(key);
+        setMessage("");
+        return;
+      }
+      const response = result.value;
+      clearBatchSubmission(key);
+      setBatchJobs(response.jobs);
+      setRows([newComposerRow()]);
+      setPreflight(null);
+      setMessage(
+        response.replayed
+          ? `Повтор подтверждён: создано независимых задач: ${response.created_count}.`
+          : `Создано независимых задач: ${response.created_count}.`,
+      );
+      onReloadJobs(project.id);
+    } catch (err) {
+      const definitiveClientFailure =
+        err instanceof ApiError &&
+        err.status >= 400 &&
+        err.status < 500 &&
+        err.status !== 408;
+      if (definitiveClientFailure) clearBatchSubmission(key);
+      else markBatchSubmissionAmbiguous(key);
+      if (
+        err instanceof ApiError &&
+        err.status === 409 &&
+        apiErrorDetailReason(err) === "provider_authority_conflict"
+      ) {
+        setPreflight(null);
+        setMessage(
+          "Появилась активная или неразрешённая предыдущая транскрибация. Задачи не созданы; проверьте план заново после разрешения её статуса.",
+        );
+      } else if (err instanceof ApiError && err.status === 409) {
+        setPreflight(null);
+        setMessage(
+          "План изменился или появился существующий результат. Повторите проверку и примите явное решение; задачи не созданы.",
+        );
+      } else if (err instanceof ApiError && err.status === 422) {
+        setPreflight(null);
+        setMessage(
+          "Пакет не прошёл проверку. Строки сохранены — исправьте файлы или папки и отправьте снова.",
+        );
+      } else if (definitiveClientFailure) {
+        setMessage(
+          "Сервер отклонил создание пакета. Задачи не созданы; проверьте план и повторите отправку.",
+        );
+      } else {
+        setMessage("");
+      }
+    }
+  }
+  async function replayAmbiguousBatch() {
+    if (!batchSubmission || batchSubmission.status !== "ambiguous") return;
+    if (!retryBatchSubmission(batchSubmission.key)) return;
+    setMessage("");
+    setSubmissionStage("create");
+    try {
+      await performBatchCreation(
+        batchSubmission.requestBody,
+        batchSubmission.key,
+      );
+    } finally {
+      setSubmissionStage(null);
+    }
+  }
   async function createBatch(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setMessage("");
@@ -1300,16 +1397,28 @@ function PreparationPanel({
       diarizationEnabled,
     );
     const confirming = activePreflight !== null;
+    if (batchSubmission) {
+      setMessage("Сначала подтвердите исход предыдущей отправки пакета.");
+      return;
+    }
     setSubmissionStage(confirming ? "create" : "preflight");
     try {
       if (!confirming) {
-        const rawResponse = await batchMutateWithCsrfRetry<unknown>(
-          `/projects/${project.id}/jobs/batch/preflight`,
-          csrf,
-          onCsrf,
-          { method: "POST", body: JSON.stringify(requestBody) },
+        const result = await runBoundedRequest((signal) =>
+          batchMutateWithCsrfRetry<unknown>(
+            `/projects/${project.id}/jobs/batch/preflight`,
+            csrf,
+            onCsrf,
+            { method: "POST", body: JSON.stringify(requestBody), signal },
+          ),
         );
-        const response = parseBatchPreflightResponse(rawResponse);
+        if (result.status === "timed_out") {
+          setMessage(
+            "Проверка плана заняла слишком много времени. Задачи не создавались; повторите проверку.",
+          );
+          return;
+        }
+        const response = parseBatchPreflightResponse(result.value);
         if (
           !response ||
           response.items.length !== requestBody.items.length
@@ -1329,61 +1438,20 @@ function PreparationPanel({
         );
         return;
       }
-      const key =
-        pendingKey?.signature === signature
-          ? pendingKey.key
-          : makeIdempotencyKey();
-      setPendingKey({ signature, key });
-      const response = await batchMutateWithCsrfRetry<BatchCreateResponse>(
-        `/projects/${project.id}/jobs/batch`,
-        csrf,
-        onCsrf,
-        {
-          method: "POST",
-          headers: { "Idempotency-Key": key },
-          body: JSON.stringify(requestBody),
-        },
-      );
-      setBatchJobs(response.jobs);
-      setRows([newComposerRow()]);
-      setPendingKey(null);
-      setPreflight(null);
-      setMessage(
-        response.replayed
-          ? `Повтор подтверждён: создано независимых задач: ${response.created_count}.`
-          : `Создано независимых задач: ${response.created_count}.`,
-      );
-      onReloadJobs(project.id);
-    } catch (err) {
-      if (!confirming) {
+      const key = makeIdempotencyKey();
+      if (!beginBatchSubmission({ signature, key, requestBody })) {
         setMessage(
-          err instanceof ApiError && err.status === 422
-            ? "План не прошёл серверную проверку. Исправьте файлы, папки или профиль ElevenLabs."
-            : "Не удалось проверить план. Задачи не созданы; повторите проверку.",
+          "Отправка пакета уже выполняется или требует подтверждения исхода.",
         );
-      } else if (
-        err instanceof ApiError &&
-        err.status === 409 &&
-        apiErrorDetailReason(err) === "provider_authority_conflict"
-      ) {
-        setPendingKey(null);
-        setPreflight(null);
-        setMessage(
-          "Появилась активная или неразрешённая предыдущая транскрибация. Задачи не созданы; проверьте план заново после разрешения её статуса.",
-        );
-      } else if (err instanceof ApiError && err.status === 409) {
-        setMessage(
-          "План изменился или появился существующий результат. Повторите проверку и примите явное решение; задачи не созданы.",
-        );
-      } else if (err instanceof ApiError && err.status === 422) {
-        setMessage(
-          "Пакет не прошёл проверку. Строки сохранены — исправьте файлы или папки и отправьте снова.",
-        );
-      } else {
-        setMessage(
-          "Не удалось создать пакет задач. Строки и ключ повтора сохранены — можно повторить отправку без изменений.",
-        );
+        return;
       }
+      await performBatchCreation(requestBody, key);
+    } catch (err) {
+      setMessage(
+        err instanceof ApiError && err.status === 422
+          ? "План не прошёл серверную проверку. Исправьте файлы, папки или профиль ElevenLabs."
+          : "Не удалось проверить план. Задачи не созданы; повторите проверку.",
+      );
     } finally {
       setSubmissionStage(null);
     }
@@ -2728,6 +2796,25 @@ function PreparationPanel({
           {message}
         </p>
       )}
+      {batchSubmission?.status === "pending" && submissionStage === null && (
+        <p className="notice" role="status">
+          Подтверждение пакета выполняется. Дождитесь ответа перед новой отправкой.
+        </p>
+      )}
+      {batchSubmission?.status === "ambiguous" && (
+        <section
+          className="error"
+          aria-label="Неопределённый исход создания пакета"
+        >
+          <p>
+            Сервер не подтвердил исход отправки. Новая отправка заблокирована,
+            чтобы не создать дубликаты.
+          </p>
+          <button type="button" onClick={replayAmbiguousBatch}>
+            Повторить подтверждение пакета
+          </button>
+        </section>
+      )}
       {visibleJobMutationNotices.map((notice) => (
         <p
           key={jobMutationKey(notice.kind, notice.jobId)}
@@ -3028,6 +3115,54 @@ function ProjectsPage({
   const [jobMutationNotices, setJobMutationNotices] = useState<
     Record<string, JobMutationNotice>
   >({});
+  const batchSubmissionsRef = useRef(new Map<string, BatchSubmission>());
+  const [batchSubmissions, setBatchSubmissions] = useState<
+    Record<string, BatchSubmission>
+  >({});
+  const publishBatchSubmission = (
+    projectId: string,
+    submission: BatchSubmission | null,
+  ) => {
+    setBatchSubmissions((current) => {
+      const next = { ...current };
+      if (submission) next[projectId] = submission;
+      else delete next[projectId];
+      return next;
+    });
+  };
+  const beginBatchSubmission = (
+    projectId: string,
+    submission: Omit<BatchSubmission, "status">,
+  ) => {
+    if (batchSubmissionsRef.current.has(projectId)) return false;
+    const pending: BatchSubmission = { ...submission, status: "pending" };
+    batchSubmissionsRef.current.set(projectId, pending);
+    publishBatchSubmission(projectId, pending);
+    return true;
+  };
+  const retryBatchSubmission = (projectId: string, key: string) => {
+    const current = batchSubmissionsRef.current.get(projectId);
+    if (!current || current.key !== key || current.status !== "ambiguous") {
+      return false;
+    }
+    const pending: BatchSubmission = { ...current, status: "pending" };
+    batchSubmissionsRef.current.set(projectId, pending);
+    publishBatchSubmission(projectId, pending);
+    return true;
+  };
+  const markBatchSubmissionAmbiguous = (projectId: string, key: string) => {
+    const current = batchSubmissionsRef.current.get(projectId);
+    if (!current || current.key !== key) return;
+    const ambiguous: BatchSubmission = { ...current, status: "ambiguous" };
+    batchSubmissionsRef.current.set(projectId, ambiguous);
+    publishBatchSubmission(projectId, ambiguous);
+  };
+  const clearBatchSubmission = (projectId: string, key: string) => {
+    const current = batchSubmissionsRef.current.get(projectId);
+    if (!current || current.key !== key) return;
+    batchSubmissionsRef.current.delete(projectId);
+    publishBatchSubmission(projectId, null);
+  };
   const beginJobMutation = (kind: JobMutationKind, jobId: string) => {
     const key = jobMutationKey(kind, jobId);
     if (pendingJobMutationsRef.current.has(key)) return false;
@@ -3468,6 +3603,21 @@ function ProjectsPage({
                   jobMutationNotices={jobMutationNotices}
                   beginJobMutation={beginJobMutation}
                   finishJobMutation={finishJobMutation}
+                  batchSubmission={
+                    batchSubmissions[selectedProject.id] ?? null
+                  }
+                  beginBatchSubmission={(submission) =>
+                    beginBatchSubmission(selectedProject.id, submission)
+                  }
+                  retryBatchSubmission={(key) =>
+                    retryBatchSubmission(selectedProject.id, key)
+                  }
+                  markBatchSubmissionAmbiguous={(key) =>
+                    markBatchSubmissionAmbiguous(selectedProject.id, key)
+                  }
+                  clearBatchSubmission={(key) =>
+                    clearBatchSubmission(selectedProject.id, key)
+                  }
                 />
               </div>
               <div
