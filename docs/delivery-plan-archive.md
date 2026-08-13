@@ -162,6 +162,418 @@ PR #186 and its service-backed browser checks locked the completed-output, relat
 
 These run IDs are historical evidence for their exact revisions and executed jobs only. They do not prove the current working branch, repository migration `0016`, unexecuted CD components, or broader production processing modes.
 
+## Archived PR #207 PWA async reliability batch
+
+PR #207 merged the 30-commit PWA-STABILITY-HARDENING-PR207 batch from base 7871b31dc47158c43c3572612a8d0aa3242d018f as merge commit 26ecae6e6cd0ec0c8a3fd2307b7434970c11edf4. The review diff contained 23 files with 10,446 insertions and 1,387 deletions. Functional numerators/denominators for tasks 03–30 did not change at merge; their separate readiness gates moved to READY after PR-head and exact-main CI.
+
+PR-head repository run 31744423393 and Studio/browser run 31744423370 passed. Exact-main repository run 31744712542 and Studio/browser run 31744712601 passed on the merge SHA. Component CD run 31744712488 selected web and API, fast-forwarded the VPS checkout to 26ecae6, built each selected image, verified running image identity, and emitted STUDIO_PLATFORM_WEB_DEPLOY_OK plus STUDIO_PLATFORM_API_DEPLOY_OK after localhost health. The API probe observed two transient startup failures before the bounded retry succeeded. Migration and worker jobs were correctly skipped because this batch changed neither migrations nor the manual-only worker release scope. Read-only public HTTPS probes returned 200 with successful TLS verification for /healthz and /api/healthz.
+
+Standard component CD does not create GitHub Deployment records or bind web/API to an Environment. The protected studio-production-migration Environment was not selected and no approval was required. Deployment and health are evidenced; no provider/Google call, authenticated workflow, transcript-body observation, or new production transcription canary is claimed. The merged working branch was then removed locally and from origin after local main reached the merge SHA.
+
+### Final active item at publication
+
+`PWA-PREPARATION-PREREQUISITE-BOUNDARY-30` functional acceptance checks:
+
+1. Preparation obtains credentials through the shared validated collection requester and obtains the local-upload policy through its existing runtime validator. The two resources use independent latest-request keys, 15-second deadlines, and teardown AbortSignals.
+2. Timeout, transport failure, malformed/duplicate credential data, and malformed policy data fail closed with predefined Russian UI and separate explicit retry controls. Job submission and local device upload remain disabled without valid authority; A → B → A aborts old reads and late settlement cannot alter the active composer or render raw fields.
+3. Focused prerequisite regressions `3/3`, complete App suite `187/187`, full Studio Vitest `450/450`, TypeScript, full ESLint, production build, lightweight checks, and `git diff --check` pass.
+
+Functional completion is **100% (`3/3`)** on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`.
+
+Readiness gate: branch publication, required PR-head/exact-main CI, and merge remain separately required before READY. They are intentionally open under the current local-only instruction, so lifecycle status remains IN PROGRESS despite 100% functional completion.
+
+Non-goals: no credential mutation, local-upload mutation/recovery semantics, Google/Picker behavior, API/schema/migration, deploy, or production mutation.
+
+### Focused acceptance histories
+
+#### Overview collection boundaries
+
+`PWA-OVERVIEW-COLLECTION-BOUNDARY-29` functional acceptance checks:
+
+1. Overview project and credential summaries use the same exact runtime-validated collection requesters as Projects and Settings. Malformed or duplicate IDs fail closed without rendering raw response fields.
+2. Both Overview reads are independently latest-request-wins, bounded to 15 seconds, and cancelled on teardown. Each summary exposes its own safe retry; a failed refresh preserves last-known valid data and cannot erase an independently successful summary.
+3. Focused Overview boundary regressions `3/3`, complete App suite `184/184`, full Studio Vitest `447/447`, TypeScript, full ESLint, production build, lightweight checks, and `git diff --check` pass.
+
+Functional completion is **100% (`3/3`)** locally. Readiness remains IN PROGRESS because branch publication, required PR-head/exact-main CI, and merge are intentionally open under the current local-only instruction.
+
+Non-goals: no Projects mutations, Settings credential mutations, Google/OAuth behavior, API/schema/migration, deploy, or production mutation.
+#### Google connection consumers
+
+`PWA-GOOGLE-CONNECTION-CONSUMERS-28` functional acceptance checks:
+
+1. Overview, Projects, and Settings use one exact runtime-validated Google connection requester; no Overview/Projects consumer can accept a malformed or semantically contradictory DTO. The shared request contract carries cancellation without broad component or API churn.
+2. Overview and Projects reads are latest-request-wins, bounded to 15 seconds, and cancelled on component teardown. Both expose an explicit safe retry; Projects performs a new authoritative read whenever its persistently mounted page is reactivated after Settings or another route, and a late response from the prior activation cannot replace the newer state.
+3. Projects distinguishes loading/unavailable authority from a confirmed disconnected account. While loading or unavailable, source and folder Picker entrypoints are disabled and programmatic folder entry fails closed; raw response fields are not rendered. Focused consumer regressions `3/3`, complete App suite `181/181`, full Studio Vitest `444/444`, TypeScript, full ESLint, production build, lightweight checks, and `git diff --check` pass.
+
+Functional completion is **100% (`3/3`)** locally. Readiness remains IN PROGRESS because branch publication, required PR-head/exact-main CI, and merge are intentionally open under the current local-only instruction.
+
+Non-goals: no Overview project/credential read change, OAuth mutation, maintenance OAuth, Picker session/selection change, backend/API/schema/migration, deploy, or production mutation.
+
+#### Primary Google connection lifecycle
+
+`PWA-GOOGLE-CONNECTION-BOUNDARY-27` acceptance checks:
+
+1. The Settings browser surface accepts only the exact server-authoritative Google connection DTO and its semantic invariants: active status is the only connected state, Picker readiness equals configured plus scope-ready, reconnect is required only for a connected account missing Picker scope, and a null status carries no stale account metadata. OAuth start accepts only an HTTPS `accounts.google.com/o/oauth2/v2/auth` capability with the exact single-valued query contract and exact `openid email drive.file` scope set.
+2. Initial/repeated `GET /google/connection` requests are latest-request-wins, abortable, and bounded to 15 seconds. OAuth start and disconnect, including any CSRF refresh, are bounded to 20 seconds and guarded synchronously by one parent-owned operation; Settings → Projects → Settings restores disabled/`aria-busy` state and same-act duplicates cannot issue another mutation. Logout/login invalidates stale ownership and a late OAuth success cannot redirect a new session.
+3. Timeout, transport loss, HTTP 408/5xx, or malformed mutation success triggers one bounded authoritative connection GET and never automatically repeats POST or DELETE. Disconnect is confirmed only by authoritative revoked/null state; active state is preserved as connected, while OAuth start remains safely unconfirmed because connection state cannot prove capability creation. Sequential backend disconnect replay returns the original terminal metadata without changing the timestamp or duplicating the audit event. Focused Google regressions `11/11`, complete App suite `178/178`, full Studio Vitest `441/441`, TypeScript, full ESLint, production build, Python syntax checks, lightweight checks, and `git diff --check` pass; the authored service-backed regression is not locally executable because bundled Python lacks `pytest`.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+
+Non-goals: no maintenance OAuth, Google Picker composer flow, OAuth callback/start-server business-rule, token format/encryption, API shape, schema/migration, concurrent database-lock redesign, browser persistence, automatic mutation replay, deploy, or production mutation.
+
+#### Retention preference boundary
+
+`PWA-RETENTION-PREFERENCE-BOUNDARY-26` acceptance checks:
+
+1. The browser accepts only the exact server-authoritative five-value retention DTO defined by `project-spec.md` and backend source: one hour, 24 hours, three days, seven days, and 30 days, with the selected value present in that ordered set. The setting remains owner-scoped PostgreSQL state, applies only to future verified local-upload completions, and never changes Google Drive inputs, Google Docs outputs, existing expiry, or browser storage.
+2. Initial/repeated `GET /account/preferences` requests are latest-request-wins, abortable, and bounded to 15 seconds. PATCH, including any CSRF refresh, is bounded to 20 seconds and guarded synchronously by one parent-owned operation; Settings → Projects → Settings restores disabled/`aria-busy` state and a same-act duplicate cannot issue a second PATCH.
+3. Timeout, transport loss, HTTP 408/5xx, or malformed success triggers one bounded authoritative GET and never automatically repeats PATCH. Exact selected TTL confirms success; a different authoritative TTL restores that value; failed reconciliation restores the last confirmed value. Safe outcomes survive remount, detached settlement gets one post-remount refresh, raw backend detail is never rendered, and logout/login invalidates stale ownership. Focused retention regressions `7/7`, complete App suite `171/171`, full Studio Vitest `434/434`, TypeScript, full ESLint, production build, lightweight checks, and `git diff --check` pass.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+
+Non-goals: no retention option/default/business-rule change, backend/API/schema/migration/audit change, storage cleanup execution, browser persistence, automatic PATCH replay, Google OAuth/connection change, deploy, or production mutation.
+
+#### Credential lifecycle boundary
+
+`PWA-CREDENTIAL-LIFECYCLE-BOUNDARY-25` acceptance checks:
+
+1. Repository evidence defines the server authority: create and replace have no idempotency/correlation input and are never replayed automatically; revoked credentials may be replaced explicitly; permanent deletion is terminal, hides the row from owner lists, clears every encrypted version exactly once, and rejects later replace/revoke. Repeated revoke/delete returns success without another state transition or audit event.
+2. Settings credential-list reads accept only canonical unique DTOs, are latest-request-wins, abortable, and bounded to 15 seconds. Create, replace, revoke, and delete, including any CSRF refresh, are bounded to 20 seconds and guarded synchronously by create or exact credential ID. Parent-owned pending/outcome state survives Settings remounts, and matching controls expose disabled/`aria-busy` state.
+3. Timeout, transport loss, HTTP 408/5xx, or malformed success triggers at most one bounded authoritative list reconciliation and never automatically repeats a mutation. Replace is confirmed only by a newer active version; revoke only by exact revoked state; delete only by exact ID absence; create remains explicitly ambiguous without correlation. Raw key input is cleared immediately after capture, never enters parent/browser state, and raw backend detail is never rendered. Focused credential regressions `11/11`, complete App suite `165/165`, full Studio Vitest `428/428`, TypeScript, full ESLint, production build, Python syntax, lightweight checks, and `git diff --check` pass.
+Readiness gate: The new service-backed PostgreSQL/Redis credential regression, branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is open: the bundled local Python runtime has no `pytest`, and the current instruction remains local-only without push or PR.
+
+Non-goals: no automatic create/replace/revoke/delete replay, idempotency-key/API-shape/schema/migration change, browser persistence of secrets or mutation bodies, Google OAuth/connection or retention-preference change, deploy, or production mutation. The existing unique `(user_id, provider, label)` constraint still reserves a deleted label; changing that requires a separate product/schema decision.
+
+
+#### Project mutation boundary
+
+`PWA-PROJECT-MUTATION-BOUNDARY-24` acceptance checks:
+
+1. Repository evidence defines the safe boundary: project creation has no idempotency/correlation input, update targets one owner-scoped project, archive removes the active row and is not safely replayable from an ambiguous browser outcome. Active project-list responses must contain canonical project DTOs with unique IDs before they can replace browser state.
+2. Initial and reconciliation `GET /projects` requests are latest-request-wins, abortable, and bounded to 15 seconds. Create, update, and archive, including any CSRF refresh, are bounded to 20 seconds and guarded synchronously by exact operation/project key; matching controls expose disabled/`aria-busy` pending state and a same-act duplicate cannot issue a second mutation.
+3. Timeout, transport loss, HTTP 408/5xx, or malformed success never triggers automatic mutation replay. One authoritative collection read leaves create explicitly ambiguous because no exact correlation exists, confirms update only from exact requested fields plus evidence of change, and confirms archive only from project absence. Outcomes remain project-scoped, raw backend detail is not rendered, a failed create preserves its form, and same-project metadata refresh preserves unrelated composer state. Focused regressions, complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+
+Non-goals: no backend idempotency/API/schema/business-rule change, no automatic create/update/archive replay, no durable/browser-storage mutation state, no global API timeout, deploy, or production mutation.
+
+#### Google Picker ownership across project remounts
+
+`PWA-GOOGLE-PICKER-REMOUNT-23` acceptance checks:
+
+1. Replace the unowned global Picker boolean with one synchronous parent-owned operation carrying only `projectId`, `panelId`, `rowId`, and source/first-folder/second-folder kind. A second source or folder attempt in any project is rejected before rerender until the exact matching operation settles; an old or mismatched settlement cannot unlock a newer operation.
+2. A → B → A while Picker interaction, source creation, or folder verification is pending preserves a project-scoped pending explanation and disabled controls. Settlement while the originating PreparationPanel is detached stores only predefined safe text and tone for its project; project B cannot see project A's result, and the next explicit project-A Picker attempt clears the prior outcome.
+3. Source success explains that authoritative project sources were refreshed and rows must be selected again after remount; folder success explains that the non-persisted row selection must be repeated. No token, Google Drive file/folder ID, selected document, API payload, or raw error enters parent state or browser storage. The focused source/folder remount regression, related Google Picker cluster, complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+
+Non-goals: no Picker token or Drive identity persistence, no automatic source/folder replay, no composer draft persistence redesign, no backend/API/schema/OAuth change, deploy, or production mutation.
+
+#### Bounded post-selection Google requests
+
+`PWA-GOOGLE-SELECTION-BOUNDARY-22` acceptance checks:
+
+1. Repository evidence records the recovery boundary: Google Picker source creation is state-changing, accepts no `Idempotency-Key`, and its public source DTO deliberately omits Drive file IDs, so an ambiguous response cannot be matched exactly from the active-sources list. Output-folder verification is non-persisting and therefore needs no mutation replay.
+2. Source creation, including any CSRF refresh, stops waiting after 20 seconds and is attempted exactly once per explicit selection. Timeout, transport loss, HTTP 408, or 5xx triggers one authoritative sources reload, predefined safe text, and no automatic POST replay or row placement; definitive 4xx behavior remains explicit. A successful response must contain the exact ordered batch size and canonical project-owned source DTOs before rows are changed.
+3. Output-folder verification, including any CSRF refresh, stops waiting after 20 seconds, validates a non-empty name plus nullable/string `web_view_url`, never mutates a row on timeout/failure/malformed data, and always releases source and folder Picker controls. Focused regressions, complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+
+Non-goals: no backend/API/schema/idempotency change, no exact automatic recovery where the API exposes no correlation identity, no automatic source-creation replay, no Google Picker remount-ownership redesign, deploy, or production mutation.
+
+#### Bounded Google Picker session and interaction lifecycle
+
+`PWA-GOOGLE-PICKER-TIMEOUT-21` acceptance checks:
+
+1. Both composer entrypoints acquire the secret-bearing Google Picker session through one 20-second request bound shared with any CSRF refresh, and validate non-empty token/public configuration plus `scope_ready === true` before opening Picker. Timeout, transport loss, and malformed payload fail closed with predefined safe text, release composer controls, create no source/folder selection mutation, and are not automatically replayed outside the existing CSRF-rejection contract.
+2. The existing 10-second script-loader guard remains intact. Once Picker is built, a five-minute interaction deadline closes it, clears the request-local token copy, settles one safe error, and lets each caller's `finally` release its synchronous ref and shared `pickerBusy` lock. The idempotent settlement guard ignores any callback arriving after timeout.
+3. Regressions prove one aborted session POST per explicit attempt, no automatic replay, malformed-session rejection without token exposure, callback-timeout close/unlock, ignored late selection, and no source mutation. Existing cancel/error/duplicate/folder tests, complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+
+Non-goals: no backend/API/OAuth/schema change, no automatic source/folder mutation replay, no timeout yet for post-selection source creation or folder verification, no maintenance-panel session refactor, deploy, or production mutation.
+
+#### Local-upload ownership and outcomes across remounts
+
+`PWA-LOCAL-UPLOAD-REMOUNT-20` acceptance checks:
+
+1. `ProjectsPage` owns a synchronous operation registry containing only project, panel-instance, and row IDs. It rejects an exact same-act duplicate before React rerender while preserving independent uploads for different rows in the same mounted panel. Because composer row IDs are regenerated after project remount, any still-pending operation from an older panel instance conservatively blocks all new local intake only in its originating project until settlement.
+2. Returning A → B → A while initiation/PUT/completion is pending restores disabled/`aria-busy` input plus a safe pending status. Off-panel settlement stores only predefined project-scoped failure/partial/success text; no `File`, presigned capability, filename, raw response, or failure cause enters parent or browser persistence. A new explicit selection after unlock clears prior outcomes for that project before one new chain begins.
+3. One A → B → A regression proves pending restoration, duplicate rejection, project isolation, off-panel safe failure, explicit-retry clearing, later success persistence, authoritative source-list refresh, and exact initiation/PUT/completion counts. Existing same-row dedup/multi-file tests, complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+
+Non-goals: no `File`/capability persistence, no automatic initiation or PUT replay, no composer-draft persistence redesign, backend/API/schema/storage change, deploy, or production mutation.
+
+#### Bounded local-upload initiation and object PUT
+`PWA-LOCAL-UPLOAD-BOUNDARY-19` acceptance checks:
+
+1. Repository evidence records the recovery boundary: initiation commits a new pending source before returning a presigned capability, accepts no `Idempotency-Key`, and cannot be identified uniquely from active-sources filename/MIME/size data; after a valid response, PUT recovery has exact `source_id` authority and uses only the existing verified completion/reconciliation path.
+2. Each initiation POST, any CSRF refresh, and each object PUT stop waiting after 20 seconds. Timeout, transport loss, HTTP 408, or 5xx initiation ambiguity causes one safe sources reload and no automatic POST or PUT; timeout/transport ambiguity after PUT causes no second PUT and invokes only bounded exact-source completion/reconciliation. Definitive storage HTTP rejection remains fail-closed.
+3. Regressions cover stalled initiation abort, ambiguous 5xx initiation, stalled PUT abort, exact request counts, source reload, safe unlock/recovery, and absence of raw response/private upload identity. Complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+
+Non-goals: no initiation idempotency/API/schema change, no automatic initiation or object PUT replay, no browser persistence of files/capabilities, backend/storage mutation, deploy, or production mutation.
+
+
+#### Source-deletion ownership and outcomes across remounts
+`PWA-SOURCE-DELETE-REMOUNT-18` acceptance checks:
+
+1. A synchronous exact-source deletion registry and its predefined result notices live in persistent `ProjectsPage` memory, remain keyed by source ID and originating project, and cannot be reset by a `PreparationPanel` project remount.
+2. Returning A → B → A while DELETE or its authoritative reconciliation is pending restores disabled/`aria-busy` UI and rejects another DELETE before React rerender. Settlement is visible only in the originating project, never renders raw backend detail, and an explicit retry clears only the matching previous outcome before one new request.
+3. A project-switch regression proves one DELETE while pending, a fail-closed 5xx/reconciliation outcome after settlement on another project, retry unlock and outcome clearing, a second confirmed deletion, project isolation, authoritative source disappearance, and no raw failure text. Complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+
+Non-goals: no automatic DELETE replay, backend/API/schema/business-rule change, browser persistence, storage cleanup execution, deploy, or production mutation.
+
+
+#### Bounded local-upload completion recovery
+`PWA-LOCAL-UPLOAD-COMPLETE-17` acceptance checks:
+
+1. Repository evidence establishes completion replay authority: backend completion returns an already uploaded exact source without another storage `HEAD`, preserves `uploaded_at`/`expires_at`, and does not extend retention; pending completion revalidates exact object metadata and source/project state under a row lock before commit.
+2. Each completion POST and any CSRF refresh share a 20-second deadline. Timeout or retryable ambiguity triggers one separately bounded no-store active-sources read: an exact validated `uploaded` source completes locally without replay; only an exact matching `pending` source permits one bounded completion replay. No path repeats source initiation or object PUT.
+3. Regressions cover ambiguous PUT recovery, authoritative uploaded suppression, pending-state replay, stalled completion abort/replay, single initiation/PUT counts, safe failure text, and no raw upload identity. Complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+
+Non-goals: no initiation/PUT retry, backend/API/schema/storage change, browser persistence of upload capability/source body, source-deletion change, deploy, or production mutation.
+
+
+#### Bounded source deletion and authoritative absence recovery
+`PWA-SOURCE-DELETE-RECOVERY-16` acceptance checks:
+
+1. Repository evidence establishes deletion authority: the backend locks the owner-scoped source and referencing jobs, repeated accepted deletion preserves timestamps and creates no duplicate audit/diagnostic events, and the owner-scoped active-sources list excludes exactly the durably deleted source.
+2. A synchronous per-source guard rejects same-act duplicate removal before React rerender. DELETE and any CSRF refresh share a 20-second deadline and are never replayed automatically; timeout, transport loss, HTTP 408, and 5xx trigger one separately bounded active-sources read. Only absence of the exact source ID confirms deletion; presence, malformed data, read failure, or read timeout preserves the source and reports a predefined ambiguous outcome.
+3. Regressions cover one DELETE under duplicate clicks, deadline abort plus confirmed absence, fail-closed source presence after transport/5xx ambiguity, safe text, and explicit-retry unlock. Complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+
+Non-goals: no automatic DELETE replay, backend/API/schema/business-rule change, browser persistence, storage cleanup execution, local-upload completion change, deploy, or production mutation.
+
+
+
+#### Bounded batch creation and exact idempotent recovery
+`PWA-BATCH-CREATE-RECOVERY-15` acceptance checks:
+
+1. Repository evidence establishes the recovery authority: a complete exact replay is project/owner/key/request-hash scoped, returns the original ordered jobs with `replayed: true`, and is protected by the backend unique constraint/transaction. The ordinary jobs list is explicitly not treated as batch-membership evidence because its browser DTO omits the idempotency key and batch positions.
+2. Batch preflight and create stop waiting after 20 seconds with one shared abort signal across any CSRF refresh. A timed-out or transport-ambiguous create is never repeated automatically; its exact request body and `Idempotency-Key` remain in owner-scoped memory across A → B → A, block a new key, and require one explicit user replay.
+3. Regression tests prove one POST before timeout, abort at the deadline, no hidden second POST, project isolation, and byte-identical body/key on explicit replay. Complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+
+Non-goals: no automatic POST replay, jobs-list inference, backend/API/schema/business-rule change, browser persistence of request bodies, provider or Google Drive call, deploy, or production mutation.
+
+
+
+#### Bounded job mutations and authoritative timeout reconciliation
+
+`PWA-JOB-MUTATION-TIMEOUT-14` acceptance checks:
+
+1. Cancel, provider-cost retry, output reconciliation, and terminal dismissal stop waiting after 20 seconds. The same abort signal also bounds a CSRF refresh, and no timed-out mutation is ever repeated automatically.
+2. A timeout triggers one separately bounded authoritative read before ownership is released: job detail confirms cancellation only through `cancelled`/`cancel_requested_at` and dismissal only through `terminal_dismissed_at`; retry readiness confirms queueing/running/completion or an advanced attempt; reconciliation metadata confirms only an observable status/count/check-time transition.
+3. Confirmed and still-ambiguous outcomes use predefined safe owner-scoped notices. Integration tests prove exactly one POST for each action, the matching GET reconciliation, and no raw backend/provider/Google response in UI or storage; helper/API tests, complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+
+Non-goals: no automatic POST retry, backend idempotency/business-rule change, API/schema change, provider or Google Drive call in local tests, deploy, or production mutation.
+
+
+#### Safe job mutation outcomes across project switches
+
+`PWA-JOB-MUTATION-OUTCOME-13` acceptance checks:
+
+1. Settlement of cancel, provider retry, output reconciliation, and terminal dismissal produces only predefined safe success/failure notices in persistent ProjectsPage memory, keyed by mutation kind/job and scoped to the originating project; no raw response, path, identifier, or transcript body is copied into notice text or browser storage.
+2. A notice remains available after the originating PreparationPanel remounts, is absent in another project, and is cleared when the user explicitly begins the same mutation again. Current-panel retry/reconciliation inline feedback suppresses the owner notice so text is not duplicated; cancel/dismiss feedback uses the owner path directly.
+3. Existing four-kind dedup regressions, A → B → A failure/success/clearing/isolation regression, complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+
+Non-goals for this completed item: no mutation timeout, automatic retry, durable/browser-storage notice persistence, backend idempotency/business-rule change, API/schema change, deploy, or production mutation.
+
+
+#### Job mutation ownership across projects
+
+`PWA-JOB-MUTATION-OWNERSHIP-12` acceptance checks:
+
+1. A synchronous owner-scoped registry in persistent ProjectsPage tracks cancel, provider retry, output reconciliation, and terminal dismissal independently by mutation kind and job ID; PreparationPanel project remounts cannot clear it.
+2. Every covered mutation rejects a duplicate begin before React rerender. Returning to the originating project while the request is pending restores disabled/`aria-busy` UI, and settlement releases only the matching key for one explicit retry without exposing raw backend detail.
+3. Existing four-kind dedup regressions, a real A → B → A pending-cancellation regression, complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+
+Non-goals: no mutation timeout, automatic retry, backend idempotency/business-rule change, cross-project success/failure message persistence, API/schema change, deploy, or production mutation.
+
+
+#### Project collection read timeouts
+
+`PWA-PROJECT-COLLECTION-TIMEOUT-11` acceptance checks:
+
+1. Same-project sources and jobs collection GETs receive independent AbortSignals and cannot remain pending beyond 15 seconds; only the matching project/resource key is affected.
+2. A newer collection read aborts the older same-key request without committing stale failure or emitting an intentional-abort diagnostic. ProjectsPage teardown invalidates and aborts all active collection reads; real timeout/failure resolves loading to safe Russian UI while preserving last-known successfully loaded items.
+3. Focused collection-timeout and failed-refresh preservation regressions, complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+
+Non-goals: no mutation timeout or retry, no global API timeout, no backend/API/schema change, no project-list or Google-connection behavior change, deploy, or production mutation.
+
+
+#### Job detail read timeouts
+
+`PWA-JOB-READ-TIMEOUT-10` acceptance checks:
+
+1. Job detail, outputs, retry metadata, and output-reconciliation metadata GETs receive independent AbortSignals and cannot remain pending beyond 15 seconds; only the matching resource/job key is affected.
+2. A newer read aborts the older same-key request without committing stale failure or emitting an intentional-abort diagnostic. PreparationPanel teardown invalidates and aborts all active job reads; a real timeout remains observable and replaces indefinite detail/output loading with existing safe messages.
+3. Focused ordering/timeout tests, complete App and latestRequest suites, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+
+Non-goals: no mutation timeout or retry, no global API timeout, no backend/API/schema change, no progress-polling behavior change, deploy, or production mutation.
+
+
+#### Terminal dismissal deduplication
+
+`PWA-JOB-DISMISS-DEDUP-09` acceptance checks:
+
+1. Two terminal-dismiss attempts for the same job while the first request is in flight produce at most one mutation request; the synchronous per-job guard does not depend on a React rerender.
+2. The pinned-terminal dismissal control is disabled and exposes `aria-busy=true` while pending. A safe failure message unlocks one explicit retry, raw backend detail is not rendered, and a successful response preserves the authoritative jobs reload and existing backend idempotency contract.
+3. Focused App and JobCard regressions, complete suites, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+
+Non-goals: no terminal-visibility/business-rule change, backend idempotency or audit change, API/schema changes, deploy, or production mutation.
+
+#### Output reconciliation deduplication
+
+`PWA-JOB-RECONCILIATION-DEDUP-08` acceptance checks:
+
+1. Two output-reconciliation checks for the same job while the first request is in flight produce at most one mutation request; the synchronous per-job guard does not depend on a React rerender.
+2. The explicit Google Drive check is disabled and exposes `aria-busy=true` while pending. A safe failure message unlocks one explicit retry, raw backend detail is not rendered, and no automatic reconciliation is introduced.
+3. Focused App and OutputReconciliationNotice regressions, complete suites, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+
+Non-goals: no reconciliation eligibility/business-rule change, backend idempotency change, automatic Google Drive check, API/schema changes, deploy, or production mutation.
+
+#### Provider-cost retry deduplication
+
+`PWA-JOB-RETRY-DEDUP-07` acceptance checks:
+
+1. Two retry attempts for the same job while the first request is in flight produce at most one mutation request; this includes partial resume/restart requests carrying explicit remaining-provider-cost confirmation and does not depend on a React rerender.
+2. An available retry control is disabled and exposes `aria-busy=true` while pending. A safe failure message unlocks one explicit retry, raw backend detail is not rendered, and no automatic provider retry is introduced.
+3. Focused App and JobDetailSection regressions, complete suites, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+
+Non-goals: no retry eligibility/business-rule change, backend idempotency change, automatic provider retry, API/schema changes, deploy, or production mutation.
+
+#### Job cancellation deduplication
+
+`PWA-JOB-CANCEL-DEDUP-06` acceptance checks:
+
+1. Two cancellation attempts for the same job while the first request is in flight produce at most one mutation request; the synchronous guard does not depend on a React rerender.
+2. Queued and processing cancellation controls are disabled and expose `aria-busy=true` while pending. A safe failure message unlocks one explicit retry, raw backend detail is not rendered, and a successful response preserves the existing authoritative jobs reload.
+3. Focused action/component regressions, complete App and JobCard suites, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+
+Non-goals: no backend idempotency contract, API/schema changes, automatic mutation retry, cancellation semantics change, deploy, or production mutation.
+
+#### Job detail ordering
+
+`PWA-JOB-DETAIL-ORDERING-05` acceptance checks:
+
+1. For repeated loads of one job, only the newest detail and outputs requests may commit success or failure state; a stale response cannot restore obsolete source/output data or replace a newer safe error.
+2. Retry and output-reconciliation metadata use independent per-job request epochs, so a stale response cannot restore obsolete action availability. After a successful retry or reconciliation mutation, authoritative jobs reload remains immediate and is not blocked by the four detail reads.
+3. Shared ordering tests, a component-level repeated-open regression, complete App tests, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+
+Non-goals: no API/backend/schema changes, no global request cache, no mutation retry, no deploy, and no production mutation.
+
+#### Project list ordering
+
+`PWA-PROJECT-LIST-ORDERING-04` acceptance checks:
+
+1. For repeated source-list loads of one project, only the newest request may commit success or failure state; stale responses cannot restore removed sources or erase newly loaded sources.
+2. For repeated job-list loads of one project, only the newest request may commit success or failure state; stale responses cannot hide newly created/retried jobs or replace fresh status.
+3. Request epochs are isolated by resource and project key. Focused ordering tests, complete App tests, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+
+Functional completion is **100% (`3/3`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open under the current local-only instruction.
+
+Non-goals: no request cancellation, API/backend/schema changes, cache persistence, cross-owner state, deploy, or production mutation.
+
+#### Polling resilience
+
+`PWA-JOB-PROGRESS-POLLING-03` acceptance checks:
+
+1. An initial or later transient `/jobs/progress` rejection cannot permanently stop polling; retry does not depend on a previously confirmed response.
+2. A stalled request is aborted after 15 seconds and enters the same bounded retry path; project switch/unmount aborts the current request immediately. Intentional cleanup abort is excluded from API-failure diagnostics while timeout/unexpected abort remains observable.
+3. Consecutive failures use bounded exponential backoff up to 30 seconds; success resets the normal five-second cadence and outages preserve the last confirmed snapshot.
+4. Missing requested jobs trigger authoritative jobs reconciliation without terminating polling; cleanup prevents stale scheduling. Focused tests, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
+Readiness gate: Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+
+Functional completion is **100% (`4/4`)** locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. The readiness gate is intentionally open: the current instruction is local implementation without push or PR.
+
+Non-goals: no API/worker/schema/provider changes, no changed progress semantics, no fabricated within-request percentage, no deploy, and no production mutation.
+
+### Local validation histories
+
+- `PWA-PREPARATION-PREREQUISITE-BOUNDARY-30` local evidence: focused timeout/retry, malformed-response, and A → B → A teardown regressions `3/3`, complete App suite `187/187`, and full Studio Vitest `450/450` passed. Credential and source-upload-policy reads have independent 15-second latest-request boundaries, timeout and project remount abort their exact signals, and recovery requires separate explicit retry. The credential path reuses the shared duplicate-rejecting validator; malformed policy data is rejected by the existing browser-safe policy validator. Both failures disable their dependent controls and render only predefined text. The first focused runs corrected test-only assumptions about duplicate safe blocker text and shared credential consumers; the first full App run exposed one obsolete fixture that still returned backend-impossible `status=deleted`, which was removed while secret-like extra-field non-rendering coverage remains. TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` pass. No credential/upload mutation, backend/API/schema, deploy, or production state is changed.
+- `PWA-OVERVIEW-COLLECTION-BOUNDARY-29` local evidence: focused collection-boundary regressions `3/3`, the two adjusted cross-page timeout regressions `2/2`, complete App suite `184/184`, and full Studio Vitest `447/447` passed. Overview projects and credentials share the exact collection requesters used by their primary consumers; duplicate/malformed collections fail closed without raw-field rendering. Both summaries have independent 15-second latest-request-wins/teardown boundaries and explicit retry while preserving the other summary and any last-known valid data. The first full App run exposed two obsolete signal-count assumptions: navigation now correctly aborts the new Overview request before the destination page creates and times out its own request; the assertions were tightened to verify both aborts. TypeScript, full ESLint, and Vite/PWA production build pass. No backend/API/schema, mutation, deploy, or production state is changed.
+- `PWA-GOOGLE-CONNECTION-CONSUMERS-28` local evidence: focused Overview/Projects connection regressions `3/3`, complete App suite `181/181`, and standalone full Studio Vitest `444/444` passed. Overview aborts a stalled read after 15 seconds, reports only safe unavailable state, and succeeds through explicit retry. Projects rejects a contradictory DTO without rendering its raw field, distinguishes unavailable from disconnected, disables source and folder Picker controls, refreshes on every active return, and ignores a late connected response after a newer disconnected read. The two older Settings regressions were updated only for the now-intentional additional Overview/Projects GETs and remain green. TypeScript, full ESLint, and Vite/PWA production build pass. A first parallel four-process gate also completed all `444/444` assertions but hit a post-suite `tinypool` teardown exception; the standalone rerun exited cleanly and is the claimed test evidence. No OAuth mutation, backend/API/schema, deploy, or production mutation is claimed.
+- `PWA-GOOGLE-CONNECTION-BOUNDARY-27` local evidence: focused Settings connection regressions `11/11`, complete App suite `178/178`, and full Studio Vitest `441/441` passed. Stalled/malformed connection reads fail closed after 15 seconds with explicit retry and no raw detail. OAuth start and disconnect reject same-act duplicates, expose disabled/`aria-busy`, abort after 20 seconds, perform one authoritative connection read on uncertainty, and never replay POST/DELETE automatically. The exact Google authorization origin/path/query/scope contract rejects hostile or malformed redirect capabilities; logout invalidates late success before navigation. Settings → Projects → Settings preserves detached disconnect ownership/outcome and requests exactly one post-remount refresh. Sequential backend disconnect replay preserves the original terminal timestamp, wipes primary and maintenance token material, and emits one audit event. Python syntax, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` pass. The backend service regression is authored but was not executed locally because bundled Python lacks `pytest`, so TEST remains partial and CI remains open. No maintenance OAuth, Picker, API shape/schema/migration, deploy, or production mutation is claimed.
+- `PWA-RETENTION-PREFERENCE-BOUNDARY-26` local evidence: focused retention regressions `7/7`, complete App suite `171/171`, and full Studio Vitest `434/434` passed. Stalled/malformed initial GET fails closed after 15 seconds without rendering choices; PATCH rejects a same-act duplicate, exposes disabled/`aria-busy`, aborts after 20 seconds, performs exactly one authoritative read, and is never replayed automatically. A → Projects → Settings preserves pending ownership, detached 5xx settlement is confirmed from the exact selected server TTL, then performs one post-remount refresh without repeated extra reads. Failed write plus failed reconciliation restores the last confirmed TTL and renders neither raw write nor read detail. TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` pass. Backend source/test evidence already proves exact five-option validation and repeated-same-value audit idempotence; no backend/API/schema/audit, storage cleanup, Google, deploy, or production mutation is claimed.
+- `PWA-CREDENTIAL-LIFECYCLE-BOUNDARY-25` local evidence: focused credential frontend regressions `11/11`, complete App suite `165/165`, and full Studio Vitest `428/428` passed. A stalled/malformed list fails closed after 15 seconds; create clears the raw DOM value immediately, rejects a same-act duplicate, aborts after 20 seconds, performs one authoritative GET, and never replays the POST. Replacement ownership and safe outcomes survive Settings → Projects → Settings without persisting or rendering raw key/backend detail; ambiguous permanent deletion is confirmed only after the exact credential disappears. Backend source now makes deleted credentials terminal/hidden and revoke/delete replay audit-idempotent; a service-backed regression covers two encrypted versions, one revoke/delete audit, crypto erasure, replay stability, hidden list state, and rejected resurrection. Python syntax, full TypeScript/ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` pass. The backend regression was not executed locally because the available bundled Python lacks `pytest`; service-backed CI remains the explicit TEST/CI gate. No API shape/schema/migration, automatic mutation replay, Google/retention, deploy, or production mutation is claimed.
+- `PWA-PROJECT-MUTATION-BOUNDARY-24` local evidence: focused project-list/create/update/archive boundary regressions `4/4`, complete App suite `159/159`, and full Studio Vitest `422/422` passed. A stalled project-list read aborts after 15 seconds; a stalled create aborts after 20 seconds, issues one POST plus one list reconciliation, preserves both draft fields, and remains explicitly ambiguous. A deferred update blocks a same-act duplicate, keeps pending/result state scoped across A → B → A, performs one reconciliation after 5xx, and renders no raw detail. An ambiguous archive disappears only after the authoritative list omits the exact project. Existing same-project composer-preservation coverage remains green. TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. No backend/API/schema/idempotency change, automatic replay, PR, CI, deploy, or live evidence is claimed.
+- `PWA-GOOGLE-PICKER-REMOUNT-23` local evidence: one A → B → A regression covers both source creation and folder verification `1/1`; the related Google Picker cluster passes `12/12`, complete App suite `155/155`, full Studio Vitest `418/418`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. The restored project-A panel exposes a safe pending status and disabled source/folder actions, a programmatic duplicate leaves source/verify mutation counts at one, project B sees only the cross-project busy explanation, and off-panel settlements produce safe project-A notices only after return. A subsequent explicit Picker begin clears the prior project notice. Parent state contains only project/panel/row/kind plus predefined message/tone; token, Drive IDs, selected docs, raw payloads, and raw failures remain request-local and are not persisted. No backend/API/schema/OAuth change, automatic replay, PR, CI, deploy, or live evidence is claimed.
+- `PWA-GOOGLE-SELECTION-BOUNDARY-22` local evidence: focused source/folder deadline, ambiguity, validation, and unlock regressions `4/4`, complete App suite `154/154`, full Studio Vitest `417/417`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. A stalled source POST is aborted after 20 seconds, a 5xx remains ambiguous, both issue exactly one POST and one authoritative sources reload without row placement or raw detail; stalled folder verification aborts and unlocks all Picker actions, while malformed verification cannot enter row state. The first full regression run exposed six legacy custom fixtures that returned non-canonical `{}` verification payloads; the project-agnostic shared helper now preserves any valid scenario DTO and supplies only the historical canonical fallback, without weakening production validation. No backend/API/schema/idempotency change, automatic mutation replay, PR, CI, deploy, or live evidence is claimed.
+- `PWA-GOOGLE-PICKER-TIMEOUT-21` local evidence: focused deadline/validation regressions `3/3`, complete App suite `150/150`, full Studio Vitest `413/413`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. A stalled session is aborted after 20 seconds with one POST per explicit attempt and no Picker/selection mutation; malformed capability data is rejected without rendering its token; a Picker that never calls back is hidden after five minutes, releases the source/folder lock, and ignores a late `picked` callback. Six legacy composer tests initially failed because their custom fixtures returned `{}` for the session endpoint while stubbing Picker itself; the shared test helper now supplies the real validated session shape, preserving rather than weakening production validation. No backend/API/OAuth/schema change, automatic selection mutation replay, PR, CI, deploy, or live evidence is claimed.
+- `PWA-LOCAL-UPLOAD-REMOUNT-20` local evidence: the A → B → A ownership/outcome regression `1/1`, complete App suite `147/147`, full Studio Vitest `410/410`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. The original input returns disabled and `aria-busy`, a programmatic duplicate keeps initiation at one, project B sees neither pending nor result text, and off-panel storage failure is reduced to predefined safe project-A text. Explicit retry clears that outcome, produces exactly one additional initiation/PUT, completes once, refreshes the authoritative source list, and exposes the safe success only after another project-A remount. Parent state contains only operation IDs and predefined notices; `File`, presigned URL/headers, filenames, and raw failure data remain component/request-local and are not persisted. No backend/API/schema/storage change, PR, CI, deploy, or live evidence is claimed.
+- `PWA-LOCAL-UPLOAD-BOUNDARY-19` local evidence: backend route/tests show that initiation creates and commits a fresh pending source without idempotency input, while completion is exact-source, owner/project constrained, metadata verified, race revalidated, and replay-safe. Frontend regressions cover stalled initiation `1/1`, ambiguous 5xx initiation `1/1`, and stalled PUT `1/1`; complete App suite `146/146`, full Studio Vitest `409/409`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. The initiation cases emit one POST, no PUT/completion, safe text, and one sources refresh; the PUT case aborts one PUT and succeeds only through one exact-source completion, with no second initiation/PUT or raw response/upload identity. No backend/API/schema/storage change, browser persistence, PR, CI, deploy, or live evidence is claimed.
+- `PWA-SOURCE-DELETE-REMOUNT-18` local evidence: the A → B → A regression `1/1`, complete App suite `143/143`, full Studio Vitest `406/406`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. While the first DELETE and its 5xx reconciliation settle off-panel, the restored source control remains disabled/`aria-busy` and a duplicate begin is rejected synchronously. The predefined ambiguous outcome is absent from project B and retained in project A; explicit retry clears it, one second DELETE can complete while off-panel, and the safe success plus authoritative source disappearance remain visible only on return to project A. Raw backend detail is absent. No backend/API/schema change, automatic DELETE replay, browser persistence, PR, CI, deploy, cleanup execution, or live evidence is claimed.
+- `PWA-LOCAL-UPLOAD-COMPLETE-17` local evidence: backend API tests verify replay returns the exact source without another storage `HEAD` and preserves upload/retention timestamps; race tests verify metadata and source lifecycle revalidation before commit. Frontend recovery regressions cover ambiguous PUT `1/1`, authoritative uploaded suppression `1/1`, exact-pending replay `1/1`, and stalled completion deadline/replay `1/1`. Complete App suite `142/142`, full Studio Vitest `405/405`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. Each completion attempt and CSRF refresh share a 20-second signal; initiation and object PUT stay single-shot, and no upload URL/private identity or raw error detail is rendered or stored. No backend/API/schema/storage change, PR, CI, deploy, or live evidence is claimed.
+- `PWA-SOURCE-DELETE-RECOVERY-16` local evidence: backend source-deletion code/tests verify owner/project locking, job-readiness gates, repeat idempotence, stable deletion/cleanup timestamps, and no duplicate audit/diagnostic events; the active-sources endpoint excludes deleted rows. Recovery regressions cover deadline/dedup/confirmed absence `1/1`, transport ambiguity with source presence `1/1`, and 5xx ambiguity with source presence `1/1`. Complete App suite `140/140`, full Studio Vitest `403/403`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. DELETE and CSRF refresh share the 20-second signal; no DELETE is automatically replayed, and raw error detail is absent. The first full run correctly exposed that the old 5xx test treated a state-changing server error as definitive; it now verifies the fail-closed ambiguous outcome after source-list reconciliation. No backend/API/schema change, cleanup execution, PR, CI, deploy, or live evidence is claimed.
+- `PWA-BATCH-CREATE-RECOVERY-15` local evidence: backend route/model/tests verify owner/project/idempotency-key/request-hash replay, ordered complete-batch recovery, transaction rollback, and a unique `(owner_id, project_id, batch_idempotency_key, batch_position)` constraint. The ordinary jobs-list DTO omits batch identity, so no unsafe list inference was implemented. Preflight/create timeout regressions `2/2`, A → B → A exact-replay/isolation regression `1/1`, complete App suite `138/138`, full Studio Vitest `401/401`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. Preflight and create share a 20-second bound; a timed-out create issues exactly one POST, and explicit recovery reuses the exact body/key without browser storage. No backend/API/schema change, automatic POST replay, PR, CI, deploy, provider/Google call, or live evidence is claimed.
+- `PWA-JOB-MUTATION-TIMEOUT-14` local evidence: endpoint audit verified durable idempotency for cancel/dismiss, transactional queue authority for retry, and fail-closed Google reconciliation metadata. Bounded-request helper tests `5/5`, timeout integration regressions `4/4`, API client tests `7/7`, complete App suite `136/136`, full Studio Vitest `399/399`, TypeScript, full ESLint, Vite/PWA production build, and `git diff --check` passed. Each timeout produces exactly one POST followed by the endpoint-specific authoritative GET; provider-cost retry and Google Drive check are never automatically repeated, CSRF refresh shares the deadline signal, and confirmed/ambiguous text is predefined. Initial integration runs exposed two fixture-only assumptions: the test timer also accelerated existing 15-second detail reads, and terminal failed jobs preloaded readiness before explicit open. A distinct 20-second mutation deadline plus abort-driven fixture transition resolved both without weakening production assertions. No PR, CI, deploy, provider/Google call, or live evidence is claimed.
+- `PWA-JOB-MUTATION-OUTCOME-13` local evidence: existing same-act mutation regressions plus the expanded project-switch outcome regression `5/5`, complete App suite `132/132`, full Studio Vitest `389/389`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. A safe cancellation failure remains visible after remount, disappears on explicit retry, the later safe success is absent in project B and visible on return to project A, and raw backend detail remains absent. Retry/reconciliation current-panel inline feedback suppresses duplicate owner notices; all notice state remains owner-scoped in memory only. One intermediate focused run caught a mechanically malformed template-literal path before tests executed; all four paths were restored by function-bounded replacement and TypeScript plus all final gates pass. No mutation timeout, automatic retry, PR, CI, deploy, or live evidence is claimed.
+- `PWA-JOB-MUTATION-OWNERSHIP-12` local evidence: four existing same-act mutation dedup regressions `4/4`, project-switch ownership regression `1/1`, complete App suite `132/132`, full Studio Vitest `389/389`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. A pending cancellation remains disabled and `aria-busy` after A → B → A remount, a second POST is rejected synchronously, settlement releases the matching owner-scoped key for explicit retry, and raw backend failures remain absent from the DOM. The same persistent registry is wired to retry, reconciliation, and dismissal, whose existing same-act regressions remain green. No mutation timeout, automatic retry, PR, CI, deploy, or live evidence is claimed.
+- `PWA-PROJECT-COLLECTION-TIMEOUT-11` local evidence: focused collection timeout and failed-refresh preservation regressions `2/2`, complete App suite `131/131`, full Studio Vitest `388/388`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. Sources/jobs collection requests receive independent signals and abort after 15 seconds; teardown/supersede cancellation is silent, while real failure resolves loading to safe Russian UI and retains last-known items. The production timeout remains 15 seconds; tests accelerate only that exact timer. No PR, CI, deploy, or live evidence is claimed.
+- `PWA-JOB-READ-TIMEOUT-10` local evidence: latestRequest ordering/abort/timeout/teardown suite `6/6`, App stalled-read regression `1/1`, complete App suite `130/130`, full Studio Vitest `387/387`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. All four job-read signals abort at 15 seconds, detail/output loading resolves to safe retryable UI, a newer same-key request cancels its predecessor without stale failure, and teardown cancellation is explicitly ignored by API diagnostics while timeout aborts remain observable. The first App run exposed the existing terminal auto-load path and was narrowed to a processing-job fixture so timeout and supersede cases remain independent. No PR, CI, deploy, or live evidence is claimed.
+- `PWA-JOB-DISMISS-DEDUP-09` local evidence: App terminal-dismiss regression `1/1`, complete JobCard suite `4/4`, complete App suite `129/129`, full Studio Vitest `383/383`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. A same-act double click produces one POST; pending action is disabled with `aria-busy`, failure unlocks explicit retry, authoritative jobs reload remains intact, and raw backend detail remains absent from the DOM. The first focused run exposed an incomplete fixture that omitted canonical `terminal_dismissed_at: null`; the corrected fixture and repeated gates pass. No PR, CI, deploy, or live evidence is claimed.
+- `PWA-JOB-RECONCILIATION-DEDUP-08` local evidence: App reconciliation regression `1/1`, complete OutputReconciliationNotice suite `2/2`, complete App suite `128/128`, full Studio Vitest `381/381`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. A same-act double click produces one POST; pending action is disabled with `aria-busy`, failure unlocks explicit retry, the existing authoritative jobs/detail reload remains intact, and raw backend detail remains absent from the DOM. No PR, CI, deploy, Google Drive call, or live evidence is claimed.
+- `PWA-JOB-RETRY-DEDUP-07` local evidence: App provider-cost retry regression `1/1`, complete JobDetailSection suite `8/8`, complete App suite `127/127`, full Studio Vitest `380/380`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. A same-act double click produces one POST; pending action is disabled with `aria-busy`, failure unlocks explicit retry, both explicit partial requests preserve `{confirm_remaining_provider_cost: true}`, and raw backend detail remains absent from the DOM. No PR, CI, deploy, provider call, or live evidence is claimed.
+- `PWA-JOB-CANCEL-DEDUP-06` local evidence: focused cancellation regressions `6/6`, complete App suite `126/126`, complete JobCardActions suite `8/8`, full Studio Vitest `378/378`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. A same-act double click produces one POST; pending queued/processing controls are disabled with `aria-busy`, a failed request unlocks explicit retry, and raw backend detail remains absent from the DOM. No PR, CI, deploy, or live evidence is claimed.
+- `PWA-JOB-DETAIL-ORDERING-05` local evidence: ordering helper `3/3`, component repeated-open regression `1/1`, complete App suite `125/125`, full Studio Vitest `375/375`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. Evidence covers stale success and failure suppression, independent resource keys, and integration wiring for out-of-order detail/output responses. Jobs reconciliation remains immediate after retry/reconciliation mutations. No PR, CI, deploy, or live evidence is claimed.
+- `PWA-PROJECT-LIST-ORDERING-04` local evidence: ordering helper `3/3`, complete App suite `124/124`, full Studio Vitest `374/374`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. Tests prove stale success suppression, stale failure suppression, newest failure visibility, and independent resource keys. One pre-commit run caught and prevented an accidental recursive helper implementation; the corrected implementation passed all repeated gates. No PR, CI, deploy, or live evidence is claimed.
+- `PWA-JOB-PROGRESS-POLLING-03` local evidence: focused polling Vitest `7/7` plus API abort diagnostics `6/6`; full Studio Vitest `371/371`; TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. Fake-timer evidence covers initial rejection, bounded exponential backoff, cadence reset, 15-second stalled-request abort, retry after timeout, reconciliation continuity, timer cleanup, in-flight abort, suppression of the exact intentional stop reason, and continued timeout-abort diagnostics. The first Vite attempt exposed an incomplete local pnpm link layout (`workbox-window` unresolved); an npm-compatible hoisted local `node_modules` layout fixed the environment without manifest/lockfile changes. No PR, CI, deploy, or live evidence is claimed.
+
 ## Current non-authority warning
 
 If this archive conflicts with `docs/project-spec.md`, `docs/delivery-plan.md`, `docs/architecture.md`, `docs/ci-cd-rules.md`, or the current user task, treat the current documents/task as authoritative and this archive as historical context only.
