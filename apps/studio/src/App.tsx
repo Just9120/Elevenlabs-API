@@ -286,6 +286,12 @@ function isRetryableLocalUploadCompletionFailure(err: unknown) {
         err.status >= 500))
   );
 }
+function isAmbiguousLocalUploadInitiationFailure(err: unknown) {
+  return (
+    err instanceof TypeError ||
+    (err instanceof ApiError && (err.status === 408 || err.status >= 500))
+  );
+}
 function localUploadHttpStatusCategory(status: number) {
   return status >= 100 && status <= 599
     ? (`${Math.floor(status / 100)}xx` as
@@ -296,13 +302,15 @@ function localUploadHttpStatusCategory(status: number) {
         | "5xx")
     : "unknown";
 }
-function reportLocalUploadPutFailure(status: number) {
+function reportLocalUploadPutFailure(status?: number) {
   emitPwaDiagnostic("PWA_API_REQUEST_FAILED", {
     boundary: "api_request",
     error_code: "api_request_failed",
     endpoint_group: "sources",
-    http_status_category: localUploadHttpStatusCategory(status),
-    retryable: status === 408 || status === 429 || status >= 500,
+    http_status_category:
+      status === undefined ? "unknown" : localUploadHttpStatusCategory(status),
+    retryable:
+      status === undefined || status === 408 || status === 429 || status >= 500,
   });
 }
 function localUploadPutFailureMessage(status: number) {
@@ -451,7 +459,9 @@ type JobMutationNotice = {
 type LocalUploadCompletionState =
   | { status: "uploaded"; source: Source }
   | { status: "pending" }
-  | { status: "unavailable" };type BatchSubmission = {
+  | { status: "unavailable" };
+
+type BatchSubmission = {
   signature: string;
   key: string;
   requestBody: BatchCreateRequest;
@@ -1159,6 +1169,55 @@ function PreparationPanel({
       setPickerBusy(false);
     }
   }
+  async function initiateLocalUpload(
+    originalFilename: string,
+    mimeType: string,
+    sizeBytes: number,
+  ) {
+    let bounded;
+    try {
+      bounded = await runBoundedRequest((signal) =>
+        csrfMutate<unknown>(
+          `/projects/${project.id}/sources/local-upload/initiate`,
+          localUploadCsrfRef.current,
+          (token) => {
+            localUploadCsrfRef.current = token;
+            onCsrf(token);
+          },
+          {
+            method: "POST",
+            body: JSON.stringify({
+              original_filename: originalFilename,
+              mime_type: mimeType,
+              size_bytes: sizeBytes,
+            }),
+            signal,
+          },
+        ),
+      );
+    } catch (err) {
+      if (!isAmbiguousLocalUploadInitiationFailure(err)) throw err;
+      onReloadSources(project.id);
+      throw new Error(
+        "Сервер не подтвердил подготовку загрузки. Список файлов обновлён; проверьте его перед новой попыткой.",
+        { cause: err },
+      );
+    }
+    if (bounded.status === "timed_out") {
+      onReloadSources(project.id);
+      throw new Error(
+        "Сервер не подтвердил подготовку загрузки. Список файлов обновлён; проверьте его перед новой попыткой.",
+      );
+    }
+    if (!isSafeLocalUploadInit(bounded.value, mimeType)) {
+      onReloadSources(project.id);
+      throw new Error(
+        "Сервер вернул небезопасный ответ для загрузки. Список файлов обновлён; повторите попытку позже.",
+      );
+    }
+    return bounded.value;
+  }
+
   async function uploadRowLocalSources(
     rowId: string,
     e: ChangeEvent<HTMLInputElement>,
@@ -1205,45 +1264,37 @@ function PreparationPanel({
           }));
           const expectedContentType =
             file.type || "application/octet-stream";
-          const initiatedRaw = await csrfMutate<unknown>(
-            `/projects/${project.id}/sources/local-upload/initiate`,
-            localUploadCsrfRef.current,
-            (token) => {
-              localUploadCsrfRef.current = token;
-              onCsrf(token);
-            },
-            {
-              method: "POST",
-              body: JSON.stringify({
-              original_filename: file.name,
-                mime_type: expectedContentType,
-                size_bytes: file.size,
-              }),
-            },
+          const initiated = await initiateLocalUpload(
+            file.name,
+            expectedContentType,
+            file.size,
           );
-          if (!isSafeLocalUploadInit(initiatedRaw, expectedContentType)) {
-            onReloadSources(project.id);
-            throw new Error(
-              "Сервер вернул небезопасный ответ для загрузки. Список файлов обновлён; повторите попытку позже.",
-            );
-          }
-          const initiated = initiatedRaw;
           setRowIntakeStatus((current) => ({
             ...current,
             [rowId]: `${file.name} — загрузка…`,
           }));
-          let put: Response;
+          let put: Response | null = null;
+          let putIsAmbiguous = false;
           try {
-            put = await fetch(initiated.upload.url, {
-              method: initiated.upload.method,
-              headers: initiated.upload.headers,
-              body: file,
-              cache: "no-store",
-              credentials: "omit",
-              redirect: "error",
-              referrerPolicy: "no-referrer",
-            });
+            const boundedPut = await runBoundedRequest((signal) =>
+              fetch(initiated.upload.url, {
+                method: initiated.upload.method,
+                headers: initiated.upload.headers,
+                body: file,
+                cache: "no-store",
+                credentials: "omit",
+                redirect: "error",
+                referrerPolicy: "no-referrer",
+                signal,
+              }),
+            );
+            if (boundedPut.status === "completed") put = boundedPut.value;
+            else putIsAmbiguous = true;
           } catch {
+            putIsAmbiguous = true;
+          }
+          if (putIsAmbiguous) {
+            reportLocalUploadPutFailure();
             setRowIntakeStatus((current) => ({
               ...current,
               [rowId]: `${file.name} — проверяем результат загрузки…`,
@@ -1256,6 +1307,9 @@ function PreparationPanel({
             successful.push(recovered);
             placeSourcesInRows(rowId, [recovered]);
             continue;
+          }
+          if (put === null) {
+            throw new Error("Не удалось загрузить файл во временное хранилище.");
           }
           if (!put.ok) {
             reportLocalUploadPutFailure(put.status);
