@@ -499,6 +499,23 @@ type LocalUploadNotice = LocalUploadOperation & {
   tone: "notice" | "error";
 };
 
+type GooglePickerOperationKind = "sources" | "folder:first" | "folder:second";
+type GooglePickerOperation = {
+  projectId: string;
+  panelId: string;
+  rowId: string;
+  kind: GooglePickerOperationKind;
+};
+type GooglePickerNotice = GooglePickerOperation & {
+  message: string;
+  tone: "notice" | "error";
+};
+type GooglePickerOutcome = Pick<GooglePickerNotice, "message" | "tone">;
+
+function googlePickerOperationKey(operation: GooglePickerOperation) {
+  return `${operation.projectId}:${operation.panelId}:${operation.rowId}:${operation.kind}`;
+}
+
 function localUploadOperationKey(operation: LocalUploadOperation) {
   return `${operation.projectId}:${operation.panelId}:${operation.rowId}`;
 }
@@ -519,8 +536,10 @@ function PreparationPanel({
   jobs,
   sources,
   googleConnection,
-  pickerBusy,
-  setPickerBusy,
+  activeGooglePicker,
+  googlePickerNotices,
+  beginGooglePicker,
+  finishGooglePicker,
   onLoadSources,
   onReloadSources,
   onReloadJobs,
@@ -548,8 +567,13 @@ function PreparationPanel({
   jobs: JobState;
   sources: typeof emptySourceState;
   googleConnection: GoogleConnection | null;
-  pickerBusy: boolean;
-  setPickerBusy: (busy: boolean) => void;
+  activeGooglePicker: GooglePickerOperation | null;
+  googlePickerNotices: Readonly<Record<string, GooglePickerNotice>>;
+  beginGooglePicker: (operation: GooglePickerOperation) => boolean;
+  finishGooglePicker: (
+    operation: GooglePickerOperation,
+    outcome?: GooglePickerOutcome,
+  ) => void;
   onLoadSources: (projectId: string) => void;
   onReloadSources: (projectId: string) => void;
   onReloadJobs: (projectId: string) => void;
@@ -583,6 +607,17 @@ function PreparationPanel({
   markBatchSubmissionAmbiguous: (key: string) => void;
   clearBatchSubmission: (key: string) => void;
 }) {
+  const googlePickerPanelId = useId();
+  const pickerBusy = activeGooglePicker !== null;
+  const detachedGooglePickerPending =
+    activeGooglePicker?.projectId === project.id &&
+    activeGooglePicker.panelId !== googlePickerPanelId;
+  const googlePickerBusyInOtherProject =
+    activeGooglePicker !== null && activeGooglePicker.projectId !== project.id;
+  const visibleGooglePickerNotices = Object.values(googlePickerNotices).filter(
+    (notice) =>
+      notice.projectId === project.id && notice.panelId !== googlePickerPanelId,
+  );
   const localUploadPanelId = useId();
   const projectPendingLocalUploads = pendingLocalUploads.filter(
     (operation) => operation.projectId === project.id,
@@ -1220,9 +1255,15 @@ function PreparationPanel({
     return orderedSources;
   }
   async function chooseRowDriveSources(rowId: string) {
-    if (pickerBusy || rowSourcePickerRef.current) return;
+    const operation: GooglePickerOperation = {
+      projectId: project.id,
+      panelId: googlePickerPanelId,
+      rowId,
+      kind: "sources",
+    };
+    if (rowSourcePickerRef.current || !beginGooglePicker(operation)) return;
     rowSourcePickerRef.current = true;
-    setPickerBusy(true);
+    let outcome: GooglePickerOutcome | undefined;
     setRowIntakeErrors((current) => ({ ...current, [rowId]: "" }));
     setRowIntakeStatus((current) => ({
       ...current,
@@ -1232,10 +1273,12 @@ function PreparationPanel({
       const session = await acquireGooglePickerSession();
       const result = await googlePicker.openGooglePicker("sources", session);
       if (result.action === "cancel") {
+        const message = "Выбор файлов отменён.";
         setRowIntakeStatus((current) => ({
           ...current,
-          [rowId]: "Выбор файлов отменён.",
+          [rowId]: message,
         }));
+        outcome = { message, tone: "notice" };
         return;
       }
       if (result.action === "error") {
@@ -1244,6 +1287,7 @@ function PreparationPanel({
           ...current,
           [rowId]: result.message,
         }));
+        outcome = { message: result.message, tone: "error" };
         return;
       }
       if (
@@ -1254,20 +1298,24 @@ function PreparationPanel({
             !isSupportedSourceMimeType(doc.mimeType, sourceUploadPolicy),
         )
       ) {
+        const message =
+          "В выборе есть файлы, не поддерживаемые текущими правилами.";
         setRowIntakeStatus((current) => ({ ...current, [rowId]: "" }));
         setRowIntakeErrors((current) => ({
           ...current,
-          [rowId]:
-            "В выборе есть файлы, не поддерживаемые текущими правилами.",
+          [rowId]: message,
         }));
+        outcome = { message, tone: "error" };
         return;
       }
       const fileIds = result.docs.map((doc) => doc.id);
       if (fileIds.length === 0) {
+        const message = "Google Picker не вернул файлы.";
         setRowIntakeStatus((current) => ({
           ...current,
-          [rowId]: "Google Picker не вернул файлы.",
+          [rowId]: message,
         }));
+        outcome = { message, tone: "error" };
         return;
       }
       const orderedSources = await createGooglePickerSourceBatch(fileIds);
@@ -1277,22 +1325,29 @@ function PreparationPanel({
         [rowId]: `Добавлено файлов: ${orderedSources.length}.`,
       }));
       onReloadSources(project.id);
+      outcome = {
+        message:
+          "Файлы Google Drive добавлены в проект. Выберите их в нужных строках заново.",
+        tone: "notice",
+      };
     } catch (err) {
       const pickerFailure = googlePickerFailureMessage(err);
+      const message =
+        pickerFailure ??
+        (err instanceof ApiError && err.status === 422
+          ? "Один или несколько файлов не поддерживаются. Выберите аудио, видео или OGG."
+          : err instanceof Error
+            ? err.message
+            : "Не удалось выбрать файлы Google Drive.");
       setRowIntakeStatus((current) => ({ ...current, [rowId]: "" }));
       setRowIntakeErrors((current) => ({
         ...current,
-        [rowId]:
-          pickerFailure ??
-          (err instanceof ApiError && err.status === 422
-            ? "Один или несколько файлов не поддерживаются. Выберите аудио, видео или OGG."
-            : err instanceof Error
-              ? err.message
-              : "Не удалось выбрать файлы Google Drive."),
+        [rowId]: message,
       }));
+      outcome = { message, tone: "error" };
     } finally {
       rowSourcePickerRef.current = false;
-      setPickerBusy(false);
+      finishGooglePicker(operation, outcome);
     }
   }
   async function initiateLocalUpload(
@@ -1518,14 +1573,17 @@ function PreparationPanel({
     rowId: string,
     target: "first" | "second" = "first",
   ) {
-    if (
-      googleConnection?.picker_ready !== true ||
-      pickerBusy ||
-      rowFolderPickerRef.current
-    )
+    if (googleConnection?.picker_ready !== true || rowFolderPickerRef.current)
       return;
+    const operation: GooglePickerOperation = {
+      projectId: project.id,
+      panelId: googlePickerPanelId,
+      rowId,
+      kind: target === "second" ? "folder:second" : "folder:first",
+    };
+    if (!beginGooglePicker(operation)) return;
     rowFolderPickerRef.current = true;
-    setPickerBusy(true);
+    let outcome: GooglePickerOutcome | undefined;
     setMessage("");
     try {
       const session = await acquireGooglePickerSession();
@@ -1533,14 +1591,20 @@ function PreparationPanel({
         "output-folder",
         session,
       );
-      if (result.action === "cancel") return;
+      if (result.action === "cancel") {
+        outcome = { message: "Выбор папки отменён.", tone: "notice" };
+        return;
+      }
       if (result.action === "error") {
         setMessage(result.message);
+        outcome = { message: result.message, tone: "error" };
         return;
       }
       const folderId = result.docs[0]?.id;
       if (!folderId) {
-        setMessage("Выберите одну папку Google Drive.");
+        const message = "Выберите одну папку Google Drive.";
+        setMessage(message);
+        outcome = { message, tone: "error" };
         return;
       }
       let boundedVerification;
@@ -1558,24 +1622,27 @@ function PreparationPanel({
           ),
         );
       } catch (err) {
-        setMessage(
+        const message =
           googlePickerFailureMessage(err) ??
-            (err instanceof ApiError && err.status === 422
-              ? "Выбранная папка Google Drive недоступна для записи."
-              : "Не удалось проверить папку результата. Повторите попытку."),
-        );
+          (err instanceof ApiError && err.status === 422
+            ? "Выбранная папка Google Drive недоступна для записи."
+            : "Не удалось проверить папку результата. Повторите попытку.");
+        setMessage(message);
+        outcome = { message, tone: "error" };
         return;
       }
       if (boundedVerification.status === "timed_out") {
-        setMessage(
-          "Проверка папки результата заняла слишком много времени. Повторите выбор.",
-        );
+        const message =
+          "Проверка папки результата заняла слишком много времени. Повторите выбор.";
+        setMessage(message);
+        outcome = { message, tone: "error" };
         return;
       }
       if (!isExpectedVerifiedGooglePickerFolder(boundedVerification.value)) {
-        setMessage(
-          "Сервер вернул некорректные данные папки результата. Повторите выбор позже.",
-        );
+        const message =
+          "Сервер вернул некорректные данные папки результата. Повторите выбор позже.";
+        setMessage(message);
+        outcome = { message, tone: "error" };
         return;
       }
       const verified = boundedVerification.value;
@@ -1590,16 +1657,22 @@ function PreparationPanel({
           ? { second_output_folder: outputFolder }
           : { output_folder: outputFolder },
       );
+      outcome = {
+        message:
+          "Папка Google Drive проверена, но прежняя строка больше не открыта. Выберите папку для строки повторно.",
+        tone: "notice",
+      };
     } catch (err) {
-      setMessage(
+      const message =
         googlePickerFailureMessage(err) ??
         (err instanceof Error
           ? err.message
-          : "Не удалось проверить папку результата."),
-      );
+          : "Не удалось проверить папку результата.");
+      setMessage(message);
+      outcome = { message, tone: "error" };
     } finally {
       rowFolderPickerRef.current = false;
-      setPickerBusy(false);
+      finishGooglePicker(operation, outcome);
     }
   }
   async function performBatchCreation(
@@ -2393,6 +2466,27 @@ function PreparationPanel({
   );
   return (
     <section className="preparation" aria-label={`Подготовка ${project.title}`}>
+      {detachedGooglePickerPending && (
+        <p className="muted" role="status">
+          Выбор в Google Drive для этого проекта ещё выполняется. Дождитесь
+          завершения перед новой попыткой.
+        </p>
+      )}
+      {googlePickerBusyInOtherProject && (
+        <p className="muted" role="status">
+          Google Picker занят операцией в другом проекте. Дождитесь её
+          завершения.
+        </p>
+      )}
+      {visibleGooglePickerNotices.map((notice) => (
+        <p
+          key={googlePickerOperationKey(notice)}
+          className={notice.tone}
+          role="status"
+        >
+          {notice.message}
+        </p>
+      ))}
       {detachedLocalUploadPending && (
         <p className="muted" role="status">
           Загрузка файлов для этого проекта ещё выполняется. Дождитесь
@@ -3433,7 +3527,12 @@ function ProjectsPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
-  const [activePicker, setActivePicker] = useState(false);
+  const activeGooglePickerRef = useRef<GooglePickerOperation | null>(null);
+  const [activeGooglePicker, setActiveGooglePicker] =
+    useState<GooglePickerOperation | null>(null);
+  const [googlePickerNotices, setGooglePickerNotices] = useState<
+    Record<string, GooglePickerNotice>
+  >({});
   const [transcriptionMode, setTranscriptionMode] = useState<"batch" | "live">(
     "batch",
   );
@@ -3601,8 +3700,37 @@ function ProjectsPage({
     if (notice)
       setJobMutationNotices((current) => ({ ...current, [key]: notice }));
   };
-  const setPickerBusy = (busy: boolean) => {
-    setActivePicker(busy);
+  const beginGooglePicker = (operation: GooglePickerOperation) => {
+    if (activeGooglePickerRef.current) return false;
+    activeGooglePickerRef.current = operation;
+    setActiveGooglePicker(operation);
+    setGooglePickerNotices((current) => {
+      if (!current[operation.projectId]) return current;
+      const next = { ...current };
+      delete next[operation.projectId];
+      return next;
+    });
+    return true;
+  };
+  const finishGooglePicker = (
+    operation: GooglePickerOperation,
+    outcome?: GooglePickerOutcome,
+  ) => {
+    const activeOperation = activeGooglePickerRef.current;
+    if (
+      !activeOperation ||
+      googlePickerOperationKey(activeOperation) !==
+        googlePickerOperationKey(operation)
+    )
+      return;
+    activeGooglePickerRef.current = null;
+    setActiveGooglePicker(null);
+    if (outcome) {
+      setGooglePickerNotices((current) => ({
+        ...current,
+        [operation.projectId]: { ...operation, ...outcome },
+      }));
+    }
   };
   const [googleConnection, setGoogleConnection] =
     useState<GoogleConnection | null>(null);
@@ -4007,8 +4135,10 @@ function ProjectsPage({
                   jobs={selectedJobs}
                   sources={selectedSources}
                   googleConnection={googleConnection}
-                  pickerBusy={activePicker}
-                  setPickerBusy={setPickerBusy}
+                  activeGooglePicker={activeGooglePicker}
+                  googlePickerNotices={googlePickerNotices}
+                  beginGooglePicker={beginGooglePicker}
+                  finishGooglePicker={finishGooglePicker}
                   onLoadSources={loadSources}
                   onReloadSources={loadSources}
                   onReloadJobs={loadJobs}

@@ -6225,6 +6225,217 @@ describe("Studio PWA", () => {
     expect(document.body.textContent).not.toContain("raw-private-folder");
   });
 
+  it("keeps Google Picker ownership and safe outcomes across project switches", async () => {
+    const picker = installFakeGooglePicker();
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const sourceResolvers: Array<(response: Response) => void> = [];
+    const folderResolvers: Array<(response: Response) => void> = [];
+    let sourceMutationCalls = 0;
+    let folderVerificationCalls = 0;
+    let sourceReadsAfterMutation = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/projects" && !init?.method) {
+        return json({
+          projects: [
+            {
+              id: "p1",
+              title: "Research calls",
+              description: "Customer interview notes",
+              created_at: "2026-07-01T00:00:00",
+              updated_at: "2026-07-01T00:00:00",
+              archived_at: null,
+              output_drive_folder_id: null,
+              output_drive_folder_url: null,
+              output_drive_folder_name: null,
+            },
+            {
+              id: "p2",
+              title: "Project Two",
+              description: null,
+              created_at: "2026-07-02T00:00:00",
+              updated_at: "2026-07-02T00:00:00",
+              archived_at: null,
+              output_drive_folder_id: null,
+              output_drive_folder_url: null,
+              output_drive_folder_name: null,
+            },
+          ],
+        });
+      }
+      if (url === "/api/projects/p2/sources" && !init?.method)
+        return json({ sources: [] });
+      if (url === "/api/projects/p2/jobs" && !init?.method)
+        return json({ jobs: [] });
+      if (
+        url === "/api/projects/p1/sources" &&
+        !init?.method &&
+        sourceMutationCalls > 0
+      ) {
+        sourceReadsAfterMutation += 1;
+      }
+      if (
+        url === "/api/projects/p1/sources/google-picker" &&
+        init?.method === "POST"
+      ) {
+        sourceMutationCalls += 1;
+        return new Promise<Response>((resolve) => {
+          sourceResolvers.push(resolve);
+        });
+      }
+      if (
+        url === "/api/projects/p1/output-folders/google-picker/verify" &&
+        init?.method === "POST"
+      ) {
+        folderVerificationCalls += 1;
+        return new Promise<Response>((resolve) => {
+          folderResolvers.push(resolve);
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+    const sourceButton = await screen.findByRole("button", {
+      name: "Выбрать файлы Google Drive",
+    });
+    await userEvent.click(sourceButton);
+    await picker.loadScript();
+    await picker.waitForCallback();
+    picker.trigger({ action: "picked", docs: [{ id: "file-remount" }] });
+    await waitFor(() => expect(sourceMutationCalls).toBe(1));
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Project Two/ }),
+    );
+    expect(
+      await screen.findByText(
+        "Google Picker занят операцией в другом проекте. Дождитесь её завершения.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Выбрать файлы Google Drive" }),
+    ).toBeDisabled();
+    expect(
+      screen.queryByText(/Файлы Google Drive добавлены в проект/),
+    ).not.toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Research calls/ }),
+    );
+    expect(
+      await screen.findByText(
+        "Выбор в Google Drive для этого проекта ещё выполняется. Дождитесь завершения перед новой попыткой.",
+      ),
+    ).toBeInTheDocument();
+    const restoredSourceButton = screen.getByRole("button", {
+      name: "Выбрать файлы Google Drive",
+    });
+    expect(restoredSourceButton).toBeDisabled();
+    restoredSourceButton.click();
+    expect(sourceMutationCalls).toBe(1);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Project Two/ }),
+    );
+    await act(async () => {
+      sourceResolvers[0]?.(
+        await json({
+          sources: [
+            {
+              id: "source-remount",
+              project_id: "p1",
+              source_type: "google_drive",
+              original_filename: "remount-source.mp4",
+              mime_type: "video/mp4",
+              size_bytes: 10,
+              drive_file_url: "https://drive.example/file-remount",
+              upload_status: "uploaded",
+              uploaded_at: "2026-07-01T00:00:00Z",
+              expires_at: null,
+              deleted_at: null,
+              delete_reason: null,
+              created_at: "2026-07-01T00:00:00Z",
+              updated_at: "2026-07-01T00:00:00Z",
+            },
+          ],
+        }),
+      );
+    });
+    await waitFor(() => expect(sourceReadsAfterMutation).toBeGreaterThan(0));
+    expect(
+      screen.queryByText(
+        "Файлы Google Drive добавлены в проект. Выберите их в нужных строках заново.",
+      ),
+    ).not.toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Research calls/ }),
+    );
+    expect(
+      await screen.findByText(
+        "Файлы Google Drive добавлены в проект. Выберите их в нужных строках заново.",
+      ),
+    ).toBeInTheDocument();
+    const folderButton = screen.getByRole("button", {
+      name: "Выбрать папку результата для строки 1",
+    });
+    await userEvent.click(folderButton);
+    await waitFor(() =>
+      expect(
+        picker.builderCalls.filter((call) => call.method === "setCallback"),
+      ).toHaveLength(2),
+    );
+    expect(
+      screen.queryByText(
+        "Файлы Google Drive добавлены в проект. Выберите их в нужных строках заново.",
+      ),
+    ).not.toBeInTheDocument();
+    picker.trigger({ action: "picked", docs: [{ id: "folder-remount" }] });
+    await waitFor(() => expect(folderVerificationCalls).toBe(1));
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Project Two/ }),
+    );
+    expect(
+      await screen.findByText(
+        "Google Picker занят операцией в другом проекте. Дождитесь её завершения.",
+      ),
+    ).toBeInTheDocument();
+    await act(async () => {
+      folderResolvers[0]?.(
+        await json({
+          name: "Verified remount folder",
+          web_view_url: "https://drive.example/folder-remount",
+        }),
+      );
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Выбрать файлы Google Drive" }),
+      ).toBeEnabled(),
+    );
+    expect(
+      screen.queryByText(/Папка Google Drive проверена/),
+    ).not.toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Research calls/ }),
+    );
+    expect(
+      await screen.findByText(
+        "Папка Google Drive проверена, но прежняя строка больше не открыта. Выберите папку для строки повторно.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "Выбрать папку результата для строки 1",
+      }),
+    ).toBeEnabled();
+    expect(sourceMutationCalls).toBe(1);
+    expect(folderVerificationCalls).toBe(1);
+  });
   it("shows an actionable safe message when Picker session requires reconnect", async () => {
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = baseFetch.getMockImplementation();
