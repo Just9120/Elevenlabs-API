@@ -203,6 +203,41 @@ type Project = {
   updated_at: string;
   archived_at: string | null;
 };
+function isExpectedProject(candidate: unknown): candidate is Project {
+  if (!candidate || typeof candidate !== "object") return false;
+  const project = candidate as Partial<Project>;
+  const nullableString = (value: unknown) =>
+    value === null || typeof value === "string";
+  const nullableDate = (value: unknown) =>
+    value === null ||
+    (typeof value === "string" && Number.isFinite(Date.parse(value)));
+  return (
+    typeof project.id === "string" &&
+    project.id.length > 0 &&
+    typeof project.title === "string" &&
+    project.title.length > 0 &&
+    nullableString(project.description) &&
+    nullableString(project.output_drive_folder_id) &&
+    nullableString(project.output_drive_folder_url) &&
+    nullableString(project.output_drive_folder_name) &&
+    typeof project.created_at === "string" &&
+    Number.isFinite(Date.parse(project.created_at)) &&
+    typeof project.updated_at === "string" &&
+    Number.isFinite(Date.parse(project.updated_at)) &&
+    nullableDate(project.archived_at)
+  );
+}
+function parseProjectCollection(candidate: unknown): Project[] | null {
+  if (!candidate || typeof candidate !== "object") return null;
+  const projects = (candidate as { projects?: unknown }).projects;
+  if (!Array.isArray(projects) || !projects.every(isExpectedProject)) {
+    return null;
+  }
+  if (new Set(projects.map((project) => project.id)).size !== projects.length) {
+    return null;
+  }
+  return projects;
+}
 type UploadInit = {
   source_id: string;
   upload: {
@@ -436,6 +471,7 @@ function isExpectedCompletedLocalSource(
 const ELEVENLABS_CREDENTIAL_SESSION_KEY = "studio.elevenlabsCredentialId";
 const JOB_DETAIL_REQUEST_TIMEOUT_MS = 15_000;
 const PROJECT_COLLECTION_REQUEST_TIMEOUT_MS = 15_000;
+const PROJECT_MUTATION_REQUEST_TIMEOUT_MS = 20_000;
 async function bootstrapSession(): Promise<{
   user: User;
   csrf: string;
@@ -483,6 +519,24 @@ type JobMutationNotice = {
   message: string;
   tone: "notice" | "error";
 };
+type ProjectMutationKind = "create" | "update" | "archive";
+type ProjectMutationOperation = {
+  kind: ProjectMutationKind;
+  projectId: string | null;
+};
+type ProjectMutationNotice = ProjectMutationOperation & {
+  message: string;
+  tone: "notice" | "error";
+};
+function projectMutationKey(operation: ProjectMutationOperation) {
+  return `${operation.kind}:${operation.projectId ?? "new"}`;
+}
+function isAmbiguousProjectMutationFailure(error: unknown) {
+  return (
+    error instanceof TypeError ||
+    (error instanceof ApiError && (error.status === 408 || error.status >= 500))
+  );
+}
 type LocalUploadCompletionState =
   | { status: "uploaded"; source: Source }
   | { status: "pending" }
@@ -3527,6 +3581,13 @@ function ProjectsPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
+  const pendingProjectMutationsRef = useRef(new Set<string>());
+  const [pendingProjectMutations, setPendingProjectMutations] = useState<
+    Set<string>
+  >(() => new Set());
+  const [projectMutationNotices, setProjectMutationNotices] = useState<
+    Record<string, ProjectMutationNotice>
+  >({});
   const activeGooglePickerRef = useRef<GooglePickerOperation | null>(null);
   const [activeGooglePicker, setActiveGooglePicker] =
     useState<GooglePickerOperation | null>(null);
@@ -3732,32 +3793,92 @@ function ProjectsPage({
       }));
     }
   };
+  const beginProjectMutation = (operation: ProjectMutationOperation) => {
+    const key = projectMutationKey(operation);
+    if (pendingProjectMutationsRef.current.has(key)) return false;
+    pendingProjectMutationsRef.current.add(key);
+    setPendingProjectMutations(new Set(pendingProjectMutationsRef.current));
+    setProjectMutationNotices((current) => {
+      if (!current[key]) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+    return true;
+  };
+  const finishProjectMutation = (
+    operation: ProjectMutationOperation,
+    notice?: ProjectMutationNotice,
+  ) => {
+    const key = projectMutationKey(operation);
+    if (!pendingProjectMutationsRef.current.delete(key)) return;
+    setPendingProjectMutations(new Set(pendingProjectMutationsRef.current));
+    if (notice) {
+      setProjectMutationNotices((current) => ({
+        ...current,
+        [key]: notice,
+      }));
+    }
+  };
   const [googleConnection, setGoogleConnection] =
     useState<GoogleConnection | null>(null);
-  const load = () => {
+  const load = async ({ reportFailure = true } = {}): Promise<
+    Project[] | null
+  > => {
+    let observed: Project[] | null = null;
     setLoading(true);
-    setError("");
-    api<{ projects: Project[] }>("/projects")
-      .then((r) => {
-        setProjects(r.projects);
-        setSelectedProjectId((current) => {
-          if (current && r.projects.some((project) => project.id === current))
-            return current;
-          return requestedProjectId &&
-            r.projects.some((project) => project.id === requestedProjectId)
-            ? requestedProjectId
-            : (r.projects[0]?.id ?? null);
+    if (reportFailure) setError("");
+    await settleLatestRequest(
+      requestEpochsRef.current,
+      "projects",
+      async (signal) => {
+        const candidate = await api<unknown>("/projects", {
+          signal,
+          ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
         });
-        if (r.projects.length === 0) setCreateOpen(true);
-      })
-      .catch((err) =>
-        setError(
-          err instanceof Error ? err.message : "Не удалось загрузить проекты.",
-        ),
-      )
-      .finally(() => setLoading(false));
+        const parsed = parseProjectCollection(candidate);
+        if (parsed === null) throw new Error("invalid_projects_response");
+        return parsed;
+      },
+      (nextProjects) => {
+        observed = nextProjects;
+        setProjects(nextProjects);
+        setSelectedProjectId((current) => {
+          if (
+            current &&
+            nextProjects.some((project) => project.id === current)
+          ) {
+            return current;
+          }
+          return requestedProjectId &&
+            nextProjects.some((project) => project.id === requestedProjectId)
+            ? requestedProjectId
+            : (nextProjects[0]?.id ?? null);
+        });
+        if (nextProjects.length === 0) setCreateOpen(true);
+        setLoading(false);
+        setError("");
+      },
+      (loadError) => {
+        if (reportFailure) {
+          setError(
+            loadError instanceof ApiError
+              ? loadError.message
+              : "Не удалось загрузить проекты.",
+          );
+        }
+        setLoading(false);
+      },
+      {
+        controllers: requestControllersRef.current,
+        timeoutMs: PROJECT_COLLECTION_REQUEST_TIMEOUT_MS,
+      },
+    );
+    return observed;
   };
-  useEffect(load, []);
+  useEffect(() => {
+    void load();
+  }, []);
   useEffect(
     () => () =>
       cancelLatestRequests(
@@ -3885,65 +4006,259 @@ function ProjectsPage({
   };
   async function save(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    const operation: ProjectMutationOperation = {
+      kind: "create",
+      projectId: null,
+    };
+    if (!beginProjectMutation(operation)) return;
+    let notice: ProjectMutationNotice | undefined;
     setError("");
     const form = e.currentTarget;
     const fd = new FormData(form);
+    const title = String(fd.get("project_title") ?? "");
+    const description = String(fd.get("project_description") ?? "");
+    const reconcileAmbiguousCreate = async () => {
+      const observed = await load({ reportFailure: false });
+      notice = {
+        ...operation,
+        message: observed
+          ? "Сервер не подтвердил создание проекта. Список проектов обновлён; проверьте его перед повторной попыткой."
+          : "Сервер не подтвердил создание проекта, а обновить список не удалось. Не повторяйте отправку, пока не проверите проекты после обновления страницы.",
+        tone: "error",
+      };
+    };
     try {
-      const created = await csrfMutate<Project>("/projects", csrf, onCsrf, {
-        method: "POST",
-        body: JSON.stringify({
-          title: fd.get("project_title"),
-          description: fd.get("project_description"),
-        }),
-      });
+      const request = await runBoundedRequest(
+        (signal) =>
+          csrfMutate<unknown>("/projects", csrf, onCsrf, {
+            method: "POST",
+            signal,
+            body: JSON.stringify({ title, description }),
+          }),
+        PROJECT_MUTATION_REQUEST_TIMEOUT_MS,
+      );
+      if (request.status === "timed_out") {
+        await reconcileAmbiguousCreate();
+        return;
+      }
+      const created = request.value;
+      if (!isExpectedProject(created) || created.archived_at !== null) {
+        await reconcileAmbiguousCreate();
+        return;
+      }
       form.reset();
       setCreateOpen(false);
+      setProjects((current) => [
+        created,
+        ...current.filter((project) => project.id !== created.id),
+      ]);
       setSelectedProjectId(created.id);
-      load();
+      await load({ reportFailure: false });
+      notice = {
+        ...operation,
+        message: "Проект создан.",
+        tone: "notice",
+      };
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Не удалось создать проект.",
-      );
+      if (isAmbiguousProjectMutationFailure(err)) {
+        await reconcileAmbiguousCreate();
+      } else {
+        notice = {
+          ...operation,
+          message: "Не удалось создать проект. Проверьте данные и повторите.",
+          tone: "error",
+        };
+      }
+    } finally {
+      finishProjectMutation(operation, notice);
     }
   }
   async function update(e: FormEvent<HTMLFormElement>, id: string) {
     e.preventDefault();
+    const operation: ProjectMutationOperation = {
+      kind: "update",
+      projectId: id,
+    };
+    if (!beginProjectMutation(operation)) return;
+    let notice: ProjectMutationNotice | undefined;
     setError("");
     const fd = new FormData(e.currentTarget);
+    const title = String(fd.get("project_title") ?? "");
+    const description = String(fd.get("project_description") ?? "");
+    const beforeUpdate = projects.find((project) => project.id === id) ?? null;
+    const requestedStateChanged =
+      beforeUpdate !== null &&
+      (beforeUpdate.title !== title ||
+        (beforeUpdate.description ?? "") !== description);
+    const reconcileUpdate = async () => {
+      const observed = await load({ reportFailure: false });
+      const confirmed =
+        observed?.some(
+          (project) =>
+            project.id === id &&
+            project.title === title &&
+            (project.description ?? "") === description &&
+            (requestedStateChanged ||
+              (beforeUpdate !== null &&
+                project.updated_at !== beforeUpdate.updated_at)),
+        ) === true;
+      if (confirmed) setEditing((current) => (current === id ? null : current));
+      notice = {
+        ...operation,
+        message: confirmed
+          ? "Сервер не ответил ожидаемым образом, но сохранение подтверждено по актуальному списку проектов."
+          : observed
+            ? "Сервер не подтвердил сохранение. Список проектов обновлён; проверьте проект перед повторной попыткой."
+            : "Сервер не подтвердил сохранение, а обновить список проектов не удалось. Обновите страницу перед повторной попыткой.",
+        tone: confirmed ? "notice" : "error",
+      };
+    };
     try {
-      await csrfMutate<Project>(`/projects/${id}`, csrf, onCsrf, {
-        method: "PATCH",
-        body: JSON.stringify({
-          title: fd.get("project_title"),
-          description: fd.get("project_description"),
-        }),
-      });
-      setEditing(null);
-      load();
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Не удалось сохранить проект.",
+      const request = await runBoundedRequest(
+        (signal) =>
+          csrfMutate<unknown>(`/projects/${id}`, csrf, onCsrf, {
+            method: "PATCH",
+            signal,
+            body: JSON.stringify({ title, description }),
+          }),
+        PROJECT_MUTATION_REQUEST_TIMEOUT_MS,
       );
+      if (request.status === "timed_out") {
+        await reconcileUpdate();
+        return;
+      }
+      const updated = request.value;
+      if (
+        !isExpectedProject(updated) ||
+        updated.id !== id ||
+        updated.archived_at !== null
+      ) {
+        await reconcileUpdate();
+        return;
+      }
+      setProjects((current) =>
+        current.map((project) => (project.id === id ? updated : project)),
+      );
+      setEditing(null);
+      await load({ reportFailure: false });
+      notice = {
+        ...operation,
+        message: "Изменения проекта сохранены.",
+        tone: "notice",
+      };
+    } catch (err) {
+      if (isAmbiguousProjectMutationFailure(err)) {
+        await reconcileUpdate();
+      } else {
+        notice = {
+          ...operation,
+          message: "Не удалось сохранить проект. Проверьте данные и повторите.",
+          tone: "error",
+        };
+      }
+    } finally {
+      finishProjectMutation(operation, notice);
     }
   }
   async function archive(id: string) {
+    const operation: ProjectMutationOperation = {
+      kind: "archive",
+      projectId: id,
+    };
+    if (!beginProjectMutation(operation)) return;
+    let notice: ProjectMutationNotice | undefined;
     setError("");
+    const reconcileArchive = async () => {
+      const observed = await load({ reportFailure: false });
+      const confirmed =
+        observed !== null &&
+        !observed.some((project) => project.id === operation.projectId);
+      notice = {
+        ...operation,
+        message: confirmed
+          ? "Архивация подтверждена по актуальному списку проектов."
+          : observed
+            ? "Сервер не подтвердил архивацию. Проект остаётся в актуальном списке; проверьте его перед повторной попыткой."
+            : "Сервер не подтвердил архивацию, а обновить список проектов не удалось. Обновите страницу перед повторной попыткой.",
+        tone: confirmed ? "notice" : "error",
+      };
+    };
     try {
-      await csrfMutate<{ ok: boolean }>(
-        `/projects/${id}/archive`,
-        csrf,
-        onCsrf,
-        { method: "POST" },
+      const request = await runBoundedRequest(
+        (signal) =>
+          csrfMutate<unknown>(
+            `/projects/${id}/archive`,
+            csrf,
+            onCsrf,
+            { method: "POST", signal },
+          ),
+        PROJECT_MUTATION_REQUEST_TIMEOUT_MS,
       );
-      load();
+      if (request.status === "timed_out") {
+        await reconcileArchive();
+        return;
+      }
+      const response = request.value;
+      if (
+        !response ||
+        typeof response !== "object" ||
+        (response as { ok?: unknown }).ok !== true
+      ) {
+        await reconcileArchive();
+        return;
+      }
+      setProjects((current) =>
+        current.filter((project) => project.id !== id),
+      );
+      setSelectedProjectId((current) =>
+        current === id
+          ? (projects.find((project) => project.id !== id)?.id ?? null)
+          : current,
+      );
+      setEditing((current) => (current === id ? null : current));
+      await load({ reportFailure: false });
+      notice = {
+        ...operation,
+        message: "Проект архивирован.",
+        tone: "notice",
+      };
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Не удалось архивировать проект.",
-      );
+      if (isAmbiguousProjectMutationFailure(err)) {
+        await reconcileArchive();
+      } else {
+        notice = {
+          ...operation,
+          message: "Не удалось архивировать проект. Обновите список и повторите.",
+          tone: "error",
+        };
+      }
+    } finally {
+      finishProjectMutation(operation, notice);
     }
   }
   const selectedProject =
     projects.find((project) => project.id === selectedProjectId) ?? null;
+  const createMutationKey = projectMutationKey({
+    kind: "create",
+    projectId: null,
+  });
+  const createPending = pendingProjectMutations.has(createMutationKey);
+  const createNotice = projectMutationNotices[createMutationKey];
+  const updatePending = selectedProject
+    ? pendingProjectMutations.has(
+        projectMutationKey({ kind: "update", projectId: selectedProject.id }),
+      )
+    : false;
+  const archivePending = selectedProject
+    ? pendingProjectMutations.has(
+        projectMutationKey({ kind: "archive", projectId: selectedProject.id }),
+      )
+    : false;
+  const selectedProjectMutationNotices = selectedProject
+    ? Object.entries(projectMutationNotices).filter(
+        ([, notice]) => notice.projectId === selectedProject.id,
+      )
+    : [];
   const showCreate = createOpen || projects.length === 0;
   const selectedSources = selectedProject
     ? (sources[selectedProject.id] ?? emptySourceState)
@@ -3976,6 +4291,8 @@ function ProjectsPage({
           className="primary"
           type="button"
           aria-expanded={showCreate}
+          aria-busy={createPending || undefined}
+          disabled={createPending}
           onClick={() => {
             onRequestedProjectsViewHandled();
             setCreateOpen((v) => !v);
@@ -3985,7 +4302,11 @@ function ProjectsPage({
         </button>
       </header>
       {showCreate && (
-        <form className="card project-form" onSubmit={save}>
+        <form
+          className="card project-form"
+          aria-busy={createPending || undefined}
+          onSubmit={save}
+        >
           <h2>Новый проект</h2>
           <label>
             Название проекта
@@ -3996,11 +4317,29 @@ function ProjectsPage({
             <input name="project_description" maxLength={2000} />
           </label>
           <div className="actions">
-            <button className="primary">Создать</button>
-            <button type="button" onClick={() => setCreateOpen(false)}>
+            <button
+              className="primary"
+              aria-busy={createPending || undefined}
+              disabled={createPending}
+            >
+              {createPending ? "Создание…" : "Создать"}
+            </button>
+            <button
+              type="button"
+              disabled={createPending}
+              onClick={() => setCreateOpen(false)}
+            >
               Отмена
             </button>
           </div>
+          {createNotice && (
+            <p
+              className={createNotice.tone}
+              role={createNotice.tone === "error" ? "alert" : "status"}
+            >
+              {createNotice.message}
+            </p>
+          )}
         </form>
       )}
       {loading && <p role="status">Загрузка проектов…</p>}
@@ -4034,10 +4373,21 @@ function ProjectsPage({
         </section>
         <div className="project-detail">
           {selectedProject ? (
-            <article className="card workspace-card">
+            <>
+              {selectedProjectMutationNotices.map(([key, notice]) => (
+                <p
+                  key={key}
+                  className={notice.tone}
+                  role={notice.tone === "error" ? "alert" : "status"}
+                >
+                  {notice.message}
+                </p>
+              ))}
+              <article className="card workspace-card">
               {editing === selectedProject.id ? (
                 <form
                   className="project-edit compact"
+                  aria-busy={updatePending || undefined}
                   onSubmit={(e) => update(e, selectedProject.id)}
                 >
                   <label>
@@ -4058,8 +4408,18 @@ function ProjectsPage({
                     />
                   </label>
                   <div className="actions">
-                    <button className="primary">Сохранить</button>
-                    <button type="button" onClick={() => setEditing(null)}>
+                    <button
+                      className="primary"
+                      aria-busy={updatePending || undefined}
+                      disabled={updatePending}
+                    >
+                      {updatePending ? "Сохранение…" : "Сохранить"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={updatePending}
+                      onClick={() => setEditing(null)}
+                    >
                       Отмена
                     </button>
                   </div>
@@ -4081,6 +4441,7 @@ function ProjectsPage({
                   <div className="actions">
                     <button
                       type="button"
+                      disabled={archivePending}
                       onClick={() => setEditing(selectedProject.id)}
                     >
                       Редактировать
@@ -4088,9 +4449,11 @@ function ProjectsPage({
                     <button
                       className="danger"
                       type="button"
+                      aria-busy={archivePending || undefined}
+                      disabled={archivePending}
                       onClick={() => archive(selectedProject.id)}
                     >
-                      Архивировать
+                      {archivePending ? "Архивация…" : "Архивировать"}
                     </button>
                   </div>
                 </header>
@@ -4193,6 +4556,7 @@ function ProjectsPage({
                 />
               </div>
             </article>
+            </>
           ) : (
             <p className="notice">Выберите проект.</p>
           )}

@@ -2935,6 +2935,241 @@ describe("Studio PWA", () => {
     );
   });
 
+  it("bounds a stalled project-list read and exposes a safe retryable error", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const projectSignals: AbortSignal[] = [];
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/projects" && !init?.method) {
+        const signal = init?.signal;
+        if (!signal) throw new Error("project-list signal is missing");
+        projectSignals.push(signal);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 15_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      renderApp();
+      await openProjectsPage();
+      expect(
+        await screen.findByText("Не удалось загрузить проекты."),
+      ).toBeInTheDocument();
+      expect(projectSignals).toHaveLength(1);
+      expect(projectSignals[0]?.aborted).toBe(true);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("bounds and deduplicates project creation without losing the draft", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const createSignals: AbortSignal[] = [];
+    let projectReads = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/projects" && !init?.method) projectReads += 1;
+      if (url === "/api/projects" && init?.method === "POST") {
+        const signal = init.signal;
+        if (!signal) throw new Error("project-create signal is missing");
+        createSignals.push(signal);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+    await screen.findByRole("heading", { name: "Research calls" });
+    await userEvent.click(screen.getByRole("button", { name: "Новый проект" }));
+    const title = await screen.findByLabelText("Название проекта");
+    const description = screen.getByLabelText("Описание");
+    await userEvent.type(title, "Draft survives timeout");
+    await userEvent.type(description, "Do not reset this draft");
+    const form = title.closest("form");
+    if (!form) throw new Error("project-create form is missing");
+    const readsBeforeCreate = projectReads;
+    vi.useFakeTimers();
+    try {
+      fireEvent.submit(form);
+      fireEvent.submit(form);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(createSignals).toHaveLength(1);
+      expect(
+        screen.getByRole("button", { name: "Создание…" }),
+      ).toBeDisabled();
+      expect(
+        screen.getByRole("button", { name: "Создание…" }),
+      ).toHaveAttribute("aria-busy", "true");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+      vi.useRealTimers();
+      expect(
+        await screen.findByText(
+          "Сервер не подтвердил создание проекта. Список проектов обновлён; проверьте его перед повторной попыткой.",
+        ),
+      ).toBeInTheDocument();
+      expect(createSignals[0]?.aborted).toBe(true);
+      expect(projectReads).toBe(readsBeforeCreate + 1);
+      expect(title).toHaveValue("Draft survives timeout");
+      expect(description).toHaveValue("Do not reset this draft");
+      expect(screen.getByRole("button", { name: "Создать" })).toBeEnabled();
+      expect(
+        baseFetch.mock.calls.filter(
+          ([url, init]) =>
+            url === "/api/projects" && init?.method === "POST",
+        ),
+      ).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps an ambiguous project update owned by its project across a switch", async () => {
+    installFocusedOutputFixture({ includeSecondProject: true });
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let resolveUpdate: ((response: Response) => void) | undefined;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/projects/p1" && init?.method === "PATCH") {
+        return new Promise<Response>((resolve) => {
+          resolveUpdate = resolve;
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+    await screen.findByRole("heading", { name: "Research calls" });
+    await userEvent.click(screen.getByRole("button", { name: "Редактировать" }));
+    const title = screen.getByDisplayValue("Research calls");
+    await userEvent.clear(title);
+    await userEvent.type(title, "Ambiguous rename");
+    const form = title.closest("form");
+    if (!form) throw new Error("project-update form is missing");
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+    await waitFor(() => expect(resolveUpdate).toBeDefined());
+    expect(
+      screen.getByRole("button", { name: "Сохранение…" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Сохранение…" }),
+    ).toHaveAttribute("aria-busy", "true");
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          url === "/api/projects/p1" && init?.method === "PATCH",
+      ),
+    ).toHaveLength(1);
+
+    await userEvent.click(screen.getByRole("button", { name: /Project Two/ }));
+    expect(
+      await screen.findByRole("heading", { name: "Project Two" }),
+    ).toBeInTheDocument();
+    const failedResponse = await json(
+      { detail: "raw-private-project-update-failure" },
+      false,
+      503,
+    );
+    await act(async () => resolveUpdate?.(failedResponse));
+    await waitFor(() =>
+      expect(
+        baseFetch.mock.calls.filter(
+          ([url, init]) => url === "/api/projects" && !init?.method,
+        ).length,
+      ).toBeGreaterThan(1),
+    );
+    expect(
+      screen.queryByText(/Сервер не подтвердил сохранение/),
+    ).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toContain(
+      "raw-private-project-update-failure",
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: /Research calls/ }));
+    expect(
+      await screen.findByText(
+        "Сервер не подтвердил сохранение. Список проектов обновлён; проверьте проект перед повторной попыткой.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Сохранить" })).toBeEnabled();
+  });
+
+  it("confirms an ambiguous archive only from the authoritative project list", async () => {
+    installFocusedOutputFixture({ includeSecondProject: true });
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let archiveAttempted = false;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/projects/p1/archive" && init?.method === "POST") {
+        archiveAttempted = true;
+        return json(
+          { detail: "raw-private-project-archive-failure" },
+          false,
+          503,
+        );
+      }
+      if (url === "/api/projects" && !init?.method && archiveAttempted) {
+        return json({
+          projects: [
+            {
+              id: "p2",
+              title: "Project Two",
+              description: null,
+              created_at: "2026-07-02T00:00:00Z",
+              updated_at: "2026-07-02T00:00:00Z",
+              archived_at: null,
+              output_drive_folder_id: null,
+              output_drive_folder_url: null,
+              output_drive_folder_name: null,
+            },
+          ],
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+    await screen.findByRole("heading", { name: "Research calls" });
+    fireEvent.click(screen.getByRole("button", { name: "Архивировать" }));
+    fireEvent.click(screen.getByRole("button", { name: "Архивация…" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Project Two" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Research calls/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          url === "/api/projects/p1/archive" && init?.method === "POST",
+      ),
+    ).toHaveLength(1);
+    expect(document.body.textContent).not.toContain(
+      "raw-private-project-archive-failure",
+    );
+  });
   it("shows compact preparation readiness status", async () => {
     renderApp();
     await openProjectsPage();
