@@ -420,6 +420,13 @@ function safeConfirm(message: string) {
 }
 export const __appDiagnosticsTest = { api, csrfMutate };
 type JobMutationKind = "cancel" | "retry" | "reconciliation" | "dismiss";
+type JobMutationNotice = {
+  projectId: string;
+  kind: JobMutationKind;
+  jobId: string;
+  message: string;
+  tone: "notice" | "error";
+};
 function jobMutationKey(kind: JobMutationKind, jobId: string) {
   return `${kind}:${jobId}`;
 }
@@ -437,6 +444,7 @@ function PreparationPanel({
   onReloadJobs,
   onError,
   pendingJobMutations,
+  jobMutationNotices,
   beginJobMutation,
   finishJobMutation,
 }: {
@@ -453,8 +461,13 @@ function PreparationPanel({
   onReloadJobs: (projectId: string) => void;
   onError: (message: string) => void;
   pendingJobMutations: ReadonlySet<string>;
+  jobMutationNotices: Readonly<Record<string, JobMutationNotice>>;
   beginJobMutation: (kind: JobMutationKind, jobId: string) => boolean;
-  finishJobMutation: (kind: JobMutationKind, jobId: string) => void;
+  finishJobMutation: (
+    kind: JobMutationKind,
+    jobId: string,
+    notice?: JobMutationNotice,
+  ) => void;
 }) {
   const [rows, setRows] = useState<ComposerRow[]>(() => [newComposerRow()]);
   const [selectedCredentialId, setSelectedCredentialId] = useState("");
@@ -1483,43 +1496,163 @@ function PreparationPanel({
   }
   async function checkReconciliation(jobId: string) {
     if (!beginJobMutation("reconciliation", jobId)) return;
-    setReconciliations((current) => ({ ...current, [jobId]: { ...(current[jobId] ?? { loading:false, error:"", message:"", data:null }), checking: true, error: "", message: "" } }));
+    let notice: JobMutationNotice | undefined;
+    setReconciliations((current) => ({
+      ...current,
+      [jobId]: {
+        ...(current[jobId] ?? {
+          loading: false,
+          error: "",
+          message: "",
+          data: null,
+        }),
+        checking: true,
+        error: "",
+        message: "",
+      },
+    }));
     try {
-      const result = await csrfMutate<OutputReconciliationCheckResponse>(`/jobs/${jobId}/output-reconciliation/check`, csrf, onCsrf, { method: "POST" });
-      const message = result.resolved > 0 ? "Документ найден и восстановлен." : result.conflicts > 0 ? "Обнаружено несколько подходящих документов. Автоматическое восстановление заблокировано." : "Документ пока не найден в Google Drive.";
-      setReconciliations((current) => ({ ...current, [jobId]: { ...(current[jobId] ?? { loading:false, error:"", data:null }), checking: false, message } }));
+      const result = await csrfMutate<OutputReconciliationCheckResponse>(
+        `/jobs/${jobId}/output-reconciliation/check`,
+        csrf,
+        onCsrf,
+        { method: "POST" },
+      );
+      const message =
+        result.resolved > 0
+          ? "Документ найден и восстановлен."
+          : result.conflicts > 0
+            ? "Обнаружено несколько подходящих документов. Автоматическое восстановление заблокировано."
+            : "Документ пока не найден в Google Drive.";
+      setReconciliations((current) => ({
+        ...current,
+        [jobId]: {
+          ...(current[jobId] ?? { loading: false, error: "", data: null }),
+          checking: false,
+          message,
+        },
+      }));
+      notice = {
+        projectId: project.id,
+        kind: "reconciliation",
+        jobId,
+        message,
+        tone: "notice",
+      };
       void loadDetail(jobId);
       onReloadJobs(project.id);
     } catch (err) {
-      setReconciliations((current) => ({ ...current, [jobId]: { ...(current[jobId] ?? { loading:false, message:"", data:null }), checking: false, error: err instanceof ApiError && err.status === 409 ? "Google connection недоступен или reconciliation сейчас невозможен." : "Не удалось проверить Google Drive." } }));
+      const message =
+        err instanceof ApiError && err.status === 409
+          ? "Google connection недоступен или reconciliation сейчас невозможен."
+          : "Не удалось проверить Google Drive.";
+      setReconciliations((current) => ({
+        ...current,
+        [jobId]: {
+          ...(current[jobId] ?? {
+            loading: false,
+            message: "",
+            data: null,
+          }),
+          checking: false,
+          error: message,
+        },
+      }));
+      notice = {
+        projectId: project.id,
+        kind: "reconciliation",
+        jobId,
+        message,
+        tone: "error",
+      };
     } finally {
-      finishJobMutation("reconciliation", jobId);
+      finishJobMutation("reconciliation", jobId, notice);
     }
   }
 
   async function retryJob(jobId: string) {
     if (!beginJobMutation("retry", jobId)) return;
-    setRetries((current) => ({ ...current, [jobId]: { ...(current[jobId] ?? { loading:false, error:"", message:"", data:null }), posting: true, error: "", message: "" } }));
+    let notice: JobMutationNotice | undefined;
+    setRetries((current) => ({
+      ...current,
+      [jobId]: {
+        ...(current[jobId] ?? {
+          loading: false,
+          error: "",
+          message: "",
+          data: null,
+        }),
+        posting: true,
+        error: "",
+        message: "",
+      },
+    }));
     try {
-      const partialMode = ["partial_provider_resume_available", "partial_provider_restart_available"].includes(retries[jobId]?.data?.reason ?? "");
-      const result = await csrfMutate<JobRetryResponse>(`/jobs/${jobId}/retry`, csrf, onCsrf, {
-        method: "POST",
-        body: partialMode
-          ? JSON.stringify({ confirm_remaining_provider_cost: true })
-          : undefined,
-      });
-      setRetries((current) => ({ ...current, [jobId]: { ...(current[jobId] ?? { loading:false, error:"", data:null }), posting: false, data: result, message: partialMode ? "Подтверждённая обработка поставлена в очередь." : "Безопасный повтор поставлен в очередь." } }));
+      const partialMode = [
+        "partial_provider_resume_available",
+        "partial_provider_restart_available",
+      ].includes(retries[jobId]?.data?.reason ?? "");
+      const result = await csrfMutate<JobRetryResponse>(
+        `/jobs/${jobId}/retry`,
+        csrf,
+        onCsrf,
+        {
+          method: "POST",
+          body: partialMode
+            ? JSON.stringify({ confirm_remaining_provider_cost: true })
+            : undefined,
+        },
+      );
+      const message = partialMode
+        ? "Подтверждённая обработка поставлена в очередь."
+        : "Безопасный повтор поставлен в очередь.";
+      setRetries((current) => ({
+        ...current,
+        [jobId]: {
+          ...(current[jobId] ?? { loading: false, error: "", data: null }),
+          posting: false,
+          data: result,
+          message,
+        },
+      }));
+      notice = {
+        projectId: project.id,
+        kind: "retry",
+        jobId,
+        message,
+        tone: "notice",
+      };
       void loadDetail(jobId);
       onReloadJobs(project.id);
     } catch {
-      setRetries((current) => ({ ...current, [jobId]: { ...(current[jobId] ?? { loading:false, message:"", data:null }), posting: false, error: "Повтор сейчас недоступен." } }));
+      const message = "Повтор сейчас недоступен.";
+      setRetries((current) => ({
+        ...current,
+        [jobId]: {
+          ...(current[jobId] ?? {
+            loading: false,
+            message: "",
+            data: null,
+          }),
+          posting: false,
+          error: message,
+        },
+      }));
+      notice = {
+        projectId: project.id,
+        kind: "retry",
+        jobId,
+        message,
+        tone: "error",
+      };
     } finally {
-      finishJobMutation("retry", jobId);
+      finishJobMutation("retry", jobId, notice);
     }
   }
 
   async function cancelJob(jobId: string) {
     if (!beginJobMutation("cancel", jobId)) return;
+    let notice: JobMutationNotice | undefined;
     setMessage("");
     try {
       const cancelled = await csrfMutate<TranscriptionJob>(
@@ -1532,14 +1665,25 @@ function PreparationPanel({
         ...current,
         [jobId]: { loading: false, error: "", job: cancelled },
       }));
-      setMessage(
-        "Запрос отмены отправлен. Уже созданные результаты останутся доступны.",
-      );
+      notice = {
+        projectId: project.id,
+        kind: "cancel",
+        jobId,
+        message:
+          "Запрос отмены отправлен. Уже созданные результаты останутся доступны.",
+        tone: "notice",
+      };
       onReloadJobs(project.id);
     } catch {
-      setMessage("Не удалось отменить задачу. Повторите позже.");
+      notice = {
+        projectId: project.id,
+        kind: "cancel",
+        jobId,
+        message: "Не удалось отменить задачу. Повторите позже.",
+        tone: "error",
+      };
     } finally {
-      finishJobMutation("cancel", jobId);
+      finishJobMutation("cancel", jobId, notice);
     }
   }
   const displayJobs = mergeJobsWithBatchOrder(jobs.items ?? [], batchJobs);
@@ -1600,6 +1744,7 @@ function PreparationPanel({
   }, [currentJobIds, project.id]);
   async function dismissTerminalJob(jobId: string) {
     if (!beginJobMutation("dismiss", jobId)) return;
+    let notice: JobMutationNotice | undefined;
     setMessage("");
     try {
       const dismissed = await csrfMutate<TranscriptionJob>(
@@ -1619,9 +1764,15 @@ function PreparationPanel({
       });
       await onReloadJobs(project.id);
     } catch {
-      setMessage("Не удалось убрать задачу в историю. Повторите позже.");
+      notice = {
+        projectId: project.id,
+        kind: "dismiss",
+        jobId,
+        message: "Не удалось убрать задачу в историю. Повторите позже.",
+        tone: "error",
+      };
     } finally {
-      finishJobMutation("dismiss", jobId);
+      finishJobMutation("dismiss", jobId, notice);
     }
   }
   function renderJobCard(job: TranscriptionJob, pinnedTerminal = false) {
@@ -1679,6 +1830,20 @@ function PreparationPanel({
       />
     );
   }
+  const visibleJobMutationNotices = Object.values(jobMutationNotices).filter(
+    (notice) => {
+      if (notice.projectId !== project.id) return false;
+      if (notice.kind === "retry") {
+        const local = retries[notice.jobId];
+        return !(local?.message || local?.error);
+      }
+      if (notice.kind === "reconciliation") {
+        const local = reconciliations[notice.jobId];
+        return !(local?.message || local?.error);
+      }
+      return true;
+    },
+  );
   return (
     <section className="preparation" aria-label={`Подготовка ${project.title}`}>
       <form
@@ -2408,6 +2573,15 @@ function PreparationPanel({
           {message}
         </p>
       )}
+      {visibleJobMutationNotices.map((notice) => (
+        <p
+          key={jobMutationKey(notice.kind, notice.jobId)}
+          className={notice.tone}
+          role="status"
+        >
+          {notice.message}
+        </p>
+      ))}
       <details className="sources project-files">
         <summary className="summary-row">Файлы проекта</summary>
         <SourcesPanel
@@ -2696,17 +2870,32 @@ function ProjectsPage({
   const [pendingJobMutations, setPendingJobMutations] = useState<Set<string>>(
     () => new Set(),
   );
+  const [jobMutationNotices, setJobMutationNotices] = useState<
+    Record<string, JobMutationNotice>
+  >({});
   const beginJobMutation = (kind: JobMutationKind, jobId: string) => {
     const key = jobMutationKey(kind, jobId);
     if (pendingJobMutationsRef.current.has(key)) return false;
     pendingJobMutationsRef.current.add(key);
     setPendingJobMutations(new Set(pendingJobMutationsRef.current));
+    setJobMutationNotices((current) => {
+      if (!current[key]) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
     return true;
   };
-  const finishJobMutation = (kind: JobMutationKind, jobId: string) => {
-    if (!pendingJobMutationsRef.current.delete(jobMutationKey(kind, jobId)))
-      return;
+  const finishJobMutation = (
+    kind: JobMutationKind,
+    jobId: string,
+    notice?: JobMutationNotice,
+  ) => {
+    const key = jobMutationKey(kind, jobId);
+    if (!pendingJobMutationsRef.current.delete(key)) return;
     setPendingJobMutations(new Set(pendingJobMutationsRef.current));
+    if (notice)
+      setJobMutationNotices((current) => ({ ...current, [key]: notice }));
   };
   const setPickerBusy = (busy: boolean) => {
     setActivePicker(busy);
@@ -3121,6 +3310,7 @@ function ProjectsPage({
                   onReloadJobs={loadJobs}
                   onError={setError}
                   pendingJobMutations={pendingJobMutations}
+                  jobMutationNotices={jobMutationNotices}
                   beginJobMutation={beginJobMutation}
                   finishJobMutation={finishJobMutation}
                 />

@@ -2,7 +2,8 @@
 
 ## Current dashboard
 
-- 👉 `PWA-JOB-MUTATION-OWNERSHIP-12 / local source` — cancel, retry, output-reconciliation, and terminal-dismiss in-flight ownership now survives project switches; restored controls remain pending and duplicate POSTs stay blocked until the original request settles. Local CODE/TEST gates pass; publication and CI are intentionally absent.
+- 👉 `PWA-JOB-MUTATION-OUTCOME-13 / local source` — safe cancel, retry, output-reconciliation, and terminal-dismiss outcomes now survive originating-panel remounts in owner-scoped browser memory; notices stay project-isolated, clear on explicit retry, and never render raw backend detail. Local CODE/TEST gates pass; publication and CI are intentionally absent.
+- 🟦 `PWA-JOB-MUTATION-OWNERSHIP-12 / local source` — cancel, retry, output-reconciliation, and terminal-dismiss in-flight ownership now survives project switches; restored controls remain pending and duplicate POSTs stay blocked until the original request settles. Local CODE/TEST gates pass; publication and CI are intentionally absent.
 - 🟦 `PWA-PROJECT-COLLECTION-TIMEOUT-11 / local source` — same-project sources/jobs collection reads now have a 15-second bound, same-resource supersede abort, and teardown cancellation; failed refreshes preserve last-known items and expose safe Russian messages. Local CODE/TEST gates pass; publication and CI are intentionally absent.
 - 🟦 `PWA-JOB-READ-TIMEOUT-10 / local source` — job detail, outputs, retry metadata, and reconciliation metadata reads now have a 15-second bound, same-resource supersede abort, and teardown cancellation; safe detail/output failures replace indefinite loading. Local CODE/TEST gates pass; publication and CI are intentionally absent.
 - 🟦 `PWA-JOB-DISMISS-DEDUP-09 / local source` — durable terminal dismissal now has a synchronous per-job in-flight guard plus disabled/aria-busy UI; safe failure unlocks one explicit retry without exposing raw backend detail. Local CODE/TEST gates pass; publication and CI are intentionally absent.
@@ -45,6 +46,7 @@
 | --- | ---: | --- |
 | Project, all current scope | **N/A (numerator/denominator are not defined)** | `project-spec.md` does not provide one closed, non-overlapping project-wide acceptance set; inventing a percentage would violate the agreed method. |
 | Stable Colab batch + Realtime | **100% (operator-accepted current scope)** | Four months of stable use cover both implemented Colab contours; this does not assert that no focused gaps remain. |
+| `PWA-JOB-MUTATION-OUTCOME-13` | **75% (`3/4`)** | Safe owner-scoped outcomes, remount/project isolation and explicit-retry clearing, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
 | `PWA-JOB-MUTATION-OWNERSHIP-12` | **75% (`3/4`)** | Persistent four-kind mutation ownership, project-switch duplicate prevention/unlock behavior, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
 | `PWA-PROJECT-COLLECTION-TIMEOUT-11` | **75% (`3/4`)** | Bounded source/job collection reads, safe cancellation and last-known-data preservation, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
 | `PWA-JOB-READ-TIMEOUT-10` | **75% (`3/4`)** | Four bounded job-read paths, safe timeout/supersede/teardown behavior, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
@@ -76,6 +78,21 @@ The denominators are explicit gates. Local code, a green workflow summary with s
 
 ## Active item
 
+`PWA-JOB-MUTATION-OUTCOME-13` acceptance checks:
+
+1. Settlement of cancel, provider retry, output reconciliation, and terminal dismissal produces only predefined safe success/failure notices in persistent ProjectsPage memory, keyed by mutation kind/job and scoped to the originating project; no raw response, path, identifier, or transcript body is copied into notice text or browser storage.
+2. A notice remains available after the originating PreparationPanel remounts, is absent in another project, and is cleared when the user explicitly begins the same mutation again. Current-panel retry/reconciliation inline feedback suppresses the owner notice so text is not duplicated; cancel/dismiss feedback uses the owner path directly.
+3. Existing four-kind dedup regressions, A → B → A failure/success/clearing/isolation regression, complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
+4. Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+
+Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Check 4 is intentionally open under the current local-only instruction.
+
+Non-goals: no mutation timeout, automatic retry, durable/browser-storage notice persistence, backend idempotency/business-rule change, API/schema change, deploy, or production mutation.
+
+## Previous local items
+
+### Job mutation ownership across projects
+
 `PWA-JOB-MUTATION-OWNERSHIP-12` acceptance checks:
 
 1. A synchronous owner-scoped registry in persistent ProjectsPage tracks cancel, provider retry, output reconciliation, and terminal dismissal independently by mutation kind and job ID; PreparationPanel project remounts cannot clear it.
@@ -87,7 +104,6 @@ Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `
 
 Non-goals: no mutation timeout, automatic retry, backend idempotency/business-rule change, cross-project success/failure message persistence, API/schema change, deploy, or production mutation.
 
-## Previous local items
 
 ### Project collection read timeouts
 
@@ -275,7 +291,7 @@ Checks 1–5 are merged and the exact-main web deployment is complete. The live 
 
 ## Next item
 
-Continue local PWA stability hardening after persistent mutation ownership: preserve safe mutation completion/failure feedback when the originating PreparationPanel was remounted, then separately design ambiguous mutation-timeout handling from backend idempotency and reconciliation evidence rather than automatically retrying POSTs. `PWA-STUDIO-EDGE-CD-01` remains an operational follow-up and does not pre-empt the current local-only PWA priority.
+Continue local PWA stability hardening after safe mutation outcome continuity: audit each mutation endpoint's idempotency and authoritative reconciliation path, then add bounded ambiguous-outcome handling only where a timed-out POST can be reconciled safely without automatic retry or duplicate provider work. `PWA-STUDIO-EDGE-CD-01` remains an operational follow-up and does not pre-empt the current local-only PWA priority.
 
 ## Near backlog
 
@@ -296,6 +312,7 @@ Continue local PWA stability hardening after persistent mutation ownership: pres
 
 ## Validation notes
 
+- `PWA-JOB-MUTATION-OUTCOME-13` local evidence: existing same-act mutation regressions plus the expanded project-switch outcome regression `5/5`, complete App suite `132/132`, full Studio Vitest `389/389`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. A safe cancellation failure remains visible after remount, disappears on explicit retry, the later safe success is absent in project B and visible on return to project A, and raw backend detail remains absent. Retry/reconciliation current-panel inline feedback suppresses duplicate owner notices; all notice state remains owner-scoped in memory only. One intermediate focused run caught a mechanically malformed template-literal path before tests executed; all four paths were restored by function-bounded replacement and TypeScript plus all final gates pass. No mutation timeout, automatic retry, PR, CI, deploy, or live evidence is claimed.
 - `PWA-JOB-MUTATION-OWNERSHIP-12` local evidence: four existing same-act mutation dedup regressions `4/4`, project-switch ownership regression `1/1`, complete App suite `132/132`, full Studio Vitest `389/389`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. A pending cancellation remains disabled and `aria-busy` after A → B → A remount, a second POST is rejected synchronously, settlement releases the matching owner-scoped key for explicit retry, and raw backend failures remain absent from the DOM. The same persistent registry is wired to retry, reconciliation, and dismissal, whose existing same-act regressions remain green. No mutation timeout, automatic retry, PR, CI, deploy, or live evidence is claimed.
 - `PWA-PROJECT-COLLECTION-TIMEOUT-11` local evidence: focused collection timeout and failed-refresh preservation regressions `2/2`, complete App suite `131/131`, full Studio Vitest `388/388`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. Sources/jobs collection requests receive independent signals and abort after 15 seconds; teardown/supersede cancellation is silent, while real failure resolves loading to safe Russian UI and retains last-known items. The production timeout remains 15 seconds; tests accelerate only that exact timer. No PR, CI, deploy, or live evidence is claimed.
 - `PWA-JOB-READ-TIMEOUT-10` local evidence: latestRequest ordering/abort/timeout/teardown suite `6/6`, App stalled-read regression `1/1`, complete App suite `130/130`, full Studio Vitest `387/387`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. All four job-read signals abort at 15 seconds, detail/output loading resolves to safe retryable UI, a newer same-key request cancels its predecessor without stale failure, and teardown cancellation is explicitly ignored by API diagnostics while timeout aborts remain observable. The first App run exposed the existing terminal auto-load path and was narrowed to a processing-job fixture so timeout and supersede cases remain independent. No PR, CI, deploy, or live evidence is claimed.

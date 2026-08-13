@@ -6439,7 +6439,7 @@ describe("Studio PWA", () => {
     expect(document.body.textContent).not.toContain("raw cancellation failure");
   });
 
-  it("keeps cancellation ownership across project switches", async () => {
+  it("keeps cancellation ownership and safe outcomes across project switches", async () => {
     installFocusedOutputFixture({
       jobStatus: "queued",
       includeSecondProject: true,
@@ -6448,6 +6448,10 @@ describe("Studio PWA", () => {
     const defaultFetch = baseFetch.getMockImplementation();
     const cancelResolvers: Array<(response: Response) => void> = [];
     let cancelCalls = 0;
+    const failureMessage =
+      "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043e\u0442\u043c\u0435\u043d\u0438\u0442\u044c \u0437\u0430\u0434\u0430\u0447\u0443. \u041f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u0435 \u043f\u043e\u0437\u0436\u0435.";
+    const successMessage =
+      "\u0417\u0430\u043f\u0440\u043e\u0441 \u043e\u0442\u043c\u0435\u043d\u044b \u043e\u0442\u043f\u0440\u0430\u0432\u043b\u0435\u043d. \u0423\u0436\u0435 \u0441\u043e\u0437\u0434\u0430\u043d\u043d\u044b\u0435 \u0440\u0435\u0437\u0443\u043b\u044c\u0442\u0430\u0442\u044b \u043e\u0441\u0442\u0430\u043d\u0443\u0442\u0441\u044f \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b.";
     baseFetch.mockImplementation((url: string, init?: RequestInit) => {
       if (
         String(url).endsWith("/api/jobs/job-focused/cancel") &&
@@ -6492,18 +6496,45 @@ describe("Studio PWA", () => {
       );
     });
     await waitFor(() => expect(restoredCancelButton).toBeEnabled());
+    expect(await screen.findByText(failureMessage)).toBeInTheDocument();
 
     await userEvent.click(restoredCancelButton);
     await waitFor(() => expect(cancelCalls).toBe(2));
+    expect(screen.queryByText(failureMessage)).not.toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: /Project Two/ }),
+    );
     await act(async () => {
       cancelResolvers[1]?.(
-        await json({ detail: "second safe failure" }, false, 500),
+        await json({
+          id: "job-focused",
+          project_id: "p1",
+          status: "cancelled",
+          title: "Focused output job",
+          provider: null,
+          provider_credential_id: "cred-active",
+          terminal_dismissed_at: null,
+          source_count: 1,
+          sources: [],
+          created_at: "2026-07-02T00:00:00Z",
+          updated_at: "2026-07-02T00:02:00Z",
+          cancelled_at: "2026-07-02T00:02:00Z",
+          cancel_requested_at: null,
+          attempt_count: 1,
+          started_at: "2026-07-02T00:00:30Z",
+          finished_at: "2026-07-02T00:02:00Z",
+          error_code: null,
+          error_message: null,
+        }),
       );
     });
-    await waitFor(() => expect(restoredCancelButton).toBeEnabled());
+    expect(screen.queryByText(successMessage)).not.toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: /Research calls/ }),
+    );
+    expect(await screen.findByText(successMessage)).toBeInTheDocument();
     expect(cancelCalls).toBe(2);
     expect(document.body.textContent).not.toContain("raw cancellation failure");
-    expect(document.body.textContent).not.toContain("second safe failure");
   });
   it("deduplicates output reconciliation and unlocks after failure", async () => {
     const reconciliationResponse = {
