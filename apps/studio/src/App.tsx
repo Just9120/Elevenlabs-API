@@ -349,6 +349,7 @@ type GoogleConnection = {
   picker_scope_ready: boolean;
   reconnect_required: boolean;
 };
+type GoogleConnectionReadState = "loading" | "ready" | "unavailable";
 type GoogleOauthStart = { authorization_url: string; expires_at: string };
 function isExpectedGoogleConnection(
   candidate: unknown,
@@ -393,6 +394,18 @@ function isExpectedGoogleConnection(
         connection.connected_at === null &&
         connection.revoked_at === null))
   );
+}
+async function requestGoogleConnection(
+  signal?: AbortSignal,
+): Promise<GoogleConnection> {
+  const candidate = await api<unknown>("/google/connection", {
+    signal,
+    ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+  });
+  if (!isExpectedGoogleConnection(candidate)) {
+    throw new Error("invalid_google_connection_response");
+  }
+  return candidate;
 }
 function isExpectedGoogleOauthStart(
   candidate: unknown,
@@ -705,13 +718,10 @@ async function readAccountPreferencesBounded(): Promise<AccountPreferences | nul
 async function readGoogleConnectionBounded(): Promise<GoogleConnection | null> {
   try {
     const result = await runBoundedRequest(
-      (signal) => api<unknown>("/google/connection", { signal }),
+      (signal) => requestGoogleConnection(signal),
       GOOGLE_CONNECTION_REQUEST_TIMEOUT_MS,
     );
-    return result.status === "completed" &&
-      isExpectedGoogleConnection(result.value)
-      ? result.value
-      : null;
+    return result.status === "completed" ? result.value : null;
   } catch {
     return null;
   }
@@ -889,6 +899,8 @@ function PreparationPanel({
   jobs,
   sources,
   googleConnection,
+  googleConnectionState,
+  onReloadGoogleConnection,
   activeGooglePicker,
   googlePickerNotices,
   beginGooglePicker,
@@ -920,6 +932,8 @@ function PreparationPanel({
   jobs: JobState;
   sources: typeof emptySourceState;
   googleConnection: GoogleConnection | null;
+  googleConnectionState: GoogleConnectionReadState;
+  onReloadGoogleConnection: () => void;
   activeGooglePicker: GooglePickerOperation | null;
   googlePickerNotices: Readonly<Record<string, GooglePickerNotice>>;
   beginGooglePicker: (operation: GooglePickerOperation) => boolean;
@@ -1227,6 +1241,7 @@ function PreparationPanel({
     });
   });
   const googlePickerGuidance = (() => {
+    if (googleConnectionState !== "ready") return "";
     if (!googleConnection?.connected) return "Google Drive не подключён.";
     if (googleConnection.reconnect_required)
       return "Переподключите Google Drive в настройках, чтобы выбрать файлы.";
@@ -1237,7 +1252,9 @@ function PreparationPanel({
     return "";
   })();
   const driveSourcePickerEnabled = Boolean(
-    googleConnection?.picker_ready && !googlePickerGuidance,
+    googleConnectionState === "ready" &&
+      googleConnection?.picker_ready &&
+      !googlePickerGuidance,
   );
 
   const rowReadinessResults = rows.map((row, index) => {
@@ -1926,8 +1943,7 @@ function PreparationPanel({
     rowId: string,
     target: "first" | "second" = "first",
   ) {
-    if (googleConnection?.picker_ready !== true || rowFolderPickerRef.current)
-      return;
+    if (!driveSourcePickerEnabled || rowFolderPickerRef.current) return;
     const operation: GooglePickerOperation = {
       projectId: project.id,
       panelId: googlePickerPanelId,
@@ -3023,6 +3039,19 @@ function PreparationPanel({
         ) : (
           <p className="muted">Загружаем правила локальной загрузки…</p>
         )}
+        {googleConnectionState === "loading" && (
+          <p className="muted" role="status">
+            Проверяем подключение Google Drive…
+          </p>
+        )}
+        {googleConnectionState === "unavailable" && (
+          <div className="notice" role="alert">
+            <p>Не удалось проверить подключение Google Drive.</p>
+            <button type="button" onClick={onReloadGoogleConnection}>
+              Повторить проверку Google Drive
+            </button>
+          </div>
+        )}
         <fieldset className="composer-rows">
           <legend>Строки подготовки</legend>
           {!sources.loaded && (
@@ -3243,7 +3272,7 @@ function PreparationPanel({
                       <button
                         type="button"
                         className="secondary"
-                        disabled={!googleConnection?.picker_ready || pickerBusy}
+                        disabled={!driveSourcePickerEnabled || pickerBusy}
                         onClick={() => void chooseRowFolder(row.id)}
                         aria-label={`Выбрать папку результата для строки ${index + 1}`}
                       >
@@ -3344,7 +3373,7 @@ function PreparationPanel({
                           type="button"
                           className="secondary"
                           disabled={
-                            !googleConnection?.picker_ready || pickerBusy
+                            !driveSourcePickerEnabled || pickerBusy
                           }
                           onClick={() =>
                             void chooseRowFolder(row.id, "second")
@@ -3692,9 +3721,35 @@ function OverviewPage({
     useState<GoogleConnection | null>(null);
   const [googleLoading, setGoogleLoading] = useState(true);
   const [googleError, setGoogleError] = useState(false);
+  const googleRequestEpochsRef = useRef(new Map<string, number>());
+  const googleRequestControllersRef = useRef(
+    new Map<string, AbortController>(),
+  );
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [credentialsLoading, setCredentialsLoading] = useState(true);
   const [credentialsError, setCredentialsError] = useState(false);
+  const loadGoogleConnection = () => {
+    setGoogleLoading(true);
+    setGoogleError(false);
+    void settleLatestRequest(
+      googleRequestEpochsRef.current,
+      "overview:google-connection",
+      requestGoogleConnection,
+      (connection) => {
+        setGoogleConnection(connection);
+        setGoogleError(false);
+        setGoogleLoading(false);
+      },
+      () => {
+        setGoogleError(true);
+        setGoogleLoading(false);
+      },
+      {
+        controllers: googleRequestControllersRef.current,
+        timeoutMs: GOOGLE_CONNECTION_REQUEST_TIMEOUT_MS,
+      },
+    );
+  };
   useEffect(() => {
     api<{ projects: Project[] }>("/projects")
       .then((r) =>
@@ -3704,15 +3759,20 @@ function OverviewPage({
       )
       .catch(() => setProjectsError(true))
       .finally(() => setProjectsLoading(false));
-    api<GoogleConnection>("/google/connection")
-      .then(setGoogleConnection)
-      .catch(() => setGoogleError(true))
-      .finally(() => setGoogleLoading(false));
+    loadGoogleConnection();
     api<{ credentials: Credential[] }>("/credentials")
       .then((r) => setCredentials(r.credentials ?? []))
       .catch(() => setCredentialsError(true))
       .finally(() => setCredentialsLoading(false));
   }, []);
+  useEffect(
+    () => () =>
+      cancelLatestRequests(
+        googleRequestEpochsRef.current,
+        googleRequestControllersRef.current,
+      ),
+    [],
+  );
   const activeCredentials = credentials.filter(
     (credential) => credential.status === "active",
   );
@@ -3777,6 +3837,11 @@ function OverviewPage({
         <article className="card summary-card" aria-label="Google Drive">
           <span className="summary-label">Google Drive</span>
           <strong className="summary-value">{googleStatus}</strong>
+          {googleError && (
+            <button type="button" onClick={loadGoogleConnection}>
+              Повторить
+            </button>
+          )}
         </article>
         <article className="card summary-card" aria-label="Активные ключи">
           <span className="summary-label">Активные ключи</span>
@@ -4121,6 +4186,25 @@ function ProjectsPage({
   };
   const [googleConnection, setGoogleConnection] =
     useState<GoogleConnection | null>(null);
+  const [googleConnectionState, setGoogleConnectionState] =
+    useState<GoogleConnectionReadState>("loading");
+  const loadGoogleConnection = () => {
+    setGoogleConnectionState("loading");
+    void settleLatestRequest(
+      requestEpochsRef.current,
+      "projects:google-connection",
+      requestGoogleConnection,
+      (connection) => {
+        setGoogleConnection(connection);
+        setGoogleConnectionState("ready");
+      },
+      () => setGoogleConnectionState("unavailable"),
+      {
+        controllers: requestControllersRef.current,
+        timeoutMs: GOOGLE_CONNECTION_REQUEST_TIMEOUT_MS,
+      },
+    );
+  };
   const load = async ({ reportFailure = true } = {}): Promise<
     Project[] | null
   > => {
@@ -4211,10 +4295,8 @@ function ProjectsPage({
     onRequestedProjectsViewHandled,
   ]);
   useEffect(() => {
-    api<GoogleConnection>("/google/connection")
-      .then(setGoogleConnection)
-      .catch(() => setGoogleConnection(null));
-  }, []);
+    if (active) loadGoogleConnection();
+  }, [active]);
   const loadSources = (projectId: string) => {
     const requestKey = `sources:${projectId}`;
     setSources((current) => ({
@@ -4797,6 +4879,8 @@ function ProjectsPage({
                   jobs={selectedJobs}
                   sources={selectedSources}
                   googleConnection={googleConnection}
+                  googleConnectionState={googleConnectionState}
+                  onReloadGoogleConnection={loadGoogleConnection}
                   activeGooglePicker={activeGooglePicker}
                   googlePickerNotices={googlePickerNotices}
                   beginGooglePicker={beginGooglePicker}
@@ -5156,16 +5240,7 @@ function SettingsPage({
     await settleLatestRequest(
       googleRequestEpochsRef.current,
       "settings:google-connection",
-      async (signal) => {
-        const candidate = await api<unknown>("/google/connection", {
-          signal,
-          ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
-        });
-        if (!isExpectedGoogleConnection(candidate)) {
-          throw new Error("invalid_google_connection_response");
-        }
-        return candidate;
-      },
+      requestGoogleConnection,
       (connection) => {
         observed = connection;
         setGoogleConnection(connection);

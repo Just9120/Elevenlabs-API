@@ -1880,6 +1880,156 @@ describe("Studio PWA", () => {
     expect(document.body.textContent).not.toContain("Traceback raw stack");
   });
 
+  it("bounds the dashboard Google connection read and retries explicitly", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const connectionSignals: AbortSignal[] = [];
+    let connectionReads = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/google/connection" && !init?.method) {
+        connectionReads += 1;
+        if (connectionReads > 1) {
+          return json(
+            googleConnectionFixture({
+              connected: true,
+              status: "active",
+              google_email: "safe.user@example.com",
+              scopes: "openid email https://www.googleapis.com/auth/drive.file",
+              connected_at: "2026-08-13T12:00:00Z",
+              picker_configured: true,
+              picker_scope_ready: true,
+              picker_ready: true,
+            }),
+          );
+        }
+        const signal = init.signal;
+        if (!signal) throw new Error("Google connection signal is missing");
+        connectionSignals.push(signal);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 15_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      renderApp();
+      await waitForPlatformOverview();
+      const card = screen.getByLabelText("Google Drive");
+      await waitFor(() => expect(card).toHaveTextContent("Недоступно"));
+      expect(connectionSignals).toHaveLength(1);
+      expect(connectionSignals[0]?.aborted).toBe(true);
+      await userEvent.click(
+        within(card).getByRole("button", { name: "Повторить" }),
+      );
+      await waitFor(() => expect(card).toHaveTextContent("Подключён"));
+      expect(connectionReads).toBe(2);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("fails Projects Google connection closed on malformed data and retries", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let connectionReads = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/google/connection" && !init?.method) {
+        connectionReads += 1;
+        if (connectionReads === 2) {
+          return json(
+            googleConnectionFixture({
+              connected: true,
+              status: null,
+              raw_refresh_token: "raw-projects-google-secret",
+            }),
+          );
+        }
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
+    expect(
+      await screen.findByText("Не удалось проверить подключение Google Drive."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Выбрать файлы Google Drive" }),
+    ).toBeDisabled();
+    expect(document.body.textContent).not.toContain("raw-projects-google-secret");
+    expect(document.body.textContent).not.toContain("Google Drive не подключён.");
+
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Повторить проверку Google Drive",
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Выбрать файлы Google Drive" }),
+      ).toBeEnabled(),
+    );
+    expect(connectionReads).toBe(3);
+  });
+
+  it("keeps the latest Projects Google state after a late pre-remount read", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let connectionReads = 0;
+    let resolveFirstProjectsRead: ((response: Response) => void) | undefined;
+    const connected = googleConnectionFixture({
+      connected: true,
+      status: "active",
+      google_email: "safe.user@example.com",
+      scopes: "openid email https://www.googleapis.com/auth/drive.file",
+      connected_at: "2026-08-13T12:00:00Z",
+      picker_configured: true,
+      picker_scope_ready: true,
+      picker_ready: true,
+    });
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/google/connection" && !init?.method) {
+        connectionReads += 1;
+        if (connectionReads === 1) return json(connected);
+        if (connectionReads === 2) {
+          return new Promise<Response>((resolve) => {
+            resolveFirstProjectsRead = resolve;
+          });
+        }
+        return json(googleConnectionFixture());
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+    await waitFor(() => expect(resolveFirstProjectsRead).toBeDefined());
+    await openSettingsPage();
+    await screen.findByText("Google Drive не подключён");
+    await openProjectsPage();
+    expect(
+      await screen.findByText("Google Drive не подключён."),
+    ).toBeInTheDocument();
+    const driveButton = screen.getByRole("button", { name: "Выбрать файлы Google Drive" });
+    expect(driveButton).toBeDisabled();
+
+    await act(async () => resolveFirstProjectsRead?.(await json(connected)));
+    expect(screen.getByText("Google Drive не подключён.")).toBeInTheDocument();
+    expect(driveButton).toBeDisabled();
+    expect(connectionReads).toBe(4);
+  });
+
   it("opens the project creation form only for the dashboard new-project action", async () => {
     renderApp();
     await waitForPlatformOverview();
@@ -3062,14 +3212,14 @@ describe("Studio PWA", () => {
           "Не удалось загрузить статус Google Drive. Повторите попытку.",
         ),
       ).toBeInTheDocument();
-      expect(connectionSignals).toHaveLength(1);
-      expect(connectionSignals[0]?.aborted).toBe(true);
+      expect(connectionSignals).toHaveLength(2);
+      expect(connectionSignals.every((signal) => signal.aborted)).toBe(true);
       const retry = screen.getByRole("button", {
         name: "Повторить проверку Google Drive",
       });
       await userEvent.click(retry);
-      await waitFor(() => expect(connectionSignals).toHaveLength(2));
-      await waitFor(() => expect(connectionSignals[1]?.aborted).toBe(true));
+      await waitFor(() => expect(connectionSignals).toHaveLength(3));
+      await waitFor(() => expect(connectionSignals[2]?.aborted).toBe(true));
     } finally {
       timeoutSpy.mockRestore();
     }
@@ -3286,7 +3436,7 @@ describe("Studio PWA", () => {
     await openProjectsPage();
     await openSettingsPage();
     await screen.findByText("Google Drive не подключён");
-    expect(connectionReads).toBe(readsBeforeFinalReopen + 1);
+    expect(connectionReads).toBe(readsBeforeFinalReopen + 2);
   });
 
   it("keeps the authoritative connected state after an ambiguous disconnect", async () => {
