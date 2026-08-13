@@ -2,6 +2,7 @@ import {
   ChangeEvent,
   FormEvent,
   useEffect,
+  useId,
   useRef,
   useState,
 } from "react";
@@ -461,6 +462,21 @@ type LocalUploadCompletionState =
   | { status: "pending" }
   | { status: "unavailable" };
 
+type LocalUploadOperation = {
+  projectId: string;
+  panelId: string;
+  rowId: string;
+};
+
+type LocalUploadNotice = LocalUploadOperation & {
+  message: string;
+  tone: "notice" | "error";
+};
+
+function localUploadOperationKey(operation: LocalUploadOperation) {
+  return `${operation.projectId}:${operation.panelId}:${operation.rowId}`;
+}
+
 type BatchSubmission = {
   signature: string;
   key: string;
@@ -490,6 +506,10 @@ function PreparationPanel({
   sourceDeletionNotices,
   beginSourceDeletion,
   finishSourceDeletion,
+  pendingLocalUploads,
+  localUploadNotices,
+  beginLocalUpload,
+  finishLocalUpload,
   batchSubmission,
   beginBatchSubmission,
   retryBatchSubmission,
@@ -522,6 +542,13 @@ function PreparationPanel({
     sourceId: string,
     notice: SourceDeletionNotice,
   ) => void;
+  pendingLocalUploads: readonly LocalUploadOperation[];
+  localUploadNotices: Readonly<Record<string, LocalUploadNotice>>;
+  beginLocalUpload: (operation: LocalUploadOperation) => boolean;
+  finishLocalUpload: (
+    operation: LocalUploadOperation,
+    notice: LocalUploadNotice,
+  ) => void;
   batchSubmission: BatchSubmission | null;
   beginBatchSubmission: (
     submission: Omit<BatchSubmission, "status">,
@@ -530,6 +557,25 @@ function PreparationPanel({
   markBatchSubmissionAmbiguous: (key: string) => void;
   clearBatchSubmission: (key: string) => void;
 }) {
+  const localUploadPanelId = useId();
+  const projectPendingLocalUploads = pendingLocalUploads.filter(
+    (operation) => operation.projectId === project.id,
+  );
+  const detachedLocalUploadPending = projectPendingLocalUploads.some(
+    (operation) => operation.panelId !== localUploadPanelId,
+  );
+  const localUploadBusyRows = new Set(
+    projectPendingLocalUploads
+      .filter((operation) => operation.panelId === localUploadPanelId)
+      .map((operation) => operation.rowId),
+  );
+  const localUploadIsBusy = (rowId: string) =>
+    detachedLocalUploadPending || localUploadBusyRows.has(rowId);
+  const visibleLocalUploadNotices = Object.values(localUploadNotices).filter(
+    (notice) =>
+      notice.projectId === project.id &&
+      notice.panelId !== localUploadPanelId,
+  );
   const [rows, setRows] = useState<ComposerRow[]>(() => [newComposerRow()]);
   const [selectedCredentialId, setSelectedCredentialId] = useState("");
   const [languageMode, setLanguageMode] = useState<TranscriptionLanguageMode>(
@@ -572,12 +618,8 @@ function PreparationPanel({
     number: number;
   } | null>(null);
   const [rowAdditionStatus, setRowAdditionStatus] = useState("");
-  const [localUploadBusyRows, setLocalUploadBusyRows] = useState<Set<string>>(
-    () => new Set(),
-  );
   const rowFolderPickerRef = useRef(false);
   const rowSourcePickerRef = useRef(false);
-  const localUploadBusyRowsRef = useRef(new Set<string>());
   const localUploadCsrfRef = useRef(csrf);
   const rowElementRefs = useRef(new Map<string, HTMLLIElement>());
   const reloadJobsRef = useRef(onReloadJobs);
@@ -615,8 +657,6 @@ function PreparationPanel({
     setDiarizationEnabled(false);
     setRecentlyAddedRow(null);
     setRowAdditionStatus("");
-    localUploadBusyRowsRef.current.clear();
-    setLocalUploadBusyRows(new Set());
   }, [project.id]);
   useEffect(() => {
     if (!recentlyAddedRow) return;
@@ -1224,7 +1264,7 @@ function PreparationPanel({
   ) {
     const files = Array.from(e.target.files ?? []);
     e.target.value = "";
-    if (files.length === 0 || localUploadBusyRowsRef.current.has(rowId)) return;
+    if (files.length === 0 || localUploadIsBusy(rowId)) return;
     if (!sourceUploadPolicy?.local_upload_enabled) {
       setRowIntakeErrors((current) => ({
         ...current,
@@ -1234,8 +1274,18 @@ function PreparationPanel({
       }));
       return;
     }
-    localUploadBusyRowsRef.current.add(rowId);
-    setLocalUploadBusyRows((current) => new Set(current).add(rowId));
+    const operation: LocalUploadOperation = {
+      projectId: project.id,
+      panelId: localUploadPanelId,
+      rowId,
+    };
+    if (!beginLocalUpload(operation)) return;
+    let persistentNotice: LocalUploadNotice = {
+      ...operation,
+      message:
+        "Локальная загрузка не завершена. Проверьте список файлов проекта перед повторной попыткой.",
+      tone: "error",
+    };
     try {
       const successful: Source[] = [];
       const failures: string[] = [];
@@ -1344,13 +1394,18 @@ function PreparationPanel({
           ...current,
           [rowId]: failures.join(" "),
         }));
+      persistentNotice = {
+        ...operation,
+        message:
+          failures.length === 0
+            ? "Локальная загрузка завершена. Обновлённый список файлов доступен в проекте."
+            : successful.length > 0
+              ? "Локальная загрузка завершена частично. Проверьте список файлов проекта и повторите неудачные файлы при необходимости."
+              : "Локальная загрузка не завершена. Проверьте список файлов проекта перед повторной попыткой.",
+        tone: failures.length === 0 ? "notice" : "error",
+      };
     } finally {
-      localUploadBusyRowsRef.current.delete(rowId);
-      setLocalUploadBusyRows((current) => {
-        const next = new Set(current);
-        next.delete(rowId);
-        return next;
-      });
+      finishLocalUpload(operation, persistentNotice);
     }
   }
 
@@ -2230,6 +2285,21 @@ function PreparationPanel({
   );
   return (
     <section className="preparation" aria-label={`Подготовка ${project.title}`}>
+      {detachedLocalUploadPending && (
+        <p className="muted" role="status">
+          Загрузка файлов для этого проекта ещё выполняется. Дождитесь
+          завершения перед новым выбором.
+        </p>
+      )}
+      {visibleLocalUploadNotices.map((notice) => (
+        <p
+          key={localUploadOperationKey(notice)}
+          className={notice.tone}
+          role="status"
+        >
+          {notice.message}
+        </p>
+      ))}
       <form
         className="job-creator composer"
         onSubmit={createBatch}
@@ -2519,14 +2589,14 @@ function PreparationPanel({
                           <label
                             className={`button-like secondary${
                               sourceUploadPolicy?.local_upload_enabled &&
-                              !localUploadBusyRows.has(row.id)
+                              !localUploadIsBusy(row.id)
                                 ? ""
                                 : " disabled"
                             }`}
                             htmlFor={`local-source-upload-${row.id}`}
                             aria-disabled={
                               !sourceUploadPolicy?.local_upload_enabled ||
-                              localUploadBusyRows.has(row.id)
+                              localUploadIsBusy(row.id)
                             }
                           >
                             <span aria-hidden="true">С устройства</span>
@@ -2547,8 +2617,9 @@ function PreparationPanel({
                             }
                             disabled={
                               !sourceUploadPolicy?.local_upload_enabled ||
-                              localUploadBusyRows.has(row.id)
+                              localUploadIsBusy(row.id)
                             }
+                            aria-busy={localUploadIsBusy(row.id)}
                             onChange={(e) =>
                               void uploadRowLocalSources(row.id, e)
                             }
@@ -3300,6 +3371,56 @@ function ProjectsPage({
       [sourceId]: notice,
     }));
   };
+  const localUploadOperationsRef = useRef(
+    new Map<string, LocalUploadOperation>(),
+  );
+  const [pendingLocalUploads, setPendingLocalUploads] = useState<
+    LocalUploadOperation[]
+  >([]);
+  const [localUploadNotices, setLocalUploadNotices] = useState<
+    Record<string, LocalUploadNotice>
+  >({});
+  const publishPendingLocalUploads = () =>
+    setPendingLocalUploads(
+      Array.from(localUploadOperationsRef.current.values()),
+    );
+  const beginLocalUpload = (operation: LocalUploadOperation) => {
+    if (
+      Array.from(localUploadOperationsRef.current.values()).some(
+        (current) =>
+          current.projectId === operation.projectId &&
+          current.panelId !== operation.panelId,
+      )
+    ) {
+      return false;
+    }
+    const key = localUploadOperationKey(operation);
+    if (localUploadOperationsRef.current.has(key)) return false;
+    localUploadOperationsRef.current.set(key, operation);
+    publishPendingLocalUploads();
+    setLocalUploadNotices((current) => {
+      const next: Record<string, LocalUploadNotice> = {};
+      Object.entries(current).forEach(([noticeKey, notice]) => {
+        if (notice.projectId !== operation.projectId) {
+          next[noticeKey] = notice;
+        }
+      });
+      return next;
+    });
+    return true;
+  };
+  const finishLocalUpload = (
+    operation: LocalUploadOperation,
+    notice: LocalUploadNotice,
+  ) => {
+    const key = localUploadOperationKey(operation);
+    if (!localUploadOperationsRef.current.delete(key)) return;
+    publishPendingLocalUploads();
+    setLocalUploadNotices((current) => ({
+      ...current,
+      [key]: { ...notice, ...operation },
+    }));
+  };
   const batchSubmissionsRef = useRef(new Map<string, BatchSubmission>());
   const [batchSubmissions, setBatchSubmissions] = useState<
     Record<string, BatchSubmission>
@@ -3791,6 +3912,10 @@ function ProjectsPage({
                   sourceDeletionNotices={sourceDeletionNotices}
                   beginSourceDeletion={beginSourceDeletion}
                   finishSourceDeletion={finishSourceDeletion}
+                  pendingLocalUploads={pendingLocalUploads}
+                  localUploadNotices={localUploadNotices}
+                  beginLocalUpload={beginLocalUpload}
+                  finishLocalUpload={finishLocalUpload}
                   batchSubmission={
                     batchSubmissions[selectedProject.id] ?? null
                   }

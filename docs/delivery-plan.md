@@ -2,7 +2,8 @@
 
 ## Current dashboard
 
-- 👉 `PWA-LOCAL-UPLOAD-BOUNDARY-19 / local source` — local-upload initiation and object PUT now share bounded 20-second execution. Ambiguous initiation is never replayed and cannot start PUT; ambiguous PUT is never repeated and can proceed only through the exact-source completion/reconciliation authority. Local CODE/TEST gates pass; publication and CI are intentionally absent.
+- 👉 `PWA-LOCAL-UPLOAD-REMOUNT-20 / local source` — local-upload ownership and safe outcomes now live above the remountable PreparationPanel. Same-panel rows retain independent concurrency; after A → B → A, a detached operation conservatively blocks new intake for its project until settlement, then exposes only project-scoped safe failure/success. Local CODE/TEST gates pass; publication and CI are intentionally absent.
+- 🟦 `PWA-LOCAL-UPLOAD-BOUNDARY-19 / local source` — local-upload initiation and object PUT now share bounded 20-second execution. Ambiguous initiation is never replayed and cannot start PUT; ambiguous PUT is never repeated and can proceed only through the exact-source completion/reconciliation authority. Local CODE/TEST gates pass; publication and CI are intentionally absent.
 - 🟦 `PWA-SOURCE-DELETE-REMOUNT-18 / local source` — source-removal ownership and predefined outcomes now survive PreparationPanel remounts in ProjectsPage memory. A → B → A restores disabled/`aria-busy`, blocks duplicate DELETE, keeps outcomes project-isolated, and clears only the matching outcome on explicit retry. Local CODE/TEST gates pass; publication and CI are intentionally absent.
 - 🟦 `PWA-LOCAL-UPLOAD-COMPLETE-17 / local source` — local-upload completion now has a 20-second deadline and exact-source no-store reconciliation; an authoritative uploaded source suppresses replay, while a verified pending source permits at most one replay of completion without repeating initiation or object PUT. Local CODE/TEST gates pass; publication and CI are intentionally absent.
 - 🟦 `PWA-SOURCE-DELETE-RECOVERY-16 / local source` — source removal now has a synchronous per-source guard, a 20-second DELETE deadline, and one owner-scoped sources-list reconciliation before reporting a predefined confirmed or ambiguous outcome. No DELETE is repeated automatically. Local CODE/TEST gates pass; publication and CI are intentionally absent.
@@ -52,6 +53,7 @@
 | --- | ---: | --- |
 | Project, all current scope | **N/A (numerator/denominator are not defined)** | `project-spec.md` does not provide one closed, non-overlapping project-wide acceptance set; inventing a percentage would violate the agreed method. |
 | Stable Colab batch + Realtime | **100% (operator-accepted current scope)** | Four months of stable use cover both implemented Colab contours; this does not assert that no focused gaps remain. |
+| `PWA-LOCAL-UPLOAD-REMOUNT-20` | **75% (`3/4`)** | Persistent ID-only ownership, detached-operation blocking, project-isolated safe outcomes, explicit-retry clearing, same-panel row concurrency, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
 | `PWA-LOCAL-UPLOAD-BOUNDARY-19` | **75% (`3/4`)** | Bounded initiation/PUT execution, fail-closed non-idempotent initiation ambiguity, exact-source PUT recovery without object replay, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
 | `PWA-SOURCE-DELETE-REMOUNT-18` | **75% (`3/4`)** | Persistent exact-source ownership, remount-safe pending UI, project-isolated safe outcomes, explicit-retry clearing, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
 | `PWA-LOCAL-UPLOAD-COMPLETE-17` | **75% (`3/4`)** | Bounded completion, exact uploaded/pending recovery authority, one safe completion-only replay, and full applicable local validation are complete. Publication plus required PR/exact-main CI is the remaining gate. Evidence: SPEC ✅, CODE ✅, TEST ✅, CI —, DEPLOY N/A, LIVE N/A. |
@@ -90,6 +92,20 @@ The denominators are explicit gates. Local code, a green workflow summary with s
 
 ## Active item
 
+`PWA-LOCAL-UPLOAD-REMOUNT-20` acceptance checks:
+
+1. `ProjectsPage` owns a synchronous operation registry containing only project, panel-instance, and row IDs. It rejects an exact same-act duplicate before React rerender while preserving independent uploads for different rows in the same mounted panel. Because composer row IDs are regenerated after project remount, any still-pending operation from an older panel instance conservatively blocks all new local intake only in its originating project until settlement.
+2. Returning A → B → A while initiation/PUT/completion is pending restores disabled/`aria-busy` input plus a safe pending status. Off-panel settlement stores only predefined project-scoped failure/partial/success text; no `File`, presigned capability, filename, raw response, or failure cause enters parent or browser persistence. A new explicit selection after unlock clears prior outcomes for that project before one new chain begins.
+3. One A → B → A regression proves pending restoration, duplicate rejection, project isolation, off-panel safe failure, explicit-retry clearing, later success persistence, authoritative source-list refresh, and exact initiation/PUT/completion counts. Existing same-row dedup/multi-file tests, complete App suite, full Studio Vitest, TypeScript, ESLint, production build, lightweight checks, and `git diff --check` pass.
+4. Branch publication, required PR-head/exact-main CI, and merge are separately evidenced before READY.
+
+Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `main@7871b31dc47158c43c3572612a8d0aa3242d018f`. Check 4 is intentionally open under the current local-only instruction.
+
+Non-goals: no `File`/capability persistence, no automatic initiation or PUT replay, no composer-draft persistence redesign, backend/API/schema/storage change, deploy, or production mutation.
+
+## Previous local items
+
+### Bounded local-upload initiation and object PUT
 `PWA-LOCAL-UPLOAD-BOUNDARY-19` acceptance checks:
 
 1. Repository evidence records the recovery boundary: initiation commits a new pending source before returning a presigned capability, accepts no `Idempotency-Key`, and cannot be identified uniquely from active-sources filename/MIME/size data; after a valid response, PUT recovery has exact `source_id` authority and uses only the existing verified completion/reconciliation path.
@@ -101,7 +117,6 @@ Checks 1–3 are complete locally on `codex/pwa-stability-hardening`, based on `
 
 Non-goals: no initiation idempotency/API/schema change, no automatic initiation or object PUT replay, no browser persistence of files/capabilities, backend/storage mutation, deploy, or production mutation.
 
-## Previous local items
 
 ### Source-deletion ownership and outcomes across remounts
 `PWA-SOURCE-DELETE-REMOUNT-18` acceptance checks:
@@ -385,7 +400,7 @@ Checks 1–5 are merged and the exact-main web deployment is complete. The live 
 
 ## Next item
 
-Continue local PWA stability hardening by lifting local-upload in-flight ownership and safe outcomes above the remountable `PreparationPanel`. A → B → A must keep the exact project/row input disabled while the original initiation/PUT/completion chain is pending, reject duplicate selection synchronously, and retain a safe originating-project outcome without storing the `File`, upload capability, or raw failure in browser persistence. `PWA-STUDIO-EDGE-CD-01` remains an operational follow-up and does not pre-empt the current local-only PWA priority.
+Continue local PWA stability hardening by bounding Google Picker capability/session acquisition and reviewing the callback lifecycle that owns the parent-level `activePicker` lock. A stalled CSRF/session request must not leave all project source/folder controls disabled indefinitely, and any timeout/transport ambiguity must remain fail-closed without replaying a state-changing selection route. `PWA-STUDIO-EDGE-CD-01` remains an operational follow-up and does not pre-empt the current local-only PWA priority.
 
 ## Near backlog
 
@@ -406,6 +421,7 @@ Continue local PWA stability hardening by lifting local-upload in-flight ownersh
 
 ## Validation notes
 
+- `PWA-LOCAL-UPLOAD-REMOUNT-20` local evidence: the A → B → A ownership/outcome regression `1/1`, complete App suite `147/147`, full Studio Vitest `410/410`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. The original input returns disabled and `aria-busy`, a programmatic duplicate keeps initiation at one, project B sees neither pending nor result text, and off-panel storage failure is reduced to predefined safe project-A text. Explicit retry clears that outcome, produces exactly one additional initiation/PUT, completes once, refreshes the authoritative source list, and exposes the safe success only after another project-A remount. Parent state contains only operation IDs and predefined notices; `File`, presigned URL/headers, filenames, and raw failure data remain component/request-local and are not persisted. No backend/API/schema/storage change, PR, CI, deploy, or live evidence is claimed.
 - `PWA-LOCAL-UPLOAD-BOUNDARY-19` local evidence: backend route/tests show that initiation creates and commits a fresh pending source without idempotency input, while completion is exact-source, owner/project constrained, metadata verified, race revalidated, and replay-safe. Frontend regressions cover stalled initiation `1/1`, ambiguous 5xx initiation `1/1`, and stalled PUT `1/1`; complete App suite `146/146`, full Studio Vitest `409/409`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. The initiation cases emit one POST, no PUT/completion, safe text, and one sources refresh; the PUT case aborts one PUT and succeeds only through one exact-source completion, with no second initiation/PUT or raw response/upload identity. No backend/API/schema/storage change, browser persistence, PR, CI, deploy, or live evidence is claimed.
 - `PWA-SOURCE-DELETE-REMOUNT-18` local evidence: the A → B → A regression `1/1`, complete App suite `143/143`, full Studio Vitest `406/406`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. While the first DELETE and its 5xx reconciliation settle off-panel, the restored source control remains disabled/`aria-busy` and a duplicate begin is rejected synchronously. The predefined ambiguous outcome is absent from project B and retained in project A; explicit retry clears it, one second DELETE can complete while off-panel, and the safe success plus authoritative source disappearance remain visible only on return to project A. Raw backend detail is absent. No backend/API/schema change, automatic DELETE replay, browser persistence, PR, CI, deploy, cleanup execution, or live evidence is claimed.
 - `PWA-LOCAL-UPLOAD-COMPLETE-17` local evidence: backend API tests verify replay returns the exact source without another storage `HEAD` and preserves upload/retention timestamps; race tests verify metadata and source lifecycle revalidation before commit. Frontend recovery regressions cover ambiguous PUT `1/1`, authoritative uploaded suppression `1/1`, exact-pending replay `1/1`, and stalled completion deadline/replay `1/1`. Complete App suite `142/142`, full Studio Vitest `405/405`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. Each completion attempt and CSRF refresh share a 20-second signal; initiation and object PUT stay single-shot, and no upload URL/private identity or raw error detail is rendered or stored. No backend/API/schema/storage change, PR, CI, deploy, or live evidence is claimed.

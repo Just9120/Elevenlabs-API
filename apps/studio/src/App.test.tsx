@@ -6840,6 +6840,228 @@ describe("Studio PWA", () => {
     expect(deleteCalls).toBe(2);
   });
 
+  it("keeps local upload ownership and safe outcomes across project switches", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const putResolvers: Array<(response: Response) => void> = [];
+    let completionCalls = 0;
+    let uploadSucceeded = false;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/projects" && !init?.method) {
+        return json({
+          projects: [
+            {
+              id: "p1",
+              title: "Research calls",
+              description: "Customer interview notes",
+              created_at: "2026-07-01T00:00:00",
+              updated_at: "2026-07-01T00:00:00",
+              archived_at: null,
+              output_drive_folder_id: "folder-123",
+              output_drive_folder_url:
+                "https://drive.example/folders/folder-123",
+              output_drive_folder_name: "Transcripts",
+            },
+            {
+              id: "p2",
+              title: "Project Two",
+              description: null,
+              created_at: "2026-07-02T00:00:00",
+              updated_at: "2026-07-02T00:00:00",
+              archived_at: null,
+              output_drive_folder_id: null,
+              output_drive_folder_url: null,
+              output_drive_folder_name: null,
+            },
+          ],
+        });
+      }
+      if (url === "/api/projects/p2/sources" && !init?.method) {
+        return json({ sources: [] });
+      }
+      if (url === "/api/projects/p2/jobs" && !init?.method) {
+        return json({ jobs: [] });
+      }
+      if (
+        url === "/api/projects/p1/sources" &&
+        !init?.method &&
+        uploadSucceeded
+      ) {
+        return json({
+          sources: [
+            {
+              id: "local-source-2",
+              project_id: "p1",
+              source_type: "local_upload",
+              original_filename: "local-source-2.ogg",
+              mime_type: "audio/ogg",
+              size_bytes: 7,
+              drive_file_id: null,
+              drive_file_url: null,
+              upload_status: "uploaded",
+              uploaded_at: "2099-01-01T00:00:00Z",
+              expires_at: "2099-01-02T00:00:00Z",
+              deleted_at: null,
+              delete_reason: null,
+              created_at: "2026-07-01T00:00:00Z",
+              updated_at: "2026-07-01T00:00:00Z",
+            },
+          ],
+        });
+      }
+      if (
+        String(url).startsWith("https://upload.example/presigned") &&
+        init?.method === "PUT"
+      ) {
+        return new Promise<Response>((resolve) => {
+          putResolvers.push(resolve);
+        });
+      }
+      if (
+        String(url).endsWith("/local-upload/complete") &&
+        init?.method === "POST"
+      ) {
+        completionCalls += 1;
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+    const firstRow = await screen.findByLabelText("Источник строки 1");
+    const firstInput = within(firstRow).getByLabelText(
+      "Выбрать файлы с устройства для строки 1",
+    ) as HTMLInputElement;
+    await userEvent.upload(
+      firstInput,
+      new File(["failed"], "first-off-panel.ogg", { type: "audio/ogg" }),
+    );
+    await waitFor(() => expect(putResolvers).toHaveLength(1));
+    expect(firstInput).toBeDisabled();
+    expect(firstInput).toHaveAttribute("aria-busy", "true");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Project Two/ }),
+    );
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
+    expect(
+      screen.queryByText(
+        "Загрузка файлов для этого проекта ещё выполняется. Дождитесь завершения перед новым выбором.",
+      ),
+    ).not.toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Research calls/ }),
+    );
+    expect(
+      await screen.findByText(
+        "Загрузка файлов для этого проекта ещё выполняется. Дождитесь завершения перед новым выбором.",
+      ),
+    ).toBeInTheDocument();
+    const restoredInput = screen.getByLabelText(
+      "Выбрать файлы с устройства для строки 1",
+    ) as HTMLInputElement;
+    expect(restoredInput).toBeDisabled();
+    expect(restoredInput).toHaveAttribute("aria-busy", "true");
+    fireEvent.change(restoredInput, {
+      target: {
+        files: [
+          new File(["duplicate"], "duplicate.ogg", { type: "audio/ogg" }),
+        ],
+      },
+    });
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          url === "/api/projects/p1/sources/local-upload/initiate" &&
+          init?.method === "POST",
+      ),
+    ).toHaveLength(1);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Project Two/ }),
+    );
+    await act(async () => {
+      putResolvers[0]?.(
+        await json({ detail: "raw off-panel storage failure" }, false, 500),
+      );
+    });
+    expect(
+      screen.queryByText(
+        "Локальная загрузка не завершена. Проверьте список файлов проекта перед повторной попыткой.",
+      ),
+    ).not.toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Research calls/ }),
+    );
+    expect(
+      await screen.findByText(
+        "Локальная загрузка не завершена. Проверьте список файлов проекта перед повторной попыткой.",
+      ),
+    ).toBeInTheDocument();
+    const retryInput = screen.getByLabelText(
+      "Выбрать файлы с устройства для строки 1",
+    ) as HTMLInputElement;
+    await waitFor(() => expect(retryInput).toBeEnabled());
+    expect(document.body).not.toHaveTextContent(
+      "raw off-panel storage failure",
+    );
+
+    await userEvent.upload(
+      retryInput,
+      new File(["success"], "second-off-panel.ogg", { type: "audio/ogg" }),
+    );
+    await waitFor(() => expect(putResolvers).toHaveLength(2));
+    expect(
+      screen.queryByText(
+        "Локальная загрузка не завершена. Проверьте список файлов проекта перед повторной попыткой.",
+      ),
+    ).not.toBeInTheDocument();
+    uploadSucceeded = true;
+    await act(async () => {
+      putResolvers[1]?.(await json({ ok: true }));
+    });
+    await within(screen.getByLabelText("Источник строки 1")).findByText(
+      "Загружено файлов: 1.",
+    );
+    expect(completionCalls).toBe(1);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Project Two/ }),
+    );
+    expect(
+      screen.queryByText(
+        "Локальная загрузка завершена. Обновлённый список файлов доступен в проекте.",
+      ),
+    ).not.toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: /Research calls/ }),
+    );
+    expect(
+      await screen.findByText(
+        "Локальная загрузка завершена. Обновлённый список файлов доступен в проекте.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("option", { name: /local-source-2\.ogg/ }),
+    ).toBeInTheDocument();
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          url === "/api/projects/p1/sources/local-upload/initiate" &&
+          init?.method === "POST",
+      ),
+    ).toHaveLength(2);
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          String(url).startsWith("https://upload.example/presigned") &&
+          init?.method === "PUT",
+      ),
+    ).toHaveLength(2);
+  });
+
   it("keeps cancellation ownership and safe outcomes across project switches", async () => {
     installFocusedOutputFixture({
       jobStatus: "queued",
