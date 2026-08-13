@@ -61,7 +61,10 @@ import {
   type Source,
 } from "./sourceModel";
 import { isSafeDisplayUrl, ResourceExternalLink } from "./resourceLinks";
-import { SourcesPanel } from "./SourcesPanel";
+import {
+  SourcesPanel,
+  type SourceDeletionNotice,
+} from "./SourcesPanel";
 import { JobCard } from "./JobCard";
 import { Login, type User } from "./Login";
 import { PlatformSidebar } from "./PlatformSidebar";
@@ -469,11 +472,14 @@ function PreparationPanel({
   onLoadSources,
   onReloadSources,
   onReloadJobs,
-  onError,
   pendingJobMutations,
   jobMutationNotices,
   beginJobMutation,
   finishJobMutation,
+  pendingSourceDeletions,
+  sourceDeletionNotices,
+  beginSourceDeletion,
+  finishSourceDeletion,
   batchSubmission,
   beginBatchSubmission,
   retryBatchSubmission,
@@ -491,7 +497,6 @@ function PreparationPanel({
   onLoadSources: (projectId: string) => void;
   onReloadSources: (projectId: string) => void;
   onReloadJobs: (projectId: string) => void;
-  onError: (message: string) => void;
   pendingJobMutations: ReadonlySet<string>;
   jobMutationNotices: Readonly<Record<string, JobMutationNotice>>;
   beginJobMutation: (kind: JobMutationKind, jobId: string) => boolean;
@@ -499,6 +504,13 @@ function PreparationPanel({
     kind: JobMutationKind,
     jobId: string,
     notice?: JobMutationNotice,
+  ) => void;
+  pendingSourceDeletions: ReadonlySet<string>;
+  sourceDeletionNotices: Readonly<Record<string, SourceDeletionNotice>>;
+  beginSourceDeletion: (sourceId: string) => boolean;
+  finishSourceDeletion: (
+    sourceId: string,
+    notice: SourceDeletionNotice,
   ) => void;
   batchSubmission: BatchSubmission | null;
   beginBatchSubmission: (
@@ -2927,7 +2939,7 @@ function PreparationPanel({
           onCsrf={onCsrf}
           sources={visibleSources}
           onReload={onReloadSources}
-          onSourceRemoved={(source, storageCleanup) => {
+          onSourceRemoved={(source) => {
             const sourceId = source.id;
             setRemovedSourceIds((current) => new Set(current).add(sourceId));
             const affectedRowIds = rows
@@ -2955,17 +2967,11 @@ function PreparationPanel({
                   : row,
               ),
             );
-            setMessage(
-              storageCleanup === "pending"
-                ? source.upload_status === "pending"
-                  ? "Файл убран из проекта. Временная копия поставлена в очередь на удаление после завершения окна загрузки."
-                  : "Файл убран из проекта. Временная копия поставлена в очередь фонового удаления; выбранный срок хранения ждать не нужно."
-                : storageCleanup === "completed"
-                  ? "Файл убран из проекта. Временная копия уже удалена из хранилища."
-                  : "Файл убран из проекта.",
-            );
           }}
-          onError={onError}
+          pendingDeletionIds={pendingSourceDeletions}
+          deletionNotices={sourceDeletionNotices}
+          beginDeletion={beginSourceDeletion}
+          finishDeletion={finishSourceDeletion}
         />
       </details>
       <TranscriptionAnalyticsPanel key={project.id} projectId={project.id} />
@@ -3210,6 +3216,36 @@ function ProjectsPage({
   const [jobMutationNotices, setJobMutationNotices] = useState<
     Record<string, JobMutationNotice>
   >({});
+  const pendingSourceDeletionsRef = useRef(new Set<string>());
+  const [pendingSourceDeletions, setPendingSourceDeletions] = useState<
+    Set<string>
+  >(() => new Set());
+  const [sourceDeletionNotices, setSourceDeletionNotices] = useState<
+    Record<string, SourceDeletionNotice>
+  >({});
+  const beginSourceDeletion = (sourceId: string) => {
+    if (pendingSourceDeletionsRef.current.has(sourceId)) return false;
+    pendingSourceDeletionsRef.current.add(sourceId);
+    setPendingSourceDeletions(new Set(pendingSourceDeletionsRef.current));
+    setSourceDeletionNotices((current) => {
+      if (!current[sourceId]) return current;
+      const next = { ...current };
+      delete next[sourceId];
+      return next;
+    });
+    return true;
+  };
+  const finishSourceDeletion = (
+    sourceId: string,
+    notice: SourceDeletionNotice,
+  ) => {
+    if (!pendingSourceDeletionsRef.current.delete(sourceId)) return;
+    setPendingSourceDeletions(new Set(pendingSourceDeletionsRef.current));
+    setSourceDeletionNotices((current) => ({
+      ...current,
+      [sourceId]: notice,
+    }));
+  };
   const batchSubmissionsRef = useRef(new Map<string, BatchSubmission>());
   const [batchSubmissions, setBatchSubmissions] = useState<
     Record<string, BatchSubmission>
@@ -3693,11 +3729,14 @@ function ProjectsPage({
                   onLoadSources={loadSources}
                   onReloadSources={loadSources}
                   onReloadJobs={loadJobs}
-                  onError={setError}
                   pendingJobMutations={pendingJobMutations}
                   jobMutationNotices={jobMutationNotices}
                   beginJobMutation={beginJobMutation}
                   finishJobMutation={finishJobMutation}
+                  pendingSourceDeletions={pendingSourceDeletions}
+                  sourceDeletionNotices={sourceDeletionNotices}
+                  beginSourceDeletion={beginSourceDeletion}
+                  finishSourceDeletion={finishSourceDeletion}
                   batchSubmission={
                     batchSubmissions[selectedProject.id] ?? null
                   }

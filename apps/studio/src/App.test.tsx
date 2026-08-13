@@ -6716,6 +6716,130 @@ describe("Studio PWA", () => {
     expect(document.body.textContent).not.toContain("raw cancellation failure");
   });
 
+  it("keeps source deletion ownership and safe outcomes across project switches", async () => {
+    installFocusedOutputFixture({
+      jobStatus: "processing",
+      includeSecondProject: true,
+    });
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let deleteCalls = 0;
+    let deleteSettled = false;
+    let deleteConfirmed = false;
+    let sourceReadsAfterSettlement = 0;
+    const deleteResolvers: Array<(response: Response) => void> = [];
+    const ambiguousNotice =
+      "\u0421\u0435\u0440\u0432\u0435\u0440 \u043d\u0435 \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u043b \u0443\u0434\u0430\u043b\u0435\u043d\u0438\u0435 \u0444\u0430\u0439\u043b\u0430. \u0421\u043f\u0438\u0441\u043e\u043a \u0444\u0430\u0439\u043b\u043e\u0432 \u043e\u0431\u043d\u043e\u0432\u043b\u0451\u043d; \u043f\u043e\u0434\u043e\u0436\u0434\u0438\u0442\u0435 \u0438 \u043f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u0435 \u043f\u0440\u0438 \u043d\u0435\u043e\u0431\u0445\u043e\u0434\u0438\u043c\u043e\u0441\u0442\u0438.";
+    const successNotice = "\u0424\u0430\u0439\u043b \u0443\u0431\u0440\u0430\u043d \u0438\u0437 \u043f\u0440\u043e\u0435\u043a\u0442\u0430.";
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/projects/p1/sources" && !init?.method) {
+        if (deleteSettled) sourceReadsAfterSettlement += 1;
+        if (deleteConfirmed) return json({ sources: [] });
+      }
+      if (url === "/api/sources/source-focused" && init?.method === "DELETE") {
+        deleteCalls += 1;
+        return new Promise<Response>((resolve) => {
+          deleteResolvers.push(resolve);
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({});
+    });
+
+    await openFocusedJobsList();
+    const removeButton = screen.getByRole("button", {
+      name: "Убрать из проекта: focused-source.mp3",
+    });
+    await userEvent.click(removeButton);
+    await waitFor(() => expect(deleteCalls).toBe(1));
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Project Two/ }),
+    );
+    await screen.findByRole("form", {
+      name: "Композитор пакетных задач",
+    });
+    expect(
+      screen.queryByText(
+        "Сервер не подтвердил удаление файла. Список файлов обновлён; подождите и повторите при необходимости.",
+      ),
+    ).not.toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Research calls/ }),
+    );
+    const restoredRemoveButton = await screen.findByRole("button", {
+      name: "Убрать из проекта: focused-source.mp3",
+    });
+    expect(restoredRemoveButton).toBeDisabled();
+    expect(restoredRemoveButton).toHaveAttribute("aria-busy", "true");
+    restoredRemoveButton.click();
+    expect(deleteCalls).toBe(1);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Project Two/ }),
+    );
+    deleteSettled = true;
+    await act(async () => {
+      deleteResolvers[0]?.(await json({ detail: "raw delete failure" }, false, 500));
+    });
+    await waitFor(() => expect(sourceReadsAfterSettlement).toBeGreaterThan(0));
+    expect(
+      screen.queryByText(
+        "Сервер не подтвердил удаление файла. Список файлов обновлён; подождите и повторите при необходимости.",
+      ),
+    ).not.toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Research calls/ }),
+    );
+    expect(
+      await screen.findByText(
+        "Сервер не подтвердил удаление файла. Список файлов обновлён; подождите и повторите при необходимости.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "Убрать из проекта: focused-source.mp3",
+      }),
+    ).toBeEnabled();
+    expect(deleteCalls).toBe(1);
+    expect(document.body).not.toHaveTextContent("raw delete failure");
+
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "\u0423\u0431\u0440\u0430\u0442\u044c \u0438\u0437 \u043f\u0440\u043e\u0435\u043a\u0442\u0430: focused-source.mp3",
+      }),
+    );
+    await waitFor(() => expect(deleteCalls).toBe(2));
+    expect(screen.queryByText(ambiguousNotice)).not.toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Project Two/ }),
+    );
+    deleteConfirmed = true;
+    await act(async () => {
+      deleteResolvers[1]?.(
+        await json({
+          ok: true,
+          source_state: "deleted",
+          storage_cleanup: "not_applicable",
+        }),
+      );
+    });
+    expect(screen.queryByText(successNotice)).not.toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Research calls/ }),
+    );
+    expect(await screen.findByText(successNotice)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", {
+        name: "\u0423\u0431\u0440\u0430\u0442\u044c \u0438\u0437 \u043f\u0440\u043e\u0435\u043a\u0442\u0430: focused-source.mp3",
+      }),
+    ).not.toBeInTheDocument();
+    expect(deleteCalls).toBe(2);
+  });
+
   it("keeps cancellation ownership and safe outcomes across project switches", async () => {
     installFocusedOutputFixture({
       jobStatus: "queued",
