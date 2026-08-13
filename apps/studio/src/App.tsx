@@ -129,10 +129,32 @@ import {
 } from "./theme";
 import "./styles.css";
 
+const SOURCE_RETENTION_TTL_OPTIONS_SECONDS = [
+  3600, 86400, 259200, 604800, 2592000,
+] as const;
 type AccountPreferences = {
   source_retention_ttl_seconds: number;
   allowed_source_retention_ttl_seconds: number[];
 };
+function isExpectedAccountPreferences(
+  candidate: unknown,
+): candidate is AccountPreferences {
+  if (!candidate || typeof candidate !== "object") return false;
+  const preferences = candidate as Partial<AccountPreferences>;
+  return (
+    Number.isInteger(preferences.source_retention_ttl_seconds) &&
+    Array.isArray(preferences.allowed_source_retention_ttl_seconds) &&
+    preferences.allowed_source_retention_ttl_seconds.length ===
+      SOURCE_RETENTION_TTL_OPTIONS_SECONDS.length &&
+    preferences.allowed_source_retention_ttl_seconds.every(
+      (seconds, index) =>
+        seconds === SOURCE_RETENTION_TTL_OPTIONS_SECONDS[index],
+    ) &&
+    preferences.allowed_source_retention_ttl_seconds.includes(
+      preferences.source_retention_ttl_seconds as number,
+    )
+  );
+}
 type Credential = {
   id: string;
   provider: "elevenlabs" | "openai";
@@ -542,6 +564,8 @@ const PROJECT_COLLECTION_REQUEST_TIMEOUT_MS = 15_000;
 const PROJECT_MUTATION_REQUEST_TIMEOUT_MS = 20_000;
 const CREDENTIAL_COLLECTION_REQUEST_TIMEOUT_MS = 15_000;
 const CREDENTIAL_MUTATION_REQUEST_TIMEOUT_MS = 20_000;
+const ACCOUNT_PREFERENCES_REQUEST_TIMEOUT_MS = 15_000;
+const ACCOUNT_PREFERENCES_MUTATION_TIMEOUT_MS = 20_000;
 async function bootstrapSession(): Promise<{
   user: User;
   csrf: string;
@@ -562,6 +586,20 @@ async function csrfMutate<T>(
   options: RequestInit,
 ): Promise<T> {
   return mutateWithCsrfRetry<T>(path, csrf, onCsrf, options);
+}
+async function readAccountPreferencesBounded(): Promise<AccountPreferences | null> {
+  try {
+    const result = await runBoundedRequest(
+      (signal) => api<unknown>("/account/preferences", { signal }),
+      ACCOUNT_PREFERENCES_REQUEST_TIMEOUT_MS,
+    );
+    return result.status === "completed" &&
+      isExpectedAccountPreferences(result.value)
+      ? result.value
+      : null;
+  } catch {
+    return null;
+  }
 }
 async function readCredentialCollectionBounded(): Promise<Credential[] | null> {
   try {
@@ -624,6 +662,12 @@ type CredentialMutationNotice = Pick<
   message: string;
   tone: "notice" | "error";
 };
+type RetentionMutationOperation = { generation: number };
+type RetentionMutationNotice = {
+  message: string;
+  tone: "notice" | "error";
+  refreshOnMount: boolean;
+};
 function credentialMutationKey(
   operation: Pick<CredentialMutationOperation, "credentialId">,
 ) {
@@ -640,6 +684,12 @@ function credentialMutationOperationMatches(
   );
 }
 function isAmbiguousCredentialMutationFailure(error: unknown) {
+  return (
+    error instanceof TypeError ||
+    (error instanceof ApiError && (error.status === 408 || error.status >= 500))
+  );
+}
+function isAmbiguousRetentionMutationFailure(error: unknown) {
   return (
     error instanceof TypeError ||
     (error instanceof ApiError && (error.status === 408 || error.status >= 500))
@@ -4878,6 +4928,11 @@ function SettingsPage({
   credentialMutationNotices,
   beginCredentialMutation,
   finishCredentialMutation,
+  retentionMutation,
+  retentionMutationNotice,
+  beginRetentionMutation,
+  finishRetentionMutation,
+  acknowledgeRetentionMutationRefresh,
   section,
   onSectionChange,
 }: {
@@ -4897,6 +4952,14 @@ function SettingsPage({
     operation: CredentialMutationOperation,
     notice?: CredentialMutationNotice,
   ) => void;
+  retentionMutation: RetentionMutationOperation | null;
+  retentionMutationNotice: RetentionMutationNotice | null;
+  beginRetentionMutation: () => RetentionMutationOperation | null;
+  finishRetentionMutation: (
+    operation: RetentionMutationOperation,
+    notice?: RetentionMutationNotice,
+  ) => void;
+  acknowledgeRetentionMutationRefresh: () => void;
   section: SettingsSection;
   onSectionChange: (section: SettingsSection) => void;
 }) {
@@ -4916,11 +4979,14 @@ function SettingsPage({
   const [googleStarting, setGoogleStarting] = useState(false);
   const [accountPreferences, setAccountPreferences] =
     useState<AccountPreferences | null>(null);
+  const retentionRequestEpochsRef = useRef(new Map<string, number>());
+  const retentionRequestControllersRef = useRef(
+    new Map<string, AbortController>(),
+  );
   const [retentionSelection, setRetentionSelection] = useState("86400");
   const [retentionState, setRetentionState] = useState<
     "loading" | "ready" | "error"
   >("loading");
-  const [retentionSaving, setRetentionSaving] = useState(false);
   const [retentionMessage, setRetentionMessage] = useState("");
   const [themePreference, setThemePreference] =
     useState<StudioThemePreference>(() => readStudioThemePreference());
@@ -4939,30 +5005,56 @@ function SettingsPage({
       })
       .finally(() => setGoogleLoading(false));
   };
-  const loadAccountPreferences = () => {
-    setRetentionState("loading");
-    setRetentionMessage("");
-    api<AccountPreferences>("/account/preferences")
-      .then((preferences) => {
-        if (
-          !Array.isArray(preferences.allowed_source_retention_ttl_seconds) ||
-          !preferences.allowed_source_retention_ttl_seconds.includes(
-            preferences.source_retention_ttl_seconds,
-          )
-        ) {
-          throw new Error("invalid account preferences");
+  const loadAccountPreferences = async ({ reportFailure = true } = {}): Promise<
+    AccountPreferences | null
+  > => {
+    let observed: AccountPreferences | null = null;
+    const hadPreferences = accountPreferences !== null;
+    if (!hadPreferences) setRetentionState("loading");
+    if (reportFailure) setRetentionMessage("");
+    await settleLatestRequest(
+      retentionRequestEpochsRef.current,
+      "settings:account-preferences",
+      async (signal) => {
+        const candidate = await api<unknown>("/account/preferences", {
+          signal,
+          ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+        });
+        if (!isExpectedAccountPreferences(candidate)) {
+          throw new Error("invalid_account_preferences_response");
         }
+        return candidate;
+      },
+      (preferences) => {
+        observed = preferences;
         setAccountPreferences(preferences);
         setRetentionSelection(
           String(preferences.source_retention_ttl_seconds),
         );
         setRetentionState("ready");
-      })
-      .catch(() => {
-        setAccountPreferences(null);
-        setRetentionState("error");
-      });
+        setRetentionMessage("");
+      },
+      () => {
+        setRetentionState(hadPreferences ? "ready" : "error");
+        if (reportFailure) {
+          setRetentionMessage(
+            hadPreferences
+              ? "Не удалось обновить настройку хранения. Последнее подтверждённое значение сохранено."
+              : "Не удалось загрузить настройку хранения. Повторите попытку.",
+          );
+        }
+      },
+      {
+        controllers: retentionRequestControllersRef.current,
+        timeoutMs: ACCOUNT_PREFERENCES_REQUEST_TIMEOUT_MS,
+      },
+    );
+    return observed;
   };
+  const reconcileAccountPreferences = () =>
+    settingsMountedRef.current
+      ? loadAccountPreferences({ reportFailure: false })
+      : readAccountPreferencesBounded();
   const loadAuditEvents = () => {
     api<{ events: Audit[] }>("/audit-events")
       .then((result) => setEvents(result.events))
@@ -5016,15 +5108,24 @@ function SettingsPage({
     void loadCredentials();
     loadAuditEvents();
     loadGoogleConnection();
-    loadAccountPreferences();
+    void loadAccountPreferences();
     return () => {
       settingsMountedRef.current = false;
       cancelLatestRequests(
         credentialRequestEpochsRef.current,
         credentialRequestControllersRef.current,
       );
+      cancelLatestRequests(
+        retentionRequestEpochsRef.current,
+        retentionRequestControllersRef.current,
+      );
     };
   }, []);
+  useEffect(() => {
+    if (retentionMutation || !retentionMutationNotice?.refreshOnMount) return;
+    acknowledgeRetentionMutationRefresh();
+    void loadAccountPreferences({ reportFailure: false });
+  }, [retentionMutation, retentionMutationNotice]);
   const safeMutate = <T,>(path: string, options: RequestInit) =>
     csrfMutate<T>(path, csrf, onCsrf, options);
   async function save(e: FormEvent<HTMLFormElement>) {
@@ -5225,28 +5326,84 @@ function SettingsPage({
       setRetentionMessage("Выберите доступный срок хранения.");
       return;
     }
-    setRetentionSaving(true);
+    const operation = beginRetentionMutation();
+    if (!operation) return;
+    let notice: RetentionMutationNotice | undefined;
+    const previousConfirmed = accountPreferences.source_retention_ttl_seconds;
     setRetentionMessage("");
+    const reconcileAmbiguousPreference = async () => {
+      const observed = await reconcileAccountPreferences();
+      const confirmed =
+        observed?.source_retention_ttl_seconds === selected;
+      if (!observed && settingsMountedRef.current) {
+        setRetentionSelection(String(previousConfirmed));
+        setRetentionState("ready");
+      }
+      notice = {
+        message: confirmed
+          ? "Сохранение срока подтверждено по актуальной настройке аккаунта."
+          : observed
+            ? "Сервер не подтвердил сохранение. Показано актуальное значение; проверьте его перед повторной попыткой."
+            : "Сервер не подтвердил сохранение, а обновить настройку не удалось. Сохранено последнее подтверждённое значение; обновите страницу перед повторной попыткой.",
+        tone: confirmed ? "notice" : "error",
+        refreshOnMount: !settingsMountedRef.current,
+      };
+    };
     try {
-      const preferences = await safeMutate<AccountPreferences>(
-        "/account/preferences",
-        {
-          method: "PATCH",
-          body: JSON.stringify({ source_retention_ttl_seconds: selected }),
-        },
+      const request = await runBoundedRequest(
+        (signal) =>
+          safeMutate<unknown>("/account/preferences", {
+            method: "PATCH",
+            signal,
+            body: JSON.stringify({
+              source_retention_ttl_seconds: selected,
+            }),
+          }),
+        ACCOUNT_PREFERENCES_MUTATION_TIMEOUT_MS,
       );
-      setAccountPreferences(preferences);
-      setRetentionSelection(
-        String(preferences.source_retention_ttl_seconds),
-      );
-      setRetentionMessage("Срок хранения сохранён.");
-    } catch {
-      setRetentionMessage("Не удалось сохранить срок хранения.");
+      if (request.status === "timed_out") {
+        await reconcileAmbiguousPreference();
+        return;
+      }
+      const preferences = request.value;
+      if (
+        !isExpectedAccountPreferences(preferences) ||
+        preferences.source_retention_ttl_seconds !== selected
+      ) {
+        await reconcileAmbiguousPreference();
+        return;
+      }
+      if (settingsMountedRef.current) {
+        setAccountPreferences(preferences);
+        setRetentionSelection(
+          String(preferences.source_retention_ttl_seconds),
+        );
+        setRetentionState("ready");
+      }
+      notice = {
+        message: "Срок хранения сохранён.",
+        tone: "notice",
+        refreshOnMount: !settingsMountedRef.current,
+      };
+    } catch (error) {
+      if (isAmbiguousRetentionMutationFailure(error)) {
+        await reconcileAmbiguousPreference();
+      } else {
+        if (settingsMountedRef.current) {
+          setRetentionSelection(String(previousConfirmed));
+          setRetentionState("ready");
+        }
+        notice = {
+          message: "Не удалось сохранить срок хранения. Проверьте значение и повторите.",
+          tone: "error",
+          refreshOnMount: false,
+        };
+      }
     } finally {
-      setRetentionSaving(false);
+      finishRetentionMutation(operation, notice);
+      if (settingsMountedRef.current) loadAuditEvents();
     }
-  }
-  const mutateCredential = async (
+  }  const mutateCredential = async (
     kind: "revoke" | "delete",
     credential: Credential,
   ) => {
@@ -5466,8 +5623,13 @@ function SettingsPage({
             )}
             {retentionState === "error" && (
               <div className="error">
-                <p>Не удалось загрузить настройку хранения.</p>
-                <button type="button" onClick={loadAccountPreferences}>
+                <p role="alert">
+                  {retentionMessage || "Не удалось загрузить настройку хранения."}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void loadAccountPreferences()}
+                >
                   Повторить
                 </button>
               </div>
@@ -5476,6 +5638,7 @@ function SettingsPage({
               <form
                 className="retention-preferences-form"
                 aria-label="Настройка хранения локальных файлов"
+                aria-busy={retentionMutation !== null || undefined}
                 onSubmit={saveRetentionPreference}
               >
                 <label>
@@ -5483,6 +5646,7 @@ function SettingsPage({
                   <select
                     aria-label="Срок хранения локальных файлов"
                     value={retentionSelection}
+                    disabled={retentionMutation !== null}
                     onChange={(event) => {
                       setRetentionSelection(event.target.value);
                       setRetentionMessage("");
@@ -5497,14 +5661,28 @@ function SettingsPage({
                     )}
                   </select>
                 </label>
-                <button className="primary" disabled={retentionSaving}>
-                  {retentionSaving ? "Сохраняем…" : "Сохранить срок"}
+                <button
+                  className="primary"
+                  disabled={retentionMutation !== null}
+                  aria-busy={retentionMutation !== null || undefined}
+                >
+                  {retentionMutation ? "Сохраняем…" : "Сохранить срок"}
                 </button>
               </form>
             )}
-            {retentionMessage && (
-              <p role="status" className="notice">
+            {retentionState !== "error" && retentionMessage && (
+              <p role="alert" className="error">
                 {retentionMessage}
+              </p>
+            )}
+            {retentionMutationNotice && (
+              <p
+                role={
+                  retentionMutationNotice.tone === "error" ? "alert" : "status"
+                }
+                className={retentionMutationNotice.tone}
+              >
+                {retentionMutationNotice.message}
               </p>
             )}
           </section>
@@ -6406,6 +6584,49 @@ function PlatformShell() {
     activeCredentialMutationsRef.current.clear();
     setCredentialMutations([]);
     setCredentialMutationNotices({});
+  };  const retentionMutationGenerationRef = useRef(0);
+  const activeRetentionMutationRef = useRef<RetentionMutationOperation | null>(
+    null,
+  );
+  const [retentionMutation, setRetentionMutation] =
+    useState<RetentionMutationOperation | null>(null);
+  const [retentionMutationNotice, setRetentionMutationNotice] =
+    useState<RetentionMutationNotice | null>(null);
+  const beginRetentionMutation = (): RetentionMutationOperation | null => {
+    if (activeRetentionMutationRef.current) return null;
+    const operation = {
+      generation: retentionMutationGenerationRef.current,
+    };
+    activeRetentionMutationRef.current = operation;
+    setRetentionMutation(operation);
+    setRetentionMutationNotice(null);
+    return operation;
+  };
+  const finishRetentionMutation = (
+    operation: RetentionMutationOperation,
+    notice?: RetentionMutationNotice,
+  ) => {
+    if (activeRetentionMutationRef.current !== operation) return;
+    activeRetentionMutationRef.current = null;
+    setRetentionMutation(null);
+    if (notice) setRetentionMutationNotice(notice);
+  };
+  const acknowledgeRetentionMutationRefresh = () => {
+    setRetentionMutationNotice((current) =>
+      current?.refreshOnMount
+        ? { ...current, refreshOnMount: false }
+        : current,
+    );
+  };
+  const clearRetentionMutationSession = () => {
+    retentionMutationGenerationRef.current += 1;
+    activeRetentionMutationRef.current = null;
+    setRetentionMutation(null);
+    setRetentionMutationNotice(null);
+  };
+  const clearSettingsMutationSession = () => {
+    clearCredentialMutationSession();
+    clearRetentionMutationSession();
   };
   const navigate = (
     nextPage: Page,
@@ -6498,7 +6719,7 @@ function PlatformShell() {
     return (
       <Login
         onLogin={(u, t) => {
-          clearCredentialMutationSession();
+          clearSettingsMutationSession();
           setSession({ status: "authenticated", user: u, csrf: t, error: "" });
           updatePwaDiagnosticsCsrf(t);
           configurePwaDiagnosticsDebugState({ active: false });
@@ -6527,7 +6748,7 @@ function PlatformShell() {
       headers: { "x-csrf-token": token },
     }).catch(() => undefined);
     navigate("dashboard");
-    clearCredentialMutationSession();
+    clearSettingsMutationSession();
     setSession({ status: "anonymous", user: null, csrf: "", error: "" });
     clearPwaDiagnosticsSession();
   };
@@ -6598,6 +6819,13 @@ function PlatformShell() {
             credentialMutationNotices={credentialMutationNotices}
             beginCredentialMutation={beginCredentialMutation}
             finishCredentialMutation={finishCredentialMutation}
+            retentionMutation={retentionMutation}
+            retentionMutationNotice={retentionMutationNotice}
+            beginRetentionMutation={beginRetentionMutation}
+            finishRetentionMutation={finishRetentionMutation}
+            acknowledgeRetentionMutationRefresh={
+              acknowledgeRetentionMutationRefresh
+            }
             section={settingsSection}
             onSectionChange={(section) => navigate("settings", section)}
           />

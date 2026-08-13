@@ -2488,6 +2488,298 @@ describe("Studio PWA", () => {
     expect(window.sessionStorage.length).toBe(0);
   });
 
+  it("bounds a stalled retention read and fails closed with retry", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const retentionSignals: AbortSignal[] = [];
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/account/preferences" && !init?.method) {
+        const signal = init.signal;
+        if (!signal) throw new Error("retention-read signal is missing");
+        retentionSignals.push(signal);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 15_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      renderApp();
+      await openSettingsPage();
+      expect(
+        await screen.findByText(
+          "Не удалось загрузить настройку хранения. Повторите попытку.",
+        ),
+      ).toBeInTheDocument();
+      expect(retentionSignals).toHaveLength(1);
+      expect(retentionSignals[0]?.aborted).toBe(true);
+      expect(screen.getByRole("button", { name: "Повторить" })).toBeEnabled();
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("rejects a malformed retention response before rendering choices", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) =>
+      url === "/api/account/preferences" && !init?.method
+        ? json({
+            source_retention_ttl_seconds: 86400,
+            allowed_source_retention_ttl_seconds: [86400],
+          })
+        : (defaultFetch?.(url, init) ?? json({ ok: true })),
+    );
+
+    renderApp();
+    await openSettingsPage();
+    expect(
+      await screen.findByText(
+        "Не удалось загрузить настройку хранения. Повторите попытку.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("combobox", {
+        name: "Срок хранения локальных файлов",
+      }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("bounds and deduplicates retention save with authoritative confirmation", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const mutationSignals: AbortSignal[] = [];
+    let serverTtl = 86400;
+    let preferenceReads = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/account/preferences" && !init?.method) {
+        preferenceReads += 1;
+        return json({
+          source_retention_ttl_seconds: serverTtl,
+          allowed_source_retention_ttl_seconds: [
+            3600, 86400, 259200, 604800, 2592000,
+          ],
+        });
+      }
+      if (url === "/api/account/preferences" && init?.method === "PATCH") {
+        serverTtl = JSON.parse(String(init.body)).source_retention_ttl_seconds;
+        const signal = init.signal;
+        if (!signal) throw new Error("retention-save signal is missing");
+        mutationSignals.push(signal);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openSettingsPage();
+    const retention = await screen.findByRole("combobox", {
+      name: "Срок хранения локальных файлов",
+    });
+    await userEvent.selectOptions(retention, "604800");
+    const form = retention.closest("form");
+    if (!form) throw new Error("retention form is missing");
+    const readsBeforeMutation = preferenceReads;
+
+    vi.useFakeTimers();
+    try {
+      fireEvent.submit(form);
+      fireEvent.submit(form);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(mutationSignals).toHaveLength(1);
+      expect(screen.getByRole("button", { name: "Сохраняем…" })).toBeDisabled();
+      expect(form).toHaveAttribute("aria-busy", "true");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+      vi.useRealTimers();
+      expect(
+        await screen.findByText(
+          "Сохранение срока подтверждено по актуальной настройке аккаунта.",
+        ),
+      ).toBeInTheDocument();
+      expect(mutationSignals[0]?.aborted).toBe(true);
+      expect(preferenceReads).toBe(readsBeforeMutation + 1);
+      expect(retention).toHaveValue("604800");
+      expect(screen.getByRole("button", { name: "Сохранить срок" })).toBeEnabled();
+      expect(
+        baseFetch.mock.calls.filter(
+          ([url, init]) =>
+            url === "/api/account/preferences" && init?.method === "PATCH",
+        ),
+      ).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps retention mutation ownership and result across Settings remount", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let serverTtl = 86400;
+    let preferenceReads = 0;
+    let resolvePatch: ((response: Response) => void) | undefined;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/account/preferences" && !init?.method) {
+        preferenceReads += 1;
+        return json({
+          source_retention_ttl_seconds: serverTtl,
+          allowed_source_retention_ttl_seconds: [
+            3600, 86400, 259200, 604800, 2592000,
+          ],
+        });
+      }
+      if (url === "/api/account/preferences" && init?.method === "PATCH") {
+        return new Promise<Response>((resolve) => {
+          resolvePatch = resolve;
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openSettingsPage();
+    const retention = await screen.findByRole("combobox", {
+      name: "Срок хранения локальных файлов",
+    });
+    await userEvent.selectOptions(retention, "604800");
+    const form = retention.closest("form");
+    if (!form) throw new Error("retention form is missing");
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+    await waitFor(() => expect(resolvePatch).toBeDefined());
+    expect(screen.getByRole("button", { name: "Сохраняем…" })).toBeDisabled();
+
+    await openProjectsPage();
+    await openSettingsPage();
+    expect(
+      await screen.findByRole("button", { name: "Сохраняем…" }),
+    ).toBeDisabled();
+    serverTtl = 604800;
+    const failedResponse = await json(
+      { detail: "raw-retention-failure-must-not-render" },
+      false,
+      503,
+    );
+    await act(async () => resolvePatch?.(failedResponse));
+    expect(
+      await screen.findByText(
+        "Сохранение срока подтверждено по актуальной настройке аккаунта.",
+      ),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("combobox", {
+          name: "Срок хранения локальных файлов",
+        }),
+      ).toHaveValue("604800"),
+    );
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          url === "/api/account/preferences" && init?.method === "PATCH",
+      ),
+    ).toHaveLength(1);
+    expect(document.body.textContent).not.toContain(
+      "raw-retention-failure-must-not-render",
+    );
+
+    const readsBeforeFinalReopen = preferenceReads;
+    await openProjectsPage();
+    await openSettingsPage();
+    await screen.findByRole("combobox", {
+      name: "Срок хранения локальных файлов",
+    });
+    expect(preferenceReads).toBe(readsBeforeFinalReopen + 1);
+  });
+
+  it("restores a different authoritative retention value after ambiguity", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let preferenceReads = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/account/preferences" && !init?.method) {
+        preferenceReads += 1;
+        return json({
+          source_retention_ttl_seconds:
+            preferenceReads === 1 ? 86400 : 259200,
+          allowed_source_retention_ttl_seconds: [
+            3600, 86400, 259200, 604800, 2592000,
+          ],
+        });
+      }
+      if (url === "/api/account/preferences" && init?.method === "PATCH")
+        return json({ detail: "raw-ambiguous-retention" }, false, 503);
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openSettingsPage();
+    const retention = await screen.findByRole("combobox", {
+      name: "Срок хранения локальных файлов",
+    });
+    await userEvent.selectOptions(retention, "604800");
+    await userEvent.click(screen.getByRole("button", { name: "Сохранить срок" }));
+    expect(
+      await screen.findByText(
+        "Сервер не подтвердил сохранение. Показано актуальное значение; проверьте его перед повторной попыткой.",
+      ),
+    ).toBeInTheDocument();
+    expect(retention).toHaveValue("259200");
+    expect(document.body.textContent).not.toContain("raw-ambiguous-retention");
+  });
+  it("restores the last confirmed retention value when reconciliation fails", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let preferenceReads = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/account/preferences" && !init?.method) {
+        preferenceReads += 1;
+        return preferenceReads === 1
+          ? json({
+              source_retention_ttl_seconds: 86400,
+              allowed_source_retention_ttl_seconds: [
+                3600, 86400, 259200, 604800, 2592000,
+              ],
+            })
+          : json({ detail: "raw-retention-read-failure" }, false, 500);
+      }
+      if (url === "/api/account/preferences" && init?.method === "PATCH")
+        return json({ detail: "raw-retention-write-failure" }, false, 503);
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openSettingsPage();
+    const retention = await screen.findByRole("combobox", {
+      name: "Срок хранения локальных файлов",
+    });
+    await userEvent.selectOptions(retention, "604800");
+    await userEvent.click(screen.getByRole("button", { name: "Сохранить срок" }));
+    expect(
+      await screen.findByText(
+        "Сервер не подтвердил сохранение, а обновить настройку не удалось. Сохранено последнее подтверждённое значение; обновите страницу перед повторной попыткой.",
+      ),
+    ).toBeInTheDocument();
+    expect(retention).toHaveValue("86400");
+    expect(document.body.textContent).not.toContain("raw-retention-read-failure");
+    expect(document.body.textContent).not.toContain("raw-retention-write-failure");
+  });
   it("renders disconnected Google Drive state", async () => {
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = baseFetch.getMockImplementation();
