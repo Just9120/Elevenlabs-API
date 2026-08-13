@@ -419,6 +419,10 @@ function safeConfirm(message: string) {
   }
 }
 export const __appDiagnosticsTest = { api, csrfMutate };
+type JobMutationKind = "cancel" | "retry" | "reconciliation" | "dismiss";
+function jobMutationKey(kind: JobMutationKind, jobId: string) {
+  return `${kind}:${jobId}`;
+}
 function PreparationPanel({
   project,
   csrf,
@@ -432,6 +436,9 @@ function PreparationPanel({
   onReloadSources,
   onReloadJobs,
   onError,
+  pendingJobMutations,
+  beginJobMutation,
+  finishJobMutation,
 }: {
   project: Project;
   csrf: string;
@@ -445,6 +452,9 @@ function PreparationPanel({
   onReloadSources: (projectId: string) => void;
   onReloadJobs: (projectId: string) => void;
   onError: (message: string) => void;
+  pendingJobMutations: ReadonlySet<string>;
+  beginJobMutation: (kind: JobMutationKind, jobId: string) => boolean;
+  finishJobMutation: (kind: JobMutationKind, jobId: string) => void;
 }) {
   const [rows, setRows] = useState<ComposerRow[]>(() => [newComposerRow()]);
   const [selectedCredentialId, setSelectedCredentialId] = useState("");
@@ -476,12 +486,7 @@ function PreparationPanel({
   const [reconciliations, setReconciliations] = useState<Record<string, OutputReconciliationState>>({});
   const [retries, setRetries] = useState<Record<string, JobRetryState>>({});
   const [progress, setProgress] = useState<Record<string, JobProgressState>>({});
-  const [cancellingJobIds, setCancellingJobIds] = useState<Set<string>>(
-    () => new Set(),
-  );
-  const [dismissingJobIds, setDismissingJobIds] = useState<Set<string>>(
-    () => new Set(),
-  );
+
   const [removedSourceIds, setRemovedSourceIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -510,10 +515,7 @@ function PreparationPanel({
   const jobRequestControllersRef = useRef(
     new Map<string, AbortController>(),
   );
-  const cancellingJobIdsRef = useRef(new Set<string>());
-  const retryingJobIdsRef = useRef(new Set<string>());
-  const reconcilingJobIdsRef = useRef(new Set<string>());
-  const dismissingJobIdsRef = useRef(new Set<string>());
+
   useEffect(() => {
     localUploadCsrfRef.current = csrf;
   }, [csrf]);
@@ -539,12 +541,7 @@ function PreparationPanel({
     setPreflight(null);
     setMessage("");
     setProgress({});
-    cancellingJobIdsRef.current.clear();
-    retryingJobIdsRef.current.clear();
-    reconcilingJobIdsRef.current.clear();
-    dismissingJobIdsRef.current.clear();
-    setCancellingJobIds(new Set());
-    setDismissingJobIds(new Set());
+
     setLanguageMode(DEFAULT_TRANSCRIPTION_LANGUAGE_MODE);
     setDiarizationEnabled(false);
     setRecentlyAddedRow(null);
@@ -1485,8 +1482,7 @@ function PreparationPanel({
     ]);
   }
   async function checkReconciliation(jobId: string) {
-    if (reconcilingJobIdsRef.current.has(jobId)) return;
-    reconcilingJobIdsRef.current.add(jobId);
+    if (!beginJobMutation("reconciliation", jobId)) return;
     setReconciliations((current) => ({ ...current, [jobId]: { ...(current[jobId] ?? { loading:false, error:"", message:"", data:null }), checking: true, error: "", message: "" } }));
     try {
       const result = await csrfMutate<OutputReconciliationCheckResponse>(`/jobs/${jobId}/output-reconciliation/check`, csrf, onCsrf, { method: "POST" });
@@ -1497,13 +1493,12 @@ function PreparationPanel({
     } catch (err) {
       setReconciliations((current) => ({ ...current, [jobId]: { ...(current[jobId] ?? { loading:false, message:"", data:null }), checking: false, error: err instanceof ApiError && err.status === 409 ? "Google connection недоступен или reconciliation сейчас невозможен." : "Не удалось проверить Google Drive." } }));
     } finally {
-      reconcilingJobIdsRef.current.delete(jobId);
+      finishJobMutation("reconciliation", jobId);
     }
   }
 
   async function retryJob(jobId: string) {
-    if (retryingJobIdsRef.current.has(jobId)) return;
-    retryingJobIdsRef.current.add(jobId);
+    if (!beginJobMutation("retry", jobId)) return;
     setRetries((current) => ({ ...current, [jobId]: { ...(current[jobId] ?? { loading:false, error:"", message:"", data:null }), posting: true, error: "", message: "" } }));
     try {
       const partialMode = ["partial_provider_resume_available", "partial_provider_restart_available"].includes(retries[jobId]?.data?.reason ?? "");
@@ -1519,14 +1514,12 @@ function PreparationPanel({
     } catch {
       setRetries((current) => ({ ...current, [jobId]: { ...(current[jobId] ?? { loading:false, message:"", data:null }), posting: false, error: "Повтор сейчас недоступен." } }));
     } finally {
-      retryingJobIdsRef.current.delete(jobId);
+      finishJobMutation("retry", jobId);
     }
   }
 
   async function cancelJob(jobId: string) {
-    if (cancellingJobIdsRef.current.has(jobId)) return;
-    cancellingJobIdsRef.current.add(jobId);
-    setCancellingJobIds((current) => new Set(current).add(jobId));
+    if (!beginJobMutation("cancel", jobId)) return;
     setMessage("");
     try {
       const cancelled = await csrfMutate<TranscriptionJob>(
@@ -1546,13 +1539,7 @@ function PreparationPanel({
     } catch {
       setMessage("Не удалось отменить задачу. Повторите позже.");
     } finally {
-      cancellingJobIdsRef.current.delete(jobId);
-      setCancellingJobIds((current) => {
-        if (!current.has(jobId)) return current;
-        const next = new Set(current);
-        next.delete(jobId);
-        return next;
-      });
+      finishJobMutation("cancel", jobId);
     }
   }
   const displayJobs = mergeJobsWithBatchOrder(jobs.items ?? [], batchJobs);
@@ -1612,9 +1599,7 @@ function PreparationPanel({
     );
   }, [currentJobIds, project.id]);
   async function dismissTerminalJob(jobId: string) {
-    if (dismissingJobIdsRef.current.has(jobId)) return;
-    dismissingJobIdsRef.current.add(jobId);
-    setDismissingJobIds((current) => new Set(current).add(jobId));
+    if (!beginJobMutation("dismiss", jobId)) return;
     setMessage("");
     try {
       const dismissed = await csrfMutate<TranscriptionJob>(
@@ -1636,25 +1621,42 @@ function PreparationPanel({
     } catch {
       setMessage("Не удалось убрать задачу в историю. Повторите позже.");
     } finally {
-      dismissingJobIdsRef.current.delete(jobId);
-      setDismissingJobIds((current) => {
-        const next = new Set(current);
-        next.delete(jobId);
-        return next;
-      });
+      finishJobMutation("dismiss", jobId);
     }
   }
   function renderJobCard(job: TranscriptionJob, pinnedTerminal = false) {
     const currentDetail = detail[job.id];
     const detailedJob = currentDetail?.job;
+    const reconciliation = reconciliations[job.id];
+    const retry = detailedJob ? retries[detailedJob.id] : undefined;
     return (
       <JobCard
         key={job.id}
         job={job}
         detail={currentDetail}
         outputs={outputs[job.id]}
-        reconciliation={reconciliations[job.id]}
-        retry={detailedJob ? retries[detailedJob.id] : undefined}
+        reconciliation={
+          reconciliation
+            ? {
+                ...reconciliation,
+                checking:
+                  reconciliation.checking ||
+                  pendingJobMutations.has(
+                    jobMutationKey("reconciliation", job.id),
+                  ),
+              }
+            : undefined
+        }
+        retry={
+          retry
+            ? {
+                ...retry,
+                posting:
+                  retry.posting ||
+                  pendingJobMutations.has(jobMutationKey("retry", job.id)),
+              }
+            : undefined
+        }
         progress={
           ["queued", "processing"].includes(job.status)
             ? progress[job.id]
@@ -1664,11 +1666,15 @@ function PreparationPanel({
         }
         onOpen={loadDetail}
         onCancel={cancelJob}
-        cancelPending={cancellingJobIds.has(job.id)}
+        cancelPending={pendingJobMutations.has(
+          jobMutationKey("cancel", job.id),
+        )}
         onCheckReconciliation={checkReconciliation}
         onRetry={retryJob}
         pinnedTerminal={pinnedTerminal}
-        dismissPending={dismissingJobIds.has(job.id)}
+        dismissPending={pendingJobMutations.has(
+          jobMutationKey("dismiss", job.id),
+        )}
         onDismissTerminal={dismissTerminalJob}
       />
     );
@@ -2686,6 +2692,22 @@ function ProjectsPage({
   >({});
   const requestEpochsRef = useRef(new Map<string, number>());
   const requestControllersRef = useRef(new Map<string, AbortController>());
+  const pendingJobMutationsRef = useRef(new Set<string>());
+  const [pendingJobMutations, setPendingJobMutations] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const beginJobMutation = (kind: JobMutationKind, jobId: string) => {
+    const key = jobMutationKey(kind, jobId);
+    if (pendingJobMutationsRef.current.has(key)) return false;
+    pendingJobMutationsRef.current.add(key);
+    setPendingJobMutations(new Set(pendingJobMutationsRef.current));
+    return true;
+  };
+  const finishJobMutation = (kind: JobMutationKind, jobId: string) => {
+    if (!pendingJobMutationsRef.current.delete(jobMutationKey(kind, jobId)))
+      return;
+    setPendingJobMutations(new Set(pendingJobMutationsRef.current));
+  };
   const setPickerBusy = (busy: boolean) => {
     setActivePicker(busy);
   };
@@ -3098,6 +3120,9 @@ function ProjectsPage({
                   onReloadSources={loadSources}
                   onReloadJobs={loadJobs}
                   onError={setError}
+                  pendingJobMutations={pendingJobMutations}
+                  beginJobMutation={beginJobMutation}
+                  finishJobMutation={finishJobMutation}
                 />
               </div>
               <div
