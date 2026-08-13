@@ -1872,7 +1872,13 @@ def get_google_drive_folder_children(folder_id: str, page_size: int=Query(50, ge
 
 @app.get("/api/credentials")
 def list_credentials(pair=Depends(current_session), db: Session=Depends(get_db)):
-    _,user=pair; rows=db.query(ProviderCredential).filter_by(user_id=user.id).all(); out=[]
+    _,user=pair
+    rows=db.query(ProviderCredential).filter(
+        ProviderCredential.user_id==user.id,
+        ProviderCredential.status!=CredentialStatus.deleted,
+        ProviderCredential.deleted_at.is_(None),
+    ).all()
+    out=[]
     for c in rows:
         v=db.get(ProviderCredentialVersion, c.active_version_id) if c.active_version_id else None
         out.append({"id":c.id,"provider":c.provider.value,"label":c.label,"status":c.status.value,"active_version":v.version if v else None,"masked_value":v.masked_value if v else None,"created_at":c.created_at.isoformat()})
@@ -1893,21 +1899,23 @@ def create_credential(data: CredentialIn, request: Request, pair=Depends(require
 @app.post("/api/credentials/{credential_id}/replace")
 def replace_credential(credential_id: str, data: CredentialIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     _,user=pair; limiter.check("cred:replace:"+user.id, 20, 3600); c=db.get(ProviderCredential, credential_id)
-    if not c or c.user_id!=user.id or c.provider!=data.provider: raise HTTPException(404,"Не найдено")
+    if not c or c.user_id!=user.id or c.provider!=data.provider or c.status==CredentialStatus.deleted or c.deleted_at is not None: raise HTTPException(404,"Не найдено")
     v=add_version(db,user,c,data.raw_value); audit(db,"credential.replaced",actor_user_id=user.id,subject_user_id=user.id,provider=c.provider.value,credential_id=c.id,version=v.version); db.commit(); return {"ok": True, "active_version": v.version, "masked_value": v.masked_value}
 
 @app.post("/api/credentials/{credential_id}/revoke")
 def revoke_credential(credential_id: str, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     _,user=pair; limiter.check("cred:revoke:"+user.id, 20, 3600); c=db.get(ProviderCredential, credential_id)
-    if not c or c.user_id!=user.id: raise HTTPException(404,"Не найдено")
+    if not c or c.user_id!=user.id or c.status==CredentialStatus.deleted or c.deleted_at is not None: raise HTTPException(404,"Не найдено")
+    if c.status==CredentialStatus.revoked: return {"ok": True}
     c.status=CredentialStatus.revoked; audit(db,"credential.revoked",actor_user_id=user.id,subject_user_id=user.id,provider=c.provider.value,credential_id=c.id); db.commit(); return {"ok": True}
 
 @app.delete("/api/credentials/{credential_id}")
 def delete_credential(credential_id: str, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     _,user=pair; limiter.check("cred:delete:"+user.id, 20, 3600); c=db.get(ProviderCredential, credential_id)
     if not c or c.user_id!=user.id: raise HTTPException(404,"Не найдено")
-    c.status=CredentialStatus.deleted; c.deleted_at=utcnow();
-    for v in db.query(ProviderCredentialVersion).filter_by(credential_id=c.id): v.ciphertext=None; v.nonce=None; v.deleted_at=utcnow()
+    if c.status==CredentialStatus.deleted and c.deleted_at is not None: return {"ok": True}
+    now=utcnow(); c.status=CredentialStatus.deleted; c.deleted_at=now
+    for v in db.query(ProviderCredentialVersion).filter_by(credential_id=c.id): v.ciphertext=None; v.nonce=None; v.deleted_at=now
     audit(db,"credential.deleted",actor_user_id=user.id,subject_user_id=user.id,provider=c.provider.value,credential_id=c.id); db.commit(); return {"ok": True}
 
 @app.get("/api/audit-events")

@@ -816,7 +816,7 @@ describe("Studio PWA", () => {
             ],
             next_page_token: null,
           });
-        if (url.endsWith("/api/credentials"))
+        if (url.endsWith("/api/credentials") && !init?.method)
           return json({
             credentials: [
               {
@@ -1003,9 +1003,25 @@ describe("Studio PWA", () => {
             source_state: "deleted",
             storage_cleanup: "pending",
           });
-        if (url.endsWith("/api/credentials") && init?.method === "POST")
-          return json({ id: "c1" });
-        if (url.endsWith("/replace")) return json({ ok: true });
+        if (url.endsWith("/api/credentials") && init?.method === "POST") {
+          const request = JSON.parse(String(init.body)) as {
+            provider: "elevenlabs" | "openai";
+            label: string;
+          };
+          return json({
+            id: "c1",
+            provider: request.provider,
+            label: request.label,
+            status: "active",
+            masked_value: "••••safe",
+          });
+        }
+        if (url.endsWith("/replace"))
+          return json({
+            ok: true,
+            active_version: 2,
+            masked_value: "••••safe",
+          });
         if (url.endsWith("/api/credentials"))
           return json({
             credentials: [
@@ -2820,6 +2836,296 @@ describe("Studio PWA", () => {
     });
   });
 
+  it("bounds a stalled credential-list read and exposes a safe retry", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const credentialSignals: AbortSignal[] = [];
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/credentials" && !init?.method) {
+        const signal = init?.signal;
+        if (!signal) throw new Error("credential-list signal is missing");
+        credentialSignals.push(signal);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 15_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      renderApp();
+      await openSettingsPage();
+      expect(
+        await screen.findByText(
+          "Не удалось загрузить ключи провайдеров. Повторите попытку.",
+        ),
+      ).toBeInTheDocument();
+      expect(credentialSignals).toHaveLength(1);
+      expect(credentialSignals[0]?.aborted).toBe(true);
+      expect(
+        screen.getByRole("button", { name: "Добавить ключ" }),
+      ).toBeDisabled();
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("rejects a malformed credential collection before rendering actions", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) =>
+      url === "/api/credentials" && !init?.method
+        ? json({ credentials: [{ id: "unsafe-incomplete-record" }] })
+        : (defaultFetch?.(url, init) ?? json({ ok: true })),
+    );
+
+    renderApp();
+    await openSettingsPage();
+    expect(
+      await screen.findByText(
+        "Не удалось загрузить ключи провайдеров. Повторите попытку.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("unsafe-incomplete-record")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Заменить" })).not.toBeInTheDocument();
+  });
+
+  it("bounds and deduplicates credential creation while clearing the raw value", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const createSignals: AbortSignal[] = [];
+    let credentialReads = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/credentials" && !init?.method) credentialReads += 1;
+      if (url === "/api/credentials" && init?.method === "POST") {
+        const signal = init.signal;
+        if (!signal) throw new Error("credential-create signal is missing");
+        createSignals.push(signal);
+        return new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason));
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openSettingsPage();
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Добавить ключ" }),
+    );
+    const label = await screen.findByPlaceholderText("Метка");
+    const rawValue = screen.getByPlaceholderText("Новый ключ");
+    await userEvent.type(label, "deadline-safe");
+    await userEvent.type(rawValue, "raw-secret-cleared-immediately");
+    const form = label.closest("form");
+    if (!form) throw new Error("credential-create form is missing");
+    const readsBeforeCreate = credentialReads;
+
+    vi.useFakeTimers();
+    try {
+      fireEvent.submit(form);
+      fireEvent.submit(form);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(createSignals).toHaveLength(1);
+      expect(rawValue).toHaveValue("");
+      expect(label).toHaveValue("deadline-safe");
+      expect(
+        screen.getByRole("button", { name: "Создаём…" }),
+      ).toBeDisabled();
+      expect(
+        screen.getByRole("button", { name: "Создаём ключ…" }),
+      ).toHaveAttribute("aria-busy", "true");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+      vi.useRealTimers();
+      expect(
+        await screen.findByText(
+          "Сервер не подтвердил создание ключа. Список обновлён; проверьте его перед повторной попыткой. Значение ключа нужно ввести заново.",
+        ),
+      ).toBeInTheDocument();
+      expect(createSignals[0]?.aborted).toBe(true);
+      expect(credentialReads).toBe(readsBeforeCreate + 1);
+      expect(rawValue).toHaveValue("");
+      expect(label).toHaveValue("deadline-safe");
+      expect(screen.getByRole("button", { name: "Создать" })).toBeEnabled();
+      expect(
+        baseFetch.mock.calls.filter(
+          ([url, init]) =>
+            url === "/api/credentials" && init?.method === "POST",
+        ),
+      ).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps an ambiguous credential replacement owned across navigation", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let resolveReplace: ((response: Response) => void) | undefined;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        url === "/api/credentials/cred-active/replace" &&
+        init?.method === "POST"
+      ) {
+        return new Promise<Response>((resolve) => {
+          resolveReplace = resolve;
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openSettingsPage();
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Заменить" }),
+    );
+    const rawValue = screen.getByPlaceholderText("Новый ключ для замены");
+    await userEvent.type(rawValue, "raw-navigation-secret");
+    const form = rawValue.closest("form");
+    if (!form) throw new Error("credential-replace form is missing");
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+    await waitFor(() => expect(resolveReplace).toBeDefined());
+    expect(rawValue).toHaveValue("");
+    expect(
+      screen.getByRole("button", { name: "Сохраняем…" }),
+    ).toBeDisabled();
+    expect(
+      baseFetch.mock.calls.filter(
+        ([url, init]) =>
+          url === "/api/credentials/cred-active/replace" &&
+          init?.method === "POST",
+      ),
+    ).toHaveLength(1);
+
+    await openProjectsPage();
+    const failedResponse = await json(
+      { detail: "raw-provider-failure-must-not-render" },
+      false,
+      503,
+    );
+    await act(async () => resolveReplace?.(failedResponse));
+    await openSettingsPage();
+    expect(
+      await screen.findByText(
+        "Сервер не подтвердил замену ключа. Список обновлён; проверьте версию перед повторной попыткой. Значение ключа нужно ввести заново.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Заменить" })).toBeEnabled();
+    expect(document.body.textContent).not.toContain("raw-navigation-secret");
+    expect(document.body.textContent).not.toContain(
+      "raw-provider-failure-must-not-render",
+    );
+  });
+
+  it("confirms an ambiguous revoke only from the credential list", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let revoked = false;
+    let revokeCalls = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/credentials" && !init?.method) {
+        return json({
+          credentials: [
+            {
+              id: "cred-active",
+              provider: "elevenlabs",
+              label: "Primary STT",
+              status: revoked ? "revoked" : "active",
+              masked_value: "••••1234",
+              active_version: 2,
+            },
+          ],
+        });
+      }
+      if (
+        url === "/api/credentials/cred-active/revoke" &&
+        init?.method === "POST"
+      ) {
+        revokeCalls += 1;
+        revoked = true;
+        return json({ detail: "ambiguous-after-revoke" }, false, 503);
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openSettingsPage();
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Отключить" }),
+    );
+    expect(
+      await screen.findByText(
+        "Отключение ключа подтверждено по актуальному списку.",
+      ),
+    ).toBeInTheDocument();
+    expect(revokeCalls).toBe(1);
+    expect(screen.getByText(/revoked · v2/)).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("ambiguous-after-revoke");
+  });
+  it("confirms an ambiguous permanent deletion only from the credential list", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let deleted = false;
+    let deleteCalls = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/credentials" && !init?.method) {
+        return json({
+          credentials: deleted
+            ? []
+            : [
+                {
+                  id: "cred-active",
+                  provider: "elevenlabs",
+                  label: "Primary STT",
+                  status: "active",
+                  masked_value: "••••1234",
+                  active_version: 2,
+                },
+              ],
+        });
+      }
+      if (
+        url === "/api/credentials/cred-active" &&
+        init?.method === "DELETE"
+      ) {
+        deleteCalls += 1;
+        deleted = true;
+        return json({ detail: "ambiguous-after-delete" }, false, 503);
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openSettingsPage();
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Удалить навсегда" }),
+    );
+    expect(
+      await screen.findByText(
+        "Удаление ключа подтверждено по актуальному списку.",
+      ),
+    ).toBeInTheDocument();
+    expect(deleteCalls).toBe(1);
+    expect(
+      screen.queryByRole("heading", { name: "Primary STT" }),
+    ).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("ambiguous-after-delete");
+  });
   it("platform projects page loads /api/projects and renders populated projects", async () => {
     renderApp();
     await openProjectsPage();

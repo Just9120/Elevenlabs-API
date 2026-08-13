@@ -137,10 +137,78 @@ type Credential = {
   id: string;
   provider: "elevenlabs" | "openai";
   label: string;
-  status: string;
-  masked_value?: string;
-  active_version?: number;
+  status: "active" | "revoked";
+  masked_value: string | null;
+  active_version: number | null;
 };
+function isExpectedCredential(candidate: unknown): candidate is Credential {
+  if (!candidate || typeof candidate !== "object") return false;
+  const credential = candidate as Partial<Credential>;
+  return (
+    typeof credential.id === "string" &&
+    credential.id.length > 0 &&
+    (credential.provider === "elevenlabs" || credential.provider === "openai") &&
+    typeof credential.label === "string" &&
+    credential.label.trim().length > 0 &&
+    (credential.status === "active" || credential.status === "revoked") &&
+    (credential.masked_value === null ||
+      (typeof credential.masked_value === "string" &&
+        credential.masked_value.length > 0)) &&
+    (credential.active_version === null ||
+      (Number.isInteger(credential.active_version) &&
+        (credential.active_version as number) > 0))
+  );
+}
+function parseCredentialCollection(candidate: unknown): Credential[] | null {
+  if (!candidate || typeof candidate !== "object") return null;
+  const credentials = (candidate as { credentials?: unknown }).credentials;
+  if (!Array.isArray(credentials) || !credentials.every(isExpectedCredential)) {
+    return null;
+  }
+  if (
+    new Set(credentials.map((credential) => credential.id)).size !==
+    credentials.length
+  ) {
+    return null;
+  }
+  return credentials;
+}
+function isExpectedCredentialCreateResponse(
+  candidate: unknown,
+): candidate is Pick<Credential, "id" | "provider" | "label" | "status" | "masked_value"> {
+  if (!candidate || typeof candidate !== "object") return false;
+  const response = candidate as Record<string, unknown>;
+  return (
+    typeof response.id === "string" &&
+    response.id.length > 0 &&
+    (response.provider === "elevenlabs" || response.provider === "openai") &&
+    typeof response.label === "string" &&
+    response.label.trim().length > 0 &&
+    response.status === "active" &&
+    typeof response.masked_value === "string" &&
+    response.masked_value.length > 0
+  );
+}
+function isExpectedCredentialReplaceResponse(
+  candidate: unknown,
+): candidate is { ok: true; active_version: number; masked_value: string } {
+  if (!candidate || typeof candidate !== "object") return false;
+  const response = candidate as Record<string, unknown>;
+  return (
+    response.ok === true &&
+    Number.isInteger(response.active_version) &&
+    (response.active_version as number) > 0 &&
+    typeof response.masked_value === "string" &&
+    response.masked_value.length > 0
+  );
+}
+function isExpectedOkResponse(candidate: unknown): candidate is { ok: true } {
+  return (
+    Boolean(candidate) &&
+    typeof candidate === "object" &&
+    (candidate as { ok?: unknown }).ok === true
+  );
+}
 type Audit = { id: string; type: string; created_at: string };
 type DiagnosticsSystem = {
   environment?: string;
@@ -472,6 +540,8 @@ const ELEVENLABS_CREDENTIAL_SESSION_KEY = "studio.elevenlabsCredentialId";
 const JOB_DETAIL_REQUEST_TIMEOUT_MS = 15_000;
 const PROJECT_COLLECTION_REQUEST_TIMEOUT_MS = 15_000;
 const PROJECT_MUTATION_REQUEST_TIMEOUT_MS = 20_000;
+const CREDENTIAL_COLLECTION_REQUEST_TIMEOUT_MS = 15_000;
+const CREDENTIAL_MUTATION_REQUEST_TIMEOUT_MS = 20_000;
 async function bootstrapSession(): Promise<{
   user: User;
   csrf: string;
@@ -492,6 +562,19 @@ async function csrfMutate<T>(
   options: RequestInit,
 ): Promise<T> {
   return mutateWithCsrfRetry<T>(path, csrf, onCsrf, options);
+}
+async function readCredentialCollectionBounded(): Promise<Credential[] | null> {
+  try {
+    const result = await runBoundedRequest(
+      (signal) => api<unknown>("/credentials", { signal }),
+      CREDENTIAL_COLLECTION_REQUEST_TIMEOUT_MS,
+    );
+    return result.status === "completed"
+      ? parseCredentialCollection(result.value)
+      : null;
+  } catch {
+    return null;
+  }
 }
 async function readAfterJobMutationTimeout<T>(path: string): Promise<T | null> {
   try {
@@ -528,6 +611,40 @@ type ProjectMutationNotice = ProjectMutationOperation & {
   message: string;
   tone: "notice" | "error";
 };
+type CredentialMutationKind = "create" | "replace" | "revoke" | "delete";
+type CredentialMutationOperation = {
+  kind: CredentialMutationKind;
+  credentialId: string | null;
+  generation: number;
+};
+type CredentialMutationNotice = Pick<
+  CredentialMutationOperation,
+  "kind" | "credentialId"
+> & {
+  message: string;
+  tone: "notice" | "error";
+};
+function credentialMutationKey(
+  operation: Pick<CredentialMutationOperation, "credentialId">,
+) {
+  return operation.credentialId ?? "create";
+}
+function credentialMutationOperationMatches(
+  left: CredentialMutationOperation,
+  right: CredentialMutationOperation,
+) {
+  return (
+    left.kind === right.kind &&
+    left.credentialId === right.credentialId &&
+    left.generation === right.generation
+  );
+}
+function isAmbiguousCredentialMutationFailure(error: unknown) {
+  return (
+    error instanceof TypeError ||
+    (error instanceof ApiError && (error.status === 408 || error.status >= 500))
+  );
+}
 function projectMutationKey(operation: ProjectMutationOperation) {
   return `${operation.kind}:${operation.projectId ?? "new"}`;
 }
@@ -4757,6 +4874,10 @@ function SettingsPage({
   onLogout,
   oauthResult,
   maintenanceOauthResult,
+  credentialMutations,
+  credentialMutationNotices,
+  beginCredentialMutation,
+  finishCredentialMutation,
   section,
   onSectionChange,
 }: {
@@ -4766,10 +4887,27 @@ function SettingsPage({
   onLogout: () => void;
   oauthResult: GoogleOauthResult | null;
   maintenanceOauthResult: GoogleMaintenanceOauthResult | null;
+  credentialMutations: CredentialMutationOperation[];
+  credentialMutationNotices: Record<string, CredentialMutationNotice>;
+  beginCredentialMutation: (
+    kind: CredentialMutationKind,
+    credentialId: string | null,
+  ) => CredentialMutationOperation | null;
+  finishCredentialMutation: (
+    operation: CredentialMutationOperation,
+    notice?: CredentialMutationNotice,
+  ) => void;
   section: SettingsSection;
   onSectionChange: (section: SettingsSection) => void;
 }) {
   const [credentials, setCredentials] = useState<Credential[]>([]);
+  const [credentialsLoading, setCredentialsLoading] = useState(true);
+  const [credentialsMessage, setCredentialsMessage] = useState("");
+  const credentialRequestEpochsRef = useRef(new Map<string, number>());
+  const credentialRequestControllersRef = useRef(
+    new Map<string, AbortController>(),
+  );
+  const settingsMountedRef = useRef(true);
   const [events, setEvents] = useState<Audit[]>([]);
   const [googleConnection, setGoogleConnection] =
     useState<GoogleConnection | null>(null);
@@ -4786,7 +4924,6 @@ function SettingsPage({
   const [retentionMessage, setRetentionMessage] = useState("");
   const [themePreference, setThemePreference] =
     useState<StudioThemePreference>(() => readStudioThemePreference());
-  const [error, setError] = useState("");
   const [createCredentialOpen, setCreateCredentialOpen] = useState(false);
   const [replacingCredentialId, setReplacingCredentialId] = useState<
     string | null
@@ -4826,57 +4963,255 @@ function SettingsPage({
         setRetentionState("error");
       });
   };
-  const load = () => {
-    api<{ credentials: Credential[] }>("/credentials").then((r) =>
-      setCredentials(r.credentials),
+  const loadAuditEvents = () => {
+    api<{ events: Audit[] }>("/audit-events")
+      .then((result) => setEvents(result.events))
+      .catch(() => setEvents([]));
+  };
+  const loadCredentials = async ({ reportFailure = true } = {}): Promise<
+    Credential[] | null
+  > => {
+    let observed: Credential[] | null = null;
+    setCredentialsLoading(true);
+    if (reportFailure) setCredentialsMessage("");
+    await settleLatestRequest(
+      credentialRequestEpochsRef.current,
+      "settings:credentials",
+      async (signal) => {
+        const candidate = await api<unknown>("/credentials", {
+          signal,
+          ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+        });
+        const parsed = parseCredentialCollection(candidate);
+        if (parsed === null) throw new Error("invalid_credentials_response");
+        return parsed;
+      },
+      (nextCredentials) => {
+        observed = nextCredentials;
+        setCredentials(nextCredentials);
+        setCredentialsLoading(false);
+        setCredentialsMessage("");
+      },
+      () => {
+        if (reportFailure) {
+          setCredentialsMessage(
+            "Не удалось загрузить ключи провайдеров. Повторите попытку.",
+          );
+        }
+        setCredentialsLoading(false);
+      },
+      {
+        controllers: credentialRequestControllersRef.current,
+        timeoutMs: CREDENTIAL_COLLECTION_REQUEST_TIMEOUT_MS,
+      },
     );
-    api<{ events: Audit[] }>("/audit-events").then((r) => setEvents(r.events));
+    return observed;
+  };
+  const reconcileCredentials = () =>
+    settingsMountedRef.current
+      ? loadCredentials({ reportFailure: false })
+      : readCredentialCollectionBounded();
+  useEffect(() => {
+    settingsMountedRef.current = true;
+    void loadCredentials();
+    loadAuditEvents();
     loadGoogleConnection();
     loadAccountPreferences();
-  };
-  useEffect(load, []);
+    return () => {
+      settingsMountedRef.current = false;
+      cancelLatestRequests(
+        credentialRequestEpochsRef.current,
+        credentialRequestControllersRef.current,
+      );
+    };
+  }, []);
   const safeMutate = <T,>(path: string, options: RequestInit) =>
     csrfMutate<T>(path, csrf, onCsrf, options);
   async function save(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    const operation = beginCredentialMutation("create", null);
+    if (!operation) return;
+    let notice: CredentialMutationNotice | undefined;
     const form = e.currentTarget;
     const fd = new FormData(form);
+    const provider = String(fd.get("provider") ?? "") as Credential["provider"];
+    const label = String(fd.get("credential_label") ?? "").trim();
+    const rawValue = String(fd.get("credential_raw_value") ?? "");
+    const rawInput = form.elements.namedItem(
+      "credential_raw_value",
+    ) as HTMLInputElement | null;
+    if (rawInput) rawInput.value = "";
+    const reconcileAmbiguousCreate = async () => {
+      const observed = await reconcileCredentials();
+      notice = {
+        kind: operation.kind,
+        credentialId: operation.credentialId,
+        message: observed
+          ? "Сервер не подтвердил создание ключа. Список обновлён; проверьте его перед повторной попыткой. Значение ключа нужно ввести заново."
+          : "Сервер не подтвердил создание ключа, а обновить список не удалось. Обновите страницу перед повторной попыткой; значение ключа нужно ввести заново.",
+        tone: "error",
+      };
+    };
     try {
-      await safeMutate("/credentials", {
-        method: "POST",
-        body: JSON.stringify({
-          provider: fd.get("provider"),
-          label: fd.get("credential_label"),
-          raw_value: fd.get("credential_raw_value"),
-        }),
-      });
-      form.reset();
-      setCreateCredentialOpen(false);
-      load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Ошибка");
+      const request = await runBoundedRequest(
+        (signal) =>
+          safeMutate<unknown>("/credentials", {
+            method: "POST",
+            signal,
+            body: JSON.stringify({ provider, label, raw_value: rawValue }),
+          }),
+        CREDENTIAL_MUTATION_REQUEST_TIMEOUT_MS,
+      );
+      if (request.status === "timed_out") {
+        await reconcileAmbiguousCreate();
+        return;
+      }
+      const created = request.value;
+      if (
+        !isExpectedCredentialCreateResponse(created) ||
+        created.provider !== provider ||
+        created.label !== label
+      ) {
+        await reconcileAmbiguousCreate();
+        return;
+      }
+      if (settingsMountedRef.current) {
+        form.reset();
+        setCreateCredentialOpen(false);
+        await loadCredentials({ reportFailure: false });
+      } else {
+        await readCredentialCollectionBounded();
+      }
+      notice = {
+        kind: operation.kind,
+        credentialId: operation.credentialId,
+        message: "Ключ провайдера создан.",
+        tone: "notice",
+      };
+    } catch (error) {
+      if (isAmbiguousCredentialMutationFailure(error)) {
+        await reconcileAmbiguousCreate();
+      } else {
+        notice = {
+          kind: operation.kind,
+          credentialId: operation.credentialId,
+          message: "Не удалось создать ключ. Проверьте данные и введите значение ключа заново.",
+          tone: "error",
+        };
+      }
+    } finally {
+      finishCredentialMutation(operation, notice);
+      if (settingsMountedRef.current) loadAuditEvents();
     }
   }
   async function replace(e: FormEvent<HTMLFormElement>, id: string) {
     e.preventDefault();
+    const selected = credentials.find((credential) => credential.id === id);
+    if (!selected) {
+      setCredentialsMessage("Выберите ключ для замены.");
+      return;
+    }
+    const operation = beginCredentialMutation("replace", id);
+    if (!operation) return;
+    let notice: CredentialMutationNotice | undefined;
     const form = e.currentTarget;
     const fd = new FormData(form);
-    const selected = credentials.find((c) => c.id === id);
-    if (!selected) return setError("Выберите ключ для замены.");
+    const rawValue = String(fd.get("replacement_credential_raw_value") ?? "");
+    const rawInput = form.elements.namedItem(
+      "replacement_credential_raw_value",
+    ) as HTMLInputElement | null;
+    if (rawInput) rawInput.value = "";
+    const previousVersion = selected.active_version;
+    const reconcileAmbiguousReplace = async () => {
+      const observed = await reconcileCredentials();
+      const confirmed =
+        observed?.some(
+          (credential) =>
+            credential.id === id &&
+            credential.status === "active" &&
+            credential.active_version !== null &&
+            (previousVersion === null ||
+              credential.active_version > previousVersion),
+        ) === true;
+      if (confirmed && settingsMountedRef.current) {
+        setReplacingCredentialId((current) => (current === id ? null : current));
+      }
+      notice = {
+        kind: operation.kind,
+        credentialId: operation.credentialId,
+        message: confirmed
+          ? "Замена ключа подтверждена по актуальному списку."
+          : observed
+            ? "Сервер не подтвердил замену ключа. Список обновлён; проверьте версию перед повторной попыткой. Значение ключа нужно ввести заново."
+            : "Сервер не подтвердил замену ключа, а обновить список не удалось. Обновите страницу перед повторной попыткой; значение ключа нужно ввести заново.",
+        tone: confirmed ? "notice" : "error",
+      };
+    };
     try {
-      await safeMutate(`/credentials/${id}/replace`, {
-        method: "POST",
-        body: JSON.stringify({
-          provider: selected.provider,
-          label: selected.label,
-          raw_value: fd.get("replacement_credential_raw_value"),
-        }),
-      });
-      form.reset();
-      setReplacingCredentialId(null);
-      load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Ошибка");
+      const request = await runBoundedRequest(
+        (signal) =>
+          safeMutate<unknown>(`/credentials/${id}/replace`, {
+            method: "POST",
+            signal,
+            body: JSON.stringify({
+              provider: selected.provider,
+              label: selected.label,
+              raw_value: rawValue,
+            }),
+          }),
+        CREDENTIAL_MUTATION_REQUEST_TIMEOUT_MS,
+      );
+      if (request.status === "timed_out") {
+        await reconcileAmbiguousReplace();
+        return;
+      }
+      const replaced = request.value;
+      if (
+        !isExpectedCredentialReplaceResponse(replaced) ||
+        (previousVersion !== null && replaced.active_version <= previousVersion)
+      ) {
+        await reconcileAmbiguousReplace();
+        return;
+      }
+      if (settingsMountedRef.current) {
+        setCredentials((current) =>
+          current.map((credential) =>
+            credential.id === id
+              ? {
+                  ...credential,
+                  status: "active",
+                  active_version: replaced.active_version,
+                  masked_value: replaced.masked_value,
+                }
+              : credential,
+          ),
+        );
+        form.reset();
+        setReplacingCredentialId(null);
+        await loadCredentials({ reportFailure: false });
+      } else {
+        await readCredentialCollectionBounded();
+      }
+      notice = {
+        kind: operation.kind,
+        credentialId: operation.credentialId,
+        message: "Ключ провайдера заменён.",
+        tone: "notice",
+      };
+    } catch (error) {
+      if (isAmbiguousCredentialMutationFailure(error)) {
+        await reconcileAmbiguousReplace();
+      } else {
+        notice = {
+          kind: operation.kind,
+          credentialId: operation.credentialId,
+          message: "Не удалось заменить ключ. Проверьте данные и введите значение ключа заново.",
+          tone: "error",
+        };
+      }
+    } finally {
+      finishCredentialMutation(operation, notice);
+      if (settingsMountedRef.current) loadAuditEvents();
     }
   }
   async function saveRetentionPreference(e: FormEvent<HTMLFormElement>) {
@@ -4911,13 +5246,100 @@ function SettingsPage({
       setRetentionSaving(false);
     }
   }
-  const action = async (path: string, method = "POST") => {
-    setError("");
+  const mutateCredential = async (
+    kind: "revoke" | "delete",
+    credential: Credential,
+  ) => {
+    const operation = beginCredentialMutation(kind, credential.id);
+    if (!operation) return;
+    let notice: CredentialMutationNotice | undefined;
+    const reconcileAmbiguousMutation = async () => {
+      const observed = await reconcileCredentials();
+      const confirmed =
+        kind === "delete"
+          ? observed !== null &&
+            !observed.some((candidate) => candidate.id === credential.id)
+          : observed?.some(
+              (candidate) =>
+                candidate.id === credential.id && candidate.status === "revoked",
+            ) === true;
+      notice = {
+        kind: operation.kind,
+        credentialId: operation.credentialId,
+        message: confirmed
+          ? kind === "delete"
+            ? "Удаление ключа подтверждено по актуальному списку."
+            : "Отключение ключа подтверждено по актуальному списку."
+          : observed
+            ? `Сервер не подтвердил ${kind === "delete" ? "удаление" : "отключение"} ключа. Список обновлён; проверьте статус перед повторной попыткой.`
+            : `Сервер не подтвердил ${kind === "delete" ? "удаление" : "отключение"} ключа, а обновить список не удалось. Обновите страницу перед повторной попыткой.`,
+        tone: confirmed ? "notice" : "error",
+      };
+    };
     try {
-      await safeMutate(path, { method });
-      load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Ошибка");
+      const request = await runBoundedRequest(
+        (signal) =>
+          safeMutate<unknown>(
+            kind === "delete"
+              ? `/credentials/${credential.id}`
+              : `/credentials/${credential.id}/revoke`,
+            { method: kind === "delete" ? "DELETE" : "POST", signal },
+          ),
+        CREDENTIAL_MUTATION_REQUEST_TIMEOUT_MS,
+      );
+      if (request.status === "timed_out") {
+        await reconcileAmbiguousMutation();
+        return;
+      }
+      if (!isExpectedOkResponse(request.value)) {
+        await reconcileAmbiguousMutation();
+        return;
+      }
+      if (settingsMountedRef.current) {
+        setCredentials((current) =>
+          kind === "delete"
+            ? current.filter((candidate) => candidate.id !== credential.id)
+            : current.map((candidate) =>
+                candidate.id === credential.id
+                  ? { ...candidate, status: "revoked" }
+                  : candidate,
+              ),
+        );
+        if (kind === "delete") {
+          setReplacingCredentialId((current) =>
+            current === credential.id ? null : current,
+          );
+        }
+        await loadCredentials({ reportFailure: false });
+      } else {
+        await readCredentialCollectionBounded();
+      }
+      notice = {
+        kind: operation.kind,
+        credentialId: operation.credentialId,
+        message:
+          kind === "delete"
+            ? "Ключ провайдера удалён без возможности восстановления."
+            : "Ключ провайдера отключён.",
+        tone: "notice",
+      };
+    } catch (error) {
+      if (isAmbiguousCredentialMutationFailure(error)) {
+        await reconcileAmbiguousMutation();
+      } else {
+        notice = {
+          kind: operation.kind,
+          credentialId: operation.credentialId,
+          message:
+            kind === "delete"
+              ? "Не удалось удалить ключ. Обновите список и повторите."
+              : "Не удалось отключить ключ. Обновите список и повторите.",
+          tone: "error",
+        };
+      }
+    } finally {
+      finishCredentialMutation(operation, notice);
+      if (settingsMountedRef.current) loadAuditEvents();
     }
   };
   const connectGoogle = async () => {
@@ -4958,7 +5380,14 @@ function SettingsPage({
       : oauthResult
         ? googleOauthMessages[oauthResult]
         : "";
-  return (
+  const createCredentialPending = credentialMutations.some(
+    (operation) => operation.credentialId === null,
+  );
+  const credentialMutationFor = (credentialId: string) =>
+    credentialMutations.find(
+      (operation) => operation.credentialId === credentialId,
+    ) ?? null;
+  const credentialsUnavailable = credentialsLoading || Boolean(credentialsMessage);  return (
     <section className="card wide">
       <h2>Настройки</h2>
       <div className="tabs" role="tablist" aria-label="Разделы настроек">
@@ -5083,16 +5512,52 @@ function SettingsPage({
           <p className="notice">
             Ключи не сохраняются в браузере и никогда не отображаются обратно.
           </p>
+          {credentialMutations.length > 0 && (
+            <p role="status" className="notice">
+              Операция с ключом выполняется. Её статус сохранится при переходе между разделами.
+            </p>
+          )}
+          {Object.entries(credentialMutationNotices).map(([key, notice]) => (
+            <p
+              key={`${key}:${notice.kind}`}
+              className={notice.tone}
+              role={notice.tone === "error" ? "alert" : "status"}
+            >
+              {notice.message}
+            </p>
+          ))}
+          {credentialsMessage && (
+            <div className="error">
+              <p role="alert">{credentialsMessage}</p>
+              <button type="button" onClick={() => void loadCredentials()}>
+                Повторить
+              </button>
+            </div>
+          )}
+          {credentialsLoading && (
+            <p role="status">Загружаем ключи провайдеров…</p>
+          )}
           <button
             type="button"
             aria-expanded={createCredentialOpen}
+            aria-busy={createCredentialPending || undefined}
+            disabled={createCredentialPending || credentialsUnavailable}
             onClick={() => setCreateCredentialOpen((open) => !open)}
           >
-            Добавить ключ
+            {createCredentialPending ? "Создаём ключ…" : "Добавить ключ"}
           </button>
           {createCredentialOpen && (
-            <form className="inline" onSubmit={save} autoComplete="off">
-              <select name="provider" aria-label="Провайдер">
+            <form
+              className="inline"
+              onSubmit={save}
+              autoComplete="off"
+              aria-busy={createCredentialPending || undefined}
+            >
+              <select
+                name="provider"
+                aria-label="Провайдер"
+                disabled={createCredentialPending}
+              >
                 <option value="elevenlabs">ElevenLabs</option>
                 <option value="openai">OpenAI</option>
               </select>
@@ -5100,6 +5565,7 @@ function SettingsPage({
                 name="credential_label"
                 autoComplete="off"
                 placeholder="Метка"
+                disabled={createCredentialPending}
                 required
               />
               <input
@@ -5111,97 +5577,126 @@ function SettingsPage({
                 data-lpignore="true"
                 data-bwignore="true"
                 placeholder="Новый ключ"
+                disabled={createCredentialPending}
                 required
               />
-              <button className="primary">Создать</button>
+              <button className="primary" disabled={createCredentialPending}>
+                {createCredentialPending ? "Создаём…" : "Создать"}
+              </button>
               <button
                 type="button"
+                disabled={createCredentialPending}
                 onClick={() => setCreateCredentialOpen(false)}
               >
                 Отмена
               </button>
             </form>
           )}
-          {error && <p className="error">{error}</p>}
           <div className="grid">
-            {credentials.map((c) => (
-              <article className="card" key={c.id}>
-                <span className="tag">{c.provider}</span>
-                <h3>{c.label}</h3>
-                <p>
-                  {c.status} · v{c.active_version ?? "—"} · {c.masked_value}
-                </p>
-                <p className="muted">
-                  Отключение запрещает использовать ключ в задачах, но сохраняет
-                  его версии. Удаление навсегда стирает сохранённые значения
-                  ключа без возможности восстановления.
-                </p>
-                <div className="credential-actions">
-                  <button
-                    type="button"
-                    onClick={() => setReplacingCredentialId(c.id)}
-                  >
-                    Заменить
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (
-                        safeConfirm(
-                          `Отключить ключ «${c.label}»? Он станет недоступен для новых и выполняющихся задач, но история версий сохранится.`,
-                        )
-                      )
-                        void action(`/credentials/${c.id}/revoke`);
-                    }}
-                  >
-                    Отключить
-                  </button>
-                  <button
-                    type="button"
-                    className="danger"
-                    onClick={() => {
-                      if (
-                        safeConfirm(
-                          `Удалить ключ «${c.label}» навсегда? Все сохранённые значения будут стёрты без возможности восстановления.`,
-                        )
-                      )
-                        void action(`/credentials/${c.id}`, "DELETE");
-                    }}
-                  >
-                    Удалить навсегда
-                  </button>
-                </div>
-                {replacingCredentialId === c.id && (
-                  <form
-                    className="inline"
-                    onSubmit={(event) => replace(event, c.id)}
-                    aria-label={`Заменить ключ ${c.label}`}
-                    autoComplete="off"
-                  >
-                    <input
-                      name="replacement_credential_raw_value"
-                      type="password"
-                      autoComplete="new-password"
-                      spellCheck={false}
-                      data-1p-ignore="true"
-                      data-lpignore="true"
-                      data-bwignore="true"
-                      placeholder="Новый ключ для замены"
-                      required
-                    />
-                    <button className="primary">Сохранить</button>
+            {credentials.map((credential) => {
+              const activeMutation = credentialMutationFor(credential.id);
+              const mutationPending = activeMutation !== null;
+              return (
+                <article
+                  className="card"
+                  key={credential.id}
+                  aria-busy={mutationPending || undefined}
+                >
+                  <span className="tag">{credential.provider}</span>
+                  <h3>{credential.label}</h3>
+                  <p>
+                    {credential.status} · v{credential.active_version ?? "—"} ·{" "}
+                    {credential.masked_value ?? "—"}
+                  </p>
+                  <p className="muted">
+                    Отключение запрещает использовать ключ в задачах, но сохраняет
+                    его версии. Удаление навсегда стирает сохранённые значения
+                    ключа без возможности восстановления.
+                  </p>
+                  <div className="credential-actions">
                     <button
                       type="button"
-                      onClick={() => setReplacingCredentialId(null)}
+                      disabled={mutationPending || credentialsUnavailable}
+                      onClick={() => setReplacingCredentialId(credential.id)}
                     >
-                      Отмена
+                      Заменить
                     </button>
-                  </form>
-                )}
-              </article>
-            ))}
-          </div>
-          <h3>Google Drive</h3>
+                    <button
+                      type="button"
+                      disabled={mutationPending || credentialsUnavailable}
+                      aria-busy={activeMutation?.kind === "revoke" || undefined}
+                      onClick={() => {
+                        if (
+                          safeConfirm(
+                            `Отключить ключ «${credential.label}»? Он станет недоступен для новых и выполняющихся задач, но история версий сохранится.`,
+                          )
+                        ) {
+                          void mutateCredential("revoke", credential);
+                        }
+                      }}
+                    >
+                      {activeMutation?.kind === "revoke"
+                        ? "Отключаем…"
+                        : "Отключить"}
+                    </button>
+                    <button
+                      type="button"
+                      className="danger"
+                      disabled={mutationPending || credentialsUnavailable}
+                      aria-busy={activeMutation?.kind === "delete" || undefined}
+                      onClick={() => {
+                        if (
+                          safeConfirm(
+                            `Удалить ключ «${credential.label}» навсегда? Все сохранённые значения будут стёрты без возможности восстановления.`,
+                          )
+                        ) {
+                          void mutateCredential("delete", credential);
+                        }
+                      }}
+                    >
+                      {activeMutation?.kind === "delete"
+                        ? "Удаляем…"
+                        : "Удалить навсегда"}
+                    </button>
+                  </div>
+                  {replacingCredentialId === credential.id && (
+                    <form
+                      className="inline"
+                      onSubmit={(event) => replace(event, credential.id)}
+                      aria-label={`Заменить ключ ${credential.label}`}
+                      aria-busy={activeMutation?.kind === "replace" || undefined}
+                      autoComplete="off"
+                    >
+                      <input
+                        name="replacement_credential_raw_value"
+                        type="password"
+                        autoComplete="new-password"
+                        spellCheck={false}
+                        data-1p-ignore="true"
+                        data-lpignore="true"
+                        data-bwignore="true"
+                        placeholder="Новый ключ для замены"
+                        disabled={mutationPending}
+                        required
+                      />
+                      <button className="primary" disabled={mutationPending}>
+                        {activeMutation?.kind === "replace"
+                          ? "Сохраняем…"
+                          : "Сохранить"}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={mutationPending}
+                        onClick={() => setReplacingCredentialId(null)}
+                      >
+                        Отмена
+                      </button>
+                    </form>
+                  )}
+                </article>
+              );
+            })}
+          </div>          <h3>Google Drive</h3>
           <p
             className={
               googleConnection?.connected && googleConnection.picker_ready
@@ -5850,6 +6345,68 @@ function PlatformShell() {
     ProjectsViewRequest
   >(null);
   const [projectsOpened, setProjectsOpened] = useState(false);
+  const credentialMutationGenerationRef = useRef(0);
+  const activeCredentialMutationsRef = useRef(
+    new Map<string, CredentialMutationOperation>(),
+  );
+  const [credentialMutations, setCredentialMutations] = useState<
+    CredentialMutationOperation[]
+  >([]);
+  const [credentialMutationNotices, setCredentialMutationNotices] = useState<
+    Record<string, CredentialMutationNotice>
+  >({});
+  const publishCredentialMutations = () =>
+    setCredentialMutations(
+      Array.from(activeCredentialMutationsRef.current.values()),
+    );
+  const beginCredentialMutation = (
+    kind: CredentialMutationKind,
+    credentialId: string | null,
+  ): CredentialMutationOperation | null => {
+    const key = credentialId ?? "create";
+    if (activeCredentialMutationsRef.current.has(key)) return null;
+    const operation: CredentialMutationOperation = {
+      kind,
+      credentialId,
+      generation: credentialMutationGenerationRef.current,
+    };
+    activeCredentialMutationsRef.current.set(key, operation);
+    publishCredentialMutations();
+    setCredentialMutationNotices((current) => {
+      if (!current[key]) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+    return operation;
+  };
+  const finishCredentialMutation = (
+    operation: CredentialMutationOperation,
+    notice?: CredentialMutationNotice,
+  ) => {
+    const key = credentialMutationKey(operation);
+    const activeOperation = activeCredentialMutationsRef.current.get(key);
+    if (
+      !activeOperation ||
+      !credentialMutationOperationMatches(activeOperation, operation)
+    ) {
+      return;
+    }
+    activeCredentialMutationsRef.current.delete(key);
+    publishCredentialMutations();
+    if (notice) {
+      setCredentialMutationNotices((current) => ({
+        ...current,
+        [key]: notice,
+      }));
+    }
+  };
+  const clearCredentialMutationSession = () => {
+    credentialMutationGenerationRef.current += 1;
+    activeCredentialMutationsRef.current.clear();
+    setCredentialMutations([]);
+    setCredentialMutationNotices({});
+  };
   const navigate = (
     nextPage: Page,
     nextSettingsSection: SettingsSection = "account",
@@ -5941,6 +6498,7 @@ function PlatformShell() {
     return (
       <Login
         onLogin={(u, t) => {
+          clearCredentialMutationSession();
           setSession({ status: "authenticated", user: u, csrf: t, error: "" });
           updatePwaDiagnosticsCsrf(t);
           configurePwaDiagnosticsDebugState({ active: false });
@@ -5969,6 +6527,7 @@ function PlatformShell() {
       headers: { "x-csrf-token": token },
     }).catch(() => undefined);
     navigate("dashboard");
+    clearCredentialMutationSession();
     setSession({ status: "anonymous", user: null, csrf: "", error: "" });
     clearPwaDiagnosticsSession();
   };
@@ -6035,6 +6594,10 @@ function PlatformShell() {
             onLogout={logout}
             oauthResult={oauthResult}
             maintenanceOauthResult={maintenanceOauthResult}
+            credentialMutations={credentialMutations}
+            credentialMutationNotices={credentialMutationNotices}
+            beginCredentialMutation={beginCredentialMutation}
+            finishCredentialMutation={finishCredentialMutation}
             section={settingsSection}
             onSectionChange={(section) => navigate("settings", section)}
           />

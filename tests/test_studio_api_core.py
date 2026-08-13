@@ -363,6 +363,126 @@ def test_credential_lifecycle_no_raw_secret_echo_and_audit_safe():
         db.close()
 
 
+def test_deleted_credential_is_terminal_hidden_and_delete_replay_is_idempotent():
+    password = admin("credential-terminal@example.com")
+    client = TestClient(app)
+    csrf = login(client, password, "credential-terminal@example.com")
+    headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+    created = client.post(
+        "/api/credentials",
+        json={
+            "provider": "elevenlabs",
+            "label": "terminal",
+            "raw_value": "terminal-secret-value",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 200
+    credential_id = created.json()["id"]
+    first_revoke = client.post(
+        f"/api/credentials/{credential_id}/revoke", headers=headers
+    )
+    replayed_revoke = client.post(
+        f"/api/credentials/{credential_id}/revoke", headers=headers
+    )
+    assert first_revoke.status_code == 200
+    assert replayed_revoke.status_code == 200
+    db = SessionLocal()
+    try:
+        assert (
+            db.query(AuditEvent)
+            .filter_by(event_type="credential.revoked")
+            .count()
+            == 1
+        )
+    finally:
+        db.close()
+
+    replaced = client.post(
+        f"/api/credentials/{credential_id}/replace",
+        json={
+            "provider": "elevenlabs",
+            "label": "terminal",
+            "raw_value": "terminal-replacement-value",
+        },
+        headers=headers,
+    )
+    assert replaced.status_code == 200
+
+    first_delete = client.delete(
+        f"/api/credentials/{credential_id}", headers=headers
+    )
+    assert first_delete.status_code == 200
+    db = SessionLocal()
+    try:
+        credential = db.get(ProviderCredential, credential_id)
+        assert credential is not None
+        first_deleted_at = credential.deleted_at
+        assert credential.status == CredentialStatus.deleted
+        versions = (
+            db.query(ProviderCredentialVersion)
+            .filter_by(credential_id=credential_id)
+            .order_by(ProviderCredentialVersion.version)
+            .all()
+        )
+        assert len(versions) == 2
+        assert all(version.ciphertext is None for version in versions)
+        assert all(version.nonce is None for version in versions)
+        assert all(version.deleted_at == first_deleted_at for version in versions)
+        assert (
+            db.query(AuditEvent)
+            .filter_by(event_type="credential.deleted")
+            .count()
+            == 1
+        )
+    finally:
+        db.close()
+
+    replay = client.delete(f"/api/credentials/{credential_id}", headers=headers)
+    assert replay.status_code == 200
+    assert all(
+        item["id"] != credential_id
+        for item in client.get("/api/credentials").json()["credentials"]
+    )
+    assert (
+        client.post(
+            f"/api/credentials/{credential_id}/replace",
+            json={
+                "provider": "elevenlabs",
+                "label": "terminal",
+                "raw_value": "must-not-reactivate",
+            },
+            headers=headers,
+        ).status_code
+        == 404
+    )
+    assert (
+        client.post(
+            f"/api/credentials/{credential_id}/revoke", headers=headers
+        ).status_code
+        == 404
+    )
+    db = SessionLocal()
+    try:
+        credential = db.get(ProviderCredential, credential_id)
+        assert credential is not None
+        assert credential.deleted_at == first_deleted_at
+        assert credential.status == CredentialStatus.deleted
+        assert (
+            db.query(ProviderCredentialVersion)
+            .filter_by(credential_id=credential_id)
+            .count()
+            == 2
+        )
+        assert (
+            db.query(AuditEvent)
+            .filter_by(event_type="credential.deleted")
+            .count()
+            == 1
+        )
+    finally:
+        db.close()
+
 def test_realtime_capability_route_requires_owner_csrf_and_returns_no_store(monkeypatch):
     from studio_api import main as main_mod
 
