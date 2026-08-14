@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-import json, sys, threading
+import json, sys, threading, tomllib
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -416,6 +417,26 @@ def test_query_cursor_system_and_markdown_report(db, monkeypatch):
         assert report.headers["content-type"].startswith("text/markdown") and "studio-diagnostics-report.md" in report.headers["content-disposition"]
         text=report.text
         assert "Chronological diagnostic timeline" in text and "Event counts by level" in text and "Secret Project" not in text and "<script" not in text and "http://" not in text and "https://" not in text
+        structured_reports = {}
+        for extension, media_type in {
+            "json": "application/json",
+            "yaml": "application/yaml",
+            "toml": "application/toml",
+        }.items():
+            response = client.post(
+                f"/api/diagnostics/report.{extension}",
+                json={"start":"2026-07-16T00:00:00","end":"2026-07-17T00:00:00","project_id":p.id,"job_id":j.id},
+                headers={"Origin":"https://studio.test", "X-CSRF-Token":"x"},
+            )
+            assert response.status_code == 200
+            assert response.headers["content-type"].startswith(media_type)
+            assert f"studio-diagnostics-report.{extension}" in response.headers["content-disposition"]
+            assert response.headers["cache-control"] == "no-store"
+            structured_reports[extension] = response.text
+        json_payload = json.loads(structured_reports["json"])
+        assert tomllib.loads(structured_reports["toml"]) == json_payload
+        assert yaml.safe_load(structured_reports["yaml"]) == json_payload
+        assert "Secret Project" not in "".join(structured_reports.values())
     finally:
         main.app.dependency_overrides.clear()
 

@@ -35,8 +35,16 @@ const json = (body: unknown, ok = true, status = 200) =>
           : new Blob([JSON.stringify(body)], { type: "application/json" }),
       ),
   } as Response);
-const markdownReport = (
-  body = "# Studio diagnostics report\n",
+type TestDiagnosticsReportFormat = "md" | "json" | "yaml" | "toml";
+const testReportMetadata = {
+  md: { mediaType: "text/markdown", body: "# Studio diagnostics report\n" },
+  json: { mediaType: "application/json", body: '{"schema_version":"v1"}\n' },
+  yaml: { mediaType: "application/yaml", body: '"schema_version": "v1"\n' },
+  toml: { mediaType: "application/toml", body: 'schema_version = "v1"\n' },
+} as const;
+const diagnosticsReport = (
+  format: TestDiagnosticsReportFormat,
+  body = testReportMetadata[format].body,
   status = 200,
   headers: Record<string, string> = {},
 ) =>
@@ -46,12 +54,17 @@ const markdownReport = (
       headers: {
         "cache-control": "no-store",
         "content-disposition":
-          'attachment; filename="studio-diagnostics-report.md"',
-        "content-type": "text/markdown; charset=utf-8",
+          `attachment; filename="studio-diagnostics-report.${format}"`,
+        "content-type": `${testReportMetadata[format].mediaType}; charset=utf-8`,
         ...headers,
       },
     }),
   );
+const markdownReport = (
+  body = testReportMetadata.md.body,
+  status = 200,
+  headers: Record<string, string> = {},
+) => diagnosticsReport("md", body, status, headers);
 function googleConnectionFixture(overrides: Record<string, unknown> = {}) {
   return {
     connected: false,
@@ -12655,7 +12668,7 @@ describe("settings diagnostics", () => {
     expect(screen.queryByText(/Вход выполнен/)).not.toBeInTheDocument();
   });
 
-  it("uses broad diagnostics export copy while preserving the common Markdown report endpoint", async () => {
+  it("exports every diagnostics format through the common safe report flow", async () => {
     const originalURL = URL;
     const createObjectURL = vi.fn(() => "blob:diagnostics-report");
     const revokeObjectURL = vi.fn();
@@ -12715,11 +12728,13 @@ describe("settings diagnostics", () => {
               end: "2026-07-16T00:00:00Z",
             },
           });
-        if (
-          url.endsWith("/api/diagnostics/report.md") &&
-          init?.method === "POST"
-        )
-          return markdownReport("# Markdown\n");
+        const reportMatch = url.match(
+          /\/api\/diagnostics\/report\.(md|json|yaml|toml)$/,
+        );
+        if (reportMatch && init?.method === "POST") {
+          const format = reportMatch[1] as TestDiagnosticsReportFormat;
+          return diagnosticsReport(format);
+        }
         return json({ ok: true });
       },
     );
@@ -12745,20 +12760,29 @@ describe("settings diagnostics", () => {
       screen.getByLabelText("Код события"),
       "api.request_failed",
     );
-    await userEvent.click(
-      screen.getByRole("button", { name: "Скачать Markdown" }),
-    );
+    for (const label of ["Markdown", "JSON", "YAML", "TOML"]) {
+      await userEvent.click(
+        screen.getByRole("button", { name: `Скачать ${label}` }),
+      );
+      expect(await screen.findByText(`${label}-отчёт скачан.`)).toBeInTheDocument();
+    }
     const reportCalls = (
       fetch as unknown as ReturnType<typeof vi.fn>
     ).mock.calls.filter(([url]) =>
-      String(url).endsWith("/api/diagnostics/report.md"),
+      /\/api\/diagnostics\/report\.(md|json|yaml|toml)$/.test(String(url)),
     );
-    expect(reportCalls).toHaveLength(1);
-    expect(reportCalls[0][1]?.body).toContain('"level":"INFO"');
-    expect(reportCalls[0][1]?.body).toContain('"component":"api"');
-    expect(reportCalls[0][1]?.body).toContain(
-      '"event_code":"api.request_failed"',
-    );
+    expect(reportCalls).toHaveLength(4);
+    expect(reportCalls.map(([url]) => String(url).split(".").at(-1))).toEqual([
+      "md",
+      "json",
+      "yaml",
+      "toml",
+    ]);
+    for (const [, init] of reportCalls) {
+      expect(init?.body).toContain('"level":"INFO"');
+      expect(init?.body).toContain('"component":"api"');
+      expect(init?.body).toContain('"event_code":"api.request_failed"');
+    }
     expect(
       calledUrls.some(
         (url) =>
@@ -12767,8 +12791,10 @@ describe("settings diagnostics", () => {
       ),
     ).toBe(false);
     expect(
-      clickSpy.mock.instances[0]?.download ?? "studio-diagnostics.md",
-    ).toMatch(/\.md$/);
+      clickSpy.mock.instances.map((instance) => instance.download.split(".").at(-1)),
+    ).toEqual(["md", "json", "yaml", "toml"]);
+    expect(createObjectURL).toHaveBeenCalledTimes(4);
+    expect(revokeObjectURL).toHaveBeenCalledTimes(4);
     clickSpy.mockRestore();
     cleanup();
     window.history.replaceState({}, "", "/");

@@ -33,8 +33,8 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **75,9% (`22/29`)** | `COLAB-BATCH 17/23` + `COLAB-REALTIME 5/6` |
-| Studio PWA | **65,0% (`52/80`)** | сумма девяти PWA-эпиков ниже |
-| Весь проект | **67,9% (`74/109`)** | все выполненные AC двух продуктов / все AC текущего scope |
+| Studio PWA | **68,8% (`55/80`)** | сумма девяти PWA-эпиков ниже |
+| Весь проект | **70,6% (`77/109`)** | все выполненные AC двух продуктов / все AC текущего scope |
 
 ## 3. Общие product rules
 
@@ -255,7 +255,7 @@ Realtime использует short-lived single-use capability. Он не со�
 
 ### Эпик `PWA-OPERABILITY-01` — diagnostics, history и analytics
 
-Status: **🟦 IN PROGRESS — 55,6% (`10/18`)**.
+Status: **🟦 IN PROGRESS — 72,2% (`13/18`)**.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -263,9 +263,9 @@ Status: **🟦 IN PROGRESS — 55,6% (`10/18`)**.
 | `PO-02` | Собираются safe frontend/PWA diagnostics. | ✅ |
 | `PO-03` | Диагностический summary отражает safe configuration state. | ✅ |
 | `PO-04` | Diagnostics экспортируются в Markdown. | ✅ |
-| `PO-05` | Diagnostics экспортируются в JSON. | ❌ |
-| `PO-06` | Diagnostics экспортируются в YAML. | ❌ |
-| `PO-07` | Diagnostics экспортируются в TOML. | ❌ |
+| `PO-05` | Diagnostics экспортируются в JSON. | ✅ |
+| `PO-06` | Diagnostics экспортируются в YAML. | ✅ |
+| `PO-07` | Diagnostics экспортируются в TOML. | ✅ |
 | `PO-08` | History показывает safe transcription metadata. | ✅ |
 | `PO-09` | Успешная history entry содержит safe Google Docs link. | ✅ |
 | `PO-10` | History можно очистить owner-scoped action. | ❌ |
