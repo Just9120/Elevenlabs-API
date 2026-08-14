@@ -111,9 +111,11 @@ import {
   type ComposerRow,
 } from "./batchComposerModel";
 import {
+  parseJobRetryResponse,
+  parseOutputReconciliationCheckResponse,
+  parseOutputReconciliationResponse,
   type JobRetryResponse,
   type JobRetryState,
-  type OutputReconciliationCheckResponse,
   type OutputReconciliationResponse,
   type OutputReconciliationState,
 } from "./jobRecoveryModel";
@@ -1063,11 +1065,37 @@ async function readCredentialCollectionBounded(): Promise<Credential[] | null> {
     return null;
   }
 }
-async function readAfterJobMutationTimeout<T>(path: string): Promise<T | null> {
+async function requestJobRetryRead(jobId: string, signal?: AbortSignal) {
+  const candidate = await api<unknown>(`/jobs/${jobId}/retry`, {
+    signal,
+    ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+  });
+  const retry = parseJobRetryResponse(candidate, jobId);
+  if (!retry) throw new Error("invalid_job_retry_response");
+  return retry;
+}
+async function requestOutputReconciliationRead(
+  jobId: string,
+  signal?: AbortSignal,
+) {
+  const candidate = await api<unknown>(
+    `/jobs/${jobId}/output-reconciliation`,
+    {
+      signal,
+      ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+    },
+  );
+  const reconciliation = parseOutputReconciliationResponse(candidate, jobId);
+  if (!reconciliation) {
+    throw new Error("invalid_output_reconciliation_response");
+  }
+  return reconciliation;
+}
+async function readAfterJobMutationTimeout<T>(
+  request: (signal?: AbortSignal) => Promise<T>,
+): Promise<T | null> {
   try {
-    const result = await runBoundedRequest((signal) =>
-      api<T>(path, { signal }),
-    );
+    const result = await runBoundedRequest(request);
     return result.status === "completed" ? result.value : null;
   } catch {
     return null;
@@ -2610,11 +2638,7 @@ function PreparationPanel({
       ),
       settleLatestJobRead<JobRetryResponse>(
         `retry:${jobId}`,
-        (signal) =>
-          api<JobRetryResponse>(`/jobs/${jobId}/retry`, {
-            signal,
-            ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
-          }),
+        (signal) => requestJobRetryRead(jobId, signal),
         (data) =>
           setRetries((current) => ({
             ...current,
@@ -2640,14 +2664,7 @@ function PreparationPanel({
       ),
       settleLatestJobRead<OutputReconciliationResponse>(
         `reconciliation:${jobId}`,
-        (signal) =>
-          api<OutputReconciliationResponse>(
-            `/jobs/${jobId}/output-reconciliation`,
-            {
-              signal,
-              ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
-            },
-          ),
+        (signal) => requestOutputReconciliationRead(jobId, signal),
         (data) =>
           setReconciliations((current) => ({
             ...current,
@@ -2710,18 +2727,26 @@ function PreparationPanel({
       },
     }));
     try {
-      const request = await runBoundedRequest((signal) =>
-        csrfMutate<OutputReconciliationCheckResponse>(
+      const request = await runBoundedRequest(async (signal) => {
+        const candidate = await csrfMutate<unknown>(
           `/jobs/${jobId}/output-reconciliation/check`,
           csrf,
           onCsrf,
           { method: "POST", signal },
-        ),
-      );
+        );
+        const parsed = parseOutputReconciliationCheckResponse(
+          candidate,
+          jobId,
+        );
+        if (!parsed) {
+          throw new Error("invalid_output_reconciliation_check_response");
+        }
+        return parsed;
+      });
       if (request.status === "timed_out") {
         const observed =
           await readAfterJobMutationTimeout<OutputReconciliationResponse>(
-            `/jobs/${jobId}/output-reconciliation`,
+            (signal) => requestOutputReconciliationRead(jobId, signal),
           );
         const confirmed =
           observed !== null &&
@@ -2829,8 +2854,8 @@ function PreparationPanel({
         "partial_provider_resume_available",
         "partial_provider_restart_available",
       ].includes(beforeRetry?.reason ?? "");
-      const request = await runBoundedRequest((signal) =>
-        csrfMutate<JobRetryResponse>(
+      const request = await runBoundedRequest(async (signal) => {
+        const candidate = await csrfMutate<unknown>(
           `/jobs/${jobId}/retry`,
           csrf,
           onCsrf,
@@ -2841,11 +2866,14 @@ function PreparationPanel({
               ? JSON.stringify({ confirm_remaining_provider_cost: true })
               : undefined,
           },
-        ),
-      );
+        );
+        const parsed = parseJobRetryResponse(candidate, jobId);
+        if (!parsed) throw new Error("invalid_job_retry_response");
+        return parsed;
+      });
       if (request.status === "timed_out") {
         const observed = await readAfterJobMutationTimeout<JobRetryResponse>(
-          `/jobs/${jobId}/retry`,
+          (signal) => requestJobRetryRead(jobId, signal),
         );
         const confirmed =
           observed !== null && retryIsConfirmed(beforeRetry, observed);
@@ -2939,7 +2967,7 @@ function PreparationPanel({
       );
       if (request.status === "timed_out") {
         const observed = await readAfterJobMutationTimeout<TranscriptionJob>(
-          `/jobs/${jobId}`,
+          (signal) => requestJobDetail(jobId, project.id, signal),
         );
         const confirmed =
           observed !== null && cancellationIsConfirmed(observed);
@@ -3058,7 +3086,7 @@ function PreparationPanel({
       );
       if (request.status === "timed_out") {
         const observed = await readAfterJobMutationTimeout<TranscriptionJob>(
-          `/jobs/${jobId}`,
+          (signal) => requestJobDetail(jobId, project.id, signal),
         );
         const confirmed =
           observed !== null && dismissalIsConfirmed(observed);

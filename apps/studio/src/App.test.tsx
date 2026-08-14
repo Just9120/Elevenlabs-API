@@ -8743,6 +8743,63 @@ describe("Studio PWA", () => {
     expect(document.body.textContent).not.toContain("raw-private");
   });
 
+  it("rejects inconsistent retry and reconciliation authority DTOs", async () => {
+    installFocusedOutputFixture({ jobStatus: "failed" });
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/jobs/job-focused/retry" && !init?.method) {
+        return json({
+          job_id: "job-focused",
+          job_status: "failed",
+          available: true,
+          reason: "non_retryable",
+          attempt_count: 1,
+          max_attempts: 3,
+          missing_output_count: 1,
+          retry_safe_source_count: 0,
+          raw_checkpoint: "raw-private-checkpoint",
+        });
+      }
+      if (
+        url === "/api/jobs/job-focused/output-reconciliation" &&
+        !init?.method
+      ) {
+        return json({
+          job_id: "job-focused",
+          job_status: "failed",
+          available: true,
+          counts: {
+            prepared: 0,
+            creation_returned: 0,
+            reconciliation_required: 0,
+            resolved: 0,
+            conflict: 0,
+          },
+          cases: [],
+          raw_google_token: "raw-private-google-token",
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({});
+    });
+
+    await openFocusedJobsList();
+    await userEvent.click(screen.getByRole("button", { name: "Открыть" }));
+    expect(
+      await screen.findByLabelText("Job detail job-focused"),
+    ).toBeInTheDocument();
+
+    expect(
+      screen.queryByRole("button", { name: "Повторить безопасную обработку" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", {
+        name: "Проверить созданный документ в Google Drive",
+      }),
+    ).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("raw-private");
+  });
+
   it("keeps only the latest repeated job detail refresh", async () => {
     installFocusedOutputFixture();
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
@@ -9477,8 +9534,24 @@ describe("Studio PWA", () => {
       job_id: "job-focused",
       job_status: "failed",
       available: true,
-      counts: { reconciliation_required: 1 },
-      cases: [],
+      counts: {
+        prepared: 0,
+        creation_returned: 0,
+        reconciliation_required: 1,
+        resolved: 0,
+        conflict: 0,
+      },
+      cases: [
+        {
+          job_source_id: "source-focused",
+          status: "reconciliation_required",
+          reason: "provider_outcome_uncertain",
+          prepared_at: "2026-07-02T00:02:00Z",
+          last_checked_at: null,
+          resolved: false,
+          resolved_at: null,
+        },
+      ],
     };
     installFocusedOutputFixture({
       jobStatus: "failed",
@@ -9626,9 +9699,13 @@ describe("Studio PWA", () => {
       await json({
         ...retryResponse,
         job_status: "queued",
-        available: false,
-        reason: "already_queued",
-        attempt_count: 2,
+        available: true,
+        reason: "available",
+        missing_output_count: 0,
+        retry_safe_source_count: 0,
+        resumable_provider_part_count: 0,
+        provider_total_part_count: 0,
+        provider_failure_code: null,
       }),
     );
     await waitFor(() =>
@@ -9685,7 +9762,27 @@ describe("Studio PWA", () => {
           provider: null,
           terminal_dismissed_at: null,
           source_count: 1,
-          sources: [],
+          sources: [
+            {
+              id: "source-detail-id-not-output-id",
+              project_id: "p1",
+              position: 0,
+              job_source_status: "queued",
+              source_type: "google_drive",
+              original_filename: "focused-source.mp3",
+              mime_type: "audio/mpeg",
+              size_bytes: 1234,
+              drive_file_id: null,
+              drive_file_url: null,
+              upload_status: "uploaded",
+              uploaded_at: "2026-07-01T00:01:00Z",
+              expires_at: null,
+              deleted_at: null,
+              delete_reason: null,
+              created_at: "2026-07-01T00:00:00Z",
+              updated_at: "2026-07-01T00:00:00Z",
+            },
+          ],
           created_at: "2026-07-02T00:00:00Z",
           updated_at: "2026-07-02T00:02:00Z",
           cancelled_at: "2026-07-02T00:02:00Z",
@@ -9827,8 +9924,13 @@ describe("Studio PWA", () => {
             ? {
                 ...beforeRetry,
                 job_status: "queued",
-                available: false,
-                reason: "job_not_failed",
+                available: true,
+                reason: "available",
+                missing_output_count: 0,
+                retry_safe_source_count: 0,
+                resumable_provider_part_count: 0,
+                provider_total_part_count: 0,
+                provider_failure_code: null,
               }
             : beforeRetry,
         );
@@ -9872,13 +9974,22 @@ describe("Studio PWA", () => {
       job_id: "job-focused",
       job_status: "failed",
       available: true,
-      counts: { reconciliation_required: 1 },
+      counts: {
+        prepared: 0,
+        creation_returned: 0,
+        reconciliation_required: 1,
+        resolved: 0,
+        conflict: 0,
+      },
       cases: [
         {
           job_source_id: "source-1",
           status: "reconciliation_required",
+          reason: "provider_outcome_uncertain",
+          prepared_at: "2026-07-02T00:02:00Z",
           resolved: false,
           last_checked_at: null,
+          resolved_at: null,
         },
       ],
     };
