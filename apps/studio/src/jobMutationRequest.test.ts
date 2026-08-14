@@ -110,6 +110,14 @@ describe("authoritative mutation outcome checks", () => {
       ),
     ).toBe(true);
     expect(cancellationIsConfirmed(job({ status: "cancelled" }))).toBe(true);
+    expect(
+      cancellationIsConfirmed(
+        job({
+          status: "completed",
+          cancel_requested_at: "2026-08-13T00:01:00Z",
+        }),
+      ),
+    ).toBe(false);
     expect(dismissalIsConfirmed(job({ status: "completed" }))).toBe(false);
     expect(
       dismissalIsConfirmed(
@@ -119,6 +127,14 @@ describe("authoritative mutation outcome checks", () => {
         }),
       ),
     ).toBe(true);
+    expect(
+      dismissalIsConfirmed(
+        job({
+          status: "queued",
+          terminal_dismissed_at: "2026-08-13T00:01:00Z",
+        }),
+      ),
+    ).toBe(false);
   });
 
   it("recognizes retry queueing and a fast failed follow-up attempt", () => {
