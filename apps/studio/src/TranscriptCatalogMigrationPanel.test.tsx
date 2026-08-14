@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as googlePicker from "./googlePicker";
@@ -809,5 +809,107 @@ describe("TranscriptCatalogMigrationPanel", () => {
         }),
       }),
     );
+  });
+
+  it("rejects malformed maintenance state without retaining raw fields", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        url.endsWith("/api/google/maintenance/connection")
+          ? json({
+              ...readyMaintenanceConnection,
+              ready: "yes",
+              raw_refresh_token: "raw-maintenance-token",
+            })
+          : json({}, false, 404),
+      ),
+    );
+
+    renderPanel();
+
+    expect(
+      await screen.findByText(
+        "Не удалось проверить доступ Google для обслуживания.",
+      ),
+    ).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("raw-maintenance-token");
+    expect(
+      screen.getByRole("button", { name: "Подключить доступ" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Повторить проверку доступа" }),
+    ).toBeEnabled();
+  });
+
+  it("bounds a stalled maintenance read and retries explicitly", async () => {
+    let requests = 0;
+    let stalledSignal: AbortSignal | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) => {
+        if (!url.endsWith("/api/google/maintenance/connection")) {
+          return json({}, false, 404);
+        }
+        requests += 1;
+        if (requests === 1) {
+          stalledSignal = init?.signal;
+          return new Promise<Response>((_resolve, reject) => {
+            stalledSignal?.addEventListener("abort", () =>
+              reject(new Error("raw-maintenance-timeout")),
+            );
+          });
+        }
+        return json(readyMaintenanceConnection);
+      }),
+    );
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 15_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      renderPanel();
+      expect(
+        await screen.findByText(
+          "Не удалось проверить доступ Google для обслуживания.",
+        ),
+      ).toBeInTheDocument();
+      expect(stalledSignal?.aborted).toBe(true);
+      expect(document.body).not.toHaveTextContent("raw-maintenance-timeout");
+
+      await userEvent.click(
+        screen.getByRole("button", { name: "Повторить проверку доступа" }),
+      );
+      expect(
+        await screen.findByText(/Расширенный доступ подключён/),
+      ).toBeInTheDocument();
+      expect(requests).toBe(2);
+    } finally {
+      timeoutSpy.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("aborts the maintenance read on panel teardown", async () => {
+    let signal: AbortSignal | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_url: string, init?: RequestInit) => {
+        signal = init?.signal;
+        return new Promise<Response>(() => undefined);
+      }),
+    );
+    const { unmount } = renderPanel();
+    await waitFor(() => expect(signal).toBeDefined());
+
+    unmount();
+
+    expect(signal?.aborted).toBe(true);
+    vi.unstubAllGlobals();
   });
 });

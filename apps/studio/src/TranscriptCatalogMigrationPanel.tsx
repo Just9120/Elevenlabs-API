@@ -4,6 +4,11 @@ import * as googlePicker from "./googlePicker";
 import type { PickerSession } from "./googlePicker";
 import { googlePickerFailureMessage } from "./googlePickerErrors";
 import {
+  cancelLatestRequests,
+  LATEST_REQUEST_CANCEL_REASON,
+  settleLatestRequest,
+} from "./latestRequest";
+import {
   googleMaintenanceOauthMessages,
   type GoogleMaintenanceOauthResult,
 } from "./googleOauthResult";
@@ -42,7 +47,7 @@ type Mutate = <T>(path: string, options: RequestInit) => Promise<T>;
 type GoogleOauthStart = { authorization_url: string; expires_at: string };
 type GoogleMaintenanceConnection = {
   connected: boolean;
-  status: string | null;
+  status: "active" | "revoked" | "incomplete" | null;
   google_email: string | null;
   scopes: string | null;
   connected_at: string | null;
@@ -53,6 +58,84 @@ type GoogleMaintenanceConnection = {
   ready: boolean;
   reconnect_required: boolean;
 };
+
+const MAINTENANCE_CONNECTION_REQUEST_TIMEOUT_MS = 15_000;
+
+function parseGoogleMaintenanceConnection(
+  candidate: unknown,
+): GoogleMaintenanceConnection | null {
+  if (!candidate || typeof candidate !== "object") return null;
+  const value = candidate as Record<string, unknown>;
+  const status = value.status;
+  const googleEmail = value.google_email;
+  const scopes = value.scopes;
+  const connectedAt = value.connected_at;
+  const revokedAt = value.revoked_at;
+  if (
+    typeof value.connected !== "boolean" ||
+    (status !== null &&
+      status !== "active" &&
+      status !== "revoked" &&
+      status !== "incomplete") ||
+    (googleEmail !== null &&
+      (typeof googleEmail !== "string" ||
+        googleEmail.trim().length === 0 ||
+        googleEmail.length > 320)) ||
+    (scopes !== null &&
+      (typeof scopes !== "string" ||
+        scopes.trim().length === 0 ||
+        scopes.length > 2_048)) ||
+    !isNullableIsoDate(connectedAt) ||
+    !isNullableIsoDate(revokedAt) ||
+    typeof value.configured !== "boolean" ||
+    typeof value.account_match !== "boolean" ||
+    typeof value.scope_ready !== "boolean" ||
+    typeof value.ready !== "boolean" ||
+    typeof value.reconnect_required !== "boolean" ||
+    (value.connected && status !== "active") ||
+    (value.ready &&
+      (!value.connected ||
+        !value.configured ||
+        !value.account_match ||
+        !value.scope_ready)) ||
+    value.reconnect_required !== Boolean(status && !value.ready)
+  ) {
+    return null;
+  }
+  return {
+    connected: value.connected,
+    status,
+    google_email: googleEmail,
+    scopes,
+    connected_at: connectedAt,
+    revoked_at: revokedAt,
+    configured: value.configured,
+    account_match: value.account_match,
+    scope_ready: value.scope_ready,
+    ready: value.ready,
+    reconnect_required: value.reconnect_required,
+  };
+}
+
+function isNullableIsoDate(value: unknown): value is string | null {
+  return (
+    value === null ||
+    (typeof value === "string" &&
+      value.length > 0 &&
+      value.length <= 64 &&
+      Number.isFinite(Date.parse(value)))
+  );
+}
+
+async function requestGoogleMaintenanceConnection(signal?: AbortSignal) {
+  const candidate = await api<unknown>("/google/maintenance/connection", {
+    signal,
+    ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+  });
+  const connection = parseGoogleMaintenanceConnection(candidate);
+  if (!connection) throw new Error("invalid_maintenance_connection_response");
+  return connection;
+}
 
 const STANDARD_LABELS: Record<TranscriptStandardStatus, string> = {
   current: "Актуальный стандарт",
@@ -897,39 +980,57 @@ export function TranscriptCatalogMigrationPanel({
   const [maintenanceLoading, setMaintenanceLoading] = useState(true);
   const [maintenanceStarting, setMaintenanceStarting] = useState(false);
   const [maintenanceMessage, setMaintenanceMessage] = useState("");
+  const [maintenanceReadError, setMaintenanceReadError] = useState("");
+  const maintenanceRequestEpochsRef = useRef(new Map<string, number>());
+  const maintenanceRequestControllersRef = useRef(
+    new Map<string, AbortController>(),
+  );
 
-  useEffect(() => {
-    let active = true;
-    if (!googleConnected) {
-      setMaintenanceConnection(null);
-      setMaintenanceLoading(false);
-      return () => {
-        active = false;
-      };
-    }
+  async function loadMaintenanceConnection() {
     setMaintenanceLoading(true);
     setMaintenanceMessage("");
-    api<GoogleMaintenanceConnection>("/google/maintenance/connection")
-      .then((connection) => {
-        if (active) setMaintenanceConnection(connection);
-      })
-      .catch(() => {
-        if (!active) return;
+    setMaintenanceReadError("");
+    await settleLatestRequest(
+      maintenanceRequestEpochsRef.current,
+      "maintenance-connection",
+      requestGoogleMaintenanceConnection,
+      (connection) => {
+        setMaintenanceConnection(connection);
+        setMaintenanceLoading(false);
+        setMaintenanceReadError("");
+      },
+      () => {
         setMaintenanceConnection(null);
-        setMaintenanceMessage(
+        setMaintenanceLoading(false);
+        setMaintenanceReadError(
           "Не удалось проверить доступ Google для обслуживания.",
         );
-      })
-      .finally(() => {
-        if (active) setMaintenanceLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [
-    googleConnected,
-    maintenanceOauthResult,
-  ]);
+      },
+      {
+        controllers: maintenanceRequestControllersRef.current,
+        timeoutMs: MAINTENANCE_CONNECTION_REQUEST_TIMEOUT_MS,
+      },
+    );
+  }
+
+  useEffect(() => {
+    if (!googleConnected) {
+      cancelLatestRequests(
+        maintenanceRequestEpochsRef.current,
+        maintenanceRequestControllersRef.current,
+      );
+      setMaintenanceConnection(null);
+      setMaintenanceLoading(false);
+      setMaintenanceReadError("");
+      return;
+    }
+    void loadMaintenanceConnection();
+    return () =>
+      cancelLatestRequests(
+        maintenanceRequestEpochsRef.current,
+        maintenanceRequestControllersRef.current,
+      );
+  }, [googleConnected, maintenanceOauthResult]);
 
   async function connectMaintenance() {
     if (
@@ -1051,6 +1152,7 @@ export function TranscriptCatalogMigrationPanel({
               disabled={
                 maintenanceLoading ||
                 maintenanceStarting ||
+                !maintenanceConnection ||
                 !pickerReady ||
                 maintenanceConnection?.configured === false
               }
@@ -1069,6 +1171,19 @@ export function TranscriptCatalogMigrationPanel({
             </button>
           )}
         </div>
+        {maintenanceReadError && (
+          <div className="error">
+            <p role="alert">{maintenanceReadError}</p>
+            <button
+              type="button"
+              className="secondary"
+              disabled={maintenanceLoading}
+              onClick={() => void loadMaintenanceConnection()}
+            >
+              Повторить проверку доступа
+            </button>
+          </div>
+        )}
         {maintenanceMessage && (
           <p className="error" role="alert">
             {maintenanceMessage}
