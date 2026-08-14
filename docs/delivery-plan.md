@@ -23,9 +23,9 @@ The product percentages are unchanged because the active item changes governance
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-14T16:59:10Z
+- Updated (UTC): 2026-08-14T17:04:12Z
 - Session mode: FOCUSED_TASK
-- Delivery stage: VALIDATING
+- Delivery stage: PR_OPEN
 - Work item / epic: `DOCS-AGENT-DELIVERY-V2`
 - Authorization source: current owner instruction plus the three explicitly supplied files in `repository-documentation-final-verified`
 - Authorized scope: fully replace `AGENTS.md`, replace `docs/ai-coding-workflow.md` with `docs/agent-delivery-workflow.md`, replace `docs/ci-cd-rules.md`, and adapt CI/CD content to verified Actions/Environments/deployment nuances
@@ -33,14 +33,14 @@ The product percentages are unchanged because the active item changes governance
 - Base branch: `main`
 - Base SHA: `830bd00754567dfa6809e1e36bb7fcbaa145b824`
 - Working branch: `codex/governance-docs-v2`
-- Last verified revision: `ddd4a792340139dcfc520f6e6398de08d419fc19` (`docs: configure repository CI/CD governance`)
-- Working tree: CLEAN after the containing checkpoint/archive commit — branch contains only intended documentation changes
-- Completed since base: `69999cf` adopts the supplied router/workflow and canonical navigation; `ddd4a79` adopts/configures the supplied CI/CD contract; PR #208 closure is archived; all four local acceptance criteria pass
-- Current step: local implementation and validation complete; publication has not been requested for this scope
-- Next exact action: verify branch/worktree/base state, then push and open one PR only after explicit owner authorization
+- Last verified revision: `2362f31a83dfe14d967f81dc5652a93060592156` (`docs: reconcile active delivery checkpoint`)
+- Working tree: CLEAN after the containing checkpoint commit — branch contains only intended documentation changes
+- Completed since base: `69999cf` adopts the supplied router/workflow and canonical navigation; `ddd4a79` adopts/configures the supplied CI/CD contract; `2362f31` reconciles the dashboard/archive; branch pushed; draft PR #209 opened; all four local acceptance criteria pass
+- Current step: publish the PR-aware checkpoint commit, then monitor PR checks for the resulting exact head
+- Next exact action: commit and push this checkpoint update, query PR #209 exact head/checks, and wait for terminal CI state
 - Validation and Evidence: exact-copy checks passed for supplied `AGENTS.md` and workflow; CI/CD universal sections 1–15 and 17 match the supplied source; profile has `status: CONFIGURED` and no YAML-field `UNSET`; `git diff --check`, docs-only path guard, canonical path/stale-link guard, trailing-whitespace/final-newline guard, Markdown relative-link guard, provider-doc sentinel guard and `python scripts/ci_checks.py` passed; `tests/test_security_policy.py` pure functions passed `3/3`; full pytest unavailable in bundled runtime (`No module named pytest`)
-- Pull Request: N/A
-- CI/checks: N/A until publication; GitHub currently enforces no required checks on `main`
+- Pull Request: #209, DRAFT, `https://github.com/Just9120/Elevenlabs-API/pull/209`; pre-checkpoint head `2362f31a83dfe14d967f81dc5652a93060592156`, actual head must be re-read after the containing commit is pushed
+- CI/checks: pending final checkpoint push; GitHub currently enforces no required checks on `main`, but expected acceptance jobs remain `CI / checks`, `Studio PWA CI / studio` and `Studio PWA CI / browser-e2e` when applicable
 - Deployment/environment: N/A for docs-only scope
 - Blockers: none
 - Unverified assumptions: GitHub Settings can drift after the 2026-08-14 snapshot; no runtime/secret values were inspected
