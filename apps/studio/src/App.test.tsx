@@ -12178,6 +12178,197 @@ describe("settings diagnostics", () => {
     );
   }
 
+  it("bounds, validates, and safely retries the settings audit collection", async () => {
+    installBasicPlatformSettingsFixture();
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = fetchMock.getMockImplementation();
+    let auditGets = 0;
+    let auditSignal: AbortSignal | undefined;
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/api/audit-events")) {
+          auditGets += 1;
+          auditSignal = init?.signal;
+          if (auditGets === 1) {
+            return json({
+              events: [
+                {
+                  id: "audit-malformed",
+                  type: "auth.login",
+                  created_at: "not-a-date",
+                  metadata: { raw: "raw-audit-metadata" },
+                },
+              ],
+              raw_response: "raw-audit-response",
+            });
+          }
+          return json({
+            events: [
+              {
+                id: "audit-safe",
+                type: "auth.login",
+                created_at: "2026-08-14T08:00:00Z",
+                metadata: { raw: "raw-audit-retry-metadata" },
+                raw_event: "raw-audit-event",
+              },
+            ],
+            raw_response: "raw-audit-retry-response",
+          });
+        }
+        return defaultFetch?.(input, init) ?? json({});
+      },
+    );
+    const timeoutSpy = vi.spyOn(globalThis, "setTimeout");
+
+    try {
+      renderApp();
+      await openDiagnosticsSettings();
+      expect(
+        await screen.findByText(
+          "Не удалось загрузить аудит безопасности. Повторите попытку.",
+        ),
+      ).toBeInTheDocument();
+      expect(auditSignal).toBeInstanceOf(AbortSignal);
+      expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), 15_000);
+      expect(document.body.textContent).not.toContain("raw-audit");
+      expect(
+        screen.queryByText("Событий аудита нет."),
+      ).not.toBeInTheDocument();
+
+      await userEvent.click(
+        screen.getByRole("button", { name: "Повторить загрузку аудита" }),
+      );
+      expect(await screen.findByText(/Вход выполнен/)).toBeInTheDocument();
+      expect(auditGets).toBe(2);
+      expect(document.body.textContent).not.toContain("raw-audit");
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("keeps a mutation-triggered audit refresh latest-wins", async () => {
+    installBasicPlatformSettingsFixture();
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = fetchMock.getMockImplementation();
+    let auditGets = 0;
+    let staleSignal: AbortSignal | undefined;
+    let resolveStale: ((response: Response) => void) | undefined;
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/api/audit-events")) {
+          auditGets += 1;
+          if (auditGets === 1) {
+            staleSignal = init?.signal;
+            return new Promise<Response>((resolve) => {
+              resolveStale = resolve;
+            });
+          }
+          return json({
+            events: [
+              {
+                id: "audit-new",
+                type: "credential.revoked",
+                created_at: "2026-08-14T08:01:00Z",
+              },
+            ],
+          });
+        }
+        return defaultFetch?.(input, init) ?? json({});
+      },
+    );
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    renderApp();
+    await openSettingsPage();
+    await waitFor(() => expect(resolveStale).toBeDefined());
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Отключить" }),
+    );
+    await waitFor(() => expect(auditGets).toBe(2));
+    expect(staleSignal?.aborted).toBe(true);
+    await act(async () =>
+      resolveStale?.(
+        await json({
+          events: [
+            {
+              id: "audit-stale",
+              type: "auth.login",
+              created_at: "2026-08-14T07:59:00Z",
+            },
+          ],
+        }),
+      ),
+    );
+
+    await userEvent.click(screen.getByRole("tab", { name: "Диагностика" }));
+    expect(await screen.findByText(/Ключ отозван/)).toBeInTheDocument();
+    expect(screen.queryByText(/Вход выполнен/)).not.toBeInTheDocument();
+    confirmSpy.mockRestore();
+  });
+
+  it("aborts audit ownership on settings teardown and ignores late success", async () => {
+    installBasicPlatformSettingsFixture();
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = fetchMock.getMockImplementation();
+    let auditGets = 0;
+    let auditSignal: AbortSignal | undefined;
+    let resolveAudit: ((response: Response) => void) | undefined;
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/api/audit-events")) {
+          auditGets += 1;
+          if (auditGets === 1) {
+            auditSignal = init?.signal;
+            return new Promise<Response>((resolve) => {
+              resolveAudit = resolve;
+            });
+          }
+          return json({
+            events: [
+              {
+                id: "audit-remount",
+                type: "auth.sessions_revoked",
+                created_at: "2026-08-14T08:02:00Z",
+              },
+            ],
+          });
+        }
+        return defaultFetch?.(input, init) ?? json({});
+      },
+    );
+
+    renderApp();
+    await openSettingsPage();
+    await waitFor(() => expect(resolveAudit).toBeDefined());
+    await userEvent.click(
+      within(screen.getByRole("navigation")).getByRole("button", {
+        name: "Обзор",
+      }),
+    );
+    expect(auditSignal?.aborted).toBe(true);
+    await act(async () =>
+      resolveAudit?.(
+        await json({
+          events: [
+            {
+              id: "audit-late",
+              type: "auth.login",
+              created_at: "2026-08-14T07:58:00Z",
+            },
+          ],
+        }),
+      ),
+    );
+
+    await openSettingsPage();
+    await userEvent.click(screen.getByRole("tab", { name: "Диагностика" }));
+    expect(await screen.findByText(/Другие сеансы завершены/)).toBeInTheDocument();
+    expect(screen.queryByText(/Вход выполнен/)).not.toBeInTheDocument();
+  });
+
   it("uses broad diagnostics export copy while preserving the common Markdown report endpoint", async () => {
     const originalURL = URL;
     const createObjectURL = vi.fn(() => "blob:diagnostics-report");

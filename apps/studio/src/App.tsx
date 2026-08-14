@@ -249,6 +249,46 @@ function isExpectedOkResponse(candidate: unknown): candidate is { ok: true } {
   );
 }
 type Audit = { id: string; type: string; created_at: string };
+function parseAuditCollection(candidate: unknown): Audit[] | null {
+  if (!candidate || typeof candidate !== "object") return null;
+  const rawEvents = (candidate as { events?: unknown }).events;
+  if (!Array.isArray(rawEvents) || rawEvents.length > 50) return null;
+  const events: Audit[] = [];
+  for (const rawEvent of rawEvents) {
+    if (!rawEvent || typeof rawEvent !== "object") return null;
+    const event = rawEvent as Record<string, unknown>;
+    if (
+      typeof event.id !== "string" ||
+      event.id.length === 0 ||
+      event.id.length > 36 ||
+      typeof event.type !== "string" ||
+      event.type.length === 0 ||
+      event.type.length > 80 ||
+      typeof event.created_at !== "string" ||
+      !Number.isFinite(Date.parse(event.created_at))
+    ) {
+      return null;
+    }
+    events.push({
+      id: event.id,
+      type: event.type,
+      created_at: event.created_at,
+    });
+  }
+  if (new Set(events.map((event) => event.id)).size !== events.length) {
+    return null;
+  }
+  return events;
+}
+async function requestAuditCollection(signal?: AbortSignal): Promise<Audit[]> {
+  const candidate = await api<unknown>("/audit-events", {
+    signal,
+    ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+  });
+  const events = parseAuditCollection(candidate);
+  if (events === null) throw new Error("invalid_audit_events_response");
+  return events;
+}
 type DiagnosticsSystem = {
   environment?: string;
   pwa_mode?: string;
@@ -960,6 +1000,7 @@ const DIAGNOSTICS_READ_REQUEST_TIMEOUT_MS = 15_000;
 const DIAGNOSTICS_EXPORT_REQUEST_TIMEOUT_MS = 20_000;
 const DIAGNOSTICS_DEBUG_REQUEST_TIMEOUT_MS = 15_000;
 const DIAGNOSTICS_DEBUG_MUTATION_TIMEOUT_MS = 20_000;
+const AUDIT_EVENT_REQUEST_TIMEOUT_MS = 15_000;
 const ACCOUNT_PREFERENCES_MUTATION_TIMEOUT_MS = 20_000;
 const GOOGLE_CONNECTION_REQUEST_TIMEOUT_MS = 15_000;
 const GOOGLE_CONNECTION_MUTATION_TIMEOUT_MS = 20_000;
@@ -5608,6 +5649,14 @@ function SettingsPage({
   );
   const settingsMountedRef = useRef(true);
   const [events, setEvents] = useState<Audit[]>([]);
+  const [auditState, setAuditState] = useState<
+    "loading" | "ready" | "error"
+  >("loading");
+  const [auditMessage, setAuditMessage] = useState("");
+  const auditRequestEpochsRef = useRef(new Map<string, number>());
+  const auditRequestControllersRef = useRef(
+    new Map<string, AbortController>(),
+  );
   const [googleConnection, setGoogleConnection] =
     useState<GoogleConnection | null>(null);
   const [googleLoading, setGoogleLoading] = useState(true);
@@ -5719,10 +5768,34 @@ function SettingsPage({
     settingsMountedRef.current
       ? loadAccountPreferences({ reportFailure: false })
       : readAccountPreferencesBounded();
-  const loadAuditEvents = () => {
-    api<{ events: Audit[] }>("/audit-events")
-      .then((result) => setEvents(result.events))
-      .catch(() => setEvents([]));
+  const loadAuditEvents = async ({ reportFailure = true } = {}) => {
+    const hadConfirmedEvents = auditState === "ready";
+    if (!hadConfirmedEvents) setAuditState("loading");
+    if (reportFailure) setAuditMessage("");
+    await settleLatestRequest(
+      auditRequestEpochsRef.current,
+      "settings:audit-events",
+      requestAuditCollection,
+      (nextEvents) => {
+        setEvents(nextEvents);
+        setAuditState("ready");
+        setAuditMessage("");
+      },
+      () => {
+        setAuditState(hadConfirmedEvents ? "ready" : "error");
+        if (reportFailure) {
+          setAuditMessage(
+            hadConfirmedEvents
+              ? "Не удалось обновить аудит безопасности. Последний подтверждённый список сохранён."
+              : "Не удалось загрузить аудит безопасности. Повторите попытку.",
+          );
+        }
+      },
+      {
+        controllers: auditRequestControllersRef.current,
+        timeoutMs: AUDIT_EVENT_REQUEST_TIMEOUT_MS,
+      },
+    );
   };
   const loadCredentials = async ({ reportFailure = true } = {}): Promise<
     Credential[] | null
@@ -5762,7 +5835,7 @@ function SettingsPage({
   useEffect(() => {
     settingsMountedRef.current = true;
     void loadCredentials();
-    loadAuditEvents();
+    void loadAuditEvents();
     void loadGoogleConnection();
     void loadAccountPreferences();
     return () => {
@@ -5778,6 +5851,10 @@ function SettingsPage({
       cancelLatestRequests(
         googleRequestEpochsRef.current,
         googleRequestControllersRef.current,
+      );
+      cancelLatestRequests(
+        auditRequestEpochsRef.current,
+        auditRequestControllersRef.current,
       );
     };
   }, []);
@@ -5872,7 +5949,9 @@ function SettingsPage({
       }
     } finally {
       finishCredentialMutation(operation, notice);
-      if (settingsMountedRef.current) loadAuditEvents();
+      if (settingsMountedRef.current) {
+        void loadAuditEvents({ reportFailure: false });
+      }
     }
   }
   async function replace(e: FormEvent<HTMLFormElement>, id: string) {
@@ -5982,7 +6061,9 @@ function SettingsPage({
       }
     } finally {
       finishCredentialMutation(operation, notice);
-      if (settingsMountedRef.current) loadAuditEvents();
+      if (settingsMountedRef.current) {
+        void loadAuditEvents({ reportFailure: false });
+      }
     }
   }
   async function saveRetentionPreference(e: FormEvent<HTMLFormElement>) {
@@ -6071,7 +6152,9 @@ function SettingsPage({
       }
     } finally {
       finishRetentionMutation(operation, notice);
-      if (settingsMountedRef.current) loadAuditEvents();
+      if (settingsMountedRef.current) {
+        void loadAuditEvents({ reportFailure: false });
+      }
     }
   }  const mutateCredential = async (
     kind: "revoke" | "delete",
@@ -6166,7 +6249,9 @@ function SettingsPage({
       }
     } finally {
       finishCredentialMutation(operation, notice);
-      if (settingsMountedRef.current) loadAuditEvents();
+      if (settingsMountedRef.current) {
+        void loadAuditEvents({ reportFailure: false });
+      }
     }
   };
   const connectGoogle = async () => {
@@ -6219,7 +6304,9 @@ function SettingsPage({
       }
     } finally {
       finishGoogleConnectionMutation(operation, notice);
-      if (settingsMountedRef.current) loadAuditEvents();
+      if (settingsMountedRef.current) {
+        void loadAuditEvents({ reportFailure: false });
+      }
     }
   };
   const disconnectGoogle = async () => {
@@ -6285,7 +6372,9 @@ function SettingsPage({
       }
     } finally {
       finishGoogleConnectionMutation(operation, notice);
-      if (settingsMountedRef.current) loadAuditEvents();
+      if (settingsMountedRef.current) {
+        void loadAuditEvents({ reportFailure: false });
+      }
     }
   };
   const googleCanDisconnect = Boolean(
@@ -6330,7 +6419,14 @@ function SettingsPage({
         </button>
       </div>
       {section === "diagnostics" ? (
-        <DiagnosticsSettings csrf={csrf} onCsrf={onCsrf} auditEvents={events} />
+        <DiagnosticsSettings
+          csrf={csrf}
+          onCsrf={onCsrf}
+          auditEvents={events}
+          auditState={auditState}
+          auditMessage={auditMessage}
+          onRetryAudit={() => void loadAuditEvents()}
+        />
       ) : (
         <>
           <h2>Настройки аккаунта</h2>
@@ -6806,10 +6902,16 @@ function DiagnosticsSettings({
   csrf,
   onCsrf,
   auditEvents,
+  auditState,
+  auditMessage,
+  onRetryAudit,
 }: {
   csrf: string;
   onCsrf: (csrf: string) => void;
   auditEvents: Audit[];
+  auditState: "loading" | "ready" | "error";
+  auditMessage: string;
+  onRetryAudit: () => void;
 }) {
   const [system, setSystem] = useState<DiagnosticsSystem | null>(null);
   const [systemState, setSystemState] = useState<"loading" | "ready" | "error">(
@@ -7176,6 +7278,9 @@ function DiagnosticsSettings({
       },
     );
   };
+  const visibleAuditEvents = auditEvents
+    .filter((event) => event.type !== "auth.csrf_refreshed")
+    .slice(0, 20);
   return (
     <div className="diagnostics-page">
       <h2>Диагностика</h2>
@@ -7474,21 +7579,39 @@ function DiagnosticsSettings({
       <section
         className="card security-log"
         aria-labelledby="security-audit-title"
+        aria-busy={auditState === "loading" || undefined}
       >
         <h3 id="security-audit-title">Аудит безопасности</h3>
         <p className="muted">Аудит отделён от диагностики транскрибации.</p>
-        <ul>
-          {auditEvents
-            .filter((e) => e.type !== "auth.csrf_refreshed")
-            .slice(0, 20)
-            .map((e) => (
-              <li key={e.id}>
-                {auditLabel(e.type)} · {formatTime(e.created_at)}
+        {auditState === "loading" && (
+          <p role="status" className="muted">
+            Загружаем события аудита…
+          </p>
+        )}
+        {(auditState === "error" || auditMessage) && (
+          <div className="error">
+            <p role="alert">
+              {auditMessage ||
+                "Не удалось загрузить аудит безопасности. Повторите попытку."}
+            </p>
+            <button type="button" className="secondary" onClick={onRetryAudit}>
+              Повторить загрузку аудита
+            </button>
+          </div>
+        )}
+        {auditState === "ready" && (
+          <ul>
+            {visibleAuditEvents.map((event) => (
+              <li key={event.id}>
+                {auditLabel(event.type)} · {formatTime(event.created_at)}
               </li>
             ))}
-        </ul>
-        {auditEvents.length === 0 && (
-          <p className="notice">Событий аудита нет.</p>
+          </ul>
+        )}
+        {auditState === "ready" &&
+          visibleAuditEvents.length === 0 &&
+          !auditMessage && (
+            <p className="notice">Событий аудита нет.</p>
         )}
       </section>
     </div>
