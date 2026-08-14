@@ -574,6 +574,29 @@ Non-goals: no API/worker/schema/provider changes, no changed progress semantics,
 - `PWA-PROJECT-LIST-ORDERING-04` local evidence: ordering helper `3/3`, complete App suite `124/124`, full Studio Vitest `374/374`, TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. Tests prove stale success suppression, stale failure suppression, newest failure visibility, and independent resource keys. One pre-commit run caught and prevented an accidental recursive helper implementation; the corrected implementation passed all repeated gates. No PR, CI, deploy, or live evidence is claimed.
 - `PWA-JOB-PROGRESS-POLLING-03` local evidence: focused polling Vitest `7/7` plus API abort diagnostics `6/6`; full Studio Vitest `371/371`; TypeScript, full ESLint, Vite/PWA production build, lightweight repository checks, and `git diff --check` passed. Fake-timer evidence covers initial rejection, bounded exponential backoff, cadence reset, 15-second stalled-request abort, retry after timeout, reconciliation continuity, timer cleanup, in-flight abort, suppression of the exact intentional stop reason, and continued timeout-abort diagnostics. The first Vite attempt exposed an incomplete local pnpm link layout (`workbox-window` unresolved); an npm-compatible hoisted local `node_modules` layout fixed the environment without manifest/lockfile changes. No PR, CI, deploy, or live evidence is claimed.
 
+## Archived PR #208 PWA hardening closure
+
+PR #208 (`codex/pwa-session-bootstrap-hardening`) closed the focused PWA hardening sequence 31–47 and was merged into `main` on 2026-08-14.
+
+- Base: `main@26ecae6e6cd0ec0c8a3fd2307b7434970c11edf4`.
+- Final PR head: `62f2ea844e71071c151066c2538f6ef9e340c0bd`.
+- Merge commit: `830bd00754567dfa6809e1e36bb7fcbaa145b824`.
+- Functional denominator for tasks 31–47: `51/51 = 100%` (17 items × 3 equal-weight criteria).
+- Exact-main repository CI run `31818095906`: `checks` success.
+- Exact-main Studio run `31818095864`: `studio` and `browser-e2e` success.
+- Component CD run `31818095877`: `studio-web` selected and successful; worker/API/migration jobs correctly skipped.
+- VPS checkout fast-forwarded to exact merge commit, target-built/running web image identity matched, localhost `/healthz` passed, and `STUDIO_PLATFORM_WEB_DEPLOY_OK` was emitted.
+- Local and remote working branches were deleted only after merge ancestry and clean synchronized `main` were verified.
+
+The completed sequence covered bounded/latest-wins auth and collection reads, credential/diagnostics/analytics DTO boundaries, project/job recovery authority, mutation outcome invariants, focused batch review, and CI portability corrections. Detailed code/test history remains recoverable from PR #208 and its atomic commits; this archive does not duplicate raw logs.
+
+Readiness at closure:
+
+- project-wide percentage remained `N/A` because `docs/project-spec.md` had no single closed non-overlapping project denominator;
+- Colab batch + Realtime remained `2/2 = 100%` under owner-accepted scope;
+- Studio PWA Live functional contract remained `7/7 = 100%`;
+- Studio PWA Live delivery Evidence remained `5/6 = 83%` because microphone-only, mixed and negative lifecycle canaries were still absent.
+
 ## Current non-authority warning
 
 If this archive conflicts with `docs/project-spec.md`, `docs/delivery-plan.md`, `docs/architecture.md`, `docs/ci-cd-rules.md`, or the current user task, treat the current documents/task as authoritative and this archive as historical context only.
