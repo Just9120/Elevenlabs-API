@@ -74,6 +74,10 @@ import {
   parseLogoutResponse,
   type User,
 } from "./authContracts";
+import {
+  requestCredentialCollection,
+  type Credential,
+} from "./credentialContracts";
 import { PlatformSidebar } from "./PlatformSidebar";
 import {
   isApprovedOutputUrl,
@@ -160,57 +164,6 @@ function isExpectedAccountPreferences(
       preferences.source_retention_ttl_seconds as number,
     )
   );
-}
-type Credential = {
-  id: string;
-  provider: "elevenlabs" | "openai";
-  label: string;
-  status: "active" | "revoked";
-  masked_value: string | null;
-  active_version: number | null;
-};
-function isExpectedCredential(candidate: unknown): candidate is Credential {
-  if (!candidate || typeof candidate !== "object") return false;
-  const credential = candidate as Partial<Credential>;
-  return (
-    typeof credential.id === "string" &&
-    credential.id.length > 0 &&
-    (credential.provider === "elevenlabs" || credential.provider === "openai") &&
-    typeof credential.label === "string" &&
-    credential.label.trim().length > 0 &&
-    (credential.status === "active" || credential.status === "revoked") &&
-    (credential.masked_value === null ||
-      (typeof credential.masked_value === "string" &&
-        credential.masked_value.length > 0)) &&
-    (credential.active_version === null ||
-      (Number.isInteger(credential.active_version) &&
-        (credential.active_version as number) > 0))
-  );
-}
-function parseCredentialCollection(candidate: unknown): Credential[] | null {
-  if (!candidate || typeof candidate !== "object") return null;
-  const credentials = (candidate as { credentials?: unknown }).credentials;
-  if (!Array.isArray(credentials) || !credentials.every(isExpectedCredential)) {
-    return null;
-  }
-  if (
-    new Set(credentials.map((credential) => credential.id)).size !==
-    credentials.length
-  ) {
-    return null;
-  }
-  return credentials;
-}
-async function requestCredentialCollection(
-  signal?: AbortSignal,
-): Promise<Credential[]> {
-  const candidate = await api<unknown>("/credentials", {
-    signal,
-    ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
-  });
-  const credentials = parseCredentialCollection(candidate);
-  if (credentials === null) throw new Error("invalid_credentials_response");
-  return credentials;
 }
 function isExpectedCredentialCreateResponse(
   candidate: unknown,

@@ -1,17 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ApiError, api, mutateWithCsrfRetry } from "./apiClient";
+import { ApiError, mutateWithCsrfRetry } from "./apiClient";
+import {
+  requestCredentialCollection,
+  type Credential,
+} from "./credentialContracts";
+import {
+  cancelLatestRequests,
+  settleLatestRequest,
+} from "./latestRequest";
 import {
   RealtimeSessionController,
   type RealtimeSessionStatus,
 } from "./realtimeSession";
-
-type Credential = {
-  id: string;
-  provider: "elevenlabs" | "openai";
-  label: string;
-  status: string;
-  active_version?: number;
-};
 
 type Props = {
   projectId: string;
@@ -45,6 +45,8 @@ const FAILURE_MESSAGES: Record<string, string> = {
   malformed_provider_response:
     "ElevenLabs вернул некорректный одноразовый доступ.",
 };
+
+const CREDENTIAL_REQUEST_TIMEOUT_MS = 15_000;
 
 function capabilityFailureMessage(error: unknown) {
   if (!(error instanceof ApiError) || !error.data) {
@@ -94,7 +96,10 @@ export function LiveTranscriptionPanel({
 }: Props) {
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [credentialId, setCredentialId] = useState("");
-  const [credentialsLoading, setCredentialsLoading] = useState(true);
+  const [credentialsState, setCredentialsState] = useState<
+    "loading" | "ready" | "error"
+  >("loading");
+  const [credentialsMessage, setCredentialsMessage] = useState("");
   const [displayAudio, setDisplayAudio] = useState(() =>
     Boolean(navigator.mediaDevices?.getDisplayMedia),
   );
@@ -116,6 +121,10 @@ export function LiveTranscriptionPanel({
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [followTranscript, setFollowTranscript] = useState(true);
   const controllerRef = useRef<RealtimeSessionController | null>(null);
+  const credentialRequestEpochsRef = useRef(new Map<string, number>());
+  const credentialRequestControllersRef = useRef(
+    new Map<string, AbortController>(),
+  );
   const sessionStartedAtRef = useRef<number | null>(null);
   const committedRef = useRef<HTMLDivElement | null>(null);
   const microphoneSupported = Boolean(
@@ -150,32 +159,50 @@ export function LiveTranscriptionPanel({
     committed.scrollTop = committed.scrollHeight;
   }, [segments, followTranscript]);
 
-  useEffect(() => {
-    let current = true;
-    setCredentialsLoading(true);
-    api<{ credentials: Credential[] }>("/credentials")
-      .then((response) => {
-        if (!current) return;
-        const active = response.credentials.filter(
+  const loadCredentials = async () => {
+    setCredentialsState("loading");
+    setCredentialsMessage("");
+    await settleLatestRequest(
+      credentialRequestEpochsRef.current,
+      "live:credentials",
+      requestCredentialCollection,
+      (credentialCollection) => {
+        const activeCredentials = credentialCollection.filter(
           (credential) =>
             credential.provider === "elevenlabs" &&
             credential.status === "active",
         );
-        setCredentials(active);
+        setCredentials(activeCredentials);
         setCredentialId((selected) =>
-          active.some((credential) => credential.id === selected)
+          activeCredentials.some((credential) => credential.id === selected)
             ? selected
-            : (active[0]?.id ?? ""),
+            : (activeCredentials[0]?.id ?? ""),
         );
-      })
-      .catch(() => {
-        if (current) setError("Не удалось загрузить профили ElevenLabs.");
-      })
-      .finally(() => {
-        if (current) setCredentialsLoading(false);
-      });
+        setCredentialsState("ready");
+        setCredentialsMessage("");
+      },
+      () => {
+        setCredentials([]);
+        setCredentialId("");
+        setCredentialsState("error");
+        setCredentialsMessage(
+          "Не удалось загрузить профили ElevenLabs. Повторите попытку.",
+        );
+      },
+      {
+        controllers: credentialRequestControllersRef.current,
+        timeoutMs: CREDENTIAL_REQUEST_TIMEOUT_MS,
+      },
+    );
+  };
+
+  useEffect(() => {
+    void loadCredentials();
     return () => {
-      current = false;
+      cancelLatestRequests(
+        credentialRequestEpochsRef.current,
+        credentialRequestControllersRef.current,
+      );
     };
   }, [projectId]);
 
@@ -471,13 +498,16 @@ export function LiveTranscriptionPanel({
           </div>
         </section>
 
-        <section className="live-config-card">
+        <section
+          className="live-config-card"
+          aria-busy={credentialsState === "loading" || undefined}
+        >
           <h4>Распознавание</h4>
           <label>
             Профиль ElevenLabs
             <select
               value={credentialId}
-              disabled={running || credentialsLoading}
+              disabled={running || credentialsState !== "ready"}
               onChange={(event) => setCredentialId(event.target.value)}
             >
               {credentials.length === 0 && (
@@ -490,6 +520,23 @@ export function LiveTranscriptionPanel({
               ))}
             </select>
           </label>
+          {credentialsState === "loading" && (
+            <p role="status" className="muted">
+              Загружаем профили ElevenLabs…
+            </p>
+          )}
+          {credentialsState === "error" && (
+            <div className="error">
+              <p role="alert">{credentialsMessage}</p>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => void loadCredentials()}
+              >
+                Повторить загрузку профилей
+              </button>
+            </div>
+          )}
           <label>
             Язык
             <select
@@ -508,7 +555,12 @@ export function LiveTranscriptionPanel({
             <button
               className="primary"
               type="button"
-              disabled={running || !sourceReady || !credentialId}
+              disabled={
+                running ||
+                credentialsState !== "ready" ||
+                !sourceReady ||
+                !credentialId
+              }
               onClick={() => void start()}
             >
               Начать
