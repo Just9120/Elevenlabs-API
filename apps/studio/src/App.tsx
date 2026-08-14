@@ -292,6 +292,214 @@ type DiagnosticsEventsResponse = {
   next_cursor?: string | null;
   period: { start: string; end: string };
 };
+function isDiagnosticsRecord(
+  candidate: unknown,
+): candidate is Record<string, unknown> {
+  return Boolean(candidate) && typeof candidate === "object" && !Array.isArray(candidate);
+}
+function hasOptionalDiagnosticsString(
+  record: Record<string, unknown>,
+  key: string,
+) {
+  return (
+    record[key] === undefined ||
+    (typeof record[key] === "string" && (record[key] as string).length <= 120)
+  );
+}
+function hasOptionalDiagnosticsBoolean(
+  record: Record<string, unknown>,
+  key: string,
+) {
+  return record[key] === undefined || typeof record[key] === "boolean";
+}
+function hasOptionalDiagnosticsCount(
+  record: Record<string, unknown>,
+  key: string,
+) {
+  return (
+    record[key] === undefined ||
+    (Number.isInteger(record[key]) && (record[key] as number) >= 0)
+  );
+}
+function parseDiagnosticsSystem(candidate: unknown): DiagnosticsSystem | null {
+  if (!isDiagnosticsRecord(candidate)) return null;
+  const build = candidate.build;
+  const googleDrive = candidate.google_drive;
+  const credentials = candidate.provider_credentials;
+  const diagnostics = candidate.diagnostics;
+  const reportLimits = candidate.report_limits;
+  if (
+    !isDiagnosticsRecord(build) ||
+    !isDiagnosticsRecord(googleDrive) ||
+    !isDiagnosticsRecord(credentials) ||
+    !isDiagnosticsRecord(diagnostics) ||
+    !isDiagnosticsRecord(reportLimits) ||
+    !hasOptionalDiagnosticsString(candidate, "environment") ||
+    !hasOptionalDiagnosticsString(candidate, "pwa_mode") ||
+    !["web", "api", "worker"].every((key) =>
+      hasOptionalDiagnosticsString(build, key),
+    ) ||
+    !["connected", "scope_ready"].every((key) =>
+      hasOptionalDiagnosticsBoolean(googleDrive, key),
+    ) ||
+    !hasOptionalDiagnosticsCount(credentials, "active_count") ||
+    !hasOptionalDiagnosticsBoolean(credentials, "ready") ||
+    !hasOptionalDiagnosticsBoolean(diagnostics, "recording_enabled") ||
+    !hasOptionalDiagnosticsString(diagnostics, "debug_recording") ||
+    !hasOptionalDiagnosticsCount(diagnostics, "retention_days") ||
+    !hasOptionalDiagnosticsCount(diagnostics, "debug_retention_hours") ||
+    !hasOptionalDiagnosticsCount(reportLimits, "max_days") ||
+    !hasOptionalDiagnosticsCount(reportLimits, "max_timeline_events")
+  ) {
+    return null;
+  }
+  return {
+    environment: candidate.environment as string | undefined,
+    pwa_mode: candidate.pwa_mode as string | undefined,
+    build: {
+      web: build.web as string | undefined,
+      api: build.api as string | undefined,
+      worker: build.worker as string | undefined,
+    },
+    google_drive: {
+      connected: googleDrive.connected as boolean | undefined,
+      scope_ready: googleDrive.scope_ready as boolean | undefined,
+    },
+    provider_credentials: {
+      active_count: credentials.active_count as number | undefined,
+      ready: credentials.ready as boolean | undefined,
+    },
+    diagnostics: {
+      recording_enabled: diagnostics.recording_enabled as boolean | undefined,
+      debug_recording: diagnostics.debug_recording as string | undefined,
+      retention_days: diagnostics.retention_days as number | undefined,
+      debug_retention_hours: diagnostics.debug_retention_hours as
+        | number
+        | undefined,
+    },
+    report_limits: {
+      max_days: reportLimits.max_days as number | undefined,
+      max_timeline_events: reportLimits.max_timeline_events as
+        | number
+        | undefined,
+    },
+  };
+}
+function parseDiagnosticsEvent(candidate: unknown): DiagnosticsEvent | null {
+  if (!isDiagnosticsRecord(candidate)) return null;
+  const occurredAt =
+    typeof candidate.occurred_at === "string"
+      ? Date.parse(candidate.occurred_at)
+      : Number.NaN;
+  const occurrenceCount = candidate.occurrence_count;
+  if (
+    typeof candidate.id !== "string" ||
+    candidate.id.length === 0 ||
+    candidate.id.length > 128 ||
+    !Number.isFinite(occurredAt) ||
+    !["ERROR", "WARNING", "INFO", "DEBUG"].includes(
+      String(candidate.level),
+    ) ||
+    !["web", "api", "worker"].includes(String(candidate.component)) ||
+    typeof candidate.event_code !== "string" ||
+    candidate.event_code.length === 0 ||
+    candidate.event_code.length > 80 ||
+    (occurrenceCount !== undefined &&
+      (!Number.isInteger(occurrenceCount) || (occurrenceCount as number) < 1)) ||
+    (candidate.metadata !== undefined &&
+      !isDiagnosticsRecord(candidate.metadata))
+  ) {
+    return null;
+  }
+  const metadata: Record<string, string | number | boolean | null> = {};
+  if (isDiagnosticsRecord(candidate.metadata)) {
+    for (const [key, value] of Object.entries(candidate.metadata)) {
+      if (!diagnosticsMetadataKeys.has(key)) continue;
+      if (
+        value !== null &&
+        typeof value !== "string" &&
+        typeof value !== "number" &&
+        typeof value !== "boolean"
+      ) {
+        return null;
+      }
+      if (typeof value === "string" && value.length > 120) return null;
+      if (typeof value === "number" && !Number.isFinite(value)) return null;
+      metadata[key] = value;
+    }
+  }
+  return {
+    id: candidate.id,
+    occurred_at: candidate.occurred_at as string,
+    level: candidate.level as DiagnosticsEvent["level"],
+    component: candidate.component as DiagnosticsEvent["component"],
+    event_code: candidate.event_code,
+    ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
+    ...(occurrenceCount === undefined
+      ? {}
+      : { occurrence_count: occurrenceCount as number }),
+  };
+}
+function parseDiagnosticsEventsResponse(
+  candidate: unknown,
+): DiagnosticsEventsResponse | null {
+  if (
+    !isDiagnosticsRecord(candidate) ||
+    !Array.isArray(candidate.events) ||
+    candidate.events.length > 25 ||
+    !isDiagnosticsRecord(candidate.period) ||
+    typeof candidate.period.start !== "string" ||
+    typeof candidate.period.end !== "string" ||
+    (candidate.next_cursor !== undefined &&
+      candidate.next_cursor !== null &&
+      (typeof candidate.next_cursor !== "string" ||
+        candidate.next_cursor.length === 0 ||
+        candidate.next_cursor.length > 1200))
+  ) {
+    return null;
+  }
+  const start = Date.parse(candidate.period.start);
+  const end = Date.parse(candidate.period.end);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) {
+    return null;
+  }
+  const events: DiagnosticsEvent[] = [];
+  const eventIds = new Set<string>();
+  for (const rawEvent of candidate.events) {
+    const event = parseDiagnosticsEvent(rawEvent);
+    if (!event || eventIds.has(event.id)) return null;
+    eventIds.add(event.id);
+    events.push(event);
+  }
+  return {
+    events,
+    next_cursor: candidate.next_cursor as string | null | undefined,
+    period: { start: candidate.period.start, end: candidate.period.end },
+  };
+}
+async function requestDiagnosticsSystem(
+  signal?: AbortSignal,
+): Promise<DiagnosticsSystem> {
+  const candidate = await api<unknown>("/diagnostics/system", {
+    signal,
+    ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+  });
+  const system = parseDiagnosticsSystem(candidate);
+  if (!system) throw new Error("invalid_diagnostics_system_response");
+  return system;
+}
+async function requestDiagnosticsEvents(
+  query: string,
+  signal?: AbortSignal,
+): Promise<DiagnosticsEventsResponse> {
+  const candidate = await api<unknown>(`/diagnostics/events?${query}`, {
+    signal,
+    ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+  });
+  const response = parseDiagnosticsEventsResponse(candidate);
+  if (!response) throw new Error("invalid_diagnostics_events_response");
+  return response;
+}
 type DiagnosticsDebugSession = {
   active: boolean;
   started_at?: string | null;
@@ -747,6 +955,7 @@ const ACCOUNT_PREFERENCES_REQUEST_TIMEOUT_MS = 15_000;
 const SOURCE_UPLOAD_POLICY_REQUEST_TIMEOUT_MS = 15_000;
 const SESSION_BOOTSTRAP_REQUEST_TIMEOUT_MS = 15_000;
 const LOGOUT_REQUEST_TIMEOUT_MS = 20_000;
+const DIAGNOSTICS_READ_REQUEST_TIMEOUT_MS = 15_000;
 const DIAGNOSTICS_DEBUG_REQUEST_TIMEOUT_MS = 15_000;
 const DIAGNOSTICS_DEBUG_MUTATION_TIMEOUT_MS = 20_000;
 const ACCOUNT_PREFERENCES_MUTATION_TIMEOUT_MS = 20_000;
@@ -6623,9 +6832,20 @@ function DiagnosticsSettings({
   const debugRequestControllersRef = useRef(
     new Map<string, AbortController>(),
   );
+  const diagnosticsReadEpochsRef = useRef(new Map<string, number>());
+  const diagnosticsReadControllersRef = useRef(
+    new Map<string, AbortController>(),
+  );
+  const eventsPagePendingRef = useRef(false);
+  const [failedEventsCursor, setFailedEventsCursor] = useState<string | null>(
+    null,
+  );
   const expiredDebugRefreshRequested = useRef(false);
   const loadEvents = (cursor?: string) => {
+    if (cursor && eventsPagePendingRef.current) return;
+    eventsPagePendingRef.current = Boolean(cursor);
     setEventsState("loading");
+    setFailedEventsCursor(null);
     const params = new URLSearchParams({ page_size: "25" });
     if (cursor) {
       params.set("cursor", cursor);
@@ -6639,28 +6859,72 @@ function DiagnosticsSettings({
       if (payload.project_id) params.set("project_id", payload.project_id);
       if (payload.job_id) params.set("job_id", payload.job_id);
     }
-    api<DiagnosticsEventsResponse>(`/diagnostics/events?${params.toString()}`)
-      .then((r) => {
+    void settleLatestRequest(
+      diagnosticsReadEpochsRef.current,
+      "diagnostics:events",
+      (signal) => requestDiagnosticsEvents(params.toString(), signal),
+      (r) => {
+        eventsPagePendingRef.current = false;
         setTimeline((current) =>
-          cursor ? [...current, ...r.events] : r.events,
+          cursor
+            ? [
+                ...current,
+                ...r.events.filter(
+                  (event) => !current.some((item) => item.id === event.id),
+                ),
+              ]
+            : r.events,
         );
         setPeriod(r.period);
         setNextCursor(r.next_cursor ?? null);
         setEventsState("ready");
-      })
-      .catch(() => {
-        if (!cursor) setTimeline([]);
+      },
+      () => {
+        eventsPagePendingRef.current = false;
+        setFailedEventsCursor(cursor ?? null);
+        if (!cursor) {
+          setTimeline([]);
+          setPeriod(null);
+          setNextCursor(null);
+        }
         setEventsState("error");
-      });
+      },
+      {
+        controllers: diagnosticsReadControllersRef.current,
+        timeoutMs: DIAGNOSTICS_READ_REQUEST_TIMEOUT_MS,
+      },
+    );
+  };
+  const loadSystem = () => {
+    setSystemState("loading");
+    void settleLatestRequest(
+      diagnosticsReadEpochsRef.current,
+      "diagnostics:system",
+      requestDiagnosticsSystem,
+      (response) => {
+        setSystem(response);
+        setSystemState("ready");
+      },
+      () => {
+        setSystem(null);
+        setSystemState("error");
+      },
+      {
+        controllers: diagnosticsReadControllersRef.current,
+        timeoutMs: DIAGNOSTICS_READ_REQUEST_TIMEOUT_MS,
+      },
+    );
   };
   useEffect(() => {
-    api<DiagnosticsSystem>("/diagnostics/system")
-      .then((r) => {
-        setSystem(r);
-        setSystemState("ready");
-      })
-      .catch(() => setSystemState("error"));
+    loadSystem();
     loadEvents();
+    return () => {
+      eventsPagePendingRef.current = false;
+      cancelLatestRequests(
+        diagnosticsReadEpochsRef.current,
+        diagnosticsReadControllersRef.current,
+      );
+    };
   }, []);
   const applyFilters = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -6876,9 +7140,12 @@ function DiagnosticsSettings({
         <h3 id="system-diagnostics-title">Состояние системы</h3>
         {systemState === "loading" && <p role="status">Загружаем состояние…</p>}
         {systemState === "error" && (
-          <p className="error">
-            Не удалось загрузить состояние. Повторите позже.
-          </p>
+          <div className="error">
+            <p>Не удалось загрузить состояние.</p>
+            <button type="button" onClick={loadSystem}>
+              Повторить загрузку состояния
+            </button>
+          </div>
         )}
         {systemState === "ready" && system && (
           <dl className="meta">
@@ -7000,8 +7267,11 @@ function DiagnosticsSettings({
         {eventsState === "error" && (
           <div className="error">
             <p>Не удалось загрузить события.</p>
-            <button type="button" onClick={() => loadEvents()}>
-              Повторить
+            <button
+              type="button"
+              onClick={() => loadEvents(failedEventsCursor ?? undefined)}
+            >
+              Повторить загрузку событий
             </button>
           </div>
         )}
@@ -7053,8 +7323,13 @@ function DiagnosticsSettings({
             </li>
           ))}
         </ul>
-        {nextCursor && (
-          <button type="button" onClick={() => loadEvents(nextCursor)}>
+        {nextCursor && eventsState !== "error" && (
+          <button
+            type="button"
+            disabled={eventsState === "loading"}
+            aria-busy={eventsState === "loading" || undefined}
+            onClick={() => loadEvents(nextCursor)}
+          >
             Показать ещё
           </button>
         )}

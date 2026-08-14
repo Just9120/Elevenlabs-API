@@ -12088,6 +12088,9 @@ describe("Studio PWA", () => {
 describe("settings diagnostics", () => {
   beforeEach(() => {
     cleanup();
+    vi.restoreAllMocks();
+    clearPwaDiagnosticsSession();
+    window.history.replaceState({}, "", "/");
     localStorage.clear();
     sessionStorage.clear();
     vi.stubGlobal(
@@ -12918,7 +12921,14 @@ describe("settings diagnostics", () => {
             report_limits: {},
           });
         if (url.includes("/api/diagnostics/events"))
-          return json({ events: [], next_cursor: null, period: null });
+          return json({
+            events: [],
+            next_cursor: null,
+            period: {
+              start: "2026-07-16T00:00:00Z",
+              end: "2026-07-17T00:00:00Z",
+            },
+          });
         return json({ ok: true });
       },
     );
@@ -12997,7 +13007,14 @@ describe("settings diagnostics", () => {
             report_limits: {},
           });
         if (url.includes("/api/diagnostics/events"))
-          return json({ events: [], next_cursor: null, period: null });
+          return json({
+            events: [],
+            next_cursor: null,
+            period: {
+              start: "2026-07-16T00:00:00Z",
+              end: "2026-07-17T00:00:00Z",
+            },
+          });
         return json({ ok: true });
       },
     );
@@ -13080,8 +13097,269 @@ describe("settings diagnostics", () => {
       screen.getByText(/Не удалось загрузить состояние/),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Повторить" }),
+      screen.getByRole("button", { name: "Повторить загрузку состояния" }),
     ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Повторить загрузку событий" }),
+    ).toBeInTheDocument();
+  });
+
+  it("bounds and validates system status before explicit retry", async () => {
+    installBasicPlatformSettingsFixture();
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = fetchMock.getMockImplementation();
+    const systemSignals: AbortSignal[] = [];
+    let systemGets = 0;
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/api/diagnostics/system")) {
+          systemGets += 1;
+          const signal = init?.signal;
+          if (!signal) throw new Error("system status signal is missing");
+          systemSignals.push(signal);
+          if (systemGets === 1) {
+            return json({
+              build: { web: { raw: "raw-build-secret" } },
+              diagnostics: {},
+              google_drive: {},
+              provider_credentials: {},
+              report_limits: {},
+            });
+          }
+          return json({
+            environment: "production",
+            build: { web: "web-safe", api: "api-safe", worker: "worker-safe" },
+            diagnostics: {},
+            google_drive: {},
+            provider_credentials: {},
+            report_limits: {},
+            raw_system_field: "raw-system-secret",
+          });
+        }
+        return defaultFetch?.(input, init) ?? json({});
+      },
+    );
+    const timeoutSpy = vi.spyOn(globalThis, "setTimeout");
+
+    try {
+      renderApp();
+      await openDiagnosticsSettings();
+      expect(
+        await screen.findByText("Не удалось загрузить состояние."),
+      ).toBeInTheDocument();
+      expect(systemSignals[0]?.aborted).toBe(false);
+      expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), 15_000);
+      expect(document.body.textContent).not.toContain("raw-build-secret");
+
+      await userEvent.click(
+        screen.getByRole("button", { name: "Повторить загрузку состояния" }),
+      );
+      expect(await screen.findByText("web-safe")).toBeInTheDocument();
+      expect(document.body.textContent).not.toContain("raw-system-secret");
+      expect(systemGets).toBe(2);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("keeps filtered events latest-wins and paginates single-flight", async () => {
+    installBasicPlatformSettingsFixture();
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = fetchMock.getMockImplementation();
+    let eventGets = 0;
+    let staleSignal: AbortSignal | undefined;
+    let resolveStale: ((response: Response) => void) | undefined;
+    let resolvePage: ((response: Response) => void) | undefined;
+    const period = {
+      start: "2026-07-16T00:00:00Z",
+      end: "2026-07-17T00:00:00Z",
+    };
+    const event = (id: string, level: "ERROR" | "WARNING" | "INFO") => ({
+      id,
+      occurred_at: "2026-07-16T09:00:00Z",
+      level,
+      component: "api",
+      event_code: id,
+      occurrence_count: 1,
+    });
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/api/diagnostics/events")) {
+          eventGets += 1;
+          if (eventGets === 1) {
+            return json({
+              events: [event("INITIAL_EVENT", "INFO")],
+              next_cursor: null,
+              period,
+            });
+          }
+          if (eventGets === 2) {
+            staleSignal = init?.signal;
+            return new Promise<Response>((resolve) => {
+              resolveStale = resolve;
+            });
+          }
+          if (eventGets === 3) {
+            return json({
+              events: [{ ...event("MALFORMED_EVENT", "WARNING"), level: "RAW" }],
+              next_cursor: null,
+              period,
+              raw_events_field: "raw-events-secret",
+            });
+          }
+          if (eventGets === 4) {
+            return json({
+              events: [
+                {
+                  ...event("LATEST_EVENT", "WARNING"),
+                  metadata: {
+                    retryable: true,
+                    transcript: "raw-transcript-secret",
+                  },
+                  raw_event_field: "raw-event-secret",
+                },
+              ],
+              next_cursor: "safe-cursor",
+              period,
+            });
+          }
+          return new Promise<Response>((resolve) => {
+            resolvePage = resolve;
+          });
+        }
+        return defaultFetch?.(input, init) ?? json({});
+      },
+    );
+
+    renderApp();
+    await openDiagnosticsSettings();
+    expect(await screen.findByText("INITIAL_EVENT")).toBeInTheDocument();
+
+    await userEvent.selectOptions(screen.getByLabelText("Уровень"), "ERROR");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Применить фильтры" }),
+    );
+    await waitFor(() => expect(resolveStale).toBeDefined());
+    await userEvent.selectOptions(screen.getByLabelText("Уровень"), "WARNING");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Применить фильтры" }),
+    );
+    expect(
+      await screen.findByText("Не удалось загрузить события."),
+    ).toBeInTheDocument();
+    expect(staleSignal?.aborted).toBe(true);
+    expect(screen.queryByText("MALFORMED_EVENT")).not.toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Повторить загрузку событий" }),
+    );
+    expect(await screen.findByText("LATEST_EVENT")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("raw-events-secret");
+    expect(document.body.textContent).not.toContain("raw-event-secret");
+    expect(document.body.textContent).not.toContain("raw-transcript-secret");
+
+    const more = screen.getByRole("button", { name: "Показать ещё" });
+    fireEvent.click(more);
+    fireEvent.click(more);
+    expect(eventGets).toBe(5);
+    await act(async () =>
+      resolvePage?.(
+        await json({
+          events: [
+            event("LATEST_EVENT", "WARNING"),
+            event("PAGE_EVENT", "INFO"),
+          ],
+          next_cursor: null,
+          period,
+        }),
+      ),
+    );
+    expect(await screen.findByText("PAGE_EVENT")).toBeInTheDocument();
+    expect(screen.getAllByText("LATEST_EVENT")).toHaveLength(1);
+
+    await act(async () =>
+      resolveStale?.(
+        await json({
+          events: [event("STALE_EVENT", "ERROR")],
+          next_cursor: null,
+          period,
+        }),
+      ),
+    );
+    expect(screen.queryByText("STALE_EVENT")).not.toBeInTheDocument();
+  });
+
+  it("aborts system and event read ownership on diagnostics teardown", async () => {
+    installBasicPlatformSettingsFixture();
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = fetchMock.getMockImplementation();
+    let systemSignal: AbortSignal | undefined;
+    let eventsSignal: AbortSignal | undefined;
+    let resolveSystem: ((response: Response) => void) | undefined;
+    let resolveEvents: ((response: Response) => void) | undefined;
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/api/diagnostics/system")) {
+          systemSignal = init?.signal;
+          return new Promise<Response>((resolve) => {
+            resolveSystem = resolve;
+          });
+        }
+        if (url.includes("/api/diagnostics/events")) {
+          eventsSignal = init?.signal;
+          return new Promise<Response>((resolve) => {
+            resolveEvents = resolve;
+          });
+        }
+        return defaultFetch?.(input, init) ?? json({});
+      },
+    );
+
+    renderApp();
+    await openDiagnosticsSettings();
+    await waitFor(() => {
+      expect(resolveSystem).toBeDefined();
+      expect(resolveEvents).toBeDefined();
+    });
+    await userEvent.click(screen.getByRole("tab", { name: "Аккаунт" }));
+    expect(systemSignal?.aborted).toBe(true);
+    expect(eventsSignal?.aborted).toBe(true);
+
+    await act(async () => {
+      resolveSystem?.(
+        await json({
+          environment: "late-system",
+          build: {},
+          diagnostics: {},
+          google_drive: {},
+          provider_credentials: {},
+          report_limits: {},
+        }),
+      );
+      resolveEvents?.(
+        await json({
+          events: [
+            {
+              id: "LATE_EVENT",
+              occurred_at: "2026-07-16T09:00:00Z",
+              level: "INFO",
+              component: "api",
+              event_code: "LATE_EVENT",
+            },
+          ],
+          next_cursor: null,
+          period: {
+            start: "2026-07-16T00:00:00Z",
+            end: "2026-07-17T00:00:00Z",
+          },
+        }),
+      );
+    });
+    expect(screen.queryByText("late-system")).not.toBeInTheDocument();
+    expect(screen.queryByText("LATE_EVENT")).not.toBeInTheDocument();
   });
 });
 
