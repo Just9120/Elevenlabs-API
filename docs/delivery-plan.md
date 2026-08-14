@@ -33,7 +33,7 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-14T21:25:55Z
+- Updated (UTC): 2026-08-14T21:29:13Z
 - Session mode: INITIAL_AUDIT
 - Delivery stage: VALIDATING
 - Work item / epic: `PRODUCT-REQUIREMENTS-REFRESH-01`
@@ -43,12 +43,12 @@
 - Base branch: `main`
 - Base SHA: `a252a1efa54ba952ec4eb04405fae5722f15d7b5`
 - Working branch: `feature/product-requirements-v2`
-- Last verified revision: `a252a1efa54ba952ec4eb04405fae5722f15d7b5`
-- Working tree: DIRTY — intended changes only in `README.md`, `docs/project-spec.md`, `docs/delivery-plan.md`, `docs/delivery-plan-archive.md`
-- Completed since base: owner requirements mapped to 109 atomic AC; code/test/config evidence inspected; exact remote CI/CD evidence queried; README/spec translated and restructured; stale PR #209 checkpoint moved to archive
-- Current step: local validation complete with pytest limitation; requirements baseline ready for atomic commit
-- Next exact action: commit the validated requirements baseline, push branch and open one Pull Request
-- Validation and Evidence: denominator script reproduced every epic and total `73/109`; bundled-Python `scripts/ci_checks.py` passed all lightweight checks; `git diff --check`, Markdown relative-link check, required security/realtime marker assertions and provider-doc sentinel passed; bundled runtime has no `pytest`, so focused/full pytest is deferred to CI; run `31823766931` succeeded for exact main; Studio CI `31818095864` and repository CI `31818095906` succeeded at last code revision `830bd007`; web-only CD run `31818095877` succeeded
+- Last verified revision: `a0195b9f243bc32f0d7e062c6c9b8b5cc237d578`
+- Working tree: DIRTY — intended final checkpoint update after clean commit `a0195b9`
+- Completed since base: owner requirements mapped to 109 atomic AC; code/test/config evidence inspected; exact remote CI/CD evidence queried; README/spec translated and restructured; stale PR #209 checkpoint moved to archive; commit `a0195b9` created
+- Current step: all available local validation passed; recording pre-push checkpoint
+- Next exact action: commit this final checkpoint, push branch and open one Pull Request
+- Validation and Evidence: denominator script reproduced every epic and total `73/109`; bundled-Python `scripts/ci_checks.py` passed all lightweight checks; `git diff --check`, Markdown relative-link check, required security/realtime marker assertions and provider-doc sentinel passed; focused documentation pytest passed `7/7`; broader focused selection passed `237` tests but had `7` environment-only setup errors because pytest could not access its Windows temp root, with no assertion failures; run `31823766931` succeeded for exact main; Studio CI `31818095864` and repository CI `31818095906` succeeded at last code revision `830bd007`; web-only CD run `31818095877` succeeded
 - Pull Request: N/A
 - CI/checks: N/A before push
 - Deployment/environment: docs-only scope; deployment expected N/A under path detection
@@ -68,7 +68,7 @@ Atomic delivery AC:
 4. `docs/delivery-plan.md` содержит только current dashboard, один previous snapshot и active checkpoint; obsolete PR #209 state перенесён в archive.
 5. Required repository documentation/security markers, Markdown links, whitespace и relevant repository tests проходят.
 
-Readiness item: **80% (`4/5`)** до завершения validation. Required Evidence: `SPEC ✅ | CODE N/A | TEST — | CI — | DEPLOY N/A | LIVE N/A`.
+Readiness item: **100% (`5/5`)** по content/local validation. Required Evidence: `SPEC ✅ | CODE N/A | TEST ✅ | CI — | DEPLOY N/A | LIVE N/A`; отсутствие CI пока gate-ит delivery, но не percentage.
 
 ## Roadmap и critical path
 
