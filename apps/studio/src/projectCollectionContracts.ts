@@ -2,6 +2,8 @@ import { api } from "./apiClient";
 import type {
   JobMediaClip,
   JobOutputFolder,
+  JobOutputsResponse,
+  JobSource,
   TranscriptionJob,
 } from "./jobModel";
 import { LATEST_REQUEST_CANCEL_REASON } from "./latestRequest";
@@ -50,6 +52,71 @@ export function parseProjectJobCollection(
   return hasUniqueIds(jobs) ? jobs : null;
 }
 
+export function parseJobDetailResponse(
+  candidate: unknown,
+  projectId: string,
+  jobId: string,
+): TranscriptionJob | null {
+  const job = parseJob(candidate, projectId);
+  if (
+    !job ||
+    job.id !== jobId ||
+    !isRecord(candidate) ||
+    !Array.isArray(candidate.sources)
+  ) {
+    return null;
+  }
+  const sources: JobSource[] = [];
+  for (const rawSource of candidate.sources) {
+    const source = parseJobSource(rawSource, projectId);
+    if (!source) return null;
+    sources.push(source);
+  }
+  if (
+    sources.length !== job.source_count ||
+    !hasUniqueIds(sources) ||
+    new Set(sources.map((source) => source.position)).size !== sources.length
+  ) {
+    return null;
+  }
+  return { ...job, sources };
+}
+
+export function parseJobOutputsResponse(
+  candidate: unknown,
+  jobId: string,
+): JobOutputsResponse | null {
+  if (
+    !isRecord(candidate) ||
+    boundedString(candidate.job_id, 36) !== jobId ||
+    !JOB_STATUSES.has(String(candidate.job_status)) ||
+    !isNonNegativeInteger(candidate.output_count) ||
+    !Array.isArray(candidate.outputs) ||
+    candidate.output_count !== candidate.outputs.length
+  ) {
+    return null;
+  }
+  const outputs: JobOutputsResponse["outputs"] = [];
+  for (const rawOutput of candidate.outputs) {
+    const output = parseJobOutput(rawOutput);
+    if (!output) return null;
+    outputs.push(output);
+  }
+  if (
+    new Set(outputs.map((output) => output.source_id)).size !== outputs.length ||
+    new Set(outputs.map((output) => output.source_position)).size !==
+      outputs.length
+  ) {
+    return null;
+  }
+  return {
+    job_id: jobId,
+    job_status: candidate.job_status as JobOutputsResponse["job_status"],
+    output_count: candidate.output_count,
+    outputs,
+  };
+}
+
 export async function requestProjectSourceCollection(
   projectId: string,
   signal?: AbortSignal,
@@ -76,13 +143,47 @@ export async function requestProjectJobCollection(
   return jobs;
 }
 
-function parseSource(candidate: unknown, projectId: string): Source | null {
+export async function requestJobDetail(
+  jobId: string,
+  projectId: string,
+  signal?: AbortSignal,
+): Promise<TranscriptionJob> {
+  const candidate = await requestJobRead(`/jobs/${jobId}`, signal);
+  const job = parseJobDetailResponse(candidate, projectId, jobId);
+  if (!job) throw new Error("invalid_job_detail_response");
+  return job;
+}
+
+export async function requestJobOutputs(
+  jobId: string,
+  signal?: AbortSignal,
+): Promise<JobOutputsResponse> {
+  const candidate = await requestJobRead(`/jobs/${jobId}/outputs`, signal);
+  const outputs = parseJobOutputsResponse(candidate, jobId);
+  if (!outputs) throw new Error("invalid_job_outputs_response");
+  return outputs;
+}
+
+async function requestJobRead(path: string, signal?: AbortSignal) {
+  return api<unknown>(path, {
+    signal,
+    ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+  });
+}
+
+function parseSource(
+  candidate: unknown,
+  projectId: string,
+  driveUrlRequired = true,
+): Source | null {
   if (!isRecord(candidate)) return null;
   const id = boundedString(candidate.id, 36);
   const candidateProjectId = boundedString(candidate.project_id, 36);
   const originalFilename = boundedString(candidate.original_filename, 255);
   const mimeType = nullableBoundedString(candidate.mime_type, 255);
-  const driveFileUrl = nullableBoundedString(candidate.drive_file_url, 2_000);
+  const driveFileUrl = driveUrlRequired
+    ? nullableBoundedString(candidate.drive_file_url, 2_000)
+    : null;
   const deleteReason = nullableBoundedString(candidate.delete_reason, 80);
   if (
     !id ||
@@ -118,6 +219,69 @@ function parseSource(candidate: unknown, projectId: string): Source | null {
     delete_reason: deleteReason,
     created_at: candidate.created_at,
     updated_at: candidate.updated_at,
+  };
+}
+
+function parseJobSource(candidate: unknown, projectId: string): JobSource | null {
+  const source = parseSource(candidate, projectId, false);
+  if (
+    !source ||
+    !isRecord(candidate) ||
+    !isNonNegativeInteger(candidate.position) ||
+    (candidate.job_source_status !== "queued" &&
+      candidate.job_source_status !== "skipped")
+  ) {
+    return null;
+  }
+  return {
+    ...source,
+    position: candidate.position,
+    job_source_status: candidate.job_source_status,
+  };
+}
+
+function parseJobOutput(
+  candidate: unknown,
+): JobOutputsResponse["outputs"][number] | null {
+  if (!isRecord(candidate)) return null;
+  const sourceId = boundedString(candidate.source_id, 36);
+  const sourceName = nullableBoundedString(candidate.source_name, 255);
+  const sourceType = nullableBoundedString(candidate.source_type, 40);
+  const outputKind = nullableBoundedString(candidate.output_kind, 80);
+  const transcriptStandard = nullableBoundedString(
+    candidate.transcript_standard,
+    80,
+  );
+  const webViewUrl = nullableBoundedString(candidate.web_view_url, 2_000);
+  if (
+    !sourceId ||
+    !isNonNegativeInteger(candidate.source_position) ||
+    sourceName === undefined ||
+    sourceType === undefined ||
+    outputKind === undefined ||
+    transcriptStandard === undefined ||
+    webViewUrl === undefined ||
+    (webViewUrl !== null && !isApprovedGoogleUrl(webViewUrl)) ||
+    typeof candidate.link_available !== "boolean" ||
+    candidate.link_available !== (webViewUrl !== null) ||
+    !isNullableNonNegativeInteger(candidate.document_character_count) ||
+    !isNullableIsoDate(candidate.document_created_at) ||
+    !isNullableIsoDate(candidate.persisted_at)
+  ) {
+    return null;
+  }
+  return {
+    source_id: sourceId,
+    source_position: candidate.source_position,
+    source_name: sourceName,
+    source_type: sourceType,
+    output_kind: outputKind,
+    transcript_standard: transcriptStandard,
+    web_view_url: webViewUrl,
+    link_available: candidate.link_available,
+    document_character_count: candidate.document_character_count,
+    document_created_at: candidate.document_created_at,
+    persisted_at: candidate.persisted_at,
   };
 }
 
@@ -269,6 +433,22 @@ function isIsoDate(value: unknown): value is string {
 
 function isNullableIsoDate(value: unknown): value is string | null {
   return value === null || isIsoDate(value);
+}
+
+function isApprovedGoogleUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" &&
+      !url.username &&
+      !url.password &&
+      !url.port &&
+      (url.hostname === "docs.google.com" ||
+        url.hostname === "drive.google.com")
+    );
+  } catch {
+    return false;
+  }
 }
 
 function hasUniqueIds(items: Array<{ id: string }>) {

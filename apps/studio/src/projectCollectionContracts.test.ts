@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  parseJobDetailResponse,
+  parseJobOutputsResponse,
   parseProjectJobCollection,
   parseProjectSourceCollection,
 } from "./projectCollectionContracts";
@@ -128,6 +130,107 @@ describe("project collection contracts", () => {
           ],
         },
         "project-safe",
+      ),
+    ).toBeNull();
+  });
+
+  it("validates and sanitizes the ordered job detail projection", () => {
+    const parsed = parseJobDetailResponse(
+      {
+        ...job,
+        sources: [
+          {
+            ...source,
+            drive_file_url: undefined,
+            position: 0,
+            job_source_status: "queued",
+            drive_file_id: "private-drive-id",
+            transcript_body: "private-transcript",
+          },
+        ],
+        provider_credential_id: "private-credential-id",
+      },
+      "project-safe",
+      "job-safe",
+    );
+
+    expect(parsed?.sources).toEqual([
+      {
+        ...source,
+        drive_file_url: null,
+        position: 0,
+        job_source_status: "queued",
+      },
+    ]);
+    expect(parsed).not.toHaveProperty("provider_credential_id");
+    expect(parsed?.sources?.[0]).not.toHaveProperty("drive_file_id");
+    expect(parsed?.sources?.[0]).not.toHaveProperty("transcript_body");
+    expect(
+      parseJobDetailResponse(
+        { ...job, source_count: 2, sources: [] },
+        "project-safe",
+        "job-safe",
+      ),
+    ).toBeNull();
+  });
+
+  it("validates outputs, approved links, counts, and uniqueness", () => {
+    const output = {
+      source_id: "source-safe",
+      source_position: 0,
+      source_name: "safe.mp3",
+      source_type: "google_drive",
+      output_kind: "google_doc",
+      transcript_standard: "transcript_doc_v1.2",
+      web_view_url: "https://docs.google.com/document/d/safe/edit",
+      link_available: true,
+      document_character_count: 123,
+      document_created_at: "2026-08-14T10:00:00Z",
+      persisted_at: "2026-08-14T10:01:00Z",
+    };
+    const parsed = parseJobOutputsResponse(
+      {
+        job_id: "job-safe",
+        job_status: "completed",
+        output_count: 1,
+        outputs: [{ ...output, document_id: "private-document-id" }],
+        raw_storage: "private-storage",
+      },
+      "job-safe",
+    );
+
+    expect(parsed).toEqual({
+      job_id: "job-safe",
+      job_status: "completed",
+      output_count: 1,
+      outputs: [output],
+    });
+    expect(parsed?.outputs[0]).not.toHaveProperty("document_id");
+    expect(
+      parseJobOutputsResponse(
+        {
+          job_id: "job-safe",
+          job_status: "completed",
+          output_count: 1,
+          outputs: [
+            {
+              ...output,
+              web_view_url: "https://evil.example/private",
+            },
+          ],
+        },
+        "job-safe",
+      ),
+    ).toBeNull();
+    expect(
+      parseJobOutputsResponse(
+        {
+          job_id: "job-safe",
+          job_status: "completed",
+          output_count: 2,
+          outputs: [output],
+        },
+        "job-safe",
       ),
     ).toBeNull();
   });

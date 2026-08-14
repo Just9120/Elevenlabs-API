@@ -5571,7 +5571,7 @@ describe("Studio PWA", () => {
                 source_type: "google_drive",
                 output_kind: "transcript",
                 transcript_standard: "plain",
-                web_view_url: "https://evil.example/doc-token-storage",
+                web_view_url: null,
                 link_available: false,
                 document_character_count: 333,
                 document_created_at: "2026-07-02T00:12:00Z",
@@ -5594,6 +5594,8 @@ describe("Studio PWA", () => {
             created_at: "2026-07-02T00:00:00Z",
             updated_at: "2026-07-02T00:01:00Z",
             cancelled_at: null,
+            cancel_requested_at: null,
+            attempt_count: 0,
             started_at: null,
             finished_at: null,
             error_code: null,
@@ -5818,16 +5820,11 @@ describe("Studio PWA", () => {
     expect(
       within(detail).getAllByText("Статус обработки: В очереди"),
     ).toHaveLength(2);
-    const jobSourceLink = within(detail).getByRole("link", {
-      name: "Открыть файл в Google Drive в новой вкладке",
-    });
-    expect(jobSourceLink).toHaveAttribute(
-      "href",
-      "https://drive.example/file/job-source",
-    );
-    expect(jobSourceLink).toHaveAttribute("target", "_blank");
-    expect(jobSourceLink).toHaveAttribute("rel", "noopener noreferrer");
-    expect(jobSourceLink.closest(".resource-actions")).not.toBeNull();
+    expect(
+      within(detail).queryByRole("link", {
+        name: "Открыть файл в Google Drive в новой вкладке",
+      }),
+    ).not.toBeInTheDocument();
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
         "/api/jobs/job-1/outputs",
@@ -7158,7 +7155,7 @@ describe("Studio PWA", () => {
                 id: "source-a",
                 project_id: "pA",
                 position: 0,
-                job_source_status: "completed",
+                job_source_status: "queued",
                 source_type: "local_upload",
                 original_filename: "project-a-source.ogg",
                 mime_type: "audio/ogg",
@@ -8680,6 +8677,70 @@ describe("Studio PWA", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("rejects malformed job detail and output DTOs without raw rendering", async () => {
+    installFocusedOutputFixture();
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/jobs/job-focused" && !init?.method) {
+        return json({
+          id: "job-other",
+          project_id: "p1",
+          status: "processing",
+          title: "raw-private-detail",
+          provider: null,
+          source_count: 0,
+          sources: [],
+          created_at: "2026-08-14T09:00:00Z",
+          updated_at: "2026-08-14T10:00:00Z",
+          cancelled_at: null,
+          cancel_requested_at: null,
+          attempt_count: 1,
+          started_at: null,
+          finished_at: null,
+          error_code: null,
+          error_message: null,
+          lease_owner_id: "raw-private-detail-owner",
+        });
+      }
+      if (url === "/api/jobs/job-focused/outputs" && !init?.method) {
+        return json({
+          job_id: "job-focused",
+          job_status: "completed",
+          output_count: 1,
+          outputs: [
+            {
+              source_id: "source-focused",
+              source_position: 0,
+              source_name: "raw-private-output",
+              source_type: "google_drive",
+              output_kind: "google_doc",
+              transcript_standard: "transcript_doc_v1.2",
+              web_view_url: "https://evil.example/raw-private-link",
+              link_available: true,
+              document_character_count: 10,
+              document_created_at: "2026-08-14T10:00:00Z",
+              persisted_at: "2026-08-14T10:01:00Z",
+              document_id: "raw-private-document-id",
+            },
+          ],
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({});
+    });
+
+    await openFocusedJobsList();
+    await userEvent.click(screen.getByRole("button", { name: "Открыть" }));
+
+    expect(
+      await screen.findByText("Не удалось загрузить детали задачи."),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText("Не удалось загрузить результаты."),
+    ).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("raw-private");
   });
 
   it("keeps only the latest repeated job detail refresh", async () => {

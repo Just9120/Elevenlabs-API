@@ -79,6 +79,8 @@ import {
   type Credential,
 } from "./credentialContracts";
 import {
+  requestJobDetail,
+  requestJobOutputs,
   requestProjectJobCollection,
   requestProjectSourceCollection,
 } from "./projectCollectionContracts";
@@ -2561,18 +2563,14 @@ function PreparationPanel({
   }
   function settleLatestJobRead<T>(
     key: string,
-    path: string,
+    request: (signal?: AbortSignal) => Promise<T>,
     onSuccess: (value: T) => void,
     onFailure: (error: unknown) => void,
   ) {
     return settleLatestRequest(
       jobRequestEpochsRef.current,
       key,
-      (signal) =>
-        api<T>(path, {
-          signal,
-          ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
-        }),
+      request,
       onSuccess,
       onFailure,
       {
@@ -2594,7 +2592,7 @@ function PreparationPanel({
     await Promise.all([
       settleLatestJobRead<TranscriptionJob>(
         `detail:${jobId}`,
-        `/jobs/${jobId}`,
+        (signal) => requestJobDetail(jobId, project.id, signal),
         (loaded) =>
           setDetail((current) => ({
             ...current,
@@ -2612,7 +2610,11 @@ function PreparationPanel({
       ),
       settleLatestJobRead<JobRetryResponse>(
         `retry:${jobId}`,
-        `/jobs/${jobId}/retry`,
+        (signal) =>
+          api<JobRetryResponse>(`/jobs/${jobId}/retry`, {
+            signal,
+            ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+          }),
         (data) =>
           setRetries((current) => ({
             ...current,
@@ -2638,7 +2640,14 @@ function PreparationPanel({
       ),
       settleLatestJobRead<OutputReconciliationResponse>(
         `reconciliation:${jobId}`,
-        `/jobs/${jobId}/output-reconciliation`,
+        (signal) =>
+          api<OutputReconciliationResponse>(
+            `/jobs/${jobId}/output-reconciliation`,
+            {
+              signal,
+              ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+            },
+          ),
         (data) =>
           setReconciliations((current) => ({
             ...current,
@@ -2664,7 +2673,7 @@ function PreparationPanel({
       ),
       settleLatestJobRead<JobOutputsResponse>(
         `outputs:${jobId}`,
-        `/jobs/${jobId}/outputs`,
+        (signal) => requestJobOutputs(jobId, signal),
         (data) =>
           setOutputs((current) => ({
             ...current,
