@@ -7,6 +7,7 @@ from enum import Enum
 
 class TranscriptionLanguageMode(str, Enum):
     russian = "ru"
+    english = "en"
     auto_detect = "detect"
 
 

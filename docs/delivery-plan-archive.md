@@ -609,6 +609,20 @@ Readiness at closure:
 - Studio PWA Live functional contract remained `7/7 = 100%`;
 - Studio PWA Live delivery Evidence remained `5/6 = 83%` because microphone-only, mixed and negative lifecycle canaries were still absent.
 
+## Archived PR #210 product requirements baseline closure
+
+PR #210 (`feature/product-requirements-v2`) зафиксировал owner requirements как два production-продукта, четыре runtime contour и 109 равновесных atomic AC. Он merged в `main` 2026-08-15.
+
+- Base: `main@a252a1efa54ba952ec4eb04405fae5722f15d7b5`.
+- Final PR head: `e3d4521c30effbd1baa082d4c49abf543e28146a`.
+- Merge commit: `8fe0dd722d0433440b41ef6dfe0fa0489f8f8fb8`.
+- Exact PR-head CI run `31842755434`: success.
+- Exact-main CI run `31842984066`: success.
+- Scope был docs-only; Studio path detection не запускал component CD, GitHub Deployments для revision отсутствовали, поэтому `DEPLOY` и `LIVE` были N/A.
+- Baseline readiness: Colab `22/29 = 75,9%`, Studio PWA `51/80 = 63,8%`, project `73/109 = 67,0%`.
+- Локальный `main` синхронизирован с exact merge commit; merged local/remote branch удалена после ancestry/clean-state проверки.
+- Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`), поэтому отдельный follow-up docs-only PR не создавался; closure переносится в archive при начале следующего авторизованного scope.
+
 ## Current non-authority warning
 
 If this archive conflicts with `docs/project-spec.md`, `docs/delivery-plan.md`, `docs/architecture.md`, `docs/ci-cd-rules.md`, or the current user task, treat the current documents/task as authoritative and this archive as historical context only.

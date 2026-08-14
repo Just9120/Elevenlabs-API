@@ -13,7 +13,7 @@ const valid = {
   },
   configuration: {
     provider_model: { elevenlabs_scribe_v2: 2, unknown: 1 },
-    language_mode: { ru: 2, detect: 1, other: 0 },
+    language_mode: { ru: 1, en: 1, detect: 1, other: 0 },
     diarization: { enabled: 1, disabled: 2 },
   },
   durations: {

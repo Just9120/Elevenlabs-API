@@ -72,7 +72,7 @@ def build_transcription_analytics_payload(
     attempt_rows = list(attempts)
     outcomes = {status: 0 for status in JOB_STATUSES}
     provider_model = {"elevenlabs_scribe_v2": 0, "unknown": 0}
-    language_mode = {"ru": 0, "detect": 0, "other": 0}
+    language_mode = {"ru": 0, "en": 0, "detect": 0, "other": 0}
     diarization = {"enabled": 0, "disabled": 0}
     queue_durations: list[float] = []
     processing_durations: list[float] = []
@@ -91,7 +91,9 @@ def build_transcription_analytics_payload(
 
         selected_language = browser_language_mode(getattr(job, "language", None))
         language_key = (
-            selected_language if selected_language in {"ru", "detect"} else "other"
+            selected_language
+            if selected_language in {"ru", "en", "detect"}
+            else "other"
         )
         language_mode[language_key] += 1
 

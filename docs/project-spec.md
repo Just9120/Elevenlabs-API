@@ -28,13 +28,13 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Текущий independently verified snapshot на `main@a252a1efa54ba952ec4eb04405fae5722f15d7b5`:
+Текущий independently verified working snapshot на ветке от `main@8fe0dd722d0433440b41ef6dfe0fa0489f8f8fb8`:
 
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **75,9% (`22/29`)** | `COLAB-BATCH 17/23` + `COLAB-REALTIME 5/6` |
-| Studio PWA | **63,8% (`51/80`)** | сумма девяти PWA-эпиков ниже |
-| Весь проект | **67,0% (`73/109`)** | все выполненные AC двух продуктов / все AC текущего scope |
+| Studio PWA | **65,0% (`52/80`)** | сумма девяти PWA-эпиков ниже |
+| Весь проект | **67,9% (`74/109`)** | все выполненные AC двух продуктов / все AC текущего scope |
 
 ## 3. Общие product rules
 
@@ -169,13 +169,13 @@ Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
 
 ### Эпик `PWA-BATCH-01` — transcription options, progress и output
 
-Status: **🟦 IN PROGRESS — 80,0% (`8/10`)**.
+Status: **🟦 IN PROGRESS — 90,0% (`9/10`)**.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
 | `PB-01` | Доступно разделение на спикеров. | ✅ |
 | `PB-02` | Доступен явный русский язык. | ✅ |
-| `PB-03` | Доступен явный английский язык. | ❌ |
+| `PB-03` | Доступен явный английский язык. | ✅ |
 | `PB-04` | Доступно auto-detection языка. | ✅ |
 | `PB-05` | Job progress отображается live в процентах из server checkpoints. | ✅ |
 | `PB-06` | Успешная job создаёт Google Docs transcript и safe output link. | ✅ |

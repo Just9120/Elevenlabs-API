@@ -15,7 +15,7 @@ const analytics = {
   },
   configuration: {
     provider_model: { elevenlabs_scribe_v2: 2, unknown: 1 },
-    language_mode: { ru: 2, detect: 1, other: 0 },
+    language_mode: { ru: 1, en: 1, detect: 1, other: 0 },
     diarization: { enabled: 1, disabled: 2 },
   },
   durations: {
@@ -68,6 +68,7 @@ describe("TranscriptionAnalyticsPanel", () => {
     );
 
     expect(await screen.findByText("ElevenLabs · scribe_v2 2")).toBeInTheDocument();
+    expect(screen.getByText(/английский 1/)).toBeInTheDocument();
     expect(screen.getByText("Среднее: 1 ч")).toBeInTheDocument();
     const outcomes = screen.getByRole("region", {
       name: "Исходы транскрибаций",

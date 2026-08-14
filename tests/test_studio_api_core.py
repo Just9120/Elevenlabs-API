@@ -533,7 +533,7 @@ def test_realtime_capability_route_requires_owner_csrf_and_returns_no_store(monk
     path = f"/api/projects/{project['id']}/realtime/capability"
     body = {
         "provider_credential_id": credential["id"],
-        "language": "ru",
+        "language": "en",
     }
 
     assert TestClient(app).post(path, json=body).status_code == 401
@@ -565,7 +565,7 @@ def test_realtime_capability_route_requires_owner_csrf_and_returns_no_store(monk
     }
     assert captured == {
         "api_key": "sk_realtime_main_secret",
-        "language_code": "ru",
+        "language_code": "en",
     }
     assert "sk_realtime_main_secret" not in response.text
 
@@ -4772,11 +4772,12 @@ def test_batch_jobs_create_two_one_source_jobs_safe_payload_and_same_source_diff
     calls = _install_batch_folder_mocks(monkeypatch)
     c, csrf, user_id, pid, source_a, source_b, cred_id = _batch_setup("batch-happy@example.com")
     body = _batch_body(source_a, source_b, credential_id=cred_id)
+    body["language"] = "en"
     r = c.post(f"/api/projects/{pid}/jobs/batch", json=body, headers=_batch_headers(csrf))
     assert r.status_code == 200
     data = r.json(); assert data["created_count"] == 2 and data["replayed"] is False
     assert [job["title"] for job in data["jobs"]] == ["First", "Second"]
-    assert [job["language_mode"] for job in data["jobs"]] == ["ru", "ru"]
+    assert [job["language_mode"] for job in data["jobs"]] == ["en", "en"]
     assert [job["diarization_enabled"] for job in data["jobs"]] == [True, True]
     assert "output_drive_folder_id" not in r.text and "batch-key-1" not in r.text and "batch_request_hash" not in r.text and "batch_position" not in r.text
     assert data["jobs"][0]["output_folder"] == {"name": "Folder folder-a", "web_view_url": "https://drive.google.com/drive/folders/folder-a"}

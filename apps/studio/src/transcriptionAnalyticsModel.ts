@@ -26,6 +26,7 @@ export type TranscriptionAnalytics = {
     };
     language_mode: {
       ru: number;
+      en: number;
       detect: number;
       other: number;
     };
@@ -48,7 +49,7 @@ const EXACT_KEYS = {
   outcomes: ["queued", "processing", "completed", "failed", "cancelled"],
   configuration: ["provider_model", "language_mode", "diarization"],
   providerModel: ["elevenlabs_scribe_v2", "unknown"],
-  languageMode: ["ru", "detect", "other"],
+  languageMode: ["ru", "en", "detect", "other"],
   diarization: ["enabled", "disabled"],
   durations: [
     "queue",

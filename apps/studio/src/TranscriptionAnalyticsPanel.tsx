@@ -225,6 +225,7 @@ export function TranscriptionAnalyticsPanel({
                   <b>Язык</b>
                   <span>
                     Русский {analytics.configuration.language_mode.ru} ·
+                    английский {analytics.configuration.language_mode.en} ·
                     автоопределение{" "}
                     {analytics.configuration.language_mode.detect}
                   </span>

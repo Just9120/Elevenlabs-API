@@ -7,6 +7,7 @@ import {
   jobСтатусLabel,
   outputSourceLabel,
   safeJobSources,
+  transcriptionLanguageModeLabel,
   type JobOutput,
   type JobSource,
   type TranscriptionJob,
@@ -71,6 +72,12 @@ function output(overrides: Partial<JobOutput> = {}): JobOutput {
 }
 
 describe("job model", () => {
+  it("labels every supported transcription language mode", () => {
+    expect(transcriptionLanguageModeLabel("ru")).toBe("Русский");
+    expect(transcriptionLanguageModeLabel("en")).toBe("Английский");
+    expect(transcriptionLanguageModeLabel("detect")).toBe("Автоопределение");
+  });
+
   it("uses a trimmed explicit title and falls back to the creation time", () => {
     expect(jobTitle(job)).toBe("Интервью");
     expect(jobTitle({ ...job, title: " " })).toBe(

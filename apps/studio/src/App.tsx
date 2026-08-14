@@ -95,6 +95,7 @@ import {
   type JobState,
   type TranscriptionJob,
   type TranscriptionLanguageMode,
+  transcriptionLanguageModeLabel,
 } from "./jobModel";
 import {
   DEFAULT_TRANSCRIPTION_LANGUAGE_MODE,
@@ -3376,6 +3377,7 @@ function PreparationPanel({
               }}
             >
               <option value="ru">Русский</option>
+              <option value="en">Английский</option>
               <option value="detect">Автоопределение</option>
             </select>
           </label>
@@ -3843,9 +3845,9 @@ function PreparationPanel({
                 </h5>
                 <p className="muted">
                   ElevenLabs scribe_v2 ·{" "}
-                  {activePreflight.language_mode === "ru"
-                    ? "Русский"
-                    : "Автоопределение"}
+                  {transcriptionLanguageModeLabel(
+                    activePreflight.language_mode,
+                  )}
                   {" · "}
                   Спикеры:{" "}
                   {activePreflight.diarization_enabled

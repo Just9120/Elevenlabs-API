@@ -91,7 +91,7 @@ def test_analytics_aggregates_only_safe_durable_counts_and_intervals():
                 finished_after=None,
                 credential_id=None,
                 provider="elevenlabs",
-                language="ru",
+                language="en",
             ),
         ],
         source_count=4,
@@ -132,7 +132,7 @@ def test_analytics_aggregates_only_safe_durable_counts_and_intervals():
                 "elevenlabs_scribe_v2": 2,
                 "unknown": 1,
             },
-            "language_mode": {"ru": 2, "detect": 1, "other": 0},
+            "language_mode": {"ru": 1, "en": 1, "detect": 1, "other": 0},
             "diarization": {"enabled": 1, "disabled": 2},
         },
         "durations": {

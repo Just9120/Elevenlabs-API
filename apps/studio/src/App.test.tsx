@@ -102,7 +102,7 @@ function credentialFixture(overrides: Record<string, unknown> = {}) {
 }
 function batchPreflightJson(init?: RequestInit) {
   const request = JSON.parse(String(init?.body ?? "{}")) as {
-    language?: "ru" | "detect";
+    language?: "ru" | "en" | "detect";
     options?: { diarize?: boolean };
     items?: {
       title?: string | null;
@@ -4734,7 +4734,7 @@ describe("Studio PWA", () => {
     baseFetch.mockImplementation((url: string, init?: RequestInit) => {
       if (isBatchPreflightRequest(url, init)) {
         const request = JSON.parse(String(init?.body ?? "{}")) as {
-          language?: "ru" | "detect";
+          language?: "ru" | "en" | "detect";
           options?: { diarize?: boolean };
           items?: {
             title?: string | null;
@@ -5762,7 +5762,7 @@ describe("Studio PWA", () => {
     }
     const languageSelect = screen.getByLabelText("Язык транскрибации");
     expect(languageSelect).toHaveValue("ru");
-    await userEvent.selectOptions(languageSelect, "detect");
+    await userEvent.selectOptions(languageSelect, "en");
     const diarizationToggle = screen.getByLabelText("Разделять на спикеров");
     expect(diarizationToggle).not.toBeChecked();
     await userEvent.click(diarizationToggle);
@@ -5784,7 +5784,7 @@ describe("Studio PWA", () => {
     });
     expect(JSON.parse(String(createCall?.[1]?.body))).toEqual({
       provider_credential_id: "cred-active",
-      language: "detect",
+      language: "en",
       options: { diarize: true },
       items: [
         {

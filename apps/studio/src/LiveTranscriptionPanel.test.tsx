@@ -151,6 +151,7 @@ describe("LiveTranscriptionPanel", () => {
     );
     const start = await screen.findByRole("button", { name: "Начать" });
     await waitFor(() => expect(start).toBeEnabled());
+    await userEvent.selectOptions(screen.getByLabelText("Язык"), "en");
     await userEvent.click(start);
 
     await screen.findByText("Соединение установлено");
@@ -172,7 +173,7 @@ describe("LiveTranscriptionPanel", () => {
     });
     expect(JSON.parse(String(capabilityCall?.[1]?.body))).toEqual({
       provider_credential_id: "credential-safe",
-      language: "ru",
+      language: "en",
     });
     expect(document.body.textContent).not.toContain("sutkn_browser_secret");
     expect(document.body.textContent).not.toContain("websocket_url");
