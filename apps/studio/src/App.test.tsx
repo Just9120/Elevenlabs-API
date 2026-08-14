@@ -13372,9 +13372,12 @@ describe("settings diagnostics", () => {
       "x-csrf-token": "csrf-after-refresh",
     });
     expect(reportCall?.[1]?.body).toContain('"level":"INFO"');
-    await waitFor(() =>
-      expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob)),
-    );
+    await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1));
+    const [downloadedBlob] = createObjectURL.mock.calls[0] as unknown as [Blob];
+    expect(downloadedBlob).toMatchObject({
+      size: 11,
+      type: "text/markdown;charset=utf-8",
+    });
     expect(clickSpy).toHaveBeenCalled();
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:diagnostics-report");
     expect(document.body.innerHTML).not.toContain(".txt");
