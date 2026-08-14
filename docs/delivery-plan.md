@@ -2,7 +2,7 @@
 
 ## Current dashboard
 
-- 👉 `PWA-LANGUAGE-DIAGNOSTICS-01` — explicit English и JSON/YAML/TOML diagnostics exports реализованы; остался explicit analytics success percentage.
+- 👉 `PWA-LANGUAGE-DIAGNOSTICS-01` — все `5/5` scoped AC реализованы локально; выполняются final validation и delivery gates.
 - ⏭️ `PWA-INGEST-FAVORITES-01` — отдельный design/implementation slice для owner-scoped target-folder Favorites после выбора persistence semantics.
 - 📋 `PWA-INGEST-FOLDERS-01` — затем bounded local/Drive folder intake и одна target folder для folder batch.
 - 📋 `PWA-ARBITRARY-SEGMENTS-01` — затем arbitrary N-fragment plan вместо narrow two-project split.
@@ -10,15 +10,15 @@
 
 ## Readiness snapshot
 
-Процент — выполненные равновесные atomic acceptance criteria / все AC текущего scope. Project percentage считается по `77/109`, а не как среднее эпиков. Evidence — отдельные readiness gates.
+Процент — выполненные равновесные atomic acceptance criteria / все AC текущего scope. Project percentage считается по `78/109`, а не как среднее эпиков. Evidence — отдельные readiness gates.
 
 | Product/epic | Current | Previous snapshot | Readiness/Evidence |
 |---|---:|---:|---|
-| **Project** | **70,6% (`77/109`)** | **67,9% (`74/109`)** | `PO-05`–`PO-07` закрыты; Project не `READY`. |
+| **Project** | **71,6% (`78/109`)** | **70,6% (`77/109`)** | `PO-15` закрыт; Project не `READY`. |
 | **Google Colab** | **75,9% (`22/29`)** | **75,9% (`22/29`)** | Без изменений в current PWA scope. |
 | `COLAB-BATCH-01` | **73,9% (`17/23`)** | **73,9% (`17/23`)** | 🟦 IN PROGRESS; `SPEC ✅ CODE ◐ TEST ◐ CI ✅ DEPLOY ◐ LIVE ◐`. |
 | `COLAB-REALTIME-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; capture stability не подтверждена. |
-| **Studio PWA** | **68,8% (`55/80`)** | **65,0% (`52/80`)** | Три structured diagnostics formats добавлены поверх общего safe report model. |
+| **Studio PWA** | **70,0% (`56/80`)** | **68,8% (`55/80`)** | Analytics показывает validated success percentage с explicit terminal denominator. |
 | `PWA-CORE-01` | **84,6% (`11/13`)** | **84,6% (`11/13`)** | 🟦 IN PROGRESS; нет active-UI expiry removal и color selector. |
 | `PWA-INGEST-01` | **63,6% (`7/11`)** | **63,6% (`7/11`)** | 🟦 IN PROGRESS; нет Favorites и folder intake. |
 | `PWA-SEGMENTS-01` | **0,0% (`0/5`)** | **0,0% (`0/5`)** | 🟦 IN PROGRESS; текущий two-part split не выполняет arbitrary-N AC целиком. |
@@ -27,13 +27,13 @@
 | `PWA-MANIFEST-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; нет safe clear action. |
 | `PWA-STANDARDIZATION-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; нет original-source creation authority. |
 | `PWA-REALTIME-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; source/tests есть, full production live matrix отсутствует. |
-| `PWA-OPERABILITY-01` | **72,2% (`13/18`)** | **55,6% (`10/18`)** | 🟦 IN PROGRESS; structured exports закрыты, clear/success-percentage AC остаются. |
+| `PWA-OPERABILITY-01` | **77,8% (`14/18`)** | **72,2% (`13/18`)** | 🟦 IN PROGRESS; exports/success percentage закрыты, clear-operation AC остаются. |
 
-Изменение current scope: `+3` выполненных AC (`PO-05`–`PO-07`), при неизменном denominator `109`.
+Изменение current scope: `+1` выполненный AC (`PO-15`), при неизменном denominator `109`.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-14T22:02:28Z
+- Updated (UTC): 2026-08-14T22:06:11Z
 - Session mode: FOCUSED_TASK
 - Delivery stage: IMPLEMENTING
 - Work item / epic: `PWA-LANGUAGE-DIAGNOSTICS-01` / `PWA-BATCH-01`, `PWA-OPERABILITY-01`
@@ -43,12 +43,12 @@
 - Base branch: `main`
 - Base SHA: `8fe0dd722d0433440b41ef6dfe0fa0489f8f8fb8`
 - Working branch: `feature/pwa-language-diagnostics`
-- Last verified revision: `559964ae058295d51b6faedbfc9ea24b59ccc010`
-- Working tree: DIRTY — intended diagnostics formats implementation, tests и operational docs only
-- Completed since base: commit `559964a` закрыл explicit English; общий safe report model вынесен в `diagnostic_reports.py`; Markdown сохранён, JSON/YAML/TOML endpoints и UI downloads добавлены с exact MIME/extension/attachment/no-store validation; `PO-05`–`PO-07` пересчитаны как выполненные
-- Current step: diagnostics formats локально validated; readiness/checkpoint подготовлены к atomic commit
-- Next exact action: review diff и создать atomic diagnostics formats commit
-- Validation and Evidence: serializer round-trip tests `3/3` (stdlib JSON/TOML и PyYAML); полный App regression `210/210`; TypeScript build mode и focused ESLint прошли; Python syntax compile прошёл; backend endpoint integration coverage добавлена, но локально ожидает полный Studio API runtime и остаётся exact-head CI gate; `git diff --check` прошёл
+- Last verified revision: `e72a46fb375475af655d5fe0af425e5ef3ca90e8`
+- Working tree: DIRTY — intended analytics success-percentage implementation, tests и operational docs only
+- Completed since base: commits `559964a` и `e72a46f` закрыли English и structured diagnostics; backend теперь отдаёт explicit successful/terminal counts и success percentage, frontend fail-closed сверяет их с outcomes и честно показывает пустой terminal denominator; `PO-15` пересчитан как выполненный
+- Current step: success-percentage slice локально validated; readiness/checkpoint подготовлены к atomic commit
+- Next exact action: review diff и создать atomic analytics success commit
+- Validation and Evidence: backend analytics tests `2/2`; frontend analytics model/panel tests `9/9`; TypeScript build mode прошёл; full regression/build остаются final pre-push gates
 - Pull Request: N/A
 - CI/checks: N/A before push; last exact-main baseline CI success at merge commit `8fe0dd722d0433440b41ef6dfe0fa0489f8f8fb8`
 - Deployment/environment: code scope требует component-specific CD и LIVE evidence после merge; пока N/A before PR
@@ -68,11 +68,11 @@ Atomic delivery AC:
 4. `PO-07`: тот же safe report скачивается как valid TOML без новой production dependency.
 5. `PO-15`: analytics явно показывает success percentage с определённым denominator terminal outcomes.
 
-Readiness item: **80,0% (`4/5`)** по завершённым AC. Required Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI — | DEPLOY — | LIVE —`; отсутствие CI/deploy/LIVE gate-ит delivery, но не percentage.
+Readiness item: **100% (`5/5`)** по завершённым AC. Required Evidence: `SPEC ✅ | CODE ✅ | TEST ◐ | CI — | DEPLOY — | LIVE —`; отсутствие CI/deploy/LIVE gate-ит delivery, но не percentage.
 
 ## Roadmap и critical path
 
-1. **PWA language/diagnostics:** завершить JSON/YAML/TOML diagnostics и explicit success percentage после уже реализованного English. Низкий migration risk, быстрый measurable uplift.
+1. **PWA language/diagnostics:** local implementation `5/5`; пройти full validation, exact-head CI, merge и component-specific deployment/LIVE gates.
 2. **Target-folder Favorites:** выбрать owner-scoped persistence semantics, затем реализовать отдельным slice без смешивания с diagnostics.
 3. **Source creation authority:** добавить source-created timestamp в local upload/Drive snapshots, migration/backfill semantics и Google Docs/standardization flow. Prerequisite для двух эпиков; требует data/schema review.
 4. **Folder intake:** bounded Drive folder enumeration и browser directory upload; reuse multi-source preflight, R2 lifecycle и duplicate authority.

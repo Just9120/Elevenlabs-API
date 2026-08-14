@@ -70,6 +70,15 @@ function formatDuration(value: number | null) {
     : `${hours} ч`;
 }
 
+function formatSuccessPercentage(value: number | null) {
+  return value === null
+    ? "Нет завершённых исходов"
+    : `${value.toLocaleString("ru-RU", {
+        minimumFractionDigits: 1,
+        maximumFractionDigits: 1,
+      })}%`;
+}
+
 function DurationCard({
   label,
   summary,
@@ -196,6 +205,20 @@ export function TranscriptionAnalyticsPanel({
 
             <section aria-label="Исходы транскрибаций">
               <h5>Исходы</h5>
+              <article
+                className="analytics-success"
+                aria-label="Успешность транскрибаций"
+              >
+                <strong>
+                  Успешность: {formatSuccessPercentage(analytics.success.percentage)}
+                </strong>
+                {analytics.success.terminal_jobs > 0 && (
+                  <small>
+                    Успешно {analytics.success.successful_jobs} из{" "}
+                    {analytics.success.terminal_jobs} завершённых исходов.
+                  </small>
+                )}
+              </article>
               <div className="analytics-outcomes">
                 {OUTCOME_LABELS.map(([key, label]) => (
                   <span key={key}>

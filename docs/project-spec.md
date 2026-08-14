@@ -33,8 +33,8 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **75,9% (`22/29`)** | `COLAB-BATCH 17/23` + `COLAB-REALTIME 5/6` |
-| Studio PWA | **68,8% (`55/80`)** | сумма девяти PWA-эпиков ниже |
-| Весь проект | **70,6% (`77/109`)** | все выполненные AC двух продуктов / все AC текущего scope |
+| Studio PWA | **70,0% (`56/80`)** | сумма девяти PWA-эпиков ниже |
+| Весь проект | **71,6% (`78/109`)** | все выполненные AC двух продуктов / все AC текущего scope |
 
 ## 3. Общие product rules
 
@@ -255,7 +255,7 @@ Realtime использует short-lived single-use capability. Он не со�
 
 ### Эпик `PWA-OPERABILITY-01` — diagnostics, history и analytics
 
-Status: **🟦 IN PROGRESS — 72,2% (`13/18`)**.
+Status: **🟦 IN PROGRESS — 77,8% (`14/18`)**.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -273,7 +273,7 @@ Status: **🟦 IN PROGRESS — 72,2% (`13/18`)**.
 | `PO-12` | Analytics показывает количество транскрибаций. | ✅ |
 | `PO-13` | Analytics показывает execution/stage durations. | ✅ |
 | `PO-14` | Analytics показывает provider/model. | ✅ |
-| `PO-15` | Analytics явно показывает success percentage. | ❌ |
+| `PO-15` | Analytics явно показывает success percentage. | ✅ |
 | `PO-16` | Analytics показывает дополнительные safe outcome/options metadata. | ✅ |
 | `PO-17` | Analytics можно очистить owner-scoped action. | ❌ |
 | `PO-18` | Очистка Analytics требует подтверждения Да/Нет. | ❌ |

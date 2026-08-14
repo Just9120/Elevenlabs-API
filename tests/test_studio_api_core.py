@@ -3120,6 +3120,7 @@ def test_project_transcription_analytics_is_owner_scoped_no_store_and_aggregate_
         "scope",
         "totals",
         "outcomes",
+        "success",
         "configuration",
         "durations",
     }
@@ -3132,12 +3133,17 @@ def test_project_transcription_analytics_is_owner_scoped_no_store_and_aggregate_
         "failed": 0,
         "cancelled": 0,
     }
+    assert body["success"] == {
+        "successful_jobs": 0,
+        "terminal_jobs": 0,
+        "percentage": None,
+    }
     assert body["configuration"] == {
         "provider_model": {
             "elevenlabs_scribe_v2": 1,
             "unknown": 0,
         },
-        "language_mode": {"ru": 0, "detect": 1, "other": 0},
+        "language_mode": {"ru": 0, "en": 0, "detect": 1, "other": 0},
         "diarization": {"enabled": 0, "disabled": 1},
     }
     assert all(

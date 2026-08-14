@@ -133,6 +133,11 @@ def build_transcription_analytics_payload(
         if post_provider_duration is not None:
             post_provider_durations.append(post_provider_duration)
 
+    terminal_jobs = sum(
+        outcomes[status] for status in ("completed", "failed", "cancelled")
+    )
+    successful_jobs = outcomes["completed"]
+
     return {
         "scope": "project_all_time",
         "totals": {
@@ -141,6 +146,15 @@ def build_transcription_analytics_payload(
             "outputs": max(0, int(output_count)),
         },
         "outcomes": outcomes,
+        "success": {
+            "successful_jobs": successful_jobs,
+            "terminal_jobs": terminal_jobs,
+            "percentage": (
+                round(successful_jobs / terminal_jobs * 100, 1)
+                if terminal_jobs > 0
+                else None
+            ),
+        },
         "configuration": {
             "provider_model": provider_model,
             "language_mode": language_mode,
