@@ -1,401 +1,628 @@
 # CI/CD Rules
 
-## Purpose
+## 1. Назначение
 
-This document defines CI/CD boundaries for repositories that use GitHub Actions, deploy automation, Docker, server/VPS deploy, runtime secrets, or stateful services.
+Этот документ — universal safety contract для CI, build/artifact pipelines, CD/deployment и связанных production operations.
 
-It is a safety and responsibility contract, not a detailed implementation recipe.
+Он задаёт обязательные boundaries, но не является готовым workflow recipe. Каждый adopted project должен заполнить **Project CI/CD profile** в конце документа либо вынести его в один явно указанный canonical file.
 
-Project-specific implementation may evolve, but it must preserve the boundaries below.
-
----
-
-## Core principle
-
-CI verifies the project.
-
-CD delivers the project.
-
-`source-done/merged` means repository source/docs reached the target branch; it is not the same as `production-live`. Coding-agent PRs must not claim production rollout, migration rollout, runtime processing, or stateful-service changes without explicit runtime/operator evidence.
-
-CI must not deploy.
-
-CD must not perform cleanup, hardening, destructive operations, uncontrolled migrations, backup/restore, or stateful service maintenance unless this is an explicit separate maintenance task.
+Читать документ нужно при изменении workflows, runners, artifacts, secrets, environments, deploy, migrations, rollback, runtime configuration или post-deploy automation. Изменять contract — только по explicit CI/CD policy task.
 
 ---
 
-## Scope
+## 2. Universal invariants
 
-This document applies when a task touches:
-
-- GitHub Actions;
-- CI workflows;
-- CD workflows;
-- deploy scripts;
-- server/VPS deploy;
-- Docker or Docker Compose deploy;
-- runtime `.env`;
-- Repository Secrets;
-- post-checks;
-- rollback;
-- databases, Redis, queues, vector databases, object/file storage, volumes, or other stateful services.
-
-For ordinary product/code tasks, do not read or apply this document unless CI/CD, deployment, operations, runtime environment, or stateful infrastructure is affected.
+1. **CI и CD разделены.** Standard CI проверяет revision и не deploy-ит; CD запускается только от trusted trigger.
+2. **Least privilege.** Tokens, Actions permissions, credentials, runner access и environment access минимальны по scope/time.
+3. **Untrusted code не получает trusted capability.** PR/fork content не исполняется с production secrets, write token или privileged runner.
+4. **Exact identity.** Build/deploy всегда связывается с exact repository, revision/artifact, target и deployment unit.
+5. **Fail closed.** Unknown input, identity mismatch, unresolved secret и failed/skipped required gate останавливают flow.
+6. **Build once where applicable.** Deploy использует идентифицированный artifact, прошедший required validation.
+7. **Stateful work is explicit.** Destructive migration, backup/restore, cleanup и persistent-data operation не скрываются в standard CD.
+8. **No secret disclosure.** Secret values не попадают в code, docs, logs, artifacts, caches или generated context.
+9. **Auditable outcome.** Run IDs, revision/artifact identity, target environment и post-check result восстанавливаются без raw secret values.
+10. **Success after verification.** Deployment success не объявляется до required health/LIVE check.
 
 ---
 
-## Required project inputs
+## 3. Required project inputs
 
-Before preparing or changing CI/CD, determine the relevant values from the repository or safe diagnostics.
+До создания или изменения pipeline установи по repository/settings или safe diagnostics:
 
-Do not invent unknown values.
+### CI
 
-Minimum CI inputs:
+- repository и production/default branch;
+- supported events и trust model;
+- stack, package manager, lockfiles;
+- install, lint, typecheck, test и build commands;
+- required checks и runner model;
+- build outputs/artifacts, если есть.
 
-- repository;
-- production branch;
-- stack and package manager;
-- install command;
-- lint command, if available;
-- typecheck command, if available;
-- test command, if available;
-- build command, if available;
-- lockfile presence;
-- existing workflows.
+### CD
 
-Additional CD inputs:
+- trusted trigger и deploy branch/tag;
+- target environment/account/host/cluster;
+- target directory/namespace и expected remote/registry, когда применимо;
+- expected branch/tag/release и deploy model;
+- intended deployment unit;
+- exact commit/artifact identity model;
+- credential и runtime-config owner;
+- environment protection/approval rules;
+- health/LIVE checks;
+- concurrency/cancellation policy;
+- stateful services и migration class;
+- rollback/forward-fix policy;
+- post-deploy metadata mechanism.
 
-- target environment;
-- deploy branch;
-- deploy directory, for example `APP_DIR`;
-- expected remote, for example `EXPECTED_REMOTE`;
-- expected branch, for example `EXPECTED_BRANCH`;
-- target service, for example `COMPOSE_SERVICE`;
-- deploy command/model;
-- runtime env model;
-- health check or post-check;
-- secrets required by the workflow, usually `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, `DEPLOY_KNOWN_HOSTS`;
-- stateful services and volumes;
-- rollback expectation, if any.
-
-If values are unknown, ask for them or provide safe read-only diagnostic commands.
+Неизвестные значения не придумывай. Используй `UNSET`, safe diagnostic или blocker.
 
 ---
 
-## CI boundaries
+## 4. Trust boundaries и GitHub Actions security
 
-CI should:
+### 4.1. Untrusted pull requests
 
-- run on `pull_request`;
-- run on `push` to the production branch, usually `main`;
-- support `workflow_dispatch`;
-- use minimal `permissions`;
-- use a `concurrency` guard;
-- use existing project commands;
-- use lockfiles when present;
-- install dependencies reproducibly where possible;
-- run available checks;
-- avoid production secrets;
-- avoid production infrastructure;
-- not deploy;
-- clearly report success, for example with `CI_OK`.
+Workflow, исполняющий untrusted PR/fork code, не получает:
 
-Network-backed dependency advisory scans run in a separate scheduled/manual workflow so advisory-service availability cannot block ordinary pull-request or `main` CI. A vulnerability finding fails that audit workflow. A registry or advisory-service outage requires a later rerun and must not be reported as a confirmed product vulnerability or as green audit evidence.
+- production secrets/credentials;
+- write-capable repository token без narrowly justified job;
+- production environment access;
+- privileged persistent self-hosted runner;
+- право публиковать production-trusted artifact без отдельной trusted validation.
 
-If the project has no tests, CI may run the smallest available useful checks.
+`pull_request_target` и аналогичный privileged context запрещено сочетать с checkout/execute/build untrusted PR code. Для labels/comments/metadata обрабатывай PR values как untrusted data.
 
-Do not introduce heavy testing infrastructure as part of a CI setup unless explicitly requested.
+### 4.2. Permissions и dependencies
 
-Do not add auto-fix commits, direct pushes to the production branch, or self-modifying workflow behavior unless explicitly requested and reviewed as a separate automation policy.
+- Задавай `permissions` явно на workflow/job уровне; default — read-only или none.
+- Write permissions и `id-token: write` выдавай только нужному job.
+- Не передавай write token в steps, которым он не нужен.
+- External actions/reusable workflows фиксируй по полному immutable commit SHA; tag допустим только как комментарий.
+- Оцени owner, source, permissions, maintenance и supply-chain risk новой dependency.
+- Inputs/secrets reusable workflow объявляются явно; broad secret inheritance не используется без необходимости.
 
----
+### 4.3. Script injection
 
-## CD boundaries
+Не вставляй untrusted GitHub expression напрямую в shell/program source. Передавай значение через quoted environment variable/structured input и валидируй формат. `eval` и dynamic command construction из untrusted data запрещены.
 
-CD should:
+### 4.4. Runners
 
-- run only on intended production delivery events or `workflow_dispatch`;
-- use minimal `permissions`;
-- use a `concurrency` guard;
-- use Repository Secrets without printing values;
-- explicitly verify target directory, branch, remote, and service identity before deploy;
-- fail safely when required inputs are missing;
-- refuse deploy when local tracked changes make update unsafe;
-- update code safely, preferably by fast-forward when using git-based deploy;
-- preserve existing runtime secrets;
-- block deploy when required runtime secrets are unresolved;
-- deploy only the intended application service;
-- run a post-check;
-- when CD builds or pulls an image through a mutable tag, verify before reporting success that the running container uses the intended newly built or pulled image identity because health alone is not sufficient deployment evidence;
-- report success, for example `DEPLOY_OK`, only after post-check passes.
+- Для untrusted PR предпочитай ephemeral GitHub-hosted runner.
+- Self-hosted runner должен иметь isolation, patching, cleanup и ограниченный repository/network access.
+- Untrusted public-fork code не запускается на runner с internal network, production credentials или persistent sensitive state.
+- Deploy runner не используется как общий PR runner.
 
-Deployment programs must not be executed from stdin when child commands may inherit or consume stdin. Materialize the trusted script or deploy program and execute it as a file; for non-interactive container commands, detach stdin explicitly (for example Docker Compose `-T` plus stdin redirected from `/dev/null`) so a child process cannot consume the remaining deploy program and create a false-success run.
+### 4.5. Credentials, environments и logs
 
-CD implementation details may differ by project. The safety boundaries above must remain intact.
+- Предпочитай short-lived/OIDC credentials long-lived static secrets, если provider это поддерживает.
+- Production jobs используют protected Environment или эквивалентный gate.
+- Allowed branches/tags, required reviewers и approvals не обходятся.
+- Не печатай `.env`, resolved secret-bearing config, tokens, private keys или authorization headers.
+- Persistent debug, раскрывающий environment/credentials, запрещён.
 
-For git-based server/VPS deploy, the expected repository access model must be explicit.
+### 4.6. Concurrency, timeout и retry
 
-Prefer SSH-based repository access on the target server when that is the established project model. Do not introduce HTTPS/PAT-based deploy access unless explicitly requested.
-
-Initial server bootstrap, SSH/server hardening, deploy-user setup, firewall changes, directory migration, and production cleanup are not standard CD.
-
-They require a separate explicit setup, maintenance, or migration task with scope, validation, and rollback expectations.
-
-Do not hide bootstrap or hardening inside an ordinary CD workflow change.
+- CI может отменять stale runs, если это безопасно.
+- Production deploy сериализуется по target environment.
+- Cancellation in-progress production deploy задаётся явно; unsafe cancellation запрещена.
+- Jobs имеют разумный timeout.
+- Retry допустим только для idempotent/transient operations и не скрывает deterministic failure.
 
 ---
 
-## Secrets and `.env`
+## 5. CI contract
 
-Secrets must not be committed, printed, logged, copied into prompts, copied into generated bundles, exposed in examples, or written into tests. Tests and CI must not expose real secrets, mutate secret/env fixtures globally, or write secret fixture files at import time.
+CI должен:
 
-`.env.example`, `.env.sample`, or `.env.template` may describe required runtime variables.
+- запускаться на project-approved events;
+- использовать intended revision и clean isolated workspace;
+- устанавливать dependencies reproducibly с lockfile при наличии;
+- выполнять existing relevant checks;
+- валидировать build/configuration, если это часть Definition of Done;
+- иметь однозначные required check names;
+- завершаться non-zero при required failure;
+- сохранять только необходимые artifacts/results.
 
-Runtime `.env` values must be preserved.
+CI не должен:
 
-If `.env.example` is used as a runtime schema, CD should safely add missing keys to runtime `.env` without overwriting existing values.
+- deploy-ить;
+- использовать production credentials без отдельного narrowly scoped security job;
+- менять protected branch или создавать auto-fix commits по умолчанию;
+- ослаблять tests/lint/type gates ради green status;
+- считать skipped/cancelled/timed-out required job успешным;
+- выполнять unrelated cleanup, migrations или infrastructure operations.
 
-After safe `.env.example` to runtime `.env` sync, deploy scripts must check runtime `.env` for unresolved required placeholders and block deployment with a non-zero exit code before `docker build`, `docker compose up`, restart, migration, or any action that touches the target service.
-
-Use placeholders such as `__REQUIRED_SECRET__` only as schema markers, not as real values.
-
-Do not print or validate runtime secrets with unsafe commands such as `cat .env`, `docker compose config`, or any command that can expose resolved secret values.
-
-Baseline repository and Studio CI must remain secretless: use synthetic test values,
-do not require real ElevenLabs, OpenAI, Google, or production credentials, and do
-not make real transcription/provider calls. Any future credentialed integration or
-end-to-end workflow requires a separate explicitly approved, isolated, and gated
-design before credentials are introduced.
-
----
-
-## Stateful services
-
-Stateful services include:
-
-- databases;
-- Redis;
-- queues;
-- vector databases;
-- object/file storage;
-- persistent volumes;
-- any service that owns data that cannot be casually recreated.
-
-Standard CD must not:
-
-- delete or recreate stateful services;
-- remove volumes;
-- run destructive migrations;
-- run backup/restore;
-- reindex vector databases;
-- move persistent data;
-- perform cleanup that can affect state.
-
-Migrations, runtime changes, and stateful-service work must be separate explicit manual/operator-aware tasks with scope, validation, and rollback expectations.
-
-### Protected stateful release lane
-
-A dedicated stateful release lane is not standard component CD. It may automate
-one explicitly approved migration release only when all of these boundaries are
-present:
-
-- a protected GitHub environment pauses the job for a required reviewer before
-  production credentials or VPS commands are available;
-- a separate enable variable defaults to disabled and is switched on only after
-  the environment, secrets, runtime configuration, and VPS boundary are ready;
-- the VPS identity is dedicated to this lane and restricted by a root-owned
-  forced command; workflow input must never become arbitrary root shell;
-- the release is bound to the exact current `main` SHA and a clean trusted
-  checkout;
-- the candidate image is built and its immutable image identity is captured
-  before backup or migration;
-- PostgreSQL and Redis are healthy, the worker is safely stopped, and required
-  runtime secret files are present without printing their values;
-- each approved run selects exactly one direct Alembic successor, either the
-  repository head or an explicit ancestor target on the repository head's
-  single linear chain, and that target revision explicitly declares the
-  reviewed `additive` release class;
-- a new tagged pre-migration snapshot is created, identified relative to the
-  pre-run inventory, restored only into an isolated temporary verification
-  directory, and accepted only after one non-empty custom dump passes
-  `pg_restore --list` in a network-disabled, read-only helper container bound
-  to the immutable image identity of the healthy production PostgreSQL
-  service, without an image pull or persistent Docker volume;
-- the migration executes once and revision equality is rechecked. An
-  intermediate target preserves the running API and rechecks its health; only
-  the final repository-head target recreates the API from the captured image.
-  Localhost plus public health must pass before either success marker is
-  emitted.
-
-Consecutive pending migrations require one protected approval, one new verified
-backup, and one workflow run per direct successor. A single run must never
-traverse multiple revisions.
-
-The lane must not run a downgrade, database restore, automatic retry, automatic
-rollback, worker deployment, provider call, Google side effect, nginx change,
-volume operation, or stateful-service recreation. A multiple, branched,
-unclassified, destructive, or already-partially-applied migration remains a
-separate operator task and must fail closed.
-
-An explicit manual dispatch may select the same protected lane for first
-activation or diagnosed recovery before any migration was applied. It does not
-authorize blind retry. If safe output reports `migration_applied=yes`, another
-workflow run is prohibited until an operator has diagnosed schema and API image
-state and selected a separate recovery action.
-
-### Protected host-edge release lane
-
-The Studio public-host nginx boundary is not an ordinary web/API component and
-is not a stateful migration. It may use a separate manual-only protected release
-lane when all of these controls remain present:
-
-- the workflow has no `push` or `pull_request` trigger and accepts only one full
-  lowercase commit SHA;
-- a disabled-by-default repository variable and the existing
-  `studio-production-migration` protected environment both gate the release.
-  Migration and edge releases share this human-approval boundary, while their
-  SSH identities, forced commands, enable variables, and secret names remain
-  separate;
-- the selected SHA is the exact current `main` checkout before production
-  credentials become useful;
-- GitHub Actions uses a dedicated SSH identity whose root-owned forced command
-  accepts only `release <40-hex-sha>`; it must not expose arbitrary shell;
-- the VPS fast-forwards a clean trusted `main` checkout and materializes the
-  release program from that exact remote-main commit;
-- the only mutable runtime target is the allowlisted root-owned Studio security
-  header snippet. The active site must already include that exact snippet;
-- the release creates a timestamped backup before change, validates the six
-  allowlisted header directives, runs `nginx -t`, reloads nginx, and verifies
-  both local-TLS and public-TLS exact header values plus local/public API health;
-- any failure after mutation restores the exact backup, revalidates nginx, and
-  reloads it. Success requires both wrapper and release-program markers.
-
-This lane must not modify the active site, repository source files, `.env`,
-Docker/Compose, API/web/worker containers, PostgreSQL, Redis, migrations,
-volumes, credentials, Google resources, or provider state. Installing the
-forced-command wrapper and authorized key, and adding the lane-specific secrets
-and enable variable to the existing protected environment, is a separate
-operator-reviewed bootstrap; the workflow must not bootstrap its own trust
-boundary.
+Если конкретный check отсутствует, используй smallest available useful validation и зафиксируй gap. Не добавляй heavy infrastructure только ради формального соответствия.
 
 ---
 
-## Forbidden by default
+## 6. Build и artifact contract
 
-Do not add these to standard CI/CD unless an explicit separate maintenance task justifies them:
+Если проект deploy-ит package/image/archive:
 
-- deploy from CI;
-- production SSH from CI;
-- printing secret values;
-- destructive file deletion;
-- broad cleanup;
-- `rm -rf` cleanup against broad or variable paths;
-- `git reset --hard`;
-- `git clean -fdx`;
-- destructive Docker prune/down operations such as `docker compose down`, `docker system prune -a`, `docker volume prune`, or `docker image prune -a`;
-- deleting or recreating volumes;
-- printing or validating secrets by unsafe commands such as `cat .env`;
-- using `docker compose config` when it can expose resolved secrets;
-- changing ownership or permissions recursively with broad `chmod -R` or `chown -R`;
-- uncontrolled database migrations;
-- backup/restore;
-- vector reindex;
-- moving production directories;
-- changing production `.env` values;
-- CI auto-fix commits;
-- direct pushes to the production branch from automation;
-- workflow self-modification without explicit request and review.
+- artifact создаётся в trusted build context;
+- связывается с source SHA и build run ID;
+- получает immutable digest/checksum, когда формат это поддерживает;
+- не пересобирается молча при promotion между environments;
+- не содержит secrets, runtime state или unintended source files;
+- имеет подходящие retention и access controls;
+- provenance/attestation применяется, когда этого требует risk/profile.
+
+Mutable tag (`latest`, branch tag) не является достаточной identity без immutable digest/version. Artifact untrusted PR не становится production-trusted только из-за успешного workflow.
 
 ---
 
-## Rollback boundary
+## 7. CD contract
 
-Automatic rollback is allowed only when the project has an explicit, safe, documented rollback strategy.
+CD запускается только от trusted event/revision согласно Project CI/CD profile.
 
-If rollback is not clearly safe, CD should fail loudly after failed post-check and avoid destructive recovery attempts.
+До изменения target state deployment проверяет:
 
-Rollback must not violate stateful service boundaries.
+- expected repository и exact source revision/artifact;
+- intended branch/tag/release;
+- target environment/account/host/cluster;
+- target directory/namespace и expected remote/registry, когда применимо;
+- deployment unit/service;
+- credentials и runtime configuration presence;
+- отсутствие unsafe local tracked changes для git-based deploy;
+- migration/stateful preconditions.
 
-Rollback must not delete or recreate persistent data unless the maintenance task explicitly scopes that action and includes validation and recovery expectations.
+CD должен:
+
+- использовать minimal permissions;
+- изменять только intended deployment unit;
+- быть idempotent или иметь documented safe retry boundary;
+- сериализовать production deploy;
+- сохранять existing runtime secrets;
+- выполнять required post-deploy health/LIVE check;
+- публиковать deployment Evidence;
+- сообщать success только после required post-check.
+
+CD не должен:
+
+- deploy-ить unreviewed/unverified revision;
+- автоматически выбирать неизвестный target;
+- выполнять broad cleanup, hardening или bootstrap;
+- менять firewall/users/SSH policy без отдельной task;
+- удалять persistent data/volumes;
+- запускать uncontrolled migration;
+- маскировать failed post-check;
+- импровизировать destructive rollback.
 
 ---
 
-## Deploy Key vs Repository Secrets
+## 8. Runtime configuration и secrets
 
-Do not confuse:
+Canonical runtime-config owner указывается в profile: Environment secrets, secret manager, platform config, target-host file или иной mechanism.
+
+Rules:
+
+- real secret values не коммитятся и не копируются в docs/tests/prompts/bundles;
+- `.env.example`, `.env.sample`, `.env.template` содержат только safe schema/examples;
+- production `.env` не перезаписывается template-файлом целиком;
+- missing non-secret keys можно добавлять только documented idempotent mechanism без изменения existing values;
+- unresolved required placeholder блокирует deploy;
+- validation проверяет presence/shape без раскрытия value;
+- long-lived credentials имеют rotation/revocation procedure.
+
+Не используй команды, способные вывести resolved secrets, только ради validation.
+
+---
+
+## 9. Stateful services и migrations
+
+Stateful services включают databases, queues, Redis, vector/object/file storage, persistent volumes и другие owners невосстанавливаемых данных.
+
+Migration class:
 
 ```text
-Deploy Key = target server access to the GitHub repository
-DEPLOY_* Repository Secrets = GitHub Actions access to the target server
+NONE
+BACKWARD_COMPATIBLE_AUTOMATED
+MANUAL_GATED
 ```
 
-Use the model that matches the project. Do not invent access details.
+`BACKWARD_COMPATIBLE_AUTOMATED` допустима в CD только если migration versioned/reviewable, совместима на rollout window, safe on retry, имеет известные timeout/locking/failure behavior, выполненные backup/recovery preconditions и post-check.
+
+`MANUAL_GATED` требует отдельной explicit task со scope/owner, preconditions, backup/recovery plan, downtime/compatibility expectation, validation и stop/rollback/forward-fix criteria.
+
+Standard CD не выполняет backup/restore, volume recreation, destructive cleanup, data move, reindex или irreversible migration без такого contract.
 
 ---
 
-## Environment and branch identity
+## 10. Rollback и forward-fix
 
-CD must verify that it is deploying the intended repository, branch, directory, and service before changing runtime state.
+Automatic rollback разрешён только когда documented strategy безопасна для deployed artifact, schema и persistent state.
 
-Recommended checks for git-based deploy:
+Если rollback safety не доказана:
 
-- current directory matches expected deploy directory;
-- configured remote matches expected repository;
-- current branch matches expected deploy branch;
-- working tree has no unsafe local tracked changes;
-- target service name matches configured service;
-- required runtime files exist;
-- required runtime placeholders are resolved.
+- останови flow после failed post-check;
+- сохрани Evidence;
+- не выполняй destructive recovery;
+- используй approved forward-fix или manual gated procedure.
 
-If any identity check fails, deployment must stop before build/restart/up.
+Rollback не удаляет/recreate persistent data и не разворачивает application version, несовместимую с уже применённой migration.
 
 ---
 
-## Codex task boundary
+## 11. Git-based VPS / Docker Compose profile
 
-For CI/CD tasks, Codex may create or update workflow files and supporting scripts only within the requested scope.
+Этот раздел применяется только к mutable Git checkout + Docker Compose на VPS/server.
 
-Codex must not:
+До deploy проверь deploy directory, remote URL, branch, target commit, worktree, runtime config, intended Compose project/services и stateful volumes. Для SSH access используй явную host-key verification policy; отключение проверки host identity запрещено.
 
-- add real secrets;
-- change unrelated application behavior;
-- change architecture;
-- touch stateful services;
-- add migrations or backup/restore to ordinary CI/CD; a user-requested,
-  separately protected stateful release lane must satisfy the contract above;
-- perform cleanup/hardening;
-- expand CI/CD beyond the requested task;
-- introduce a new deploy access model without explicit request;
-- convert local/dev Docker usage into production deployment semantics unless explicitly scoped.
+Code update должен быть fast-forward/checkout exact reviewed revision или эквивалентной безопасной операцией. Broad `reset --hard`/`clean` не является normal deploy strategy.
+
+Deployment изменяет только allowlisted application services. `docker compose down`, volume removal и system-wide prune не входят в standard CD.
+
+Initial bootstrap, deploy-user/SSH setup, directory migration, firewall/hardening и repository access model требуют отдельной setup/maintenance task.
+
+Не путай:
+
+```text
+Deploy Key / target credential = target получает repository/artifact
+DEPLOY_* workflow secret = GitHub Actions получает доступ к target/provider
+```
 
 ---
 
-## Done means
+## 12. Forbidden by default
 
-CI is done when:
+Без отдельной explicit task и safety plan запрещены:
 
-- it runs on `pull_request`;
-- it runs on `push` to the production branch;
-- `workflow_dispatch` is available;
-- minimal `permissions` and a `concurrency` guard are present;
-- it uses existing project checks;
-- it avoids deploy and production secrets;
-- it passes with a clear success marker such as `CI_OK` or reports clear missing project prerequisites.
+- deploy из обычного CI job;
+- production credentials в untrusted workflow;
+- direct/force push в protected production branch;
+- workflow self-modification или auto-fix commits;
+- broad variable-path delete/reset/clean;
+- Compose down, volume prune/removal, system-wide prune;
+- recursive broad ownership/permission changes;
+- printing `.env` или resolved secret-bearing config;
+- uncontrolled migration, backup/restore или reindex;
+- hidden bootstrap, hardening, cleanup или access-model change;
+- destructive rollback без verified recovery path.
 
-CD is done when:
+Команда оценивается по effect и scope, а не только по имени. Narrow reviewed operation может быть допустима в отдельной maintenance task; broad mutable path остаётся blocker.
 
-- it deploys only the intended target service;
-- target directory, expected remote, expected branch, and service identity are explicit;
-- required secrets and runtime env are handled safely;
-- unresolved required runtime secrets block deploy before build/up/restart;
-- stateful services and volumes are not touched;
-- post-check is present;
-- when an image is built or pulled through a mutable tag, the running container image identity is verified against the intended newly built or pulled image before success is reported;
-- failed post-check cannot produce a success marker such as `DEPLOY_OK`;
-- success is reported only after validation;
-- rollback behavior is explicit or safely absent.
+---
 
-A protected stateful release lane is done only when its ordinary source/CI
-checks pass and its setup prerequisites are documented. Source completion does
-not prove that the GitHub environment, forced-command key, VPS wrapper, backup,
-migration, deployed image, or public health has been configured or exercised.
+## 13. Post-deploy metadata mechanism
+
+Автоматическая synchronization status/Evidence после LIVE допустима только если mechanism:
+
+- запускается от trusted deployment result exact revision;
+- пишет только allowlisted metadata paths/fields;
+- использует minimal write permission;
+- не изменяет durable requirements/acceptance criteria;
+- защищён от recursive runs;
+- создаёт auditable commit/status record;
+- не используется для произвольных code changes.
+
+При отсутствии mechanism deployment может быть `LIVE_VERIFIED`, но workflow closure остаётся blocked. Direct push в обход protection rules запрещён.
+
+---
+
+## 14. Evidence contract
+
+### CI Evidence
+
+- workflow/check name и run ID/URL;
+- event и exact head SHA;
+- required jobs и terminal statuses.
+
+### Build Evidence
+
+- source SHA и build run;
+- artifact name/version;
+- digest/checksum и provenance reference, если применимо.
+
+### Deployment/LIVE Evidence
+
+- deployment/run ID и target environment;
+- deployed commit/artifact identity;
+- migration class/result;
+- terminal status и post-check result;
+- endpoint/service, timestamp и limitations проверки.
+
+Raw logs без exact identity не заменяют Evidence.
+
+---
+
+## 15. Exceptions
+
+Исключение допустимо только по explicit owner/user decision и содержит:
+
+```text
+Rule being overridden
+Reason
+Scope and duration
+Risk
+Compensating controls
+Authorization source
+Validation and rollback/stop criteria
+```
+
+Исключение narrow и временное, если иное не утверждено явно; оно не становится universal precedent автоматически.
+
+---
+
+## 16. Project CI/CD profile
+
+Заполни profile по фактическому проекту. `UNSET` блокирует соответствующий production flow. Если CD не используется, укажи `cd_enabled: false` и `N/A` для неприменимых полей.
+
+```yaml
+profile_version: 1
+verified_at_utc: 2026-08-14
+status: CONFIGURED
+
+repository:
+  expected_repository: Just9120/Elevenlabs-API
+  visibility: public
+  production_branch: main
+  release_tag_policy: N/A
+  main_branch_protection: absent
+  repository_rulesets: []
+
+ci:
+  events:
+    repository_ci: [pull_request, push-main, workflow_dispatch]
+    studio_ci: [path-filtered-pull_request, path-filtered-push-main, workflow_dispatch]
+    dependency_audit: [weekly-schedule, workflow_dispatch]
+  runner: GitHub-hosted ubuntu-latest
+  install_command:
+    python: python -m pip install -r requirements-dev.txt -c constraints-dev.txt
+    studio: cd apps/studio && npm ci
+  lint_command: cd apps/studio && npm run lint
+  typecheck_command: cd apps/studio && npm run build
+  test_command:
+    repository: pytest -q
+    repository_portable: pytest -q --portable
+    studio: cd apps/studio && npm run test -- --run
+    studio_browser: cd apps/studio && npm run test:e2e
+  build_command:
+    studio: cd apps/studio && npm run build
+    containers: docker build for apps/studio and apps/studio-api
+  required_checks:
+    platform_enforced: []
+    expected_acceptance: [CI / checks, Studio PWA CI / studio, Studio PWA CI / browser-e2e]
+    path_note: Studio PWA CI jobs run only for its configured Studio/deploy path set
+  lockfile:
+    node: apps/studio/package-lock.json
+    python: [constraints-dev.txt, apps/studio-api/constraints.txt]
+  untrusted_pr_policy: read-only GITHUB_TOKEN; no production secrets or Environment; GitHub-hosted runners
+
+artifacts:
+  enabled: true
+  type: target-built local Docker images
+  identity: immutable Docker image ID captured after build and compared with the running container image ID
+  registry_or_storage: N/A
+  provenance_required: false
+
+deployment:
+  cd_enabled: true
+  trusted_trigger:
+    component_cd: path-filtered push to main or workflow_dispatch from main
+    migration: selected Studio Platform CD job from main
+    edge: manual Studio Edge CD dispatch from main with exact full SHA
+    worker_operations: manual workflow_dispatch from main with expected full SHA where required
+  target_environment: production VPS serving studio.librechat.online
+  target_host_or_account: repository/environment secret reference; value is not documentation
+  target_directory_or_namespace: /opt/elevenlabs-studio
+  expected_remote_or_registry: Just9120/Elevenlabs-API
+  expected_branch_tag_or_release: main; protected migration/edge lanes bind an exact 40-character main SHA
+  environment_protection:
+    standard_component_cd: no GitHub Environment; repository-scoped deploy secrets
+    protected_lanes: studio-production-migration
+    protected_branch_policy: main only
+    required_reviewers: one configured reviewer; prevent_self_review=false
+  host_identity_verification: dedicated known-hosts secret for each SSH credential boundary
+  deploy_model: mutable trusted VPS checkout plus Docker Compose target-side build/recreate
+  deploy_command_or_workflow:
+    component_cd: .github/workflows/studio-platform-cd.yml
+    migration_probe: .github/workflows/studio-migration-environment-probe.yml
+    edge: .github/workflows/studio-edge-cd.yml
+    preflight: .github/workflows/studio-processing-preflight.yml
+    worker_status: .github/workflows/studio-worker-status.yml
+    worker_drain: .github/workflows/studio-worker-drain.yml
+  deployment_unit: [studio-web, studio-api, studio-worker, one direct additive Alembic migration, host security-header snippet]
+  concurrency_group:
+    platform: studio-platform-production
+    edge: studio-edge-production
+    migration_probe: studio-migration-environment-probe
+  cancel_in_progress_policy: false for all production/operations groups
+  health_check:
+    web: http://127.0.0.1:8181/healthz
+    api: http://127.0.0.1:8182/api/healthz
+    worker: Docker healthcheck via python -m studio_api.worker_health
+    edge: nginx syntax plus local/public TLS headers and local/public API health
+  live_check: separate operator-approved canary required for product/runtime behavior; deployment health alone is insufficient
+
+credentials:
+  model: repository Actions secrets for ordinary component/worker operations; Environment secrets plus dedicated forced-command SSH identities for migration and edge
+  runtime_config_owner: operator-managed target-host deploy/studio/.env and root/operator-owned secret files
+  required_secret_names:
+    repository: [DEPLOY_HOST, DEPLOY_USER, DEPLOY_SSH_KEY, DEPLOY_KNOWN_HOSTS]
+    migration_environment: [STUDIO_MIGRATION_DEPLOY_HOST, STUDIO_MIGRATION_SSH_KEY, STUDIO_MIGRATION_KNOWN_HOSTS]
+    edge_environment: [STUDIO_EDGE_DEPLOY_HOST, STUDIO_EDGE_SSH_KEY, STUDIO_EDGE_KNOWN_HOSTS]
+  repository_variable_names: [STUDIO_PLATFORM_CD_ENABLED, STUDIO_MIGRATION_RELEASE_ENABLED, STUDIO_EDGE_RELEASE_ENABLED]
+
+stateful:
+  services:
+    postgres: persistent Docker volume studio-postgres-data
+    redis: non-persistent runtime coordination service
+    source_storage: private external S3/R2-compatible object storage
+    google_docs: external side-effect owner; not transactionally rollbackable by database restore
+  migration_class: MANUAL_GATED
+  backup_recovery_contract: one direct additive successor per protected approval and newly verified pre-migration snapshot; restore verification is isolated and never targets production
+
+recovery:
+  rollback_or_forward_fix: manual diagnosis and approved forward-fix by default; edge snippet has narrow automatic backup restore; worker rollback is manual and schema-compatible only
+  failed_post_check_action: fail loudly, preserve safe Evidence, do not retry or perform destructive rollback automatically
+
+metadata_sync:
+  enabled: false
+  mechanism: N/A
+  allowlisted_paths_or_fields: N/A
+  loop_protection: N/A
+```
+
+`status: CONFIGURED` допустим только после того, как все применимые поля перестали быть `UNSET` и были сверены с repository/settings или safe diagnostics. Для `cd_enabled: false` CD-only поля должны быть `N/A`, а не фиктивно заполнены.
+
+Profile может быть вынесен в отдельный canonical file, но не дублируется в competing sources.
+
+### 16.1. Verified configuration sources
+
+Profile выше сверён 2026-08-14 с:
+
+- `.github/workflows/*.yml` — девять active workflows;
+- `apps/studio/package.json`, `requirements-dev.txt`, `constraints-dev.txt` и `apps/studio-api/constraints.txt`;
+- `deploy/studio/compose.platform.yml`, `deploy/studio/.env.example` и project deploy/operations scripts;
+- GitHub repository settings API для Actions permissions, Environments, branch protection/rulesets, variables и secret names;
+- `docs/runbooks/studio-platform-ops.md` для operator procedures и stop/recovery boundaries.
+
+Secret values, private keys, host values и runtime `.env` values не читались и не являются частью profile.
+
+### 16.2. Active workflow map
+
+| Workflow | Trigger | Jobs/назначение | Production capability |
+|---|---|---|---|
+| `CI` | `pull_request`, push в `main`, manual | `checks`: PostgreSQL/Redis, Alembic, lightweight checks, full pytest | Нет |
+| `Studio PWA CI` | path-filtered PR/push в `main`, manual | `studio`, `browser-e2e`: lint/test/build/images/Compose/authenticated Chromium | Нет |
+| `Dependency audit` | weekly schedule, manual | npm и Python advisory audit | Нет; не является обычным PR gate |
+| `Studio Platform CD` | path-filtered push в `main`, manual component selection | web/API component CD, protected migration release, manual worker deploy | Да |
+| `Studio Migration Environment Probe` | manual from `main` | no-op verification of Environment reviewer gate | Environment gate only; no checkout/secrets/SSH/VPS action |
+| `Studio Edge CD` | manual from `main` с exact SHA | protected host security-header release | Да |
+| `Studio Processing Preflight` | manual from `main` с expected SHA | read-only production readiness probe | Read-only SSH capability |
+| `Studio Worker Status` | manual from `main` с expected SHA | read-only worker identity/health state | Read-only SSH capability |
+| `Studio Worker Drain` | manual from `main` с expected SHA | controlled graceful drain and stopped-state verification | Да, mutates worker process state |
+
+Baseline repository and Studio CI must remain secretless: они используют только synthetic test values, не получают production credentials и не делают реальные ElevenLabs, Google, S3/R2 или production calls. Любой credentialed integration/E2E flow требует отдельного explicit scope, isolated trust boundary и approval design.
+
+### 16.3. GitHub repository и Environment state
+
+Фактически подтверждено:
+
+- repository public, default/production branch — `main`;
+- workflow token default — `contents: read`; Actions не могут approve Pull Request reviews;
+- repository variables: `STUDIO_PLATFORM_CD_ENABLED`, `STUDIO_MIGRATION_RELEASE_ENABLED`, `STUDIO_EDGE_RELEASE_ENABLED`;
+- единственный GitHub Environment — `studio-production-migration`;
+- Environment ограничен custom branch policy `main` и имеет одного required reviewer;
+- Environment содержит отдельные migration и edge secret-name sets; environment variables отсутствуют;
+- обычные component/worker/preflight workflows используют repository-scoped `DEPLOY_*` secret names;
+- production deployment concurrency не отменяется (`cancel-in-progress: false`).
+
+Environment approval, secret presence и green workflow summary не доказывают deployment конкретного component. Evidence существует только для selected job, exact actual target revision/image и successful post-check.
+
+### 16.4. Current configuration gaps
+
+Это factual gaps, а не authorization на изменение workflows/settings:
+
+1. `main` не имеет branch protection, repository rulesets отсутствуют; GitHub не enforces required checks/reviews. До отдельной настройки `MERGE_GATES_PASSED` требует ручной проверки exact PR head, relevant CI jobs, review/conversation state и mergeability.
+2. Repository Actions settings разрешают `allowed_actions: all`, `sha_pinning_required: false`; current workflows используют version tags (`actions/checkout@v7`, `actions/setup-*`, `actions/upload-artifact@v7`), а не full immutable action SHAs. Это не соответствует разделу 4.2 и требует отдельного workflow-hardening scope.
+3. Environment API сообщает `can_admins_bypass: true` и `prevent_self_review: false`. Agent/operator не использует admin bypass; каждое фактическое approval проверяется по deployment review history. Изменение Environment settings требует отдельной explicit task.
+4. Обычные `deploy-web`, `deploy-api`, `deploy-worker`, preflight/status/drain jobs не bound к GitHub Environment и используют repository secrets. Protected reviewer gate применяется только к migration/edge jobs и no-op probe.
+5. Standard component CD fetches current `origin/main` на VPS и проверяет reached target revision, но workflow не передаёт/не сравнивает expected `github.sha`. Если `main` продвинется между trigger и remote fetch, job может развернуть более новый commit. До отдельного fix `DEPLOY` Evidence допустимо только когда logs/target state отдельно подтверждают равенство intended merge SHA и фактически deployed revision.
+6. Component images строятся на target VPS и не promotion-ятся из CI registry artifact. Running image ID проверяется против только что built image ID, но отдельная supply-chain provenance/attestation отсутствует.
+7. Approved post-deploy metadata writer отсутствует. Не создавай автоматический follow-up PR или direct push только ради deployment IDs; фактический state фиксируется в final report/GitHub records и синхронизируется в следующем authorized scope.
+
+Gap не делает старый run автоматически failed, но запрещает заявлять Evidence шире реально подтверждённой identity/gate surface.
+
+### 16.5. Standard Studio component CD
+
+`.github/workflows/studio-platform-cd.yml` — единственный standard component router:
+
+- automatic push flow включается только при `STUDIO_PLATFORM_CD_ENABLED=true`;
+- `apps/studio/**` выбирает `studio-web`;
+- non-migration `apps/studio-api/**` выбирает `studio-api`;
+- Alembic change не deploy-ит API обычным путём: он выбирает protected migration lane только при `STUDIO_MIGRATION_RELEASE_ENABLED=true`, иначе API/migration остаются intentionally skipped/blocked;
+- worker dependency changes не auto-deploy-ят worker; `studio-worker` остаётся manual-only;
+- green `deployment-summary` с skipped component jobs не является component deployment Evidence.
+
+Target contract:
+
+- deploy directory `/opt/elevenlabs-studio`;
+- expected repository `Just9120/Elevenlabs-API`, branch `main`, clean tracked worktree;
+- Compose project `elevenlabs-studio-platform` из `deploy/studio/compose.platform.yml` и operator-owned `deploy/studio/.env`;
+- web/API bind только localhost ports `8181`/`8182`; worker не публикует port;
+- deploy script materialизуется из trusted fetched `origin/main` и исполняется как файл;
+- build/recreate затрагивает только selected service с `--no-deps --force-recreate`;
+- PostgreSQL/Redis/volumes/runtime secrets не создаются и не пересоздаются;
+- API/worker deploy требует schema equality между current database revision и Alembic head нового image;
+- success marker возможен только после built/running image-ID equality и localhost/Docker health.
+
+Standard component CD не выполняет migration, backup/restore, nginx change, provider/Google call, production canary или automatic rollback. Failed health/schema/identity gate завершает job non-zero и требует diagnosis/forward-fix.
+
+### 16.6. Protected additive migration lane
+
+`release-api-migration` — `MANUAL_GATED` stateful release, а не standard component CD.
+
+Обязательные boundaries:
+
+- Environment `studio-production-migration`, branch `main`, explicit reviewer approval и repository variable `STUDIO_MIGRATION_RELEASE_ENABLED=true`;
+- отдельные Environment secrets `STUDIO_MIGRATION_DEPLOY_HOST`, `STUDIO_MIGRATION_SSH_KEY`, `STUDIO_MIGRATION_KNOWN_HOSTS`;
+- dedicated root SSH identity restricted forced command принимает только `release <40-hex-sha> <head-or-revision>`;
+- exact selected SHA должен быть current remote `main`, checkout clean/trusted;
+- worker остановлен; PostgreSQL, Redis и API healthy; required runtime/backup/OAuth secret files присутствуют без раскрытия values;
+- candidate API image и immutable image ID фиксируются до backup/migration;
+- один run выбирает ровно одного direct Alembic successor на single linear repository-head chain, declared `additive`;
+- каждый successor требует новое approval и новый tagged pre-migration snapshot;
+- snapshot определяется относительно pre-run inventory, восстанавливается только в isolated temporary directory и принимается только после non-empty custom dump + `pg_restore --list` в network-disabled/read-only helper container на immutable healthy PostgreSQL image ID;
+- migration выполняется один раз; current revision должен равняться reviewed target;
+- intermediate target сохраняет running API и повторно проверяет local/public health; только repository-head target recreates API из captured candidate image ID;
+- success требует migration wrapper/program markers и applicable local/public health.
+
+Lane не выполняет downgrade, production restore, automatic retry/rollback, worker deploy, provider/Google call, nginx change, volume operation или stateful-service recreation. Multiple/branched/unclassified/destructive migration fail-closed. Если safe output сообщает `migration_applied=yes`, повторный workflow run запрещён до отдельной диагностики schema/API image state и recovery decision.
+
+`Studio Migration Environment Probe` используется для проверки реального Waiting/reviewer history без checkout, credentials, SSH или runtime mutation. Green no-op job без зафиксированного reviewer pause не доказывает protection gate.
+
+### 16.7. Protected Studio edge lane
+
+`Studio Edge CD` — manual-only release exact current `main` SHA, gated repository variable `STUDIO_EDGE_RELEASE_ENABLED=true` и Environment `studio-production-migration`.
+
+- Используются отдельные `STUDIO_EDGE_DEPLOY_HOST`, `STUDIO_EDGE_SSH_KEY`, `STUDIO_EDGE_KNOWN_HOSTS`; migration/component SSH identities не переиспользуются.
+- Dedicated root forced command принимает только `release <40-hex-sha>`.
+- Единственная mutable target surface — allowlisted root-owned Studio security-header snippet; active site обязан уже include-ить его.
+- Перед mutation создаётся timestamped backup; проверяются шесть allowlisted header directives, `nginx -t`, reload, local/public TLS header values и local/public API health.
+- Failure после mutation восстанавливает exact backup, повторяет nginx validation и reload; blind rerun запрещён.
+
+Lane не меняет active site routing, repository source, `.env`, Docker/Compose, containers, PostgreSQL, Redis, migrations, volumes, credentials, Google/provider state.
+
+### 16.8. Worker и operational workflows
+
+Worker lifecycle manual-only:
+
+```text
+status → drain → confirm stopped → deploy worker → verify image/commit identity → verify healthy → leave idle
+```
+
+- Drain использует normal SIGTERM/Docker stop и считается graceful только при single worker container с `exit_code=0`; `137`, `143`, multiple containers и unknown state fail-closed.
+- Worker deploy запрещён при active/restarting/abnormally stopped previous worker, не drains автоматически и не запускает canary.
+- New worker image получает commit-specific tag; running image ID и schema compatibility проверяются.
+- Resume/rollback выполняются только отдельной approved operator procedure из `docs/runbooks/studio-platform-ops.md`; automatic rollback запрещён.
+- Worker health подтверждает process shape, configuration и read-only PostgreSQL connectivity, но не queue progress, provider/Google readiness или production-live behavior.
+
+Processing preflight/status не авторизуют provider call или canary. Controlled canary остаётся отдельным operator-approved LIVE gate с exactly one intended job/output и safe evidence boundary.
+
+---
+
+## 17. Done
+
+### CI
+
+- trust boundary, permissions и intended events явны;
+- exact checks воспроизводимы настолько, насколько позволяет проект;
+- production secrets/deploy отсутствуют;
+- required failures не маскируются.
+
+### CD
+
+- trusted trigger, target и exact revision/artifact подтверждены;
+- credentials/runtime config обрабатываются безопасно;
+- stateful/migration, concurrency и failure policy соблюдены;
+- post-check и Evidence присутствуют;
+- success объявлен только после required validation.
+
+### Maintenance/migration
+
+- есть отдельный scope/owner, preconditions, backup/recovery и stop criteria;
+- destructive surface минимальна;
+- result и residual risk подтверждены Evidence.
