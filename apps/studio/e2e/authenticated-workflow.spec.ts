@@ -297,6 +297,7 @@ test('Live tab captures browser audio and keeps transcript browser-only', async 
             label: 'Browser E2E realtime',
             status: 'active',
             active_version: 1,
+            masked_value: '••••e2e',
           },
         ],
       }),

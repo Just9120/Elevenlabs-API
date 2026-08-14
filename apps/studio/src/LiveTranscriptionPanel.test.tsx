@@ -72,6 +72,7 @@ describe("LiveTranscriptionPanel", () => {
                 label: "Realtime",
                 status: "active",
                 active_version: 4,
+                masked_value: "••••safe",
               },
             ],
           });
@@ -350,6 +351,175 @@ describe("LiveTranscriptionPanel", () => {
     );
     expect(await screen.findByText("Активный профиль не найден")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Начать" })).toBeDisabled();
+  });
+
+  it("bounds a stalled profile read and exposes a safe explicit retry", async () => {
+    let credentialGets = 0;
+    let credentialSignal: AbortSignal | undefined;
+    vi.mocked(fetch).mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/credentials")) {
+        credentialGets += 1;
+        credentialSignal = init?.signal;
+        if (credentialGets === 1) {
+          return new Promise<Response>((_resolve, reject) => {
+            credentialSignal?.addEventListener("abort", () =>
+              reject(new Error("raw-live-credential-timeout")),
+            );
+          });
+        }
+        return response({
+          credentials: [
+            {
+              id: "credential-safe",
+              provider: "elevenlabs",
+              label: "Realtime",
+              status: "active",
+              active_version: 4,
+              masked_value: "••••safe",
+            },
+          ],
+        });
+      }
+      return response({ ok: true });
+    });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 15_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      render(
+        <LiveTranscriptionPanel
+          projectId="project-safe"
+          csrf="csrf-safe"
+          onCsrf={vi.fn()}
+          active
+        />,
+      );
+      expect(
+        await screen.findByText(
+          "Не удалось загрузить профили ElevenLabs. Повторите попытку.",
+        ),
+      ).toBeInTheDocument();
+      expect(credentialSignal?.aborted).toBe(true);
+      expect(credentialGets).toBe(1);
+      expect(document.body.textContent).not.toContain(
+        "raw-live-credential-timeout",
+      );
+      expect(screen.getByRole("button", { name: "Начать" })).toBeDisabled();
+
+      await userEvent.click(
+        screen.getByRole("button", {
+          name: "Повторить загрузку профилей",
+        }),
+      );
+      expect(await screen.findByText("Realtime · v4")).toBeInTheDocument();
+      expect(credentialGets).toBe(2);
+      expect(screen.getByRole("button", { name: "Начать" })).toBeEnabled();
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("rejects malformed profile rows without retaining raw fields", async () => {
+    vi.mocked(fetch).mockImplementation((url: string) =>
+      url.endsWith("/api/credentials")
+        ? response({
+            credentials: [
+              {
+                id: "credential-unsafe",
+                provider: "elevenlabs",
+                label: "Realtime",
+                status: "active",
+                active_version: 4,
+                masked_value: { raw: "raw-live-mask" },
+                raw_credential: "raw-live-credential",
+              },
+            ],
+            raw_collection: "raw-live-collection",
+          })
+        : response({ ok: true }),
+    );
+
+    render(
+      <LiveTranscriptionPanel
+        projectId="project-safe"
+        csrf="csrf-safe"
+        onCsrf={vi.fn()}
+        active
+      />,
+    );
+    expect(
+      await screen.findByText(
+        "Не удалось загрузить профили ElevenLabs. Повторите попытку.",
+      ),
+    ).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("raw-live");
+    expect(screen.getByRole("button", { name: "Начать" })).toBeDisabled();
+  });
+
+  it("keeps project-switch profile ownership latest-wins and teardown-safe", async () => {
+    let credentialGets = 0;
+    let staleSignal: AbortSignal | undefined;
+    let resolveStale: ((response: Response) => void) | undefined;
+    vi.mocked(fetch).mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/credentials")) {
+        credentialGets += 1;
+        if (credentialGets === 1) {
+          staleSignal = init?.signal;
+          return new Promise<Response>((resolve) => {
+            resolveStale = resolve;
+          });
+        }
+        return response({
+          credentials: [
+            {
+              id: "credential-current",
+              provider: "elevenlabs",
+              label: "Current project profile",
+              status: "active",
+              active_version: 2,
+              masked_value: "••••safe",
+            },
+          ],
+        });
+      }
+      return response({ ok: true });
+    });
+    const props = { csrf: "csrf-safe", onCsrf: vi.fn(), active: true };
+    const { rerender } = render(
+      <LiveTranscriptionPanel {...props} projectId="project-a" />,
+    );
+    await waitFor(() => expect(resolveStale).toBeDefined());
+
+    rerender(<LiveTranscriptionPanel {...props} projectId="project-b" />);
+    expect(staleSignal?.aborted).toBe(true);
+    expect(
+      await screen.findByText("Current project profile · v2"),
+    ).toBeInTheDocument();
+    await act(async () =>
+      resolveStale?.(
+        await response({
+          credentials: [
+            {
+              id: "credential-stale",
+              provider: "elevenlabs",
+              label: "Stale project profile",
+              status: "active",
+              active_version: 1,
+              masked_value: "••••stale",
+            },
+          ],
+        }),
+      ),
+    );
+    expect(screen.queryByText(/Stale project profile/)).not.toBeInTheDocument();
+    expect(credentialGets).toBe(2);
   });
 
   it("fails closed when browser audio capture is unavailable", async () => {

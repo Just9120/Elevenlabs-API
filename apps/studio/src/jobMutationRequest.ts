@@ -36,11 +36,17 @@ export async function runBoundedRequest<T>(
 }
 
 export function cancellationIsConfirmed(job: TranscriptionJob) {
-  return job.status === "cancelled" || Boolean(job.cancel_requested_at);
+  return (
+    job.status === "cancelled" ||
+    (job.status === "processing" && Boolean(job.cancel_requested_at))
+  );
 }
 
 export function dismissalIsConfirmed(job: TranscriptionJob) {
-  return Boolean(job.terminal_dismissed_at);
+  return (
+    ["completed", "failed", "cancelled"].includes(job.status) &&
+    Boolean(job.terminal_dismissed_at)
+  );
 }
 
 export function retryIsConfirmed(

@@ -1,3 +1,4 @@
+import { StrictMode } from "react";
 import {
   act,
   cleanup,
@@ -34,6 +35,23 @@ const json = (body: unknown, ok = true, status = 200) =>
           : new Blob([JSON.stringify(body)], { type: "application/json" }),
       ),
   } as Response);
+const markdownReport = (
+  body = "# Studio diagnostics report\n",
+  status = 200,
+  headers: Record<string, string> = {},
+) =>
+  Promise.resolve(
+    new Response(body, {
+      status,
+      headers: {
+        "cache-control": "no-store",
+        "content-disposition":
+          'attachment; filename="studio-diagnostics-report.md"',
+        "content-type": "text/markdown; charset=utf-8",
+        ...headers,
+      },
+    }),
+  );
 function googleConnectionFixture(overrides: Record<string, unknown> = {}) {
   return {
     connected: false,
@@ -324,6 +342,26 @@ type OutputFixtureOptions = {
   includeSecondProject?: boolean;
 };
 
+const focusedJobDetailSource = {
+  id: "source-detail-id-not-output-id",
+  project_id: "p1",
+  position: 0,
+  job_source_status: "queued",
+  source_type: "google_drive",
+  original_filename: "focused-source.mp3",
+  mime_type: "audio/mpeg",
+  size_bytes: 1234,
+  drive_file_id: null,
+  drive_file_url: null,
+  upload_status: "uploaded",
+  uploaded_at: "2026-07-01T00:01:00Z",
+  expires_at: null,
+  deleted_at: null,
+  delete_reason: null,
+  created_at: "2026-07-01T00:00:00Z",
+  updated_at: "2026-07-01T00:00:00Z",
+};
+
 function installFocusedOutputFixture(options: OutputFixtureOptions = {}) {
   const jobStatus = options.jobStatus ?? "processing";
   const outputCount = options.outputCount ?? options.outputs?.length ?? 1;
@@ -507,27 +545,7 @@ function installFocusedOutputFixture(options: OutputFixtureOptions = {}) {
                 : null,
               error_code: jobStatus === "failed" ? "SAFE_FAILED" : null,
               error_message: jobStatus === "failed" ? "Safe failure" : null,
-              sources: [
-                {
-                  id: "source-detail-id-not-output-id",
-                  project_id: "p1",
-                  position: 0,
-                  job_source_status: "queued",
-                  source_type: "google_drive",
-                  original_filename: "focused-source.mp3",
-                  mime_type: "audio/mpeg",
-                  size_bytes: 1234,
-                  drive_file_id: null,
-                  drive_file_url: null,
-                  upload_status: "uploaded",
-                  uploaded_at: "2026-07-01T00:01:00Z",
-                  expires_at: null,
-                  deleted_at: null,
-                  delete_reason: null,
-                  created_at: "2026-07-01T00:00:00Z",
-                  updated_at: "2026-07-01T00:00:00Z",
-                },
-              ],
+              sources: [focusedJobDetailSource],
             });
       return json({ credentials: [], events: [] });
     },
@@ -759,9 +777,11 @@ describe("Studio PWA", () => {
           return json({ login_csrf_token: "login-csrf" });
         if (url.endsWith("/api/auth/login"))
           return json({
+            authenticated: true,
             user: { email: "user@example.com", role: "admin" },
             csrf_token: "csrf",
           });
+        if (url.endsWith("/api/auth/logout")) return json({ ok: true });
         if (url.endsWith("/api/projects") && init?.method === "POST")
           return json({
             id: "p2",
@@ -1120,7 +1140,7 @@ describe("Studio PWA", () => {
           url.endsWith("/api/diagnostics/report.md") &&
           init?.method === "POST"
         )
-          return json(new Blob(["# Safe report"], { type: "text/markdown" }));
+          return markdownReport("# Safe report\n");
         if (url.endsWith("/api/google/connection") && init?.method === "DELETE")
           return json(
             googleConnectionFixture({
@@ -3335,7 +3355,7 @@ describe("Studio PWA", () => {
           url.endsWith("/api/diagnostics/report.md") &&
           init?.method === "POST"
         )
-          return json(new Blob(["# Safe report"], { type: "text/markdown" }));
+          return markdownReport("# Safe report\n");
         if (url.endsWith("/api/google/connection") && init?.method === "DELETE")
           return json(
             googleConnectionFixture({
@@ -5219,6 +5239,46 @@ describe("Studio PWA", () => {
   it("creates, lists, details, and cancels project jobs safely with CSRF", async () => {
     const secretLike =
       "sk-live-raw-token refresh_token encrypted_ciphertext s3://secret-key https://upload.example/leak";
+    const jobSources = [
+      {
+        id: "s2",
+        project_id: "p1",
+        position: 1,
+        job_source_status: "queued",
+        source_type: "local_upload",
+        original_filename: "ready-local.ogg",
+        mime_type: "audio/ogg",
+        size_bytes: 4096,
+        drive_file_id: null,
+        drive_file_url: secretLike,
+        upload_status: "uploaded",
+        uploaded_at: "2026-07-01T00:02:00",
+        expires_at: null,
+        deleted_at: null,
+        delete_reason: null,
+        created_at: "2026-07-01T00:00:00",
+        updated_at: "2026-07-01T00:00:00",
+      },
+      {
+        id: "s1",
+        project_id: "p1",
+        position: 0,
+        job_source_status: "queued",
+        source_type: "google_drive",
+        original_filename: "ready-drive.mp4",
+        mime_type: "video/mp4",
+        size_bytes: 2048,
+        drive_file_id: "drive-file-1",
+        drive_file_url: "https://drive.example/file/job-source",
+        upload_status: "uploaded",
+        uploaded_at: "2026-07-01T00:01:00",
+        expires_at: null,
+        deleted_at: null,
+        delete_reason: null,
+        created_at: "2026-07-01T00:00:00",
+        updated_at: "2026-07-01T00:00:00",
+      },
+    ];
     (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       (url: string, init?: RequestInit) => {
         if (url.endsWith("/api/auth/session"))
@@ -5551,7 +5611,7 @@ describe("Studio PWA", () => {
                 source_type: "google_drive",
                 output_kind: "transcript",
                 transcript_standard: "plain",
-                web_view_url: "https://evil.example/doc-token-storage",
+                web_view_url: null,
                 link_available: false,
                 document_character_count: 333,
                 document_created_at: "2026-07-02T00:12:00Z",
@@ -5574,50 +5634,13 @@ describe("Studio PWA", () => {
             created_at: "2026-07-02T00:00:00Z",
             updated_at: "2026-07-02T00:01:00Z",
             cancelled_at: null,
+            cancel_requested_at: null,
+            attempt_count: 0,
             started_at: null,
             finished_at: null,
             error_code: null,
             error_message: null,
-            sources: [
-              {
-                id: "s2",
-                project_id: "p1",
-                position: 1,
-                job_source_status: "queued",
-                source_type: "local_upload",
-                original_filename: "ready-local.ogg",
-                mime_type: "audio/ogg",
-                size_bytes: 4096,
-                drive_file_id: null,
-                drive_file_url: secretLike,
-                upload_status: "uploaded",
-                uploaded_at: "2026-07-01T00:02:00",
-                expires_at: null,
-                deleted_at: null,
-                delete_reason: null,
-                created_at: "2026-07-01T00:00:00",
-                updated_at: "2026-07-01T00:00:00",
-              },
-              {
-                id: "s1",
-                project_id: "p1",
-                position: 0,
-                job_source_status: "queued",
-                source_type: "google_drive",
-                original_filename: "ready-drive.mp4",
-                mime_type: "video/mp4",
-                size_bytes: 2048,
-                drive_file_id: "drive-file-1",
-                drive_file_url: "https://drive.example/file/job-source",
-                upload_status: "uploaded",
-                uploaded_at: "2026-07-01T00:01:00",
-                expires_at: null,
-                deleted_at: null,
-                delete_reason: null,
-                created_at: "2026-07-01T00:00:00",
-                updated_at: "2026-07-01T00:00:00",
-              },
-            ],
+            sources: jobSources,
           });
         if (url.endsWith("/api/jobs/job-1/cancel") && init?.method === "POST")
           return json({
@@ -5628,7 +5651,7 @@ describe("Studio PWA", () => {
             provider: null,
             provider_credential_id: "cred-active",
             source_count: 2,
-            sources: [],
+            sources: jobSources,
             created_at: "2026-07-02T00:00:00Z",
             updated_at: "2026-07-02T00:02:00Z",
             cancelled_at: "2026-07-02T00:02:00Z",
@@ -5798,16 +5821,11 @@ describe("Studio PWA", () => {
     expect(
       within(detail).getAllByText("Статус обработки: В очереди"),
     ).toHaveLength(2);
-    const jobSourceLink = within(detail).getByRole("link", {
-      name: "Открыть файл в Google Drive в новой вкладке",
-    });
-    expect(jobSourceLink).toHaveAttribute(
-      "href",
-      "https://drive.example/file/job-source",
-    );
-    expect(jobSourceLink).toHaveAttribute("target", "_blank");
-    expect(jobSourceLink).toHaveAttribute("rel", "noopener noreferrer");
-    expect(jobSourceLink.closest(".resource-actions")).not.toBeNull();
+    expect(
+      within(detail).queryByRole("link", {
+        name: "Открыть файл в Google Drive в новой вкладке",
+      }),
+    ).not.toBeInTheDocument();
     await waitFor(() =>
       expect(fetch).toHaveBeenCalledWith(
         "/api/jobs/job-1/outputs",
@@ -7138,7 +7156,7 @@ describe("Studio PWA", () => {
                 id: "source-a",
                 project_id: "pA",
                 position: 0,
-                job_source_status: "completed",
+                job_source_status: "queued",
                 source_type: "local_upload",
                 original_filename: "project-a-source.ogg",
                 mime_type: "audio/ogg",
@@ -8500,6 +8518,74 @@ describe("Studio PWA", () => {
     }
   });
 
+  it("rejects malformed or cross-project source and job collections", async () => {
+    installFocusedOutputFixture();
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/projects/p1/sources") && !init?.method) {
+        return json({
+          sources: [
+            {
+              id: "source-unsafe",
+              project_id: "project-other",
+              source_type: "google_drive",
+              original_filename: "raw-private-source.mp3",
+              mime_type: "audio/mpeg",
+              size_bytes: 1234,
+              drive_file_url: null,
+              upload_status: "uploaded",
+              uploaded_at: "2026-08-14T10:00:00Z",
+              expires_at: null,
+              deleted_at: null,
+              delete_reason: null,
+              created_at: "2026-08-14T09:00:00Z",
+              updated_at: "2026-08-14T10:00:00Z",
+              s3_object_key: "raw-private-storage-key",
+            },
+          ],
+        });
+      }
+      if (url.endsWith("/api/projects/p1/jobs") && !init?.method) {
+        return json({
+          jobs: [
+            {
+              id: "job-unsafe",
+              project_id: "p1",
+              status: "private-status",
+              title: "raw-private-job",
+              provider: null,
+              source_count: 0,
+              created_at: "2026-08-14T09:00:00Z",
+              updated_at: "2026-08-14T10:00:00Z",
+              cancelled_at: null,
+              cancel_requested_at: null,
+              attempt_count: 0,
+              started_at: null,
+              finished_at: null,
+              error_code: null,
+              error_message: null,
+              lease_owner_id: "raw-private-worker",
+            },
+          ],
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({});
+    });
+
+    renderApp();
+    await openProjectsPage();
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
+
+    expect(
+      await screen.findByText("Не удалось загрузить файлы проекта."),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText("Не удалось загрузить задачи проекта."),
+    ).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("raw-private");
+  });
+
   it("does not request job outputs until explicit job detail opening", async () => {
     installFocusedOutputFixture();
     renderApp();
@@ -8592,6 +8678,127 @@ describe("Studio PWA", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("rejects malformed job detail and output DTOs without raw rendering", async () => {
+    installFocusedOutputFixture();
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/jobs/job-focused" && !init?.method) {
+        return json({
+          id: "job-other",
+          project_id: "p1",
+          status: "processing",
+          title: "raw-private-detail",
+          provider: null,
+          source_count: 0,
+          sources: [],
+          created_at: "2026-08-14T09:00:00Z",
+          updated_at: "2026-08-14T10:00:00Z",
+          cancelled_at: null,
+          cancel_requested_at: null,
+          attempt_count: 1,
+          started_at: null,
+          finished_at: null,
+          error_code: null,
+          error_message: null,
+          lease_owner_id: "raw-private-detail-owner",
+        });
+      }
+      if (url === "/api/jobs/job-focused/outputs" && !init?.method) {
+        return json({
+          job_id: "job-focused",
+          job_status: "completed",
+          output_count: 1,
+          outputs: [
+            {
+              source_id: "source-focused",
+              source_position: 0,
+              source_name: "raw-private-output",
+              source_type: "google_drive",
+              output_kind: "google_doc",
+              transcript_standard: "transcript_doc_v1.2",
+              web_view_url: "https://evil.example/raw-private-link",
+              link_available: true,
+              document_character_count: 10,
+              document_created_at: "2026-08-14T10:00:00Z",
+              persisted_at: "2026-08-14T10:01:00Z",
+              document_id: "raw-private-document-id",
+            },
+          ],
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({});
+    });
+
+    await openFocusedJobsList();
+    await userEvent.click(screen.getByRole("button", { name: "Открыть" }));
+
+    expect(
+      await screen.findByText("Не удалось загрузить детали задачи."),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText("Не удалось загрузить результаты."),
+    ).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("raw-private");
+  });
+
+  it("rejects inconsistent retry and reconciliation authority DTOs", async () => {
+    installFocusedOutputFixture({ jobStatus: "failed" });
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/jobs/job-focused/retry" && !init?.method) {
+        return json({
+          job_id: "job-focused",
+          job_status: "failed",
+          available: true,
+          reason: "non_retryable",
+          attempt_count: 1,
+          max_attempts: 3,
+          missing_output_count: 1,
+          retry_safe_source_count: 0,
+          raw_checkpoint: "raw-private-checkpoint",
+        });
+      }
+      if (
+        url === "/api/jobs/job-focused/output-reconciliation" &&
+        !init?.method
+      ) {
+        return json({
+          job_id: "job-focused",
+          job_status: "failed",
+          available: true,
+          counts: {
+            prepared: 0,
+            creation_returned: 0,
+            reconciliation_required: 0,
+            resolved: 0,
+            conflict: 0,
+          },
+          cases: [],
+          raw_google_token: "raw-private-google-token",
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({});
+    });
+
+    await openFocusedJobsList();
+    await userEvent.click(screen.getByRole("button", { name: "Открыть" }));
+    expect(
+      await screen.findByLabelText("Job detail job-focused"),
+    ).toBeInTheDocument();
+
+    expect(
+      screen.queryByRole("button", { name: "Повторить безопасную обработку" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", {
+        name: "Проверить созданный документ в Google Drive",
+      }),
+    ).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("raw-private");
   });
 
   it("keeps only the latest repeated job detail refresh", async () => {
@@ -8858,7 +9065,7 @@ describe("Studio PWA", () => {
         provider: null,
         provider_credential_id: "cred-active",
         source_count: 1,
-        sources: [],
+        sources: [focusedJobDetailSource],
         created_at: "2026-07-02T00:00:00Z",
         updated_at: "2026-07-02T00:02:00Z",
         cancelled_at: "2026-07-02T00:02:00Z",
@@ -8878,6 +9085,71 @@ describe("Studio PWA", () => {
     ).toBeInTheDocument();
     expect(cancelCalls).toBe(2);
     expect(document.body.textContent).not.toContain("raw cancellation failure");
+  });
+
+  it("rejects malformed direct cancellation authority without raw rendering", async () => {
+    installFocusedOutputFixture({ jobStatus: "queued" });
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        String(url).endsWith("/api/jobs/job-focused/cancel") &&
+        init?.method === "POST"
+      ) {
+        return json({
+          id: "job-other",
+          project_id: "p1",
+          status: "cancelled",
+          raw_worker_lease: "raw-private-cancel-lease",
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({});
+    });
+
+    await openFocusedJobsList();
+    await userEvent.click(screen.getByRole("button", { name: "Отменить" }));
+
+    expect(
+      await screen.findByText("Не удалось отменить задачу. Повторите позже."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Отменить" })).toBeEnabled();
+    expect(document.body.textContent).not.toContain("raw-private");
+  });
+
+  it("rejects malformed direct dismissal authority without raw rendering", async () => {
+    installFocusedOutputFixture({ jobStatus: "completed" });
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        String(url).endsWith("/api/jobs/job-focused/dismiss") &&
+        init?.method === "POST"
+      ) {
+        return json({
+          id: "job-focused",
+          project_id: "p1",
+          status: "completed",
+          terminal_dismissed_at: null,
+          raw_storage_key: "raw-private-dismiss-storage",
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({});
+    });
+
+    await openFocusedJobsList();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Убрать в историю" }),
+    );
+
+    expect(
+      await screen.findByText(
+        "Не удалось убрать задачу в историю. Повторите позже.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Убрать в историю" }),
+    ).toBeEnabled();
+    expect(document.body.textContent).not.toContain("raw-private");
   });
 
   it("keeps source deletion ownership and safe outcomes across project switches", async () => {
@@ -9302,7 +9574,7 @@ describe("Studio PWA", () => {
           provider_credential_id: "cred-active",
           terminal_dismissed_at: null,
           source_count: 1,
-          sources: [],
+          sources: [focusedJobDetailSource],
           created_at: "2026-07-02T00:00:00Z",
           updated_at: "2026-07-02T00:02:00Z",
           cancelled_at: "2026-07-02T00:02:00Z",
@@ -9328,8 +9600,24 @@ describe("Studio PWA", () => {
       job_id: "job-focused",
       job_status: "failed",
       available: true,
-      counts: { reconciliation_required: 1 },
-      cases: [],
+      counts: {
+        prepared: 0,
+        creation_returned: 0,
+        reconciliation_required: 1,
+        resolved: 0,
+        conflict: 0,
+      },
+      cases: [
+        {
+          job_source_id: "source-focused",
+          status: "reconciliation_required",
+          reason: "provider_outcome_uncertain",
+          prepared_at: "2026-07-02T00:02:00Z",
+          last_checked_at: null,
+          resolved: false,
+          resolved_at: null,
+        },
+      ],
     };
     installFocusedOutputFixture({
       jobStatus: "failed",
@@ -9477,9 +9765,13 @@ describe("Studio PWA", () => {
       await json({
         ...retryResponse,
         job_status: "queued",
-        available: false,
-        reason: "already_queued",
-        attempt_count: 2,
+        available: true,
+        reason: "available",
+        missing_output_count: 0,
+        retry_safe_source_count: 0,
+        resumable_provider_part_count: 0,
+        provider_total_part_count: 0,
+        provider_failure_code: null,
       }),
     );
     await waitFor(() =>
@@ -9536,7 +9828,7 @@ describe("Studio PWA", () => {
           provider: null,
           terminal_dismissed_at: null,
           source_count: 1,
-          sources: [],
+          sources: [focusedJobDetailSource],
           created_at: "2026-07-02T00:00:00Z",
           updated_at: "2026-07-02T00:02:00Z",
           cancelled_at: "2026-07-02T00:02:00Z",
@@ -9678,8 +9970,13 @@ describe("Studio PWA", () => {
             ? {
                 ...beforeRetry,
                 job_status: "queued",
-                available: false,
-                reason: "job_not_failed",
+                available: true,
+                reason: "available",
+                missing_output_count: 0,
+                retry_safe_source_count: 0,
+                resumable_provider_part_count: 0,
+                provider_total_part_count: 0,
+                provider_failure_code: null,
               }
             : beforeRetry,
         );
@@ -9723,13 +10020,22 @@ describe("Studio PWA", () => {
       job_id: "job-focused",
       job_status: "failed",
       available: true,
-      counts: { reconciliation_required: 1 },
+      counts: {
+        prepared: 0,
+        creation_returned: 0,
+        reconciliation_required: 1,
+        resolved: 0,
+        conflict: 0,
+      },
       cases: [
         {
           job_source_id: "source-1",
           status: "reconciliation_required",
+          reason: "provider_outcome_uncertain",
+          prepared_at: "2026-07-02T00:02:00Z",
           resolved: false,
           last_checked_at: null,
+          resolved_at: null,
         },
       ],
     };
@@ -9916,6 +10222,7 @@ describe("Studio PWA", () => {
         return json({ login_csrf_token: "login-csrf" });
       if (url.endsWith("/api/auth/login"))
         return json({
+          authenticated: true,
           user: { email: "user@example.com", role: "admin" },
           csrf_token: "csrf-login",
         });
@@ -9985,6 +10292,365 @@ describe("Studio PWA", () => {
     ).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Повторить" }));
     await waitForPlatformOverview();
+  });
+
+  it("bounds and retries both authenticated bootstrap stages", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const sessionSignals: AbortSignal[] = [];
+    const csrfSignals: AbortSignal[] = [];
+    let secondAttemptSessionSignal: AbortSignal | undefined;
+    let sessionReads = 0;
+    let csrfReads = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/auth/session")) {
+        sessionReads += 1;
+        const signal = init?.signal;
+        if (!signal) throw new Error("Session bootstrap signal is missing");
+        if (sessionReads === 1) {
+          sessionSignals.push(signal);
+          return new Promise<Response>((_resolve, reject) => {
+            signal.addEventListener("abort", () => reject(signal.reason));
+          });
+        }
+        if (sessionReads === 2) secondAttemptSessionSignal = signal;
+        return json({
+          authenticated: true,
+          user: { email: "current@example.com", role: "admin" },
+        });
+      }
+      if (url.endsWith("/api/auth/csrf") && init?.method === "POST") {
+        csrfReads += 1;
+        const signal = init.signal;
+        if (!signal) throw new Error("CSRF bootstrap signal is missing");
+        if (csrfReads === 1) {
+          csrfSignals.push(signal);
+          return new Promise<Response>((_resolve, reject) => {
+            signal.addEventListener("abort", () => reject(signal.reason));
+          });
+        }
+        return json({
+          csrf_token: "csrf-current",
+          user: { email: "current@example.com", role: "admin" },
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 15_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      renderApp();
+      expect(
+        await screen.findByText(
+          "Не удалось проверить сессию. Повторите попытку.",
+        ),
+      ).toBeInTheDocument();
+      expect(sessionSignals).toHaveLength(1);
+      expect(sessionSignals[0]?.aborted).toBe(true);
+      expect(
+        screen.queryByRole("heading", { name: "Вход" }),
+      ).not.toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole("button", { name: "Повторить" }));
+      await waitFor(() => expect(csrfSignals).toHaveLength(1));
+      expect(csrfSignals[0]).toBe(secondAttemptSessionSignal);
+      expect(csrfSignals[0]?.aborted).toBe(true);
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        "Не удалось проверить сессию",
+      );
+
+      await userEvent.click(screen.getByRole("button", { name: "Повторить" }));
+      await waitForPlatformOverview();
+      expect(sessionReads).toBe(3);
+      expect(csrfReads).toBe(2);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("rejects malformed bootstrap responses without rendering raw fields", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let sessionReads = 0;
+    let csrfReads = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/auth/session")) {
+        sessionReads += 1;
+        if (sessionReads === 1) {
+          return json({
+            authenticated: true,
+            user: { email: "safe@example.com", role: "raw-session-role" },
+            raw_session_field: "raw-session-secret",
+          });
+        }
+        return json({
+          authenticated: true,
+          user: { email: "safe@example.com", role: "user" },
+        });
+      }
+      if (url.endsWith("/api/auth/csrf") && init?.method === "POST") {
+        csrfReads += 1;
+        if (csrfReads === 1) {
+          return json({
+            csrf_token: "raw-csrf-token",
+            user: { email: "other@example.com", role: "user" },
+            raw_csrf_field: "raw-csrf-secret",
+          });
+        }
+        return json({
+          csrf_token: "csrf-safe",
+          user: { email: "safe@example.com", role: "user" },
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Не удалось проверить сессию",
+    );
+    expect(document.body.textContent).not.toContain("raw-session-role");
+    expect(document.body.textContent).not.toContain("raw-session-secret");
+    expect(
+      screen.queryByRole("heading", { name: "Вход" }),
+    ).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Повторить" }));
+    await waitFor(() => expect(csrfReads).toBe(1));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Не удалось проверить сессию",
+    );
+    expect(document.body.textContent).not.toContain("raw-csrf-token");
+    expect(document.body.textContent).not.toContain("raw-csrf-secret");
+    expect(document.body.textContent).not.toContain("other@example.com");
+
+    await userEvent.click(screen.getByRole("button", { name: "Повторить" }));
+    await waitForPlatformOverview();
+    expect(sessionReads).toBe(3);
+    expect(csrfReads).toBe(2);
+  });
+
+  it("aborts and ignores an older StrictMode bootstrap across session generations", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let sessionReads = 0;
+    let csrfReads = 0;
+    let olderSignal: AbortSignal | undefined;
+    let resolveOlderSession: ((response: Response) => void) | undefined;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/auth/session")) {
+        sessionReads += 1;
+        if (sessionReads === 1) {
+          olderSignal = init?.signal;
+          return new Promise<Response>((resolve) => {
+            resolveOlderSession = resolve;
+          });
+        }
+        return json({
+          authenticated: true,
+          user: { email: "current@example.com", role: "admin" },
+        });
+      }
+      if (url.endsWith("/api/auth/csrf") && init?.method === "POST") {
+        csrfReads += 1;
+        const lateOlderAttempt = csrfReads > 1;
+        return json({
+          csrf_token: lateOlderAttempt ? "csrf-older" : "csrf-current",
+          user: lateOlderAttempt
+            ? { email: "older@example.com", role: "user" }
+            : { email: "current@example.com", role: "admin" },
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    render(
+      <StrictMode>
+        <App />
+      </StrictMode>,
+    );
+    await waitForPlatformOverview();
+    expect(sessionReads).toBeGreaterThanOrEqual(2);
+    expect(olderSignal?.aborted).toBe(true);
+    expect(resolveOlderSession).toBeDefined();
+
+    await act(async () => {
+      resolveOlderSession?.(
+        await json({
+          authenticated: true,
+          user: { email: "older@example.com", role: "user" },
+          raw_session_field: "late-raw-session-field",
+        }),
+      );
+    });
+    await waitFor(() => expect(csrfReads).toBeGreaterThanOrEqual(2));
+    await openSettingsPage();
+    expect(await screen.findByText("current@example.com")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("older@example.com");
+    expect(document.body.textContent).not.toContain("late-raw-session-field");
+
+    await userEvent.click(screen.getByRole("button", { name: "Выйти" }));
+    expect(
+      await screen.findByRole("heading", { name: "Вход" }),
+    ).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("older@example.com");
+  });
+
+  it("reconciles an ambiguous logout without replaying the mutation", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let sessionReads = 0;
+    let csrfReads = 0;
+    let logoutCalls = 0;
+    let timedOutLogoutSignal: AbortSignal | undefined;
+    const logoutTokens: string[] = [];
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/auth/session")) {
+        sessionReads += 1;
+        return json({
+          authenticated: true,
+          user: { email: "logout@example.com", role: "admin" },
+        });
+      }
+      if (url.endsWith("/api/auth/csrf") && init?.method === "POST") {
+        csrfReads += 1;
+        return json({
+          csrf_token: csrfReads === 1 ? "csrf-initial" : "csrf-reconciled",
+          user: { email: "logout@example.com", role: "admin" },
+        });
+      }
+      if (url.endsWith("/api/auth/logout") && init?.method === "POST") {
+        logoutCalls += 1;
+        logoutTokens.push(String(new Headers(init.headers).get("x-csrf-token")));
+        if (logoutCalls === 1) {
+          timedOutLogoutSignal = init.signal;
+          if (!timedOutLogoutSignal) {
+            throw new Error("Logout signal is missing");
+          }
+          return new Promise<Response>((_resolve, reject) => {
+            timedOutLogoutSignal?.addEventListener("abort", () =>
+              reject(timedOutLogoutSignal?.reason),
+            );
+          });
+        }
+        return json({ ok: true });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 20_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      renderApp();
+      await openSettingsPage();
+      const logoutButton = screen.getByRole("button", { name: "Выйти" });
+      fireEvent.click(logoutButton);
+      fireEvent.click(logoutButton);
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        "Не удалось подтвердить выход",
+      );
+      expect(screen.getByText("logout@example.com")).toBeInTheDocument();
+      expect(timedOutLogoutSignal?.aborted).toBe(true);
+      expect(logoutCalls).toBe(1);
+      expect(sessionReads).toBe(2);
+      expect(csrfReads).toBe(2);
+
+      await userEvent.click(screen.getByRole("button", { name: "Выйти" }));
+      expect(
+        await screen.findByRole("heading", { name: "Вход" }),
+      ).toBeInTheDocument();
+      expect(logoutCalls).toBe(2);
+      expect(logoutTokens).toEqual(["csrf-initial", "csrf-reconciled"]);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("accepts an authoritative anonymous reconciliation after malformed logout success", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let sessionReads = 0;
+    let logoutCalls = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/auth/session")) {
+        sessionReads += 1;
+        if (sessionReads > 1) {
+          return json({ detail: "raw-session-ended" }, false, 401);
+        }
+        return json({
+          authenticated: true,
+          user: { email: "logout@example.com", role: "user" },
+        });
+      }
+      if (url.endsWith("/api/auth/csrf") && init?.method === "POST") {
+        return json({
+          csrf_token: "csrf-initial",
+          user: { email: "logout@example.com", role: "user" },
+        });
+      }
+      if (url.endsWith("/api/auth/logout") && init?.method === "POST") {
+        logoutCalls += 1;
+        return json({ ok: "raw-ok", raw_logout_field: "raw-logout-secret" });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openSettingsPage();
+    await userEvent.click(screen.getByRole("button", { name: "Выйти" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Вход" }),
+    ).toBeInTheDocument();
+    expect(logoutCalls).toBe(1);
+    expect(sessionReads).toBe(2);
+    expect(document.body.textContent).not.toContain("raw-ok");
+    expect(document.body.textContent).not.toContain("raw-logout-secret");
+    expect(document.body.textContent).not.toContain("raw-session-ended");
+  });
+
+  it("aborts logout ownership on root-shell teardown and ignores late success", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    let logoutSignal: AbortSignal | undefined;
+    let resolveLogout: ((response: Response) => void) | undefined;
+    let sessionReads = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/auth/session")) sessionReads += 1;
+      if (url.endsWith("/api/auth/logout") && init?.method === "POST") {
+        logoutSignal = init.signal;
+        return new Promise<Response>((resolve) => {
+          resolveLogout = resolve;
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    const rendered = render(<App />);
+    await openSettingsPage();
+    await userEvent.click(screen.getByRole("button", { name: "Выйти" }));
+    await waitFor(() => expect(resolveLogout).toBeDefined());
+
+    rendered.unmount();
+    expect(logoutSignal?.aborted).toBe(true);
+    await act(async () => resolveLogout?.(await json({ ok: true })));
+    expect(sessionReads).toBe(1);
   });
 
   it("waits for confirmed Google connection before showing OAuth success", async () => {
@@ -11725,6 +12391,9 @@ describe("Studio PWA", () => {
 describe("settings diagnostics", () => {
   beforeEach(() => {
     cleanup();
+    vi.restoreAllMocks();
+    clearPwaDiagnosticsSession();
+    window.history.replaceState({}, "", "/");
     localStorage.clear();
     sessionStorage.clear();
     vi.stubGlobal(
@@ -11795,6 +12464,197 @@ describe("settings diagnostics", () => {
     );
   }
 
+  it("bounds, validates, and safely retries the settings audit collection", async () => {
+    installBasicPlatformSettingsFixture();
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = fetchMock.getMockImplementation();
+    let auditGets = 0;
+    let auditSignal: AbortSignal | undefined;
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/api/audit-events")) {
+          auditGets += 1;
+          auditSignal = init?.signal;
+          if (auditGets === 1) {
+            return json({
+              events: [
+                {
+                  id: "audit-malformed",
+                  type: "auth.login",
+                  created_at: "not-a-date",
+                  metadata: { raw: "raw-audit-metadata" },
+                },
+              ],
+              raw_response: "raw-audit-response",
+            });
+          }
+          return json({
+            events: [
+              {
+                id: "audit-safe",
+                type: "auth.login",
+                created_at: "2026-08-14T08:00:00Z",
+                metadata: { raw: "raw-audit-retry-metadata" },
+                raw_event: "raw-audit-event",
+              },
+            ],
+            raw_response: "raw-audit-retry-response",
+          });
+        }
+        return defaultFetch?.(input, init) ?? json({});
+      },
+    );
+    const timeoutSpy = vi.spyOn(globalThis, "setTimeout");
+
+    try {
+      renderApp();
+      await openDiagnosticsSettings();
+      expect(
+        await screen.findByText(
+          "Не удалось загрузить аудит безопасности. Повторите попытку.",
+        ),
+      ).toBeInTheDocument();
+      expect(auditSignal).toBeInstanceOf(AbortSignal);
+      expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), 15_000);
+      expect(document.body.textContent).not.toContain("raw-audit");
+      expect(
+        screen.queryByText("Событий аудита нет."),
+      ).not.toBeInTheDocument();
+
+      await userEvent.click(
+        screen.getByRole("button", { name: "Повторить загрузку аудита" }),
+      );
+      expect(await screen.findByText(/Вход выполнен/)).toBeInTheDocument();
+      expect(auditGets).toBe(2);
+      expect(document.body.textContent).not.toContain("raw-audit");
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("keeps a mutation-triggered audit refresh latest-wins", async () => {
+    installBasicPlatformSettingsFixture();
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = fetchMock.getMockImplementation();
+    let auditGets = 0;
+    let staleSignal: AbortSignal | undefined;
+    let resolveStale: ((response: Response) => void) | undefined;
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/api/audit-events")) {
+          auditGets += 1;
+          if (auditGets === 1) {
+            staleSignal = init?.signal;
+            return new Promise<Response>((resolve) => {
+              resolveStale = resolve;
+            });
+          }
+          return json({
+            events: [
+              {
+                id: "audit-new",
+                type: "credential.revoked",
+                created_at: "2026-08-14T08:01:00Z",
+              },
+            ],
+          });
+        }
+        return defaultFetch?.(input, init) ?? json({});
+      },
+    );
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    renderApp();
+    await openSettingsPage();
+    await waitFor(() => expect(resolveStale).toBeDefined());
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Отключить" }),
+    );
+    await waitFor(() => expect(auditGets).toBe(2));
+    expect(staleSignal?.aborted).toBe(true);
+    await act(async () =>
+      resolveStale?.(
+        await json({
+          events: [
+            {
+              id: "audit-stale",
+              type: "auth.login",
+              created_at: "2026-08-14T07:59:00Z",
+            },
+          ],
+        }),
+      ),
+    );
+
+    await userEvent.click(screen.getByRole("tab", { name: "Диагностика" }));
+    expect(await screen.findByText(/Ключ отозван/)).toBeInTheDocument();
+    expect(screen.queryByText(/Вход выполнен/)).not.toBeInTheDocument();
+    confirmSpy.mockRestore();
+  });
+
+  it("aborts audit ownership on settings teardown and ignores late success", async () => {
+    installBasicPlatformSettingsFixture();
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = fetchMock.getMockImplementation();
+    let auditGets = 0;
+    let auditSignal: AbortSignal | undefined;
+    let resolveAudit: ((response: Response) => void) | undefined;
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/api/audit-events")) {
+          auditGets += 1;
+          if (auditGets === 1) {
+            auditSignal = init?.signal;
+            return new Promise<Response>((resolve) => {
+              resolveAudit = resolve;
+            });
+          }
+          return json({
+            events: [
+              {
+                id: "audit-remount",
+                type: "auth.sessions_revoked",
+                created_at: "2026-08-14T08:02:00Z",
+              },
+            ],
+          });
+        }
+        return defaultFetch?.(input, init) ?? json({});
+      },
+    );
+
+    renderApp();
+    await openSettingsPage();
+    await waitFor(() => expect(resolveAudit).toBeDefined());
+    await userEvent.click(
+      within(screen.getByRole("navigation")).getByRole("button", {
+        name: "Обзор",
+      }),
+    );
+    expect(auditSignal?.aborted).toBe(true);
+    await act(async () =>
+      resolveAudit?.(
+        await json({
+          events: [
+            {
+              id: "audit-late",
+              type: "auth.login",
+              created_at: "2026-08-14T07:58:00Z",
+            },
+          ],
+        }),
+      ),
+    );
+
+    await openSettingsPage();
+    await userEvent.click(screen.getByRole("tab", { name: "Диагностика" }));
+    expect(await screen.findByText(/Другие сеансы завершены/)).toBeInTheDocument();
+    expect(screen.queryByText(/Вход выполнен/)).not.toBeInTheDocument();
+  });
+
   it("uses broad diagnostics export copy while preserving the common Markdown report endpoint", async () => {
     const originalURL = URL;
     const createObjectURL = vi.fn(() => "blob:diagnostics-report");
@@ -11859,7 +12719,7 @@ describe("settings diagnostics", () => {
           url.endsWith("/api/diagnostics/report.md") &&
           init?.method === "POST"
         )
-          return json(new Blob(["# Markdown"], { type: "text/markdown" }));
+          return markdownReport("# Markdown\n");
         return json({ ok: true });
       },
     );
@@ -11912,6 +12772,217 @@ describe("settings diagnostics", () => {
     clickSpy.mockRestore();
     cleanup();
     window.history.replaceState({}, "", "/");
+  });
+
+  it("bounds and deduplicates stalled diagnostics report export before retry", async () => {
+    installBasicPlatformSettingsFixture();
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = fetchMock.getMockImplementation();
+    let reportCalls = 0;
+    let reportSignal: AbortSignal | undefined;
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (
+          url.endsWith("/api/diagnostics/report.md") &&
+          init?.method === "POST"
+        ) {
+          reportCalls += 1;
+          reportSignal = init.signal;
+          if (reportCalls === 1) {
+            if (!reportSignal) throw new Error("report signal is missing");
+            return new Promise<Response>((_resolve, reject) => {
+              reportSignal?.addEventListener("abort", () =>
+                reject(new Error("raw-report-timeout")),
+              );
+            });
+          }
+          return markdownReport();
+        }
+        return defaultFetch?.(input, init) ?? json({});
+      },
+    );
+    const createObjectURL = vi.fn(() => "blob:bounded-report");
+    const revokeObjectURL = vi.fn();
+    URL.createObjectURL = createObjectURL;
+    URL.revokeObjectURL = revokeObjectURL;
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => undefined);
+
+    renderApp();
+    await openDiagnosticsSettings();
+    await screen.findByText("За выбранный период событий нет.");
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 20_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      const exportButton = screen.getByRole("button", {
+        name: "Скачать Markdown",
+      });
+      fireEvent.click(exportButton);
+      fireEvent.click(exportButton);
+      expect(
+        await screen.findByText(
+          "Не удалось скачать Markdown-отчёт. Повторите попытку.",
+        ),
+      ).toBeInTheDocument();
+      expect(reportSignal?.aborted).toBe(true);
+      expect(reportCalls).toBe(1);
+      expect(document.body.textContent).not.toContain("raw-report-timeout");
+
+      await userEvent.click(exportButton);
+      expect(
+        await screen.findByText("Markdown-отчёт скачан."),
+      ).toBeInTheDocument();
+      expect(reportCalls).toBe(2);
+      expect(createObjectURL).toHaveBeenCalledTimes(1);
+      expect(clickSpy).toHaveBeenCalledTimes(1);
+      expect(revokeObjectURL).toHaveBeenCalledWith("blob:bounded-report");
+    } finally {
+      timeoutSpy.mockRestore();
+      clickSpy.mockRestore();
+    }
+  });
+
+  it("retries report export only after exact CSRF rejection and validates Markdown", async () => {
+    installBasicPlatformSettingsFixture();
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = fetchMock.getMockImplementation();
+    const reportTokens: string[] = [];
+    let reportCalls = 0;
+    let csrfRequests = 0;
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (
+          url.endsWith("/api/auth/csrf") &&
+          init?.method === "POST"
+        ) {
+          csrfRequests += 1;
+          return json({
+            csrf_token:
+              csrfRequests === 1 ? "csrf-after-refresh" : "csrf-export-new",
+          });
+        }
+        if (
+          url.endsWith("/api/diagnostics/report.md") &&
+          init?.method === "POST"
+        ) {
+          reportCalls += 1;
+          reportTokens.push(
+            String((init.headers as Record<string, string>)["x-csrf-token"]),
+          );
+          if (reportCalls === 1) {
+            return json(
+              { detail: { reason: "origin_not_allowed", raw: "raw-origin" } },
+              false,
+              403,
+            );
+          }
+          if (reportCalls === 2) {
+            return json(
+              { detail: { reason: "csrf_token_invalid" } },
+              false,
+              403,
+            );
+          }
+          if (reportCalls === 3) {
+            return markdownReport("raw-invalid-report", 200, {
+              "content-type": "application/json",
+            });
+          }
+          return markdownReport();
+        }
+        return defaultFetch?.(input, init) ?? json({});
+      },
+    );
+    const createObjectURL = vi.fn(() => "blob:validated-report");
+    const revokeObjectURL = vi.fn();
+    URL.createObjectURL = createObjectURL;
+    URL.revokeObjectURL = revokeObjectURL;
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => undefined);
+
+    renderApp();
+    await openDiagnosticsSettings();
+    const exportButton = screen.getByRole("button", {
+      name: "Скачать Markdown",
+    });
+    await userEvent.click(exportButton);
+    await waitFor(() => expect(reportCalls).toBe(1));
+    expect(csrfRequests).toBe(1);
+    expect(createObjectURL).not.toHaveBeenCalled();
+
+    await userEvent.click(exportButton);
+    await waitFor(() => expect(reportCalls).toBe(3));
+    expect(csrfRequests).toBe(2);
+    expect(reportTokens).toEqual([
+      "csrf-after-refresh",
+      "csrf-after-refresh",
+      "csrf-export-new",
+    ]);
+    expect(createObjectURL).not.toHaveBeenCalled();
+    expect(document.body.textContent).not.toContain("raw-origin");
+    expect(document.body.textContent).not.toContain("raw-invalid-report");
+
+    await userEvent.click(exportButton);
+    expect(
+      await screen.findByText("Markdown-отчёт скачан."),
+    ).toBeInTheDocument();
+    expect(reportCalls).toBe(4);
+    expect(reportTokens.at(-1)).toBe("csrf-export-new");
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:validated-report");
+    clickSpy.mockRestore();
+  });
+
+  it("aborts report export ownership on diagnostics teardown", async () => {
+    installBasicPlatformSettingsFixture();
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = fetchMock.getMockImplementation();
+    let reportSignal: AbortSignal | undefined;
+    let resolveReport: ((response: Response) => void) | undefined;
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (
+          url.endsWith("/api/diagnostics/report.md") &&
+          init?.method === "POST"
+        ) {
+          reportSignal = init.signal;
+          return new Promise<Response>((resolve) => {
+            resolveReport = resolve;
+          });
+        }
+        return defaultFetch?.(input, init) ?? json({});
+      },
+    );
+    const createObjectURL = vi.fn(() => "blob:late-report");
+    URL.createObjectURL = createObjectURL;
+
+    renderApp();
+    await openDiagnosticsSettings();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Скачать Markdown" }),
+    );
+    await waitFor(() => expect(resolveReport).toBeDefined());
+    await userEvent.click(screen.getByRole("tab", { name: "Аккаунт" }));
+    expect(reportSignal?.aborted).toBe(true);
+
+    await act(async () => resolveReport?.(await markdownReport()));
+    expect(createObjectURL).not.toHaveBeenCalled();
+    expect(
+      screen.queryByText("Markdown-отчёт скачан."),
+    ).not.toBeInTheDocument();
   });
 
   it("restores URL-backed navigation without browser-stored navigation state", async () => {
@@ -12107,7 +13178,7 @@ describe("settings diagnostics", () => {
           url.endsWith("/api/diagnostics/report.md") &&
           init?.method === "POST"
         )
-          return json(new Blob(["# report"], { type: "text/markdown" }));
+          return markdownReport("# report\n");
         return json({ ok: true });
       },
     );
@@ -12239,7 +13310,7 @@ describe("settings diagnostics", () => {
           url.endsWith("/api/diagnostics/report.md") &&
           init?.method === "POST"
         )
-          return json(new Blob(["# Markdown"], { type: "text/markdown" }));
+          return markdownReport("# Markdown\n");
         return json({ ok: true });
       },
     );
@@ -12301,9 +13372,12 @@ describe("settings diagnostics", () => {
       "x-csrf-token": "csrf-after-refresh",
     });
     expect(reportCall?.[1]?.body).toContain('"level":"INFO"');
-    await waitFor(() =>
-      expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob)),
-    );
+    await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1));
+    const [downloadedBlob] = createObjectURL.mock.calls[0] as unknown as [Blob];
+    expect(downloadedBlob).toMatchObject({
+      size: 11,
+      type: "text/markdown;charset=utf-8",
+    });
     expect(clickSpy).toHaveBeenCalled();
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:diagnostics-report");
     expect(document.body.innerHTML).not.toContain(".txt");
@@ -12444,7 +13518,7 @@ describe("settings diagnostics", () => {
           url.endsWith("/api/diagnostics/report.md") &&
           init?.method === "POST"
         )
-          return json(new Blob(["# Markdown"], { type: "text/markdown" }));
+          return markdownReport("# Markdown\n");
         return json({ ok: true });
       },
     );
@@ -12555,7 +13629,14 @@ describe("settings diagnostics", () => {
             report_limits: {},
           });
         if (url.includes("/api/diagnostics/events"))
-          return json({ events: [], next_cursor: null, period: null });
+          return json({
+            events: [],
+            next_cursor: null,
+            period: {
+              start: "2026-07-16T00:00:00Z",
+              end: "2026-07-17T00:00:00Z",
+            },
+          });
         return json({ ok: true });
       },
     );
@@ -12634,7 +13715,14 @@ describe("settings diagnostics", () => {
             report_limits: {},
           });
         if (url.includes("/api/diagnostics/events"))
-          return json({ events: [], next_cursor: null, period: null });
+          return json({
+            events: [],
+            next_cursor: null,
+            period: {
+              start: "2026-07-16T00:00:00Z",
+              end: "2026-07-17T00:00:00Z",
+            },
+          });
         return json({ ok: true });
       },
     );
@@ -12717,8 +13805,269 @@ describe("settings diagnostics", () => {
       screen.getByText(/Не удалось загрузить состояние/),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Повторить" }),
+      screen.getByRole("button", { name: "Повторить загрузку состояния" }),
     ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Повторить загрузку событий" }),
+    ).toBeInTheDocument();
+  });
+
+  it("bounds and validates system status before explicit retry", async () => {
+    installBasicPlatformSettingsFixture();
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = fetchMock.getMockImplementation();
+    const systemSignals: AbortSignal[] = [];
+    let systemGets = 0;
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/api/diagnostics/system")) {
+          systemGets += 1;
+          const signal = init?.signal;
+          if (!signal) throw new Error("system status signal is missing");
+          systemSignals.push(signal);
+          if (systemGets === 1) {
+            return json({
+              build: { web: { raw: "raw-build-secret" } },
+              diagnostics: {},
+              google_drive: {},
+              provider_credentials: {},
+              report_limits: {},
+            });
+          }
+          return json({
+            environment: "production",
+            build: { web: "web-safe", api: "api-safe", worker: "worker-safe" },
+            diagnostics: {},
+            google_drive: {},
+            provider_credentials: {},
+            report_limits: {},
+            raw_system_field: "raw-system-secret",
+          });
+        }
+        return defaultFetch?.(input, init) ?? json({});
+      },
+    );
+    const timeoutSpy = vi.spyOn(globalThis, "setTimeout");
+
+    try {
+      renderApp();
+      await openDiagnosticsSettings();
+      expect(
+        await screen.findByText("Не удалось загрузить состояние."),
+      ).toBeInTheDocument();
+      expect(systemSignals[0]?.aborted).toBe(false);
+      expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), 15_000);
+      expect(document.body.textContent).not.toContain("raw-build-secret");
+
+      await userEvent.click(
+        screen.getByRole("button", { name: "Повторить загрузку состояния" }),
+      );
+      expect(await screen.findByText("web-safe")).toBeInTheDocument();
+      expect(document.body.textContent).not.toContain("raw-system-secret");
+      expect(systemGets).toBe(2);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("keeps filtered events latest-wins and paginates single-flight", async () => {
+    installBasicPlatformSettingsFixture();
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = fetchMock.getMockImplementation();
+    let eventGets = 0;
+    let staleSignal: AbortSignal | undefined;
+    let resolveStale: ((response: Response) => void) | undefined;
+    let resolvePage: ((response: Response) => void) | undefined;
+    const period = {
+      start: "2026-07-16T00:00:00Z",
+      end: "2026-07-17T00:00:00Z",
+    };
+    const event = (id: string, level: "ERROR" | "WARNING" | "INFO") => ({
+      id,
+      occurred_at: "2026-07-16T09:00:00Z",
+      level,
+      component: "api",
+      event_code: id,
+      occurrence_count: 1,
+    });
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/api/diagnostics/events")) {
+          eventGets += 1;
+          if (eventGets === 1) {
+            return json({
+              events: [event("INITIAL_EVENT", "INFO")],
+              next_cursor: null,
+              period,
+            });
+          }
+          if (eventGets === 2) {
+            staleSignal = init?.signal;
+            return new Promise<Response>((resolve) => {
+              resolveStale = resolve;
+            });
+          }
+          if (eventGets === 3) {
+            return json({
+              events: [{ ...event("MALFORMED_EVENT", "WARNING"), level: "RAW" }],
+              next_cursor: null,
+              period,
+              raw_events_field: "raw-events-secret",
+            });
+          }
+          if (eventGets === 4) {
+            return json({
+              events: [
+                {
+                  ...event("LATEST_EVENT", "WARNING"),
+                  metadata: {
+                    retryable: true,
+                    transcript: "raw-transcript-secret",
+                  },
+                  raw_event_field: "raw-event-secret",
+                },
+              ],
+              next_cursor: "safe-cursor",
+              period,
+            });
+          }
+          return new Promise<Response>((resolve) => {
+            resolvePage = resolve;
+          });
+        }
+        return defaultFetch?.(input, init) ?? json({});
+      },
+    );
+
+    renderApp();
+    await openDiagnosticsSettings();
+    expect(await screen.findByText("INITIAL_EVENT")).toBeInTheDocument();
+
+    await userEvent.selectOptions(screen.getByLabelText("Уровень"), "ERROR");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Применить фильтры" }),
+    );
+    await waitFor(() => expect(resolveStale).toBeDefined());
+    await userEvent.selectOptions(screen.getByLabelText("Уровень"), "WARNING");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Применить фильтры" }),
+    );
+    expect(
+      await screen.findByText("Не удалось загрузить события."),
+    ).toBeInTheDocument();
+    expect(staleSignal?.aborted).toBe(true);
+    expect(screen.queryByText("MALFORMED_EVENT")).not.toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Повторить загрузку событий" }),
+    );
+    expect(await screen.findByText("LATEST_EVENT")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("raw-events-secret");
+    expect(document.body.textContent).not.toContain("raw-event-secret");
+    expect(document.body.textContent).not.toContain("raw-transcript-secret");
+
+    const more = screen.getByRole("button", { name: "Показать ещё" });
+    fireEvent.click(more);
+    fireEvent.click(more);
+    expect(eventGets).toBe(5);
+    await act(async () =>
+      resolvePage?.(
+        await json({
+          events: [
+            event("LATEST_EVENT", "WARNING"),
+            event("PAGE_EVENT", "INFO"),
+          ],
+          next_cursor: null,
+          period,
+        }),
+      ),
+    );
+    expect(await screen.findByText("PAGE_EVENT")).toBeInTheDocument();
+    expect(screen.getAllByText("LATEST_EVENT")).toHaveLength(1);
+
+    await act(async () =>
+      resolveStale?.(
+        await json({
+          events: [event("STALE_EVENT", "ERROR")],
+          next_cursor: null,
+          period,
+        }),
+      ),
+    );
+    expect(screen.queryByText("STALE_EVENT")).not.toBeInTheDocument();
+  });
+
+  it("aborts system and event read ownership on diagnostics teardown", async () => {
+    installBasicPlatformSettingsFixture();
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = fetchMock.getMockImplementation();
+    let systemSignal: AbortSignal | undefined;
+    let eventsSignal: AbortSignal | undefined;
+    let resolveSystem: ((response: Response) => void) | undefined;
+    let resolveEvents: ((response: Response) => void) | undefined;
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/api/diagnostics/system")) {
+          systemSignal = init?.signal;
+          return new Promise<Response>((resolve) => {
+            resolveSystem = resolve;
+          });
+        }
+        if (url.includes("/api/diagnostics/events")) {
+          eventsSignal = init?.signal;
+          return new Promise<Response>((resolve) => {
+            resolveEvents = resolve;
+          });
+        }
+        return defaultFetch?.(input, init) ?? json({});
+      },
+    );
+
+    renderApp();
+    await openDiagnosticsSettings();
+    await waitFor(() => {
+      expect(resolveSystem).toBeDefined();
+      expect(resolveEvents).toBeDefined();
+    });
+    await userEvent.click(screen.getByRole("tab", { name: "Аккаунт" }));
+    expect(systemSignal?.aborted).toBe(true);
+    expect(eventsSignal?.aborted).toBe(true);
+
+    await act(async () => {
+      resolveSystem?.(
+        await json({
+          environment: "late-system",
+          build: {},
+          diagnostics: {},
+          google_drive: {},
+          provider_credentials: {},
+          report_limits: {},
+        }),
+      );
+      resolveEvents?.(
+        await json({
+          events: [
+            {
+              id: "LATE_EVENT",
+              occurred_at: "2026-07-16T09:00:00Z",
+              level: "INFO",
+              component: "api",
+              event_code: "LATE_EVENT",
+            },
+          ],
+          next_cursor: null,
+          period: {
+            start: "2026-07-16T00:00:00Z",
+            end: "2026-07-17T00:00:00Z",
+          },
+        }),
+      );
+    });
+    expect(screen.queryByText("late-system")).not.toBeInTheDocument();
+    expect(screen.queryByText("LATE_EVENT")).not.toBeInTheDocument();
   });
 });
 
@@ -12916,7 +14265,7 @@ describe("Settings DEBUG session controls", () => {
         if (url.endsWith("/api/auth/session"))
           return json({
             authenticated: true,
-            user: { email: "safe@example.test", role: "owner" },
+            user: { email: "safe@example.test", role: "user" },
           });
         if (url.endsWith("/api/auth/csrf"))
           return json({ csrf_token: "csrf-safe" });
@@ -13038,7 +14387,7 @@ describe("Settings DEBUG session controls", () => {
         if (url.endsWith("/api/auth/session"))
           return json({
             authenticated: true,
-            user: { email: "safe@example.test", role: "owner" },
+            user: { email: "safe@example.test", role: "user" },
           });
         if (url.endsWith("/api/auth/csrf"))
           return json({ csrf_token: "csrf-safe" });
@@ -13122,7 +14471,7 @@ describe("Settings DEBUG session controls", () => {
         if (url.endsWith("/api/auth/session"))
           return json({
             authenticated: true,
-            user: { email: "safe@example.test", role: "owner" },
+            user: { email: "safe@example.test", role: "user" },
           });
         if (url.endsWith("/api/auth/csrf") && init?.method === "POST")
           return json({ csrf_token: newToken });
@@ -13275,6 +14624,209 @@ describe("Settings DEBUG session controls", () => {
     );
     await waitFor(() => expect(postedPwaEventsFrom(fetchMock)).toHaveLength(2));
     expect(postedPwaEventsFrom(fetchMock).at(-1)?.level).toBeUndefined();
+  });
+
+  it("bounds and validates DEBUG status reads before explicit retry", async () => {
+    const { fetchMock } = installSettingsFetch([]);
+    const defaultFetch = fetchMock.getMockImplementation();
+    const debugSignals: AbortSignal[] = [];
+    let debugGets = 0;
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (
+          url.endsWith("/api/diagnostics/debug-session") &&
+          (!init?.method || init.method === "GET")
+        ) {
+          debugGets += 1;
+          if (debugGets === 1) {
+            const signal = init?.signal;
+            if (!signal) throw new Error("DEBUG status signal is missing");
+            debugSignals.push(signal);
+            return new Promise<Response>((_resolve, reject) => {
+              signal.addEventListener("abort", () => reject(signal.reason));
+            });
+          }
+          if (debugGets === 2) {
+            return json({
+              active: "raw-active",
+              raw_debug_field: "raw-debug-secret",
+            });
+          }
+          return json({ active: false, raw_ignored_field: "raw-ignored" });
+        }
+        return defaultFetch?.(input, init) ?? json({});
+      },
+    );
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 15_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      await openDiagnostics();
+      expect(
+        await screen.findByText("Не удалось загрузить статус DEBUG."),
+      ).toBeInTheDocument();
+      expect(debugSignals[0]?.aborted).toBe(true);
+
+      await userEvent.click(
+        screen.getByRole("button", { name: "Повторить проверку DEBUG" }),
+      );
+      expect(
+        await screen.findByText("Не удалось загрузить статус DEBUG."),
+      ).toBeInTheDocument();
+      expect(document.body.textContent).not.toContain("raw-active");
+      expect(document.body.textContent).not.toContain("raw-debug-secret");
+
+      await userEvent.click(
+        screen.getByRole("button", { name: "Повторить проверку DEBUG" }),
+      );
+      expect(await screen.findByText("DEBUG не активна")).toBeInTheDocument();
+      expect(document.body.textContent).not.toContain("raw-ignored");
+      expect(debugGets).toBe(3);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("reconciles bounded DEBUG start and stop without mutation replay", async () => {
+    const { fetchMock } = installSettingsFetch([]);
+    const defaultFetch = fetchMock.getMockImplementation();
+    let debugGets = 0;
+    let startCalls = 0;
+    let stopCalls = 0;
+    let startSignal: AbortSignal | undefined;
+    const startedAt = new Date(Date.now()).toISOString();
+    const expiresAt = new Date(Date.now() + 600000).toISOString();
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (
+          url.endsWith("/api/diagnostics/debug-session") &&
+          (!init?.method || init.method === "GET")
+        ) {
+          debugGets += 1;
+          return debugGets === 2
+            ? json({ active: true, started_at: startedAt, expires_at: expiresAt })
+            : json({ active: false });
+        }
+        if (
+          url.endsWith("/api/diagnostics/debug-session") &&
+          init?.method === "POST"
+        ) {
+          startCalls += 1;
+          startSignal = init.signal;
+          if (!startSignal) throw new Error("DEBUG start signal is missing");
+          return new Promise<Response>((_resolve, reject) => {
+            startSignal?.addEventListener("abort", () =>
+              reject(startSignal?.reason),
+            );
+          });
+        }
+        if (
+          url.endsWith("/api/diagnostics/debug-session") &&
+          init?.method === "DELETE"
+        ) {
+          stopCalls += 1;
+          return json({
+            active: "raw-stopped",
+            raw_stop_field: "raw-stop-secret",
+          });
+        }
+        return defaultFetch?.(input, init) ?? json({});
+      },
+    );
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 20_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      await openDiagnostics();
+      const start = await screen.findByRole("button", {
+        name: "Включить DEBUG",
+      });
+      fireEvent.click(start);
+      fireEvent.click(start);
+      expect(
+        await screen.findByText("DEBUG включена. Статус подтверждён."),
+      ).toBeInTheDocument();
+      expect(startSignal?.aborted).toBe(true);
+      expect(startCalls).toBe(1);
+      expect(debugGets).toBe(2);
+
+      const stop = screen.getByRole("button", { name: "Остановить DEBUG" });
+      fireEvent.click(stop);
+      fireEvent.click(stop);
+      expect(
+        await screen.findByText("DEBUG остановлена. Статус подтверждён."),
+      ).toBeInTheDocument();
+      expect(stopCalls).toBe(1);
+      expect(debugGets).toBe(3);
+      expect(document.body.textContent).not.toContain("raw-stopped");
+      expect(document.body.textContent).not.toContain("raw-stop-secret");
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("aborts DEBUG mutation ownership on diagnostics teardown", async () => {
+    const { fetchMock } = installSettingsFetch([
+      { active: false, started_at: null, expires_at: null },
+    ]);
+    const defaultFetch = fetchMock.getMockImplementation();
+    let startSignal: AbortSignal | undefined;
+    let resolveStart: ((response: Response) => void) | undefined;
+    let startCalls = 0;
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (
+          url.endsWith("/api/diagnostics/debug-session") &&
+          init?.method === "POST"
+        ) {
+          startCalls += 1;
+          startSignal = init.signal;
+          return new Promise<Response>((resolve) => {
+            resolveStart = resolve;
+          });
+        }
+        return defaultFetch?.(input, init) ?? json({});
+      },
+    );
+
+    await openDiagnostics();
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Включить DEBUG" }),
+    );
+    await waitFor(() => expect(resolveStart).toBeDefined());
+    await userEvent.click(screen.getByRole("tab", { name: "Аккаунт" }));
+
+    expect(startSignal?.aborted).toBe(true);
+    await act(async () =>
+      resolveStart?.(
+        await json({
+          active: true,
+          started_at: new Date(Date.now()).toISOString(),
+          expires_at: new Date(Date.now() + 600000).toISOString(),
+        }),
+      ),
+    );
+    expect(startCalls).toBe(1);
+    expect(
+      screen.queryByText("DEBUG включена."),
+    ).not.toBeInTheDocument();
   });
 
   it("expires local DEBUG once and failed refresh does not poll every second", async () => {

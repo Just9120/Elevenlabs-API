@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { TranscriptionAnalyticsPanel } from "./TranscriptionAnalyticsPanel";
@@ -61,7 +61,10 @@ describe("TranscriptionAnalyticsPanel", () => {
       screen.getByText("Аналитика транскрибаций"),
     );
     await waitFor(() =>
-      expect(loadAnalytics).toHaveBeenCalledWith("project-private-id"),
+      expect(loadAnalytics).toHaveBeenCalledWith(
+        "project-private-id",
+        expect.any(AbortSignal),
+      ),
     );
 
     expect(await screen.findByText("ElevenLabs · scribe_v2 2")).toBeInTheDocument();
@@ -103,5 +106,132 @@ describe("TranscriptionAnalyticsPanel", () => {
       await screen.findByText(/Аналитика временно недоступна/),
     ).toBeInTheDocument();
     expect(screen.queryByText("private text")).not.toBeInTheDocument();
+  });
+
+  it("bounds a stalled read and retries without exposing raw failures", async () => {
+    let requests = 0;
+    let stalledSignal: AbortSignal | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_url: string, init?: RequestInit) => {
+        requests += 1;
+        if (requests === 1) {
+          stalledSignal = init?.signal;
+          return new Promise<Response>((_resolve, reject) => {
+            stalledSignal?.addEventListener("abort", () =>
+              reject(new Error("raw-analytics-timeout")),
+            );
+          });
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify(analytics), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        );
+      }),
+    );
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 15_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      render(<TranscriptionAnalyticsPanel projectId="p1" />);
+      await userEvent.click(screen.getByText("Аналитика транскрибаций"));
+      expect(
+        await screen.findByText(/Аналитика временно недоступна/),
+      ).toBeInTheDocument();
+      expect(stalledSignal?.aborted).toBe(true);
+      expect(requests).toBe(1);
+      expect(document.body.textContent).not.toContain("raw-analytics-timeout");
+
+      await userEvent.click(screen.getByRole("button", { name: "Обновить" }));
+      expect(await screen.findByText("Задачи")).toBeInTheDocument();
+      expect(requests).toBe(2);
+    } finally {
+      timeoutSpy.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("aborts project teardown and ignores a late stale success", async () => {
+    let staleSignal: AbortSignal | undefined;
+    let resolveStale: ((value: unknown) => void) | undefined;
+    const currentAnalytics = {
+      ...analytics,
+      durations: {
+        ...analytics.durations,
+        queue: {
+          sample_count: 2,
+          average_seconds: 99,
+          p50_seconds: 90,
+          p95_seconds: 120,
+        },
+      },
+    };
+    const loadAnalytics = vi.fn((projectId: string, signal?: AbortSignal) => {
+      if (projectId === "p1") {
+        staleSignal = signal;
+        return new Promise((resolve) => {
+          resolveStale = resolve;
+        });
+      }
+      return Promise.resolve(currentAnalytics);
+    });
+    const { rerender } = render(
+      <TranscriptionAnalyticsPanel
+        key="p1"
+        projectId="p1"
+        loadAnalytics={loadAnalytics}
+      />,
+    );
+    await userEvent.click(screen.getByText("Аналитика транскрибаций"));
+    await waitFor(() => expect(resolveStale).toBeDefined());
+
+    rerender(
+      <TranscriptionAnalyticsPanel
+        key="p2"
+        projectId="p2"
+        loadAnalytics={loadAnalytics}
+      />,
+    );
+    expect(staleSignal?.aborted).toBe(true);
+    await userEvent.click(screen.getByText("Аналитика транскрибаций"));
+    expect(await screen.findByText("Среднее: 1 мин 39 с")).toBeInTheDocument();
+
+    await act(async () => resolveStale?.(analytics));
+    expect(screen.getByText("Среднее: 1 мин 39 с")).toBeInTheDocument();
+    expect(screen.queryByText("Среднее: 15 с")).not.toBeInTheDocument();
+  });
+
+  it("preserves confirmed aggregates when an explicit refresh fails", async () => {
+    const loadAnalytics = vi
+      .fn()
+      .mockResolvedValueOnce(analytics)
+      .mockRejectedValueOnce(new Error("raw-analytics-refresh-failure"));
+    render(
+      <TranscriptionAnalyticsPanel
+        projectId="p1"
+        loadAnalytics={loadAnalytics}
+      />,
+    );
+    await userEvent.click(screen.getByText("Аналитика транскрибаций"));
+    expect(await screen.findByText("ElevenLabs · scribe_v2 2")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Обновить" }));
+    expect(
+      await screen.findByText(/показана последняя подтверждённая версия/),
+    ).toBeInTheDocument();
+    expect(screen.getByText("ElevenLabs · scribe_v2 2")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain(
+      "raw-analytics-refresh-failure",
+    );
+    expect(loadAnalytics).toHaveBeenCalledTimes(2);
   });
 });

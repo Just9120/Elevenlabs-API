@@ -20,7 +20,7 @@ import {
   api,
   batchMutateWithCsrfRetry,
   mutateWithCsrfRetry,
-  requestJson,
+  responseWithCsrfRetry,
 } from "./apiClient";
 import {
   cancelLatestRequests,
@@ -67,7 +67,25 @@ import {
   type SourceDeletionNotice,
 } from "./SourcesPanel";
 import { JobCard } from "./JobCard";
-import { Login, type User } from "./Login";
+import { Login } from "./Login";
+import {
+  parseAuthenticatedSessionResponse,
+  parseCsrfResponse,
+  parseLogoutResponse,
+  type User,
+} from "./authContracts";
+import {
+  requestCredentialCollection,
+  type Credential,
+} from "./credentialContracts";
+import {
+  parseJobDetailResponse,
+  parseJobSummaryResponse,
+  requestJobDetail,
+  requestJobOutputs,
+  requestProjectJobCollection,
+  requestProjectSourceCollection,
+} from "./projectCollectionContracts";
 import { PlatformSidebar } from "./PlatformSidebar";
 import {
   isApprovedOutputUrl,
@@ -95,9 +113,11 @@ import {
   type ComposerRow,
 } from "./batchComposerModel";
 import {
+  parseJobRetryResponse,
+  parseOutputReconciliationCheckResponse,
+  parseOutputReconciliationResponse,
   type JobRetryResponse,
   type JobRetryState,
-  type OutputReconciliationCheckResponse,
   type OutputReconciliationResponse,
   type OutputReconciliationState,
 } from "./jobRecoveryModel";
@@ -155,57 +175,6 @@ function isExpectedAccountPreferences(
     )
   );
 }
-type Credential = {
-  id: string;
-  provider: "elevenlabs" | "openai";
-  label: string;
-  status: "active" | "revoked";
-  masked_value: string | null;
-  active_version: number | null;
-};
-function isExpectedCredential(candidate: unknown): candidate is Credential {
-  if (!candidate || typeof candidate !== "object") return false;
-  const credential = candidate as Partial<Credential>;
-  return (
-    typeof credential.id === "string" &&
-    credential.id.length > 0 &&
-    (credential.provider === "elevenlabs" || credential.provider === "openai") &&
-    typeof credential.label === "string" &&
-    credential.label.trim().length > 0 &&
-    (credential.status === "active" || credential.status === "revoked") &&
-    (credential.masked_value === null ||
-      (typeof credential.masked_value === "string" &&
-        credential.masked_value.length > 0)) &&
-    (credential.active_version === null ||
-      (Number.isInteger(credential.active_version) &&
-        (credential.active_version as number) > 0))
-  );
-}
-function parseCredentialCollection(candidate: unknown): Credential[] | null {
-  if (!candidate || typeof candidate !== "object") return null;
-  const credentials = (candidate as { credentials?: unknown }).credentials;
-  if (!Array.isArray(credentials) || !credentials.every(isExpectedCredential)) {
-    return null;
-  }
-  if (
-    new Set(credentials.map((credential) => credential.id)).size !==
-    credentials.length
-  ) {
-    return null;
-  }
-  return credentials;
-}
-async function requestCredentialCollection(
-  signal?: AbortSignal,
-): Promise<Credential[]> {
-  const candidate = await api<unknown>("/credentials", {
-    signal,
-    ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
-  });
-  const credentials = parseCredentialCollection(candidate);
-  if (credentials === null) throw new Error("invalid_credentials_response");
-  return credentials;
-}
 function isExpectedCredentialCreateResponse(
   candidate: unknown,
 ): candidate is Pick<Credential, "id" | "provider" | "label" | "status" | "masked_value"> {
@@ -243,6 +212,46 @@ function isExpectedOkResponse(candidate: unknown): candidate is { ok: true } {
   );
 }
 type Audit = { id: string; type: string; created_at: string };
+function parseAuditCollection(candidate: unknown): Audit[] | null {
+  if (!candidate || typeof candidate !== "object") return null;
+  const rawEvents = (candidate as { events?: unknown }).events;
+  if (!Array.isArray(rawEvents) || rawEvents.length > 50) return null;
+  const events: Audit[] = [];
+  for (const rawEvent of rawEvents) {
+    if (!rawEvent || typeof rawEvent !== "object") return null;
+    const event = rawEvent as Record<string, unknown>;
+    if (
+      typeof event.id !== "string" ||
+      event.id.length === 0 ||
+      event.id.length > 36 ||
+      typeof event.type !== "string" ||
+      event.type.length === 0 ||
+      event.type.length > 80 ||
+      typeof event.created_at !== "string" ||
+      !Number.isFinite(Date.parse(event.created_at))
+    ) {
+      return null;
+    }
+    events.push({
+      id: event.id,
+      type: event.type,
+      created_at: event.created_at,
+    });
+  }
+  if (new Set(events.map((event) => event.id)).size !== events.length) {
+    return null;
+  }
+  return events;
+}
+async function requestAuditCollection(signal?: AbortSignal): Promise<Audit[]> {
+  const candidate = await api<unknown>("/audit-events", {
+    signal,
+    ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+  });
+  const events = parseAuditCollection(candidate);
+  if (events === null) throw new Error("invalid_audit_events_response");
+  return events;
+}
 type DiagnosticsSystem = {
   environment?: string;
   pwa_mode?: string;
@@ -287,12 +296,260 @@ type DiagnosticsEventsResponse = {
   next_cursor?: string | null;
   period: { start: string; end: string };
 };
+function isDiagnosticsRecord(
+  candidate: unknown,
+): candidate is Record<string, unknown> {
+  return Boolean(candidate) && typeof candidate === "object" && !Array.isArray(candidate);
+}
+function hasOptionalDiagnosticsString(
+  record: Record<string, unknown>,
+  key: string,
+) {
+  return (
+    record[key] === undefined ||
+    (typeof record[key] === "string" && (record[key] as string).length <= 120)
+  );
+}
+function hasOptionalDiagnosticsBoolean(
+  record: Record<string, unknown>,
+  key: string,
+) {
+  return record[key] === undefined || typeof record[key] === "boolean";
+}
+function hasOptionalDiagnosticsCount(
+  record: Record<string, unknown>,
+  key: string,
+) {
+  return (
+    record[key] === undefined ||
+    (Number.isInteger(record[key]) && (record[key] as number) >= 0)
+  );
+}
+function parseDiagnosticsSystem(candidate: unknown): DiagnosticsSystem | null {
+  if (!isDiagnosticsRecord(candidate)) return null;
+  const build = candidate.build;
+  const googleDrive = candidate.google_drive;
+  const credentials = candidate.provider_credentials;
+  const diagnostics = candidate.diagnostics;
+  const reportLimits = candidate.report_limits;
+  if (
+    !isDiagnosticsRecord(build) ||
+    !isDiagnosticsRecord(googleDrive) ||
+    !isDiagnosticsRecord(credentials) ||
+    !isDiagnosticsRecord(diagnostics) ||
+    !isDiagnosticsRecord(reportLimits) ||
+    !hasOptionalDiagnosticsString(candidate, "environment") ||
+    !hasOptionalDiagnosticsString(candidate, "pwa_mode") ||
+    !["web", "api", "worker"].every((key) =>
+      hasOptionalDiagnosticsString(build, key),
+    ) ||
+    !["connected", "scope_ready"].every((key) =>
+      hasOptionalDiagnosticsBoolean(googleDrive, key),
+    ) ||
+    !hasOptionalDiagnosticsCount(credentials, "active_count") ||
+    !hasOptionalDiagnosticsBoolean(credentials, "ready") ||
+    !hasOptionalDiagnosticsBoolean(diagnostics, "recording_enabled") ||
+    !hasOptionalDiagnosticsString(diagnostics, "debug_recording") ||
+    !hasOptionalDiagnosticsCount(diagnostics, "retention_days") ||
+    !hasOptionalDiagnosticsCount(diagnostics, "debug_retention_hours") ||
+    !hasOptionalDiagnosticsCount(reportLimits, "max_days") ||
+    !hasOptionalDiagnosticsCount(reportLimits, "max_timeline_events")
+  ) {
+    return null;
+  }
+  return {
+    environment: candidate.environment as string | undefined,
+    pwa_mode: candidate.pwa_mode as string | undefined,
+    build: {
+      web: build.web as string | undefined,
+      api: build.api as string | undefined,
+      worker: build.worker as string | undefined,
+    },
+    google_drive: {
+      connected: googleDrive.connected as boolean | undefined,
+      scope_ready: googleDrive.scope_ready as boolean | undefined,
+    },
+    provider_credentials: {
+      active_count: credentials.active_count as number | undefined,
+      ready: credentials.ready as boolean | undefined,
+    },
+    diagnostics: {
+      recording_enabled: diagnostics.recording_enabled as boolean | undefined,
+      debug_recording: diagnostics.debug_recording as string | undefined,
+      retention_days: diagnostics.retention_days as number | undefined,
+      debug_retention_hours: diagnostics.debug_retention_hours as
+        | number
+        | undefined,
+    },
+    report_limits: {
+      max_days: reportLimits.max_days as number | undefined,
+      max_timeline_events: reportLimits.max_timeline_events as
+        | number
+        | undefined,
+    },
+  };
+}
+function parseDiagnosticsEvent(candidate: unknown): DiagnosticsEvent | null {
+  if (!isDiagnosticsRecord(candidate)) return null;
+  const occurredAt =
+    typeof candidate.occurred_at === "string"
+      ? Date.parse(candidate.occurred_at)
+      : Number.NaN;
+  const occurrenceCount = candidate.occurrence_count;
+  if (
+    typeof candidate.id !== "string" ||
+    candidate.id.length === 0 ||
+    candidate.id.length > 128 ||
+    !Number.isFinite(occurredAt) ||
+    !["ERROR", "WARNING", "INFO", "DEBUG"].includes(
+      String(candidate.level),
+    ) ||
+    !["web", "api", "worker"].includes(String(candidate.component)) ||
+    typeof candidate.event_code !== "string" ||
+    candidate.event_code.length === 0 ||
+    candidate.event_code.length > 80 ||
+    (occurrenceCount !== undefined &&
+      (!Number.isInteger(occurrenceCount) || (occurrenceCount as number) < 1)) ||
+    (candidate.metadata !== undefined &&
+      !isDiagnosticsRecord(candidate.metadata))
+  ) {
+    return null;
+  }
+  const metadata: Record<string, string | number | boolean | null> = {};
+  if (isDiagnosticsRecord(candidate.metadata)) {
+    for (const [key, value] of Object.entries(candidate.metadata)) {
+      if (!diagnosticsMetadataKeys.has(key)) continue;
+      if (
+        value !== null &&
+        typeof value !== "string" &&
+        typeof value !== "number" &&
+        typeof value !== "boolean"
+      ) {
+        return null;
+      }
+      if (typeof value === "string" && value.length > 120) return null;
+      if (typeof value === "number" && !Number.isFinite(value)) return null;
+      metadata[key] = value;
+    }
+  }
+  return {
+    id: candidate.id,
+    occurred_at: candidate.occurred_at as string,
+    level: candidate.level as DiagnosticsEvent["level"],
+    component: candidate.component as DiagnosticsEvent["component"],
+    event_code: candidate.event_code,
+    ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
+    ...(occurrenceCount === undefined
+      ? {}
+      : { occurrence_count: occurrenceCount as number }),
+  };
+}
+function parseDiagnosticsEventsResponse(
+  candidate: unknown,
+): DiagnosticsEventsResponse | null {
+  if (
+    !isDiagnosticsRecord(candidate) ||
+    !Array.isArray(candidate.events) ||
+    candidate.events.length > 25 ||
+    !isDiagnosticsRecord(candidate.period) ||
+    typeof candidate.period.start !== "string" ||
+    typeof candidate.period.end !== "string" ||
+    (candidate.next_cursor !== undefined &&
+      candidate.next_cursor !== null &&
+      (typeof candidate.next_cursor !== "string" ||
+        candidate.next_cursor.length === 0 ||
+        candidate.next_cursor.length > 1200))
+  ) {
+    return null;
+  }
+  const start = Date.parse(candidate.period.start);
+  const end = Date.parse(candidate.period.end);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) {
+    return null;
+  }
+  const events: DiagnosticsEvent[] = [];
+  const eventIds = new Set<string>();
+  for (const rawEvent of candidate.events) {
+    const event = parseDiagnosticsEvent(rawEvent);
+    if (!event || eventIds.has(event.id)) return null;
+    eventIds.add(event.id);
+    events.push(event);
+  }
+  return {
+    events,
+    next_cursor: candidate.next_cursor as string | null | undefined,
+    period: { start: candidate.period.start, end: candidate.period.end },
+  };
+}
+async function requestDiagnosticsSystem(
+  signal?: AbortSignal,
+): Promise<DiagnosticsSystem> {
+  const candidate = await api<unknown>("/diagnostics/system", {
+    signal,
+    ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+  });
+  const system = parseDiagnosticsSystem(candidate);
+  if (!system) throw new Error("invalid_diagnostics_system_response");
+  return system;
+}
+async function requestDiagnosticsEvents(
+  query: string,
+  signal?: AbortSignal,
+): Promise<DiagnosticsEventsResponse> {
+  const candidate = await api<unknown>(`/diagnostics/events?${query}`, {
+    signal,
+    ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+  });
+  const response = parseDiagnosticsEventsResponse(candidate);
+  if (!response) throw new Error("invalid_diagnostics_events_response");
+  return response;
+}
 type DiagnosticsDebugSession = {
   active: boolean;
   started_at?: string | null;
   expires_at?: string | null;
-  server_time?: string | null;
 };
+function parseDiagnosticsDebugSession(
+  candidate: unknown,
+): DiagnosticsDebugSession | null {
+  if (!candidate || typeof candidate !== "object") return null;
+  const response = candidate as Record<string, unknown>;
+  if (typeof response.active !== "boolean") return null;
+  if (!response.active) {
+    return { active: false, started_at: null, expires_at: null };
+  }
+  if (
+    typeof response.started_at !== "string" ||
+    typeof response.expires_at !== "string"
+  ) {
+    return null;
+  }
+  const startedAt = Date.parse(response.started_at);
+  const expiresAt = Date.parse(response.expires_at);
+  if (
+    !Number.isFinite(startedAt) ||
+    !Number.isFinite(expiresAt) ||
+    expiresAt <= startedAt
+  ) {
+    return null;
+  }
+  return {
+    active: true,
+    started_at: response.started_at,
+    expires_at: response.expires_at,
+  };
+}
+async function requestDiagnosticsDebugSession(
+  signal?: AbortSignal,
+): Promise<DiagnosticsDebugSession> {
+  const candidate = await api<unknown>("/diagnostics/debug-session", {
+    signal,
+    ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+  });
+  const status = parseDiagnosticsDebugSession(candidate);
+  if (!status) throw new Error("invalid_diagnostics_debug_session_response");
+  return status;
+}
 type Project = {
   id: string;
   title: string;
@@ -700,21 +957,60 @@ const CREDENTIAL_COLLECTION_REQUEST_TIMEOUT_MS = 15_000;
 const CREDENTIAL_MUTATION_REQUEST_TIMEOUT_MS = 20_000;
 const ACCOUNT_PREFERENCES_REQUEST_TIMEOUT_MS = 15_000;
 const SOURCE_UPLOAD_POLICY_REQUEST_TIMEOUT_MS = 15_000;
+const SESSION_BOOTSTRAP_REQUEST_TIMEOUT_MS = 15_000;
+const LOGOUT_REQUEST_TIMEOUT_MS = 20_000;
+const DIAGNOSTICS_READ_REQUEST_TIMEOUT_MS = 15_000;
+const DIAGNOSTICS_EXPORT_REQUEST_TIMEOUT_MS = 20_000;
+const DIAGNOSTICS_DEBUG_REQUEST_TIMEOUT_MS = 15_000;
+const DIAGNOSTICS_DEBUG_MUTATION_TIMEOUT_MS = 20_000;
+const AUDIT_EVENT_REQUEST_TIMEOUT_MS = 15_000;
 const ACCOUNT_PREFERENCES_MUTATION_TIMEOUT_MS = 20_000;
 const GOOGLE_CONNECTION_REQUEST_TIMEOUT_MS = 15_000;
 const GOOGLE_CONNECTION_MUTATION_TIMEOUT_MS = 20_000;
-async function bootstrapSession(): Promise<{
+async function bootstrapSession(signal?: AbortSignal): Promise<{
   user: User;
   csrf: string;
-} | null> {
-  const session = await api<{ authenticated: boolean; user?: User }>(
-    "/auth/session",
-  );
-  if (!session.authenticated || !session.user) return null;
-  const csrf = await api<{ csrf_token: string }>("/auth/csrf", {
-    method: "POST",
+}> {
+  const sessionCandidate = await api<unknown>("/auth/session", {
+    signal,
+    ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
   });
-  return { user: session.user, csrf: csrf.csrf_token };
+  const user = parseAuthenticatedSessionResponse(sessionCandidate);
+  if (!user) throw new Error("invalid_auth_session_response");
+  const csrfCandidate = await api<unknown>("/auth/csrf", {
+    method: "POST",
+    signal,
+    ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+  });
+  const csrf = parseCsrfResponse(csrfCandidate, user);
+  if (!csrf) throw new Error("invalid_auth_csrf_response");
+  return { user, csrf };
+}
+async function requestLogout(
+  currentCsrf: string,
+  user: User,
+  signal?: AbortSignal,
+): Promise<void> {
+  let csrf = currentCsrf;
+  if (!csrf) {
+    const csrfCandidate = await api<unknown>("/auth/csrf", {
+      method: "POST",
+      signal,
+      ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+    });
+    const refreshedCsrf = parseCsrfResponse(csrfCandidate, user);
+    if (!refreshedCsrf) throw new Error("invalid_logout_csrf_response");
+    csrf = refreshedCsrf;
+  }
+  const responseCandidate = await api<unknown>("/auth/logout", {
+    method: "POST",
+    signal,
+    ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+    headers: { "x-csrf-token": csrf },
+  });
+  if (!parseLogoutResponse(responseCandidate)) {
+    throw new Error("invalid_logout_response");
+  }
 }
 async function csrfMutate<T>(
   path: string,
@@ -771,11 +1067,37 @@ async function readCredentialCollectionBounded(): Promise<Credential[] | null> {
     return null;
   }
 }
-async function readAfterJobMutationTimeout<T>(path: string): Promise<T | null> {
+async function requestJobRetryRead(jobId: string, signal?: AbortSignal) {
+  const candidate = await api<unknown>(`/jobs/${jobId}/retry`, {
+    signal,
+    ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+  });
+  const retry = parseJobRetryResponse(candidate, jobId);
+  if (!retry) throw new Error("invalid_job_retry_response");
+  return retry;
+}
+async function requestOutputReconciliationRead(
+  jobId: string,
+  signal?: AbortSignal,
+) {
+  const candidate = await api<unknown>(
+    `/jobs/${jobId}/output-reconciliation`,
+    {
+      signal,
+      ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+    },
+  );
+  const reconciliation = parseOutputReconciliationResponse(candidate, jobId);
+  if (!reconciliation) {
+    throw new Error("invalid_output_reconciliation_response");
+  }
+  return reconciliation;
+}
+async function readAfterJobMutationTimeout<T>(
+  request: (signal?: AbortSignal) => Promise<T>,
+): Promise<T | null> {
   try {
-    const result = await runBoundedRequest((signal) =>
-      api<T>(path, { signal }),
-    );
+    const result = await runBoundedRequest(request);
     return result.status === "completed" ? result.value : null;
   } catch {
     return null;
@@ -2271,18 +2593,14 @@ function PreparationPanel({
   }
   function settleLatestJobRead<T>(
     key: string,
-    path: string,
+    request: (signal?: AbortSignal) => Promise<T>,
     onSuccess: (value: T) => void,
     onFailure: (error: unknown) => void,
   ) {
     return settleLatestRequest(
       jobRequestEpochsRef.current,
       key,
-      (signal) =>
-        api<T>(path, {
-          signal,
-          ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
-        }),
+      request,
       onSuccess,
       onFailure,
       {
@@ -2304,7 +2622,7 @@ function PreparationPanel({
     await Promise.all([
       settleLatestJobRead<TranscriptionJob>(
         `detail:${jobId}`,
-        `/jobs/${jobId}`,
+        (signal) => requestJobDetail(jobId, project.id, signal),
         (loaded) =>
           setDetail((current) => ({
             ...current,
@@ -2322,7 +2640,7 @@ function PreparationPanel({
       ),
       settleLatestJobRead<JobRetryResponse>(
         `retry:${jobId}`,
-        `/jobs/${jobId}/retry`,
+        (signal) => requestJobRetryRead(jobId, signal),
         (data) =>
           setRetries((current) => ({
             ...current,
@@ -2348,7 +2666,7 @@ function PreparationPanel({
       ),
       settleLatestJobRead<OutputReconciliationResponse>(
         `reconciliation:${jobId}`,
-        `/jobs/${jobId}/output-reconciliation`,
+        (signal) => requestOutputReconciliationRead(jobId, signal),
         (data) =>
           setReconciliations((current) => ({
             ...current,
@@ -2374,7 +2692,7 @@ function PreparationPanel({
       ),
       settleLatestJobRead<JobOutputsResponse>(
         `outputs:${jobId}`,
-        `/jobs/${jobId}/outputs`,
+        (signal) => requestJobOutputs(jobId, signal),
         (data) =>
           setOutputs((current) => ({
             ...current,
@@ -2411,18 +2729,26 @@ function PreparationPanel({
       },
     }));
     try {
-      const request = await runBoundedRequest((signal) =>
-        csrfMutate<OutputReconciliationCheckResponse>(
+      const request = await runBoundedRequest(async (signal) => {
+        const candidate = await csrfMutate<unknown>(
           `/jobs/${jobId}/output-reconciliation/check`,
           csrf,
           onCsrf,
           { method: "POST", signal },
-        ),
-      );
+        );
+        const parsed = parseOutputReconciliationCheckResponse(
+          candidate,
+          jobId,
+        );
+        if (!parsed) {
+          throw new Error("invalid_output_reconciliation_check_response");
+        }
+        return parsed;
+      });
       if (request.status === "timed_out") {
         const observed =
           await readAfterJobMutationTimeout<OutputReconciliationResponse>(
-            `/jobs/${jobId}/output-reconciliation`,
+            (signal) => requestOutputReconciliationRead(jobId, signal),
           );
         const confirmed =
           observed !== null &&
@@ -2530,8 +2856,8 @@ function PreparationPanel({
         "partial_provider_resume_available",
         "partial_provider_restart_available",
       ].includes(beforeRetry?.reason ?? "");
-      const request = await runBoundedRequest((signal) =>
-        csrfMutate<JobRetryResponse>(
+      const request = await runBoundedRequest(async (signal) => {
+        const candidate = await csrfMutate<unknown>(
           `/jobs/${jobId}/retry`,
           csrf,
           onCsrf,
@@ -2542,11 +2868,14 @@ function PreparationPanel({
               ? JSON.stringify({ confirm_remaining_provider_cost: true })
               : undefined,
           },
-        ),
-      );
+        );
+        const parsed = parseJobRetryResponse(candidate, jobId);
+        if (!parsed) throw new Error("invalid_job_retry_response");
+        return parsed;
+      });
       if (request.status === "timed_out") {
         const observed = await readAfterJobMutationTimeout<JobRetryResponse>(
-          `/jobs/${jobId}/retry`,
+          (signal) => requestJobRetryRead(jobId, signal),
         );
         const confirmed =
           observed !== null && retryIsConfirmed(beforeRetry, observed);
@@ -2630,17 +2959,22 @@ function PreparationPanel({
     let notice: JobMutationNotice | undefined;
     setMessage("");
     try {
-      const request = await runBoundedRequest((signal) =>
-        csrfMutate<TranscriptionJob>(
+      const request = await runBoundedRequest(async (signal) => {
+        const candidate = await csrfMutate<unknown>(
           `/jobs/${jobId}/cancel`,
           csrf,
           onCsrf,
           { method: "POST", signal },
-        ),
-      );
+        );
+        const parsed = parseJobDetailResponse(candidate, project.id, jobId);
+        if (!parsed || !cancellationIsConfirmed(parsed)) {
+          throw new Error("invalid_job_cancel_response");
+        }
+        return parsed;
+      });
       if (request.status === "timed_out") {
         const observed = await readAfterJobMutationTimeout<TranscriptionJob>(
-          `/jobs/${jobId}`,
+          (signal) => requestJobDetail(jobId, project.id, signal),
         );
         const confirmed =
           observed !== null && cancellationIsConfirmed(observed);
@@ -2749,17 +3083,22 @@ function PreparationPanel({
     let notice: JobMutationNotice | undefined;
     setMessage("");
     try {
-      const request = await runBoundedRequest((signal) =>
-        csrfMutate<TranscriptionJob>(
+      const request = await runBoundedRequest(async (signal) => {
+        const candidate = await csrfMutate<unknown>(
           `/jobs/${jobId}/dismiss`,
           csrf,
           onCsrf,
           { method: "POST", signal },
-        ),
-      );
+        );
+        const parsed = parseJobSummaryResponse(candidate, project.id, jobId);
+        if (!parsed || !dismissalIsConfirmed(parsed)) {
+          throw new Error("invalid_job_dismiss_response");
+        }
+        return parsed;
+      });
       if (request.status === "timed_out") {
         const observed = await readAfterJobMutationTimeout<TranscriptionJob>(
-          `/jobs/${jobId}`,
+          (signal) => requestJobDetail(jobId, project.id, signal),
         );
         const confirmed =
           observed !== null && dismissalIsConfirmed(observed);
@@ -4403,11 +4742,7 @@ function ProjectsPage({
     void settleLatestRequest(
       requestEpochsRef.current,
       requestKey,
-      (signal) =>
-        api<{ sources: Source[] }>(`/projects/${projectId}/sources`, {
-          signal,
-          ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
-        }),
+      (signal) => requestProjectSourceCollection(projectId, signal),
       (result) =>
         setSources((current) => ({
           ...current,
@@ -4415,7 +4750,7 @@ function ProjectsPage({
             loading: false,
             error: "",
             loaded: true,
-            items: result.sources,
+            items: result,
           },
         })),
       () =>
@@ -4447,11 +4782,7 @@ function ProjectsPage({
     void settleLatestRequest(
       requestEpochsRef.current,
       requestKey,
-      (signal) =>
-        api<{ jobs: TranscriptionJob[] }>(`/projects/${projectId}/jobs`, {
-          signal,
-          ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
-        }),
+      (signal) => requestProjectJobCollection(projectId, signal),
       (result) =>
         setJobs((current) => ({
           ...current,
@@ -4459,7 +4790,7 @@ function ProjectsPage({
             loading: false,
             error: "",
             loaded: true,
-            items: result.jobs,
+            items: result,
           },
         })),
       () =>
@@ -5090,29 +5421,41 @@ async function diagnosticsReportBlob(
   filters: DiagnosticsFilters,
   csrf: string,
   onCsrf: (csrf: string) => void,
+  signal?: AbortSignal,
 ): Promise<Blob> {
   const body = JSON.stringify(reportPayload(filters));
-  const send = (token: string) =>
-    fetch(`/api/diagnostics/report.md`, {
+  const response = await responseWithCsrfRetry(
+    "/diagnostics/report.md",
+    csrf,
+    onCsrf,
+    {
       method: "POST",
-      credentials: "same-origin",
-      headers: { "content-type": "application/json", "x-csrf-token": token },
       body,
-    });
-  let res = await send(csrf);
+      signal,
+    },
+  );
+  const contentType = response.headers
+    .get("content-type")
+    ?.split(";", 1)[0]
+    .trim()
+    .toLowerCase();
+  const contentDisposition = response.headers.get("content-disposition") ?? "";
+  const cacheControl = response.headers.get("cache-control") ?? "";
   if (
-    !res.ok &&
-    (res.status === 401 || res.status === 403 || res.status === 419)
+    contentType !== "text/markdown" ||
+    !/^attachment(?:;|$)/i.test(contentDisposition) ||
+    !/filename="?[^";]+\.md"?(?:;|$)/i.test(contentDisposition) ||
+    !cacheControl
+      .split(",")
+      .some((directive) => directive.trim().toLowerCase() === "no-store")
   ) {
-    const refreshed = await api<{ csrf_token: string }>("/auth/csrf", {
-      method: "POST",
-    });
-    onCsrf(refreshed.csrf_token);
-    res = await send(refreshed.csrf_token);
+    throw new Error("invalid_diagnostics_report_response");
   }
-  if (!res.ok)
-    throw new Error("Не удалось подготовить Markdown-отчёт. Повторите позже.");
-  return res.blob();
+  const blob = await response.blob();
+  if (blob.size === 0) {
+    throw new Error("invalid_diagnostics_report_response");
+  }
+  return blob;
 }
 type DiagnosticsFilters = {
   days: string;
@@ -5231,6 +5574,8 @@ function SettingsPage({
   csrf,
   onCsrf,
   onLogout,
+  logoutPending,
+  logoutError,
   oauthResult,
   maintenanceOauthResult,
   credentialMutations,
@@ -5255,6 +5600,8 @@ function SettingsPage({
   csrf: string;
   onCsrf: (csrf: string) => void;
   onLogout: () => void;
+  logoutPending: boolean;
+  logoutError: string;
   oauthResult: GoogleOauthResult | null;
   maintenanceOauthResult: GoogleMaintenanceOauthResult | null;
   credentialMutations: CredentialMutationOperation[];
@@ -5300,6 +5647,14 @@ function SettingsPage({
   );
   const settingsMountedRef = useRef(true);
   const [events, setEvents] = useState<Audit[]>([]);
+  const [auditState, setAuditState] = useState<
+    "loading" | "ready" | "error"
+  >("loading");
+  const [auditMessage, setAuditMessage] = useState("");
+  const auditRequestEpochsRef = useRef(new Map<string, number>());
+  const auditRequestControllersRef = useRef(
+    new Map<string, AbortController>(),
+  );
   const [googleConnection, setGoogleConnection] =
     useState<GoogleConnection | null>(null);
   const [googleLoading, setGoogleLoading] = useState(true);
@@ -5411,10 +5766,34 @@ function SettingsPage({
     settingsMountedRef.current
       ? loadAccountPreferences({ reportFailure: false })
       : readAccountPreferencesBounded();
-  const loadAuditEvents = () => {
-    api<{ events: Audit[] }>("/audit-events")
-      .then((result) => setEvents(result.events))
-      .catch(() => setEvents([]));
+  const loadAuditEvents = async ({ reportFailure = true } = {}) => {
+    const hadConfirmedEvents = auditState === "ready";
+    if (!hadConfirmedEvents) setAuditState("loading");
+    if (reportFailure) setAuditMessage("");
+    await settleLatestRequest(
+      auditRequestEpochsRef.current,
+      "settings:audit-events",
+      requestAuditCollection,
+      (nextEvents) => {
+        setEvents(nextEvents);
+        setAuditState("ready");
+        setAuditMessage("");
+      },
+      () => {
+        setAuditState(hadConfirmedEvents ? "ready" : "error");
+        if (reportFailure) {
+          setAuditMessage(
+            hadConfirmedEvents
+              ? "Не удалось обновить аудит безопасности. Последний подтверждённый список сохранён."
+              : "Не удалось загрузить аудит безопасности. Повторите попытку.",
+          );
+        }
+      },
+      {
+        controllers: auditRequestControllersRef.current,
+        timeoutMs: AUDIT_EVENT_REQUEST_TIMEOUT_MS,
+      },
+    );
   };
   const loadCredentials = async ({ reportFailure = true } = {}): Promise<
     Credential[] | null
@@ -5454,7 +5833,7 @@ function SettingsPage({
   useEffect(() => {
     settingsMountedRef.current = true;
     void loadCredentials();
-    loadAuditEvents();
+    void loadAuditEvents();
     void loadGoogleConnection();
     void loadAccountPreferences();
     return () => {
@@ -5470,6 +5849,10 @@ function SettingsPage({
       cancelLatestRequests(
         googleRequestEpochsRef.current,
         googleRequestControllersRef.current,
+      );
+      cancelLatestRequests(
+        auditRequestEpochsRef.current,
+        auditRequestControllersRef.current,
       );
     };
   }, []);
@@ -5564,7 +5947,9 @@ function SettingsPage({
       }
     } finally {
       finishCredentialMutation(operation, notice);
-      if (settingsMountedRef.current) loadAuditEvents();
+      if (settingsMountedRef.current) {
+        void loadAuditEvents({ reportFailure: false });
+      }
     }
   }
   async function replace(e: FormEvent<HTMLFormElement>, id: string) {
@@ -5674,7 +6059,9 @@ function SettingsPage({
       }
     } finally {
       finishCredentialMutation(operation, notice);
-      if (settingsMountedRef.current) loadAuditEvents();
+      if (settingsMountedRef.current) {
+        void loadAuditEvents({ reportFailure: false });
+      }
     }
   }
   async function saveRetentionPreference(e: FormEvent<HTMLFormElement>) {
@@ -5763,7 +6150,9 @@ function SettingsPage({
       }
     } finally {
       finishRetentionMutation(operation, notice);
-      if (settingsMountedRef.current) loadAuditEvents();
+      if (settingsMountedRef.current) {
+        void loadAuditEvents({ reportFailure: false });
+      }
     }
   }  const mutateCredential = async (
     kind: "revoke" | "delete",
@@ -5858,7 +6247,9 @@ function SettingsPage({
       }
     } finally {
       finishCredentialMutation(operation, notice);
-      if (settingsMountedRef.current) loadAuditEvents();
+      if (settingsMountedRef.current) {
+        void loadAuditEvents({ reportFailure: false });
+      }
     }
   };
   const connectGoogle = async () => {
@@ -5911,7 +6302,9 @@ function SettingsPage({
       }
     } finally {
       finishGoogleConnectionMutation(operation, notice);
-      if (settingsMountedRef.current) loadAuditEvents();
+      if (settingsMountedRef.current) {
+        void loadAuditEvents({ reportFailure: false });
+      }
     }
   };
   const disconnectGoogle = async () => {
@@ -5977,7 +6370,9 @@ function SettingsPage({
       }
     } finally {
       finishGoogleConnectionMutation(operation, notice);
-      if (settingsMountedRef.current) loadAuditEvents();
+      if (settingsMountedRef.current) {
+        void loadAuditEvents({ reportFailure: false });
+      }
     }
   };
   const googleCanDisconnect = Boolean(
@@ -6022,7 +6417,14 @@ function SettingsPage({
         </button>
       </div>
       {section === "diagnostics" ? (
-        <DiagnosticsSettings csrf={csrf} onCsrf={onCsrf} auditEvents={events} />
+        <DiagnosticsSettings
+          csrf={csrf}
+          onCsrf={onCsrf}
+          auditEvents={events}
+          auditState={auditState}
+          auditMessage={auditMessage}
+          onRetryAudit={() => void loadAuditEvents()}
+        />
       ) : (
         <>
           <h2>Настройки аккаунта</h2>
@@ -6036,10 +6438,15 @@ function SettingsPage({
               <b>{user.email}</b>
               <span className="muted">{user.role}</span>
             </div>
-            <button className="secondary" onClick={onLogout}>
-              Выйти
+            <button
+              className="secondary"
+              onClick={onLogout}
+              disabled={logoutPending}
+            >
+              {logoutPending ? "Выходим…" : "Выйти"}
             </button>
           </section>
+          {logoutError && <p className="error" role="alert">{logoutError}</p>}
           <h3>Оформление</h3>
           <section className="card theme-preferences">
             <label>
@@ -6493,10 +6900,16 @@ function DiagnosticsSettings({
   csrf,
   onCsrf,
   auditEvents,
+  auditState,
+  auditMessage,
+  onRetryAudit,
 }: {
   csrf: string;
   onCsrf: (csrf: string) => void;
   auditEvents: Audit[];
+  auditState: "loading" | "ready" | "error";
+  auditMessage: string;
+  onRetryAudit: () => void;
 }) {
   const [system, setSystem] = useState<DiagnosticsSystem | null>(null);
   const [systemState, setSystemState] = useState<"loading" | "ready" | "error">(
@@ -6519,18 +6932,40 @@ function DiagnosticsSettings({
     "loading",
   );
   const [exportState, setExportState] = useState("");
+  const [exportPending, setExportPending] = useState(false);
   const [debugSession, setDebugSession] =
     useState<DiagnosticsDebugSession | null>(null);
   const [debugState, setDebugState] = useState<"loading" | "ready" | "error">(
     "loading",
   );
   const [debugActionState, setDebugActionState] = useState("");
+  const [debugMutationPending, setDebugMutationPending] = useState(false);
   const [debugDuration, setDebugDuration] = useState("10");
   const [debugTick, setDebugTick] = useState(0);
-  const debugRefreshInFlight = useRef(false);
+  const debugMutationPendingRef = useRef(false);
+  const debugRequestEpochsRef = useRef(new Map<string, number>());
+  const debugRequestControllersRef = useRef(
+    new Map<string, AbortController>(),
+  );
+  const diagnosticsReadEpochsRef = useRef(new Map<string, number>());
+  const diagnosticsReadControllersRef = useRef(
+    new Map<string, AbortController>(),
+  );
+  const eventsPagePendingRef = useRef(false);
+  const exportPendingRef = useRef(false);
+  const exportRequestEpochsRef = useRef(new Map<string, number>());
+  const exportRequestControllersRef = useRef(
+    new Map<string, AbortController>(),
+  );
+  const [failedEventsCursor, setFailedEventsCursor] = useState<string | null>(
+    null,
+  );
   const expiredDebugRefreshRequested = useRef(false);
   const loadEvents = (cursor?: string) => {
+    if (cursor && eventsPagePendingRef.current) return;
+    eventsPagePendingRef.current = Boolean(cursor);
     setEventsState("loading");
+    setFailedEventsCursor(null);
     const params = new URLSearchParams({ page_size: "25" });
     if (cursor) {
       params.set("cursor", cursor);
@@ -6544,28 +6979,77 @@ function DiagnosticsSettings({
       if (payload.project_id) params.set("project_id", payload.project_id);
       if (payload.job_id) params.set("job_id", payload.job_id);
     }
-    api<DiagnosticsEventsResponse>(`/diagnostics/events?${params.toString()}`)
-      .then((r) => {
+    void settleLatestRequest(
+      diagnosticsReadEpochsRef.current,
+      "diagnostics:events",
+      (signal) => requestDiagnosticsEvents(params.toString(), signal),
+      (r) => {
+        eventsPagePendingRef.current = false;
         setTimeline((current) =>
-          cursor ? [...current, ...r.events] : r.events,
+          cursor
+            ? [
+                ...current,
+                ...r.events.filter(
+                  (event) => !current.some((item) => item.id === event.id),
+                ),
+              ]
+            : r.events,
         );
         setPeriod(r.period);
         setNextCursor(r.next_cursor ?? null);
         setEventsState("ready");
-      })
-      .catch(() => {
-        if (!cursor) setTimeline([]);
+      },
+      () => {
+        eventsPagePendingRef.current = false;
+        setFailedEventsCursor(cursor ?? null);
+        if (!cursor) {
+          setTimeline([]);
+          setPeriod(null);
+          setNextCursor(null);
+        }
         setEventsState("error");
-      });
+      },
+      {
+        controllers: diagnosticsReadControllersRef.current,
+        timeoutMs: DIAGNOSTICS_READ_REQUEST_TIMEOUT_MS,
+      },
+    );
+  };
+  const loadSystem = () => {
+    setSystemState("loading");
+    void settleLatestRequest(
+      diagnosticsReadEpochsRef.current,
+      "diagnostics:system",
+      requestDiagnosticsSystem,
+      (response) => {
+        setSystem(response);
+        setSystemState("ready");
+      },
+      () => {
+        setSystem(null);
+        setSystemState("error");
+      },
+      {
+        controllers: diagnosticsReadControllersRef.current,
+        timeoutMs: DIAGNOSTICS_READ_REQUEST_TIMEOUT_MS,
+      },
+    );
   };
   useEffect(() => {
-    api<DiagnosticsSystem>("/diagnostics/system")
-      .then((r) => {
-        setSystem(r);
-        setSystemState("ready");
-      })
-      .catch(() => setSystemState("error"));
+    loadSystem();
     loadEvents();
+    return () => {
+      eventsPagePendingRef.current = false;
+      exportPendingRef.current = false;
+      cancelLatestRequests(
+        diagnosticsReadEpochsRef.current,
+        diagnosticsReadControllersRef.current,
+      );
+      cancelLatestRequests(
+        exportRequestEpochsRef.current,
+        exportRequestControllersRef.current,
+      );
+    };
   }, []);
   const applyFilters = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -6577,29 +7061,47 @@ function DiagnosticsSettings({
     (name: keyof DiagnosticsFilters) =>
     (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
       setFilters((current) => ({ ...current, [name]: event.target.value }));
+  const applyDebugSession = (status: DiagnosticsDebugSession) => {
+    setDebugSession(status);
+    configurePwaDiagnosticsDebugState({
+      active: status.active,
+      expiresAt: status.expires_at,
+    });
+    setDebugState("ready");
+  };
   const loadDebugSession = (options: { keepReady?: boolean } = {}) => {
-    if (debugRefreshInFlight.current) return;
-    debugRefreshInFlight.current = true;
     if (!options.keepReady) setDebugState("loading");
-    api<DiagnosticsDebugSession>("/diagnostics/debug-session")
-      .then((status) => {
+    void settleLatestRequest(
+      debugRequestEpochsRef.current,
+      "diagnostics:debug-session-read",
+      requestDiagnosticsDebugSession,
+      (status) => {
         expiredDebugRefreshRequested.current = false;
-        setDebugSession(status);
-        configurePwaDiagnosticsDebugState({
-          active: status.active,
-          expiresAt: status.expires_at,
-        });
-        setDebugState("ready");
-      })
-      .catch(() => {
+        applyDebugSession(status);
+      },
+      () => {
         configurePwaDiagnosticsDebugState({ active: false });
         setDebugState("error");
-      })
-      .finally(() => {
-        debugRefreshInFlight.current = false;
-      });
+      },
+      {
+        controllers: debugRequestControllersRef.current,
+        timeoutMs: DIAGNOSTICS_DEBUG_REQUEST_TIMEOUT_MS,
+      },
+    );
   };
-  useEffect(loadDebugSession, [csrf]);
+  useEffect(() => {
+    loadDebugSession();
+  }, [csrf]);
+  useEffect(
+    () => () => {
+      debugMutationPendingRef.current = false;
+      cancelLatestRequests(
+        debugRequestEpochsRef.current,
+        debugRequestControllersRef.current,
+      );
+    },
+    [],
+  );
   useEffect(() => {
     const timer = window.setInterval(
       () => setDebugTick((value) => value + 1),
@@ -6624,73 +7126,159 @@ function DiagnosticsSettings({
     expiredDebugRefreshRequested.current = true;
     loadDebugSession({ keepReady: true });
   }, [debugTick, debugSession?.active, debugSession?.expires_at, csrf]);
-  const startDebug = async () => {
-    setDebugActionState("Включаем DEBUG…");
-    try {
-      const status = await csrfMutate<DiagnosticsDebugSession>(
-        "/diagnostics/debug-session",
-        csrf,
-        onCsrf,
-        {
-          method: "POST",
-          body: JSON.stringify({ duration_minutes: Number(debugDuration) }),
-        },
-      );
-      setDebugSession(status);
-      configurePwaDiagnosticsDebugState({
-        active: status.active,
-        expiresAt: status.expires_at,
-      });
-      setDebugActionState("DEBUG включена.");
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 409) {
-        loadDebugSession();
+  const finishDebugMutation = () => {
+    debugMutationPendingRef.current = false;
+    setDebugMutationPending(false);
+  };
+  const reconcileDebugMutation = (
+    kind: "start" | "stop",
+    conflict = false,
+  ) => {
+    setDebugActionState("Проверяем актуальный статус DEBUG…");
+    void settleLatestRequest(
+      debugRequestEpochsRef.current,
+      "diagnostics:debug-session-read",
+      requestDiagnosticsDebugSession,
+      (status) => {
+        applyDebugSession(status);
+        finishDebugMutation();
+        if (kind === "start") {
+          setDebugActionState(
+            status.active
+              ? conflict
+                ? "DEBUG уже активна в другой вкладке. Статус обновлён."
+                : "DEBUG включена. Статус подтверждён."
+              : "Не удалось подтвердить включение DEBUG. Повторите попытку.",
+          );
+          return;
+        }
         setDebugActionState(
-          "DEBUG уже активна в другой вкладке. Статус обновлён.",
+          status.active
+            ? "Не удалось подтвердить остановку DEBUG. Повторите попытку."
+            : "DEBUG остановлена. Статус подтверждён.",
         );
-        return;
-      }
-      setDebugActionState("Не удалось включить DEBUG.");
-    }
+      },
+      () => {
+        finishDebugMutation();
+        setDebugActionState(
+          kind === "start"
+            ? "Не удалось подтвердить включение DEBUG. Повторите попытку."
+            : "Не удалось подтвердить остановку DEBUG. Повторите попытку.",
+        );
+      },
+      {
+        controllers: debugRequestControllersRef.current,
+        timeoutMs: DIAGNOSTICS_DEBUG_REQUEST_TIMEOUT_MS,
+      },
+    );
   };
-  const stopDebug = async () => {
-    setDebugActionState("Останавливаем DEBUG…");
-    try {
-      await csrfMutate<DiagnosticsDebugSession>(
-        "/diagnostics/debug-session",
-        csrf,
-        onCsrf,
-        { method: "DELETE" },
-      );
-      configurePwaDiagnosticsDebugState({ active: false });
-      loadDebugSession();
-      setDebugActionState("DEBUG остановлена.");
-    } catch {
-      setDebugActionState("Не удалось остановить DEBUG.");
-    }
+  const mutateDebugSession = (kind: "start" | "stop") => {
+    if (debugMutationPendingRef.current) return;
+    debugMutationPendingRef.current = true;
+    setDebugMutationPending(true);
+    setDebugActionState(
+      kind === "start" ? "Включаем DEBUG…" : "Останавливаем DEBUG…",
+    );
+    void settleLatestRequest(
+      debugRequestEpochsRef.current,
+      "diagnostics:debug-session-mutation",
+      async (signal) => {
+        const candidate = await csrfMutate<unknown>(
+          "/diagnostics/debug-session",
+          csrf,
+          onCsrf,
+          {
+            method: kind === "start" ? "POST" : "DELETE",
+            signal,
+            ...(kind === "start"
+              ? {
+                  body: JSON.stringify({
+                    duration_minutes: Number(debugDuration),
+                  }),
+                }
+              : {}),
+          },
+        );
+        const status = parseDiagnosticsDebugSession(candidate);
+        if (!status) {
+          throw new Error("invalid_diagnostics_debug_session_response");
+        }
+        return status;
+      },
+      (status) => {
+        const confirmed = kind === "start" ? status.active : !status.active;
+        if (!confirmed) {
+          reconcileDebugMutation(kind);
+          return;
+        }
+        applyDebugSession(status);
+        finishDebugMutation();
+        setDebugActionState(
+          kind === "start" ? "DEBUG включена." : "DEBUG остановлена.",
+        );
+      },
+      (failure) => {
+        reconcileDebugMutation(
+          kind,
+          kind === "start" &&
+            failure instanceof ApiError &&
+            failure.status === 409,
+        );
+      },
+      {
+        controllers: debugRequestControllersRef.current,
+        timeoutMs: DIAGNOSTICS_DEBUG_MUTATION_TIMEOUT_MS,
+      },
+    );
   };
+  const startDebug = () => mutateDebugSession("start");
+  const stopDebug = () => mutateDebugSession("stop");
 
-  const exportReport = async () => {
-    setExportState("Готовим Markdown-отчёт…");
-    try {
-      const blob = await diagnosticsReportBlob(filters, csrf, onCsrf);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = reportFileName();
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-      setExportState("Markdown-отчёт скачан.");
-    } catch (err) {
-      setExportState(
-        err instanceof Error
-          ? err.message
-          : "Не удалось скачать Markdown-отчёт.",
-      );
-    }
+  const finishExport = () => {
+    exportPendingRef.current = false;
+    setExportPending(false);
   };
+  const exportReport = () => {
+    if (exportPendingRef.current) return;
+    exportPendingRef.current = true;
+    setExportPending(true);
+    setExportState("Готовим Markdown-отчёт…");
+    void settleLatestRequest(
+      exportRequestEpochsRef.current,
+      "diagnostics:report-export",
+      (signal) => diagnosticsReportBlob(filters, csrf, onCsrf, signal),
+      (blob) => {
+        let url: string | null = null;
+        let anchor: HTMLAnchorElement | null = null;
+        try {
+          url = URL.createObjectURL(blob);
+          anchor = document.createElement("a");
+          anchor.href = url;
+          anchor.download = reportFileName();
+          document.body.appendChild(anchor);
+          anchor.click();
+          setExportState("Markdown-отчёт скачан.");
+        } catch {
+          setExportState("Не удалось скачать Markdown-отчёт. Повторите попытку.");
+        } finally {
+          anchor?.remove();
+          if (url) URL.revokeObjectURL(url);
+          finishExport();
+        }
+      },
+      () => {
+        finishExport();
+        setExportState("Не удалось скачать Markdown-отчёт. Повторите попытку.");
+      },
+      {
+        controllers: exportRequestControllersRef.current,
+        timeoutMs: DIAGNOSTICS_EXPORT_REQUEST_TIMEOUT_MS,
+      },
+    );
+  };
+  const visibleAuditEvents = auditEvents
+    .filter((event) => event.type !== "auth.csrf_refreshed")
+    .slice(0, 20);
   return (
     <div className="diagnostics-page">
       <h2>Диагностика</h2>
@@ -6701,9 +7289,12 @@ function DiagnosticsSettings({
         <h3 id="system-diagnostics-title">Состояние системы</h3>
         {systemState === "loading" && <p role="status">Загружаем состояние…</p>}
         {systemState === "error" && (
-          <p className="error">
-            Не удалось загрузить состояние. Повторите позже.
-          </p>
+          <div className="error">
+            <p>Не удалось загрузить состояние.</p>
+            <button type="button" onClick={loadSystem}>
+              Повторить загрузку состояния
+            </button>
+          </div>
         )}
         {systemState === "ready" && system && (
           <dl className="meta">
@@ -6752,10 +7343,23 @@ function DiagnosticsSettings({
             обработки согласно выбранным фильтрам. Аудит безопасности остаётся
             отдельным разделом и в этот отчёт не входит.
           </p>
-          <button type="button" className="secondary" onClick={exportReport}>
+          <button
+            type="button"
+            className="secondary"
+            disabled={exportPending}
+            aria-busy={exportPending || undefined}
+            onClick={exportReport}
+          >
             Скачать Markdown
           </button>
-          {exportState && <p role="status">{exportState}</p>}
+          {exportState && (
+            <p
+              role="status"
+              className={exportState.startsWith("Не удалось") ? "error" : undefined}
+            >
+              {exportState}
+            </p>
+          )}
         </div>
         <form className="diagnostics-filters" onSubmit={applyFilters}>
           <label>
@@ -6825,8 +7429,11 @@ function DiagnosticsSettings({
         {eventsState === "error" && (
           <div className="error">
             <p>Не удалось загрузить события.</p>
-            <button type="button" onClick={() => loadEvents()}>
-              Повторить
+            <button
+              type="button"
+              onClick={() => loadEvents(failedEventsCursor ?? undefined)}
+            >
+              Повторить загрузку событий
             </button>
           </div>
         )}
@@ -6878,8 +7485,13 @@ function DiagnosticsSettings({
             </li>
           ))}
         </ul>
-        {nextCursor && (
-          <button type="button" onClick={() => loadEvents(nextCursor)}>
+        {nextCursor && eventsState !== "error" && (
+          <button
+            type="button"
+            disabled={eventsState === "loading"}
+            aria-busy={eventsState === "loading" || undefined}
+            onClick={() => loadEvents(nextCursor)}
+          >
             Показать ещё
           </button>
         )}
@@ -6899,7 +7511,7 @@ function DiagnosticsSettings({
           <div className="error">
             <p>Не удалось загрузить статус DEBUG.</p>
             <button type="button" onClick={() => loadDebugSession()}>
-              Повторить
+              Повторить проверку DEBUG
             </button>
           </div>
         )}
@@ -6914,7 +7526,8 @@ function DiagnosticsSettings({
             <button
               type="button"
               className="danger"
-              disabled={debugActionState.endsWith("…")}
+              disabled={debugMutationPending}
+              aria-busy={debugMutationPending || undefined}
               onClick={stopDebug}
             >
               Остановить DEBUG
@@ -6942,7 +7555,8 @@ function DiagnosticsSettings({
             <button
               type="button"
               className="primary"
-              disabled={debugActionState.endsWith("…")}
+              disabled={debugMutationPending}
+              aria-busy={debugMutationPending || undefined}
               onClick={startDebug}
             >
               Включить DEBUG
@@ -6963,21 +7577,39 @@ function DiagnosticsSettings({
       <section
         className="card security-log"
         aria-labelledby="security-audit-title"
+        aria-busy={auditState === "loading" || undefined}
       >
         <h3 id="security-audit-title">Аудит безопасности</h3>
         <p className="muted">Аудит отделён от диагностики транскрибации.</p>
-        <ul>
-          {auditEvents
-            .filter((e) => e.type !== "auth.csrf_refreshed")
-            .slice(0, 20)
-            .map((e) => (
-              <li key={e.id}>
-                {auditLabel(e.type)} · {formatTime(e.created_at)}
+        {auditState === "loading" && (
+          <p role="status" className="muted">
+            Загружаем события аудита…
+          </p>
+        )}
+        {(auditState === "error" || auditMessage) && (
+          <div className="error">
+            <p role="alert">
+              {auditMessage ||
+                "Не удалось загрузить аудит безопасности. Повторите попытку."}
+            </p>
+            <button type="button" className="secondary" onClick={onRetryAudit}>
+              Повторить загрузку аудита
+            </button>
+          </div>
+        )}
+        {auditState === "ready" && (
+          <ul>
+            {visibleAuditEvents.map((event) => (
+              <li key={event.id}>
+                {auditLabel(event.type)} · {formatTime(event.created_at)}
               </li>
             ))}
-        </ul>
-        {auditEvents.length === 0 && (
-          <p className="notice">Событий аудита нет.</p>
+          </ul>
+        )}
+        {auditState === "ready" &&
+          visibleAuditEvents.length === 0 &&
+          !auditMessage && (
+            <p className="notice">Событий аудита нет.</p>
         )}
       </section>
     </div>
@@ -7195,14 +7827,33 @@ function PlatformShell() {
     csrf: "",
     error: "",
   });
+  const [logoutState, setLogoutState] = useState({
+    pending: false,
+    error: "",
+  });
+  const logoutPendingRef = useRef(false);
+  const sessionRequestEpochsRef = useRef(new Map<string, number>());
+  const sessionRequestControllersRef = useRef(
+    new Map<string, AbortController>(),
+  );
+  const sessionGenerationRef = useRef(0);
+  const invalidateSessionBootstrap = () => {
+    sessionGenerationRef.current += 1;
+    cancelLatestRequests(
+      sessionRequestEpochsRef.current,
+      sessionRequestControllersRef.current,
+    );
+  };
   const checkSession = () => {
+    const generation = sessionGenerationRef.current + 1;
+    sessionGenerationRef.current = generation;
     setSession({ status: "checking", user: null, csrf: "", error: "" });
-    bootstrapSession()
-      .then((result) => {
-        if (!result) {
-          setSession({ status: "anonymous", user: null, csrf: "", error: "" });
-          return;
-        }
+    void settleLatestRequest(
+      sessionRequestEpochsRef.current,
+      "platform:session-bootstrap",
+      bootstrapSession,
+      (result) => {
+        if (sessionGenerationRef.current !== generation) return;
         setSession({
           status: "authenticated",
           user: result.user,
@@ -7211,10 +7862,12 @@ function PlatformShell() {
         });
         updatePwaDiagnosticsCsrf(result.csrf);
         configurePwaDiagnosticsDebugState({ active: false });
-      })
-      .catch((err) => {
+      },
+      (err) => {
+        if (sessionGenerationRef.current !== generation) return;
         if (err instanceof ApiError && err.status === 401) {
           setSession({ status: "anonymous", user: null, csrf: "", error: "" });
+          clearPwaDiagnosticsSession();
           return;
         }
         setSession({
@@ -7223,9 +7876,17 @@ function PlatformShell() {
           csrf: "",
           error: "Не удалось проверить сессию. Повторите попытку.",
         });
-      });
+      },
+      {
+        controllers: sessionRequestControllersRef.current,
+        timeoutMs: SESSION_BOOTSTRAP_REQUEST_TIMEOUT_MS,
+      },
+    );
   };
-  useEffect(checkSession, []);
+  useEffect(() => {
+    checkSession();
+    return () => invalidateSessionBootstrap();
+  }, []);
   if (session.status === "checking")
     return (
       <main className="auth">
@@ -7238,7 +7899,7 @@ function PlatformShell() {
     return (
       <main className="auth">
         <section className="card">
-          <p className="error">{session.error}</p>
+          <p className="error" role="alert">{session.error}</p>
           <button type="button" className="primary" onClick={checkSession}>
             Повторить
           </button>
@@ -7249,6 +7910,9 @@ function PlatformShell() {
     return (
       <Login
         onLogin={(u, t) => {
+          invalidateSessionBootstrap();
+          logoutPendingRef.current = false;
+          setLogoutState({ pending: false, error: "" });
           clearSettingsMutationSession();
           setSession({ status: "authenticated", user: u, csrf: t, error: "" });
           updatePwaDiagnosticsCsrf(t);
@@ -7259,28 +7923,76 @@ function PlatformShell() {
     );
   const user = session.user;
   const csrf = session.csrf;
-  const logout = async () => {
-    let token = csrf;
-    if (!token) {
-      const refreshed = await requestJson<{ csrf_token: string }>(
-        "/auth/csrf",
-        {
-          method: "POST",
-        },
-      );
-      token = refreshed.csrf_token;
-      setSession((current) => ({ ...current, csrf: token }));
-      updatePwaDiagnosticsCsrf(token);
-      configurePwaDiagnosticsDebugState({ active: false });
-    }
-    await api("/auth/logout", {
-      method: "POST",
-      headers: { "x-csrf-token": token },
-    }).catch(() => undefined);
+  const finishAnonymousLogout = () => {
+    invalidateSessionBootstrap();
+    logoutPendingRef.current = false;
+    setLogoutState({ pending: false, error: "" });
     navigate("dashboard");
     clearSettingsMutationSession();
     setSession({ status: "anonymous", user: null, csrf: "", error: "" });
     clearPwaDiagnosticsSession();
+  };
+  const showLogoutFailure = () => {
+    logoutPendingRef.current = false;
+    setLogoutState({
+      pending: false,
+      error: "Не удалось подтвердить выход. Повторите попытку.",
+    });
+  };
+  const reconcileLogout = (generation: number) => {
+    void settleLatestRequest(
+      sessionRequestEpochsRef.current,
+      "platform:logout-reconcile",
+      bootstrapSession,
+      (result) => {
+        if (sessionGenerationRef.current !== generation) return;
+        setSession({
+          status: "authenticated",
+          user: result.user,
+          csrf: result.csrf,
+          error: "",
+        });
+        updatePwaDiagnosticsCsrf(result.csrf);
+        configurePwaDiagnosticsDebugState({ active: false });
+        showLogoutFailure();
+      },
+      (failure) => {
+        if (sessionGenerationRef.current !== generation) return;
+        if (failure instanceof ApiError && failure.status === 401) {
+          finishAnonymousLogout();
+          return;
+        }
+        showLogoutFailure();
+      },
+      {
+        controllers: sessionRequestControllersRef.current,
+        timeoutMs: SESSION_BOOTSTRAP_REQUEST_TIMEOUT_MS,
+      },
+    );
+  };
+  const logout = () => {
+    if (logoutPendingRef.current) return;
+    invalidateSessionBootstrap();
+    const generation = sessionGenerationRef.current;
+    logoutPendingRef.current = true;
+    setLogoutState({ pending: true, error: "" });
+    void settleLatestRequest(
+      sessionRequestEpochsRef.current,
+      "platform:logout",
+      (signal) => requestLogout(csrf, user, signal),
+      () => {
+        if (sessionGenerationRef.current !== generation) return;
+        finishAnonymousLogout();
+      },
+      () => {
+        if (sessionGenerationRef.current !== generation) return;
+        reconcileLogout(generation);
+      },
+      {
+        controllers: sessionRequestControllersRef.current,
+        timeoutMs: LOGOUT_REQUEST_TIMEOUT_MS,
+      },
+    );
   };
   return (
     <div className="shell">
@@ -7343,6 +8055,8 @@ function PlatformShell() {
               updatePwaDiagnosticsCsrf(token);
             }}
             onLogout={logout}
+            logoutPending={logoutState.pending}
+            logoutError={logoutState.error}
             oauthResult={oauthResult}
             maintenanceOauthResult={maintenanceOauthResult}
             credentialMutations={credentialMutations}

@@ -1,49 +1,160 @@
-import { type FormEvent, useEffect, useState } from "react";
-import { api } from "./apiClient";
+import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { ApiError, api } from "./apiClient";
+import {
+  parseAuthenticatedLoginResponse,
+  parseBootstrapStatusResponse,
+  parseLoginContextResponse,
+  type User,
+} from "./authContracts";
+import {
+  cancelLatestRequests,
+  LATEST_REQUEST_CANCEL_REASON,
+  settleLatestRequest,
+} from "./latestRequest";
 
-export type User = { email: string; role: string };
+const BOOTSTRAP_STATUS_TIMEOUT_MS = 15_000;
+const LOGIN_ATTEMPT_TIMEOUT_MS = 20_000;
+
+async function requestBootstrapStatus(signal?: AbortSignal): Promise<boolean> {
+  const candidate = await api<unknown>("/auth/bootstrap-status", {
+    signal,
+    ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+  });
+  const bootstrapRequired = parseBootstrapStatusResponse(candidate);
+  if (bootstrapRequired === null) {
+    throw new Error("invalid_bootstrap_status_response");
+  }
+  return bootstrapRequired;
+}
+
+async function requestLogin(
+  email: string,
+  password: string,
+  signal?: AbortSignal,
+): Promise<{ user: User; csrf: string }> {
+  const contextCandidate = await api<unknown>("/auth/login-context", {
+    method: "POST",
+    signal,
+    ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+  });
+  const loginCsrf = parseLoginContextResponse(contextCandidate);
+  if (!loginCsrf) throw new Error("invalid_login_context_response");
+  const responseCandidate = await api<unknown>("/auth/login", {
+    method: "POST",
+    signal,
+    ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+    body: JSON.stringify({
+      email,
+      password,
+      login_csrf_token: loginCsrf,
+    }),
+  });
+  const response = parseAuthenticatedLoginResponse(responseCandidate);
+  if (!response) throw new Error("invalid_login_response");
+  return response;
+}
+
+type BootstrapState = "checking" | "ready" | "required" | "error";
 
 export function Login({
   onLogin,
 }: {
   onLogin: (user: User, csrf: string) => void;
 }) {
-  const [bootstrap, setBootstrap] = useState(false);
+  const [bootstrap, setBootstrap] = useState<BootstrapState>("checking");
   const [error, setError] = useState("");
+  const [loginPending, setLoginPending] = useState(false);
+  const loginPendingRef = useRef(false);
+  const requestEpochsRef = useRef(new Map<string, number>());
+  const requestControllersRef = useRef(new Map<string, AbortController>());
+
+  const checkBootstrap = useCallback(() => {
+    setError("");
+    setBootstrap("checking");
+    void settleLatestRequest(
+      requestEpochsRef.current,
+      "login:bootstrap-status",
+      requestBootstrapStatus,
+      (bootstrapRequired) =>
+        setBootstrap(bootstrapRequired ? "required" : "ready"),
+      () => {
+        setBootstrap("error");
+        setError("Не удалось проверить готовность входа. Повторите попытку.");
+      },
+      {
+        controllers: requestControllersRef.current,
+        timeoutMs: BOOTSTRAP_STATUS_TIMEOUT_MS,
+      },
+    );
+  }, []);
 
   useEffect(() => {
-    api<{ bootstrap_required: boolean }>("/auth/bootstrap-status")
-      .then((response) => setBootstrap(response.bootstrap_required))
-      .catch(() => setError("API временно недоступен."));
-  }, []);
+    checkBootstrap();
+    return () =>
+      cancelLatestRequests(
+        requestEpochsRef.current,
+        requestControllersRef.current,
+      );
+  }, [checkBootstrap]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (loginPendingRef.current) return;
     setError("");
     const formData = new FormData(event.currentTarget);
-    try {
-      const context = await api<{ login_csrf_token: string }>(
-        "/auth/login-context",
-        { method: "POST" },
-      );
-      const response = await api<{ user: User; csrf_token: string }>(
-        "/auth/login",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            email: formData.get("email"),
-            password: formData.get("password"),
-            login_csrf_token: context.login_csrf_token,
-          }),
-        },
-      );
-      onLogin(response.user, response.csrf_token);
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "Не удалось войти.");
-    }
+    const email = String(formData.get("email") ?? "");
+    const password = String(formData.get("password") ?? "");
+    loginPendingRef.current = true;
+    setLoginPending(true);
+    await settleLatestRequest(
+      requestEpochsRef.current,
+      "login:submit",
+      (signal) => requestLogin(email, password, signal),
+      (response) => {
+        loginPendingRef.current = false;
+        setLoginPending(false);
+        onLogin(response.user, response.csrf);
+      },
+      (failure) => {
+        loginPendingRef.current = false;
+        setLoginPending(false);
+        setError(
+          failure instanceof ApiError && failure.status === 401
+            ? "Неверная почта или пароль."
+            : failure instanceof ApiError && failure.status === 429
+              ? "Слишком много попыток. Попробуйте позже."
+              : "Не удалось войти. Проверьте данные и повторите.",
+        );
+      },
+      {
+        controllers: requestControllersRef.current,
+        timeoutMs: LOGIN_ATTEMPT_TIMEOUT_MS,
+      },
+    );
   }
 
-  if (bootstrap)
+  if (bootstrap === "checking")
+    return (
+      <main className="auth">
+        <section className="card" role="status">
+          Проверяем готовность входа…
+        </section>
+      </main>
+    );
+
+  if (bootstrap === "error")
+    return (
+      <main className="auth">
+        <section className="card">
+          <p className="error" role="alert">{error}</p>
+          <button type="button" className="primary" onClick={checkBootstrap}>
+            Повторить
+          </button>
+        </section>
+      </main>
+    );
+
+  if (bootstrap === "required")
     return (
       <main className="auth">
         <section className="card">
@@ -74,8 +185,10 @@ export function Login({
             required
           />
         </label>
-        <button className="primary">Войти</button>
-        {error && <p className="error">{error}</p>}
+        <button className="primary" disabled={loginPending}>
+          {loginPending ? "Входим…" : "Войти"}
+        </button>
+        {error && <p className="error" role="alert">{error}</p>}
       </form>
     </main>
   );
