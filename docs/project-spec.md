@@ -1,400 +1,348 @@
-# Project specification
+# Спецификация проекта VoiceOps
+
+## 1. Назначение и authority
 
-## Authority and status
+Этот документ — canonical product/project contract и backlog верхнего уровня. Он определяет актуальный scope, business rules, durable constraints, эпики и atomic acceptance criteria. Текущий delivery state, blockers, readiness и Evidence ведутся в `docs/delivery-plan.md`; история delivery — в `docs/delivery-plan-archive.md`.
 
-This document is the current product/project contract. It is not delivery history and does not by itself prove runtime rollout. Historical delivery notes belong in `docs/delivery-plan-archive.md`; current delivery state belongs in `docs/delivery-plan.md`.
+Приоритет источников задаёт `AGENTS.md`. Последняя явная инструкция владельца от 2026-08-14 заменила прежнюю модель «стабильный Colab batch + развиваемый Studio» моделью двух production-продуктов, каждый из которых содержит batch и realtime:
 
-Status terms are strict:
+1. Google Colab: обычная транскрибация и realtime-транскрибация.
+2. VoiceOps Studio PWA: обычная транскрибация и realtime-транскрибация.
 
-- `implemented at source level` / `present in the repository` means code, migrations, docs, or tests exist in this repository.
-- `CI-verified` means repository checks passed for a change.
-- `deployed`, `migration-applied`, `worker-running`, and `production-live` require factual operator/runtime evidence.
-- Studio processing must not be called `production-live` without a controlled end-to-end canary showing exactly one intended output.
+Статусы и Evidence в этом документе — operational metadata, а не изменение scope. Их нельзя принимать на веру при следующем аудите.
 
-## Product goal
+## 2. Модель готовности
 
-VoiceOps helps operators transcribe source media with provider BYOK credentials and deliver safe transcript outputs to Google Docs. The product currently has two contours:
+- `⬜ BACKLOG` — эпик определён, но реализация не начата или не авторизована.
+- `🟦 IN PROGRESS` — реализация начата, но Definition of Done ещё не выполнен.
+- `🟩 READY` — выполнены 100% atomic acceptance criteria и все обязательные Evidence имеют `✅`.
+- `⛔ BLOCKED` — дополнительный modifier к lifecycle state.
 
-1. Stable Google Colab batch workflow.
-2. Studio PWA in-development platform workflow.
+Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
-The Studio PWA target is Colab parity where appropriate, with web-platform adaptations for authentication, project/source management, encrypted credentials, Google OAuth, persisted jobs, worker execution, diagnostics, and browser-safe output visibility.
+- `✅` — подтверждено.
+- `◐` — подтверждено частично.
+- `❌` — проверка выполнена и не пройдена.
+- `—` — evidence отсутствует.
+- `N/A` — evidence не требуется по Definition of Done.
+
+Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
+
+Текущий independently verified snapshot на `main@a252a1efa54ba952ec4eb04405fae5722f15d7b5`:
 
-## Stable Google Colab baseline
+| Scope | Готовность | Метод |
+|---|---:|---|
+| Google Colab | **75,9% (`22/29`)** | `COLAB-BATCH 17/23` + `COLAB-REALTIME 5/6` |
+| Studio PWA | **63,8% (`51/80`)** | сумма девяти PWA-эпиков ниже |
+| Весь проект | **67,0% (`73/109`)** | все выполненные AC двух продуктов / все AC текущего scope |
 
-The Google Colab contour is stable, ready, and used in real operation. It remains the behavioral baseline for future PWA parity and is the fallback production contour until Studio has factual production processing evidence.
+## 3. Общие product rules
 
-Durable Colab invariants:
+1. Primary batch artifact — Google Docs transcript; realtime должен позволять скачать подтверждённый текст как `.txt`.
+2. Фраза владельца «импорт транскрипции в виде документа `.txt`» в текущем контракте означает выгрузку/скачивание результата. Import внешнего `.txt` обратно в продукт не включён без отдельного уточнения.
+3. Языковые режимы обоих batch-продуктов: русский, английский и provider auto-detection.
+4. Время в metadata документа — ISO 8601 и отражает фактическое создание исходного media file. Время изменения файла, время job и время создания transcript document не являются допустимой заменой.
+5. Duplicate protection использует устойчивую source identity: Google Drive file ID и доступные metadata; для local files — content fingerprint и доступные metadata. Filename alone недостаточен.
+6. Accepted-output manifest/catalog record создаётся только после подтверждённого создания Google Docs результата. Operational job state может храниться отдельно, но не должен становиться ложным доказательством успешной транскрибации.
+7. Transcript standardization добавляет metadata header и читабельные абзацы; folder operation охватывает выбранную папку и все вложенные подпапки.
+8. Секреты, transcript/document bodies, private source bytes, provider/Google payloads и tokens не попадают в repository, browser-safe metadata, diagnostics или delivery evidence.
+9. Production/LIVE claims требуют exact revision/artifact identity и фактического runtime evidence; source presence и CI сами по себе этого не доказывают.
+
+## 4. Google Colab
+
+### Эпик `COLAB-BATCH-01` — batch-транскрибация
+
+Status: **🟦 IN PROGRESS — 73,9% (`17/23`)**.
 
-- Batch transcription behavior and Google Docs delivery must remain available.
-- Existing Colab notebooks/scripts must not be refactored as a side effect of Studio documentation or platform work.
-- Secret values must be read from approved runtime secret mechanisms and never printed.
-- Provider responses, transcript bodies, document content, Google tokens, and private source bytes must not be copied into repository docs, logs, examples, or validation evidence.
-- Provider HTTP failures expose safe diagnostics only: provider name, status code, an endpoint without query parameters, and scalar fields `detail`, `message`, `code`, `type`, `error.message`, `error.type`, and `error.code`. Raw response bodies must not be printed. Google retry logs must likewise omit request/response bodies, transcript text, tokens, and secrets.
-- Generated media, transcripts, private manifest exports, runtime analytics, and notebook outputs containing user data must not be committed.
-- Runtime temp cleanup is TTL-based (24 hours by default), best-effort, and limited to stale artifacts with the `elevenlabs_api_` project prefix; it must not target generic temporary files or arbitrary user media.
-- The manifest workflow supports one user in one runtime. Parallel notebooks or tabs are not an accepted concurrency model.
-- The Colab launcher executes repository code from `GITHUB_REF`; only trusted reviewed refs may be used, and a reviewed commit SHA is preferred for reproducible runs.
-- Long-media behavior and manifest behavior remain Colab baseline capabilities for parity analysis, not automatically proven Studio capabilities.
+Owner runtime evidence: существующий batch contour используется около четырёх месяцев и в целом стабилен. Новый scope добавляет отсутствующие AC, поэтому эпик больше не может считаться `READY`.
 
-Realtime Colab is a separate experimental validation path. Its current runbook is `docs/runbooks/realtime-colab.md`; it does not replace the stable batch Colab workflow. Studio brings the first browser-only slice into a separate tab on the existing PWA transcription page through workstream `PWA-REALTIME-TRANSCRIPTION-01`. The tab preserves batch behavior and does not inherit production-readiness claims from the experimental Colab prototype or source presence.
+| AC | Atomic acceptance criterion | Выполнено |
+|---|---|:---:|
+| `CB-01` | Provider API keys читаются из Colab Secrets. | ✅ |
+| `CB-02` | Пользователь выбирает target folder на Google Drive. | ✅ |
+| `CB-03` | С компьютера выбирается один файл. | ✅ |
+| `CB-04` | С компьютера выбираются несколько файлов. | ✅ |
+| `CB-05` | С компьютера выбирается целая папка с файлами. | ❌ |
+| `CB-06` | На Google Drive выбирается один source file. | ✅ |
+| `CB-07` | На Google Drive выбираются несколько source files. | ✅ |
+| `CB-08` | На Google Drive выбирается source folder. | ✅ |
+| `CB-09` | Доступно разделение на спикеров. | ✅ |
+| `CB-10` | Доступен явный русский язык. | ✅ |
+| `CB-11` | Доступен явный английский язык. | ❌ |
+| `CB-12` | Доступно auto-detection языка. | ✅ |
+| `CB-13` | Manifest защищает от повторной платной транскрибации. | ✅ |
+| `CB-14` | Пользователь может явно пропустить manifest check. | ✅ |
+| `CB-15` | Пользователь может безопасно очистить manifest. | ❌ |
+| `CB-16` | Пользователь может зарегистрировать выбранную папку в manifest. | ✅ |
+| `CB-17` | Manifest не записывает source до подтверждённого Google Docs результата. | ❌ |
+| `CB-18` | Source identity основана на Drive metadata/content fingerprint, а не только на имени. | ✅ |
+| `CB-19` | Новый transcript document разбит на читабельные абзацы. | ✅ |
+| `CB-20` | В начало документа добавлен metadata header. | ✅ |
+| `CB-21` | Видимое время документа записано в ISO 8601. | ❌ |
+| `CB-22` | Время получено из фактического creation time исходного media file. | ❌ |
+| `CB-23` | Есть быстрая dry-run/apply стандартизация выбранной папки и всех подпапок. | ✅ |
+
+Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
+
+Verified gaps: UI содержит `local_file`, `local_multi`, `drive_file`, `drive_multi`, `drive_folder`, но не local folder; language contract содержит только `ru` и `detect`; manifest сохраняет `in_progress`/`failed` до Google Docs output; видимый timestamp имеет legacy-формат и новый output использует job time.
+
+Definition of Done: `23/23`, релевантные tests/CI green, ручной Colab validation на reviewed SHA и LIVE batch canary без повторного provider charge или утечки private data.
+
+### Эпик `COLAB-REALTIME-01` — realtime-транскрибация
 
-The accepted Studio Live first-slice contract is:
+Status: **🟦 IN PROGRESS — 83,3% (`5/6`)**, приоритет ниже PWA.
 
-- an authenticated owner opens Live inside one selected project and explicitly chooses microphone, display/tab audio, or both;
-- browser capture permission is resolved before the API spends a single-use capability;
-- the API resolves the selected active owner-scoped ElevenLabs credential server-side and returns only a `no-store`, CSRF-protected, short-lived one-use `scribe_v2_realtime` WebSocket capability;
-- the main BYOK key, provider response bodies, transcript content, media bytes, and capability URL/token are not persisted or emitted to diagnostics;
-- VAD produces ordered partial and committed text in the current browser tab, with explicit copy, `.txt` download, and clear actions;
-- Stop, permission rejection, source-ended, socket error, connection timeout, page hide, and component unmount deterministically release capture; automatic reconnect and token reuse are prohibited;
-- a new attempt requests a new capability, tabs are independent, and server-side issuance rate limits remain the concurrency/cost bound for this slice;
-- Live does not create batch jobs, sources, Google Docs, catalog entries, analytics events, or durable transcript-body state.
+| AC | Atomic acceptance criterion | Выполнено |
+|---|---|:---:|
+| `CR-01` | В Windows/Chrome выбирается вкладка, окно или экран через display capture. | ✅ |
+| `CR-02` | Захватывается передаваемый browser/system audio track. | ✅ |
+| `CR-03` | Микрофон включается опционально и может смешиваться с display audio. | ✅ |
+| `CR-04` | Partial и committed transcript отображаются live в окне. | ✅ |
+| `CR-05` | Подтверждённый transcript скачивается как `.txt`. | ✅ |
+| `CR-06` | Захват не рвётся в согласованной серии representative Windows/Chrome sessions. | ❌ |
 
+Evidence: `SPEC ✅ | CODE ✅ | TEST ◐ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
 
-## Stable Colab product contract
+Owner LIVE evidence подтверждает работоспособность и периодические разрывы захвата вкладки. Automatic reconnect сейчас отсутствует. До закрытия `CR-06` нужен воспроизводимый manual Colab runtime validation; это остаётся experimental Realtime Colab prototype, не создающий Google Docs и manifest.
 
-The stable Colab contract is product behavior, not historical implementation detail.
+## 5. Studio PWA
 
-### Source modes
+### Эпик `PWA-CORE-01` — application shell, auth и integrations
 
-Supported batch source modes are:
+Status: **🟦 IN PROGRESS — 84,6% (`11/13`)**.
 
-- local/computer single file;
-- local/computer multiple files;
-- Google Drive single file;
-- Google Drive multiple files;
-- Google Drive folder.
+| AC | Atomic acceptance criterion | Выполнено |
+|---|---|:---:|
+| `PC-01` | Интерфейс адаптивен на desktop и narrow viewport. | ✅ |
+| `PC-02` | Sidebar содержит Dashboard. | ✅ |
+| `PC-03` | Sidebar содержит Projects. | ✅ |
+| `PC-04` | Sidebar содержит Settings. | ✅ |
+| `PC-05` | Admin входит по login/password и получает server session. | ✅ |
+| `PC-06` | Provider API keys добавляются и управляются в Settings. | ✅ |
+| `PC-07` | Google Drive подключается через owner-scoped OAuth flow. | ✅ |
+| `PC-08` | Local uploads хранятся в Cloudflare R2 через S3-compatible boundary. | ✅ |
+| `PC-09` | В Settings выбирается retention period local uploads. | ✅ |
+| `PC-10` | После expiry object удаляется из R2 идемпотентным cleanup. | ✅ |
+| `PC-11` | После expiry local source исчезает из active web UI. | ❌ |
+| `PC-12` | Доступны system, light и dark themes. | ✅ |
+| `PC-13` | Пользователь выбирает accent/interface color. | ❌ |
 
-Manual user segmentation is available only in one-source modes where one source can be split deterministically before transcription.
+Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
 
-### Provider paths
+Expired source metadata может сохраняться для history/audit, но current owner instruction требует скрывать expired local files из active intake UI. Это заменяет старое UI-допущение о видимости недоступной metadata.
 
-- ElevenLabs `scribe_v2` is the default and primary batch provider path.
-- OpenAI `gpt-4o-transcribe` is the standard OpenAI batch path.
-- OpenAI `gpt-4o-transcribe-diarize` is the speaker-aware OpenAI path.
+### Эпик `PWA-INGEST-01` — target и source selection, multi-transcription
 
-### ElevenLabs batch defaults
+Status: **🟦 IN PROGRESS — 63,6% (`7/11`)**.
 
-Current batch defaults are:
+| AC | Atomic acceptance criterion | Выполнено |
+|---|---|:---:|
+| `PI-01` | Выбирается target Google Drive folder. | ✅ |
+| `PI-02` | Target folder можно добавить в Favorites и выбрать повторно. | ❌ |
+| `PI-03` | С компьютера выбирается один файл. | ✅ |
+| `PI-04` | С компьютера выбираются несколько файлов. | ✅ |
+| `PI-05` | С компьютера выбирается целая папка с файлами. | ❌ |
+| `PI-06` | На Google Drive выбирается один source file. | ✅ |
+| `PI-07` | На Google Drive выбираются несколько source files. | ✅ |
+| `PI-08` | На Google Drive выбирается source folder. | ❌ |
+| `PI-09` | Один batch принимает одну target folder и несколько явно выбранных files. | ✅ |
+| `PI-10` | Один batch принимает одну target folder и source folder. | ❌ |
+| `PI-11` | Для каждой composer row можно независимо выбрать source и target folder. | ✅ |
 
-- `model_id=scribe_v2`;
-- Russian selected by default, with provider auto-detection available when no runtime language code is supplied;
-- `no_verbatim=false`;
-- `temperature=0`;
-- `tag_audio_events=false`;
-- optional keyterms;
-- optional speaker separation in the Colab batch path.
+Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
 
-The Studio source-level ElevenLabs subset is more conservative: one already-materialized source for one already-leased job, synchronous `scribe_v2`, `no_verbatim=false`, `temperature=0`, `tag_audio_events=false`, `diarize=false`, no multi-channel mode, and provider auto-detection when job language is absent.
+### Эпик `PWA-SEGMENTS-01` — произвольные пользовательские фрагменты
 
-### OpenAI long-media behavior
+Status: **🟦 IN PROGRESS — 0,0% (`0/5`)**.
 
-OpenAI batch inputs are prepared as mono AAC M4A before upload. Splitting happens before the first provider request and is based on both prepared file size and prepared audio duration.
+Нынешний narrow two-project split — полезная groundwork, но не выполняет ни один target AC целиком.
 
-Current constraints:
+| AC | Atomic acceptance criterion | Выполнено |
+|---|---|:---:|
+| `PS-01` | Пользователь задаёт число фрагментов. | ❌ |
+| `PS-02` | Поддерживается произвольное число `N >= 1`, а не только две части. | ❌ |
+| `PS-03` | Для каждого фрагмента задаётся start time. | ❌ |
+| `PS-04` | Для каждого фрагмента задаётся end time либо явный `Конец`. | ❌ |
+| `PS-05` | Для каждого валидного фрагмента создаётся отдельный transcript document. | ❌ |
 
-- provider hard upload limit: 25 MB;
-- safe per-part size target: 20 MB;
-- observed hard duration boundary: 1400 seconds;
-- safe per-part duration target: 1320 seconds;
-- diarization/chunk merging remains a quality-risk area because speaker labels and segment boundaries may be inconsistent across chunks.
+Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
 
-### Manual segmentation
-
-Manual segmentation:
-
-- is available only in one-source modes;
-- runs before provider transcription;
-- creates one temporary audio input per user segment;
-- preserves the selected provider request/payload contract for each segment;
-- may allow OpenAI technical splitting inside an OpenAI segment;
-- creates one intended Google Doc output per segment unless manifest/docs skip protection determines that the output already exists;
-- uses deterministic segment order and unique user-facing labels/titles.
-
-### Output, manifest, and analytics
-
-- The primary product artifact is a Google Docs transcript.
-- The current transcript document standard is `transcript_doc_v1.2`.
-- Colab manifest state remains the authority for progress, skip protection, and source/document synchronization.
-- Re-running a controlled batch must not repeat paid transcription without a manifest/source/settings reason.
-- The Drive workspace is `VoiceOps Workspace/`; legacy `_transcription_state` history must not be deleted before reconciliation.
-- Analytics JSONL is best-effort aggregate evidence and must not include transcript body, secrets, raw provider payloads, raw Google/Drive payloads, Google Docs body content, raw Drive URLs, or full local paths.
-- New structured Google Docs output must use transcript text and provider/model/language/speaker/timestamp metadata already available in memory. It must not expose source filename/source mode in the visible metadata block, create mirrored Markdown output, or make extra provider/LLM/Docs readback calls only for formatting.
-
-### Colab maintenance workflows
+### Эпик `PWA-BATCH-01` — transcription options, progress и output
 
-Existing Colab maintenance workflows are explicit operator actions, not new transcription runs:
-
-- Existing Google Docs transcripts may be standardized to `transcript_doc_v1.2` through a selected-folder workflow that defaults to dry-run and separates selected-folder scan counters from apply-impact counters. Explicit apply may rewrite only the same selected Google Doc in place; it must not process PDFs/non-Google-Docs, create new Docs or mirrored artifacts, mutate manifest entries, call STT/provider/LLM APIs, or print document body text. The older source-matching standardization path is legacy/internal, not the primary maintenance path.
-- Existing manifest records may be reconciled or refreshed through a schema-only workflow that defaults to read-only dry-run and separates selected-folder results from global manifest reference statistics. It may read a Google Doc only to classify transcript structure, and apply may persist operational document/source metadata, source processing state, and classification metadata, never transcript or document body text. `standard_check` stores only target/detected standard, status, checked-at time, and checker version.
-- Manifest maintenance must not mutate Google Docs, create Docs, call STT/provider/LLM APIs, or register a new transcription output. Timestamped backups created during old-schema migration contain sensitive operational metadata and require the same access care as the active manifest.
-- Speaker-project rename is a manual post-transcription workflow that maps `Speaker N` or provider speaker labels to project speaker names.
-- Speaker-project rename does not perform voice identification, speaker verification, biometric matching, voiceprint extraction, embeddings, or automatic identity assignment from voice.
-- The speaker roster is runtime Colab state normalized by the speaker-project helpers and contains only safe project/speaker display data, not transcript samples or voice data.
-
-## Studio PWA current source-level state
+Status: **🟦 IN PROGRESS — 80,0% (`8/10`)**.
 
-Studio PWA is in development. It must not be described as only record-only, because the repository already contains source-level processing foundations.
+| AC | Atomic acceptance criterion | Выполнено |
+|---|---|:---:|
+| `PB-01` | Доступно разделение на спикеров. | ✅ |
+| `PB-02` | Доступен явный русский язык. | ✅ |
+| `PB-03` | Доступен явный английский язык. | ❌ |
+| `PB-04` | Доступно auto-detection языка. | ✅ |
+| `PB-05` | Job progress отображается live в процентах из server checkpoints. | ✅ |
+| `PB-06` | Успешная job создаёт Google Docs transcript и safe output link. | ✅ |
+| `PB-07` | Transcript document разбит на читабельные абзацы. | ✅ |
+| `PB-08` | В начало документа добавлен metadata header. | ✅ |
+| `PB-09` | Видимый timestamp имеет ISO 8601 format. | ✅ |
+| `PB-10` | Timestamp получен из фактического creation time исходного media file. | ❌ |
 
-Source currently present in the repository includes:
+Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
 
-- authentication, sessions, and account boundaries;
-- projects and sources;
-- encrypted BYOK provider credentials;
-- Google OAuth/Drive integration and safe Drive metadata/folder selection;
-- persisted batch/job records and source-to-output-destination relations;
-- job lifecycle, claim, lease, and readiness foundations;
-- a dedicated worker entrypoint and Compose source wiring;
-- processing-time source availability/materialization boundaries;
-- processing prerequisites and owner-scoped credential/output checks;
-- typed Russian-default/auto-detect language and ElevenLabs diarization options;
-- server-side video audio extraction plus deterministic long-media split/merge;
-- validated local and Google Picker multi-file intake with batch preflight;
-- staged browser-safe progress and aggregate transcription analytics;
-- ElevenLabs provider execution and Google Docs `transcript_doc_v1.2` output paths;
-- accepted-output/provider-attempt duplicate authority and output reconciliation;
-- independent existing-document standardization and `Манифест Studio` services, routes, UI state, and safe results; each operation supports either one explicitly selected Google Doc or one bounded recursive folder tree under a separate server-only Google grant;
-- safe output persistence and browser-safe output read path;
-- diagnostics, diagnostic debug sessions, retry/recovery, source retention/cleanup, migrations, and tests;
-- a deterministic API-to-worker processing E2E scenario that uses real PostgreSQL/Redis state and controlled in-process storage, ElevenLabs, and Google boundaries;
-- an authenticated Chromium scenario against isolated FastAPI/PostgreSQL/Redis state for principal preparation, job-result, progress, cancellation, retry, reconciliation, diagnostics, and fail-closed catalog UI boundaries.
+### Эпик `PWA-SPEAKER-IDENTITY-01` — имена и роли спикеров
 
-These controlled E2E scenarios are repository validation, not production evidence. The API-to-worker scenario does not exercise a real browser, provider account, Google account, deployed worker, or public host. The authenticated browser scenario exercises real Chromium but still uses isolated services and controlled external boundaries. Neither scenario may be used to claim production provider/Google behavior or exactly-once output creation.
+Status: **⬜ BACKLOG — 0,0% (`0/5`)**.
 
-The merged Alembic head is `0020_provider_part_checkpoints` under `apps/studio-api/alembic/versions/`, reached through direct additive predecessors `0018_job_part_progress` and `0019_job_media_clip`. Protected production run `31255557765` rediscovered exact revision `0019_job_media_clip`, created a verified tagged backup, applied only direct successor `0020_provider_part_checkpoints`, and deployed the matching API from `main@66fb098`. Separate manual run `31255817558` deployed the matching worker and passed schema, image-identity, and health gates. This deployment evidence does not prove the explicit partial-provider continuation path without a live canary.
+| AC | Atomic acceptance criterion | Выполнено |
+|---|---|:---:|
+| `SP-01` | Есть owner-scoped база имён спикеров. | ❌ |
+| `SP-02` | Для speaker identity хранится роль. | ❌ |
+| `SP-03` | Пользователь может прослушать bounded voice fragment обнаруженного спикера. | ❌ |
+| `SP-04` | Пользователь явно связывает provider speaker label с выбранным именем. | ❌ |
+| `SP-05` | Подтверждённое имя/роль используется в transcript output и history metadata. | ❌ |
 
-## Studio PWA selected transcription scope
+Evidence: `SPEC ✅ | CODE — | TEST — | CI N/A | DEPLOY — | LIVE —`.
 
-Studio targets selected product parity, not a literal copy of every Colab control or maintenance helper. The current small-source production rollout remains a separate baseline gate; completing that rollout does not claim that the selected feature scope below is already implemented.
+Автоматическое biometric matching, voiceprints и embeddings не следуют из требования. Текущий scope — manual listen-and-assign; иная модель требует отдельного privacy/security решения.
 
-Required Studio transcription capabilities:
+### Эпик `PWA-MANIFEST-01` — duplicate protection и каталог
 
-- ElevenLabs `scribe_v2` remains the current PWA provider path.
-- Job preparation must offer Russian by default and provider auto-detection as the alternative language mode. The selected mode must use a typed validated job contract and reach the worker/provider request.
-- ElevenLabs speaker separation is required for PWA v1. A diarized result must produce deterministic `Speaker N` transcript blocks and `Speakers: yes` document metadata without exposing transcript text through browser metadata APIs.
-- Video sources must have a server-side audio-extraction/preparation path before provider upload.
-- Long ElevenLabs inputs must be prepared and automatically split by explicit safe size/duration policy before the first provider call, processed in deterministic part order, and merged without silently losing or duplicating boundary text. Provider and Google output timeouts must be compatible with the documented long-media policy.
-- Existing local multi-file intake and Google Picker multi-file intake must be validated end to end. Google Drive folder ingestion and recursive source traversal are not part of ordinary transcription intake; this does not exclude the separately bounded recursive existing-document maintenance workflow.
-- Before job creation, an explicit preflight must show safe source metadata, size and duration where available, selected language, speaker-separation mode, output destinations, existing-result matches, and the planned process/skip outcome. It must not expose source bytes, private storage identity, tokens, transcript bodies, or raw Google/provider payloads.
-- The PWA must show a user-facing staged progress pipeline, including applicable preparation, audio extraction, splitting, provider processing, part merge, and Google Docs output stages. Internal lease/claim authority remains server-only.
-- A newly terminal job must remain visible with its safe result until the user explicitly dismisses it into history. Displayed percentage must advance only from confirmed server checkpoints. For multi-part provider work, durable bounded completed/total part counters may contribute fractional progress inside the provider stage; elapsed time must never fabricate progress. Transcript content, raw provider payloads, private source/storage identity, failure detail, and lease authority remain forbidden in the progress DTO.
-- The PWA account settings must offer system, light, and dark appearance choices. This non-sensitive preference is browser-local rather than account state; system mode follows the browser color-scheme preference. On desktop, the projects workspace must use the full content width available after the persistent sidebar, while narrow viewports retain the existing responsive single-column layout.
-- New Google Docs transcripts must follow `transcript_doc_v1.2`, including its structured metadata and readable paragraph normalization.
-- User-facing aggregate analytics may report safe counts, outcomes, selected provider/model/options, and stage durations. It must not contain transcript/document bodies, secrets, private source paths, raw external payloads, or private Google identifiers/URLs.
-
-Existing-document standardization, catalog import, and duplicate protection are related but separate product workstreams:
-
-- Studio must present existing-document standardization and catalog import as two distinct user-facing operations, not one combined migration action. User-facing copy calls catalog import `Манифест Studio`: it means the PostgreSQL-backed Studio metadata catalog, not a separate manifest file. Each operation has its own target-mode dropdown, selected target, non-mutating dry-run, safe result, and explicit apply confirmation. The available modes are `folder_tree` for one root folder plus all descendants and `single_document` for exactly one native Google Doc. A selection, dry-run, or confirmation for one operation must never authorize the other.
-- The existing identity/Picker connection remains limited to `openid`, email identity, and `drive.file`. Both maintenance target modes use a separately consented, separately stored, server-only Google connection limited to identity scopes plus `drive.metadata.readonly` and `documents`. Its access or refresh tokens must never cross the browser boundary. The maintenance Google subject must exactly match the active Picker connection before either operation can scan or mutate data.
-- In `folder_tree` mode each operation recursively scans the selected root and all descendants under explicit item, page, and folder bounds. The scan must fail closed on incomplete search, repeated page tokens, duplicate identities, malformed metadata, cycles, or exceeded limits. It processes only native Google Docs, counts nested folders and skipped non-Docs, and never treats folder selection as authority outside the selected subtree.
-- Before either dry-run or apply, the server must use the separate maintenance connection to revalidate the exact selected Google Doc or rebuild the selected recursive subtree rather than trust Picker metadata or a saved preview. The request must contain `selection_mode` and exactly one matching `folder_id` or `document_id`; it must never contain a browser-supplied document list. Documents already at the operation's target state are idempotently skipped. Documents that are inaccessible, unreadable, structurally unsafe, empty, conflicting, or otherwise ineligible are reported as blocked without aborting eligible siblings in folder mode; connection-wide authentication, rate-limit, availability, malformed-scan, or limit failures abort the operation before mutation.
-- Existing-document standardization may read selected document content transiently to classify and normalize it. Explicit standardization apply may rewrite only eligible non-current Google Docs inside the freshly revalidated target in place to `transcript_doc_v1.2`, including readable paragraph normalization. Current documents must be skipped. It must not create or update Studio catalog entries, persist source/job state, or call a transcription provider or LLM. A safe owner-scoped audit event is allowed.
-- Catalog import may read selected document content transiently to classify its standard and may persist only the durable metadata needed for the Studio catalog and duplicate decisions. Catalog-import apply adds or refreshes only eligible current-standard documents from the freshly revalidated target and skips catalog entries already at the target state. It must not create, rewrite, standardize, move, or delete any Google Doc. Conflicting source/settings authority must remain blocked. Missing source/settings authority may be persisted only as explicit absent/indeterminate metadata, must never be inferred, and cannot support an exact duplicate match. A safe owner-scoped audit event is allowed.
-- Neither operation may copy document/transcript bodies into browser payloads, logs, diagnostics, or long-term Studio storage.
-- Studio must prevent accidental repeated paid transcription across separate job-creation requests when the same source and effective transcription settings already have accepted output evidence. A new explicit user decision is required when an existing-result conflict is found.
-- Conflict handling must be designed together with the imported catalog and support explicit safe user choice rather than implicit overwrite or automatic provider retry. Exact matching, authority, and UX rules require a focused design before implementation.
-- A continuously refreshed PWA transcript catalog backed by Google Drive is desired but deferred to backlog. Its synchronization flow, matching rules, refresh triggers, permissions, and system-of-record boundary must be designed before implementation; bounded maintenance operations must not silently become continuous synchronization.
-
-Explicitly deferred or excluded from the current selected scope:
-
-- keyterms are deferred;
-- OpenAI job processing is deferred; the ability to store an OpenAI credential must not be presented as proof that OpenAI transcription is available;
-- manual post-transcription speaker renaming is deferred;
-- arbitrary user-directed media cutting and multi-file media concatenation remain deferred. The selected Studio scope now includes one narrow manual two-project split: before launch, one source may be divided at one whole-second boundary into `[start, boundary)` and `[boundary, end]`, producing two independent jobs and Google Docs in two different explicitly verified folders. The boundary and destinations are immutable after creation;
-- Google Drive folder ingestion and recursive traversal for new transcription sources are excluded in favor of validating explicit multi-file selection. Recursive existing-document maintenance remains a separate operation and does not create sources or jobs.
-
-Selected-scope completion requires source and applicable browser/service-backed evidence for the typed language and diarization options, multi-file intake, video preparation, long-media split/merge, safe preflight/progress, independently confirmed standardization and catalog import, duplicate protection, and aggregate analytics. The existing one-small-source production canary remains necessary but does not prove these additional capabilities.
-
-Partial-provider continuation is a separate durable authority from the public progress counters. Migration `0020_provider_part_checkpoints` may persist only normalized successful provider-part results encrypted with the existing server credential master key, an integrity HMAC, exact owner/project/job/job-source/provider/model/part/timeline scope, and a maximum 24-hour TTL. Plaintext transcripts, raw provider payloads, ciphertext, nonces, integrity values, internal identifiers, and checkpoint authority never reach browser DTOs, diagnostics, or logs. The browser receives only bounded completed/total counters, a fixed safe provider failure category, and whether explicit continuation or full restart is available.
-
-No partial-provider action is automatic. A new processing attempt may reuse only an exact contiguous leading set of decryptable, unexpired checkpoints and must not call ElevenLabs again for those completed parts. The owner must explicitly confirm that missing parts can incur provider cost before queueing continuation. If checkpoints are absent, expired, or invalid, a full-file restart is offered only when the last durable underlying failure is safely classified as provider authentication rejection, request rejection, or rate limiting; it also requires explicit provider-cost confirmation and deletes any stale checkpoint authority in the same transaction. Timeout, availability, malformed-response, lifecycle, lease, persistence, and unknown outcomes without a valid checkpoint remain blocked. Checkpoints are deleted on successful output persistence, cancellation, explicit full restart, or TTL cleanup.
-
-## Studio production status and remaining capabilities
-
-The bounded small-source Studio processing path is production-live with operator evidence: its original controlled canary ran against the `0015_user_source_retention` baseline with verified web/API identities, exactly one healthy worker from the commit-specific `900bf5b` image, and one operator-approved Drive source producing exactly one persisted `google_docs_transcript` and one non-empty native Google Doc without retry. The operator later completed real batch and two-project split transcriptions, and the split run created both intended documents. A subsequent split workload exposed the concrete partial-provider failure addressed by `0020`: one internally prepared ElevenLabs part completed and a later part failed, while the browser retained only aggregate `partial_provider_result` and offered no safe continuation. Production is now exactly migrated to `0020_provider_part_checkpoints`; matching API and worker components from `main@66fb098` passed identity and health gates. These facts prove the observed deployment and earlier workload gates, but they do not prove the new explicit continuation behavior, broader workload stability, exactly-once behavior under arbitrary failures, or every maintenance outcome.
-
-Production-evidenced baseline capabilities:
-
-- authenticated PWA access, project/source preparation, Google Picker source/folder roles, one single-attempt local upload completion, and public security headers;
-- manual-only worker lifecycle, health, image identity, and single-worker operation;
-- one controlled ElevenLabs-to-Google-Docs success with exactly one persisted output;
-- deployed browser-safe provider-attempt preflight authority and the source-complete heartbeat, retry/recovery, reconciliation, retention, and cleanup boundaries.
-
-Current unproven or incomplete delivery capabilities:
-
-- authenticated recursive-folder dry-run and separately authorized apply for each of standardization and catalog import;
-- dedicated production canaries for auto-detect language, diarization, video preparation, long-media split/merge, and multi-file processing;
-- continuous or accepted-output reuse/skip catalog behavior beyond the current partial source-linked duplicate authority;
-- golden validation for the selected Colab/PWA behaviors rather than literal full-feature parity;
-- multi-worker production validation and a retained prior worker-image rollback candidate.
-
-The Studio PWA may render implemented source-level output metadata for explicitly opened jobs, but that does not prove production-live processing or exactly-once Google document creation.
-
-## Durable product and safety rules
-
-### Authentication, ownership, and privacy
-
-- Studio data is owner-scoped. Users may access only their own projects, sources, jobs, credentials, Google connections, diagnostics, and outputs.
-- User-facing project segment labels must be unique case-insensitively within their owner/project scope.
-- Provider credentials are BYOK, encrypted at rest, decrypted only server-side for authorized processing, and never returned to browsers.
-- Google OAuth refresh tokens are encrypted server-side and separated from provider credential boundaries.
-- Browser APIs may return only fields explicitly authorized by their endpoint contract. Ordinary metadata/read APIs must not return OAuth codes/tokens, provider secrets, raw Google payloads, owners/permissions, source bytes, transcript bodies, document bodies, object keys, private paths, presigned URLs, stack traces, or raw external responses. Authentication values and the browser-bound integration capabilities below are narrow exceptions, not generally safe metadata.
-- Project title/description updates and Google output-folder selection are separate authorities. Generic project PATCH accepts only title/description and rejects output-folder IDs, URLs, names, and unknown fields; output folders may be bound only through the server-verified Google Picker route.
-- Browser project/job DTOs expose only UI-required public fields. Project payloads omit the internal owner ID, and job payloads omit the selected provider-credential ID; request-side credential selection remains an authenticated write authority and server-side job state retains the resolved ID.
-- An otherwise unhandled API exception returns only the fixed safe 500 body plus sanitized request/correlation headers. The server log records only those sanitized IDs and an endpoint group. If authentication already established an owner, one owner-scoped `API_UNHANDLED_EXCEPTION` diagnostic may persist only the endpoint group and `5xx` category; exception text, stack traces, raw paths, query strings, request bodies, and headers are forbidden.
-- Google Drive source identity and metadata must be fetched and validated server-side under the current owner connection before a source is persisted. The multi-file Google Picker route is canonical; the deprecated single-file compatibility route must ignore browser-supplied filename, MIME type, size, and URL and apply the same server-side source policy.
-- The authenticated read-only source-upload policy response exposes only whether local upload is enabled, the current maximum byte count, supported MIME prefixes, and exact MIME types; it is `no-store` and never exposes storage identity or credentials. The PWA must runtime-validate this response and keep local file selection disabled until a valid enabled policy is available. Maximum upload size remains deployment configuration, while account settings control only retained-source duration; initiation, object-head verification, and processing-time checks remain authoritative server-side.
-
-Browser-bound integration capabilities are limited to three flows:
-
-- Google OAuth start may return one authorization URL containing a hashed-at-rest, single-use, expiring state value. The authenticated same-origin CSRF-protected response is `no-store`; the callback never reflects the code, state, tokens, raw Google error, or account data into its browser redirect.
-- Google Picker session may return one current owner access token only to an authenticated same-origin CSRF-protected request. The connection scope set must be limited to `openid`, email identity, and `drive.file`; incremental previously granted scopes are not requested. The response is `no-store`, the PWA passes the token directly to Picker with an exact origin and clears its own reference, and every selected ID/metadata value is revalidated server-side before persistence. Refresh and ID tokens remain server-only.
-- Google maintenance OAuth start may return a separate authorization URL only after an authenticated same-origin CSRF-protected user action. It uses a separately configured OAuth client and requests exactly identity scopes plus `drive.metadata.readonly` and `documents`; it must not use incremental authorization or share an OAuth grant with the Picker client. The callback stores only the encrypted server-side refresh capability after exact scope and Google-subject matching. Maintenance access, refresh, and ID tokens are never returned to the browser.
-- Local-upload initiation may return one PUT-only presigned URL for the exact opaque source object key and content type, with a TTL from 60 through 900 seconds. The authenticated owner-scoped same-origin CSRF-protected response is `no-store`; the URL/key is never persisted in browser storage, rendered, logged, diagnosed, or returned by later metadata APIs. The PWA sends no cookies or referrer, refuses redirects, and the API requires a complete object-storage head plus exact normalized MIME and byte-size equality with the initiation contract before marking the source uploaded. Missing, unsupported, oversized, or mismatched metadata leaves the source pending so the existing expiry/cleanup lifecycle remains authoritative.
-
-No other endpoint may expose these capabilities. The service worker must not runtime-cache API responses or upload requests.
-
-The public Studio host must enforce one browser security-header policy across the PWA and `/api`: CSP with no script wildcard or `unsafe-eval`, Google Picker script/frame allowlists, self-only framing denial, MIME-sniffing denial, an origin-only referrer policy so Google Picker can validate its website-restricted developer key without receiving path or query data, restrictive permissions, and HSTS. The local-upload presigned PUT must continue to override that host policy with `no-referrer`. Because the S3/R2-compatible upload origin is runtime-configured, `connect-src` may temporarily permit HTTPS generally; narrowing it to explicit production storage origins is preferred when that deployment contract becomes fixed. Header source configuration is not proof that the live TLS/nginx boundary has applied it.
-
-### Sources and processing prerequisites
-
-- Source metadata readiness is not proof that source bytes remain accessible.
-- Processing must re-check source availability immediately before external provider execution.
-- Google Drive sources require current owner-scoped access, existence, and supported download/export mode.
-- Local-upload sources require private server-side storage availability. Object keys remain server-only; a presigned URL may cross the browser boundary only in the bounded initiation capability above and must not appear in subsequent source/job/output payloads.
-- Processing must re-check lifecycle, lease ownership/generation, cancellation, project/source relation, credential availability, and output destination authorization at stage boundaries.
-
-### Jobs, leases, and terminal states
-
-- Job claim/lease fields are internal server-side fencing metadata and must not be exposed to browsers.
-- Claiming work must be atomic and owner/generation fenced.
-- Lease expiry comparisons use normalized UTC semantics; equality at the expiry instant means expired.
-- Each prepared batch row owns its selected output destination.
-- The idempotent batch route is the canonical job-creation authority. The deprecated compatibility route may create a job only when the project already has an output-folder selection and the owner has an active, non-deleted ElevenLabs credential; it must reject OpenAI, foreign, inactive, deleted, ambiguous, or missing credential authority.
-- Job creation copies that destination into a per-job output-folder snapshot.
-- Processing uses the job snapshot as the runtime output authority.
-- Later changes to a mutable project default output folder must not redirect an existing queued, processing, failed, cancelled, or completed job.
-- Cancellation before processing is terminal and safe.
-- Cancellation, lease loss, or lease heartbeat failure during processing must fail closed and must not automatically duplicate provider calls or Google document creation.
-- Terminal completion requires persisted safe output evidence for every non-skipped relation.
-- Output-side-effect uncertainty must preserve evidence and require reconciliation rather than automatic duplicate output creation or deletion.
-
-### Provider and output boundaries
-
-- ElevenLabs is the implemented source-level Studio provider path and the selected PWA v1 provider. Russian-default/auto-detect language selection and optional speaker separation are required additions to its typed job options.
-- OpenAI processing, keyterms, manual speaker renaming, arbitrary media cutting, and concatenation remain deferred until separately designed and authorized. The separately authorized Studio two-project split is limited to one source, one whole-second boundary, two non-overlapping outputs, and two different verified folders configured before launch. Persisted credential support alone is not a processing capability.
-- Video audio preparation and automatic long-media split/merge must remain server-side, bounded, deterministic, and covered by explicit temporary-artifact cleanup. The browser must not become the media-processing authority.
-- Provider transcript content is ephemeral server-side processing data unless explicitly persisted by an approved product rule; current browser-safe output APIs must not expose transcript/document body text.
-- Google Docs output uses safe owner-scoped document reference metadata only. Exactly-once Google document creation is not claimed. Existing-document standardization and catalog import are explicit maintenance actions, not ordinary job execution. Standardization owns only in-place Google Doc normalization; catalog import owns only PostgreSQL catalog metadata persistence.
-- Cross-run duplicate protection must use durable Studio authority for normalized source identity, effective transcription settings, and accepted output evidence. It must not copy the Colab single-runtime manifest as Studio's concurrency authority.
-
-### CI/CD and deployment
-
-- CI/CD, deployment, migrations, backups, rollback, runtime config, and stateful-service safety are governed by `docs/ci-cd-rules.md`.
-- Standard CD must not run migrations, deploy workers, perform cleanup/hardening, recreate stateful services, or claim processing production readiness.
-- Manual rollout evidence must keep source-done, CI-verified, deployed, migration-applied, worker-running, and production-live states separate.
-
-## Acceptance criteria for Studio transcript maintenance
-
-Existing-document standardization is ready only when:
+Status: **🟦 IN PROGRESS — 83,3% (`5/6`)**.
 
-1. The operation exposes an independent target-mode dropdown. The user selects either one root folder plus descendants (`folder_tree`) or exactly one native Google Doc (`single_document`) through Picker. The request contains `selection_mode` and exactly one matching `folder_id` or `document_id`, never both and never a browser-supplied document list.
-2. The maintenance grant uses exactly identity scopes plus `drive.metadata.readonly` and `documents`, is stored separately from the primary `drive.file` grant, never crosses the browser boundary, and resolves to the same Google subject.
-3. Dry-run independently revalidates the exact selected document or classifies native Google Docs across the selected root and descendants. Folder mode counts nested folders and skipped non-Docs; both modes skip current documents and perform no Google or PostgreSQL mutation.
-4. Apply requires a fresh explicit confirmation and a fresh server revalidation of the same mode and target. Per-document inaccessible, unreadable, empty, unsafe, conflicting, or unsupported candidates are blocked without aborting safe siblings in folder mode; global auth, rate-limit, availability, timeout, malformed-scan, cycle, or limit failures abort.
-5. Apply may update only eligible non-current Google Docs inside the revalidated target in place and creates no catalog row or source/job state; a safe owner-scoped audit event is allowed.
-6. Browser/log evidence contains only safe names, statuses, actions, reasons, and aggregate counts; it contains no document IDs/URLs, bodies, tokens, Google subjects/emails, or raw Google payloads.
+В PWA роль manifest выполняет PostgreSQL-backed `Манифест Studio`, а не общий JSON-файл Colab.
 
-Catalog import is ready only when:
+| AC | Atomic acceptance criterion | Выполнено |
+|---|---|:---:|
+| `PM-01` | Accepted output evidence блокирует неявную повторную транскрибацию. | ✅ |
+| `PM-02` | Явный reprocess/bypass требует отдельного user confirmation. | ✅ |
+| `PM-03` | Пользователь может безопасно очистить owner-scoped manifest/catalog. | ❌ |
+| `PM-04` | Выбранная Google Drive folder tree регистрируется отдельным dry-run/apply flow. | ✅ |
+| `PM-05` | Accepted-output record появляется только после Google Docs creation evidence. | ✅ |
+| `PM-06` | Duplicate identity использует Drive file ID/Studio source identity и settings, не filename alone. | ✅ |
 
-1. It owns a separate target-mode dropdown, selected target, dry-run result, and apply confirmation. The request contains `selection_mode` and exactly one matching `folder_id` or `document_id`, never both and never a browser-supplied document list.
-2. It uses the same separately stored server-only maintenance scope boundary and same-account check as standardization, while keeping its selection, preview, confirmation, and result authority independent.
-3. Dry-run independently revalidates the exact selected document or classifies native Google Docs across the selected root and descendants, selects only eligible current-standard documents, counts already-current/already-cataloged and blocked candidates, and performs no Google or PostgreSQL mutation.
-4. Apply performs a fresh server revalidation of the same mode and target, persists only owner-scoped catalog/duplicate-authority metadata, skips entries already at target state, and never mutates Google Docs.
-5. Conflicting, unreadable, inaccessible, out-of-target, duplicate, changed, or structurally unsafe documents fail closed with safe per-document outcomes unless a global scan/connection boundary requires abort. Missing source/settings authority remains explicitly absent/indeterminate, is never inferred, and cannot support an exact duplicate match.
-6. A standardization preview or confirmation cannot authorize catalog import, and a catalog-import preview or confirmation cannot authorize standardization.
+Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
 
-## Acceptance criteria for Studio processing readiness
+### Эпик `PWA-STANDARDIZATION-01` — стандартизация Google Docs
 
-Studio processing can be considered production-live only after all of the following have factual operator evidence:
+Status: **🟦 IN PROGRESS — 83,3% (`5/6`)**.
 
-1. Repository source and CI are verified for the intended commit.
-2. Production database migration head matches the intended repository head where required. The direct additive chain is `0018_job_part_progress` then `0019_job_media_clip` then `0020_provider_part_checkpoints`; protected run `31255557765` verified production at `0019` and applied only direct successor `0020`.
-3. Web/API deployment identity and health are verified.
-4. Exactly one intended worker instance is deployed from the intended image and shown idle before the smoke.
-5. One controlled operator-approved job uses one small supported source, one owner-scoped ElevenLabs BYOK credential, one valid Google connection, and one writable output folder.
-6. The job reaches a terminal successful state or a normalized safe failure without unsafe evidence.
-7. Success shows exactly one persisted output entry and one validated Google Docs output in the selected folder.
-8. Evidence contains no secrets, transcript bodies, source bytes, document IDs/URLs, raw provider responses, raw Google responses, or private account data.
-9. No duplicate output, uncertain side effect, lease ambiguity, or manual retry occurred.
+| AC | Atomic acceptance criterion | Выполнено |
+|---|---|:---:|
+| `PD-01` | Есть отдельная быстрая selected-folder dry-run/apply operation. | ✅ |
+| `PD-02` | Folder mode обходит все вложенные подпапки в bounded tree. | ✅ |
+| `PD-03` | Документ нормализуется в читабельные абзацы. | ✅ |
+| `PD-04` | Документ получает standard metadata header. | ✅ |
+| `PD-05` | Timestamp нормализуется в ISO 8601. | ✅ |
+| `PD-06` | Timestamp отражает creation time исходного media file, а не Google Doc/job time. | ❌ |
+
+Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
 
-## Backlog authority
+Standardization и manifest import остаются разными authority: preview/confirmation одной операции не авторизует другую.
 
-Current delivery sequencing is in `docs/delivery-plan.md`. The durable workstream list below records product authority; status annotations are factual delivery evidence, not changes to scope:
+### Эпик `PWA-REALTIME-01` — realtime-транскрибация
 
-- `PWA-PROCESSING-ROLLOUT-01A` — bounded single-worker/small-source production rollout and controlled exactly-one-output canary are complete; broader workload evidence remains separate.
-- `PWA-LEGACY-AUTHORITY-01` — pending external-consumer review before the two deprecated compatibility APIs are removed or assigned an explicit support/removal contract.
-- `PWA-E2E-FOUNDATION-01B` — authenticated Chromium foundation is source-complete and exact-main browser CI is green at `5ab3b5f`; real provider/Google production evidence remains separate.
-- `PWA-TRANSCRIPTION-OPTIONS-01` — typed Russian-default/auto-detect language selection and required ElevenLabs speaker separation are source-complete across PWA, API, worker, and Google Docs output; dedicated live canaries remain.
-- `PWA-MEDIA-PREPARATION-01` — server-side video audio extraction plus deterministic long-media size/duration split and merge are source-complete; dedicated live canaries remain.
-- `PWA-MULTI-SOURCE-VALIDATION-01` — local and Google Picker multi-file intake is source-complete with automated evidence; broader production processing validation remains, and folder/recursive ingestion is a non-goal.
-- `PWA-PREFLIGHT-PROGRESS-01` — safe preflight and staged progress are source-complete, with the original provider-attempt authority deployed.
-- `PWA-JOB-PROGRESS-02` — merged source keeps a newly terminal job/result visible until explicit dismissal and adds confirmed checkpoint plus durable prepared-part progress through `0018_job_part_progress`; production is now migrated beyond this additive revision with matching API/worker identity evidence, while exact UI behavior remains a separate canary concern.
-- `PWA-TWO-PROJECT-SPLIT-01` — merged source adds one optional pre-launch split of one source into two immutable complementary clip jobs, two separately verified Google output folders, server-side duration validation/clipping, clip-aware duplicate authority, and browser-safe history labels through `0019_job_media_clip`. Production is migrated beyond this revision and earlier live split evidence created both intended documents, but arbitrary cutting, more than two parts, editing after creation, and concatenation remain outside this item.
-- `PWA-PARTIAL-PROVIDER-RESUME-01` — merged and deployed source preserves the safe underlying ElevenLabs failure category plus encrypted, owner/job/source/part-scoped checkpoints for completed internal provider parts through production migration `0020_provider_part_checkpoints`. Only an explicit owner action may continue missing parts or, after unavailable/expired checkpoints and a safely classified failure, restart the full file; both actions require an explicit provider-cost confirmation. Automatic recovery, blind provider retry, browser transcript payloads, and reuse after output/cancellation/expiry remain prohibited. Exact-main CI, migration, API, and worker gates are complete; a live continuation canary remains.
-- `PWA-APPEARANCE-LAYOUT-01` — active branch work adds a browser-local system/light/dark appearance preference, a semantic dark palette, and a full-width desktop projects workspace without changing account data or server/runtime contracts.
-- `PWA-TRANSCRIPT-CATALOG-MIGRATION-01` — superseded by explicit product decision; the old combined standardize-and-import action is no longer the target contract and its compatibility routes fail closed.
-- `PWA-TRANSCRIPT-STANDARDIZATION-01` — independent `folder_tree` or `single_document` dry-run/apply for in-place `transcript_doc_v1.2` normalization, with no catalog persistence. Source, exact-main CI, migration `0017`, and maintenance OAuth rollout are present; the complete production target-mode dry-run/apply matrix remains.
-- `PWA-TRANSCRIPT-CATALOG-IMPORT-01` — independent `folder_tree` or `single_document` dry-run/apply for minimal source-linked catalog and duplicate-authority metadata, with no Google Doc mutation. Source, durable rediscovery, exact-main CI, migration `0017`, and maintenance OAuth rollout are present; the complete production target-mode dry-run/apply matrix remains.
-- `PWA-TRANSCRIPTION-ANALYTICS-01` — safe aggregate outcomes and stage-duration analytics are source-complete; broader production evidence remains.
-- `PWA-TRANSCRIPT-CATALOG-SYNC-01` — deferred design for a Google Drive-backed continuously refreshed PWA catalog and its system-of-record boundary; no continuous sync is implemented.
-- `PWA-REALTIME-TRANSCRIPTION-01` — active source candidate adds the separate Studio transcription tab, server-issued single-use realtime capability, microphone/display/mixed browser capture, safe partial/committed presentation, deterministic lifecycle cleanup, and no batch-job, Google Docs, catalog, analytics, or transcript-body persistence side effects. Merge, service-backed CI, host-header rollout, and live capture canaries remain separate delivery gates.
-- OpenAI processing, keyterms, manual speaker rename, manual cutting/concatenation, and Drive folder/recursive intake remain deferred or excluded as defined above.
-
-Source-complete delivery items remain listed for traceability and still require applicable rollout evidence:
-
-- `PWA-WORKER-OPS-01` — official worker deployable component with health, identity, pause/drain/resume, and rollback contract.
-- `PWA-OUTPUT-RECONCILIATION-01` — reconcile uncertain or missing Google Docs output evidence without unsafe duplication.
-- `PWA-LEASE-HEARTBEAT-01` — source-complete PostgreSQL-backed bounded heartbeat for long source/provider and Google output calls; rollout evidence remains separate.
-- `PWA-RETRY-RECOVERY-01` — safe stage-specific retry and recovery design.
-- `PWA-SOURCE-DELETION-01` — source deletion and retention behavior.
-- `PWA-UPLOAD-RETENTION-PREFERENCES-02` — server-authoritative per-user retention choices and PWA settings UX for future verified local uploads.
-
-## Supporting documents
-
-- `README.md` — repository entrypoint.
-- `AGENTS.md` and `docs/agent-delivery-workflow.md` — agent/workflow rules.
-- `docs/delivery-plan.md` — current delivery dashboard.
-- `docs/delivery-plan-archive.md` — historical archive only.
-- `docs/architecture.md` — architecture and runtime map.
-- `docs/studio-processing-contract.md` — current Studio processing rules.
-- `docs/ci-cd-rules.md` — deployment and stateful-service safety.
-- `docs/runbooks/studio-platform-ops.md` — Studio operations and rollout runbook.
-- `docs/runbooks/validation.md` — validation commands/checklists.
-- `docs/runbooks/realtime-colab.md` — experimental realtime Colab validation.
-
-## Studio worker deployment operations boundary
-
-`PWA-WORKER-OPS-01` permits explicit manual-only worker deployment after the existing worker is absent or drained/stopped. The worker deploy path must verify image/commit identity, PostgreSQL health, database revision compatibility with the worker image Alembic head, and Docker worker health before reporting source-level deploy success.
-
-This does not permit automatic worker deployment on push, migrations from standard CD, automatic rollback, retries, reconciliation, or production-live claims without a separate controlled canary. Worker deploy success, healthy idle state, and image identity evidence are operational prerequisites only, not proof of production processing.
-
-## Studio output reconciliation source contract
-
-`PWA-OUTPUT-RECONCILIATION-01` is implemented at source level to reconcile uncertain Google Docs output side effects. Before the first irreversible Google Docs create request, Studio prepares a durable PostgreSQL reconciliation case with an opaque random token, the job output-folder snapshot, deterministic document metadata, and character count. The token is written only to Google Drive `appProperties` under an internal key and must not contain owner, project, job, source, filename, email, title, or other domain identifiers.
-
-Reconciliation is not processing retry, not provider retry, not automatic recovery, and not an exactly-once Google Docs creation claim. PostgreSQL remains the durable authority for output rows and completion. If Google creation or output persistence becomes uncertain, the case remains unresolved and the eligible processing job may fail with `output_reconciliation_required`; zero Drive matches do not permit a second document creation, and multiple or conflicting matches block resolution fail-closed.
-
-Owner-scoped reconciliation is available only through an explicit Studio API/PWA action. It queries Google Drive by the exact opaque appProperty token plus the exact persisted job output-folder snapshot and `trashed = false`; it verifies Google Doc MIME type, exact parent folder, exact appProperty, safe Google web URL, relation/job ownership, and uniqueness before persisting missing output evidence. It never calls the transcription provider, never creates or deletes Google Docs, never reads or exports document body, never uses title-only/time-only/folder-wide guessing, and never returns the token, document ID, folder ID, raw Google payloads, transcript body, or document body to browsers.
-
-After successful reconciliation persistence, cancelled jobs remain cancelled, actively queued/processing jobs are not reconciled, attempt counts and leases are not recreated or reset, unrelated failed jobs are not completed, and only a failed job with `error_code=output_reconciliation_required` can become completed when all non-skipped relations have persisted output coverage.
-
-### Studio source deletion, retention, and cleanup
-
-Studio source removal is logical, owner-scoped, and durable in PostgreSQL. Source rows are never hard-deleted by the source lifecycle; display metadata, job-source relations, historical jobs, persisted outputs, attempt evidence, and reconciliation cases remain available for history. Google Drive source removal only removes the Studio reference: Studio must not delete, trash, update, or otherwise mutate the external Drive file, and Google Docs outputs are not removed by this flow.
-
-Local-upload bytes use an asynchronous, idempotent cleanup lifecycle stored on `sources`. S3/R2 delete is allowed only after durable logical deletion or retention expiry state exists. A missing object is treated as successful physical cleanup; storage failures do not roll back logical deletion and are retried through durable cleanup state. Object storage identity is cleared only after successful cleanup finalization; browser payloads must not expose bucket/object keys, cleanup owners, cleanup generations, cleanup leases, cleanup attempt counts, cleanup errors, or internal job references.
-
-Pending local uploads expire one hour after initiation by default. Successful completion resets `expires_at` from that pending-upload deadline according to the authenticated owner's durable account preference. The supported choices are one hour, 24 hours (default), three days, seven days, and 30 days after verified completion. The setting is persisted in PostgreSQL, is changed through the owner-scoped CSRF-protected account-preferences API/PWA settings surface, applies only to future verified completions, and is never controlled by browser-local storage. The presigned PUT capability remains independently bounded to at most 15 minutes. The PWA must surface the exact retained-source expiry for a completed local source. This retention policy does not apply to referenced Google Drive inputs or Google Docs outputs.
-
-Local sources expire when `expires_at <= now`. Expiry blocks new jobs, claims, explicit retries, expired-lease recovery, upload completion, and processing-time source access. Retention expiry may mark a local source `expired` with `delete_reason=retention_expired` without setting `deleted_at`, so unavailable metadata may remain visible. A referencing `processing` job defers physical cleanup until terminal/recovered state; cleanup never calls the provider, Google Drive, Google Docs, output reconciliation, or attempt-ledger mutation. Completed, cancelled, non-retryable failed, provider-uncertain/result-lost, and unresolved-reconciliation history does not block user source deletion; queued, processing, and actually retryable failed jobs do block deletion.
+Status: **🟦 IN PROGRESS — 83,3% (`5/6`)**.
+
+| AC | Atomic acceptance criterion | Выполнено |
+|---|---|:---:|
+| `PR-01` | В Windows/Chrome выбирается вкладка, окно или экран. | ✅ |
+| `PR-02` | Захватывается передаваемый browser/system audio track. | ✅ |
+| `PR-03` | Микрофон включается опционально и смешивается с display audio. | ✅ |
+| `PR-04` | Partial и committed transcript отображаются live. | ✅ |
+| `PR-05` | Подтверждённый transcript скачивается как `.txt`. | ✅ |
+| `PR-06` | Representative microphone/display/mixed sessions стабильно проходят production LIVE canaries. | ❌ |
+
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
+
+Realtime использует short-lived single-use capability. Он не создаёт batch jobs, Google Docs, manifest/catalog records, analytics records или durable transcript-body state. Automatic reconnect отсутствует и не считается выполнением `PR-06`.
+
+### Эпик `PWA-OPERABILITY-01` — diagnostics, history и analytics
+
+Status: **🟦 IN PROGRESS — 55,6% (`10/18`)**.
+
+| AC | Atomic acceptance criterion | Выполнено |
+|---|---|:---:|
+| `PO-01` | Собираются safe backend diagnostics. | ✅ |
+| `PO-02` | Собираются safe frontend/PWA diagnostics. | ✅ |
+| `PO-03` | Диагностический summary отражает safe configuration state. | ✅ |
+| `PO-04` | Diagnostics экспортируются в Markdown. | ✅ |
+| `PO-05` | Diagnostics экспортируются в JSON. | ❌ |
+| `PO-06` | Diagnostics экспортируются в YAML. | ❌ |
+| `PO-07` | Diagnostics экспортируются в TOML. | ❌ |
+| `PO-08` | History показывает safe transcription metadata. | ✅ |
+| `PO-09` | Успешная history entry содержит safe Google Docs link. | ✅ |
+| `PO-10` | History можно очистить owner-scoped action. | ❌ |
+| `PO-11` | Очистка History требует подтверждения Да/Нет. | ❌ |
+| `PO-12` | Analytics показывает количество транскрибаций. | ✅ |
+| `PO-13` | Analytics показывает execution/stage durations. | ✅ |
+| `PO-14` | Analytics показывает provider/model. | ✅ |
+| `PO-15` | Analytics явно показывает success percentage. | ❌ |
+| `PO-16` | Analytics показывает дополнительные safe outcome/options metadata. | ✅ |
+| `PO-17` | Analytics можно очистить owner-scoped action. | ❌ |
+| `PO-18` | Очистка Analytics требует подтверждения Да/Нет. | ❌ |
+
+Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
+
+## 6. Future scope, не включённый в `73/109`
+
+### Эпик `PWA-AUTH-HARDENING-02`
+
+Status: **⬜ BACKLOG**. Владелец явно отнёс TOTP/Google Authenticator и Cloudflare Zero Trust к будущему. TOTP-подтверждение очистки History/Analytics также future hardening и не заменяет текущий обязательный Да/Нет confirmation.
+
+Эти future criteria исключены из текущего denominator до отдельной авторизации реализации и выбора architecture/credential model.
+
+## 7. Durable technical и safety constraints
+
+### Colab
+
+- Provider failures показывают только safe scalar diagnostics: provider, status, endpoint без query и `detail`, `message`, `code`, `type`, `error.message`, `error.type`, `error.code`.
+- Temporary cleanup ограничен TTL и prefix `elevenlabs_api_`; произвольные пользовательские файлы не удаляются.
+- Parallel notebooks or tabs не являются поддерживаемой concurrency model manifest.
+- Launcher исполняет repository code из `GITHUB_REF`; для production предпочтителен reviewed commit SHA.
+- Existing-doc normalization остаётся selected-folder workflow that defaults to dry-run и разделяет selected-folder scan counters от apply-impact counters.
+- `standard_check` хранит только target/detected standard, status, checked-at и checker version.
+- Timestamped backups старого manifest содержат sensitive operational metadata и защищаются как active manifest.
+- Visible metadata не публикует source filename/source mode.
+
+### PWA ownership и processing
+
+- Все projects, sources, jobs, credentials, connections, diagnostics, outputs, history и analytics owner-scoped.
+- User-facing segment/project labels уникальны case-insensitively в своём owner/project scope.
+- BYOK credentials encrypted at rest, расшифровываются server-side только для авторизованной операции и не возвращаются browser.
+- Google tokens хранятся encrypted server-side; Picker access capability bounded, `no-store`, CSRF-protected и перепроверяется API.
+- R2 object keys, presigned URLs, lease authority, transcript bodies и external payloads не входят в обычные browser DTO/logs/diagnostics.
+- Batch creation сохраняет immutable per-job output-folder snapshot. Изменение project default не перенаправляет существующую job.
+- Claim/lease/cancellation checks выполняются на stage boundaries. Uncertain provider/output side effect не запускает automatic retry и переводится в explicit reconciliation.
+- Exactly-once Google document creation не заявляется; успешное завершение требует persisted output evidence для каждого non-skipped source/fragment.
+- Video audio extraction и automatic long-media split/merge остаются server-side, bounded и deterministic.
+- Existing-document standardization мутирует только подходящие Google Docs; manifest import мутирует только PostgreSQL catalog metadata.
+- Service worker не runtime-cache-ит API responses или upload requests.
+- CI/CD, migrations, environments, production operations и rollback регулирует `docs/ci-cd-rules.md`.
+
+## 8. Runtime и delivery baseline
+
+- Current audit revision: `main@a252a1efa54ba952ec4eb04405fae5722f15d7b5`.
+- Exact-main repository CI: run `31823766931`, success.
+- Последний exact code revision с Studio repository/Studio/browser CI: `main@830bd00754567dfa6809e1e36bb7fcbaa145b824`, runs `31818095906` и `31818095864`, success.
+- Studio component CD run `31818095877` доставил только `studio-web`; API, worker и migration jobs были skipped. Это частичный DEPLOY evidence, а не доказательство всех PWA AC.
+- Production API/worker/migration evidence предыдущего processing rollout привязано к `main@66fb098` и Alembic head `0020_provider_part_checkpoints`; оно не доказывает более поздние UI/realtime requirements.
+- GitHub Deployments API не содержит deployment records для `a252a1e` или `830bd0`; authoritative operational evidence находится в Actions runs и archive.
+
+## 9. Current critical path
+
+1. Закрыть PWA contract gaps без новой architecture boundary: explicit English, target Favorites, source creation timestamp propagation, JSON/YAML/TOML diagnostics exports, success percentage и safe clear confirmations.
+2. Реализовать folder intake для local/Drive и обе multi-transcription modes с bounded enumeration, duplicate handling и preflight.
+3. Заменить narrow two-part model на arbitrary N-fragment plan с server validation, immutable job snapshots и one-output-per-fragment semantics.
+4. Реализовать PWA speaker names/roles и manual listen-and-assign после отдельного privacy/data-retention design внутри уже авторизованного feature scope.
+5. Стабилизировать PWA runtime и провести component-specific deploy/LIVE canaries; затем вернуться к Colab realtime capture stability.
+
+## 10. Supporting documents
+
+- `README.md` — русскоязычная точка входа.
+- `AGENTS.md` — repository router и authority.
+- `docs/delivery-plan.md` — текущий dashboard, readiness и checkpoint.
+- `docs/delivery-plan-archive.md` — завершённая delivery history.
+- `docs/agent-delivery-workflow.md` — implementation/PR/deploy lifecycle.
+- `docs/architecture.md` — actual logical/runtime architecture.
+- `docs/studio-processing-contract.md` — детальные processing invariants PWA.
+- `docs/ci-cd-rules.md` — CI/CD и production safety contract.
+- `docs/runbooks/studio-platform-ops.md` — production operations.
+- `docs/runbooks/validation.md` — validation commands.
+- `docs/runbooks/realtime-colab.md` — manual Colab realtime validation.

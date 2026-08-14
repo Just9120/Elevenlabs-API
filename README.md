@@ -1,19 +1,21 @@
 # ElevenLabs API / VoiceOps Studio
 
-This repository contains two related transcription contours:
+VoiceOps — система транскрибации с двумя production-продуктами:
 
-- **Stable Google Colab contour** — the current ready baseline used in real operation for batch transcription and Google Docs delivery.
-- **Studio PWA contour** — a platform/PWA in active development with a bounded production-proven core, intended to move selected Colab behavior into a web product without changing the Colab baseline.
+1. **Google Colab** — batch-транскрибации в Google Docs и realtime-транскрибация в окне браузера.
+2. **Studio PWA** — развиваемое web-приложение с batch и realtime, авторизацией, проектами, Google Drive, Cloudflare R2, worker processing, history, analytics и diagnostics.
 
-## Current status
+Colab batch используется около четырёх месяцев и в целом стабилен. Colab realtime работает, но иногда теряет browser tab capture и сейчас имеет более низкий приоритет. Studio PWA уже содержит значительную working surface, однако весь новый product scope ещё не стабилен и не завершён.
 
-The Colab workflow is stable, ready, and remains the behavioral baseline for future PWA parity. Do not refactor or change the Colab contour unless a task explicitly asks for it.
+Актуальная независимо пересчитанная готовность на baseline `main@a252a1e`:
 
-The Studio PWA is not a blank or record-only prototype. Source currently includes authentication/sessions, projects/sources, BYOK credentials, Google OAuth/Drive integration, local/R2 intake, persisted batches/jobs, typed transcription options, video/long-media preparation, preflight/progress, a worker runtime, ElevenLabs processing, Google Docs output, analytics, reconciliation/recovery/retention, separate transcript-standardization and Studio-manifest maintenance with recursive-folder or single-document targets, and a separate browser-only Live transcription first slice.
+- Google Colab: **75,9% (`22/29`)**.
+- Studio PWA: **63,8% (`51/80`)**.
+- весь проект: **67,0% (`73/109`)**.
 
-The bounded one-small-source ElevenLabs-to-Google-Docs canary remains evidence only for that exact earlier scenario. Later operator runs proved live progress plus two-project split output. Exact-main CI is green for merged partial-provider continuation, production PostgreSQL is migrated to `0020_provider_part_checkpoints`, and matching API plus worker components are deployed from `main@66fb098`; the explicit continuation path still awaits a naturally occurring or separately approved live partial-failure canary. Transcript-maintenance target-mode canaries remain incomplete. The Studio Live source candidate has local automated evidence but is not yet merged, service-backed-CI proven, deployed, or live-canary proven. Current commits, percentages, blockers, and next actions live only in `docs/delivery-plan.md`.
+Numerator/denominator, atomic acceptance criteria, Evidence и метод расчёта находятся в [docs/project-spec.md](docs/project-spec.md). Текущий delivery checkpoint и следующий шаг — в [docs/delivery-plan.md](docs/delivery-plan.md).
 
-## Minimal commands
+## Быстрый старт и validation
 
 ```bash
 # Lightweight repository checks
@@ -22,31 +24,41 @@ python scripts/ci_checks.py
 # Python tests
 pytest -q
 
-# Documentation/whitespace diff check
+# Studio PWA
+cd apps/studio
+npm ci
+npm run lint
+npm test -- --run
+npm run build
+
+# Проверка whitespace/diff
 git diff --check
 ```
 
-Runtime validation for the stable batch path is manual in Google Colab via `notebooks/elevenlabs_api_colab.ipynb`. Studio deployment and rollout validation must follow the Studio operations runbook.
+Colab batch запускается вручную через `notebooks/elevenlabs_api_colab.ipynb`. Realtime Colab проверяется по отдельному runbook. Studio production operations выполняются только по project CI/CD contract и operational runbook.
 
-## Main documentation map
+## Canonical и operational документы
 
-| Document | Role |
-| --- | --- |
-| `AGENTS.md` | Lightweight routing rules for coding agents. |
-| `docs/agent-delivery-workflow.md` | Direct-agent delivery, recovery, PR, merge и deployment lifecycle. |
-| `docs/project-spec.md` | Current product/project contract and backlog authority. |
-| `docs/delivery-plan.md` | Compact current delivery dashboard. |
-| `docs/delivery-plan-archive.md` | Historical delivery archive; not current authority. |
-| `docs/architecture.md` | Architecture map and runtime boundaries. |
-| `docs/studio-processing-contract.md` | Current Studio processing invariants. |
-| `docs/ci-cd-rules.md` | CI/CD, deployment, migration, and runtime safety rules. |
-| `docs/runbooks/studio-platform-ops.md` | Main Studio operations and rollout runbook. |
-| `docs/runbooks/validation.md` | Unified validation checklist and commands. |
-| `docs/runbooks/realtime-colab.md` | Realtime Colab experimental validation guide. |
-| `docs/audits/repository-audit-2026-07-26.md` | Current dated repository audit evidence and recommended batch roadmap. |
+| Документ | Назначение |
+|---|---|
+| [AGENTS.md](AGENTS.md) | Always-read repository router, authority, scope и safety kernel. |
+| [docs/project-spec.md](docs/project-spec.md) | Canonical product contract, эпики и atomic AC. |
+| [docs/delivery-plan.md](docs/delivery-plan.md) | Живой dashboard, readiness, blockers и active checkpoint. |
+| [docs/delivery-plan-archive.md](docs/delivery-plan-archive.md) | Архив завершённой delivery history. |
+| [docs/agent-delivery-workflow.md](docs/agent-delivery-workflow.md) | Implementation → PR → merge → deploy → LIVE lifecycle. |
+| [docs/ci-cd-rules.md](docs/ci-cd-rules.md) | CI/CD, deployment, migration и runtime safety contract. |
+| [docs/architecture.md](docs/architecture.md) | Logical/runtime architecture, data flow и state ownership. |
+| [docs/studio-processing-contract.md](docs/studio-processing-contract.md) | Детальные Studio processing invariants. |
+| [docs/runbooks/validation.md](docs/runbooks/validation.md) | Repository и component validation commands. |
+| [docs/runbooks/studio-platform-ops.md](docs/runbooks/studio-platform-ops.md) | Studio rollout и production operations. |
+| [docs/runbooks/realtime-colab.md](docs/runbooks/realtime-colab.md) | Realtime Colab prototype и manual runtime validation. |
+| [docs/audits/repository-audit-2026-07-26.md](docs/audits/repository-audit-2026-07-26.md) | Исторический dated audit; supporting evidence, не current authority. |
 
-## Scope reminders
+Опциональные `docs/utility/context-bundle-builder.md` и `docs/ai-delivery-infrastructure-plan.md` в текущем repository отсутствуют; их содержание не предполагается.
 
-- Colab is stable and must remain available as the fallback/baseline contour.
-- Studio PWA source can be ahead of production evidence; documentation must distinguish implemented-at-source-level from deployed or production-live.
-- Claim Studio readiness only for the exact source, component, migration, worker, provider/Google path, and canary evidence that was actually verified.
+## Границы статусов
+
+- Source presence не равна production LIVE.
+- CI success не равен deployment success.
+- `READY` требует `100%` AC и все обязательные `SPEC | CODE | TEST | CI | DEPLOY | LIVE` Evidence.
+- Exact current percentages и Evidence не копируются из archive — они пересчитываются по коду, тестам, CI/CD и доступному runtime evidence.
