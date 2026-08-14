@@ -243,7 +243,7 @@ export function parseBatchPreflightResponse(
     ]) ||
     value.provider !== "elevenlabs" ||
     value.model !== "scribe_v2" ||
-    !["ru", "detect"].includes(String(value.language_mode)) ||
+    !["ru", "en", "detect"].includes(String(value.language_mode)) ||
     typeof value.diarization_enabled !== "boolean" ||
     value.confirmation_required !== true ||
     !isRecord(value.existing_result_authority) ||

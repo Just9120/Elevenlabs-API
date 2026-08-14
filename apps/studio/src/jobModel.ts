@@ -43,7 +43,7 @@ export type JobDetailState = {
   job: TranscriptionJob | null;
 };
 export type JobOutputFolder = { name: string; web_view_url: string | null };
-export type TranscriptionLanguageMode = "ru" | "detect";
+export type TranscriptionLanguageMode = "ru" | "en" | "detect";
 export type JobMediaClip = {
   start_seconds: number | null;
   end_seconds: number | null;
@@ -107,6 +107,7 @@ export function jobMediaClipLabel(job: TranscriptionJob) {
 
 export function transcriptionLanguageModeLabel(value: string | null | undefined) {
   if (value === "ru") return "Русский";
+  if (value === "en") return "Английский";
   if (!value || value === "detect") return "Автоопределение";
   return value;
 }

@@ -72,7 +72,7 @@ def build_transcription_analytics_payload(
     attempt_rows = list(attempts)
     outcomes = {status: 0 for status in JOB_STATUSES}
     provider_model = {"elevenlabs_scribe_v2": 0, "unknown": 0}
-    language_mode = {"ru": 0, "detect": 0, "other": 0}
+    language_mode = {"ru": 0, "en": 0, "detect": 0, "other": 0}
     diarization = {"enabled": 0, "disabled": 0}
     queue_durations: list[float] = []
     processing_durations: list[float] = []
@@ -91,7 +91,9 @@ def build_transcription_analytics_payload(
 
         selected_language = browser_language_mode(getattr(job, "language", None))
         language_key = (
-            selected_language if selected_language in {"ru", "detect"} else "other"
+            selected_language
+            if selected_language in {"ru", "en", "detect"}
+            else "other"
         )
         language_mode[language_key] += 1
 
@@ -131,6 +133,11 @@ def build_transcription_analytics_payload(
         if post_provider_duration is not None:
             post_provider_durations.append(post_provider_duration)
 
+    terminal_jobs = sum(
+        outcomes[status] for status in ("completed", "failed", "cancelled")
+    )
+    successful_jobs = outcomes["completed"]
+
     return {
         "scope": "project_all_time",
         "totals": {
@@ -139,6 +146,15 @@ def build_transcription_analytics_payload(
             "outputs": max(0, int(output_count)),
         },
         "outcomes": outcomes,
+        "success": {
+            "successful_jobs": successful_jobs,
+            "terminal_jobs": terminal_jobs,
+            "percentage": (
+                round(successful_jobs / terminal_jobs * 100, 1)
+                if terminal_jobs > 0
+                else None
+            ),
+        },
         "configuration": {
             "provider_model": provider_model,
             "language_mode": language_mode,

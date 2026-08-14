@@ -183,7 +183,7 @@ describe("batch composer model", () => {
     const valid = {
       provider: "elevenlabs",
       model: "scribe_v2",
-      language_mode: "ru",
+      language_mode: "en",
       diarization_enabled: false,
       existing_result_authority: {
         status: "partial",

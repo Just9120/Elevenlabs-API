@@ -12,6 +12,7 @@ import {
   RealtimeSessionController,
   type RealtimeSessionStatus,
 } from "./realtimeSession";
+import type { TranscriptionLanguageMode } from "./jobModel";
 
 type Props = {
   projectId: string;
@@ -109,7 +110,8 @@ export function LiveTranscriptionPanel({
   );
   const [microphoneDeviceId, setMicrophoneDeviceId] = useState("");
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
-  const [language, setLanguage] = useState("ru");
+  const [language, setLanguage] =
+    useState<TranscriptionLanguageMode>("ru");
   const [status, setStatus] = useState<RealtimeSessionStatus>("ready");
   const [partial, setPartial] = useState("");
   const [segments, setSegments] = useState<string[]>(() => [
@@ -542,9 +544,12 @@ export function LiveTranscriptionPanel({
             <select
               value={language}
               disabled={running}
-              onChange={(event) => setLanguage(event.target.value)}
+              onChange={(event) =>
+                setLanguage(event.target.value as TranscriptionLanguageMode)
+              }
             >
               <option value="ru">Русский</option>
+              <option value="en">Английский</option>
               <option value="detect">Определить автоматически</option>
             </select>
           </label>

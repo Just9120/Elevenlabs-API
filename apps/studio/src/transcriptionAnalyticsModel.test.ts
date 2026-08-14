@@ -11,9 +11,14 @@ const valid = {
     failed: 1,
     cancelled: 0,
   },
+  success: {
+    successful_jobs: 1,
+    terminal_jobs: 2,
+    percentage: 50,
+  },
   configuration: {
     provider_model: { elevenlabs_scribe_v2: 2, unknown: 1 },
-    language_mode: { ru: 2, detect: 1, other: 0 },
+    language_mode: { ru: 1, en: 1, detect: 1, other: 0 },
     diarization: { enabled: 1, disabled: 2 },
   },
   durations: {
@@ -57,6 +62,18 @@ describe("transcription analytics parser", () => {
       parseTranscriptionAnalytics({
         ...valid,
         totals: { ...valid.totals, jobs: 4 },
+      }),
+    ).toBeNull();
+    expect(
+      parseTranscriptionAnalytics({
+        ...valid,
+        success: { ...valid.success, percentage: 100 },
+      }),
+    ).toBeNull();
+    expect(
+      parseTranscriptionAnalytics({
+        ...valid,
+        success: { ...valid.success, terminal_jobs: 3 },
       }),
     ).toBeNull();
     expect(

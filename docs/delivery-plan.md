@@ -2,84 +2,85 @@
 
 ## Current dashboard
 
-- 👉 `PRODUCT-REQUIREMENTS-REFRESH-01` — новая explicit owner baseline разложена на два production-продукта, четыре runtime contour и 109 равновесных atomic AC; выполняется validation и публикация canonical docs.
-- ⏭️ `PWA-QUICK-GAPS-01` — следующий implementation slice после merge baseline: explicit English, target-folder Favorites и PWA diagnostics export formats/success percentage без новой architecture boundary.
+- 👉 `PWA-LANGUAGE-DIAGNOSTICS-01` — все `5/5` scoped AC реализованы локально; выполняются final validation и delivery gates.
+- ⏭️ `PWA-INGEST-FAVORITES-01` — отдельный design/implementation slice для owner-scoped target-folder Favorites после выбора persistence semantics.
 - 📋 `PWA-INGEST-FOLDERS-01` — затем bounded local/Drive folder intake и одна target folder для folder batch.
 - 📋 `PWA-ARBITRARY-SEGMENTS-01` — затем arbitrary N-fragment plan вместо narrow two-project split.
 - 💤 `COLAB-REALTIME-STABILITY-01` — подтверждённый gap, но owner установил более низкий приоритет относительно PWA.
 
 ## Readiness snapshot
 
-Процент — выполненные равновесные atomic acceptance criteria / все AC текущего scope. Project percentage считается по `73/109`, а не как среднее эпиков. Evidence — отдельные readiness gates.
+Процент — выполненные равновесные atomic acceptance criteria / все AC текущего scope. Project percentage считается по `78/109`, а не как среднее эпиков. Evidence — отдельные readiness gates.
 
 | Product/epic | Current | Previous snapshot | Readiness/Evidence |
 |---|---:|---:|---|
-| **Project** | **67,0% (`73/109`)** | **N/A** | Первый закрытый project-wide denominator. Project не `READY`. |
-| **Google Colab** | **75,9% (`22/29`)** | **100% (`2/2`)** | Previous denominator учитывал только два contour labels и не измерял feature AC; сравнение не является регрессией. |
-| `COLAB-BATCH-01` | **73,9% (`17/23`)** | N/A | 🟦 IN PROGRESS; `SPEC ✅ CODE ◐ TEST ◐ CI ✅ DEPLOY ◐ LIVE ◐`. |
-| `COLAB-REALTIME-01` | **83,3% (`5/6`)** | N/A | 🟦 IN PROGRESS; capture stability не подтверждена. |
-| **Studio PWA** | **63,8% (`51/80`)** | **N/A** | В старом dashboard полного PWA denominator не было. |
-| `PWA-CORE-01` | **84,6% (`11/13`)** | N/A | 🟦 IN PROGRESS; нет active-UI expiry removal и color selector. |
-| `PWA-INGEST-01` | **63,6% (`7/11`)** | N/A | 🟦 IN PROGRESS; нет Favorites и folder intake. |
-| `PWA-SEGMENTS-01` | **0,0% (`0/5`)** | N/A | 🟦 IN PROGRESS; текущий two-part split не выполняет arbitrary-N AC целиком. |
-| `PWA-BATCH-01` | **80,0% (`8/10`)** | N/A | 🟦 IN PROGRESS; нет explicit English и source-created timestamp. |
-| `PWA-SPEAKER-IDENTITY-01` | **0,0% (`0/5`)** | N/A | ⬜ BACKLOG; PWA names/roles/listen-and-assign отсутствуют. |
-| `PWA-MANIFEST-01` | **83,3% (`5/6`)** | N/A | 🟦 IN PROGRESS; нет safe clear action. |
-| `PWA-STANDARDIZATION-01` | **83,3% (`5/6`)** | N/A | 🟦 IN PROGRESS; нет original-source creation authority. |
-| `PWA-REALTIME-01` | **83,3% (`5/6`)** | N/A | 🟦 IN PROGRESS; source/tests есть, full production live matrix отсутствует. |
-| `PWA-OPERABILITY-01` | **55,6% (`10/18`)** | N/A | 🟦 IN PROGRESS; missing export/clear/success-percentage AC. |
+| **Project** | **71,6% (`78/109`)** | **70,6% (`77/109`)** | `PO-15` закрыт; Project не `READY`. |
+| **Google Colab** | **75,9% (`22/29`)** | **75,9% (`22/29`)** | Без изменений в current PWA scope. |
+| `COLAB-BATCH-01` | **73,9% (`17/23`)** | **73,9% (`17/23`)** | 🟦 IN PROGRESS; `SPEC ✅ CODE ◐ TEST ◐ CI ✅ DEPLOY ◐ LIVE ◐`. |
+| `COLAB-REALTIME-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; capture stability не подтверждена. |
+| **Studio PWA** | **70,0% (`56/80`)** | **68,8% (`55/80`)** | Analytics показывает validated success percentage с explicit terminal denominator. |
+| `PWA-CORE-01` | **84,6% (`11/13`)** | **84,6% (`11/13`)** | 🟦 IN PROGRESS; нет active-UI expiry removal и color selector. |
+| `PWA-INGEST-01` | **63,6% (`7/11`)** | **63,6% (`7/11`)** | 🟦 IN PROGRESS; нет Favorites и folder intake. |
+| `PWA-SEGMENTS-01` | **0,0% (`0/5`)** | **0,0% (`0/5`)** | 🟦 IN PROGRESS; текущий two-part split не выполняет arbitrary-N AC целиком. |
+| `PWA-BATCH-01` | **90,0% (`9/10`)** | **90,0% (`9/10`)** | 🟦 IN PROGRESS; explicit English закрыт, source-created timestamp отсутствует. |
+| `PWA-SPEAKER-IDENTITY-01` | **0,0% (`0/5`)** | **0,0% (`0/5`)** | ⬜ BACKLOG; PWA names/roles/listen-and-assign отсутствуют. |
+| `PWA-MANIFEST-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; нет safe clear action. |
+| `PWA-STANDARDIZATION-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; нет original-source creation authority. |
+| `PWA-REALTIME-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; source/tests есть, full production live matrix отсутствует. |
+| `PWA-OPERABILITY-01` | **77,8% (`14/18`)** | **72,2% (`13/18`)** | 🟦 IN PROGRESS; exports/success percentage закрыты, clear-operation AC остаются. |
 
-Изменение project readiness более чем на 10 percentage points объясняется созданием нового denominator: previous snapshot был `N/A`, а прежние `2/2` для Colab были contour labels, не feature acceptance criteria.
+Изменение current scope: `+1` выполненный AC (`PO-15`), при неизменном denominator `109`.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-14T21:29:13Z
-- Session mode: INITIAL_AUDIT
-- Delivery stage: VALIDATING
-- Work item / epic: `PRODUCT-REQUIREMENTS-REFRESH-01`
-- Authorization source: explicit owner requirements от 2026-08-14 и команда продолжать от 2026-08-15
-- Authorized scope: зафиксировать два production-продукта и четыре contour, независимо сверить requirements с code/tests/CI/runtime evidence, создать atomic AC denominator, обновить русскоязычные canonical docs и delivery roadmap
-- Non-goals: implementation product gaps в этой docs baseline branch; workflows, GitHub Settings, secrets, production runtime, migrations, CI/CD policy, destructive cleanup
+- Updated (UTC): 2026-08-14T22:50:08Z
+- Session mode: FOCUSED_TASK
+- Delivery stage: PR_OPEN
+- Work item / epic: `PWA-LANGUAGE-DIAGNOSTICS-01` / `PWA-BATCH-01`, `PWA-OPERABILITY-01`
+- Authorization source: explicit owner requirements от 2026-08-14 и непрерывная команда продолжать PWA implementation
+- Authorized scope: explicit English end-to-end; safe diagnostics export в Markdown/JSON/YAML/TOML; explicit analytics success percentage; related tests, operational docs и delivery flow
+- Non-goals: Favorites/persistence, folder intake, arbitrary fragments, clear operations, source-created timestamp, speaker identity, migrations, production dependencies, CI/CD policy и unrelated cleanup
 - Base branch: `main`
-- Base SHA: `a252a1efa54ba952ec4eb04405fae5722f15d7b5`
-- Working branch: `feature/product-requirements-v2`
-- Last verified revision: `a0195b9f243bc32f0d7e062c6c9b8b5cc237d578`
-- Working tree: DIRTY — intended final checkpoint update after clean commit `a0195b9`
-- Completed since base: owner requirements mapped to 109 atomic AC; code/test/config evidence inspected; exact remote CI/CD evidence queried; README/spec translated and restructured; stale PR #209 checkpoint moved to archive; commit `a0195b9` created
-- Current step: all available local validation passed; recording pre-push checkpoint
-- Next exact action: commit this final checkpoint, push branch and open one Pull Request
-- Validation and Evidence: denominator script reproduced every epic and total `73/109`; bundled-Python `scripts/ci_checks.py` passed all lightweight checks; `git diff --check`, Markdown relative-link check, required security/realtime marker assertions and provider-doc sentinel passed; focused documentation pytest passed `7/7`; broader focused selection passed `237` tests but had `7` environment-only setup errors because pytest could not access its Windows temp root, with no assertion failures; run `31823766931` succeeded for exact main; Studio CI `31818095864` and repository CI `31818095906` succeeded at last code revision `830bd007`; web-only CD run `31818095877` succeeded
-- Pull Request: N/A
-- CI/checks: N/A before push
-- Deployment/environment: docs-only scope; deployment expected N/A under path detection
-- Blockers: none for documentation baseline
-- Unverified assumptions: `.txt` wording interpreted as export/download; no authenticated UX session or paid provider/Google canary was run; Colab four-month stability is owner runtime evidence without exact SHA
-- Preserved pre-existing changes: none; branch started clean and remains limited to intended docs
+- Base SHA: `8fe0dd722d0433440b41ef6dfe0fa0489f8f8fb8`
+- Working branch: `feature/pwa-language-diagnostics`
+- Last verified revision: `594c3e95fd3dc85d9122de0970a056fa72c694ba`
+- Working tree: DIRTY — intended pre-merge checkpoint update only
+- Completed since base: commits `559964a`, `e72a46f` и `cdaac53` закрыли scoped `5/5`; commit `594c3e9` синхронизировал English batch catalog authority и добавил regression test; PR #211 ready и все required checks implementation head прошли
+- Current step: recording successful exact-head validation and one infrastructure-timeout retry before final docs-only head push
+- Next exact action: commit/push checkpoint, дождаться всех required checks final docs-only head и merge PR #211 только при terminal success
+- Validation and Evidence: full Studio Vitest `502/502`, ESLint, TypeScript и production build прошли; focused catalog/options `12/12`, serializers/analytics/options `8/8`, Python compile и lightweight CI прошли локально; CI attempt #2 подтвердил full pytest `1213/1213` и `CI_OK`
+- Pull Request: #211 — `https://github.com/Just9120/Elevenlabs-API/pull/211`; ready, `MERGEABLE/CLEAN`, base `main`, implementation head `594c3e95fd3dc85d9122de0970a056fa72c694ba`
+- CI/checks: Studio run `31846553201`: `studio` ✅, `browser-e2e` ✅; CI run `31846553268` attempt #1 превысил job timeout и не сохранил log, attempt #2 job `94917932535` ✅ (`1213 passed`, `CI_OK`); `origin/main` не diverged от base
+- Deployment/environment: code scope требует component-specific CD и LIVE evidence после merge; пока N/A before PR
+- Blockers: none; final docs-only exact-head checks остаются pre-merge gate
+- Unverified assumptions: no paid provider call или authenticated browser LIVE canary; API integration coverage ожидает CI runtime
+- Preserved pre-existing changes: none; branch создана из clean synchronized main
 
-## Active item — `PRODUCT-REQUIREMENTS-REFRESH-01`
+## Active item — `PWA-LANGUAGE-DIAGNOSTICS-01`
 
-Goal: заменить неполную и конфликтующую product baseline на проверяемый русский contract, не выдавая source presence за LIVE readiness.
+Goal: закрыть пять малорисковых PWA AC без новой dependency, persistence или architecture boundary.
 
 Atomic delivery AC:
 
-1. `docs/project-spec.md` описывает Colab batch/realtime и PWA batch/realtime, структурирован по эпикам и содержит все owner requirements без старых contradictory non-goals.
-2. Для каждого текущего эпика и всего проекта указан numerator/denominator и равновесный метод; сумма эпиков воспроизводимо даёт `73/109`.
-3. `README.md` на русском, показывает два production-продукта и ссылается на все applicable canonical/operational документы.
-4. `docs/delivery-plan.md` содержит только current dashboard, один previous snapshot и active checkpoint; obsolete PR #209 state перенесён в archive.
-5. Required repository documentation/security markers, Markdown links, whitespace и relevant repository tests проходят.
+1. `PB-03`: explicit English проходит через PWA batch/realtime UI, typed API/preflight, provider mapping, persisted/displayed language mode и safe analytics.
+2. `PO-05`: safe filtered diagnostics report скачивается как valid JSON.
+3. `PO-06`: тот же safe report скачивается как valid YAML без новой production dependency.
+4. `PO-07`: тот же safe report скачивается как valid TOML без новой production dependency.
+5. `PO-15`: analytics явно показывает success percentage с определённым denominator terminal outcomes.
 
-Readiness item: **100% (`5/5`)** по content/local validation. Required Evidence: `SPEC ✅ | CODE N/A | TEST ✅ | CI — | DEPLOY N/A | LIVE N/A`; отсутствие CI пока gate-ит delivery, но не percentage.
+Readiness item: **100% (`5/5`)** по завершённым AC. Required Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`; exact implementation head подтверждён full CI, а DEPLOY/LIVE остаются post-merge gates. Evidence gates не меняют percentage.
 
 ## Roadmap и critical path
 
-1. **PWA quick gaps:** English mode end-to-end; Favorites; diagnostics JSON/YAML/TOML; explicit success percentage. Низкий migration risk, быстрый measurable uplift.
-2. **Source creation authority:** добавить source-created timestamp в local upload/Drive snapshots, migration/backfill semantics и Google Docs/standardization flow. Prerequisite для двух эпиков; требует data/schema review.
-3. **Folder intake:** bounded Drive folder enumeration и browser directory upload; reuse multi-source preflight, R2 lifecycle и duplicate authority.
-4. **Arbitrary fragments:** generalized ordered fragment model, API schema, immutable snapshots, preflight, worker clipping/output, migrations и UI builder. На critical path после стабильного source intake.
-5. **Clear operations:** manifest, history и analytics с owner scope, explicit Да/Нет, retention/audit semantics и protection от accidental/partial delete.
-6. **Speaker identity:** names/roles persistence и bounded manual sample playback/assignment. Перед кодом нужен privacy/data-retention design; automatic biometric matching не предполагается.
-7. **Runtime stabilization:** authenticated UX/UI audit, representative batch/live canaries, exact component deploy identity, health/smoke и rollback readiness.
-8. **Colab follow-up:** local-folder intake, English, manifest semantics/source time; realtime capture stability после PWA priority scope.
+1. **PWA language/diagnostics:** local implementation `5/5`; пройти full validation, exact-head CI, merge и component-specific deployment/LIVE gates.
+2. **Target-folder Favorites:** выбрать owner-scoped persistence semantics, затем реализовать отдельным slice без смешивания с diagnostics.
+3. **Source creation authority:** добавить source-created timestamp в local upload/Drive snapshots, migration/backfill semantics и Google Docs/standardization flow. Prerequisite для двух эпиков; требует data/schema review.
+4. **Folder intake:** bounded Drive folder enumeration и browser directory upload; reuse multi-source preflight, R2 lifecycle и duplicate authority.
+5. **Arbitrary fragments:** generalized ordered fragment model, API schema, immutable snapshots, preflight, worker clipping/output, migrations и UI builder. На critical path после стабильного source intake.
+6. **Clear operations:** manifest, history и analytics с owner scope, explicit Да/Нет, retention/audit semantics и protection от accidental/partial delete.
+7. **Speaker identity:** names/roles persistence и bounded manual sample playback/assignment. Перед кодом нужен privacy/data-retention design; automatic biometric matching не предполагается.
+8. **Runtime stabilization:** authenticated UX/UI audit, representative batch/live canaries, exact component deploy identity, health/smoke и rollback readiness.
+9. **Colab follow-up:** local-folder intake, English, manifest semantics/source time; realtime capture stability после PWA priority scope.
 
 Validation gates для каждого implementation slice: focused tests → relevant Python/Studio regression → lint/type/build → PR exact-head checks → merge gates → component-specific CD → exact revision health/smoke/LIVE evidence → safe branch cleanup.
 

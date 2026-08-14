@@ -28,13 +28,13 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Текущий independently verified snapshot на `main@a252a1efa54ba952ec4eb04405fae5722f15d7b5`:
+Текущий independently verified working snapshot на ветке от `main@8fe0dd722d0433440b41ef6dfe0fa0489f8f8fb8`:
 
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **75,9% (`22/29`)** | `COLAB-BATCH 17/23` + `COLAB-REALTIME 5/6` |
-| Studio PWA | **63,8% (`51/80`)** | сумма девяти PWA-эпиков ниже |
-| Весь проект | **67,0% (`73/109`)** | все выполненные AC двух продуктов / все AC текущего scope |
+| Studio PWA | **70,0% (`56/80`)** | сумма девяти PWA-эпиков ниже |
+| Весь проект | **71,6% (`78/109`)** | все выполненные AC двух продуктов / все AC текущего scope |
 
 ## 3. Общие product rules
 
@@ -169,13 +169,13 @@ Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
 
 ### Эпик `PWA-BATCH-01` — transcription options, progress и output
 
-Status: **🟦 IN PROGRESS — 80,0% (`8/10`)**.
+Status: **🟦 IN PROGRESS — 90,0% (`9/10`)**.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
 | `PB-01` | Доступно разделение на спикеров. | ✅ |
 | `PB-02` | Доступен явный русский язык. | ✅ |
-| `PB-03` | Доступен явный английский язык. | ❌ |
+| `PB-03` | Доступен явный английский язык. | ✅ |
 | `PB-04` | Доступно auto-detection языка. | ✅ |
 | `PB-05` | Job progress отображается live в процентах из server checkpoints. | ✅ |
 | `PB-06` | Успешная job создаёт Google Docs transcript и safe output link. | ✅ |
@@ -255,7 +255,7 @@ Realtime использует short-lived single-use capability. Он не со�
 
 ### Эпик `PWA-OPERABILITY-01` — diagnostics, history и analytics
 
-Status: **🟦 IN PROGRESS — 55,6% (`10/18`)**.
+Status: **🟦 IN PROGRESS — 77,8% (`14/18`)**.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -263,9 +263,9 @@ Status: **🟦 IN PROGRESS — 55,6% (`10/18`)**.
 | `PO-02` | Собираются safe frontend/PWA diagnostics. | ✅ |
 | `PO-03` | Диагностический summary отражает safe configuration state. | ✅ |
 | `PO-04` | Diagnostics экспортируются в Markdown. | ✅ |
-| `PO-05` | Diagnostics экспортируются в JSON. | ❌ |
-| `PO-06` | Diagnostics экспортируются в YAML. | ❌ |
-| `PO-07` | Diagnostics экспортируются в TOML. | ❌ |
+| `PO-05` | Diagnostics экспортируются в JSON. | ✅ |
+| `PO-06` | Diagnostics экспортируются в YAML. | ✅ |
+| `PO-07` | Diagnostics экспортируются в TOML. | ✅ |
 | `PO-08` | History показывает safe transcription metadata. | ✅ |
 | `PO-09` | Успешная history entry содержит safe Google Docs link. | ✅ |
 | `PO-10` | History можно очистить owner-scoped action. | ❌ |
@@ -273,7 +273,7 @@ Status: **🟦 IN PROGRESS — 55,6% (`10/18`)**.
 | `PO-12` | Analytics показывает количество транскрибаций. | ✅ |
 | `PO-13` | Analytics показывает execution/stage durations. | ✅ |
 | `PO-14` | Analytics показывает provider/model. | ✅ |
-| `PO-15` | Analytics явно показывает success percentage. | ❌ |
+| `PO-15` | Analytics явно показывает success percentage. | ✅ |
 | `PO-16` | Analytics показывает дополнительные safe outcome/options metadata. | ✅ |
 | `PO-17` | Analytics можно очистить owner-scoped action. | ❌ |
 | `PO-18` | Очистка Analytics требует подтверждения Да/Нет. | ❌ |

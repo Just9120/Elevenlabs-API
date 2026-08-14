@@ -19,6 +19,11 @@ export type TranscriptionAnalytics = {
     failed: number;
     cancelled: number;
   };
+  success: {
+    successful_jobs: number;
+    terminal_jobs: number;
+    percentage: number | null;
+  };
   configuration: {
     provider_model: {
       elevenlabs_scribe_v2: number;
@@ -26,6 +31,7 @@ export type TranscriptionAnalytics = {
     };
     language_mode: {
       ru: number;
+      en: number;
       detect: number;
       other: number;
     };
@@ -43,12 +49,20 @@ export type TranscriptionAnalytics = {
 };
 
 const EXACT_KEYS = {
-  root: ["scope", "totals", "outcomes", "configuration", "durations"],
+  root: [
+    "scope",
+    "totals",
+    "outcomes",
+    "success",
+    "configuration",
+    "durations",
+  ],
   totals: ["jobs", "sources", "outputs"],
   outcomes: ["queued", "processing", "completed", "failed", "cancelled"],
+  success: ["successful_jobs", "terminal_jobs", "percentage"],
   configuration: ["provider_model", "language_mode", "diarization"],
   providerModel: ["elevenlabs_scribe_v2", "unknown"],
-  languageMode: ["ru", "detect", "other"],
+  languageMode: ["ru", "en", "detect", "other"],
   diarization: ["enabled", "disabled"],
   durations: [
     "queue",
@@ -73,6 +87,11 @@ export function parseTranscriptionAnalytics(
     value.scope !== "project_all_time" ||
     !isCountRecord(value.totals, EXACT_KEYS.totals) ||
     !isCountRecord(value.outcomes, EXACT_KEYS.outcomes) ||
+    !isRecord(value.success) ||
+    !hasExactKeys(value.success, EXACT_KEYS.success) ||
+    !isNonNegativeInteger(value.success.successful_jobs) ||
+    !isNonNegativeInteger(value.success.terminal_jobs) ||
+    !isPercentageOrNull(value.success.percentage) ||
     !isRecord(value.configuration) ||
     !hasExactKeys(value.configuration, EXACT_KEYS.configuration) ||
     !isCountRecord(
@@ -100,6 +119,21 @@ export function parseTranscriptionAnalytics(
     sumRecord(value.configuration.provider_model) !== value.totals.jobs ||
     sumRecord(value.configuration.language_mode) !== value.totals.jobs ||
     sumRecord(value.configuration.diarization) !== value.totals.jobs
+  ) {
+    return null;
+  }
+  const terminalJobs =
+    value.outcomes.completed +
+    value.outcomes.failed +
+    value.outcomes.cancelled;
+  const expectedPercentage =
+    terminalJobs > 0
+      ? Math.round((value.outcomes.completed / terminalJobs) * 1000) / 10
+      : null;
+  if (
+    value.success.successful_jobs !== value.outcomes.completed ||
+    value.success.terminal_jobs !== terminalJobs ||
+    value.success.percentage !== expectedPercentage
   ) {
     return null;
   }
@@ -163,4 +197,11 @@ function isNonNegativeInteger(value: unknown): value is number {
 
 function isNonNegativeFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+function isPercentageOrNull(value: unknown): value is number | null {
+  return (
+    value === null ||
+    (isNonNegativeFiniteNumber(value) && value <= 100)
+  );
 }

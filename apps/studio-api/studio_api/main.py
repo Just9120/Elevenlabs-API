@@ -22,7 +22,8 @@ from .google_connection_access import GoogleConnectionAccessError, GoogleConnect
 from .google_scopes import has_drive_file_scope, has_maintenance_server_scope_boundary, has_picker_browser_scope_boundary
 from .job_lifecycle import safe_failure_metadata_value
 from .job_processing_lifecycle import request_job_cancellation
-from .diagnostics import REGISTRY, cleanup_expired_diagnostics, cursor_context, decode_cursor_payload, encode_cursor, markdown_escape, new_correlation_id, new_request_id, sanitize_build_id, sanitize_inbound_correlation, valid_correlation_id, valid_uuid, write_diagnostic_event
+from .diagnostics import REGISTRY, cleanup_expired_diagnostics, cursor_context, decode_cursor_payload, encode_cursor, new_correlation_id, new_request_id, sanitize_build_id, sanitize_inbound_correlation, valid_correlation_id, valid_uuid, write_diagnostic_event
+from .diagnostic_reports import build_diagnostic_report, serialize_diagnostic_report
 from .job_output_read import browser_job_output_payload, load_browser_job_output_rows
 from .job_progress import load_browser_job_progress_payloads
 from .realtime_capability import RealtimeCapabilityError, RealtimeCapabilityReason, create_realtime_capability
@@ -1390,23 +1391,68 @@ def diagnostics_events(start: datetime|None=Query(None), end: datetime|None=Quer
 def diagnostics_system(pair=Depends(current_session), db: Session=Depends(get_db)):
     _,user=pair; limiter.check("diagnostics:system:"+user.id, 120, 3600); return _system_summary(db,user)
 
-@app.post("/api/diagnostics/report.md")
-def diagnostics_report(data: DiagnosticReportIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+DIAGNOSTIC_REPORT_OUTPUTS = {
+    "md": ("text/markdown; charset=utf-8", "studio-diagnostics-report.md"),
+    "json": ("application/json; charset=utf-8", "studio-diagnostics-report.json"),
+    "yaml": ("application/yaml; charset=utf-8", "studio-diagnostics-report.yaml"),
+    "toml": ("application/toml; charset=utf-8", "studio-diagnostics-report.toml"),
+}
+
+def _diagnostics_report_response(data: DiagnosticReportIn, pair, db: Session, report_format: str):
     _,user=pair; limiter.check("diagnostics:report:"+user.id, 10, 3600)
     q,start_dt,end_dt=_diag_filters(db,user,start=data.start,end=data.end,level=data.level,component=data.component,event_code=data.event_code,project_id=data.project_id,job_id=data.job_id)
     limit=settings.diagnostic_report_max_events
     rows=q.order_by(DiagnosticEvent.first_occurred_at.asc(), DiagnosticEvent.id.asc()).limit(limit+1).all(); truncated=len(rows)>limit; rows=rows[:limit]
-    by_level={k:0 for k in DiagnosticLevel.__members__}; by_comp={c.value:0 for c in DiagnosticComponent}
-    for r in rows: by_level[r.level.value]+=r.occurrence_count; by_comp[r.component.value]+=r.occurrence_count
     summary=_system_summary(db,user); generated=utcnow().replace(tzinfo=None).isoformat()
-    lines=["# Studio diagnostics report", "", f"Generated: {markdown_escape(generated)}", f"Selected period: {markdown_escape(start_dt.isoformat())} to {markdown_escape(end_dt.isoformat())}", "Redaction: report excludes secrets, URLs, filenames, raw JSON, transcript text, request/response bodies, stack traces, and user email.", "", "## Build identities", f"- Web: {markdown_escape(summary['build']['web'])}", f"- API: {markdown_escape(summary['build']['api'])}", f"- Worker: {markdown_escape(summary['build']['worker'])}", "", "## Environment summary", f"- Environment: {markdown_escape(summary['environment'])}", f"- Google Drive connected: {summary['google_drive']['connected']}", f"- Google Drive scope ready: {summary['google_drive']['scope_ready']}", f"- Active provider credentials: {summary['provider_credentials']['active_count']}", f"- Diagnostics recording enabled: {summary['diagnostics']['recording_enabled']}", f"- DEBUG recording: {markdown_escape(summary['diagnostics']['debug_recording'])}", "", "## Scope", f"- Project ID: {markdown_escape(data.project_id or 'all')}", f"- Job ID: {markdown_escape(data.job_id or 'all')}", "", "## Event counts by level"]
-    lines += [f"- {k}: {v}" for k,v in by_level.items()] + ["", "## Event counts by component"] + [f"- {k}: {v}" for k,v in by_comp.items()] + ["", "## Chronological diagnostic timeline"]
-    for r in rows:
-        meta=", ".join(f"{markdown_escape(k)}={markdown_escape(v)}" for k,v in json.loads(r.metadata_json or '{}').items())
-        lines.append(f"- {markdown_escape(r.first_occurred_at.isoformat())} | {r.level.value} | {r.component.value} | {markdown_escape(r.event_code)} | project={markdown_escape(r.project_id or '')} job={markdown_escape(r.job_id or '')} corr={markdown_escape(r.correlation_id or '')} req={markdown_escape(r.request_id or '')} occurrences={r.occurrence_count} metadata={meta}")
-    lines += ["", "## Occurrence and deduplication counts", f"- Timeline rows: {len(rows)}", f"- Total occurrences: {sum(r.occurrence_count for r in rows)}", "", "## Truncation", f"- Truncated: {truncated}", "", "## Fields intentionally excluded", "- Security audit events, emails, titles, filenames, URLs, source bytes, transcript text, provider payloads, request/response bodies, stack traces, secrets, internal expiry, and deduplication fingerprints."]
-    body="\n".join(lines)+"\n"
-    return FastAPIResponse(content=body, media_type="text/markdown; charset=utf-8", headers={"Content-Disposition": 'attachment; filename="studio-diagnostics-report.md"', "Cache-Control": "no-store"})
+    report=build_diagnostic_report(
+        generated_at=generated,
+        start_at=start_dt.isoformat(),
+        end_at=end_dt.isoformat(),
+        system_summary=summary,
+        events=[{
+            "occurred_at": r.first_occurred_at.isoformat(),
+            "level": r.level.value,
+            "component": r.component.value,
+            "event_code": r.event_code,
+            "project_id": r.project_id,
+            "job_id": r.job_id,
+            "correlation_id": r.correlation_id,
+            "request_id": r.request_id,
+            "occurrence_count": r.occurrence_count,
+            "metadata": json.loads(r.metadata_json or "{}"),
+        } for r in rows],
+        truncated=truncated,
+        level=data.level,
+        component=data.component,
+        event_code=data.event_code,
+        project_id=data.project_id,
+        job_id=data.job_id,
+    )
+    media_type, filename=DIAGNOSTIC_REPORT_OUTPUTS[report_format]
+    return FastAPIResponse(
+        content=serialize_diagnostic_report(report, report_format),
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+@app.post("/api/diagnostics/report.md")
+def diagnostics_report(data: DiagnosticReportIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    return _diagnostics_report_response(data, pair, db, "md")
+
+@app.post("/api/diagnostics/report.json")
+def diagnostics_report_json(data: DiagnosticReportIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    return _diagnostics_report_response(data, pair, db, "json")
+
+@app.post("/api/diagnostics/report.yaml")
+def diagnostics_report_yaml(data: DiagnosticReportIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    return _diagnostics_report_response(data, pair, db, "yaml")
+
+@app.post("/api/diagnostics/report.toml")
+def diagnostics_report_toml(data: DiagnosticReportIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    return _diagnostics_report_response(data, pair, db, "toml")
 
 def google_connection_payload(c: GoogleConnection|None):
     picker_configured=settings.google_picker_configured()

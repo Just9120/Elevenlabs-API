@@ -95,6 +95,7 @@ import {
   type JobState,
   type TranscriptionJob,
   type TranscriptionLanguageMode,
+  transcriptionLanguageModeLabel,
 } from "./jobModel";
 import {
   DEFAULT_TRANSCRIPTION_LANGUAGE_MODE,
@@ -3376,6 +3377,7 @@ function PreparationPanel({
               }}
             >
               <option value="ru">Русский</option>
+              <option value="en">Английский</option>
               <option value="detect">Автоопределение</option>
             </select>
           </label>
@@ -3843,9 +3845,9 @@ function PreparationPanel({
                 </h5>
                 <p className="muted">
                   ElevenLabs scribe_v2 ·{" "}
-                  {activePreflight.language_mode === "ru"
-                    ? "Русский"
-                    : "Автоопределение"}
+                  {transcriptionLanguageModeLabel(
+                    activePreflight.language_mode,
+                  )}
                   {" · "}
                   Спикеры:{" "}
                   {activePreflight.diarization_enabled
@@ -5413,19 +5415,27 @@ function diagnosticsComponentLabel(component: string) {
   };
   return labels[component] ?? safeText(component);
 }
-function reportFileName() {
+const DIAGNOSTICS_REPORT_FORMATS = {
+  md: { label: "Markdown", mediaType: "text/markdown" },
+  json: { label: "JSON", mediaType: "application/json" },
+  yaml: { label: "YAML", mediaType: "application/yaml" },
+  toml: { label: "TOML", mediaType: "application/toml" },
+} as const;
+type DiagnosticsReportFormat = keyof typeof DIAGNOSTICS_REPORT_FORMATS;
+function reportFileName(reportFormat: DiagnosticsReportFormat) {
   const stamp = new Date().toISOString().slice(0, 10);
-  return `studio-diagnostics-${stamp}.md`;
+  return `studio-diagnostics-${stamp}.${reportFormat}`;
 }
 async function diagnosticsReportBlob(
   filters: DiagnosticsFilters,
   csrf: string,
   onCsrf: (csrf: string) => void,
+  reportFormat: DiagnosticsReportFormat,
   signal?: AbortSignal,
 ): Promise<Blob> {
   const body = JSON.stringify(reportPayload(filters));
   const response = await responseWithCsrfRetry(
-    "/diagnostics/report.md",
+    `/diagnostics/report.${reportFormat}`,
     csrf,
     onCsrf,
     {
@@ -5442,9 +5452,12 @@ async function diagnosticsReportBlob(
   const contentDisposition = response.headers.get("content-disposition") ?? "";
   const cacheControl = response.headers.get("cache-control") ?? "";
   if (
-    contentType !== "text/markdown" ||
+    contentType !== DIAGNOSTICS_REPORT_FORMATS[reportFormat].mediaType ||
     !/^attachment(?:;|$)/i.test(contentDisposition) ||
-    !/filename="?[^";]+\.md"?(?:;|$)/i.test(contentDisposition) ||
+    !new RegExp(
+      `filename="?[^";]+\\.${reportFormat}"?(?:;|$)`,
+      "i",
+    ).test(contentDisposition) ||
     !cacheControl
       .split(",")
       .some((directive) => directive.trim().toLowerCase() === "no-store")
@@ -7238,15 +7251,23 @@ function DiagnosticsSettings({
     exportPendingRef.current = false;
     setExportPending(false);
   };
-  const exportReport = () => {
+  const exportReport = (reportFormat: DiagnosticsReportFormat) => {
     if (exportPendingRef.current) return;
+    const formatLabel = DIAGNOSTICS_REPORT_FORMATS[reportFormat].label;
     exportPendingRef.current = true;
     setExportPending(true);
-    setExportState("Готовим Markdown-отчёт…");
+    setExportState(`Готовим ${formatLabel}-отчёт…`);
     void settleLatestRequest(
       exportRequestEpochsRef.current,
       "diagnostics:report-export",
-      (signal) => diagnosticsReportBlob(filters, csrf, onCsrf, signal),
+      (signal) =>
+        diagnosticsReportBlob(
+          filters,
+          csrf,
+          onCsrf,
+          reportFormat,
+          signal,
+        ),
       (blob) => {
         let url: string | null = null;
         let anchor: HTMLAnchorElement | null = null;
@@ -7254,12 +7275,14 @@ function DiagnosticsSettings({
           url = URL.createObjectURL(blob);
           anchor = document.createElement("a");
           anchor.href = url;
-          anchor.download = reportFileName();
+          anchor.download = reportFileName(reportFormat);
           document.body.appendChild(anchor);
           anchor.click();
-          setExportState("Markdown-отчёт скачан.");
+          setExportState(`${formatLabel}-отчёт скачан.`);
         } catch {
-          setExportState("Не удалось скачать Markdown-отчёт. Повторите попытку.");
+          setExportState(
+            `Не удалось скачать ${formatLabel}-отчёт. Повторите попытку.`,
+          );
         } finally {
           anchor?.remove();
           if (url) URL.revokeObjectURL(url);
@@ -7268,7 +7291,9 @@ function DiagnosticsSettings({
       },
       () => {
         finishExport();
-        setExportState("Не удалось скачать Markdown-отчёт. Повторите попытку.");
+        setExportState(
+          `Не удалось скачать ${formatLabel}-отчёт. Повторите попытку.`,
+        );
       },
       {
         controllers: exportRequestControllersRef.current,
@@ -7339,19 +7364,28 @@ function DiagnosticsSettings({
         >
           <h4 id="diagnostics-export-title">Экспорт диагностики</h4>
           <p className="muted">
-            Markdown-отчёт может включать безопасные события PWA, API и фоновой
-            обработки согласно выбранным фильтрам. Аудит безопасности остаётся
-            отдельным разделом и в этот отчёт не входит.
+            Отчёт в выбранном формате может включать безопасные события PWA,
+            API и фоновой обработки согласно выбранным фильтрам. Аудит
+            безопасности остаётся отдельным разделом и в этот отчёт не входит.
           </p>
-          <button
-            type="button"
-            className="secondary"
-            disabled={exportPending}
-            aria-busy={exportPending || undefined}
-            onClick={exportReport}
-          >
-            Скачать Markdown
-          </button>
+          <div className="actions">
+            {Object.entries(DIAGNOSTICS_REPORT_FORMATS).map(
+              ([reportFormat, config]) => (
+                <button
+                  key={reportFormat}
+                  type="button"
+                  className="secondary"
+                  disabled={exportPending}
+                  aria-busy={exportPending || undefined}
+                  onClick={() =>
+                    exportReport(reportFormat as DiagnosticsReportFormat)
+                  }
+                >
+                  Скачать {config.label}
+                </button>
+              ),
+            )}
+          </div>
           {exportState && (
             <p
               role="status"

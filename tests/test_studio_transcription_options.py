@@ -17,6 +17,7 @@ def test_language_modes_are_typed_and_default_to_russian():
     )
 
     assert stored_language_mode(None) == "ru"
+    assert stored_language_mode(TranscriptionLanguageMode.english) == "en"
     assert stored_language_mode(TranscriptionLanguageMode.auto_detect) == "detect"
     with pytest.raises(ValueError):
         stored_language_mode("fr")
@@ -34,8 +35,10 @@ def test_language_modes_map_safely_at_provider_and_display_boundaries():
     assert provider_language_code("EN") == "en"
     assert browser_language_mode(None) == "detect"
     assert browser_language_mode("ru") == "ru"
+    assert browser_language_mode("en") == "en"
     assert document_language("detect", "en") == "en"
     assert document_language("ru", "en") == "ru"
+    assert document_language("en", "ru") == "en"
     assert document_language(None, None) == "unknown"
 
 
@@ -83,4 +86,5 @@ def test_diarization_options_are_canonical_and_fail_closed():
     ]:
         assert job_existing_result_reprocess_authorized(value) is False
     assert provider_transcription_settings("detect", '{"diarize":true}').language_code is None
+    assert provider_transcription_settings("en", None).language_code == "en"
     assert provider_transcription_settings("ru", '{"diarize":true}').diarize is True

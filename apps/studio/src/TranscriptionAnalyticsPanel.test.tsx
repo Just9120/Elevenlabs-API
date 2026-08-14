@@ -13,9 +13,14 @@ const analytics = {
     failed: 1,
     cancelled: 0,
   },
+  success: {
+    successful_jobs: 1,
+    terminal_jobs: 2,
+    percentage: 50,
+  },
   configuration: {
     provider_model: { elevenlabs_scribe_v2: 2, unknown: 1 },
-    language_mode: { ru: 2, detect: 1, other: 0 },
+    language_mode: { ru: 1, en: 1, detect: 1, other: 0 },
     diarization: { enabled: 1, disabled: 2 },
   },
   durations: {
@@ -68,6 +73,11 @@ describe("TranscriptionAnalyticsPanel", () => {
     );
 
     expect(await screen.findByText("ElevenLabs · scribe_v2 2")).toBeInTheDocument();
+    expect(screen.getByLabelText("Успешность транскрибаций")).toHaveTextContent(
+      "Успешность: 50,0%",
+    );
+    expect(screen.getByText("Успешно 1 из 2 завершённых исходов.")).toBeInTheDocument();
+    expect(screen.getByText(/английский 1/)).toBeInTheDocument();
     expect(screen.getByText("Среднее: 1 ч")).toBeInTheDocument();
     const outcomes = screen.getByRole("region", {
       name: "Исходы транскрибаций",
@@ -106,6 +116,42 @@ describe("TranscriptionAnalyticsPanel", () => {
       await screen.findByText(/Аналитика временно недоступна/),
     ).toBeInTheDocument();
     expect(screen.queryByText("private text")).not.toBeInTheDocument();
+  });
+
+  it("states honestly when success percentage has no terminal denominator", async () => {
+    const emptyAnalytics = {
+      ...analytics,
+      totals: { jobs: 1, sources: 1, outputs: 0 },
+      outcomes: {
+        queued: 1,
+        processing: 0,
+        completed: 0,
+        failed: 0,
+        cancelled: 0,
+      },
+      success: {
+        successful_jobs: 0,
+        terminal_jobs: 0,
+        percentage: null,
+      },
+      configuration: {
+        provider_model: { elevenlabs_scribe_v2: 1, unknown: 0 },
+        language_mode: { ru: 1, en: 0, detect: 0, other: 0 },
+        diarization: { enabled: 0, disabled: 1 },
+      },
+    };
+    render(
+      <TranscriptionAnalyticsPanel
+        projectId="p1"
+        loadAnalytics={() => Promise.resolve(emptyAnalytics)}
+      />,
+    );
+
+    await userEvent.click(screen.getByText("Аналитика транскрибаций"));
+    expect(
+      await screen.findByText("Успешность: Нет завершённых исходов"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Успешно 0 из 0/)).not.toBeInTheDocument();
   });
 
   it("bounds a stalled read and retries without exposing raw failures", async () => {
