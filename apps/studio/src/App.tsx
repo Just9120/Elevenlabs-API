@@ -20,6 +20,7 @@ import {
   api,
   batchMutateWithCsrfRetry,
   mutateWithCsrfRetry,
+  responseWithCsrfRetry,
 } from "./apiClient";
 import {
   cancelLatestRequests,
@@ -956,6 +957,7 @@ const SOURCE_UPLOAD_POLICY_REQUEST_TIMEOUT_MS = 15_000;
 const SESSION_BOOTSTRAP_REQUEST_TIMEOUT_MS = 15_000;
 const LOGOUT_REQUEST_TIMEOUT_MS = 20_000;
 const DIAGNOSTICS_READ_REQUEST_TIMEOUT_MS = 15_000;
+const DIAGNOSTICS_EXPORT_REQUEST_TIMEOUT_MS = 20_000;
 const DIAGNOSTICS_DEBUG_REQUEST_TIMEOUT_MS = 15_000;
 const DIAGNOSTICS_DEBUG_MUTATION_TIMEOUT_MS = 20_000;
 const ACCOUNT_PREFERENCES_MUTATION_TIMEOUT_MS = 20_000;
@@ -5380,29 +5382,41 @@ async function diagnosticsReportBlob(
   filters: DiagnosticsFilters,
   csrf: string,
   onCsrf: (csrf: string) => void,
+  signal?: AbortSignal,
 ): Promise<Blob> {
   const body = JSON.stringify(reportPayload(filters));
-  const send = (token: string) =>
-    fetch(`/api/diagnostics/report.md`, {
+  const response = await responseWithCsrfRetry(
+    "/diagnostics/report.md",
+    csrf,
+    onCsrf,
+    {
       method: "POST",
-      credentials: "same-origin",
-      headers: { "content-type": "application/json", "x-csrf-token": token },
       body,
-    });
-  let res = await send(csrf);
+      signal,
+    },
+  );
+  const contentType = response.headers
+    .get("content-type")
+    ?.split(";", 1)[0]
+    .trim()
+    .toLowerCase();
+  const contentDisposition = response.headers.get("content-disposition") ?? "";
+  const cacheControl = response.headers.get("cache-control") ?? "";
   if (
-    !res.ok &&
-    (res.status === 401 || res.status === 403 || res.status === 419)
+    contentType !== "text/markdown" ||
+    !/^attachment(?:;|$)/i.test(contentDisposition) ||
+    !/filename="?[^";]+\.md"?(?:;|$)/i.test(contentDisposition) ||
+    !cacheControl
+      .split(",")
+      .some((directive) => directive.trim().toLowerCase() === "no-store")
   ) {
-    const refreshed = await api<{ csrf_token: string }>("/auth/csrf", {
-      method: "POST",
-    });
-    onCsrf(refreshed.csrf_token);
-    res = await send(refreshed.csrf_token);
+    throw new Error("invalid_diagnostics_report_response");
   }
-  if (!res.ok)
-    throw new Error("Не удалось подготовить Markdown-отчёт. Повторите позже.");
-  return res.blob();
+  const blob = await response.blob();
+  if (blob.size === 0) {
+    throw new Error("invalid_diagnostics_report_response");
+  }
+  return blob;
 }
 type DiagnosticsFilters = {
   days: string;
@@ -6818,6 +6832,7 @@ function DiagnosticsSettings({
     "loading",
   );
   const [exportState, setExportState] = useState("");
+  const [exportPending, setExportPending] = useState(false);
   const [debugSession, setDebugSession] =
     useState<DiagnosticsDebugSession | null>(null);
   const [debugState, setDebugState] = useState<"loading" | "ready" | "error">(
@@ -6837,6 +6852,11 @@ function DiagnosticsSettings({
     new Map<string, AbortController>(),
   );
   const eventsPagePendingRef = useRef(false);
+  const exportPendingRef = useRef(false);
+  const exportRequestEpochsRef = useRef(new Map<string, number>());
+  const exportRequestControllersRef = useRef(
+    new Map<string, AbortController>(),
+  );
   const [failedEventsCursor, setFailedEventsCursor] = useState<string | null>(
     null,
   );
@@ -6920,9 +6940,14 @@ function DiagnosticsSettings({
     loadEvents();
     return () => {
       eventsPagePendingRef.current = false;
+      exportPendingRef.current = false;
       cancelLatestRequests(
         diagnosticsReadEpochsRef.current,
         diagnosticsReadControllersRef.current,
+      );
+      cancelLatestRequests(
+        exportRequestEpochsRef.current,
+        exportRequestControllersRef.current,
       );
     };
   }, []);
@@ -7109,26 +7134,47 @@ function DiagnosticsSettings({
   const startDebug = () => mutateDebugSession("start");
   const stopDebug = () => mutateDebugSession("stop");
 
-  const exportReport = async () => {
+  const finishExport = () => {
+    exportPendingRef.current = false;
+    setExportPending(false);
+  };
+  const exportReport = () => {
+    if (exportPendingRef.current) return;
+    exportPendingRef.current = true;
+    setExportPending(true);
     setExportState("Готовим Markdown-отчёт…");
-    try {
-      const blob = await diagnosticsReportBlob(filters, csrf, onCsrf);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = reportFileName();
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-      setExportState("Markdown-отчёт скачан.");
-    } catch (err) {
-      setExportState(
-        err instanceof Error
-          ? err.message
-          : "Не удалось скачать Markdown-отчёт.",
-      );
-    }
+    void settleLatestRequest(
+      exportRequestEpochsRef.current,
+      "diagnostics:report-export",
+      (signal) => diagnosticsReportBlob(filters, csrf, onCsrf, signal),
+      (blob) => {
+        let url: string | null = null;
+        let anchor: HTMLAnchorElement | null = null;
+        try {
+          url = URL.createObjectURL(blob);
+          anchor = document.createElement("a");
+          anchor.href = url;
+          anchor.download = reportFileName();
+          document.body.appendChild(anchor);
+          anchor.click();
+          setExportState("Markdown-отчёт скачан.");
+        } catch {
+          setExportState("Не удалось скачать Markdown-отчёт. Повторите попытку.");
+        } finally {
+          anchor?.remove();
+          if (url) URL.revokeObjectURL(url);
+          finishExport();
+        }
+      },
+      () => {
+        finishExport();
+        setExportState("Не удалось скачать Markdown-отчёт. Повторите попытку.");
+      },
+      {
+        controllers: exportRequestControllersRef.current,
+        timeoutMs: DIAGNOSTICS_EXPORT_REQUEST_TIMEOUT_MS,
+      },
+    );
   };
   return (
     <div className="diagnostics-page">
@@ -7194,10 +7240,23 @@ function DiagnosticsSettings({
             обработки согласно выбранным фильтрам. Аудит безопасности остаётся
             отдельным разделом и в этот отчёт не входит.
           </p>
-          <button type="button" className="secondary" onClick={exportReport}>
+          <button
+            type="button"
+            className="secondary"
+            disabled={exportPending}
+            aria-busy={exportPending || undefined}
+            onClick={exportReport}
+          >
             Скачать Markdown
           </button>
-          {exportState && <p role="status">{exportState}</p>}
+          {exportState && (
+            <p
+              role="status"
+              className={exportState.startsWith("Не удалось") ? "error" : undefined}
+            >
+              {exportState}
+            </p>
+          )}
         </div>
         <form className="diagnostics-filters" onSubmit={applyFilters}>
           <label>

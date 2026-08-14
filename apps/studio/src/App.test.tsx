@@ -35,6 +35,23 @@ const json = (body: unknown, ok = true, status = 200) =>
           : new Blob([JSON.stringify(body)], { type: "application/json" }),
       ),
   } as Response);
+const markdownReport = (
+  body = "# Studio diagnostics report\n",
+  status = 200,
+  headers: Record<string, string> = {},
+) =>
+  Promise.resolve(
+    new Response(body, {
+      status,
+      headers: {
+        "cache-control": "no-store",
+        "content-disposition":
+          'attachment; filename="studio-diagnostics-report.md"',
+        "content-type": "text/markdown; charset=utf-8",
+        ...headers,
+      },
+    }),
+  );
 function googleConnectionFixture(overrides: Record<string, unknown> = {}) {
   return {
     connected: false,
@@ -1123,7 +1140,7 @@ describe("Studio PWA", () => {
           url.endsWith("/api/diagnostics/report.md") &&
           init?.method === "POST"
         )
-          return json(new Blob(["# Safe report"], { type: "text/markdown" }));
+          return markdownReport("# Safe report\n");
         if (url.endsWith("/api/google/connection") && init?.method === "DELETE")
           return json(
             googleConnectionFixture({
@@ -3338,7 +3355,7 @@ describe("Studio PWA", () => {
           url.endsWith("/api/diagnostics/report.md") &&
           init?.method === "POST"
         )
-          return json(new Blob(["# Safe report"], { type: "text/markdown" }));
+          return markdownReport("# Safe report\n");
         if (url.endsWith("/api/google/connection") && init?.method === "DELETE")
           return json(
             googleConnectionFixture({
@@ -12225,7 +12242,7 @@ describe("settings diagnostics", () => {
           url.endsWith("/api/diagnostics/report.md") &&
           init?.method === "POST"
         )
-          return json(new Blob(["# Markdown"], { type: "text/markdown" }));
+          return markdownReport("# Markdown\n");
         return json({ ok: true });
       },
     );
@@ -12278,6 +12295,217 @@ describe("settings diagnostics", () => {
     clickSpy.mockRestore();
     cleanup();
     window.history.replaceState({}, "", "/");
+  });
+
+  it("bounds and deduplicates stalled diagnostics report export before retry", async () => {
+    installBasicPlatformSettingsFixture();
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = fetchMock.getMockImplementation();
+    let reportCalls = 0;
+    let reportSignal: AbortSignal | undefined;
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (
+          url.endsWith("/api/diagnostics/report.md") &&
+          init?.method === "POST"
+        ) {
+          reportCalls += 1;
+          reportSignal = init.signal;
+          if (reportCalls === 1) {
+            if (!reportSignal) throw new Error("report signal is missing");
+            return new Promise<Response>((_resolve, reject) => {
+              reportSignal?.addEventListener("abort", () =>
+                reject(new Error("raw-report-timeout")),
+              );
+            });
+          }
+          return markdownReport();
+        }
+        return defaultFetch?.(input, init) ?? json({});
+      },
+    );
+    const createObjectURL = vi.fn(() => "blob:bounded-report");
+    const revokeObjectURL = vi.fn();
+    URL.createObjectURL = createObjectURL;
+    URL.revokeObjectURL = revokeObjectURL;
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => undefined);
+
+    renderApp();
+    await openDiagnosticsSettings();
+    await screen.findByText("За выбранный период событий нет.");
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 20_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      const exportButton = screen.getByRole("button", {
+        name: "Скачать Markdown",
+      });
+      fireEvent.click(exportButton);
+      fireEvent.click(exportButton);
+      expect(
+        await screen.findByText(
+          "Не удалось скачать Markdown-отчёт. Повторите попытку.",
+        ),
+      ).toBeInTheDocument();
+      expect(reportSignal?.aborted).toBe(true);
+      expect(reportCalls).toBe(1);
+      expect(document.body.textContent).not.toContain("raw-report-timeout");
+
+      await userEvent.click(exportButton);
+      expect(
+        await screen.findByText("Markdown-отчёт скачан."),
+      ).toBeInTheDocument();
+      expect(reportCalls).toBe(2);
+      expect(createObjectURL).toHaveBeenCalledTimes(1);
+      expect(clickSpy).toHaveBeenCalledTimes(1);
+      expect(revokeObjectURL).toHaveBeenCalledWith("blob:bounded-report");
+    } finally {
+      timeoutSpy.mockRestore();
+      clickSpy.mockRestore();
+    }
+  });
+
+  it("retries report export only after exact CSRF rejection and validates Markdown", async () => {
+    installBasicPlatformSettingsFixture();
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = fetchMock.getMockImplementation();
+    const reportTokens: string[] = [];
+    let reportCalls = 0;
+    let csrfRequests = 0;
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (
+          url.endsWith("/api/auth/csrf") &&
+          init?.method === "POST"
+        ) {
+          csrfRequests += 1;
+          return json({
+            csrf_token:
+              csrfRequests === 1 ? "csrf-after-refresh" : "csrf-export-new",
+          });
+        }
+        if (
+          url.endsWith("/api/diagnostics/report.md") &&
+          init?.method === "POST"
+        ) {
+          reportCalls += 1;
+          reportTokens.push(
+            String((init.headers as Record<string, string>)["x-csrf-token"]),
+          );
+          if (reportCalls === 1) {
+            return json(
+              { detail: { reason: "origin_not_allowed", raw: "raw-origin" } },
+              false,
+              403,
+            );
+          }
+          if (reportCalls === 2) {
+            return json(
+              { detail: { reason: "csrf_token_invalid" } },
+              false,
+              403,
+            );
+          }
+          if (reportCalls === 3) {
+            return markdownReport("raw-invalid-report", 200, {
+              "content-type": "application/json",
+            });
+          }
+          return markdownReport();
+        }
+        return defaultFetch?.(input, init) ?? json({});
+      },
+    );
+    const createObjectURL = vi.fn(() => "blob:validated-report");
+    const revokeObjectURL = vi.fn();
+    URL.createObjectURL = createObjectURL;
+    URL.revokeObjectURL = revokeObjectURL;
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => undefined);
+
+    renderApp();
+    await openDiagnosticsSettings();
+    const exportButton = screen.getByRole("button", {
+      name: "Скачать Markdown",
+    });
+    await userEvent.click(exportButton);
+    await waitFor(() => expect(reportCalls).toBe(1));
+    expect(csrfRequests).toBe(1);
+    expect(createObjectURL).not.toHaveBeenCalled();
+
+    await userEvent.click(exportButton);
+    await waitFor(() => expect(reportCalls).toBe(3));
+    expect(csrfRequests).toBe(2);
+    expect(reportTokens).toEqual([
+      "csrf-after-refresh",
+      "csrf-after-refresh",
+      "csrf-export-new",
+    ]);
+    expect(createObjectURL).not.toHaveBeenCalled();
+    expect(document.body.textContent).not.toContain("raw-origin");
+    expect(document.body.textContent).not.toContain("raw-invalid-report");
+
+    await userEvent.click(exportButton);
+    expect(
+      await screen.findByText("Markdown-отчёт скачан."),
+    ).toBeInTheDocument();
+    expect(reportCalls).toBe(4);
+    expect(reportTokens.at(-1)).toBe("csrf-export-new");
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:validated-report");
+    clickSpy.mockRestore();
+  });
+
+  it("aborts report export ownership on diagnostics teardown", async () => {
+    installBasicPlatformSettingsFixture();
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = fetchMock.getMockImplementation();
+    let reportSignal: AbortSignal | undefined;
+    let resolveReport: ((response: Response) => void) | undefined;
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (
+          url.endsWith("/api/diagnostics/report.md") &&
+          init?.method === "POST"
+        ) {
+          reportSignal = init.signal;
+          return new Promise<Response>((resolve) => {
+            resolveReport = resolve;
+          });
+        }
+        return defaultFetch?.(input, init) ?? json({});
+      },
+    );
+    const createObjectURL = vi.fn(() => "blob:late-report");
+    URL.createObjectURL = createObjectURL;
+
+    renderApp();
+    await openDiagnosticsSettings();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Скачать Markdown" }),
+    );
+    await waitFor(() => expect(resolveReport).toBeDefined());
+    await userEvent.click(screen.getByRole("tab", { name: "Аккаунт" }));
+    expect(reportSignal?.aborted).toBe(true);
+
+    await act(async () => resolveReport?.(await markdownReport()));
+    expect(createObjectURL).not.toHaveBeenCalled();
+    expect(
+      screen.queryByText("Markdown-отчёт скачан."),
+    ).not.toBeInTheDocument();
   });
 
   it("restores URL-backed navigation without browser-stored navigation state", async () => {
@@ -12473,7 +12701,7 @@ describe("settings diagnostics", () => {
           url.endsWith("/api/diagnostics/report.md") &&
           init?.method === "POST"
         )
-          return json(new Blob(["# report"], { type: "text/markdown" }));
+          return markdownReport("# report\n");
         return json({ ok: true });
       },
     );
@@ -12605,7 +12833,7 @@ describe("settings diagnostics", () => {
           url.endsWith("/api/diagnostics/report.md") &&
           init?.method === "POST"
         )
-          return json(new Blob(["# Markdown"], { type: "text/markdown" }));
+          return markdownReport("# Markdown\n");
         return json({ ok: true });
       },
     );
@@ -12810,7 +13038,7 @@ describe("settings diagnostics", () => {
           url.endsWith("/api/diagnostics/report.md") &&
           init?.method === "POST"
         )
-          return json(new Blob(["# Markdown"], { type: "text/markdown" }));
+          return markdownReport("# Markdown\n");
         return json({ ok: true });
       },
     );

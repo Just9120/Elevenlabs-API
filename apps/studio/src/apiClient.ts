@@ -52,11 +52,11 @@ function emitApiFailure(path: string, startedAt: number, status?: number) {
   });
 }
 
-export async function requestJson<T>(
+async function requestResponse(
   path: string,
   options: RequestInit = {},
   csrf?: string,
-): Promise<T> {
+): Promise<Response> {
   const res = await fetch(`/api${path}`, {
     ...options,
     credentials: "same-origin",
@@ -81,7 +81,16 @@ export async function requestJson<T>(
       data,
     );
   }
-  return res.json();
+  return res;
+}
+
+export async function requestJson<T>(
+  path: string,
+  options: RequestInit = {},
+  csrf?: string,
+): Promise<T> {
+  const response = await requestResponse(path, options, csrf);
+  return response.json();
 }
 
 export async function api<T>(
@@ -122,6 +131,57 @@ function isCsrfRejection(err: unknown) {
     err.status === 403 &&
     detail?.reason === "csrf_token_invalid"
   );
+}
+
+function parseRefreshedCsrf(candidate: unknown): string | null {
+  if (!candidate || typeof candidate !== "object") return null;
+  const csrf = (candidate as { csrf_token?: unknown }).csrf_token;
+  return typeof csrf === "string" &&
+    csrf.length > 0 &&
+    csrf.length <= 4096 &&
+    csrf === csrf.trim()
+    ? csrf
+    : null;
+}
+
+export async function responseWithCsrfRetry(
+  path: string,
+  csrf: string,
+  onCsrf: (csrf: string) => void,
+  options: RequestInit,
+): Promise<Response> {
+  const startedAt = performance.now();
+  try {
+    return await requestResponse(path, options, csrf);
+  } catch (err) {
+    if (!isCsrfRejection(err)) {
+      emitApiFailure(
+        path,
+        startedAt,
+        err instanceof ApiError ? err.status : undefined,
+      );
+      throw err;
+    }
+    try {
+      const candidate = await requestJson<unknown>("/auth/csrf", {
+        method: "POST",
+        signal: options.signal,
+      });
+      const refreshedCsrf = parseRefreshedCsrf(candidate);
+      if (!refreshedCsrf) {
+        throw new Error("invalid_csrf_refresh_response", { cause: err });
+      }
+      onCsrf(refreshedCsrf);
+      return await requestResponse(path, options, refreshedCsrf);
+    } catch (retryErr) {
+      emitApiFailure(
+        path,
+        startedAt,
+        retryErr instanceof ApiError ? retryErr.status : undefined,
+      );
+      throw retryErr;
+    }
+  }
 }
 
 export async function mutateWithCsrfRetry<T>(
