@@ -82,6 +82,15 @@ export function parseJobDetailResponse(
   return { ...job, sources };
 }
 
+export function parseJobSummaryResponse(
+  candidate: unknown,
+  projectId: string,
+  jobId: string,
+): TranscriptionJob | null {
+  const job = parseJob(candidate, projectId);
+  return job?.id === jobId ? job : null;
+}
+
 export function parseJobOutputsResponse(
   candidate: unknown,
   jobId: string,

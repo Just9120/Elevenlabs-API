@@ -342,6 +342,26 @@ type OutputFixtureOptions = {
   includeSecondProject?: boolean;
 };
 
+const focusedJobDetailSource = {
+  id: "source-detail-id-not-output-id",
+  project_id: "p1",
+  position: 0,
+  job_source_status: "queued",
+  source_type: "google_drive",
+  original_filename: "focused-source.mp3",
+  mime_type: "audio/mpeg",
+  size_bytes: 1234,
+  drive_file_id: null,
+  drive_file_url: null,
+  upload_status: "uploaded",
+  uploaded_at: "2026-07-01T00:01:00Z",
+  expires_at: null,
+  deleted_at: null,
+  delete_reason: null,
+  created_at: "2026-07-01T00:00:00Z",
+  updated_at: "2026-07-01T00:00:00Z",
+};
+
 function installFocusedOutputFixture(options: OutputFixtureOptions = {}) {
   const jobStatus = options.jobStatus ?? "processing";
   const outputCount = options.outputCount ?? options.outputs?.length ?? 1;
@@ -525,27 +545,7 @@ function installFocusedOutputFixture(options: OutputFixtureOptions = {}) {
                 : null,
               error_code: jobStatus === "failed" ? "SAFE_FAILED" : null,
               error_message: jobStatus === "failed" ? "Safe failure" : null,
-              sources: [
-                {
-                  id: "source-detail-id-not-output-id",
-                  project_id: "p1",
-                  position: 0,
-                  job_source_status: "queued",
-                  source_type: "google_drive",
-                  original_filename: "focused-source.mp3",
-                  mime_type: "audio/mpeg",
-                  size_bytes: 1234,
-                  drive_file_id: null,
-                  drive_file_url: null,
-                  upload_status: "uploaded",
-                  uploaded_at: "2026-07-01T00:01:00Z",
-                  expires_at: null,
-                  deleted_at: null,
-                  delete_reason: null,
-                  created_at: "2026-07-01T00:00:00Z",
-                  updated_at: "2026-07-01T00:00:00Z",
-                },
-              ],
+              sources: [focusedJobDetailSource],
             });
       return json({ credentials: [], events: [] });
     },
@@ -5239,6 +5239,46 @@ describe("Studio PWA", () => {
   it("creates, lists, details, and cancels project jobs safely with CSRF", async () => {
     const secretLike =
       "sk-live-raw-token refresh_token encrypted_ciphertext s3://secret-key https://upload.example/leak";
+    const jobSources = [
+      {
+        id: "s2",
+        project_id: "p1",
+        position: 1,
+        job_source_status: "queued",
+        source_type: "local_upload",
+        original_filename: "ready-local.ogg",
+        mime_type: "audio/ogg",
+        size_bytes: 4096,
+        drive_file_id: null,
+        drive_file_url: secretLike,
+        upload_status: "uploaded",
+        uploaded_at: "2026-07-01T00:02:00",
+        expires_at: null,
+        deleted_at: null,
+        delete_reason: null,
+        created_at: "2026-07-01T00:00:00",
+        updated_at: "2026-07-01T00:00:00",
+      },
+      {
+        id: "s1",
+        project_id: "p1",
+        position: 0,
+        job_source_status: "queued",
+        source_type: "google_drive",
+        original_filename: "ready-drive.mp4",
+        mime_type: "video/mp4",
+        size_bytes: 2048,
+        drive_file_id: "drive-file-1",
+        drive_file_url: "https://drive.example/file/job-source",
+        upload_status: "uploaded",
+        uploaded_at: "2026-07-01T00:01:00",
+        expires_at: null,
+        deleted_at: null,
+        delete_reason: null,
+        created_at: "2026-07-01T00:00:00",
+        updated_at: "2026-07-01T00:00:00",
+      },
+    ];
     (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       (url: string, init?: RequestInit) => {
         if (url.endsWith("/api/auth/session"))
@@ -5600,46 +5640,7 @@ describe("Studio PWA", () => {
             finished_at: null,
             error_code: null,
             error_message: null,
-            sources: [
-              {
-                id: "s2",
-                project_id: "p1",
-                position: 1,
-                job_source_status: "queued",
-                source_type: "local_upload",
-                original_filename: "ready-local.ogg",
-                mime_type: "audio/ogg",
-                size_bytes: 4096,
-                drive_file_id: null,
-                drive_file_url: secretLike,
-                upload_status: "uploaded",
-                uploaded_at: "2026-07-01T00:02:00",
-                expires_at: null,
-                deleted_at: null,
-                delete_reason: null,
-                created_at: "2026-07-01T00:00:00",
-                updated_at: "2026-07-01T00:00:00",
-              },
-              {
-                id: "s1",
-                project_id: "p1",
-                position: 0,
-                job_source_status: "queued",
-                source_type: "google_drive",
-                original_filename: "ready-drive.mp4",
-                mime_type: "video/mp4",
-                size_bytes: 2048,
-                drive_file_id: "drive-file-1",
-                drive_file_url: "https://drive.example/file/job-source",
-                upload_status: "uploaded",
-                uploaded_at: "2026-07-01T00:01:00",
-                expires_at: null,
-                deleted_at: null,
-                delete_reason: null,
-                created_at: "2026-07-01T00:00:00",
-                updated_at: "2026-07-01T00:00:00",
-              },
-            ],
+            sources: jobSources,
           });
         if (url.endsWith("/api/jobs/job-1/cancel") && init?.method === "POST")
           return json({
@@ -5650,7 +5651,7 @@ describe("Studio PWA", () => {
             provider: null,
             provider_credential_id: "cred-active",
             source_count: 2,
-            sources: [],
+            sources: jobSources,
             created_at: "2026-07-02T00:00:00Z",
             updated_at: "2026-07-02T00:02:00Z",
             cancelled_at: "2026-07-02T00:02:00Z",
@@ -9064,7 +9065,7 @@ describe("Studio PWA", () => {
         provider: null,
         provider_credential_id: "cred-active",
         source_count: 1,
-        sources: [],
+        sources: [focusedJobDetailSource],
         created_at: "2026-07-02T00:00:00Z",
         updated_at: "2026-07-02T00:02:00Z",
         cancelled_at: "2026-07-02T00:02:00Z",
@@ -9084,6 +9085,71 @@ describe("Studio PWA", () => {
     ).toBeInTheDocument();
     expect(cancelCalls).toBe(2);
     expect(document.body.textContent).not.toContain("raw cancellation failure");
+  });
+
+  it("rejects malformed direct cancellation authority without raw rendering", async () => {
+    installFocusedOutputFixture({ jobStatus: "queued" });
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        String(url).endsWith("/api/jobs/job-focused/cancel") &&
+        init?.method === "POST"
+      ) {
+        return json({
+          id: "job-other",
+          project_id: "p1",
+          status: "cancelled",
+          raw_worker_lease: "raw-private-cancel-lease",
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({});
+    });
+
+    await openFocusedJobsList();
+    await userEvent.click(screen.getByRole("button", { name: "Отменить" }));
+
+    expect(
+      await screen.findByText("Не удалось отменить задачу. Повторите позже."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Отменить" })).toBeEnabled();
+    expect(document.body.textContent).not.toContain("raw-private");
+  });
+
+  it("rejects malformed direct dismissal authority without raw rendering", async () => {
+    installFocusedOutputFixture({ jobStatus: "completed" });
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        String(url).endsWith("/api/jobs/job-focused/dismiss") &&
+        init?.method === "POST"
+      ) {
+        return json({
+          id: "job-focused",
+          project_id: "p1",
+          status: "completed",
+          terminal_dismissed_at: null,
+          raw_storage_key: "raw-private-dismiss-storage",
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({});
+    });
+
+    await openFocusedJobsList();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Убрать в историю" }),
+    );
+
+    expect(
+      await screen.findByText(
+        "Не удалось убрать задачу в историю. Повторите позже.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Убрать в историю" }),
+    ).toBeEnabled();
+    expect(document.body.textContent).not.toContain("raw-private");
   });
 
   it("keeps source deletion ownership and safe outcomes across project switches", async () => {
@@ -9508,7 +9574,7 @@ describe("Studio PWA", () => {
           provider_credential_id: "cred-active",
           terminal_dismissed_at: null,
           source_count: 1,
-          sources: [],
+          sources: [focusedJobDetailSource],
           created_at: "2026-07-02T00:00:00Z",
           updated_at: "2026-07-02T00:02:00Z",
           cancelled_at: "2026-07-02T00:02:00Z",
@@ -9762,27 +9828,7 @@ describe("Studio PWA", () => {
           provider: null,
           terminal_dismissed_at: null,
           source_count: 1,
-          sources: [
-            {
-              id: "source-detail-id-not-output-id",
-              project_id: "p1",
-              position: 0,
-              job_source_status: "queued",
-              source_type: "google_drive",
-              original_filename: "focused-source.mp3",
-              mime_type: "audio/mpeg",
-              size_bytes: 1234,
-              drive_file_id: null,
-              drive_file_url: null,
-              upload_status: "uploaded",
-              uploaded_at: "2026-07-01T00:01:00Z",
-              expires_at: null,
-              deleted_at: null,
-              delete_reason: null,
-              created_at: "2026-07-01T00:00:00Z",
-              updated_at: "2026-07-01T00:00:00Z",
-            },
-          ],
+          sources: [focusedJobDetailSource],
           created_at: "2026-07-02T00:00:00Z",
           updated_at: "2026-07-02T00:02:00Z",
           cancelled_at: "2026-07-02T00:02:00Z",

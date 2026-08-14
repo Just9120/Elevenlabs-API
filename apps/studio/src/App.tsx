@@ -79,6 +79,8 @@ import {
   type Credential,
 } from "./credentialContracts";
 import {
+  parseJobDetailResponse,
+  parseJobSummaryResponse,
   requestJobDetail,
   requestJobOutputs,
   requestProjectJobCollection,
@@ -2957,14 +2959,19 @@ function PreparationPanel({
     let notice: JobMutationNotice | undefined;
     setMessage("");
     try {
-      const request = await runBoundedRequest((signal) =>
-        csrfMutate<TranscriptionJob>(
+      const request = await runBoundedRequest(async (signal) => {
+        const candidate = await csrfMutate<unknown>(
           `/jobs/${jobId}/cancel`,
           csrf,
           onCsrf,
           { method: "POST", signal },
-        ),
-      );
+        );
+        const parsed = parseJobDetailResponse(candidate, project.id, jobId);
+        if (!parsed || !cancellationIsConfirmed(parsed)) {
+          throw new Error("invalid_job_cancel_response");
+        }
+        return parsed;
+      });
       if (request.status === "timed_out") {
         const observed = await readAfterJobMutationTimeout<TranscriptionJob>(
           (signal) => requestJobDetail(jobId, project.id, signal),
@@ -3076,14 +3083,19 @@ function PreparationPanel({
     let notice: JobMutationNotice | undefined;
     setMessage("");
     try {
-      const request = await runBoundedRequest((signal) =>
-        csrfMutate<TranscriptionJob>(
+      const request = await runBoundedRequest(async (signal) => {
+        const candidate = await csrfMutate<unknown>(
           `/jobs/${jobId}/dismiss`,
           csrf,
           onCsrf,
           { method: "POST", signal },
-        ),
-      );
+        );
+        const parsed = parseJobSummaryResponse(candidate, project.id, jobId);
+        if (!parsed || !dismissalIsConfirmed(parsed)) {
+          throw new Error("invalid_job_dismiss_response");
+        }
+        return parsed;
+      });
       if (request.status === "timed_out") {
         const observed = await readAfterJobMutationTimeout<TranscriptionJob>(
           (signal) => requestJobDetail(jobId, project.id, signal),

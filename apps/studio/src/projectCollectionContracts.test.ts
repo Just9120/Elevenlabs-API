@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   parseJobDetailResponse,
   parseJobOutputsResponse,
+  parseJobSummaryResponse,
   parseProjectJobCollection,
   parseProjectSourceCollection,
 } from "./projectCollectionContracts";
@@ -171,6 +172,33 @@ describe("project collection contracts", () => {
         "project-safe",
         "job-safe",
       ),
+    ).toBeNull();
+  });
+
+  it("validates one exact job summary and discards mutation extras", () => {
+    const parsed = parseJobSummaryResponse(
+      {
+        ...job,
+        status: "completed",
+        terminal_dismissed_at: "2026-08-14T10:01:00Z",
+        finished_at: "2026-08-14T10:00:00Z",
+        provider_credential_id: "private-credential-id",
+        sources: [{ transcript_body: "private-transcript" }],
+      },
+      "project-safe",
+      "job-safe",
+    );
+
+    expect(parsed).toEqual({
+      ...job,
+      status: "completed",
+      terminal_dismissed_at: "2026-08-14T10:01:00Z",
+      finished_at: "2026-08-14T10:00:00Z",
+    });
+    expect(parsed).not.toHaveProperty("provider_credential_id");
+    expect(parsed).not.toHaveProperty("sources");
+    expect(
+      parseJobSummaryResponse(job, "project-safe", "job-other"),
     ).toBeNull();
   });
 
