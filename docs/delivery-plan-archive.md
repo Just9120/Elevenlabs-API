@@ -4,6 +4,18 @@ This document is historical. Codex and other coding agents must not read it duri
 
 The archive preserves traceability from documents consolidated during `DOCS-AUTHORITY-RESET-01`. It intentionally avoids secrets, production credentials, private account data, transcript bodies, document IDs/URLs, raw provider responses, and raw Google responses.
 
+## Archived `DOCS-AGENT-DELIVERY-V2` closure — PR #209
+
+- Base: `main@830bd00754567dfa6809e1e36bb7fcbaa145b824`.
+- PR: #209, merged 2026-08-14 as `main@a252a1efa54ba952ec4eb04405fae5722f15d7b5`.
+- Outcome: принят `direct-agent-v1`, canonical workflow перемещён в `docs/agent-delivery-workflow.md`, CI/CD contract получил verified project profile, README navigation обновлена.
+- Exact-main CI: run `31823766931`, success.
+- Deployment: N/A для docs-only diff; GitHub Deployments API вернул пустой список.
+- Metadata sync: автоматический post-deploy writer отсутствует (`metadata_sync.enabled=false`); прямой push для отдельного status commit не выполнялся.
+- Branch cleanup: merged working branch удалена локально и в origin после fast-forward local main.
+
+Предыдущий active dashboard с project readiness `N/A`, Colab `100% (2/2)` и отдельным Studio Live denominator был superseded новой explicit owner baseline от 2026-08-14. Эти проценты не сопоставимы с новым полным product denominator и не являются текущей readiness.
+
 ## Archived checkpoint summary
 
 Historical delivery progressed from a Colab-first transcription workflow into a Studio PWA platform contour. Completed source-level slices included platform preparation, authentication/session foundations, projects, sources, Google OAuth/Drive metadata and folder selection, encrypted BYOK credentials, job records and lifecycle guardrails, claim/lease foundations, source availability/materialization, ElevenLabs provider boundaries, Google Docs output boundaries, output persistence/read APIs, frontend output links, batch composer UX, diagnostics, and worker source/Compose wiring.
