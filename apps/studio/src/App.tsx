@@ -78,6 +78,10 @@ import {
   requestCredentialCollection,
   type Credential,
 } from "./credentialContracts";
+import {
+  requestProjectJobCollection,
+  requestProjectSourceCollection,
+} from "./projectCollectionContracts";
 import { PlatformSidebar } from "./PlatformSidebar";
 import {
   isApprovedOutputUrl,
@@ -4689,11 +4693,7 @@ function ProjectsPage({
     void settleLatestRequest(
       requestEpochsRef.current,
       requestKey,
-      (signal) =>
-        api<{ sources: Source[] }>(`/projects/${projectId}/sources`, {
-          signal,
-          ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
-        }),
+      (signal) => requestProjectSourceCollection(projectId, signal),
       (result) =>
         setSources((current) => ({
           ...current,
@@ -4701,7 +4701,7 @@ function ProjectsPage({
             loading: false,
             error: "",
             loaded: true,
-            items: result.sources,
+            items: result,
           },
         })),
       () =>
@@ -4733,11 +4733,7 @@ function ProjectsPage({
     void settleLatestRequest(
       requestEpochsRef.current,
       requestKey,
-      (signal) =>
-        api<{ jobs: TranscriptionJob[] }>(`/projects/${projectId}/jobs`, {
-          signal,
-          ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
-        }),
+      (signal) => requestProjectJobCollection(projectId, signal),
       (result) =>
         setJobs((current) => ({
           ...current,
@@ -4745,7 +4741,7 @@ function ProjectsPage({
             loading: false,
             error: "",
             loaded: true,
-            items: result.jobs,
+            items: result,
           },
         })),
       () =>

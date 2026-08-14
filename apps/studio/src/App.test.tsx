@@ -8520,6 +8520,74 @@ describe("Studio PWA", () => {
     }
   });
 
+  it("rejects malformed or cross-project source and job collections", async () => {
+    installFocusedOutputFixture();
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/projects/p1/sources") && !init?.method) {
+        return json({
+          sources: [
+            {
+              id: "source-unsafe",
+              project_id: "project-other",
+              source_type: "google_drive",
+              original_filename: "raw-private-source.mp3",
+              mime_type: "audio/mpeg",
+              size_bytes: 1234,
+              drive_file_url: null,
+              upload_status: "uploaded",
+              uploaded_at: "2026-08-14T10:00:00Z",
+              expires_at: null,
+              deleted_at: null,
+              delete_reason: null,
+              created_at: "2026-08-14T09:00:00Z",
+              updated_at: "2026-08-14T10:00:00Z",
+              s3_object_key: "raw-private-storage-key",
+            },
+          ],
+        });
+      }
+      if (url.endsWith("/api/projects/p1/jobs") && !init?.method) {
+        return json({
+          jobs: [
+            {
+              id: "job-unsafe",
+              project_id: "p1",
+              status: "private-status",
+              title: "raw-private-job",
+              provider: null,
+              source_count: 0,
+              created_at: "2026-08-14T09:00:00Z",
+              updated_at: "2026-08-14T10:00:00Z",
+              cancelled_at: null,
+              cancel_requested_at: null,
+              attempt_count: 0,
+              started_at: null,
+              finished_at: null,
+              error_code: null,
+              error_message: null,
+              lease_owner_id: "raw-private-worker",
+            },
+          ],
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({});
+    });
+
+    renderApp();
+    await openProjectsPage();
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
+
+    expect(
+      await screen.findByText("Не удалось загрузить файлы проекта."),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText("Не удалось загрузить задачи проекта."),
+    ).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("raw-private");
+  });
+
   it("does not request job outputs until explicit job detail opening", async () => {
     installFocusedOutputFixture();
     renderApp();
