@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "./apiClient";
 import {
+  cancelLatestRequests,
+  LATEST_REQUEST_CANCEL_REASON,
+  settleLatestRequest,
+} from "./latestRequest";
+import {
   parseTranscriptionAnalytics,
   type AnalyticsDurationSummary,
   type TranscriptionAnalytics,
@@ -11,9 +16,23 @@ type AnalyticsState = {
   data: TranscriptionAnalytics | null;
 };
 
-type AnalyticsLoader = (projectId: string) => Promise<unknown>;
+type AnalyticsLoader = (
+  projectId: string,
+  signal?: AbortSignal,
+) => Promise<unknown>;
 
 const EMPTY_STATE: AnalyticsState = { status: "idle", data: null };
+const ANALYTICS_REQUEST_TIMEOUT_MS = 15_000;
+
+function requestTranscriptionAnalytics(
+  projectId: string,
+  signal?: AbortSignal,
+) {
+  return api<unknown>(`/projects/${projectId}/transcription-analytics`, {
+    signal,
+    ignoredAbortReason: LATEST_REQUEST_CANCEL_REASON,
+  });
+}
 
 const OUTCOME_LABELS: Array<
   [keyof TranscriptionAnalytics["outcomes"], string]
@@ -76,40 +95,54 @@ function DurationCard({
 
 export function TranscriptionAnalyticsPanel({
   projectId,
-  loadAnalytics = (id) =>
-    api<unknown>(`/projects/${id}/transcription-analytics`),
+  loadAnalytics = requestTranscriptionAnalytics,
 }: {
   projectId: string;
   loadAnalytics?: AnalyticsLoader;
 }) {
   const [state, setState] = useState<AnalyticsState>(EMPTY_STATE);
-  const requestGeneration = useRef(0);
+  const requestEpochsRef = useRef(new Map<string, number>());
+  const requestControllersRef = useRef(new Map<string, AbortController>());
 
   useEffect(() => {
-    requestGeneration.current += 1;
+    cancelLatestRequests(
+      requestEpochsRef.current,
+      requestControllersRef.current,
+    );
     setState(EMPTY_STATE);
     return () => {
-      requestGeneration.current += 1;
+      cancelLatestRequests(
+        requestEpochsRef.current,
+        requestControllersRef.current,
+      );
     };
   }, [projectId]);
 
   async function load() {
-    const generation = ++requestGeneration.current;
     setState((current) => ({
       status: "loading",
       data: current.data,
     }));
-    try {
-      const parsed = parseTranscriptionAnalytics(
-        await loadAnalytics(projectId),
-      );
-      if (!parsed) throw new Error("Invalid transcription analytics response");
-      if (requestGeneration.current !== generation) return;
-      setState({ status: "ready", data: parsed });
-    } catch {
-      if (requestGeneration.current !== generation) return;
-      setState((current) => ({ status: "error", data: current.data }));
-    }
+    await settleLatestRequest(
+      requestEpochsRef.current,
+      "transcription-analytics",
+      async (signal) => {
+        const parsed = parseTranscriptionAnalytics(
+          await loadAnalytics(projectId, signal),
+        );
+        if (!parsed) {
+          throw new Error("invalid_transcription_analytics_response");
+        }
+        return parsed;
+      },
+      (parsed) => setState({ status: "ready", data: parsed }),
+      () =>
+        setState((current) => ({ status: "error", data: current.data })),
+      {
+        controllers: requestControllersRef.current,
+        timeoutMs: ANALYTICS_REQUEST_TIMEOUT_MS,
+      },
+    );
   }
 
   const analytics = state.data;
