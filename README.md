@@ -33,7 +33,7 @@ Runtime validation for the stable batch path is manual in Google Colab via `note
 | Document | Role |
 | --- | --- |
 | `AGENTS.md` | Lightweight routing rules for coding agents. |
-| `docs/ai-coding-workflow.md` | AI-assisted development workflow and PR boundaries. |
+| `docs/agent-delivery-workflow.md` | Direct-agent delivery, recovery, PR, merge и deployment lifecycle. |
 | `docs/project-spec.md` | Current product/project contract and backlog authority. |
 | `docs/delivery-plan.md` | Compact current delivery dashboard. |
 | `docs/delivery-plan-archive.md` | Historical delivery archive; not current authority. |

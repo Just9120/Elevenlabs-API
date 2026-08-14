@@ -363,7 +363,7 @@ Source-complete delivery items remain listed for traceability and still require 
 ## Supporting documents
 
 - `README.md` — repository entrypoint.
-- `AGENTS.md` and `docs/ai-coding-workflow.md` — agent/workflow rules.
+- `AGENTS.md` and `docs/agent-delivery-workflow.md` — agent/workflow rules.
 - `docs/delivery-plan.md` — current delivery dashboard.
 - `docs/delivery-plan-archive.md` — historical archive only.
 - `docs/architecture.md` — architecture and runtime map.
