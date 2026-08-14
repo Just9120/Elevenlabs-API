@@ -33,9 +33,9 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-14T22:13:46Z
+- Updated (UTC): 2026-08-14T22:23:20Z
 - Session mode: FOCUSED_TASK
-- Delivery stage: PR_OPEN
+- Delivery stage: VALIDATING
 - Work item / epic: `PWA-LANGUAGE-DIAGNOSTICS-01` / `PWA-BATCH-01`, `PWA-OPERABILITY-01`
 - Authorization source: explicit owner requirements от 2026-08-14 и непрерывная команда продолжать PWA implementation
 - Authorized scope: explicit English end-to-end; safe diagnostics export в Markdown/JSON/YAML/TOML; explicit analytics success percentage; related tests, operational docs и delivery flow
@@ -43,16 +43,16 @@
 - Base branch: `main`
 - Base SHA: `8fe0dd722d0433440b41ef6dfe0fa0489f8f8fb8`
 - Working branch: `feature/pwa-language-diagnostics`
-- Last verified revision: `89cc46cc953c4e5e44f1a6ee270c84311b7564b0`
-- Working tree: DIRTY — intended PR-open checkpoint update only
-- Completed since base: commits `559964a`, `e72a46f` и `cdaac53` закрыли scoped `5/5`: English, JSON/YAML/TOML diagnostics и explicit success percentage; commit `89cc46c` зафиксировал full local validation; branch опубликована и draft PR #211 открыт
-- Current step: initial exact-head checks запущены; recording PR-open checkpoint before final head push
-- Next exact action: commit/push checkpoint, перевести PR #211 в ready и дождаться terminal state всех checks final head
-- Validation and Evidence: full Studio Vitest `502/502`; Python options/analytics/report serializers `8/8`; full ESLint, TypeScript и production PWA build прошли; `scripts/ci_checks.py` и `git diff --check origin/main...HEAD` прошли; API/DB integration assertions добавлены, но bundled Python не содержит полный Studio API dependency set, поэтому full pytest остаётся exact-head CI gate
-- Pull Request: #211 — `https://github.com/Just9120/Elevenlabs-API/pull/211`; draft, mergeable, base `main`, initial head `89cc46cc953c4e5e44f1a6ee270c84311b7564b0`
-- CI/checks: initial head runs `31845764856` (`CI / checks`) и `31845764671` (`Studio PWA CI / studio`, `browser-e2e`) in progress; final-head checks будут перепроверены после checkpoint push; `origin/main` после fetch не diverged от base
+- Last verified revision: `98287943041be1e66c8648610c7ed57bc0e2df14`
+- Working tree: DIRTY — focused English catalog contract fix, regression test и этот checkpoint
+- Completed since base: commits `559964a`, `e72a46f` и `cdaac53` закрыли scoped `5/5`; commits `89cc46c` и `9828794` зафиксировали pre-push и PR-open validation metadata; PR #211 опубликован и переведён в ready
+- Current step: исправляется единственный exact-head CI failure: batch English request получил `500`, потому что catalog authority разрешал только `ru`/`detect`; общий contract синхронизирован с typed `TranscriptionLanguageMode`
+- Next exact action: commit/push focused fix и дождаться terminal state всех required checks нового exact head
+- Validation and Evidence: предыдущая full local validation прошла; focused catalog/options regression suites `12/12`, Python compile, direct English catalog contract и `scripts/ci_checks.py` прошли; exact batch API/PostgreSQL regression ожидает новый CI runtime
+- Pull Request: #211 — `https://github.com/Just9120/Elevenlabs-API/pull/211`; ready, mergeable, base `main`, failed exact head `98287943041be1e66c8648610c7ed57bc0e2df14`
+- CI/checks: final-head Studio run `31845823380`: `studio` ✅, `browser-e2e` ✅; CI run `31845823382`, job `94911958984`: ❌, `1 failed, 1212 passed`, единственный failure `test_batch_jobs_create_two_one_source_jobs_safe_payload_and_same_source_different_folders`; `origin/main` после fetch не diverged от base
 - Deployment/environment: code scope требует component-specific CD и LIVE evidence после merge; пока N/A before PR
-- Blockers: none for current local implementation
+- Blockers: merge запрещён до зелёного rerun `CI / checks` на новом exact head
 - Unverified assumptions: no paid provider call или authenticated browser LIVE canary; API integration coverage ожидает CI runtime
 - Preserved pre-existing changes: none; branch создана из clean synchronized main
 
@@ -68,7 +68,7 @@ Atomic delivery AC:
 4. `PO-07`: тот же safe report скачивается как valid TOML без новой production dependency.
 5. `PO-15`: analytics явно показывает success percentage с определённым denominator terminal outcomes.
 
-Readiness item: **100% (`5/5`)** по завершённым AC. Required Evidence: `SPEC ✅ | CODE ✅ | TEST ◐ | CI — | DEPLOY — | LIVE —`; отсутствие CI/deploy/LIVE gate-ит delivery, но не percentage.
+Readiness item: **100% (`5/5`)** по завершённым AC. Required Evidence: `SPEC ✅ | CODE ✅ | TEST ◐ | CI ❌ | DEPLOY — | LIVE —`; failure относится к English batch catalog contract и исправлен локально, но новый exact-head CI ещё не подтверждён. Evidence gate не меняет percentage.
 
 ## Roadmap и critical path
 

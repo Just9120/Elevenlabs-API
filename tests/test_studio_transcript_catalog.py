@@ -315,6 +315,13 @@ def test_catalog_settings_contract_is_strict_and_deterministic():
     assert restored == target
     assert target.provider == CURRENT_TRANSCRIPTION_PROVIDER == "elevenlabs"
     assert target.model == CURRENT_TRANSCRIPTION_MODEL == "scribe_v2"
+    assert current_effective_settings(
+        language_mode="en",
+        diarization_enabled=False,
+    ) == elevenlabs_effective_settings(
+        language_mode="en",
+        diarization_enabled=False,
+    )
     assert effective_settings_from_persisted_job(
         job_provider=None,
         credential_provider=enum("elevenlabs"),

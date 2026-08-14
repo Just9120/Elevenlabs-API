@@ -5,7 +5,11 @@ from enum import Enum
 from typing import Any, Iterable, Sequence
 
 from .media_clip import normalize_media_clip_range
-from .transcription_options import browser_language_mode, job_diarization_enabled
+from .transcription_options import (
+    TranscriptionLanguageMode,
+    browser_language_mode,
+    job_diarization_enabled,
+)
 
 
 CURRENT_TRANSCRIPTION_PROVIDER = "elevenlabs"
@@ -80,7 +84,9 @@ def current_effective_settings(
     normalized_language = (
         language_mode.strip().lower() if isinstance(language_mode, str) else ""
     )
-    if normalized_language not in {"ru", "detect"}:
+    if normalized_language not in {
+        mode.value for mode in TranscriptionLanguageMode
+    }:
         raise ValueError("Unsupported PWA transcription language mode")
     if not isinstance(diarization_enabled, bool):
         raise ValueError("Diarization selection must be boolean")
