@@ -26,16 +26,16 @@
 | `PWA-SPEAKER-IDENTITY-01` | **0,0% (`0/5`)** | **0,0% (`0/5`)** | ⬜ BACKLOG; PWA names/roles/listen-and-assign отсутствуют. |
 | `PWA-MANIFEST-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; нет safe clear action. |
 | `PWA-STANDARDIZATION-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; нет original-source creation authority. |
-| `PWA-REALTIME-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; local fix `3/3`, `SPEC ✅ CODE ✅ TEST ✅ CI ◐ DEPLOY ◐ LIVE ◐`; full production live matrix отсутствует. |
+| `PWA-REALTIME-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; local fix `3/3`, `SPEC ✅ CODE ✅ TEST ✅ CI ✅ DEPLOY ◐ LIVE ◐`; full production live matrix отсутствует. |
 | `PWA-OPERABILITY-01` | **77,8% (`14/18`)** | **77,8% (`14/18`)** | 🟦 IN PROGRESS; exports/success percentage закрыты, clear-operation AC остаются. |
 
 Изменение current scope: `0` product AC при неизменном denominator `109`. Scoped fix выполнен на `3/3`, но `PR-06` остаётся невыполненным до representative production LIVE canaries.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-15T06:13:13Z
+- Updated (UTC): 2026-08-15T07:27:33Z
 - Session mode: FOCUSED_TASK
-- Delivery stage: VALIDATING
+- Delivery stage: CHECKS_PASSED
 - Work item / epic: `PWA-REALTIME-CAPTURE-01` / `PWA-REALTIME-01`
 - Authorization source: explicit owner command «ок, делай» от 2026-08-15 после evidence-backed Chrome capture diagnosis
 - Authorized scope: продолжать live capture при `visibilitychange=hidden`; завершать capture только по audio-track lifecycle, а не вспомогательному display video track; regression tests, truthful UI limitation, operational docs и delivery flow
@@ -44,13 +44,13 @@
 - Base SHA: `f90e0d7b3b10d345a9ea6ff34f5b8c3025d818d7`
 - Working branch: `codex/fix-pwa-realtime-capture`
 - Last verified revision: `907ba24d5e0a058bbacf04f28dc98f6d2fac8676`
-- Working tree: CLEAN — implementation commit `907ba24` проверен; operational documentation фиксируется отдельным pre-push commit
-- Completed since base: commit `907ba24` удалил hidden-tab auto-stop, сохранил `pagehide`/unmount cleanup, ограничил `ended` listener audio tracks и добавил regressions
-- Current step: synchronizing independently recalculated readiness and checkpoint before branch publication
-- Next exact action: commit operational docs, push branch and create one focused Pull Request
+- Working tree: CLEAN — commits `907ba24` и `25fa508` опубликованы; текущий checkpoint является final pre-merge operational update
+- Completed since base: commit `907ba24` удалил hidden-tab auto-stop, сохранил `pagehide`/unmount cleanup, ограничил `ended` listener audio tracks и добавил regressions; commit `25fa508` синхронизировал readiness, baseline и archive
+- Current step: recording successful exact implementation-head checks before final docs-only head
+- Next exact action: commit/push checkpoint, дождаться final exact-head checks, снять draft и merge только при terminal green gates
 - Validation and Evidence: focused Vitest `29/29`, full Studio Vitest `503/503`, ESLint, TypeScript `tsc -b`, production Vite/PWA build и `git diff --check` прошли локально
-- Pull Request: N/A — branch пока не опубликована
-- CI/checks: exact branch head не проверен; baseline `main@f90e0d7` имел успешные `CI` и `Studio PWA CI`
+- Pull Request: #212 — `https://github.com/Just9120/Elevenlabs-API/pull/212`; draft, `MERGEABLE/CLEAN`, base `main@f90e0d7`, implementation head `25fa508212ec65f1da887b9b0ad01e0fd0b1db5d`
+- CI/checks: exact implementation head — CI run `31871871099` `checks` ✅; Studio run `31871871100` `studio` ✅ и `browser-e2e` ✅
 - Deployment/environment: fix revision не merged и не deployed; baseline CD run `31848408276` успешно доставил web/API для `main@f90e0d7`
 - Blockers: none before PR; product `PR-06` требует post-deploy representative Chrome canary
 - Unverified assumptions: точный Chrome event sequence владельца не наблюдался агентом; исходный hidden-tab stop и auxiliary-video subscription подтверждены code/tests, а прежняя production session работала во внутреннем браузере при видимой Studio вкладке
@@ -66,7 +66,7 @@ Atomic delivery AC:
 2. Display video track не управляет audio-session lifetime; окончание выбранного audio track по-прежнему останавливает session с безопасной ошибкой.
 3. UI больше не заявляет скрытие вкладки причиной остановки; focused regressions и full Studio validation проходят.
 
-Readiness item: **100% (`3/3`)** по завершённым local delivery AC. Required Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`; Evidence gates не меняют percentage. Product AC `PR-06` остаётся **❌**, поэтому `PWA-REALTIME-01` сохраняет **83,3% (`5/6`)**.
+Readiness item: **100% (`3/3`)** по завершённым delivery AC. Required Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`; Evidence gates не меняют percentage. Product AC `PR-06` остаётся **❌**, поэтому `PWA-REALTIME-01` сохраняет **83,3% (`5/6`)**.
 
 ## Roadmap и critical path
 
