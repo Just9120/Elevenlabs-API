@@ -310,7 +310,7 @@ export class RealtimeSessionController {
       }
       streams.push(stream);
       attempt.mediaStreams.push(stream);
-      stream.getTracks().forEach((track) => {
+      stream.getAudioTracks().forEach((track) => {
         track.addEventListener(
           "ended",
           () => {

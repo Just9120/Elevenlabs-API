@@ -22,14 +22,20 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-function mediaFixture() {
+function mediaFixture({ includeVideo = false } = {}) {
   const stop = vi.fn();
-  const track = { stop, addEventListener: vi.fn() };
+  const track = { kind: "audio", stop, addEventListener: vi.fn() };
+  const videoStop = vi.fn();
+  const videoTrack = {
+    kind: "video",
+    stop: videoStop,
+    addEventListener: vi.fn(),
+  };
   const stream = {
-    getTracks: () => [track],
+    getTracks: () => (includeVideo ? [videoTrack, track] : [track]),
     getAudioTracks: () => [track],
   } as unknown as MediaStream;
-  return { stream, stop, track };
+  return { stream, stop, track, videoStop, videoTrack };
 }
 
 function audioFixture() {
@@ -277,6 +283,45 @@ describe("RealtimeSessionController", () => {
     expect(microphone.stop).toHaveBeenCalled();
     expect(statuses.at(-1)).toBe("stopped");
     expect(controller.active).toBe(false);
+  });
+
+  it("does not subscribe to the auxiliary display video track ending", async () => {
+    const display = mediaFixture({ includeVideo: true });
+    const audio = audioFixture();
+    const errors: string[] = [];
+    const controller = new RealtimeSessionController(
+      {
+        onStatus: vi.fn(),
+        onPartial: vi.fn(),
+        onCommitted: vi.fn(),
+        onError: (message) => errors.push(message),
+      },
+      {
+        requestCapability: vi.fn().mockResolvedValue(capability),
+        mediaDevices: {
+          getDisplayMedia: vi.fn().mockResolvedValue(display.stream),
+        },
+        createAudioContext: () => audio.context,
+        createWebSocket: () => websocketFixture(),
+        setTimer: vi.fn(() => 29),
+        clearTimer: vi.fn(),
+      },
+    );
+
+    await controller.start({ displayAudio: true, microphone: false });
+
+    expect(display.videoTrack.addEventListener).not.toHaveBeenCalled();
+    expect(display.track.addEventListener).toHaveBeenCalledWith(
+      "ended",
+      expect.any(Function),
+      { once: true },
+    );
+    expect(errors.filter(Boolean)).toEqual([]);
+    expect(controller.active).toBe(true);
+
+    controller.dispose();
+    expect(display.videoStop).toHaveBeenCalledOnce();
+    expect(display.stop).toHaveBeenCalledOnce();
   });
 
   it("streams PCM, presents partial and committed text, and stops cleanly", async () => {
