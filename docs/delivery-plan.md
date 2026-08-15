@@ -2,7 +2,7 @@
 
 ## Current dashboard
 
-- 👉 `PWA-LANGUAGE-DIAGNOSTICS-01` — все `5/5` scoped AC реализованы локально; выполняются final validation и delivery gates.
+- 👉 `PWA-REALTIME-CAPTURE-01` — локальный Chrome lifecycle fix реализован и проверен: `3/3`; требуются exact-head CI, deploy и representative Chrome LIVE validation.
 - ⏭️ `PWA-INGEST-FAVORITES-01` — отдельный design/implementation slice для owner-scoped target-folder Favorites после выбора persistence semantics.
 - 📋 `PWA-INGEST-FOLDERS-01` — затем bounded local/Drive folder intake и одна target folder для folder batch.
 - 📋 `PWA-ARBITRARY-SEGMENTS-01` — затем arbitrary N-fragment plan вместо narrow two-project split.
@@ -14,11 +14,11 @@
 
 | Product/epic | Current | Previous snapshot | Readiness/Evidence |
 |---|---:|---:|---|
-| **Project** | **71,6% (`78/109`)** | **70,6% (`77/109`)** | `PO-15` закрыт; Project не `READY`. |
+| **Project** | **71,6% (`78/109`)** | **71,6% (`78/109`)** | Product AC не изменились: scoped capture fix не закрывает `PR-06` без production LIVE matrix. |
 | **Google Colab** | **75,9% (`22/29`)** | **75,9% (`22/29`)** | Без изменений в current PWA scope. |
 | `COLAB-BATCH-01` | **73,9% (`17/23`)** | **73,9% (`17/23`)** | 🟦 IN PROGRESS; `SPEC ✅ CODE ◐ TEST ◐ CI ✅ DEPLOY ◐ LIVE ◐`. |
 | `COLAB-REALTIME-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; capture stability не подтверждена. |
-| **Studio PWA** | **70,0% (`56/80`)** | **68,8% (`55/80`)** | Analytics показывает validated success percentage с explicit terminal denominator. |
+| **Studio PWA** | **70,0% (`56/80`)** | **70,0% (`56/80`)** | Capture lifecycle fix локально готов; `PR-06` остаётся незакрытым до representative production canaries. |
 | `PWA-CORE-01` | **84,6% (`11/13`)** | **84,6% (`11/13`)** | 🟦 IN PROGRESS; нет active-UI expiry removal и color selector. |
 | `PWA-INGEST-01` | **63,6% (`7/11`)** | **63,6% (`7/11`)** | 🟦 IN PROGRESS; нет Favorites и folder intake. |
 | `PWA-SEGMENTS-01` | **0,0% (`0/5`)** | **0,0% (`0/5`)** | 🟦 IN PROGRESS; текущий two-part split не выполняет arbitrary-N AC целиком. |
@@ -26,53 +26,51 @@
 | `PWA-SPEAKER-IDENTITY-01` | **0,0% (`0/5`)** | **0,0% (`0/5`)** | ⬜ BACKLOG; PWA names/roles/listen-and-assign отсутствуют. |
 | `PWA-MANIFEST-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; нет safe clear action. |
 | `PWA-STANDARDIZATION-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; нет original-source creation authority. |
-| `PWA-REALTIME-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; source/tests есть, full production live matrix отсутствует. |
-| `PWA-OPERABILITY-01` | **77,8% (`14/18`)** | **72,2% (`13/18`)** | 🟦 IN PROGRESS; exports/success percentage закрыты, clear-operation AC остаются. |
+| `PWA-REALTIME-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; local fix `3/3`, `SPEC ✅ CODE ✅ TEST ✅ CI ✅ DEPLOY ◐ LIVE ◐`; full production live matrix отсутствует. |
+| `PWA-OPERABILITY-01` | **77,8% (`14/18`)** | **77,8% (`14/18`)** | 🟦 IN PROGRESS; exports/success percentage закрыты, clear-operation AC остаются. |
 
-Изменение current scope: `+1` выполненный AC (`PO-15`), при неизменном denominator `109`.
+Изменение current scope: `0` product AC при неизменном denominator `109`. Scoped fix выполнен на `3/3`, но `PR-06` остаётся невыполненным до representative production LIVE canaries.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-14T22:50:08Z
+- Updated (UTC): 2026-08-15T07:27:33Z
 - Session mode: FOCUSED_TASK
-- Delivery stage: PR_OPEN
-- Work item / epic: `PWA-LANGUAGE-DIAGNOSTICS-01` / `PWA-BATCH-01`, `PWA-OPERABILITY-01`
-- Authorization source: explicit owner requirements от 2026-08-14 и непрерывная команда продолжать PWA implementation
-- Authorized scope: explicit English end-to-end; safe diagnostics export в Markdown/JSON/YAML/TOML; explicit analytics success percentage; related tests, operational docs и delivery flow
-- Non-goals: Favorites/persistence, folder intake, arbitrary fragments, clear operations, source-created timestamp, speaker identity, migrations, production dependencies, CI/CD policy и unrelated cleanup
+- Delivery stage: CHECKS_PASSED
+- Work item / epic: `PWA-REALTIME-CAPTURE-01` / `PWA-REALTIME-01`
+- Authorization source: explicit owner command «ок, делай» от 2026-08-15 после evidence-backed Chrome capture diagnosis
+- Authorized scope: продолжать live capture при `visibilitychange=hidden`; завершать capture только по audio-track lifecycle, а не вспомогательному display video track; regression tests, truthful UI limitation, operational docs и delivery flow
+- Non-goals: automatic reconnect, provider/API behavior, transcript persistence, batch flow, Colab realtime, migrations, dependencies, CI/CD policy и unrelated cleanup
 - Base branch: `main`
-- Base SHA: `8fe0dd722d0433440b41ef6dfe0fa0489f8f8fb8`
-- Working branch: `feature/pwa-language-diagnostics`
-- Last verified revision: `594c3e95fd3dc85d9122de0970a056fa72c694ba`
-- Working tree: DIRTY — intended pre-merge checkpoint update only
-- Completed since base: commits `559964a`, `e72a46f` и `cdaac53` закрыли scoped `5/5`; commit `594c3e9` синхронизировал English batch catalog authority и добавил regression test; PR #211 ready и все required checks implementation head прошли
-- Current step: recording successful exact-head validation and one infrastructure-timeout retry before final docs-only head push
-- Next exact action: commit/push checkpoint, дождаться всех required checks final docs-only head и merge PR #211 только при terminal success
-- Validation and Evidence: full Studio Vitest `502/502`, ESLint, TypeScript и production build прошли; focused catalog/options `12/12`, serializers/analytics/options `8/8`, Python compile и lightweight CI прошли локально; CI attempt #2 подтвердил full pytest `1213/1213` и `CI_OK`
-- Pull Request: #211 — `https://github.com/Just9120/Elevenlabs-API/pull/211`; ready, `MERGEABLE/CLEAN`, base `main`, implementation head `594c3e95fd3dc85d9122de0970a056fa72c694ba`
-- CI/checks: Studio run `31846553201`: `studio` ✅, `browser-e2e` ✅; CI run `31846553268` attempt #1 превысил job timeout и не сохранил log, attempt #2 job `94917932535` ✅ (`1213 passed`, `CI_OK`); `origin/main` не diverged от base
-- Deployment/environment: code scope требует component-specific CD и LIVE evidence после merge; пока N/A before PR
-- Blockers: none; final docs-only exact-head checks остаются pre-merge gate
-- Unverified assumptions: no paid provider call или authenticated browser LIVE canary; API integration coverage ожидает CI runtime
+- Base SHA: `f90e0d7b3b10d345a9ea6ff34f5b8c3025d818d7`
+- Working branch: `codex/fix-pwa-realtime-capture`
+- Last verified revision: `907ba24d5e0a058bbacf04f28dc98f6d2fac8676`
+- Working tree: CLEAN — commits `907ba24` и `25fa508` опубликованы; текущий checkpoint является final pre-merge operational update
+- Completed since base: commit `907ba24` удалил hidden-tab auto-stop, сохранил `pagehide`/unmount cleanup, ограничил `ended` listener audio tracks и добавил regressions; commit `25fa508` синхронизировал readiness, baseline и archive
+- Current step: recording successful exact implementation-head checks before final docs-only head
+- Next exact action: commit/push checkpoint, дождаться final exact-head checks, снять draft и merge только при terminal green gates
+- Validation and Evidence: focused Vitest `29/29`, full Studio Vitest `503/503`, ESLint, TypeScript `tsc -b`, production Vite/PWA build и `git diff --check` прошли локально
+- Pull Request: #212 — `https://github.com/Just9120/Elevenlabs-API/pull/212`; draft, `MERGEABLE/CLEAN`, base `main@f90e0d7`, implementation head `25fa508212ec65f1da887b9b0ad01e0fd0b1db5d`
+- CI/checks: exact implementation head — CI run `31871871099` `checks` ✅; Studio run `31871871100` `studio` ✅ и `browser-e2e` ✅
+- Deployment/environment: fix revision не merged и не deployed; baseline CD run `31848408276` успешно доставил web/API для `main@f90e0d7`
+- Blockers: none before PR; product `PR-06` требует post-deploy representative Chrome canary
+- Unverified assumptions: точный Chrome event sequence владельца не наблюдался агентом; исходный hidden-tab stop и auxiliary-video subscription подтверждены code/tests, а прежняя production session работала во внутреннем браузере при видимой Studio вкладке
 - Preserved pre-existing changes: none; branch создана из clean synchronized main
 
-## Active item — `PWA-LANGUAGE-DIAGNOSTICS-01`
+## Active item — `PWA-REALTIME-CAPTURE-01`
 
-Goal: закрыть пять малорисковых PWA AC без новой dependency, persistence или architecture boundary.
+Goal: устранить подтверждённые browser lifecycle stop-trigger’ы, из-за которых Chrome мог сбрасывать display capture при переходе на захватываемую вкладку или завершении вспомогательного video track.
 
 Atomic delivery AC:
 
-1. `PB-03`: explicit English проходит через PWA batch/realtime UI, typed API/preflight, provider mapping, persisted/displayed language mode и safe analytics.
-2. `PO-05`: safe filtered diagnostics report скачивается как valid JSON.
-3. `PO-06`: тот же safe report скачивается как valid YAML без новой production dependency.
-4. `PO-07`: тот же safe report скачивается как valid TOML без новой production dependency.
-5. `PO-15`: analytics явно показывает success percentage с определённым denominator terminal outcomes.
+1. Active live capture не останавливается при `document.visibilityState=hidden`; `pagehide`, unmount, explicit stop и переход в batch сохраняют существующий cleanup.
+2. Display video track не управляет audio-session lifetime; окончание выбранного audio track по-прежнему останавливает session с безопасной ошибкой.
+3. UI больше не заявляет скрытие вкладки причиной остановки; focused regressions и full Studio validation проходят.
 
-Readiness item: **100% (`5/5`)** по завершённым AC. Required Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`; exact implementation head подтверждён full CI, а DEPLOY/LIVE остаются post-merge gates. Evidence gates не меняют percentage.
+Readiness item: **100% (`3/3`)** по завершённым delivery AC. Required Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`; Evidence gates не меняют percentage. Product AC `PR-06` остаётся **❌**, поэтому `PWA-REALTIME-01` сохраняет **83,3% (`5/6`)**.
 
 ## Roadmap и critical path
 
-1. **PWA language/diagnostics:** local implementation `5/5`; пройти full validation, exact-head CI, merge и component-specific deployment/LIVE gates.
+1. **PWA realtime capture:** local fix `3/3`; пройти exact-head CI, merge, `studio-web` deployment и representative Windows/Chrome display-session LIVE validation.
 2. **Target-folder Favorites:** выбрать owner-scoped persistence semantics, затем реализовать отдельным slice без смешивания с diagnostics.
 3. **Source creation authority:** добавить source-created timestamp в local upload/Drive snapshots, migration/backfill semantics и Google Docs/standardization flow. Prerequisite для двух эпиков; требует data/schema review.
 4. **Folder intake:** bounded Drive folder enumeration и browser directory upload; reuse multi-source preflight, R2 lifecycle и duplicate authority.

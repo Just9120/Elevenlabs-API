@@ -623,6 +623,19 @@ PR #210 (`feature/product-requirements-v2`) зафиксировал owner requi
 - Локальный `main` синхронизирован с exact merge commit; merged local/remote branch удалена после ancestry/clean-state проверки.
 - Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`), поэтому отдельный follow-up docs-only PR не создавался; closure переносится в archive при начале следующего авторизованного scope.
 
+## Archived PR #211 language and diagnostics closure
+
+PR #211 (`feature/pwa-language-diagnostics`) закрыл scoped explicit-English, diagnostics-export и analytics-percentage slice и был merged в `main` 2026-08-15.
+
+- Base: `main@8fe0dd722d0433440b41ef6dfe0fa0489f8f8fb8`.
+- Final PR head: `f689ab09675ac7d899c040e05c3ed097632a74da`.
+- Merge commit: `f90e0d7b3b10d345a9ea6ff34f5b8c3025d818d7`.
+- Scoped completion: `5/5 = 100%`; readiness после merge: Studio PWA `56/80 = 70,0%`, project `78/109 = 71,6%`.
+- Exact PR-head checks: CI run `31848205846`, Studio/browser run `31848205831` — success.
+- Exact-main checks: CI run `31848408225`, Studio/browser run `31848408202` — success.
+- Component CD run `31848408276`: `deploy-web` и `deploy-api` success; worker и migration jobs корректно skipped для scope.
+- GitHub Deployments API record отсутствует; approved post-deploy metadata writer также отсутствует (`metadata_sync.enabled=false`). Фактический merge/CD state восстановлен в следующем authorized scope без отдельного follow-up PR.
+
 ## Current non-authority warning
 
 If this archive conflicts with `docs/project-spec.md`, `docs/delivery-plan.md`, `docs/architecture.md`, `docs/ci-cd-rules.md`, or the current user task, treat the current documents/task as authoritative and this archive as historical context only.

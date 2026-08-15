@@ -28,7 +28,7 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Текущий independently verified working snapshot на ветке от `main@8fe0dd722d0433440b41ef6dfe0fa0489f8f8fb8`:
+Текущий independently verified baseline: `main@f90e0d7b3b10d345a9ea6ff34f5b8c3025d818d7`:
 
 | Scope | Готовность | Метод |
 |---|---:|---|
@@ -318,12 +318,12 @@ Status: **⬜ BACKLOG**. Владелец явно отнёс TOTP/Google Authen
 
 ## 8. Runtime и delivery baseline
 
-- Current audit revision: `main@a252a1efa54ba952ec4eb04405fae5722f15d7b5`.
-- Exact-main repository CI: run `31823766931`, success.
-- Последний exact code revision с Studio repository/Studio/browser CI: `main@830bd00754567dfa6809e1e36bb7fcbaa145b824`, runs `31818095906` и `31818095864`, success.
-- Studio component CD run `31818095877` доставил только `studio-web`; API, worker и migration jobs были skipped. Это частичный DEPLOY evidence, а не доказательство всех PWA AC.
+- Current audit revision: `main@f90e0d7b3b10d345a9ea6ff34f5b8c3025d818d7`.
+- Exact-main repository CI: run `31848408225`, success.
+- Exact-main Studio/browser CI: run `31848408202`, jobs `studio` и `browser-e2e` success.
+- Studio component CD run `31848408276` доставил `studio-web` и `studio-api`; worker и migration jobs были skipped. Это component DEPLOY evidence, а не доказательство всех PWA AC.
 - Production API/worker/migration evidence предыдущего processing rollout привязано к `main@66fb098` и Alembic head `0020_provider_part_checkpoints`; оно не доказывает более поздние UI/realtime requirements.
-- GitHub Deployments API не содержит deployment records для `a252a1e` или `830bd0`; authoritative operational evidence находится в Actions runs и archive.
+- GitHub Deployments API не содержит deployment records для `f90e0d7`; authoritative operational evidence находится в Actions runs и archive.
 
 ## 9. Current critical path
 
