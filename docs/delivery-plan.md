@@ -16,23 +16,23 @@
   6. Каждый non-skipped fragment использует существующий processing pipeline и создаёт отдельный Google Docs transcript output.
   7. Relevant unit/integration/browser tests, full repository/Studio validation, required exact-head CI, merge и applicable DEPLOY/LIVE gates успешны.
 - **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
-- **Current Evidence:** `SPEC ✅ | CODE ◐ | TEST ◐ | CI — | DEPLOY — | LIVE —`.
+- **Current Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`.
 - **Known blockers/dependencies:** browser preflight не знает media duration до server preparation, поэтому out-of-bounds media проверяется существующим worker boundary; approved post-deploy metadata writer отсутствует; standard component CD требует отдельного exact-revision подтверждения. Production canary ограничивается одним reviewed small source и не запускается без удовлетворённых runtime preconditions.
 - **Stop condition:** все Goal AC и required Evidence подтверждены либо flow достиг `BLOCKED` / `PENDING_EXTERNAL_GATE`; затем остановиться и не переходить к следующей Goal без explicit authorization.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-20T13:18:51Z
+- Updated (UTC): 2026-08-20T13:30:42Z
 - Session mode: FOCUSED_TASK после RECOVERY stale checkpoint завершённого `SECURITY-DEPENDENCY-REMEDIATION-01`
 - Base branch: `main`
 - Base SHA: `50dff6f7401a08393137d5bd5e28162bd8df1133`
 - Working branch: `codex/pwa-arbitrary-segments-01`
-- Last verified revision: `81a34de82ebf1a22e38d68b9cd99b46112bef396`
-- Working tree: backend generalized segment validation завершена; frontend composer/UI refactor остаётся локальным незавершённым delta
-- Completed since base: Goal/checkpoint contract зафиксирован commit `81a34de`; API теперь принимает ordered non-overlapping arbitrary-N fragment plans одного source без прежнего ограничения «ровно две части/две папки»; integration/pure regression coverage подготовлено
-- Current step: замена frontend two-part state и UI на N-segment plan
-- Next exact action: завершить UI редактора фрагментов, preflight/reprocess mapping и Studio component tests
-- Validation and Evidence: backend `py_compile` ✅; direct valid arbitrary-N domain smoke ✅; repository lightweight checks ✅; `git diff --check` ✅; service-backed pytest отложен до доступного test environment/CI; product readiness остаётся `78/109`
+- Last verified revision: `c78acb5e2d555730887abfb10d2ca9bef2c52349`
+- Working tree: frontend generalized segment composer, component coverage, responsive styles и operational readiness update готовы к atomic commit; unrelated changes отсутствуют
+- Completed since base: Goal/checkpoint contract commit `81a34de`; API arbitrary-N validation commit `c78acb5`; frontend задаёт count/start/end/explicit source-end/title для каждого фрагмента, формирует ровно `N` ordered request items в общей target folder и сохраняет per-fragment preflight/reprocess decisions
+- Current step: фиксация frontend slice и запуск полной repository/API validation
+- Next exact action: создать frontend atomic commit, затем выполнить available full local validation и отправить exact head в GitHub CI
+- Validation and Evidence: backend `py_compile` и domain smoke ✅; repository lightweight checks ✅; Studio TypeScript/ESLint ✅; Studio Vitest `39 files, 504/504` ✅; production PWA build ✅; `git diff --check` ✅; service-backed pytest отложен до CI; product readiness `83/109`
 - Pull Request: отсутствует
 - CI/checks: для working branch ещё не запускались
 - Deployment/environment: baseline production revision `50dff6f` подтверждена; новая Goal не deploy-илась
@@ -46,14 +46,14 @@
 
 | Product/epic | Current | Previous snapshot | Readiness/Evidence |
 |---|---:|---:|---|
-| **Project** | **71,6% (`78/109`)** | **71,6% (`78/109`)** | Без изменения scope или product AC. |
+| **Project** | **76,1% (`83/109`)** | **71,6% (`78/109`)** | `PS-01`–`PS-05` выполнены; denominator не изменился. |
 | **Google Colab** | **75,9% (`22/29`)** | **75,9% (`22/29`)** | Без изменений в docs-policy Goal. |
 | `COLAB-BATCH-01` | **73,9% (`17/23`)** | **73,9% (`17/23`)** | 🟦 IN PROGRESS; functional и dependency/security CI подтверждены на exact material head; `SPEC ✅ CODE ◐ TEST ◐ CI ✅ DEPLOY ◐ LIVE ◐`. |
 | `COLAB-REALTIME-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; capture stability не подтверждена полностью. |
-| **Studio PWA** | **70,0% (`56/80`)** | **70,0% (`56/80`)** | Без изменений в docs-policy Goal. |
+| **Studio PWA** | **76,3% (`61/80`)** | **70,0% (`56/80`)** | Generalized arbitrary-N segment flow закрыл пять AC. |
 | `PWA-CORE-01` | **84,6% (`11/13`)** | **84,6% (`11/13`)** | 🟦 IN PROGRESS; нет active-UI expiry removal и color selector. |
 | `PWA-INGEST-01` | **63,6% (`7/11`)** | **63,6% (`7/11`)** | 🟦 IN PROGRESS; нет Favorites и folder intake. |
-| `PWA-SEGMENTS-01` | **0,0% (`0/5`)** | **0,0% (`0/5`)** | 🟦 IN PROGRESS; текущий two-part split не выполняет arbitrary-N AC. |
+| `PWA-SEGMENTS-01` | **100% (`5/5`)** | **0,0% (`0/5`)** | 🟦 IN PROGRESS; скачок `+100 п.п.` объясняется заменой two-part special case на generalized arbitrary-N UI/API flow. Product AC выполнены, но READY gated exact-head CI/DEPLOY/LIVE Evidence. |
 | `PWA-BATCH-01` | **90,0% (`9/10`)** | **90,0% (`9/10`)** | 🟦 IN PROGRESS; source-created timestamp отсутствует. |
 | `PWA-SPEAKER-IDENTITY-01` | **0,0% (`0/5`)** | **0,0% (`0/5`)** | ⬜ BACKLOG; names/roles/listen-and-assign отсутствуют. |
 | `PWA-MANIFEST-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; нет safe clear action. |
@@ -61,7 +61,7 @@
 | `PWA-REALTIME-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; capture fix deployed и Chrome LIVE подтверждён, но full microphone/display/mixed matrix для `PR-06` остаётся неполной; functional и dependency/security CI подтверждены: `SPEC ✅ CODE ✅ TEST ✅ CI ✅ DEPLOY ✅ LIVE ◐`. |
 | `PWA-OPERABILITY-01` | **77,8% (`14/18`)** | **77,8% (`14/18`)** | 🟦 IN PROGRESS; clear-operation AC остаются. |
 
-Изменение current Goal на checkpoint старта: `0` product AC при неизменном denominator `109`.
+Изменение current Goal: `+5` выполненных product AC при неизменном denominator `109`.
 
 ## Candidate next Goals
 

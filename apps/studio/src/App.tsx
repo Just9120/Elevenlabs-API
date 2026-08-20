@@ -99,19 +99,23 @@ import {
 } from "./jobModel";
 import {
   DEFAULT_TRANSCRIPTION_LANGUAGE_MODE,
+  MAX_BATCH_ITEMS,
+  clearComposerReprocessDecisions,
+  composerSegmentPlanIssue,
   composerSignature,
   buildBatchCreateRequest,
   expandComposerRows,
-  formatSplitBoundary,
+  formatSegmentBoundary,
   makeIdempotencyKey,
   mergeJobsWithBatchOrder,
   newComposerRow,
   parseBatchPreflightResponse,
-  parseSplitBoundary,
+  resizeComposerSegments,
   type BatchCreateRequest,
   type BatchCreateResponse,
   type BatchPreflightResponse,
   type ComposerRow,
+  type ComposerSegment,
 } from "./batchComposerModel";
 import {
   parseJobRetryResponse,
@@ -1217,7 +1221,7 @@ type LocalUploadNotice = LocalUploadOperation & {
   tone: "notice" | "error";
 };
 
-type GooglePickerOperationKind = "sources" | "folder:first" | "folder:second";
+type GooglePickerOperationKind = "sources" | "folder:first";
 type GooglePickerOperation = {
   projectId: string;
   panelId: string;
@@ -1589,18 +1593,19 @@ function PreparationPanel({
   const seenPairs = new Map<string, string>();
   rows.forEach((row) => {
     if (!row.source_id || !row.output_folder?.folder_id) return;
-    const boundary = row.split_to_two_projects
-      ? parseSplitBoundary(row.split_boundary)
-      : null;
-    const scopes = row.split_to_two_projects && boundary !== null
-      ? [
-          `${row.source_id}\u0000${row.output_folder.folder_id}\u00000\u0000${boundary}`,
-          row.second_output_folder?.folder_id
-            ? `${row.source_id}\u0000${row.second_output_folder.folder_id}\u0000${boundary}\u0000end`
-            : "",
-        ]
-      : [`${row.source_id}\u0000${row.output_folder.folder_id}\u0000full`];
-    scopes.filter(Boolean).forEach((scope) => {
+    let expanded;
+    try {
+      expanded = expandComposerRows([row]);
+    } catch {
+      return;
+    }
+    expanded.forEach(({ request_item: item }) => {
+      const scope = [
+        item.source_id,
+        item.output_folder_id,
+        item.media_clip_start_seconds ?? "full",
+        item.media_clip_end_seconds ?? "end",
+      ].join("\u0000");
       const previousRowId = seenPairs.get(scope);
       if (previousRowId) {
         duplicateRowIds.add(previousRowId);
@@ -1644,33 +1649,17 @@ function PreparationPanel({
         reason: `Строка ${rowNumber}: выберите папку результата`,
       };
     }
-    if (row.split_to_two_projects) {
-      const boundary = parseSplitBoundary(row.split_boundary);
-      if (boundary === null) {
-        return {
-          ready: false,
-          reason: `Строка ${rowNumber}: укажите границу в формате ММ:СС или ЧЧ:ММ:СС`,
-        };
-      }
-      if (!row.second_output_folder?.folder_id) {
-        return {
-          ready: false,
-          reason: `Строка ${rowNumber}: выберите папку второй части`,
-        };
-      }
-      if (
-        row.second_output_folder.folder_id === row.output_folder.folder_id
-      ) {
-        return {
-          ready: false,
-          reason: `Строка ${rowNumber}: для двух проектов нужны разные папки`,
-        };
-      }
+    const segmentIssue = composerSegmentPlanIssue(row.segments);
+    if (segmentIssue) {
+      return {
+        ready: false,
+        reason: `Строка ${rowNumber}: ${segmentIssue}`,
+      };
     }
     if (duplicateRowIds.has(row.id)) {
       return {
         ready: false,
-        reason: `Строка ${rowNumber}: такая пара файла и папки уже добавлена`,
+        reason: `Строка ${rowNumber}: такой источник, папка и диапазон уже добавлены`,
       };
     }
     return { ready: true, reason: "" };
@@ -1701,9 +1690,13 @@ function PreparationPanel({
     }
   })();
   const plannedJobCount = rows.reduce(
-    (count, row) => count + (row.split_to_two_projects ? 2 : 1),
+    (count, row) => count + row.segments.length,
     0,
   );
+  const batchLimitBlocker =
+    plannedJobCount > MAX_BATCH_ITEMS
+      ? `Один batch поддерживает не более ${MAX_BATCH_ITEMS} фрагментов`
+      : "";
   const activeProviderAuthorityBlocked =
     activePreflight?.items.some(
       (item) => item.provider_attempt_authority.status === "blocked",
@@ -1720,6 +1713,8 @@ function PreparationPanel({
         ? credentialBlocker
       : rows.length === 0
         ? "Добавьте хотя бы одну строку"
+        : batchLimitBlocker
+          ? batchLimitBlocker
         : firstReadinessBlocker
           ? firstReadinessBlocker
           : activePreflightBlocked
@@ -1734,6 +1729,7 @@ function PreparationPanel({
     !credentialsError &&
     Boolean(selectedCredentialId) &&
     rows.length > 0 &&
+    plannedJobCount <= MAX_BATCH_ITEMS &&
     rowReadinessResults.every((result) => result.ready) &&
     !activePreflightBlocked;
 
@@ -1766,12 +1762,10 @@ function PreparationPanel({
       const [first, ...rest] = selected;
       const sourcesToAppend = canFillTarget ? rest : selected;
       if (canFillTarget && first) {
-        next[targetIndex] = {
+        next[targetIndex] = clearComposerReprocessDecisions({
           ...next[targetIndex],
           source_id: first.id,
-          reprocess_existing: false,
-          second_reprocess_existing: false,
-        };
+        });
       }
       next.push(
         ...sourcesToAppend.map((source) => ({
@@ -2295,6 +2289,26 @@ function PreparationPanel({
       current.map((row) => (row.id === rowId ? { ...row, ...patch } : row)),
     );
   }
+  function updateSegment(
+    rowId: string,
+    segmentId: string,
+    patch: Partial<ComposerSegment>,
+  ) {
+    setRows((current) =>
+      current.map((row) =>
+        row.id === rowId
+          ? {
+              ...row,
+              segments: row.segments.map((segment) =>
+                segment.id === segmentId
+                  ? { ...segment, ...patch }
+                  : segment,
+              ),
+            }
+          : row,
+      ),
+    );
+  }
   function addRow() {
     const row = newComposerRow();
     setRows((current) => [...current, row]);
@@ -2309,16 +2323,13 @@ function PreparationPanel({
       return next;
     });
   }
-  async function chooseRowFolder(
-    rowId: string,
-    target: "first" | "second" = "first",
-  ) {
+  async function chooseRowFolder(rowId: string) {
     if (!driveSourcePickerEnabled || rowFolderPickerRef.current) return;
     const operation: GooglePickerOperation = {
       projectId: project.id,
       panelId: googlePickerPanelId,
       rowId,
-      kind: target === "second" ? "folder:second" : "folder:first",
+      kind: "folder:first",
     };
     if (!beginGooglePicker(operation)) return;
     rowFolderPickerRef.current = true;
@@ -2390,12 +2401,7 @@ function PreparationPanel({
         name: verified.name,
         web_view_url: verified.web_view_url,
       };
-      updateRow(
-        rowId,
-        target === "second"
-          ? { second_output_folder: outputFolder }
-          : { output_folder: outputFolder },
-      );
+      updateRow(rowId, { output_folder: outputFolder });
       outcome = {
         message:
           "Папка Google Drive проверена, но прежняя строка больше не открыта. Выберите папку для строки повторно.",
@@ -3368,11 +3374,7 @@ function PreparationPanel({
                   event.target.value as TranscriptionLanguageMode,
                 );
                 setRows((current) =>
-                  current.map((row) => ({
-                    ...row,
-                    reprocess_existing: false,
-                    second_reprocess_existing: false,
-                  })),
+                  current.map(clearComposerReprocessDecisions),
                 );
               }}
             >
@@ -3389,11 +3391,7 @@ function PreparationPanel({
               onChange={(event) => {
                 setDiarizationEnabled(event.target.checked);
                 setRows((current) =>
-                  current.map((row) => ({
-                    ...row,
-                    reprocess_existing: false,
-                    second_reprocess_existing: false,
-                  })),
+                  current.map(clearComposerReprocessDecisions),
                 );
               }}
             />
@@ -3540,8 +3538,10 @@ function PreparationPanel({
                           onChange={(e) => {
                             updateRow(row.id, {
                               source_id: e.target.value,
-                              reprocess_existing: false,
-                              second_reprocess_existing: false,
+                              segments: row.segments.map((segment) => ({
+                                ...segment,
+                                reprocess_existing: false,
+                              })),
                             });
                             if (e.target.value) clearRowIntakeError(row.id);
                           }}
@@ -3653,11 +3653,7 @@ function PreparationPanel({
                       )}
                     </section>
                     <div className="folder-cell">
-                      <span className="field-label">
-                        {row.split_to_two_projects
-                          ? "Папка первой части"
-                          : "Папка результата"}
-                      </span>
+                      <span className="field-label">Папка результата</span>
                       <span>
                         {row.output_folder?.name || "Папка не выбрана"}
                       </span>
@@ -3679,140 +3675,124 @@ function PreparationPanel({
                         {row.output_folder?.folder_id ? "Изменить" : "Выбрать"}
                       </button>
                     </div>
-                    <label>
-                      {row.split_to_two_projects
-                        ? "Название первой части"
-                        : "Название документа"}
+                  </div>
+                  <section
+                    className="segment-plan-panel"
+                    aria-label={`План фрагментов строки ${index + 1}`}
+                  >
+                    <label className="segment-count-control">
+                      Количество фрагментов
                       <input
-                        value={row.title}
-                        onChange={(e) =>
-                          updateRow(row.id, { title: e.target.value })
-                        }
-                        maxLength={160}
-                        placeholder="Необязательно"
-                        aria-label={`Название задачи для строки ${index + 1}`}
+                        type="number"
+                        min={1}
+                        max={MAX_BATCH_ITEMS}
+                        value={row.segments.length}
+                        onChange={(event) => {
+                          const count = Number(event.target.value);
+                          if (
+                            Number.isInteger(count) &&
+                            count >= 1 &&
+                            count <= MAX_BATCH_ITEMS
+                          ) {
+                            updateRow(row.id, {
+                              segments: resizeComposerSegments(
+                                row.segments,
+                                count,
+                              ),
+                            });
+                          }
+                        }}
+                        aria-label={`Количество фрагментов строки ${index + 1}`}
                       />
                       <small className="muted">
-                        Необязательно. Если оставить пустым, Google Docs
-                        получит имя исходного файла.
+                        Каждый фрагмент станет отдельной задачей и отдельным
+                        документом в выбранной папке. Максимум: {MAX_BATCH_ITEMS}.
                       </small>
                     </label>
-                  </div>
-                  <label className="split-project-toggle">
-                    <input
-                      type="checkbox"
-                      checked={row.split_to_two_projects}
-                      onChange={(event) =>
-                        updateRow(row.id, {
-                          split_to_two_projects: event.target.checked,
-                          reprocess_existing: false,
-                          second_reprocess_existing: false,
-                        })
-                      }
-                    />
-                    <span>
-                      Разделить созвон на два проекта и создать два документа
-                    </span>
-                  </label>
-                  {row.split_to_two_projects && (
-                    <section
-                      className="split-project-panel"
-                      aria-label={
-                        "Разделение строки " + (index + 1) + " на два проекта"
-                      }
-                    >
-                      <label>
-                        Граница между проектами
-                        <input
-                          value={row.split_boundary}
-                          onChange={(event) =>
-                            updateRow(row.id, {
-                              split_boundary: event.target.value,
-                              reprocess_existing: false,
-                              second_reprocess_existing: false,
-                            })
-                          }
-                          inputMode="numeric"
-                          placeholder="10:10"
-                          aria-label={
-                            "Граница разделения строки " + (index + 1)
-                          }
-                        />
-                        <small className="muted">
-                          Формат ММ:СС или ЧЧ:ММ:СС. Первая часть: начало —
-                          {parseSplitBoundary(row.split_boundary) === null
-                            ? " граница"
-                            : " " +
-                              formatSplitBoundary(
-                                parseSplitBoundary(row.split_boundary) ?? 0,
-                              )}
-                          ; вторая: от границы до конца.
-                        </small>
-                      </label>
-                      <div className="folder-cell">
-                        <span className="field-label">Папка второй части</span>
-                        <span>
-                          {row.second_output_folder?.name ||
-                            "Папка не выбрана"}
-                        </span>
-                        {row.second_output_folder?.web_view_url &&
-                          isApprovedOutputUrl(
-                            row.second_output_folder.web_view_url,
-                          ) && (
-                            <ResourceExternalLink
-                              href={row.second_output_folder.web_view_url}
-                              label="Открыть папку"
-                              ariaLabel={
-                                "Открыть папку второй части строки " +
-                                (index + 1) +
-                                " в Google Drive"
-                              }
-                            />
-                          )}
-                        <button
-                          type="button"
-                          className="secondary"
-                          disabled={
-                            !driveSourcePickerEnabled || pickerBusy
-                          }
-                          onClick={() =>
-                            void chooseRowFolder(row.id, "second")
-                          }
-                          aria-label={
-                            "Выбрать папку второй части для строки " +
-                            (index + 1)
-                          }
-                        >
-                          {row.second_output_folder?.folder_id
-                            ? "Изменить"
-                            : "Выбрать"}
-                        </button>
-                      </div>
-                      <label>
-                        Название второй части
-                        <input
-                          value={row.second_title}
-                          onChange={(event) =>
-                            updateRow(row.id, {
-                              second_title: event.target.value,
-                            })
-                          }
-                          maxLength={160}
-                          placeholder="Необязательно"
-                          aria-label={
-                            "Название второй части строки " + (index + 1)
-                          }
-                        />
-                      </label>
-                      {row.output_folder?.folder_id &&
-                        row.second_output_folder?.folder_id ===
-                          row.output_folder.folder_id && (
-                          <p className="error">
-                            Выберите разные папки для двух проектов.
-                          </p>
-                        )}
-                    </section>
-                  )}
+                    <ol className="segment-editor-list">
+                      {row.segments.map((segment, segmentIndex) => {
+                        const isLast = segmentIndex === row.segments.length - 1;
+                        return (
+                          <li className="segment-editor" key={segment.id}>
+                            <b>Фрагмент {segmentIndex + 1}</b>
+                            <div className="segment-boundaries">
+                              <label>
+                                Начало
+                                <input
+                                  value={segment.start_boundary}
+                                  onChange={(event) =>
+                                    updateSegment(row.id, segment.id, {
+                                      start_boundary: event.target.value,
+                                      reprocess_existing: false,
+                                    })
+                                  }
+                                  inputMode="numeric"
+                                  placeholder="0:00"
+                                  aria-label={`Начало фрагмента ${segmentIndex + 1} строки ${index + 1}`}
+                                />
+                              </label>
+                              <label>
+                                Конец
+                                <input
+                                  value={segment.end_boundary}
+                                  disabled={segment.ends_at_source_end}
+                                  onChange={(event) =>
+                                    updateSegment(row.id, segment.id, {
+                                      end_boundary: event.target.value,
+                                      reprocess_existing: false,
+                                    })
+                                  }
+                                  inputMode="numeric"
+                                  placeholder="10:10"
+                                  aria-label={`Конец фрагмента ${segmentIndex + 1} строки ${index + 1}`}
+                                />
+                              </label>
+                              <label className="segment-end-toggle">
+                                <input
+                                  type="checkbox"
+                                  checked={segment.ends_at_source_end}
+                                  disabled={!isLast}
+                                  onChange={(event) =>
+                                    updateSegment(row.id, segment.id, {
+                                      ends_at_source_end: event.target.checked,
+                                      end_boundary: event.target.checked
+                                        ? ""
+                                        : segment.end_boundary,
+                                      reprocess_existing: false,
+                                    })
+                                  }
+                                />
+                                <span>До конца файла</span>
+                              </label>
+                            </div>
+                            <label>
+                              Название документа
+                              <input
+                                value={segment.title}
+                                onChange={(event) =>
+                                  updateSegment(row.id, segment.id, {
+                                    title: event.target.value,
+                                  })
+                                }
+                                maxLength={160}
+                                placeholder="Необязательно"
+                                aria-label={`Название фрагмента ${segmentIndex + 1} строки ${index + 1}`}
+                              />
+                              <small className="muted">
+                                Необязательно. Если оставить пустым, Google Docs
+                                получит имя исходного файла.
+                              </small>
+                            </label>
+                          </li>
+                        );
+                      })}
+                    </ol>
+                    {composerSegmentPlanIssue(row.segments) && (
+                      <p className="error">
+                        {composerSegmentPlanIssue(row.segments)}
+                      </p>
+                    )}
+                  </section>
                   {invalidSourceRowIds.has(row.id) && (
                     <p className="error">
                       Выбранный файл больше недоступен. Выберите готовый файл
@@ -3821,7 +3801,7 @@ function PreparationPanel({
                   )}
                   {duplicate && (
                     <p className="error">
-                      Такая пара файла и папки уже добавлена.
+                      Такой источник, папка и диапазон уже добавлены.
                     </p>
                   )}
                 </li>
@@ -3889,10 +3869,11 @@ function PreparationPanel({
                 const row = rows.find(
                   (candidate) => candidate.id === expandedItem?.row_id,
                 );
+                const segment = row?.segments.find(
+                  (candidate) => candidate.id === expandedItem?.segment_id,
+                );
                 const clipLabel = item.media_clip
-                  ? item.media_clip.start_seconds === 0
-                    ? `Начало — ${formatSplitBoundary(item.media_clip.end_seconds ?? 0)}`
-                    : `${formatSplitBoundary(item.media_clip.start_seconds ?? 0)} — конец`
+                  ? `${item.media_clip.start_seconds === 0 ? "Начало" : formatSegmentBoundary(item.media_clip.start_seconds ?? 0)} — ${item.media_clip.end_seconds === null ? "конец" : formatSegmentBoundary(item.media_clip.end_seconds)}`
                   : null;
                 return (
                   <li key={item.position}>
@@ -3934,28 +3915,22 @@ function PreparationPanel({
                             : "План: заблокировано"}
                       </strong>
                       {item.existing_result_match.status !== "no_match" &&
-                        row && (
+                        row &&
+                        segment && (
                           <label className="reprocess-decision">
                             <input
                               type="checkbox"
-                              checked={
-                                expandedItem?.segment === "second"
-                                  ? row.second_reprocess_existing
-                                  : row.reprocess_existing
-                              }
+                              checked={segment.reprocess_existing}
                               disabled={
                                 item.provider_attempt_authority.status ===
                                 "blocked"
                               }
                               onChange={(event) => {
                                 const reprocess = event.target.checked;
-                                updateRow(
+                                updateSegment(
                                   row.id,
-                                  expandedItem?.segment === "second"
-                                    ? {
-                                        second_reprocess_existing: reprocess,
-                                      }
-                                    : { reprocess_existing: reprocess },
+                                  segment.id,
+                                  { reprocess_existing: reprocess },
                                 );
                               }}
                               aria-label={`Транскрибировать заново строку ${item.position + 1}`}
@@ -4070,8 +4045,10 @@ function PreparationPanel({
                   ? {
                       ...row,
                       source_id: "",
-                      reprocess_existing: false,
-                      second_reprocess_existing: false,
+                      segments: row.segments.map((segment) => ({
+                        ...segment,
+                        reprocess_existing: false,
+                      })),
                     }
                   : row,
               ),

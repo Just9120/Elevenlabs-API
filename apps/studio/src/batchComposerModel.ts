@@ -5,23 +5,26 @@ import type {
 
 export const DEFAULT_TRANSCRIPTION_LANGUAGE_MODE: TranscriptionLanguageMode =
   "ru";
+export const MAX_BATCH_ITEMS = 50;
 
 export type VerifiedOutputFolder = {
   folder_id: string;
   name: string;
   web_view_url: string | null;
 };
+export type ComposerSegment = {
+  id: string;
+  start_boundary: string;
+  end_boundary: string;
+  ends_at_source_end: boolean;
+  title: string;
+  reprocess_existing: boolean;
+};
 export type ComposerRow = {
   id: string;
   source_id: string;
   output_folder: VerifiedOutputFolder | null;
-  title: string;
-  reprocess_existing: boolean;
-  split_to_two_projects: boolean;
-  split_boundary: string;
-  second_output_folder: VerifiedOutputFolder | null;
-  second_title: string;
-  second_reprocess_existing: boolean;
+  segments: ComposerSegment[];
 };
 export type BatchCreateResponse = {
   jobs: TranscriptionJob[];
@@ -43,7 +46,8 @@ export type BatchCreateRequest = {
 };
 export type ExpandedComposerItem = {
   row_id: string;
-  segment: "full" | "first" | "second";
+  segment_id: string;
+  segment_index: number;
   request_item: BatchCreateRequest["items"][number];
 };
 export type BatchPreflightItem = {
@@ -102,13 +106,64 @@ export function newComposerRow(): ComposerRow {
     id: crypto.randomUUID(),
     source_id: "",
     output_folder: null,
+    segments: [newComposerSegment(0, 1)],
+  };
+}
+
+function newComposerSegment(position: number, count: number): ComposerSegment {
+  return {
+    id: crypto.randomUUID(),
+    start_boundary: position === 0 ? "0:00" : "",
+    end_boundary: "",
+    ends_at_source_end: position === count - 1,
     title: "",
     reprocess_existing: false,
-    split_to_two_projects: false,
-    split_boundary: "",
-    second_output_folder: null,
-    second_title: "",
-    second_reprocess_existing: false,
+  };
+}
+
+export function resizeComposerSegments(
+  segments: ComposerSegment[],
+  requestedCount: number,
+): ComposerSegment[] {
+  if (
+    !Number.isInteger(requestedCount) ||
+    requestedCount < 1 ||
+    requestedCount > MAX_BATCH_ITEMS
+  ) {
+    throw new Error("Invalid segment count");
+  }
+  if (requestedCount === segments.length) return segments;
+  const next = segments.slice(0, requestedCount).map((segment) => ({
+    ...segment,
+    reprocess_existing: false,
+  }));
+  while (next.length < requestedCount) {
+    next.push(newComposerSegment(next.length, requestedCount));
+  }
+  for (let index = 0; index < next.length - 1; index += 1) {
+    if (next[index].ends_at_source_end) {
+      next[index] = { ...next[index], ends_at_source_end: false };
+    }
+  }
+  if (requestedCount > segments.length) {
+    next[next.length - 1] = {
+      ...next[next.length - 1],
+      end_boundary: "",
+      ends_at_source_end: true,
+    };
+  }
+  return next;
+}
+
+export function clearComposerReprocessDecisions(
+  row: ComposerRow,
+): ComposerRow {
+  return {
+    ...row,
+    segments: row.segments.map((segment) => ({
+      ...segment,
+      reprocess_existing: false,
+    })),
   };
 }
 
@@ -135,13 +190,18 @@ export function composerSignature(
       invalid_rows: rows.map((row) => ({
         id: row.id,
         source_id: row.source_id,
-        split_boundary: row.split_boundary,
+        segments: row.segments.map((segment) => ({
+          id: segment.id,
+          start_boundary: segment.start_boundary,
+          end_boundary: segment.end_boundary,
+          ends_at_source_end: segment.ends_at_source_end,
+        })),
       })),
     });
   }
 }
 
-export function parseSplitBoundary(value: string): number | null {
+export function parseSegmentBoundary(value: string): number | null {
   const text = value.trim();
   const parts = text.split(":");
   if (parts.length !== 2 && parts.length !== 3) return null;
@@ -153,12 +213,12 @@ export function parseSplitBoundary(value: string): number | null {
       : [0, numbers[0], numbers[1]];
   if (seconds >= 60 || (parts.length === 3 && minutes >= 60)) return null;
   const total = hours * 3600 + minutes * 60 + seconds;
-  return Number.isSafeInteger(total) && total > 0 && total <= 604800
+  return Number.isSafeInteger(total) && total >= 0 && total <= 604800
     ? total
     : null;
 }
 
-export function formatSplitBoundary(totalSeconds: number): string {
+export function formatSegmentBoundary(totalSeconds: number): string {
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
@@ -167,48 +227,100 @@ export function formatSplitBoundary(totalSeconds: number): string {
     : `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
+type ParsedComposerSegment = {
+  start_seconds: number;
+  end_seconds: number | null;
+};
+
+function inspectComposerSegmentPlan(segments: ComposerSegment[]): {
+  issue: string | null;
+  clips: ParsedComposerSegment[];
+} {
+  if (segments.length < 1 || segments.length > MAX_BATCH_ITEMS) {
+    return {
+      issue: `укажите от 1 до ${MAX_BATCH_ITEMS} фрагментов`,
+      clips: [],
+    };
+  }
+  const clips: ParsedComposerSegment[] = [];
+  let previousEnd: number | null = null;
+  for (let index = 0; index < segments.length; index += 1) {
+    const segment = segments[index];
+    const number = index + 1;
+    const start = parseSegmentBoundary(segment.start_boundary);
+    if (start === null) {
+      return {
+        issue: `фрагмент ${number}: укажите начало в формате ММ:СС или ЧЧ:ММ:СС`,
+        clips: [],
+      };
+    }
+    if (segment.ends_at_source_end && index !== segments.length - 1) {
+      return {
+        issue: `фрагмент ${number}: только последний фрагмент может продолжаться до конца файла`,
+        clips: [],
+      };
+    }
+    const end = segment.ends_at_source_end
+      ? null
+      : parseSegmentBoundary(segment.end_boundary);
+    if (!segment.ends_at_source_end && end === null) {
+      return {
+        issue: `фрагмент ${number}: укажите конец или выберите «До конца файла»`,
+        clips: [],
+      };
+    }
+    if (end !== null && end <= start) {
+      return {
+        issue: `фрагмент ${number}: конец должен быть позже начала`,
+        clips: [],
+      };
+    }
+    if (index > 0 && (previousEnd === null || start < previousEnd)) {
+      return {
+        issue: `фрагмент ${number}: фрагменты должны идти по порядку и не пересекаться`,
+        clips: [],
+      };
+    }
+    clips.push({ start_seconds: start, end_seconds: end });
+    previousEnd = end;
+  }
+  return { issue: null, clips };
+}
+
+export function composerSegmentPlanIssue(
+  segments: ComposerSegment[],
+): string | null {
+  return inspectComposerSegmentPlan(segments).issue;
+}
+
 export function expandComposerRows(rows: ComposerRow[]): ExpandedComposerItem[] {
   return rows.flatMap<ExpandedComposerItem>((row) => {
-    const base = {
-      source_id: row.source_id,
-      output_folder_id: row.output_folder?.folder_id ?? "",
-      title: row.title.trim() || null,
-      reprocess_existing: row.reprocess_existing,
-    };
-    if (!row.split_to_two_projects) {
-      return [
-        {
-          row_id: row.id,
-          segment: "full" as const,
-          request_item: base,
-        },
-      ];
-    }
-    const boundary = parseSplitBoundary(row.split_boundary);
-    if (boundary === null) throw new Error("Invalid split boundary");
-    return [
-      {
+    const inspected = inspectComposerSegmentPlan(row.segments);
+    if (inspected.issue) throw new Error(inspected.issue);
+    return row.segments.map((segment, segmentIndex) => {
+      const clip = inspected.clips[segmentIndex];
+      const fullSource =
+        row.segments.length === 1 &&
+        clip.start_seconds === 0 &&
+        clip.end_seconds === null;
+      return {
         row_id: row.id,
-        segment: "first" as const,
-        request_item: {
-          ...base,
-          media_clip_start_seconds: 0,
-          media_clip_end_seconds: boundary,
-        },
-      },
-      {
-        row_id: row.id,
-        segment: "second" as const,
+        segment_id: segment.id,
+        segment_index: segmentIndex,
         request_item: {
           source_id: row.source_id,
-          output_folder_id: row.second_output_folder?.folder_id ?? "",
-          title: row.second_title.trim() || null,
-          reprocess_existing: row.second_reprocess_existing,
-          media_clip_start_seconds: boundary,
-          media_clip_end_seconds: null,
+          output_folder_id: row.output_folder?.folder_id ?? "",
+          title: segment.title.trim() || null,
+          reprocess_existing: segment.reprocess_existing,
+          ...(fullSource
+            ? {}
+            : {
+                media_clip_start_seconds: clip.start_seconds,
+                media_clip_end_seconds: clip.end_seconds,
+              }),
         },
-      },
-    ];
+      };
+    });
   });
 }
 
@@ -218,11 +330,13 @@ export function buildBatchCreateRequest(
   languageMode: TranscriptionLanguageMode,
   diarizationEnabled: boolean,
 ): BatchCreateRequest {
+  const items = expandComposerRows(rows).map((item) => item.request_item);
+  if (items.length > MAX_BATCH_ITEMS) throw new Error("Batch item limit exceeded");
   return {
     provider_credential_id: credentialId || null,
     language: languageMode,
     options: { diarize: diarizationEnabled },
-    items: expandComposerRows(rows).map((item) => item.request_item),
+    items,
   };
 }
 

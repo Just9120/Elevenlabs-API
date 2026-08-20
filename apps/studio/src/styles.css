@@ -1076,7 +1076,7 @@ code {
 }
 .composer-row-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
   gap: 0.75rem;
   align-items: start;
   min-width: 0;
@@ -1090,29 +1090,52 @@ code {
   gap: 0.4rem;
   overflow-wrap: anywhere;
 }
-.split-project-toggle {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.55rem;
-  padding: 0.7rem;
-  border: 1px solid var(--studio-border);
-  border-radius: 12px;
-  background: var(--studio-soft);
-}
-.split-project-toggle input {
-  margin-top: 0.2rem;
-}
-.split-project-panel {
+.segment-plan-panel {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
   gap: 0.75rem;
   padding: 0.8rem;
   border: 1px solid color-mix(in srgb, var(--studio-primary) 35%, var(--studio-border));
   border-radius: 14px;
   background: color-mix(in srgb, var(--studio-primary) 4%, var(--studio-surface));
 }
-.split-project-panel > .error {
-  grid-column: 1 / -1;
+.segment-count-control {
+  max-width: 20rem;
+}
+.segment-count-control input {
+  width: 7rem;
+}
+.segment-editor-list {
+  display: grid;
+  gap: 0.65rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.segment-editor {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.75rem;
+  border: 1px solid var(--studio-border);
+  border-radius: 12px;
+  background: var(--studio-surface);
+}
+.segment-boundaries {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(10rem, auto);
+  gap: 0.65rem;
+  align-items: end;
+}
+.segment-end-toggle {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 2.75rem;
+}
+.segment-end-toggle input {
+  margin: 0;
+}
+.segment-plan-panel > .error {
   margin: 0;
 }
 .field-label {
@@ -1204,7 +1227,7 @@ code {
   .composer-row-grid {
     grid-template-columns: 1fr;
   }
-  .split-project-panel {
+  .segment-boundaries {
     grid-template-columns: 1fr;
   }
   .composer-add-row {

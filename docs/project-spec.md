@@ -33,8 +33,8 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **75,9% (`22/29`)** | `COLAB-BATCH 17/23` + `COLAB-REALTIME 5/6` |
-| Studio PWA | **70,0% (`56/80`)** | сумма девяти PWA-эпиков ниже |
-| Весь проект | **71,6% (`78/109`)** | все выполненные AC двух продуктов / все AC текущего scope |
+| Studio PWA | **76,3% (`61/80`)** | сумма девяти PWA-эпиков ниже |
+| Весь проект | **76,1% (`83/109`)** | все выполненные AC двух продуктов / все AC текущего scope |
 
 ## 3. Общие product rules
 
@@ -153,19 +153,19 @@ Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
 
 ### Эпик `PWA-SEGMENTS-01` — произвольные пользовательские фрагменты
 
-Status: **🟦 IN PROGRESS — 0,0% (`0/5`)**.
+Status: **🟦 IN PROGRESS — 100% (`5/5`)**.
 
-Нынешний narrow two-project split — полезная groundwork, но не выполняет ни один target AC целиком.
+Generalized composer принимает ordered plan из `N >= 1` фрагментов в пределах batch maximum. Browser и API отклоняют malformed, reversed, overlapping, out-of-order и over-limit планы; каждый принятый фрагмент становится отдельной job с immutable clip/output-folder snapshot и проходит существующий one-job/one-Google-Docs-output pipeline.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
-| `PS-01` | Пользователь задаёт число фрагментов. | ❌ |
-| `PS-02` | Поддерживается произвольное число `N >= 1`, а не только две части. | ❌ |
-| `PS-03` | Для каждого фрагмента задаётся start time. | ❌ |
-| `PS-04` | Для каждого фрагмента задаётся end time либо явный `Конец`. | ❌ |
-| `PS-05` | Для каждого валидного фрагмента создаётся отдельный transcript document. | ❌ |
+| `PS-01` | Пользователь задаёт число фрагментов. | ✅ |
+| `PS-02` | Поддерживается произвольное число `N >= 1`, а не только две части. | ✅ |
+| `PS-03` | Для каждого фрагмента задаётся start time. | ✅ |
+| `PS-04` | Для каждого фрагмента задаётся end time либо явный `Конец`. | ✅ |
+| `PS-05` | Для каждого валидного фрагмента создаётся отдельный transcript document. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`.
 
 ### Эпик `PWA-BATCH-01` — transcription options, progress и output
 
@@ -280,7 +280,7 @@ Status: **🟦 IN PROGRESS — 77,8% (`14/18`)**.
 
 Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
 
-## 6. Future scope, не включённый в `73/109`
+## 6. Future scope, не включённый в denominator `109`
 
 ### Эпик `PWA-AUTH-HARDENING-02`
 
