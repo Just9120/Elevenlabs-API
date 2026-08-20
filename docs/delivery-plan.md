@@ -22,19 +22,19 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-20T13:35:31Z
+- Updated (UTC): 2026-08-20T13:37:17Z
 - Session mode: FOCUSED_TASK после RECOVERY stale checkpoint завершённого `SECURITY-DEPENDENCY-REMEDIATION-01`
 - Base branch: `main`
 - Base SHA: `50dff6f7401a08393137d5bd5e28162bd8df1133`
 - Working branch: `codex/pwa-arbitrary-segments-01`
-- Last verified revision: `cb7f69a00e5f519c9651b74f2cfe2f938d6e6a9e`
-- Working tree: новый focused regression test для per-row/total segment limits и этот checkpoint готовы к commit; unrelated changes отсутствуют
-- Completed since base: Goal/checkpoint commit `81a34de`; API arbitrary-N validation commit `c78acb5`; generalized PWA composer/UI/readiness commit `cb7f69a`; browser/API validation, immutable job mapping и existing per-job output pipeline подтверждены code/tests
-- Current step: final pre-push validation и GitHub delivery
-- Next exact action: зафиксировать batch-limit regression test, push working branch и создать один draft PR в `main`
+- Last verified revision: `d852674149c7bd32f4569d694f50d5a6ea3044ff`
+- Working tree: только этот PR/CI checkpoint; unrelated changes отсутствуют
+- Completed since base: Goal/checkpoint commit `81a34de`; API validation `c78acb5`; generalized PWA composer/UI/readiness `cb7f69a`; batch-limit regression `d852674`; branch pushed и draft PR #215 создан
+- Current step: exact-head required CI
+- Next exact action: зафиксировать и push этот checkpoint, дождаться terminal state checks PR #215 и разобрать failures/skips
 - Validation and Evidence: backend `py_compile` и domain smoke ✅; repository lightweight checks ✅; Studio TypeScript/ESLint ✅; full Studio Vitest `39 files, 504/504` ✅ плюс focused updated model suite `9/9` ✅; production PWA build ✅; `git diff --check` ✅; service-backed pytest dependency bootstrap локально не завершился и остаётся exact-head CI gate; `origin/main` не diverged (`50dff6f`); product readiness `83/109`
-- Pull Request: отсутствует
-- CI/checks: для working branch ещё не запускались
+- Pull Request: #215 — `https://github.com/Just9120/Elevenlabs-API/pull/215`, draft, base `main`, initial head `d852674`
+- CI/checks: runs `32375294506` (repository CI) и `32375294499` (Studio PWA CI) запущены; `checks`, `studio`, `browser-e2e` IN_PROGRESS
 - Deployment/environment: baseline production revision `50dff6f` подтверждена; новая Goal не deploy-илась
 - Blockers: нет на локальной стадии
 - Unverified assumptions: existing one-job/one-output processing полностью покрывает arbitrary `N`; schema migration не требуется; эти assumptions должны быть подтверждены code/tests
