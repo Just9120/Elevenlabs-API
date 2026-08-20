@@ -28,13 +28,13 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Текущее independently verified working state: `codex/pwa-ingest-metadata-polish-01` от `main@ebf02da1636d9362131a1b44161cda1c68f06080`:
+Текущее independently verified working state: `codex/pwa-ingest-metadata-polish-01@ccd3f66ced833a2332bdc91708e5f4f07fcfdcbc` от `main@ebf02da1636d9362131a1b44161cda1c68f06080`:
 
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **75,9% (`22/29`)** | `COLAB-BATCH 17/23` + `COLAB-REALTIME 5/6` |
-| Studio PWA | **76,3% (`61/80`)** | сумма девяти PWA-эпиков ниже |
-| Весь проект | **76,1% (`83/109`)** | все выполненные AC двух продуктов / все AC текущего scope |
+| Studio PWA | **78,8% (`63/80`)** | сумма девяти PWA-эпиков ниже |
+| Весь проект | **78,0% (`85/109`)** | все выполненные AC двух продуктов / все AC текущего scope |
 
 ## 3. Общие product rules
 
@@ -109,7 +109,7 @@ Owner LIVE evidence подтверждает работоспособность 
 
 ### Эпик `PWA-CORE-01` — application shell, auth и integrations
 
-Status: **🟦 IN PROGRESS — 84,6% (`11/13`)**.
+Status: **🟦 IN PROGRESS — 92,3% (`12/13`)**.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -123,22 +123,24 @@ Status: **🟦 IN PROGRESS — 84,6% (`11/13`)**.
 | `PC-08` | Local uploads хранятся в Cloudflare R2 через S3-compatible boundary. | ✅ |
 | `PC-09` | В Settings выбирается retention period local uploads. | ✅ |
 | `PC-10` | После expiry object удаляется из R2 идемпотентным cleanup. | ✅ |
-| `PC-11` | После expiry local source исчезает из active web UI. | ❌ |
+| `PC-11` | После expiry local source исчезает из active web UI. | ✅ |
 | `PC-12` | Доступны system, light и dark themes. | ✅ |
 | `PC-13` | Пользователь выбирает accent/interface color. | ❌ |
 
-Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
+Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ◐ | DEPLOY ◐ | LIVE ◐`.
 
 Expired source metadata может сохраняться для history/audit, но current owner instruction требует скрывать expired local files из active intake UI. Это заменяет старое UI-допущение о видимости недоступной metadata.
 
+Verified implementation: active project source collection исключает local rows при `expires_at <= now` либо durable status `expired`, не удаляя `Source`, job relations или history evidence. Branch-local API integration test создан; его DB execution ожидает exact-head CI.
+
 ### Эпик `PWA-INGEST-01` — target и source selection, multi-transcription
 
-Status: **🟦 IN PROGRESS — 63,6% (`7/11`)**.
+Status: **🟦 IN PROGRESS — 72,7% (`8/11`)**.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
 | `PI-01` | Выбирается target Google Drive folder. | ✅ |
-| `PI-02` | Target folder можно добавить в Favorites и выбрать повторно. | ❌ |
+| `PI-02` | Target folder можно добавить в Favorites и выбрать повторно. | ✅ |
 | `PI-03` | С компьютера выбирается один файл. | ✅ |
 | `PI-04` | С компьютера выбираются несколько файлов. | ✅ |
 | `PI-05` | С компьютера выбирается целая папка с файлами. | ❌ |
@@ -149,7 +151,9 @@ Status: **🟦 IN PROGRESS — 63,6% (`7/11`)**.
 | `PI-10` | Один batch принимает одну target folder и source folder. | ❌ |
 | `PI-11` | Для каждой composer row можно независимо выбрать source и target folder. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
+Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ◐ | DEPLOY ◐ | LIVE ◐`.
+
+Verified implementation: Favorites хранятся owner-scoped в PostgreSQL, создаются только после server-side Google Drive verification, повторно проверяются перед назначением composer row и удаляются owner-scoped. Full frontend suite подтверждает save/revalidate/reuse/delete flow; backend DB integration ожидает exact-head CI.
 
 ### Эпик `PWA-SEGMENTS-01` — произвольные пользовательские фрагменты
 
