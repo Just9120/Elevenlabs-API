@@ -14,25 +14,25 @@
   4. Existing latest-wins, timeout, owner/project validation и browser-safe DTO filtering не регрессируют.
   5. Relevant local tests, full validation, exact-head CI, merge, applicable DEPLOY и bounded LIVE canary успешны.
 - **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
-- **Current Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`.
+- **Current Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
 - **Known blockers/dependencies:** approved post-deploy metadata writer отсутствует; финальный LIVE canary требует доступной production session и reviewed small source; provider/Google side effect допускается только для одного bounded canary после green deployment.
 - **Stop condition:** все Goal AC и required Evidence подтверждены либо flow достиг `BLOCKED` / `PENDING_EXTERNAL_GATE`; затем остановиться и не переходить к следующей Goal без explicit authorization.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-20T17:46:10Z
+- Updated (UTC): 2026-08-20T17:49:49Z
 - Session mode: FOCUSED_TASK после reconciliation завершённой Goal `PWA-ARBITRARY-SEGMENTS-01`
 - Base branch: `main`
 - Base SHA: `919e6137ed0e806db168a43d292ab7874293549e`
 - Working branch: `codex/pwa-job-state-consistency-01`
-- Last verified revision: `4c0e1ce46c76f8f5c31b700672ce03b35597d8c1`
-- Working tree: clean до PR checkpoint update; unrelated changes отсутствуют
+- Last verified revision: `0ef94842c01342e6067adb7d7e9d7b3083213230`
+- Working tree: clean до terminal CI Evidence update; unrelated changes отсутствуют
 - Completed since base: canonical `isTranscriptionLanguageMode` shared между composer и job DTO; `TranscriptionJob.language_mode` сужен до canonical enum; list/detail/summary regressions покрывают все три режима и invalid fail-closed case; completed English job UI regression подтверждает terminal `100%`, safe output и отсутствие ложных ошибок
-- Current step: PR #216 создан; required checks выполняются
-- Next exact action: commit/push PR checkpoint и дождаться terminal state всех exact-head required checks
+- Current step: exact-head required checks green; фиксируется terminal CI Evidence
+- Next exact action: commit/push terminal CI Evidence, дождаться final exact-head checks, перевести PR из draft и merge при сохранении gates
 - Validation and Evidence: focused Vitest `5 files, 239/239` ✅; full Studio Vitest `39 files, 507/507` ✅; TypeScript build ✅; full ESLint ✅; production Vite/PWA build ✅; repository lightweight checks ✅; `git diff --check` ✅; `origin/main...HEAD = 0 behind / 2 ahead`
-- Pull Request: draft #216 — `https://github.com/Just9120/Elevenlabs-API/pull/216`; base `main@919e613`, head `4c0e1ce`; GitHub reports `MERGEABLE`
-- CI/checks: initial head runs `32399437463` (`checks` IN_PROGRESS) и `32399437676` (`studio` IN_PROGRESS, `browser-e2e` QUEUED); exact-head Evidence будет переснято после checkpoint push
+- Pull Request: draft #216 — `https://github.com/Just9120/Elevenlabs-API/pull/216`; base `main@919e613`, head `0ef9484`; GitHub reports `MERGEABLE`, reviews отсутствуют
+- CI/checks: exact-head `0ef9484` runs `32399488869` (`checks` SUCCESS, 2m28s) и `32399489158` (`studio` SUCCESS, 2m13s; `browser-e2e` SUCCESS, 1m36s); failures отсутствуют, only conditional failure-artifact upload skipped as expected
 - Deployment/environment: production baseline exact revision `919e6137ed0e806db168a43d292ab7874293549e`; prior Goal component CD success; current Goal не deploy-илась
 - Blockers: нет на локальной стадии
 - Unverified assumptions: production deployment устранит observed runtime symptom; требуется exact-revision LIVE canary
