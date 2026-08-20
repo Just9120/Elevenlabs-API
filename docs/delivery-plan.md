@@ -22,17 +22,17 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-20T13:02:51Z
+- Updated (UTC): 2026-08-20T13:18:51Z
 - Session mode: FOCUSED_TASK после RECOVERY stale checkpoint завершённого `SECURITY-DEPENDENCY-REMEDIATION-01`
 - Base branch: `main`
 - Base SHA: `50dff6f7401a08393137d5bd5e28162bd8df1133`
 - Working branch: `codex/pwa-arbitrary-segments-01`
-- Last verified revision: `50dff6f7401a08393137d5bd5e28162bd8df1133`
-- Working tree: CLEAN до текущего Goal/checkpoint update
-- Completed since base: recovery подтвердил clean synchronized `main@50dff6f`, merged PR #214, exact-main CI/dependency audits, web/API/worker deployment и public health; предыдущая Goal подготовлена к переносу в archive
-- Current step: проектирование generalized composer/API segment validation поверх существующих immutable `media_clip_*` job fields
-- Next exact action: зафиксировать recovery/Goal contract commit, затем заменить frontend two-part state на N-segment plan и обобщить API validation с focused regression tests
-- Validation and Evidence: baseline exact-main repository CI `32351540609` ✅; Studio/browser CI `32351540560` ✅; Dependency audit `32351941880` ✅; component CD `32351540606` ✅; worker deploy/status `32352024954`/`32352126674` ✅; public web/API health `200`; product readiness baseline `78/109`
+- Last verified revision: `81a34de82ebf1a22e38d68b9cd99b46112bef396`
+- Working tree: backend generalized segment validation завершена; frontend composer/UI refactor остаётся локальным незавершённым delta
+- Completed since base: Goal/checkpoint contract зафиксирован commit `81a34de`; API теперь принимает ordered non-overlapping arbitrary-N fragment plans одного source без прежнего ограничения «ровно две части/две папки»; integration/pure regression coverage подготовлено
+- Current step: замена frontend two-part state и UI на N-segment plan
+- Next exact action: завершить UI редактора фрагментов, preflight/reprocess mapping и Studio component tests
+- Validation and Evidence: backend `py_compile` ✅; direct valid arbitrary-N domain smoke ✅; repository lightweight checks ✅; `git diff --check` ✅; service-backed pytest отложен до доступного test environment/CI; product readiness остаётся `78/109`
 - Pull Request: отсутствует
 - CI/checks: для working branch ещё не запускались
 - Deployment/environment: baseline production revision `50dff6f` подтверждена; новая Goal не deploy-илась

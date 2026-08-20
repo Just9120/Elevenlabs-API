@@ -41,3 +41,44 @@ def test_manual_clip_range_rejects_ambiguous_or_invalid_values(start, end):
 
     with pytest.raises(MediaClipRangeError):
         normalize_media_clip_range(start, end)
+
+
+def test_ordered_media_clip_plan_accepts_arbitrary_non_overlapping_fragments():
+    from studio_api.media_clip import (
+        MediaClipRange,
+        validate_ordered_media_clip_plan,
+    )
+
+    validate_ordered_media_clip_plan(
+        (
+            MediaClipRange(start_seconds=0, end_seconds=610),
+            MediaClipRange(start_seconds=610, end_seconds=915),
+            MediaClipRange(start_seconds=920, end_seconds=None),
+        )
+    )
+    validate_ordered_media_clip_plan(
+        (MediaClipRange(start_seconds=30, end_seconds=45),)
+    )
+    validate_ordered_media_clip_plan((MediaClipRange(),))
+
+
+@pytest.mark.parametrize(
+    "clips",
+    [
+        ((None, None), (0, 10)),
+        ((0, 10), (9, 20)),
+        ((10, 20), (0, 9)),
+        ((0, None), (10, 20)),
+    ],
+)
+def test_ordered_media_clip_plan_rejects_mixed_overlapping_or_open_middle(clips):
+    from studio_api.media_clip import (
+        MediaClipPlanError,
+        MediaClipRange,
+        validate_ordered_media_clip_plan,
+    )
+
+    with pytest.raises(MediaClipPlanError):
+        validate_ordered_media_clip_plan(
+            tuple(MediaClipRange(start_seconds=start, end_seconds=end) for start, end in clips)
+        )

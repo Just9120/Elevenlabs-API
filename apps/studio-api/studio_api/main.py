@@ -34,7 +34,7 @@ from .job_retry_recovery import compute_explicit_retry_readiness, queue_retry, r
 from .google_docs_output import OUTPUT_RECONCILIATION_APP_PROPERTY
 from .google_drive import GoogleDriveReconciliationError, list_reconciliation_candidates
 from .job_output_folder_selection import VerifiedOutputFolderSelection, verify_output_folder_selection
-from .media_clip import MediaClipRangeError, normalize_media_clip_range
+from .media_clip import MediaClipPlanError, MediaClipRangeError, normalize_media_clip_range, validate_ordered_media_clip_plan
 from .batch_preflight import build_batch_preflight_payload
 from .source_deletion import SourceDeletionReason, is_source_expired, request_source_deletion
 from .transcript_catalog import (
@@ -821,32 +821,18 @@ def _normalize_batch_creation_input(data: TranscriptionJobBatchCreateIn):
             hash_item["media_clip_start_seconds"]=clip.start_seconds
             hash_item["media_clip_end_seconds"]=clip.end_seconds
         hash_items.append(hash_item)
-    _validate_manual_split_groups(source_ids,folder_ids,media_clips)
+    _validate_manual_segment_groups(source_ids,media_clips)
     return language, options_json, explicit_provider_credential_id, duplicate_pair_found, source_ids, folder_ids, titles, reprocess_existing, media_clips, hash_items
 
-def _validate_manual_split_groups(source_ids,folder_ids,media_clips):
+def _validate_manual_segment_groups(source_ids,media_clips):
     grouped={}
-    for sid,fid,clip in zip(source_ids,folder_ids,media_clips,strict=True):
-        grouped.setdefault(sid,[]).append((fid,clip))
+    for sid,clip in zip(source_ids,media_clips,strict=True):
+        grouped.setdefault(sid,[]).append(clip)
     for entries in grouped.values():
-        clipped=[entry for entry in entries if not entry[1].is_full_source]
-        if not clipped:
-            continue
-        valid_count=len(entries)==len(clipped)==2
-        different_folders=len({fid for fid,_clip in clipped})==2
-        if not (valid_count and different_folders):
-            raise HTTPException(422,"Разделение требует две смежные части одного файла и две разные папки")
-        ordered=sorted(clipped,key=lambda entry: entry[1].start_seconds or 0)
-        first=ordered[0][1]; second=ordered[1][1]
-        boundary=first.end_seconds
-        complementary=(
-            (first.start_seconds or 0)==0
-            and boundary is not None
-            and second.start_seconds==boundary
-            and second.end_seconds is None
-        )
-        if not complementary:
-            raise HTTPException(422,"Разделение требует две смежные части одного файла и две разные папки")
+        try:
+            validate_ordered_media_clip_plan(entries)
+        except MediaClipPlanError as exc:
+            raise HTTPException(422,"Некорректный план фрагментов файла") from exc
 
 def _validate_new_batch_targets(db: Session, user: User, project: Project, *, explicit_provider_credential_id, duplicate_pair_found, source_ids, folder_ids):
     provider_credential_id=_resolve_active_elevenlabs_credential_id(db, user, explicit_provider_credential_id)
