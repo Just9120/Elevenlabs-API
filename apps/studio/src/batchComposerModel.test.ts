@@ -236,6 +236,44 @@ describe("batch composer model", () => {
     ).toContain("только последний");
   });
 
+  it("enforces both per-row and total batch segment limits", () => {
+    const row = newComposerRow();
+    expect(() => resizeComposerSegments(row.segments, 0)).toThrow(
+      "Invalid segment count",
+    );
+    expect(() => resizeComposerSegments(row.segments, 51)).toThrow(
+      "Invalid segment count",
+    );
+
+    const rowWithSegments = (id: string, count: number): ComposerRow => ({
+      ...newComposerRow(),
+      id,
+      source_id: `source-${id}`,
+      output_folder: {
+        folder_id: "shared-folder",
+        name: "Shared folder",
+        web_view_url: null,
+      },
+      segments: resizeComposerSegments(newComposerRow().segments, count).map(
+        (segment, index) => ({
+          ...segment,
+          start_boundary: `${index}:00`,
+          end_boundary: index === count - 1 ? "" : `${index + 1}:00`,
+          ends_at_source_end: index === count - 1,
+        }),
+      ),
+    });
+
+    expect(() =>
+      buildBatchCreateRequest(
+        [rowWithSegments("a", 25), rowWithSegments("b", 26)],
+        "credential-1",
+        "ru",
+        false,
+      ),
+    ).toThrow("Batch item limit exceeded");
+  });
+
   it("prefixes the opaque idempotency identifier", () => {
     vi.spyOn(crypto, "randomUUID").mockReturnValue(
       "00000000-0000-4000-8000-000000000002",
