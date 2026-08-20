@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse, RedirectResponse, Response as FastAPIResponse
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, StrictBool, StrictInt, field_validator, model_validator
-from sqlalchemy import text, func, select
+from sqlalchemy import and_, text, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from alembic.config import Config
@@ -17,6 +17,7 @@ from .models import *
 from .rate_limit import RateLimiter
 from .security import *
 from .source_storage import get_source_storage, normalize_source_display_filename
+from .source_creation import parse_authoritative_source_created_at
 from .source_policy import SOURCE_RETENTION_TTL_OPTIONS_SECONDS, UploadedObjectMetadataIssue, browser_source_upload_policy, is_supported_source_mime_type, normalize_source_mime_type, uploaded_object_metadata_issue, validate_source_size
 from .google_connection_access import GoogleConnectionAccessError, GoogleConnectionAccessReason, active_google_connection_for_user, google_maintenance_token_aad, google_token_aad, refresh_user_google_drive_access_token, require_drive_file_scope, require_picker_browser_scope_boundary
 from .google_scopes import has_drive_file_scope, has_maintenance_server_scope_boundary, has_picker_browser_scope_boundary
@@ -312,7 +313,13 @@ def project_payload(p: Project):
     return {"id": p.id, "title": p.title, "description": p.description, "output_drive_folder_id": p.output_drive_folder_id, "output_drive_folder_url": p.output_drive_folder_url, "output_drive_folder_name": p.output_drive_folder_name, "created_at": p.created_at.isoformat(), "updated_at": p.updated_at.isoformat(), "archived_at": p.archived_at.isoformat() if p.archived_at else None}
 
 def source_payload(s: Source):
-    return {"id": s.id, "project_id": s.project_id, "source_type": s.source_type.value, "original_filename": s.original_filename, "mime_type": s.mime_type, "size_bytes": s.size_bytes, "drive_file_url": s.drive_file_url, "upload_status": s.upload_status.value, "uploaded_at": s.uploaded_at.isoformat() if s.uploaded_at else None, "expires_at": s.expires_at.isoformat() if s.expires_at else None, "deleted_at": s.deleted_at.isoformat() if s.deleted_at else None, "delete_reason": s.delete_reason, "created_at": s.created_at.isoformat(), "updated_at": s.updated_at.isoformat()}
+    return {"id": s.id, "project_id": s.project_id, "source_type": s.source_type.value, "original_filename": s.original_filename, "mime_type": s.mime_type, "size_bytes": s.size_bytes, "drive_file_url": s.drive_file_url, "upload_status": s.upload_status.value, "uploaded_at": s.uploaded_at.isoformat() if s.uploaded_at else None, "source_created_at": s.source_created_at.isoformat() if s.source_created_at else None, "source_created_at_provenance": s.source_created_at_provenance, "expires_at": s.expires_at.isoformat() if s.expires_at else None, "deleted_at": s.deleted_at.isoformat() if s.deleted_at else None, "delete_reason": s.delete_reason, "created_at": s.created_at.isoformat(), "updated_at": s.updated_at.isoformat()}
+
+def output_folder_favorite_payload(row: OutputFolderFavorite):
+    return {"id": row.id, "drive_folder_id": row.drive_folder_id, "name": row.name, "web_view_url": row.web_view_url, "created_at": row.created_at.isoformat(), "updated_at": row.updated_at.isoformat()}
+
+def verified_output_folder_url(folder_id: str, web_view_url: str | None) -> str:
+    return web_view_url or f"https://drive.google.com/drive/folders/{folder_id}"
 
 def clean_project_title(title: str) -> str:
     value=title.strip()
@@ -478,7 +485,18 @@ def owned_source_or_404(db: Session, user: User, source_id: str) -> Source:
 @app.get("/api/projects/{project_id}/sources")
 def list_sources(project_id: str, pair=Depends(current_session), db: Session=Depends(get_db)):
     _,user=pair; p=owned_project_or_404(db,user,project_id)
-    rows=db.query(Source).filter(Source.project_id==p.id, Source.deleted_at.is_(None)).order_by(Source.created_at.desc()).all()
+    now=utcnow()
+    rows=db.query(Source).filter(
+        Source.project_id==p.id,
+        Source.deleted_at.is_(None),
+        or_(
+            Source.source_type!=SourceType.local_upload,
+            and_(
+                Source.upload_status!=SourceUploadStatus.expired,
+                or_(Source.expires_at.is_(None), Source.expires_at>now),
+            ),
+        ),
+    ).order_by(Source.created_at.desc()).all()
     return {"sources":[source_payload(r) for r in rows]}
 
 def _browser_capability_cache_headers(response: Response):
@@ -581,7 +599,10 @@ def _validated_google_drive_source_metadata(db: Session, user: User, drive_id: s
     return meta,mime
 
 def _new_google_drive_source(project_id: str, meta, mime: str, uploaded_at: datetime) -> Source:
-    return Source(project_id=project_id, source_type=SourceType.google_drive, original_filename=normalize_source_display_filename(meta.name or f"Google Drive source {meta.id}"), mime_type=mime, size_bytes=meta.size_bytes, drive_file_id=clean_drive_id(meta.id, "ID файла Google Drive"), drive_file_url=clean_drive_url(meta.web_view_link), upload_status=SourceUploadStatus.uploaded, uploaded_at=uploaded_at, storage_cleanup_status=SourceStorageCleanupStatus.not_applicable)
+    source_created_at=parse_authoritative_source_created_at(meta.created_time)
+    if source_created_at is None:
+        raise HTTPException(502, "Google Drive creation time is unavailable")
+    return Source(project_id=project_id, source_type=SourceType.google_drive, original_filename=normalize_source_display_filename(meta.name or f"Google Drive source {meta.id}"), mime_type=mime, size_bytes=meta.size_bytes, drive_file_id=clean_drive_id(meta.id, "ID файла Google Drive"), drive_file_url=clean_drive_url(meta.web_view_link), upload_status=SourceUploadStatus.uploaded, uploaded_at=uploaded_at, source_created_at=source_created_at, source_created_at_provenance="google_drive_created_time", storage_cleanup_status=SourceStorageCleanupStatus.not_applicable)
 
 @app.post("/api/projects/{project_id}/sources/google-picker")
 def create_google_picker_sources(project_id: str, data: GooglePickerSourceSelectionIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
@@ -617,6 +638,44 @@ def verify_google_picker_output_folder(project_id: str, data: GooglePickerOutput
     access_token=refreshed_google_drive_access_token(db, user)
     verified=verify_output_folder_selection(access_token, data.folder_id)
     return {"name": verified.name or "Папка Google Drive", "web_view_url": verified.web_view_url}
+
+@app.get("/api/output-folder-favorites")
+def list_output_folder_favorites(pair=Depends(current_session), db: Session=Depends(get_db)):
+    _,user=pair
+    rows=db.query(OutputFolderFavorite).filter(OutputFolderFavorite.owner_user_id==user.id).order_by(OutputFolderFavorite.updated_at.desc(), OutputFolderFavorite.id.asc()).all()
+    return {"favorites":[output_folder_favorite_payload(row) for row in rows]}
+
+@app.post("/api/output-folder-favorites/google-picker")
+def save_output_folder_favorite(data: GooglePickerOutputFolderIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("output-folder-favorite:save:"+user.id, 120, 3600)
+    access_token=refreshed_google_drive_access_token(db, user)
+    verified=verify_output_folder_selection(access_token, data.folder_id)
+    favorite_url=verified_output_folder_url(verified.id, verified.web_view_url)
+    row=db.query(OutputFolderFavorite).filter(OutputFolderFavorite.owner_user_id==user.id, OutputFolderFavorite.drive_folder_id==verified.id).one_or_none()
+    now=utcnow()
+    if row is None:
+        row=OutputFolderFavorite(owner_user_id=user.id, drive_folder_id=verified.id, name=verified.name or "Папка Google Drive", web_view_url=favorite_url, created_at=now, updated_at=now)
+        db.add(row)
+        event_type="output_folder_favorite.created"
+    else:
+        row.name=verified.name or "Папка Google Drive"
+        row.web_view_url=favorite_url
+        row.updated_at=now
+        event_type="output_folder_favorite.refreshed"
+    audit(db,event_type,actor_user_id=user.id,subject_user_id=user.id)
+    db.commit(); db.refresh(row)
+    return output_folder_favorite_payload(row)
+
+@app.delete("/api/output-folder-favorites/{favorite_id}")
+def delete_output_folder_favorite(favorite_id: str, pair=Depends(require_csrf), db: Session=Depends(get_db), _=Depends(require_same_origin)):
+    _,user=pair; limiter.check("output-folder-favorite:delete:"+user.id, 120, 3600)
+    row=db.query(OutputFolderFavorite).filter(OutputFolderFavorite.id==favorite_id, OutputFolderFavorite.owner_user_id==user.id).one_or_none()
+    if row is None:
+        raise HTTPException(404, "Не найдено")
+    db.delete(row)
+    audit(db,"output_folder_favorite.deleted",actor_user_id=user.id,subject_user_id=user.id)
+    db.commit()
+    return {"ok": True}
 
 _IDEMPOTENCY_RE=re.compile(r"^[A-Za-z0-9_.-]{8,128}$")
 def _clean_idempotency_key(value: str|None) -> str:

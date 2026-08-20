@@ -148,6 +148,17 @@ class Project(Base):
     jobs: Mapped[list["TranscriptionJob"]]=relationship("TranscriptionJob", back_populates="project")
     __table_args__=(Index("ix_projects_owner_active_updated", "owner_user_id", "archived_at", "updated_at"),)
 
+class OutputFolderFavorite(Base):
+    __tablename__="output_folder_favorites"
+    id: Mapped[str]=mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_user_id: Mapped[str]=mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    drive_folder_id: Mapped[str]=mapped_column(String(256), nullable=False)
+    name: Mapped[str]=mapped_column(String(512), nullable=False)
+    web_view_url: Mapped[str]=mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now)
+    updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now, onupdate=now)
+    __table_args__=(UniqueConstraint("owner_user_id", "drive_folder_id", name="uq_output_folder_favorites_owner_folder"), Index("ix_output_folder_favorites_owner_updated", "owner_user_id", "updated_at"),)
+
 class Source(Base):
     __tablename__="sources"
     id: Mapped[str]=mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -162,6 +173,8 @@ class Source(Base):
     s3_object_key: Mapped[str|None]=mapped_column(Text)
     upload_status: Mapped[SourceUploadStatus]=mapped_column(Enum(SourceUploadStatus), default=SourceUploadStatus.pending, index=True)
     uploaded_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    source_created_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    source_created_at_provenance: Mapped[str|None]=mapped_column(String(40))
     expires_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True), index=True)
     deleted_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True), index=True)
     delete_reason: Mapped[str|None]=mapped_column(String(80))
@@ -178,7 +191,7 @@ class Source(Base):
     created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now)
     updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now, onupdate=now)
     project: Mapped[Project]=relationship("Project", back_populates="sources")
-    __table_args__=(Index("ix_sources_project_status", "project_id", "upload_status", "created_at"), Index("ix_sources_storage_cleanup_selection", "storage_cleanup_status", "storage_cleanup_not_before_at", "storage_cleanup_lease_expires_at"), CheckConstraint("storage_cleanup_attempt_count >= 0", name="ck_sources_storage_cleanup_attempt_count_nonnegative"), CheckConstraint("storage_cleanup_generation >= 0", name="ck_sources_storage_cleanup_generation_nonnegative"),)
+    __table_args__=(Index("ix_sources_project_status", "project_id", "upload_status", "created_at"), Index("ix_sources_storage_cleanup_selection", "storage_cleanup_status", "storage_cleanup_not_before_at", "storage_cleanup_lease_expires_at"), CheckConstraint("storage_cleanup_attempt_count >= 0", name="ck_sources_storage_cleanup_attempt_count_nonnegative"), CheckConstraint("storage_cleanup_generation >= 0", name="ck_sources_storage_cleanup_generation_nonnegative"), CheckConstraint("((source_created_at IS NULL AND source_created_at_provenance IS NULL) OR (source_created_at IS NOT NULL AND source_created_at_provenance IN ('google_drive_created_time', 'embedded_media_metadata')))", name="ck_sources_creation_authority"),)
 
 class TranscriptionJob(Base):
     __tablename__="transcription_jobs"

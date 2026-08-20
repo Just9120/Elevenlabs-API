@@ -1,15 +1,19 @@
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import subprocess
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
 from math import ceil, isfinite
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import BinaryIO, Callable, Iterator
+
+from .source_creation import parse_authoritative_source_created_at
 
 
 FFMPEG_VIDEO_EXTRACTION_TIMEOUT_SECONDS = 1800
@@ -54,6 +58,7 @@ class PreparedMediaInput:
     part_count: int = 1
     timeline_offset_seconds: float = 0.0
     duration_seconds: float | None = None
+    source_created_at: datetime | None = None
 
     def __repr__(self) -> str:
         return (
@@ -71,6 +76,7 @@ class PreparedMediaBatch:
     parts: tuple[PreparedMediaInput, ...] = field(repr=False)
     duration_seconds: float
     split_reason: str | None = None
+    source_created_at: datetime | None = None
 
     def __repr__(self) -> str:
         return (
@@ -96,14 +102,29 @@ def prepare_elevenlabs_media_input(
     max_output_bytes: int,
     runner: Callable[..., object] = subprocess.run,
     temporary_directory: str | None = None,
+    probe_source_creation_time: bool = False,
 ) -> Iterator[PreparedMediaInput]:
     if not requires_video_audio_extraction(mime_type):
-        yield PreparedMediaInput(
-            filename=original_filename,
-            mime_type=mime_type,
-            byte_count=byte_count,
-            stream=stream,
-        )
+        if not probe_source_creation_time:
+            yield PreparedMediaInput(
+                filename=original_filename,
+                mime_type=mime_type,
+                byte_count=byte_count,
+                stream=stream,
+            )
+            return
+        with TemporaryDirectory(prefix="studio-metadata-", dir=temporary_directory) as temp_dir:
+            input_path = Path(temp_dir) / f"source{_safe_input_suffix(original_filename)}"
+            _copy_input(stream, input_path)
+            source_created_at = _probe_source_creation_time(runner, input_path)
+            stream.seek(0)
+            yield PreparedMediaInput(
+                filename=original_filename,
+                mime_type=mime_type,
+                byte_count=byte_count,
+                stream=stream,
+                source_created_at=source_created_at,
+            )
         return
 
     if max_output_bytes <= 0:
@@ -118,6 +139,11 @@ def prepare_elevenlabs_media_input(
             input_path = root / f"source{_safe_input_suffix(original_filename)}"
             output_path = root / "prepared-audio.m4a"
             _copy_input(stream, input_path)
+            source_created_at = (
+                _probe_source_creation_time(runner, input_path)
+                if probe_source_creation_time
+                else None
+            )
             _run_ffmpeg(runner, input_path, output_path)
             prepared_size = _validated_output_size(output_path, max_output_bytes)
             prepared_name = f"{_safe_stem(original_filename)}.m4a"
@@ -135,6 +161,7 @@ def prepare_elevenlabs_media_input(
                 byte_count=prepared_size,
                 stream=prepared_stream,
                 audio_extracted=True,
+                source_created_at=source_created_at,
             )
         finally:
             prepared_stream.close()
@@ -152,6 +179,7 @@ def prepare_elevenlabs_media_parts(
     media_clip_end_seconds: int | None = None,
     runner: Callable[..., object] = subprocess.run,
     temporary_directory: str | None = None,
+    probe_source_creation_time: bool = False,
 ) -> Iterator[PreparedMediaBatch]:
     with prepare_elevenlabs_media_input(
         stream=stream,
@@ -161,6 +189,7 @@ def prepare_elevenlabs_media_parts(
         max_output_bytes=max_output_bytes,
         runner=runner,
         temporary_directory=temporary_directory,
+        probe_source_creation_time=probe_source_creation_time,
     ) as prepared:
         with TemporaryDirectory(
             prefix="studio-parts-",
@@ -220,6 +249,7 @@ def prepare_elevenlabs_media_parts(
                             ),
                         ),
                         duration_seconds=duration,
+                        source_created_at=prepared.source_created_at,
                     )
                 else:
                     part_specs = _create_split_parts(
@@ -255,6 +285,7 @@ def prepare_elevenlabs_media_parts(
                         parts=tuple(parts),
                         duration_seconds=duration,
                         split_reason=split_reason,
+                        source_created_at=prepared.source_created_at,
                     )
             except MediaPreparationError:
                 raise
@@ -438,6 +469,55 @@ def _probe_duration_seconds(
             MediaPreparationReason.media_duration_unavailable,
         )
     return duration
+
+
+def _probe_source_creation_time(
+    runner: Callable[..., object],
+    source_path: Path,
+) -> datetime | None:
+    command = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-show_entries",
+        "format_tags=creation_time:stream_tags=creation_time",
+        "-of",
+        "json",
+        str(source_path),
+    ]
+    try:
+        completed = runner(
+            command,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=FFPROBE_TIMEOUT_SECONDS,
+        )
+        payload = json.loads(str(getattr(completed, "stdout", "") or ""))
+    except FileNotFoundError as exc:
+        raise MediaPreparationError(MediaPreparationReason.ffmpeg_unavailable) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise MediaPreparationError(MediaPreparationReason.media_preparation_timeout) from exc
+    except (subprocess.CalledProcessError, OSError):
+        return None
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+    candidates: list[object] = []
+    if isinstance(payload, dict):
+        format_payload = payload.get("format")
+        if isinstance(format_payload, dict) and isinstance(format_payload.get("tags"), dict):
+            candidates.append(format_payload["tags"].get("creation_time"))
+        streams = payload.get("streams")
+        if isinstance(streams, list):
+            for stream_payload in streams:
+                if isinstance(stream_payload, dict) and isinstance(stream_payload.get("tags"), dict):
+                    candidates.append(stream_payload["tags"].get("creation_time"))
+    for candidate in candidates:
+        parsed = parse_authoritative_source_created_at(candidate if isinstance(candidate, str) else None)
+        if parsed is not None:
+            return parsed
+    return None
 
 
 def _split_reason(size_bytes: int, duration_seconds: float) -> str | None:

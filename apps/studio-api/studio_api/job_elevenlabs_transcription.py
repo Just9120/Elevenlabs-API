@@ -6,6 +6,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Callable, Iterator
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .elevenlabs_transcription import (
@@ -35,7 +36,7 @@ from .media_preparation import (
     PreparedMediaInput,
     prepare_elevenlabs_media_parts,
 )
-from .models import CredentialStatus, JobStatus, Project, ProviderCredential, ProviderCredentialVersion, Source, TranscriptionJob
+from .models import CredentialStatus, JobStatus, Project, ProviderCredential, ProviderCredentialVersion, Source, TranscriptionJob, TranscriptionJobSource
 from .security import utcnow
 from .provider_part_checkpoints import (
     ProviderPartCheckpointError,
@@ -179,8 +180,27 @@ def transcribe_processing_job_source_with_elevenlabs(
                         max_output_bytes=settings.source_max_upload_bytes,
                         media_clip_start_seconds=media_clip.media_clip_start_seconds,
                         media_clip_end_seconds=media_clip.media_clip_end_seconds,
+                        **(
+                            {"probe_source_creation_time": True}
+                            if source.source_type == "local_upload"
+                            and source.source_created_at is None
+                            else {}
+                        ),
                     )
                     prepared_batch = _enter_prepared_media_batch(prepared_cm)
+                    if (
+                        source.source_type == "local_upload"
+                        and source.source_created_at is None
+                        and prepared_batch.source_created_at is not None
+                    ):
+                        _persist_embedded_source_creation_time(
+                            db,
+                            job_id=job_id,
+                            job_source_id=job_source_id,
+                            source_id=source.identity.source_id,
+                            created_at=prepared_batch.source_created_at,
+                            now=clock(),
+                        )
                 except MediaPreparationError as exc:
                     mapped = _map_media_preparation_reason(exc.reason)
                     _best_effort_classify(db, job_id, job_source_id, lease_owner_id, lease_generation, mapped.value, clock)
@@ -379,6 +399,44 @@ def _call_transport(transport, **kwargs):
     return transport(**kwargs)
 
 
+def _persist_embedded_source_creation_time(
+    db: Session,
+    *,
+    job_id: str,
+    job_source_id: str,
+    source_id: str,
+    created_at: datetime,
+    now: datetime,
+) -> None:
+    relation = db.execute(
+        select(TranscriptionJobSource)
+        .where(
+            TranscriptionJobSource.id == job_source_id,
+            TranscriptionJobSource.job_id == job_id,
+            TranscriptionJobSource.source_id == source_id,
+        )
+        .with_for_update()
+    ).scalar_one_or_none()
+    source = db.execute(
+        select(Source).where(Source.id == source_id).with_for_update()
+    ).scalar_one_or_none()
+    if relation is None or source is None:
+        raise JobElevenLabsTranscriptionError(
+            JobElevenLabsTranscriptionReason.lifecycle_changed_before_provider_call
+        )
+    if source.source_created_at is None:
+        source.source_created_at = created_at
+        source.source_created_at_provenance = "embedded_media_metadata"
+        source.updated_at = now
+        try:
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            raise JobElevenLabsTranscriptionError(
+                JobElevenLabsTranscriptionReason.lifecycle_changed_before_provider_call
+            ) from exc
+
+
 def _coerce_prepared_media_batch(value) -> PreparedMediaBatch:
     if isinstance(value, PreparedMediaBatch) and value.parts:
         return value
@@ -386,6 +444,7 @@ def _coerce_prepared_media_batch(value) -> PreparedMediaBatch:
         return PreparedMediaBatch(
             parts=(value,),
             duration_seconds=float(value.duration_seconds or 0.0),
+            source_created_at=value.source_created_at,
         )
     raise MediaPreparationError(MediaPreparationReason.media_preparation_failed)
 
