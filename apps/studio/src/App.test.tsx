@@ -4575,10 +4575,11 @@ describe("Studio PWA", () => {
     await chooseResultFolder(2);
     expect(readiness).toHaveTextContent("Готово: 0 из 2");
     expect(readiness).toHaveTextContent(
-      "Строка 1: такая пара файла и папки уже добавлена",
+      "Строка 1: такой источник, папка и диапазон уже добавлены",
     );
     expect(
-      screen.getAllByText("Такая пара файла и папки уже добавлена.").length,
+      screen.getAllByText("Такой источник, папка и диапазон уже добавлены.")
+        .length,
     ).toBeGreaterThan(0);
     expect(
       screen.getByRole("button", { name: "Проверить задачи (2)" }),
@@ -4645,7 +4646,7 @@ describe("Studio PWA", () => {
     ).toBe(false);
 
     await userEvent.type(
-      screen.getByLabelText("Название задачи для строки 1"),
+      screen.getByLabelText("Название фрагмента 1 строки 1"),
       " Уточнение",
     );
     await waitFor(() =>
@@ -4671,50 +4672,55 @@ describe("Studio PWA", () => {
     expect(document.documentElement.dataset.theme).toBe("light");
   });
 
-  it("builds two project jobs from one source and a manual boundary", async () => {
+  it("builds arbitrary ordered segment jobs from one source", async () => {
     renderApp();
     await openProjectsPage();
     await chooseExistingSource(1, "Лекция 1");
-    await chooseResultFolder(1, "folder-project-one");
+    await chooseResultFolder(1, "folder-segments");
 
-    await userEvent.click(
-      screen.getByLabelText(
-        "Разделить созвон на два проекта и создать два документа",
-      ),
-    );
+    const count = screen.getByLabelText("Количество фрагментов строки 1");
+    fireEvent.change(count, { target: { value: "3" } });
     expect(
-      screen.getByRole("button", { name: "Проверить задачи (2)" }),
+      screen.getByRole("button", { name: "Проверить задачи (3)" }),
     ).toBeDisabled();
     await userEvent.type(
-      screen.getByLabelText("Граница разделения строки 1"),
+      screen.getByLabelText("Конец фрагмента 1 строки 1"),
       "10:10",
     );
-    vi.spyOn(googlePicker, "openGooglePicker").mockResolvedValueOnce({
-      action: "picked",
-      docs: [{ id: "folder-project-two" }],
-    } as Awaited<ReturnType<typeof googlePicker.openGooglePicker>>);
-    await userEvent.click(
-      screen.getByRole("button", {
-        name: "Выбрать папку второй части для строки 1",
-      }),
+    await userEvent.type(
+      screen.getByLabelText("Начало фрагмента 2 строки 1"),
+      "10:10",
     );
     await userEvent.type(
-      screen.getByLabelText("Название задачи для строки 1"),
-      "Проект один",
+      screen.getByLabelText("Конец фрагмента 2 строки 1"),
+      "15:15",
     );
     await userEvent.type(
-      screen.getByLabelText("Название второй части строки 1"),
-      "Проект два",
+      screen.getByLabelText("Начало фрагмента 3 строки 1"),
+      "15:20",
+    );
+    await userEvent.type(
+      screen.getByLabelText("Название фрагмента 1 строки 1"),
+      "Часть один",
+    );
+    await userEvent.type(
+      screen.getByLabelText("Название фрагмента 2 строки 1"),
+      "Часть два",
+    );
+    await userEvent.type(
+      screen.getByLabelText("Название фрагмента 3 строки 1"),
+      "Часть три",
     );
 
     await userEvent.click(
-      screen.getByRole("button", { name: "Проверить задачи (2)" }),
+      screen.getByRole("button", { name: "Проверить задачи (3)" }),
     );
     const preview = await screen.findByLabelText(
       "Проверка перед созданием задач",
     );
     expect(preview).toHaveTextContent("Часть файла: Начало — 10:10");
-    expect(preview).toHaveTextContent("Часть файла: 10:10 — конец");
+    expect(preview).toHaveTextContent("Часть файла: 10:10 — 15:15");
+    expect(preview).toHaveTextContent("Часть файла: 15:20 — конец");
     const preflightCall = (
       fetch as unknown as ReturnType<typeof vi.fn>
     ).mock.calls.find(
@@ -4726,16 +4732,23 @@ describe("Studio PWA", () => {
     expect(body.items).toEqual([
       expect.objectContaining({
         source_id: "s1",
-        output_folder_id: "folder-project-one",
-        title: "Проект один",
+        output_folder_id: "folder-segments",
+        title: "Часть один",
         media_clip_start_seconds: 0,
         media_clip_end_seconds: 610,
       }),
       expect.objectContaining({
         source_id: "s1",
-        output_folder_id: "folder-project-two",
-        title: "Проект два",
+        output_folder_id: "folder-segments",
+        title: "Часть два",
         media_clip_start_seconds: 610,
+        media_clip_end_seconds: 915,
+      }),
+      expect.objectContaining({
+        source_id: "s1",
+        output_folder_id: "folder-segments",
+        title: "Часть три",
+        media_clip_start_seconds: 920,
         media_clip_end_seconds: null,
       }),
     ]);
@@ -5766,7 +5779,7 @@ describe("Studio PWA", () => {
     await chooseExistingSource(2, "ready-local.ogg");
     await chooseResultFolder(2);
     await userEvent.type(
-      screen.getByLabelText("Название задачи для строки 1"),
+      screen.getByLabelText("Название фрагмента 1 строки 1"),
       "Created from UI",
     );
     const profileSelect = screen.queryByLabelText("Профиль подключения");
@@ -6424,7 +6437,7 @@ describe("Studio PWA", () => {
     await chooseExistingSource(1, "remove-me.ogg");
     await chooseResultFolder(1, "folder-default");
     await userEvent.type(
-      screen.getByLabelText("Название задачи для строки 1"),
+      screen.getByLabelText("Название фрагмента 1 строки 1"),
       "Keep title",
     );
     expect(screen.getAllByText("Папка Google Drive").length).toBeGreaterThan(0);
@@ -6753,7 +6766,7 @@ describe("Studio PWA", () => {
     await chooseExistingSource(1, "Лекция 1");
     await chooseResultFolder(1, "folder-one");
     await userEvent.type(
-      screen.getByLabelText("Название задачи для строки 1"),
+      screen.getByLabelText("Название фрагмента 1 строки 1"),
       "First draft title",
     );
     await userEvent.click(
@@ -6762,7 +6775,7 @@ describe("Studio PWA", () => {
     await chooseExistingSource(2, "local-temp.ogg");
     await chooseResultFolder(2, "folder-two");
     await userEvent.type(
-      screen.getByLabelText("Название задачи для строки 2"),
+      screen.getByLabelText("Название фрагмента 1 строки 2"),
       "Second draft title",
     );
 
@@ -6779,12 +6792,12 @@ describe("Studio PWA", () => {
     );
     expect(rows[0]).toHaveTextContent("Default folder");
     expect(
-      within(rows[0]).getByLabelText("Название задачи для строки 1"),
+      within(rows[0]).getByLabelText("Название фрагмента 1 строки 1"),
     ).toHaveValue("First draft title");
     expect(rows[1]).toHaveTextContent("local-temp.ogg");
     expect(rows[1]).toHaveTextContent("Default folder");
     expect(
-      within(rows[1]).getByLabelText("Название задачи для строки 2"),
+      within(rows[1]).getByLabelText("Название фрагмента 1 строки 2"),
     ).toHaveValue("Second draft title");
     expect(window.localStorage.length).toBe(0);
     expect(window.sessionStorage.length).toBe(0);
@@ -6950,7 +6963,7 @@ describe("Studio PWA", () => {
     await chooseExistingSource(1, "p1-alpha.ogg");
     await chooseResultFolder(1, "folder-one");
     await userEvent.type(
-      screen.getByLabelText("Название задачи для строки 1"),
+      screen.getByLabelText("Название фрагмента 1 строки 1"),
       "Alpha draft",
     );
     await userEvent.click(
@@ -6959,7 +6972,7 @@ describe("Studio PWA", () => {
     await chooseExistingSource(2, "p1-beta.ogg");
     await chooseResultFolder(2, "folder-two");
     await userEvent.type(
-      screen.getByLabelText("Название задачи для строки 2"),
+      screen.getByLabelText("Название фрагмента 1 строки 2"),
       "Beta draft",
     );
 
@@ -7261,7 +7274,7 @@ describe("Studio PWA", () => {
     await chooseExistingSource(1, "project-a-source.ogg");
     await chooseResultFolder(1, "folder-a");
     await userEvent.type(
-      screen.getByLabelText("Название задачи для строки 1"),
+      screen.getByLabelText("Название фрагмента 1 строки 1"),
       "Project A row title",
     );
     await userEvent.click(
@@ -7300,7 +7313,7 @@ describe("Studio PWA", () => {
     await chooseExistingSource(1, "project-b-source.ogg");
     await chooseResultFolder(1, "folder-b");
     await userEvent.type(
-      screen.getByLabelText("Название задачи для строки 1"),
+      screen.getByLabelText("Название фрагмента 1 строки 1"),
       "B clean submit",
     );
     await reviewAndConfirmBatch();
@@ -10975,7 +10988,9 @@ describe("Studio PWA", () => {
       expect(row).toHaveTextContent(folderText);
       await waitFor(() =>
         expect(
-          within(row).getByLabelText(`Название задачи для строки ${position}`),
+          within(row).getByLabelText(
+            `Название фрагмента 1 строки ${position}`,
+          ),
         ).toHaveValue(title),
       );
     };
@@ -10987,7 +11002,7 @@ describe("Studio PWA", () => {
     await chooseExistingSource(1, "Лекция 1");
     await chooseResultFolder(1, "folder-one");
     await userEvent.type(
-      screen.getByLabelText("Название задачи для строки 1"),
+      screen.getByLabelText("Название фрагмента 1 строки 1"),
       "Alpha title",
     );
     await userEvent.click(
@@ -11002,7 +11017,7 @@ describe("Studio PWA", () => {
     );
     await chooseExistingSource(2, "local-temp");
     await userEvent.type(
-      screen.getByLabelText("Название задачи для строки 2"),
+      screen.getByLabelText("Название фрагмента 1 строки 2"),
       "Bravo title",
     );
     await userEvent.click(
@@ -11024,7 +11039,7 @@ describe("Studio PWA", () => {
     );
     await screen.findByText("Загружено файлов: 1.");
     await userEvent.type(
-      screen.getByLabelText("Название задачи для строки 3"),
+      screen.getByLabelText("Название фрагмента 1 строки 3"),
       "Charlie title",
     );
     await userEvent.click(

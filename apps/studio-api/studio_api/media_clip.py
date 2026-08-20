@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Sequence
 
 
 MAX_MANUAL_CLIP_SECONDS = 7 * 24 * 60 * 60
 
 
 class MediaClipRangeError(ValueError):
+    pass
+
+
+class MediaClipPlanError(ValueError):
     pass
 
 
@@ -34,6 +39,30 @@ def normalize_media_clip_range(
     if start == 0 and end is None:
         raise MediaClipRangeError("zero-to-end clip must use full-source scope")
     return MediaClipRange(start_seconds=start, end_seconds=end)
+
+
+def validate_ordered_media_clip_plan(clips: Sequence[MediaClipRange]) -> None:
+    """Validate one source's explicit fragment plan without media-duration access."""
+    clipped = [clip for clip in clips if not clip.is_full_source]
+    if not clipped:
+        return
+    if len(clipped) != len(clips):
+        raise MediaClipPlanError(
+            "full-source scope cannot be mixed with explicit fragments"
+        )
+
+    previous_end: int | None = None
+    for position, clip in enumerate(clipped):
+        start = clip.start_seconds or 0
+        if position and (previous_end is None or start < previous_end):
+            raise MediaClipPlanError(
+                "fragments must be ordered and must not overlap"
+            )
+        if clip.end_seconds is None and position != len(clipped) - 1:
+            raise MediaClipPlanError(
+                "only the final fragment may continue to source end"
+            )
+        previous_end = clip.end_seconds
 
 
 def _optional_second(value: object, label: str) -> int | None:

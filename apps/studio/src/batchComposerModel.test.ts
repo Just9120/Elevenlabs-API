@@ -1,12 +1,14 @@
 import {
   buildBatchCreateRequest,
+  composerSegmentPlanIssue,
   composerSignature,
-  formatSplitBoundary,
+  formatSegmentBoundary,
   makeIdempotencyKey,
   mergeJobsWithBatchOrder,
   newComposerRow,
-  parseSplitBoundary,
+  parseSegmentBoundary,
   parseBatchPreflightResponse,
+  resizeComposerSegments,
   type ComposerRow,
 } from "./batchComposerModel";
 import type { TranscriptionJob } from "./jobModel";
@@ -37,21 +39,24 @@ describe("batch composer model", () => {
   });
 
   it("creates an empty row with an opaque browser identifier", () => {
-    vi.spyOn(crypto, "randomUUID").mockReturnValue(
-      "00000000-0000-4000-8000-000000000001",
-    );
+    vi.spyOn(crypto, "randomUUID")
+      .mockReturnValueOnce("00000000-0000-4000-8000-000000000001")
+      .mockReturnValueOnce("00000000-0000-4000-8000-000000000002");
 
     expect(newComposerRow()).toEqual({
       id: "00000000-0000-4000-8000-000000000001",
       source_id: "",
       output_folder: null,
-      title: "",
-      reprocess_existing: false,
-      split_to_two_projects: false,
-      split_boundary: "",
-      second_output_folder: null,
-      second_title: "",
-      second_reprocess_existing: false,
+      segments: [
+        {
+          id: "00000000-0000-4000-8000-000000000002",
+          start_boundary: "0:00",
+          end_boundary: "",
+          ends_at_source_end: true,
+          title: "",
+          reprocess_existing: false,
+        },
+      ],
     });
   });
 
@@ -65,25 +70,31 @@ describe("batch composer model", () => {
           name: "Display name",
           web_view_url: "https://drive.google.com/drive/folders/folder-1",
         },
-        title: "  Interview  ",
-        reprocess_existing: true,
-        split_to_two_projects: false,
-        split_boundary: "",
-        second_output_folder: null,
-        second_title: "",
-        second_reprocess_existing: false,
+        segments: [
+          {
+            id: "segment-1",
+            start_boundary: "0:00",
+            end_boundary: "",
+            ends_at_source_end: true,
+            title: "  Interview  ",
+            reprocess_existing: true,
+          },
+        ],
       },
       {
         id: "browser-only-row-id-2",
         source_id: "source-2",
         output_folder: null,
-        title: "   ",
-        reprocess_existing: false,
-        split_to_two_projects: false,
-        split_boundary: "",
-        second_output_folder: null,
-        second_title: "",
-        second_reprocess_existing: false,
+        segments: [
+          {
+            id: "segment-2",
+            start_boundary: "0:00",
+            end_boundary: "",
+            ends_at_source_end: true,
+            title: "   ",
+            reprocess_existing: false,
+          },
+        ],
       },
     ];
 
@@ -113,14 +124,14 @@ describe("batch composer model", () => {
     );
   });
 
-  it("parses a manual boundary and expands one row into complementary jobs", () => {
-    expect(parseSplitBoundary("10:10")).toBe(610);
-    expect(parseSplitBoundary("1:02:03")).toBe(3723);
-    expect(formatSplitBoundary(610)).toBe("10:10");
-    expect(formatSplitBoundary(3723)).toBe("1:02:03");
-    expect(parseSplitBoundary("10:60")).toBeNull();
-    expect(parseSplitBoundary("0:00")).toBeNull();
-    expect(parseSplitBoundary("text")).toBeNull();
+  it("parses boundaries and expands one row into arbitrary ordered jobs", () => {
+    expect(parseSegmentBoundary("0:00")).toBe(0);
+    expect(parseSegmentBoundary("10:10")).toBe(610);
+    expect(parseSegmentBoundary("1:02:03")).toBe(3723);
+    expect(formatSegmentBoundary(610)).toBe("10:10");
+    expect(formatSegmentBoundary(3723)).toBe("1:02:03");
+    expect(parseSegmentBoundary("10:60")).toBeNull();
+    expect(parseSegmentBoundary("text")).toBeNull();
 
     const row = newComposerRow();
     const request = buildBatchCreateRequest(
@@ -133,15 +144,32 @@ describe("batch composer model", () => {
             name: "Project one",
             web_view_url: null,
           },
-          title: "First project",
-          split_to_two_projects: true,
-          split_boundary: "10:10",
-          second_output_folder: {
-            folder_id: "project-two",
-            name: "Project two",
-            web_view_url: null,
-          },
-          second_title: "Second project",
+          segments: [
+            {
+              id: "segment-a",
+              start_boundary: "0:00",
+              end_boundary: "10:10",
+              ends_at_source_end: false,
+              title: "First fragment",
+              reprocess_existing: false,
+            },
+            {
+              id: "segment-b",
+              start_boundary: "10:10",
+              end_boundary: "15:15",
+              ends_at_source_end: false,
+              title: "Second fragment",
+              reprocess_existing: true,
+            },
+            {
+              id: "segment-c",
+              start_boundary: "15:20",
+              end_boundary: "",
+              ends_at_source_end: true,
+              title: "Third fragment",
+              reprocess_existing: false,
+            },
+          ],
         },
       ],
       "credential-1",
@@ -153,20 +181,97 @@ describe("batch composer model", () => {
       {
         source_id: "source-1",
         output_folder_id: "project-one",
-        title: "First project",
+        title: "First fragment",
         reprocess_existing: false,
         media_clip_start_seconds: 0,
         media_clip_end_seconds: 610,
       },
       {
         source_id: "source-1",
-        output_folder_id: "project-two",
-        title: "Second project",
-        reprocess_existing: false,
+        output_folder_id: "project-one",
+        title: "Second fragment",
+        reprocess_existing: true,
         media_clip_start_seconds: 610,
+        media_clip_end_seconds: 915,
+      },
+      {
+        source_id: "source-1",
+        output_folder_id: "project-one",
+        title: "Third fragment",
+        reprocess_existing: false,
+        media_clip_start_seconds: 920,
         media_clip_end_seconds: null,
       },
     ]);
+  });
+
+  it("resizes a plan and rejects malformed, overlapping, or open middle fragments", () => {
+    const row = newComposerRow();
+    const resized = resizeComposerSegments(row.segments, 3);
+
+    expect(resized).toHaveLength(3);
+    expect(resized[0].ends_at_source_end).toBe(false);
+    expect(resized[2].ends_at_source_end).toBe(true);
+    expect(composerSegmentPlanIssue(resized)).toContain("фрагмент 1");
+
+    const valid = resized.map((segment, index) => ({
+      ...segment,
+      start_boundary: ["0:00", "10:10", "15:20"][index],
+      end_boundary: ["10:10", "15:15", ""][index],
+    }));
+    expect(composerSegmentPlanIssue(valid)).toBeNull();
+    expect(
+      composerSegmentPlanIssue([
+        { ...valid[0], end_boundary: "10:20" },
+        { ...valid[1], start_boundary: "10:10" },
+        valid[2],
+      ]),
+    ).toContain("не пересекаться");
+    expect(
+      composerSegmentPlanIssue([
+        { ...valid[0], ends_at_source_end: true },
+        valid[1],
+        valid[2],
+      ]),
+    ).toContain("только последний");
+  });
+
+  it("enforces both per-row and total batch segment limits", () => {
+    const row = newComposerRow();
+    expect(() => resizeComposerSegments(row.segments, 0)).toThrow(
+      "Invalid segment count",
+    );
+    expect(() => resizeComposerSegments(row.segments, 51)).toThrow(
+      "Invalid segment count",
+    );
+
+    const rowWithSegments = (id: string, count: number): ComposerRow => ({
+      ...newComposerRow(),
+      id,
+      source_id: `source-${id}`,
+      output_folder: {
+        folder_id: "shared-folder",
+        name: "Shared folder",
+        web_view_url: null,
+      },
+      segments: resizeComposerSegments(newComposerRow().segments, count).map(
+        (segment, index) => ({
+          ...segment,
+          start_boundary: `${index}:00`,
+          end_boundary: index === count - 1 ? "" : `${index + 1}:00`,
+          ends_at_source_end: index === count - 1,
+        }),
+      ),
+    });
+
+    expect(() =>
+      buildBatchCreateRequest(
+        [rowWithSegments("a", 25), rowWithSegments("b", 26)],
+        "credential-1",
+        "ru",
+        false,
+      ),
+    ).toThrow("Batch item limit exceeded");
   });
 
   it("prefixes the opaque idempotency identifier", () => {

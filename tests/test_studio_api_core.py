@@ -4051,10 +4051,10 @@ def test_batch_preflight_is_safe_ordered_and_does_not_create_rows(monkeypatch):
         assert private_value not in r.text
 
 
-def test_batch_two_project_split_preflights_and_persists_complementary_jobs(monkeypatch):
+def test_batch_arbitrary_segments_preflight_and_persist_ordered_jobs(monkeypatch):
     _install_batch_folder_mocks(monkeypatch)
     c, csrf, _user_id, pid, source_a, _source_b, cred_id = _batch_setup(
-        "batch-two-project-split@example.com"
+        "batch-arbitrary-segments@example.com"
     )
     body = {
         "provider_credential_id": cred_id,
@@ -4063,16 +4063,23 @@ def test_batch_two_project_split_preflights_and_persists_complementary_jobs(monk
         "items": [
             {
                 "source_id": source_a,
-                "output_folder_id": "project-one",
-                "title": "Созвон — проект 1",
+                "output_folder_id": "shared-project",
+                "title": "Созвон — часть 1",
                 "media_clip_start_seconds": 0,
                 "media_clip_end_seconds": 610,
             },
             {
                 "source_id": source_a,
-                "output_folder_id": "project-two",
-                "title": "Созвон — проект 2",
+                "output_folder_id": "shared-project",
+                "title": "Созвон — часть 2",
                 "media_clip_start_seconds": 610,
+                "media_clip_end_seconds": 915,
+            },
+            {
+                "source_id": source_a,
+                "output_folder_id": "shared-project",
+                "title": "Созвон — часть 3",
+                "media_clip_start_seconds": 920,
                 "media_clip_end_seconds": None,
             },
         ],
@@ -4087,23 +4094,24 @@ def test_batch_two_project_split_preflights_and_persists_complementary_jobs(monk
 
     assert preview.status_code == 200
     assert preview.json()["summary"] == {
-        "process_count": 2,
+        "process_count": 3,
         "skip_count": 0,
         "blocked_count": 0,
     }
     assert [item["media_clip"] for item in preview.json()["items"]] == [
         {"start_seconds": 0, "end_seconds": 610},
-        {"start_seconds": 610, "end_seconds": None},
+        {"start_seconds": 610, "end_seconds": 915},
+        {"start_seconds": 920, "end_seconds": None},
     ]
 
     created = c.post(
         f"/api/projects/{pid}/jobs/batch",
         json=body,
-        headers={**headers, "Idempotency-Key": "batch-two-project-split-key"},
+        headers={**headers, "Idempotency-Key": "batch-arbitrary-segments-key"},
     )
 
     assert created.status_code == 200
-    assert created.json()["created_count"] == 2
+    assert created.json()["created_count"] == 3
     db = SessionLocal()
     try:
         jobs = (
@@ -4115,12 +4123,14 @@ def test_batch_two_project_split_preflights_and_persists_complementary_jobs(monk
         assert [
             (job.media_clip_start_seconds, job.media_clip_end_seconds)
             for job in jobs
-        ] == [(0, 610), (610, None)]
+        ] == [(0, 610), (610, 915), (920, None)]
         assert [job.output_drive_folder_id for job in jobs] == [
-            "project-one",
-            "project-two",
+            "shared-project",
+            "shared-project",
+            "shared-project",
         ]
-        assert jobs[0].batch_request_hash == jobs[1].batch_request_hash
+        assert [job.batch_position for job in jobs] == [0, 1, 2]
+        assert len({job.batch_request_hash for job in jobs}) == 1
     finally:
         db.close()
 
@@ -4132,22 +4142,12 @@ def test_batch_two_project_split_preflights_and_persists_complementary_jobs(monk
             {
                 "source_id": "SOURCE",
                 "output_folder_id": "one",
-                "media_clip_start_seconds": 0,
-                "media_clip_end_seconds": 610,
-            }
-        ],
-        [
-            {
-                "source_id": "SOURCE",
-                "output_folder_id": "same",
-                "media_clip_start_seconds": 0,
-                "media_clip_end_seconds": 610,
             },
             {
                 "source_id": "SOURCE",
-                "output_folder_id": "same",
-                "media_clip_start_seconds": 610,
-                "media_clip_end_seconds": None,
+                "output_folder_id": "two",
+                "media_clip_start_seconds": 0,
+                "media_clip_end_seconds": 610,
             },
         ],
         [
@@ -4160,13 +4160,41 @@ def test_batch_two_project_split_preflights_and_persists_complementary_jobs(monk
             {
                 "source_id": "SOURCE",
                 "output_folder_id": "two",
-                "media_clip_start_seconds": 611,
+                "media_clip_start_seconds": 600,
                 "media_clip_end_seconds": None,
+            },
+        ],
+        [
+            {
+                "source_id": "SOURCE",
+                "output_folder_id": "one",
+                "media_clip_start_seconds": 610,
+                "media_clip_end_seconds": None,
+            },
+            {
+                "source_id": "SOURCE",
+                "output_folder_id": "two",
+                "media_clip_start_seconds": 700,
+                "media_clip_end_seconds": 900,
+            },
+        ],
+        [
+            {
+                "source_id": "SOURCE",
+                "output_folder_id": "one",
+                "media_clip_start_seconds": 610,
+                "media_clip_end_seconds": 900,
+            },
+            {
+                "source_id": "SOURCE",
+                "output_folder_id": "two",
+                "media_clip_start_seconds": 0,
+                "media_clip_end_seconds": 600,
             },
         ],
     ],
 )
-def test_batch_two_project_split_rejects_incomplete_same_folder_or_gapped_plan(monkeypatch, items):
+def test_batch_segments_reject_mixed_overlapping_open_ended_or_out_of_order_plan(monkeypatch, items):
     _install_batch_folder_mocks(monkeypatch)
     c, csrf, _user_id, pid, source_a, _source_b, cred_id = _batch_setup(
         f"batch-invalid-split-{len(items)}-{items[-1]['output_folder_id']}@example.com"

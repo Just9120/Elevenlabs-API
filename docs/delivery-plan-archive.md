@@ -661,6 +661,20 @@ Goal `DOCS-GOAL-DRIVEN-01` migrated the repository policy to `goal-driven-v1` an
 - Standalone `docs/agent-delivery-workflow.md` удалён намеренно; session orchestration и Goal lifecycle теперь определяются root `AGENTS.md` и current user instruction.
 - Stale active checkpoint обнаружен при начале следующей авторизованной Goal и перенесён в archive без отдельного follow-up PR.
 
+## Archived PR #214 dependency remediation closure
+
+Goal `SECURITY-DEPENDENCY-REMEDIATION-01` removed the current High findings from the installed Node/Python dependency graphs and was merged through PR #214 on 2026-08-20.
+
+- Base: `main@3ef4a45e9e17be7ae78bd574f5e0de6f101a4b55`.
+- Final PR head: `f53cd37ee23f8fb77f50500b2bb57937a1672e5c`.
+- Merge commit: `50dff6f7401a08393137d5bd5e28162bd8df1133`.
+- Fixed graph: `brace-expansion 5.0.9`, `fast-uri 3.1.5`, `nanoid 3.3.18`, `cryptography 50.0.0`; exact-main Dependency audit run `32351941880` completed with both `node` and `python` success.
+- Exact-main repository CI run `32351540609` and Studio/browser CI run `32351540560` completed successfully.
+- Component CD run `32351540606` deployed web and API. Worker lifecycle used status `32351708257`, graceful drain `32351908990`, manual deploy `32352024954`, and final status `32352126674`; the final running image matched the merge-SHA tag and was healthy.
+- Public web/API health returned `200`; API reported reachable database and current migrations. No provider/Google transcription canary was run, so this LIVE evidence is bounded to dependency-bearing runtime health.
+- Product readiness remained `78/109 = 71,6%`: the Goal changed no product AC or denominator.
+- Approved post-deploy metadata writer remained absent; actual closure was reconciled at the start of the next authorized Goal without a follow-up docs-only PR. Local `main` was synchronized and the merged local/remote Goal branch was safely removed.
+
 ## Current non-authority warning
 
 If this archive conflicts with `docs/project-spec.md`, `docs/delivery-plan.md`, `docs/architecture.md`, `docs/ci-cd-rules.md`, or the current user task, treat the current documents/task as authoritative and this archive as historical context only.
