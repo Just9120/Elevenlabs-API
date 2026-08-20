@@ -165,7 +165,7 @@ Generalized composer принимает ordered plan из `N >= 1` фрагме�
 | `PS-04` | Для каждого фрагмента задаётся end time либо явный `Конец`. | ✅ |
 | `PS-05` | Для каждого валидного фрагмента создаётся отдельный transcript document. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
 
 ### Эпик `PWA-BATCH-01` — transcription options, progress и output
 

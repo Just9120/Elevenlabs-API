@@ -16,25 +16,25 @@
   6. Каждый non-skipped fragment использует существующий processing pipeline и создаёт отдельный Google Docs transcript output.
   7. Relevant unit/integration/browser tests, full repository/Studio validation, required exact-head CI, merge и applicable DEPLOY/LIVE gates успешны.
 - **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
-- **Current Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`.
+- **Current Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
 - **Known blockers/dependencies:** browser preflight не знает media duration до server preparation, поэтому out-of-bounds media проверяется существующим worker boundary; approved post-deploy metadata writer отсутствует; standard component CD требует отдельного exact-revision подтверждения. Production canary ограничивается одним reviewed small source и не запускается без удовлетворённых runtime preconditions.
 - **Stop condition:** все Goal AC и required Evidence подтверждены либо flow достиг `BLOCKED` / `PENDING_EXTERNAL_GATE`; затем остановиться и не переходить к следующей Goal без explicit authorization.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-20T13:37:17Z
+- Updated (UTC): 2026-08-20T13:41:08Z
 - Session mode: FOCUSED_TASK после RECOVERY stale checkpoint завершённого `SECURITY-DEPENDENCY-REMEDIATION-01`
 - Base branch: `main`
 - Base SHA: `50dff6f7401a08393137d5bd5e28162bd8df1133`
 - Working branch: `codex/pwa-arbitrary-segments-01`
-- Last verified revision: `d852674149c7bd32f4569d694f50d5a6ea3044ff`
-- Working tree: только этот PR/CI checkpoint; unrelated changes отсутствуют
-- Completed since base: Goal/checkpoint commit `81a34de`; API validation `c78acb5`; generalized PWA composer/UI/readiness `cb7f69a`; batch-limit regression `d852674`; branch pushed и draft PR #215 создан
-- Current step: exact-head required CI
-- Next exact action: зафиксировать и push этот checkpoint, дождаться terminal state checks PR #215 и разобрать failures/skips
+- Last verified revision: `fec25c0b21fdbfdaf253fba308edae23134a3785`
+- Working tree: только terminal CI Evidence/checkpoint update; unrelated changes отсутствуют
+- Completed since base: implementation commits `81a34de`, `c78acb5`, `cb7f69a`, `d852674`; draft PR #215 создан; exact-head `fec25c0` required checks `checks`, `studio`, `browser-e2e` завершились SUCCESS без failures/skips
+- Current step: финальный metadata head CI и merge readiness
+- Next exact action: commit/push CI Evidence, перевести PR #215 в ready и после terminal green exact-head checks выполнить merge
 - Validation and Evidence: backend `py_compile` и domain smoke ✅; repository lightweight checks ✅; Studio TypeScript/ESLint ✅; full Studio Vitest `39 files, 504/504` ✅ плюс focused updated model suite `9/9` ✅; production PWA build ✅; `git diff --check` ✅; service-backed pytest dependency bootstrap локально не завершился и остаётся exact-head CI gate; `origin/main` не diverged (`50dff6f`); product readiness `83/109`
-- Pull Request: #215 — `https://github.com/Just9120/Elevenlabs-API/pull/215`, draft, base `main`, initial head `d852674`
-- CI/checks: runs `32375294506` (repository CI) и `32375294499` (Studio PWA CI) запущены; `checks`, `studio`, `browser-e2e` IN_PROGRESS
+- Pull Request: #215 — `https://github.com/Just9120/Elevenlabs-API/pull/215`, draft, base `main`, current verified head `fec25c0`
+- CI/checks: exact-head runs `32375368279` (`checks` SUCCESS, 2m31s) и `32375368307` (`studio` SUCCESS, 2m00s; `browser-e2e` SUCCESS, 1m38s); failures/skips отсутствуют
 - Deployment/environment: baseline production revision `50dff6f` подтверждена; новая Goal не deploy-илась
 - Blockers: нет на локальной стадии
 - Unverified assumptions: existing one-job/one-output processing полностью покрывает arbitrary `N`; schema migration не требуется; эти assumptions должны быть подтверждены code/tests
