@@ -14,25 +14,25 @@
   4. Пользователь может сохранить проверенную target Google Drive folder в owner-scoped Favorites, повторно выбрать её в composer и удалить из Favorites; browser DTO не раскрывает tokens/private storage identity.
   5. Expired local sources отсутствуют в active project source collection/composer, но durable Source/job/output/history/audit records не удаляются этим read boundary.
   6. Additive migration, relevant backend/frontend tests, full local validation, exact-head CI, merge, protected migration/deployment и bounded LIVE validation успешны.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ◐ | CI ◐ | DEPLOY — | LIVE —`.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
 - **Known blockers/dependencies:** standard browser `File` не предоставляет достоверный filesystem creation time; local source authority должен быть получен из embedded media metadata либо остаться unknown. Goal содержит additive PostgreSQL migration, поэтому production migration выполняется только через protected migration lane по `docs/ci-cd-rules.md`. Approved post-deploy metadata writer отсутствует.
 - **Stop condition:** все Goal AC и required Evidence подтверждены либо flow достиг `BLOCKED` / `PENDING_EXTERNAL_GATE`; затем остановиться и не переходить к следующей Goal без explicit authorization.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-20T21:02:22Z
+- Updated (UTC): 2026-08-20T21:05:56Z
 - Session mode: `RESUME` после reconciliation merged Goal `PWA-JOB-STATE-CONSISTENCY-01`; новая bounded Goal активирована explicit owner instruction
 - Base branch: `main`
 - Base SHA: `ebf02da1636d9362131a1b44161cda1c68f06080`
 - Working branch: `codex/pwa-ingest-metadata-polish-01`
 - Last verified revision: `ccd3f66ced833a2332bdc91708e5f4f07fcfdcbc`
-- Working tree: fixes для первого CI cycle и checkpoint pending commit; сохранённые untracked pnpm artifacts исключены из scope/commits
+- Working tree: implementation и CI fix committed/pushed; final CI checkpoint pending commit; сохранённые untracked pnpm artifacts исключены из scope/commits
 - Completed since base: additive migration `0021_source_creation_favorites`; Drive/embedded-media creation authority и propagation в transcript formatter; owner-scoped Favorites с повторной Drive verification; expired-local active collection boundary; browser-safe DTO/UI; backend/frontend tests; все head-aware migration/preflight contracts обновлены с `0020` на `0021`
-- Current step: исправление deterministic CI failure и повторный exact-head CI
-- Next exact action: commit/push head-awareness fix, перевести PR в ready и дождаться terminal state всех checks
-- Validation and Evidence: Python worker focused suite `144/144` ✅; Studio Vitest `509/509` ✅; TypeScript `tsc -b` ✅; focused ESLint ✅; lightweight CI checks ✅; focused migration-head/schema tests `28/28` ✅. PR head `26fb71d`: `studio` ✅, `browser-e2e` ✅, `checks` ❌ (`1214 passed`, 15 stale Alembic-head assertions/preflight expectations); deterministic fix подготовлен. Local bash/DB execution остаётся недоступен, поэтому финальный `TEST/CI` gate ждёт Linux CI.
-- Pull Request: `#217`, https://github.com/Just9120/Elevenlabs-API/pull/217, draft на момент checkpoint
-- CI/checks: run `32416881414` / job `96579933442` (`checks`) failed; run `32416881433` / jobs `96579933159` (`studio`) и `96579932795` (`browser-e2e`) success; exact head `26fb71dc2bfe90c48e4ab7d79db99437946fc3ba`
+- Current step: final pre-merge Evidence checkpoint
+- Next exact action: commit/push checkpoint, подтвердить terminal checks и mergeability final head, затем merge PR #217
+- Validation and Evidence: Python worker focused suite `144/144` ✅; Studio Vitest `509/509` ✅; TypeScript `tsc -b` ✅; focused ESLint ✅; lightweight CI checks ✅; focused migration-head/schema tests `28/28` ✅. Exact PR head `5e0f4f40f5cbcb6ce7b7e3edd5234be812ca0c32`: repository `checks` ✅, включая PostgreSQL/Alembic/full pytest; `studio` ✅; authenticated `browser-e2e` ✅.
+- Pull Request: `#217`, https://github.com/Just9120/Elevenlabs-API/pull/217, ready, mergeable на verified head
+- CI/checks: run `32417379985` / job `96581506311` (`checks`) success; run `32417379977` / jobs `96581506440` (`studio`) и `96581506148` (`browser-e2e`) success; exact head `5e0f4f40f5cbcb6ce7b7e3edd5234be812ca0c32`. Предыдущий deterministic failure run `32416881414` исправлен commit `5e0f4f4`.
 - Deployment/environment: baseline production revision `ebf02da1636d9362131a1b44161cda1c68f06080`; новая Goal не deploy-илась
 - Blockers: нет на pre-PR стадии; migration approval может стать external gate после merge
 - Unverified assumptions: production Google Drive files/local media действительно предоставляют ожидаемый creation metadata; это требует bounded LIVE canary после protected migration/deploy

@@ -28,7 +28,7 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Текущее independently verified working state: `codex/pwa-ingest-metadata-polish-01@ccd3f66ced833a2332bdc91708e5f4f07fcfdcbc` от `main@ebf02da1636d9362131a1b44161cda1c68f06080`:
+Текущее independently verified working state: `codex/pwa-ingest-metadata-polish-01@5e0f4f40f5cbcb6ce7b7e3edd5234be812ca0c32` от `main@ebf02da1636d9362131a1b44161cda1c68f06080`:
 
 | Scope | Готовность | Метод |
 |---|---:|---|
@@ -127,7 +127,7 @@ Status: **🟦 IN PROGRESS — 92,3% (`12/13`)**.
 | `PC-12` | Доступны system, light и dark themes. | ✅ |
 | `PC-13` | Пользователь выбирает accent/interface color. | ❌ |
 
-Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ◐ | DEPLOY ◐ | LIVE ◐`.
+Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
 
 Expired source metadata может сохраняться для history/audit, но current owner instruction требует скрывать expired local files из active intake UI. Это заменяет старое UI-допущение о видимости недоступной metadata.
 
@@ -151,7 +151,7 @@ Status: **🟦 IN PROGRESS — 72,7% (`8/11`)**.
 | `PI-10` | Один batch принимает одну target folder и source folder. | ❌ |
 | `PI-11` | Для каждой composer row можно независимо выбрать source и target folder. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ◐ | DEPLOY ◐ | LIVE ◐`.
+Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
 
 Verified implementation: Favorites хранятся owner-scoped в PostgreSQL, создаются только после server-side Google Drive verification, повторно проверяются перед назначением composer row и удаляются owner-scoped. Full frontend suite подтверждает save/revalidate/reuse/delete flow; backend DB integration ожидает exact-head CI.
 
