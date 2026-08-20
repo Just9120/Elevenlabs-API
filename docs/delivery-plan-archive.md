@@ -648,6 +648,19 @@ PR #211 (`feature/pwa-language-diagnostics`) закрыл scoped explicit-Englis
 - Component CD run `31848408276`: `deploy-web` и `deploy-api` success; worker и migration jobs корректно skipped для scope.
 - GitHub Deployments API record отсутствует; approved post-deploy metadata writer также отсутствует (`metadata_sync.enabled=false`). Фактический merge/CD state восстановлен в следующем authorized scope без отдельного follow-up PR.
 
+## Archived PR #213 goal-driven repository policy closure
+
+Goal `DOCS-GOAL-DRIVEN-01` migrated the repository policy to `goal-driven-v1` and was merged through PR #213 on 2026-08-20.
+
+- Base: `main@f3a3f33fb0ce019c1916d95f754ed72d1d56ee01`.
+- Final PR head: `4ee8f65cf6a16b9190ddedefd4024a2ca03d0978`.
+- Merge commit: `3ef4a45e9e17be7ae78bd574f5e0de6f101a4b55`.
+- Exact PR-head CI run `32344744575`: `checks` success.
+- Exact-main CI run `32345079183`: `checks` success.
+- Scope был docs-only: `DEPLOY` и `LIVE` — `N/A`; product readiness не изменилась и осталась `78/109 = 71,6%`.
+- Standalone `docs/agent-delivery-workflow.md` удалён намеренно; session orchestration и Goal lifecycle теперь определяются root `AGENTS.md` и current user instruction.
+- Stale active checkpoint обнаружен при начале следующей авторизованной Goal и перенесён в archive без отдельного follow-up PR.
+
 ## Current non-authority warning
 
 If this archive conflicts with `docs/project-spec.md`, `docs/delivery-plan.md`, `docs/architecture.md`, `docs/ci-cd-rules.md`, or the current user task, treat the current documents/task as authoritative and this archive as historical context only.
