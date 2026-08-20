@@ -47,15 +47,22 @@ def test_partial_provider_checkpoint_model_is_encrypted_bounded_and_scoped():
     }
 
 
-def test_partial_provider_checkpoint_migration_is_direct_additive_head():
+def test_partial_provider_checkpoint_migration_has_one_direct_additive_successor():
     config = Config("apps/studio-api/alembic.ini")
     script = ScriptDirectory.from_config(config)
     revision = script.get_revision("0020_provider_part_checkpoints")
+    successor = script.get_revision("0021_source_creation_favorites")
     assert revision.down_revision == "0019_job_media_clip"
-    assert script.get_current_head() == "0020_provider_part_checkpoints"
+    assert successor.down_revision == "0020_provider_part_checkpoints"
+    assert script.get_current_head() == "0021_source_creation_favorites"
 
     migration = (
         ROOT
         / "apps/studio-api/alembic/versions/0020_provider_part_checkpoints.py"
     ).read_text(encoding="utf-8")
     assert 'release_safety = "additive"' in migration
+    successor_migration = (
+        ROOT
+        / "apps/studio-api/alembic/versions/0021_source_creation_and_folder_favorites.py"
+    ).read_text(encoding="utf-8")
+    assert 'release_safety = "additive"' in successor_migration

@@ -33,7 +33,7 @@ from sqlalchemy.exc import OperationalError
 from studio_api.config import Settings
 from studio_api.db import SessionLocal, engine
 from studio_api.main import app, limiter
-from studio_api.models import AuditEvent, DiagnosticDebugSession, DiagnosticEvent, TranscriptionOutputReconciliation, TranscriptionJobSourceAttempt, OutputReconciliationStatus, SourceAttemptRetryDisposition, SourceAttemptStage, CredentialProvider, CredentialStatus, JobSourceStatus, JobStatus, LocalIdentity, Project, ProviderCredential, ProviderCredentialVersion, Source, SourceStorageCleanupStatus, SourceType, SourceUploadStatus, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, User, UserRole, UserStatus
+from studio_api.models import AuditEvent, DiagnosticDebugSession, DiagnosticEvent, OutputFolderFavorite, TranscriptionOutputReconciliation, TranscriptionJobSourceAttempt, OutputReconciliationStatus, SourceAttemptRetryDisposition, SourceAttemptStage, CredentialProvider, CredentialStatus, JobSourceStatus, JobStatus, LocalIdentity, Project, ProviderCredential, ProviderCredentialVersion, Source, SourceStorageCleanupStatus, SourceType, SourceUploadStatus, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, User, UserRole, UserStatus
 from studio_api.security import aad, decrypt, encrypt, hash_password, master_key_from_b64, utcnow, verify_password
 from studio_api.job_claim_lease import JobLeaseError, JobLeaseFailureReason, acquire_job_lease, acquire_next_ready_job_lease, invalidate_job_lease, is_lease_active, release_job_lease, renew_job_lease
 from studio_api.job_processing_lifecycle import JobProcessingError, JobProcessingFailureReason, acknowledge_job_cancellation, begin_job_processing, fail_job_processing, recover_expired_processing_job
@@ -55,7 +55,7 @@ def clean_state(migrated_database):
     except Exception as exc:
         pytest.skip(f"Redis unavailable for platform tests: {exc}")
     with engine.begin() as conn:
-        tables = ["transcript_catalog_entries", "transcription_job_source_attempts", "transcription_output_reconciliations", "diagnostic_debug_sessions", "diagnostic_events", "audit_events", "google_oauth_states", "google_connections", "provider_credential_versions", "provider_credentials", "transcription_job_outputs", "transcription_job_sources", "transcription_jobs", "sources", "projects", "sessions", "login_contexts", "local_identities", "users"]
+        tables = ["transcript_catalog_entries", "transcription_job_source_attempts", "transcription_output_reconciliations", "diagnostic_debug_sessions", "diagnostic_events", "audit_events", "google_oauth_states", "google_connections", "provider_credential_versions", "provider_credentials", "transcription_job_outputs", "transcription_job_sources", "transcription_jobs", "sources", "output_folder_favorites", "projects", "sessions", "login_contexts", "local_identities", "users"]
         required_tables = set(tables)
         missing = required_tables - set(inspect(conn).get_table_names())
         assert not missing, f"shared test database schema is not at current head: {sorted(missing)}"
@@ -1162,8 +1162,8 @@ def test_google_drive_source_metadata_lifecycle_owner_scoped(monkeypatch):
             "audio/flac",
             42,
             "https://drive.google.com/file/d/file_123/view",
-            None,
-            None,
+            "2025-12-01T10:20:30Z",
+            "2025-12-02T11:21:31Z",
             False,
         ),
         "file_456": GoogleDriveMetadata(
@@ -1172,7 +1172,7 @@ def test_google_drive_source_metadata_lifecycle_owner_scoped(monkeypatch):
             "video/mp4",
             43,
             "https://drive.google.com/file/d/file_456/view",
-            None,
+            "2025-12-02T11:21:31Z",
             None,
             False,
         ),
@@ -1236,6 +1236,71 @@ def test_local_upload_initiate_requires_auth_ownership_and_validates(monkeypatch
     assert r.status_code == 200
     db = SessionLocal(); src = db.get(Source, r.json()["source_id"]); db.close()
     assert src.original_filename == unicode_name
+
+
+def test_expired_local_source_is_hidden_from_active_collection_but_history_is_preserved():
+    c, _headers, pid = create_logged_in_project("expired-active-source@example.com")
+    db = SessionLocal()
+    try:
+        project = db.get(Project, pid)
+        source = Source(
+            project_id=pid,
+            source_type=SourceType.local_upload,
+            original_filename="expired.mp3",
+            mime_type="audio/mpeg",
+            size_bytes=10,
+            s3_bucket="bucket",
+            s3_object_key="private/expired",
+            upload_status=SourceUploadStatus.uploaded,
+            uploaded_at=utcnow() - timedelta(days=2),
+            expires_at=utcnow() - timedelta(seconds=1),
+        )
+        db.add(source); db.flush()
+        status_expired_source = Source(
+            project_id=pid,
+            source_type=SourceType.local_upload,
+            original_filename="status-expired.mp3",
+            mime_type="audio/mpeg",
+            size_bytes=10,
+            s3_bucket="bucket",
+            s3_object_key="private/status-expired",
+            upload_status=SourceUploadStatus.expired,
+            uploaded_at=utcnow() - timedelta(days=2),
+            expires_at=utcnow() + timedelta(days=1),
+        )
+        db.add(status_expired_source); db.flush()
+        job = TranscriptionJob(
+            project_id=pid,
+            owner_user_id=project.owner_user_id,
+            status=JobStatus.completed,
+            provider="elevenlabs",
+            finished_at=utcnow(),
+        )
+        db.add(job); db.flush()
+        relation = TranscriptionJobSource(job_id=job.id, source_id=source.id, position=0)
+        db.add(relation); db.commit()
+        source_id = source.id
+        status_expired_source_id = status_expired_source.id
+        job_id = job.id
+    finally:
+        db.close()
+
+    active = c.get(f"/api/projects/{pid}/sources")
+    assert active.status_code == 200
+    assert source_id not in [row["id"] for row in active.json()["sources"]]
+    assert status_expired_source_id not in [row["id"] for row in active.json()["sources"]]
+
+    history = c.get(f"/api/jobs/{job_id}")
+    assert history.status_code == 200
+    assert history.json()["sources"][0]["id"] == source_id
+    db = SessionLocal()
+    try:
+        preserved = db.get(Source, source_id)
+        assert preserved is not None
+        assert preserved.deleted_at is None
+        assert preserved.s3_object_key == "private/expired"
+    finally:
+        db.close()
 
 
 def test_local_upload_initiate_fails_closed_without_storage(monkeypatch):
@@ -2341,7 +2406,7 @@ def test_job_lease_migration_real_0005_shape_upgrades_to_head():
             assert {"lease_owner_id", "lease_generation", "claimed_at", "lease_expires_at", "attempt_count", "cancel_requested_at"}.issubset(cols)
             indexes = [idx["name"] for idx in inspector.get_indexes("transcription_jobs")]
             assert indexes.count("ix_transcription_jobs_status_lease_expires_created") == 1
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0020_provider_part_checkpoints"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0021_source_creation_favorites"
 
 
 
@@ -2376,7 +2441,7 @@ def test_job_output_migration_clean_chain_constraints_and_0007_roundtrip():
         run_alembic("head", env=env)
         with temp_engine.begin() as conn:
             assert "transcription_job_outputs" in inspect(conn).get_table_names()
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0020_provider_part_checkpoints"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0021_source_creation_favorites"
 
 
 
@@ -3593,8 +3658,8 @@ def test_google_picker_source_and_output_selection_revalidates_server_metadata(m
     db = SessionLocal(); uid = db.query(User).first().id; db.close(); _connect_google_for_test(uid)
     monkeypatch.setattr(main, "refresh_user_google_drive_access_token", lambda *a, **k: "access")
     metas = {
-        "file-a": GoogleDriveMetadata("file-a", "Backend A.mp3", "audio/mpeg", 10, "https://drive.google.com/file/d/file-a/view", None, None, False),
-        "file-b": GoogleDriveMetadata("file-b", "Backend B.mp4", "video/mp4", 20, "https://drive.google.com/file/d/file-b/view", None, None, False),
+        "file-a": GoogleDriveMetadata("file-a", "Backend A.mp3", "audio/mpeg", 10, "https://drive.google.com/file/d/file-a/view", "2025-12-01T10:20:30Z", None, False),
+        "file-b": GoogleDriveMetadata("file-b", "Backend B.mp4", "video/mp4", 20, "https://drive.google.com/file/d/file-b/view", "2025-12-02T11:21:31+00:00", None, False),
         "folder": GoogleDriveMetadata("folder", "Results", GOOGLE_FOLDER_MIME_TYPE, None, "https://drive.google.com/drive/folders/folder", None, None, True),
         "bad": GoogleDriveMetadata("bad", "Doc", "application/pdf", 5, "https://drive.google.com/file/d/bad/view", None, None, False),
     }
@@ -3616,7 +3681,7 @@ def test_google_picker_source_and_output_selection_revalidates_server_metadata(m
     r = c.post(f"/api/projects/{pid}/sources/google-picker", json={"file_ids": ["file-b", "file-a"]}, headers=headers)
     assert r.status_code == 200
     assert [s["original_filename"] for s in r.json()["sources"]] == ["Backend B.mp4", "Backend A.mp3"]
-    metas["file-c"] = GoogleDriveMetadata("file-c", "Лекция 1. Личность как психологическое явление.flac", "audio/flac", 30, "https://drive.google.com/file/d/file-c/view", None, None, False)
+    metas["file-c"] = GoogleDriveMetadata("file-c", "Лекция 1. Личность как психологическое явление.flac", "audio/flac", 30, "https://drive.google.com/file/d/file-c/view", "2025-12-03T12:22:32Z", None, False)
     r = c.post(f"/api/projects/{pid}/sources/google-picker", json={"file_ids": ["file-c"]}, headers=headers)
     assert r.status_code == 200
     body = r.json()["sources"][0]
@@ -3629,6 +3694,8 @@ def test_google_picker_source_and_output_selection_revalidates_server_metadata(m
     assert body["drive_file_url"] == "https://drive.google.com/file/d/file-c/view"
     assert body["mime_type"] == "audio/flac"
     assert body["size_bytes"] == 30
+    assert body["source_created_at"] == "2025-12-03T12:22:32+00:00"
+    assert body["source_created_at_provenance"] == "google_drive_created_time"
     assert "client" not in r.text.lower()
     assert c.post(f"/api/projects/{pid}/output-folder/google-picker", json={"folder_id":"file-a"}, headers=headers).status_code == 422
     assert c.post(f"/api/projects/{pid}/output-folder/google-picker", json={"folder_id":"mismatch"}, headers=headers).status_code == 422
@@ -3640,6 +3707,65 @@ def test_google_picker_source_and_output_selection_revalidates_server_metadata(m
     assert r.json()["output_drive_folder_name"] == "Results"
     assert r.json()["output_drive_folder_url"] == "https://drive.google.com/drive/folders/folder"
     assert "access" not in r.text and "canAddChildren" not in r.text and "capabilities" not in r.text
+
+    saved = c.post(
+        "/api/output-folder-favorites/google-picker",
+        json={"folder_id": "folder"},
+        headers=headers,
+    )
+    assert saved.status_code == 200
+    favorite = saved.json()
+    assert favorite["drive_folder_id"] == "folder"
+    assert favorite["name"] == "Results"
+    assert favorite["web_view_url"] == "https://drive.google.com/drive/folders/folder"
+    assert "access" not in saved.text and "capabilities" not in saved.text
+    refreshed = c.post(
+        "/api/output-folder-favorites/google-picker",
+        json={"folder_id": "folder"},
+        headers=headers,
+    )
+    assert refreshed.status_code == 200
+    assert refreshed.json()["id"] == favorite["id"]
+    listed = c.get("/api/output-folder-favorites")
+    assert listed.status_code == 200
+    assert [row["id"] for row in listed.json()["favorites"]] == [favorite["id"]]
+    assert c.delete(
+        f"/api/output-folder-favorites/{favorite['id']}",
+        headers=headers,
+    ).status_code == 200
+    assert c.get("/api/output-folder-favorites").json() == {"favorites": []}
+
+
+def test_output_folder_favorite_uses_canonical_url_when_drive_omits_link():
+    from studio_api.main import verified_output_folder_url
+
+    assert verified_output_folder_url("safe-folder_123", None) == (
+        "https://drive.google.com/drive/folders/safe-folder_123"
+    )
+
+
+def test_output_folder_favorites_are_owner_scoped():
+    c1, _h1, _pid1 = create_logged_in_project("favorite-owner-1@example.com")
+    c2, h2, _pid2 = create_logged_in_project("favorite-owner-2@example.com")
+    db = SessionLocal()
+    try:
+        owner = db.query(User).filter_by(email="favorite-owner-1@example.com").one()
+        row = OutputFolderFavorite(
+            owner_user_id=owner.id,
+            drive_folder_id="folder-private",
+            name="Private",
+            web_view_url="https://drive.google.com/drive/folders/folder-private",
+        )
+        db.add(row); db.commit(); favorite_id = row.id
+    finally:
+        db.close()
+
+    assert [row["id"] for row in c1.get("/api/output-folder-favorites").json()["favorites"]] == [favorite_id]
+    assert c2.get("/api/output-folder-favorites").json() == {"favorites": []}
+    assert c2.delete(
+        f"/api/output-folder-favorites/{favorite_id}",
+        headers=h2,
+    ).status_code == 404
 
 
 def test_legacy_google_drive_source_ignores_browser_metadata_and_uses_verified_metadata(monkeypatch):
@@ -3660,7 +3786,7 @@ def test_legacy_google_drive_source_ignores_browser_metadata_and_uses_verified_m
         "video/mp4",
         42,
         "https://drive.google.com/file/d/verified-file/view",
-        None,
+        "2025-12-04T13:23:33Z",
         None,
         False,
     )
@@ -5627,7 +5753,7 @@ def test_job_destination_migration_0008_0009_upgrade_downgrade_backfill(tmp_path
         with temp_engine.begin() as conn:
             assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0009_job_output_destinations"
         cfg = Config(str(ALEMBIC))
-        assert ScriptDirectory.from_config(cfg).get_current_head() == "0020_provider_part_checkpoints"
+        assert ScriptDirectory.from_config(cfg).get_current_head() == "0021_source_creation_favorites"
     finally:
         temp_engine.dispose()
         cleanup_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")

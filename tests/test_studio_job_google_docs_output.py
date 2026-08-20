@@ -53,7 +53,7 @@ def make_job(db, m, *, title="Job Title", language="en", options_json=None):
     db.add(user); db.flush()
     project = m.Project(owner_user_id=user.id, title="p", output_drive_folder_id="folder-private")
     db.add(project); db.flush()
-    src = m.Source(project_id=project.id, source_type=m.SourceType.local_upload, original_filename="тайна meeting.mp3", mime_type="audio/mpeg", size_bytes=5, s3_bucket="bucket", s3_object_key="private/object", upload_status=m.SourceUploadStatus.uploaded, uploaded_at=now, expires_at=now + timedelta(hours=1))
+    src = m.Source(project_id=project.id, source_type=m.SourceType.local_upload, original_filename="тайна meeting.mp3", mime_type="audio/mpeg", size_bytes=5, s3_bucket="bucket", s3_object_key="private/object", upload_status=m.SourceUploadStatus.uploaded, uploaded_at=now, source_created_at=datetime(2025, 12, 31, 22, 33, 44), source_created_at_provenance="embedded_media_metadata", expires_at=now + timedelta(hours=1))
     db.add(src); db.flush()
     job = m.TranscriptionJob(project_id=project.id, owner_user_id=user.id, status=m.JobStatus.processing, provider="elevenlabs", title=title, language=language, options_json=options_json, output_drive_folder_id="folder-private", output_drive_folder_url="https://drive.google.com/drive/folders/folder-private", output_drive_folder_name="Private", lease_owner_id="worker", lease_generation=7, claimed_at=now, lease_expires_at=now + timedelta(minutes=5), started_at=now)
     db.add(job); db.flush()
@@ -159,6 +159,8 @@ def test_formatting_contract_title_language_unicode_empty_body():
     assert choose_transcript_document_title(job_title=" ", original_filename="folder/audio.name.mp3") == "audio.name"
     empty = format_transcript_doc_v1_2(title="\x00", transcript_text="", job_language=None, detected_language_code=None, created_at=created)
     assert empty.title == "Transcript" and empty.body.endswith("Transcript\n\n") and "Language: unknown" in empty.body
+    unknown = format_transcript_doc_v1_2(title="Unknown", transcript_text="Text", job_language="en", detected_language_code=None, created_at=None)
+    assert "Created at: unknown" in unknown.body
 
 
 def test_success_job_boundary_one_token_one_create_lifetime_and_no_mutation(db, models):
@@ -172,6 +174,7 @@ def test_success_job_boundary_one_token_one_create_lifetime_and_no_mutation(db, 
         assert "doc-private" not in repr(artifact) and "https://docs.example/private" not in repr(artifact) and "Job Title" not in repr(artifact)
     assert tokens == [1] and len(metadata_calls) == 1 and len(transport.calls) == 1
     assert metadata_calls[0][0] == transport.calls[0]["access_token"] == "token-secret"
+    assert "Created at: 2025-12-31T22:33:44Z" in transport.calls[0]["document_text"]
     assert (job.status, job.finished_at, job.error_code, job.error_message, rel.status, src.deleted_at, project.output_drive_folder_id) == before
     from studio_api.google_docs_output import GoogleDocsOutputError
     with pytest.raises(GoogleDocsOutputError, match="context_closed"):

@@ -5,7 +5,7 @@ import uuid
 import base64
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -285,7 +285,7 @@ def fake_source(db, *, job_id, job_source_id, lease_owner_id, lease_generation, 
     src = rel.source
     stream = BytesIO(b"audio")
     try:
-        yield MaterializedJobSource(MaterializedSourceIdentity(job_id, rel.id, src.id), rel.position, src.original_filename, src.mime_type, 5, stream)
+        yield MaterializedJobSource(MaterializedSourceIdentity(job_id, rel.id, src.id), rel.position, src.original_filename, src.mime_type, 5, stream, source_type=src.source_type.value, source_created_at=src.source_created_at, source_created_at_provenance=src.source_created_at_provenance)
     finally:
         stream.close()
 
@@ -318,6 +318,47 @@ def run_boundary(db, m, job, rel, transport, now, **kwargs):
     from studio_api.job_elevenlabs_transcription import transcribe_processing_job_source_with_elevenlabs
     kwargs.setdefault("media_preparer", fake_media_preparer)
     return transcribe_processing_job_source_with_elevenlabs(db, job_id=job.id, job_source_id=rel.id, lease_owner_id="worker", lease_generation=7, settings=Settings(), now=now, prerequisites_opener=fake_prereq, source_materializer=fake_source, elevenlabs_transport=transport, models=m, **kwargs)
+
+
+def test_embedded_local_creation_time_is_persisted_before_provider_call(db, models):
+    from studio_api.media_preparation import PreparedMediaBatch, PreparedMediaInput
+
+    _user, _project, _cred, _version, source, job, rel, now = make_job(db, models)
+    discovered = datetime(2025, 12, 3, 12, 22, 32, tzinfo=timezone.utc)
+
+    @contextmanager
+    def prepare(**kwargs):
+        assert kwargs["probe_source_creation_time"] is True
+        yield PreparedMediaBatch(
+            parts=(
+                PreparedMediaInput(
+                    filename=kwargs["original_filename"],
+                    mime_type=kwargs["mime_type"],
+                    byte_count=kwargs["byte_count"],
+                    stream=kwargs["stream"],
+                    duration_seconds=1.0,
+                ),
+            ),
+            duration_seconds=1.0,
+            source_created_at=discovered,
+        )
+
+    transport = CaptureTransport()
+    with run_boundary(
+        db,
+        models,
+        job,
+        rel,
+        transport,
+        now,
+        media_preparer=prepare,
+    ):
+        pass
+
+    db.refresh(source)
+    assert source.source_created_at == discovered.replace(tzinfo=None)
+    assert source.source_created_at_provenance == "embedded_media_metadata"
+    assert len(transport.calls) == 1
 
 
 def test_request_construction_language_and_redaction():

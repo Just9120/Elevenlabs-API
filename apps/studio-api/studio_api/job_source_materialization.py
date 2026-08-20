@@ -60,6 +60,9 @@ class MaterializedJobSource:
     mime_type: str
     byte_count: int
     stream: BinaryIO = field(repr=False)
+    source_type: str | None = None
+    source_created_at: datetime | None = None
+    source_created_at_provenance: str | None = None
 
     def __repr__(self) -> str:
         return (
@@ -87,6 +90,8 @@ class _SourceSnapshot:
     upload_status: str
     deleted_at: datetime | None
     expires_at: datetime | None
+    source_created_at: datetime | None
+    source_created_at_provenance: str | None
     lease_owner_id: str | None
     lease_generation: int
     cancel_requested_at: datetime | None
@@ -161,6 +166,9 @@ def materialize_processing_job_source(
                 mime_type=normalize_source_mime_type(response_mime) or snap.mime_type or "application/octet-stream",
                 byte_count=byte_count,
                 stream=temp,
+                source_type=snap.source_type,
+                source_created_at=snap.source_created_at,
+                source_created_at_provenance=snap.source_created_at_provenance,
             )
         except SourceMaterializationError:
             raise
@@ -202,7 +210,7 @@ def _load_selected_snapshot(db, job_id, job_source_id, owner, generation, now, s
         raise SourceMaterializationError(SourceMaterializationReason.job_source_not_processable)
     if not validate_source_size(src.size_bytes, settings.source_max_upload_bytes):
         raise SourceMaterializationError(SourceMaterializationReason.source_too_large)
-    return _SourceSnapshot(job.id, rel.id, src.id, rel.position, _value(rel.status), _value(src.source_type), src.project_id, src.drive_file_id, src.s3_bucket, src.s3_object_key, mime, src.size_bytes, _value(src.upload_status), src.deleted_at, src.expires_at, job.lease_owner_id, job.lease_generation, job.cancel_requested_at, _value(job.status), project.archived_at, project.owner_user_id, job.owner_user_id, job.project_id, src.original_filename)
+    return _SourceSnapshot(job.id, rel.id, src.id, rel.position, _value(rel.status), _value(src.source_type), src.project_id, src.drive_file_id, src.s3_bucket, src.s3_object_key, mime, src.size_bytes, _value(src.upload_status), src.deleted_at, src.expires_at, src.source_created_at, src.source_created_at_provenance, job.lease_owner_id, job.lease_generation, job.cancel_requested_at, _value(job.status), project.archived_at, project.owner_user_id, job.owner_user_id, job.project_id, src.original_filename)
 
 
 def _copy_source_bytes(snap, temp, settings, storage_factory, drive_token_resolver, drive_content_fetcher, db):

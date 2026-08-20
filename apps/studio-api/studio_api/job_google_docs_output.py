@@ -85,7 +85,7 @@ class FormattedTranscriptDocument:
     title: str
     body: str
     language: str
-    created_at: datetime
+    created_at: datetime | None
 
 
 @dataclass(frozen=True)
@@ -151,13 +151,12 @@ def create_processing_job_google_doc_from_transcript(
         except (ElevenLabsTranscriptionError, GoogleDocsOutputError) as exc:
             raise JobGoogleDocsOutputError(JobGoogleDocsOutputReason.transcript_context_closed) from exc
         title = choose_transcript_document_title(job_title=snap.title, original_filename=source_snap.original_filename)
-        created_at = clock()
         formatted = format_transcript_doc_v1_2(
             title=title,
             transcript_text=transcript_text,
             job_language=snap.language,
             detected_language_code=transcript.detected_language_code,
-            created_at=created_at,
+            created_at=source_snap.source_created_at,
             diarization_enabled=diarization_enabled,
         )
         _compare_or_before(_load_output_job_snapshot(db, job_id, lease_owner_id, lease_generation, clock()), snap)
@@ -204,10 +203,10 @@ def create_processing_job_google_doc_from_transcript(
             artifact.revoke()
 
 
-def format_transcript_doc_v1_2(*, title: str, transcript_text: str, job_language: str | None, detected_language_code: str | None, created_at: datetime, diarization_enabled: bool = False) -> FormattedTranscriptDocument:
+def format_transcript_doc_v1_2(*, title: str, transcript_text: str, job_language: str | None, detected_language_code: str | None, created_at: datetime | None, diarization_enabled: bool = False) -> FormattedTranscriptDocument:
     safe_title = normalize_document_title(title)
     lang = document_language(job_language, detected_language_code)
-    ts = _utc_iso(created_at)
+    ts = _utc_iso(created_at) if created_at is not None else "unknown"
     speakers = "yes" if diarization_enabled else "no"
     body = f"{safe_title}\n\nTranscript metadata\nProvider: ElevenLabs\nModel: {CURRENT_TRANSCRIPTION_MODEL}\nLanguage: {lang}\nSpeakers: {speakers}\nCreated at: {ts}\n\nTranscript\n\n{transcript_text}"
     return FormattedTranscriptDocument(title=safe_title, body=body, language=lang, created_at=created_at)

@@ -285,6 +285,11 @@ export function SourcesPanel({
             <span>{unusableJobSourceReason(source)}</span>
           )}
           <span>Размер: {formatBytes(source.size_bytes)}</span>
+          <span>
+            Создан исходный файл: {source.source_created_at
+              ? formatTime(source.source_created_at)
+              : "не удалось определить"}
+          </span>
           {source.source_type === "local_upload" && source.expires_at && (
             <span>Хранится до: {formatTime(source.expires_at)}</span>
           )}

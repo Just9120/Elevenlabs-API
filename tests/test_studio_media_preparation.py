@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 
@@ -35,6 +36,71 @@ def test_audio_input_is_passed_through_without_ffmpeg():
         assert prepared.audio_extracted is False
 
     assert source.closed is False
+
+
+def test_audio_creation_time_is_probed_from_authoritative_embedded_metadata(tmp_path):
+    from studio_api.media_preparation import prepare_elevenlabs_media_input
+
+    source = BytesIO(b"audio-with-metadata")
+    calls = []
+
+    def runner(command, **kwargs):
+        calls.append((command, kwargs))
+        assert command[0] == "ffprobe"
+        assert Path(command[-1]).read_bytes() == b"audio-with-metadata"
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout='{"format":{"tags":{"creation_time":"2025-12-03T12:22:32.123Z"}},"streams":[]}',
+        )
+
+    with prepare_elevenlabs_media_input(
+        stream=source,
+        original_filename="recording.mp3",
+        mime_type="audio/mpeg",
+        byte_count=len(b"audio-with-metadata"),
+        max_output_bytes=100,
+        runner=runner,
+        temporary_directory=str(tmp_path),
+        probe_source_creation_time=True,
+    ) as prepared:
+        assert prepared.source_created_at == datetime(
+            2025, 12, 3, 12, 22, 32, 123000, tzinfo=timezone.utc
+        )
+        assert prepared.stream is source
+        assert prepared.stream.read() == b"audio-with-metadata"
+
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        '{"format":{"tags":{"creation_time":"2025-12-03 12:22:32"}}}',
+        '{"format":{"tags":{"creation_time":"not-a-date"}}}',
+        "not-json",
+        "{}",
+    ],
+)
+def test_unverified_embedded_creation_time_remains_unknown(tmp_path, payload):
+    from studio_api.media_preparation import prepare_elevenlabs_media_input
+
+    source = BytesIO(b"audio")
+
+    def runner(command, **kwargs):
+        return subprocess.CompletedProcess(command, 0, stdout=payload)
+
+    with prepare_elevenlabs_media_input(
+        stream=source,
+        original_filename="recording.mp3",
+        mime_type="audio/mpeg",
+        byte_count=5,
+        max_output_bytes=100,
+        runner=runner,
+        temporary_directory=str(tmp_path),
+        probe_source_creation_time=True,
+    ) as prepared:
+        assert prepared.source_created_at is None
 
 
 def test_video_input_is_extracted_to_bounded_aac_m4a_and_cleaned(tmp_path):

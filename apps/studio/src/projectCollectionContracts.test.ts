@@ -17,6 +17,8 @@ const source = {
   drive_file_url: "https://drive.google.com/file/d/safe/view",
   upload_status: "uploaded",
   uploaded_at: "2026-08-14T10:00:00Z",
+  source_created_at: null,
+  source_created_at_provenance: null,
   expires_at: null,
   deleted_at: null,
   delete_reason: null,
@@ -87,6 +89,40 @@ describe("project collection contracts", () => {
         "project-safe",
       ),
     ).toBeNull();
+    expect(
+      parseProjectSourceCollection(
+        {
+          sources: [
+            {
+              ...source,
+              source_created_at: "2025-12-03T12:22:32Z",
+              source_created_at_provenance: null,
+            },
+          ],
+        },
+        "project-safe",
+      ),
+    ).toBeNull();
+  });
+
+  it("accepts only paired authoritative source creation metadata", () => {
+    const parsed = parseProjectSourceCollection(
+      {
+        sources: [
+          {
+            ...source,
+            source_created_at: "2025-12-03T12:22:32Z",
+            source_created_at_provenance: "google_drive_created_time",
+          },
+        ],
+      },
+      "project-safe",
+    );
+
+    expect(parsed?.[0].source_created_at).toBe("2025-12-03T12:22:32Z");
+    expect(parsed?.[0].source_created_at_provenance).toBe(
+      "google_drive_created_time",
+    );
   });
 
   it("reconstructs safe job fields and discards private extras", () => {
