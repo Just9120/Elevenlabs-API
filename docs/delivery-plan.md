@@ -18,16 +18,16 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-20T07:29:53Z
+- Updated (UTC): 2026-08-20T07:30:53Z
 - Session mode: FOCUSED_TASK после RECOVERY завершённого `PWA-REALTIME-CAPTURE-01`
 - Base branch: `main`
 - Base SHA: `f3a3f33fb0ce019c1916d95f754ed72d1d56ee01`
 - Working branch: `codex/docs-goal-driven-policy`
-- Last verified revision: `f3a3f33fb0ce019c1916d95f754ed72d1d56ee01`
-- Working tree: DIRTY — только owned documentation changes: `AGENTS.md`, `README.md`, удаление standalone workflow, `docs/ci-cd-rules.md`, `docs/delivery-plan.md`, `docs/delivery-plan-archive.md` и `docs/project-spec.md`
-- Completed since base: принят новый `AGENTS.md`; новый universal CI/CD contract объединён с существующим verified project profile; standalone workflow удалён; active README/project-spec references удалены; stale README readiness синхронизирована; предыдущий realtime checkpoint перенесён в archive
-- Current step: final pre-commit diff/scope review
-- Next exact action: stage только семь intended documentation paths и создать один docs-policy commit
+- Last verified revision: `6312f8c2d114a65b2573db39b18a2641373d8436`
+- Working tree: CLEAN на material revision `6312f8c`; текущая checkpoint update является final pre-push operational delta
+- Completed since base: commit `6312f8c` принял новый `AGENTS.md`, объединил universal CI/CD contract с verified project profile, удалил standalone workflow и active references, синхронизировал README/readiness и перенёс предыдущий realtime checkpoint в archive
+- Current step: publishing reviewed documentation Goal
+- Next exact action: commit final checkpoint, push branch и создать один draft PR в `main`
 - Validation and Evidence: supplied/repository `AGENTS.md` exact normalized match; universal CI/CD sections exact normalized match; previous verified project profile preserved; standalone workflow и stale references отсутствуют; Markdown local links `14/14` OK; bundled Python `scripts/ci_checks.py` passed; `git diff --check` passed
 - Pull Request: N/A
 - CI/checks: для текущей branch ещё не запускались; baseline scheduled Dependency audit run `31996248930` завершился failure 2026-08-17 и не является обычным PR gate
