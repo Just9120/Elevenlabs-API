@@ -675,6 +675,21 @@ Goal `SECURITY-DEPENDENCY-REMEDIATION-01` removed the current High findings from
 - Product readiness remained `78/109 = 71,6%`: the Goal changed no product AC or denominator.
 - Approved post-deploy metadata writer remained absent; actual closure was reconciled at the start of the next authorized Goal without a follow-up docs-only PR. Local `main` was synchronized and the merged local/remote Goal branch was safely removed.
 
+## Archived PR #215 arbitrary segments closure
+
+Goal `PWA-ARBITRARY-SEGMENTS-01` generalized the segment composer from a narrow two-part case to an ordered arbitrary-`N` plan and was merged through PR #215 on 2026-08-20.
+
+- Base: `main@50dff6f7401a08393137d5bd5e28162bd8df1133`.
+- Merge commit: `919e6137ed0e806db168a43d292ab7874293549e`.
+- Exact-main repository CI run `32376152400`: `checks` success.
+- Exact-main Studio/browser CI run `32376152418`: `studio` and `browser-e2e` success.
+- Component CD run `32376152217`: `studio-web` and `studio-api` success; worker rollout correctly `N/A` for unchanged worker runtime.
+- Production API/web exact revision and health were confirmed.
+- Bounded LIVE canary job `69fe73ed-8769-4806-ae35-7616594cbf13` used one reviewed short synthetic source and clip `00:01–00:05`; it completed with one `transcript_doc_v1.2` Google Docs output. Private URLs, document IDs, source metadata and transcript body are intentionally omitted.
+- `PWA-SEGMENTS-01` reached `5/5 = 100%`, status `READY`, Evidence `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅`.
+- The same canary exposed a separate browser-contract regression: canonical English `language_mode=en` was rejected by list/detail parsing, producing false collection/detail errors and stale `40%` while outputs already reported completion. `PB-05` was therefore corrected from ✅ to ❌ at the start of Goal `PWA-JOB-STATE-CONSISTENCY-01`; project readiness changed from `83/109` to `82/109` without denominator change.
+- Approved post-deploy metadata writer remained absent (`metadata_sync.enabled=false`); closure was reconciled in the next authorized Goal rather than a follow-up docs-only PR. Local and remote merged branches were safely removed after clean synchronized `main` verification.
+
 ## Current non-authority warning
 
 If this archive conflicts with `docs/project-spec.md`, `docs/delivery-plan.md`, `docs/architecture.md`, `docs/ci-cd-rules.md`, or the current user task, treat the current documents/task as authoritative and this archive as historical context only.

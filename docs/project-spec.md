@@ -28,13 +28,13 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Текущий independently verified baseline: `main@50dff6f7401a08393137d5bd5e28162bd8df1133`:
+Текущий independently verified baseline: `main@919e6137ed0e806db168a43d292ab7874293549e`:
 
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **75,9% (`22/29`)** | `COLAB-BATCH 17/23` + `COLAB-REALTIME 5/6` |
-| Studio PWA | **76,3% (`61/80`)** | сумма девяти PWA-эпиков ниже |
-| Весь проект | **76,1% (`83/109`)** | все выполненные AC двух продуктов / все AC текущего scope |
+| Studio PWA | **75,0% (`60/80`)** | сумма девяти PWA-эпиков ниже; `PB-05` возвращён в ❌ по production LIVE evidence |
+| Весь проект | **75,2% (`82/109`)** | все выполненные AC двух продуктов / все AC текущего scope |
 
 ## 3. Общие product rules
 
@@ -153,7 +153,7 @@ Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
 
 ### Эпик `PWA-SEGMENTS-01` — произвольные пользовательские фрагменты
 
-Status: **🟦 IN PROGRESS — 100% (`5/5`)**.
+Status: **🟩 READY — 100% (`5/5`)**.
 
 Generalized composer принимает ordered plan из `N >= 1` фрагментов в пределах batch maximum. Browser и API отклоняют malformed, reversed, overlapping, out-of-order и over-limit планы; каждый принятый фрагмент становится отдельной job с immutable clip/output-folder snapshot и проходит существующий one-job/one-Google-Docs-output pipeline.
 
@@ -165,11 +165,11 @@ Generalized composer принимает ordered plan из `N >= 1` фрагме�
 | `PS-04` | Для каждого фрагмента задаётся end time либо явный `Конец`. | ✅ |
 | `PS-05` | Для каждого валидного фрагмента создаётся отдельный transcript document. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 
 ### Эпик `PWA-BATCH-01` — transcription options, progress и output
 
-Status: **🟦 IN PROGRESS — 90,0% (`9/10`)**.
+Status: **🟦 IN PROGRESS — 80,0% (`8/10`)**.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -177,14 +177,16 @@ Status: **🟦 IN PROGRESS — 90,0% (`9/10`)**.
 | `PB-02` | Доступен явный русский язык. | ✅ |
 | `PB-03` | Доступен явный английский язык. | ✅ |
 | `PB-04` | Доступно auto-detection языка. | ✅ |
-| `PB-05` | Job progress отображается live в процентах из server checkpoints. | ✅ |
+| `PB-05` | Job progress отображается live в процентах из server checkpoints. | ❌ |
 | `PB-06` | Успешная job создаёт Google Docs transcript и safe output link. | ✅ |
 | `PB-07` | Transcript document разбит на читабельные абзацы. | ✅ |
 | `PB-08` | В начало документа добавлен metadata header. | ✅ |
 | `PB-09` | Видимый timestamp имеет ISO 8601 format. | ✅ |
 | `PB-10` | Timestamp получен из фактического creation time исходного media file. | ❌ |
 
-Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
+Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ✅ | DEPLOY ◐ | LIVE ❌`.
+
+Verified regression: production English-job canary на `main@919e613` завершился и создал safe Google Docs output, однако browser strict DTO отклонил canonical `language_mode=en` в list/detail response. UI сохранил stale `40%` и показал ложные collection/detail errors, поэтому `PB-05` не считается выполненным до исправления и повторного LIVE подтверждения.
 
 ### Эпик `PWA-SPEAKER-IDENTITY-01` — имена и роли спикеров
 
@@ -318,12 +320,12 @@ Status: **⬜ BACKLOG**. Владелец явно отнёс TOTP/Google Authen
 
 ## 8. Runtime и delivery baseline
 
-- Current audit revision: `main@50dff6f7401a08393137d5bd5e28162bd8df1133`.
-- Exact-main repository CI: run `32351540609`, success.
-- Exact-main Studio/browser CI: run `32351540560`, jobs `studio` и `browser-e2e` success.
-- Studio component CD run `32351540606` доставил `studio-web` и `studio-api`; manual worker deploy/status runs `32352024954`/`32352126674` подтвердили healthy worker image exact merge revision. Это component DEPLOY/health evidence, а не доказательство product transcription canary.
+- Current audit revision: `main@919e6137ed0e806db168a43d292ab7874293549e`.
+- Exact-main repository CI: run `32376152400`, success.
+- Exact-main Studio/browser CI: run `32376152418`, jobs `studio` и `browser-e2e` success.
+- Studio component CD run `32376152217` доставил `studio-web` и `studio-api`; worker rollout был `N/A`, потому что runtime worker code не изменялся. Production API/web health и exact merge revision подтверждены.
 - Production API/worker/migration evidence предыдущего processing rollout привязано к `main@66fb098` и Alembic head `0020_provider_part_checkpoints`; оно не доказывает более поздние UI/realtime requirements.
-- GitHub Deployments API не содержит deployment records для `50dff6f`; authoritative operational evidence находится в Actions runs и archive.
+- Bounded production canary на `919e613` подтвердил arbitrary-fragment Google Docs output и закрыл `PWA-SEGMENTS-01`, одновременно выявив `PB-05` regression; safe execution identifiers находятся в delivery archive.
 
 ## 9. Current critical path
 
