@@ -8214,6 +8214,86 @@ describe("Studio PWA", () => {
     expect(document.body.textContent).not.toContain("raw-google-payload");
   });
 
+  it("saves, revalidates, reuses, and removes an owner folder favorite", async () => {
+    renderApp();
+    await openProjectsPage();
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
+    await chooseResultFolder(1, "favorite-folder", "Favorite Folder");
+
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const previousFetch = fetchMock.getMockImplementation();
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (
+        url === "/api/output-folder-favorites/google-picker" &&
+        init?.method === "POST"
+      ) {
+        expect(JSON.parse(String(init.body))).toEqual({
+          folder_id: "favorite-folder",
+        });
+        return json({
+          id: "favorite-1",
+          drive_folder_id: "favorite-folder",
+          name: "Favorite Folder",
+          web_view_url:
+            "https://drive.google.com/drive/folders/favorite-folder",
+          created_at: "2026-08-20T10:00:00Z",
+          updated_at: "2026-08-20T10:00:00Z",
+        });
+      }
+      if (
+        url === "/api/output-folder-favorites/favorite-1" &&
+        init?.method === "DELETE"
+      ) {
+        return json({ ok: true });
+      }
+      return previousFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Добавить в избранное" }),
+    );
+    expect(
+      await screen.findByRole("button", { name: "Обновить в избранном" }),
+    ).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Добавить строку" }));
+    const secondRow = await screen.findByRole("listitem", { name: "Задача 2" });
+    await userEvent.click(within(secondRow).getByText("Избранные папки"));
+    await userEvent.click(
+      within(secondRow).getByRole("button", {
+        name: "Выбрать: Favorite Folder",
+      }),
+    );
+    await waitFor(() =>
+      expect(within(secondRow).getByText("Favorite Folder")).toBeInTheDocument(),
+    );
+    const verificationCalls = fetchMock.mock.calls.filter(
+      ([url, init]) =>
+        url === "/api/projects/p1/output-folders/google-picker/verify" &&
+        init?.method === "POST" &&
+        JSON.parse(String(init.body)).folder_id === "favorite-folder",
+    );
+    expect(verificationCalls.length).toBeGreaterThanOrEqual(2);
+
+    await userEvent.click(
+      within(secondRow).getByRole("button", { name: "Удалить" }),
+    );
+    await waitFor(() =>
+      expect(
+        within(secondRow).queryByRole("button", {
+          name: "Выбрать: Favorite Folder",
+        }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(
+      fetchMock.mock.calls.filter(
+        ([url, init]) =>
+          url === "/api/output-folder-favorites/favorite-1" &&
+          init?.method === "DELETE",
+      ),
+    ).toHaveLength(1);
+  });
+
   it("row output-folder Picker cancel/error does not mutate project folder and source/folder cannot open simultaneously", async () => {
     let picker = installFakeGooglePicker();
     renderApp();

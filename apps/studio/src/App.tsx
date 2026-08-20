@@ -821,6 +821,47 @@ function isExpectedVerifiedGooglePickerFolder(
     (folder.web_view_url === null || typeof folder.web_view_url === "string")
   );
 }
+type OutputFolderFavorite = {
+  id: string;
+  drive_folder_id: string;
+  name: string;
+  web_view_url: string;
+  created_at: string;
+  updated_at: string;
+};
+function parseOutputFolderFavorite(candidate: unknown): OutputFolderFavorite | null {
+  if (!candidate || typeof candidate !== "object") return null;
+  const value = candidate as Partial<OutputFolderFavorite>;
+  if (
+    typeof value.id !== "string" ||
+    !value.id ||
+    typeof value.drive_folder_id !== "string" ||
+    !value.drive_folder_id ||
+    typeof value.name !== "string" ||
+    !value.name.trim() ||
+    typeof value.web_view_url !== "string" ||
+    !isApprovedOutputUrl(value.web_view_url) ||
+    typeof value.created_at !== "string" ||
+    !Number.isFinite(Date.parse(value.created_at)) ||
+    typeof value.updated_at !== "string" ||
+    !Number.isFinite(Date.parse(value.updated_at))
+  ) {
+    return null;
+  }
+  return value as OutputFolderFavorite;
+}
+function parseOutputFolderFavoriteCollection(candidate: unknown): OutputFolderFavorite[] | null {
+  if (!candidate || typeof candidate !== "object") return null;
+  const rows = (candidate as { favorites?: unknown }).favorites;
+  if (!Array.isArray(rows)) return null;
+  const parsed = rows.map(parseOutputFolderFavorite);
+  if (parsed.some((row) => row === null)) return null;
+  const favorites = parsed as OutputFolderFavorite[];
+  return new Set(favorites.map((row) => row.id)).size === favorites.length &&
+    new Set(favorites.map((row) => row.drive_folder_id)).size === favorites.length
+    ? favorites
+    : null;
+}
 function credentialProfileLabel(c: Credential) {
   return c.active_version ? `${c.label} · v${c.active_version}` : c.label;
 }
@@ -947,6 +988,9 @@ function isExpectedCompletedLocalSource(
     source.size_bytes === sizeBytes &&
     source.drive_file_url === null &&
     validDate(source.uploaded_at) &&
+    (source.source_created_at === null || source.source_created_at === undefined) &&
+    (source.source_created_at_provenance === null ||
+      source.source_created_at_provenance === undefined) &&
     validDate(source.expires_at) &&
     source.deleted_at === null &&
     source.delete_reason === null &&
@@ -1375,6 +1419,11 @@ function PreparationPanel({
   const [sourceUploadPolicy, setSourceUploadPolicy] =
     useState<SourceUploadPolicy | null>(null);
   const [sourceUploadPolicyError, setSourceUploadPolicyError] = useState("");
+  const [folderFavorites, setFolderFavorites] = useState<OutputFolderFavorite[]>([]);
+  const [folderFavoritesLoaded, setFolderFavoritesLoaded] = useState(false);
+  const [folderFavoritesLoading, setFolderFavoritesLoading] = useState(false);
+  const [folderFavoritesError, setFolderFavoritesError] = useState("");
+  const [folderFavoriteMutation, setFolderFavoriteMutation] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [submissionStage, setSubmissionStage] = useState<
     "preflight" | "create" | null
@@ -1447,6 +1496,11 @@ function PreparationPanel({
     setRemovedSourceIds(new Set());
     setRowIntakeStatus({});
     setRowIntakeErrors({});
+    setFolderFavorites([]);
+    setFolderFavoritesLoaded(false);
+    setFolderFavoritesLoading(false);
+    setFolderFavoritesError("");
+    setFolderFavoriteMutation(null);
     setBatchJobs([]);
     setPreflight(null);
     setMessage("");
@@ -2418,6 +2472,121 @@ function PreparationPanel({
     } finally {
       rowFolderPickerRef.current = false;
       finishGooglePicker(operation, outcome);
+    }
+  }
+  async function loadFolderFavorites() {
+    if (folderFavoritesLoading) return;
+    setFolderFavoritesLoading(true);
+    setFolderFavoritesError("");
+    try {
+      const bounded = await runBoundedRequest((signal) =>
+        api<unknown>("/output-folder-favorites", {
+          signal,
+          cache: "no-store",
+        }),
+      );
+      if (bounded.status === "timed_out") throw new Error("timeout");
+      const parsed = parseOutputFolderFavoriteCollection(bounded.value);
+      if (parsed === null) throw new Error("invalid_response");
+      setFolderFavorites(parsed);
+      setFolderFavoritesLoaded(true);
+    } catch {
+      setFolderFavoritesError("Не удалось загрузить избранные папки.");
+    } finally {
+      setFolderFavoritesLoading(false);
+    }
+  }
+  async function saveRowFolderFavorite(row: ComposerRow) {
+    const folderId = row.output_folder?.folder_id;
+    if (!folderId || folderFavoriteMutation) return;
+    setFolderFavoriteMutation(`save:${folderId}`);
+    setFolderFavoritesError("");
+    try {
+      const bounded = await runBoundedRequest((signal) =>
+        batchMutateWithCsrfRetry<unknown>(
+          "/output-folder-favorites/google-picker",
+          csrf,
+          onCsrf,
+          {
+            method: "POST",
+            body: JSON.stringify({ folder_id: folderId }),
+            signal,
+          },
+        ),
+      );
+      if (bounded.status === "timed_out") throw new Error("timeout");
+      const favorite = parseOutputFolderFavorite(bounded.value);
+      if (!favorite) throw new Error("invalid_response");
+      setFolderFavorites((current) => [
+        favorite,
+        ...current.filter((item) => item.id !== favorite.id),
+      ]);
+      setFolderFavoritesLoaded(true);
+    } catch {
+      setFolderFavoritesError("Не удалось добавить папку в избранное.");
+    } finally {
+      setFolderFavoriteMutation(null);
+    }
+  }
+  async function chooseFavoriteFolder(rowId: string, favorite: OutputFolderFavorite) {
+    if (folderFavoriteMutation) return;
+    setFolderFavoriteMutation(`choose:${favorite.id}`);
+    setFolderFavoritesError("");
+    try {
+      const bounded = await runBoundedRequest((signal) =>
+        batchMutateWithCsrfRetry<unknown>(
+          `/projects/${project.id}/output-folders/google-picker/verify`,
+          csrf,
+          onCsrf,
+          {
+            method: "POST",
+            body: JSON.stringify({ folder_id: favorite.drive_folder_id }),
+            signal,
+          },
+        ),
+      );
+      if (bounded.status === "timed_out") throw new Error("timeout");
+      if (!isExpectedVerifiedGooglePickerFolder(bounded.value)) {
+        throw new Error("invalid_response");
+      }
+      updateRow(rowId, {
+        output_folder: {
+          folder_id: favorite.drive_folder_id,
+          name: bounded.value.name,
+          web_view_url: bounded.value.web_view_url,
+        },
+      });
+    } catch {
+      setFolderFavoritesError(
+        "Избранная папка больше не подтверждена для записи. Выберите другую или удалите её из списка.",
+      );
+    } finally {
+      setFolderFavoriteMutation(null);
+    }
+  }
+  async function deleteFolderFavorite(favorite: OutputFolderFavorite) {
+    if (folderFavoriteMutation) return;
+    setFolderFavoriteMutation(`delete:${favorite.id}`);
+    setFolderFavoritesError("");
+    try {
+      const bounded = await runBoundedRequest((signal) =>
+        batchMutateWithCsrfRetry<{ ok: boolean }>(
+          `/output-folder-favorites/${favorite.id}`,
+          csrf,
+          onCsrf,
+          { method: "DELETE", signal },
+        ),
+      );
+      if (bounded.status === "timed_out" || bounded.value.ok !== true) {
+        throw new Error("unconfirmed");
+      }
+      setFolderFavorites((current) =>
+        current.filter((item) => item.id !== favorite.id),
+      );
+    } catch {
+      setFolderFavoritesError("Не удалось удалить папку из избранного.");
+    } finally {
+      setFolderFavoriteMutation(null);
     }
   }
   async function performBatchCreation(
@@ -3632,6 +3801,11 @@ function PreparationPanel({
                                 {formatTime(selectedSource.expires_at)}
                               </span>
                             )}
+                          <span>
+                            Создан исходный файл: {selectedSource.source_created_at
+                              ? formatTime(selectedSource.source_created_at)
+                              : "не удалось определить"}
+                          </span>
                           {isSafeDisplayUrl(
                             selectedSource.drive_file_url ?? null,
                           ) && (
@@ -3674,6 +3848,83 @@ function PreparationPanel({
                       >
                         {row.output_folder?.folder_id ? "Изменить" : "Выбрать"}
                       </button>
+                      {row.output_folder?.folder_id && (
+                        <button
+                          type="button"
+                          className="secondary"
+                          disabled={folderFavoriteMutation !== null}
+                          aria-busy={folderFavoriteMutation === `save:${row.output_folder.folder_id}`}
+                          onClick={() => void saveRowFolderFavorite(row)}
+                        >
+                          {folderFavorites.some(
+                            (favorite) =>
+                              favorite.drive_folder_id ===
+                              row.output_folder?.folder_id,
+                          )
+                            ? "Обновить в избранном"
+                            : "Добавить в избранное"}
+                        </button>
+                      )}
+                      <details
+                        onToggle={(event) => {
+                          if (
+                            event.currentTarget.open &&
+                            !folderFavoritesLoaded &&
+                            !folderFavoritesLoading
+                          ) {
+                            void loadFolderFavorites();
+                          }
+                        }}
+                      >
+                        <summary>Избранные папки</summary>
+                        {folderFavoritesLoading && (
+                          <p role="status">Загрузка избранных папок…</p>
+                        )}
+                        {folderFavoritesError && (
+                          <p className="error">{folderFavoritesError}</p>
+                        )}
+                        {folderFavoritesLoaded && folderFavorites.length === 0 && (
+                          <p className="muted">Избранных папок пока нет.</p>
+                        )}
+                        {folderFavorites.map((favorite) => (
+                          <div className="resource-actions" key={favorite.id}>
+                            <button
+                              type="button"
+                              className="secondary"
+                              disabled={folderFavoriteMutation !== null}
+                              aria-busy={folderFavoriteMutation === `choose:${favorite.id}`}
+                              onClick={() =>
+                                void chooseFavoriteFolder(row.id, favorite)
+                              }
+                            >
+                              Выбрать: {favorite.name}
+                            </button>
+                            <ResourceExternalLink
+                              href={favorite.web_view_url}
+                              label="Открыть"
+                              ariaLabel={`Открыть избранную папку ${favorite.name} в Google Drive`}
+                            />
+                            <button
+                              type="button"
+                              className="secondary danger"
+                              disabled={folderFavoriteMutation !== null}
+                              aria-busy={folderFavoriteMutation === `delete:${favorite.id}`}
+                              onClick={() => void deleteFolderFavorite(favorite)}
+                            >
+                              Удалить
+                            </button>
+                          </div>
+                        ))}
+                        {folderFavoritesError && !folderFavoritesLoading && (
+                          <button
+                            type="button"
+                            className="secondary"
+                            onClick={() => void loadFolderFavorites()}
+                          >
+                            Повторить
+                          </button>
+                        )}
+                      </details>
                     </div>
                   </div>
                   <section

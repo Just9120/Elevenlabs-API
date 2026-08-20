@@ -8,6 +8,11 @@ export type Source = {
   drive_file_url: string | null;
   upload_status: "pending" | "uploaded" | "deleted" | "expired" | "failed";
   uploaded_at: string | null;
+  source_created_at: string | null;
+  source_created_at_provenance:
+    | "google_drive_created_time"
+    | "embedded_media_metadata"
+    | null;
   expires_at: string | null;
   deleted_at: string | null;
   delete_reason: string | null;

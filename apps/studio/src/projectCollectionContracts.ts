@@ -195,6 +195,23 @@ function parseSource(
     ? nullableBoundedString(candidate.drive_file_url, 2_000)
     : null;
   const deleteReason = nullableBoundedString(candidate.delete_reason, 80);
+  const rawSourceCreatedAt =
+    candidate.source_created_at === undefined
+      ? null
+      : candidate.source_created_at;
+  const rawCreationProvenance =
+    candidate.source_created_at_provenance === undefined
+      ? null
+      : candidate.source_created_at_provenance;
+  const creationProvenance = nullableBoundedString(
+    rawCreationProvenance,
+    40,
+  );
+  const creationAuthorityIsValid =
+    (rawSourceCreatedAt === null && creationProvenance === null) ||
+    (isIsoDate(rawSourceCreatedAt) &&
+      (creationProvenance === "google_drive_created_time" ||
+        creationProvenance === "embedded_media_metadata"));
   if (
     !id ||
     candidateProjectId !== projectId ||
@@ -205,6 +222,8 @@ function parseSource(
     mimeType === undefined ||
     driveFileUrl === undefined ||
     deleteReason === undefined ||
+    creationProvenance === undefined ||
+    !creationAuthorityIsValid ||
     !isNullableNonNegativeInteger(candidate.size_bytes) ||
     !isNullableIsoDate(candidate.uploaded_at) ||
     !isNullableIsoDate(candidate.expires_at) ||
@@ -224,6 +243,8 @@ function parseSource(
     drive_file_url: driveFileUrl,
     upload_status: candidate.upload_status as Source["upload_status"],
     uploaded_at: candidate.uploaded_at,
+    source_created_at: rawSourceCreatedAt as string | null,
+    source_created_at_provenance: creationProvenance,
     expires_at: candidate.expires_at,
     deleted_at: candidate.deleted_at,
     delete_reason: deleteReason,
