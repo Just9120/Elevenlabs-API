@@ -2,84 +2,83 @@
 
 ## Current Goal
 
-- **ID / title:** `PWA-JOB-STATE-CONSISTENCY-01` — authoritative job state across list, progress, detail and outputs.
+- **ID / title:** `PWA-INGEST-METADATA-POLISH-01` — source creation metadata, output-folder Favorites и active-source expiry boundary.
 - **State:** `IN_PROGRESS`.
-- **Authorization source:** explicit owner instruction `начинай` от 2026-08-20 после выбора следующей bounded Goal.
-- **Scope:** устранить подтверждённую production-рассинхронизацию PWA, при которой English job успешно завершается и имеет Google Docs output, но strict browser DTO отклоняет list/detail response, оставляя карточку на stale progress и показывая ложные ошибки; унифицировать language-mode validation; сохранить latest-wins/polling boundaries; добавить regression tests; выполнить PR, merge и applicable deployment/LIVE flow.
-- **Non-goals:** backend job lifecycle, provider/Google processing semantics, schema/queue/migration changes, новые product AC, folder intake, Favorites, source-created timestamp, speaker identity, Realtime/Colab и CI/CD policy/topology.
+- **Authorization source:** explicit owner instruction `начинай` от 2026-08-20 после согласования объединить несколько небольших PWA-доработок в одной Goal.
+- **Scope:** сохранить authoritative creation time и provenance для Google Drive/local media sources и передать его в Google Docs transcript metadata; реализовать owner-scoped Favorites проверенных target Google Drive folders с повторным выбором; исключить expired local sources из active intake collection/UI без удаления job/history/audit metadata; добавить migrations, API/UI contracts, tests и выполнить полный delivery flow.
+- **Non-goals:** local/Drive folder intake, manifest/history/analytics clear operations, speaker identity, accent color, Realtime, Colab, изменение provider semantics, CI/CD policy или deployment topology.
 - **Goal AC:**
-  1. Browser contract одинаково принимает canonical `ru`, `en` и `detect` во всех job list/detail/summary paths и fail-closed отклоняет другие значения.
-  2. Исчезновение terminal job из active-progress response приводит к authoritative jobs reload; accepted terminal state заменяет stale active state.
-  3. Completed English job отображается как завершённая с `100%` и safe output без ложных collection/detail errors.
-  4. Existing latest-wins, timeout, owner/project validation и browser-safe DTO filtering не регрессируют.
-  5. Relevant local tests, full validation, exact-head CI, merge, applicable DEPLOY и bounded LIVE canary успешны.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
-- **Current Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
-- **Known blockers/dependencies:** approved post-deploy metadata writer отсутствует; финальный LIVE canary требует доступной production session и reviewed small source; provider/Google side effect допускается только для одного bounded canary после green deployment.
+  1. Google Drive source сохраняет нормализованный `createdTime` и его provenance; modified/upload/job/output time не подменяет source creation time.
+  2. Local source использует только доступное authoritative media creation evidence; если browser/runtime не может его подтвердить, значение остаётся unknown, а не заменяется `File.lastModified`.
+  3. Processing snapshot передаёт source creation time в `transcript_doc_v1.2`; видимый timestamp остаётся ISO 8601 и не берётся из времени создания Google Docs/job.
+  4. Пользователь может сохранить проверенную target Google Drive folder в owner-scoped Favorites, повторно выбрать её в composer и удалить из Favorites; browser DTO не раскрывает tokens/private storage identity.
+  5. Expired local sources отсутствуют в active project source collection/composer, но durable Source/job/output/history/audit records не удаляются этим read boundary.
+  6. Additive migration, relevant backend/frontend tests, full local validation, exact-head CI, merge, protected migration/deployment и bounded LIVE validation успешны.
+- **Required Evidence:** `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+- **Known blockers/dependencies:** standard browser `File` не предоставляет достоверный filesystem creation time; local source authority должен быть получен из embedded media metadata либо остаться unknown. Goal содержит additive PostgreSQL migration, поэтому production migration выполняется только через protected migration lane по `docs/ci-cd-rules.md`. Approved post-deploy metadata writer отсутствует.
 - **Stop condition:** все Goal AC и required Evidence подтверждены либо flow достиг `BLOCKED` / `PENDING_EXTERNAL_GATE`; затем остановиться и не переходить к следующей Goal без explicit authorization.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-20T17:49:49Z
-- Session mode: FOCUSED_TASK после reconciliation завершённой Goal `PWA-ARBITRARY-SEGMENTS-01`
+- Updated (UTC): 2026-08-20T19:21:51Z
+- Session mode: `RESUME` после reconciliation merged Goal `PWA-JOB-STATE-CONSISTENCY-01`; новая bounded Goal активирована explicit owner instruction
 - Base branch: `main`
-- Base SHA: `919e6137ed0e806db168a43d292ab7874293549e`
-- Working branch: `codex/pwa-job-state-consistency-01`
-- Last verified revision: `0ef94842c01342e6067adb7d7e9d7b3083213230`
-- Working tree: clean до terminal CI Evidence update; unrelated changes отсутствуют
-- Completed since base: canonical `isTranscriptionLanguageMode` shared между composer и job DTO; `TranscriptionJob.language_mode` сужен до canonical enum; list/detail/summary regressions покрывают все три режима и invalid fail-closed case; completed English job UI regression подтверждает terminal `100%`, safe output и отсутствие ложных ошибок
-- Current step: exact-head required checks green; фиксируется terminal CI Evidence
-- Next exact action: commit/push terminal CI Evidence, дождаться final exact-head checks, перевести PR из draft и merge при сохранении gates
-- Validation and Evidence: focused Vitest `5 files, 239/239` ✅; full Studio Vitest `39 files, 507/507` ✅; TypeScript build ✅; full ESLint ✅; production Vite/PWA build ✅; repository lightweight checks ✅; `git diff --check` ✅; `origin/main...HEAD = 0 behind / 2 ahead`
-- Pull Request: draft #216 — `https://github.com/Just9120/Elevenlabs-API/pull/216`; base `main@919e613`, head `0ef9484`; GitHub reports `MERGEABLE`, reviews отсутствуют
-- CI/checks: exact-head `0ef9484` runs `32399488869` (`checks` SUCCESS, 2m28s) и `32399489158` (`studio` SUCCESS, 2m13s; `browser-e2e` SUCCESS, 1m36s); failures отсутствуют, only conditional failure-artifact upload skipped as expected
-- Deployment/environment: production baseline exact revision `919e6137ed0e806db168a43d292ab7874293549e`; prior Goal component CD success; current Goal не deploy-илась
-- Blockers: нет на локальной стадии
-- Unverified assumptions: production deployment устранит observed runtime symptom; требуется exact-revision LIVE canary
+- Base SHA: `ebf02da1636d9362131a1b44161cda1c68f06080`
+- Working branch: `codex/pwa-ingest-metadata-polish-01`
+- Last verified revision: `ebf02da1636d9362131a1b44161cda1c68f06080`
+- Working tree: clean на старте; unrelated changes отсутствуют
+- Completed since base: Goal contract и baseline зафиксированы; подтверждено, что Drive API уже возвращает `createdTime`, но `Source` его не сохраняет; formatter ошибочно использует output creation clock как видимое source metadata; active source list пока возвращает expired rows; Favorites persistence/API отсутствуют
+- Current step: schema/API/data-flow design и focused test inventory
+- Next exact action: добавить additive source-creation и owner-folder-favorite schema contract, migration и backend tests
+- Validation and Evidence: baseline Git/GitHub state и source/config inspection ✅; implementation tests ещё не запускались
+- Pull Request: отсутствует
+- CI/checks: не запускались для новой ветки
+- Deployment/environment: baseline production revision `ebf02da1636d9362131a1b44161cda1c68f06080`; новая Goal не deploy-илась
+- Blockers: нет на локальной стадии; migration approval может стать external gate после merge
+- Unverified assumptions: embedded media metadata можно извлечь существующим worker toolchain без новой privileged dependency; будет подтверждено code/config/tests
 - Preserved pre-existing changes: none
 
 ## Project readiness
 
-Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Goal AC не добавляются в product denominator. Snapshot пересчитан независимо по canonical 109 AC; code и tests снова подтверждают `PB-05`, denominator не изменился.
+Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Goal AC не добавляются в product denominator. Новый implementation ещё не изменил ни один product AC; current и previous snapshots независимо сверены по canonical 109 AC.
 
 | Product/epic | Current | Previous snapshot | Readiness/Evidence |
 |---|---:|---:|---|
-| **Project** | **76,1% (`83/109`)** | **75,2% (`82/109`)** | Scoped fix и regressions восстановили `PB-05`; required CI/DEPLOY/LIVE Evidence ещё gate-ят Goal closure. |
+| **Project** | **76,1% (`83/109`)** | **76,1% (`83/109`)** | Новый scope активирован; product AC пока не закрыты. |
 | **Google Colab** | **75,9% (`22/29`)** | **75,9% (`22/29`)** | Без изменений в PWA Goal. |
 | `COLAB-BATCH-01` | **73,9% (`17/23`)** | **73,9% (`17/23`)** | 🟦 IN PROGRESS; `SPEC ✅ CODE ◐ TEST ◐ CI ✅ DEPLOY ◐ LIVE ◐`. |
 | `COLAB-REALTIME-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; capture stability не подтверждена полностью. |
-| **Studio PWA** | **76,3% (`61/80`)** | **75,0% (`60/80`)** | `PB-05` подтверждён shared contract и full local tests; production recheck pending. |
-| `PWA-CORE-01` | **84,6% (`11/13`)** | **84,6% (`11/13`)** | 🟦 IN PROGRESS; нет active-UI expiry removal и color selector. |
-| `PWA-INGEST-01` | **63,6% (`7/11`)** | **63,6% (`7/11`)** | 🟦 IN PROGRESS; нет Favorites и folder intake. |
+| **Studio PWA** | **76,3% (`61/80`)** | **76,3% (`61/80`)** | Target AC: `PC-11`, `PI-02`, `PB-10`, `PD-06`; выполнение pending. |
+| `PWA-CORE-01` | **84,6% (`11/13`)** | **84,6% (`11/13`)** | 🟦 IN PROGRESS; `PC-11` входит в Goal. |
+| `PWA-INGEST-01` | **63,6% (`7/11`)** | **63,6% (`7/11`)** | 🟦 IN PROGRESS; `PI-02` входит в Goal. |
 | `PWA-SEGMENTS-01` | **100% (`5/5`)** | **100% (`5/5`)** | 🟩 READY; `SPEC ✅ CODE ✅ TEST ✅ CI ✅ DEPLOY ✅ LIVE ✅`. |
-| `PWA-BATCH-01` | **90,0% (`9/10`)** | **80,0% (`8/10`)** | 🟦 IN PROGRESS; `PB-05` локально восстановлен, source-created timestamp отсутствует; `LIVE ❌` до успешного production recheck. |
-| `PWA-SPEAKER-IDENTITY-01` | **0,0% (`0/5`)** | **0,0% (`0/5`)** | ⬜ BACKLOG; names/roles/listen-and-assign отсутствуют. |
-| `PWA-MANIFEST-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; нет safe clear action. |
-| `PWA-STANDARDIZATION-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; нет original-source creation authority. |
-| `PWA-REALTIME-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; `SPEC ✅ CODE ✅ TEST ✅ CI ✅ DEPLOY ✅ LIVE ◐`. |
-| `PWA-OPERABILITY-01` | **77,8% (`14/18`)** | **77,8% (`14/18`)** | 🟦 IN PROGRESS; clear-operation AC остаются. |
+| `PWA-BATCH-01` | **90,0% (`9/10`)** | **90,0% (`9/10`)** | 🟦 IN PROGRESS; `PB-10` входит в Goal. |
+| `PWA-SPEAKER-IDENTITY-01` | **0,0% (`0/5`)** | **0,0% (`0/5`)** | ⬜ BACKLOG. |
+| `PWA-MANIFEST-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; без изменений. |
+| `PWA-STANDARDIZATION-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; `PD-06` входит в Goal. |
+| `PWA-REALTIME-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; без изменений. |
+| `PWA-OPERABILITY-01` | **77,8% (`14/18`)** | **77,8% (`14/18`)** | 🟦 IN PROGRESS; без изменений. |
 
-Изменение относительно предыдущего snapshot: `+1` выполненный AC при неизменном denominator `109`. Shared canonical language contract и regressions закрывают подтверждённую причину `PB-05`; Evidence `CI/DEPLOY/LIVE` будет обновлено только после соответствующих событий.
+Если четыре target AC будут полностью подтверждены, ожидаемый новый snapshot: Studio PWA `65/80 = 81,3%`, project `87/109 = 79,8%`; это forecast, не текущая готовность.
 
 ## Candidate next Goals
 
 Эти items — proposals и не авторизуют implementation:
 
-1. `DELIVERY-EXACT-SHA-01` — exact-SHA standard component deploy и observable build identity.
-2. `PWA-INGEST-FAVORITES-01` — owner-scoped target-folder Favorites после выбора persistence semantics.
-3. `PWA-INGEST-FOLDERS-01` — bounded local/Drive folder intake и одна target folder для folder batch.
-4. `PWA-SOURCE-TIME-01` — source-created timestamp authority для local/Drive intake, output и standardization.
-5. `PWA-CLEAR-OPERATIONS-01` — manifest/history/analytics clear flows с explicit confirmation и audit semantics.
-6. `PWA-SPEAKER-IDENTITY-01` — names/roles и manual listen-and-assign после privacy/data-retention design.
-7. `PWA-REALTIME-MATRIX-01` — representative microphone/display/mixed production LIVE matrix.
-8. `COLAB-REALTIME-STABILITY-01` — capture stability после PWA priority scope.
+1. `PWA-INGEST-FOLDERS-01` — bounded local/Drive folder intake и одна target folder для folder batch.
+2. `PWA-CLEAR-OPERATIONS-01` — manifest/history/analytics clear flows с explicit confirmation и audit semantics.
+3. `PWA-SPEAKER-IDENTITY-01` — names/roles и manual listen-and-assign после privacy/data-retention design.
+4. `PWA-REALTIME-MATRIX-01` — representative microphone/display/mixed production LIVE matrix.
+5. `COLAB-REALTIME-STABILITY-01` — capture stability после PWA priority scope.
 
 ## Blockers и risks
 
-- Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`); это project delivery debt. Фактический post-deploy state фиксируется в GitHub/final report и reconciled в следующем authorized scope без отдельного docs-only PR.
+- `File.lastModified` — время изменения, а не создания; оно запрещено canonical rule как fallback для `PB-10`/`PD-06`.
+- Source creation metadata участвует в immutable processing snapshot; concurrent mutation должна fail closed до irreversible Google Docs side effect.
+- Favorites обязаны быть owner-scoped и повторно проверяться через Google Drive перед назначением output destination; сохранённый ID сам по себе не является текущим write authorization.
+- Active-source expiry filtering не должно ломать job/history/detail paths, которые используют durable relations отдельно от active collection.
+- Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`); фактический post-deploy state будет reconciled в следующем authorized scope без docs-only PR.
 - `main` не имеет platform branch protection/rulesets; documented merge gates проверяются вручную без bypass.
-- Job collection/detail parsers являются fail-closed boundary; исправление должно расширить только canonical language enum и не ослабить private-field filtering.
-- Verified project CI/CD profile датирован 2026-08-14; перед delivery нужно повторно сверить relevant workflows/runtime configuration.
 
 ## Sources of truth
 

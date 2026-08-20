@@ -28,7 +28,7 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Текущее independently verified working state: `codex/pwa-job-state-consistency-01` от `main@919e6137ed0e806db168a43d292ab7874293549e`:
+Текущее independently verified working state: `codex/pwa-ingest-metadata-polish-01` от `main@ebf02da1636d9362131a1b44161cda1c68f06080`:
 
 | Scope | Готовность | Метод |
 |---|---:|---|
@@ -184,9 +184,9 @@ Status: **🟦 IN PROGRESS — 90,0% (`9/10`)**.
 | `PB-09` | Видимый timestamp имеет ISO 8601 format. | ✅ |
 | `PB-10` | Timestamp получен из фактического creation time исходного media file. | ❌ |
 
-Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ✅ | DEPLOY ◐ | LIVE ❌`.
+Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
 
-Verified remediation: production English-job canary на `main@919e613` выявил, что browser strict DTO отклонял canonical `language_mode=en`, оставляя stale `40%` и ложные collection/detail errors при успешном output. Working branch использует один canonical language guard для composer/list/detail/summary; full local tests подтверждают terminal `100%`, safe output и отсутствие ложных ошибок. `LIVE` остаётся `❌` до успешного exact-revision production recheck.
+Verified remediation: fix merged как PR #216 в `main@ebf02da`; exact-main CI и component CD успешны. Повторное открытие исходной bounded production canary подтвердило terminal `100%`, safe output и отсутствие ложных collection/detail errors. Epic-wide `LIVE` остаётся `◐`, поскольку `PB-10` ещё не реализован и не проверен на production.
 
 ### Эпик `PWA-SPEAKER-IDENTITY-01` — имена и роли спикеров
 

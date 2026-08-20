@@ -690,6 +690,21 @@ Goal `PWA-ARBITRARY-SEGMENTS-01` generalized the segment composer from a narrow 
 - The same canary exposed a separate browser-contract regression: canonical English `language_mode=en` was rejected by list/detail parsing, producing false collection/detail errors and stale `40%` while outputs already reported completion. `PB-05` was therefore corrected from ✅ to ❌ at the start of Goal `PWA-JOB-STATE-CONSISTENCY-01`; project readiness changed from `83/109` to `82/109` without denominator change.
 - Approved post-deploy metadata writer remained absent (`metadata_sync.enabled=false`); closure was reconciled in the next authorized Goal rather than a follow-up docs-only PR. Local and remote merged branches were safely removed after clean synchronized `main` verification.
 
+## Archived PR #216 job state consistency closure
+
+Goal `PWA-JOB-STATE-CONSISTENCY-01` устранила рассинхронизацию terminal job между list, progress, detail и output UI и была merged через PR #216 2026-08-20.
+
+- Base: `main@919e6137ed0e806db168a43d292ab7874293549e`.
+- Final PR head: `ec88934f1dc730a63bcdf076e19e4639a5102938`.
+- Merge commit: `ebf02da1636d9362131a1b44161cda1c68f06080`.
+- Exact PR-head CI: repository run `32399832182` и Studio/browser run `32399832196` — success; conditional failure-artifact upload единственный ожидаемый skip.
+- Exact-main CI: repository run `32400141331` и Studio/browser run `32400141449` — success.
+- Component CD run `32400141509`: `deploy-web` и deployment summary success; API, worker и migration корректно skipped для frontend-only diff. VPS fast-forward, running image identity и localhost `/healthz` подтвердили exact merge revision; marker `STUDIO_PLATFORM_WEB_DEPLOY_OK` получен.
+- Public API health подтвердил reachable database и current migrations. GitHub Deployment record для merge SHA отсутствовал.
+- Fresh authorized production session повторно открыла исходную bounded canary job `69fe73ed-8769-4806-ae35-7616594cbf13`: list/card/detail одновременно показали terminal completed/`100%`, один safe Google Docs output и canonical English без ложных collection/detail errors. Второй provider job не создавался.
+- `PB-05` подтверждён; readiness на closure: `PWA-BATCH-01 9/10 = 90,0%`, Studio PWA `61/80 = 76,3%`, project `83/109 = 76,1%`.
+- Required Goal Evidence: `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅`. Approved post-deploy metadata writer отсутствовал; closure reconciled в начале следующей authorized Goal. Local и remote merged branches удалены после проверки ancestry и clean synchronized `main`.
+
 ## Current non-authority warning
 
 If this archive conflicts with `docs/project-spec.md`, `docs/delivery-plan.md`, `docs/architecture.md`, `docs/ci-cd-rules.md`, or the current user task, treat the current documents/task as authoritative and this archive as historical context only.
