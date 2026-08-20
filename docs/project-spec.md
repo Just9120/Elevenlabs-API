@@ -28,7 +28,7 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Текущий independently verified baseline: `main@50dff6f7401a08393137d5bd5e28162bd8df1133`:
+Текущее independently verified working state: `codex/pwa-job-state-consistency-01` от `main@919e6137ed0e806db168a43d292ab7874293549e`:
 
 | Scope | Готовность | Метод |
 |---|---:|---|
@@ -153,7 +153,7 @@ Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
 
 ### Эпик `PWA-SEGMENTS-01` — произвольные пользовательские фрагменты
 
-Status: **🟦 IN PROGRESS — 100% (`5/5`)**.
+Status: **🟩 READY — 100% (`5/5`)**.
 
 Generalized composer принимает ordered plan из `N >= 1` фрагментов в пределах batch maximum. Browser и API отклоняют malformed, reversed, overlapping, out-of-order и over-limit планы; каждый принятый фрагмент становится отдельной job с immutable clip/output-folder snapshot и проходит существующий one-job/one-Google-Docs-output pipeline.
 
@@ -165,7 +165,7 @@ Generalized composer принимает ordered plan из `N >= 1` фрагме�
 | `PS-04` | Для каждого фрагмента задаётся end time либо явный `Конец`. | ✅ |
 | `PS-05` | Для каждого валидного фрагмента создаётся отдельный transcript document. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 
 ### Эпик `PWA-BATCH-01` — transcription options, progress и output
 
@@ -184,7 +184,9 @@ Status: **🟦 IN PROGRESS — 90,0% (`9/10`)**.
 | `PB-09` | Видимый timestamp имеет ISO 8601 format. | ✅ |
 | `PB-10` | Timestamp получен из фактического creation time исходного media file. | ❌ |
 
-Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
+Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ✅ | DEPLOY ◐ | LIVE ❌`.
+
+Verified remediation: production English-job canary на `main@919e613` выявил, что browser strict DTO отклонял canonical `language_mode=en`, оставляя stale `40%` и ложные collection/detail errors при успешном output. Working branch использует один canonical language guard для composer/list/detail/summary; full local tests подтверждают terminal `100%`, safe output и отсутствие ложных ошибок. `LIVE` остаётся `❌` до успешного exact-revision production recheck.
 
 ### Эпик `PWA-SPEAKER-IDENTITY-01` — имена и роли спикеров
 
@@ -318,12 +320,12 @@ Status: **⬜ BACKLOG**. Владелец явно отнёс TOTP/Google Authen
 
 ## 8. Runtime и delivery baseline
 
-- Current audit revision: `main@50dff6f7401a08393137d5bd5e28162bd8df1133`.
-- Exact-main repository CI: run `32351540609`, success.
-- Exact-main Studio/browser CI: run `32351540560`, jobs `studio` и `browser-e2e` success.
-- Studio component CD run `32351540606` доставил `studio-web` и `studio-api`; manual worker deploy/status runs `32352024954`/`32352126674` подтвердили healthy worker image exact merge revision. Это component DEPLOY/health evidence, а не доказательство product transcription canary.
+- Current audit revision: `main@919e6137ed0e806db168a43d292ab7874293549e`.
+- Exact-main repository CI: run `32376152400`, success.
+- Exact-main Studio/browser CI: run `32376152418`, jobs `studio` и `browser-e2e` success.
+- Studio component CD run `32376152217` доставил `studio-web` и `studio-api`; worker rollout был `N/A`, потому что runtime worker code не изменялся. Production API/web health и exact merge revision подтверждены.
 - Production API/worker/migration evidence предыдущего processing rollout привязано к `main@66fb098` и Alembic head `0020_provider_part_checkpoints`; оно не доказывает более поздние UI/realtime requirements.
-- GitHub Deployments API не содержит deployment records для `50dff6f`; authoritative operational evidence находится в Actions runs и archive.
+- Bounded production canary на `919e613` подтвердил arbitrary-fragment Google Docs output и закрыл `PWA-SEGMENTS-01`, одновременно выявив `PB-05` regression; safe execution identifiers находятся в delivery archive.
 
 ## 9. Current critical path
 

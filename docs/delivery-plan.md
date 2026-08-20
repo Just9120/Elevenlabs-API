@@ -2,66 +2,64 @@
 
 ## Current Goal
 
-- **ID / title:** `PWA-ARBITRARY-SEGMENTS-01` — generalized ordered N-fragment transcription plan.
+- **ID / title:** `PWA-JOB-STATE-CONSISTENCY-01` — authoritative job state across list, progress, detail and outputs.
 - **State:** `IN_PROGRESS`.
-- **Authorization source:** explicit owner instruction `ставь цель и начинай реализацию` от 2026-08-20 после согласования bounded Goal.
-- **Scope:** заменить narrow two-part composer на пользовательский план из `N >= 1` упорядоченных фрагментов; дать каждому фрагменту start и numeric end либо явный `Конец`; выполнять browser и server validation; создавать ordered batch jobs с immutable clip/output-folder snapshots; сохранить existing preflight, duplicate protection, reprocess authority и one-Google-Docs-output-per-job processing semantics; выполнить tests, PR, merge и applicable deployment/LIVE flow.
-- **Non-goals:** folder intake, target Favorites, source-created timestamp, speaker identity, clear operations, Realtime/Colab changes; новые provider/storage/auth dependencies; новая persistence/queue boundary; Alembic migration; изменение CI/CD policy или deployment topology.
+- **Authorization source:** explicit owner instruction `начинай` от 2026-08-20 после выбора следующей bounded Goal.
+- **Scope:** устранить подтверждённую production-рассинхронизацию PWA, при которой English job успешно завершается и имеет Google Docs output, но strict browser DTO отклоняет list/detail response, оставляя карточку на stale progress и показывая ложные ошибки; унифицировать language-mode validation; сохранить latest-wins/polling boundaries; добавить regression tests; выполнить PR, merge и applicable deployment/LIVE flow.
+- **Non-goals:** backend job lifecycle, provider/Google processing semantics, schema/queue/migration changes, новые product AC, folder intake, Favorites, source-created timestamp, speaker identity, Realtime/Colab и CI/CD policy/topology.
 - **Goal AC:**
-  1. Пользователь задаёт число фрагментов `N >= 1`, ограниченное существующим batch maximum.
-  2. Для каждого фрагмента задаётся валидный start time.
-  3. Для каждого фрагмента задаётся numeric end time либо явный `Конец`; open-ended fragment допустим только последним.
-  4. Browser и API fail-closed отклоняют malformed, reversed, overlapping, out-of-order и over-limit планы до создания jobs.
-  5. Валидный план создаёт ровно `N` ordered jobs с immutable media clip и output-folder snapshots; idempotency/preflight decisions различают каждый clip.
-  6. Каждый non-skipped fragment использует существующий processing pipeline и создаёт отдельный Google Docs transcript output.
-  7. Relevant unit/integration/browser tests, full repository/Studio validation, required exact-head CI, merge и applicable DEPLOY/LIVE gates успешны.
+  1. Browser contract одинаково принимает canonical `ru`, `en` и `detect` во всех job list/detail/summary paths и fail-closed отклоняет другие значения.
+  2. Исчезновение terminal job из active-progress response приводит к authoritative jobs reload; accepted terminal state заменяет stale active state.
+  3. Completed English job отображается как завершённая с `100%` и safe output без ложных collection/detail errors.
+  4. Existing latest-wins, timeout, owner/project validation и browser-safe DTO filtering не регрессируют.
+  5. Relevant local tests, full validation, exact-head CI, merge, applicable DEPLOY и bounded LIVE canary успешны.
 - **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 - **Current Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
-- **Known blockers/dependencies:** browser preflight не знает media duration до server preparation, поэтому out-of-bounds media проверяется существующим worker boundary; approved post-deploy metadata writer отсутствует; standard component CD требует отдельного exact-revision подтверждения. Production canary ограничивается одним reviewed small source и не запускается без удовлетворённых runtime preconditions.
+- **Known blockers/dependencies:** approved post-deploy metadata writer отсутствует; финальный LIVE canary требует доступной production session и reviewed small source; provider/Google side effect допускается только для одного bounded canary после green deployment.
 - **Stop condition:** все Goal AC и required Evidence подтверждены либо flow достиг `BLOCKED` / `PENDING_EXTERNAL_GATE`; затем остановиться и не переходить к следующей Goal без explicit authorization.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-20T13:41:08Z
-- Session mode: FOCUSED_TASK после RECOVERY stale checkpoint завершённого `SECURITY-DEPENDENCY-REMEDIATION-01`
+- Updated (UTC): 2026-08-20T17:49:49Z
+- Session mode: FOCUSED_TASK после reconciliation завершённой Goal `PWA-ARBITRARY-SEGMENTS-01`
 - Base branch: `main`
-- Base SHA: `50dff6f7401a08393137d5bd5e28162bd8df1133`
-- Working branch: `codex/pwa-arbitrary-segments-01`
-- Last verified revision: `fec25c0b21fdbfdaf253fba308edae23134a3785`
-- Working tree: только terminal CI Evidence/checkpoint update; unrelated changes отсутствуют
-- Completed since base: implementation commits `81a34de`, `c78acb5`, `cb7f69a`, `d852674`; draft PR #215 создан; exact-head `fec25c0` required checks `checks`, `studio`, `browser-e2e` завершились SUCCESS без failures/skips
-- Current step: финальный metadata head CI и merge readiness
-- Next exact action: commit/push CI Evidence, перевести PR #215 в ready и после terminal green exact-head checks выполнить merge
-- Validation and Evidence: backend `py_compile` и domain smoke ✅; repository lightweight checks ✅; Studio TypeScript/ESLint ✅; full Studio Vitest `39 files, 504/504` ✅ плюс focused updated model suite `9/9` ✅; production PWA build ✅; `git diff --check` ✅; service-backed pytest dependency bootstrap локально не завершился и остаётся exact-head CI gate; `origin/main` не diverged (`50dff6f`); product readiness `83/109`
-- Pull Request: #215 — `https://github.com/Just9120/Elevenlabs-API/pull/215`, draft, base `main`, current verified head `fec25c0`
-- CI/checks: exact-head runs `32375368279` (`checks` SUCCESS, 2m31s) и `32375368307` (`studio` SUCCESS, 2m00s; `browser-e2e` SUCCESS, 1m38s); failures/skips отсутствуют
-- Deployment/environment: baseline production revision `50dff6f` подтверждена; новая Goal не deploy-илась
+- Base SHA: `919e6137ed0e806db168a43d292ab7874293549e`
+- Working branch: `codex/pwa-job-state-consistency-01`
+- Last verified revision: `0ef94842c01342e6067adb7d7e9d7b3083213230`
+- Working tree: clean до terminal CI Evidence update; unrelated changes отсутствуют
+- Completed since base: canonical `isTranscriptionLanguageMode` shared между composer и job DTO; `TranscriptionJob.language_mode` сужен до canonical enum; list/detail/summary regressions покрывают все три режима и invalid fail-closed case; completed English job UI regression подтверждает terminal `100%`, safe output и отсутствие ложных ошибок
+- Current step: exact-head required checks green; фиксируется terminal CI Evidence
+- Next exact action: commit/push terminal CI Evidence, дождаться final exact-head checks, перевести PR из draft и merge при сохранении gates
+- Validation and Evidence: focused Vitest `5 files, 239/239` ✅; full Studio Vitest `39 files, 507/507` ✅; TypeScript build ✅; full ESLint ✅; production Vite/PWA build ✅; repository lightweight checks ✅; `git diff --check` ✅; `origin/main...HEAD = 0 behind / 2 ahead`
+- Pull Request: draft #216 — `https://github.com/Just9120/Elevenlabs-API/pull/216`; base `main@919e613`, head `0ef9484`; GitHub reports `MERGEABLE`, reviews отсутствуют
+- CI/checks: exact-head `0ef9484` runs `32399488869` (`checks` SUCCESS, 2m28s) и `32399489158` (`studio` SUCCESS, 2m13s; `browser-e2e` SUCCESS, 1m36s); failures отсутствуют, only conditional failure-artifact upload skipped as expected
+- Deployment/environment: production baseline exact revision `919e6137ed0e806db168a43d292ab7874293549e`; prior Goal component CD success; current Goal не deploy-илась
 - Blockers: нет на локальной стадии
-- Unverified assumptions: existing one-job/one-output processing полностью покрывает arbitrary `N`; schema migration не требуется; эти assumptions должны быть подтверждены code/tests
+- Unverified assumptions: production deployment устранит observed runtime symptom; требуется exact-revision LIVE canary
 - Preserved pre-existing changes: none
 
 ## Project readiness
 
-Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Goal AC не добавляются в product denominator. До фактического выполнения `PS-01`–`PS-05` readiness не меняется.
+Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Goal AC не добавляются в product denominator. Snapshot пересчитан независимо по canonical 109 AC; code и tests снова подтверждают `PB-05`, denominator не изменился.
 
 | Product/epic | Current | Previous snapshot | Readiness/Evidence |
 |---|---:|---:|---|
-| **Project** | **76,1% (`83/109`)** | **71,6% (`78/109`)** | `PS-01`–`PS-05` выполнены; denominator не изменился. |
-| **Google Colab** | **75,9% (`22/29`)** | **75,9% (`22/29`)** | Без изменений в docs-policy Goal. |
-| `COLAB-BATCH-01` | **73,9% (`17/23`)** | **73,9% (`17/23`)** | 🟦 IN PROGRESS; functional и dependency/security CI подтверждены на exact material head; `SPEC ✅ CODE ◐ TEST ◐ CI ✅ DEPLOY ◐ LIVE ◐`. |
+| **Project** | **76,1% (`83/109`)** | **75,2% (`82/109`)** | Scoped fix и regressions восстановили `PB-05`; required CI/DEPLOY/LIVE Evidence ещё gate-ят Goal closure. |
+| **Google Colab** | **75,9% (`22/29`)** | **75,9% (`22/29`)** | Без изменений в PWA Goal. |
+| `COLAB-BATCH-01` | **73,9% (`17/23`)** | **73,9% (`17/23`)** | 🟦 IN PROGRESS; `SPEC ✅ CODE ◐ TEST ◐ CI ✅ DEPLOY ◐ LIVE ◐`. |
 | `COLAB-REALTIME-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; capture stability не подтверждена полностью. |
-| **Studio PWA** | **76,3% (`61/80`)** | **70,0% (`56/80`)** | Generalized arbitrary-N segment flow закрыл пять AC. |
+| **Studio PWA** | **76,3% (`61/80`)** | **75,0% (`60/80`)** | `PB-05` подтверждён shared contract и full local tests; production recheck pending. |
 | `PWA-CORE-01` | **84,6% (`11/13`)** | **84,6% (`11/13`)** | 🟦 IN PROGRESS; нет active-UI expiry removal и color selector. |
 | `PWA-INGEST-01` | **63,6% (`7/11`)** | **63,6% (`7/11`)** | 🟦 IN PROGRESS; нет Favorites и folder intake. |
-| `PWA-SEGMENTS-01` | **100% (`5/5`)** | **0,0% (`0/5`)** | 🟦 IN PROGRESS; скачок `+100 п.п.` объясняется заменой two-part special case на generalized arbitrary-N UI/API flow. Product AC выполнены, но READY gated exact-head CI/DEPLOY/LIVE Evidence. |
-| `PWA-BATCH-01` | **90,0% (`9/10`)** | **90,0% (`9/10`)** | 🟦 IN PROGRESS; source-created timestamp отсутствует. |
+| `PWA-SEGMENTS-01` | **100% (`5/5`)** | **100% (`5/5`)** | 🟩 READY; `SPEC ✅ CODE ✅ TEST ✅ CI ✅ DEPLOY ✅ LIVE ✅`. |
+| `PWA-BATCH-01` | **90,0% (`9/10`)** | **80,0% (`8/10`)** | 🟦 IN PROGRESS; `PB-05` локально восстановлен, source-created timestamp отсутствует; `LIVE ❌` до успешного production recheck. |
 | `PWA-SPEAKER-IDENTITY-01` | **0,0% (`0/5`)** | **0,0% (`0/5`)** | ⬜ BACKLOG; names/roles/listen-and-assign отсутствуют. |
 | `PWA-MANIFEST-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; нет safe clear action. |
 | `PWA-STANDARDIZATION-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; нет original-source creation authority. |
-| `PWA-REALTIME-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; capture fix deployed и Chrome LIVE подтверждён, но full microphone/display/mixed matrix для `PR-06` остаётся неполной; functional и dependency/security CI подтверждены: `SPEC ✅ CODE ✅ TEST ✅ CI ✅ DEPLOY ✅ LIVE ◐`. |
+| `PWA-REALTIME-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; `SPEC ✅ CODE ✅ TEST ✅ CI ✅ DEPLOY ✅ LIVE ◐`. |
 | `PWA-OPERABILITY-01` | **77,8% (`14/18`)** | **77,8% (`14/18`)** | 🟦 IN PROGRESS; clear-operation AC остаются. |
 
-Изменение current Goal: `+5` выполненных product AC при неизменном denominator `109`.
+Изменение относительно предыдущего snapshot: `+1` выполненный AC при неизменном denominator `109`. Shared canonical language contract и regressions закрывают подтверждённую причину `PB-05`; Evidence `CI/DEPLOY/LIVE` будет обновлено только после соответствующих событий.
 
 ## Candidate next Goals
 
@@ -78,10 +76,10 @@
 
 ## Blockers и risks
 
-- Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`); это project delivery debt. Current Goal фиксирует pre-merge metadata в своём PR, а фактический post-deploy state останется в GitHub/final report до следующего authorized reconciliation.
+- Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`); это project delivery debt. Фактический post-deploy state фиксируется в GitHub/final report и reconciled в следующем authorized scope без отдельного docs-only PR.
 - `main` не имеет platform branch protection/rulesets; documented merge gates проверяются вручную без bypass.
-- Scheduled Dependency audit failure `31996248930` устранён PR #214; exact-main manual run `32351941880` green. Следующий weekly schedule остаётся independent regression gate.
-- Verified project CI/CD profile датирован 2026-08-14; будущий audit обязан повторно сверить изменяемые GitHub settings/runtime configuration.
+- Job collection/detail parsers являются fail-closed boundary; исправление должно расширить только canonical language enum и не ослабить private-field filtering.
+- Verified project CI/CD profile датирован 2026-08-14; перед delivery нужно повторно сверить relevant workflows/runtime configuration.
 
 ## Sources of truth
 

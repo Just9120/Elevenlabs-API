@@ -110,6 +110,37 @@ describe("project collection contracts", () => {
     expect(parsed?.[0]).not.toHaveProperty("sources");
   });
 
+  it("accepts every canonical job language mode across list, detail, and summary", () => {
+    for (const languageMode of ["ru", "en", "detect"] as const) {
+      const localizedJob = { ...job, language_mode: languageMode };
+      expect(
+        parseProjectJobCollection({ jobs: [localizedJob] }, "project-safe"),
+      ).toEqual([localizedJob]);
+      expect(
+        parseJobDetailResponse(
+          {
+            ...localizedJob,
+            source_count: 0,
+            sources: [],
+          },
+          "project-safe",
+          "job-safe",
+        )?.language_mode,
+      ).toBe(languageMode);
+      expect(
+        parseJobSummaryResponse(localizedJob, "project-safe", "job-safe")
+          ?.language_mode,
+      ).toBe(languageMode);
+    }
+
+    expect(
+      parseProjectJobCollection(
+        { jobs: [{ ...job, language_mode: "private-mode" }] },
+        "project-safe",
+      ),
+    ).toBeNull();
+  });
+
   it("rejects cross-project, duplicate, and malformed job rows", () => {
     expect(
       parseProjectJobCollection(
