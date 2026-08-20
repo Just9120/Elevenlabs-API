@@ -7,11 +7,11 @@ VoiceOps — система транскрибации с двумя production-
 
 Colab batch используется около четырёх месяцев и в целом стабилен. Colab realtime работает, но иногда теряет browser tab capture и сейчас имеет более низкий приоритет. Studio PWA уже содержит значительную working surface, однако весь новый product scope ещё не стабилен и не завершён.
 
-Актуальная независимо пересчитанная готовность на baseline `main@a252a1e`:
+Актуальная независимо пересчитанная готовность на baseline `main@f3a3f33`:
 
 - Google Colab: **75,9% (`22/29`)**.
-- Studio PWA: **63,8% (`51/80`)**.
-- весь проект: **67,0% (`73/109`)**.
+- Studio PWA: **70,0% (`56/80`)**.
+- весь проект: **71,6% (`78/109`)**.
 
 Numerator/denominator, atomic acceptance criteria, Evidence и метод расчёта находятся в [docs/project-spec.md](docs/project-spec.md). Текущий delivery checkpoint и следующий шаг — в [docs/delivery-plan.md](docs/delivery-plan.md).
 
@@ -41,11 +41,10 @@ Colab batch запускается вручную через `notebooks/elevenla
 
 | Документ | Назначение |
 |---|---|
-| [AGENTS.md](AGENTS.md) | Always-read repository router, authority, scope и safety kernel. |
+| [AGENTS.md](AGENTS.md) | Goal-driven repository router, execution kernel, authority и scope. |
 | [docs/project-spec.md](docs/project-spec.md) | Canonical product contract, эпики и atomic AC. |
 | [docs/delivery-plan.md](docs/delivery-plan.md) | Живой dashboard, readiness, blockers и active checkpoint. |
 | [docs/delivery-plan-archive.md](docs/delivery-plan-archive.md) | Архив завершённой delivery history. |
-| [docs/agent-delivery-workflow.md](docs/agent-delivery-workflow.md) | Implementation → PR → merge → deploy → LIVE lifecycle. |
 | [docs/ci-cd-rules.md](docs/ci-cd-rules.md) | CI/CD, deployment, migration и runtime safety contract. |
 | [docs/architecture.md](docs/architecture.md) | Logical/runtime architecture, data flow и state ownership. |
 | [docs/studio-processing-contract.md](docs/studio-processing-contract.md) | Детальные Studio processing invariants. |
