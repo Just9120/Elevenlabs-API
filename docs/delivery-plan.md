@@ -12,25 +12,25 @@
   2. `docs/ci-cd-rules.md` использует universal contract `goal-driven-v1`; verified project-specific profile и configuration gaps сохранены.
   3. Standalone agent delivery workflow удалён; active canonical navigation и source lists больше на него не ссылаются, historical archive явно помечает superseded policy.
   4. Delivery dashboard содержит один актуальный Current Goal/checkpoint; documentation consistency checks и applicable CI проходят.
-- **Required Evidence:** `SPEC N/A | CODE N/A | TEST ✅ | CI — | DEPLOY N/A | LIVE N/A`.
+- **Required Evidence:** `SPEC N/A | CODE N/A | TEST ✅ | CI ✅ | DEPLOY N/A | LIVE N/A`.
 - **Known blockers/dependencies:** нет; scheduled Dependency audit failure baseline рассматривается отдельно и не входит в docs Goal.
 - **Stop condition:** Goal AC выполнены, PR merged после applicable terminal green checks, local base синхронизирован, созданные merged branches очищены; после `DONE` не переходить к следующей Goal без explicit authorization.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-20T07:30:53Z
+- Updated (UTC): 2026-08-20T07:35:10Z
 - Session mode: FOCUSED_TASK после RECOVERY завершённого `PWA-REALTIME-CAPTURE-01`
 - Base branch: `main`
 - Base SHA: `f3a3f33fb0ce019c1916d95f754ed72d1d56ee01`
 - Working branch: `codex/docs-goal-driven-policy`
-- Last verified revision: `6312f8c2d114a65b2573db39b18a2641373d8436`
-- Working tree: CLEAN на material revision `6312f8c`; текущая checkpoint update является final pre-push operational delta
-- Completed since base: commit `6312f8c` принял новый `AGENTS.md`, объединил universal CI/CD contract с verified project profile, удалил standalone workflow и active references, синхронизировал README/readiness и перенёс предыдущий realtime checkpoint в archive
-- Current step: publishing reviewed documentation Goal
-- Next exact action: commit final checkpoint, push branch и создать один draft PR в `main`
+- Last verified revision: `9ce0aa1803b0367c44d12f03821e85fde2384130`
+- Working tree: CLEAN на published revision `9ce0aa1`; текущая checkpoint update является единственным final pre-merge operational delta
+- Completed since base: commit `6312f8c` выполнил material policy migration; commit `9ce0aa1` записал pre-push checkpoint; branch опубликована и draft PR #213 создан
+- Current step: recording successful exact material-head checks before final checkpoint head
+- Next exact action: commit/push checkpoint, дождаться exact final-head CI, снять draft и merge только при terminal green gates
 - Validation and Evidence: supplied/repository `AGENTS.md` exact normalized match; universal CI/CD sections exact normalized match; previous verified project profile preserved; standalone workflow и stale references отсутствуют; Markdown local links `14/14` OK; bundled Python `scripts/ci_checks.py` passed; `git diff --check` passed
-- Pull Request: N/A
-- CI/checks: для текущей branch ещё не запускались; baseline scheduled Dependency audit run `31996248930` завершился failure 2026-08-17 и не является обычным PR gate
+- Pull Request: #213 — `https://github.com/Just9120/Elevenlabs-API/pull/213`; draft, `MERGEABLE/CLEAN`, base `main@f3a3f33`, head `9ce0aa1803b0367c44d12f03821e85fde2384130`
+- CI/checks: exact material head — CI run `32344454286`, job `checks` ✅; Studio PWA CI не создан из-за docs-only path filter и не является applicable gate; baseline scheduled Dependency audit run `31996248930` failure остаётся вне scope
 - Deployment/environment: N/A для docs-only Goal; baseline `main@f3a3f33` имел successful Studio Platform CD run `31872181463`
 - Blockers: none
 - Unverified assumptions: owner-provided `UNSET` CI/CD profile является универсальным template, поэтому более сильный verified repository profile сохранён; причина scheduled Dependency audit failure не анализировалась в этом scope
