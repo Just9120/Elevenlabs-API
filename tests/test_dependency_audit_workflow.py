@@ -6,6 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "dependency-audit.yml"
 STUDIO_CI_WORKFLOW = ROOT / ".github" / "workflows" / "studio-ci.yml"
 STUDIO = ROOT / "apps" / "studio"
+STUDIO_API = ROOT / "apps" / "studio-api"
 
 
 def test_dependency_audit_is_scheduled_and_manual_not_an_ordinary_ci_gate():
@@ -83,6 +84,8 @@ def test_studio_lock_pins_the_compatible_postcss_override():
     assert postcss["integrity"] == (
         "sha512-g50586zr4bZmwFiTlflMu8E0bDTb5I5gertgwAKmsdUlTQIhZtunzUlD1WSzwcVWPoAVpsrA6vlfCD7oXvRwgg=="
     )
+    assert package["overrides"]["nanoid"] == "3.3.18"
+    assert lock["packages"]["node_modules/nanoid"]["version"] == "3.3.18"
 
 
 def test_studio_uses_the_supported_eslint_runtime_contract():
@@ -96,8 +99,19 @@ def test_studio_uses_the_supported_eslint_runtime_contract():
     assert packages["node_modules/eslint"]["version"] == "10.8.0"
     assert packages["node_modules/@eslint/js"]["version"] == "10.0.1"
     assert packages["node_modules/minimatch"]["version"] == "10.2.5"
-    assert packages["node_modules/brace-expansion"]["version"] == "5.0.8"
+    assert package["overrides"]["brace-expansion"] == "5.0.9"
+    assert packages["node_modules/brace-expansion"]["version"] == "5.0.9"
     assert "node_modules/@eslint/eslintrc" not in packages
+
+
+def test_studio_api_pins_the_current_fixed_cryptography_release():
+    requirements = (STUDIO_API / "requirements.txt").read_text(encoding="utf-8")
+    api_constraints = (STUDIO_API / "constraints.txt").read_text(encoding="utf-8")
+    dev_constraints = (ROOT / "constraints-dev.txt").read_text(encoding="utf-8")
+
+    assert "cryptography==50.0.0" in requirements.splitlines()
+    assert "cryptography==50.0.0" in api_constraints.splitlines()
+    assert "cryptography==50.0.0" in dev_constraints.splitlines()
 
 
 def test_studio_build_tool_override_uses_the_supported_filelist_graph():
