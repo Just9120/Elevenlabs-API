@@ -339,7 +339,6 @@ Status: **⬜ BACKLOG**. Владелец явно отнёс TOTP/Google Authen
 - `AGENTS.md` — repository router и authority.
 - `docs/delivery-plan.md` — текущий dashboard, readiness и checkpoint.
 - `docs/delivery-plan-archive.md` — завершённая delivery history.
-- `docs/agent-delivery-workflow.md` — implementation/PR/deploy lifecycle.
 - `docs/architecture.md` — actual logical/runtime architecture.
 - `docs/studio-processing-contract.md` — детальные processing invariants PWA.
 - `docs/ci-cd-rules.md` — CI/CD и production safety contract.

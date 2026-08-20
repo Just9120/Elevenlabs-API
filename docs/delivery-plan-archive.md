@@ -4,11 +4,23 @@ This document is historical. Codex and other coding agents must not read it duri
 
 The archive preserves traceability from documents consolidated during `DOCS-AUTHORITY-RESET-01`. It intentionally avoids secrets, production credentials, private account data, transcript bodies, document IDs/URLs, raw provider responses, and raw Google responses.
 
+## Archived `PWA-REALTIME-CAPTURE-01` delivery — PR #212
+
+- Base: `main@f90e0d7b3b10d345a9ea6ff34f5b8c3025d818d7`.
+- Implementation commits: `907ba24d5e0a058bbacf04f28dc98f6d2fac8676`, `25fa508212ec65f1da887b9b0ad01e0fd0b1db5d`, `8d6b061f1cbf9a2967c9860a398916c6f2f9af3f`.
+- PR: #212, merged 2026-08-15 as `main@f3a3f33fb0ce019c1916d95f754ed72d1d56ee01`.
+- PR-head checks: CI run `31872035202` `checks` ✅; Studio run `31872035197` `studio` ✅ и `browser-e2e` ✅.
+- Exact-main checks: CI run `31872181449` ✅; Studio run `31872181421` ✅.
+- Deployment: Studio Platform CD run `31872181463` ✅ доставил `studio-web`; API/worker/migration были intentionally skipped. VPS checkout и running image identity соответствовали merge revision, `/healthz` прошёл.
+- LIVE: bounded in-app canary прошёл; owner отдельно подтвердил, что Chrome tab capture больше не сбрасывается. Full microphone/display/mixed matrix не выполнялась, поэтому product `PR-06` остался `5/6` и `LIVE ◐`.
+- Delivery state: `LIVE_VERIFIED`; metadata synchronization не выполнена, потому что approved writer отсутствует (`metadata_sync.enabled=false`).
+- Cleanup: local/remote working branch удалена после merge ancestry check; local `main` fast-forward синхронизирован.
+
 ## Archived `DOCS-AGENT-DELIVERY-V2` closure — PR #209
 
 - Base: `main@830bd00754567dfa6809e1e36bb7fcbaa145b824`.
 - PR: #209, merged 2026-08-14 as `main@a252a1efa54ba952ec4eb04405fae5722f15d7b5`.
-- Outcome: принят `direct-agent-v1`, canonical workflow перемещён в `docs/agent-delivery-workflow.md`, CI/CD contract получил verified project profile, README navigation обновлена.
+- Outcome: принят `direct-agent-v1`, agent lifecycle был вынесен в отдельный canonical workflow, CI/CD contract получил verified project profile, README navigation обновлена. Эта схема позднее superseded contract `goal-driven-v1`; отдельный workflow больше не является repository document.
 - Exact-main CI: run `31823766931`, success.
 - Deployment: N/A для docs-only diff; GitHub Deployments API вернул пустой список.
 - Metadata sync: автоматический post-deploy writer отсутствует (`metadata_sync.enabled=false`); прямой push для отдельного status commit не выполнялся.

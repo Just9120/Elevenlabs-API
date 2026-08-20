@@ -1,10 +1,12 @@
 # CI/CD Rules
 
+> Universal safety contract: `goal-driven-v1`
+
 ## 1. Назначение
 
 Этот документ — universal safety contract для CI, build/artifact pipelines, CD/deployment и связанных production operations.
 
-Он задаёт обязательные boundaries, но не является готовым workflow recipe. Каждый adopted project должен заполнить **Project CI/CD profile** в конце документа либо вынести его в один явно указанный canonical file.
+Он задаёт обязательные boundaries, но не является готовым pipeline recipe и не авторизует изменения сам по себе. Scope задаётся current explicit user instruction или approved Current Goal; каждый adopted project должен заполнить **Project CI/CD profile** в конце документа либо вынести его в один явно указанный canonical file.
 
 Читать документ нужно при изменении workflows, runners, artifacts, secrets, environments, deploy, migrations, rollback, runtime configuration или post-deploy automation. Изменять contract — только по explicit CI/CD policy task.
 
@@ -118,7 +120,7 @@ CI должен:
 - использовать intended revision и clean isolated workspace;
 - устанавливать dependencies reproducibly с lockfile при наличии;
 - выполнять existing relevant checks;
-- валидировать build/configuration, если это часть Definition of Done;
+- валидировать build/configuration, если это часть current Goal или project Definition of Done;
 - иметь однозначные required check names;
 - завершаться non-zero при required failure;
 - сохранять только необходимые artifacts/results.
@@ -297,7 +299,7 @@ DEPLOY_* workflow secret = GitHub Actions получает доступ к targe
 - создаёт auditable commit/status record;
 - не используется для произвольных code changes.
 
-При отсутствии mechanism deployment может быть `LIVE_VERIFIED`, но workflow closure остаётся blocked. Direct push в обход protection rules запрещён.
+При отсутствии mechanism deployment может быть `LIVE_VERIFIED`, но Current Goal не может быть `DONE`, если metadata synchronization обязательна по её DoD или project contract. Если synchronization явно неприменима, используй `N/A`. Direct push в обход protection rules запрещён.
 
 ---
 
@@ -604,7 +606,7 @@ Processing preflight/status не авторизуют provider call или canar
 
 ---
 
-## 17. Done
+## 17. Completion gates для Current Goal
 
 ### CI
 
@@ -626,3 +628,5 @@ Processing preflight/status не авторизуют provider call или canar
 - есть отдельный scope/owner, preconditions, backup/recovery и stop criteria;
 - destructive surface минимальна;
 - result и residual risk подтверждены Evidence.
+
+Current Goal может быть `DONE` только после выполнения всех применимых gates этого contract; неприменимые gates должны быть явно отмечены `N/A`, а не пропущены молча.

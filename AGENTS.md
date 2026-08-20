@@ -1,197 +1,193 @@
 # AGENTS.md
 
-> Repository instruction contract: `direct-agent-v1`
+> Repository instruction contract: `goal-driven-v1`
 
-## 1. Назначение
+## 1. Назначение и scope
 
-Этот файл — always-read router и минимальный safety kernel для coding agents, работающих с репозиторием напрямую.
+Этот файл — repository-specific router и durable execution kernel для coding agents. Он определяет canonical documents, source authority, Goal authorization, readiness, checkpoint/recovery, repository boundaries и project commands.
 
-Он определяет instruction scope, minimal context, authority, authorization, recovery и границы изменений. Подробный lifecycle implementation → PR → merge → deployment → LIVE → closure находится в `docs/agent-delivery-workflow.md`.
+Session orchestration задаётся текущей user instruction; отдельный общий coding-workflow document не используется. Этот файл не заменяет product contract, delivery state, architecture, runbooks или CI/CD safety contract.
 
-Этот файл не заменяет product specification, delivery plan, architecture, CI/CD contract, runbooks или scoped utility contracts. По умолчанию отвечай пользователю на русском языке; устойчивые technical terms, identifiers, commands и paths не переводи без необходимости.
+Root `AGENTS.md` действует на весь repository. Перед изменением пути учитывай все применимые `AGENTS.md` / `AGENTS.override.md` от root до затрагиваемого subtree.
 
----
-
-## 2. Instruction scope
-
-Root `AGENTS.md` действует на весь repository. Перед изменением пути прочитай все применимые `AGENTS.md` от repository root до ближайшего родительского каталога этого пути.
-
-Nested `AGENTS.md`:
-
-- действует только в своём subtree;
-- может уточнять process и repository-specific rules внутри subtree;
-- не расширяет user-authorized scope;
-- не изменяет product requirements или CI/CD safety boundaries;
-- не разрешает bypass branch protection, required checks/reviews, environment approvals, secret boundaries или destructive-operation gates.
-
-При неразрешимом конфликте останови затронутое действие, опиши conflict и продолжай только безопасную независимую работу.
+Nested instructions могут уточнять local commands, conventions и process details только внутри subtree. Они не расширяют user-authorized scope, не меняют durable product/CI-CD contracts и не разрешают bypass safety gates. Неразрешимый conflict — blocker для затронутого действия.
 
 ---
 
-## 3. Operating modes и старт сессии
+## 2. Document router
 
-| Mode | Когда применять | Основное правило |
+| Документ / источник | Роль | Читать когда |
 |---|---|---|
-| `INITIAL_AUDIT` | Запрошен broad audit, verified baseline отсутствует | Исследовать заявленный scope; findings не реализовывать без authorization |
-| `FOCUSED_TASK` | Задана ограниченная реализация, fix или docs task | Читать и менять только необходимую surface |
-| `RESUME` | Active checkpoint совпадает с actual state | Проверить drift после checkpoint и продолжить с `Next exact action` |
-| `RECOVERY` | Checkpoint отсутствует, устарел или противоречит actual state | Сначала восстановить state по Evidence; не продолжать по предположениям |
+| User-provided upstream requirements | Сырые/несогласованные requirements и идеи; supporting input | Audit, reconciliation, explicit proposal task |
+| `README.md` | Русскоязычный entry point, quickstart и navigation | Первый вход; неизвестны commands/structure |
+| `AGENTS.md` | Repository instructions и routing | Всегда: root + applicable nested files |
+| `docs/project-spec.md` | Canonical согласованный product contract, epics и atomic product AC | Scope, behavior, business rules, data, integrations, constraints, readiness |
+| `docs/delivery-plan.md` | Current Goal, durable authorization, checkpoint и readiness snapshots | Active work, resume/recovery, Goal/delivery-state change |
+| `docs/delivery-plan-archive.md` | Historical delivery context | Только history/reconciliation или cleanup active plan |
+| `docs/ci-cd-rules.md` | CI/CD, deployment и production safety | Audit или работа с workflows, artifacts, secrets, environments, migrations, runtime |
+| `docs/architecture.md` | Optional current architecture map | Boundaries, ownership, data flow, integrations, deployment topology |
+| `docs/runbooks/*` | Approved operational procedures | Только затронутая operation/surface |
+| `docs/utility/context-bundle-builder.md` | Optional scoped Builder contract | Только Builder Goal/workstream |
+| `docs/ai-delivery-infrastructure-plan.md` | Optional AI tooling/infrastructure workstream | Только если файл и реальный workstream существуют |
 
-На старте:
+Если referenced document отсутствует, не придумывай его содержание. Optional document не создаётся только ради соответствия router.
 
-1. Найди repository root и прочитай root/applicable `AGENTS.md`.
-2. Проверь branch, `HEAD`, worktree, remotes и доступность фактической base branch.
-3. Для tracked, non-trivial или resumed work прочитай active checkpoint в `docs/delivery-plan.md`.
-4. Выбери mode; при `RESUME` сопоставь checkpoint с Git, PR, checks, merge и deployment state.
-5. Прочитай только релевантные source-of-truth sections, code, tests и configuration.
-6. Продолжай только из verified state. Stale notes и checkpoint text сами по себе не являются Evidence.
-
-Remote-specific actions запрещены, пока repository/remote identity не установлена. При отсутствии доступа зафиксируй limitation и выполняй только безопасную локальную часть задачи.
-
----
-
-## 4. Document router
-
-| Документ | Canonical responsibility | Читать когда |
-|---|---|---|
-| `README.md` | Русскоязычный entry point, quickstart и links ко всем applicable canonical/operational docs | Первый вход; неизвестны commands/structure |
-| `AGENTS.md` | Instructions и routing | Всегда: root + applicable nested files |
-| `docs/project-spec.md` | Русскоязычный durable contract/backlog, структурированный по epics и atomic AC | Scope, behavior, business rules, data, integrations, constraints, readiness |
-| `docs/delivery-plan.md` | Active dashboard, authorization record и execution checkpoint | Tracked work, resume/recovery, delivery-state change |
-| `docs/delivery-plan-archive.md` | Historical delivery context | History/reconciliation или очистка active plan |
-| `docs/agent-delivery-workflow.md` | Direct-agent delivery/recovery lifecycle | Implementation, commits, PR, merge, deploy, resume/recovery |
-| `docs/ci-cd-rules.md` | CI/CD, deployment и operations safety | Workflows, artifacts, secrets, environments, migrations, runtime operations |
-| `docs/architecture.md` | Current architecture map | Module/runtime boundaries, data flow, ownership, integrations |
-| `docs/runbooks/*` | Конкретные operational procedures | Только затронутая surface или явно названный runbook |
-| `docs/utility/context-bundle-builder.md` | Scoped contract Context Bundle Builder | Только Builder workstream |
-| `docs/ai-delivery-infrastructure-plan.md` | Опциональный AI tooling plan | Только если файл существует и task затрагивает workstream |
-
-Если referenced document отсутствует, не придумывай его содержание. Generated bundles, exports, chats, logs, issues/external trackers, temporary reports и archives могут быть supporting inputs, но не являются active source of truth.
-
-Не создавай `docs/project-archive.md` как baseline document: current durable contract остаётся в `docs/project-spec.md`, а historical delivery context — в `docs/delivery-plan-archive.md`.
+Generated bundles, exports, chats, logs, issues/trackers, temporary reports и archive — supporting evidence/context, но не active source of truth и не implementation authorization.
 
 ---
 
-## 5. Minimal context и authority
-
-Для обычной focused task используй такой порядок:
-
-1. Current user task и applicable `AGENTS.md`.
-2. Actual Git state.
-3. Relevant delivery item/checkpoint, если работа tracked или resumed.
-4. Только затронутые sections `docs/project-spec.md`.
-5. Related code, tests и configuration.
-6. Architecture, CI/CD, runbooks и utility contract только по trigger из router.
-
-Не перечитывай весь repository только потому, что документы существуют. Broad context обязателен для audit, architecture/release review, migration и source-of-truth reconciliation.
-
-Не смешивай intended behavior и actual-state Evidence.
+## 3. Authority и Evidence
 
 ### Normative authority
 
-1. Текущая явная user instruction.
-2. `docs/project-spec.md` — scope, requirements, business rules, acceptance criteria и durable constraints.
-3. `docs/delivery-plan.md` — recorded authorization, current delivery state и next action.
-4. Applicable `AGENTS.md` и `docs/agent-delivery-workflow.md` — agent process.
-5. `docs/ci-cd-rules.md` — CI/CD/deployment/operations boundaries.
-6. Scoped utility contract — только внутри своего workstream.
-7. `docs/architecture.md` и relevant runbooks — supporting contracts без расширения product scope.
+1. Текущая explicit user instruction.
+2. `docs/project-spec.md` — durable requirements, business rules, product AC и constraints.
+3. Approved `Current Goal` в `docs/delivery-plan.md` — execution authorization только в пределах product contract и согласованного scope.
+4. Applicable repository `AGENTS.md` — process, routing и repository boundaries.
+5. `docs/architecture.md`, relevant runbooks и scoped utility contracts — supporting contracts внутри своей surface.
+
+`docs/ci-cd-rules.md` — обязательный safety contract для применимой CI/CD/production работы; изменять его можно только по explicit CI/CD policy task.
+
+Upstream requirements, ideas, issues и historical notes не меняют `docs/project-spec.md` автоматически. Расхождение фиксируется как requirement drift, `SPEC` gap или proposal; implementation и изменение denominator требуют решения пользователя.
 
 ### Evidence strength для actual-state claims
 
-1. Verified LIVE/runtime observation.
-2. Deployment/environment record с exact commit/artifact identity.
-3. CI/check result для exact revision.
-4. Relevant automated/manual test result.
-5. Code/configuration в exact revision.
-6. Documentation claims и historical notes.
+```text
+LIVE/runtime observation
+→ deployment record exact revision/artifact
+→ CI/check exact revision
+→ automated/manual test
+→ code/config exact revision
+→ documentation/historical claim
+```
 
-Conflict intended vs actual — drift, который нужно явно описать. User instruction может изменить lower-level repository contract, но не превращает неподтверждённый status в Evidence и не разрешает автоматический bypass platform protections.
-
----
-
-## 6. Scope и authorization
-
-Implementation авторизована только current explicit user instruction либо active delivery item со ссылкой на подтверждённый authorization source.
-
-Не являются authorization сами по себе: audit finding, recommendation, backlog/future section, archive, generated bundle, issue, old chat или найденная возможность cleanup/refactor.
-
-Внутри согласованного scope агент может выбирать локальную implementation strategy, декомпозировать работу, добавлять необходимые tests и делать небольшие сопутствующие fixes, без которых acceptance criteria нельзя выполнить безопасно.
-
-Отдельный explicit scope требуется для:
-
-- изменения product scope, public behavior, business rules или durable acceptance criteria;
-- новой production dependency, persistence/queue/cache/external service или architecture boundary;
-- удаления backward compatibility, если оно не следует из authorized contract;
-- destructive operations, force push, history rewrite или удаления unknown changes;
-- branch-protection/admin bypass;
-- secret creation, rotation или exposure;
-- stateful migration, backup/restore или data-impacting rollback;
-- production cleanup, hardening, bootstrap или manual maintenance;
-- изменения CI/CD policy, credential model или deployment topology.
+Intended behavior и actual state не смешиваются. Conflict между ними описывается как drift.
 
 ---
 
-## 7. Git, workflow и checkpoint
+## 4. Старт, resume и recovery
 
-Перед записью зафиксируй repository root, base branch, base SHA, working branch и исходный worktree state.
+На старте:
 
-Предпочтительный flow:
+1. Установи root и applicable instructions.
+2. Проверь branch, `HEAD`, worktree, remotes и фактическую base branch.
+3. Если существует `docs/delivery-plan.md`, прочитай Current Goal и checkpoint.
+4. `APPROVED`/`IN_PROGRESS` Goal с подтверждённым checkpoint продолжай как `RESUME`.
+5. При расхождении checkpoint с Git/GitHub/CI/CD state сначала выполни `RECOVERY`.
+6. Если active approved Goal отсутствует, следуй текущей user instruction; proposed/candidate Goal implementation не авторизует.
+7. Читай только relevant source-of-truth sections, code, tests и configuration; broad context используй для audit/reconciliation/architecture/release work.
+
+При recovery actual state имеет приоритет над checkpoint как evidence, но не меняет requirements или Goal scope автоматически. Не повторяй implementation «на всякий случай», не создавай duplicate PR и не удаляй unknown changes.
+
+---
+
+## 5. Goal contract и authorization
+
+Goal states:
+
+```text
+PROPOSED | APPROVED | IN_PROGRESS | BLOCKED | PENDING_EXTERNAL_GATE | DONE
+```
+
+Implementation авторизована только current explicit user instruction либо Current Goal со state `APPROVED` / `IN_PROGRESS`, durable authorization source и неизменённым согласованным scope.
+
+Current Goal фиксирует: stable ID/title, authorization source, scope, non-goals, Goal AC, required Evidence, known blockers/dependencies, state и stop condition.
+
+Внутри согласованной Goal агент действует самостоятельно: выбирает implementation strategy, декомпозирует работу, добавляет необходимые tests и исправляет небольшие связанные defects, без которых Goal нельзя безопасно довести до DoD.
+
+Новая authorization требуется для material change scope/non-goals/Goal AC/required Evidence, изменения durable product contract, новой architecture boundary/production dependency, destructive/privileged operation или перехода к следующей Goal.
+
+Audit findings, backlog items, recommendations, TODO, issues, upstream ideas и `Candidate next Goals` сами по себе не авторизуют implementation.
+
+После `DONE`, `BLOCKED` или `PENDING_EXTERNAL_GATE` остановись. К следующей Goal без явного согласования пользователя не переходи.
+
+---
+
+## 6. Product readiness и Goal DoD
+
+Product/epic readiness считается только по canonical atomic product AC из `docs/project-spec.md`. Goal DoD считается по Goal AC из `docs/delivery-plan.md`.
+
+Goal AC не добавляются автоматически в product denominator и не меняют durable requirements. Они могут подтверждать existing product AC; отсутствующий requirement/AC фиксируется как `SPEC` gap/proposal.
+
+```text
+Product status: ⬜ BACKLOG | 🟦 IN PROGRESS | 🟩 READY | ⛔ BLOCKED (modifier)
+Evidence: SPEC | CODE | TEST | CI | DEPLOY | LIVE
+Evidence status: ✅ confirmed | ◐ partial | ❌ failed | — absent | N/A not required
+```
+
+`READY` означает `100%` in-scope product AC и `✅` для всех required Evidence. Completion требует явного denominator; subjective partial percentage запрещён — criterion декомпозируется без изменения смысла либо считается невыполненным.
+
+После commit пересчитывай затронутую readiness только если изменилось выполнение product AC. Общую readiness пересчитывай перед PR, после material change scope/denominator, при выполнении product AC и при закрытии Goal. Evidence синхронизируй после фактических TEST/CI/DEPLOY/LIVE событий.
+
+---
+
+## 7. Delivery plan и checkpoint
+
+`docs/delivery-plan.md` — operational dashboard, durable Current Goal contract и verified execution state. Он должен содержать:
+
+- **Current Goal:** ID/title, state, authorization source, scope, non-goals, Goal AC, required Evidence, blockers.
+- **Active execution checkpoint:** updated UTC, base branch/SHA, working branch, last verified revision, worktree state, completed work, current step, one `Next exact action`, validation/Evidence, PR, CI, deployment, blockers, unverified assumptions и preserved pre-existing changes.
+- **Project readiness:** только current и previous independently calculated snapshots.
+- **Candidate next Goals:** proposals без implementation authorization.
+
+Checkpoint хранит только facts, decisions и exact identifiers; не хранит chain of thought, secrets, credentials или raw logs. `Last verified revision` — последний commit, состояние которого покрывает checkpoint; не создавай metadata-only commit loop ради ссылки на собственный containing commit.
+
+Обновляй checkpoint после base/branch change, commit, push/PR, CI/review, merge, deployment/LIVE, blocker/external gate и interruption.
+
+`docs/delivery-plan-archive.md` создаётся при первой необходимости. Переноси туда closed Goals, obsolete checkpoints, старые snapshots и длинные PR/CI/deployment chains. Archive не является current source of truth, authorization или readiness input.
+
+---
+
+## 8. Git и execution boundary
+
+Перед записью зафиксируй root, base branch/SHA, working branch и исходный worktree state.
 
 ```text
 git fetch
-→ verify origin/<base>
-→ isolated worktree или branch от verified remote base
-→ focused changes
+→ если local base clean и допускает safe fast-forward — sync
+→ иначе isolated branch/worktree от verified origin/<base>
+→ focused changes в отдельной feature/fix branch
 ```
 
-Не смешивай свои изменения с unrelated pre-existing user changes. Не используй destructive reset/clean, stash/pop, checkout-overwrite, force push или удаление unknown state без explicit approval. Делай небольшие reviewable commits после завершённых узких задач.
+Не смешивай изменения агента с unrelated pre-existing user changes и не выполняй destructive reset/clean, checkout-overwrite, force push или удаление unknown state без explicit authorization.
 
-Canonical delivery stages, readiness calculation, recovery sequence и checkpoint template определены в `docs/agent-delivery-workflow.md`.
+После завершённой узкой задачи выполняй relevant checks и создавай reviewable commit. После согласованного implementation scope создавай/обновляй PR, анализируй required checks и продолжай исправления внутри той же Goal.
 
-Для non-trivial или незавершённой работы `docs/delivery-plan.md` должен содержать один актуальный `Active execution checkpoint`. Обновляй его после branch/base change, commit, push/PR, CI/review, merge, deployment/LIVE, blocker/external gate или interruption.
+Merge и applicable delivery выполняй самостоятельно только если это входит в Goal, обязательные gates выполнены и права позволяют. DEPLOY/LIVE подтверждай только фактическим Evidence; неприменимые dimensions получают `N/A` по Goal DoD.
 
-Checkpoint хранит только проверяемые facts, decisions, exact identifiers и один `Next exact action`; не хранит chain of thought, secrets или raw logs. Существенное расхождение с actual state переводит работу в `RECOVERY`.
+Post-deploy metadata write без отдельного PR допустим только через approved path/field-scoped mechanism с minimal permissions, exact deployed revision и loop protection. При отсутствии required mechanism зафиксируй blocker/technical debt; protection rules не обходи.
 
-Product readiness рассчитывается по atomic acceptance criteria. `READY` означает только `100%` completion и `✅` для всех required Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`. Delivery stage — отдельная state machine.
+После Goal closure безопасно обнови local base и удали только созданные этой работой merged branches/worktrees после проверки отсутствия unique commits или unrelated state. Затем остановись.
 
 ---
 
-## 8. Documentation write policy
+## 9. Documentation write policy
 
 | Документ | Разрешённое update без изменения durable scope |
 |---|---|
-| `README.md` | При изменении quickstart, commands, structure или canonical navigation |
-| `docs/project-spec.md` | Только явно отделённые operational fields: status, completion, Evidence, verified IDs, blocker, timestamp |
-| `docs/delivery-plan.md` | Active items, current/previous readiness snapshot, checkpoint, blocker и next action |
-| `docs/delivery-plan-archive.md` | Перенос obsolete/completed history при cleanup или closure |
-| `docs/architecture.md` | Только при фактическом изменении architecture/runtime/data-flow boundaries |
-| `docs/runbooks/*` | При изменении соответствующей approved procedure/operation |
-| `docs/ci-cd-rules.md` | Только по explicit CI/CD policy task |
-| `AGENTS.md`, agent workflow | Только по explicit agent/workflow task |
-| Scoped utility/tooling plan | Только внутри соответствующего authorized workstream |
+| `README.md` | Quickstart, commands, structure и canonical navigation при фактическом изменении |
+| `docs/project-spec.md` | Только отделённые operational fields: status, completion, Evidence, verified IDs, blocker, timestamp |
+| `docs/delivery-plan.md` | Current Goal, checkpoint, current/previous snapshots, blockers и next action |
+| `docs/delivery-plan-archive.md` | Closed/obsolete delivery history |
+| `docs/architecture.md` | Фактические architecture/runtime/data-flow changes |
+| `docs/runbooks/*` | Изменение соответствующей approved procedure |
+| `docs/ci-cd-rules.md` | Только explicit CI/CD policy task |
+| `AGENTS.md` | Только explicit repository-agent-policy task |
+| Scoped utility/tooling contract | Только соответствующий authorized workstream |
 
-Без explicit user instruction не меняй durable scope, requirements, business rules, acceptance criteria, data ownership, public behavior или security/runtime constraints.
+Для agent-writable operational metadata в `docs/project-spec.md` используй визуально отделённый block. Без explicit user instruction не меняй durable scope, requirements, business rules, product AC, data ownership, public behavior или security/runtime constraints. Upstream requirements не синхронизируются в canonical contract автоматически.
 
-Все pre-merge documentation changes включай в текущий PR. Post-deploy metadata write без PR допустим только через заранее approved path-scoped mechanism с minimal permissions, loop protection и привязкой к deployed revision. При отсутствии mechanism зафиксируй blocker; direct push для обхода protection rules запрещён.
-
----
-
-## 9. CI/CD, validation и отчёт
-
-Не изменяй workflows, deploy scripts, production runtime, secrets, environments, migrations, backups/restores, stateful services или rollback без соответствующего explicit scope. Перед такой работой прочитай `docs/ci-cd-rules.md` и заполненный `Project CI/CD profile`.
-
-Никогда не выводи secret values и не помещай их в code, docs, tests, prompts, generated bundles, artifacts или logs. Pending approval/secret/environment gate — `PENDING_EXTERNAL_GATE`, а не основание для bypass.
-
-Используй existing project commands и smallest sufficient checks для затронутой surface. Skipped, cancelled, timed-out, unavailable или not-run check не является success; укажи причину и residual risk.
-
-В финальном отчёте укажи changed files, выполненные checks, exact delivery state, limitations, blockers и remaining risks. Не заявляй merge, deploy или LIVE без подтверждения.
+Все pre-merge documentation changes включай в текущий PR. Отдельный follow-up PR только ради delivery metadata не создавай, если synchronization должен выполнить approved post-deploy mechanism.
 
 ---
 
-## 10. Repository-specific commands
+## 10. CI/CD, validation и repository commands
 
-`UNSET` означает «определить по package/config files», а не «придумать».
+При audit или работе с workflows, artifacts, secrets, environments, deployment, production, migrations, stateful systems или post-deploy automation прочитай `docs/ci-cd-rules.md` и фактический Project CI/CD profile.
+
+Не меняй CI/CD safety contract, credential model, deployment topology или production operations без explicit scope. Failed, skipped, cancelled, timed-out, unavailable и not-run required checks не являются success.
+
+`UNSET` означает «определить по repository configuration», а не «придумать».
 
 | Назначение | Команда |
 |---|---|
@@ -206,15 +202,4 @@ Product readiness рассчитывается по atomic acceptance criteria. 
 
 Не добавляй heavy testing infrastructure только ради заполнения таблицы.
 
----
-
-## 11. Done по режимам
-
-| Mode | Done означает |
-|---|---|
-| `INITIAL_AUDIT` | Scope изучен; readiness пересчитана; drift/findings/roadmap и audit quality review сформированы |
-| `FOCUSED_TASK` | Authorized outcome выполнен без scope creep; relevant checks, docs и checkpoint согласованы |
-| `RESUME` | Checkpoint подтверждён, delta проверена, работа продолжена из verified state |
-| `RECOVERY` | Git/PR/CI/deploy state reconciled; authorization/blockers восстановлены; записан безопасный next action |
-
-Delivery closure дополнительно требует подтверждённых merge/deployment gates, approved post-deploy metadata synchronization и безопасной очистки созданных branches/worktrees.
+В итоговом отчёте укажи changed files, checks и terminal statuses, Current Goal state, PR/CI/deployment identifiers, limitations, blockers и remaining risks. Не заявляй merge, deployment, LIVE или Goal `DONE` без required Evidence.
