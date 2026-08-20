@@ -96,7 +96,7 @@ esac
         "studio-worker": state.get("worker", "missing"),
     }
     worker_count = int(state.get("worker_count", "0"))
-    current = state.get("current", "0020_provider_part_checkpoints")
+    current = state.get("current", "0021_source_creation_favorites")
     _write_exe(bin_dir / "docker", f"""#!/usr/bin/env bash
 set -euo pipefail
 printf 'docker %s\n' "$*" >> {str(log)!r}
@@ -161,9 +161,9 @@ def test_successful_host_preflight(tmp_path: Path) -> None:
     assert proc.stdout.count("STUDIO_PROCESSING_HOST_PREFLIGHT_OK") == 1
     assert "STUDIO_PROCESSING_HOST_PREFLIGHT_BLOCKED" not in proc.stdout
     assert "authenticated smoke-account login | not-run" in proc.stdout
-    assert "repository Alembic head | pass | exactly one repository Alembic head matches expected source head: 0020_provider_part_checkpoints" in proc.stdout
-    assert "production Alembic revision | pass | exactly one known production database revision was reported: 0020_provider_part_checkpoints" in proc.stdout
-    assert "revision equality | pass | production database revision 0020_provider_part_checkpoints equals repository head 0020_provider_part_checkpoints" in proc.stdout
+    assert "repository Alembic head | pass | exactly one repository Alembic head matches expected source head: 0021_source_creation_favorites" in proc.stdout
+    assert "production Alembic revision | pass | exactly one known production database revision was reported: 0021_source_creation_favorites" in proc.stdout
+    assert "revision equality | pass | production database revision 0021_source_creation_favorites equals repository head 0021_source_creation_favorites" in proc.stdout
     assert any(
         "exec -T studio-api python -m studio_api.container_entrypoint "
         "--drop-only alembic current" in c
@@ -271,8 +271,8 @@ def test_revision_safety_cases(tmp_path: Path) -> None:
     assert proc.returncode == 0
     case = tmp_path / "nohead"
     proc, calls, repo = run_preflight(case)
-    f = repo / "apps/studio-api/alembic/versions/0020_provider_part_checkpoints.py"
-    f.write_text(f.read_text().replace('revision = "0020_provider_part_checkpoints"', 'revision = "0020_wrong_head"'), encoding="utf-8")
+    f = repo / "apps/studio-api/alembic/versions/0021_source_creation_and_folder_favorites.py"
+    f.write_text(f.read_text().replace('revision = "0021_source_creation_favorites"', 'revision = "0021_wrong_head"'), encoding="utf-8")
     proc = subprocess.run(["bash", str(SCRIPT), str(repo), "main", "Just9120/Elevenlabs-API", SHA], cwd=repo, env={**os.environ, "PATH": f"{case/'bin'}:{os.environ['PATH']}"}, text=True, capture_output=True, timeout=15)
     assert proc.returncode != 0
 
@@ -306,7 +306,7 @@ def test_revision_output_is_known_normalized_metadata_only(tmp_path: Path) -> No
     )
     assert mismatch.returncode != 0
     assert "production Alembic revision | pass | exactly one known production database revision was reported: 0011_diagnostic_debug_sessions" in mismatch.stdout
-    assert "revision equality | blocked | production database revision 0011_diagnostic_debug_sessions does not equal repository head 0020_provider_part_checkpoints" in mismatch.stdout
+    assert "revision equality | blocked | production database revision 0011_diagnostic_debug_sessions does not equal repository head 0021_source_creation_favorites" in mismatch.stdout
     assert_no_secret_output(mismatch)
     assert_no_forbidden(calls)
 
