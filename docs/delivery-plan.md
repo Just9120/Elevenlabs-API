@@ -20,17 +20,17 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-20T17:43:25Z
+- Updated (UTC): 2026-08-20T17:44:55Z
 - Session mode: FOCUSED_TASK после reconciliation завершённой Goal `PWA-ARBITRARY-SEGMENTS-01`
 - Base branch: `main`
 - Base SHA: `919e6137ed0e806db168a43d292ab7874293549e`
 - Working branch: `codex/pwa-job-state-consistency-01`
-- Last verified revision: `32c7f871e04c` (Goal/checkpoint activation); implementation поверх него локально validated
-- Working tree: только scoped implementation/tests/readiness update; unrelated changes отсутствуют
+- Last verified revision: `7b6054e66aaf54202dd5fb18614087806dc1e046`
+- Working tree: clean до checkpoint update; unrelated changes отсутствуют
 - Completed since base: canonical `isTranscriptionLanguageMode` shared между composer и job DTO; `TranscriptionJob.language_mode` сужен до canonical enum; list/detail/summary regressions покрывают все три режима и invalid fail-closed case; completed English job UI regression подтверждает terminal `100%`, safe output и отсутствие ложных ошибок
-- Current step: создать atomic implementation commit
-- Next exact action: commit validated code/tests/readiness, затем выполнить repository-level checks и подготовить PR
-- Validation and Evidence: focused Vitest `5 files, 239/239` ✅; full Studio Vitest `39 files, 507/507` ✅; TypeScript build ✅; full ESLint ✅; production Vite/PWA build ✅; `git diff --check` ✅
+- Current step: подготовить branch push и Pull Request
+- Next exact action: commit checkpoint, push branch, создать PR и дождаться exact-head required checks
+- Validation and Evidence: focused Vitest `5 files, 239/239` ✅; full Studio Vitest `39 files, 507/507` ✅; TypeScript build ✅; full ESLint ✅; production Vite/PWA build ✅; repository lightweight checks ✅; `git diff --check` ✅; `origin/main...HEAD = 0 behind / 2 ahead`
 - Pull Request: отсутствует
 - CI/checks: для current branch не запускались
 - Deployment/environment: production baseline exact revision `919e6137ed0e806db168a43d292ab7874293549e`; prior Goal component CD success; current Goal не deploy-илась
