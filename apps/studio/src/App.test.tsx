@@ -343,6 +343,7 @@ function installFakeGooglePicker() {
 
 type OutputFixtureOptions = {
   jobStatus?: "queued" | "processing" | "completed" | "failed" | "cancelled";
+  languageMode?: "ru" | "en" | "detect";
   outputCount?: number;
   outputs?: unknown[];
   detailOk?: boolean;
@@ -481,6 +482,7 @@ function installFocusedOutputFixture(options: OutputFixtureOptions = {}) {
               status: jobStatus,
               title: "Focused output job",
               provider: null,
+              language_mode: options.languageMode ?? "ru",
               provider_credential_id: "cred-active",
               terminal_dismissed_at: options.terminalDismissedAt ?? null,
               source_count: 1,
@@ -541,6 +543,7 @@ function installFocusedOutputFixture(options: OutputFixtureOptions = {}) {
               status: jobStatus,
               title: "Focused output job",
               provider: null,
+              language_mode: options.languageMode ?? "ru",
               provider_credential_id: "cred-active",
               terminal_dismissed_at: options.terminalDismissedAt ?? null,
               source_count: 1,
@@ -8651,6 +8654,37 @@ describe("Studio PWA", () => {
     expect(outputCalls).toHaveLength(1);
     expect(outputCalls[0]?.[1]?.method).toBeUndefined();
     expect(outputCalls[0]?.[1]?.headers).not.toHaveProperty("x-csrf-token");
+  });
+
+  it("renders a completed English job consistently across list, detail, progress, and outputs", async () => {
+    installFocusedOutputFixture({
+      jobStatus: "completed",
+      languageMode: "en",
+    });
+
+    await openFocusedJobsList();
+
+    expect(
+      await screen.findByText(
+        "Задача завершена на 100% — результат доступен ниже.",
+      ),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("Язык: Английский")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Состояние задачи: Завершена"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Открыть документ" }),
+    ).toHaveAttribute(
+      "href",
+      "https://docs.google.com/document/d/focused-safe/edit",
+    );
+    expect(
+      screen.queryByText("Не удалось загрузить задачи проекта."),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Не удалось загрузить детали задачи."),
+    ).not.toBeInTheDocument();
   });
 
   it("bounds stalled job detail reads and leaves safe retryable UI", async () => {

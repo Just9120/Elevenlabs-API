@@ -28,13 +28,13 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Текущий independently verified baseline: `main@919e6137ed0e806db168a43d292ab7874293549e`:
+Текущее independently verified working state: `codex/pwa-job-state-consistency-01` от `main@919e6137ed0e806db168a43d292ab7874293549e`:
 
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **75,9% (`22/29`)** | `COLAB-BATCH 17/23` + `COLAB-REALTIME 5/6` |
-| Studio PWA | **75,0% (`60/80`)** | сумма девяти PWA-эпиков ниже; `PB-05` возвращён в ❌ по production LIVE evidence |
-| Весь проект | **75,2% (`82/109`)** | все выполненные AC двух продуктов / все AC текущего scope |
+| Studio PWA | **76,3% (`61/80`)** | сумма девяти PWA-эпиков ниже |
+| Весь проект | **76,1% (`83/109`)** | все выполненные AC двух продуктов / все AC текущего scope |
 
 ## 3. Общие product rules
 
@@ -169,7 +169,7 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 
 ### Эпик `PWA-BATCH-01` — transcription options, progress и output
 
-Status: **🟦 IN PROGRESS — 80,0% (`8/10`)**.
+Status: **🟦 IN PROGRESS — 90,0% (`9/10`)**.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -177,7 +177,7 @@ Status: **🟦 IN PROGRESS — 80,0% (`8/10`)**.
 | `PB-02` | Доступен явный русский язык. | ✅ |
 | `PB-03` | Доступен явный английский язык. | ✅ |
 | `PB-04` | Доступно auto-detection языка. | ✅ |
-| `PB-05` | Job progress отображается live в процентах из server checkpoints. | ❌ |
+| `PB-05` | Job progress отображается live в процентах из server checkpoints. | ✅ |
 | `PB-06` | Успешная job создаёт Google Docs transcript и safe output link. | ✅ |
 | `PB-07` | Transcript document разбит на читабельные абзацы. | ✅ |
 | `PB-08` | В начало документа добавлен metadata header. | ✅ |
@@ -186,7 +186,7 @@ Status: **🟦 IN PROGRESS — 80,0% (`8/10`)**.
 
 Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ✅ | DEPLOY ◐ | LIVE ❌`.
 
-Verified regression: production English-job canary на `main@919e613` завершился и создал safe Google Docs output, однако browser strict DTO отклонил canonical `language_mode=en` в list/detail response. UI сохранил stale `40%` и показал ложные collection/detail errors, поэтому `PB-05` не считается выполненным до исправления и повторного LIVE подтверждения.
+Verified remediation: production English-job canary на `main@919e613` выявил, что browser strict DTO отклонял canonical `language_mode=en`, оставляя stale `40%` и ложные collection/detail errors при успешном output. Working branch использует один canonical language guard для composer/list/detail/summary; full local tests подтверждают terminal `100%`, safe output и отсутствие ложных ошибок. `LIVE` остаётся `❌` до успешного exact-revision production recheck.
 
 ### Эпик `PWA-SPEAKER-IDENTITY-01` — имена и роли спикеров
 

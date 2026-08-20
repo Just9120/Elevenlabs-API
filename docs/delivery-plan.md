@@ -14,52 +14,52 @@
   4. Existing latest-wins, timeout, owner/project validation и browser-safe DTO filtering не регрессируют.
   5. Relevant local tests, full validation, exact-head CI, merge, applicable DEPLOY и bounded LIVE canary успешны.
 - **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
-- **Current Evidence:** `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+- **Current Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`.
 - **Known blockers/dependencies:** approved post-deploy metadata writer отсутствует; финальный LIVE canary требует доступной production session и reviewed small source; provider/Google side effect допускается только для одного bounded canary после green deployment.
 - **Stop condition:** все Goal AC и required Evidence подтверждены либо flow достиг `BLOCKED` / `PENDING_EXTERNAL_GATE`; затем остановиться и не переходить к следующей Goal без explicit authorization.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-20T17:33:06Z
+- Updated (UTC): 2026-08-20T17:43:25Z
 - Session mode: FOCUSED_TASK после reconciliation завершённой Goal `PWA-ARBITRARY-SEGMENTS-01`
 - Base branch: `main`
 - Base SHA: `919e6137ed0e806db168a43d292ab7874293549e`
 - Working branch: `codex/pwa-job-state-consistency-01`
-- Last verified revision: `919e6137ed0e806db168a43d292ab7874293549e`
-- Working tree: clean до operational documentation update; unrelated changes отсутствуют
-- Completed since base: root cause локализован в strict browser job parser: canonical backend/TypeScript mode `en` отклоняется только `projectCollectionContracts.parseJob`; production canary предыдущей Goal подтвердил ложные list/detail errors, stale `40%` и одновременно успешный output
-- Current step: зафиксировать Goal/reconciliation, затем реализовать shared language-mode validation и regressions
-- Next exact action: обновить operational docs и создать первый atomic checkpoint commit
-- Validation and Evidence: branch/base/worktree/remotes verified; code/config/test evidence подтверждает contract drift; implementation tests ещё не запускались
+- Last verified revision: `32c7f871e04c` (Goal/checkpoint activation); implementation поверх него локально validated
+- Working tree: только scoped implementation/tests/readiness update; unrelated changes отсутствуют
+- Completed since base: canonical `isTranscriptionLanguageMode` shared между composer и job DTO; `TranscriptionJob.language_mode` сужен до canonical enum; list/detail/summary regressions покрывают все три режима и invalid fail-closed case; completed English job UI regression подтверждает terminal `100%`, safe output и отсутствие ложных ошибок
+- Current step: создать atomic implementation commit
+- Next exact action: commit validated code/tests/readiness, затем выполнить repository-level checks и подготовить PR
+- Validation and Evidence: focused Vitest `5 files, 239/239` ✅; full Studio Vitest `39 files, 507/507` ✅; TypeScript build ✅; full ESLint ✅; production Vite/PWA build ✅; `git diff --check` ✅
 - Pull Request: отсутствует
 - CI/checks: для current branch не запускались
 - Deployment/environment: production baseline exact revision `919e6137ed0e806db168a43d292ab7874293549e`; prior Goal component CD success; current Goal не deploy-илась
 - Blockers: нет на локальной стадии
-- Unverified assumptions: browser parser fix достаточен для terminal reconciliation; это должно быть подтверждено integration test и LIVE canary
+- Unverified assumptions: production deployment устранит observed runtime symptom; требуется exact-revision LIVE canary
 - Preserved pre-existing changes: none
 
 ## Project readiness
 
-Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Goal AC не добавляются в product denominator. Snapshot пересчитан независимо по canonical 109 AC; regression относится к `PB-05`, denominator не изменился.
+Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Goal AC не добавляются в product denominator. Snapshot пересчитан независимо по canonical 109 AC; code и tests снова подтверждают `PB-05`, denominator не изменился.
 
 | Product/epic | Current | Previous snapshot | Readiness/Evidence |
 |---|---:|---:|---|
-| **Project** | **75,2% (`82/109`)** | **76,1% (`83/109`)** | `PB-05` возвращён в ❌ после production LIVE evidence рассинхронизации; denominator неизменен. |
+| **Project** | **76,1% (`83/109`)** | **75,2% (`82/109`)** | Scoped fix и regressions восстановили `PB-05`; required CI/DEPLOY/LIVE Evidence ещё gate-ят Goal closure. |
 | **Google Colab** | **75,9% (`22/29`)** | **75,9% (`22/29`)** | Без изменений в PWA Goal. |
 | `COLAB-BATCH-01` | **73,9% (`17/23`)** | **73,9% (`17/23`)** | 🟦 IN PROGRESS; `SPEC ✅ CODE ◐ TEST ◐ CI ✅ DEPLOY ◐ LIVE ◐`. |
 | `COLAB-REALTIME-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; capture stability не подтверждена полностью. |
-| **Studio PWA** | **75,0% (`60/80`)** | **76,3% (`61/80`)** | Production canary обнаружил failed `PB-05`; `PWA-SEGMENTS-01` при этом полностью подтверждён. |
+| **Studio PWA** | **76,3% (`61/80`)** | **75,0% (`60/80`)** | `PB-05` подтверждён shared contract и full local tests; production recheck pending. |
 | `PWA-CORE-01` | **84,6% (`11/13`)** | **84,6% (`11/13`)** | 🟦 IN PROGRESS; нет active-UI expiry removal и color selector. |
 | `PWA-INGEST-01` | **63,6% (`7/11`)** | **63,6% (`7/11`)** | 🟦 IN PROGRESS; нет Favorites и folder intake. |
 | `PWA-SEGMENTS-01` | **100% (`5/5`)** | **100% (`5/5`)** | 🟩 READY; `SPEC ✅ CODE ✅ TEST ✅ CI ✅ DEPLOY ✅ LIVE ✅`. |
-| `PWA-BATCH-01` | **80,0% (`8/10`)** | **90,0% (`9/10`)** | 🟦 IN PROGRESS; `PB-05` и source-created timestamp не выполнены; `LIVE ❌` для проверенного English-job scenario. |
+| `PWA-BATCH-01` | **90,0% (`9/10`)** | **80,0% (`8/10`)** | 🟦 IN PROGRESS; `PB-05` локально восстановлен, source-created timestamp отсутствует; `LIVE ❌` до успешного production recheck. |
 | `PWA-SPEAKER-IDENTITY-01` | **0,0% (`0/5`)** | **0,0% (`0/5`)** | ⬜ BACKLOG; names/roles/listen-and-assign отсутствуют. |
 | `PWA-MANIFEST-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; нет safe clear action. |
 | `PWA-STANDARDIZATION-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; нет original-source creation authority. |
 | `PWA-REALTIME-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; `SPEC ✅ CODE ✅ TEST ✅ CI ✅ DEPLOY ✅ LIVE ◐`. |
 | `PWA-OPERABILITY-01` | **77,8% (`14/18`)** | **77,8% (`14/18`)** | 🟦 IN PROGRESS; clear-operation AC остаются. |
 
-Изменение относительно предыдущего snapshot: `-1` выполненный AC при неизменном denominator `109`. Это evidence-based correction, а не scope change: production English-job canary доказал, что live progress не согласуется с terminal job state.
+Изменение относительно предыдущего snapshot: `+1` выполненный AC при неизменном denominator `109`. Shared canonical language contract и regressions закрывают подтверждённую причину `PB-05`; Evidence `CI/DEPLOY/LIVE` будет обновлено только после соответствующих событий.
 
 ## Candidate next Goals
 

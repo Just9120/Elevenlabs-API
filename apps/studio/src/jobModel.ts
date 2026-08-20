@@ -44,6 +44,17 @@ export type JobDetailState = {
 };
 export type JobOutputFolder = { name: string; web_view_url: string | null };
 export type TranscriptionLanguageMode = "ru" | "en" | "detect";
+const TRANSCRIPTION_LANGUAGE_MODES: ReadonlySet<TranscriptionLanguageMode> =
+  new Set(["ru", "en", "detect"]);
+
+export function isTranscriptionLanguageMode(
+  value: unknown,
+): value is TranscriptionLanguageMode {
+  return (
+    typeof value === "string" &&
+    TRANSCRIPTION_LANGUAGE_MODES.has(value as TranscriptionLanguageMode)
+  );
+}
 export type JobMediaClip = {
   start_seconds: number | null;
   end_seconds: number | null;
@@ -54,7 +65,7 @@ export type TranscriptionJob = {
   status: JobСтатус;
   title: string | null;
   provider: string | null;
-  language_mode?: string | null;
+  language_mode?: TranscriptionLanguageMode | null;
   diarization_enabled?: boolean;
   media_clip?: JobMediaClip | null;
   terminal_dismissed_at?: string | null;

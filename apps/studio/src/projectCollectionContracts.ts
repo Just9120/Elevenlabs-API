@@ -1,10 +1,11 @@
 import { api } from "./apiClient";
-import type {
-  JobMediaClip,
-  JobOutputFolder,
-  JobOutputsResponse,
-  JobSource,
-  TranscriptionJob,
+import {
+  isTranscriptionLanguageMode,
+  type JobMediaClip,
+  type JobOutputFolder,
+  type JobOutputsResponse,
+  type JobSource,
+  type TranscriptionJob,
 } from "./jobModel";
 import { LATEST_REQUEST_CANCEL_REASON } from "./latestRequest";
 import type { Source } from "./sourceModel";
@@ -322,8 +323,7 @@ function parseJob(
     outputFolder === false ||
     (languageMode !== undefined &&
       languageMode !== null &&
-      languageMode !== "ru" &&
-      languageMode !== "detect") ||
+      !isTranscriptionLanguageMode(languageMode)) ||
     (diarizationEnabled !== undefined &&
       typeof diarizationEnabled !== "boolean") ||
     (terminalDismissedAt !== undefined &&
