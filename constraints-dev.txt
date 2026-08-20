@@ -49,7 +49,7 @@ colorama==0.4.6
     #   uvicorn
 comm==0.2.3
     # via ipywidgets
-cryptography==48.0.1
+cryptography==50.0.0
     # via
     #   -r apps/studio-api/requirements.txt
     #   google-auth
