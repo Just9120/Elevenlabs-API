@@ -103,6 +103,66 @@
   --studio-shadow: 0 14px 34px rgba(0, 0, 0, 0.32);
   color-scheme: dark;
 }
+:root[data-accent="violet"] {
+  --studio-primary: #7c3aed;
+  --studio-primary-dark: #5b21b6;
+  --studio-accent: #6d28d9;
+  --studio-focus: rgba(124, 58, 237, 0.35);
+  --studio-focus-shadow: rgba(124, 58, 237, 0.45);
+  --studio-active-bg: #f3e8ff;
+  --studio-active-shadow: rgba(124, 58, 237, 0.12);
+  --studio-dashed-border: #a78bfa;
+  --studio-progress-active-border: #7c3aed;
+  --studio-progress-active-bg: #a78bfa;
+  --studio-progress-active-ring: #ede9fe;
+}
+:root[data-accent="teal"] {
+  --studio-primary: #0f766e;
+  --studio-primary-dark: #115e59;
+  --studio-accent: #0f766e;
+  --studio-focus: rgba(13, 148, 136, 0.35);
+  --studio-focus-shadow: rgba(13, 148, 136, 0.45);
+  --studio-active-bg: #ccfbf1;
+  --studio-active-shadow: rgba(13, 148, 136, 0.12);
+  --studio-dashed-border: #2dd4bf;
+  --studio-progress-active-border: #0f766e;
+  --studio-progress-active-bg: #2dd4bf;
+  --studio-progress-active-ring: #ccfbf1;
+}
+:root[data-accent="rose"] {
+  --studio-primary: #be123c;
+  --studio-primary-dark: #9f1239;
+  --studio-accent: #be123c;
+  --studio-focus: rgba(225, 29, 72, 0.35);
+  --studio-focus-shadow: rgba(225, 29, 72, 0.45);
+  --studio-active-bg: #ffe4e6;
+  --studio-active-shadow: rgba(225, 29, 72, 0.12);
+  --studio-dashed-border: #fb7185;
+  --studio-progress-active-border: #be123c;
+  --studio-progress-active-bg: #fb7185;
+  --studio-progress-active-ring: #ffe4e6;
+}
+:root[data-theme="dark"][data-accent="violet"] {
+  --studio-primary: #a78bfa;
+  --studio-primary-dark: #ddd6fe;
+  --studio-accent: #c4b5fd;
+  --studio-active-bg: #2e1065;
+  --studio-progress-active-ring: #4c1d95;
+}
+:root[data-theme="dark"][data-accent="teal"] {
+  --studio-primary: #2dd4bf;
+  --studio-primary-dark: #99f6e4;
+  --studio-accent: #5eead4;
+  --studio-active-bg: #134e4a;
+  --studio-progress-active-ring: #134e4a;
+}
+:root[data-theme="dark"][data-accent="rose"] {
+  --studio-primary: #fb7185;
+  --studio-primary-dark: #fecdd3;
+  --studio-accent: #fda4af;
+  --studio-active-bg: #4c0519;
+  --studio-progress-active-ring: #881337;
+}
 * {
   box-sizing: border-box;
 }

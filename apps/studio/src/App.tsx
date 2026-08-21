@@ -148,8 +148,12 @@ import { TranscriptionAnalyticsPanel } from "./TranscriptionAnalyticsPanel";
 import { TranscriptCatalogMigrationPanel } from "./TranscriptCatalogMigrationPanel";
 import { LiveTranscriptionPanel } from "./LiveTranscriptionPanel";
 import {
+  applyStudioAccentColor,
+  isStudioAccentColor,
   readStudioThemePreference,
   setStudioThemePreference,
+  STUDIO_ACCENT_COLORS,
+  type StudioAccentColor,
   type StudioThemePreference,
 } from "./theme";
 import "./styles.css";
@@ -160,6 +164,8 @@ const SOURCE_RETENTION_TTL_OPTIONS_SECONDS = [
 type AccountPreferences = {
   source_retention_ttl_seconds: number;
   allowed_source_retention_ttl_seconds: number[];
+  accent_color: StudioAccentColor;
+  allowed_accent_colors: StudioAccentColor[];
 };
 function isExpectedAccountPreferences(
   candidate: unknown,
@@ -177,7 +183,14 @@ function isExpectedAccountPreferences(
     ) &&
     preferences.allowed_source_retention_ttl_seconds.includes(
       preferences.source_retention_ttl_seconds as number,
-    )
+    ) &&
+    isStudioAccentColor(preferences.accent_color) &&
+    Array.isArray(preferences.allowed_accent_colors) &&
+    preferences.allowed_accent_colors.length === STUDIO_ACCENT_COLORS.length &&
+    preferences.allowed_accent_colors.every(
+      (color, index) => color === STUDIO_ACCENT_COLORS[index],
+    ) &&
+    preferences.allowed_accent_colors.includes(preferences.accent_color)
   );
 }
 function isExpectedCredentialCreateResponse(
@@ -5915,6 +5928,11 @@ function SettingsPage({
   const [retentionMessage, setRetentionMessage] = useState("");
   const [themePreference, setThemePreference] =
     useState<StudioThemePreference>(() => readStudioThemePreference());
+  const [accentSelection, setAccentSelection] =
+    useState<StudioAccentColor>("blue");
+  const [accentSaving, setAccentSaving] = useState(false);
+  const [accentMessage, setAccentMessage] = useState("");
+  const accentMutationPendingRef = useRef(false);
   const [createCredentialOpen, setCreateCredentialOpen] = useState(false);
   const [replacingCredentialId, setReplacingCredentialId] = useState<
     string | null
@@ -5980,6 +5998,8 @@ function SettingsPage({
       (preferences) => {
         observed = preferences;
         setAccountPreferences(preferences);
+        setAccentSelection(preferences.accent_color);
+        applyStudioAccentColor(preferences.accent_color);
         setRetentionSelection(
           String(preferences.source_retention_ttl_seconds),
         );
@@ -6395,7 +6415,63 @@ function SettingsPage({
         void loadAuditEvents({ reportFailure: false });
       }
     }
-  }  const mutateCredential = async (
+  }
+  async function saveAccentPreference(selected: StudioAccentColor) {
+    if (accentMutationPendingRef.current || !accountPreferences) return;
+    const previousConfirmed = accountPreferences.accent_color;
+    accentMutationPendingRef.current = true;
+    setAccentSaving(true);
+    setAccentSelection(selected);
+    setAccentMessage("");
+    applyStudioAccentColor(selected);
+    try {
+      const request = await runBoundedRequest(
+        (signal) =>
+          safeMutate<unknown>("/account/preferences", {
+            method: "PATCH",
+            signal,
+            body: JSON.stringify({ accent_color: selected }),
+          }),
+        ACCOUNT_PREFERENCES_MUTATION_TIMEOUT_MS,
+      );
+      const preferences =
+        request.status === "completed" &&
+        isExpectedAccountPreferences(request.value) &&
+        request.value.accent_color === selected
+          ? request.value
+          : await reconcileAccountPreferences();
+      if (!preferences) {
+        setAccentSelection(previousConfirmed);
+        applyStudioAccentColor(previousConfirmed);
+        setAccentMessage(
+          "Сервер не подтвердил цвет. Сохранено последнее подтверждённое значение.",
+        );
+      } else {
+        setAccountPreferences(preferences);
+        setAccentSelection(preferences.accent_color);
+        applyStudioAccentColor(preferences.accent_color);
+        setAccentMessage(
+          preferences.accent_color === selected
+            ? "Цвет интерфейса сохранён."
+            : "Сервер не подтвердил выбранный цвет. Показано актуальное значение.",
+        );
+      }
+    } catch {
+      const preferences = await reconcileAccountPreferences();
+      const confirmed = preferences?.accent_color ?? previousConfirmed;
+      setAccentSelection(confirmed);
+      applyStudioAccentColor(confirmed);
+      setAccentMessage(
+        preferences?.accent_color === selected
+          ? "Сохранение цвета подтверждено по актуальной настройке аккаунта."
+          : "Не удалось сохранить цвет. Показано последнее подтверждённое значение.",
+      );
+    } finally {
+      accentMutationPendingRef.current = false;
+      if (settingsMountedRef.current) setAccentSaving(false);
+    }
+  }
+  const mutateCredential = async (
     kind: "revoke" | "delete",
     credential: Credential,
   ) => {
@@ -6710,6 +6786,30 @@ function SettingsPage({
               Системная тема следует настройке устройства. Выбор сохраняется
               только в этом браузере и не содержит данных аккаунта.
             </p>
+            <label>
+              Цвет интерфейса
+              <select
+                aria-label="Цвет интерфейса"
+                value={accentSelection}
+                disabled={!accountPreferences || accentSaving}
+                onChange={(event) => {
+                  const selected = event.target.value;
+                  if (isStudioAccentColor(selected)) {
+                    void saveAccentPreference(selected);
+                  }
+                }}
+              >
+                <option value="blue">Синий</option>
+                <option value="violet">Фиолетовый</option>
+                <option value="teal">Бирюзовый</option>
+                <option value="rose">Розовый</option>
+              </select>
+            </label>
+            {accentMessage && (
+              <p role="status" className="notice">
+                {accentMessage}
+              </p>
+            )}
           </section>
           <h3>Хранение локальных файлов</h3>
           <section className="card retention-preferences">
@@ -8149,6 +8249,9 @@ function PlatformShell() {
     checkSession();
     return () => invalidateSessionBootstrap();
   }, []);
+  useEffect(() => {
+    applyStudioAccentColor(session.user?.accent_color ?? "blue");
+  }, [session.user?.accent_color]);
   if (session.status === "checking")
     return (
       <main className="auth">

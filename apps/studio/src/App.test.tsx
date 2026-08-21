@@ -767,10 +767,12 @@ describe("Studio PWA", () => {
           const payload = JSON.parse(String(init.body));
           return json({
             source_retention_ttl_seconds:
-              payload.source_retention_ttl_seconds,
+              payload.source_retention_ttl_seconds ?? 86400,
             allowed_source_retention_ttl_seconds: [
               3600, 86400, 259200, 604800, 2592000,
             ],
+            accent_color: payload.accent_color ?? "blue",
+            allowed_accent_colors: ["blue", "violet", "teal", "rose"],
           });
         }
         if (url.endsWith("/api/account/preferences"))
@@ -779,6 +781,8 @@ describe("Studio PWA", () => {
             allowed_source_retention_ttl_seconds: [
               3600, 86400, 259200, 604800, 2592000,
             ],
+            accent_color: "blue",
+            allowed_accent_colors: ["blue", "violet", "teal", "rose"],
           });
         if (url.endsWith("/api/sources/upload-policy"))
           return json({
@@ -2981,6 +2985,8 @@ describe("Studio PWA", () => {
           allowed_source_retention_ttl_seconds: [
             3600, 86400, 259200, 604800, 2592000,
           ],
+          accent_color: "blue",
+          allowed_accent_colors: ["blue", "violet", "teal", "rose"],
         });
       }
       if (url === "/api/account/preferences" && init?.method === "PATCH") {
@@ -3054,6 +3060,8 @@ describe("Studio PWA", () => {
           allowed_source_retention_ttl_seconds: [
             3600, 86400, 259200, 604800, 2592000,
           ],
+          accent_color: "blue",
+          allowed_accent_colors: ["blue", "violet", "teal", "rose"],
         });
       }
       if (url === "/api/account/preferences" && init?.method === "PATCH") {
@@ -3133,6 +3141,8 @@ describe("Studio PWA", () => {
           allowed_source_retention_ttl_seconds: [
             3600, 86400, 259200, 604800, 2592000,
           ],
+          accent_color: "blue",
+          allowed_accent_colors: ["blue", "violet", "teal", "rose"],
         });
       }
       if (url === "/api/account/preferences" && init?.method === "PATCH")
@@ -3168,6 +3178,8 @@ describe("Studio PWA", () => {
               allowed_source_retention_ttl_seconds: [
                 3600, 86400, 259200, 604800, 2592000,
               ],
+              accent_color: "blue",
+              allowed_accent_colors: ["blue", "violet", "teal", "rose"],
             })
           : json({ detail: "raw-retention-read-failure" }, false, 500);
       }
@@ -4673,6 +4685,28 @@ describe("Studio PWA", () => {
     await userEvent.selectOptions(selector, "light");
     expect(localStorage.getItem("studio-theme-preference")).toBe("light");
     expect(document.documentElement.dataset.theme).toBe("light");
+  });
+
+  it("persists and applies the owner accent color without browser storage", async () => {
+    renderApp();
+    await openSettingsPage();
+    const selector = await screen.findByLabelText("Цвет интерфейса");
+    expect(selector).toHaveValue("blue");
+
+    await userEvent.selectOptions(selector, "violet");
+
+    expect(
+      await screen.findByText("Цвет интерфейса сохранён."),
+    ).toBeInTheDocument();
+    expect(document.documentElement.dataset.accent).toBe("violet");
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/account/preferences",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ accent_color: "violet" }),
+      }),
+    );
+    expect(localStorage.getItem("studio-accent-preference")).toBeNull();
   });
 
   it("builds arbitrary ordered segment jobs from one source", async () => {

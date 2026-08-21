@@ -298,23 +298,33 @@ def test_account_source_retention_preferences_are_server_authoritative():
     assert current.json() == {
         "source_retention_ttl_seconds": 86400,
         "allowed_source_retention_ttl_seconds": expected_options,
+        "accent_color": "blue",
+        "allowed_accent_colors": ["blue", "violet", "teal", "rose"],
     }
     assert c.patch("/api/account/preferences", json={"source_retention_ttl_seconds": 604800}).status_code == 403
     assert c.patch("/api/account/preferences", json={"source_retention_ttl_seconds": 7200}, headers=headers).status_code == 422
     assert c.patch("/api/account/preferences", json={"source_retention_ttl_seconds": 604800, "unknown": True}, headers=headers).status_code == 422
+    assert c.patch("/api/account/preferences", json={"accent_color": "orange"}, headers=headers).status_code == 422
+    assert c.patch("/api/account/preferences", json={}, headers=headers).status_code == 422
 
     updated = c.patch("/api/account/preferences", json={"source_retention_ttl_seconds": 604800}, headers=headers)
     assert updated.status_code == 200
     assert updated.json() == {
         "source_retention_ttl_seconds": 604800,
         "allowed_source_retention_ttl_seconds": expected_options,
+        "accent_color": "blue",
+        "allowed_accent_colors": ["blue", "violet", "teal", "rose"],
     }
-    assert c.patch("/api/account/preferences", json={"source_retention_ttl_seconds": 604800}, headers=headers).status_code == 200
+    accent = c.patch("/api/account/preferences", json={"accent_color": "teal"}, headers=headers)
+    assert accent.status_code == 200
+    assert accent.json()["accent_color"] == "teal"
+    assert c.patch("/api/account/preferences", json={"source_retention_ttl_seconds": 604800, "accent_color": "teal"}, headers=headers).status_code == 200
     db = SessionLocal()
     try:
         user = db.query(User).filter_by(email=email).one()
         assert user.source_retention_ttl_seconds == 604800
-        assert db.query(AuditEvent).filter_by(event_type="account.preferences_updated", actor_user_id=user.id).count() == 1
+        assert user.accent_color == "teal"
+        assert db.query(AuditEvent).filter_by(event_type="account.preferences_updated", actor_user_id=user.id).count() == 2
     finally:
         db.close()
 
@@ -2406,7 +2416,7 @@ def test_job_lease_migration_real_0005_shape_upgrades_to_head():
             assert {"lease_owner_id", "lease_generation", "claimed_at", "lease_expires_at", "attempt_count", "cancel_requested_at"}.issubset(cols)
             indexes = [idx["name"] for idx in inspector.get_indexes("transcription_jobs")]
             assert indexes.count("ix_transcription_jobs_status_lease_expires_created") == 1
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0021_source_creation_favorites"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0022_account_operability"
 
 
 
@@ -2441,7 +2451,7 @@ def test_job_output_migration_clean_chain_constraints_and_0007_roundtrip():
         run_alembic("head", env=env)
         with temp_engine.begin() as conn:
             assert "transcription_job_outputs" in inspect(conn).get_table_names()
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0021_source_creation_favorites"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0022_account_operability"
 
 
 
@@ -5753,7 +5763,7 @@ def test_job_destination_migration_0008_0009_upgrade_downgrade_backfill(tmp_path
         with temp_engine.begin() as conn:
             assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0009_job_output_destinations"
         cfg = Config(str(ALEMBIC))
-        assert ScriptDirectory.from_config(cfg).get_current_head() == "0021_source_creation_favorites"
+        assert ScriptDirectory.from_config(cfg).get_current_head() == "0022_account_operability"
     finally:
         temp_engine.dispose()
         cleanup_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")

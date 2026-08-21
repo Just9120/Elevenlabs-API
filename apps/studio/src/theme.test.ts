@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  applyStudioAccentColor,
   applyStudioTheme,
   readStudioThemePreference,
   resolveStudioTheme,
@@ -12,6 +13,7 @@ describe("Studio theme preference", () => {
     window.localStorage.clear();
     delete document.documentElement.dataset.theme;
     delete document.documentElement.dataset.themePreference;
+    delete document.documentElement.dataset.accent;
     document.documentElement.style.colorScheme = "";
     let themeColor = document.querySelector<HTMLMetaElement>(
       'meta[name="theme-color"]',
@@ -75,5 +77,11 @@ describe("Studio theme preference", () => {
     expect(document.documentElement.dataset.theme).toBe("dark");
 
     getter.mockRestore();
+  });
+
+  it("applies a supported owner accent without browser persistence", () => {
+    expect(applyStudioAccentColor("teal")).toBe("teal");
+    expect(document.documentElement.dataset.accent).toBe("teal");
+    expect(window.localStorage.length).toBe(0);
   });
 });
