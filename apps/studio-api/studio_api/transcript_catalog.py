@@ -670,9 +670,17 @@ def classify_provider_attempt_authorities(
             if row.source_identity == identity
             and (row.settings is None or row.settings == target_settings)
         )
-        if any(row.job_status == "processing" for row in relevant):
+        # A persisted output closes this source attempt even while a multi-source
+        # parent job is still processing other sources. Completed evidence must
+        # not conflict with the accepted-result authority evaluated separately.
+        open_attempts = tuple(
+            row for row in relevant if row.retry_disposition != "completed"
+        )
+        if any(row.job_status == "processing" for row in open_attempts):
             status = ProviderAttemptAuthorityStatus.in_flight
-        elif any(row.retry_disposition != "retry_safe" for row in relevant):
+        elif any(
+            row.retry_disposition != "retry_safe" for row in open_attempts
+        ):
             status = ProviderAttemptAuthorityStatus.unresolved
         else:
             status = ProviderAttemptAuthorityStatus.available
