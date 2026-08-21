@@ -52,11 +52,16 @@ const valid = {
 describe("transcription analytics parser", () => {
   it("accepts the exact aggregate contract", () => {
     expect(parseTranscriptionAnalytics(valid)).toEqual(valid);
+    const sinceReset = { ...valid, scope: "project_since_reset" };
+    expect(parseTranscriptionAnalytics(sinceReset)).toEqual(sinceReset);
   });
 
   it("fails closed on private extras and inconsistent counts", () => {
     expect(
       parseTranscriptionAnalytics({ ...valid, project_id: "private-project" }),
+    ).toBeNull();
+    expect(
+      parseTranscriptionAnalytics({ ...valid, scope: "owner_all_time" }),
     ).toBeNull();
     expect(
       parseTranscriptionAnalytics({

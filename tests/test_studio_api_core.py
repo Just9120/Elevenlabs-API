@@ -225,6 +225,10 @@ def test_transcript_catalog_migration_routes_require_authentication_and_csrf():
             path,
             json={**body, "confirm_apply": True},
         ).status_code == 401
+    assert anonymous.post(
+        "/api/transcript-catalog/clear",
+        json={"confirm_clear": True},
+    ).status_code == 401
 
     password = admin("catalog-route-auth@example.com")
     client = TestClient(app)
@@ -244,6 +248,11 @@ def test_transcript_catalog_migration_routes_require_authentication_and_csrf():
             json=body,
             headers={"origin": "https://studio.test"},
         ).status_code == 403
+    assert client.post(
+        "/api/transcript-catalog/clear",
+        json={"confirm_clear": True},
+        headers={"origin": "https://studio.test"},
+    ).status_code == 403
     for path in (
         "/api/transcript-maintenance/standardization/apply",
         "/api/transcript-maintenance/catalog-import/apply",
@@ -3252,6 +3261,140 @@ def test_project_transcription_analytics_is_owner_scoped_no_store_and_aggregate_
         c1.get(f"/api/projects/{pid2}/transcription-analytics").status_code
         == 404
     )
+
+
+def test_history_and_analytics_clear_are_confirmed_owner_scoped_resets():
+    c1, headers1, pid1, jid1, _source_ids1 = create_job_with_sources(
+        "clear-owner@example.com",
+        ("clear-owner-source.mp4",),
+    )
+    _c2, _headers2, pid2, _jid2, _source_ids2 = create_job_with_sources(
+        "clear-other@example.com",
+        ("clear-other-source.mp4",),
+    )
+    with SessionLocal() as db:
+        job = db.get(TranscriptionJob, jid1)
+        job.status = JobStatus.completed
+        job.finished_at = utcnow() - timedelta(seconds=1)
+        db.commit()
+
+    for path in (
+        f"/api/projects/{pid1}/history/clear",
+        f"/api/projects/{pid1}/transcription-analytics/clear",
+    ):
+        assert c1.post(
+            path,
+            json={"confirm_clear": False},
+            headers=headers1,
+        ).status_code == 422
+    assert c1.post(
+        f"/api/projects/{pid2}/history/clear",
+        json={"confirm_clear": True},
+        headers=headers1,
+    ).status_code == 404
+
+    history = c1.post(
+        f"/api/projects/{pid1}/history/clear",
+        json={"confirm_clear": True},
+        headers=headers1,
+    )
+    assert history.status_code == 200
+    assert history.json()["hidden_job_count"] == 1
+    assert c1.get(f"/api/projects/{pid1}/jobs").json() == {"jobs": []}
+
+    analytics = c1.post(
+        f"/api/projects/{pid1}/transcription-analytics/clear",
+        json={"confirm_clear": True},
+        headers=headers1,
+    )
+    assert analytics.status_code == 200
+    assert analytics.json()["hidden_job_count"] == 1
+    reset_payload = c1.get(
+        f"/api/projects/{pid1}/transcription-analytics"
+    ).json()
+    assert reset_payload["scope"] == "project_since_reset"
+    assert reset_payload["totals"] == {"jobs": 0, "sources": 0, "outputs": 0}
+
+    with SessionLocal() as db:
+        assert db.query(TranscriptionJob).filter_by(id=jid1).count() == 1
+        project = db.get(Project, pid1)
+        assert project.history_reset_at is not None
+        assert project.analytics_reset_at is not None
+        events = {
+            row.event_type: row
+            for row in db.query(AuditEvent).filter(
+                AuditEvent.event_type.in_(["history.cleared", "analytics.cleared"])
+            )
+        }
+        assert set(events) == {"history.cleared", "analytics.cleared"}
+        assert all(pid1 in event.metadata_json for event in events.values())
+
+
+def test_manifest_clear_hides_old_accepted_evidence_without_deleting_it():
+    from studio_api.transcript_catalog import (
+        ExistingResultMatchStatus,
+        current_effective_settings,
+        load_existing_result_matches,
+    )
+
+    client, headers, _pid, job_id, source_ids = create_job_with_sources(
+        "manifest-clear@example.com",
+        ("manifest-clear-source.mp4",),
+    )
+    output_id = add_output_row(
+        job_id,
+        source_ids[0],
+        doc_id="manifest-clear-document",
+        persisted_at=utcnow() - timedelta(days=1),
+        output_kind="google_docs_transcript",
+    )
+    with SessionLocal() as db:
+        owner_id = db.get(TranscriptionJob, job_id).owner_user_id
+        source = db.get(Source, source_ids[0])
+        before = load_existing_result_matches(
+            db,
+            owner_user_id=owner_id,
+            sources=[source],
+            target_settings=current_effective_settings(
+                language_mode="detect",
+                diarization_enabled=False,
+            ),
+        )[source.id]
+    assert before.status == ExistingResultMatchStatus.accepted_match
+
+    assert client.post(
+        "/api/transcript-catalog/clear",
+        json={"confirm_clear": False},
+        headers=headers,
+    ).status_code == 422
+    response = client.post(
+        "/api/transcript-catalog/clear",
+        json={"confirm_clear": True},
+        headers=headers,
+    )
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert response.json()["hidden_evidence_count"] == 1
+
+    with SessionLocal() as db:
+        owner_id = db.get(TranscriptionJob, job_id).owner_user_id
+        source = db.get(Source, source_ids[0])
+        after = load_existing_result_matches(
+            db,
+            owner_user_id=owner_id,
+            sources=[source],
+            target_settings=current_effective_settings(
+                language_mode="detect",
+                diarization_enabled=False,
+            ),
+        )[source.id]
+        assert db.get(TranscriptionJobOutput, output_id) is not None
+        assert db.get(User, owner_id).manifest_reset_at is not None
+        assert db.query(AuditEvent).filter_by(
+            event_type="transcript_catalog.cleared",
+            actor_user_id=owner_id,
+        ).count() == 1
+    assert after.status == ExistingResultMatchStatus.no_match
 
 
 def add_output_row(job_id, source_id, *, url="https://docs.google.com/document/d/doc/edit", doc_id=None, persisted_at=None, output_id=None, output_kind="google_doc_transcript"):

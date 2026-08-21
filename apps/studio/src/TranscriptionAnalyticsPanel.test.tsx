@@ -280,4 +280,98 @@ describe("TranscriptionAnalyticsPanel", () => {
     );
     expect(loadAnalytics).toHaveBeenCalledTimes(2);
   });
+
+  it("clears only after Да and reloads the reset aggregate scope", async () => {
+    const resetAnalytics = {
+      ...analytics,
+      scope: "project_since_reset",
+      totals: { jobs: 0, sources: 0, outputs: 0 },
+      outcomes: {
+        queued: 0,
+        processing: 0,
+        completed: 0,
+        failed: 0,
+        cancelled: 0,
+      },
+      success: {
+        successful_jobs: 0,
+        terminal_jobs: 0,
+        percentage: null,
+      },
+      configuration: {
+        provider_model: { elevenlabs_scribe_v2: 0, unknown: 0 },
+        language_mode: { ru: 0, en: 0, detect: 0, other: 0 },
+        diarization: { enabled: 0, disabled: 0 },
+      },
+      durations: Object.fromEntries(
+        Object.keys(analytics.durations).map((key) => [
+          key,
+          {
+            sample_count: 0,
+            average_seconds: null,
+            p50_seconds: null,
+            p95_seconds: null,
+          },
+        ]),
+      ),
+    };
+    const loadAnalytics = vi
+      .fn()
+      .mockResolvedValueOnce(analytics)
+      .mockResolvedValueOnce(resetAnalytics);
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          reset_at: "2026-08-21T12:00:00Z",
+          hidden_job_count: 3,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      render(
+        <TranscriptionAnalyticsPanel
+          projectId="p1"
+          csrf="csrf-safe"
+          onCsrf={vi.fn()}
+          loadAnalytics={loadAnalytics}
+        />,
+      );
+      await userEvent.click(screen.getByText("Аналитика транскрибаций"));
+      expect(await screen.findByText("ElevenLabs · scribe_v2 2"))
+        .toBeInTheDocument();
+
+      await userEvent.click(
+        screen.getByRole("button", { name: "Очистить аналитику" }),
+      );
+      expect(screen.getByRole("button", { name: "Да" })).toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: "Нет" }));
+      expect(fetchMock).not.toHaveBeenCalled();
+
+      await userEvent.click(
+        screen.getByRole("button", { name: "Очистить аналитику" }),
+      );
+      await userEvent.click(screen.getByRole("button", { name: "Да" }));
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/projects/p1/transcription-analytics/clear",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ confirm_clear: true }),
+        }),
+      );
+      expect(
+        await screen.findByText(
+          "Аналитика очищена. Новые метрики считаются с этого момента.",
+        ),
+      ).toBeInTheDocument();
+      expect(screen.getByText(/Агрегаты с момента последней очистки/))
+        .toBeInTheDocument();
+      expect(loadAnalytics).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });

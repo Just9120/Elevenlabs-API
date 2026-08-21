@@ -67,6 +67,7 @@ def build_transcription_analytics_payload(
     output_count: int,
     attempts: Iterable[Any],
     provider_by_credential_id: Mapping[str, str],
+    since: datetime | None = None,
 ) -> dict[str, Any]:
     job_rows = list(jobs)
     attempt_rows = list(attempts)
@@ -139,7 +140,7 @@ def build_transcription_analytics_payload(
     successful_jobs = outcomes["completed"]
 
     return {
-        "scope": "project_all_time",
+        "scope": "project_since_reset" if since is not None else "project_all_time",
         "totals": {
             "jobs": len(job_rows),
             "sources": max(0, int(source_count)),
@@ -174,6 +175,7 @@ def load_transcription_analytics_payload(
     *,
     owner_user_id: str,
     project_id: str,
+    since: datetime | None = None,
 ):
     from .models import (
         ProviderCredential,
@@ -183,14 +185,14 @@ def load_transcription_analytics_payload(
         TranscriptionJobSourceAttempt,
     )
 
-    jobs = (
-        db.query(TranscriptionJob)
-        .filter(
+    jobs_query = db.query(TranscriptionJob).filter(
             TranscriptionJob.owner_user_id == owner_user_id,
             TranscriptionJob.project_id == project_id,
         )
-        .all()
-    )
+    if since is not None:
+        jobs_query = jobs_query.filter(TranscriptionJob.created_at > since)
+    jobs = jobs_query.all()
+    job_ids = [job.id for job in jobs]
     credential_ids = {
         job.provider_credential_id for job in jobs if job.provider_credential_id
     }
@@ -213,18 +215,20 @@ def load_transcription_analytics_payload(
         .filter(
             TranscriptionJob.owner_user_id == owner_user_id,
             TranscriptionJob.project_id == project_id,
+            TranscriptionJob.id.in_(job_ids),
         )
         .count()
-    )
+    ) if job_ids else 0
     output_count = (
         db.query(TranscriptionJobOutput)
         .join(TranscriptionJob, TranscriptionJob.id == TranscriptionJobOutput.job_id)
         .filter(
             TranscriptionJob.owner_user_id == owner_user_id,
             TranscriptionJob.project_id == project_id,
+            TranscriptionJob.id.in_(job_ids),
         )
         .count()
-    )
+    ) if job_ids else 0
     attempts = (
         db.query(TranscriptionJobSourceAttempt)
         .join(
@@ -234,13 +238,15 @@ def load_transcription_analytics_payload(
         .filter(
             TranscriptionJob.owner_user_id == owner_user_id,
             TranscriptionJob.project_id == project_id,
+            TranscriptionJob.id.in_(job_ids),
         )
         .all()
-    )
+    ) if job_ids else []
     return build_transcription_analytics_payload(
         jobs=jobs,
         source_count=source_count,
         output_count=output_count,
         attempts=attempts,
         provider_by_credential_id=provider_by_credential_id,
+        since=since,
     )

@@ -150,6 +150,17 @@ class AccountPreferencesPatch(BaseModel):
             raise ValueError("Укажите изменяемую настройку")
         return self
 
+class ConfirmedClearIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm_clear: StrictBool
+
+    @field_validator("confirm_clear")
+    @classmethod
+    def clear_must_be_confirmed(cls, value):
+        if value is not True:
+            raise ValueError("Подтвердите очистку")
+        return value
+
 class BatchJobItemIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     source_id: str=Field(min_length=1,max_length=36)
@@ -1136,8 +1147,21 @@ def delete_source(source_id: str, request: Request, pair=Depends(require_csrf), 
 @app.get("/api/projects/{project_id}/jobs")
 def list_project_jobs(project_id: str, pair=Depends(current_session), db: Session=Depends(get_db)):
     _,user=pair; p=owned_project_or_404(db,user,project_id)
-    rows=db.query(TranscriptionJob).filter(TranscriptionJob.project_id==p.id, TranscriptionJob.owner_user_id==user.id).order_by(TranscriptionJob.created_at.desc()).all()
+    query=db.query(TranscriptionJob).filter(TranscriptionJob.project_id==p.id, TranscriptionJob.owner_user_id==user.id)
+    if p.history_reset_at is not None:
+        query=query.filter(or_(TranscriptionJob.status.in_([JobStatus.queued, JobStatus.processing]), TranscriptionJob.finished_at > p.history_reset_at))
+    rows=query.order_by(TranscriptionJob.created_at.desc()).all()
     return {"jobs":[job_payload(r) for r in rows]}
+
+@app.post("/api/projects/{project_id}/history/clear")
+def clear_project_history(project_id: str, data: ConfirmedClearIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("history:clear:"+user.id, 10, 3600); p=owned_project_or_404(db,user,project_id)
+    reset_at=utcnow()
+    hidden_job_count=db.query(TranscriptionJob).filter(TranscriptionJob.project_id==p.id, TranscriptionJob.owner_user_id==user.id, TranscriptionJob.status.in_([JobStatus.completed, JobStatus.failed, JobStatus.cancelled]), or_(TranscriptionJob.finished_at.is_(None), TranscriptionJob.finished_at <= reset_at)).count()
+    p.history_reset_at=reset_at; p.updated_at=reset_at
+    audit(db,"history.cleared",actor_user_id=user.id,subject_user_id=user.id,project_id=p.id)
+    db.commit()
+    return {"ok": True, "reset_at": reset_at.isoformat(), "hidden_job_count": hidden_job_count}
 
 @app.get("/api/projects/{project_id}/jobs/progress")
 def get_project_job_progress(response: Response, project_id: str, pair=Depends(current_session), db: Session=Depends(get_db)):
@@ -1152,9 +1176,19 @@ def get_project_job_progress(response: Response, project_id: str, pair=Depends(c
 def get_project_transcription_analytics(response: Response, project_id: str, pair=Depends(current_session), db: Session=Depends(get_db)):
     _,user=pair; p=owned_project_or_404(db,user,project_id); _browser_capability_cache_headers(response)
     try:
-        return load_transcription_analytics_payload(db, owner_user_id=user.id, project_id=p.id)
+        return load_transcription_analytics_payload(db, owner_user_id=user.id, project_id=p.id, since=p.analytics_reset_at)
     except Exception:
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Не удалось загрузить аналитику транскрибаций") from None
+
+@app.post("/api/projects/{project_id}/transcription-analytics/clear")
+def clear_project_transcription_analytics(project_id: str, data: ConfirmedClearIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("analytics:clear:"+user.id, 10, 3600); p=owned_project_or_404(db,user,project_id)
+    reset_at=utcnow()
+    hidden_job_count=db.query(TranscriptionJob).filter(TranscriptionJob.project_id==p.id, TranscriptionJob.owner_user_id==user.id, TranscriptionJob.created_at <= reset_at).count()
+    p.analytics_reset_at=reset_at; p.updated_at=reset_at
+    audit(db,"analytics.cleared",actor_user_id=user.id,subject_user_id=user.id,project_id=p.id)
+    db.commit()
+    return {"ok": True, "reset_at": reset_at.isoformat(), "hidden_job_count": hidden_job_count}
 
 @app.post("/api/projects/{project_id}/jobs", deprecated=True)
 def create_transcription_job(project_id: str, data: TranscriptionJobCreateIn, request: Request, response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db)):

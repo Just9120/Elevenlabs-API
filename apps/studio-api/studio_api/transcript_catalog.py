@@ -335,7 +335,10 @@ def load_existing_result_matches(
         TranscriptionJob,
         TranscriptionJobOutput,
         TranscriptionJobSource,
+        User,
     )
+
+    manifest_reset_at = db.query(User.manifest_reset_at).filter(User.id == owner_user_id).scalar()
 
     source_rows = tuple(sources)
     source_ids = {
@@ -367,7 +370,7 @@ def load_existing_result_matches(
             target_settings=target_settings,
         )
 
-    output_rows = (
+    output_query = (
         db.query(
             Source.id,
             Source.source_type,
@@ -410,8 +413,10 @@ def load_existing_result_matches(
             == GOOGLE_DOCS_TRANSCRIPT_OUTPUT_KIND,
             or_(*identity_filters),
         )
-        .all()
     )
+    if manifest_reset_at is not None:
+        output_query = output_query.filter(TranscriptionJobOutput.persisted_at > manifest_reset_at)
+    output_rows = output_query.all()
     output_document_ids = {
         document_id
         for row in output_rows
@@ -453,6 +458,8 @@ def load_existing_result_matches(
         TranscriptCatalogEntry.owner_user_id == owner_user_id,
         or_(*catalog_identity_filters),
     )
+    if manifest_reset_at is not None:
+        catalog_query = catalog_query.filter(TranscriptCatalogEntry.updated_at > manifest_reset_at)
     if output_document_ids:
         catalog_query = catalog_query.filter(
             TranscriptCatalogEntry.document_id.notin_(output_document_ids)

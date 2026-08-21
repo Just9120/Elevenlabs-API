@@ -147,6 +147,7 @@ import { groupVisibleJobs } from "./jobVisibilityModel";
 import { TranscriptionAnalyticsPanel } from "./TranscriptionAnalyticsPanel";
 import { TranscriptCatalogMigrationPanel } from "./TranscriptCatalogMigrationPanel";
 import { LiveTranscriptionPanel } from "./LiveTranscriptionPanel";
+import { ConfirmClearDialog } from "./ConfirmClearDialog";
 import {
   applyStudioAccentColor,
   isStudioAccentColor,
@@ -1451,6 +1452,10 @@ function PreparationPanel({
   const [reconciliations, setReconciliations] = useState<Record<string, OutputReconciliationState>>({});
   const [retries, setRetries] = useState<Record<string, JobRetryState>>({});
   const [progress, setProgress] = useState<Record<string, JobProgressState>>({});
+  const [historyClearOpen, setHistoryClearOpen] = useState(false);
+  const [historyClearPending, setHistoryClearPending] = useState(false);
+  const [historyClearMessage, setHistoryClearMessage] = useState("");
+  const historyClearPendingRef = useRef(false);
 
   const [removedSourceIds, setRemovedSourceIds] = useState<Set<string>>(
     () => new Set(),
@@ -3211,6 +3216,36 @@ function PreparationPanel({
       finishJobMutation("cancel", jobId, notice);
     }
   }
+  async function clearHistory() {
+    if (historyClearPendingRef.current) return;
+    historyClearPendingRef.current = true;
+    setHistoryClearPending(true);
+    setHistoryClearMessage("");
+    try {
+      const result = await mutateWithCsrfRetry<unknown>(
+        `/projects/${project.id}/history/clear`,
+        csrf,
+        onCsrf,
+        {
+          method: "POST",
+          body: JSON.stringify({ confirm_clear: true }),
+        },
+      );
+      if (!isProjectClearResponse(result)) {
+        throw new Error("invalid_history_clear_response");
+      }
+      setHistoryClearOpen(false);
+      setHistoryClearMessage(
+        "История очищена. Задачи в очереди и обработке сохранены.",
+      );
+      onReloadJobs(project.id);
+    } catch {
+      setHistoryClearMessage("Не удалось очистить историю. Повторите попытку.");
+    } finally {
+      historyClearPendingRef.current = false;
+      setHistoryClearPending(false);
+    }
+  }
   const displayJobs = mergeJobsWithBatchOrder(jobs.items ?? [], batchJobs);
   const {
     current: currentJobs,
@@ -4324,7 +4359,12 @@ function PreparationPanel({
           finishDeletion={finishSourceDeletion}
         />
       </details>
-      <TranscriptionAnalyticsPanel key={project.id} projectId={project.id} />
+      <TranscriptionAnalyticsPanel
+        key={project.id}
+        projectId={project.id}
+        csrf={csrf}
+        onCsrf={onCsrf}
+      />
       <section className="sources" aria-label="Текущие задачи">
         <h4>Текущие задачи</h4>
         {jobs.loading && <p role="status">Загрузка задач…</p>}
@@ -4340,9 +4380,50 @@ function PreparationPanel({
       </section>
       <details className="recent-jobs">
         <summary>Недавние задачи · {recentJobs.length}</summary>
+        {(recentJobs.length > 0 || pinnedTerminalJobs.length > 0) && (
+          <button
+            type="button"
+            className="danger"
+            disabled={historyClearPending}
+            onClick={() => setHistoryClearOpen(true)}
+          >
+            Очистить историю
+          </button>
+        )}
+        {historyClearMessage && (
+          <p role="status" className="notice">
+            {historyClearMessage}
+          </p>
+        )}
         {recentJobs.map((job) => renderJobCard(job))}
       </details>{" "}
+      {historyClearOpen && (
+        <ConfirmClearDialog
+          title="Очистить историю?"
+          description="Завершённые, отменённые и неуспешные задачи исчезнут из списка. Задачи в очереди и обработке, результаты, Google Docs и журнал аудита не удаляются."
+          pending={historyClearPending}
+          onConfirm={() => void clearHistory()}
+          onCancel={() => setHistoryClearOpen(false)}
+        />
+      )}
     </section>
+  );
+}
+
+function isProjectClearResponse(value: unknown): value is {
+  ok: true;
+  reset_at: string;
+  hidden_job_count: number;
+} {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    candidate.ok === true &&
+    typeof candidate.reset_at === "string" &&
+    Number.isFinite(Date.parse(candidate.reset_at)) &&
+    typeof candidate.hidden_job_count === "number" &&
+    Number.isInteger(candidate.hidden_job_count) &&
+    candidate.hidden_job_count >= 0
   );
 }
 
@@ -5820,6 +5901,9 @@ function auditLabel(type: string) {
       "Стандартизация Google Docs применена",
     "transcript_catalog.import_applied":
       "Метаданные добавлены в манифест Studio",
+    "transcript_catalog.cleared": "Манифест Studio очищен",
+    "history.cleared": "История транскрибаций очищена",
+    "analytics.cleared": "Аналитика транскрибаций очищена",
   };
   return labels[type] ?? "Событие безопасности";
 }

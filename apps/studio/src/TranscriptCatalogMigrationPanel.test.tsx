@@ -249,6 +249,55 @@ describe("TranscriptCatalogMigrationPanel", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("clears the manifest only after an explicit Да confirmation", async () => {
+    const fetchMock = vi.fn((url: string) => {
+      if (url.endsWith("/api/google/maintenance/connection")) {
+        return json(readyMaintenanceConnection);
+      }
+      if (url.endsWith("/api/transcript-catalog/clear")) {
+        return json({
+          ok: true,
+          reset_at: "2026-08-21T12:00:00Z",
+          hidden_evidence_count: 7,
+        });
+      }
+      return json({}, false, 404);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderPanel();
+    await screen.findByText(/Расширенный доступ подключён/);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Очистить манифест" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Нет" }));
+    expect(
+      fetchMock.mock.calls.filter(([url]) =>
+        String(url).endsWith("/api/transcript-catalog/clear"),
+      ),
+    ).toHaveLength(0);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Очистить манифест" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Да" }));
+    expect(
+      await screen.findByText(
+        "Манифест очищен. Результаты, Google Docs и исходные файлы сохранены.",
+      ),
+    ).toBeInTheDocument();
+    const clearCalls = fetchMock.mock.calls.filter(([url]) =>
+      String(url).endsWith("/api/transcript-catalog/clear"),
+    );
+    expect(clearCalls).toHaveLength(1);
+    expect(clearCalls[0]?.[1]).toEqual(
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ confirm_clear: true }),
+      }),
+    );
+  });
+
   it("runs separate recursive folder, dry-run, and apply flows", async () => {
     const fetchMock = vi.fn((url: string) => {
       if (url.endsWith("/api/google/maintenance/connection")) {

@@ -166,6 +166,22 @@
 * {
   box-sizing: border-box;
 }
+.confirm-clear-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.58);
+}
+.confirm-clear-dialog {
+  width: min(100%, 520px);
+  margin: 0;
+}
+.confirm-clear-dialog h4 {
+  margin-top: 0;
+}
 html,
 body,
 #root {

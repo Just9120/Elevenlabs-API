@@ -9326,6 +9326,55 @@ describe("Studio PWA", () => {
     expect(document.body.textContent).not.toContain("raw-private");
   });
 
+  it("clears history only after Да while preserving the durable job", async () => {
+    installFocusedOutputFixture({
+      jobStatus: "completed",
+      terminalDismissedAt: "2026-07-02T00:04:00Z",
+    });
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const clearCalls: Array<RequestInit | undefined> = [];
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        String(url).endsWith("/api/projects/p1/history/clear") &&
+        init?.method === "POST"
+      ) {
+        clearCalls.push(init);
+        return json({
+          ok: true,
+          reset_at: "2026-08-21T12:00:00Z",
+          hidden_job_count: 1,
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({});
+    });
+
+    await openFocusedJobsList();
+    await userEvent.click(screen.getByText(/Недавние задачи/));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Очистить историю" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Нет" }));
+    expect(clearCalls).toHaveLength(0);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Очистить историю" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Да" }));
+    expect(
+      await screen.findByText(
+        "История очищена. Задачи в очереди и обработке сохранены.",
+      ),
+    ).toBeInTheDocument();
+    expect(clearCalls).toHaveLength(1);
+    expect(clearCalls[0]).toEqual(
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ confirm_clear: true }),
+      }),
+    );
+  });
+
   it("keeps source deletion ownership and safe outcomes across project switches", async () => {
     installFocusedOutputFixture({
       jobStatus: "processing",
