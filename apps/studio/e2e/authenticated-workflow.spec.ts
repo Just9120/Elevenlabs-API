@@ -439,7 +439,9 @@ test('transcript maintenance stays fail-closed without Google authority', async 
     'Для каждой операции отдельно выберите папку со всеми подпапками либо один Google Doc.',
   );
   await expect(
-    maintenance.getByText('Сначала подключите Google Drive выше.'),
+    maintenance.getByText(
+      'Блокер: основное подключение Google Drive отсутствует.',
+    ),
   ).toBeVisible();
   for (const operationName of [
     'Стандартизация Google Docs',
