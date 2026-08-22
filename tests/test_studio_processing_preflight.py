@@ -118,7 +118,7 @@ if [[ "$1" == "compose" ]]; then
     exit 0
   elif [[ "$1" == "exec" ]]; then
     [[ "$2" == "-T" ]] || exit 45
-    if [[ "$*" == *STUDIO_PREFLIGHT_VALIDATE_SOURCE_STORAGE_SECRET* ]]; then
+    if [[ "$*" == *--validate-mounted-storage-secret* ]]; then
       if [[ {invalid_storage_kind!r} == "access_key_id" && "$*" == *STUDIO_SOURCE_S3_ACCESS_KEY_ID_FILE* ]]; then exit 1; fi
       if [[ {invalid_storage_kind!r} == "secret_access_key" && "$*" == *STUDIO_SOURCE_S3_SECRET_ACCESS_KEY_FILE* ]]; then exit 1; fi
       exit 0
@@ -236,7 +236,7 @@ def test_source_storage_placeholder_secrets_block_inside_runtime_boundary(tmp_pa
         assert proc.returncode != 0
         assert row_statuses(proc.stdout)[row] == "blocked"
         assert "runtime-mounted source storage credential is unreadable, invalid, or placeholder content" in proc.stdout
-        assert any("STUDIO_PREFLIGHT_VALIDATE_SOURCE_STORAGE_SECRET" in call for call in calls)
+        assert any("--validate-mounted-storage-secret" in call for call in calls)
         assert_no_secret_output(proc)
 
 

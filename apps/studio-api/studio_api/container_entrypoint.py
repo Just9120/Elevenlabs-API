@@ -11,6 +11,7 @@ from typing import NoReturn, Sequence
 RUNTIME_UID = 10001
 RUNTIME_GID = 10001
 RUNTIME_SECRET_DIR = Path("/run/studio-runtime-secrets")
+MOUNTED_SECRET_DIR = Path("/run/secrets")
 BOOTSTRAP_ENV = "STUDIO_CONTAINER_SECRET_BOOTSTRAP"
 BOOTSTRAP_REQUIRED = "required"
 MAX_SECRET_BYTES = 64 * 1024
@@ -24,6 +25,10 @@ SECRET_FILES = {
     "STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE": (
         "studio_google_maintenance_oauth_client_secret"
     ),
+}
+MOUNTED_STORAGE_SECRET_RULES = {
+    "STUDIO_SOURCE_S3_ACCESS_KEY_ID_FILE": (16, 128),
+    "STUDIO_SOURCE_S3_SECRET_ACCESS_KEY_FILE": (32, 256),
 }
 
 
@@ -129,6 +134,63 @@ def _bootstrap_runtime_secrets() -> None:
         _copy_secret(Path("/run/secrets") / name, target, key=key)
 
 
+def _validate_mounted_storage_secret(key: str) -> None:
+    rule = MOUNTED_STORAGE_SECRET_RULES.get(key)
+    name = SECRET_FILES.get(key)
+    if rule is None or name is None:
+        raise BootstrapError("reason=mounted_secret_validation_key_invalid")
+    if _effective_uid() != 0:
+        raise BootstrapError("reason=mounted_secret_validation_not_root")
+
+    path = MOUNTED_SECRET_DIR / name
+    descriptor = -1
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(
+        os, "O_NOFOLLOW", 0
+    )
+    try:
+        descriptor = os.open(path, flags)
+        source_stat = os.fstat(descriptor)
+        if not stat.S_ISREG(source_stat.st_mode) or source_stat.st_size > MAX_SECRET_BYTES:
+            raise BootstrapError(f"reason=secret_invalid key={key}")
+        chunks: list[bytes] = []
+        total = 0
+        while True:
+            chunk = os.read(descriptor, 8192)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > MAX_SECRET_BYTES:
+                raise BootstrapError(f"reason=secret_invalid key={key}")
+            chunks.append(chunk)
+        raw = b"".join(chunks)
+    except BootstrapError:
+        raise
+    except OSError as exc:
+        raise BootstrapError(f"reason=secret_unavailable key={key}") from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+    try:
+        value = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise BootstrapError(f"reason=secret_invalid key={key}") from exc
+    if value.endswith("\n"):
+        value = value[:-1]
+    if value.endswith("\r"):
+        value = value[:-1]
+    normalized = value.lower()
+    minimum, maximum = rule
+    if not (
+        minimum <= len(value) <= maximum
+        and all(33 <= ord(character) <= 126 for character in value)
+        and normalized not in {"echo", "test", "example", "placeholder", "changeme"}
+        and normalized[:2] != "__"
+        and "required" not in normalized
+    ):
+        raise BootstrapError(f"reason=secret_invalid key={key}")
+
+
 def _drop_privileges() -> None:
     if _effective_uid() == RUNTIME_UID:
         return
@@ -153,8 +215,15 @@ def _exec(command: Sequence[str]) -> NoReturn:
         raise BootstrapError("reason=command_exec_failed") from exc
 
 
-def run(argv: Sequence[str] | None = None) -> NoReturn:
+def run(argv: Sequence[str] | None = None) -> NoReturn | None:
     command = list(sys.argv[1:] if argv is None else argv)
+    validate_mounted_secret = bool(
+        command and command[0] == "--validate-mounted-storage-secret"
+    )
+    if validate_mounted_secret:
+        command.pop(0)
+        if len(command) != 1:
+            raise BootstrapError("reason=mounted_secret_validation_command_invalid")
     drop_only = bool(command and command[0] == "--drop-only")
     if drop_only:
         command.pop(0)
@@ -164,6 +233,10 @@ def run(argv: Sequence[str] | None = None) -> NoReturn:
     bootstrap_mode = os.environ.get(BOOTSTRAP_ENV, "")
     if bootstrap_mode not in {"", BOOTSTRAP_REQUIRED}:
         raise BootstrapError("reason=bootstrap_mode_invalid")
+
+    if validate_mounted_secret:
+        _validate_mounted_storage_secret(command[0])
+        return
 
     current_uid = _effective_uid()
     if bootstrap_mode == BOOTSTRAP_REQUIRED and not drop_only:
@@ -176,7 +249,7 @@ def run(argv: Sequence[str] | None = None) -> NoReturn:
     _exec(command)
 
 
-def main() -> NoReturn:
+def main() -> None:
     try:
         run()
     except BootstrapError as exc:

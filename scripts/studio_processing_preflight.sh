@@ -49,37 +49,10 @@ invalid_runtime_setting() {
 }
 
 validate_container_storage_secret() {
-  local env_key="$1" kind="$2" min_length max_length
-  case "$kind" in
-    access_key_id) min_length=16; max_length=128 ;;
-    secret_access_key) min_length=32; max_length=256 ;;
-    *) return 1 ;;
-  esac
-  "${compose[@]}" exec -T studio-api python -c '
-import os
-from pathlib import Path
-import sys
-
-marker = "STUDIO_PREFLIGHT_VALIDATE_SOURCE_STORAGE_SECRET"
-env_key, min_length, max_length = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
-try:
-    value = Path(os.environ[env_key]).read_text(encoding="utf-8")
-except (KeyError, OSError, UnicodeError):
-    raise SystemExit(1)
-if value.endswith("\n"):
-    value = value[:-1]
-if value.endswith("\r"):
-    value = value[:-1]
-normalized = value.lower()
-valid = (
-    min_length <= len(value) <= max_length
-    and all(33 <= ord(character) <= 126 for character in value)
-    and normalized not in {"echo", "test", "example", "placeholder", "changeme"}
-    and normalized[:2] != "__"
-    and "required" not in normalized
-)
-raise SystemExit(0 if valid and marker else 1)
-' "$env_key" "$min_length" "$max_length" >/dev/null 2>&1
+  local env_key="$1"
+  "${compose[@]}" exec -T studio-api \
+    python -m studio_api.container_entrypoint \
+    --validate-mounted-storage-secret "$env_key" >/dev/null 2>&1
 }
 
 parse_env() {
@@ -178,13 +151,13 @@ for svc in postgres redis studio-api studio-web studio-worker; do IFS=: read -r 
 [[ "${SSTATUS[redis]}" == "healthy" ]] && set_row "Redis health" "pass" "redis service is healthy" || { set_row "Redis health" "blocked" "redis service is not healthy"; block_exit; }
 [[ "${SSTATUS[studio-api]}" == "healthy" ]] || { set_row "localhost API health" "blocked" "studio-api is not healthy before localhost check"; block_exit; }
 [[ "${SSTATUS[studio-web]}" == "healthy" ]] || { set_row "localhost web health" "blocked" "studio-web is not healthy before localhost check"; block_exit; }
-if validate_container_storage_secret "STUDIO_SOURCE_S3_ACCESS_KEY_ID_FILE" access_key_id; then
+if validate_container_storage_secret "STUDIO_SOURCE_S3_ACCESS_KEY_ID_FILE"; then
   set_row "SOURCE_S3_ACCESS_KEY_ID secret-file presence" "pass" "runtime-mounted source storage credential is present and structurally valid"
 else
   set_row "SOURCE_S3_ACCESS_KEY_ID secret-file presence" "blocked" "runtime-mounted source storage credential is unreadable, invalid, or placeholder content"
   block_exit
 fi
-if validate_container_storage_secret "STUDIO_SOURCE_S3_SECRET_ACCESS_KEY_FILE" secret_access_key; then
+if validate_container_storage_secret "STUDIO_SOURCE_S3_SECRET_ACCESS_KEY_FILE"; then
   set_row "SOURCE_S3_SECRET_ACCESS_KEY secret-file presence" "pass" "runtime-mounted source storage credential is present and structurally valid"
 else
   set_row "SOURCE_S3_SECRET_ACCESS_KEY secret-file presence" "blocked" "runtime-mounted source storage credential is unreadable, invalid, or placeholder content"
