@@ -1,6 +1,8 @@
 import hashlib, json, logging, re
 from datetime import datetime, timedelta, timezone
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse, Response as FastAPIResponse
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, StrictBool, StrictInt, field_validator, model_validator
 from sqlalchemy import and_, text, func, or_, select
@@ -62,6 +64,35 @@ app=FastAPI(docs_url="/docs" if settings.enable_api_docs else None, redoc_url=No
 app.include_router(transcript_catalog_router)
 limiter=RateLimiter()
 LOGGER=logging.getLogger("studio_api.api")
+REALTIME_DRAFT_SAVE_LIMIT_PER_HOUR = 7_200
+REALTIME_DRAFT_ROUTE_PATTERN = re.compile(
+    r"^/api/projects/[^/]+/realtime/drafts/[^/]+$"
+)
+
+
+def _is_realtime_draft_route(path: str) -> bool:
+    return REALTIME_DRAFT_ROUTE_PATTERN.fullmatch(path) is not None
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_error_handler(request: Request, exc: RequestValidationError):
+    if not _is_realtime_draft_route(request.url.path):
+        return await request_validation_exception_handler(request, exc)
+    response = JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={
+            "detail": [
+                {
+                    "type": error.get("type", "validation_error"),
+                    "loc": list(error.get("loc", ())),
+                }
+                for error in exc.errors()
+            ]
+        },
+    )
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    return response
 
 @app.middleware("http")
 async def request_correlation_middleware(request: Request, call_next):
@@ -82,6 +113,9 @@ async def request_correlation_middleware(request: Request, call_next):
             except Exception:
                 LOGGER.warning("api_unhandled_diagnostic_write_failed request_id=%s correlation_id=%s endpoint_group=%s", request_id, correlation_id, endpoint_group)
         response = JSONResponse({"detail": "Internal server error"}, status_code=500)
+    if _is_realtime_draft_route(request.url.path):
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Pragma"] = "no-cache"
     response.headers["X-Request-ID"] = request_id
     response.headers["X-Correlation-ID"] = correlation_id
     return response
@@ -943,11 +977,17 @@ def put_project_realtime_draft(
     db: Session=Depends(get_db),
 ):
     _, user = pair
-    limiter.check("realtime:draft:save:" + user.id, 240, 3600)
+    # The client may checkpoint partial text every 750 ms while audio is active.
+    limiter.check(
+        "realtime:draft:save:" + user.id,
+        REALTIME_DRAFT_SAVE_LIMIT_PER_HOUR,
+        3600,
+    )
     project = owned_project_or_404(db, user, project_id)
     _browser_capability_cache_headers(response)
-    try:
-        draft = save_realtime_draft(
+
+    def save() -> object:
+        return save_realtime_draft(
             db,
             owner_user_id=user.id,
             project=project,
@@ -958,16 +998,30 @@ def put_project_realtime_draft(
             settings=settings,
             now=utcnow(),
         )
+
+    try:
+        draft = save()
         db.commit()
     except RealtimeDraftError as exc:
         db.rollback()
         _raise_realtime_draft_failure(exc)
-    except IntegrityError as exc:
+    except IntegrityError:
         db.rollback()
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            {"reason": RealtimeDraftReason.revision_conflict.value},
-        ) from exc
+        try:
+            # A concurrent identical first write can win the unique insert race.
+            # Reload once after rollback so that the existing idempotence contract
+            # decides between success and a genuine revision conflict.
+            draft = save()
+            db.commit()
+        except RealtimeDraftError as exc:
+            db.rollback()
+            _raise_realtime_draft_failure(exc)
+        except IntegrityError as exc:
+            db.rollback()
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                {"reason": RealtimeDraftReason.revision_conflict.value},
+            ) from exc
     return {"draft": _realtime_draft_payload(draft, include_text=False)}
 
 @app.get("/api/projects/{project_id}/realtime/drafts/latest")

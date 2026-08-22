@@ -30,7 +30,7 @@ from alembic.script import ScriptDirectory
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, inspect, select, text
 from sqlalchemy.engine import make_url
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from studio_api.config import Settings
 from studio_api.db import SessionLocal, engine
 from studio_api.main import app, limiter
@@ -41,6 +41,7 @@ from studio_api.job_processing_lifecycle import JobProcessingError, JobProcessin
 from studio_api.google_docs_output import GoogleDocsCreateResult, new_google_docs_transcript_artifact
 from studio_api.job_output_persistence import JobOutputPersistenceError, JobOutputPersistenceReason, _load_locked_output_authority, persist_processing_job_source_output_and_maybe_complete
 from studio_api.realtime_capability import RealtimeCapability, RealtimeCapabilityError, RealtimeCapabilityReason
+from studio_api.realtime_drafts import RealtimeDraftContent
 
 ALEMBIC = ROOT / "apps/studio-api/alembic.ini"
 
@@ -694,6 +695,80 @@ def test_realtime_draft_routes_are_private_monotonic_and_no_store():
     assert deleted.headers["cache-control"] == "no-store"
     assert deleted.json() == {"ok": True, "deleted": True}
     assert owner_client.get(latest_path).json() == {"draft": None}
+
+
+def test_realtime_draft_validation_redacts_transcript_input():
+    email = "realtime-draft-validation@example.com"
+    password = admin(email)
+    client = TestClient(app)
+    csrf = login(client, password, email)
+    headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+    project = client.post(
+        "/api/projects",
+        json={"title": "Realtime validation"},
+        headers=headers,
+    ).json()
+    secret_marker = "private-transcript-marker"
+    response = client.put(
+        f"/api/projects/{project['id']}/realtime/drafts/session_123456789",
+        json={
+            "revision": 1,
+            "committed_segments": [],
+            "partial": secret_marker + ("x" * 20_000),
+        },
+        headers=headers,
+    )
+
+    assert response.status_code == 422
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["pragma"] == "no-cache"
+    assert secret_marker not in response.text
+    assert all(set(error) == {"type", "loc"} for error in response.json()["detail"])
+
+
+def test_realtime_draft_identical_first_write_retries_insert_race(monkeypatch):
+    from studio_api import main as main_mod
+
+    email = "realtime-draft-insert-race@example.com"
+    password = admin(email)
+    client = TestClient(app)
+    csrf = login(client, password, email)
+    headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+    project = client.post(
+        "/api/projects",
+        json={"title": "Realtime insert race"},
+        headers=headers,
+    ).json()
+    now = datetime.now(timezone.utc)
+    calls = []
+
+    def race_then_load(*_args, **kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            raise IntegrityError("insert", {}, Exception("concurrent insert"))
+        return RealtimeDraftContent(
+            client_session_id=kwargs["client_session_id"],
+            revision=kwargs["revision"],
+            committed_segments=tuple(kwargs["committed_segments"]),
+            partial=kwargs["partial"],
+            updated_at=now,
+            expires_at=now + timedelta(hours=72),
+        )
+
+    monkeypatch.setattr(main_mod, "save_realtime_draft", race_then_load)
+    response = client.put(
+        f"/api/projects/{project['id']}/realtime/drafts/session_123456789",
+        json={
+            "revision": 1,
+            "committed_segments": ["first segment"],
+            "partial": "partial",
+        },
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["draft"]["revision"] == 1
+    assert len(calls) == 2
 
 
 @pytest.mark.parametrize(

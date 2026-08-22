@@ -55,7 +55,7 @@ class Settings(BaseSettings):
     worker_lease_ttl_seconds: int = Field(default=3600, ge=300, le=86400)
     worker_lease_heartbeat_interval_seconds: int = Field(default=60, ge=5)
     provider_part_checkpoint_ttl_seconds: int = Field(default=86400, ge=3600, le=86400)
-    realtime_draft_ttl_seconds: int = Field(default=259200, ge=3600, le=604800)
+    realtime_draft_ttl_seconds: int = Field(default=259200, ge=259200, le=259200)
     diagnostic_retention_days: int = Field(default=14, ge=1, le=30)
     diagnostic_debug_retention_hours: int = Field(default=24, ge=1, le=24)
     diagnostic_cleanup_interval_seconds: int = Field(default=3600, ge=60, le=86400)
