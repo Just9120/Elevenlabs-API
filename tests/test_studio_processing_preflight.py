@@ -97,6 +97,7 @@ esac
     }
     worker_count = int(state.get("worker_count", "0"))
     current = state.get("current", "0022_account_operability")
+    invalid_storage_kind = state.get("invalid_storage_kind", "")
     _write_exe(bin_dir / "docker", f"""#!/usr/bin/env bash
 set -euo pipefail
 printf 'docker %s\n' "$*" >> {str(log)!r}
@@ -117,6 +118,11 @@ if [[ "$1" == "compose" ]]; then
     exit 0
   elif [[ "$1" == "exec" ]]; then
     [[ "$2" == "-T" ]] || exit 45
+    if [[ "$*" == *STUDIO_PREFLIGHT_VALIDATE_SOURCE_STORAGE_SECRET* ]]; then
+      if [[ {invalid_storage_kind!r} == "access_key_id" && "$*" == *STUDIO_SOURCE_S3_ACCESS_KEY_ID_FILE* ]]; then exit 1; fi
+      if [[ {invalid_storage_kind!r} == "secret_access_key" && "$*" == *STUDIO_SOURCE_S3_SECRET_ACCESS_KEY_FILE* ]]; then exit 1; fi
+      exit 0
+    fi
     if read -r unexpected; then echo stdin-leak >> {str(log)!r}; fi
     printf '%s\n' {current!r}
   else exit 5; fi
@@ -219,33 +225,18 @@ def test_runtime_gate_failures_block_before_service_inspection(tmp_path: Path) -
         assert_no_secret_output(proc)
 
 
-def test_source_storage_placeholder_secrets_block_before_docker(tmp_path: Path) -> None:
+def test_source_storage_placeholder_secrets_block_inside_runtime_boundary(tmp_path: Path) -> None:
     cases = [
-        ("s3id", "SOURCE_S3_ACCESS_KEY_ID secret-file presence", "echo"),
-        ("s3id", "SOURCE_S3_ACCESS_KEY_ID secret-file presence", "short"),
-        ("s3id", "SOURCE_S3_ACCESS_KEY_ID secret-file presence", "a" * 129),
-        ("s3secret", "SOURCE_S3_SECRET_ACCESS_KEY secret-file presence", "changeme"),
-        ("s3secret", "SOURCE_S3_SECRET_ACCESS_KEY secret-file presence", "b" * 31),
-        ("s3secret", "SOURCE_S3_SECRET_ACCESS_KEY secret-file presence", "b" * 32 + "\nsecond-line"),
+        ("access_key_id", "SOURCE_S3_ACCESS_KEY_ID secret-file presence"),
+        ("secret_access_key", "SOURCE_S3_SECRET_ACCESS_KEY secret-file presence"),
     ]
-    for index, (filename, row, value) in enumerate(cases):
+    for index, (kind, row) in enumerate(cases):
         case = tmp_path / str(index)
-        repo, bin_dir = make_repo(case)
-        (case / "secrets" / filename).write_text(value, encoding="utf-8")
-        proc = subprocess.run(
-            ["bash", str(SCRIPT), str(repo), "main", "Just9120/Elevenlabs-API", SHA],
-            cwd=repo,
-            env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"},
-            text=True,
-            capture_output=True,
-            timeout=10,
-        )
-        calls = (case / "calls.log").read_text(encoding="utf-8").splitlines() if (case / "calls.log").exists() else []
+        proc, calls, _ = run_preflight(case, invalid_storage_kind=kind)
         assert proc.returncode != 0
         assert row_statuses(proc.stdout)[row] == "blocked"
-        assert "source storage credential file has invalid or placeholder content" in proc.stdout
-        assert value not in proc.stdout + proc.stderr
-        assert not any(call.startswith("docker ") for call in calls)
+        assert "runtime-mounted source storage credential is unreadable, invalid, or placeholder content" in proc.stdout
+        assert any("STUDIO_PREFLIGHT_VALIDATE_SOURCE_STORAGE_SECRET" in call for call in calls)
         assert_no_secret_output(proc)
 
 
