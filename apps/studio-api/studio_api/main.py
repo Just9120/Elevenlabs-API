@@ -443,11 +443,22 @@ def safe_job_output_folder_payload(job: TranscriptionJob):
         url=None
     return {"name": clean_optional_name(job.output_drive_folder_name) or "Папка Google Drive", "web_view_url": url}
 
+def browser_batch_reference(job: TranscriptionJob):
+    key=getattr(job,"batch_idempotency_key",None)
+    position=getattr(job,"batch_position",None)
+    if not key or position is None:
+        return None
+    identity="\0".join(("studio-multi-transcription-v1",job.owner_user_id,job.project_id,key))
+    digest=hashlib.sha256(identity.encode("utf-8")).hexdigest()[:32]
+    return {"id": f"multi_{digest}", "position": int(position)}
+
 def job_payload(job: TranscriptionJob, include_sources=False):
     clip_start=getattr(job,"media_clip_start_seconds",None); clip_end=getattr(job,"media_clip_end_seconds",None)
     media_clip=None if clip_start is None and clip_end is None else {"start_seconds":clip_start,"end_seconds":clip_end}
     terminal_dismissed_at=getattr(job,"terminal_dismissed_at",None)
     payload={"id": job.id, "project_id": job.project_id, "status": job.status.value, "title": job.title, "provider": job.provider, "language_mode": browser_language_mode(getattr(job, "language", None)), "diarization_enabled": job_diarization_enabled(getattr(job, "options_json", None)), "media_clip": media_clip, "terminal_dismissed_at": terminal_dismissed_at.isoformat() if terminal_dismissed_at else None, "source_count": len(job.sources), "created_at": job.created_at.isoformat(), "updated_at": job.updated_at.isoformat(), "cancelled_at": job.cancelled_at.isoformat() if job.cancelled_at else None, "cancel_requested_at": job.cancel_requested_at.isoformat() if job.cancel_requested_at else None, "attempt_count": job.attempt_count or 0, "started_at": job.started_at.isoformat() if job.started_at else None, "finished_at": job.finished_at.isoformat() if job.finished_at else None, "error_code": safe_failure_metadata_value(job.error_code), "error_message": safe_failure_metadata_value(job.error_message), "output_folder": safe_job_output_folder_payload(job)}
+    batch=browser_batch_reference(job)
+    if batch is not None: payload["batch"]=batch
     if include_sources: payload["sources"]=[job_source_payload(s) for s in sorted(job.sources, key=lambda item: item.position)]
     return payload
 

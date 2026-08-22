@@ -86,7 +86,7 @@ test('authenticated user creates a project and reads a completed job result', as
     page.getByRole('region', { name: `Подготовка ${RESULT_PROJECT}` }),
   ).toBeVisible();
 
-  await page.getByText('Недавние задачи · 4', { exact: true }).click();
+  await page.getByText('Недавние транскрибации · 4', { exact: true }).click();
   const jobCard = page
     .locator('article.source-card')
     .filter({ hasText: RESULT_JOB })
@@ -495,7 +495,7 @@ test('uncertain provider result exposes no unsafe recovery action', async ({
   await page
     .getByRole('button', { name: new RegExp(`^${RESULT_PROJECT}`) })
     .click();
-  await page.getByText('Недавние задачи · 4', { exact: true }).click();
+  await page.getByText('Недавние транскрибации · 4', { exact: true }).click();
 
   const jobCard = page
     .locator('article.source-card')
@@ -574,7 +574,7 @@ test('unresolved output reconciliation waits for an explicit safe action', async
   await page
     .getByRole('button', { name: new RegExp(`^${RESULT_PROJECT}`) })
     .click();
-  await page.getByText('Недавние задачи · 4', { exact: true }).click();
+  await page.getByText('Недавние транскрибации · 4', { exact: true }).click();
 
   const jobCard = page
     .locator('article.source-card')
@@ -832,7 +832,7 @@ test('processing cancellation records a request without claiming completion', as
     progress.getByText('Создание Google Docs').locator('..'),
   ).toContainText('Ожидает');
 
-  const currentJobs = page.getByRole('region', { name: 'Текущие задачи' });
+  const currentJobs = page.getByRole('region', { name: 'Текущие транскрибации' });
   const processingCard = currentJobs
     .locator('article.source-card')
     .filter({ hasText: PROCESSING_CANCELLATION_JOB })
@@ -973,7 +973,7 @@ test('queued cancellation performs one bounded API mutation', async ({
   await expect(progress.getByText('Готово', { exact: true })).toHaveCount(0);
   await expect(progress.getByText('Проверено', { exact: true })).toHaveCount(0);
 
-  const currentJobs = page.getByRole('region', { name: 'Текущие задачи' });
+  const currentJobs = page.getByRole('region', { name: 'Текущие транскрибации' });
   const queuedCard = currentJobs
     .locator('article.source-card')
     .filter({ hasText: QUEUED_CANCELLATION_JOB })
@@ -1036,7 +1036,7 @@ test('queued cancellation performs one bounded API mutation', async ({
       .filter({ hasText: QUEUED_CANCELLATION_JOB }),
   ).toHaveCount(0);
 
-  await page.getByText('Недавние задачи · 5', { exact: true }).click();
+  await page.getByText('Недавние транскрибации · 5', { exact: true }).click();
   const cancelledCard = page
     .locator('article.source-card')
     .filter({ hasText: QUEUED_CANCELLATION_JOB })
@@ -1065,7 +1065,7 @@ test('retry-safe provider rejection performs one explicit requeue mutation', asy
     .click();
 
   const recentJobs = page.locator('details.recent-jobs');
-  await recentJobs.getByText(/^Недавние задачи · \d+$/).click();
+  await recentJobs.getByText(/^Недавние транскрибации · \d+$/).click();
   const retryCard = recentJobs
     .locator('article.source-card')
     .filter({ hasText: RETRY_SAFE_JOB })
@@ -1120,7 +1120,7 @@ test('retry-safe provider rejection performs one explicit requeue mutation', asy
     retry_safe_source_count: 0,
   });
 
-  const currentJobs = page.getByRole('region', { name: 'Текущие задачи' });
+  const currentJobs = page.getByRole('region', { name: 'Текущие транскрибации' });
   const queuedRetryCard = currentJobs
     .locator('article.source-card')
     .filter({ hasText: RETRY_SAFE_JOB })

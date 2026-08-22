@@ -2347,6 +2347,62 @@ describe("Studio PWA", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("renders one batch as one ordered multi-transcription with item controls", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const batchId = "multi_0123456789abcdef0123456789abcdef";
+    const batchJob = (id: string, title: string, position: number) => ({
+      id,
+      project_id: "p1",
+      status: "queued",
+      title,
+      provider: "elevenlabs",
+      language_mode: "ru",
+      diarization_enabled: false,
+      media_clip: null,
+      batch: { id: batchId, position },
+      terminal_dismissed_at: null,
+      source_count: 1,
+      created_at: "2026-08-22T10:00:00Z",
+      updated_at: "2026-08-22T10:00:00Z",
+      cancelled_at: null,
+      cancel_requested_at: null,
+      attempt_count: 0,
+      started_at: null,
+      finished_at: null,
+      error_code: null,
+      error_message: null,
+      output_folder: null,
+    });
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/projects/p1/jobs") && !init?.method) {
+        return json({
+          jobs: [
+            batchJob("job-batch-second", "Вторая запись", 1),
+            batchJob("job-batch-first", "Первая запись", 0),
+          ],
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({});
+    });
+
+    renderApp();
+    await openProjectsPage();
+    const multi = await screen.findByRole("article", {
+      name: "Мульти-транскрибация · 2",
+    });
+    expect(
+      Array.from(
+        multi.querySelectorAll(".multi-transcription-item-heading span"),
+      ).map((element) => element.textContent),
+    ).toEqual(["Первая запись", "Вторая запись"]);
+    expect(within(multi).getByText("Завершено элементов: 0 из 2"))
+      .toBeInTheDocument();
+    expect(within(multi).getAllByRole("button", { name: "Открыть" }))
+      .toHaveLength(2);
+    expect(within(multi).getAllByText("Статус: В очереди")).toHaveLength(2);
+  });
+
   it("keeps multiple legacy workspaces accessible without lifecycle controls", async () => {
     installFocusedOutputFixture({ includeSecondProject: true });
     renderApp();
@@ -7001,7 +7057,7 @@ describe("Studio PWA", () => {
     );
     expect(
       await screen.findByText(
-        "Повтор подтверждён: создано независимых задач: 1.",
+        "Повтор подтверждён: мульти-транскрибация содержит элементов: 1.",
       ),
     ).toBeInTheDocument();
     const aCreateCalls = (
@@ -8951,7 +9007,7 @@ describe("Studio PWA", () => {
     });
 
     await openFocusedJobsList();
-    await userEvent.click(screen.getByText(/Недавние задачи/));
+    await userEvent.click(screen.getByText(/Недавние транскрибации/));
     await userEvent.click(
       screen.getByRole("button", { name: "Очистить историю" }),
     );

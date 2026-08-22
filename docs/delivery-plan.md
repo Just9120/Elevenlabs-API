@@ -21,23 +21,23 @@
   11. Maintenance access показывает точную safe blocker category; OpenAI key storage ясно помечено как недоступное для current transcription execution.
   12. Existing batch/realtime behavior не регрессирует; relevant backend/frontend/security/responsive/accessibility tests проходят.
   13. Exact-head CI, applicable MANUAL_GATED migration/API/web/worker deployment и bounded LIVE recovery validation успешны.
-- **Required Evidence:** `SPEC ✅ | CODE ◐ | TEST ◐ | CI — | DEPLOY — | LIVE —`.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ◐ | CI — | DEPLOY — | LIVE —`.
 - **Known blockers/dependencies:** additive migration `0023` потребует отдельного protected Environment approval после merge; production archived project `Транскрибации` не может быть восстановлен этой Goal без отдельной exact-data authorization; approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
 - **Stop condition:** все Goal AC и required Evidence подтверждены либо flow достиг `BLOCKED` / `PENDING_EXTERNAL_GATE`; затем остановиться и не переходить к следующей Goal без explicit authorization.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-22T15:57:58Z
+- Updated (UTC): 2026-08-22T16:21:36Z
 - Session mode: new authorized Goal
 - Base branch: `main`
 - Base SHA: `dd194c929d957e822ff618df294dc54e72d5971e`
 - Working branch: `codex/pwa-transcriptions-live-recovery-01`
-- Last verified revision: `58b7520`
+- Last verified revision: `6c64d4f867da2ce39d9c21791e97b6054dcbd17d`
 - Working tree at branch start: tracked clean; preserved unrelated untracked `.pnpm-store/`, `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml`
-- Completed: Git/GitHub recovery; product reconciliation; additive `0023` encrypted owner/project Live-draft model/service/API; monotonic/size/TTL boundaries; idle-worker physical cleanup; removal of autosave audit churn; IndexedDB checkpoint module; server sync; reload recovery restore/download/delete UX; canonical `/transcriptions` route; ordinary/Live tabs; removal of manual Project create/edit/archive UX; idempotent internal workspace ensure; non-destructive legacy workspace compatibility selector; bounded metadata layout; dark primary contrast; accessible confirmation dialog; keyboard-operable tabs; heading/touch/mobile affordance corrections; exact maintenance blocker copy; current-provider limitation copy.
-- Current step: commit the verified bounded UX/accessibility/operability slice.
-- Next exact action: implement `PT-03`: represent one confirmed batch as one multi-transcription with item-level progress/results while preserving job-level recovery controls.
-- Validation and Evidence: backend Python syntax compile and `scripts/ci_checks.py` PASS; TypeScript build and ESLint PASS; focused Live/recovery tests `21/21` PASS; Transcriptions IA/App/routing regression `223/223` PASS; current focused UX regression `229/229` PASS after one safe-focus defect was found and fixed. Bounded local browser validation PASS at desktop `1280x720` and narrow `390x844`: no document-level overflow (`documentWidth=375` at layout viewport 375), all three primary navigation controls visible, ordinary/Live keyboard tab switching works, visible sampled targets are at least 66 px high. Backend integration tests are authored but not runnable locally without the repository PostgreSQL/Redis Python test environment.
+- Completed: Git/GitHub recovery; product reconciliation; additive `0023` encrypted owner/project Live-draft model/service/API; monotonic/size/TTL boundaries; idle-worker physical cleanup; removal of autosave audit churn; IndexedDB checkpoint module; server sync; reload recovery restore/download/delete UX; canonical `/transcriptions` route; ordinary/Live tabs; removal of manual Project create/edit/archive UX; idempotent internal workspace ensure; non-destructive legacy workspace compatibility selector; bounded metadata layout; dark primary contrast; accessible confirmation dialog; keyboard-operable tabs; heading/touch/mobile affordance corrections; exact maintenance blocker copy; current-provider limitation copy; safe deterministic batch presentation reference; one grouped multi-transcription per batch with ordered source/fragment items and preserved item-level progress/output/recovery controls.
+- Current step: commit the verified multi-transcription presentation slice and readiness update.
+- Next exact action: run final branch validation, fetch/reconcile `origin/main`, push the completed Goal scope and create the Pull Request.
+- Validation and Evidence: backend Python syntax compile and `scripts/ci_checks.py` PASS; TypeScript build, ESLint and production Vite build PASS; full Studio suite `528/528` PASS across `43/43` files; focused Live/recovery tests `21/21` PASS; Transcriptions IA/App/routing regression `223/223` PASS; focused UX regression `229/229` PASS. Bounded local browser validation PASS at desktop `1280x720` and narrow `390x844`: no document-level overflow (`documentWidth=375` at layout viewport 375), all three primary navigation controls visible, ordinary/Live keyboard tab switching works, visible sampled targets are at least 66 px high; batch fixture renders one multi-transcription with two ordered item cards and no narrow overflow. Backend integration tests, including the safe batch-reference API contract, are authored but not runnable locally without the repository PostgreSQL/Redis Python test environment; exact-head CI remains required.
 - Pull Request: not created.
 - CI/checks: not started.
 - Deployment/environment: not started; migration class `MANUAL_GATED`.
@@ -47,17 +47,17 @@
 
 ## Project readiness
 
-Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Новый независимый пересчёт подтвердил `PC-01` после code/test и bounded browser evidence; `PT-03` остаётся открытым, потому что batch jobs пока отображаются как отдельные jobs, а не одна multi-transcription. Denominator не изменился; numerator вырос на 1 AC.
+Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Новый независимый пересчёт подтвердил `PT-03`: API выдаёт только safe derived batch reference, а UI группирует один batch в одну multi-transcription с ordered item-level progress/results/recovery controls. Denominator не изменился; numerator вырос на 1 AC.
 
 | Product/epic | Current | Previous independent snapshot | Readiness/Evidence |
 |---|---:|---:|---|
-| **Project** | **84,2% (`101/120`)** | **83,3% (`100/120`)** | +1 AC: responsive interface; delivery Evidence ещё неполные. |
+| **Project** | **85,0% (`102/120`)** | **84,2% (`101/120`)** | +1 AC: один batch представлен одной multi-transcription; delivery Evidence ещё неполные. |
 | **Google Colab** | **75,9% (`22/29`)** | **75,9% (`22/29`)** | Без изменений в PWA Goal. |
 | `COLAB-BATCH-01` | **73,9% (`17/23`)** | **73,9% (`17/23`)** | 🟦 IN PROGRESS. |
 | `COLAB-REALTIME-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS. |
-| **Studio PWA** | **86,8% (`79/91`)** | **85,7% (`78/91`)** | +1 AC: responsive interface без narrow document-level overflow. |
-| `PWA-CORE-01` | **100% (`13/13`)** | **92,3% (`12/13`)** | Все product AC выполнены; exact-head delivery Evidence ещё не подтверждены. |
-| `PWA-TRANSCRIPTIONS-UX-01` | **75,0% (`3/4`)** | **75,0% (`3/4`)** | `PT-01`, `PT-02`, `PT-04` выполнены; `PT-03` открыт. |
+| **Studio PWA** | **87,9% (`80/91`)** | **86,8% (`79/91`)** | +1 AC: grouped multi-transcription presentation. |
+| `PWA-CORE-01` | **100% (`13/13`)** | **100% (`13/13`)** | Все product AC выполнены; exact-head delivery Evidence ещё не подтверждены. |
+| `PWA-TRANSCRIPTIONS-UX-01` | **100% (`4/4`)** | **75,0% (`3/4`)** | Все product AC выполнены; exact-head CI/DEPLOY/LIVE ещё gate-ят `READY`. |
 | `PWA-INGEST-01` | **72,7% (`8/11`)** | **72,7% (`8/11`)** | Вне Goal. |
 | `PWA-SEGMENTS-01` | **100% (`5/5`)** | **100% (`5/5`)** | 🟩 READY. |
 | `PWA-BATCH-01` | **90,0% (`9/10`)** | **90,0% (`9/10`)** | Вне Goal. |

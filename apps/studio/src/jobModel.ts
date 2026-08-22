@@ -59,6 +59,10 @@ export type JobMediaClip = {
   start_seconds: number | null;
   end_seconds: number | null;
 };
+export type JobBatchReference = {
+  id: string;
+  position: number;
+};
 export type TranscriptionJob = {
   id: string;
   project_id: string;
@@ -68,6 +72,7 @@ export type TranscriptionJob = {
   language_mode?: TranscriptionLanguageMode | null;
   diarization_enabled?: boolean;
   media_clip?: JobMediaClip | null;
+  batch?: JobBatchReference | null;
   terminal_dismissed_at?: string | null;
   source_count: number;
   sources?: JobSource[];

@@ -177,6 +177,44 @@ describe("project collection contracts", () => {
     ).toBeNull();
   });
 
+  it("accepts only safe batch presentation references with unique positions", () => {
+    const batchId = "multi_0123456789abcdef0123456789abcdef";
+    const first = {
+      ...job,
+      batch: { id: batchId, position: 0 },
+    };
+    const second = {
+      ...job,
+      id: "job-safe-2",
+      batch: { id: batchId, position: 1 },
+    };
+
+    expect(
+      parseProjectJobCollection({ jobs: [second, first] }, "project-safe"),
+    ).toEqual([second, first]);
+    expect(
+      parseProjectJobCollection(
+        {
+          jobs: [first, { ...second, batch: { id: batchId, position: 0 } }],
+        },
+        "project-safe",
+      ),
+    ).toBeNull();
+    expect(
+      parseProjectJobCollection(
+        {
+          jobs: [
+            {
+              ...first,
+              batch: { id: "batch-key-must-not-be-exposed", position: 0 },
+            },
+          ],
+        },
+        "project-safe",
+      ),
+    ).toBeNull();
+  });
+
   it("rejects cross-project, duplicate, and malformed job rows", () => {
     expect(
       parseProjectJobCollection(

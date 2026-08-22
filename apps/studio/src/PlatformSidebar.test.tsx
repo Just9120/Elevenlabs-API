@@ -14,7 +14,7 @@ describe("PlatformSidebar", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Обзор" })).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Проекты" }),
+      screen.getByRole("button", { name: "Транскрибации" }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Настройки" }),
@@ -24,7 +24,7 @@ describe("PlatformSidebar", () => {
   it("marks only the current page as active", () => {
     render(<PlatformSidebar page="projects" onNavigate={vi.fn()} />);
 
-    const current = screen.getByRole("button", { name: "Проекты" });
+    const current = screen.getByRole("button", { name: "Транскрибации" });
     expect(current).toHaveClass("active");
     expect(current).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("button", { name: "Обзор" })).not.toHaveClass(

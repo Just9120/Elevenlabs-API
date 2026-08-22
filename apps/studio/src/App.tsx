@@ -142,7 +142,11 @@ import {
   JOB_PROGRESS_POLLING_STOP_REASON,
   startJobProgressPolling,
 } from "./jobProgressPolling";
-import { groupVisibleJobs } from "./jobVisibilityModel";
+import {
+  groupTranscriptionPresentations,
+  type TranscriptionPresentation,
+} from "./multiTranscriptionModel";
+import { MultiTranscriptionCard } from "./MultiTranscriptionCard";
 import { TranscriptionAnalyticsPanel } from "./TranscriptionAnalyticsPanel";
 import { TranscriptCatalogMigrationPanel } from "./TranscriptCatalogMigrationPanel";
 import { LiveTranscriptionPanel } from "./LiveTranscriptionPanel";
@@ -2664,8 +2668,8 @@ function PreparationPanel({
       setPreflight(null);
       setMessage(
         response.replayed
-          ? `Повтор подтверждён: создано независимых задач: ${response.created_count}.`
-          : `Создано независимых задач: ${response.created_count}.`,
+          ? `Повтор подтверждён: мульти-транскрибация содержит элементов: ${response.created_count}.`
+          : `Создана мульти-транскрибация. Элементов: ${response.created_count}.`,
       );
       onReloadJobs(project.id);
     } catch (err) {
@@ -3275,16 +3279,26 @@ function PreparationPanel({
   }
   const displayJobs = mergeJobsWithBatchOrder(jobs.items ?? [], batchJobs);
   const {
-    current: currentJobs,
-    pinnedTerminal: pinnedTerminalJobs,
-    recent: recentJobs,
-  } = groupVisibleJobs(displayJobs);
+    current: currentTranscriptions,
+    pinnedTerminal: pinnedTerminalTranscriptions,
+    recent: recentTranscriptions,
+  } = groupTranscriptionPresentations(displayJobs);
   useEffect(() => {
-    for (const job of pinnedTerminalJobs) {
+    for (const job of displayJobs) {
+      if (
+        !["completed", "failed", "cancelled"].includes(job.status) ||
+        job.terminal_dismissed_at !== null
+      ) {
+        continue;
+      }
       if (!detail[job.id]) void loadDetail(job.id);
     }
   }, [displayJobs]);
-  const currentJobIds = currentJobs.map((job) => job.id).sort().join(",");
+  const currentJobIds = displayJobs
+    .filter((job) => ["queued", "processing"].includes(job.status))
+    .map((job) => job.id)
+    .sort()
+    .join(",");
   useEffect(() => {
     if (!currentJobIds) {
       return;
@@ -3456,6 +3470,25 @@ function PreparationPanel({
       />
     );
   }
+  function renderTranscriptionPresentation(
+    presentation: TranscriptionPresentation,
+  ) {
+    if (presentation.kind === "single") {
+      const job = presentation.jobs[0];
+      return renderJobCard(
+        job,
+        ["completed", "failed", "cancelled"].includes(job.status) &&
+          job.terminal_dismissed_at === null,
+      );
+    }
+    return (
+      <MultiTranscriptionCard
+        key={presentation.id}
+        jobs={presentation.jobs}
+        renderJob={renderJobCard}
+      />
+    );
+  }
   const visibleJobMutationNotices = Object.values(jobMutationNotices).filter(
     (notice) => {
       if (notice.projectId !== project.id) return false;
@@ -3517,8 +3550,8 @@ function PreparationPanel({
           <div>
             <h2>Подготовка задач</h2>
             <p className="muted">
-              Одна строка создаёт одну независимую задачу: один файл → одна
-              папка результата.
+              Одна строка создаёт один элемент мульти-транскрибации: один файл
+              или фрагмент → один документ в выбранной папке.
             </p>
           </div>
           <div className="composer-add-row">
@@ -4285,7 +4318,7 @@ function PreparationPanel({
         <div className="composer-footer">
           <div>
             <b>Строк: {rows.length}</b>
-            <span>Будет создано задач: {plannedJobCount}</span>
+            <span>Элементов мульти-транскрибации: {plannedJobCount}</span>
             <span>
               Готово: {completeRowCount} из {rows.length}
             </span>
@@ -4392,22 +4425,23 @@ function PreparationPanel({
         csrf={csrf}
         onCsrf={onCsrf}
       />
-      <section className="sources" aria-label="Текущие задачи">
-        <h2>Текущие задачи</h2>
+      <section className="sources" aria-label="Текущие транскрибации">
+        <h2>Текущие транскрибации</h2>
         {jobs.loading && <p role="status">Загрузка задач…</p>}
         {jobs.error && <p className="error">{jobs.error}</p>}
         {jobs.loaded &&
           !jobs.loading &&
-          currentJobs.length === 0 &&
-          pinnedTerminalJobs.length === 0 && (
-          <p className="notice">Текущих задач нет.</p>
+          currentTranscriptions.length === 0 &&
+          pinnedTerminalTranscriptions.length === 0 && (
+          <p className="notice">Текущих транскрибаций нет.</p>
         )}
-        {currentJobs.map((job) => renderJobCard(job))}
-        {pinnedTerminalJobs.map((job) => renderJobCard(job, true))}
+        {currentTranscriptions.map(renderTranscriptionPresentation)}
+        {pinnedTerminalTranscriptions.map(renderTranscriptionPresentation)}
       </section>
       <details className="recent-jobs">
-        <summary>Недавние задачи · {recentJobs.length}</summary>
-        {(recentJobs.length > 0 || pinnedTerminalJobs.length > 0) && (
+        <summary>Недавние транскрибации · {recentTranscriptions.length}</summary>
+        {(recentTranscriptions.length > 0 ||
+          pinnedTerminalTranscriptions.length > 0) && (
           <button
             type="button"
             className="danger"
@@ -4422,7 +4456,7 @@ function PreparationPanel({
             {historyClearMessage}
           </p>
         )}
-        {recentJobs.map((job) => renderJobCard(job))}
+        {recentTranscriptions.map(renderTranscriptionPresentation)}
       </details>{" "}
       {historyClearOpen && (
         <ConfirmClearDialog

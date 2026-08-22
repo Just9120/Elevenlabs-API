@@ -28,13 +28,13 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Текущий independently verified execution snapshot: ветка `codex/pwa-transcriptions-live-recovery-01` от `main@dd194c929d957e822ff618df294dc54e72d5971e`, после bounded local UX validation.
+Текущий independently verified execution snapshot: ветка `codex/pwa-transcriptions-live-recovery-01` от `main@dd194c929d957e822ff618df294dc54e72d5971e`, после bounded local UX и multi-transcription validation.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **75,9% (`22/29`)** | `COLAB-BATCH 17/23` + `COLAB-REALTIME 5/6` |
-| Studio PWA | **86,8% (`79/91`)** | сумма десяти PWA-эпиков ниже; `PC-01`, `PC-03`, `PT-01/02/04` подтверждены в текущей рабочей ветке |
-| Весь проект | **84,2% (`101/120`)** | все выполненные AC двух продуктов / все AC текущего scope |
+| Studio PWA | **87,9% (`80/91`)** | сумма десяти PWA-эпиков ниже; `PWA-CORE-01 13/13` и `PWA-TRANSCRIPTIONS-UX-01 4/4` подтверждены в текущей рабочей ветке |
+| Весь проект | **85,0% (`102/120`)** | все выполненные AC двух продуктов / все AC текущего scope |
 
 ## 3. Общие product rules
 
@@ -137,7 +137,7 @@ Verified implementation: active project source collection исключает loc
 
 ### Эпик `PWA-TRANSCRIPTIONS-UX-01` — пользовательская модель транскрибаций
 
-Status: **🟦 IN PROGRESS — 75,0% (`3/4`)**.
+Status: **🟦 IN PROGRESS — 100% (`4/4`)**. Все product AC выполнены; exact-head CI, DEPLOY и LIVE для текущей ветки ещё не подтверждены, поэтому эпик не `READY`.
 
 `Project` остаётся допустимой внутренней ownership/data boundary, но не является обязательной пользовательской сущностью. Основной user flow начинается с обычной или Live-транскрибации; технический workspace выбирается или создаётся автоматически и не требует ручного lifecycle management.
 
@@ -145,10 +145,12 @@ Status: **🟦 IN PROGRESS — 75,0% (`3/4`)**.
 |---|---|:---:|
 | `PT-01` | В `Транскрибациях` доступны отдельные вкладки обычной и Live-транскрибации. | ✅ |
 | `PT-02` | Для запуска новой транскрибации пользователь не создаёт, не редактирует и не архивирует технический Project вручную. | ✅ |
-| `PT-03` | Один массовый запуск отображается как одна мульти-транскрибация с отдельными source/fragment items. | ❌ |
+| `PT-03` | Один массовый запуск отображается как одна мульти-транскрибация с отдельными source/fragment items. | ✅ |
 | `PT-04` | Существующие active legacy workspaces, sources, jobs и outputs остаются доступны без destructive migration; archived production data не восстанавливается автоматически. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI — | DEPLOY — | LIVE —`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ◐ | CI — | DEPLOY — | LIVE —`.
+
+Verified implementation: backend не раскрывает raw batch idempotency key/request hash и выдаёт только deterministic owner/project/key-scoped `multi_*` reference с bounded position. Frontend fail-closed валидирует reference, не допускает duplicate positions, отображает batch одной multi-transcription и сохраняет отдельные progress/output/recovery controls каждого source/fragment item. Full local Studio suite `528/528` и bounded narrow browser fixture прошли; database-backed API contract и production behavior ожидают exact-head CI/deployment/LIVE Evidence.
 
 ### Эпик `PWA-INGEST-01` — target и source selection, multi-transcription
 

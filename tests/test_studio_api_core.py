@@ -1,5 +1,6 @@
 import base64
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -5224,6 +5225,19 @@ def test_batch_jobs_create_two_one_source_jobs_safe_payload_and_same_source_diff
     assert [job["language_mode"] for job in data["jobs"]] == ["en", "en"]
     assert [job["diarization_enabled"] for job in data["jobs"]] == [True, True]
     assert "output_drive_folder_id" not in r.text and "batch-key-1" not in r.text and "batch_request_hash" not in r.text and "batch_position" not in r.text
+    batch_refs = [job["batch"] for job in data["jobs"]]
+    assert len({batch["id"] for batch in batch_refs}) == 1
+    assert re.fullmatch(r"multi_[0-9a-f]{32}", batch_refs[0]["id"])
+    assert [batch["position"] for batch in batch_refs] == [0, 1]
+    listed = c.get(f"/api/projects/{pid}/jobs")
+    assert listed.status_code == 200
+    listed_refs = [job["batch"] for job in listed.json()["jobs"]]
+    assert {batch["id"] for batch in listed_refs} == {batch_refs[0]["id"]}
+    assert sorted(batch["position"] for batch in listed_refs) == [0, 1]
+    detail = c.get(f"/api/jobs/{data['jobs'][0]['id']}")
+    assert detail.status_code == 200
+    assert detail.json()["batch"] == batch_refs[0]
+    assert "batch-key-1" not in listed.text and "batch-key-1" not in detail.text
     assert data["jobs"][0]["output_folder"] == {"name": "Folder folder-a", "web_view_url": "https://drive.google.com/drive/folders/folder-a"}
     db = SessionLocal()
     try:
