@@ -367,6 +367,34 @@ class TranscriptionProviderPartCheckpoint(Base):
         Index("ix_provider_part_checkpoints_job", "job_id"),
     )
 
+class RealtimeTranscriptDraft(Base):
+    __tablename__="realtime_transcript_drafts"
+    id: Mapped[str]=mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_user_id: Mapped[str]=mapped_column(ForeignKey("users.id"), nullable=False)
+    project_id: Mapped[str]=mapped_column(ForeignKey("projects.id"), nullable=False)
+    client_session_id: Mapped[str]=mapped_column(String(64), nullable=False)
+    revision: Mapped[int]=mapped_column(Integer, nullable=False)
+    ciphertext: Mapped[bytes]=mapped_column(LargeBinary, nullable=False)
+    nonce: Mapped[bytes]=mapped_column(LargeBinary, nullable=False)
+    key_id: Mapped[str]=mapped_column(String(80), nullable=False)
+    payload_hmac: Mapped[str]=mapped_column(String(64), nullable=False)
+    committed_segment_count: Mapped[int]=mapped_column(Integer, nullable=False)
+    committed_character_count: Mapped[int]=mapped_column(Integer, nullable=False)
+    partial_character_count: Mapped[int]=mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now)
+    updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False, default=now, onupdate=now)
+    expires_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), nullable=False)
+    __table_args__=(
+        UniqueConstraint("owner_user_id", "client_session_id", name="uq_realtime_drafts_owner_client_session"),
+        CheckConstraint("revision >= 1", name="ck_realtime_drafts_revision_positive"),
+        CheckConstraint("committed_segment_count >= 0", name="ck_realtime_drafts_segment_count_nonnegative"),
+        CheckConstraint("committed_character_count >= 0", name="ck_realtime_drafts_committed_chars_nonnegative"),
+        CheckConstraint("partial_character_count >= 0", name="ck_realtime_drafts_partial_chars_nonnegative"),
+        CheckConstraint("length(payload_hmac) = 64", name="ck_realtime_drafts_hmac_length"),
+        Index("ix_realtime_drafts_owner_project_updated", "owner_user_id", "project_id", "updated_at"),
+        Index("ix_realtime_drafts_expiry", "expires_at"),
+    )
+
 class TranscriptionOutputReconciliation(Base):
     __tablename__="transcription_output_reconciliations"
     id: Mapped[str]=mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))

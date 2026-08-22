@@ -252,7 +252,7 @@ export function TranscriptionAnalyticsPanel({
             </div>
 
             <section aria-label="Исходы транскрибаций">
-              <h5>Исходы</h5>
+              <h3>Исходы</h3>
               <article
                 className="analytics-success"
                 aria-label="Успешность транскрибаций"
@@ -277,7 +277,7 @@ export function TranscriptionAnalyticsPanel({
             </section>
 
             <section aria-label="Выбранные настройки транскрибаций">
-              <h5>Настройки</h5>
+              <h3>Настройки</h3>
               <div className="analytics-config-grid">
                 <article>
                   <b>Провайдер и модель</b>
@@ -319,7 +319,7 @@ export function TranscriptionAnalyticsPanel({
             </section>
 
             <section aria-label="Длительности этапов транскрибаций">
-              <h5>Длительность этапов</h5>
+              <h3>Длительность этапов</h3>
               <div className="analytics-duration-grid">
                 {DURATION_LABELS.map(([key, label]) => (
                   <DurationCard

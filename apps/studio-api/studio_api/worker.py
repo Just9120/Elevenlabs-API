@@ -70,6 +70,7 @@ def run_worker_loop(
     owner_id_factory: Callable[[], str] = build_worker_owner_id,
     source_cleanup_runner: Callable | None = None,
     provider_checkpoint_cleanup_runner: Callable | None = None,
+    realtime_draft_cleanup_runner: Callable | None = None,
 ) -> int:
     if iteration is None:
         from .job_processing_runner import claim_next_and_orchestrate_processing_job
@@ -120,10 +121,16 @@ def run_worker_loop(
             cleanup_db = session_factory()
             try:
                 from datetime import datetime, timezone
-                if provider_checkpoint_cleanup_runner is None and source_cleanup_runner is None:
+                if (
+                    provider_checkpoint_cleanup_runner is None
+                    and source_cleanup_runner is None
+                    and realtime_draft_cleanup_runner is None
+                ):
                     from .provider_part_checkpoints import cleanup_expired_provider_part_checkpoints as checkpoint_cleanup_runner
+                    from .realtime_drafts import cleanup_expired_realtime_drafts as draft_cleanup_runner
                 else:
                     checkpoint_cleanup_runner = provider_checkpoint_cleanup_runner
+                    draft_cleanup_runner = realtime_draft_cleanup_runner
                 if source_cleanup_runner is None:
                     from .source_deletion import run_one_source_cleanup as cleanup_runner
                 else:
@@ -135,13 +142,27 @@ def run_worker_loop(
                     if checkpoint_cleanup_runner is not None
                     else 0
                 )
-                if expired_checkpoint_count:
+                expired_draft_count = (
+                    draft_cleanup_runner(cleanup_db, now=cleanup_now)
+                    if draft_cleanup_runner is not None
+                    else 0
+                )
+                if expired_checkpoint_count or expired_draft_count:
                     cleanup_db.commit()
+                if expired_checkpoint_count:
                     logger.info(
                         "studio_worker_provider_part_checkpoints_expired",
                         extra={
                             "event": "studio_worker_provider_part_checkpoints_expired",
                             "checkpoint_count": expired_checkpoint_count,
+                        },
+                    )
+                if expired_draft_count:
+                    logger.info(
+                        "studio_worker_realtime_drafts_expired",
+                        extra={
+                            "event": "studio_worker_realtime_drafts_expired",
+                            "draft_count": expired_draft_count,
                         },
                     )
                 if cleanup_runner(cleanup_db, settings=settings, owner_id=f"{owner_id}:source-cleanup", now=cleanup_now, should_stop=stop_event.is_set):

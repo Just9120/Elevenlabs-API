@@ -1,5 +1,6 @@
 import base64
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -29,17 +30,18 @@ from alembic.script import ScriptDirectory
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, inspect, select, text
 from sqlalchemy.engine import make_url
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from studio_api.config import Settings
 from studio_api.db import SessionLocal, engine
 from studio_api.main import app, limiter
-from studio_api.models import AuditEvent, DiagnosticDebugSession, DiagnosticEvent, OutputFolderFavorite, TranscriptionOutputReconciliation, TranscriptionJobSourceAttempt, OutputReconciliationStatus, SourceAttemptRetryDisposition, SourceAttemptStage, CredentialProvider, CredentialStatus, JobSourceStatus, JobStatus, LocalIdentity, Project, ProviderCredential, ProviderCredentialVersion, Source, SourceStorageCleanupStatus, SourceType, SourceUploadStatus, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, User, UserRole, UserStatus
+from studio_api.models import AuditEvent, DiagnosticDebugSession, DiagnosticEvent, OutputFolderFavorite, RealtimeTranscriptDraft, TranscriptionOutputReconciliation, TranscriptionJobSourceAttempt, OutputReconciliationStatus, SourceAttemptRetryDisposition, SourceAttemptStage, CredentialProvider, CredentialStatus, JobSourceStatus, JobStatus, LocalIdentity, Project, ProviderCredential, ProviderCredentialVersion, Source, SourceStorageCleanupStatus, SourceType, SourceUploadStatus, TranscriptionJob, TranscriptionJobOutput, TranscriptionJobSource, User, UserRole, UserStatus
 from studio_api.security import aad, decrypt, encrypt, hash_password, master_key_from_b64, utcnow, verify_password
 from studio_api.job_claim_lease import JobLeaseError, JobLeaseFailureReason, acquire_job_lease, acquire_next_ready_job_lease, invalidate_job_lease, is_lease_active, release_job_lease, renew_job_lease
 from studio_api.job_processing_lifecycle import JobProcessingError, JobProcessingFailureReason, acknowledge_job_cancellation, begin_job_processing, fail_job_processing, recover_expired_processing_job
 from studio_api.google_docs_output import GoogleDocsCreateResult, new_google_docs_transcript_artifact
 from studio_api.job_output_persistence import JobOutputPersistenceError, JobOutputPersistenceReason, _load_locked_output_authority, persist_processing_job_source_output_and_maybe_complete
 from studio_api.realtime_capability import RealtimeCapability, RealtimeCapabilityError, RealtimeCapabilityReason
+from studio_api.realtime_drafts import RealtimeDraftContent
 
 ALEMBIC = ROOT / "apps/studio-api/alembic.ini"
 
@@ -55,7 +57,7 @@ def clean_state(migrated_database):
     except Exception as exc:
         pytest.skip(f"Redis unavailable for platform tests: {exc}")
     with engine.begin() as conn:
-        tables = ["transcript_catalog_entries", "transcription_job_source_attempts", "transcription_output_reconciliations", "diagnostic_debug_sessions", "diagnostic_events", "audit_events", "google_oauth_states", "google_connections", "provider_credential_versions", "provider_credentials", "transcription_job_outputs", "transcription_job_sources", "transcription_jobs", "sources", "output_folder_favorites", "projects", "sessions", "login_contexts", "local_identities", "users"]
+        tables = ["realtime_transcript_drafts", "transcript_catalog_entries", "transcription_job_source_attempts", "transcription_output_reconciliations", "diagnostic_debug_sessions", "diagnostic_events", "audit_events", "google_oauth_states", "google_connections", "provider_credential_versions", "provider_credentials", "transcription_job_outputs", "transcription_job_sources", "transcription_jobs", "sources", "output_folder_favorites", "projects", "sessions", "login_contexts", "local_identities", "users"]
         required_tables = set(tables)
         missing = required_tables - set(inspect(conn).get_table_names())
         assert not missing, f"shared test database schema is not at current head: {sorted(missing)}"
@@ -612,6 +614,163 @@ def test_realtime_capability_route_requires_owner_csrf_and_returns_no_store(monk
     assert "sk_realtime_main_secret" not in response_without_diagnostic.text
 
 
+def test_realtime_draft_routes_are_private_monotonic_and_no_store():
+    owner_email = "realtime-draft-owner@example.com"
+    other_email = "realtime-draft-other@example.com"
+    owner_password = admin(owner_email)
+    other_password = admin(other_email)
+    owner_client = TestClient(app)
+    other_client = TestClient(app)
+    owner_csrf = login(owner_client, owner_password, owner_email)
+    other_csrf = login(other_client, other_password, other_email)
+    owner_headers = {
+        "origin": "https://studio.test",
+        "x-csrf-token": owner_csrf,
+    }
+    other_headers = {
+        "origin": "https://studio.test",
+        "x-csrf-token": other_csrf,
+    }
+    project = owner_client.post(
+        "/api/projects",
+        json={"title": "Realtime drafts"},
+        headers=owner_headers,
+    ).json()
+    session_id = "session_123456789"
+    path = f"/api/projects/{project['id']}/realtime/drafts/{session_id}"
+    body = {
+        "revision": 1,
+        "committed_segments": ["Секретный завершённый фрагмент"],
+        "partial": "секретный partial",
+    }
+
+    assert TestClient(app).put(path, json=body).status_code == 401
+    assert owner_client.put(path, json=body).status_code == 403
+    assert other_client.put(path, json=body, headers=other_headers).status_code == 404
+    saved = owner_client.put(path, json=body, headers=owner_headers)
+    assert saved.status_code == 200
+    assert saved.headers["cache-control"] == "no-store"
+    assert saved.headers["pragma"] == "no-cache"
+    assert "Секретный" not in saved.text
+    assert "partial" not in saved.text
+    assert saved.json()["draft"]["revision"] == 1
+
+    repeated = owner_client.put(path, json=body, headers=owner_headers)
+    assert repeated.status_code == 200
+    conflict = owner_client.put(
+        path,
+        json={**body, "partial": "changed without revision"},
+        headers=owner_headers,
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"] == {
+        "reason": "realtime_draft_revision_conflict"
+    }
+
+    latest_path = f"/api/projects/{project['id']}/realtime/drafts/latest"
+    latest = owner_client.get(latest_path)
+    assert latest.status_code == 200
+    assert latest.headers["cache-control"] == "no-store"
+    assert latest.json()["draft"]["committed_segments"] == body["committed_segments"]
+    assert latest.json()["draft"]["partial"] == body["partial"]
+    assert other_client.get(latest_path).status_code == 404
+
+    db = SessionLocal()
+    try:
+        row = db.query(RealtimeTranscriptDraft).one()
+        assert "Секретный".encode("utf-8") not in row.ciphertext
+        assert "секретный partial".encode("utf-8") not in row.ciphertext
+        assert db.query(AuditEvent).filter_by(
+            event_type="realtime_draft.saved"
+        ).count() == 0
+    finally:
+        db.close()
+
+    assert owner_client.delete(
+        path,
+        headers={"origin": "https://evil.test", "x-csrf-token": owner_csrf},
+    ).status_code == 403
+    deleted = owner_client.delete(path, headers=owner_headers)
+    assert deleted.status_code == 200
+    assert deleted.headers["cache-control"] == "no-store"
+    assert deleted.json() == {"ok": True, "deleted": True}
+    assert owner_client.get(latest_path).json() == {"draft": None}
+
+
+def test_realtime_draft_validation_redacts_transcript_input():
+    email = "realtime-draft-validation@example.com"
+    password = admin(email)
+    client = TestClient(app)
+    csrf = login(client, password, email)
+    headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+    project = client.post(
+        "/api/projects",
+        json={"title": "Realtime validation"},
+        headers=headers,
+    ).json()
+    secret_marker = "private-transcript-marker"
+    response = client.put(
+        f"/api/projects/{project['id']}/realtime/drafts/session_123456789",
+        json={
+            "revision": 1,
+            "committed_segments": [],
+            "partial": secret_marker + ("x" * 20_000),
+        },
+        headers=headers,
+    )
+
+    assert response.status_code == 422
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["pragma"] == "no-cache"
+    assert secret_marker not in response.text
+    assert all(set(error) == {"type", "loc"} for error in response.json()["detail"])
+
+
+def test_realtime_draft_identical_first_write_retries_insert_race(monkeypatch):
+    from studio_api import main as main_mod
+
+    email = "realtime-draft-insert-race@example.com"
+    password = admin(email)
+    client = TestClient(app)
+    csrf = login(client, password, email)
+    headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+    project = client.post(
+        "/api/projects",
+        json={"title": "Realtime insert race"},
+        headers=headers,
+    ).json()
+    now = datetime.now(timezone.utc)
+    calls = []
+
+    def race_then_load(*_args, **kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            raise IntegrityError("insert", {}, Exception("concurrent insert"))
+        return RealtimeDraftContent(
+            client_session_id=kwargs["client_session_id"],
+            revision=kwargs["revision"],
+            committed_segments=tuple(kwargs["committed_segments"]),
+            partial=kwargs["partial"],
+            updated_at=now,
+            expires_at=now + timedelta(hours=72),
+        )
+
+    monkeypatch.setattr(main_mod, "save_realtime_draft", race_then_load)
+    response = client.put(
+        f"/api/projects/{project['id']}/realtime/drafts/session_123456789",
+        json={
+            "revision": 1,
+            "committed_segments": ["first segment"],
+            "partial": "partial",
+        },
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["draft"]["revision"] == 1
+    assert len(calls) == 2
+
+
 @pytest.mark.parametrize(
     ("reason", "status_code"),
     [
@@ -703,6 +862,48 @@ def test_projects_require_authentication():
     c = TestClient(app)
     assert c.get("/api/projects").status_code == 401
     assert c.post("/api/projects", json={"title": "Project"}, headers={"origin": "https://studio.test", "x-csrf-token": "bad"}).status_code == 401
+    assert c.post("/api/transcriptions/workspace").status_code == 401
+
+
+def test_transcription_workspace_reuses_active_and_never_unarchives_legacy_data():
+    email = "transcription-workspace@example.com"
+    password = admin(email)
+    client = TestClient(app)
+    csrf = login(client, password, email)
+    headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+    existing = client.post(
+        "/api/projects",
+        json={"title": "Legacy active"},
+        headers=headers,
+    ).json()
+
+    reused = client.post("/api/transcriptions/workspace", headers=headers)
+    assert reused.status_code == 200
+    assert reused.json()["created"] is False
+    assert reused.json()["project"]["id"] == existing["id"]
+
+    assert client.post(
+        f"/api/projects/{existing['id']}/archive",
+        headers=headers,
+    ).status_code == 200
+    created = client.post("/api/transcriptions/workspace", headers=headers)
+    assert created.status_code == 200
+    assert created.json()["created"] is True
+    assert created.json()["project"]["id"] != existing["id"]
+    assert created.json()["project"]["title"] == "Транскрибации"
+    repeated = client.post("/api/transcriptions/workspace", headers=headers)
+    assert repeated.json()["created"] is False
+    assert repeated.json()["project"]["id"] == created.json()["project"]["id"]
+
+    db = SessionLocal()
+    try:
+        archived = db.get(Project, existing["id"])
+        assert archived is not None and archived.archived_at is not None
+        assert db.query(AuditEvent).filter_by(
+            event_type="transcription_workspace.created"
+        ).count() == 1
+    finally:
+        db.close()
 
 
 def test_project_create_list_update_archive_lifecycle_and_archived_excluded():
@@ -2425,7 +2626,7 @@ def test_job_lease_migration_real_0005_shape_upgrades_to_head():
             assert {"lease_owner_id", "lease_generation", "claimed_at", "lease_expires_at", "attempt_count", "cancel_requested_at"}.issubset(cols)
             indexes = [idx["name"] for idx in inspector.get_indexes("transcription_jobs")]
             assert indexes.count("ix_transcription_jobs_status_lease_expires_created") == 1
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0022_account_operability"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0023_realtime_drafts"
 
 
 
@@ -2460,7 +2661,7 @@ def test_job_output_migration_clean_chain_constraints_and_0007_roundtrip():
         run_alembic("head", env=env)
         with temp_engine.begin() as conn:
             assert "transcription_job_outputs" in inspect(conn).get_table_names()
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0022_account_operability"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0023_realtime_drafts"
 
 
 
@@ -5099,6 +5300,19 @@ def test_batch_jobs_create_two_one_source_jobs_safe_payload_and_same_source_diff
     assert [job["language_mode"] for job in data["jobs"]] == ["en", "en"]
     assert [job["diarization_enabled"] for job in data["jobs"]] == [True, True]
     assert "output_drive_folder_id" not in r.text and "batch-key-1" not in r.text and "batch_request_hash" not in r.text and "batch_position" not in r.text
+    batch_refs = [job["batch"] for job in data["jobs"]]
+    assert len({batch["id"] for batch in batch_refs}) == 1
+    assert re.fullmatch(r"multi_[0-9a-f]{32}", batch_refs[0]["id"])
+    assert [batch["position"] for batch in batch_refs] == [0, 1]
+    listed = c.get(f"/api/projects/{pid}/jobs")
+    assert listed.status_code == 200
+    listed_refs = [job["batch"] for job in listed.json()["jobs"]]
+    assert {batch["id"] for batch in listed_refs} == {batch_refs[0]["id"]}
+    assert sorted(batch["position"] for batch in listed_refs) == [0, 1]
+    detail = c.get(f"/api/jobs/{data['jobs'][0]['id']}")
+    assert detail.status_code == 200
+    assert detail.json()["batch"] == batch_refs[0]
+    assert "batch-key-1" not in listed.text and "batch-key-1" not in detail.text
     assert data["jobs"][0]["output_folder"] == {"name": "Folder folder-a", "web_view_url": "https://drive.google.com/drive/folders/folder-a"}
     db = SessionLocal()
     try:
@@ -5912,7 +6126,7 @@ def test_job_destination_migration_0008_0009_upgrade_downgrade_backfill(tmp_path
         with temp_engine.begin() as conn:
             assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0009_job_output_destinations"
         cfg = Config(str(ALEMBIC))
-        assert ScriptDirectory.from_config(cfg).get_current_head() == "0022_account_operability"
+        assert ScriptDirectory.from_config(cfg).get_current_head() == "0023_realtime_drafts"
     finally:
         temp_engine.dispose()
         cleanup_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")

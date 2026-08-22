@@ -40,6 +40,19 @@ async function login(page: Page) {
   return navigation;
 }
 
+async function openResultTranscriptions(
+  page: Page,
+  navigation: ReturnType<Page['getByRole']>,
+) {
+  await navigation
+    .getByRole('button', { name: 'Транскрибации', exact: true })
+    .click();
+  await expect(page).toHaveURL(/\/transcriptions$/);
+  await expect(
+    page.getByRole('region', { name: `Подготовка ${RESULT_PROJECT}` }),
+  ).toBeVisible();
+}
+
 function trackExternalOrJobMutations(page: Page) {
   const requests: string[] = [];
   page.on('request', (request) => {
@@ -57,36 +70,13 @@ function trackExternalOrJobMutations(page: Page) {
   return requests;
 }
 
-test('authenticated user creates a project and reads a completed job result', async ({
+test('authenticated user opens transcriptions and reads a completed job result', async ({
   page,
 }) => {
   const navigation = await login(page);
-  await navigation.getByRole('button', { name: 'Проекты', exact: true }).click();
-  await expect(page).toHaveURL(/\/projects$/);
+  await openResultTranscriptions(page, navigation);
 
-  await page.getByRole('button', { name: 'Новый проект' }).click();
-  const createProjectForm = page.locator('form.project-form');
-  await createProjectForm
-    .getByLabel('Название проекта')
-    .fill('Browser E2E Draft');
-  await createProjectForm
-    .getByLabel('Описание')
-    .fill('Created through the authenticated browser workflow');
-  await createProjectForm.getByRole('button', { name: 'Создать' }).click();
-  await expect(
-    page
-      .getByRole('region', { name: 'Список проектов' })
-      .getByRole('button', { name: /^Browser E2E Draft/ }),
-  ).toBeVisible();
-
-  await page
-    .getByRole('button', { name: new RegExp(`^${RESULT_PROJECT}`) })
-    .click();
-  await expect(
-    page.getByRole('region', { name: `Подготовка ${RESULT_PROJECT}` }),
-  ).toBeVisible();
-
-  await page.getByText('Недавние задачи · 4', { exact: true }).click();
+  await page.getByText('Недавние транскрибации · 4', { exact: true }).click();
   const jobCard = page
     .locator('article.source-card')
     .filter({ hasText: RESULT_JOB })
@@ -325,10 +315,7 @@ test('Live tab captures browser audio and keeps transcript browser-only', async 
   });
 
   const navigation = await login(page);
-  await navigation.getByRole('button', { name: 'Проекты', exact: true }).click();
-  await page
-    .getByRole('button', { name: new RegExp(`^${RESULT_PROJECT}`) })
-    .click();
+  await openResultTranscriptions(page, navigation);
   await page.getByRole('tab', { name: 'Live-транскрибация' }).click();
   const live = page.getByRole('region', { name: 'Live-транскрибация' });
   await expect(live).toBeVisible();
@@ -349,14 +336,16 @@ test('Live tab captures browser audio and keeps transcript browser-only', async 
 
   await navigation.getByRole('button', { name: 'Обзор', exact: true }).click();
   await expect(live).toBeHidden();
-  await navigation.getByRole('button', { name: 'Проекты', exact: true }).click();
+  await navigation
+    .getByRole('button', { name: 'Транскрибации', exact: true })
+    .click();
   await expect(live).toBeVisible();
   await expect(live.getByText('Остановлено')).toBeVisible();
   await expect(
     live.getByText('подтверждённый текст', { exact: true }),
   ).toBeVisible();
 
-  await page.getByRole('tab', { name: 'Пакетная транскрибация' }).click();
+  await page.getByRole('tab', { name: 'Обычная транскрибация' }).click();
   await expect(live).toBeHidden();
   await page.getByRole('tab', { name: 'Live-транскрибация' }).click();
   await expect(
@@ -369,10 +358,7 @@ test('preparation stays fail-closed without external integrations', async ({
   page,
 }) => {
   const navigation = await login(page);
-  await navigation.getByRole('button', { name: 'Проекты', exact: true }).click();
-  await page
-    .getByRole('button', { name: new RegExp(`^${RESULT_PROJECT}`) })
-    .click();
+  await openResultTranscriptions(page, navigation);
 
   const preparation = page.getByRole('region', {
     name: `Подготовка ${RESULT_PROJECT}`,
@@ -453,7 +439,9 @@ test('transcript maintenance stays fail-closed without Google authority', async 
     'Для каждой операции отдельно выберите папку со всеми подпапками либо один Google Doc.',
   );
   await expect(
-    maintenance.getByText('Сначала подключите Google Drive выше.'),
+    maintenance.getByText(
+      'Блокер: основное подключение Google Drive отсутствует.',
+    ),
   ).toBeVisible();
   for (const operationName of [
     'Стандартизация Google Docs',
@@ -491,11 +479,8 @@ test('uncertain provider result exposes no unsafe recovery action', async ({
   page,
 }) => {
   const navigation = await login(page);
-  await navigation.getByRole('button', { name: 'Проекты', exact: true }).click();
-  await page
-    .getByRole('button', { name: new RegExp(`^${RESULT_PROJECT}`) })
-    .click();
-  await page.getByText('Недавние задачи · 4', { exact: true }).click();
+  await openResultTranscriptions(page, navigation);
+  await page.getByText('Недавние транскрибации · 4', { exact: true }).click();
 
   const jobCard = page
     .locator('article.source-card')
@@ -570,11 +555,8 @@ test('unresolved output reconciliation waits for an explicit safe action', async
   page,
 }) => {
   const navigation = await login(page);
-  await navigation.getByRole('button', { name: 'Проекты', exact: true }).click();
-  await page
-    .getByRole('button', { name: new RegExp(`^${RESULT_PROJECT}`) })
-    .click();
-  await page.getByText('Недавние задачи · 4', { exact: true }).click();
+  await openResultTranscriptions(page, navigation);
+  await page.getByText('Недавние транскрибации · 4', { exact: true }).click();
 
   const jobCard = page
     .locator('article.source-card')
@@ -661,7 +643,6 @@ test('progress refresh keeps the last confirmed checkpoint after a temporary fai
   page,
 }) => {
   const navigation = await login(page);
-  await navigation.getByRole('button', { name: 'Проекты', exact: true }).click();
 
   const integrationRequests = trackExternalOrJobMutations(page);
   const initialProgressResponsePromise = page.waitForResponse(
@@ -669,9 +650,7 @@ test('progress refresh keeps the last confirmed checkpoint after a temporary fai
       response.request().method() === 'GET' &&
       response.url().endsWith('/jobs/progress'),
   );
-  await page
-    .getByRole('button', { name: new RegExp(`^${RESULT_PROJECT}`) })
-    .click();
+  await openResultTranscriptions(page, navigation);
 
   const initialProgressResponse = await initialProgressResponsePromise;
   expect(initialProgressResponse.status()).toBe(200);
@@ -740,7 +719,6 @@ test('processing cancellation records a request without claiming completion', as
   page,
 }) => {
   const navigation = await login(page);
-  await navigation.getByRole('button', { name: 'Проекты', exact: true }).click();
 
   const integrationRequests = trackExternalOrJobMutations(page);
   const progressResponsePromise = page.waitForResponse(
@@ -748,9 +726,7 @@ test('processing cancellation records a request without claiming completion', as
       response.request().method() === 'GET' &&
       response.url().endsWith('/jobs/progress'),
   );
-  await page
-    .getByRole('button', { name: new RegExp(`^${RESULT_PROJECT}`) })
-    .click();
+  await openResultTranscriptions(page, navigation);
 
   const progressResponse = await progressResponsePromise;
   expect(progressResponse.status()).toBe(200);
@@ -832,7 +808,7 @@ test('processing cancellation records a request without claiming completion', as
     progress.getByText('Создание Google Docs').locator('..'),
   ).toContainText('Ожидает');
 
-  const currentJobs = page.getByRole('region', { name: 'Текущие задачи' });
+  const currentJobs = page.getByRole('region', { name: 'Текущие транскрибации' });
   const processingCard = currentJobs
     .locator('article.source-card')
     .filter({ hasText: PROCESSING_CANCELLATION_JOB })
@@ -884,7 +860,6 @@ test('queued cancellation performs one bounded API mutation', async ({
   page,
 }) => {
   const navigation = await login(page);
-  await navigation.getByRole('button', { name: 'Проекты', exact: true }).click();
 
   const integrationRequests = trackExternalOrJobMutations(page);
   const progressResponsePromise = page.waitForResponse(
@@ -892,9 +867,7 @@ test('queued cancellation performs one bounded API mutation', async ({
       response.request().method() === 'GET' &&
       response.url().endsWith('/jobs/progress'),
   );
-  await page
-    .getByRole('button', { name: new RegExp(`^${RESULT_PROJECT}`) })
-    .click();
+  await openResultTranscriptions(page, navigation);
 
   const progressResponse = await progressResponsePromise;
   expect(progressResponse.status()).toBe(200);
@@ -973,7 +946,7 @@ test('queued cancellation performs one bounded API mutation', async ({
   await expect(progress.getByText('Готово', { exact: true })).toHaveCount(0);
   await expect(progress.getByText('Проверено', { exact: true })).toHaveCount(0);
 
-  const currentJobs = page.getByRole('region', { name: 'Текущие задачи' });
+  const currentJobs = page.getByRole('region', { name: 'Текущие транскрибации' });
   const queuedCard = currentJobs
     .locator('article.source-card')
     .filter({ hasText: QUEUED_CANCELLATION_JOB })
@@ -1036,7 +1009,7 @@ test('queued cancellation performs one bounded API mutation', async ({
       .filter({ hasText: QUEUED_CANCELLATION_JOB }),
   ).toHaveCount(0);
 
-  await page.getByText('Недавние задачи · 5', { exact: true }).click();
+  await page.getByText('Недавние транскрибации · 5', { exact: true }).click();
   const cancelledCard = page
     .locator('article.source-card')
     .filter({ hasText: QUEUED_CANCELLATION_JOB })
@@ -1059,13 +1032,10 @@ test('retry-safe provider rejection performs one explicit requeue mutation', asy
   page,
 }) => {
   const navigation = await login(page);
-  await navigation.getByRole('button', { name: 'Проекты', exact: true }).click();
-  await page
-    .getByRole('button', { name: new RegExp(`^${RESULT_PROJECT}`) })
-    .click();
+  await openResultTranscriptions(page, navigation);
 
   const recentJobs = page.locator('details.recent-jobs');
-  await recentJobs.getByText(/^Недавние задачи · \d+$/).click();
+  await recentJobs.getByText(/^Недавние транскрибации · \d+$/).click();
   const retryCard = recentJobs
     .locator('article.source-card')
     .filter({ hasText: RETRY_SAFE_JOB })
@@ -1120,7 +1090,7 @@ test('retry-safe provider rejection performs one explicit requeue mutation', asy
     retry_safe_source_count: 0,
   });
 
-  const currentJobs = page.getByRole('region', { name: 'Текущие задачи' });
+  const currentJobs = page.getByRole('region', { name: 'Текущие транскрибации' });
   const queuedRetryCard = currentJobs
     .locator('article.source-card')
     .filter({ hasText: RETRY_SAFE_JOB })

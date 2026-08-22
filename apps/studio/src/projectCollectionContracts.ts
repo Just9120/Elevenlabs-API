@@ -45,9 +45,16 @@ export function parseProjectJobCollection(
 ): TranscriptionJob[] | null {
   if (!isRecord(candidate) || !Array.isArray(candidate.jobs)) return null;
   const jobs: TranscriptionJob[] = [];
+  const batchPositions = new Map<string, Set<number>>();
   for (const rawJob of candidate.jobs) {
     const job = parseJob(rawJob, projectId);
     if (!job) return null;
+    if (job.batch) {
+      const positions = batchPositions.get(job.batch.id) ?? new Set<number>();
+      if (positions.has(job.batch.position)) return null;
+      positions.add(job.batch.position);
+      batchPositions.set(job.batch.id, positions);
+    }
     jobs.push(job);
   }
   return hasUniqueIds(jobs) ? jobs : null;
@@ -329,6 +336,7 @@ function parseJob(
   const errorMessage = nullableBoundedString(candidate.error_message, 512);
   const mediaClip = parseOptionalMediaClip(candidate.media_clip);
   const outputFolder = parseOptionalOutputFolder(candidate.output_folder);
+  const batch = parseOptionalBatchReference(candidate.batch);
   const languageMode = candidate.language_mode;
   const diarizationEnabled = candidate.diarization_enabled;
   const terminalDismissedAt = candidate.terminal_dismissed_at;
@@ -342,6 +350,7 @@ function parseJob(
     errorMessage === undefined ||
     mediaClip === false ||
     outputFolder === false ||
+    batch === false ||
     (languageMode !== undefined &&
       languageMode !== null &&
       !isTranscriptionLanguageMode(languageMode)) ||
@@ -371,6 +380,7 @@ function parseJob(
       ? { diarization_enabled: diarizationEnabled }
       : {}),
     ...(candidate.media_clip !== undefined ? { media_clip: mediaClip } : {}),
+    ...(candidate.batch !== undefined ? { batch } : {}),
     ...(terminalDismissedAt !== undefined
       ? { terminal_dismissed_at: terminalDismissedAt }
       : {}),
@@ -388,6 +398,27 @@ function parseJob(
       ? { output_folder: outputFolder }
       : {}),
   };
+}
+
+function parseOptionalBatchReference(
+  candidate: unknown,
+): TranscriptionJob["batch"] | false | undefined {
+  if (candidate === undefined) return undefined;
+  if (candidate === null) return null;
+  if (!isRecord(candidate)) return false;
+  const keys = Object.keys(candidate).sort();
+  if (
+    keys.length !== 2 ||
+    keys[0] !== "id" ||
+    keys[1] !== "position" ||
+    typeof candidate.id !== "string" ||
+    !/^multi_[0-9a-f]{32}$/.test(candidate.id) ||
+    !isNonNegativeInteger(candidate.position) ||
+    candidate.position > 49
+  ) {
+    return false;
+  }
+  return { id: candidate.id, position: candidate.position };
 }
 
 function parseOptionalMediaClip(

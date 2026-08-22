@@ -34,6 +34,7 @@ class Session:
     def __init__(self, events): self.events=events
     def close(self): self.events.append("close")
     def rollback(self): self.events.append("rollback")
+    def commit(self): self.events.append("commit")
 
 
 def test_worker_settings_defaults_and_bounds(monkeypatch):
@@ -43,12 +44,14 @@ def test_worker_settings_defaults_and_bounds(monkeypatch):
     s=Settings()
     assert (s.worker_poll_interval_seconds, s.worker_error_backoff_seconds, s.worker_lease_ttl_seconds, s.worker_lease_heartbeat_interval_seconds)==(5,5,3600,60)
     assert s.source_upload_ttl_seconds==3600
+    assert s.realtime_draft_ttl_seconds==259200
     assert Settings(source_upload_ttl_seconds=900)
     assert Settings(source_upload_ttl_seconds=86400)
     assert Settings(source_presign_ttl_seconds=60)
     assert Settings(source_presign_ttl_seconds=900)
     assert Settings(source_max_upload_bytes=1)
     assert Settings(source_max_upload_bytes=2147483647)
+    assert Settings(realtime_draft_ttl_seconds=259200)
     assert Settings(worker_poll_interval_seconds=1, worker_error_backoff_seconds=1, worker_lease_ttl_seconds=300, worker_lease_heartbeat_interval_seconds=100)
     assert Settings(worker_poll_interval_seconds=60, worker_error_backoff_seconds=300, worker_lease_ttl_seconds=86400)
     with pytest.raises(ValidationError): Settings(source_upload_ttl_seconds=899)
@@ -57,6 +60,8 @@ def test_worker_settings_defaults_and_bounds(monkeypatch):
     with pytest.raises(ValidationError): Settings(source_presign_ttl_seconds=901)
     with pytest.raises(ValidationError): Settings(source_max_upload_bytes=0)
     with pytest.raises(ValidationError): Settings(source_max_upload_bytes=2147483648)
+    with pytest.raises(ValidationError): Settings(realtime_draft_ttl_seconds=259199)
+    with pytest.raises(ValidationError): Settings(realtime_draft_ttl_seconds=259201)
     with pytest.raises(ValidationError): Settings(worker_poll_interval_seconds=0)
     with pytest.raises(ValidationError): Settings(worker_error_backoff_seconds=301)
     with pytest.raises(ValidationError): Settings(worker_lease_ttl_seconds=299)
@@ -92,6 +97,27 @@ def test_idle_closes_session_then_waits_poll_interval(caplog):
     assert events == ["session", ("iteration", "owner", timedelta(seconds=3600)), "close", "session", "cleanup", "close"]
     assert stop.waits == [5]
     assert caplog.text == ""
+
+
+def test_idle_physically_expires_realtime_drafts(caplog):
+    from studio_api.worker import run_worker_loop
+    events=[]; stop=StopEvent(); caplog.set_level(logging.INFO)
+    def sf(): events.append("session"); return Session(events)
+    def iteration(db, **kw): events.append("iteration"); return None
+    run_worker_loop(
+        settings=FakeSettings(),
+        session_factory=sf,
+        stop_event=stop,
+        iteration=iteration,
+        owner_id_factory=lambda:"owner",
+        source_cleanup_runner=lambda db, **kw: False,
+        provider_checkpoint_cleanup_runner=lambda db, **kw: 0,
+        realtime_draft_cleanup_runner=lambda db, **kw: 2,
+    )
+    assert events == [
+        "session", "iteration", "close", "session", "commit", "close"
+    ]
+    assert "studio_worker_realtime_drafts_expired" in caplog.text
 
 
 def test_success_logs_safe_result_and_uses_new_session(caplog):

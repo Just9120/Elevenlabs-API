@@ -2,7 +2,10 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as googlePicker from "./googlePicker";
-import { TranscriptCatalogMigrationPanel } from "./TranscriptCatalogMigrationPanel";
+import {
+  maintenanceAccessStatus,
+  TranscriptCatalogMigrationPanel,
+} from "./TranscriptCatalogMigrationPanel";
 
 const json = (body: unknown, ok = true, status = 200) =>
   Promise.resolve({
@@ -216,6 +219,41 @@ function sessionResponse() {
   });
 }
 
+describe("maintenanceAccessStatus", () => {
+  const base = {
+    googleConnected: true,
+    googleLoading: false,
+    pickerReady: true,
+    maintenanceConnection: readyMaintenanceConnection,
+    maintenanceLoading: false,
+    maintenanceReadError: "",
+  };
+
+  it.each([
+    [
+      "server_not_configured",
+      { maintenanceConnection: { ...readyMaintenanceConnection, configured: false, ready: false } },
+    ],
+    [
+      "maintenance_revoked",
+      { maintenanceConnection: { ...readyMaintenanceConnection, status: "revoked", ready: false } },
+    ],
+    [
+      "account_mismatch",
+      { maintenanceConnection: { ...readyMaintenanceConnection, account_match: false, ready: false } },
+    ],
+    [
+      "scope_missing",
+      { maintenanceConnection: { ...readyMaintenanceConnection, scope_ready: false, ready: false } },
+    ],
+    ["ready", {}],
+  ])("classifies %s without exposing raw provider state", (kind, overrides) => {
+    expect(maintenanceAccessStatus({ ...base, ...overrides })).toMatchObject({
+      kind,
+    });
+  });
+});
+
 describe("TranscriptCatalogMigrationPanel", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -237,7 +275,9 @@ describe("TranscriptCatalogMigrationPanel", () => {
       screen.getByRole("region", { name: "Манифест Studio" }),
     ).toHaveTextContent("Google Docs не изменяются");
     expect(
-      screen.getByText("Сначала подключите Google Drive выше."),
+      screen.getByText(
+        "Блокер: основное подключение Google Drive отсутствует.",
+      ),
     ).toBeInTheDocument();
     for (const button of screen.getAllByRole("button", {
       name: "Выбрать папку",
@@ -828,7 +868,7 @@ describe("TranscriptCatalogMigrationPanel", () => {
 
     expect(
       await screen.findByText(
-        "Расширенный доступ ещё не готов. Операции обслуживания заблокированы.",
+        "Блокер: отдельный доступ Google для обслуживания не подключён.",
       ),
     ).toBeInTheDocument();
     for (const button of screen.getAllByRole("button", {
@@ -878,7 +918,7 @@ describe("TranscriptCatalogMigrationPanel", () => {
 
     expect(
       await screen.findByText(
-        "Не удалось проверить доступ Google для обслуживания.",
+        "Блокер: не удалось проверить состояние доступа Google для обслуживания.",
       ),
     ).toBeInTheDocument();
     expect(document.body).not.toHaveTextContent("raw-maintenance-token");
@@ -925,7 +965,7 @@ describe("TranscriptCatalogMigrationPanel", () => {
       renderPanel();
       expect(
         await screen.findByText(
-          "Не удалось проверить доступ Google для обслуживания.",
+          "Блокер: не удалось проверить состояние доступа Google для обслуживания.",
         ),
       ).toBeInTheDocument();
       expect(stalledSignal?.aborted).toBe(true);

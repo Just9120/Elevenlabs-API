@@ -2,7 +2,6 @@ import {
   parsePlatformRoute,
   platformPathFor,
   pushPlatformRoute,
-  resolveRequestedProjectsView,
 } from "./platformRouting";
 
 describe("platform routing", () => {
@@ -13,6 +12,7 @@ describe("platform routing", () => {
 
   it.each([
     ["/", { page: "dashboard", settingsSection: "account" }],
+    ["/transcriptions", { page: "projects", settingsSection: "account" }],
     ["/projects", { page: "projects", settingsSection: "account" }],
     ["/settings", { page: "settings", settingsSection: "account" }],
     [
@@ -25,7 +25,7 @@ describe("platform routing", () => {
   });
 
   it("reads the browser pathname when no path is provided", () => {
-    window.history.replaceState({}, "", "/projects");
+    window.history.replaceState({}, "", "/transcriptions");
 
     expect(parsePlatformRoute()).toEqual({
       page: "projects",
@@ -35,7 +35,7 @@ describe("platform routing", () => {
 
   it.each([
     ["dashboard", "account", "/"],
-    ["projects", "account", "/projects"],
+    ["projects", "account", "/transcriptions"],
     ["settings", "account", "/settings"],
     ["settings", "diagnostics", "/settings/diagnostics"],
   ] as const)("builds the %s/%s path", (page, section, expected) => {
@@ -58,29 +58,11 @@ describe("platform routing", () => {
   });
 
   it("does not add a duplicate history entry", () => {
-    window.history.replaceState({}, "", "/projects");
+    window.history.replaceState({}, "", "/transcriptions");
     const pushState = vi.spyOn(window.history, "pushState");
 
     pushPlatformRoute("projects");
 
     expect(pushState).not.toHaveBeenCalled();
   });
-
-  it.each([
-    [null, true, 1, null],
-    ["browse", true, 1, null],
-    ["browse", false, 1, false],
-    ["browse", false, 0, true],
-    ["create", true, 1, true],
-  ] as const)(
-    "resolves projects view request %s while loading=%s with count=%s",
-    (requestedView, loading, projectCount, expected) => {
-      expect(
-        resolveRequestedProjectsView(requestedView, {
-          loading,
-          projectCount,
-        }),
-      ).toBe(expected);
-    },
-  );
 });

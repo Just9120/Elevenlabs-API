@@ -1,6 +1,8 @@
 import hashlib, json, logging, re
 from datetime import datetime, timedelta, timezone
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse, Response as FastAPIResponse
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, StrictBool, StrictInt, field_validator, model_validator
 from sqlalchemy import and_, text, func, or_, select
@@ -28,6 +30,13 @@ from .diagnostic_reports import build_diagnostic_report, serialize_diagnostic_re
 from .job_output_read import browser_job_output_payload, load_browser_job_output_rows
 from .job_progress import load_browser_job_progress_payloads
 from .realtime_capability import RealtimeCapabilityError, RealtimeCapabilityReason, create_realtime_capability
+from .realtime_drafts import (
+    RealtimeDraftError,
+    RealtimeDraftReason,
+    delete_realtime_draft,
+    load_latest_realtime_draft,
+    save_realtime_draft,
+)
 from .endpoint_group import diagnostic_endpoint_group
 from .transcription_analytics import load_transcription_analytics_payload
 from .job_output_reconciliation import OutputReconciliationError, OutputReconciliationReason, check_job_output_reconciliation, reconciliation_status_payload
@@ -55,6 +64,35 @@ app=FastAPI(docs_url="/docs" if settings.enable_api_docs else None, redoc_url=No
 app.include_router(transcript_catalog_router)
 limiter=RateLimiter()
 LOGGER=logging.getLogger("studio_api.api")
+REALTIME_DRAFT_SAVE_LIMIT_PER_HOUR = 7_200
+REALTIME_DRAFT_ROUTE_PATTERN = re.compile(
+    r"^/api/projects/[^/]+/realtime/drafts/[^/]+$"
+)
+
+
+def _is_realtime_draft_route(path: str) -> bool:
+    return REALTIME_DRAFT_ROUTE_PATTERN.fullmatch(path) is not None
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_error_handler(request: Request, exc: RequestValidationError):
+    if not _is_realtime_draft_route(request.url.path):
+        return await request_validation_exception_handler(request, exc)
+    response = JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={
+            "detail": [
+                {
+                    "type": error.get("type", "validation_error"),
+                    "loc": list(error.get("loc", ())),
+                }
+                for error in exc.errors()
+            ]
+        },
+    )
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    return response
 
 @app.middleware("http")
 async def request_correlation_middleware(request: Request, call_next):
@@ -75,6 +113,9 @@ async def request_correlation_middleware(request: Request, call_next):
             except Exception:
                 LOGGER.warning("api_unhandled_diagnostic_write_failed request_id=%s correlation_id=%s endpoint_group=%s", request_id, correlation_id, endpoint_group)
         response = JSONResponse({"detail": "Internal server error"}, status_code=500)
+    if _is_realtime_draft_route(request.url.path):
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Pragma"] = "no-cache"
     response.headers["X-Request-ID"] = request_id
     response.headers["X-Correlation-ID"] = correlation_id
     return response
@@ -193,6 +234,12 @@ class RealtimeCapabilityIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     provider_credential_id: str|None=Field(default=None, max_length=36)
     language: TranscriptionLanguageMode=DEFAULT_TRANSCRIPTION_LANGUAGE_MODE
+
+class RealtimeDraftIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    revision: StrictInt=Field(ge=1, le=2147483647)
+    committed_segments: list[str]=Field(max_length=5000)
+    partial: str=Field(default="", max_length=20000)
 
 class TranscriptionJobBatchCreateIn(BaseModel):
     provider_credential_id: str|None=Field(default=None, max_length=36)
@@ -430,11 +477,22 @@ def safe_job_output_folder_payload(job: TranscriptionJob):
         url=None
     return {"name": clean_optional_name(job.output_drive_folder_name) or "Папка Google Drive", "web_view_url": url}
 
+def browser_batch_reference(job: TranscriptionJob):
+    key=getattr(job,"batch_idempotency_key",None)
+    position=getattr(job,"batch_position",None)
+    if not key or position is None:
+        return None
+    identity="\0".join(("studio-multi-transcription-v1",job.owner_user_id,job.project_id,key))
+    digest=hashlib.sha256(identity.encode("utf-8")).hexdigest()[:32]
+    return {"id": f"multi_{digest}", "position": int(position)}
+
 def job_payload(job: TranscriptionJob, include_sources=False):
     clip_start=getattr(job,"media_clip_start_seconds",None); clip_end=getattr(job,"media_clip_end_seconds",None)
     media_clip=None if clip_start is None and clip_end is None else {"start_seconds":clip_start,"end_seconds":clip_end}
     terminal_dismissed_at=getattr(job,"terminal_dismissed_at",None)
     payload={"id": job.id, "project_id": job.project_id, "status": job.status.value, "title": job.title, "provider": job.provider, "language_mode": browser_language_mode(getattr(job, "language", None)), "diarization_enabled": job_diarization_enabled(getattr(job, "options_json", None)), "media_clip": media_clip, "terminal_dismissed_at": terminal_dismissed_at.isoformat() if terminal_dismissed_at else None, "source_count": len(job.sources), "created_at": job.created_at.isoformat(), "updated_at": job.updated_at.isoformat(), "cancelled_at": job.cancelled_at.isoformat() if job.cancelled_at else None, "cancel_requested_at": job.cancel_requested_at.isoformat() if job.cancel_requested_at else None, "attempt_count": job.attempt_count or 0, "started_at": job.started_at.isoformat() if job.started_at else None, "finished_at": job.finished_at.isoformat() if job.finished_at else None, "error_code": safe_failure_metadata_value(job.error_code), "error_message": safe_failure_metadata_value(job.error_message), "output_folder": safe_job_output_folder_payload(job)}
+    batch=browser_batch_reference(job)
+    if batch is not None: payload["batch"]=batch
     if include_sources: payload["sources"]=[job_source_payload(s) for s in sorted(job.sources, key=lambda item: item.position)]
     return payload
 
@@ -491,6 +549,41 @@ def list_projects(pair=Depends(current_session), db: Session=Depends(get_db)):
     _,user=pair
     rows=db.query(Project).filter(Project.owner_user_id==user.id, Project.archived_at.is_(None)).order_by(Project.updated_at.desc(), Project.created_at.desc()).all()
     return {"projects":[project_payload(p) for p in rows]}
+
+@app.post("/api/transcriptions/workspace")
+def ensure_transcription_workspace(
+    pair=Depends(require_csrf),
+    db: Session=Depends(get_db),
+):
+    _, user = pair
+    limiter.check("transcription:workspace:ensure:" + user.id, 30, 3600)
+    db.execute(select(User).where(User.id == user.id).with_for_update()).scalar_one()
+    project = db.execute(
+        select(Project)
+        .where(
+            Project.owner_user_id == user.id,
+            Project.archived_at.is_(None),
+        )
+        .order_by(Project.updated_at.desc(), Project.created_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    created = project is None
+    if project is None:
+        project = Project(
+            owner_user_id=user.id,
+            title="Транскрибации",
+            description=None,
+        )
+        db.add(project)
+        db.flush()
+        audit(
+            db,
+            "transcription_workspace.created",
+            actor_user_id=user.id,
+            subject_user_id=user.id,
+        )
+    db.commit()
+    return {"project": project_payload(project), "created": created}
 
 @app.post("/api/projects")
 def create_project(data: ProjectIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
@@ -847,6 +940,151 @@ def _write_realtime_diagnostic_event(
             correlation_id,
             event_code,
         )
+
+def _raise_realtime_draft_failure(exc: RealtimeDraftError) -> None:
+    status_code = {
+        RealtimeDraftReason.scope_conflict: status.HTTP_404_NOT_FOUND,
+        RealtimeDraftReason.revision_conflict: status.HTTP_409_CONFLICT,
+        RealtimeDraftReason.payload_too_large: status.HTTP_422_UNPROCESSABLE_ENTITY,
+        RealtimeDraftReason.payload_invalid: status.HTTP_422_UNPROCESSABLE_ENTITY,
+        RealtimeDraftReason.crypto_failed: status.HTTP_503_SERVICE_UNAVAILABLE,
+    }[exc.reason]
+    raise HTTPException(status_code, {"reason": exc.reason.value}) from exc
+
+def _realtime_draft_payload(draft, *, include_text: bool) -> dict:
+    payload = {
+        "client_session_id": draft.client_session_id,
+        "revision": draft.revision,
+        "updated_at": draft.updated_at.isoformat(),
+        "expires_at": draft.expires_at.isoformat(),
+    }
+    if include_text:
+        payload.update(
+            {
+                "committed_segments": list(draft.committed_segments),
+                "partial": draft.partial,
+            }
+        )
+    return payload
+
+@app.put("/api/projects/{project_id}/realtime/drafts/{client_session_id}")
+def put_project_realtime_draft(
+    project_id: str,
+    client_session_id: str,
+    data: RealtimeDraftIn,
+    response: Response,
+    pair=Depends(require_csrf),
+    db: Session=Depends(get_db),
+):
+    _, user = pair
+    # The client may checkpoint partial text every 750 ms while audio is active.
+    limiter.check(
+        "realtime:draft:save:" + user.id,
+        REALTIME_DRAFT_SAVE_LIMIT_PER_HOUR,
+        3600,
+    )
+    project = owned_project_or_404(db, user, project_id)
+    _browser_capability_cache_headers(response)
+
+    def save() -> object:
+        return save_realtime_draft(
+            db,
+            owner_user_id=user.id,
+            project=project,
+            client_session_id=client_session_id,
+            revision=data.revision,
+            committed_segments=data.committed_segments,
+            partial=data.partial,
+            settings=settings,
+            now=utcnow(),
+        )
+
+    try:
+        draft = save()
+        db.commit()
+    except RealtimeDraftError as exc:
+        db.rollback()
+        _raise_realtime_draft_failure(exc)
+    except IntegrityError:
+        db.rollback()
+        try:
+            # A concurrent identical first write can win the unique insert race.
+            # Reload once after rollback so that the existing idempotence contract
+            # decides between success and a genuine revision conflict.
+            draft = save()
+            db.commit()
+        except RealtimeDraftError as exc:
+            db.rollback()
+            _raise_realtime_draft_failure(exc)
+        except IntegrityError as exc:
+            db.rollback()
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                {"reason": RealtimeDraftReason.revision_conflict.value},
+            ) from exc
+    return {"draft": _realtime_draft_payload(draft, include_text=False)}
+
+@app.get("/api/projects/{project_id}/realtime/drafts/latest")
+def get_project_latest_realtime_draft(
+    project_id: str,
+    response: Response,
+    pair=Depends(current_session),
+    db: Session=Depends(get_db),
+):
+    _, user = pair
+    limiter.check("realtime:draft:load:" + user.id, 240, 3600)
+    project = owned_project_or_404(db, user, project_id)
+    _browser_capability_cache_headers(response)
+    try:
+        draft = load_latest_realtime_draft(
+            db,
+            owner_user_id=user.id,
+            project=project,
+            settings=settings,
+            now=utcnow(),
+        )
+        db.commit()
+    except RealtimeDraftError as exc:
+        db.rollback()
+        _raise_realtime_draft_failure(exc)
+    return {
+        "draft": _realtime_draft_payload(draft, include_text=True)
+        if draft is not None
+        else None
+    }
+
+@app.delete("/api/projects/{project_id}/realtime/drafts/{client_session_id}")
+def delete_project_realtime_draft(
+    project_id: str,
+    client_session_id: str,
+    response: Response,
+    pair=Depends(require_csrf),
+    db: Session=Depends(get_db),
+    _=Depends(require_same_origin),
+):
+    _, user = pair
+    limiter.check("realtime:draft:delete:" + user.id, 120, 3600)
+    project = owned_project_or_404(db, user, project_id)
+    _browser_capability_cache_headers(response)
+    try:
+        deleted = delete_realtime_draft(
+            db,
+            owner_user_id=user.id,
+            project=project,
+            client_session_id=client_session_id,
+        )
+        if deleted:
+            audit(
+                db,
+                "realtime_draft.deleted",
+                actor_user_id=user.id,
+                subject_user_id=user.id,
+            )
+        db.commit()
+    except RealtimeDraftError as exc:
+        db.rollback()
+        _raise_realtime_draft_failure(exc)
+    return {"ok": True, "deleted": deleted}
 
 @app.post("/api/projects/{project_id}/realtime/capability")
 def create_project_realtime_capability(

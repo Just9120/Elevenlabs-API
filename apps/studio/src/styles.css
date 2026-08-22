@@ -67,6 +67,7 @@
   --studio-primary: #6d8cff;
   --studio-primary-dark: #a5b4fc;
   --studio-danger: #fb923c;
+  --studio-on-primary: #08111f;
   --studio-secondary-bg: #1e293b;
   --studio-secondary-text: #e2e8f0;
   --studio-input-bg: #0f172a;
@@ -179,7 +180,7 @@
   width: min(100%, 520px);
   margin: 0;
 }
-.confirm-clear-dialog h4 {
+.confirm-clear-dialog h2 {
   margin-top: 0;
 }
 html,
@@ -209,6 +210,11 @@ button,
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
+  min-height: 44px;
+}
+summary {
+  min-height: 44px;
+  padding-block: 0.55rem;
 }
 button:where(:not(.primary):not(.danger)),
 .secondary {
@@ -441,11 +447,17 @@ code {
 }
 .meta {
   display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
+  grid-template-columns: minmax(8rem, 0.35fr) minmax(0, 1fr);
   gap: 0.5rem 1rem;
+  min-width: 0;
 }
 .meta dt {
   font-weight: 800;
+}
+.meta dd {
+  min-width: 0;
+  margin-inline-start: 0;
+  overflow-wrap: anywhere;
 }
 .technical-meta dd {
   overflow-wrap: anywhere;
@@ -506,53 +518,38 @@ code {
   line-height: 1.15;
   overflow-wrap: anywhere;
 }
-.workflow {
+.workspace-card {
+  min-height: 0;
+}
+.legacy-workspace-switcher {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.75rem;
-  padding: 0;
-  list-style: none;
 }
-
-.workspace-layout {
-  display: grid;
-  grid-template-columns: minmax(210px, 250px) minmax(0, 1fr);
-  gap: 1rem;
-  align-items: start;
+.legacy-workspace-switcher summary {
+  cursor: pointer;
+  font-weight: 800;
 }
-.project-list {
+.legacy-workspace-list {
   display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
   gap: 0.65rem;
-  align-content: start;
-  grid-auto-rows: max-content;
-  max-height: min(70vh, 720px);
-  overflow: auto;
-  background: transparent;
-  color: var(--studio-text);
 }
-.project-list-item {
-  text-align: left;
+.legacy-workspace-list button {
   display: grid;
   gap: 0.25rem;
-  width: 100%;
-  min-height: 0;
-  border: 1px solid var(--studio-border);
-  border-radius: 14px;
-  background: var(--studio-surface);
-  color: var(--studio-text);
-  padding: 0.85rem;
+  min-height: 4.5rem;
+  text-align: left;
 }
-.project-list-item.active {
+.legacy-workspace-list button.active {
   border-color: var(--studio-primary);
   background: var(--studio-active-bg);
   box-shadow: 0 0 0 3px var(--studio-active-shadow);
 }
-.project-list-item small,
-.project-list-item span {
+.legacy-workspace-list small {
   color: var(--studio-muted);
 }
-.workspace-card {
-  min-height: 0;
+.workspace-context {
+  margin-top: 0;
 }
 .tabs {
   display: flex;
@@ -564,7 +561,7 @@ code {
 .tabs button {
   flex: 0 0 auto;
   border: 0;
-  border-bottom: 3px solid transparent;
+  border-bottom: 3px solid var(--studio-border);
   border-radius: 0;
   background: transparent;
 }
@@ -578,6 +575,11 @@ code {
 }
 .transcription-mode-tabs {
   margin-top: 1.25rem;
+  scroll-snap-type: x proximity;
+}
+.transcription-mode-tabs button {
+  flex: 1 1 12rem;
+  scroll-snap-align: start;
 }
 .live-transcription {
   display: grid;
@@ -590,9 +592,9 @@ code {
   align-items: flex-start;
   gap: 1rem;
 }
-.live-intro h3,
-.live-config-card h4,
-.live-transcript-card h4 {
+.live-intro h2,
+.live-config-card h3,
+.live-transcript-card h3 {
   margin-top: 0;
 }
 .live-status {
@@ -700,16 +702,6 @@ code {
   cursor: pointer;
   font-weight: 700;
 }
-.project-form {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
-  gap: 0.8rem;
-  align-items: end;
-}
-.project-form h2 {
-  grid-column: 1 / -1;
-}
-.project-edit,
 .builder {
   display: grid;
   gap: 0.7rem;
@@ -1011,12 +1003,10 @@ code {
   .shell > main {
     padding: 1rem;
   }
-  .workspace-layout,
   .live-config-grid,
   .summary-grid,
   .transcript-maintenance-grid,
   .catalog-migration-summary,
-  .workflow,
   .source-add-grid,
   .job-fields {
     grid-template-columns: 1fr;
@@ -1026,18 +1016,24 @@ code {
     flex-direction: column;
     align-items: stretch;
   }
-  .project-list {
-    max-height: 360px;
-  }
   .inline,
-  .project-form,
   .segment {
     grid-template-columns: 1fr;
   }
 }
 @media (max-width: 480px) {
-  .app-nav {
-    grid-template-columns: 1fr;
+  .app-sidebar {
+    padding: 1rem;
+  }
+  .brand {
+    margin-bottom: 1rem;
+  }
+  .app-nav button {
+    flex-direction: column;
+    gap: 0.25rem;
+    padding-inline: 0.35rem;
+    text-align: center;
+    font-size: 0.78rem;
   }
   .page-title {
     font-size: clamp(1.8rem, 12vw, 2.4rem);
@@ -1064,7 +1060,7 @@ code {
   gap: 1rem;
   min-width: 0;
 }
-.composer-header h4 {
+.composer-header h2 {
   margin: 0 0 0.25rem;
 }
 .composer-add-row {
@@ -1255,7 +1251,7 @@ code {
   align-items: flex-start;
   gap: 1rem;
 }
-.batch-preflight h5,
+.batch-preflight h3,
 .batch-preflight p {
   margin: 0;
 }
@@ -1328,48 +1324,89 @@ code {
   margin-bottom: 0;
 }
 
-.attention-card ul,
-.recent-project-list {
+.attention-card ul {
   margin: 0;
+}
+
+.multi-transcription {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+  border: 2px solid var(--studio-panel-border);
+  border-radius: var(--studio-radius);
+  background: var(--studio-soft);
+}
+.multi-transcription-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.multi-transcription-header h3 {
+  margin: 0 0 0.25rem;
+}
+.multi-transcription-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.multi-transcription-counts span {
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--studio-border);
+  border-radius: 999px;
+  background: var(--studio-surface);
+}
+.multi-transcription-progress {
+  display: grid;
+  gap: 0.35rem;
+  font-weight: 700;
+}
+.multi-transcription-progress progress {
+  width: 100%;
+}
+.multi-transcription-items {
+  display: grid;
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.multi-transcription-items > li {
+  display: grid;
+  gap: 0.5rem;
+}
+.multi-transcription-item-heading {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.35rem 1rem;
+}
+
+@media (max-width: 620px) {
+  .meta {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.15rem;
+  }
+  .meta dd + dt {
+    margin-top: 0.65rem;
+  }
+  .transcription-mode-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: visible;
+  }
+  .transcription-mode-tabs button {
+    min-width: 0;
+    padding-inline: 0.5rem;
+    white-space: normal;
+  }
+  .multi-transcription-header {
+    flex-direction: column;
+  }
 }
 
 .attention-card li + li {
   margin-top: 0.35rem;
-}
-
-.recent-project-list {
-  display: grid;
-  gap: 0.75rem;
-}
-
-.recent-project-item {
-  align-items: center;
-  background: var(--studio-glass);
-  border: 1px solid var(--studio-border);
-  border-radius: 1rem;
-  color: inherit;
-  cursor: pointer;
-  display: grid;
-  gap: 0.35rem;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  padding: 0.85rem 1rem;
-  text-align: left;
-}
-
-.recent-project-item:hover,
-.recent-project-item:focus-visible {
-  border-color: var(--studio-primary);
-}
-
-.recent-project-item small {
-  display: block;
-  margin-top: 0.25rem;
-}
-
-@media (max-width: 760px) {
-  .recent-project-item {
-    grid-template-columns: 1fr;
-  }
 }
 
 .diagnostics-filters {
@@ -1640,7 +1677,7 @@ code {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
-.analytics-content h5 {
+.analytics-content h3 {
   margin: 0 0 0.55rem;
 }
 

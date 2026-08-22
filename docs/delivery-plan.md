@@ -2,79 +2,88 @@
 
 ## Current Goal
 
-- **ID / title:** `PWA-OPERABILITY-POLISH-02` — persistent accent color, safe clear operations и duplicate-state consistency.
+- **ID / title:** `PWA-TRANSCRIPTIONS-UX-AND-LIVE-RECOVERY-01` — Transcriptions-first UX, recoverable Live drafts и bounded UX/UI remediation.
 - **State:** `IN_PROGRESS`.
-- **Authorization source:** explicit owner instruction `ок, приступай` от 2026-08-21 после согласования объединённой bounded Goal.
-- **Scope:** реализовать persistent accent/interface color; owner-scoped clear для manifest/catalog, History и Analytics с обязательным Да/Нет confirmation и audit semantics; устранить подтверждённое противоречие, при котором accepted completed output одновременно показывается как unresolved provider attempt; добавить additive migration, API/UI contracts, tests и выполнить полный delivery flow.
-- **Non-goals:** физическое удаление jobs, outputs, Google Docs, R2 objects, sources или audit events; folder intake; speaker identity; Realtime; Colab; TOTP; изменение CI/CD policy или deployment topology.
+- **Authorization source:** owner decision в текущей task: Projects не являются основной пользовательской сущностью; обычная и Live-транскрибации должны быть primary flow; Live text должен временно восстанавливаться после refresh/crash/restart; затем explicit instruction `формируй цель по найденным гэпам и данному вопросу`.
+- **Scope:** заменить user-facing Projects flow на `Транскрибации` с ordinary/Live tabs и history surfaces; удалить ручные create/edit/archive Project controls, сохранив safe internal ownership boundary и legacy active data; реализовать IndexedDB + encrypted owner-scoped server Live drafts с 72-hour TTL и restore/download/delete UX; исправить verified narrow Diagnostics overflow, dark-theme contrast, dialog keyboard/focus behavior, heading/touch/tab accessibility, maintenance-access diagnosis и unsupported-provider explanation; добавить migration, API/UI contracts, tests и полный delivery flow.
+- **Non-goals:** local/Drive source-folder intake; speaker identity; source creation timestamps; новые STT providers; automatic realtime reconnect; audio/session recording; subtitle exports; другие upstream proposals; automatic unarchive или privileged recovery production data.
 - **Goal AC:**
-  1. Пользователь выбирает поддерживаемый accent/interface color; выбор применяется без reload и сохраняется как owner-scoped account preference.
-  2. Manifest/catalog можно очистить только явным подтверждённым owner-scoped action; очистка перестаёт использовать прежние accepted-result записи для duplicate decision, но не удаляет outputs, Google Docs, sources или audit.
-  3. History можно очистить только после Да/Нет confirmation; active jobs сохраняются, historical jobs скрываются owner-scoped, durable job/output/audit records не удаляются.
-  4. Analytics можно очистить только после Да/Нет confirmation; новые агрегаты считаются от owner-scoped reset boundary, durable jobs/attempts/outputs/audit records не удаляются.
-  5. Completed provider attempt с persisted accepted output не создаёт ложный `unresolved` conflict; реальный in-flight/uncertain attempt продолжает fail closed.
-  6. Relevant backend/frontend tests, full local validation, exact-head CI, merge, applicable protected migration/deployment и bounded LIVE validation успешны.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
-- **Known blockers/dependencies:** production processing preflight блокирует worker deploy: deploy-user не может надёжно проверять operator-owned `0600` secret files через direct host filesystem (`R2` ранее дал `Permission denied`, Google OAuth path — false missing). Текущий hotfix переносит presence/shape validation всех allowlisted secrets в existing API container entrypoint без раскрытия values, копирования или расширения permissions. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
+  1. Primary navigation/page semantics используют `Транскрибации`; ручные create/edit/archive Project отсутствуют.
+  2. Ordinary и Live доступны отдельными tabs без ручного выбора технического Project; один batch представлен как одна multi-transcription с item-level progress/results.
+  3. Existing active legacy workspaces, sources, jobs и outputs остаются доступны; archived state не изменяется автоматически.
+  4. Committed Live fragments checkpoint-ятся local immediately; latest partial checkpoint-ится с bounded debounce и маркируется unconfirmed.
+  5. Server draft owner/project scoped, encrypted at rest, size-bounded, monotonic-revision idempotent и возвращается только authenticated owner через `no-store`.
+  6. Reload/crash/restart показывает recovery prompt; draft можно restore, скачать `.txt` или удалить.
+  7. Draft TTL равен 72 часам; expired drafts логически недоступны и физически удаляются idempotent cleanup.
+  8. Audio и transcript body не попадают в logs, diagnostics, audit events, ordinary History/Analytics или Google Docs без отдельного user action.
+  9. Narrow Diagnostics не создаёт document-level overflow; supported theme/accent primary controls имеют WCAG AA contrast.
+  10. Modal confirmation имеет initial focus, focus trap, Escape, focus return; heading hierarchy, touch targets и mobile tab affordance исправлены.
+  11. Maintenance access показывает точную safe blocker category; OpenAI key storage ясно помечено как недоступное для current transcription execution.
+  12. Existing batch/realtime behavior не регрессирует; relevant backend/frontend/security/responsive/accessibility tests проходят.
+  13. Exact-head CI, applicable MANUAL_GATED migration/API/web/worker deployment и bounded LIVE recovery validation успешны.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
+- **Known blockers/dependencies:** additive migration `0023` потребует отдельного protected Environment approval после merge; production archived project `Транскрибации` не может быть восстановлен этой Goal без отдельной exact-data authorization; approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
 - **Stop condition:** все Goal AC и required Evidence подтверждены либо flow достиг `BLOCKED` / `PENDING_EXTERNAL_GATE`; затем остановиться и не переходить к следующей Goal без explicit authorization.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-22T13:14:41Z
-- Session mode: RESUME после explicit authorization protected migration/API/worker/LIVE flow
+- Updated (UTC): 2026-08-22T17:41:09Z
+- Session mode: new authorized Goal
 - Base branch: `main`
-- Base SHA: `96349f41afc20040691c4c0754d08552108c737b` (merged mounted-R2 validator baseline; original Goal base `6bcb0ed49aeb6e491765fda45bf74b6e68f7b67e`)
-- Working branch: `codex/pwa-operability-preflight-mounted-secrets`
-- Last verified revision: `96349f41afc20040691c4c0754d08552108c737b`
-- Working tree: generalized allowlisted mounted-secret validation, preflight wiring, focused tests, runbook и checkpoint изменены, не committed; preserved unrelated untracked pnpm artifacts excluded from scope/commits
-- Completed since original base: implementation/UI fix merged PR #218; diagnostics PR #219; mounted-R2 validator PR #220; exact-head/post-merge CI green; web deployed; worker graceful-drained; protected migration `0021_source_creation_favorites → 0022_account_operability` и API deploy successful; migration gate disabled; canonical primary OAuth scope установлен; bounded LIVE подтвердил accent persistence, три Да/Нет dialogs с cancel path и отсутствие ложного unresolved blocker для visible completed output
-- Current step: убрать remaining direct host `-f` checks и валидировать все allowlisted current Compose secret mounts через reviewed entrypoint
-- Next exact action: validate/commit/push generalized mounted-secret hotfix, открыть PR и дождаться exact-head CI/review
-- Validation and Evidence: PR #220 exact head `2c3f080b9080faf4720121b510da94e7f9d97e9e` прошёл CI `32574657394`, Studio/browser-e2e `32574657407`; post-merge `96349f41afc20040691c4c0754d08552108c737b` прошёл CI `32574888483`, Studio/browser-e2e `32574888497`; API CD `32574888494` SUCCESS. Preflight `32575046025` подтвердил exact checkout, clean tree, canonical runtime settings и затем false-blocked Google OAuth secret host path. Текущий generalized hotfix локально прошёл shell syntax, Python compile, lightweight CI и smoke всех шести mounted-secret classes; local full pytest/PyYAML недоступны. LIVE accent `blue → teal → reload teal → restore blue → reload blue`; manifest/History/Analytics confirmation dialogs проверены с `Нет`; duplicate preflight на existing completed source разрешил processing без `equivalent_provider_outcome_unresolved`, job не создавался.
-- Pull Request: [#218](https://github.com/Just9120/Elevenlabs-API/pull/218) MERGED as `1fc868847377ad059743ac4d1aa3ae0573d27507`; [#219](https://github.com/Just9120/Elevenlabs-API/pull/219) MERGED as `cd84cab2ae20a92360f931a027e0424ccce6d2f4`; [#220](https://github.com/Just9120/Elevenlabs-API/pull/220) MERGED as `96349f41afc20040691c4c0754d08552108c737b`; generalized hotfix PR pending
-- CI/checks: PR #220 final exact-head CI `32574657394` and Studio/browser-e2e `32574657407` — SUCCESS; post-merge CI `32574888483` and Studio/browser-e2e `32574888497` — SUCCESS
-- Deployment/environment: web CD `32562849732` SUCCESS; worker drain `32563012779` SUCCESS (`exited`, `exit_code=0`); protected migration/API run `32567261404` SUCCESS, snapshot `ab9189f05e33`, API image `sha256:9ed9b467bb46`, `api_deployed=yes`; API CD `32574888494` SUCCESS for production checkout `96349f41afc20040691c4c0754d08552108c737b`; migration enable variable remains `false`. GitHub approval history API reports `state=skipped` despite observed waiting state and user action, so required-review audit evidence remains limited.
-- Blockers: read-only preflight `32575046025` passed exact checkout/config and false-blocked direct Google OAuth secret host-path presence; worker remains stopped until generalized validator is merged/deployed and repeated preflight passes
-- Unverified assumptions: all current mounted secret files pass generalized entrypoint validation до production rerun; clear mutation paths не запускались в production, чтобы не скрывать реальные user data
-- Preserved pre-existing changes: `.pnpm-store/`, `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` remain untracked and are not part of this Goal
+- Base SHA: `dd194c929d957e822ff618df294dc54e72d5971e`
+- Working branch: `codex/pwa-transcriptions-live-recovery-01`
+- Last verified revision: `29df753b204a87768ff68d401fe8e77ff11fa59b`
+- Working tree at branch start: tracked clean; preserved unrelated untracked `.pnpm-store/`, `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml`
+- Completed: Git/GitHub recovery; product reconciliation; additive `0023` encrypted owner/project Live-draft model/service/API; monotonic/size/TTL boundaries; idle-worker physical cleanup; removal of autosave audit churn; IndexedDB checkpoint module; server sync; reload recovery restore/download/delete UX; canonical `/transcriptions` route; ordinary/Live tabs; removal of manual Project create/edit/archive UX; idempotent internal workspace ensure; non-destructive legacy workspace compatibility selector; bounded metadata layout; dark primary contrast; accessible confirmation dialog; keyboard-operable tabs; heading/touch/mobile affordance corrections; exact maintenance blocker copy; current-provider limitation copy; safe deterministic batch presentation reference; one grouped multi-transcription per batch with ordered source/fragment items and preserved item-level progress/output/recovery controls; review-driven frontend recovery hardening: serialized final server/local deletion, bounded server reads/writes/deletes, restore resync, partial-only and unresolved-candidate actions, same-session revision authority, pending-partial flush across workspace unmount, recovery-loading clear gate, prefix-safe retained-text reconciliation and divergent-text fail-closed choice; review-driven backend hardening: redacted draft validation errors, `no-store` on all draft-route responses, sustainable checkpoint limit, one-shot idempotent insert-race reconciliation and exact 72-hour configuration boundary.
+- Current step: all implementation/review remediation complete and exact-head gates green; record final Evidence and merge.
+- Next exact action: merge PR `#222`, inspect component-CD decisions for the merged SHA and stop at the protected migration authorization gate before any migration/API/worker rollout.
+- Validation and Evidence: exact-head `29df753` passed repository CI run `32588340168` (`checks`) and Studio run `32588340183` (`studio`, serial `browser-e2e`): Python `1252/1252`, Studio `539/539` across `43/43`, browser E2E `10/10`, builds and terminal safety markers PASS. All fourteen automated review threads from three review rounds are resolved with commit/test traceability; no unresolved conversation remains. Local TypeScript/ESLint, focused Live/recovery `32/32`, full Studio `539/539` and production Vite build PASS. Previous Transcriptions IA/App/routing regression `223/223`, focused UX regression `229/229` and bounded desktop/narrow browser validation remain valid.
+- Pull Request: `#222` — `https://github.com/Just9120/Elevenlabs-API/pull/222`, open, exact code head `29df753b204a87768ff68d401fe8e77ff11fa59b`, mergeable after final metadata synchronization.
+- CI/checks: exact code head `29df753` fully passed all three applicable checks; all fourteen review threads are resolved and no required review/check gate remains.
+- Deployment/environment: not started; migration class `MANUAL_GATED`.
+- Blockers: no implementation blocker; production recovery remains separately unauthorized.
+- Unverified assumptions: 72-hour draft TTL and existing credential master key boundary are compatible with production operational policy; exact deployment requires post-merge verification.
+- Preserved pre-existing changes: three untracked pnpm artifacts listed above remain outside scope/commits.
 
 ## Project readiness
 
-Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Goal AC не добавляются в product denominator. Branch-level CODE/TEST evidence засчитано для выполненных product AC; READY по-прежнему требует все обязательные gates.
+Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Новый независимый пересчёт подтвердил `PT-03`: API выдаёт только safe derived batch reference, а UI группирует один batch в одну multi-transcription с ordered item-level progress/results/recovery controls. Denominator не изменился; numerator вырос на 1 AC.
 
-| Product/epic | Current | Previous snapshot | Readiness/Evidence |
+| Product/epic | Current | Previous independent snapshot | Readiness/Evidence |
 |---|---:|---:|---|
-| **Project** | **83,5% (`91/109`)** | **78,9% (`86/109`)** | Выполнены ещё пять targeted AC: `PM-03`, `PO-10/11/17/18`; denominator не изменился. |
+| **Project** | **85,0% (`102/120`)** | **84,2% (`101/120`)** | +1 AC: один batch представлен одной multi-transcription; delivery Evidence ещё неполные. |
 | **Google Colab** | **75,9% (`22/29`)** | **75,9% (`22/29`)** | Без изменений в PWA Goal. |
-| `COLAB-BATCH-01` | **73,9% (`17/23`)** | **73,9% (`17/23`)** | 🟦 IN PROGRESS; `SPEC ✅ CODE ◐ TEST ◐ CI ✅ DEPLOY ◐ LIVE ◐`. |
-| `COLAB-REALTIME-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; capture stability не подтверждена полностью. |
-| **Studio PWA** | **86,3% (`69/80`)** | **80,0% (`64/80`)** | Safe manifest/History/Analytics clear AC выполнены на branch CODE/TEST evidence. |
-| `PWA-CORE-01` | **100% (`13/13`)** | **100% (`13/13`)** | Product AC выполнены; 🟦 IN PROGRESS до required CI/DEPLOY/LIVE Evidence. |
-| `PWA-INGEST-01` | **72,7% (`8/11`)** | **72,7% (`8/11`)** | Без изменений в Goal. |
-| `PWA-SEGMENTS-01` | **100% (`5/5`)** | **100% (`5/5`)** | 🟩 READY; `SPEC ✅ CODE ✅ TEST ✅ CI ✅ DEPLOY ✅ LIVE ✅`. |
-| `PWA-BATCH-01` | **90,0% (`9/10`)** | **90,0% (`9/10`)** | Без изменения numerator; duplicate fix — consistency defect существующего AC. |
-| `PWA-SPEAKER-IDENTITY-01` | **0,0% (`0/5`)** | **0,0% (`0/5`)** | ⬜ BACKLOG. |
-| `PWA-MANIFEST-01` | **100% (`6/6`)** | **83,3% (`5/6`)** | `PM-03` выполнен; 🟦 IN PROGRESS до required CI/DEPLOY/LIVE Evidence. |
-| `PWA-STANDARDIZATION-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | Без изменений в Goal. |
-| `PWA-REALTIME-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | Без изменений в Goal. |
-| `PWA-OPERABILITY-01` | **100% (`18/18`)** | **77,8% (`14/18`)** | `PO-10/11/17/18` выполнены; 🟦 IN PROGRESS до required CI/DEPLOY/LIVE Evidence. |
+| `COLAB-BATCH-01` | **73,9% (`17/23`)** | **73,9% (`17/23`)** | 🟦 IN PROGRESS. |
+| `COLAB-REALTIME-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS. |
+| **Studio PWA** | **87,9% (`80/91`)** | **86,8% (`79/91`)** | +1 AC: grouped multi-transcription presentation. |
+| `PWA-CORE-01` | **100% (`13/13`)** | **100% (`13/13`)** | Все product AC выполнены; exact-head delivery Evidence ещё не подтверждены. |
+| `PWA-TRANSCRIPTIONS-UX-01` | **100% (`4/4`)** | **75,0% (`3/4`)** | Все product AC выполнены; exact-head CI/DEPLOY/LIVE ещё gate-ят `READY`. |
+| `PWA-INGEST-01` | **72,7% (`8/11`)** | **72,7% (`8/11`)** | Вне Goal. |
+| `PWA-SEGMENTS-01` | **100% (`5/5`)** | **100% (`5/5`)** | 🟩 READY. |
+| `PWA-BATCH-01` | **90,0% (`9/10`)** | **90,0% (`9/10`)** | Вне Goal. |
+| `PWA-SPEAKER-IDENTITY-01` | **0% (`0/5`)** | **0% (`0/5`)** | Вне Goal. |
+| `PWA-MANIFEST-01` | **100% (`6/6`)** | **100% (`6/6`)** | Required delivery Evidence неполные. |
+| `PWA-STANDARDIZATION-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | Вне Goal. |
+| `PWA-REALTIME-01` | **92,3% (`12/13`)** | **92,3% (`12/13`)** | Без изменения; `PR-06` production stability остаётся открытым. |
+| `PWA-OPERABILITY-01` | **100% (`18/18`)** | **100% (`18/18`)** | Required delivery Evidence неполные. |
 
 ## Candidate next Goals
 
 Эти items — proposals и не авторизуют implementation:
 
-1. `PWA-INGEST-FOLDERS-01` — bounded local/Drive folder intake и одна target folder для folder batch.
-2. `PWA-SPEAKER-IDENTITY-01` — names/roles и manual listen-and-assign после privacy/data-retention design.
-3. `PWA-REALTIME-MATRIX-01` — representative microphone/display/mixed production LIVE matrix.
+1. `PWA-INGEST-FOLDERS-01` — local/Drive folder intake и folder batch.
+2. `PWA-SPEAKER-IDENTITY-01` — names/roles и manual listen-and-assign.
+3. `PWA-REALTIME-MATRIX-01` — representative microphone/display/mixed production stability после recovery Goal.
 4. `COLAB-REALTIME-STABILITY-01` — capture stability после PWA priority scope.
 
-## Blockers и risks
+## Risks и boundaries
 
-- Clear actions обязаны менять только owner-scoped visibility/decision boundaries; destructive cascade на output/source/audit запрещён текущей Goal.
-- Manifest reset не может делать старый completed provider attempt `unresolved`; иначе пользователь не сможет безопасно запустить новый explicit reprocess после очистки.
-- Analytics reset должен фильтровать jobs, attempts, sources и outputs по одной согласованной boundary, не смешивая до- и после-reset counts.
-- Approved post-deploy metadata writer отсутствует; фактический post-deploy state будет reconciled в следующем authorized scope без docs-only PR.
-- `main` не имеет platform branch protection/rulesets; documented merge gates проверяются вручную без bypass.
+- Transcript body — sensitive content. Browser/server draft endpoints обязаны быть owner-scoped, `no-store`, encrypted at rest и исключены из diagnostics/audit payloads.
+- Browser checkpoint не полагается на `beforeunload`; committed fragment сохраняется до UI acknowledgement, partial — bounded debounce.
+- Server revision monotonically increases; stale/same-revision-conflicting writes fail closed и не перезаписывают newer text.
+- Existing archived project не unarchive-ится schema migration, workspace resolution или page load.
+- Ordinary component CD не применяет migration; worker cleanup deploy отделён от API/web rollout.
+- Approved post-deploy metadata writer отсутствует; фактический state фиксируется в final report/GitHub records и reconciled в следующем authorized scope без docs-only follow-up PR.
 
 ## Sources of truth
 

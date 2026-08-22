@@ -577,7 +577,9 @@ async function waitForPlatformOverview() {
   ).toBeInTheDocument();
 }
 
-async function openPlatformNavPage(name: "Обзор" | "Проекты" | "Настройки") {
+async function openPlatformNavPage(
+  name: "Обзор" | "Транскрибации" | "Настройки",
+) {
   await waitFor(() =>
     expect(
       within(screen.getByRole("navigation")).getByRole("button", {
@@ -591,9 +593,9 @@ async function openPlatformNavPage(name: "Обзор" | "Проекты" | "На
 }
 
 async function openProjectsPage() {
-  await openPlatformNavPage("Проекты");
+  await openPlatformNavPage("Транскрибации");
   expect(
-    await screen.findByRole("heading", { name: "Проекты" }),
+    await screen.findByRole("heading", { name: "Транскрибации" }),
   ).toBeInTheDocument();
 }
 
@@ -1226,12 +1228,20 @@ describe("Studio PWA", () => {
       await screen.findByRole("form", { name: "Композитор пакетных задач" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("tab", { name: "Пакетная транскрибация" }),
+      screen.getByRole("tab", { name: "Обычная транскрибация" }),
     ).toHaveAttribute("aria-selected", "true");
 
-    await userEvent.click(
+    const ordinaryTab = screen.getByRole("tab", {
+      name: "Обычная транскрибация",
+    });
+    ordinaryTab.focus();
+    await userEvent.keyboard("{ArrowRight}");
+    expect(
       screen.getByRole("tab", { name: "Live-транскрибация" }),
-    );
+    ).toHaveFocus();
+    expect(
+      screen.getByRole("tab", { name: "Live-транскрибация" }),
+    ).toHaveAttribute("aria-selected", "true");
     const livePanel = await screen.findByRole("region", {
       name: "Live-транскрибация",
     });
@@ -1242,7 +1252,9 @@ describe("Studio PWA", () => {
     expect(screen.getByLabelText("Микрофон или аудиовход")).not.toBeChecked();
     expect(screen.getByLabelText("Звук вкладки или экрана")).toBeChecked();
     expect(screen.getByRole("button", { name: "Начать" })).toBeEnabled();
-    expect(screen.getByText(/не сохраняется в Studio/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Временно хранится только для восстановления/i),
+    ).toBeInTheDocument();
 
     const navigation = screen.getByRole("navigation", {
       name: "Основная навигация",
@@ -1261,14 +1273,14 @@ describe("Studio PWA", () => {
     ).toBe(livePanel);
 
     await userEvent.click(
-      within(navigation).getByRole("button", { name: "Проекты" }),
+      within(navigation).getByRole("button", { name: "Транскрибации" }),
     );
     expect(
       await screen.findByRole("region", { name: "Live-транскрибация" }),
     ).toBe(livePanel);
 
     await userEvent.click(
-      screen.getByRole("tab", { name: "Пакетная транскрибация" }),
+      screen.getByRole("tab", { name: "Обычная транскрибация" }),
     );
     expect(
       await screen.findByRole("form", { name: "Композитор пакетных задач" }),
@@ -1280,6 +1292,32 @@ describe("Studio PWA", () => {
       }),
     ).toBe(livePanel);
     expect(livePanel.closest('[role="tabpanel"]')).toHaveAttribute("hidden");
+  });
+
+  it("exposes clear provider limits and keyboard-operable settings tabs", async () => {
+    renderApp();
+    await openSettingsPage();
+
+    expect(
+      screen.getByRole("heading", { name: "Настройки", level: 1 }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/транскрибации выполняются только через ElevenLabs/i),
+    ).toBeInTheDocument();
+
+    const accountTab = screen.getByRole("tab", { name: "Аккаунт" });
+    accountTab.focus();
+    await userEvent.keyboard("{End}");
+    const diagnosticsTab = screen.getByRole("tab", { name: "Диагностика" });
+    expect(diagnosticsTab).toHaveFocus();
+    expect(diagnosticsTab).toHaveAttribute("aria-selected", "true");
+    expect(
+      await screen.findByRole("heading", { name: "Диагностика" }),
+    ).toBeInTheDocument();
+
+    await userEvent.keyboard("{Home}");
+    expect(accountTab).toHaveFocus();
+    expect(accountTab).toHaveAttribute("aria-selected", "true");
   });
 
   it("opens approved Drive resource links in new tabs with compact action labels", async () => {
@@ -1814,7 +1852,7 @@ describe("Studio PWA", () => {
     expect(document.body.textContent).not.toContain("удален с Google Drive");
   });
 
-  it("renders actionable dashboard summaries, recent projects, and no permanent onboarding", async () => {
+  it("renders actionable dashboard summaries without exposing project lifecycle", async () => {
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = baseFetch.getMockImplementation();
     baseFetch.mockImplementation((url: string, init?: RequestInit) => {
@@ -1875,23 +1913,22 @@ describe("Studio PWA", () => {
     });
     renderApp();
     await waitForPlatformOverview();
-    expect(await screen.findByText("Последние проекты")).toBeInTheDocument();
-    expect(screen.getByLabelText("Проекты")).toHaveTextContent("2");
+    expect(screen.getByLabelText("Транскрибации")).toHaveTextContent(
+      "Доступны",
+    );
     expect(screen.getByLabelText("Google Drive")).toHaveTextContent(
       "Подключён",
     );
     expect(screen.getByLabelText("Активные ключи")).toHaveTextContent("1");
+    expect(screen.queryByText("Newer")).not.toBeInTheDocument();
+    expect(screen.queryByText("Older")).not.toBeInTheDocument();
     expect(
-      screen
-        .getByText("Newer")
-        .compareDocumentPosition(screen.getByText("Older")) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    expect(screen.queryByText("Рабочий процесс")).not.toBeInTheDocument();
+      screen.queryByRole("button", { name: /Новый проект/ }),
+    ).not.toBeInTheDocument();
     expect(screen.queryByText("Требует внимания")).not.toBeInTheDocument();
   });
 
-  it("renders empty dashboard onboarding and primary project action", async () => {
+  it("explains automatic workspace creation from the empty dashboard", async () => {
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = baseFetch.getMockImplementation();
     baseFetch.mockImplementation((url: string, init?: RequestInit) => {
@@ -1901,10 +1938,13 @@ describe("Studio PWA", () => {
     });
     renderApp();
     await waitForPlatformOverview();
-    expect(await screen.findByText("Рабочий процесс")).toBeInTheDocument();
+    expect(await screen.findByText("Начать работу")).toBeInTheDocument();
     expect(
-      screen.getAllByRole("button", { name: "Новый проект" }).length,
+      screen.getAllByRole("button", { name: "Открыть транскрибации" }).length,
     ).toBeGreaterThan(0);
+    expect(screen.getByLabelText("Транскрибации")).toHaveTextContent(
+      "Подготовятся при открытии",
+    );
   });
 
   it("keeps successful dashboard data when one dashboard request fails without raw errors", async () => {
@@ -1930,8 +1970,9 @@ describe("Studio PWA", () => {
     });
     renderApp();
     await waitForPlatformOverview();
-    expect(await screen.findByText("Последние проекты")).toBeInTheDocument();
-    expect(screen.getByLabelText("Проекты")).toHaveTextContent("1");
+    expect(screen.getByLabelText("Транскрибации")).toHaveTextContent(
+      "Доступны",
+    );
     expect(screen.getByLabelText("Google Drive")).toHaveTextContent(
       "Недоступно",
     );
@@ -2139,7 +2180,7 @@ describe("Studio PWA", () => {
     try {
       renderApp();
       await waitForPlatformOverview();
-      const projectsCard = screen.getByLabelText("Проекты");
+      const projectsCard = screen.getByLabelText("Транскрибации");
       const credentialsCard = screen.getByLabelText("Активные ключи");
       await waitFor(() => expect(projectsCard).toHaveTextContent("Недоступно"));
       await waitFor(() => expect(credentialsCard).toHaveTextContent("Недоступно"));
@@ -2153,7 +2194,7 @@ describe("Studio PWA", () => {
       await userEvent.click(
         within(credentialsCard).getByRole("button", { name: "Повторить" }),
       );
-      await waitFor(() => expect(projectsCard).toHaveTextContent("1"));
+      await waitFor(() => expect(projectsCard).toHaveTextContent("Доступны"));
       await waitFor(() => expect(credentialsCard).toHaveTextContent("1"));
       expect(projectReads).toBe(2);
       expect(credentialReads).toBe(2);
@@ -2198,7 +2239,7 @@ describe("Studio PWA", () => {
 
     renderApp();
     await waitForPlatformOverview();
-    const projectsCard = screen.getByLabelText("Проекты");
+    const projectsCard = screen.getByLabelText("Транскрибации");
     const credentialsCard = screen.getByLabelText("Активные ключи");
     await waitFor(() => expect(projectsCard).toHaveTextContent("Недоступно"));
     await waitFor(() => expect(credentialsCard).toHaveTextContent("Недоступно"));
@@ -2211,7 +2252,7 @@ describe("Studio PWA", () => {
     await userEvent.click(
       within(credentialsCard).getByRole("button", { name: "Повторить" }),
     );
-    await waitFor(() => expect(projectsCard).toHaveTextContent("1"));
+    await waitFor(() => expect(projectsCard).toHaveTextContent("Доступны"));
     await waitFor(() => expect(credentialsCard).toHaveTextContent("1"));
   });
 
@@ -2246,7 +2287,7 @@ describe("Studio PWA", () => {
 
     renderApp();
     await waitForPlatformOverview();
-    const initialProjectsCard = screen.getByLabelText("Проекты");
+    const initialProjectsCard = screen.getByLabelText("Транскрибации");
     await waitFor(() =>
       expect(initialProjectsCard).toHaveTextContent("Недоступно"),
     );
@@ -2259,9 +2300,11 @@ describe("Studio PWA", () => {
     expect(olderRetrySignal?.aborted).toBe(true);
     await openPlatformNavPage("Обзор");
     await waitForPlatformOverview();
-    const currentProjectsCard = screen.getByLabelText("Проекты");
-    await waitFor(() => expect(currentProjectsCard).toHaveTextContent("2"));
-    expect(await screen.findByText("Newest one")).toBeInTheDocument();
+    const currentProjectsCard = screen.getByLabelText("Транскрибации");
+    await waitFor(() =>
+      expect(currentProjectsCard).toHaveTextContent("Доступны"),
+    );
+    expect(screen.queryByText("Newest one")).not.toBeInTheDocument();
     expect(projectReads).toBe(4);
 
     await act(async () =>
@@ -2271,121 +2314,117 @@ describe("Studio PWA", () => {
         }),
       ),
     );
-    expect(currentProjectsCard).toHaveTextContent("2");
+    expect(currentProjectsCard).toHaveTextContent("Доступны");
     expect(screen.queryByText("Late older result")).not.toBeInTheDocument();
     expect(document.body.textContent).not.toContain("raw-project-failure");
   });
 
-  it("opens the project creation form only for the dashboard new-project action", async () => {
+  it("opens transcriptions from the dashboard without manual project CRUD", async () => {
     renderApp();
     await waitForPlatformOverview();
-    await userEvent.click(
-      await screen.findByRole("button", { name: "Открыть проекты" }),
-    );
-    expect(
-      await screen.findByRole("heading", { name: "Проекты" }),
-    ).toBeInTheDocument();
-    expect(screen.queryByLabelText("Название проекта")).not.toBeInTheDocument();
 
-    await openPlatformNavPage("Обзор");
     await userEvent.click(
       within(await screen.findByRole("banner")).getByRole("button", {
-        name: "Новый проект",
+        name: "Открыть транскрибации",
       }),
     );
-    expect(
-      await screen.findByRole("heading", { name: "Проекты" }),
-    ).toBeInTheDocument();
-    expect(
-      await screen.findByLabelText("Название проекта"),
-    ).toBeInTheDocument();
 
-    await openPlatformNavPage("Обзор");
-    await userEvent.click(
-      await screen.findByRole("button", { name: "Открыть проекты" }),
-    );
     expect(
-      await screen.findByRole("heading", { name: "Проекты" }),
+      await screen.findByRole("heading", { name: "Транскрибации" }),
     ).toBeInTheDocument();
-    expect(screen.queryByLabelText("Название проекта")).not.toBeInTheDocument();
+    expect(window.location.pathname).toBe("/transcriptions");
+    expect(
+      screen.getByRole("tab", { name: "Обычная транскрибация" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("tab", { name: "Live-транскрибация" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Новый проект" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Архивировать" }),
+    ).not.toBeInTheDocument();
   });
 
-  it("keeps the project creation form open after a delayed project browse load", async () => {
+  it("renders one batch as one ordered multi-transcription with item controls", async () => {
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = baseFetch.getMockImplementation();
-    let delayProjectsRead = false;
-    let releaseProjectsRead: (() => void) | undefined;
-    const projectsReadGate = new Promise<void>((resolve) => {
-      releaseProjectsRead = resolve;
+    const batchId = "multi_0123456789abcdef0123456789abcdef";
+    const batchJob = (id: string, title: string, position: number) => ({
+      id,
+      project_id: "p1",
+      status: "queued",
+      title,
+      provider: "elevenlabs",
+      language_mode: "ru",
+      diarization_enabled: false,
+      media_clip: null,
+      batch: { id: batchId, position },
+      terminal_dismissed_at: null,
+      source_count: 1,
+      created_at: "2026-08-22T10:00:00Z",
+      updated_at: "2026-08-22T10:00:00Z",
+      cancelled_at: null,
+      cancel_requested_at: null,
+      attempt_count: 0,
+      started_at: null,
+      finished_at: null,
+      error_code: null,
+      error_message: null,
+      output_folder: null,
     });
     baseFetch.mockImplementation((url: string, init?: RequestInit) => {
-      if (
-        delayProjectsRead &&
-        url.endsWith("/api/projects") &&
-        !init?.method
-      ) {
-        return projectsReadGate.then(
-          () => defaultFetch?.(url, init) ?? json({ ok: true }),
-        );
+      if (url.endsWith("/api/projects/p1/jobs") && !init?.method) {
+        return json({
+          jobs: [
+            batchJob("job-batch-second", "Вторая запись", 1),
+            batchJob("job-batch-first", "Первая запись", 0),
+          ],
+        });
       }
-      return defaultFetch?.(url, init) ?? json({ ok: true });
+      return defaultFetch?.(url, init) ?? json({});
     });
 
-    renderApp();
-    await waitForPlatformOverview();
-    expect(await screen.findByText("Последние проекты")).toBeInTheDocument();
-
-    delayProjectsRead = true;
-    await openPlatformNavPage("Проекты");
-    expect(
-      await screen.findByRole("heading", { name: "Проекты" }),
-    ).toBeInTheDocument();
-    expect(await screen.findByText("Загрузка проектов…")).toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole("button", { name: "Новый проект" }));
-    expect(
-      await screen.findByLabelText("Название проекта"),
-    ).toBeInTheDocument();
-
-    await act(async () => {
-      releaseProjectsRead?.();
-      await projectsReadGate;
-    });
-
-    await waitFor(() =>
-      expect(screen.queryByText("Загрузка проектов…")).not.toBeInTheDocument(),
-    );
-    expect(screen.getByLabelText("Название проекта")).toBeInTheDocument();
-  });
-
-  it("keeps the new-project action deterministic when it is repeated", async () => {
     renderApp();
     await openProjectsPage();
-    const newProject = screen.getByRole("button", { name: "Новый проект" });
-
-    await userEvent.click(newProject);
-    expect(await screen.findByLabelText("Название проекта")).toBeInTheDocument();
-    await userEvent.click(newProject);
-
-    expect(screen.getByLabelText("Название проекта")).toBeInTheDocument();
-    expect(newProject).toHaveAttribute("aria-expanded", "true");
+    const multi = await screen.findByRole("article", {
+      name: "Мульти-транскрибация · 2",
+    });
+    expect(
+      Array.from(
+        multi.querySelectorAll(".multi-transcription-item-heading span"),
+      ).map((element) => element.textContent),
+    ).toEqual(["Первая запись", "Вторая запись"]);
+    expect(within(multi).getByText("Завершено элементов: 0 из 2"))
+      .toBeInTheDocument();
+    expect(within(multi).getAllByRole("button", { name: "Открыть" }))
+      .toHaveLength(2);
+    expect(within(multi).getAllByText("Статус: В очереди")).toHaveLength(2);
   });
 
-  it("opens a recent project directly in the preparation workspace", async () => {
+  it("keeps multiple legacy workspaces accessible without lifecycle controls", async () => {
+    installFocusedOutputFixture({ includeSecondProject: true });
     renderApp();
-    await waitForPlatformOverview();
-    await userEvent.click(
-      await screen.findByRole("button", { name: /Research calls/ }),
+    await openProjectsPage();
+
+    const switcher = await screen.findByText(
+      "Прежние рабочие области · 2",
     );
+    const details = switcher.closest("details");
+    if (!details) throw new Error("legacy workspace switcher is missing");
     expect(
-      await screen.findByRole("heading", { name: "Проекты" }),
+      within(details).getByRole("button", { name: /Research calls/ }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { name: "Research calls" }),
-    ).toBeInTheDocument();
+      within(details).getAllByRole("button"),
+    ).toHaveLength(2);
     expect(
-      await screen.findByRole("form", { name: "Композитор пакетных задач" }),
-    ).toBeInTheDocument();
+      screen.queryByRole("button", { name: "Редактировать" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Архивировать" }),
+    ).not.toBeInTheDocument();
   });
 
   it("Google Picker loader deduplicates success and retries after load failure", async () => {
@@ -4191,128 +4230,92 @@ describe("Studio PWA", () => {
     ).not.toBeInTheDocument();
     expect(document.body.textContent).not.toContain("ambiguous-after-delete");
   });
-  it("platform projects page loads /api/projects and renders populated projects", async () => {
+  it("loads the transcription workspace and renders both modes", async () => {
     renderApp();
     await openProjectsPage();
+
     expect(
-      await screen.findByRole("heading", { name: "Research calls" }),
+      await screen.findByRole("tab", { name: "Обычная транскрибация" }),
     ).toBeInTheDocument();
     expect(
-      screen.getAllByText("Customer interview notes").length,
-    ).toBeGreaterThan(0);
+      screen.getByRole("tab", { name: "Live-транскрибация" }),
+    ).toBeInTheDocument();
     expect(fetch).toHaveBeenCalledWith(
       "/api/projects",
       expect.objectContaining({ credentials: "same-origin" }),
     );
+    expect(
+      screen.queryByRole("button", { name: "Новый проект" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Архивировать" }),
+    ).not.toBeInTheDocument();
   });
-  it("platform projects page supports empty and error states", async () => {
-    (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
-      (url: string) => {
-        if (url.endsWith("/api/auth/session"))
-          return json({
-            authenticated: true,
-            user: { email: "user@example.com", role: "admin" },
-          });
-        if (url.endsWith("/api/auth/csrf"))
-          return json({ csrf_token: "csrf-after-refresh" });
-        if (url.endsWith("/api/projects")) return json({ projects: [] });
-        return json({ ok: true });
-      },
-    );
-    renderApp();
-    await openProjectsPage();
-    expect(await screen.findByText(/Пока нет проектов/)).toBeInTheDocument();
 
-    cleanup();
-    (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
-      (url: string) => {
-        if (url.endsWith("/api/auth/session"))
-          return json({
-            authenticated: true,
-            user: { email: "user@example.com", role: "admin" },
-          });
-        if (url.endsWith("/api/auth/csrf"))
-          return json({ csrf_token: "csrf-after-refresh" });
-        if (url.endsWith("/api/projects"))
-          return json({ detail: "broken" }, false, 500);
-        return json({ ok: true });
-      },
-    );
+  it("creates one internal transcription workspace when no active project exists", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const workspace = projectFixture({
+      id: "transcription-workspace",
+      title: "Транскрибации",
+    });
+    let workspaceCalls = 0;
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/projects" && !init?.method) {
+        return json({ projects: [] });
+      }
+      if (
+        url === "/api/transcriptions/workspace" &&
+        init?.method === "POST"
+      ) {
+        workspaceCalls += 1;
+        return json({ project: workspace, created: true });
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
     renderApp();
     await openProjectsPage();
+
+    expect(
+      await screen.findByRole("tab", { name: "Обычная транскрибация" }),
+    ).toBeInTheDocument();
+    expect(workspaceCalls).toBe(1);
+    expect(
+      baseFetch.mock.calls.some(
+        ([url, init]) =>
+          url === "/api/projects/transcription-workspace/archive" &&
+          init?.method === "POST",
+      ),
+    ).toBe(false);
+  });
+
+  it("shows a retryable error when the transcription workspace list fails", async () => {
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/projects" && !init?.method) {
+        return json({ detail: "broken" }, false, 500);
+      }
+      return defaultFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+
     expect(
       await screen.findByText(/Операция не выполнена/),
     ).toBeInTheDocument();
-  });
-  it("platform projects page creates, edits, and archives projects with CSRF", async () => {
-    renderApp();
-    await openProjectsPage();
-    await screen.findByRole("heading", { name: "Research calls" });
-    await userEvent.click(screen.getByRole("button", { name: "Новый проект" }));
-    await userEvent.type(
-      await screen.findByLabelText("Название проекта"),
-      "Created project",
-    );
-    await userEvent.type(screen.getByLabelText("Описание"), "Brief");
-    await userEvent.click(screen.getByRole("button", { name: "Создать" }));
-    await waitFor(() =>
-      expect(fetch).toHaveBeenCalledWith(
-        "/api/projects",
-        expect.objectContaining({ method: "POST" }),
-      ),
-    );
-    const createCall = (
-      fetch as unknown as ReturnType<typeof vi.fn>
-    ).mock.calls.find(
-      ([url, init]) => url === "/api/projects" && init?.method === "POST",
-    );
-    expect(createCall?.[1]?.headers).toMatchObject({
-      "x-csrf-token": "csrf-after-refresh",
-    });
-    expect(JSON.parse(String(createCall?.[1]?.body))).toMatchObject({
-      title: "Created project",
-      description: "Brief",
-    });
-    await waitFor(() =>
-      expect(
-        (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(
-          ([url, init]) => url === "/api/projects" && !init?.method,
-        ),
-      ).toHaveLength(3),
-    );
-    expect(
-      screen.queryByText(/Cannot read properties of null.*reset/),
-    ).not.toBeInTheDocument();
-
-    await userEvent.click(
-      screen.getByRole("button", { name: "Редактировать" }),
-    );
-    const editTitle = screen.getByDisplayValue("Research calls");
-    await userEvent.clear(editTitle);
-    await userEvent.type(editTitle, "Renamed project");
-    await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
-    await waitFor(() =>
-      expect(fetch).toHaveBeenCalledWith(
-        "/api/projects/p1",
-        expect.objectContaining({ method: "PATCH" }),
-      ),
-    );
-    await userEvent.click(screen.getByRole("button", { name: "Архивировать" }));
-    await waitFor(() =>
-      expect(fetch).toHaveBeenCalledWith(
-        "/api/projects/p1/archive",
-        expect.objectContaining({ method: "POST" }),
-      ),
-    );
+    expect(screen.getByRole("button", { name: "Повторить" })).toBeEnabled();
   });
 
-  it("bounds a stalled project-list read and exposes a safe retryable error", async () => {
+  it("bounds a stalled transcription-workspace read and exposes a safe retry", async () => {
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = baseFetch.getMockImplementation();
     const projectSignals: AbortSignal[] = [];
     baseFetch.mockImplementation((url: string, init?: RequestInit) => {
       if (url === "/api/projects" && !init?.method) {
-        const signal = init?.signal;
+        const signal = init.signal;
         if (!signal) throw new Error("project-list signal is missing");
         projectSignals.push(signal);
         return new Promise<Response>((_resolve, reject) => {
@@ -4335,7 +4338,7 @@ describe("Studio PWA", () => {
       renderApp();
       await openProjectsPage();
       expect(
-        await screen.findByText("Не удалось загрузить проекты."),
+        await screen.findByText("Не удалось загрузить транскрибации."),
       ).toBeInTheDocument();
       expect(projectSignals).toHaveLength(2);
       expect(projectSignals[0]?.aborted).toBe(true);
@@ -4345,16 +4348,28 @@ describe("Studio PWA", () => {
     }
   });
 
-  it("bounds and deduplicates project creation without losing the draft", async () => {
+  it("reconciles an ambiguous automatic workspace creation without a duplicate POST", async () => {
     const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
     const defaultFetch = baseFetch.getMockImplementation();
+    const workspace = projectFixture({
+      id: "reconciled-workspace",
+      title: "Транскрибации",
+    });
     const createSignals: AbortSignal[] = [];
     let projectReads = 0;
     baseFetch.mockImplementation((url: string, init?: RequestInit) => {
-      if (url === "/api/projects" && !init?.method) projectReads += 1;
-      if (url === "/api/projects" && init?.method === "POST") {
+      if (url === "/api/projects" && !init?.method) {
+        projectReads += 1;
+        return json({
+          projects: projectReads >= 3 ? [workspace] : [],
+        });
+      }
+      if (
+        url === "/api/transcriptions/workspace" &&
+        init?.method === "POST"
+      ) {
         const signal = init.signal;
-        if (!signal) throw new Error("project-create signal is missing");
+        if (!signal) throw new Error("workspace-create signal is missing");
         createSignals.push(signal);
         return new Promise<Response>((_resolve, reject) => {
           signal.addEventListener("abort", () => reject(signal.reason));
@@ -4362,186 +4377,29 @@ describe("Studio PWA", () => {
       }
       return defaultFetch?.(url, init) ?? json({ ok: true });
     });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 20_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
 
-    renderApp();
-    await openProjectsPage();
-    await screen.findByRole("heading", { name: "Research calls" });
-    await userEvent.click(screen.getByRole("button", { name: "Новый проект" }));
-    const title = await screen.findByLabelText("Название проекта");
-    const description = screen.getByLabelText("Описание");
-    await userEvent.type(title, "Draft survives timeout");
-    await userEvent.type(description, "Do not reset this draft");
-    const form = title.closest("form");
-    if (!form) throw new Error("project-create form is missing");
-    const readsBeforeCreate = projectReads;
-    vi.useFakeTimers();
     try {
-      fireEvent.submit(form);
-      fireEvent.submit(form);
-      await act(async () => {
-        await Promise.resolve();
-      });
-      expect(createSignals).toHaveLength(1);
+      renderApp();
+      await openProjectsPage();
       expect(
-        screen.getByRole("button", { name: "Создание…" }),
-      ).toBeDisabled();
-      expect(
-        screen.getByRole("button", { name: "Создание…" }),
-      ).toHaveAttribute("aria-busy", "true");
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(20_000);
-      });
-      vi.useRealTimers();
-      expect(
-        await screen.findByText(
-          "Сервер не подтвердил создание проекта. Список проектов обновлён; проверьте его перед повторной попыткой.",
-        ),
+        await screen.findByRole("tab", { name: "Обычная транскрибация" }),
       ).toBeInTheDocument();
+      expect(createSignals).toHaveLength(1);
       expect(createSignals[0]?.aborted).toBe(true);
-      expect(projectReads).toBe(readsBeforeCreate + 1);
-      expect(title).toHaveValue("Draft survives timeout");
-      expect(description).toHaveValue("Do not reset this draft");
-      expect(screen.getByRole("button", { name: "Создать" })).toBeEnabled();
-      expect(
-        baseFetch.mock.calls.filter(
-          ([url, init]) =>
-            url === "/api/projects" && init?.method === "POST",
-        ),
-      ).toHaveLength(1);
     } finally {
-      vi.useRealTimers();
+      timeoutSpy.mockRestore();
     }
   });
 
-  it("keeps an ambiguous project update owned by its project across a switch", async () => {
-    installFocusedOutputFixture({ includeSecondProject: true });
-    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
-    const defaultFetch = baseFetch.getMockImplementation();
-    let resolveUpdate: ((response: Response) => void) | undefined;
-    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
-      if (url === "/api/projects/p1" && init?.method === "PATCH") {
-        return new Promise<Response>((resolve) => {
-          resolveUpdate = resolve;
-        });
-      }
-      return defaultFetch?.(url, init) ?? json({ ok: true });
-    });
-
-    renderApp();
-    await openProjectsPage();
-    await screen.findByRole("heading", { name: "Research calls" });
-    await userEvent.click(screen.getByRole("button", { name: "Редактировать" }));
-    const title = screen.getByDisplayValue("Research calls");
-    await userEvent.clear(title);
-    await userEvent.type(title, "Ambiguous rename");
-    const form = title.closest("form");
-    if (!form) throw new Error("project-update form is missing");
-    fireEvent.submit(form);
-    fireEvent.submit(form);
-    await waitFor(() => expect(resolveUpdate).toBeDefined());
-    expect(
-      screen.getByRole("button", { name: "Сохранение…" }),
-    ).toBeDisabled();
-    expect(
-      screen.getByRole("button", { name: "Сохранение…" }),
-    ).toHaveAttribute("aria-busy", "true");
-    expect(
-      baseFetch.mock.calls.filter(
-        ([url, init]) =>
-          url === "/api/projects/p1" && init?.method === "PATCH",
-      ),
-    ).toHaveLength(1);
-
-    await userEvent.click(screen.getByRole("button", { name: /Project Two/ }));
-    expect(
-      await screen.findByRole("heading", { name: "Project Two" }),
-    ).toBeInTheDocument();
-    const failedResponse = await json(
-      { detail: "raw-private-project-update-failure" },
-      false,
-      503,
-    );
-    await act(async () => resolveUpdate?.(failedResponse));
-    await waitFor(() =>
-      expect(
-        baseFetch.mock.calls.filter(
-          ([url, init]) => url === "/api/projects" && !init?.method,
-        ).length,
-      ).toBeGreaterThan(1),
-    );
-    expect(
-      screen.queryByText(/Сервер не подтвердил сохранение/),
-    ).not.toBeInTheDocument();
-    expect(document.body.textContent).not.toContain(
-      "raw-private-project-update-failure",
-    );
-
-    await userEvent.click(screen.getByRole("button", { name: /Research calls/ }));
-    expect(
-      await screen.findByText(
-        "Сервер не подтвердил сохранение. Список проектов обновлён; проверьте проект перед повторной попыткой.",
-      ),
-    ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Сохранить" })).toBeEnabled();
-  });
-
-  it("confirms an ambiguous archive only from the authoritative project list", async () => {
-    installFocusedOutputFixture({ includeSecondProject: true });
-    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
-    const defaultFetch = baseFetch.getMockImplementation();
-    let archiveAttempted = false;
-    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
-      if (url === "/api/projects/p1/archive" && init?.method === "POST") {
-        archiveAttempted = true;
-        return json(
-          { detail: "raw-private-project-archive-failure" },
-          false,
-          503,
-        );
-      }
-      if (url === "/api/projects" && !init?.method && archiveAttempted) {
-        return json({
-          projects: [
-            {
-              id: "p2",
-              title: "Project Two",
-              description: null,
-              created_at: "2026-07-02T00:00:00Z",
-              updated_at: "2026-07-02T00:00:00Z",
-              archived_at: null,
-              output_drive_folder_id: null,
-              output_drive_folder_url: null,
-              output_drive_folder_name: null,
-            },
-          ],
-        });
-      }
-      return defaultFetch?.(url, init) ?? json({ ok: true });
-    });
-
-    renderApp();
-    await openProjectsPage();
-    await screen.findByRole("heading", { name: "Research calls" });
-    fireEvent.click(screen.getByRole("button", { name: "Архивировать" }));
-    fireEvent.click(screen.getByRole("button", { name: "Архивация…" }));
-
-    expect(
-      await screen.findByRole("heading", { name: "Project Two" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: /Research calls/ }),
-    ).not.toBeInTheDocument();
-    expect(
-      baseFetch.mock.calls.filter(
-        ([url, init]) =>
-          url === "/api/projects/p1/archive" && init?.method === "POST",
-      ),
-    ).toHaveLength(1);
-    expect(document.body.textContent).not.toContain(
-      "raw-private-project-archive-failure",
-    );
-  });
   it("shows compact preparation readiness status", async () => {
     renderApp();
     await openProjectsPage();
@@ -6830,7 +6688,7 @@ describe("Studio PWA", () => {
     );
 
     await openPlatformNavPage("Обзор");
-    await openPlatformNavPage("Проекты");
+    await openPlatformNavPage("Транскрибации");
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
 
     const rows = screen
@@ -6849,222 +6707,6 @@ describe("Studio PWA", () => {
     expect(
       within(rows[1]).getByLabelText("Название фрагмента 1 строки 2"),
     ).toHaveValue("Second draft title");
-    expect(window.localStorage.length).toBe(0);
-    expect(window.sessionStorage.length).toBe(0);
-  });
-
-  it("preserves the same-project composer draft while editing and saving metadata", async () => {
-    let saved = false;
-    (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
-      (url: string, init?: RequestInit) => {
-        if (url.endsWith("/api/auth/session"))
-          return json({
-            authenticated: true,
-            user: { email: "user@example.com", role: "admin" },
-          });
-        if (url.endsWith("/api/auth/csrf"))
-          return json({ csrf_token: "csrf-after-refresh" });
-        if (url.endsWith("/api/google/connection"))
-          return json({
-            connected: true,
-            status: "active",
-            google_email: "safe.user@example.com",
-            scopes: "drive.file",
-            connected_at: "2026-07-01T00:00:00Z",
-            revoked_at: null,
-            picker_configured: true,
-            picker_scope_ready: true,
-            picker_ready: true,
-            reconnect_required: false,
-          });
-        if (url.endsWith("/api/credentials"))
-          return json({
-            credentials: [
-              {
-                id: "cred-1",
-                provider: "elevenlabs",
-                label: "Main key",
-                status: "active",
-                masked_value: "••••1234",
-                active_version: 1,
-              },
-            ],
-          });
-        if (url.endsWith("/api/projects/p1") && init?.method === "PATCH") {
-          saved = true;
-          return json({
-            id: "p1",
-            title: "Renamed Project One",
-            description: "Updated description",
-            created_at: "2026-07-01T00:00:00Z",
-            updated_at: "2026-07-03T00:00:00Z",
-            archived_at: null,
-            output_drive_folder_id: "folder-one",
-            output_drive_folder_url:
-              "https://drive.google.com/drive/folders/folder-one",
-            output_drive_folder_name: "One default",
-          });
-        }
-        if (url.endsWith("/api/projects"))
-          return json({
-            projects: [
-              {
-                id: "p1",
-                title: saved ? "Renamed Project One" : "Project One",
-                description: saved
-                  ? "Updated description"
-                  : "Original description",
-                created_at: "2026-07-01T00:00:00Z",
-                updated_at: saved
-                  ? "2026-07-03T00:00:00Z"
-                  : "2026-07-01T00:00:00Z",
-                archived_at: null,
-                output_drive_folder_id: "folder-one",
-                output_drive_folder_url:
-                  "https://drive.google.com/drive/folders/folder-one",
-                output_drive_folder_name: "One default",
-              },
-              {
-                id: "p2",
-                title: "Project Two",
-                description: null,
-                created_at: "2026-07-02T00:00:00Z",
-                updated_at: "2026-07-02T00:00:00Z",
-                archived_at: null,
-                output_drive_folder_id: "folder-two",
-                output_drive_folder_url:
-                  "https://drive.google.com/drive/folders/folder-two",
-                output_drive_folder_name: "Two default",
-              },
-            ],
-          });
-        if (url.endsWith("/api/projects/p1/sources") && !init?.method)
-          return json({
-            sources: [
-              {
-                id: "p1-source-a",
-                project_id: "p1",
-                source_type: "local_upload",
-                original_filename: "p1-alpha.ogg",
-                mime_type: "audio/ogg",
-                size_bytes: 10,
-                drive_file_id: null,
-                drive_file_url: null,
-                upload_status: "uploaded",
-                uploaded_at: "2026-07-01T00:00:00Z",
-                expires_at: null,
-                deleted_at: null,
-                delete_reason: null,
-                created_at: "2026-07-01T00:00:00Z",
-                updated_at: "2026-07-01T00:00:00Z",
-              },
-              {
-                id: "p1-source-b",
-                project_id: "p1",
-                source_type: "local_upload",
-                original_filename: "p1-beta.ogg",
-                mime_type: "audio/ogg",
-                size_bytes: 20,
-                drive_file_id: null,
-                drive_file_url: null,
-                upload_status: "uploaded",
-                uploaded_at: "2026-07-01T00:00:00Z",
-                expires_at: null,
-                deleted_at: null,
-                delete_reason: null,
-                created_at: "2026-07-01T00:00:00Z",
-                updated_at: "2026-07-01T00:00:00Z",
-              },
-            ],
-          });
-        if (url.endsWith("/api/projects/p2/sources") && !init?.method)
-          return json({
-            sources: [
-              {
-                id: "p2-source-a",
-                project_id: "p2",
-                source_type: "local_upload",
-                original_filename: "p2-clean.ogg",
-                mime_type: "audio/ogg",
-                size_bytes: 30,
-                drive_file_id: null,
-                drive_file_url: null,
-                upload_status: "uploaded",
-                uploaded_at: "2026-07-02T00:00:00Z",
-                expires_at: null,
-                deleted_at: null,
-                delete_reason: null,
-                created_at: "2026-07-02T00:00:00Z",
-                updated_at: "2026-07-02T00:00:00Z",
-              },
-            ],
-          });
-        if (url.endsWith("/api/projects/p1/jobs") && !init?.method)
-          return json({ jobs: [] });
-        if (url.endsWith("/api/projects/p2/jobs") && !init?.method)
-          return json({ jobs: [] });
-        return json({ ok: true });
-      },
-    );
-
-    renderApp();
-    await openProjectsPage();
-    await screen.findByRole("form", { name: "Композитор пакетных задач" });
-    await chooseExistingSource(1, "p1-alpha.ogg");
-    await chooseResultFolder(1, "folder-one");
-    await userEvent.type(
-      screen.getByLabelText("Название фрагмента 1 строки 1"),
-      "Alpha draft",
-    );
-    await userEvent.click(
-      screen.getByRole("button", { name: "Добавить строку" }),
-    );
-    await chooseExistingSource(2, "p1-beta.ogg");
-    await chooseResultFolder(2, "folder-two");
-    await userEvent.type(
-      screen.getByLabelText("Название фрагмента 1 строки 2"),
-      "Beta draft",
-    );
-
-    await userEvent.click(
-      screen.getByRole("button", { name: "Редактировать" }),
-    );
-    expect(
-      screen.getByRole("form", { name: "Композитор пакетных задач" }),
-    ).toBeInTheDocument();
-    expect(screen.queryByLabelText("Ключ провайдера")).not.toBeInTheDocument();
-    expect(screen.getByDisplayValue("Alpha draft")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("Beta draft")).toBeInTheDocument();
-    expect(screen.getAllByText("Папка Google Drive").length).toBeGreaterThan(0);
-
-    await userEvent.click(screen.getByRole("button", { name: "Отмена" }));
-    expect(screen.getByDisplayValue("Alpha draft")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("Beta draft")).toBeInTheDocument();
-    expect(screen.queryByLabelText("Ключ провайдера")).not.toBeInTheDocument();
-
-    await userEvent.click(
-      screen.getByRole("button", { name: "Редактировать" }),
-    );
-    await userEvent.clear(screen.getByLabelText("Название проекта"));
-    await userEvent.type(
-      screen.getByLabelText("Название проекта"),
-      "Renamed Project One",
-    );
-    await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
-    expect(
-      await screen.findByRole("heading", { name: "Renamed Project One" }),
-    ).toBeInTheDocument();
-    expect(screen.getByDisplayValue("Alpha draft")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("Beta draft")).toBeInTheDocument();
-    expect(screen.queryByLabelText("Ключ провайдера")).not.toBeInTheDocument();
-
-    await userEvent.click(
-      screen.getByRole("button", { name: /Project Two .*02\.07\.2026/ }),
-    );
-    await screen.findByText("p2-clean.ogg");
-    expect(screen.queryByDisplayValue("Alpha draft")).not.toBeInTheDocument();
-    expect(screen.queryByDisplayValue("Beta draft")).not.toBeInTheDocument();
-    expect(screen.getByText("Подключён и готов")).toBeInTheDocument();
     expect(window.localStorage.length).toBe(0);
     expect(window.sessionStorage.length).toBe(0);
   });
@@ -7415,7 +7057,7 @@ describe("Studio PWA", () => {
     );
     expect(
       await screen.findByText(
-        "Повтор подтверждён: создано независимых задач: 1.",
+        "Повтор подтверждён: мульти-транскрибация содержит элементов: 1.",
       ),
     ).toBeInTheDocument();
     const aCreateCalls = (
@@ -8752,8 +8394,10 @@ describe("Studio PWA", () => {
       ),
     ).toBe(false);
 
-    await userEvent.click(screen.getByRole("button", { name: /Проекты/ }));
-    await screen.findByRole("heading", { name: "Research calls" });
+    await userEvent.click(
+      screen.getByRole("button", { name: /Транскрибации/ }),
+    );
+    await screen.findByRole("tab", { name: "Обычная транскрибация" });
     expect(
       (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(([url]) =>
         String(url).endsWith("/api/jobs/job-focused/outputs"),
@@ -9363,7 +9007,7 @@ describe("Studio PWA", () => {
     });
 
     await openFocusedJobsList();
-    await userEvent.click(screen.getByText(/Недавние задачи/));
+    await userEvent.click(screen.getByText(/Недавние транскрибации/));
     await userEvent.click(
       screen.getByRole("button", { name: "Очистить историю" }),
     );
@@ -11120,11 +10764,13 @@ describe("Studio PWA", () => {
   });
   it("renders polished overview summary cards with separated labels and values", async () => {
     renderApp();
-    const projectsCard = await screen.findByLabelText("Проекты");
-    expect(within(projectsCard).getByText("Проекты")).toHaveClass(
+    const projectsCard = await screen.findByLabelText("Транскрибации");
+    expect(within(projectsCard).getByText("Транскрибации")).toHaveClass(
       "summary-label",
     );
-    expect(within(projectsCard).getByText("1")).toHaveClass("summary-value");
+    expect(within(projectsCard).getByText("Доступны")).toHaveClass(
+      "summary-value",
+    );
     const driveCard = screen.getByLabelText("Google Drive");
     expect(within(driveCard).getByText("Google Drive")).toHaveClass(
       "summary-label",
@@ -11136,14 +10782,17 @@ describe("Studio PWA", () => {
     expect(screen.queryByText("GOOGLE DRIVEПодключён")).not.toBeInTheDocument();
   });
 
-  it("keeps project list out of the application sidebar selector architecture", async () => {
+  it("does not expose the internal project selector or lifecycle for one workspace", async () => {
     renderApp();
     await openProjectsPage();
-    const projectList = await screen.findByLabelText("Список проектов");
-    expect(projectList.tagName.toLowerCase()).toBe("section");
-    expect(projectList).toHaveClass("project-list");
-    expect(projectList).not.toHaveClass("app-sidebar");
-    expect(within(projectList).getByText("Research calls")).toBeInTheDocument();
+    await screen.findByRole("tab", { name: "Обычная транскрибация" });
+    expect(screen.queryByLabelText("Список проектов")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Редактировать" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Архивировать" }),
+    ).not.toBeInTheDocument();
   });
 
   it("preserves multi-row associations while moving and deleting composer rows", async () => {
@@ -12598,13 +12247,16 @@ describe("Studio PWA", () => {
       /button:where\(\s*:not\(\.primary\):not\(\.danger\)\s*\)/,
     );
     expect(css).toContain(':root[data-theme="dark"]');
+    expect(css).toMatch(
+      /:root\[data-theme="dark"\]\s*\{[^}]*--studio-on-primary:\s*#08111f/s,
+    );
     expect(css).toMatch(/\.shell > main\s*\{[^}]*width:\s*100%/s);
     expect(css).not.toContain("width: min(100%, 1360px)");
     expect(css).not.toContain("!important");
     expect(css).toContain(".app-nav button");
     expect(css).toContain(".tabs button");
-    expect(css).toContain(".project-list-item");
-    expect(css).toContain(".project-list-item.active");
+    expect(css).toContain(".legacy-workspace-list button");
+    expect(css).toContain(".legacy-workspace-list button.active");
     expect(css).toContain(".file-picker-control:focus-within .button-like");
     expect(css).toMatch(
       /\.file-picker-control:focus-within \.button-like\s*\{[^}]*outline:/s,
@@ -12612,6 +12264,17 @@ describe("Studio PWA", () => {
     expect(css).not.toMatch(/(^|\n)aside\s*\{/);
     expect(css).not.toMatch(/aside\s*\{[^}]*height:\s*100vh/s);
     expect(css).not.toMatch(/(^|\n)input\[type=["']file["']\]\s*\{/);
+    expect(css).toMatch(/button,\s*\.button-like\s*\{[^}]*min-height:\s*44px/s);
+    expect(css).toMatch(/summary\s*\{[^}]*min-height:\s*44px/s);
+    expect(css).toMatch(
+      /\.meta\s*\{[^}]*grid-template-columns:\s*minmax\(8rem, 0\.35fr\) minmax\(0, 1fr\)/s,
+    );
+    expect(css).toMatch(
+      /@media \(max-width: 900px\)[\s\S]*?\.app-nav\s*\{[^}]*grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\)/,
+    );
+    expect(css).toMatch(
+      /@media \(max-width: 620px\)[\s\S]*?\.meta\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/,
+    );
   });
 
   it("shows bootstrap-required operator instruction", async () => {
@@ -13247,11 +12910,13 @@ describe("settings diagnostics", () => {
     renderApp();
     await waitForPlatformOverview();
     expect(window.location.pathname).toBe("/");
-    await userEvent.click(screen.getByRole("button", { name: "Проекты" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Транскрибации" }),
+    );
     expect(
-      await screen.findByRole("heading", { name: "Проекты" }),
+      await screen.findByRole("heading", { name: "Транскрибации" }),
     ).toBeInTheDocument();
-    expect(window.location.pathname).toBe("/projects");
+    expect(window.location.pathname).toBe("/transcriptions");
     await userEvent.click(screen.getByRole("button", { name: "Настройки" }));
     expect(
       await screen.findByRole("heading", { name: "Настройки аккаунта" }),
@@ -13292,7 +12957,7 @@ describe("settings diagnostics", () => {
     window.history.replaceState({}, "", "/projects");
     renderApp();
     expect(
-      await screen.findByRole("heading", { name: "Проекты" }),
+      await screen.findByRole("heading", { name: "Транскрибации" }),
     ).toBeInTheDocument();
     cleanup();
 

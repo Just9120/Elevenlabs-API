@@ -59,6 +59,24 @@ type GoogleMaintenanceConnection = {
   ready: boolean;
   reconnect_required: boolean;
 };
+type MaintenanceAccessStatus = {
+  kind:
+    | "checking_primary"
+    | "primary_disconnected"
+    | "primary_reconnect_required"
+    | "checking_maintenance"
+    | "status_unavailable"
+    | "server_not_configured"
+    | "maintenance_disconnected"
+    | "maintenance_revoked"
+    | "maintenance_incomplete"
+    | "account_mismatch"
+    | "scope_missing"
+    | "ready"
+    | "invalid_state";
+  message: string;
+  tone: "notice" | "error";
+};
 
 const MAINTENANCE_CONNECTION_REQUEST_TIMEOUT_MS = 15_000;
 
@@ -136,6 +154,120 @@ async function requestGoogleMaintenanceConnection(signal?: AbortSignal) {
   const connection = parseGoogleMaintenanceConnection(candidate);
   if (!connection) throw new Error("invalid_maintenance_connection_response");
   return connection;
+}
+
+export function maintenanceAccessStatus({
+  googleConnected,
+  googleLoading,
+  pickerReady,
+  maintenanceConnection,
+  maintenanceLoading,
+  maintenanceReadError,
+}: {
+  googleConnected: boolean;
+  googleLoading: boolean;
+  pickerReady: boolean;
+  maintenanceConnection: GoogleMaintenanceConnection | null;
+  maintenanceLoading: boolean;
+  maintenanceReadError: string;
+}): MaintenanceAccessStatus {
+  if (googleLoading) {
+    return {
+      kind: "checking_primary",
+      message: "Проверяем основное подключение Google Drive…",
+      tone: "notice",
+    };
+  }
+  if (!googleConnected) {
+    return {
+      kind: "primary_disconnected",
+      message: "Блокер: основное подключение Google Drive отсутствует.",
+      tone: "error",
+    };
+  }
+  if (!pickerReady) {
+    return {
+      kind: "primary_reconnect_required",
+      message:
+        "Блокер: основное подключение Google Drive нужно обновить для Google Picker.",
+      tone: "error",
+    };
+  }
+  if (maintenanceLoading) {
+    return {
+      kind: "checking_maintenance",
+      message: "Проверяем отдельный доступ Google для обслуживания…",
+      tone: "notice",
+    };
+  }
+  if (maintenanceReadError || !maintenanceConnection) {
+    return {
+      kind: "status_unavailable",
+      message:
+        "Блокер: не удалось проверить состояние доступа Google для обслуживания.",
+      tone: "error",
+    };
+  }
+  if (!maintenanceConnection.configured) {
+    return {
+      kind: "server_not_configured",
+      message: "Блокер: OAuth для обслуживания не настроен на сервере.",
+      tone: "error",
+    };
+  }
+  if (maintenanceConnection.status === "revoked") {
+    return {
+      kind: "maintenance_revoked",
+      message: "Блокер: доступ Google для обслуживания отозван.",
+      tone: "error",
+    };
+  }
+  if (maintenanceConnection.status === "incomplete") {
+    return {
+      kind: "maintenance_incomplete",
+      message:
+        "Блокер: подключение доступа для обслуживания не было завершено.",
+      tone: "error",
+    };
+  }
+  if (!maintenanceConnection.connected) {
+    return {
+      kind: "maintenance_disconnected",
+      message: "Блокер: отдельный доступ Google для обслуживания не подключён.",
+      tone: "error",
+    };
+  }
+  if (!maintenanceConnection.account_match) {
+    return {
+      kind: "account_mismatch",
+      message:
+        "Блокер: для обслуживания подключён не тот Google-аккаунт, что в основном подключении.",
+      tone: "error",
+    };
+  }
+  if (!maintenanceConnection.scope_ready) {
+    return {
+      kind: "scope_missing",
+      message:
+        "Блокер: доступу для обслуживания не хватает разрешений Drive/Google Docs.",
+      tone: "error",
+    };
+  }
+  if (maintenanceConnection.ready) {
+    return {
+      kind: "ready",
+      message: maintenanceConnection.google_email
+        ? `Расширенный доступ подключён и готов: ${maintenanceConnection.google_email}.`
+        : "Расширенный доступ подключён и готов.",
+      tone: "notice",
+    };
+  }
+  return {
+    kind: "invalid_state",
+    message:
+      "Блокер: сервер вернул несогласованное состояние доступа для обслуживания.",
+    tone: "error",
+  };
 }
 
 const STANDARD_LABELS: Record<TranscriptStandardStatus, string> = {
@@ -1103,6 +1235,14 @@ export function TranscriptCatalogMigrationPanel({
 
   const maintenanceReady = maintenanceConnection?.ready === true;
   const operationReady = pickerReady && maintenanceReady;
+  const accessStatus = maintenanceAccessStatus({
+    googleConnected,
+    googleLoading,
+    pickerReady,
+    maintenanceConnection,
+    maintenanceLoading,
+    maintenanceReadError,
+  });
   const oauthMessage =
     maintenanceOauthResult === "connected"
       ? !maintenanceLoading && maintenanceReady
@@ -1159,39 +1299,18 @@ export function TranscriptCatalogMigrationPanel({
           передаются в браузер. Выберите тот же Google-аккаунт, который
           подключён выше.
         </p>
-        {maintenanceLoading ? (
-          <p className="notice">Проверяем доступ для обслуживания…</p>
-        ) : maintenanceReady ? (
-          <p className="notice" role="status">
-            Расширенный доступ подключён
-            {maintenanceConnection?.google_email
-              ? `: ${maintenanceConnection.google_email}`
-              : ""}
-            .
-          </p>
-        ) : (
-          <p className="notice">
-            Расширенный доступ ещё не готов. Операции обслуживания
-            заблокированы.
-          </p>
-        )}
+        <p
+          className={accessStatus.tone}
+          role={accessStatus.tone === "error" ? "alert" : "status"}
+          data-maintenance-state={accessStatus.kind}
+        >
+          {accessStatus.message}
+        </p>
         {oauthMessage && (
           <p className="notice" role="status">
             {oauthMessage}
           </p>
         )}
-        {maintenanceConnection?.configured === false && (
-          <p className="error" role="alert">
-            OAuth для обслуживания не настроен на сервере.
-          </p>
-        )}
-        {maintenanceConnection &&
-          !maintenanceConnection.account_match &&
-          maintenanceConnection.connected && (
-            <p className="error" role="alert">
-              Подключён другой Google-аккаунт. Переподключите доступ.
-            </p>
-          )}
         <div className="actions">
           {!maintenanceReady && (
             <button
@@ -1221,7 +1340,6 @@ export function TranscriptCatalogMigrationPanel({
         </div>
         {maintenanceReadError && (
           <div className="error">
-            <p role="alert">{maintenanceReadError}</p>
             <button
               type="button"
               className="secondary"
@@ -1238,25 +1356,6 @@ export function TranscriptCatalogMigrationPanel({
           </p>
         )}
       </section>
-      {googleLoading && (
-        <p className="notice">Проверяем подключение Google Drive…</p>
-      )}
-      {!googleLoading && !googleConnected && (
-        <p className="notice">Сначала подключите Google Drive выше.</p>
-      )}
-      {!googleLoading && googleConnected && !pickerReady && (
-        <p className="notice">
-          Обновите подключение Google Drive, чтобы выбрать объект.
-        </p>
-      )}
-      {!googleLoading &&
-        pickerReady &&
-        !maintenanceLoading &&
-        !maintenanceReady && (
-          <p className="notice">
-            Подключите отдельный доступ для обслуживания перед выбором объекта.
-          </p>
-        )}
       <div className="transcript-maintenance-grid">
         <MaintenanceOperationCard
           workflow="standardization"

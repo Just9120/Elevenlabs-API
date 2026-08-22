@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ApiError, mutateWithCsrfRetry } from "./apiClient";
+import { ApiError, api, mutateWithCsrfRetry } from "./apiClient";
 import {
   requestCredentialCollection,
   type Credential,
@@ -13,8 +13,26 @@ import {
   type RealtimeSessionStatus,
 } from "./realtimeSession";
 import type { TranscriptionLanguageMode } from "./jobModel";
+import {
+  JOB_MUTATION_TIMEOUT_REASON,
+  runBoundedRequest,
+} from "./jobMutationRequest";
+import {
+  REALTIME_PARTIAL_CHECKPOINT_DEBOUNCE_MS,
+  deleteLocalRealtimeDraft,
+  loadLocalRealtimeDraft,
+  makeRealtimeDraft,
+  newestRealtimeDraft,
+  newRealtimeClientSessionId,
+  parseLatestRealtimeDraftResponse,
+  realtimeDraftDownloadText,
+  realtimeTranscriptText,
+  saveLocalRealtimeDraft,
+  type RealtimeDraft,
+} from "./realtimeDrafts";
 
 type Props = {
+  ownerUserId: string;
   projectId: string;
   csrf: string;
   onCsrf: (csrf: string) => void;
@@ -48,6 +66,7 @@ const FAILURE_MESSAGES: Record<string, string> = {
 };
 
 const CREDENTIAL_REQUEST_TIMEOUT_MS = 15_000;
+const REALTIME_DRAFT_REQUEST_TIMEOUT_MS = 15_000;
 
 function capabilityFailureMessage(error: unknown) {
   if (!(error instanceof ApiError) || !error.data) {
@@ -79,6 +98,13 @@ function formatElapsed(totalSeconds: number) {
     : minuteSecond;
 }
 
+function segmentsArePrefix(prefix: string[], candidate: string[]) {
+  return (
+    prefix.length <= candidate.length &&
+    prefix.every((segment, index) => segment === candidate[index])
+  );
+}
+
 function transcriptFilename(now = new Date()) {
   const timestamp = now
     .toISOString()
@@ -88,6 +114,7 @@ function transcriptFilename(now = new Date()) {
 }
 
 export function LiveTranscriptionPanel({
+  ownerUserId,
   projectId,
   csrf,
   onCsrf,
@@ -122,6 +149,14 @@ export function LiveTranscriptionPanel({
   const [inputLevel, setInputLevel] = useState(0);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [followTranscript, setFollowTranscript] = useState(true);
+  const [recoveryCandidate, setRecoveryCandidate] =
+    useState<RealtimeDraft | null>(null);
+  const [recoveryState, setRecoveryState] = useState<
+    "loading" | "ready" | "error"
+  >("loading");
+  const [draftStatus, setDraftStatus] = useState<
+    "idle" | "saving" | "saved" | "degraded"
+  >("idle");
   const controllerRef = useRef<RealtimeSessionController | null>(null);
   const credentialRequestEpochsRef = useRef(new Map<string, number>());
   const credentialRequestControllersRef = useRef(
@@ -129,6 +164,18 @@ export function LiveTranscriptionPanel({
   );
   const sessionStartedAtRef = useRef<number | null>(null);
   const committedRef = useRef<HTMLDivElement | null>(null);
+  const segmentsRef = useRef([...initialSegments]);
+  const partialRef = useRef("");
+  const draftRef = useRef<RealtimeDraft | null>(null);
+  const localSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const serverSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const draftMutationGenerationRef = useRef(0);
+  const draftDeletionGenerationRef = useRef(0);
+  const draftDeletePendingRef = useRef(false);
+  const partialCheckpointTimerRef = useRef<number | null>(null);
+  const mountedRef = useRef(true);
+  const csrfRef = useRef(csrf);
+  const onCsrfRef = useRef(onCsrf);
   const microphoneSupported = Boolean(
     navigator.mediaDevices?.getUserMedia,
   );
@@ -144,6 +191,231 @@ export function LiveTranscriptionPanel({
     "stopping",
   ].includes(status);
   const transcript = useMemo(() => segments.join("\n"), [segments]);
+  const actionableDraftText = useMemo(
+    () => realtimeTranscriptText(segments, partial),
+    [segments, partial],
+  );
+  csrfRef.current = csrf;
+  onCsrfRef.current = onCsrf;
+
+  function enqueueLocalDraftSave(nextDraft: RealtimeDraft) {
+    const deletionGeneration = draftDeletionGenerationRef.current;
+    const operation = localSaveQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        if (
+          draftDeletePendingRef.current ||
+          deletionGeneration !== draftDeletionGenerationRef.current
+        ) {
+          return false;
+        }
+        try {
+          await saveLocalRealtimeDraft(nextDraft);
+          return true;
+        } catch {
+          return false;
+        }
+      });
+    localSaveQueueRef.current = operation.then(
+      () => undefined,
+      () => undefined,
+    );
+    return operation;
+  }
+
+  function enqueueServerDraftSave(nextDraft: RealtimeDraft) {
+    const deletionGeneration = draftDeletionGenerationRef.current;
+    const operation = serverSaveQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        if (
+          draftDeletePendingRef.current ||
+          deletionGeneration !== draftDeletionGenerationRef.current
+        ) {
+          return false;
+        }
+        try {
+          const bounded = await runBoundedRequest(
+            (signal) =>
+              mutateWithCsrfRetry<unknown>(
+                `/projects/${projectId}/realtime/drafts/${encodeURIComponent(nextDraft.client_session_id)}`,
+                csrfRef.current,
+                onCsrfRef.current,
+                {
+                  method: "PUT",
+                  signal,
+                  body: JSON.stringify({
+                    revision: nextDraft.revision,
+                    committed_segments: nextDraft.committed_segments,
+                    partial: nextDraft.partial,
+                  }),
+                },
+              ),
+            REALTIME_DRAFT_REQUEST_TIMEOUT_MS,
+          );
+          if (bounded.status !== "completed") return false;
+          const response = bounded.value;
+          const metadata =
+            response && typeof response === "object"
+              ? (response as { draft?: unknown }).draft
+              : null;
+          return Boolean(
+            metadata &&
+              typeof metadata === "object" &&
+              (metadata as { client_session_id?: unknown }).client_session_id ===
+                nextDraft.client_session_id &&
+              (metadata as { revision?: unknown }).revision ===
+                nextDraft.revision,
+          );
+        } catch {
+          return false;
+        }
+      });
+    serverSaveQueueRef.current = operation.then(
+      () => undefined,
+      () => undefined,
+    );
+    return operation;
+  }
+
+  async function persistDraft(nextDraft: RealtimeDraft) {
+    const generation = draftMutationGenerationRef.current;
+    const localWrite = enqueueLocalDraftSave(nextDraft);
+    const serverWrite = enqueueServerDraftSave(nextDraft);
+    const [localSaved, serverSaved] = await Promise.all([
+      localWrite,
+      serverWrite,
+    ]);
+    if (
+      !mountedRef.current ||
+      generation !== draftMutationGenerationRef.current ||
+      draftRef.current?.client_session_id !== nextDraft.client_session_id ||
+      draftRef.current?.revision !== nextDraft.revision
+    ) {
+      return localSaved && serverSaved;
+    }
+    setDraftStatus(localSaved && serverSaved ? "saved" : "degraded");
+    return localSaved && serverSaved;
+  }
+
+  function checkpointDraft(
+    committedSegments: string[],
+    latestPartial: string,
+    reportStatus = true,
+  ) {
+    if (
+      draftDeletePendingRef.current ||
+      (committedSegments.length === 0 && !latestPartial)
+    ) {
+      return;
+    }
+    const nextRevision = (draftRef.current?.revision ?? 0) + 1;
+    let nextDraft: RealtimeDraft;
+    try {
+      nextDraft = makeRealtimeDraft({
+        ownerUserId,
+        projectId,
+        clientSessionId:
+          draftRef.current?.client_session_id ?? newRealtimeClientSessionId(),
+        revision: nextRevision,
+        committedSegments,
+        partial: latestPartial,
+      });
+    } catch {
+      if (reportStatus) {
+        setDraftStatus("degraded");
+        setError(
+          "Live-текст превысил безопасный размер временного черновика. Скачайте текущий текст.",
+        );
+      }
+      return;
+    }
+    draftRef.current = nextDraft;
+    if (reportStatus) setDraftStatus("saving");
+    void persistDraft(nextDraft);
+  }
+
+  function schedulePartialCheckpoint(nextPartial: string) {
+    if (partialCheckpointTimerRef.current !== null) {
+      window.clearTimeout(partialCheckpointTimerRef.current);
+    }
+    partialCheckpointTimerRef.current = window.setTimeout(() => {
+      partialCheckpointTimerRef.current = null;
+      checkpointDraft(segmentsRef.current, nextPartial);
+    }, REALTIME_PARTIAL_CHECKPOINT_DEBOUNCE_MS);
+  }
+
+  useEffect(() => {
+    mountedRef.current = true;
+    let cancelled = false;
+    setRecoveryState("loading");
+    setRecoveryCandidate(null);
+    void Promise.all([
+      loadLocalRealtimeDraft(ownerUserId, projectId).catch(() => null),
+      runBoundedRequest(
+        (signal) =>
+          api<unknown>(`/projects/${projectId}/realtime/drafts/latest`, {
+            signal,
+            ignoredAbortReason: JOB_MUTATION_TIMEOUT_REASON,
+          }),
+        REALTIME_DRAFT_REQUEST_TIMEOUT_MS,
+      )
+        .then((bounded) => {
+          if (bounded.status !== "completed") return undefined;
+          const candidate = bounded.value;
+          const parsed = parseLatestRealtimeDraftResponse(
+            candidate,
+            ownerUserId,
+            projectId,
+          );
+          if (parsed === undefined) throw new Error("invalid_realtime_draft_response");
+          return parsed;
+        })
+        .catch(() => undefined),
+    ]).then(([localDraft, serverDraft]) => {
+      if (cancelled) return;
+      if (serverDraft === undefined) {
+        setRecoveryState("error");
+      } else {
+        setRecoveryState("ready");
+      }
+      const candidate = newestRealtimeDraft(localDraft, serverDraft ?? null);
+      if (
+        candidate &&
+        (candidate.committed_segments.length > 0 || candidate.partial)
+      ) {
+        setRecoveryCandidate(candidate);
+      }
+    });
+    return () => {
+      if (
+        partialRef.current &&
+        draftRef.current?.partial !== partialRef.current
+      ) {
+        checkpointDraft(segmentsRef.current, partialRef.current, false);
+      }
+      cancelled = true;
+      mountedRef.current = false;
+      draftMutationGenerationRef.current += 1;
+      if (partialCheckpointTimerRef.current !== null) {
+        window.clearTimeout(partialCheckpointTimerRef.current);
+        partialCheckpointTimerRef.current = null;
+      }
+    };
+  }, [ownerUserId, projectId]);
+
+  useEffect(() => {
+    const flushDraft = () => {
+      if (
+        partialRef.current &&
+        draftRef.current?.partial !== partialRef.current
+      ) {
+        checkpointDraft(segmentsRef.current, partialRef.current);
+      }
+    };
+    window.addEventListener("pagehide", flushDraft);
+    return () => window.removeEventListener("pagehide", flushDraft);
+  }, [ownerUserId, projectId]);
 
   useEffect(() => {
     const startedAt = sessionStartedAtRef.current;
@@ -259,14 +531,14 @@ export function LiveTranscriptionPanel({
   }, [active]);
 
   useEffect(() => {
-    if (!running && !transcript) return;
+    if (!running && !actionableDraftText) return;
     const warnBeforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       event.returnValue = "";
     };
     window.addEventListener("beforeunload", warnBeforeUnload);
     return () => window.removeEventListener("beforeunload", warnBeforeUnload);
-  }, [running, transcript]);
+  }, [running, actionableDraftText]);
 
   async function start() {
     if (running) return;
@@ -300,13 +572,24 @@ export function LiveTranscriptionPanel({
             void refreshDevices();
           }
         },
-        onPartial: setPartial,
-        onCommitted: (text) =>
-          setSegments((current) => {
-            const next = [...current, text];
-            onSegmentsChange?.(next);
-            return next;
-          }),
+        onPartial: (text) => {
+          partialRef.current = text;
+          setPartial(text);
+          schedulePartialCheckpoint(text);
+        },
+        onCommitted: (text) => {
+          if (partialCheckpointTimerRef.current !== null) {
+            window.clearTimeout(partialCheckpointTimerRef.current);
+            partialCheckpointTimerRef.current = null;
+          }
+          const next = [...segmentsRef.current, text];
+          segmentsRef.current = next;
+          partialRef.current = "";
+          checkpointDraft(next, "");
+          setPartial("");
+          setSegments(next);
+          onSegmentsChange?.(next);
+        },
         onError: setError,
         onInputLevel: setInputLevel,
       },
@@ -348,9 +631,9 @@ export function LiveTranscriptionPanel({
   }
 
   async function copyTranscript() {
-    if (!transcript) return;
+    if (!actionableDraftText) return;
     try {
-      await navigator.clipboard.writeText(transcript);
+      await navigator.clipboard.writeText(actionableDraftText);
       setExportNotice("Текст скопирован в буфер обмена.");
     } catch {
       setExportNotice("");
@@ -358,10 +641,10 @@ export function LiveTranscriptionPanel({
     }
   }
 
-  function downloadTranscript() {
-    if (!transcript) return;
+  function downloadTextFile(text: string) {
+    if (!text) return;
     const url = URL.createObjectURL(
-      new Blob([transcript], { type: "text/plain;charset=utf-8" }),
+      new Blob([text], { type: "text/plain;charset=utf-8" }),
     );
     const link = document.createElement("a");
     link.href = url;
@@ -371,14 +654,170 @@ export function LiveTranscriptionPanel({
     setExportNotice("Текст сохранён в файл .txt.");
   }
 
-  function clearTranscript() {
-    if (!transcript || running) return;
+  function downloadTranscript() {
+    downloadTextFile(actionableDraftText);
+  }
+
+  async function deleteDraft(draft: RealtimeDraft) {
+    if (draftDeletePendingRef.current) return false;
+    draftDeletePendingRef.current = true;
+    draftMutationGenerationRef.current += 1;
+    draftDeletionGenerationRef.current += 1;
+    if (partialCheckpointTimerRef.current !== null) {
+      window.clearTimeout(partialCheckpointTimerRef.current);
+      partialCheckpointTimerRef.current = null;
+    }
+    setDraftStatus("saving");
+    const localDelete = localSaveQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        try {
+          await deleteLocalRealtimeDraft(ownerUserId, projectId);
+          return true;
+        } catch {
+          return false;
+        }
+      });
+    localSaveQueueRef.current = localDelete.then(
+      () => undefined,
+      () => undefined,
+    );
+    const serverDelete = serverSaveQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        try {
+          const bounded = await runBoundedRequest(
+            (signal) =>
+              mutateWithCsrfRetry<unknown>(
+                `/projects/${projectId}/realtime/drafts/${encodeURIComponent(draft.client_session_id)}`,
+                csrfRef.current,
+                onCsrfRef.current,
+                { method: "DELETE", signal },
+              ),
+            REALTIME_DRAFT_REQUEST_TIMEOUT_MS,
+          );
+          if (bounded.status !== "completed") return false;
+          const response = bounded.value;
+          return Boolean(
+            response &&
+              typeof response === "object" &&
+              (response as { ok?: unknown }).ok === true,
+          );
+        } catch {
+          return false;
+        }
+      });
+    serverSaveQueueRef.current = serverDelete.then(
+      () => undefined,
+      () => undefined,
+    );
+    try {
+      const [localDeleted, serverDeleted] = await Promise.all([
+        localDelete,
+        serverDelete,
+      ]);
+      if (!localDeleted || !serverDeleted) {
+        throw new Error("invalid_realtime_draft_delete_response");
+      }
+      if (draftRef.current?.client_session_id === draft.client_session_id) {
+        draftRef.current = null;
+      }
+      setDraftStatus("idle");
+      return true;
+    } catch {
+      setDraftStatus("degraded");
+      setError(
+        "Локальная копия черновика удалена, но Studio API не подтвердил удаление серверной копии. Повторите действие.",
+      );
+      return false;
+    } finally {
+      draftDeletePendingRef.current = false;
+    }
+  }
+
+  async function restoreRecoveryDraft() {
+    const candidate = recoveryCandidate;
+    if (!candidate) return;
+    const retainedSegments = [...segmentsRef.current];
+    const candidateSegments = [...candidate.committed_segments];
+    const candidateExtendsRetained = segmentsArePrefix(
+      retainedSegments,
+      candidateSegments,
+    );
+    const retainedExtendsCandidate = segmentsArePrefix(
+      candidateSegments,
+      retainedSegments,
+    );
+    if (!candidateExtendsRetained && !retainedExtendsCandidate) {
+      setError(
+        "Сохранённый Live-черновик отличается от текста в этой вкладке. Скачайте черновик и явно удалите его либо сохраните текущий текст отдельно; автоматическая замена заблокирована.",
+      );
+      return;
+    }
+    if (
+      retainedExtendsCandidate &&
+      retainedSegments.length > candidateSegments.length
+    ) {
+      let reconciled: RealtimeDraft;
+      try {
+        reconciled = makeRealtimeDraft({
+          ownerUserId,
+          projectId,
+          clientSessionId: candidate.client_session_id,
+          revision: candidate.revision + 1,
+          committedSegments: retainedSegments,
+          partial: partialRef.current,
+        });
+      } catch {
+        setError(
+          "Более полный текст сохранён в этой вкладке, но его не удалось согласовать с временным черновиком. Скачайте оба варианта перед удалением.",
+        );
+        return;
+      }
+      draftRef.current = reconciled;
+      setRecoveryCandidate(null);
+      setDraftStatus("saving");
+      void persistDraft(reconciled);
+      setExportNotice(
+        "Сохранён более полный текст из этой вкладки; старый Live-черновик не перезаписал его.",
+      );
+      return;
+    }
+    draftRef.current = candidate;
+    segmentsRef.current = candidateSegments;
+    partialRef.current = candidate.partial;
+    setSegments(candidateSegments);
+    setPartial(candidate.partial);
+    onSegmentsChange?.(candidateSegments);
+    setRecoveryCandidate(null);
+    setDraftStatus("saving");
+    void persistDraft(candidate);
+    setExportNotice("Незавершённый Live-черновик восстановлен.");
+  }
+
+  async function discardRecoveryDraft() {
+    const candidate = recoveryCandidate;
+    if (!candidate) return;
+    setError("");
+    if (await deleteDraft(candidate)) {
+      setRecoveryCandidate(null);
+      setExportNotice("Временный Live-черновик удалён.");
+    }
+  }
+
+  async function clearTranscript() {
+    if (!actionableDraftText || running) return;
     if (
       !window.confirm(
-        "Очистить подтверждённый текст только в этой вкладке браузера?",
+        "Очистить подтверждённый текст и удалить временный Live-черновик?",
       )
     )
       return;
+    const currentDraft = draftRef.current ?? recoveryCandidate;
+    if (currentDraft && !(await deleteDraft(currentDraft))) return;
+    setRecoveryCandidate(null);
+    segmentsRef.current = [];
+    partialRef.current = "";
     setSegments([]);
     onSegmentsChange?.([]);
     setPartial("");
@@ -401,11 +840,11 @@ export function LiveTranscriptionPanel({
     >
       <header className="live-intro">
         <div>
-          <h3>Live-транскрибация</h3>
+          <h2>Live-транскрибация</h2>
           <p>
             Распознаёт микрофон, звук выбранной вкладки или экрана либо оба
-            источника одновременно. Подтверждённый текст остаётся только в
-            текущей вкладке браузера.
+            источника одновременно. Текст временно checkpoint-ится в браузере
+            и в зашифрованном Studio storage на 72 часа; audio не сохраняется.
           </p>
         </div>
         <span className={`live-status live-status-${status}`} role="status">
@@ -413,9 +852,56 @@ export function LiveTranscriptionPanel({
         </span>
       </header>
 
+      {recoveryState === "loading" && (
+        <p className="muted" role="status">
+          Проверяем незавершённые Live-черновики…
+        </p>
+      )}
+      {recoveryState === "error" && (
+        <p className="error" role="alert">
+          Server recovery сейчас недоступен. Локальный черновик, если он есть,
+          всё равно можно восстановить ниже.
+        </p>
+      )}
+      {recoveryCandidate && (
+        <section className="notice live-recovery" aria-label="Восстановление Live-черновика">
+          <div>
+            <h3>Найден незавершённый Live-черновик</h3>
+            <p>
+              Обновлён {new Date(recoveryCandidate.updated_at).toLocaleString("ru-RU")}
+              {" · "}подтверждённых фрагментов: {recoveryCandidate.committed_segments.length}
+              {recoveryCandidate.partial ? " · есть неподтверждённый фрагмент" : ""}.
+            </p>
+          </div>
+          <div className="actions">
+            <button
+              type="button"
+              className="primary"
+              onClick={() => void restoreRecoveryDraft()}
+            >
+              Восстановить
+            </button>
+            <button
+              type="button"
+              onClick={() => downloadTextFile(realtimeDraftDownloadText(recoveryCandidate))}
+            >
+              Скачать .txt
+            </button>
+            <button
+              type="button"
+              className="danger"
+              disabled={draftStatus === "saving"}
+              onClick={() => void discardRecoveryDraft()}
+            >
+              Удалить черновик
+            </button>
+          </div>
+        </section>
+      )}
+
       <div className="live-config-grid">
         <section className="live-config-card">
-          <h4>Источники звука</h4>
+          <h3>Источники звука</h3>
           <label className="check-row">
             <input
               type="checkbox"
@@ -493,7 +979,7 @@ export function LiveTranscriptionPanel({
           className="live-config-card"
           aria-busy={credentialsState === "loading" || undefined}
         >
-          <h4>Распознавание</h4>
+          <h3>Распознавание</h3>
           <label>
             Профиль ElevenLabs
             <select
@@ -552,6 +1038,8 @@ export function LiveTranscriptionPanel({
               disabled={
                 running ||
                 credentialsState !== "ready" ||
+                recoveryState === "loading" ||
+                recoveryCandidate !== null ||
                 !sourceReady ||
                 !credentialId
               }
@@ -582,13 +1070,28 @@ export function LiveTranscriptionPanel({
           {exportNotice}
         </p>
       )}
+      {draftStatus === "saving" && (
+        <p className="muted" role="status">Сохраняем временный Live-черновик…</p>
+      )}
+      {draftStatus === "saved" && (
+        <p className="muted" role="status">
+          Live-черновик сохранён локально и в Studio до 72 часов.
+        </p>
+      )}
+      {draftStatus === "degraded" && (
+        <p className="error" role="alert">
+          Не все копии Live-черновика подтверждены. Не закрывайте вкладку и
+          скачайте текст при первой возможности.
+        </p>
+      )}
 
       <section className="live-transcript-card">
         <header className="split">
           <div>
-            <h4>Текст текущей вкладки</h4>
+            <h3>Текст Live-транскрибации</h3>
             <p className="muted">
-              Не сохраняется в Studio, Google Docs, каталог или аналитику.
+              Временно хранится только для восстановления. Не попадает в
+              Google Docs, каталог, History, Analytics или diagnostics.
             </p>
             <p className="muted" aria-label="Статистика live-сессии">
               Сессия: {formatElapsed(elapsedSeconds)} · Фрагментов:{" "}
@@ -605,22 +1108,26 @@ export function LiveTranscriptionPanel({
             </button>
             <button
               type="button"
-              disabled={!transcript}
+              disabled={!actionableDraftText}
               onClick={() => void copyTranscript()}
             >
               Копировать
             </button>
             <button
               type="button"
-              disabled={!transcript}
+              disabled={!actionableDraftText}
               onClick={downloadTranscript}
             >
               Скачать .txt
             </button>
             <button
               type="button"
-              disabled={!transcript || running}
-              onClick={clearTranscript}
+              disabled={
+                !actionableDraftText ||
+                running ||
+                recoveryState === "loading"
+              }
+              onClick={() => void clearTranscript()}
             >
               Очистить
             </button>
@@ -663,14 +1170,16 @@ export function LiveTranscriptionPanel({
           </li>
           <li>
             Обновление или закрытие текущей вкладки останавливает захват.
+            После повторного входа можно восстановить последний checkpoint,
+            но audio и сама realtime-сессия не возобновляются.
           </li>
           <li>
-            Пока идёт сессия или в памяти есть текст, браузер предупреждает
+            Пока идёт сессия или есть текст, браузер предупреждает
             перед обновлением или закрытием вкладки.
           </li>
           <li>
-            Другие вкладки браузера не получают этот текст и не продолжают
-            текущую сессию.
+            Другие вкладки не продолжают audio capture; authenticated owner
+            может получить последний временный draft через recovery.
           </li>
         </ul>
       </details>

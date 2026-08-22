@@ -1,9 +1,9 @@
 import {
   ChangeEvent,
   FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   useEffect,
   useId,
-  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -31,10 +31,8 @@ import {
 import {
   parsePlatformRoute,
   pushPlatformRoute,
-  resolveRequestedProjectsView,
   type Page,
   type PlatformRoute,
-  type ProjectsViewRequest,
   type SettingsSection,
 } from "./platformRouting";
 import {
@@ -144,7 +142,11 @@ import {
   JOB_PROGRESS_POLLING_STOP_REASON,
   startJobProgressPolling,
 } from "./jobProgressPolling";
-import { groupVisibleJobs } from "./jobVisibilityModel";
+import {
+  groupTranscriptionPresentations,
+  type TranscriptionPresentation,
+} from "./multiTranscriptionModel";
+import { MultiTranscriptionCard } from "./MultiTranscriptionCard";
 import { TranscriptionAnalyticsPanel } from "./TranscriptionAnalyticsPanel";
 import { TranscriptCatalogMigrationPanel } from "./TranscriptCatalogMigrationPanel";
 import { LiveTranscriptionPanel } from "./LiveTranscriptionPanel";
@@ -616,6 +618,18 @@ function parseProjectCollection(candidate: unknown): Project[] | null {
   }
   return projects;
 }
+function parseTranscriptionWorkspace(candidate: unknown): Project | null {
+  if (!candidate || typeof candidate !== "object") return null;
+  const response = candidate as { project?: unknown; created?: unknown };
+  if (
+    typeof response.created !== "boolean" ||
+    !isExpectedProject(response.project) ||
+    response.project.archived_at !== null
+  ) {
+    return null;
+  }
+  return response.project;
+}
 async function requestProjectCollection(
   signal?: AbortSignal,
 ): Promise<Project[]> {
@@ -1016,7 +1030,7 @@ function isExpectedCompletedLocalSource(
 const ELEVENLABS_CREDENTIAL_SESSION_KEY = "studio.elevenlabsCredentialId";
 const JOB_DETAIL_REQUEST_TIMEOUT_MS = 15_000;
 const PROJECT_COLLECTION_REQUEST_TIMEOUT_MS = 15_000;
-const PROJECT_MUTATION_REQUEST_TIMEOUT_MS = 20_000;
+const TRANSCRIPTION_WORKSPACE_REQUEST_TIMEOUT_MS = 20_000;
 const CREDENTIAL_COLLECTION_REQUEST_TIMEOUT_MS = 15_000;
 const CREDENTIAL_MUTATION_REQUEST_TIMEOUT_MS = 20_000;
 const ACCOUNT_PREFERENCES_REQUEST_TIMEOUT_MS = 15_000;
@@ -1174,21 +1188,46 @@ function safeConfirm(message: string) {
     return false;
   }
 }
+function navigateTabList<T extends string>(
+  event: ReactKeyboardEvent<HTMLButtonElement>,
+  values: readonly T[],
+  onSelect: (value: T) => void,
+) {
+  if (
+    event.key !== "ArrowLeft" &&
+    event.key !== "ArrowRight" &&
+    event.key !== "ArrowUp" &&
+    event.key !== "ArrowDown" &&
+    event.key !== "Home" &&
+    event.key !== "End"
+  ) {
+    return;
+  }
+  const tabs = Array.from(
+    event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>(
+      '[role="tab"]',
+    ) ?? [],
+  );
+  const currentIndex = tabs.indexOf(event.currentTarget);
+  if (currentIndex < 0 || tabs.length !== values.length) return;
+  event.preventDefault();
+  const nextIndex =
+    event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? tabs.length - 1
+        : event.key === "ArrowRight" || event.key === "ArrowDown"
+          ? (currentIndex + 1) % tabs.length
+          : (currentIndex - 1 + tabs.length) % tabs.length;
+  tabs[nextIndex]?.focus();
+  onSelect(values[nextIndex]);
+}
 export const __appDiagnosticsTest = { api, csrfMutate };
 type JobMutationKind = "cancel" | "retry" | "reconciliation" | "dismiss";
 type JobMutationNotice = {
   projectId: string;
   kind: JobMutationKind;
   jobId: string;
-  message: string;
-  tone: "notice" | "error";
-};
-type ProjectMutationKind = "create" | "update" | "archive";
-type ProjectMutationOperation = {
-  kind: ProjectMutationKind;
-  projectId: string | null;
-};
-type ProjectMutationNotice = ProjectMutationOperation & {
   message: string;
   tone: "notice" | "error";
 };
@@ -1250,15 +1289,6 @@ function isAmbiguousRetentionMutationFailure(error: unknown) {
   );
 }
 function isAmbiguousGoogleConnectionMutationFailure(error: unknown) {
-  return (
-    error instanceof TypeError ||
-    (error instanceof ApiError && (error.status === 408 || error.status >= 500))
-  );
-}
-function projectMutationKey(operation: ProjectMutationOperation) {
-  return `${operation.kind}:${operation.projectId ?? "new"}`;
-}
-function isAmbiguousProjectMutationFailure(error: unknown) {
   return (
     error instanceof TypeError ||
     (error instanceof ApiError && (error.status === 408 || error.status >= 500))
@@ -2638,8 +2668,8 @@ function PreparationPanel({
       setPreflight(null);
       setMessage(
         response.replayed
-          ? `Повтор подтверждён: создано независимых задач: ${response.created_count}.`
-          : `Создано независимых задач: ${response.created_count}.`,
+          ? `Повтор подтверждён: мульти-транскрибация содержит элементов: ${response.created_count}.`
+          : `Создана мульти-транскрибация. Элементов: ${response.created_count}.`,
       );
       onReloadJobs(project.id);
     } catch (err) {
@@ -3249,16 +3279,26 @@ function PreparationPanel({
   }
   const displayJobs = mergeJobsWithBatchOrder(jobs.items ?? [], batchJobs);
   const {
-    current: currentJobs,
-    pinnedTerminal: pinnedTerminalJobs,
-    recent: recentJobs,
-  } = groupVisibleJobs(displayJobs);
+    current: currentTranscriptions,
+    pinnedTerminal: pinnedTerminalTranscriptions,
+    recent: recentTranscriptions,
+  } = groupTranscriptionPresentations(displayJobs);
   useEffect(() => {
-    for (const job of pinnedTerminalJobs) {
+    for (const job of displayJobs) {
+      if (
+        !["completed", "failed", "cancelled"].includes(job.status) ||
+        job.terminal_dismissed_at !== null
+      ) {
+        continue;
+      }
       if (!detail[job.id]) void loadDetail(job.id);
     }
   }, [displayJobs]);
-  const currentJobIds = currentJobs.map((job) => job.id).sort().join(",");
+  const currentJobIds = displayJobs
+    .filter((job) => ["queued", "processing"].includes(job.status))
+    .map((job) => job.id)
+    .sort()
+    .join(",");
   useEffect(() => {
     if (!currentJobIds) {
       return;
@@ -3430,6 +3470,25 @@ function PreparationPanel({
       />
     );
   }
+  function renderTranscriptionPresentation(
+    presentation: TranscriptionPresentation,
+  ) {
+    if (presentation.kind === "single") {
+      const job = presentation.jobs[0];
+      return renderJobCard(
+        job,
+        ["completed", "failed", "cancelled"].includes(job.status) &&
+          job.terminal_dismissed_at === null,
+      );
+    }
+    return (
+      <MultiTranscriptionCard
+        key={presentation.id}
+        jobs={presentation.jobs}
+        renderJob={renderJobCard}
+      />
+    );
+  }
   const visibleJobMutationNotices = Object.values(jobMutationNotices).filter(
     (notice) => {
       if (notice.projectId !== project.id) return false;
@@ -3489,10 +3548,10 @@ function PreparationPanel({
       >
         <div className="composer-header">
           <div>
-            <h4>Подготовка задач</h4>
+            <h2>Подготовка задач</h2>
             <p className="muted">
-              Одна строка создаёт одну независимую задачу: один файл → одна
-              папка результата.
+              Одна строка создаёт один элемент мульти-транскрибации: один файл
+              или фрагмент → один документ в выбранной папке.
             </p>
           </div>
           <div className="composer-add-row">
@@ -4116,13 +4175,13 @@ function PreparationPanel({
           >
             <div className="batch-preflight-header">
               <div>
-                <h5>
+                <h3>
                   {activePreflightBlocked
                     ? activeProviderAuthorityBlocked
                       ? "План временно заблокирован"
                       : "План требует решения"
                     : "План готов к подтверждению"}
-                </h5>
+                </h3>
                 <p className="muted">
                   ElevenLabs scribe_v2 ·{" "}
                   {transcriptionLanguageModeLabel(
@@ -4259,7 +4318,7 @@ function PreparationPanel({
         <div className="composer-footer">
           <div>
             <b>Строк: {rows.length}</b>
-            <span>Будет создано задач: {plannedJobCount}</span>
+            <span>Элементов мульти-транскрибации: {plannedJobCount}</span>
             <span>
               Готово: {completeRowCount} из {rows.length}
             </span>
@@ -4366,22 +4425,23 @@ function PreparationPanel({
         csrf={csrf}
         onCsrf={onCsrf}
       />
-      <section className="sources" aria-label="Текущие задачи">
-        <h4>Текущие задачи</h4>
+      <section className="sources" aria-label="Текущие транскрибации">
+        <h2>Текущие транскрибации</h2>
         {jobs.loading && <p role="status">Загрузка задач…</p>}
         {jobs.error && <p className="error">{jobs.error}</p>}
         {jobs.loaded &&
           !jobs.loading &&
-          currentJobs.length === 0 &&
-          pinnedTerminalJobs.length === 0 && (
-          <p className="notice">Текущих задач нет.</p>
+          currentTranscriptions.length === 0 &&
+          pinnedTerminalTranscriptions.length === 0 && (
+          <p className="notice">Текущих транскрибаций нет.</p>
         )}
-        {currentJobs.map((job) => renderJobCard(job))}
-        {pinnedTerminalJobs.map((job) => renderJobCard(job, true))}
+        {currentTranscriptions.map(renderTranscriptionPresentation)}
+        {pinnedTerminalTranscriptions.map(renderTranscriptionPresentation)}
       </section>
       <details className="recent-jobs">
-        <summary>Недавние задачи · {recentJobs.length}</summary>
-        {(recentJobs.length > 0 || pinnedTerminalJobs.length > 0) && (
+        <summary>Недавние транскрибации · {recentTranscriptions.length}</summary>
+        {(recentTranscriptions.length > 0 ||
+          pinnedTerminalTranscriptions.length > 0) && (
           <button
             type="button"
             className="danger"
@@ -4396,7 +4456,7 @@ function PreparationPanel({
             {historyClearMessage}
           </p>
         )}
-        {recentJobs.map((job) => renderJobCard(job))}
+        {recentTranscriptions.map(renderTranscriptionPresentation)}
       </details>{" "}
       {historyClearOpen && (
         <ConfirmClearDialog
@@ -4430,12 +4490,10 @@ function isProjectClearResponse(value: unknown): value is {
 
 function OverviewPage({
   onNavigate,
-  onCreateProject,
-  onOpenProject,
+  onOpenTranscriptions,
 }: {
   onNavigate: (page: Page) => void;
-  onCreateProject: () => void;
-  onOpenProject: (projectId: string) => void;
+  onOpenTranscriptions: () => void;
 }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
@@ -4531,12 +4589,6 @@ function OverviewPage({
   const activeCredentials = credentials.filter(
     (credential) => credential.status === "active",
   );
-  const recentProjects = [...projects]
-    .sort(
-      (a, b) =>
-        new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
-    )
-    .slice(0, 5);
   const googleStatus = googleLoading
     ? "Загрузка…"
     : googleError
@@ -4545,9 +4597,6 @@ function OverviewPage({
         ? "Подключён"
         : "Нужна настройка";
   const needsAttention = [
-    !projectsLoading && !projectsError && projects.length === 0
-      ? "Создайте первый проект, чтобы подготовить пакет задач."
-      : "",
     !googleLoading &&
     !googleError &&
     (!googleConnection?.connected || googleConnection.reconnect_required)
@@ -4563,30 +4612,27 @@ function OverviewPage({
         <div>
           <h1 className="page-title">Studio</h1>
           <p>
-            Рабочая панель аккаунта: проекты, подключение Drive и готовность
-            ключей.
+            Рабочая панель аккаунта: транскрибации, подключение Drive и
+            готовность ключей.
           </p>
         </div>
         <div className="actions">
-          <button className="primary" onClick={onCreateProject}>
-            Новый проект
+          <button className="primary" onClick={onOpenTranscriptions}>
+            Открыть транскрибации
           </button>
-          {projects.length > 0 && (
-            <button onClick={() => onNavigate("projects")}>
-              Открыть проекты
-            </button>
-          )}
         </div>
       </header>
       <div className="summary-grid dashboard-summary">
-        <article className="card summary-card" aria-label="Проекты">
-          <span className="summary-label">Проекты</span>
+        <article className="card summary-card" aria-label="Транскрибации">
+          <span className="summary-label">Транскрибации</span>
           <strong className="summary-value">
             {projectsLoading
               ? "Загрузка…"
               : projectsError
                 ? "Недоступно"
-                : projects.length}
+                : projects.length > 0
+                  ? "Доступны"
+                  : "Подготовятся при открытии"}
           </strong>
           {projectsError && (
             <button type="button" onClick={loadProjects}>
@@ -4635,47 +4681,20 @@ function OverviewPage({
           </ul>
         </article>
       )}
-      {projects.length > 0 ? (
-        <article className="card recent-projects-card">
-          <h2>Последние проекты</h2>
-          <div className="recent-project-list">
-            {recentProjects.map((project) => (
-              <button
-                type="button"
-                className="recent-project-item"
-                key={project.id}
-                onClick={() => onOpenProject(project.id)}
-              >
-                <span>
-                  <strong>{project.title}</strong>
-                  {project.description && <small>{project.description}</small>}
-                </span>
-                <span className="muted">
-                  Обновлено:{" "}
-                  {new Date(project.updated_at).toLocaleString("ru-RU")}
-                </span>
-              </button>
-            ))}
+      {!projectsLoading && !projectsError && projects.length === 0 && (
+        <article className="card">
+          <h2>Начать работу</h2>
+          <p>
+            Рабочая область создаётся автоматически при первом открытии. Затем
+            выберите обычную или Live-транскрибацию.
+          </p>
+          <div className="actions">
+            <button className="primary" onClick={onOpenTranscriptions}>
+              Открыть транскрибации
+            </button>
+            <button onClick={() => onNavigate("settings")}>Настройки</button>
           </div>
         </article>
-      ) : (
-        !projectsLoading &&
-        !projectsError && (
-          <article className="card">
-            <h2>Рабочий процесс</h2>
-            <ol className="workflow">
-              <li>1. Проект</li>
-              <li>2. Источники</li>
-              <li>3. Задача</li>
-            </ol>
-            <div className="actions">
-              <button className="primary" onClick={onCreateProject}>
-                Новый проект
-              </button>
-              <button onClick={() => onNavigate("settings")}>Настройки</button>
-            </div>
-          </article>
-        )
       )}
     </section>
   );
@@ -4683,20 +4702,18 @@ function OverviewPage({
 
 function ProjectsPage({
   active,
+  ownerUserId,
   csrf,
   onCsrf,
   requestedProjectId,
   onRequestedProjectHandled,
-  requestedProjectsView,
-  onRequestedProjectsViewHandled,
 }: {
   active: boolean;
+  ownerUserId: string;
   csrf: string;
   onCsrf: (csrf: string) => void;
   requestedProjectId: string | null;
   onRequestedProjectHandled: () => void;
-  requestedProjectsView: ProjectsViewRequest;
-  onRequestedProjectsViewHandled: () => void;
 }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [sources, setSources] = useState<
@@ -4706,17 +4723,9 @@ function ProjectsPage({
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
     null,
   );
-  const [createOpen, setCreateOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [editing, setEditing] = useState<string | null>(null);
-  const pendingProjectMutationsRef = useRef(new Set<string>());
-  const [pendingProjectMutations, setPendingProjectMutations] = useState<
-    Set<string>
-  >(() => new Set());
-  const [projectMutationNotices, setProjectMutationNotices] = useState<
-    Record<string, ProjectMutationNotice>
-  >({});
+  const workspaceEnsurePendingRef = useRef(false);
   const activeGooglePickerRef = useRef<GooglePickerOperation | null>(null);
   const [activeGooglePicker, setActiveGooglePicker] =
     useState<GooglePickerOperation | null>(null);
@@ -4922,33 +4931,6 @@ function ProjectsPage({
       }));
     }
   };
-  const beginProjectMutation = (operation: ProjectMutationOperation) => {
-    const key = projectMutationKey(operation);
-    if (pendingProjectMutationsRef.current.has(key)) return false;
-    pendingProjectMutationsRef.current.add(key);
-    setPendingProjectMutations(new Set(pendingProjectMutationsRef.current));
-    setProjectMutationNotices((current) => {
-      if (!current[key]) return current;
-      const next = { ...current };
-      delete next[key];
-      return next;
-    });
-    return true;
-  };
-  const finishProjectMutation = (
-    operation: ProjectMutationOperation,
-    notice?: ProjectMutationNotice,
-  ) => {
-    const key = projectMutationKey(operation);
-    if (!pendingProjectMutationsRef.current.delete(key)) return;
-    setPendingProjectMutations(new Set(pendingProjectMutationsRef.current));
-    if (notice) {
-      setProjectMutationNotices((current) => ({
-        ...current,
-        [key]: notice,
-      }));
-    }
-  };
   const [googleConnection, setGoogleConnection] =
     useState<GoogleConnection | null>(null);
   const [googleConnectionState, setGoogleConnectionState] =
@@ -4970,43 +4952,89 @@ function ProjectsPage({
       },
     );
   };
-  const load = async ({ reportFailure = true } = {}): Promise<
-    Project[] | null
-  > => {
-    let observed: Project[] | null = null;
+  const applyProjectCollection = (nextProjects: Project[]) => {
+    setProjects(nextProjects);
+    setSelectedProjectId((current) => {
+      if (
+        current &&
+        nextProjects.some((project) => project.id === current)
+      ) {
+        return current;
+      }
+      return requestedProjectId &&
+        nextProjects.some((project) => project.id === requestedProjectId)
+        ? requestedProjectId
+        : (nextProjects[0]?.id ?? null);
+    });
+  };
+  const ensureWorkspace = async () => {
+    if (workspaceEnsurePendingRef.current) return;
+    workspaceEnsurePendingRef.current = true;
     setLoading(true);
-    if (reportFailure) setError("");
-    await settleLatestRequest(
+    setError("");
+    try {
+      const request = await runBoundedRequest(
+        (signal) =>
+          mutateWithCsrfRetry<unknown>(
+            "/transcriptions/workspace",
+            csrf,
+            onCsrf,
+            { method: "POST", signal },
+          ),
+        TRANSCRIPTION_WORKSPACE_REQUEST_TIMEOUT_MS,
+      );
+      const workspace =
+        request.status === "completed"
+          ? parseTranscriptionWorkspace(request.value)
+          : null;
+      if (workspace) {
+        applyProjectCollection([workspace]);
+        return;
+      }
+      const reconciliation = await runBoundedRequest(
+        requestProjectCollection,
+        PROJECT_COLLECTION_REQUEST_TIMEOUT_MS,
+      );
+      if (
+        reconciliation.status !== "completed" ||
+        reconciliation.value.length === 0
+      ) {
+        throw new Error("transcription_workspace_not_observed");
+      }
+      applyProjectCollection(reconciliation.value);
+    } catch (workspaceError) {
+      setError(
+        workspaceError instanceof ApiError
+          ? workspaceError.message
+          : "Не удалось подготовить рабочую область транскрибаций.",
+      );
+    } finally {
+      workspaceEnsurePendingRef.current = false;
+      setLoading(false);
+    }
+  };
+  const load = () => {
+    setLoading(true);
+    setError("");
+    void settleLatestRequest(
       requestEpochsRef.current,
       "projects",
       requestProjectCollection,
       (nextProjects) => {
-        observed = nextProjects;
-        setProjects(nextProjects);
-        setSelectedProjectId((current) => {
-          if (
-            current &&
-            nextProjects.some((project) => project.id === current)
-          ) {
-            return current;
-          }
-          return requestedProjectId &&
-            nextProjects.some((project) => project.id === requestedProjectId)
-            ? requestedProjectId
-            : (nextProjects[0]?.id ?? null);
-        });
-        if (nextProjects.length === 0) setCreateOpen(true);
+        if (nextProjects.length === 0) {
+          void ensureWorkspace();
+          return;
+        }
+        applyProjectCollection(nextProjects);
         setLoading(false);
         setError("");
       },
       (loadError) => {
-        if (reportFailure) {
-          setError(
-            loadError instanceof ApiError
-              ? loadError.message
-              : "Не удалось загрузить проекты.",
-          );
-        }
+        setError(
+          loadError instanceof ApiError
+            ? loadError.message
+            : "Не удалось загрузить транскрибации.",
+        );
         setLoading(false);
       },
       {
@@ -5014,7 +5042,6 @@ function ProjectsPage({
         timeoutMs: PROJECT_COLLECTION_REQUEST_TIMEOUT_MS,
       },
     );
-    return observed;
   };
   useEffect(() => {
     void load();
@@ -5034,23 +5061,6 @@ function ProjectsPage({
       onRequestedProjectHandled();
     }
   }, [requestedProjectId, projects, onRequestedProjectHandled]);
-  useLayoutEffect(() => {
-    const nextCreateOpen = resolveRequestedProjectsView(
-      requestedProjectsView,
-      {
-        loading,
-        projectCount: projects.length,
-      },
-    );
-    if (nextCreateOpen === null) return;
-    setCreateOpen(nextCreateOpen);
-    onRequestedProjectsViewHandled();
-  }, [
-    requestedProjectsView,
-    loading,
-    projects.length,
-    onRequestedProjectsViewHandled,
-  ]);
   useEffect(() => {
     if (active) loadGoogleConnection();
   }, [active]);
@@ -5134,262 +5144,8 @@ function ProjectsPage({
       },
     );
   };
-  async function save(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const operation: ProjectMutationOperation = {
-      kind: "create",
-      projectId: null,
-    };
-    if (!beginProjectMutation(operation)) return;
-    let notice: ProjectMutationNotice | undefined;
-    setError("");
-    const form = e.currentTarget;
-    const fd = new FormData(form);
-    const title = String(fd.get("project_title") ?? "");
-    const description = String(fd.get("project_description") ?? "");
-    const reconcileAmbiguousCreate = async () => {
-      const observed = await load({ reportFailure: false });
-      notice = {
-        ...operation,
-        message: observed
-          ? "Сервер не подтвердил создание проекта. Список проектов обновлён; проверьте его перед повторной попыткой."
-          : "Сервер не подтвердил создание проекта, а обновить список не удалось. Не повторяйте отправку, пока не проверите проекты после обновления страницы.",
-        tone: "error",
-      };
-    };
-    try {
-      const request = await runBoundedRequest(
-        (signal) =>
-          csrfMutate<unknown>("/projects", csrf, onCsrf, {
-            method: "POST",
-            signal,
-            body: JSON.stringify({ title, description }),
-          }),
-        PROJECT_MUTATION_REQUEST_TIMEOUT_MS,
-      );
-      if (request.status === "timed_out") {
-        await reconcileAmbiguousCreate();
-        return;
-      }
-      const created = request.value;
-      if (!isExpectedProject(created) || created.archived_at !== null) {
-        await reconcileAmbiguousCreate();
-        return;
-      }
-      form.reset();
-      setCreateOpen(false);
-      setProjects((current) => [
-        created,
-        ...current.filter((project) => project.id !== created.id),
-      ]);
-      setSelectedProjectId(created.id);
-      await load({ reportFailure: false });
-      notice = {
-        ...operation,
-        message: "Проект создан.",
-        tone: "notice",
-      };
-    } catch (err) {
-      if (isAmbiguousProjectMutationFailure(err)) {
-        await reconcileAmbiguousCreate();
-      } else {
-        notice = {
-          ...operation,
-          message: "Не удалось создать проект. Проверьте данные и повторите.",
-          tone: "error",
-        };
-      }
-    } finally {
-      finishProjectMutation(operation, notice);
-    }
-  }
-  async function update(e: FormEvent<HTMLFormElement>, id: string) {
-    e.preventDefault();
-    const operation: ProjectMutationOperation = {
-      kind: "update",
-      projectId: id,
-    };
-    if (!beginProjectMutation(operation)) return;
-    let notice: ProjectMutationNotice | undefined;
-    setError("");
-    const fd = new FormData(e.currentTarget);
-    const title = String(fd.get("project_title") ?? "");
-    const description = String(fd.get("project_description") ?? "");
-    const beforeUpdate = projects.find((project) => project.id === id) ?? null;
-    const requestedStateChanged =
-      beforeUpdate !== null &&
-      (beforeUpdate.title !== title ||
-        (beforeUpdate.description ?? "") !== description);
-    const reconcileUpdate = async () => {
-      const observed = await load({ reportFailure: false });
-      const confirmed =
-        observed?.some(
-          (project) =>
-            project.id === id &&
-            project.title === title &&
-            (project.description ?? "") === description &&
-            (requestedStateChanged ||
-              (beforeUpdate !== null &&
-                project.updated_at !== beforeUpdate.updated_at)),
-        ) === true;
-      if (confirmed) setEditing((current) => (current === id ? null : current));
-      notice = {
-        ...operation,
-        message: confirmed
-          ? "Сервер не ответил ожидаемым образом, но сохранение подтверждено по актуальному списку проектов."
-          : observed
-            ? "Сервер не подтвердил сохранение. Список проектов обновлён; проверьте проект перед повторной попыткой."
-            : "Сервер не подтвердил сохранение, а обновить список проектов не удалось. Обновите страницу перед повторной попыткой.",
-        tone: confirmed ? "notice" : "error",
-      };
-    };
-    try {
-      const request = await runBoundedRequest(
-        (signal) =>
-          csrfMutate<unknown>(`/projects/${id}`, csrf, onCsrf, {
-            method: "PATCH",
-            signal,
-            body: JSON.stringify({ title, description }),
-          }),
-        PROJECT_MUTATION_REQUEST_TIMEOUT_MS,
-      );
-      if (request.status === "timed_out") {
-        await reconcileUpdate();
-        return;
-      }
-      const updated = request.value;
-      if (
-        !isExpectedProject(updated) ||
-        updated.id !== id ||
-        updated.archived_at !== null
-      ) {
-        await reconcileUpdate();
-        return;
-      }
-      setProjects((current) =>
-        current.map((project) => (project.id === id ? updated : project)),
-      );
-      setEditing(null);
-      await load({ reportFailure: false });
-      notice = {
-        ...operation,
-        message: "Изменения проекта сохранены.",
-        tone: "notice",
-      };
-    } catch (err) {
-      if (isAmbiguousProjectMutationFailure(err)) {
-        await reconcileUpdate();
-      } else {
-        notice = {
-          ...operation,
-          message: "Не удалось сохранить проект. Проверьте данные и повторите.",
-          tone: "error",
-        };
-      }
-    } finally {
-      finishProjectMutation(operation, notice);
-    }
-  }
-  async function archive(id: string) {
-    const operation: ProjectMutationOperation = {
-      kind: "archive",
-      projectId: id,
-    };
-    if (!beginProjectMutation(operation)) return;
-    let notice: ProjectMutationNotice | undefined;
-    setError("");
-    const reconcileArchive = async () => {
-      const observed = await load({ reportFailure: false });
-      const confirmed =
-        observed !== null &&
-        !observed.some((project) => project.id === operation.projectId);
-      notice = {
-        ...operation,
-        message: confirmed
-          ? "Архивация подтверждена по актуальному списку проектов."
-          : observed
-            ? "Сервер не подтвердил архивацию. Проект остаётся в актуальном списке; проверьте его перед повторной попыткой."
-            : "Сервер не подтвердил архивацию, а обновить список проектов не удалось. Обновите страницу перед повторной попыткой.",
-        tone: confirmed ? "notice" : "error",
-      };
-    };
-    try {
-      const request = await runBoundedRequest(
-        (signal) =>
-          csrfMutate<unknown>(
-            `/projects/${id}/archive`,
-            csrf,
-            onCsrf,
-            { method: "POST", signal },
-          ),
-        PROJECT_MUTATION_REQUEST_TIMEOUT_MS,
-      );
-      if (request.status === "timed_out") {
-        await reconcileArchive();
-        return;
-      }
-      const response = request.value;
-      if (
-        !response ||
-        typeof response !== "object" ||
-        (response as { ok?: unknown }).ok !== true
-      ) {
-        await reconcileArchive();
-        return;
-      }
-      setProjects((current) =>
-        current.filter((project) => project.id !== id),
-      );
-      setSelectedProjectId((current) =>
-        current === id
-          ? (projects.find((project) => project.id !== id)?.id ?? null)
-          : current,
-      );
-      setEditing((current) => (current === id ? null : current));
-      await load({ reportFailure: false });
-      notice = {
-        ...operation,
-        message: "Проект архивирован.",
-        tone: "notice",
-      };
-    } catch (err) {
-      if (isAmbiguousProjectMutationFailure(err)) {
-        await reconcileArchive();
-      } else {
-        notice = {
-          ...operation,
-          message: "Не удалось архивировать проект. Обновите список и повторите.",
-          tone: "error",
-        };
-      }
-    } finally {
-      finishProjectMutation(operation, notice);
-    }
-  }
   const selectedProject =
     projects.find((project) => project.id === selectedProjectId) ?? null;
-  const createMutationKey = projectMutationKey({
-    kind: "create",
-    projectId: null,
-  });
-  const createPending = pendingProjectMutations.has(createMutationKey);
-  const createNotice = projectMutationNotices[createMutationKey];
-  const updatePending = selectedProject
-    ? pendingProjectMutations.has(
-        projectMutationKey({ kind: "update", projectId: selectedProject.id }),
-      )
-    : false;
-  const archivePending = selectedProject
-    ? pendingProjectMutations.has(
-        projectMutationKey({ kind: "archive", projectId: selectedProject.id }),
-      )
-    : false;
-  const selectedProjectMutationNotices = selectedProject
-    ? Object.entries(projectMutationNotices).filter(
-        ([, notice]) => notice.projectId === selectedProject.id,
-      )
-    : [];
-  const showCreate = createOpen || projects.length === 0;
   const selectedSources = selectedProject
     ? (sources[selectedProject.id] ?? emptySourceState)
     : emptySourceState;
@@ -5408,200 +5164,90 @@ function ProjectsPage({
   }, [selectedProject?.id]);
   useEffect(() => setTranscriptionMode("batch"), [selectedProject?.id]);
   return (
-    <section className="page">
-      <header className="page-header split">
+    <section className="page transcriptions-page">
+      <header className="page-header">
         <div>
-          <h1 className="page-title">Проекты</h1>
+          <h1 className="page-title">Транскрибации</h1>
           <p>
-            Создавайте проекты, добавляйте файлы, выбирайте папку результатов и
-            запускайте задачи.
+            Обычная обработка файлов и Live-транскрибация находятся в одном
+            рабочем пространстве.
           </p>
         </div>
-        <button
-          className="primary"
-          type="button"
-          aria-expanded={showCreate}
-          aria-busy={createPending || undefined}
-          disabled={createPending}
-          onClick={() => {
-            onRequestedProjectsViewHandled();
-            setCreateOpen(true);
-          }}
-        >
-          Новый проект
-        </button>
       </header>
-      {showCreate && (
-        <form
-          className="card project-form"
-          aria-busy={createPending || undefined}
-          onSubmit={save}
-        >
-          <h2>Новый проект</h2>
-          <label>
-            Название проекта
-            <input name="project_title" maxLength={160} required />
-          </label>
-          <label>
-            Описание
-            <input name="project_description" maxLength={2000} />
-          </label>
-          <div className="actions">
-            <button
-              className="primary"
-              aria-busy={createPending || undefined}
-              disabled={createPending}
-            >
-              {createPending ? "Создание…" : "Создать"}
-            </button>
-            <button
-              type="button"
-              disabled={createPending}
-              onClick={() => setCreateOpen(false)}
-            >
-              Отмена
-            </button>
+      {loading && <p role="status">Подготавливаем транскрибации…</p>}
+      {error && (
+        <div className="error" role="alert">
+          <p>{error}</p>
+          <button type="button" onClick={load}>
+            Повторить
+          </button>
+        </div>
+      )}
+      {!loading && !error && projects.length === 0 && (
+        <div className="notice">
+          <p>Рабочая область транскрибаций пока недоступна.</p>
+          <button type="button" onClick={() => void ensureWorkspace()}>
+            Подготовить
+          </button>
+        </div>
+      )}
+      {!loading && !error && projects.length > 1 && (
+        <details className="card legacy-workspace-switcher">
+          <summary>Прежние рабочие области · {projects.length}</summary>
+          <p className="muted">
+            Они сохранены для доступа к ранее созданным данным. Новые
+            транскрибации не требуют ручного создания или архивации проектов.
+          </p>
+          <div className="legacy-workspace-list">
+            {projects.map((project) => (
+              <button
+                key={project.id}
+                type="button"
+                className={
+                  project.id === selectedProjectId ? "active" : undefined
+                }
+                aria-pressed={project.id === selectedProjectId}
+                onClick={() => setSelectedProjectId(project.id)}
+              >
+                <strong>{project.title}</strong>
+                <small>
+                  Обновлено{" "}
+                  {new Date(project.updated_at).toLocaleDateString("ru-RU")}
+                </small>
+              </button>
+            ))}
           </div>
-          {createNotice && (
-            <p
-              className={createNotice.tone}
-              role={createNotice.tone === "error" ? "alert" : "status"}
-            >
-              {createNotice.message}
+        </details>
+      )}
+      {!loading && !error && selectedProject ? (
+        <article className="card workspace-card">
+          {projects.length > 1 && (
+            <p className="workspace-context muted">
+              Открыта прежняя рабочая область: {selectedProject.title}
             </p>
           )}
-        </form>
-      )}
-      {loading && <p role="status">Загрузка проектов…</p>}
-      {error && <p className="error">{error}</p>}
-      {!loading && !error && projects.length === 0 && (
-        <p className="notice">Пока нет проектов. Создайте первый проект.</p>
-      )}
-      <div className="workspace-layout">
-        <section className="project-list" aria-label="Список проектов">
-          {projects.map((project) => (
-            <button
-              key={project.id}
-              type="button"
-              className={
-                project.id === selectedProjectId
-                  ? "project-list-item active"
-                  : "project-list-item"
-              }
-              onClick={() => {
-                setSelectedProjectId(project.id);
-              }}
-            >
-              <strong>{project.title}</strong>
-              {project.description && <span>{project.description}</span>}
-              <small>
-                Обновлено{" "}
-                {new Date(project.updated_at).toLocaleDateString("ru-RU")}
-              </small>
-            </button>
-          ))}
-        </section>
-        <div className="project-detail">
-          {selectedProject ? (
-            <>
-              {selectedProjectMutationNotices.map(([key, notice]) => (
-                <p
-                  key={key}
-                  className={notice.tone}
-                  role={notice.tone === "error" ? "alert" : "status"}
-                >
-                  {notice.message}
-                </p>
-              ))}
-              <article className="card workspace-card">
-              {editing === selectedProject.id ? (
-                <form
-                  className="project-edit compact"
-                  aria-busy={updatePending || undefined}
-                  onSubmit={(e) => update(e, selectedProject.id)}
-                >
-                  <label>
-                    Название проекта
-                    <input
-                      name="project_title"
-                      defaultValue={selectedProject.title}
-                      maxLength={160}
-                      required
-                    />
-                  </label>
-                  <label>
-                    Описание
-                    <textarea
-                      name="project_description"
-                      defaultValue={selectedProject.description ?? ""}
-                      maxLength={2000}
-                    />
-                  </label>
-                  <div className="actions">
-                    <button
-                      className="primary"
-                      aria-busy={updatePending || undefined}
-                      disabled={updatePending}
-                    >
-                      {updatePending ? "Сохранение…" : "Сохранить"}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={updatePending}
-                      onClick={() => setEditing(null)}
-                    >
-                      Отмена
-                    </button>
-                  </div>
-                </form>
-              ) : (
-                <header className="workspace-header split">
-                  <div>
-                    <h2>{selectedProject.title}</h2>
-                    <p>
-                      {selectedProject.description || "Описание не добавлено."}
-                    </p>
-                    <p className="muted">
-                      Обновлено:{" "}
-                      {new Date(selectedProject.updated_at).toLocaleString(
-                        "ru-RU",
-                      )}
-                    </p>
-                  </div>
-                  <div className="actions">
-                    <button
-                      type="button"
-                      disabled={archivePending}
-                      onClick={() => setEditing(selectedProject.id)}
-                    >
-                      Редактировать
-                    </button>
-                    <button
-                      className="danger"
-                      type="button"
-                      aria-busy={archivePending || undefined}
-                      disabled={archivePending}
-                      onClick={() => archive(selectedProject.id)}
-                    >
-                      {archivePending ? "Архивация…" : "Архивировать"}
-                    </button>
-                  </div>
-                </header>
-              )}
-              <div
-                className="tabs transcription-mode-tabs"
-                role="tablist"
-                aria-label="Режим транскрибации"
-              >
+          <div
+            className="tabs transcription-mode-tabs"
+            role="tablist"
+            aria-label="Режим транскрибации"
+          >
                 <button
                   id="transcription-tab-batch"
                   type="button"
                   role="tab"
                   aria-controls="transcription-panel-batch"
                   aria-selected={transcriptionMode === "batch"}
+                  tabIndex={transcriptionMode === "batch" ? 0 : -1}
                   onClick={() => setTranscriptionMode("batch")}
+                  onKeyDown={(event) =>
+                    navigateTabList(
+                      event,
+                      ["batch", "live"] as const,
+                      setTranscriptionMode,
+                    )
+                  }
                 >
-                  Пакетная транскрибация
+                  Обычная транскрибация
                 </button>
                 <button
                   id="transcription-tab-live"
@@ -5609,7 +5255,15 @@ function ProjectsPage({
                   role="tab"
                   aria-controls="transcription-panel-live"
                   aria-selected={transcriptionMode === "live"}
+                  tabIndex={transcriptionMode === "live" ? 0 : -1}
                   onClick={() => setTranscriptionMode("live")}
+                  onKeyDown={(event) =>
+                    navigateTabList(
+                      event,
+                      ["batch", "live"] as const,
+                      setTranscriptionMode,
+                    )
+                  }
                 >
                   Live-транскрибация
                 </button>
@@ -5674,6 +5328,7 @@ function ProjectsPage({
               >
                 <LiveTranscriptionPanel
                   key={selectedProject.id}
+                  ownerUserId={ownerUserId}
                   projectId={selectedProject.id}
                   csrf={csrf}
                   onCsrf={onCsrf}
@@ -5687,13 +5342,10 @@ function ProjectsPage({
                   }
                 />
               </div>
-            </article>
-            </>
-          ) : (
-            <p className="notice">Выберите проект.</p>
-          )}
-        </div>
-      </div>
+        </article>
+      ) : !loading && !error && projects.length > 0 ? (
+        <p role="status">Открываем транскрибации…</p>
+      ) : null}
     </section>
   );
 }
@@ -6797,38 +6449,68 @@ function SettingsPage({
     ) ?? null;
   const credentialsUnavailable = credentialsLoading || Boolean(credentialsMessage);  return (
     <section className="card wide">
-      <h2>Настройки</h2>
+      <h1 className="page-title">Настройки</h1>
       <div className="tabs" role="tablist" aria-label="Разделы настроек">
         <button
+          id="settings-tab-account"
           type="button"
           role="tab"
+          aria-controls="settings-panel-account"
           aria-selected={section === "account"}
+          tabIndex={section === "account" ? 0 : -1}
           className={section === "account" ? "active" : ""}
           onClick={() => onSectionChange("account")}
+          onKeyDown={(event) =>
+            navigateTabList(
+              event,
+              ["account", "diagnostics"] as const,
+              onSectionChange,
+            )
+          }
         >
           Аккаунт
         </button>
         <button
+          id="settings-tab-diagnostics"
           type="button"
           role="tab"
+          aria-controls="settings-panel-diagnostics"
           aria-selected={section === "diagnostics"}
+          tabIndex={section === "diagnostics" ? 0 : -1}
           className={section === "diagnostics" ? "active" : ""}
           onClick={() => onSectionChange("diagnostics")}
+          onKeyDown={(event) =>
+            navigateTabList(
+              event,
+              ["account", "diagnostics"] as const,
+              onSectionChange,
+            )
+          }
         >
           Диагностика
         </button>
       </div>
       {section === "diagnostics" ? (
-        <DiagnosticsSettings
-          csrf={csrf}
-          onCsrf={onCsrf}
-          auditEvents={events}
-          auditState={auditState}
-          auditMessage={auditMessage}
-          onRetryAudit={() => void loadAuditEvents()}
-        />
+        <div
+          id="settings-panel-diagnostics"
+          role="tabpanel"
+          aria-labelledby="settings-tab-diagnostics"
+        >
+          <DiagnosticsSettings
+            csrf={csrf}
+            onCsrf={onCsrf}
+            auditEvents={events}
+            auditState={auditState}
+            auditMessage={auditMessage}
+            onRetryAudit={() => void loadAuditEvents()}
+          />
+        </div>
       ) : (
-        <>
+        <div
+          id="settings-panel-account"
+          role="tabpanel"
+          aria-labelledby="settings-tab-account"
+        >
           <h2>Настройки аккаунта</h2>
           {oauthMessage && (
             <p className="notice" role="status">
@@ -6976,6 +6658,9 @@ function SettingsPage({
           <h3>Ключи провайдеров</h3>
           <p className="notice">
             Ключи не сохраняются в браузере и никогда не отображаются обратно.
+            Текущие обычная и Live-транскрибации выполняются только через
+            ElevenLabs. OpenAI key можно безопасно хранить для будущих
+            интеграций, но текущий execution flow его не использует.
           </p>
           {credentialMutations.length > 0 && (
             <p role="status" className="notice">
@@ -7024,7 +6709,9 @@ function SettingsPage({
                 disabled={createCredentialPending}
               >
                 <option value="elevenlabs">ElevenLabs</option>
-                <option value="openai">OpenAI</option>
+                <option value="openai">
+                  OpenAI — только хранение, не для текущей транскрибации
+                </option>
               </select>
               <input
                 name="credential_label"
@@ -7073,6 +6760,12 @@ function SettingsPage({
                     {credential.status} · v{credential.active_version ?? "—"} ·{" "}
                     {credential.masked_value ?? "—"}
                   </p>
+                  {credential.provider === "openai" && (
+                    <p className="notice">
+                      Этот key хранится зашифрованно, но не используется
+                      текущей обычной или Live-транскрибацией.
+                    </p>
+                  )}
                   <p className="muted">
                     Отключение запрещает использовать ключ в задачах, но сохраняет
                     его версии. Удаление навсегда стирает сохранённые значения
@@ -7316,7 +7009,7 @@ function SettingsPage({
               </ul>
             </details>
           </details>
-        </>
+        </div>
       )}
     </section>
   );
@@ -8082,9 +7775,6 @@ function PlatformShell() {
   const [requestedProjectId, setRequestedProjectId] = useState<string | null>(
     null,
   );
-  const [requestedProjectsView, setRequestedProjectsView] = useState<
-    ProjectsViewRequest
-  >(null);
   const [projectsOpened, setProjectsOpened] = useState(false);
   const credentialMutationGenerationRef = useRef(0);
   const activeCredentialMutationsRef = useRef(
@@ -8452,7 +8142,6 @@ function PlatformShell() {
           navigate(nextPage);
           if (nextPage === "projects") {
             setRequestedProjectId(null);
-            setRequestedProjectsView("browse");
           }
         }}
       />
@@ -8462,18 +8151,11 @@ function PlatformShell() {
             onNavigate={(nextPage) => {
               if (nextPage === "projects") {
                 setRequestedProjectId(null);
-                setRequestedProjectsView("browse");
               }
               navigate(nextPage);
             }}
-            onCreateProject={() => {
-              setRequestedProjectsView("create");
+            onOpenTranscriptions={() => {
               setRequestedProjectId(null);
-              navigate("projects");
-            }}
-            onOpenProject={(projectId) => {
-              setRequestedProjectsView("browse");
-              setRequestedProjectId(projectId);
               navigate("projects");
             }}
           />
@@ -8482,6 +8164,7 @@ function PlatformShell() {
           <div hidden={page !== "projects"}>
             <ProjectsPage
               active={page === "projects"}
+              ownerUserId={user.email}
               csrf={csrf}
               onCsrf={(token) => {
                 setSession((current) => ({ ...current, csrf: token }));
@@ -8489,10 +8172,6 @@ function PlatformShell() {
               }}
               requestedProjectId={requestedProjectId}
               onRequestedProjectHandled={() => setRequestedProjectId(null)}
-              requestedProjectsView={requestedProjectsView}
-              onRequestedProjectsViewHandled={() =>
-                setRequestedProjectsView(null)
-              }
             />
           </div>
         )}

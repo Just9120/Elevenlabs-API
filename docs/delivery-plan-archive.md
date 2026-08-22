@@ -721,6 +721,18 @@ Goal `PWA-INGEST-METADATA-POLISH-01` была merged через PR #217 и за�
 - The same LIVE session exposed a separate duplicate-state inconsistency: an accepted completed output was visible while provider authority was reported unresolved. This was not counted as a new denominator item and is addressed in the next authorized Goal.
 - Required Goal Evidence: `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅`. Approved post-deploy metadata writer remained absent; closure was reconciled at the start of the next authorized Goal without a follow-up docs-only PR.
 
+## Archived PRs #218–#221 PWA operability closure
+
+Goal `PWA-OPERABILITY-POLISH-02` и три bounded production-preflight follow-ups были завершены и merged в `main` 2026-08-22.
+
+- Goal implementation PR #218 merged как `1fc868847377ad059743ac4d1aa3ae0573d27507`; последующие safe diagnostics/runtime-secret validator PRs #219–#221 merged до `main@dd194c929d957e822ff618df294dc54e72d5971e`.
+- Exact-main CI для финального revision: repository run `32575534468` success; Studio run `32575534462` success.
+- Read-only production preflight `32575670127` success подтвердил reviewed mounted-secret validation boundary без раскрытия values.
+- Manual worker deploy `32575720276` success; final worker status `32575774151` success на exact `dd194c9`.
+- Protected migration `0022_account_operability`, API deployment и bounded owner LIVE validation были завершены ранее в этом chain; migration gate после release возвращён в закрытое состояние.
+- Scope закрыл `PM-03`, `PO-10/11/17/18`, persistent accent и false unresolved provider-attempt defect. Archived/clear destructive paths не запускались в production.
+- Approved post-deploy metadata writer отсутствовал; closure reconciled при старте следующей authorized Goal без docs-only follow-up PR.
+
 ## Current non-authority warning
 
 If this archive conflicts with `docs/project-spec.md`, `docs/delivery-plan.md`, `docs/architecture.md`, `docs/ci-cd-rules.md`, or the current user task, treat the current documents/task as authoritative and this archive as historical context only.
