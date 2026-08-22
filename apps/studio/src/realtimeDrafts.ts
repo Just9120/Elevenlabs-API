@@ -287,6 +287,9 @@ export function newestRealtimeDraft(
 ) {
   if (!localDraft) return serverDraft;
   if (!serverDraft) return localDraft;
+  if (localDraft.client_session_id === serverDraft.client_session_id) {
+    return localDraft.revision >= serverDraft.revision ? localDraft : serverDraft;
+  }
   const localUpdated = Date.parse(localDraft.updated_at);
   const serverUpdated = Date.parse(serverDraft.updated_at);
   if (localUpdated !== serverUpdated) {
@@ -295,9 +298,16 @@ export function newestRealtimeDraft(
   return localDraft.revision >= serverDraft.revision ? localDraft : serverDraft;
 }
 
-export function realtimeDraftDownloadText(draft: RealtimeDraft) {
-  const committed = draft.committed_segments.join("\n");
-  if (!draft.partial) return committed;
+export function realtimeTranscriptText(
+  committedSegments: string[],
+  partial: string,
+) {
+  const committed = committedSegments.join("\n");
+  if (!partial) return committed;
   const separator = committed ? "\n\n" : "";
-  return `${committed}${separator}[Неподтверждённый фрагмент]\n${draft.partial}`;
+  return `${committed}${separator}[Неподтверждённый фрагмент]\n${partial}`;
+}
+
+export function realtimeDraftDownloadText(draft: RealtimeDraft) {
+  return realtimeTranscriptText(draft.committed_segments, draft.partial);
 }

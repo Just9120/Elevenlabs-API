@@ -13,6 +13,7 @@ import {
   type RealtimeSessionStatus,
 } from "./realtimeSession";
 import type { TranscriptionLanguageMode } from "./jobModel";
+import { runBoundedRequest } from "./jobMutationRequest";
 import {
   REALTIME_PARTIAL_CHECKPOINT_DEBOUNCE_MS,
   deleteLocalRealtimeDraft,
@@ -22,6 +23,7 @@ import {
   newRealtimeClientSessionId,
   parseLatestRealtimeDraftResponse,
   realtimeDraftDownloadText,
+  realtimeTranscriptText,
   saveLocalRealtimeDraft,
   type RealtimeDraft,
 } from "./realtimeDrafts";
@@ -61,6 +63,7 @@ const FAILURE_MESSAGES: Record<string, string> = {
 };
 
 const CREDENTIAL_REQUEST_TIMEOUT_MS = 15_000;
+const REALTIME_DRAFT_REQUEST_TIMEOUT_MS = 15_000;
 
 function capabilityFailureMessage(error: unknown) {
   if (!(error instanceof ApiError) || !error.data) {
@@ -155,6 +158,8 @@ export function LiveTranscriptionPanel({
   const partialRef = useRef("");
   const draftRef = useRef<RealtimeDraft | null>(null);
   const serverSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const draftMutationGenerationRef = useRef(0);
+  const draftDeletePendingRef = useRef(false);
   const partialCheckpointTimerRef = useRef<number | null>(null);
   const mountedRef = useRef(true);
   const csrfRef = useRef(csrf);
@@ -174,14 +179,100 @@ export function LiveTranscriptionPanel({
     "stopping",
   ].includes(status);
   const transcript = useMemo(() => segments.join("\n"), [segments]);
+  const actionableDraftText = useMemo(
+    () => realtimeTranscriptText(segments, partial),
+    [segments, partial],
+  );
   csrfRef.current = csrf;
   onCsrfRef.current = onCsrf;
+
+  function enqueueServerDraftSave(nextDraft: RealtimeDraft) {
+    const generation = draftMutationGenerationRef.current;
+    const operation = serverSaveQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        if (
+          draftDeletePendingRef.current ||
+          generation !== draftMutationGenerationRef.current
+        ) {
+          return false;
+        }
+        try {
+          const bounded = await runBoundedRequest(
+            (signal) =>
+              mutateWithCsrfRetry<unknown>(
+                `/projects/${projectId}/realtime/drafts/${encodeURIComponent(nextDraft.client_session_id)}`,
+                csrfRef.current,
+                onCsrfRef.current,
+                {
+                  method: "PUT",
+                  signal,
+                  body: JSON.stringify({
+                    revision: nextDraft.revision,
+                    committed_segments: nextDraft.committed_segments,
+                    partial: nextDraft.partial,
+                  }),
+                },
+              ),
+            REALTIME_DRAFT_REQUEST_TIMEOUT_MS,
+          );
+          if (bounded.status !== "completed") return false;
+          const response = bounded.value;
+          const metadata =
+            response && typeof response === "object"
+              ? (response as { draft?: unknown }).draft
+              : null;
+          return Boolean(
+            metadata &&
+              typeof metadata === "object" &&
+              (metadata as { client_session_id?: unknown }).client_session_id ===
+                nextDraft.client_session_id &&
+              (metadata as { revision?: unknown }).revision ===
+                nextDraft.revision,
+          );
+        } catch {
+          return false;
+        }
+      });
+    serverSaveQueueRef.current = operation.then(
+      () => undefined,
+      () => undefined,
+    );
+    return operation;
+  }
+
+  async function persistDraft(nextDraft: RealtimeDraft) {
+    const generation = draftMutationGenerationRef.current;
+    const localWrite = saveLocalRealtimeDraft(nextDraft)
+      .then(() => true)
+      .catch(() => false);
+    const serverWrite = enqueueServerDraftSave(nextDraft);
+    const [localSaved, serverSaved] = await Promise.all([
+      localWrite,
+      serverWrite,
+    ]);
+    if (
+      !mountedRef.current ||
+      generation !== draftMutationGenerationRef.current ||
+      draftRef.current?.client_session_id !== nextDraft.client_session_id ||
+      draftRef.current?.revision !== nextDraft.revision
+    ) {
+      return localSaved && serverSaved;
+    }
+    setDraftStatus(localSaved && serverSaved ? "saved" : "degraded");
+    return localSaved && serverSaved;
+  }
 
   function checkpointDraft(
     committedSegments: string[],
     latestPartial: string,
   ) {
-    if (committedSegments.length === 0 && !latestPartial) return;
+    if (
+      draftDeletePendingRef.current ||
+      (committedSegments.length === 0 && !latestPartial)
+    ) {
+      return;
+    }
     const nextRevision = (draftRef.current?.revision ?? 0) + 1;
     let nextDraft: RealtimeDraft;
     try {
@@ -203,48 +294,7 @@ export function LiveTranscriptionPanel({
     }
     draftRef.current = nextDraft;
     setDraftStatus("saving");
-    const localWrite = saveLocalRealtimeDraft(nextDraft)
-      .then(() => true)
-      .catch(() => false);
-    serverSaveQueueRef.current = serverSaveQueueRef.current
-      .catch(() => undefined)
-      .then(async () => {
-        const localSaved = await localWrite;
-        let serverSaved: boolean;
-        try {
-          const response = await mutateWithCsrfRetry<unknown>(
-            `/projects/${projectId}/realtime/drafts/${encodeURIComponent(nextDraft.client_session_id)}`,
-            csrfRef.current,
-            onCsrfRef.current,
-            {
-              method: "PUT",
-              body: JSON.stringify({
-                revision: nextDraft.revision,
-                committed_segments: nextDraft.committed_segments,
-                partial: nextDraft.partial,
-              }),
-            },
-          );
-          const metadata =
-            response && typeof response === "object"
-              ? (response as { draft?: unknown }).draft
-              : null;
-          serverSaved = Boolean(
-            metadata &&
-              typeof metadata === "object" &&
-              (metadata as { client_session_id?: unknown }).client_session_id ===
-                nextDraft.client_session_id &&
-              (metadata as { revision?: unknown }).revision ===
-                nextDraft.revision,
-          );
-        } catch {
-          serverSaved = false;
-        }
-        if (!mountedRef.current || draftRef.current?.revision !== nextDraft.revision) {
-          return;
-        }
-        setDraftStatus(localSaved && serverSaved ? "saved" : "degraded");
-      });
+    void persistDraft(nextDraft);
   }
 
   function schedulePartialCheckpoint(nextPartial: string) {
@@ -293,6 +343,7 @@ export function LiveTranscriptionPanel({
     return () => {
       cancelled = true;
       mountedRef.current = false;
+      draftMutationGenerationRef.current += 1;
       if (partialCheckpointTimerRef.current !== null) {
         window.clearTimeout(partialCheckpointTimerRef.current);
         partialCheckpointTimerRef.current = null;
@@ -427,14 +478,14 @@ export function LiveTranscriptionPanel({
   }, [active]);
 
   useEffect(() => {
-    if (!running && !transcript) return;
+    if (!running && !actionableDraftText) return;
     const warnBeforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       event.returnValue = "";
     };
     window.addEventListener("beforeunload", warnBeforeUnload);
     return () => window.removeEventListener("beforeunload", warnBeforeUnload);
-  }, [running, transcript]);
+  }, [running, actionableDraftText]);
 
   async function start() {
     if (running) return;
@@ -527,9 +578,9 @@ export function LiveTranscriptionPanel({
   }
 
   async function copyTranscript() {
-    if (!transcript) return;
+    if (!actionableDraftText) return;
     try {
-      await navigator.clipboard.writeText(transcript);
+      await navigator.clipboard.writeText(actionableDraftText);
       setExportNotice("Текст скопирован в буфер обмена.");
     } catch {
       setExportNotice("");
@@ -551,24 +602,56 @@ export function LiveTranscriptionPanel({
   }
 
   function downloadTranscript() {
-    downloadTextFile(transcript);
+    downloadTextFile(actionableDraftText);
   }
 
   async function deleteDraft(draft: RealtimeDraft) {
+    if (draftDeletePendingRef.current) return false;
+    draftDeletePendingRef.current = true;
+    draftMutationGenerationRef.current += 1;
+    if (partialCheckpointTimerRef.current !== null) {
+      window.clearTimeout(partialCheckpointTimerRef.current);
+      partialCheckpointTimerRef.current = null;
+    }
     setDraftStatus("saving");
-    await deleteLocalRealtimeDraft(ownerUserId, projectId).catch(() => undefined);
+    const localDelete = deleteLocalRealtimeDraft(ownerUserId, projectId)
+      .then(() => true)
+      .catch(() => false);
+    const serverDelete = serverSaveQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        try {
+          const bounded = await runBoundedRequest(
+            (signal) =>
+              mutateWithCsrfRetry<unknown>(
+                `/projects/${projectId}/realtime/drafts/${encodeURIComponent(draft.client_session_id)}`,
+                csrfRef.current,
+                onCsrfRef.current,
+                { method: "DELETE", signal },
+              ),
+            REALTIME_DRAFT_REQUEST_TIMEOUT_MS,
+          );
+          if (bounded.status !== "completed") return false;
+          const response = bounded.value;
+          return Boolean(
+            response &&
+              typeof response === "object" &&
+              (response as { ok?: unknown }).ok === true,
+          );
+        } catch {
+          return false;
+        }
+      });
+    serverSaveQueueRef.current = serverDelete.then(
+      () => undefined,
+      () => undefined,
+    );
     try {
-      const response = await mutateWithCsrfRetry<unknown>(
-        `/projects/${projectId}/realtime/drafts/${encodeURIComponent(draft.client_session_id)}`,
-        csrfRef.current,
-        onCsrfRef.current,
-        { method: "DELETE" },
-      );
-      if (
-        !response ||
-        typeof response !== "object" ||
-        (response as { ok?: unknown }).ok !== true
-      ) {
+      const [localDeleted, serverDeleted] = await Promise.all([
+        localDelete,
+        serverDelete,
+      ]);
+      if (!localDeleted || !serverDeleted) {
         throw new Error("invalid_realtime_draft_delete_response");
       }
       if (draftRef.current?.client_session_id === draft.client_session_id) {
@@ -582,10 +665,12 @@ export function LiveTranscriptionPanel({
         "Локальная копия черновика удалена, но Studio API не подтвердил удаление серверной копии. Повторите действие.",
       );
       return false;
+    } finally {
+      draftDeletePendingRef.current = false;
     }
   }
 
-  function restoreRecoveryDraft() {
+  async function restoreRecoveryDraft() {
     const candidate = recoveryCandidate;
     if (!candidate) return;
     draftRef.current = candidate;
@@ -595,10 +680,8 @@ export function LiveTranscriptionPanel({
     setPartial(candidate.partial);
     onSegmentsChange?.([...candidate.committed_segments]);
     setRecoveryCandidate(null);
-    setDraftStatus("saved");
-    void saveLocalRealtimeDraft(candidate).catch(() =>
-      setDraftStatus("degraded"),
-    );
+    setDraftStatus("saving");
+    void persistDraft(candidate);
     setExportNotice("Незавершённый Live-черновик восстановлен.");
   }
 
@@ -613,7 +696,7 @@ export function LiveTranscriptionPanel({
   }
 
   async function clearTranscript() {
-    if (!transcript || running) return;
+    if (!actionableDraftText || running) return;
     if (
       !window.confirm(
         "Очистить подтверждённый текст и удалить временный Live-черновик?",
@@ -621,7 +704,7 @@ export function LiveTranscriptionPanel({
     )
       return;
     const currentDraft = draftRef.current;
-    if (currentDraft) await deleteDraft(currentDraft);
+    if (currentDraft && !(await deleteDraft(currentDraft))) return;
     segmentsRef.current = [];
     partialRef.current = "";
     setSegments([]);
@@ -680,7 +763,11 @@ export function LiveTranscriptionPanel({
             </p>
           </div>
           <div className="actions">
-            <button type="button" className="primary" onClick={restoreRecoveryDraft}>
+            <button
+              type="button"
+              className="primary"
+              onClick={() => void restoreRecoveryDraft()}
+            >
               Восстановить
             </button>
             <button
@@ -910,21 +997,21 @@ export function LiveTranscriptionPanel({
             </button>
             <button
               type="button"
-              disabled={!transcript}
+              disabled={!actionableDraftText}
               onClick={() => void copyTranscript()}
             >
               Копировать
             </button>
             <button
               type="button"
-              disabled={!transcript}
+              disabled={!actionableDraftText}
               onClick={downloadTranscript}
             >
               Скачать .txt
             </button>
             <button
               type="button"
-              disabled={!transcript || running}
+              disabled={!actionableDraftText || running}
               onClick={() => void clearTranscript()}
             >
               Очистить

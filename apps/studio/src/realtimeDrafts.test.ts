@@ -124,4 +124,27 @@ describe("realtime draft contract", () => {
       "Серверный\n\n[Неподтверждённый фрагмент]\nне подтверждён",
     );
   });
+
+  it("uses monotonic revision before clocks for one client session", () => {
+    const local = makeRealtimeDraft({
+      ownerUserId: "owner@example.test",
+      projectId: "project-1",
+      clientSessionId: "session_123456789",
+      revision: 4,
+      committedSegments: ["Устаревший локальный"],
+      partial: "",
+      now: new Date("2026-08-22T12:05:00Z"),
+    });
+    const server = makeRealtimeDraft({
+      ownerUserId: "owner@example.test",
+      projectId: "project-1",
+      clientSessionId: "session_123456789",
+      revision: 5,
+      committedSegments: ["Новый серверный"],
+      partial: "",
+      now: new Date("2026-08-22T12:01:00Z"),
+    });
+
+    expect(newestRealtimeDraft(local, server)).toBe(server);
+  });
 });

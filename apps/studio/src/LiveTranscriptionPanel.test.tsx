@@ -401,6 +401,182 @@ describe("LiveTranscriptionPanel", () => {
     expect(screen.getByText("неподтверждённое продолжение")).toBeInTheDocument();
     expect(onSegmentsChange).toHaveBeenCalledWith(["Восстановленный фрагмент"]);
     expect(screen.getByRole("button", { name: "Начать" })).toBeEnabled();
+    await waitFor(() =>
+      expect(
+        vi.mocked(fetch).mock.calls.some(
+          ([url, init]) =>
+            String(url).includes("/realtime/drafts/session_recovery_123") &&
+            init?.method === "PUT" &&
+            JSON.parse(String(init.body)).revision === 7,
+        ),
+      ).toBe(true),
+    );
+  });
+
+  it("keeps a restored partial-only draft downloadable and removable", async () => {
+    const defaultFetch = vi.mocked(fetch).getMockImplementation();
+    vi.mocked(fetch).mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/realtime/drafts/latest") && !init?.method) {
+        return response({
+          draft: {
+            client_session_id: "session_partial_only",
+            revision: 3,
+            committed_segments: [],
+            partial: "только неподтверждённый текст",
+            updated_at: new Date().toISOString(),
+            expires_at: new Date(
+              Date.now() + 72 * 60 * 60 * 1000,
+            ).toISOString(),
+          },
+        });
+      }
+      return defaultFetch?.(url, init) as Promise<Response>;
+    });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    render(
+      <LiveTranscriptionPanel
+        projectId="project-safe"
+        csrf="csrf-safe"
+        onCsrf={vi.fn()}
+        active
+      />,
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Восстановить" }),
+    );
+
+    expect(screen.getByText("только неподтверждённый текст")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Копировать" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Скачать .txt" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Очистить" })).toBeEnabled();
+    await userEvent.click(screen.getByRole("button", { name: "Копировать" }));
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+      "[Неподтверждённый фрагмент]\nтолько неподтверждённый текст",
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Очистить" }));
+    await waitFor(() =>
+      expect(
+        vi.mocked(fetch).mock.calls.some(
+          ([url, init]) =>
+            String(url).includes("/realtime/drafts/session_partial_only") &&
+            init?.method === "DELETE",
+        ),
+      ).toBe(true),
+    );
+    expect(
+      screen.getByText("Речь появится здесь до подтверждения фрагмента."),
+    ).toBeInTheDocument();
+  });
+
+  it("makes deletion the final server mutation after queued checkpoints", async () => {
+    const defaultFetch = vi.mocked(fetch).getMockImplementation();
+    const order: string[] = [];
+    let resolveFirstPut: ((value: Response) => void) | undefined;
+    let firstPutSessionId = "";
+    vi.mocked(fetch).mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes("/realtime/drafts/") && init?.method === "PUT") {
+        const body = JSON.parse(String(init.body));
+        order.push(`PUT:${body.revision}`);
+        if (!resolveFirstPut) {
+          firstPutSessionId = String(url).split("/").at(-1) ?? "";
+          return new Promise<Response>((resolve) => {
+            resolveFirstPut = resolve;
+          });
+        }
+      }
+      if (url.includes("/realtime/drafts/") && init?.method === "DELETE") {
+        order.push("DELETE");
+      }
+      return defaultFetch?.(url, init) as Promise<Response>;
+    });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    render(
+      <LiveTranscriptionPanel
+        projectId="project-safe"
+        csrf="csrf-safe"
+        onCsrf={vi.fn()}
+        active
+      />,
+    );
+    await userEvent.click(await screen.findByRole("button", { name: "Начать" }));
+    act(() => {
+      controllerState.instances[0].callbacks.onCommitted("Первый checkpoint");
+      controllerState.instances[0].callbacks.onCommitted("Второй checkpoint");
+    });
+    await waitFor(() => expect(resolveFirstPut).toBeDefined());
+    await userEvent.click(screen.getByRole("button", { name: "Остановить" }));
+    await userEvent.click(screen.getByRole("button", { name: "Очистить" }));
+    expect(order).toEqual(["PUT:1"]);
+
+    await act(async () => {
+      resolveFirstPut?.(
+        await response({
+          draft: {
+            client_session_id: firstPutSessionId,
+            revision: 1,
+          },
+        }),
+      );
+    });
+    await waitFor(() => expect(order.at(-1)).toBe("DELETE"));
+    expect(order.filter((item) => item.startsWith("PUT"))).toEqual(["PUT:1"]);
+    expect(
+      screen.getByText("Подтверждённых фрагментов пока нет."),
+    ).toBeInTheDocument();
+  });
+
+  it("bounds a stalled server checkpoint and reports degraded recovery", async () => {
+    const defaultFetch = vi.mocked(fetch).getMockImplementation();
+    let checkpointSignal: AbortSignal | undefined;
+    vi.mocked(fetch).mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes("/realtime/drafts/") && init?.method === "PUT") {
+        checkpointSignal = init.signal;
+        return new Promise<Response>((_resolve, reject) => {
+          checkpointSignal?.addEventListener("abort", () =>
+            reject(new Error("raw-stalled-checkpoint")),
+          );
+        });
+      }
+      return defaultFetch?.(url, init) as Promise<Response>;
+    });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 15_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      render(
+        <LiveTranscriptionPanel
+          projectId="project-safe"
+          csrf="csrf-safe"
+          onCsrf={vi.fn()}
+          active
+        />,
+      );
+      await userEvent.click(
+        await screen.findByRole("button", { name: "Начать" }),
+      );
+      act(() => {
+        controllerState.instances[0].callbacks.onCommitted("Timeout checkpoint");
+      });
+      expect(
+        await screen.findByText(
+          "Не все копии Live-черновика подтверждены. Не закрывайте вкладку и скачайте текст при первой возможности.",
+        ),
+      ).toBeInTheDocument();
+      expect(checkpointSignal?.aborted).toBe(true);
+      expect(document.body.textContent).not.toContain("raw-stalled-checkpoint");
+    } finally {
+      timeoutSpy.mockRestore();
+    }
   });
 
   it("checkpoints each committed fragment to the encrypted server draft API", async () => {
