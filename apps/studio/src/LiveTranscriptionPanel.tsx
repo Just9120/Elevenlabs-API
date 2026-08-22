@@ -98,6 +98,13 @@ function formatElapsed(totalSeconds: number) {
     : minuteSecond;
 }
 
+function segmentsArePrefix(prefix: string[], candidate: string[]) {
+  return (
+    prefix.length <= candidate.length &&
+    prefix.every((segment, index) => segment === candidate[index])
+  );
+}
+
 function transcriptFilename(now = new Date()) {
   const timestamp = now
     .toISOString()
@@ -731,12 +738,57 @@ export function LiveTranscriptionPanel({
   async function restoreRecoveryDraft() {
     const candidate = recoveryCandidate;
     if (!candidate) return;
+    const retainedSegments = [...segmentsRef.current];
+    const candidateSegments = [...candidate.committed_segments];
+    const candidateExtendsRetained = segmentsArePrefix(
+      retainedSegments,
+      candidateSegments,
+    );
+    const retainedExtendsCandidate = segmentsArePrefix(
+      candidateSegments,
+      retainedSegments,
+    );
+    if (!candidateExtendsRetained && !retainedExtendsCandidate) {
+      setError(
+        "Сохранённый Live-черновик отличается от текста в этой вкладке. Скачайте черновик и явно удалите его либо сохраните текущий текст отдельно; автоматическая замена заблокирована.",
+      );
+      return;
+    }
+    if (
+      retainedExtendsCandidate &&
+      retainedSegments.length > candidateSegments.length
+    ) {
+      let reconciled: RealtimeDraft;
+      try {
+        reconciled = makeRealtimeDraft({
+          ownerUserId,
+          projectId,
+          clientSessionId: candidate.client_session_id,
+          revision: candidate.revision + 1,
+          committedSegments: retainedSegments,
+          partial: partialRef.current,
+        });
+      } catch {
+        setError(
+          "Более полный текст сохранён в этой вкладке, но его не удалось согласовать с временным черновиком. Скачайте оба варианта перед удалением.",
+        );
+        return;
+      }
+      draftRef.current = reconciled;
+      setRecoveryCandidate(null);
+      setDraftStatus("saving");
+      void persistDraft(reconciled);
+      setExportNotice(
+        "Сохранён более полный текст из этой вкладки; старый Live-черновик не перезаписал его.",
+      );
+      return;
+    }
     draftRef.current = candidate;
-    segmentsRef.current = [...candidate.committed_segments];
+    segmentsRef.current = candidateSegments;
     partialRef.current = candidate.partial;
-    setSegments([...candidate.committed_segments]);
+    setSegments(candidateSegments);
     setPartial(candidate.partial);
-    onSegmentsChange?.([...candidate.committed_segments]);
+    onSegmentsChange?.(candidateSegments);
     setRecoveryCandidate(null);
     setDraftStatus("saving");
     void persistDraft(candidate);
@@ -1070,7 +1122,11 @@ export function LiveTranscriptionPanel({
             </button>
             <button
               type="button"
-              disabled={!actionableDraftText || running}
+              disabled={
+                !actionableDraftText ||
+                running ||
+                recoveryState === "loading"
+              }
               onClick={() => void clearTranscript()}
             >
               Очистить

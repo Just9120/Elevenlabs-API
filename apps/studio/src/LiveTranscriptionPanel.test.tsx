@@ -414,6 +414,146 @@ describe("LiveTranscriptionPanel", () => {
     );
   });
 
+  it("keeps Clear disabled until recovery lookup settles", async () => {
+    const defaultFetch = vi.mocked(fetch).getMockImplementation();
+    let resolveRecovery: ((value: Response) => void) | undefined;
+    vi.mocked(fetch).mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/realtime/drafts/latest") && !init?.method) {
+        return new Promise<Response>((resolve) => {
+          resolveRecovery = resolve;
+        });
+      }
+      return defaultFetch?.(url, init) as Promise<Response>;
+    });
+
+    render(
+      <LiveTranscriptionPanel
+        projectId="project-safe"
+        csrf="csrf-safe"
+        onCsrf={vi.fn()}
+        initialSegments={["Retained text"]}
+        active
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Очистить" })).toBeDisabled();
+    await act(async () => resolveRecovery?.(await response({ draft: null })));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Очистить" })).toBeEnabled(),
+    );
+  });
+
+  it("reconciles retained newer segments without restoring an older draft", async () => {
+    const defaultFetch = vi.mocked(fetch).getMockImplementation();
+    const putBodies: Array<{
+      revision: number;
+      committed_segments: string[];
+    }> = [];
+    vi.mocked(fetch).mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/realtime/drafts/latest") && !init?.method) {
+        return response({
+          draft: {
+            client_session_id: "session_older_recovery",
+            revision: 8,
+            committed_segments: ["Старый checkpoint"],
+            partial: "",
+            updated_at: new Date().toISOString(),
+            expires_at: new Date(
+              Date.now() + 72 * 60 * 60 * 1000,
+            ).toISOString(),
+          },
+        });
+      }
+      if (url.includes("/realtime/drafts/") && init?.method === "PUT") {
+        const body = JSON.parse(String(init.body)) as {
+          revision: number;
+          committed_segments: string[];
+        };
+        putBodies.push(body);
+        return response({
+          draft: {
+            client_session_id: "session_older_recovery",
+            revision: body.revision,
+          },
+        });
+      }
+      return defaultFetch?.(url, init) as Promise<Response>;
+    });
+    const retained = ["Старый checkpoint", "Новый фрагмент из памяти"];
+
+    render(
+      <LiveTranscriptionPanel
+        projectId="project-safe"
+        csrf="csrf-safe"
+        onCsrf={vi.fn()}
+        initialSegments={retained}
+        active
+      />,
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Восстановить" }),
+    );
+
+    expect(screen.getByText("Новый фрагмент из памяти")).toBeInTheDocument();
+    await waitFor(() => expect(putBodies).toHaveLength(1));
+    expect(putBodies[0]).toMatchObject({
+      revision: 9,
+      committed_segments: retained,
+    });
+    expect(
+      screen.queryByRole("region", { name: "Восстановление Live-черновика" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("blocks automatic restore when retained and recovered text diverge", async () => {
+    const defaultFetch = vi.mocked(fetch).getMockImplementation();
+    vi.mocked(fetch).mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/realtime/drafts/latest") && !init?.method) {
+        return response({
+          draft: {
+            client_session_id: "session_divergent_recovery",
+            revision: 5,
+            committed_segments: ["Другой server text"],
+            partial: "",
+            updated_at: new Date().toISOString(),
+            expires_at: new Date(
+              Date.now() + 72 * 60 * 60 * 1000,
+            ).toISOString(),
+          },
+        });
+      }
+      return defaultFetch?.(url, init) as Promise<Response>;
+    });
+
+    render(
+      <LiveTranscriptionPanel
+        projectId="project-safe"
+        csrf="csrf-safe"
+        onCsrf={vi.fn()}
+        initialSegments={["Текст из памяти вкладки"]}
+        active
+      />,
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Восстановить" }),
+    );
+
+    expect(screen.getByText("Текст из памяти вкладки")).toBeInTheDocument();
+    expect(screen.queryByText("Другой server text")).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/автоматическая замена заблокирована/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("region", { name: "Восстановление Live-черновика" }),
+    ).toBeInTheDocument();
+    expect(
+      vi.mocked(fetch).mock.calls.some(
+        ([url, init]) =>
+          String(url).includes("/realtime/drafts/") && init?.method === "PUT",
+      ),
+    ).toBe(false);
+  });
+
   it("degrades safely when the server recovery read stalls", async () => {
     const defaultFetch = vi.mocked(fetch).getMockImplementation();
     let recoverySignal: AbortSignal | undefined;
