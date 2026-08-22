@@ -48,11 +48,11 @@ invalid_runtime_setting() {
   return 1
 }
 
-validate_container_storage_secret() {
+validate_container_secret() {
   local env_key="$1"
   "${compose[@]}" exec -T studio-api \
     python -m studio_api.container_entrypoint \
-    --validate-mounted-storage-secret "$env_key" >/dev/null 2>&1
+    --validate-mounted-secret "$env_key" >/dev/null 2>&1
 }
 
 parse_env() {
@@ -132,11 +132,11 @@ validate_runtime_values || { set_row "runtime setting completeness" "blocked" "i
 set_row "runtime setting completeness" "pass" "required non-secret runtime settings are present and valid"
 for k in STUDIO_POSTGRES_PASSWORD_FILE STUDIO_CREDENTIAL_MASTER_KEY_FILE STUDIO_SOURCE_S3_ACCESS_KEY_ID_FILE STUDIO_SOURCE_S3_SECRET_ACCESS_KEY_FILE STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE; do
   v="${ENV_VALUES[$k]-}"; label="${k#STUDIO_}"; label="${label%_FILE} secret-file presence"
-  if [[ -z "$v" || "$v" == __*__ || "$v" == *REQUIRED* || "$v" == *[[:space:]]* || ! -f "$v" ]]; then
-    set_row "$label" "blocked" "required secret file is not present"
+  if [[ -z "$v" || "$v" == __*__ || "$v" == *REQUIRED* || "$v" == *[[:space:]]* || "$v" != /* ]]; then
+    set_row "$label" "blocked" "required secret-file path is missing, placeholder, or unsafe"
     block_exit
   fi
-  set_row "$label" "pass" "required secret file is present"
+  set_row "$label" "pass" "required absolute secret-file path is configured; runtime mount validation pending"
 done
 if [[ "${ENV_VALUES[STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE]}" == "${ENV_VALUES[STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE]}" ]]; then
   set_row "GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET secret-file presence" "blocked" "maintenance OAuth requires a separate client secret file"
@@ -151,18 +151,15 @@ for svc in postgres redis studio-api studio-web studio-worker; do IFS=: read -r 
 [[ "${SSTATUS[redis]}" == "healthy" ]] && set_row "Redis health" "pass" "redis service is healthy" || { set_row "Redis health" "blocked" "redis service is not healthy"; block_exit; }
 [[ "${SSTATUS[studio-api]}" == "healthy" ]] || { set_row "localhost API health" "blocked" "studio-api is not healthy before localhost check"; block_exit; }
 [[ "${SSTATUS[studio-web]}" == "healthy" ]] || { set_row "localhost web health" "blocked" "studio-web is not healthy before localhost check"; block_exit; }
-if validate_container_storage_secret "STUDIO_SOURCE_S3_ACCESS_KEY_ID_FILE"; then
-  set_row "SOURCE_S3_ACCESS_KEY_ID secret-file presence" "pass" "runtime-mounted source storage credential is present and structurally valid"
-else
-  set_row "SOURCE_S3_ACCESS_KEY_ID secret-file presence" "blocked" "runtime-mounted source storage credential is unreadable, invalid, or placeholder content"
-  block_exit
-fi
-if validate_container_storage_secret "STUDIO_SOURCE_S3_SECRET_ACCESS_KEY_FILE"; then
-  set_row "SOURCE_S3_SECRET_ACCESS_KEY secret-file presence" "pass" "runtime-mounted source storage credential is present and structurally valid"
-else
-  set_row "SOURCE_S3_SECRET_ACCESS_KEY secret-file presence" "blocked" "runtime-mounted source storage credential is unreadable, invalid, or placeholder content"
-  block_exit
-fi
+for k in STUDIO_POSTGRES_PASSWORD_FILE STUDIO_CREDENTIAL_MASTER_KEY_FILE STUDIO_SOURCE_S3_ACCESS_KEY_ID_FILE STUDIO_SOURCE_S3_SECRET_ACCESS_KEY_FILE STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE; do
+  label="${k#STUDIO_}"; label="${label%_FILE} secret-file presence"
+  if validate_container_secret "$k"; then
+    set_row "$label" "pass" "current allowlisted runtime mount is present and valid for this check"
+  else
+    set_row "$label" "blocked" "current allowlisted runtime mount is missing, unreadable, invalid, or placeholder content"
+    block_exit
+  fi
+done
 curl -fsS -o /dev/null --max-time 5 http://127.0.0.1:8182/api/healthz >/dev/null 2>&1 && set_row "localhost API health" "pass" "localhost API health endpoint passed" || { set_row "localhost API health" "blocked" "localhost API health endpoint failed"; block_exit; }
 curl -fsS -o /dev/null --max-time 5 http://127.0.0.1:8181/healthz >/dev/null 2>&1 && set_row "localhost web health" "pass" "localhost web health endpoint passed" || { set_row "localhost web health" "blocked" "localhost web health endpoint failed"; block_exit; }
 public="${ENV_VALUES[APP_PUBLIC_URL]}"

@@ -21,6 +21,7 @@ def test_maintenance_oauth_secret_has_dedicated_runtime_target() -> None:
         "STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE"
     ] == "studio_google_maintenance_oauth_client_secret"
     assert len(set(entrypoint.SECRET_FILES.values())) == len(entrypoint.SECRET_FILES)
+    assert set(entrypoint.MOUNTED_SECRET_RULES) == set(entrypoint.SECRET_FILES)
 
 
 def stop_at_exec(events: list[object]):
@@ -85,7 +86,7 @@ def test_entrypoint_rejects_unknown_mode_before_exec(monkeypatch) -> None:
         entrypoint.run(["python", "-V"])
 
 
-def test_mounted_storage_secret_validation_reads_current_mount_without_copy_or_exec(
+def test_mounted_secret_validation_reads_current_mount_without_copy_or_exec(
     monkeypatch, tmp_path: Path
 ) -> None:
     events: list[object] = []
@@ -101,7 +102,7 @@ def test_mounted_storage_secret_validation_reads_current_mount_without_copy_or_e
     monkeypatch.setattr(entrypoint, "_drop_privileges", lambda: events.append("drop"))
     monkeypatch.setattr(entrypoint, "_exec", stop_at_exec(events))
 
-    result = entrypoint.run(["--validate-mounted-storage-secret", key])
+    result = entrypoint.run(["--validate-mounted-secret", key])
 
     assert result is None
     assert events == []
@@ -116,7 +117,7 @@ def test_mounted_storage_secret_validation_reads_current_mount_without_copy_or_e
         ("STUDIO_SOURCE_S3_SECRET_ACCESS_KEY_FILE", "b" * 32 + "\nsecond-line"),
     ],
 )
-def test_mounted_storage_secret_validation_rejects_invalid_content_without_echo(
+def test_mounted_secret_validation_rejects_invalid_storage_content_without_echo(
     monkeypatch, tmp_path: Path, key: str, value: str
 ) -> None:
     mounted = tmp_path / "mounted"
@@ -126,12 +127,25 @@ def test_mounted_storage_secret_validation_rejects_invalid_content_without_echo(
     monkeypatch.setattr(entrypoint, "_effective_uid", lambda: 0)
 
     with pytest.raises(entrypoint.BootstrapError, match=f"reason=secret_invalid key={key}") as exc_info:
-        entrypoint.run(["--validate-mounted-storage-secret", key])
+        entrypoint.run(["--validate-mounted-secret", key])
 
     assert value not in str(exc_info.value)
 
 
-def test_mounted_storage_secret_validation_rejects_non_root_and_unknown_key(
+def test_mounted_secret_validation_accepts_nonempty_allowlisted_generic_secret(
+    monkeypatch, tmp_path: Path
+) -> None:
+    mounted = tmp_path / "mounted"
+    mounted.mkdir()
+    key = "STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE"
+    (mounted / entrypoint.SECRET_FILES[key]).write_text("google-client-secret\n")
+    monkeypatch.setattr(entrypoint, "MOUNTED_SECRET_DIR", mounted)
+    monkeypatch.setattr(entrypoint, "_effective_uid", lambda: 0)
+
+    assert entrypoint.run(["--validate-mounted-secret", key]) is None
+
+
+def test_mounted_secret_validation_rejects_non_root_and_unknown_key(
     monkeypatch
 ) -> None:
     monkeypatch.setattr(entrypoint, "_effective_uid", lambda: entrypoint.RUNTIME_UID)
@@ -140,7 +154,7 @@ def test_mounted_storage_secret_validation_rejects_non_root_and_unknown_key(
     ):
         entrypoint.run(
             [
-                "--validate-mounted-storage-secret",
+                "--validate-mounted-secret",
                 "STUDIO_SOURCE_S3_ACCESS_KEY_ID_FILE",
             ]
         )
@@ -149,4 +163,4 @@ def test_mounted_storage_secret_validation_rejects_non_root_and_unknown_key(
     with pytest.raises(
         entrypoint.BootstrapError, match="reason=mounted_secret_validation_key_invalid"
     ):
-        entrypoint.run(["--validate-mounted-storage-secret", "UNREVIEWED_SECRET_FILE"])
+        entrypoint.run(["--validate-mounted-secret", "UNREVIEWED_SECRET_FILE"])
