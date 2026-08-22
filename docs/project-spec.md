@@ -28,7 +28,7 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Текущий independently verified execution snapshot: ветка `codex/pwa-transcriptions-live-recovery-01` от `main@dd194c929d957e822ff618df294dc54e72d5971e`, exact-head `7720791dad31950472c99401576c363ed8a5be1f`; bounded local UX и exact-head CI подтверждены, DEPLOY/LIVE ещё не выполнены.
+Текущий independently verified execution snapshot: ветка `codex/pwa-transcriptions-live-recovery-01` от `main@dd194c929d957e822ff618df294dc54e72d5971e`, exact-head `29df753b204a87768ff68d401fe8e77ff11fa59b`; bounded local UX и exact-head CI подтверждены, DEPLOY/LIVE ещё не выполнены.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
@@ -150,7 +150,7 @@ Status: **🟦 IN PROGRESS — 100% (`4/4`)**. Все product AC и exact-head C
 
 Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
 
-Verified implementation: backend не раскрывает raw batch idempotency key/request hash и выдаёт только deterministic owner/project/key-scoped `multi_*` reference с bounded position. Frontend fail-closed валидирует reference, не допускает duplicate positions, отображает batch одной multi-transcription и сохраняет отдельные progress/output/recovery controls каждого source/fragment item. Exact-head CI: Python `1252/1252`, Studio `533/533`, browser E2E `10/10`, builds и safety markers PASS. Bounded narrow browser fixture также прошёл; production behavior ожидает DEPLOY/LIVE Evidence.
+Verified implementation: backend не раскрывает raw batch idempotency key/request hash и выдаёт только deterministic owner/project/key-scoped `multi_*` reference с bounded position. Frontend fail-closed валидирует reference, не допускает duplicate positions, отображает batch одной multi-transcription и сохраняет отдельные progress/output/recovery controls каждого source/fragment item. Exact-head CI: Python `1252/1252`, Studio `539/539`, browser E2E `10/10`, builds и safety markers PASS. Bounded narrow browser fixture также прошёл; production behavior ожидает DEPLOY/LIVE Evidence.
 
 ### Эпик `PWA-INGEST-01` — target и source selection, multi-transcription
 

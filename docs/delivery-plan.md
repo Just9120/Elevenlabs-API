@@ -21,25 +21,25 @@
   11. Maintenance access показывает точную safe blocker category; OpenAI key storage ясно помечено как недоступное для current transcription execution.
   12. Existing batch/realtime behavior не регрессирует; relevant backend/frontend/security/responsive/accessibility tests проходят.
   13. Exact-head CI, applicable MANUAL_GATED migration/API/web/worker deployment и bounded LIVE recovery validation успешны.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ◐ | DEPLOY — | LIVE —`.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
 - **Known blockers/dependencies:** additive migration `0023` потребует отдельного protected Environment approval после merge; production archived project `Транскрибации` не может быть восстановлен этой Goal без отдельной exact-data authorization; approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
 - **Stop condition:** все Goal AC и required Evidence подтверждены либо flow достиг `BLOCKED` / `PENDING_EXTERNAL_GATE`; затем остановиться и не переходить к следующей Goal без explicit authorization.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-22T17:37:30Z
+- Updated (UTC): 2026-08-22T17:41:09Z
 - Session mode: new authorized Goal
 - Base branch: `main`
 - Base SHA: `dd194c929d957e822ff618df294dc54e72d5971e`
 - Working branch: `codex/pwa-transcriptions-live-recovery-01`
-- Last verified revision: `02067eba330140f24ebf59babbd0fd074f7e2f96`
+- Last verified revision: `29df753b204a87768ff68d401fe8e77ff11fa59b`
 - Working tree at branch start: tracked clean; preserved unrelated untracked `.pnpm-store/`, `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml`
 - Completed: Git/GitHub recovery; product reconciliation; additive `0023` encrypted owner/project Live-draft model/service/API; monotonic/size/TTL boundaries; idle-worker physical cleanup; removal of autosave audit churn; IndexedDB checkpoint module; server sync; reload recovery restore/download/delete UX; canonical `/transcriptions` route; ordinary/Live tabs; removal of manual Project create/edit/archive UX; idempotent internal workspace ensure; non-destructive legacy workspace compatibility selector; bounded metadata layout; dark primary contrast; accessible confirmation dialog; keyboard-operable tabs; heading/touch/mobile affordance corrections; exact maintenance blocker copy; current-provider limitation copy; safe deterministic batch presentation reference; one grouped multi-transcription per batch with ordered source/fragment items and preserved item-level progress/output/recovery controls; review-driven frontend recovery hardening: serialized final server/local deletion, bounded server reads/writes/deletes, restore resync, partial-only and unresolved-candidate actions, same-session revision authority, pending-partial flush across workspace unmount, recovery-loading clear gate, prefix-safe retained-text reconciliation and divergent-text fail-closed choice; review-driven backend hardening: redacted draft validation errors, `no-store` on all draft-route responses, sustainable checkpoint limit, one-shot idempotent insert-race reconciliation and exact 72-hour configuration boundary.
-- Current step: two final-review conflict findings fixed and fully validated locally; commit and rerun exact-head gates.
-- Next exact action: commit/push final recovery conflict fixes, resolve their threads with evidence and obtain replacement exact-head CI before merge.
-- Validation and Evidence: exact-head `02067eb` passed repository CI run `32587581908` and Studio run `32587581877` (`studio`, serial `browser-e2e`); all prior twelve review threads are resolved. Final review opened two valid conflict findings. Both are fixed locally: Clear stays disabled until recovery lookup settles; compatible retained/recovered sequences preserve the longer prefix and resync at the next revision, while divergent text fails closed behind explicit Download/Delete actions. TypeScript, focused ESLint, focused Live/recovery `32/32`, full Studio `539/539` across `43/43` and production Vite build PASS. New exact-head CI is required. Previous Transcriptions IA/App/routing regression `223/223`, focused UX regression `229/229` and bounded desktop/narrow browser validation remain valid because the new slice is isolated to Live recovery conflict handling.
-- Pull Request: `#222` — `https://github.com/Just9120/Elevenlabs-API/pull/222`, open; remote head `02067eba330140f24ebf59babbd0fd074f7e2f96`, final conflict-remediation slice local.
-- CI/checks: exact remote head `02067eb` fully passed all three applicable checks; twelve prior threads remain resolved. Final review opened two valid findings; both are fixed locally and require replacement exact-head CI/thread reconciliation before merge.
+- Current step: all implementation/review remediation complete and exact-head gates green; record final Evidence and merge.
+- Next exact action: merge PR `#222`, inspect component-CD decisions for the merged SHA and stop at the protected migration authorization gate before any migration/API/worker rollout.
+- Validation and Evidence: exact-head `29df753` passed repository CI run `32588340168` (`checks`) and Studio run `32588340183` (`studio`, serial `browser-e2e`): Python `1252/1252`, Studio `539/539` across `43/43`, browser E2E `10/10`, builds and terminal safety markers PASS. All fourteen automated review threads from three review rounds are resolved with commit/test traceability; no unresolved conversation remains. Local TypeScript/ESLint, focused Live/recovery `32/32`, full Studio `539/539` and production Vite build PASS. Previous Transcriptions IA/App/routing regression `223/223`, focused UX regression `229/229` and bounded desktop/narrow browser validation remain valid.
+- Pull Request: `#222` — `https://github.com/Just9120/Elevenlabs-API/pull/222`, open, exact code head `29df753b204a87768ff68d401fe8e77ff11fa59b`, mergeable after final metadata synchronization.
+- CI/checks: exact code head `29df753` fully passed all three applicable checks; all fourteen review threads are resolved and no required review/check gate remains.
 - Deployment/environment: not started; migration class `MANUAL_GATED`.
 - Blockers: no implementation blocker; production recovery remains separately unauthorized.
 - Unverified assumptions: 72-hour draft TTL and existing credential master key boundary are compatible with production operational policy; exact deployment requires post-merge verification.
