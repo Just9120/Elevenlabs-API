@@ -3327,7 +3327,13 @@ def test_history_and_analytics_clear_are_confirmed_owner_scoped_resets():
             )
         }
         assert set(events) == {"history.cleared", "analytics.cleared"}
-        assert all(pid1 in event.metadata_json for event in events.values())
+        owner_id = db.get(TranscriptionJob, jid1).owner_user_id
+        assert all(
+            event.actor_user_id == owner_id
+            and event.subject_user_id == owner_id
+            and event.metadata_json == "{}"
+            for event in events.values()
+        )
 
 
 def test_manifest_clear_hides_old_accepted_evidence_without_deleting_it():

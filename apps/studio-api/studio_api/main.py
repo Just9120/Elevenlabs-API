@@ -1159,7 +1159,7 @@ def clear_project_history(project_id: str, data: ConfirmedClearIn, pair=Depends(
     reset_at=utcnow()
     hidden_job_count=db.query(TranscriptionJob).filter(TranscriptionJob.project_id==p.id, TranscriptionJob.owner_user_id==user.id, TranscriptionJob.status.in_([JobStatus.completed, JobStatus.failed, JobStatus.cancelled]), or_(TranscriptionJob.finished_at.is_(None), TranscriptionJob.finished_at <= reset_at)).count()
     p.history_reset_at=reset_at; p.updated_at=reset_at
-    audit(db,"history.cleared",actor_user_id=user.id,subject_user_id=user.id,project_id=p.id)
+    audit(db,"history.cleared",actor_user_id=user.id,subject_user_id=user.id)
     db.commit()
     return {"ok": True, "reset_at": reset_at.isoformat(), "hidden_job_count": hidden_job_count}
 
@@ -1186,7 +1186,7 @@ def clear_project_transcription_analytics(project_id: str, data: ConfirmedClearI
     reset_at=utcnow()
     hidden_job_count=db.query(TranscriptionJob).filter(TranscriptionJob.project_id==p.id, TranscriptionJob.owner_user_id==user.id, TranscriptionJob.created_at <= reset_at).count()
     p.analytics_reset_at=reset_at; p.updated_at=reset_at
-    audit(db,"analytics.cleared",actor_user_id=user.id,subject_user_id=user.id,project_id=p.id)
+    audit(db,"analytics.cleared",actor_user_id=user.id,subject_user_id=user.id)
     db.commit()
     return {"ok": True, "reset_at": reset_at.isoformat(), "hidden_job_count": hidden_job_count}
 
