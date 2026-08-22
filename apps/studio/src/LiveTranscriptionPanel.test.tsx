@@ -414,6 +414,51 @@ describe("LiveTranscriptionPanel", () => {
     );
   });
 
+  it("degrades safely when the server recovery read stalls", async () => {
+    const defaultFetch = vi.mocked(fetch).getMockImplementation();
+    let recoverySignal: AbortSignal | undefined;
+    vi.mocked(fetch).mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/realtime/drafts/latest") && !init?.method) {
+        recoverySignal = init.signal;
+        return new Promise<Response>((_resolve, reject) => {
+          recoverySignal?.addEventListener("abort", () =>
+            reject(new Error("raw-stalled-recovery")),
+          );
+        });
+      }
+      return defaultFetch?.(url, init) as Promise<Response>;
+    });
+    const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+    const timeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((callback, delay, ...args) =>
+        nativeSetTimeout(
+          callback,
+          delay === 15_000 ? 1 : (delay as number),
+          ...args,
+        )) as typeof setTimeout);
+
+    try {
+      render(
+        <LiveTranscriptionPanel
+          projectId="project-safe"
+          csrf="csrf-safe"
+          onCsrf={vi.fn()}
+          active
+        />,
+      );
+
+      expect(
+        await screen.findByText(/Server recovery сейчас недоступен/),
+      ).toBeInTheDocument();
+      expect(recoverySignal?.aborted).toBe(true);
+      expect(screen.getByRole("button", { name: "Начать" })).toBeEnabled();
+      expect(document.body.textContent).not.toContain("raw-stalled-recovery");
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
   it("keeps a restored partial-only draft downloadable and removable", async () => {
     const defaultFetch = vi.mocked(fetch).getMockImplementation();
     vi.mocked(fetch).mockImplementation((url: string, init?: RequestInit) => {
@@ -468,6 +513,58 @@ describe("LiveTranscriptionPanel", () => {
     );
     expect(
       screen.getByText("Речь появится здесь до подтверждения фрагмента."),
+    ).toBeInTheDocument();
+  });
+
+  it("clears an unresolved recovery draft together with retained text", async () => {
+    const defaultFetch = vi.mocked(fetch).getMockImplementation();
+    vi.mocked(fetch).mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/realtime/drafts/latest") && !init?.method) {
+        return response({
+          draft: {
+            client_session_id: "session_unresolved_clear",
+            revision: 4,
+            committed_segments: ["Retained server text"],
+            partial: "",
+            updated_at: new Date().toISOString(),
+            expires_at: new Date(
+              Date.now() + 72 * 60 * 60 * 1000,
+            ).toISOString(),
+          },
+        });
+      }
+      return defaultFetch?.(url, init) as Promise<Response>;
+    });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    render(
+      <LiveTranscriptionPanel
+        projectId="project-safe"
+        csrf="csrf-safe"
+        onCsrf={vi.fn()}
+        initialSegments={["Retained React text"]}
+        active
+      />,
+    );
+    expect(
+      await screen.findByRole("region", { name: "Восстановление Live-черновика" }),
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Очистить" }));
+
+    await waitFor(() =>
+      expect(
+        vi.mocked(fetch).mock.calls.some(
+          ([url, init]) =>
+            String(url).includes("/realtime/drafts/session_unresolved_clear") &&
+            init?.method === "DELETE",
+        ),
+      ).toBe(true),
+    );
+    expect(
+      screen.queryByRole("region", { name: "Восстановление Live-черновика" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText("Подтверждённых фрагментов пока нет."),
     ).toBeInTheDocument();
   });
 
@@ -568,6 +665,46 @@ describe("LiveTranscriptionPanel", () => {
     expect(
       screen.getByText("Подтверждённых фрагментов пока нет."),
     ).toBeInTheDocument();
+  });
+
+  it("flushes the latest debounced partial before workspace unmount", async () => {
+    const defaultFetch = vi.mocked(fetch).getMockImplementation();
+    const oldProjectWrites: Array<{ partial: string }> = [];
+    vi.mocked(fetch).mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        url.includes("/api/projects/project-safe/realtime/drafts/") &&
+        init?.method === "PUT"
+      ) {
+        const body = JSON.parse(String(init.body)) as { partial: string };
+        oldProjectWrites.push(body);
+        return response({
+          draft: {
+            client_session_id: String(url).split("/").at(-1),
+            revision: 1,
+          },
+        });
+      }
+      return defaultFetch?.(url, init) as Promise<Response>;
+    });
+    const props = { csrf: "csrf-safe", onCsrf: vi.fn(), active: true };
+    const { rerender } = render(
+      <LiveTranscriptionPanel {...props} projectId="project-safe" />,
+    );
+    await userEvent.click(await screen.findByRole("button", { name: "Начать" }));
+    act(() => {
+      controllerState.instances[0].callbacks.onPartial("Последний partial");
+    });
+
+    rerender(
+      <LiveTranscriptionPanel
+        key="project-next"
+        {...props}
+        projectId="project-next"
+      />,
+    );
+
+    await waitFor(() => expect(oldProjectWrites).toHaveLength(1));
+    expect(oldProjectWrites[0].partial).toBe("Последний partial");
   });
 
   it("bounds a stalled server checkpoint and reports degraded recovery", async () => {

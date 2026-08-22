@@ -13,7 +13,10 @@ import {
   type RealtimeSessionStatus,
 } from "./realtimeSession";
 import type { TranscriptionLanguageMode } from "./jobModel";
-import { runBoundedRequest } from "./jobMutationRequest";
+import {
+  JOB_MUTATION_TIMEOUT_REASON,
+  runBoundedRequest,
+} from "./jobMutationRequest";
 import {
   REALTIME_PARTIAL_CHECKPOINT_DEBOUNCE_MS,
   deleteLocalRealtimeDraft,
@@ -160,6 +163,7 @@ export function LiveTranscriptionPanel({
   const localSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const serverSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const draftMutationGenerationRef = useRef(0);
+  const draftDeletionGenerationRef = useRef(0);
   const draftDeletePendingRef = useRef(false);
   const partialCheckpointTimerRef = useRef<number | null>(null);
   const mountedRef = useRef(true);
@@ -188,13 +192,13 @@ export function LiveTranscriptionPanel({
   onCsrfRef.current = onCsrf;
 
   function enqueueLocalDraftSave(nextDraft: RealtimeDraft) {
-    const generation = draftMutationGenerationRef.current;
+    const deletionGeneration = draftDeletionGenerationRef.current;
     const operation = localSaveQueueRef.current
       .catch(() => undefined)
       .then(async () => {
         if (
           draftDeletePendingRef.current ||
-          generation !== draftMutationGenerationRef.current
+          deletionGeneration !== draftDeletionGenerationRef.current
         ) {
           return false;
         }
@@ -213,13 +217,13 @@ export function LiveTranscriptionPanel({
   }
 
   function enqueueServerDraftSave(nextDraft: RealtimeDraft) {
-    const generation = draftMutationGenerationRef.current;
+    const deletionGeneration = draftDeletionGenerationRef.current;
     const operation = serverSaveQueueRef.current
       .catch(() => undefined)
       .then(async () => {
         if (
           draftDeletePendingRef.current ||
-          generation !== draftMutationGenerationRef.current
+          deletionGeneration !== draftDeletionGenerationRef.current
         ) {
           return false;
         }
@@ -290,6 +294,7 @@ export function LiveTranscriptionPanel({
   function checkpointDraft(
     committedSegments: string[],
     latestPartial: string,
+    reportStatus = true,
   ) {
     if (
       draftDeletePendingRef.current ||
@@ -310,14 +315,16 @@ export function LiveTranscriptionPanel({
         partial: latestPartial,
       });
     } catch {
-      setDraftStatus("degraded");
-      setError(
-        "Live-текст превысил безопасный размер временного черновика. Скачайте текущий текст.",
-      );
+      if (reportStatus) {
+        setDraftStatus("degraded");
+        setError(
+          "Live-текст превысил безопасный размер временного черновика. Скачайте текущий текст.",
+        );
+      }
       return;
     }
     draftRef.current = nextDraft;
-    setDraftStatus("saving");
+    if (reportStatus) setDraftStatus("saving");
     void persistDraft(nextDraft);
   }
 
@@ -338,8 +345,17 @@ export function LiveTranscriptionPanel({
     setRecoveryCandidate(null);
     void Promise.all([
       loadLocalRealtimeDraft(ownerUserId, projectId).catch(() => null),
-      api<unknown>(`/projects/${projectId}/realtime/drafts/latest`)
-        .then((candidate) => {
+      runBoundedRequest(
+        (signal) =>
+          api<unknown>(`/projects/${projectId}/realtime/drafts/latest`, {
+            signal,
+            ignoredAbortReason: JOB_MUTATION_TIMEOUT_REASON,
+          }),
+        REALTIME_DRAFT_REQUEST_TIMEOUT_MS,
+      )
+        .then((bounded) => {
+          if (bounded.status !== "completed") return undefined;
+          const candidate = bounded.value;
           const parsed = parseLatestRealtimeDraftResponse(
             candidate,
             ownerUserId,
@@ -365,6 +381,12 @@ export function LiveTranscriptionPanel({
       }
     });
     return () => {
+      if (
+        partialRef.current &&
+        draftRef.current?.partial !== partialRef.current
+      ) {
+        checkpointDraft(segmentsRef.current, partialRef.current, false);
+      }
       cancelled = true;
       mountedRef.current = false;
       draftMutationGenerationRef.current += 1;
@@ -633,6 +655,7 @@ export function LiveTranscriptionPanel({
     if (draftDeletePendingRef.current) return false;
     draftDeletePendingRef.current = true;
     draftMutationGenerationRef.current += 1;
+    draftDeletionGenerationRef.current += 1;
     if (partialCheckpointTimerRef.current !== null) {
       window.clearTimeout(partialCheckpointTimerRef.current);
       partialCheckpointTimerRef.current = null;
@@ -738,8 +761,9 @@ export function LiveTranscriptionPanel({
       )
     )
       return;
-    const currentDraft = draftRef.current;
+    const currentDraft = draftRef.current ?? recoveryCandidate;
     if (currentDraft && !(await deleteDraft(currentDraft))) return;
+    setRecoveryCandidate(null);
     segmentsRef.current = [];
     partialRef.current = "";
     setSegments([]);
