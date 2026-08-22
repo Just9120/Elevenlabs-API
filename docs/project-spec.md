@@ -28,13 +28,13 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Текущее independently verified working state: `codex/pwa-operability-polish-02@0472a7c58d9a63908d34ceac21db4d1d5f566f28` от `main@6bcb0ed49aeb6e491765fda45bf74b6e68f7b67e`:
+Текущее independently verified baseline после UX/UI-аудита production и явного расширения product scope владельцем: `main@dd194c929d957e822ff618df294dc54e72d5971e`.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **75,9% (`22/29`)** | `COLAB-BATCH 17/23` + `COLAB-REALTIME 5/6` |
-| Studio PWA | **86,3% (`69/80`)** | сумма девяти PWA-эпиков ниже |
-| Весь проект | **83,5% (`91/109`)** | все выполненные AC двух продуктов / все AC текущего scope |
+| Studio PWA | **73,6% (`67/91`)** | сумма десяти PWA-эпиков ниже; denominator расширен на `PT-01..04` и `PR-07..13`, `PC-01/03` повторно открыты |
+| Весь проект | **74,2% (`89/120`)** | все выполненные AC двух продуктов / все AC текущего scope |
 
 ## 3. Общие product rules
 
@@ -45,7 +45,7 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 5. Duplicate protection использует устойчивую source identity: Google Drive file ID и доступные metadata; для local files — content fingerprint и доступные metadata. Filename alone недостаточен.
 6. Accepted-output manifest/catalog record создаётся только после подтверждённого создания Google Docs результата. Operational job state может храниться отдельно, но не должен становиться ложным доказательством успешной транскрибации.
 7. Transcript standardization добавляет metadata header и читабельные абзацы; folder operation охватывает выбранную папку и все вложенные подпапки.
-8. Секреты, transcript/document bodies, private source bytes, provider/Google payloads и tokens не попадают в repository, browser-safe metadata, diagnostics или delivery evidence.
+8. Секреты, transcript/document bodies, private source bytes, provider/Google payloads и tokens не попадают в repository, browser-safe metadata, diagnostics или delivery evidence. Explicit owner-scoped Live draft API может возвращать владельцу только его зашифрованный-at-rest transcript draft через authenticated `no-store` response; это content response, а не browser-safe metadata или diagnostic payload.
 9. Production/LIVE claims требуют exact revision/artifact identity и фактического runtime evidence; source presence и CI сами по себе этого не доказывают.
 
 ## 4. Google Colab
@@ -109,13 +109,13 @@ Owner LIVE evidence подтверждает работоспособность 
 
 ### Эпик `PWA-CORE-01` — application shell, auth и integrations
 
-Status: **🟦 IN PROGRESS — 100% (`13/13`)**.
+Status: **🟦 IN PROGRESS — 84,6% (`11/13`)**.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
-| `PC-01` | Интерфейс адаптивен на desktop и narrow viewport. | ✅ |
+| `PC-01` | Интерфейс адаптивен на desktop и narrow viewport без document-level overflow и недоступных controls. | ❌ |
 | `PC-02` | Sidebar содержит Dashboard. | ✅ |
-| `PC-03` | Sidebar содержит Projects. | ✅ |
+| `PC-03` | Primary navigation и page title используют пользовательскую сущность `Транскрибации`, а не технический `Project`. | ❌ |
 | `PC-04` | Sidebar содержит Settings. | ✅ |
 | `PC-05` | Admin входит по login/password и получает server session. | ✅ |
 | `PC-06` | Provider API keys добавляются и управляются в Settings. | ✅ |
@@ -127,11 +127,28 @@ Status: **🟦 IN PROGRESS — 100% (`13/13`)**.
 | `PC-12` | Доступны system, light и dark themes. | ✅ |
 | `PC-13` | Пользователь выбирает accent/interface color. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
+Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ✅ | DEPLOY — | LIVE ❌`.
+
+UX/UI-аудит production на viewport `390x844` подтвердил document-level horizontal overflow в Diagnostics: `.meta` с `max-content` расширяет document до 474 px и сжимает часть значений до нулевой доступной ширины. Поэтому прежнее `PC-01 ✅` повторно открыто по более сильному runtime evidence.
 
 Expired source metadata может сохраняться для history/audit, но current owner instruction требует скрывать expired local files из active intake UI. Это заменяет старое UI-допущение о видимости недоступной metadata.
 
 Verified implementation: active project source collection исключает local rows при `expires_at <= now` либо durable status `expired`, не удаляя `Source`, job relations или history evidence. Branch-local API integration test создан; его DB execution ожидает exact-head CI.
+
+### Эпик `PWA-TRANSCRIPTIONS-UX-01` — пользовательская модель транскрибаций
+
+Status: **🟦 IN PROGRESS — 0% (`0/4`)**.
+
+`Project` остаётся допустимой внутренней ownership/data boundary, но не является обязательной пользовательской сущностью. Основной user flow начинается с обычной или Live-транскрибации; технический workspace выбирается или создаётся автоматически и не требует ручного lifecycle management.
+
+| AC | Atomic acceptance criterion | Выполнено |
+|---|---|:---:|
+| `PT-01` | В `Транскрибациях` доступны отдельные вкладки обычной и Live-транскрибации. | ❌ |
+| `PT-02` | Для запуска новой транскрибации пользователь не создаёт, не редактирует и не архивирует технический Project вручную. | ❌ |
+| `PT-03` | Один массовый запуск отображается как одна мульти-транскрибация с отдельными source/fragment items. | ❌ |
+| `PT-04` | Существующие active legacy workspaces, sources, jobs и outputs остаются доступны без destructive migration; archived production data не восстанавливается автоматически. | ❌ |
+
+Evidence: `SPEC ✅ | CODE — | TEST — | CI N/A | DEPLOY — | LIVE —`.
 
 ### Эпик `PWA-INGEST-01` — target и source selection, multi-transcription
 
@@ -244,7 +261,7 @@ Standardization и manifest import остаются разными authority: pr
 
 ### Эпик `PWA-REALTIME-01` — realtime-транскрибация
 
-Status: **🟦 IN PROGRESS — 83,3% (`5/6`)**.
+Status: **🟦 IN PROGRESS — 38,5% (`5/13`)**.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -254,10 +271,17 @@ Status: **🟦 IN PROGRESS — 83,3% (`5/6`)**.
 | `PR-04` | Partial и committed transcript отображаются live. | ✅ |
 | `PR-05` | Подтверждённый transcript скачивается как `.txt`. | ✅ |
 | `PR-06` | Representative microphone/display/mixed sessions стабильно проходят production LIVE canaries. | ❌ |
+| `PR-07` | Каждый committed fragment немедленно сохраняется в owner/browser-scoped local draft. | ❌ |
+| `PR-08` | Последний partial fragment сохраняется с bounded debounce и явно остаётся неподтверждённым. | ❌ |
+| `PR-09` | Live draft синхронизируется в owner-scoped server storage с encryption at rest, bounded size и idempotent monotonic revision. | ❌ |
+| `PR-10` | После refresh, browser crash или перезапуска компьютера пользователь получает явное предложение восстановить незавершённый draft. | ❌ |
+| `PR-11` | Найденный draft можно восстановить, скачать как `.txt` или удалить явным действием. | ❌ |
+| `PR-12` | Server Live draft имеет TTL 72 часа, исчезает из recovery после expiry и удаляется idempotent cleanup. | ❌ |
+| `PR-13` | Live draft не сохраняет audio и не включает transcript body в logs, diagnostics, audit events или ordinary History/Analytics. | ❌ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
+Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
 
-Realtime использует short-lived single-use capability. Он не создаёт batch jobs, Google Docs, manifest/catalog records, analytics records или durable transcript-body state. Automatic reconnect отсутствует и не считается выполнением `PR-06`.
+Realtime использует short-lived single-use capability. Он не создаёт batch jobs, Google Docs, manifest/catalog records, analytics records или audio records. Transcript body может существовать только как explicit temporary recovery draft по `PR-07..13`; ordinary diagnostics/history/analytics boundary его не получает. Automatic reconnect отсутствует и не считается выполнением `PR-06`.
 
 ### Эпик `PWA-OPERABILITY-01` — diagnostics, history и analytics
 
