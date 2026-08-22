@@ -3,6 +3,7 @@ import {
   FormEvent,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -5033,7 +5034,7 @@ function ProjectsPage({
       onRequestedProjectHandled();
     }
   }, [requestedProjectId, projects, onRequestedProjectHandled]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const nextCreateOpen = resolveRequestedProjectsView(
       requestedProjectsView,
       {
@@ -5424,7 +5425,7 @@ function ProjectsPage({
           disabled={createPending}
           onClick={() => {
             onRequestedProjectsViewHandled();
-            setCreateOpen((v) => !v);
+            setCreateOpen(true);
           }}
         >
           Новый проект

@@ -2358,6 +2358,19 @@ describe("Studio PWA", () => {
     expect(screen.getByLabelText("Название проекта")).toBeInTheDocument();
   });
 
+  it("keeps the new-project action deterministic when it is repeated", async () => {
+    renderApp();
+    await openProjectsPage();
+    const newProject = screen.getByRole("button", { name: "Новый проект" });
+
+    await userEvent.click(newProject);
+    expect(await screen.findByLabelText("Название проекта")).toBeInTheDocument();
+    await userEvent.click(newProject);
+
+    expect(screen.getByLabelText("Название проекта")).toBeInTheDocument();
+    expect(newProject).toHaveAttribute("aria-expanded", "true");
+  });
+
   it("opens a recent project directly in the preparation workspace", async () => {
     renderApp();
     await waitForPlatformOverview();

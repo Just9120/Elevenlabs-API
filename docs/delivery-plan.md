@@ -14,25 +14,25 @@
   4. Analytics можно очистить только после Да/Нет confirmation; новые агрегаты считаются от owner-scoped reset boundary, durable jobs/attempts/outputs/audit records не удаляются.
   5. Completed provider attempt с persisted accepted output не создаёт ложный `unresolved` conflict; реальный in-flight/uncertain attempt продолжает fail closed.
   6. Relevant backend/frontend tests, full local validation, exact-head CI, merge, applicable protected migration/deployment и bounded LIVE validation успешны.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ❌ | DEPLOY — | LIVE —`.
 - **Known blockers/dependencies:** Goal требует additive PostgreSQL migration и protected `MANUAL_GATED` migration lane; approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
 - **Stop condition:** все Goal AC и required Evidence подтверждены либо flow достиг `BLOCKED` / `PENDING_EXTERNAL_GATE`; затем остановиться и не переходить к следующей Goal без explicit authorization.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-22T08:25:19Z
+- Updated (UTC): 2026-08-22T08:34:45Z
 - Session mode: новая explicit-authorized bounded Goal после reconciliation merged PR #217
 - Base branch: `main`
 - Base SHA: `6bcb0ed49aeb6e491765fda45bf74b6e68f7b67e`
 - Working branch: `codex/pwa-operability-polish-02`
-- Last verified revision: `9a26f81806ffb93377e9956e784d98a5dcea6602`
-- Working tree: implementation and CI fixes committed/pushed; green CI Evidence synchronization pending commit; preserved unrelated untracked pnpm artifacts excluded from scope/commits
-- Completed since base: Goal activation; additive `0022_account_operability` schema; owner-scoped persistent accent preference; confirmed owner-scoped reset boundaries for manifest, History and Analytics; durable jobs/outputs/Google Docs/R2/sources/audit preserved; completed attempt authority reconciled only when accepted output is actually persisted; missing-output/in-flight/uncertain cases remain fail closed; regression tests added
-- Current step: synchronize green TEST/CI Evidence and complete exact-head merge gates
-- Next exact action: commit/push Evidence metadata, wait for replacement exact-head checks, then merge PR #218 if all remain green
-- Validation and Evidence: full frontend ESLint and Vitest suite passed; TypeScript `tsc -b` and production Vite/PWA build passed; repository lightweight CI checks passed; focused safety regression `14/14`, catalog/analytics contracts `22/22`, clear frontend tests `23/23`, App History clear `1/1`, Login contract `5/5` passed. PostgreSQL-backed regressions are authored but local PostgreSQL/Redis are unavailable; bash-dependent tests are unavailable on Windows. A broader non-infrastructure Python run passed through 37% without a new failure after the safety correction but was not treated as terminal evidence; exact full suite remains a CI gate.
-- Pull Request: [#218](https://github.com/Just9120/Elevenlabs-API/pull/218), OPEN, non-draft, MERGEABLE/CLEAN; verified head `9a26f81806ffb93377e9956e784d98a5dcea6602`, base `6bcb0ed49aeb6e491765fda45bf74b6e68f7b67e`
-- CI/checks: replacement exact-head runs terminal SUCCESS — CI `32562099317` / `checks` job `97005161601`; Studio PWA CI `32562099341` / `studio` job `97005161698` and `browser-e2e` job `97005161750`. Initial failed chain retained above in commit history; this Evidence commit requires one final exact-head check cycle.
+- Last verified revision: `d9e94d4e39479e62ed91d7c68c9d285adc3796ee`
+- Working tree: локальный regression fix устраняет race между route-request `browse` и кликом `Новый проект`; implementation и regression test ещё не committed/pushed; preserved unrelated untracked pnpm artifacts excluded from scope/commits
+- Completed since base: Goal activation; additive `0022_account_operability` schema; owner-scoped persistent accent preference; confirmed owner-scoped reset boundaries for manifest, History and Analytics; durable jobs/outputs/Google Docs/R2/sources/audit preserved; completed attempt authority reconciled only when accepted output is actually persisted; missing-output/in-flight/uncertain cases remain fail closed; regression tests added; stale project-view synchronization перенесена до paint, а открытие формы сделано deterministic
+- Current step: commit/push UI race fix и повторить exact-head merge gates
+- Next exact action: создать atomic commit, push в PR #218 и дождаться terminal state всех replacement checks
+- Validation and Evidence: после UI race fix полный frontend ESLint, TypeScript `tsc -b`, production Vite/PWA build и Vitest `519/519` прошли; focused regression `2/2` прошёл. Ранее repository lightweight CI checks, focused safety regression `14/14`, catalog/analytics contracts `22/22`, clear frontend tests `23/23`, App History clear `1/1`, Login contract `5/5` прошли. PostgreSQL-backed regressions authored, но local PostgreSQL/Redis недоступны; bash-dependent tests недоступны на Windows. Более широкий non-infrastructure Python run ранее прошёл до 37% без нового failure после safety correction, но не считается terminal evidence; exact full suite остаётся CI gate.
+- Pull Request: [#218](https://github.com/Just9120/Elevenlabs-API/pull/218), OPEN, non-draft; pushed head `d9e94d4e39479e62ed91d7c68c9d285adc3796ee`, base `6bcb0ed49aeb6e491765fda45bf74b6e68f7b67e`; replacement fix pending push
+- CI/checks: на code head `9a26f81806ffb93377e9956e784d98a5dcea6602` все checks были SUCCESS: CI `32562099317` / job `97005161601`, Studio `32562099341` / job `97005161698`, browser-e2e job `97005161750`. На metadata head `d9e94d4e39479e62ed91d7c68c9d285adc3796ee` CI `32562273548` / job `97005600728` и Studio job `97005601044` SUCCESS, но browser-e2e run `32562273555` / job `97005600759` FAILURE: форма создания проекта закрывалась stale `browse` effect после клика. Локальный product fix подтверждён tests; replacement exact-head checks pending.
 - Deployment/environment: production baseline `main@6bcb0ed49aeb6e491765fda45bf74b6e68f7b67e`; Goal revision not deployed
 - Blockers: none at implementation stage
 - Unverified assumptions: production database accepts planned additive migration; clear reset boundaries and completed-attempt correction require bounded LIVE verification after deploy
