@@ -50,6 +50,7 @@ vi.mock("./realtimeSession", () => ({
 }));
 
 import { LiveTranscriptionPanel as ProductionLiveTranscriptionPanel } from "./LiveTranscriptionPanel";
+import * as realtimeDrafts from "./realtimeDrafts";
 
 function LiveTranscriptionPanel(
   props: Omit<ComponentProps<typeof ProductionLiveTranscriptionPanel>, "ownerUserId">,
@@ -523,6 +524,47 @@ describe("LiveTranscriptionPanel", () => {
     });
     await waitFor(() => expect(order.at(-1)).toBe("DELETE"));
     expect(order.filter((item) => item.startsWith("PUT"))).toEqual(["PUT:1"]);
+    expect(
+      screen.getByText("Подтверждённых фрагментов пока нет."),
+    ).toBeInTheDocument();
+  });
+
+  it("makes deletion the final local mutation after a pending checkpoint", async () => {
+    const order: string[] = [];
+    let resolveLocalSave: (() => void) | undefined;
+    vi.spyOn(realtimeDrafts, "saveLocalRealtimeDraft").mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          order.push("LOCAL_SAVE");
+          resolveLocalSave = resolve;
+        }),
+    );
+    vi.spyOn(realtimeDrafts, "deleteLocalRealtimeDraft").mockImplementation(
+      async () => {
+        order.push("LOCAL_DELETE");
+      },
+    );
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    render(
+      <LiveTranscriptionPanel
+        projectId="project-safe"
+        csrf="csrf-safe"
+        onCsrf={vi.fn()}
+        active
+      />,
+    );
+    await userEvent.click(await screen.findByRole("button", { name: "Начать" }));
+    act(() => {
+      controllerState.instances[0].callbacks.onCommitted("Local checkpoint");
+    });
+    await waitFor(() => expect(resolveLocalSave).toBeDefined());
+    await userEvent.click(screen.getByRole("button", { name: "Остановить" }));
+    await userEvent.click(screen.getByRole("button", { name: "Очистить" }));
+    expect(order).toEqual(["LOCAL_SAVE"]);
+
+    act(() => resolveLocalSave?.());
+    await waitFor(() => expect(order).toEqual(["LOCAL_SAVE", "LOCAL_DELETE"]));
     expect(
       screen.getByText("Подтверждённых фрагментов пока нет."),
     ).toBeInTheDocument();

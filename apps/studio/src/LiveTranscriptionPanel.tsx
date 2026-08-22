@@ -157,6 +157,7 @@ export function LiveTranscriptionPanel({
   const segmentsRef = useRef([...initialSegments]);
   const partialRef = useRef("");
   const draftRef = useRef<RealtimeDraft | null>(null);
+  const localSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const serverSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const draftMutationGenerationRef = useRef(0);
   const draftDeletePendingRef = useRef(false);
@@ -185,6 +186,31 @@ export function LiveTranscriptionPanel({
   );
   csrfRef.current = csrf;
   onCsrfRef.current = onCsrf;
+
+  function enqueueLocalDraftSave(nextDraft: RealtimeDraft) {
+    const generation = draftMutationGenerationRef.current;
+    const operation = localSaveQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        if (
+          draftDeletePendingRef.current ||
+          generation !== draftMutationGenerationRef.current
+        ) {
+          return false;
+        }
+        try {
+          await saveLocalRealtimeDraft(nextDraft);
+          return true;
+        } catch {
+          return false;
+        }
+      });
+    localSaveQueueRef.current = operation.then(
+      () => undefined,
+      () => undefined,
+    );
+    return operation;
+  }
 
   function enqueueServerDraftSave(nextDraft: RealtimeDraft) {
     const generation = draftMutationGenerationRef.current;
@@ -243,9 +269,7 @@ export function LiveTranscriptionPanel({
 
   async function persistDraft(nextDraft: RealtimeDraft) {
     const generation = draftMutationGenerationRef.current;
-    const localWrite = saveLocalRealtimeDraft(nextDraft)
-      .then(() => true)
-      .catch(() => false);
+    const localWrite = enqueueLocalDraftSave(nextDraft);
     const serverWrite = enqueueServerDraftSave(nextDraft);
     const [localSaved, serverSaved] = await Promise.all([
       localWrite,
@@ -614,9 +638,20 @@ export function LiveTranscriptionPanel({
       partialCheckpointTimerRef.current = null;
     }
     setDraftStatus("saving");
-    const localDelete = deleteLocalRealtimeDraft(ownerUserId, projectId)
-      .then(() => true)
-      .catch(() => false);
+    const localDelete = localSaveQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        try {
+          await deleteLocalRealtimeDraft(ownerUserId, projectId);
+          return true;
+        } catch {
+          return false;
+        }
+      });
+    localSaveQueueRef.current = localDelete.then(
+      () => undefined,
+      () => undefined,
+    );
     const serverDelete = serverSaveQueueRef.current
       .catch(() => undefined)
       .then(async () => {
