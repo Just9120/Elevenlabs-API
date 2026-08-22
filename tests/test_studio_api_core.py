@@ -786,6 +786,48 @@ def test_projects_require_authentication():
     c = TestClient(app)
     assert c.get("/api/projects").status_code == 401
     assert c.post("/api/projects", json={"title": "Project"}, headers={"origin": "https://studio.test", "x-csrf-token": "bad"}).status_code == 401
+    assert c.post("/api/transcriptions/workspace").status_code == 401
+
+
+def test_transcription_workspace_reuses_active_and_never_unarchives_legacy_data():
+    email = "transcription-workspace@example.com"
+    password = admin(email)
+    client = TestClient(app)
+    csrf = login(client, password, email)
+    headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+    existing = client.post(
+        "/api/projects",
+        json={"title": "Legacy active"},
+        headers=headers,
+    ).json()
+
+    reused = client.post("/api/transcriptions/workspace", headers=headers)
+    assert reused.status_code == 200
+    assert reused.json()["created"] is False
+    assert reused.json()["project"]["id"] == existing["id"]
+
+    assert client.post(
+        f"/api/projects/{existing['id']}/archive",
+        headers=headers,
+    ).status_code == 200
+    created = client.post("/api/transcriptions/workspace", headers=headers)
+    assert created.status_code == 200
+    assert created.json()["created"] is True
+    assert created.json()["project"]["id"] != existing["id"]
+    assert created.json()["project"]["title"] == "Транскрибации"
+    repeated = client.post("/api/transcriptions/workspace", headers=headers)
+    assert repeated.json()["created"] is False
+    assert repeated.json()["project"]["id"] == created.json()["project"]["id"]
+
+    db = SessionLocal()
+    try:
+        archived = db.get(Project, existing["id"])
+        assert archived is not None and archived.archived_at is not None
+        assert db.query(AuditEvent).filter_by(
+            event_type="transcription_workspace.created"
+        ).count() == 1
+    finally:
+        db.close()
 
 
 def test_project_create_list_update_archive_lifecycle_and_archived_excluded():

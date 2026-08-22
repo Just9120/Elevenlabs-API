@@ -505,6 +505,41 @@ def list_projects(pair=Depends(current_session), db: Session=Depends(get_db)):
     rows=db.query(Project).filter(Project.owner_user_id==user.id, Project.archived_at.is_(None)).order_by(Project.updated_at.desc(), Project.created_at.desc()).all()
     return {"projects":[project_payload(p) for p in rows]}
 
+@app.post("/api/transcriptions/workspace")
+def ensure_transcription_workspace(
+    pair=Depends(require_csrf),
+    db: Session=Depends(get_db),
+):
+    _, user = pair
+    limiter.check("transcription:workspace:ensure:" + user.id, 30, 3600)
+    db.execute(select(User).where(User.id == user.id).with_for_update()).scalar_one()
+    project = db.execute(
+        select(Project)
+        .where(
+            Project.owner_user_id == user.id,
+            Project.archived_at.is_(None),
+        )
+        .order_by(Project.updated_at.desc(), Project.created_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    created = project is None
+    if project is None:
+        project = Project(
+            owner_user_id=user.id,
+            title="Транскрибации",
+            description=None,
+        )
+        db.add(project)
+        db.flush()
+        audit(
+            db,
+            "transcription_workspace.created",
+            actor_user_id=user.id,
+            subject_user_id=user.id,
+        )
+    db.commit()
+    return {"project": project_payload(project), "created": created}
+
 @app.post("/api/projects")
 def create_project(data: ProjectIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     _,user=pair; limiter.check("project:create:"+user.id, 60, 3600)

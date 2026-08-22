@@ -109,13 +109,13 @@ Owner LIVE evidence подтверждает работоспособность 
 
 ### Эпик `PWA-CORE-01` — application shell, auth и integrations
 
-Status: **🟦 IN PROGRESS — 84,6% (`11/13`)**.
+Status: **🟦 IN PROGRESS — 92,3% (`12/13`)**.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
 | `PC-01` | Интерфейс адаптивен на desktop и narrow viewport без document-level overflow и недоступных controls. | ❌ |
 | `PC-02` | Sidebar содержит Dashboard. | ✅ |
-| `PC-03` | Primary navigation и page title используют пользовательскую сущность `Транскрибации`, а не технический `Project`. | ❌ |
+| `PC-03` | Primary navigation и page title используют пользовательскую сущность `Транскрибации`, а не технический `Project`. | ✅ |
 | `PC-04` | Sidebar содержит Settings. | ✅ |
 | `PC-05` | Admin входит по login/password и получает server session. | ✅ |
 | `PC-06` | Provider API keys добавляются и управляются в Settings. | ✅ |
@@ -137,18 +137,18 @@ Verified implementation: active project source collection исключает loc
 
 ### Эпик `PWA-TRANSCRIPTIONS-UX-01` — пользовательская модель транскрибаций
 
-Status: **🟦 IN PROGRESS — 0% (`0/4`)**.
+Status: **🟦 IN PROGRESS — 75,0% (`3/4`)**.
 
 `Project` остаётся допустимой внутренней ownership/data boundary, но не является обязательной пользовательской сущностью. Основной user flow начинается с обычной или Live-транскрибации; технический workspace выбирается или создаётся автоматически и не требует ручного lifecycle management.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
-| `PT-01` | В `Транскрибациях` доступны отдельные вкладки обычной и Live-транскрибации. | ❌ |
-| `PT-02` | Для запуска новой транскрибации пользователь не создаёт, не редактирует и не архивирует технический Project вручную. | ❌ |
+| `PT-01` | В `Транскрибациях` доступны отдельные вкладки обычной и Live-транскрибации. | ✅ |
+| `PT-02` | Для запуска новой транскрибации пользователь не создаёт, не редактирует и не архивирует технический Project вручную. | ✅ |
 | `PT-03` | Один массовый запуск отображается как одна мульти-транскрибация с отдельными source/fragment items. | ❌ |
-| `PT-04` | Существующие active legacy workspaces, sources, jobs и outputs остаются доступны без destructive migration; archived production data не восстанавливается автоматически. | ❌ |
+| `PT-04` | Существующие active legacy workspaces, sources, jobs и outputs остаются доступны без destructive migration; archived production data не восстанавливается автоматически. | ✅ |
 
-Evidence: `SPEC ✅ | CODE — | TEST — | CI N/A | DEPLOY — | LIVE —`.
+Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI — | DEPLOY — | LIVE —`.
 
 ### Эпик `PWA-INGEST-01` — target и source selection, multi-transcription
 

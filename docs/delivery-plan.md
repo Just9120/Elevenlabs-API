@@ -21,23 +21,23 @@
   11. Maintenance access показывает точную safe blocker category; OpenAI key storage ясно помечено как недоступное для current transcription execution.
   12. Existing batch/realtime behavior не регрессирует; relevant backend/frontend/security/responsive/accessibility tests проходят.
   13. Exact-head CI, applicable MANUAL_GATED migration/API/web/worker deployment и bounded LIVE recovery validation успешны.
-- **Required Evidence:** `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+- **Required Evidence:** `SPEC ✅ | CODE ◐ | TEST ◐ | CI — | DEPLOY — | LIVE —`.
 - **Known blockers/dependencies:** additive migration `0023` потребует отдельного protected Environment approval после merge; production archived project `Транскрибации` не может быть восстановлен этой Goal без отдельной exact-data authorization; approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
 - **Stop condition:** все Goal AC и required Evidence подтверждены либо flow достиг `BLOCKED` / `PENDING_EXTERNAL_GATE`; затем остановиться и не переходить к следующей Goal без explicit authorization.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-22T15:14:50Z
+- Updated (UTC): 2026-08-22T15:40:05Z
 - Session mode: new authorized Goal
 - Base branch: `main`
 - Base SHA: `dd194c929d957e822ff618df294dc54e72d5971e`
 - Working branch: `codex/pwa-transcriptions-live-recovery-01`
-- Last verified revision: `29d7fb35921cb3e57d4e82f185bdc49669726957`
+- Last verified revision: `c82e310`
 - Working tree at branch start: tracked clean; preserved unrelated untracked `.pnpm-store/`, `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml`
-- Completed: Git/GitHub recovery; product reconciliation; additive `0023` encrypted owner/project Live-draft model/service/API; monotonic/size/TTL boundaries; idle-worker physical cleanup; removal of autosave audit churn; IndexedDB checkpoint module; server sync; reload recovery restore/download/delete UX.
-- Current step: finish and commit browser recovery slice, then replace user-facing Projects lifecycle with Transcriptions-first IA.
-- Next exact action: commit IndexedDB/recovery UI after focused frontend validation, then remove create/edit/archive controls while preserving active legacy workspaces.
-- Validation and Evidence: backend Python syntax compile and `scripts/ci_checks.py` PASS; TypeScript build PASS; focused Live/recovery tests `21/21` PASS; full Studio suite `524/525` passed with one stale copy assertion, updated assertion then focused App regression PASS. Backend integration tests are authored but not runnable locally without the repository PostgreSQL/Redis Python test environment.
+- Completed: Git/GitHub recovery; product reconciliation; additive `0023` encrypted owner/project Live-draft model/service/API; monotonic/size/TTL boundaries; idle-worker physical cleanup; removal of autosave audit churn; IndexedDB checkpoint module; server sync; reload recovery restore/download/delete UX; canonical `/transcriptions` route; ordinary/Live tabs; removal of manual Project create/edit/archive UX; idempotent internal workspace ensure; non-destructive legacy workspace compatibility selector.
+- Current step: commit the verified Transcriptions-first IA slice, then remediate the bounded responsive/accessibility/operability UX gaps.
+- Next exact action: implement narrow Diagnostics overflow, theme contrast, modal focus/keyboard behavior, heading/touch/tab accessibility and bounded maintenance/provider copy fixes.
+- Validation and Evidence: backend Python syntax compile and `scripts/ci_checks.py` PASS; TypeScript build PASS; focused Live/recovery tests `21/21` PASS; Transcriptions IA/App/routing regression `223/223` PASS. Backend integration tests are authored but not runnable locally without the repository PostgreSQL/Redis Python test environment.
 - Pull Request: not created.
 - CI/checks: not started.
 - Deployment/environment: not started; migration class `MANUAL_GATED`.
@@ -47,24 +47,24 @@
 
 ## Project readiness
 
-Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Goal expansion добавила `PT-01..04` и `PR-07..13`; production audit повторно открыл `PC-01`, а approved product-model replacement — `PC-03`. Поэтому PWA denominator изменился `80 → 91`, project denominator `109 → 120`, а numerator `69 → 67`.
+Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Независимый пересчёт после IA-среза подтвердил `PC-03`, `PT-01`, `PT-02` и `PT-04`; `PT-03` остаётся открытым, потому что batch jobs пока отображаются как отдельные jobs, а не одна multi-transcription. Denominator не изменился; numerator вырос на 4 AC.
 
 | Product/epic | Current | Previous independent snapshot | Readiness/Evidence |
 |---|---:|---:|---|
-| **Project** | **80,0% (`96/120`)** | **74,2% (`89/120`)** | `PR-07..13` выполнены; delivery Evidence ещё неполные. |
+| **Project** | **83,3% (`100/120`)** | **80,0% (`96/120`)** | +4 AC в Transcriptions-first IA; delivery Evidence ещё неполные. |
 | **Google Colab** | **75,9% (`22/29`)** | **75,9% (`22/29`)** | Без изменений в PWA Goal. |
 | `COLAB-BATCH-01` | **73,9% (`17/23`)** | **73,9% (`17/23`)** | 🟦 IN PROGRESS. |
 | `COLAB-REALTIME-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS. |
-| **Studio PWA** | **81,3% (`74/91`)** | **73,6% (`67/91`)** | +7 AC: local/server Live recovery, TTL и privacy boundary. |
-| `PWA-CORE-01` | **84,6% (`11/13`)** | **92,3% (`12/13`)** | `PC-01` открыт по 390px runtime overflow; `PC-03` — по approved navigation replacement. |
-| `PWA-TRANSCRIPTIONS-UX-01` | **0% (`0/4`)** | N/A | Новый owner-authorized epic. |
+| **Studio PWA** | **85,7% (`78/91`)** | **81,3% (`74/91`)** | +4 AC: canonical navigation, ordinary/Live tabs, no manual Project lifecycle, legacy compatibility. |
+| `PWA-CORE-01` | **92,3% (`12/13`)** | **84,6% (`11/13`)** | `PC-03` выполнен; `PC-01` остаётся открыт по 390px runtime overflow. |
+| `PWA-TRANSCRIPTIONS-UX-01` | **75,0% (`3/4`)** | **0% (`0/4`)** | `PT-01`, `PT-02`, `PT-04` выполнены; `PT-03` открыт. |
 | `PWA-INGEST-01` | **72,7% (`8/11`)** | **72,7% (`8/11`)** | Вне Goal. |
 | `PWA-SEGMENTS-01` | **100% (`5/5`)** | **100% (`5/5`)** | 🟩 READY. |
 | `PWA-BATCH-01` | **90,0% (`9/10`)** | **90,0% (`9/10`)** | Вне Goal. |
 | `PWA-SPEAKER-IDENTITY-01` | **0% (`0/5`)** | **0% (`0/5`)** | Вне Goal. |
 | `PWA-MANIFEST-01` | **100% (`6/6`)** | **100% (`6/6`)** | Required delivery Evidence неполные. |
 | `PWA-STANDARDIZATION-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | Вне Goal. |
-| `PWA-REALTIME-01` | **92,3% (`12/13`)** | **38,5% (`5/13`)** | `PR-07..13` выполнены; `PR-06` production stability остаётся открытым. |
+| `PWA-REALTIME-01` | **92,3% (`12/13`)** | **92,3% (`12/13`)** | Без изменения; `PR-06` production stability остаётся открытым. |
 | `PWA-OPERABILITY-01` | **100% (`18/18`)** | **100% (`18/18`)** | Required delivery Evidence неполные. |
 
 ## Candidate next Goals
