@@ -28,7 +28,7 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Текущий independently verified execution snapshot: ветка `codex/pwa-transcriptions-live-recovery-01` от `main@dd194c929d957e822ff618df294dc54e72d5971e`, после bounded local UX и multi-transcription validation.
+Текущий independently verified execution snapshot: ветка `codex/pwa-transcriptions-live-recovery-01` от `main@dd194c929d957e822ff618df294dc54e72d5971e`, exact-head `7720791dad31950472c99401576c363ed8a5be1f`; bounded local UX и exact-head CI подтверждены, DEPLOY/LIVE ещё не выполнены.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
@@ -109,7 +109,7 @@ Owner LIVE evidence подтверждает работоспособность 
 
 ### Эпик `PWA-CORE-01` — application shell, auth и integrations
 
-Status: **🟦 IN PROGRESS — 100% (`13/13`)**. Все product AC выполнены; exact-head CI, DEPLOY и LIVE для текущей ветки ещё не подтверждены, поэтому эпик не `READY`.
+Status: **🟦 IN PROGRESS — 100% (`13/13`)**. Все product AC и exact-head CI подтверждены; DEPLOY и LIVE для текущей ветки ещё не выполнены, поэтому эпик не `READY`.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -127,7 +127,7 @@ Status: **🟦 IN PROGRESS — 100% (`13/13`)**. Все product AC выполн�
 | `PC-12` | Доступны system, light и dark themes. | ✅ |
 | `PC-13` | Пользователь выбирает accent/interface color. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ◐ | DEPLOY — | LIVE ❌`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE ❌`.
 
 UX/UI-аудит production на viewport `390x844` выявил document-level horizontal overflow в Diagnostics: `.meta` с `max-content` расширял document до 474 px и сжимал часть значений до нулевой доступной ширины. Текущая ветка заменила unbounded metadata grid, добавила narrow single-column layout и сохранила три primary navigation controls. Bounded local browser validation при `390x844` подтвердила `documentWidth=375` при layout viewport 375, доступность всех трёх navigation controls и keyboard-переключение ordinary/Live tabs; production LIVE regression check остаётся delivery gate, а не основанием повторно открывать выполненный AC.
 
@@ -137,7 +137,7 @@ Verified implementation: active project source collection исключает loc
 
 ### Эпик `PWA-TRANSCRIPTIONS-UX-01` — пользовательская модель транскрибаций
 
-Status: **🟦 IN PROGRESS — 100% (`4/4`)**. Все product AC выполнены; exact-head CI, DEPLOY и LIVE для текущей ветки ещё не подтверждены, поэтому эпик не `READY`.
+Status: **🟦 IN PROGRESS — 100% (`4/4`)**. Все product AC и exact-head CI подтверждены; DEPLOY и LIVE для текущей ветки ещё не выполнены, поэтому эпик не `READY`.
 
 `Project` остаётся допустимой внутренней ownership/data boundary, но не является обязательной пользовательской сущностью. Основной user flow начинается с обычной или Live-транскрибации; технический workspace выбирается или создаётся автоматически и не требует ручного lifecycle management.
 
@@ -148,9 +148,9 @@ Status: **🟦 IN PROGRESS — 100% (`4/4`)**. Все product AC выполне�
 | `PT-03` | Один массовый запуск отображается как одна мульти-транскрибация с отдельными source/fragment items. | ✅ |
 | `PT-04` | Существующие active legacy workspaces, sources, jobs и outputs остаются доступны без destructive migration; archived production data не восстанавливается автоматически. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ◐ | CI — | DEPLOY — | LIVE —`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
 
-Verified implementation: backend не раскрывает raw batch idempotency key/request hash и выдаёт только deterministic owner/project/key-scoped `multi_*` reference с bounded position. Frontend fail-closed валидирует reference, не допускает duplicate positions, отображает batch одной multi-transcription и сохраняет отдельные progress/output/recovery controls каждого source/fragment item. Full local Studio suite `528/528` и bounded narrow browser fixture прошли; database-backed API contract и production behavior ожидают exact-head CI/deployment/LIVE Evidence.
+Verified implementation: backend не раскрывает raw batch idempotency key/request hash и выдаёт только deterministic owner/project/key-scoped `multi_*` reference с bounded position. Frontend fail-closed валидирует reference, не допускает duplicate positions, отображает batch одной multi-transcription и сохраняет отдельные progress/output/recovery controls каждого source/fragment item. Exact-head CI: Python `1252/1252`, Studio `533/533`, browser E2E `10/10`, builds и safety markers PASS. Bounded narrow browser fixture также прошёл; production behavior ожидает DEPLOY/LIVE Evidence.
 
 ### Эпик `PWA-INGEST-01` — target и source selection, multi-transcription
 
