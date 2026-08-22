@@ -40,6 +40,19 @@ async function login(page: Page) {
   return navigation;
 }
 
+async function openResultTranscriptions(
+  page: Page,
+  navigation: ReturnType<Page['getByRole']>,
+) {
+  await navigation
+    .getByRole('button', { name: 'Транскрибации', exact: true })
+    .click();
+  await expect(page).toHaveURL(/\/transcriptions$/);
+  await expect(
+    page.getByRole('region', { name: `Подготовка ${RESULT_PROJECT}` }),
+  ).toBeVisible();
+}
+
 function trackExternalOrJobMutations(page: Page) {
   const requests: string[] = [];
   page.on('request', (request) => {
@@ -57,34 +70,11 @@ function trackExternalOrJobMutations(page: Page) {
   return requests;
 }
 
-test('authenticated user creates a project and reads a completed job result', async ({
+test('authenticated user opens transcriptions and reads a completed job result', async ({
   page,
 }) => {
   const navigation = await login(page);
-  await navigation.getByRole('button', { name: 'Проекты', exact: true }).click();
-  await expect(page).toHaveURL(/\/projects$/);
-
-  await page.getByRole('button', { name: 'Новый проект' }).click();
-  const createProjectForm = page.locator('form.project-form');
-  await createProjectForm
-    .getByLabel('Название проекта')
-    .fill('Browser E2E Draft');
-  await createProjectForm
-    .getByLabel('Описание')
-    .fill('Created through the authenticated browser workflow');
-  await createProjectForm.getByRole('button', { name: 'Создать' }).click();
-  await expect(
-    page
-      .getByRole('region', { name: 'Список проектов' })
-      .getByRole('button', { name: /^Browser E2E Draft/ }),
-  ).toBeVisible();
-
-  await page
-    .getByRole('button', { name: new RegExp(`^${RESULT_PROJECT}`) })
-    .click();
-  await expect(
-    page.getByRole('region', { name: `Подготовка ${RESULT_PROJECT}` }),
-  ).toBeVisible();
+  await openResultTranscriptions(page, navigation);
 
   await page.getByText('Недавние транскрибации · 4', { exact: true }).click();
   const jobCard = page
@@ -325,10 +315,7 @@ test('Live tab captures browser audio and keeps transcript browser-only', async 
   });
 
   const navigation = await login(page);
-  await navigation.getByRole('button', { name: 'Проекты', exact: true }).click();
-  await page
-    .getByRole('button', { name: new RegExp(`^${RESULT_PROJECT}`) })
-    .click();
+  await openResultTranscriptions(page, navigation);
   await page.getByRole('tab', { name: 'Live-транскрибация' }).click();
   const live = page.getByRole('region', { name: 'Live-транскрибация' });
   await expect(live).toBeVisible();
@@ -349,7 +336,9 @@ test('Live tab captures browser audio and keeps transcript browser-only', async 
 
   await navigation.getByRole('button', { name: 'Обзор', exact: true }).click();
   await expect(live).toBeHidden();
-  await navigation.getByRole('button', { name: 'Проекты', exact: true }).click();
+  await navigation
+    .getByRole('button', { name: 'Транскрибации', exact: true })
+    .click();
   await expect(live).toBeVisible();
   await expect(live.getByText('Остановлено')).toBeVisible();
   await expect(
@@ -369,10 +358,7 @@ test('preparation stays fail-closed without external integrations', async ({
   page,
 }) => {
   const navigation = await login(page);
-  await navigation.getByRole('button', { name: 'Проекты', exact: true }).click();
-  await page
-    .getByRole('button', { name: new RegExp(`^${RESULT_PROJECT}`) })
-    .click();
+  await openResultTranscriptions(page, navigation);
 
   const preparation = page.getByRole('region', {
     name: `Подготовка ${RESULT_PROJECT}`,
@@ -491,10 +477,7 @@ test('uncertain provider result exposes no unsafe recovery action', async ({
   page,
 }) => {
   const navigation = await login(page);
-  await navigation.getByRole('button', { name: 'Проекты', exact: true }).click();
-  await page
-    .getByRole('button', { name: new RegExp(`^${RESULT_PROJECT}`) })
-    .click();
+  await openResultTranscriptions(page, navigation);
   await page.getByText('Недавние транскрибации · 4', { exact: true }).click();
 
   const jobCard = page
@@ -570,10 +553,7 @@ test('unresolved output reconciliation waits for an explicit safe action', async
   page,
 }) => {
   const navigation = await login(page);
-  await navigation.getByRole('button', { name: 'Проекты', exact: true }).click();
-  await page
-    .getByRole('button', { name: new RegExp(`^${RESULT_PROJECT}`) })
-    .click();
+  await openResultTranscriptions(page, navigation);
   await page.getByText('Недавние транскрибации · 4', { exact: true }).click();
 
   const jobCard = page
@@ -661,7 +641,6 @@ test('progress refresh keeps the last confirmed checkpoint after a temporary fai
   page,
 }) => {
   const navigation = await login(page);
-  await navigation.getByRole('button', { name: 'Проекты', exact: true }).click();
 
   const integrationRequests = trackExternalOrJobMutations(page);
   const initialProgressResponsePromise = page.waitForResponse(
@@ -669,9 +648,7 @@ test('progress refresh keeps the last confirmed checkpoint after a temporary fai
       response.request().method() === 'GET' &&
       response.url().endsWith('/jobs/progress'),
   );
-  await page
-    .getByRole('button', { name: new RegExp(`^${RESULT_PROJECT}`) })
-    .click();
+  await openResultTranscriptions(page, navigation);
 
   const initialProgressResponse = await initialProgressResponsePromise;
   expect(initialProgressResponse.status()).toBe(200);
@@ -740,7 +717,6 @@ test('processing cancellation records a request without claiming completion', as
   page,
 }) => {
   const navigation = await login(page);
-  await navigation.getByRole('button', { name: 'Проекты', exact: true }).click();
 
   const integrationRequests = trackExternalOrJobMutations(page);
   const progressResponsePromise = page.waitForResponse(
@@ -748,9 +724,7 @@ test('processing cancellation records a request without claiming completion', as
       response.request().method() === 'GET' &&
       response.url().endsWith('/jobs/progress'),
   );
-  await page
-    .getByRole('button', { name: new RegExp(`^${RESULT_PROJECT}`) })
-    .click();
+  await openResultTranscriptions(page, navigation);
 
   const progressResponse = await progressResponsePromise;
   expect(progressResponse.status()).toBe(200);
@@ -884,7 +858,6 @@ test('queued cancellation performs one bounded API mutation', async ({
   page,
 }) => {
   const navigation = await login(page);
-  await navigation.getByRole('button', { name: 'Проекты', exact: true }).click();
 
   const integrationRequests = trackExternalOrJobMutations(page);
   const progressResponsePromise = page.waitForResponse(
@@ -892,9 +865,7 @@ test('queued cancellation performs one bounded API mutation', async ({
       response.request().method() === 'GET' &&
       response.url().endsWith('/jobs/progress'),
   );
-  await page
-    .getByRole('button', { name: new RegExp(`^${RESULT_PROJECT}`) })
-    .click();
+  await openResultTranscriptions(page, navigation);
 
   const progressResponse = await progressResponsePromise;
   expect(progressResponse.status()).toBe(200);
@@ -1059,10 +1030,7 @@ test('retry-safe provider rejection performs one explicit requeue mutation', asy
   page,
 }) => {
   const navigation = await login(page);
-  await navigation.getByRole('button', { name: 'Проекты', exact: true }).click();
-  await page
-    .getByRole('button', { name: new RegExp(`^${RESULT_PROJECT}`) })
-    .click();
+  await openResultTranscriptions(page, navigation);
 
   const recentJobs = page.locator('details.recent-jobs');
   await recentJobs.getByText(/^Недавние транскрибации · \d+$/).click();

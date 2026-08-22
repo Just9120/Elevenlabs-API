@@ -27,19 +27,19 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-22T16:21:36Z
+- Updated (UTC): 2026-08-22T16:31:55Z
 - Session mode: new authorized Goal
 - Base branch: `main`
 - Base SHA: `dd194c929d957e822ff618df294dc54e72d5971e`
 - Working branch: `codex/pwa-transcriptions-live-recovery-01`
-- Last verified revision: `6c64d4f867da2ce39d9c21791e97b6054dcbd17d`
+- Last verified revision: `6ce6fcf4c46f256b60f49df156832d7a4940fd7d`
 - Working tree at branch start: tracked clean; preserved unrelated untracked `.pnpm-store/`, `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml`
 - Completed: Git/GitHub recovery; product reconciliation; additive `0023` encrypted owner/project Live-draft model/service/API; monotonic/size/TTL boundaries; idle-worker physical cleanup; removal of autosave audit churn; IndexedDB checkpoint module; server sync; reload recovery restore/download/delete UX; canonical `/transcriptions` route; ordinary/Live tabs; removal of manual Project create/edit/archive UX; idempotent internal workspace ensure; non-destructive legacy workspace compatibility selector; bounded metadata layout; dark primary contrast; accessible confirmation dialog; keyboard-operable tabs; heading/touch/mobile affordance corrections; exact maintenance blocker copy; current-provider limitation copy; safe deterministic batch presentation reference; one grouped multi-transcription per batch with ordered source/fragment items and preserved item-level progress/output/recovery controls.
-- Current step: commit the verified multi-transcription presentation slice and readiness update.
-- Next exact action: run final branch validation, fetch/reconcile `origin/main`, push the completed Goal scope and create the Pull Request.
-- Validation and Evidence: backend Python syntax compile and `scripts/ci_checks.py` PASS; TypeScript build, ESLint and production Vite build PASS; full Studio suite `528/528` PASS across `43/43` files; focused Live/recovery tests `21/21` PASS; Transcriptions IA/App/routing regression `223/223` PASS; focused UX regression `229/229` PASS. Bounded local browser validation PASS at desktop `1280x720` and narrow `390x844`: no document-level overflow (`documentWidth=375` at layout viewport 375), all three primary navigation controls visible, ordinary/Live keyboard tab switching works, visible sampled targets are at least 66 px high; batch fixture renders one multi-transcription with two ordered item cards and no narrow overflow. Backend integration tests, including the safe batch-reference API contract, are authored but not runnable locally without the repository PostgreSQL/Redis Python test environment; exact-head CI remains required.
-- Pull Request: not created.
-- CI/checks: not started.
+- Current step: commit the bounded browser-E2E contract fix discovered by first exact-head CI.
+- Next exact action: push the E2E fix to PR #222 and wait for all replacement exact-head checks.
+- Validation and Evidence: backend Python syntax compile and `scripts/ci_checks.py` PASS; TypeScript build, ESLint and production Vite build PASS; full Studio suite `528/528` PASS across `43/43` files; focused Live/recovery tests `21/21` PASS; Transcriptions IA/App/routing regression `223/223` PASS; focused UX regression `229/229` PASS. Bounded local browser validation PASS at desktop `1280x720` and narrow `390x844`: no document-level overflow (`documentWidth=375` at layout viewport 375), all three primary navigation controls visible, ordinary/Live keyboard tab switching works, visible sampled targets are at least 66 px high; batch fixture renders one multi-transcription with two ordered item cards and no narrow overflow. First PR-head Studio workflow run `32584676612`: `studio` success; `browser-e2e` failed because its serial first scenario still searched removed `Проекты`/`Новый проект` controls, so nine tests did not run. Browser contract is updated to the canonical Transcriptions-first flow; TypeScript, focused ESLint and Playwright discovery `10/10` PASS locally. Backend integration tests, including the safe batch-reference API contract, are authored but not runnable locally without the repository PostgreSQL/Redis Python test environment; replacement exact-head CI remains required.
+- Pull Request: `#222` — `https://github.com/Just9120/Elevenlabs-API/pull/222`, open, exact pre-fix head `6ce6fcf4c46f256b60f49df156832d7a4940fd7d`.
+- CI/checks: first Studio run `32584676612` terminal failure (`studio` success, `browser-e2e` failure); repository CI run `32584676700` still pending at checkpoint. Replacement exact-head checks not started.
 - Deployment/environment: not started; migration class `MANUAL_GATED`.
 - Blockers: no implementation blocker; production recovery remains separately unauthorized.
 - Unverified assumptions: 72-hour draft TTL and existing credential master key boundary are compatible with production operational policy; exact deployment requires post-merge verification.
