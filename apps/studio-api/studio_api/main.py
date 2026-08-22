@@ -28,6 +28,13 @@ from .diagnostic_reports import build_diagnostic_report, serialize_diagnostic_re
 from .job_output_read import browser_job_output_payload, load_browser_job_output_rows
 from .job_progress import load_browser_job_progress_payloads
 from .realtime_capability import RealtimeCapabilityError, RealtimeCapabilityReason, create_realtime_capability
+from .realtime_drafts import (
+    RealtimeDraftError,
+    RealtimeDraftReason,
+    delete_realtime_draft,
+    load_latest_realtime_draft,
+    save_realtime_draft,
+)
 from .endpoint_group import diagnostic_endpoint_group
 from .transcription_analytics import load_transcription_analytics_payload
 from .job_output_reconciliation import OutputReconciliationError, OutputReconciliationReason, check_job_output_reconciliation, reconciliation_status_payload
@@ -193,6 +200,12 @@ class RealtimeCapabilityIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     provider_credential_id: str|None=Field(default=None, max_length=36)
     language: TranscriptionLanguageMode=DEFAULT_TRANSCRIPTION_LANGUAGE_MODE
+
+class RealtimeDraftIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    revision: StrictInt=Field(ge=1, le=2147483647)
+    committed_segments: list[str]=Field(max_length=5000)
+    partial: str=Field(default="", max_length=20000)
 
 class TranscriptionJobBatchCreateIn(BaseModel):
     provider_credential_id: str|None=Field(default=None, max_length=36)
@@ -847,6 +860,137 @@ def _write_realtime_diagnostic_event(
             correlation_id,
             event_code,
         )
+
+def _raise_realtime_draft_failure(exc: RealtimeDraftError) -> None:
+    status_code = {
+        RealtimeDraftReason.scope_conflict: status.HTTP_404_NOT_FOUND,
+        RealtimeDraftReason.revision_conflict: status.HTTP_409_CONFLICT,
+        RealtimeDraftReason.payload_too_large: status.HTTP_422_UNPROCESSABLE_ENTITY,
+        RealtimeDraftReason.payload_invalid: status.HTTP_422_UNPROCESSABLE_ENTITY,
+        RealtimeDraftReason.crypto_failed: status.HTTP_503_SERVICE_UNAVAILABLE,
+    }[exc.reason]
+    raise HTTPException(status_code, {"reason": exc.reason.value}) from exc
+
+def _realtime_draft_payload(draft, *, include_text: bool) -> dict:
+    payload = {
+        "client_session_id": draft.client_session_id,
+        "revision": draft.revision,
+        "updated_at": draft.updated_at.isoformat(),
+        "expires_at": draft.expires_at.isoformat(),
+    }
+    if include_text:
+        payload.update(
+            {
+                "committed_segments": list(draft.committed_segments),
+                "partial": draft.partial,
+            }
+        )
+    return payload
+
+@app.put("/api/projects/{project_id}/realtime/drafts/{client_session_id}")
+def put_project_realtime_draft(
+    project_id: str,
+    client_session_id: str,
+    data: RealtimeDraftIn,
+    response: Response,
+    pair=Depends(require_csrf),
+    db: Session=Depends(get_db),
+):
+    _, user = pair
+    limiter.check("realtime:draft:save:" + user.id, 240, 3600)
+    project = owned_project_or_404(db, user, project_id)
+    _browser_capability_cache_headers(response)
+    try:
+        draft = save_realtime_draft(
+            db,
+            owner_user_id=user.id,
+            project=project,
+            client_session_id=client_session_id,
+            revision=data.revision,
+            committed_segments=data.committed_segments,
+            partial=data.partial,
+            settings=settings,
+            now=utcnow(),
+        )
+        audit(
+            db,
+            "realtime_draft.saved",
+            actor_user_id=user.id,
+            subject_user_id=user.id,
+        )
+        db.commit()
+    except RealtimeDraftError as exc:
+        db.rollback()
+        _raise_realtime_draft_failure(exc)
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {"reason": RealtimeDraftReason.revision_conflict.value},
+        ) from exc
+    return {"draft": _realtime_draft_payload(draft, include_text=False)}
+
+@app.get("/api/projects/{project_id}/realtime/drafts/latest")
+def get_project_latest_realtime_draft(
+    project_id: str,
+    response: Response,
+    pair=Depends(current_session),
+    db: Session=Depends(get_db),
+):
+    _, user = pair
+    limiter.check("realtime:draft:load:" + user.id, 240, 3600)
+    project = owned_project_or_404(db, user, project_id)
+    _browser_capability_cache_headers(response)
+    try:
+        draft = load_latest_realtime_draft(
+            db,
+            owner_user_id=user.id,
+            project=project,
+            settings=settings,
+            now=utcnow(),
+        )
+        db.commit()
+    except RealtimeDraftError as exc:
+        db.rollback()
+        _raise_realtime_draft_failure(exc)
+    return {
+        "draft": _realtime_draft_payload(draft, include_text=True)
+        if draft is not None
+        else None
+    }
+
+@app.delete("/api/projects/{project_id}/realtime/drafts/{client_session_id}")
+def delete_project_realtime_draft(
+    project_id: str,
+    client_session_id: str,
+    response: Response,
+    pair=Depends(require_csrf),
+    db: Session=Depends(get_db),
+    _=Depends(require_same_origin),
+):
+    _, user = pair
+    limiter.check("realtime:draft:delete:" + user.id, 120, 3600)
+    project = owned_project_or_404(db, user, project_id)
+    _browser_capability_cache_headers(response)
+    try:
+        deleted = delete_realtime_draft(
+            db,
+            owner_user_id=user.id,
+            project=project,
+            client_session_id=client_session_id,
+        )
+        if deleted:
+            audit(
+                db,
+                "realtime_draft.deleted",
+                actor_user_id=user.id,
+                subject_user_id=user.id,
+            )
+        db.commit()
+    except RealtimeDraftError as exc:
+        db.rollback()
+        _raise_realtime_draft_failure(exc)
+    return {"ok": True, "deleted": deleted}
 
 @app.post("/api/projects/{project_id}/realtime/capability")
 def create_project_realtime_capability(

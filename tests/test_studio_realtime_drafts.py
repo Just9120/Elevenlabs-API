@@ -1,0 +1,240 @@
+from __future__ import annotations
+
+import base64
+import sys
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+import pytest
+from alembic.config import Config
+from alembic.script import ScriptDirectory
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import Session
+
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "apps/studio-api"))
+
+
+class DraftSettings:
+    credential_key_id = "test-v1"
+    realtime_draft_ttl_seconds = 259200
+
+    @staticmethod
+    def master_key_b64() -> str:
+        return base64.b64encode(b"d" * 32).decode("ascii")
+
+
+@pytest.fixture()
+def draft_db():
+    from studio_api.db import Base
+    from studio_api.models import Project, RealtimeTranscriptDraft, User
+
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(
+        engine,
+        tables=[User.__table__, Project.__table__, RealtimeTranscriptDraft.__table__],
+    )
+    with Session(engine) as db:
+        owner = User(id="owner-1", email="owner-1@example.test")
+        project = Project(
+            id="project-1",
+            owner_user_id=owner.id,
+            title="Транскрибации",
+        )
+        other_owner = User(id="owner-2", email="owner-2@example.test")
+        other_project = Project(
+            id="project-2",
+            owner_user_id=other_owner.id,
+            title="Чужие транскрибации",
+        )
+        db.add_all([owner, project, other_owner, other_project])
+        db.commit()
+        yield db, project, other_project
+    engine.dispose()
+
+
+def test_realtime_draft_schema_is_encrypted_scoped_bounded_and_additive():
+    from studio_api.models import RealtimeTranscriptDraft
+
+    table = RealtimeTranscriptDraft.__table__
+    assert {
+        "owner_user_id",
+        "project_id",
+        "client_session_id",
+        "revision",
+        "ciphertext",
+        "nonce",
+        "key_id",
+        "payload_hmac",
+        "committed_segment_count",
+        "committed_character_count",
+        "partial_character_count",
+        "expires_at",
+    } <= set(table.c.keys())
+    assert "plaintext" not in table.c
+    assert "transcript" not in table.c
+    assert {index.name for index in table.indexes} >= {
+        "ix_realtime_drafts_owner_project_updated",
+        "ix_realtime_drafts_expiry",
+    }
+
+    script = ScriptDirectory.from_config(Config("apps/studio-api/alembic.ini"))
+    revision = script.get_revision("0023_realtime_drafts")
+    assert revision.down_revision == "0022_account_operability"
+    assert script.get_heads() == ["0023_realtime_drafts"]
+    migration = (
+        ROOT
+        / "apps/studio-api/alembic/versions/0023_realtime_transcript_drafts.py"
+    ).read_text(encoding="utf-8")
+    assert 'release_safety = "additive"' in migration
+
+
+def test_realtime_draft_round_trip_is_encrypted_and_revision_monotonic(draft_db):
+    from studio_api.models import RealtimeTranscriptDraft
+    from studio_api.realtime_drafts import (
+        RealtimeDraftError,
+        RealtimeDraftReason,
+        load_latest_realtime_draft,
+        save_realtime_draft,
+    )
+
+    db, project, _ = draft_db
+    now = datetime(2026, 8, 22, 12, 0, tzinfo=timezone.utc)
+    first = save_realtime_draft(
+        db,
+        owner_user_id="owner-1",
+        project=project,
+        client_session_id="session_123456789",
+        revision=1,
+        committed_segments=["Секретный первый фрагмент"],
+        partial="незавершённый текст",
+        settings=DraftSettings(),
+        now=now,
+    )
+    db.commit()
+    row = db.execute(select(RealtimeTranscriptDraft)).scalar_one()
+    assert "Секретный".encode("utf-8") not in row.ciphertext
+    assert "незавершённый".encode("utf-8") not in row.ciphertext
+    assert row.committed_segment_count == 1
+    assert row.committed_character_count == len("Секретный первый фрагмент")
+    assert first.expires_at == now + timedelta(hours=72)
+
+    repeated = save_realtime_draft(
+        db,
+        owner_user_id="owner-1",
+        project=project,
+        client_session_id="session_123456789",
+        revision=1,
+        committed_segments=["Секретный первый фрагмент"],
+        partial="незавершённый текст",
+        settings=DraftSettings(),
+        now=now + timedelta(minutes=1),
+    )
+    assert repeated.revision == 1
+
+    with pytest.raises(RealtimeDraftError) as changed_same_revision:
+        save_realtime_draft(
+            db,
+            owner_user_id="owner-1",
+            project=project,
+            client_session_id="session_123456789",
+            revision=1,
+            committed_segments=["другой текст"],
+            partial="",
+            settings=DraftSettings(),
+            now=now + timedelta(minutes=2),
+        )
+    assert changed_same_revision.value.reason == RealtimeDraftReason.revision_conflict
+
+    second = save_realtime_draft(
+        db,
+        owner_user_id="owner-1",
+        project=project,
+        client_session_id="session_123456789",
+        revision=2,
+        committed_segments=["Первый", "Второй"],
+        partial="",
+        settings=DraftSettings(),
+        now=now + timedelta(minutes=3),
+    )
+    db.commit()
+    latest = load_latest_realtime_draft(
+        db,
+        owner_user_id="owner-1",
+        project=project,
+        settings=DraftSettings(),
+        now=now + timedelta(minutes=4),
+    )
+    assert second.revision == 2
+    assert latest is not None
+    assert latest.committed_segments == ("Первый", "Второй")
+    assert latest.partial == ""
+
+    with pytest.raises(RealtimeDraftError) as stale:
+        save_realtime_draft(
+            db,
+            owner_user_id="owner-1",
+            project=project,
+            client_session_id="session_123456789",
+            revision=1,
+            committed_segments=["старый"],
+            partial="",
+            settings=DraftSettings(),
+            now=now + timedelta(minutes=5),
+        )
+    assert stale.value.reason == RealtimeDraftReason.revision_conflict
+
+
+def test_realtime_draft_owner_scope_tamper_and_expiry_fail_closed(draft_db):
+    from studio_api.models import RealtimeTranscriptDraft
+    from studio_api.realtime_drafts import (
+        RealtimeDraftError,
+        RealtimeDraftReason,
+        cleanup_expired_realtime_drafts,
+        load_latest_realtime_draft,
+        save_realtime_draft,
+    )
+
+    db, project, other_project = draft_db
+    now = datetime(2026, 8, 22, 12, 0, tzinfo=timezone.utc)
+    save_realtime_draft(
+        db,
+        owner_user_id="owner-1",
+        project=project,
+        client_session_id="session_123456789",
+        revision=1,
+        committed_segments=["private transcript"],
+        partial="",
+        settings=DraftSettings(),
+        now=now,
+    )
+    db.commit()
+    row = db.execute(select(RealtimeTranscriptDraft)).scalar_one()
+    row.ciphertext = bytes([row.ciphertext[0] ^ 1]) + row.ciphertext[1:]
+    db.commit()
+    with pytest.raises(RealtimeDraftError) as tampered:
+        load_latest_realtime_draft(
+            db,
+            owner_user_id="owner-1",
+            project=project,
+            settings=DraftSettings(),
+            now=now + timedelta(minutes=1),
+        )
+    assert tampered.value.reason == RealtimeDraftReason.crypto_failed
+
+    with pytest.raises(RealtimeDraftError) as wrong_owner:
+        load_latest_realtime_draft(
+            db,
+            owner_user_id="owner-1",
+            project=other_project,
+            settings=DraftSettings(),
+            now=now,
+        )
+    assert wrong_owner.value.reason == RealtimeDraftReason.scope_conflict
+
+    row.expires_at = now - timedelta(seconds=1)
+    db.commit()
+    assert cleanup_expired_realtime_drafts(db, now=now) == 1
+    db.commit()
+    assert db.execute(select(RealtimeTranscriptDraft)).scalar_one_or_none() is None
