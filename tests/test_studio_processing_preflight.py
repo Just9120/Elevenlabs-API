@@ -410,8 +410,27 @@ def test_semantic_runtime_validation_blocks_before_docker(tmp_path: Path) -> Non
         proc, calls = with_env_override(tmp_path / str(i), key, value)
         assert proc.returncode != 0
         assert row_statuses(proc.stdout)["runtime setting completeness"] == "blocked"
+        assert f"invalid non-secret runtime setting: {key}:" in proc.stdout
         assert not any(c.startswith("docker ") for c in calls)
         assert_complete_table(proc)
+
+
+def test_runtime_validation_reports_key_and_reason_without_value(tmp_path: Path) -> None:
+    unsafe_value = "http://do-not-print.example/private"
+    proc, calls = with_env_override(
+        tmp_path,
+        "APP_PUBLIC_URL",
+        unsafe_value,
+    )
+
+    assert proc.returncode != 0
+    assert (
+        "invalid non-secret runtime setting: "
+        "APP_PUBLIC_URL:invalid_https_url"
+    ) in proc.stdout
+    assert unsafe_value not in proc.stdout + proc.stderr
+    assert not any(call.startswith("docker ") for call in calls)
+    assert_complete_table(proc)
 
 
 def test_maintenance_oauth_requires_separate_secret_file(tmp_path: Path) -> None:
