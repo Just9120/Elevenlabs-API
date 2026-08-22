@@ -20,19 +20,19 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-22T12:48:00Z
+- Updated (UTC): 2026-08-22T12:56:00Z
 - Session mode: RESUME после explicit authorization protected migration/API/worker/LIVE flow
 - Base branch: `main`
 - Base SHA: `cd84cab2ae20a92360f931a027e0424ccce6d2f4` (merged diagnostic baseline; original Goal base `6bcb0ed49aeb6e491765fda45bf74b6e68f7b67e`)
 - Working branch: `codex/pwa-operability-preflight-runtime-secrets`
-- Last verified revision: `cd84cab2ae20a92360f931a027e0424ccce6d2f4`
-- Working tree: runtime-boundary preflight hotfix, regression tests и этот checkpoint изменены, не committed; preserved unrelated untracked pnpm artifacts excluded from scope/commits
+- Last verified revision: `a12b86c3ace11903c6ff6e3c4750fc81c6739eb4`
+- Working tree: one-line test-harness compatibility fix и этот checkpoint изменены после initial hotfix commit; preserved unrelated untracked pnpm artifacts excluded from scope/commits
 - Completed since original base: implementation и UI race fix merged через PR #218; diagnostic hotfix merged через PR #219; exact-head/post-merge CI green; web deployed; worker graceful-drained; protected migration `0021_source_creation_favorites → 0022_account_operability` и API deploy successful; migration gate снова disabled; canonical primary OAuth scope установлен operator action и подтверждён progression следующего preflight; bounded LIVE подтвердил accent persistence, три Да/Нет dialogs с cancel path и отсутствие ложного unresolved blocker для visible completed output
-- Current step: исправить false-negative preflight для runtime-owned `0600` R2 credential files без изменения их permissions
-- Next exact action: validate/commit/push runtime-boundary hotfix, открыть PR и дождаться exact-head CI
-- Validation and Evidence: implementation head прошёл CI `32562849717`, Studio/browser-e2e `32562849719`; diagnostic merge `cd84cab2ae20a92360f931a027e0424ccce6d2f4` прошёл post-merge CI `32568203798`; текущий hotfix прошёл `git diff --check`, shell syntax и lightweight CI, local pytest недоступен и focused Ubuntu integration tests остаются CI gate. LIVE accent `blue → teal → reload teal → restore blue → reload blue`; manifest/History/Analytics confirmation dialogs проверены с `Нет`; duplicate preflight на existing completed source разрешил processing и не показал `equivalent_provider_outcome_unresolved`, job не создавался.
-- Pull Request: [#218](https://github.com/Just9120/Elevenlabs-API/pull/218) MERGED as `1fc868847377ad059743ac4d1aa3ae0573d27507`; [#219](https://github.com/Just9120/Elevenlabs-API/pull/219) MERGED as `cd84cab2ae20a92360f931a027e0424ccce6d2f4`; runtime-boundary hotfix PR pending
-- CI/checks: PR #218 exact head `9c2ec47ed1b099958576d31204ff3d776210c242` — all required checks SUCCESS; implementation post-merge CI `32562849717` and Studio PWA CI `32562849719` — SUCCESS; diagnostic post-merge CI `32568203798` — SUCCESS
+- Current step: исправить выявленную CI test-double collision (`startswith` совпал с запрещённым mock lifecycle token `start`) без изменения production logic
+- Next exact action: validate/commit/push focused CI fix и дождаться повторного exact-head CI PR #220
+- Validation and Evidence: implementation head прошёл CI `32562849717`, Studio/browser-e2e `32562849719`; diagnostic merge `cd84cab2ae20a92360f931a027e0424ccce6d2f4` прошёл post-merge CI `32568203798`; initial PR #220 CI `32574115317` — FAILED: `1230 passed`, `6 failed` из-за одной test-double token collision до actual validation branch; production logic не запускалась. Текущий hotfix прошёл `git diff --check`, shell syntax и lightweight CI; local pytest/PyYAML недоступны. LIVE accent `blue → teal → reload teal → restore blue → reload blue`; manifest/History/Analytics confirmation dialogs проверены с `Нет`; duplicate preflight на existing completed source разрешил processing и не показал `equivalent_provider_outcome_unresolved`, job не создавался.
+- Pull Request: [#218](https://github.com/Just9120/Elevenlabs-API/pull/218) MERGED as `1fc868847377ad059743ac4d1aa3ae0573d27507`; [#219](https://github.com/Just9120/Elevenlabs-API/pull/219) MERGED as `cd84cab2ae20a92360f931a027e0424ccce6d2f4`; [#220](https://github.com/Just9120/Elevenlabs-API/pull/220) OPEN
+- CI/checks: PR #218 exact head `9c2ec47ed1b099958576d31204ff3d776210c242` — all required checks SUCCESS; implementation post-merge CI `32562849717` and Studio PWA CI `32562849719` — SUCCESS; diagnostic post-merge CI `32568203798` — SUCCESS; PR #220 initial run `32574115317` — FAILED, focused fix pending push
 - Deployment/environment: web CD `32562849732` SUCCESS; worker drain `32563012779` SUCCESS (`exited`, `exit_code=0`); protected migration/API run `32567261404` SUCCESS, snapshot `ab9189f05e33`, API image `sha256:9ed9b467bb46`, `api_deployed=yes`; migration enable variable restored to `false`. GitHub approval history API reports `state=skipped` despite observed waiting state and user action, so required-review audit evidence remains limited.
 - Blockers: read-only preflight `32573837941` подтвердил прохождение исправленного OAuth scope и затем failed из-за direct read `Permission denied` для runtime-owned R2 access-key file; worker остаётся stopped и не deploy-ится до merged hotfix и успешного repeated preflight
 - Unverified assumptions: runtime-mounted R2 credentials структурно валидны до container-boundary validation; clear mutation paths не запускались в production, чтобы не скрывать реальные user data

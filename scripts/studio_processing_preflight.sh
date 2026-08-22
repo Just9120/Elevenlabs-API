@@ -75,7 +75,7 @@ valid = (
     min_length <= len(value) <= max_length
     and all(33 <= ord(character) <= 126 for character in value)
     and normalized not in {"echo", "test", "example", "placeholder", "changeme"}
-    and not normalized.startswith("__")
+    and normalized[:2] != "__"
     and "required" not in normalized
 )
 raise SystemExit(0 if valid and marker else 1)
