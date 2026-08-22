@@ -767,10 +767,12 @@ describe("Studio PWA", () => {
           const payload = JSON.parse(String(init.body));
           return json({
             source_retention_ttl_seconds:
-              payload.source_retention_ttl_seconds,
+              payload.source_retention_ttl_seconds ?? 86400,
             allowed_source_retention_ttl_seconds: [
               3600, 86400, 259200, 604800, 2592000,
             ],
+            accent_color: payload.accent_color ?? "blue",
+            allowed_accent_colors: ["blue", "violet", "teal", "rose"],
           });
         }
         if (url.endsWith("/api/account/preferences"))
@@ -779,6 +781,8 @@ describe("Studio PWA", () => {
             allowed_source_retention_ttl_seconds: [
               3600, 86400, 259200, 604800, 2592000,
             ],
+            accent_color: "blue",
+            allowed_accent_colors: ["blue", "violet", "teal", "rose"],
           });
         if (url.endsWith("/api/sources/upload-policy"))
           return json({
@@ -2354,6 +2358,19 @@ describe("Studio PWA", () => {
     expect(screen.getByLabelText("Название проекта")).toBeInTheDocument();
   });
 
+  it("keeps the new-project action deterministic when it is repeated", async () => {
+    renderApp();
+    await openProjectsPage();
+    const newProject = screen.getByRole("button", { name: "Новый проект" });
+
+    await userEvent.click(newProject);
+    expect(await screen.findByLabelText("Название проекта")).toBeInTheDocument();
+    await userEvent.click(newProject);
+
+    expect(screen.getByLabelText("Название проекта")).toBeInTheDocument();
+    expect(newProject).toHaveAttribute("aria-expanded", "true");
+  });
+
   it("opens a recent project directly in the preparation workspace", async () => {
     renderApp();
     await waitForPlatformOverview();
@@ -2981,6 +2998,8 @@ describe("Studio PWA", () => {
           allowed_source_retention_ttl_seconds: [
             3600, 86400, 259200, 604800, 2592000,
           ],
+          accent_color: "blue",
+          allowed_accent_colors: ["blue", "violet", "teal", "rose"],
         });
       }
       if (url === "/api/account/preferences" && init?.method === "PATCH") {
@@ -3054,6 +3073,8 @@ describe("Studio PWA", () => {
           allowed_source_retention_ttl_seconds: [
             3600, 86400, 259200, 604800, 2592000,
           ],
+          accent_color: "blue",
+          allowed_accent_colors: ["blue", "violet", "teal", "rose"],
         });
       }
       if (url === "/api/account/preferences" && init?.method === "PATCH") {
@@ -3133,6 +3154,8 @@ describe("Studio PWA", () => {
           allowed_source_retention_ttl_seconds: [
             3600, 86400, 259200, 604800, 2592000,
           ],
+          accent_color: "blue",
+          allowed_accent_colors: ["blue", "violet", "teal", "rose"],
         });
       }
       if (url === "/api/account/preferences" && init?.method === "PATCH")
@@ -3168,6 +3191,8 @@ describe("Studio PWA", () => {
               allowed_source_retention_ttl_seconds: [
                 3600, 86400, 259200, 604800, 2592000,
               ],
+              accent_color: "blue",
+              allowed_accent_colors: ["blue", "violet", "teal", "rose"],
             })
           : json({ detail: "raw-retention-read-failure" }, false, 500);
       }
@@ -4673,6 +4698,28 @@ describe("Studio PWA", () => {
     await userEvent.selectOptions(selector, "light");
     expect(localStorage.getItem("studio-theme-preference")).toBe("light");
     expect(document.documentElement.dataset.theme).toBe("light");
+  });
+
+  it("persists and applies the owner accent color without browser storage", async () => {
+    renderApp();
+    await openSettingsPage();
+    const selector = await screen.findByLabelText("Цвет интерфейса");
+    expect(selector).toHaveValue("blue");
+
+    await userEvent.selectOptions(selector, "violet");
+
+    expect(
+      await screen.findByText("Цвет интерфейса сохранён."),
+    ).toBeInTheDocument();
+    expect(document.documentElement.dataset.accent).toBe("violet");
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/account/preferences",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ accent_color: "violet" }),
+      }),
+    );
+    expect(localStorage.getItem("studio-accent-preference")).toBeNull();
   });
 
   it("builds arbitrary ordered segment jobs from one source", async () => {
@@ -9290,6 +9337,55 @@ describe("Studio PWA", () => {
       screen.getByRole("button", { name: "Убрать в историю" }),
     ).toBeEnabled();
     expect(document.body.textContent).not.toContain("raw-private");
+  });
+
+  it("clears history only after Да while preserving the durable job", async () => {
+    installFocusedOutputFixture({
+      jobStatus: "completed",
+      terminalDismissedAt: "2026-07-02T00:04:00Z",
+    });
+    const baseFetch = fetch as unknown as ReturnType<typeof vi.fn>;
+    const defaultFetch = baseFetch.getMockImplementation();
+    const clearCalls: Array<RequestInit | undefined> = [];
+    baseFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        String(url).endsWith("/api/projects/p1/history/clear") &&
+        init?.method === "POST"
+      ) {
+        clearCalls.push(init);
+        return json({
+          ok: true,
+          reset_at: "2026-08-21T12:00:00Z",
+          hidden_job_count: 1,
+        });
+      }
+      return defaultFetch?.(url, init) ?? json({});
+    });
+
+    await openFocusedJobsList();
+    await userEvent.click(screen.getByText(/Недавние задачи/));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Очистить историю" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Нет" }));
+    expect(clearCalls).toHaveLength(0);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Очистить историю" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Да" }));
+    expect(
+      await screen.findByText(
+        "История очищена. Задачи в очереди и обработке сохранены.",
+      ),
+    ).toBeInTheDocument();
+    expect(clearCalls).toHaveLength(1);
+    expect(clearCalls[0]).toEqual(
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ confirm_clear: true }),
+      }),
+    );
   });
 
   it("keeps source deletion ownership and safe outcomes across project switches", async () => {

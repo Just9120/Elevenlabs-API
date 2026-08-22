@@ -123,13 +123,42 @@ class LocalUploadInitiateIn(BaseModel):
 
 class AccountPreferencesPatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    source_retention_ttl_seconds: int
+    source_retention_ttl_seconds: int|None=None
+    accent_color: str|None=Field(default=None, max_length=20)
 
     @field_validator("source_retention_ttl_seconds")
     @classmethod
     def retention_must_be_supported(cls, value):
+        if value is None:
+            return value
         if value not in SOURCE_RETENTION_TTL_OPTIONS_SECONDS:
             raise ValueError("Выберите поддерживаемый срок хранения")
+        return value
+
+    @field_validator("accent_color")
+    @classmethod
+    def accent_must_be_supported(cls, value):
+        if value is None:
+            return value
+        if value not in {"blue", "violet", "teal", "rose"}:
+            raise ValueError("Выберите поддерживаемый цвет интерфейса")
+        return value
+
+    @model_validator(mode="after")
+    def at_least_one_preference(self):
+        if self.source_retention_ttl_seconds is None and self.accent_color is None:
+            raise ValueError("Укажите изменяемую настройку")
+        return self
+
+class ConfirmedClearIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm_clear: StrictBool
+
+    @field_validator("confirm_clear")
+    @classmethod
+    def clear_must_be_confirmed(cls, value):
+        if value is not True:
+            raise ValueError("Подтвердите очистку")
         return value
 
 class BatchJobItemIn(BaseModel):
@@ -225,7 +254,7 @@ def set_cookie(resp: Response, token: str):
     resp.set_cookie(settings.cookie_name, token, max_age=settings.session_days*86400, httponly=True, secure=settings.cookie_secure, samesite="lax", path="/")
 def clear_cookie(resp: Response): resp.delete_cookie(settings.cookie_name, path="/")
 
-def session_payload(sess, user): return {"authenticated": True, "csrf_token": getattr(sess,"_raw_csrf", None), "user": {"id": user.id, "email": user.email, "role": user.role.value}}
+def session_payload(sess, user): return {"authenticated": True, "csrf_token": getattr(sess,"_raw_csrf", None), "user": {"id": user.id, "email": user.email, "role": user.role.value, "accent_color": user.accent_color}}
 
 @app.get("/api/healthz")
 def healthz(db: Session=Depends(get_db)):
@@ -274,11 +303,11 @@ def logout(response: Response, pair=Depends(require_csrf), db: Session=Depends(g
 
 @app.get("/api/auth/session")
 def session(pair=Depends(current_session)):
-    sess,user=pair; return {"authenticated": True, "user": {"id": user.id,"email": user.email,"role": user.role.value}, "session": {"expires_at": sess.expires_at.isoformat()}}
+    sess,user=pair; return {"authenticated": True, "user": {"id": user.id,"email": user.email,"role": user.role.value,"accent_color": user.accent_color}, "session": {"expires_at": sess.expires_at.isoformat()}}
 
 @app.post("/api/auth/csrf")
 def refresh_csrf(pair=Depends(current_session), db: Session=Depends(get_db), _=Depends(require_same_origin)):
-    sess,user=pair; raw_csrf=new_token(); sess.csrf_hash=token_hash(raw_csrf); sess.rotated_at=utcnow(); audit(db,"auth.csrf_refreshed", actor_user_id=user.id, subject_user_id=user.id, session_id=sess.id); db.commit(); return {"csrf_token": raw_csrf, "user": {"id": user.id,"email": user.email,"role": user.role.value}, "session": {"expires_at": sess.expires_at.isoformat()}}
+    sess,user=pair; raw_csrf=new_token(); sess.csrf_hash=token_hash(raw_csrf); sess.rotated_at=utcnow(); audit(db,"auth.csrf_refreshed", actor_user_id=user.id, subject_user_id=user.id, session_id=sess.id); db.commit(); return {"csrf_token": raw_csrf, "user": {"id": user.id,"email": user.email,"role": user.role.value,"accent_color": user.accent_color}, "session": {"expires_at": sess.expires_at.isoformat()}}
 
 @app.get("/api/account")
 def account(pair=Depends(current_session)): return session(pair)
@@ -287,6 +316,8 @@ def account_preferences_payload(user: User):
     return {
         "source_retention_ttl_seconds": user.source_retention_ttl_seconds,
         "allowed_source_retention_ttl_seconds": list(SOURCE_RETENTION_TTL_OPTIONS_SECONDS),
+        "accent_color": user.accent_color,
+        "allowed_accent_colors": ["blue", "violet", "teal", "rose"],
     }
 
 @app.get("/api/account/preferences")
@@ -298,10 +329,16 @@ def account_preferences(pair=Depends(current_session)):
 def update_account_preferences(data: AccountPreferencesPatch, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     _,user=pair
     limiter.check("account:preferences:"+user.id, 30, 3600)
-    if user.source_retention_ttl_seconds != data.source_retention_ttl_seconds:
+    changed=[]
+    if data.source_retention_ttl_seconds is not None and user.source_retention_ttl_seconds != data.source_retention_ttl_seconds:
         user.source_retention_ttl_seconds=data.source_retention_ttl_seconds
+        changed.append("source_retention_ttl_seconds")
+    if data.accent_color is not None and user.accent_color != data.accent_color:
+        user.accent_color=data.accent_color
+        changed.append("accent_color")
+    if changed:
         user.updated_at=utcnow()
-        audit(db,"account.preferences_updated",actor_user_id=user.id,subject_user_id=user.id)
+        audit(db,"account.preferences_updated",actor_user_id=user.id,subject_user_id=user.id,changed_fields=changed)
         db.commit()
     return account_preferences_payload(user)
 
@@ -1110,8 +1147,21 @@ def delete_source(source_id: str, request: Request, pair=Depends(require_csrf), 
 @app.get("/api/projects/{project_id}/jobs")
 def list_project_jobs(project_id: str, pair=Depends(current_session), db: Session=Depends(get_db)):
     _,user=pair; p=owned_project_or_404(db,user,project_id)
-    rows=db.query(TranscriptionJob).filter(TranscriptionJob.project_id==p.id, TranscriptionJob.owner_user_id==user.id).order_by(TranscriptionJob.created_at.desc()).all()
+    query=db.query(TranscriptionJob).filter(TranscriptionJob.project_id==p.id, TranscriptionJob.owner_user_id==user.id)
+    if p.history_reset_at is not None:
+        query=query.filter(or_(TranscriptionJob.status.in_([JobStatus.queued, JobStatus.processing]), TranscriptionJob.finished_at > p.history_reset_at))
+    rows=query.order_by(TranscriptionJob.created_at.desc()).all()
     return {"jobs":[job_payload(r) for r in rows]}
+
+@app.post("/api/projects/{project_id}/history/clear")
+def clear_project_history(project_id: str, data: ConfirmedClearIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("history:clear:"+user.id, 10, 3600); p=owned_project_or_404(db,user,project_id)
+    reset_at=utcnow()
+    hidden_job_count=db.query(TranscriptionJob).filter(TranscriptionJob.project_id==p.id, TranscriptionJob.owner_user_id==user.id, TranscriptionJob.status.in_([JobStatus.completed, JobStatus.failed, JobStatus.cancelled]), or_(TranscriptionJob.finished_at.is_(None), TranscriptionJob.finished_at <= reset_at)).count()
+    p.history_reset_at=reset_at; p.updated_at=reset_at
+    audit(db,"history.cleared",actor_user_id=user.id,subject_user_id=user.id)
+    db.commit()
+    return {"ok": True, "reset_at": reset_at.isoformat(), "hidden_job_count": hidden_job_count}
 
 @app.get("/api/projects/{project_id}/jobs/progress")
 def get_project_job_progress(response: Response, project_id: str, pair=Depends(current_session), db: Session=Depends(get_db)):
@@ -1126,9 +1176,19 @@ def get_project_job_progress(response: Response, project_id: str, pair=Depends(c
 def get_project_transcription_analytics(response: Response, project_id: str, pair=Depends(current_session), db: Session=Depends(get_db)):
     _,user=pair; p=owned_project_or_404(db,user,project_id); _browser_capability_cache_headers(response)
     try:
-        return load_transcription_analytics_payload(db, owner_user_id=user.id, project_id=p.id)
+        return load_transcription_analytics_payload(db, owner_user_id=user.id, project_id=p.id, since=p.analytics_reset_at)
     except Exception:
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Не удалось загрузить аналитику транскрибаций") from None
+
+@app.post("/api/projects/{project_id}/transcription-analytics/clear")
+def clear_project_transcription_analytics(project_id: str, data: ConfirmedClearIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("analytics:clear:"+user.id, 10, 3600); p=owned_project_or_404(db,user,project_id)
+    reset_at=utcnow()
+    hidden_job_count=db.query(TranscriptionJob).filter(TranscriptionJob.project_id==p.id, TranscriptionJob.owner_user_id==user.id, TranscriptionJob.created_at <= reset_at).count()
+    p.analytics_reset_at=reset_at; p.updated_at=reset_at
+    audit(db,"analytics.cleared",actor_user_id=user.id,subject_user_id=user.id)
+    db.commit()
+    return {"ok": True, "reset_at": reset_at.isoformat(), "hidden_job_count": hidden_job_count}
 
 @app.post("/api/projects/{project_id}/jobs", deprecated=True)
 def create_transcription_job(project_id: str, data: TranscriptionJobCreateIn, request: Request, response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db)):

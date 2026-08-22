@@ -211,3 +211,20 @@ def test_analytics_reports_empty_duration_samples_honestly():
         }
         for summary in payload["durations"].values()
     )
+
+
+def test_analytics_identifies_a_reset_scope_without_exposing_the_timestamp():
+    from studio_api.transcription_analytics import build_transcription_analytics_payload
+
+    reset_at = datetime(2026, 8, 21, tzinfo=timezone.utc)
+    payload = build_transcription_analytics_payload(
+        jobs=[],
+        source_count=0,
+        output_count=0,
+        attempts=[],
+        provider_by_credential_id={},
+        since=reset_at,
+    )
+
+    assert payload["scope"] == "project_since_reset"
+    assert reset_at.isoformat() not in json.dumps(payload)

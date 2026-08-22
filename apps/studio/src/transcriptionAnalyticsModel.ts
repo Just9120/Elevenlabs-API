@@ -6,7 +6,7 @@ export type AnalyticsDurationSummary = {
 };
 
 export type TranscriptionAnalytics = {
-  scope: "project_all_time";
+  scope: "project_all_time" | "project_since_reset";
   totals: {
     jobs: number;
     sources: number;
@@ -84,7 +84,8 @@ export function parseTranscriptionAnalytics(
   if (
     !isRecord(value) ||
     !hasExactKeys(value, EXACT_KEYS.root) ||
-    value.scope !== "project_all_time" ||
+    (value.scope !== "project_all_time" &&
+      value.scope !== "project_since_reset") ||
     !isCountRecord(value.totals, EXACT_KEYS.totals) ||
     !isCountRecord(value.outcomes, EXACT_KEYS.outcomes) ||
     !isRecord(value.success) ||

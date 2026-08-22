@@ -72,6 +72,7 @@ class ProviderAttemptEvidence:
     settings: EffectiveTranscriptionSettings | None
     job_status: str
     retry_disposition: str
+    accepted_output_persisted: bool = False
 
 
 def current_effective_settings(
@@ -335,7 +336,10 @@ def load_existing_result_matches(
         TranscriptionJob,
         TranscriptionJobOutput,
         TranscriptionJobSource,
+        User,
     )
+
+    manifest_reset_at = db.query(User.manifest_reset_at).filter(User.id == owner_user_id).scalar()
 
     source_rows = tuple(sources)
     source_ids = {
@@ -367,7 +371,7 @@ def load_existing_result_matches(
             target_settings=target_settings,
         )
 
-    output_rows = (
+    output_query = (
         db.query(
             Source.id,
             Source.source_type,
@@ -410,8 +414,10 @@ def load_existing_result_matches(
             == GOOGLE_DOCS_TRANSCRIPT_OUTPUT_KIND,
             or_(*identity_filters),
         )
-        .all()
     )
+    if manifest_reset_at is not None:
+        output_query = output_query.filter(TranscriptionJobOutput.persisted_at > manifest_reset_at)
+    output_rows = output_query.all()
     output_document_ids = {
         document_id
         for row in output_rows
@@ -453,6 +459,8 @@ def load_existing_result_matches(
         TranscriptCatalogEntry.owner_user_id == owner_user_id,
         or_(*catalog_identity_filters),
     )
+    if manifest_reset_at is not None:
+        catalog_query = catalog_query.filter(TranscriptCatalogEntry.updated_at > manifest_reset_at)
     if output_document_ids:
         catalog_query = catalog_query.filter(
             TranscriptCatalogEntry.document_id.notin_(output_document_ids)
@@ -514,6 +522,7 @@ def load_provider_attempt_authorities(
         Source,
         SourceType,
         TranscriptionJob,
+        TranscriptionJobOutput,
         TranscriptionJobSource,
         TranscriptionJobSourceAttempt,
     )
@@ -561,6 +570,7 @@ def load_provider_attempt_authorities(
             TranscriptionJob.media_clip_end_seconds,
             TranscriptionJob.status,
             TranscriptionJobSourceAttempt.retry_disposition,
+            TranscriptionJobOutput.id,
         )
         .select_from(Source)
         .join(
@@ -577,6 +587,15 @@ def load_provider_attempt_authorities(
                 TranscriptionJobSourceAttempt.job_id == TranscriptionJob.id,
                 TranscriptionJobSourceAttempt.job_source_id
                 == TranscriptionJobSource.id,
+            ),
+        )
+        .outerjoin(
+            TranscriptionJobOutput,
+            and_(
+                TranscriptionJobOutput.job_source_id
+                == TranscriptionJobSource.id,
+                TranscriptionJobOutput.output_kind
+                == GOOGLE_DOCS_TRANSCRIPT_OUTPUT_KIND,
             ),
         )
         .join(Project, Project.id == Source.project_id)
@@ -615,6 +634,7 @@ def load_provider_attempt_authorities(
             ),
             job_status=_enum_value(job_status),
             retry_disposition=_enum_value(retry_disposition),
+            accepted_output_persisted=output_id is not None,
         )
         for (
             source_id,
@@ -628,6 +648,7 @@ def load_provider_attempt_authorities(
             media_clip_end_seconds,
             job_status,
             retry_disposition,
+            output_id,
         ) in query.all()
         if catalog_source_identity(
             _SourceIdentityProjection(source_id, source_type, drive_file_id)
@@ -663,9 +684,22 @@ def classify_provider_attempt_authorities(
             if row.source_identity == identity
             and (row.settings is None or row.settings == target_settings)
         )
-        if any(row.job_status == "processing" for row in relevant):
+        # A persisted output closes this source attempt even while a multi-source
+        # parent job is still processing other sources. A merely "completed"
+        # disposition without required output evidence remains fail closed.
+        open_attempts = tuple(
+            row
+            for row in relevant
+            if not (
+                row.retry_disposition == "completed"
+                and row.accepted_output_persisted
+            )
+        )
+        if any(row.job_status == "processing" for row in open_attempts):
             status = ProviderAttemptAuthorityStatus.in_flight
-        elif any(row.retry_disposition != "retry_safe" for row in relevant):
+        elif any(
+            row.retry_disposition != "retry_safe" for row in open_attempts
+        ):
             status = ProviderAttemptAuthorityStatus.unresolved
         else:
             status = ProviderAttemptAuthorityStatus.available

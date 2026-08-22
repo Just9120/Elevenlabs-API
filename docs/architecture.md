@@ -108,6 +108,16 @@ ambiguous evidence fails closed as a conflict. This maintenance-membership
 lookup is distinct from the source-linked accepted-output matching used by paid
 transcription preflight.
 
+The account-level `users.manifest_reset_at` boundary provides non-destructive
+manifest clear semantics. Accepted output and imported catalog evidence at or
+before that instant no longer participates in later duplicate decisions, while
+the underlying jobs, outputs, Google Docs, sources, catalog rows, and audit
+events remain durable. Provider-attempt authority is evaluated independently:
+a `completed` disposition becomes available only when the same job-source has a
+persisted accepted Google Docs output; completed-without-output, in-flight, and
+uncertain attempts continue to fail closed. The reset therefore cannot bypass
+an unresolved paid-call outcome.
+
 Preflight exposes this authority as `partial` with reason `unlinked_catalog_entries_excluded`. It can block accidental repeated paid transcription against current accepted Studio output evidence and exact source-linked catalog evidence, and create repeats the decision under PostgreSQL source locks so a concurrent output-persistence transaction cannot pass unnoticed. The worker repeats the accepted-evidence comparison at the final provider boundary and treats an equivalent in-flight or unresolved provider attempt with a durable provider-start checkpoint as a conflict; only an attempt explicitly classified retry-safe is exempt. The same identity lock serializes that comparison with the current attempt's own provider-start commit, covering two jobs that were both queued before either had an accepted output and preventing a new job from bypassing an uncertain failed attempt. A losing job cannot be retried from its stale decision; the user must run a fresh preflight after the winning job's outcome is known. The deprecated multi-source create route uses the same catalog comparison but can only create when no accepted evidence exists; callers must use batch preflight/create for an explicit paid reprocess decision. The browser receives only the category, accepted-output count, and required/reprocess resolution. The explicit reprocess flag participates in the canonical request and idempotency hash; there is no implicit overwrite, provider retry, skip, or reuse.
 
 The authority remains partial by design: the separately initiated maintenance operations can standardize and import approved legacy evidence, but a document without explicit source identity cannot participate in duplicate matching and indeterminate settings require an explicit reprocess decision. The authority does not infer linkage from a document name, detect a separately uploaded copy of the same local file, treat queued/processing jobs as accepted outputs, or turn a bounded maintenance operation into continuous Drive synchronization. Reuse/skip needs an explicit accepted-output linkage design and is not inferred from a match.
@@ -180,11 +190,25 @@ Source-level Studio architecture now includes `TranscriptionOutputReconciliation
 
 The API remains the trust boundary: browsers see only aggregate reconciliation status and safe counts. Tokens, document IDs, folder IDs, raw URLs before output persistence, appProperties, raw Google payloads, transcript text, document body, and lease metadata remain server-only.
 
-## Studio transcription analytics component
+## Studio history and transcription analytics component
 
-The project-scoped transcription analytics read path aggregates existing PostgreSQL job, job-source, output, credential-provider, and source-attempt authority without adding a separate analytics table or browser-visible raw events. The API reports all-time safe totals, outcome/configuration counts, and duration summaries with sample coverage. Its explicit success percentage is `completed / (completed + failed + cancelled)`; queued and processing jobs do not enter that denominator, and an empty terminal denominator remains `null` rather than a fabricated zero. Queue and whole-job processing use complete job lifecycle intervals; provider and combined post-provider-output timing use complete source-attempt intervals. Missing, unfinished, or negative intervals are excluded rather than estimated.
+History and analytics use project-scoped non-destructive reset boundaries. Setting
+`projects.history_reset_at` hides terminal jobs finished at or before the reset,
+but active queued/processing jobs remain visible and may reappear as new terminal
+history after they finish. Setting `projects.analytics_reset_at` makes aggregate
+queries include only jobs created after the reset and consistently restricts
+job-source, output, and attempt counts to those jobs. Neither operation deletes
+jobs, attempts, outputs, sources, documents, or audit events, and both require an
+explicit owner confirmation recorded by a safe audit event.
+
+The project-scoped transcription analytics read path aggregates existing PostgreSQL job, job-source, output, credential-provider, and source-attempt authority without adding a separate analytics table or browser-visible raw events. The API reports safe all-time or since-reset totals, outcome/configuration counts, and duration summaries with sample coverage. Its explicit success percentage is `completed / (completed + failed + cancelled)`; queued and processing jobs do not enter that denominator, and an empty terminal denominator remains `null` rather than a fabricated zero. Queue and whole-job processing use complete job lifecycle intervals; provider and combined post-provider-output timing use complete source-attempt intervals. Missing, unfinished, or negative intervals are excluded rather than estimated.
 
 The PWA requests analytics only when the user opens the project analytics panel and validates an exact aggregate DTO before rendering it. Project/job/source/output identifiers, filenames, titles, credentials, storage metadata, Google identifiers/URLs, raw timestamps, failure detail, provider payloads, and transcript/document content remain server-only. The combined post-provider interval may include part merging and Google Docs persistence and must not be presented as a Google-only measurement.
+
+The account preference `users.accent_color` is an allowlisted owner-scoped value
+(`blue`, `violet`, `teal`, or `rose`). Session/login DTOs carry only that safe
+preference, and the browser applies the matching CSS token palette immediately;
+theme mode and accent color remain independent settings.
 
 ## Studio source lifecycle component map
 

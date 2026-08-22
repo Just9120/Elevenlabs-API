@@ -1,4 +1,10 @@
-export type User = { email: string; role: "admin" | "user" };
+import { isStudioAccentColor, type StudioAccentColor } from "./theme";
+
+export type User = {
+  email: string;
+  role: "admin" | "user";
+  accent_color: StudioAccentColor;
+};
 
 function isRecord(candidate: unknown): candidate is Record<string, unknown> {
   return candidate !== null && typeof candidate === "object";
@@ -18,17 +24,28 @@ function parseBoundedToken(candidate: unknown): string | null {
 
 export function parseAuthUser(candidate: unknown): User | null {
   if (!isRecord(candidate)) return null;
+  const hasAccent = Object.prototype.hasOwnProperty.call(
+    candidate,
+    "accent_color",
+  );
   if (
     typeof candidate.email !== "string" ||
     candidate.email.length === 0 ||
     candidate.email.length > 320 ||
     candidate.email !== candidate.email.trim() ||
     !candidate.email.includes("@") ||
-    (candidate.role !== "admin" && candidate.role !== "user")
+    (candidate.role !== "admin" && candidate.role !== "user") ||
+    (hasAccent && !isStudioAccentColor(candidate.accent_color))
   ) {
     return null;
   }
-  return { email: candidate.email, role: candidate.role };
+  return {
+    email: candidate.email,
+    role: candidate.role,
+    accent_color: isStudioAccentColor(candidate.accent_color)
+      ? candidate.accent_color
+      : "blue",
+  };
 }
 
 export function parseAuthenticatedSessionResponse(

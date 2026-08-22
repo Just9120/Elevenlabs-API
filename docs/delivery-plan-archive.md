@@ -705,6 +705,22 @@ Goal `PWA-JOB-STATE-CONSISTENCY-01` устранила рассинхрониз�
 - `PB-05` подтверждён; readiness на closure: `PWA-BATCH-01 9/10 = 90,0%`, Studio PWA `61/80 = 76,3%`, project `83/109 = 76,1%`.
 - Required Goal Evidence: `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅`. Approved post-deploy metadata writer отсутствовал; closure reconciled в начале следующей authorized Goal. Local и remote merged branches удалены после проверки ancestry и clean synchronized `main`.
 
+## Archived PR #217 ingest metadata polish closure
+
+Goal `PWA-INGEST-METADATA-POLISH-01` была merged через PR #217 и завершила source creation metadata, output-folder Favorites и active-source expiry boundary.
+
+- Base: `main@ebf02da1636d9362131a1b44161cda1c68f06080`.
+- Final PR head: `5e0f4f40f5cbcb6ce7b7e3edd5234be812ca0c32`.
+- Merge commit: `6bcb0ed49aeb6e491765fda45bf74b6e68f7b67e`.
+- Exact PR-head checks: repository run `32417379985` (`checks`) success; Studio run `32417379977` (`studio`, `browser-e2e`) success.
+- Protected migration `0021_source_creation_and_folder_favorites`: run `32419734240` success.
+- Worker rollout: deploy run `32419939486` success; terminal status run `32420035216` success. API/web applicable deployment gates also completed successfully; migration gate returned to closed state.
+- Bounded LIVE canary persisted one favorite and created one accepted Google Docs output. Source creation metadata correctly failed closed as `Created at: unknown`, rather than substituting modified/upload/job/output time.
+- PR evidence record: https://github.com/Just9120/Elevenlabs-API/pull/217#issuecomment-5362405098.
+- Product readiness at closure: Studio PWA `63/80 = 78,8%`, project `85/109 = 78,0%`; `PC-11` and `PI-02` closed, while `PB-10`/`PD-06` remained open because unknown source creation time is honest but does not satisfy their full-scope requirement.
+- The same LIVE session exposed a separate duplicate-state inconsistency: an accepted completed output was visible while provider authority was reported unresolved. This was not counted as a new denominator item and is addressed in the next authorized Goal.
+- Required Goal Evidence: `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅`. Approved post-deploy metadata writer remained absent; closure was reconciled at the start of the next authorized Goal without a follow-up docs-only PR.
+
 ## Current non-authority warning
 
 If this archive conflicts with `docs/project-spec.md`, `docs/delivery-plan.md`, `docs/architecture.md`, `docs/ci-cd-rules.md`, or the current user task, treat the current documents/task as authoritative and this archive as historical context only.

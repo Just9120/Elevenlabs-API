@@ -473,6 +473,106 @@ def test_provider_attempt_authority_prioritizes_in_flight_over_unresolved():
     assert authority["candidate"] == ProviderAttemptAuthorityStatus.in_flight
 
 
+def test_completed_provider_attempt_does_not_conflict_with_accepted_output():
+    from studio_api.transcript_catalog import (
+        ProviderAttemptAuthorityStatus,
+        ProviderAttemptEvidence,
+        catalog_source_identity,
+        classify_provider_attempt_authorities,
+        current_effective_settings,
+    )
+
+    candidate = source("completed-source")
+    target = current_effective_settings(
+        language_mode="ru",
+        diarization_enabled=False,
+    )
+
+    for parent_status in ("completed", "processing"):
+        authority = classify_provider_attempt_authorities(
+            sources=(candidate,),
+            evidence=(
+                ProviderAttemptEvidence(
+                    source_identity=catalog_source_identity(candidate),
+                    settings=target,
+                    job_status=parent_status,
+                    retry_disposition="completed",
+                    accepted_output_persisted=True,
+                ),
+            ),
+            target_settings=target,
+        )
+        assert authority[candidate.id] == ProviderAttemptAuthorityStatus.available
+
+
+def test_completed_provider_attempt_does_not_mask_real_uncertainty():
+    from studio_api.transcript_catalog import (
+        ProviderAttemptAuthorityStatus,
+        ProviderAttemptEvidence,
+        catalog_source_identity,
+        classify_provider_attempt_authorities,
+        current_effective_settings,
+    )
+
+    candidate = source("completed-plus-uncertain")
+    target = current_effective_settings(
+        language_mode="ru",
+        diarization_enabled=False,
+    )
+    evidence = (
+        ProviderAttemptEvidence(
+            source_identity=catalog_source_identity(candidate),
+            settings=target,
+            job_status="completed",
+            retry_disposition="completed",
+            accepted_output_persisted=True,
+        ),
+        ProviderAttemptEvidence(
+            source_identity=catalog_source_identity(candidate),
+            settings=target,
+            job_status="failed",
+            retry_disposition="provider_outcome_uncertain",
+        ),
+    )
+
+    authority = classify_provider_attempt_authorities(
+        sources=(candidate,),
+        evidence=evidence,
+        target_settings=target,
+    )
+    assert authority[candidate.id] == ProviderAttemptAuthorityStatus.unresolved
+
+
+def test_completed_provider_attempt_without_output_remains_unresolved():
+    from studio_api.transcript_catalog import (
+        ProviderAttemptAuthorityStatus,
+        ProviderAttemptEvidence,
+        catalog_source_identity,
+        classify_provider_attempt_authorities,
+        current_effective_settings,
+    )
+
+    candidate = source("completed-without-output")
+    target = current_effective_settings(
+        language_mode="ru",
+        diarization_enabled=False,
+    )
+    authority = classify_provider_attempt_authorities(
+        sources=(candidate,),
+        evidence=(
+            ProviderAttemptEvidence(
+                source_identity=catalog_source_identity(candidate),
+                settings=target,
+                job_status="completed",
+                retry_disposition="completed",
+            ),
+        ),
+        target_settings=target,
+    )
+
+    assert authority[candidate.id] == ProviderAttemptAuthorityStatus.unresolved
+
+
 def test_media_clip_range_participates_in_existing_result_identity():
     from studio_api.transcript_catalog import (
         ExistingResultMatchStatus,

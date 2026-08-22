@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { api } from "./apiClient";
+import { api, mutateWithCsrfRetry } from "./apiClient";
+import { ConfirmClearDialog } from "./ConfirmClearDialog";
 import {
   cancelLatestRequests,
   LATEST_REQUEST_CANCEL_REASON,
@@ -104,14 +105,22 @@ function DurationCard({
 
 export function TranscriptionAnalyticsPanel({
   projectId,
+  csrf = "",
+  onCsrf = () => undefined,
   loadAnalytics = requestTranscriptionAnalytics,
 }: {
   projectId: string;
+  csrf?: string;
+  onCsrf?: (csrf: string) => void;
   loadAnalytics?: AnalyticsLoader;
 }) {
   const [state, setState] = useState<AnalyticsState>(EMPTY_STATE);
   const requestEpochsRef = useRef(new Map<string, number>());
   const requestControllersRef = useRef(new Map<string, AbortController>());
+  const [clearOpen, setClearOpen] = useState(false);
+  const [clearPending, setClearPending] = useState(false);
+  const [clearMessage, setClearMessage] = useState("");
+  const clearPendingRef = useRef(false);
 
   useEffect(() => {
     cancelLatestRequests(
@@ -154,6 +163,34 @@ export function TranscriptionAnalyticsPanel({
     );
   }
 
+  async function clearAnalytics() {
+    if (clearPendingRef.current) return;
+    clearPendingRef.current = true;
+    setClearPending(true);
+    setClearMessage("");
+    try {
+      const result = await mutateWithCsrfRetry<unknown>(
+        `/projects/${projectId}/transcription-analytics/clear`,
+        csrf,
+        onCsrf,
+        {
+          method: "POST",
+          body: JSON.stringify({ confirm_clear: true }),
+        },
+      );
+      if (!isClearResponse(result)) throw new Error("invalid_clear_response");
+      setClearOpen(false);
+      setState(EMPTY_STATE);
+      setClearMessage("Аналитика очищена. Новые метрики считаются с этого момента.");
+      await load();
+    } catch {
+      setClearMessage("Не удалось очистить аналитику. Повторите попытку.");
+    } finally {
+      clearPendingRef.current = false;
+      setClearPending(false);
+    }
+  }
+
   const analytics = state.data;
   return (
     <details
@@ -166,8 +203,10 @@ export function TranscriptionAnalyticsPanel({
       <div className="analytics-content">
         <div className="split analytics-heading">
           <p className="muted">
-            Агрегаты за всё время проекта без текстов транскриптов и приватных
-            идентификаторов.
+            {analytics?.scope === "project_since_reset"
+              ? "Агрегаты с момента последней очистки"
+              : "Агрегаты за всё время проекта"}{" "}
+            без текстов транскриптов и приватных идентификаторов.
           </p>
           <button
             className="secondary"
@@ -177,7 +216,16 @@ export function TranscriptionAnalyticsPanel({
           >
             {state.status === "loading" ? "Обновляем…" : "Обновить"}
           </button>
+          <button
+            className="danger"
+            disabled={clearPending}
+            onClick={() => setClearOpen(true)}
+            type="button"
+          >
+            Очистить аналитику
+          </button>
         </div>
+        {clearMessage && <p role="status" className="notice">{clearMessage}</p>}
         {state.status === "loading" && !analytics && (
           <p role="status">Загрузка аналитики…</p>
         )}
@@ -329,6 +377,32 @@ export function TranscriptionAnalyticsPanel({
           </p>
         )}
       </div>
+      {clearOpen && (
+        <ConfirmClearDialog
+          title="Очистить аналитику?"
+          description="Существующие транскрипции, результаты и документы не удаляются. Сводка начнёт считаться заново с момента очистки."
+          pending={clearPending}
+          onConfirm={() => void clearAnalytics()}
+          onCancel={() => setClearOpen(false)}
+        />
+      )}
     </details>
+  );
+}
+
+function isClearResponse(value: unknown): value is {
+  ok: true;
+  reset_at: string;
+  hidden_job_count: number;
+} {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    candidate.ok === true &&
+    typeof candidate.reset_at === "string" &&
+    Number.isFinite(Date.parse(candidate.reset_at)) &&
+    typeof candidate.hidden_job_count === "number" &&
+    Number.isInteger(candidate.hidden_job_count) &&
+    candidate.hidden_job_count >= 0
   );
 }

@@ -3,6 +3,7 @@ import { ApiError, api, mutateWithCsrfRetry } from "./apiClient";
 import * as googlePicker from "./googlePicker";
 import type { PickerSession } from "./googlePicker";
 import { googlePickerFailureMessage } from "./googlePickerErrors";
+import { ConfirmClearDialog } from "./ConfirmClearDialog";
 import {
   cancelLatestRequests,
   LATEST_REQUEST_CANCEL_REASON,
@@ -981,6 +982,10 @@ export function TranscriptCatalogMigrationPanel({
   const [maintenanceStarting, setMaintenanceStarting] = useState(false);
   const [maintenanceMessage, setMaintenanceMessage] = useState("");
   const [maintenanceReadError, setMaintenanceReadError] = useState("");
+  const [clearOpen, setClearOpen] = useState(false);
+  const [clearPending, setClearPending] = useState(false);
+  const [clearMessage, setClearMessage] = useState("");
+  const clearPendingRef = useRef(false);
   const maintenanceRequestEpochsRef = useRef(new Map<string, number>());
   const maintenanceRequestControllersRef = useRef(
     new Map<string, AbortController>(),
@@ -1071,6 +1076,31 @@ export function TranscriptCatalogMigrationPanel({
     }
   }
 
+  async function clearManifest() {
+    if (clearPendingRef.current) return;
+    clearPendingRef.current = true;
+    setClearPending(true);
+    setClearMessage("");
+    try {
+      const result = await mutate<unknown>("/transcript-catalog/clear", {
+        method: "POST",
+        body: JSON.stringify({ confirm_clear: true }),
+      });
+      if (!isCatalogClearResponse(result)) {
+        throw new Error("invalid_catalog_clear_response");
+      }
+      setClearOpen(false);
+      setClearMessage(
+        "Манифест очищен. Результаты, Google Docs и исходные файлы сохранены.",
+      );
+    } catch {
+      setClearMessage("Не удалось очистить манифест. Повторите попытку.");
+    } finally {
+      clearPendingRef.current = false;
+      setClearPending(false);
+    }
+  }
+
   const maintenanceReady = maintenanceConnection?.ready === true;
   const operationReady = pickerReady && maintenanceReady;
   const oauthMessage =
@@ -1097,6 +1127,24 @@ export function TranscriptCatalogMigrationPanel({
         а добавление в манифест — только метаданные Studio. Режим, объект,
         dry-run и подтверждение у операций раздельные.
       </p>
+      <section className="card transcript-maintenance-access">
+        <h3>Очистка манифеста Studio</h3>
+        <p>
+          Очистка сбрасывает owner-scoped duplicate history. Она не удаляет
+          Google Docs, результаты, исходные файлы, задачи или журнал аудита.
+        </p>
+        <button
+          type="button"
+          className="danger"
+          disabled={clearPending}
+          onClick={() => setClearOpen(true)}
+        >
+          Очистить манифест
+        </button>
+        {clearMessage && (
+          <p role="status" className="notice">{clearMessage}</p>
+        )}
+      </section>
       <section
         className="card transcript-maintenance-access"
         aria-labelledby="transcript-maintenance-access-title"
@@ -1221,6 +1269,32 @@ export function TranscriptCatalogMigrationPanel({
           mutate={mutate}
         />
       </div>
+      {clearOpen && (
+        <ConfirmClearDialog
+          title="Очистить манифест Studio?"
+          description="Предыдущие accepted-result записи перестанут блокировать повторную транскрибацию. Google Docs, результаты, исходные файлы, задачи и аудит не удаляются."
+          pending={clearPending}
+          onConfirm={() => void clearManifest()}
+          onCancel={() => setClearOpen(false)}
+        />
+      )}
     </section>
+  );
+}
+
+function isCatalogClearResponse(value: unknown): value is {
+  ok: true;
+  reset_at: string;
+  hidden_evidence_count: number;
+} {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    candidate.ok === true &&
+    typeof candidate.reset_at === "string" &&
+    Number.isFinite(Date.parse(candidate.reset_at)) &&
+    typeof candidate.hidden_evidence_count === "number" &&
+    Number.isInteger(candidate.hidden_evidence_count) &&
+    candidate.hidden_evidence_count >= 0
   );
 }

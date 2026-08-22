@@ -188,7 +188,7 @@ describe("Login auth boundary", () => {
       fireEvent.submit(form);
       await waitFor(() =>
         expect(onLogin).toHaveBeenCalledWith(
-          { email: "user@example.com", role: "admin" },
+          { email: "user@example.com", role: "admin", accent_color: "blue" },
           "csrf-authenticated",
         ),
       );
@@ -264,7 +264,7 @@ describe("Login auth boundary", () => {
     fireEvent.submit(form);
     await waitFor(() =>
       expect(onLogin).toHaveBeenCalledWith(
-        { email: "user@example.com", role: "user" },
+        { email: "user@example.com", role: "user", accent_color: "blue" },
         "csrf-safe",
       ),
     );

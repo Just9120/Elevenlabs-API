@@ -3,6 +3,8 @@ export const STUDIO_THEME_MEDIA_QUERY = "(prefers-color-scheme: dark)";
 
 export type StudioThemePreference = "system" | "light" | "dark";
 export type ResolvedStudioTheme = "light" | "dark";
+export const STUDIO_ACCENT_COLORS = ["blue", "violet", "teal", "rose"] as const;
+export type StudioAccentColor = (typeof STUDIO_ACCENT_COLORS)[number];
 
 const THEME_COLORS: Record<ResolvedStudioTheme, string> = {
   light: "#315efb",
@@ -11,6 +13,18 @@ const THEME_COLORS: Record<ResolvedStudioTheme, string> = {
 
 function isStudioThemePreference(value: unknown): value is StudioThemePreference {
   return value === "system" || value === "light" || value === "dark";
+}
+
+export function isStudioAccentColor(value: unknown): value is StudioAccentColor {
+  return STUDIO_ACCENT_COLORS.some((color) => color === value);
+}
+
+export function applyStudioAccentColor(
+  color: StudioAccentColor,
+  documentRef: Document = document,
+) {
+  documentRef.documentElement.dataset.accent = color;
+  return color;
 }
 
 export function readStudioThemePreference(

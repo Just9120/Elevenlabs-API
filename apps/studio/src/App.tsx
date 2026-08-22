@@ -3,6 +3,7 @@ import {
   FormEvent,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -147,9 +148,14 @@ import { groupVisibleJobs } from "./jobVisibilityModel";
 import { TranscriptionAnalyticsPanel } from "./TranscriptionAnalyticsPanel";
 import { TranscriptCatalogMigrationPanel } from "./TranscriptCatalogMigrationPanel";
 import { LiveTranscriptionPanel } from "./LiveTranscriptionPanel";
+import { ConfirmClearDialog } from "./ConfirmClearDialog";
 import {
+  applyStudioAccentColor,
+  isStudioAccentColor,
   readStudioThemePreference,
   setStudioThemePreference,
+  STUDIO_ACCENT_COLORS,
+  type StudioAccentColor,
   type StudioThemePreference,
 } from "./theme";
 import "./styles.css";
@@ -160,6 +166,8 @@ const SOURCE_RETENTION_TTL_OPTIONS_SECONDS = [
 type AccountPreferences = {
   source_retention_ttl_seconds: number;
   allowed_source_retention_ttl_seconds: number[];
+  accent_color: StudioAccentColor;
+  allowed_accent_colors: StudioAccentColor[];
 };
 function isExpectedAccountPreferences(
   candidate: unknown,
@@ -177,7 +185,14 @@ function isExpectedAccountPreferences(
     ) &&
     preferences.allowed_source_retention_ttl_seconds.includes(
       preferences.source_retention_ttl_seconds as number,
-    )
+    ) &&
+    isStudioAccentColor(preferences.accent_color) &&
+    Array.isArray(preferences.allowed_accent_colors) &&
+    preferences.allowed_accent_colors.length === STUDIO_ACCENT_COLORS.length &&
+    preferences.allowed_accent_colors.every(
+      (color, index) => color === STUDIO_ACCENT_COLORS[index],
+    ) &&
+    preferences.allowed_accent_colors.includes(preferences.accent_color)
   );
 }
 function isExpectedCredentialCreateResponse(
@@ -1438,6 +1453,10 @@ function PreparationPanel({
   const [reconciliations, setReconciliations] = useState<Record<string, OutputReconciliationState>>({});
   const [retries, setRetries] = useState<Record<string, JobRetryState>>({});
   const [progress, setProgress] = useState<Record<string, JobProgressState>>({});
+  const [historyClearOpen, setHistoryClearOpen] = useState(false);
+  const [historyClearPending, setHistoryClearPending] = useState(false);
+  const [historyClearMessage, setHistoryClearMessage] = useState("");
+  const historyClearPendingRef = useRef(false);
 
   const [removedSourceIds, setRemovedSourceIds] = useState<Set<string>>(
     () => new Set(),
@@ -3198,6 +3217,36 @@ function PreparationPanel({
       finishJobMutation("cancel", jobId, notice);
     }
   }
+  async function clearHistory() {
+    if (historyClearPendingRef.current) return;
+    historyClearPendingRef.current = true;
+    setHistoryClearPending(true);
+    setHistoryClearMessage("");
+    try {
+      const result = await mutateWithCsrfRetry<unknown>(
+        `/projects/${project.id}/history/clear`,
+        csrf,
+        onCsrf,
+        {
+          method: "POST",
+          body: JSON.stringify({ confirm_clear: true }),
+        },
+      );
+      if (!isProjectClearResponse(result)) {
+        throw new Error("invalid_history_clear_response");
+      }
+      setHistoryClearOpen(false);
+      setHistoryClearMessage(
+        "История очищена. Задачи в очереди и обработке сохранены.",
+      );
+      onReloadJobs(project.id);
+    } catch {
+      setHistoryClearMessage("Не удалось очистить историю. Повторите попытку.");
+    } finally {
+      historyClearPendingRef.current = false;
+      setHistoryClearPending(false);
+    }
+  }
   const displayJobs = mergeJobsWithBatchOrder(jobs.items ?? [], batchJobs);
   const {
     current: currentJobs,
@@ -4311,7 +4360,12 @@ function PreparationPanel({
           finishDeletion={finishSourceDeletion}
         />
       </details>
-      <TranscriptionAnalyticsPanel key={project.id} projectId={project.id} />
+      <TranscriptionAnalyticsPanel
+        key={project.id}
+        projectId={project.id}
+        csrf={csrf}
+        onCsrf={onCsrf}
+      />
       <section className="sources" aria-label="Текущие задачи">
         <h4>Текущие задачи</h4>
         {jobs.loading && <p role="status">Загрузка задач…</p>}
@@ -4327,9 +4381,50 @@ function PreparationPanel({
       </section>
       <details className="recent-jobs">
         <summary>Недавние задачи · {recentJobs.length}</summary>
+        {(recentJobs.length > 0 || pinnedTerminalJobs.length > 0) && (
+          <button
+            type="button"
+            className="danger"
+            disabled={historyClearPending}
+            onClick={() => setHistoryClearOpen(true)}
+          >
+            Очистить историю
+          </button>
+        )}
+        {historyClearMessage && (
+          <p role="status" className="notice">
+            {historyClearMessage}
+          </p>
+        )}
         {recentJobs.map((job) => renderJobCard(job))}
       </details>{" "}
+      {historyClearOpen && (
+        <ConfirmClearDialog
+          title="Очистить историю?"
+          description="Завершённые, отменённые и неуспешные задачи исчезнут из списка. Задачи в очереди и обработке, результаты, Google Docs и журнал аудита не удаляются."
+          pending={historyClearPending}
+          onConfirm={() => void clearHistory()}
+          onCancel={() => setHistoryClearOpen(false)}
+        />
+      )}
     </section>
+  );
+}
+
+function isProjectClearResponse(value: unknown): value is {
+  ok: true;
+  reset_at: string;
+  hidden_job_count: number;
+} {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    candidate.ok === true &&
+    typeof candidate.reset_at === "string" &&
+    Number.isFinite(Date.parse(candidate.reset_at)) &&
+    typeof candidate.hidden_job_count === "number" &&
+    Number.isInteger(candidate.hidden_job_count) &&
+    candidate.hidden_job_count >= 0
   );
 }
 
@@ -4939,7 +5034,7 @@ function ProjectsPage({
       onRequestedProjectHandled();
     }
   }, [requestedProjectId, projects, onRequestedProjectHandled]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const nextCreateOpen = resolveRequestedProjectsView(
       requestedProjectsView,
       {
@@ -5330,7 +5425,7 @@ function ProjectsPage({
           disabled={createPending}
           onClick={() => {
             onRequestedProjectsViewHandled();
-            setCreateOpen((v) => !v);
+            setCreateOpen(true);
           }}
         >
           Новый проект
@@ -5807,6 +5902,9 @@ function auditLabel(type: string) {
       "Стандартизация Google Docs применена",
     "transcript_catalog.import_applied":
       "Метаданные добавлены в манифест Studio",
+    "transcript_catalog.cleared": "Манифест Studio очищен",
+    "history.cleared": "История транскрибаций очищена",
+    "analytics.cleared": "Аналитика транскрибаций очищена",
   };
   return labels[type] ?? "Событие безопасности";
 }
@@ -5915,6 +6013,11 @@ function SettingsPage({
   const [retentionMessage, setRetentionMessage] = useState("");
   const [themePreference, setThemePreference] =
     useState<StudioThemePreference>(() => readStudioThemePreference());
+  const [accentSelection, setAccentSelection] =
+    useState<StudioAccentColor>("blue");
+  const [accentSaving, setAccentSaving] = useState(false);
+  const [accentMessage, setAccentMessage] = useState("");
+  const accentMutationPendingRef = useRef(false);
   const [createCredentialOpen, setCreateCredentialOpen] = useState(false);
   const [replacingCredentialId, setReplacingCredentialId] = useState<
     string | null
@@ -5980,6 +6083,8 @@ function SettingsPage({
       (preferences) => {
         observed = preferences;
         setAccountPreferences(preferences);
+        setAccentSelection(preferences.accent_color);
+        applyStudioAccentColor(preferences.accent_color);
         setRetentionSelection(
           String(preferences.source_retention_ttl_seconds),
         );
@@ -6395,7 +6500,63 @@ function SettingsPage({
         void loadAuditEvents({ reportFailure: false });
       }
     }
-  }  const mutateCredential = async (
+  }
+  async function saveAccentPreference(selected: StudioAccentColor) {
+    if (accentMutationPendingRef.current || !accountPreferences) return;
+    const previousConfirmed = accountPreferences.accent_color;
+    accentMutationPendingRef.current = true;
+    setAccentSaving(true);
+    setAccentSelection(selected);
+    setAccentMessage("");
+    applyStudioAccentColor(selected);
+    try {
+      const request = await runBoundedRequest(
+        (signal) =>
+          safeMutate<unknown>("/account/preferences", {
+            method: "PATCH",
+            signal,
+            body: JSON.stringify({ accent_color: selected }),
+          }),
+        ACCOUNT_PREFERENCES_MUTATION_TIMEOUT_MS,
+      );
+      const preferences =
+        request.status === "completed" &&
+        isExpectedAccountPreferences(request.value) &&
+        request.value.accent_color === selected
+          ? request.value
+          : await reconcileAccountPreferences();
+      if (!preferences) {
+        setAccentSelection(previousConfirmed);
+        applyStudioAccentColor(previousConfirmed);
+        setAccentMessage(
+          "Сервер не подтвердил цвет. Сохранено последнее подтверждённое значение.",
+        );
+      } else {
+        setAccountPreferences(preferences);
+        setAccentSelection(preferences.accent_color);
+        applyStudioAccentColor(preferences.accent_color);
+        setAccentMessage(
+          preferences.accent_color === selected
+            ? "Цвет интерфейса сохранён."
+            : "Сервер не подтвердил выбранный цвет. Показано актуальное значение.",
+        );
+      }
+    } catch {
+      const preferences = await reconcileAccountPreferences();
+      const confirmed = preferences?.accent_color ?? previousConfirmed;
+      setAccentSelection(confirmed);
+      applyStudioAccentColor(confirmed);
+      setAccentMessage(
+        preferences?.accent_color === selected
+          ? "Сохранение цвета подтверждено по актуальной настройке аккаунта."
+          : "Не удалось сохранить цвет. Показано последнее подтверждённое значение.",
+      );
+    } finally {
+      accentMutationPendingRef.current = false;
+      if (settingsMountedRef.current) setAccentSaving(false);
+    }
+  }
+  const mutateCredential = async (
     kind: "revoke" | "delete",
     credential: Credential,
   ) => {
@@ -6710,6 +6871,30 @@ function SettingsPage({
               Системная тема следует настройке устройства. Выбор сохраняется
               только в этом браузере и не содержит данных аккаунта.
             </p>
+            <label>
+              Цвет интерфейса
+              <select
+                aria-label="Цвет интерфейса"
+                value={accentSelection}
+                disabled={!accountPreferences || accentSaving}
+                onChange={(event) => {
+                  const selected = event.target.value;
+                  if (isStudioAccentColor(selected)) {
+                    void saveAccentPreference(selected);
+                  }
+                }}
+              >
+                <option value="blue">Синий</option>
+                <option value="violet">Фиолетовый</option>
+                <option value="teal">Бирюзовый</option>
+                <option value="rose">Розовый</option>
+              </select>
+            </label>
+            {accentMessage && (
+              <p role="status" className="notice">
+                {accentMessage}
+              </p>
+            )}
           </section>
           <h3>Хранение локальных файлов</h3>
           <section className="card retention-preferences">
@@ -8149,6 +8334,9 @@ function PlatformShell() {
     checkSession();
     return () => invalidateSessionBootstrap();
   }, []);
+  useEffect(() => {
+    applyStudioAccentColor(session.user?.accent_color ?? "blue");
+  }, [session.user?.accent_color]);
   if (session.status === "checking")
     return (
       <main className="auth">

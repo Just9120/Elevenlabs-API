@@ -23,6 +23,14 @@ from .google_connection_access import (
     refresh_user_google_maintenance_access_token,
 )
 from .rate_limit import RateLimiter
+from .security import utcnow
+from .models import (
+    TranscriptCatalogEntry,
+    TranscriptionJob,
+    TranscriptionJobOutput,
+    User,
+)
+from .transcript_catalog import GOOGLE_DOCS_TRANSCRIPT_OUTPUT_KIND
 from .transcript_catalog_apply import (
     apply_transcript_catalog_import_metadata,
 )
@@ -78,6 +86,68 @@ class TranscriptMaintenanceFolderIn(BaseModel):
         ):
             raise ValueError("Некорректный ID папки Google Drive")
         return cleaned
+
+
+class TranscriptCatalogClearIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirm_clear: StrictBool
+
+    @field_validator("confirm_clear")
+    @classmethod
+    def clear_must_be_confirmed(cls, value: bool) -> bool:
+        if value is not True:
+            raise ValueError("Подтвердите очистку манифеста")
+        return value
+
+
+@router.post("/api/transcript-catalog/clear")
+def clear_transcript_catalog(
+    _data: TranscriptCatalogClearIn,
+    response: Response,
+    pair=Depends(require_csrf),
+    db: Session = Depends(get_db),
+):
+    _, user = pair
+    catalog_limiter.check(f"transcript-catalog:clear:{user.id}", 5, 3600)
+    _no_store(response)
+    reset_at = utcnow()
+    catalog_count = (
+        db.query(TranscriptCatalogEntry)
+        .filter(
+            TranscriptCatalogEntry.owner_user_id == user.id,
+            TranscriptCatalogEntry.updated_at <= reset_at,
+        )
+        .count()
+    )
+    output_count = (
+        db.query(TranscriptionJobOutput)
+        .join(
+            TranscriptionJob,
+            TranscriptionJob.id == TranscriptionJobOutput.job_id,
+        )
+        .filter(
+            TranscriptionJob.owner_user_id == user.id,
+            TranscriptionJobOutput.output_kind
+            == GOOGLE_DOCS_TRANSCRIPT_OUTPUT_KIND,
+            TranscriptionJobOutput.persisted_at <= reset_at,
+        )
+        .count()
+    )
+    user.manifest_reset_at = reset_at
+    user.updated_at = reset_at
+    audit(
+        db,
+        "transcript_catalog.cleared",
+        actor_user_id=user.id,
+        subject_user_id=user.id,
+    )
+    db.commit()
+    return {
+        "ok": True,
+        "reset_at": reset_at.isoformat(),
+        "hidden_evidence_count": catalog_count + output_count,
+    }
 
 
 class TranscriptCatalogMigrationApplyIn(

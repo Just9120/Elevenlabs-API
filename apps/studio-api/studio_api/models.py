@@ -33,11 +33,13 @@ class User(Base):
     role: Mapped[UserRole]=mapped_column(Enum(UserRole), default=UserRole.user)
     status: Mapped[UserStatus]=mapped_column(Enum(UserStatus), default=UserStatus.active)
     source_retention_ttl_seconds: Mapped[int]=mapped_column(Integer, default=DEFAULT_SOURCE_RETENTION_TTL_SECONDS, server_default=text(str(DEFAULT_SOURCE_RETENTION_TTL_SECONDS)), nullable=False)
+    accent_color: Mapped[str]=mapped_column(String(20), default="blue", server_default=text("'blue'"), nullable=False)
+    manifest_reset_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now)
     updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now, onupdate=now)
     disabled_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     deleted_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
-    __table_args__=(CheckConstraint("source_retention_ttl_seconds IN (3600, 86400, 259200, 604800, 2592000)", name="ck_users_source_retention_ttl_allowed"),)
+    __table_args__=(CheckConstraint("source_retention_ttl_seconds IN (3600, 86400, 259200, 604800, 2592000)", name="ck_users_source_retention_ttl_allowed"), CheckConstraint("accent_color IN ('blue', 'violet', 'teal', 'rose')", name="ck_users_accent_color_allowed"),)
 
 class LocalIdentity(Base):
     __tablename__="local_identities"
@@ -144,6 +146,8 @@ class Project(Base):
     output_drive_folder_id: Mapped[str|None]=mapped_column(String(256))
     output_drive_folder_url: Mapped[str|None]=mapped_column(Text)
     output_drive_folder_name: Mapped[str|None]=mapped_column(String(512))
+    history_reset_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    analytics_reset_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
     sources: Mapped[list["Source"]]=relationship("Source", back_populates="project")
     jobs: Mapped[list["TranscriptionJob"]]=relationship("TranscriptionJob", back_populates="project")
     __table_args__=(Index("ix_projects_owner_active_updated", "owner_user_id", "archived_at", "updated_at"),)
