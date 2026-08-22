@@ -345,7 +345,7 @@ test('Live tab captures browser audio and keeps transcript browser-only', async 
     live.getByText('подтверждённый текст', { exact: true }),
   ).toBeVisible();
 
-  await page.getByRole('tab', { name: 'Пакетная транскрибация' }).click();
+  await page.getByRole('tab', { name: 'Обычная транскрибация' }).click();
   await expect(live).toBeHidden();
   await page.getByRole('tab', { name: 'Live-транскрибация' }).click();
   await expect(
