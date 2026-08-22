@@ -1242,7 +1242,9 @@ describe("Studio PWA", () => {
     expect(screen.getByLabelText("Микрофон или аудиовход")).not.toBeChecked();
     expect(screen.getByLabelText("Звук вкладки или экрана")).toBeChecked();
     expect(screen.getByRole("button", { name: "Начать" })).toBeEnabled();
-    expect(screen.getByText(/не сохраняется в Studio/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Временно хранится только для восстановления/i),
+    ).toBeInTheDocument();
 
     const navigation = screen.getByRole("navigation", {
       name: "Основная навигация",

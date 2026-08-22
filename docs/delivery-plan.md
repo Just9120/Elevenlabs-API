@@ -27,17 +27,17 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-22T14:40:00Z
+- Updated (UTC): 2026-08-22T15:14:50Z
 - Session mode: new authorized Goal
 - Base branch: `main`
 - Base SHA: `dd194c929d957e822ff618df294dc54e72d5971e`
 - Working branch: `codex/pwa-transcriptions-live-recovery-01`
-- Last verified revision: `dd194c929d957e822ff618df294dc54e72d5971e`
+- Last verified revision: `29d7fb35921cb3e57d4e82f185bdc49669726957`
 - Working tree at branch start: tracked clean; preserved unrelated untracked `.pnpm-store/`, `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml`
-- Completed: Git/GitHub recovery, exact base verification, Current Goal/product AC reconciliation and implementation design boundary.
-- Current step: implement additive Live draft persistence model/service/API and focused backend tests.
-- Next exact action: add migration `0023_realtime_transcript_drafts`, encrypted owner-scoped service/routes and schema/security tests.
-- Validation and Evidence: UX/runtime audit demoted `PC-01`; no branch validation yet.
+- Completed: Git/GitHub recovery; product reconciliation; additive `0023` encrypted owner/project Live-draft model/service/API; monotonic/size/TTL boundaries; idle-worker physical cleanup; removal of autosave audit churn; IndexedDB checkpoint module; server sync; reload recovery restore/download/delete UX.
+- Current step: finish and commit browser recovery slice, then replace user-facing Projects lifecycle with Transcriptions-first IA.
+- Next exact action: commit IndexedDB/recovery UI after focused frontend validation, then remove create/edit/archive controls while preserving active legacy workspaces.
+- Validation and Evidence: backend Python syntax compile and `scripts/ci_checks.py` PASS; TypeScript build PASS; focused Live/recovery tests `21/21` PASS; full Studio suite `524/525` passed with one stale copy assertion, updated assertion then focused App regression PASS. Backend integration tests are authored but not runnable locally without the repository PostgreSQL/Redis Python test environment.
 - Pull Request: not created.
 - CI/checks: not started.
 - Deployment/environment: not started; migration class `MANUAL_GATED`.
@@ -51,11 +51,11 @@
 
 | Product/epic | Current | Previous independent snapshot | Readiness/Evidence |
 |---|---:|---:|---|
-| **Project** | **74,2% (`89/120`)** | **82,6% (`90/109`)** | Denominator расширен на 11 AC и два прежних AC повторно открыты. |
+| **Project** | **80,0% (`96/120`)** | **74,2% (`89/120`)** | `PR-07..13` выполнены; delivery Evidence ещё неполные. |
 | **Google Colab** | **75,9% (`22/29`)** | **75,9% (`22/29`)** | Без изменений в PWA Goal. |
 | `COLAB-BATCH-01` | **73,9% (`17/23`)** | **73,9% (`17/23`)** | 🟦 IN PROGRESS. |
 | `COLAB-REALTIME-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS. |
-| **Studio PWA** | **73,6% (`67/91`)** | **85,0% (`68/80`)** | Снижение на 11,4 п.п.: scope expansion и replacement `Projects → Transcriptions`. |
+| **Studio PWA** | **81,3% (`74/91`)** | **73,6% (`67/91`)** | +7 AC: local/server Live recovery, TTL и privacy boundary. |
 | `PWA-CORE-01` | **84,6% (`11/13`)** | **92,3% (`12/13`)** | `PC-01` открыт по 390px runtime overflow; `PC-03` — по approved navigation replacement. |
 | `PWA-TRANSCRIPTIONS-UX-01` | **0% (`0/4`)** | N/A | Новый owner-authorized epic. |
 | `PWA-INGEST-01` | **72,7% (`8/11`)** | **72,7% (`8/11`)** | Вне Goal. |
@@ -64,7 +64,7 @@
 | `PWA-SPEAKER-IDENTITY-01` | **0% (`0/5`)** | **0% (`0/5`)** | Вне Goal. |
 | `PWA-MANIFEST-01` | **100% (`6/6`)** | **100% (`6/6`)** | Required delivery Evidence неполные. |
 | `PWA-STANDARDIZATION-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | Вне Goal. |
-| `PWA-REALTIME-01` | **38,5% (`5/13`)** | **83,3% (`5/6`)** | Denominator расширен на семь recovery/privacy AC. |
+| `PWA-REALTIME-01` | **92,3% (`12/13`)** | **38,5% (`5/13`)** | `PR-07..13` выполнены; `PR-06` production stability остаётся открытым. |
 | `PWA-OPERABILITY-01` | **100% (`18/18`)** | **100% (`18/18`)** | Required delivery Evidence неполные. |
 
 ## Candidate next Goals

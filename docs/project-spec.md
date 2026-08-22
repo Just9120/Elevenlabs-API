@@ -33,8 +33,8 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **75,9% (`22/29`)** | `COLAB-BATCH 17/23` + `COLAB-REALTIME 5/6` |
-| Studio PWA | **73,6% (`67/91`)** | сумма десяти PWA-эпиков ниже; denominator расширен на `PT-01..04` и `PR-07..13`, `PC-01/03` повторно открыты |
-| Весь проект | **74,2% (`89/120`)** | все выполненные AC двух продуктов / все AC текущего scope |
+| Studio PWA | **81,3% (`74/91`)** | сумма десяти PWA-эпиков ниже; `PR-07..13` выполнены в текущей рабочей ветке, `PC-01/03` остаются открыты |
+| Весь проект | **80,0% (`96/120`)** | все выполненные AC двух продуктов / все AC текущего scope |
 
 ## 3. Общие product rules
 
@@ -261,7 +261,7 @@ Standardization и manifest import остаются разными authority: pr
 
 ### Эпик `PWA-REALTIME-01` — realtime-транскрибация
 
-Status: **🟦 IN PROGRESS — 38,5% (`5/13`)**.
+Status: **🟦 IN PROGRESS — 92,3% (`12/13`)**.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -271,15 +271,15 @@ Status: **🟦 IN PROGRESS — 38,5% (`5/13`)**.
 | `PR-04` | Partial и committed transcript отображаются live. | ✅ |
 | `PR-05` | Подтверждённый transcript скачивается как `.txt`. | ✅ |
 | `PR-06` | Representative microphone/display/mixed sessions стабильно проходят production LIVE canaries. | ❌ |
-| `PR-07` | Каждый committed fragment немедленно сохраняется в owner/browser-scoped local draft. | ❌ |
-| `PR-08` | Последний partial fragment сохраняется с bounded debounce и явно остаётся неподтверждённым. | ❌ |
-| `PR-09` | Live draft синхронизируется в owner-scoped server storage с encryption at rest, bounded size и idempotent monotonic revision. | ❌ |
-| `PR-10` | После refresh, browser crash или перезапуска компьютера пользователь получает явное предложение восстановить незавершённый draft. | ❌ |
-| `PR-11` | Найденный draft можно восстановить, скачать как `.txt` или удалить явным действием. | ❌ |
-| `PR-12` | Server Live draft имеет TTL 72 часа, исчезает из recovery после expiry и удаляется idempotent cleanup. | ❌ |
-| `PR-13` | Live draft не сохраняет audio и не включает transcript body в logs, diagnostics, audit events или ordinary History/Analytics. | ❌ |
+| `PR-07` | Каждый committed fragment немедленно сохраняется в owner/browser-scoped local draft. | ✅ |
+| `PR-08` | Последний partial fragment сохраняется с bounded debounce и явно остаётся неподтверждённым. | ✅ |
+| `PR-09` | Live draft синхронизируется в owner-scoped server storage с encryption at rest, bounded size и idempotent monotonic revision. | ✅ |
+| `PR-10` | После refresh, browser crash или перезапуска компьютера пользователь получает явное предложение восстановить незавершённый draft. | ✅ |
+| `PR-11` | Найденный draft можно восстановить, скачать как `.txt` или удалить явным действием. | ✅ |
+| `PR-12` | Server Live draft имеет TTL 72 часа, исчезает из recovery после expiry и удаляется idempotent cleanup. | ✅ |
+| `PR-13` | Live draft не сохраняет audio и не включает transcript body в logs, diagnostics, audit events или ordinary History/Analytics. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ◐ | CI ◐ | DEPLOY ◐ | LIVE ◐`.
 
 Realtime использует short-lived single-use capability. Он не создаёт batch jobs, Google Docs, manifest/catalog records, analytics records или audio records. Transcript body может существовать только как explicit temporary recovery draft по `PR-07..13`; ordinary diagnostics/history/analytics boundary его не получает. Automatic reconnect отсутствует и не считается выполнением `PR-06`.
 

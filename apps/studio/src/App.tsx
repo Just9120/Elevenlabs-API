@@ -4683,6 +4683,7 @@ function OverviewPage({
 
 function ProjectsPage({
   active,
+  ownerUserId,
   csrf,
   onCsrf,
   requestedProjectId,
@@ -4691,6 +4692,7 @@ function ProjectsPage({
   onRequestedProjectsViewHandled,
 }: {
   active: boolean;
+  ownerUserId: string;
   csrf: string;
   onCsrf: (csrf: string) => void;
   requestedProjectId: string | null;
@@ -5674,6 +5676,7 @@ function ProjectsPage({
               >
                 <LiveTranscriptionPanel
                   key={selectedProject.id}
+                  ownerUserId={ownerUserId}
                   projectId={selectedProject.id}
                   csrf={csrf}
                   onCsrf={onCsrf}
@@ -8482,6 +8485,7 @@ function PlatformShell() {
           <div hidden={page !== "projects"}>
             <ProjectsPage
               active={page === "projects"}
+              ownerUserId={user.email}
               csrf={csrf}
               onCsrf={(token) => {
                 setSession((current) => ({ ...current, csrf: token }));

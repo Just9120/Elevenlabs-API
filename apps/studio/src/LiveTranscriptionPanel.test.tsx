@@ -1,10 +1,12 @@
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 type MockCallbacks = {
   onStatus: (value: string) => void;
   onInputLevel: (value: number) => void;
+  onPartial: (value: string) => void;
   onCommitted: (value: string) => void;
 };
 
@@ -47,7 +49,13 @@ vi.mock("./realtimeSession", () => ({
   },
 }));
 
-import { LiveTranscriptionPanel } from "./LiveTranscriptionPanel";
+import { LiveTranscriptionPanel as ProductionLiveTranscriptionPanel } from "./LiveTranscriptionPanel";
+
+function LiveTranscriptionPanel(
+  props: Omit<ComponentProps<typeof ProductionLiveTranscriptionPanel>, "ownerUserId">,
+) {
+  return <ProductionLiveTranscriptionPanel ownerUserId="owner-safe" {...props} />;
+}
 
 const response = (body: unknown, ok = true, status = 200) =>
   Promise.resolve({
@@ -76,6 +84,23 @@ describe("LiveTranscriptionPanel", () => {
               },
             ],
           });
+        }
+        if (url.endsWith("/realtime/drafts/latest") && !init?.method) {
+          return response({ draft: null });
+        }
+        if (url.includes("/realtime/drafts/") && init?.method === "PUT") {
+          const body = JSON.parse(String(init.body));
+          return response({
+            draft: {
+              client_session_id: String(url).split("/").at(-1),
+              revision: body.revision,
+              updated_at: "2026-08-22T12:00:00Z",
+              expires_at: "2026-08-25T12:00:00Z",
+            },
+          });
+        }
+        if (url.includes("/realtime/drafts/") && init?.method === "DELETE") {
+          return response({ ok: true, deleted: true });
         }
         if (
           url.endsWith("/api/projects/project-safe/realtime/capability") &&
@@ -334,6 +359,127 @@ describe("LiveTranscriptionPanel", () => {
       "Фрагментов: 2",
     );
     expect(onSegmentsChange).not.toHaveBeenCalled();
+  });
+
+  it("offers an owner-scoped server draft after reload and restores partial as unconfirmed", async () => {
+    const defaultFetch = vi.mocked(fetch).getMockImplementation();
+    const updatedAt = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString();
+    vi.mocked(fetch).mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/realtime/drafts/latest") && !init?.method) {
+        return response({
+          draft: {
+            client_session_id: "session_recovery_123",
+            revision: 7,
+            committed_segments: ["Восстановленный фрагмент"],
+            partial: "неподтверждённое продолжение",
+            updated_at: updatedAt,
+            expires_at: expiresAt,
+          },
+        });
+      }
+      return defaultFetch?.(url, init) as Promise<Response>;
+    });
+    const onSegmentsChange = vi.fn();
+
+    render(
+      <LiveTranscriptionPanel
+        projectId="project-safe"
+        csrf="csrf-safe"
+        onCsrf={vi.fn()}
+        onSegmentsChange={onSegmentsChange}
+        active
+      />,
+    );
+
+    expect(
+      await screen.findByRole("region", { name: "Восстановление Live-черновика" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Начать" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "Восстановить" }));
+    expect(screen.getByText("Восстановленный фрагмент")).toBeInTheDocument();
+    expect(screen.getByText("неподтверждённое продолжение")).toBeInTheDocument();
+    expect(onSegmentsChange).toHaveBeenCalledWith(["Восстановленный фрагмент"]);
+    expect(screen.getByRole("button", { name: "Начать" })).toBeEnabled();
+  });
+
+  it("checkpoints each committed fragment to the encrypted server draft API", async () => {
+    render(
+      <LiveTranscriptionPanel
+        projectId="project-safe"
+        csrf="csrf-safe"
+        onCsrf={vi.fn()}
+        active
+      />,
+    );
+    const start = await screen.findByRole("button", { name: "Начать" });
+    await waitFor(() => expect(start).toBeEnabled());
+    await userEvent.click(start);
+
+    act(() => {
+      controllerState.instances[0].callbacks.onCommitted("Надёжный checkpoint");
+    });
+    await waitFor(() =>
+      expect(
+        vi.mocked(fetch).mock.calls.some(
+          ([url, init]) =>
+            String(url).includes("/realtime/drafts/") && init?.method === "PUT",
+        ),
+      ).toBe(true),
+    );
+    const checkpointCall = vi.mocked(fetch).mock.calls.find(
+      ([url, init]) =>
+        String(url).includes("/realtime/drafts/") && init?.method === "PUT",
+    );
+    expect(JSON.parse(String(checkpointCall?.[1]?.body))).toEqual({
+      revision: 1,
+      committed_segments: ["Надёжный checkpoint"],
+      partial: "",
+    });
+    expect(String(checkpointCall?.[1]?.body)).not.toContain("audio");
+  });
+
+  it("checkpoints the latest partial only after the bounded debounce", async () => {
+    render(
+      <LiveTranscriptionPanel
+        projectId="project-safe"
+        csrf="csrf-safe"
+        onCsrf={vi.fn()}
+        active
+      />,
+    );
+    const start = await screen.findByRole("button", { name: "Начать" });
+    await waitFor(() => expect(start).toBeEnabled());
+    await userEvent.click(start);
+    act(() => {
+      controllerState.instances[0].callbacks.onPartial("Последний partial");
+    });
+    expect(
+      vi.mocked(fetch).mock.calls.some(
+        ([url, init]) =>
+          String(url).includes("/realtime/drafts/") && init?.method === "PUT",
+      ),
+    ).toBe(false);
+
+    await waitFor(
+      () =>
+        expect(
+          vi.mocked(fetch).mock.calls.some(
+            ([url, init]) =>
+              String(url).includes("/realtime/drafts/") && init?.method === "PUT",
+          ),
+        ).toBe(true),
+      { timeout: 2_000 },
+    );
+    const checkpointCall = vi.mocked(fetch).mock.calls.find(
+      ([url, init]) =>
+        String(url).includes("/realtime/drafts/") && init?.method === "PUT",
+    );
+    expect(JSON.parse(String(checkpointCall?.[1]?.body))).toMatchObject({
+      revision: 1,
+      committed_segments: [],
+      partial: "Последний partial",
+    });
   });
 
   it("requires an active ElevenLabs profile", async () => {
