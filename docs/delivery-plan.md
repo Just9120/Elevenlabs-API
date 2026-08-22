@@ -14,23 +14,23 @@
   4. Analytics можно очистить только после Да/Нет confirmation; новые агрегаты считаются от owner-scoped reset boundary, durable jobs/attempts/outputs/audit records не удаляются.
   5. Completed provider attempt с persisted accepted output не создаёт ложный `unresolved` conflict; реальный in-flight/uncertain attempt продолжает fail closed.
   6. Relevant backend/frontend tests, full local validation, exact-head CI, merge, applicable protected migration/deployment и bounded LIVE validation успешны.
-- **Required Evidence:** `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ◐ | CI — | DEPLOY — | LIVE —` (implementation scope завершён; PostgreSQL/Redis/bash матрица и exact-head gates ожидают CI).
 - **Known blockers/dependencies:** Goal требует additive PostgreSQL migration и protected `MANUAL_GATED` migration lane; approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
 - **Stop condition:** все Goal AC и required Evidence подтверждены либо flow достиг `BLOCKED` / `PENDING_EXTERNAL_GATE`; затем остановиться и не переходить к следующей Goal без explicit authorization.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-21T06:02:51Z
+- Updated (UTC): 2026-08-22T06:41:23Z
 - Session mode: новая explicit-authorized bounded Goal после reconciliation merged PR #217
 - Base branch: `main`
 - Base SHA: `6bcb0ed49aeb6e491765fda45bf74b6e68f7b67e`
 - Working branch: `codex/pwa-operability-polish-02`
-- Last verified revision: `6bcb0ed49aeb6e491765fda45bf74b6e68f7b67e`
-- Working tree: tracked state clean at branch creation; preserved unrelated untracked pnpm artifacts excluded from scope/commits
-- Completed since base: Goal activation; contracts and relevant architecture inspected; duplicate-state cause localized to completed attempt authority classification
-- Current step: implement persistent account accent preference and regression tests
-- Next exact action: add additive preference schema/model/API and browser application/UI tests, validate, then create the first narrow commit
-- Validation and Evidence: base exact with `origin/main`; no implementation checks yet
+- Last verified revision: `0472a7c58d9a63908d34ceac21db4d1d5f566f28`
+- Working tree: implementation and test slices committed; canonical operational/architecture documentation pending one final pre-PR commit; preserved unrelated untracked pnpm artifacts excluded from scope/commits
+- Completed since base: Goal activation; additive `0022_account_operability` schema; owner-scoped persistent accent preference; confirmed owner-scoped reset boundaries for manifest, History and Analytics; durable jobs/outputs/Google Docs/R2/sources/audit preserved; completed attempt authority reconciled only when accepted output is actually persisted; missing-output/in-flight/uncertain cases remain fail closed; regression tests added
+- Current step: finalize canonical operational metadata and exact-head pre-PR validation
+- Next exact action: commit documentation, rerun lightweight/focused exact-head checks, push branch and create PR
+- Validation and Evidence: full frontend ESLint and Vitest suite passed; TypeScript `tsc -b` and production Vite/PWA build passed; repository lightweight CI checks passed; focused safety regression `14/14`, catalog/analytics contracts `22/22`, clear frontend tests `23/23`, App History clear `1/1`, Login contract `5/5` passed. PostgreSQL-backed regressions are authored but local PostgreSQL/Redis are unavailable; bash-dependent tests are unavailable on Windows. A broader non-infrastructure Python run passed through 37% without a new failure after the safety correction but was not treated as terminal evidence; exact full suite remains a CI gate.
 - Pull Request: not created
 - CI/checks: not started
 - Deployment/environment: production baseline `main@6bcb0ed49aeb6e491765fda45bf74b6e68f7b67e`; Goal revision not deployed
@@ -40,26 +40,24 @@
 
 ## Project readiness
 
-Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Goal AC не добавляются в product denominator. Baseline independently reconciled against current code, tests and merged delivery evidence; implementation этой Goal ещё не засчитана.
+Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Goal AC не добавляются в product denominator. Branch-level CODE/TEST evidence засчитано для выполненных product AC; READY по-прежнему требует все обязательные gates.
 
 | Product/epic | Current | Previous snapshot | Readiness/Evidence |
 |---|---:|---:|---|
-| **Project** | **78,0% (`85/109`)** | **76,1% (`83/109`)** | После PR #217 выполнены `PC-11`, `PI-02`; denominator не изменился. |
+| **Project** | **83,5% (`91/109`)** | **78,9% (`86/109`)** | Выполнены ещё пять targeted AC: `PM-03`, `PO-10/11/17/18`; denominator не изменился. |
 | **Google Colab** | **75,9% (`22/29`)** | **75,9% (`22/29`)** | Без изменений в PWA Goal. |
 | `COLAB-BATCH-01` | **73,9% (`17/23`)** | **73,9% (`17/23`)** | 🟦 IN PROGRESS; `SPEC ✅ CODE ◐ TEST ◐ CI ✅ DEPLOY ◐ LIVE ◐`. |
 | `COLAB-REALTIME-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; capture stability не подтверждена полностью. |
-| **Studio PWA** | **78,8% (`63/80`)** | **76,3% (`61/80`)** | Baseline до product AC этой Goal. |
-| `PWA-CORE-01` | **92,3% (`12/13`)** | **84,6% (`11/13`)** | `PC-13` остаётся открытым. |
-| `PWA-INGEST-01` | **72,7% (`8/11`)** | **63,6% (`7/11`)** | Без изменений в Goal. |
+| **Studio PWA** | **86,3% (`69/80`)** | **80,0% (`64/80`)** | Safe manifest/History/Analytics clear AC выполнены на branch CODE/TEST evidence. |
+| `PWA-CORE-01` | **100% (`13/13`)** | **100% (`13/13`)** | Product AC выполнены; 🟦 IN PROGRESS до required CI/DEPLOY/LIVE Evidence. |
+| `PWA-INGEST-01` | **72,7% (`8/11`)** | **72,7% (`8/11`)** | Без изменений в Goal. |
 | `PWA-SEGMENTS-01` | **100% (`5/5`)** | **100% (`5/5`)** | 🟩 READY; `SPEC ✅ CODE ✅ TEST ✅ CI ✅ DEPLOY ✅ LIVE ✅`. |
 | `PWA-BATCH-01` | **90,0% (`9/10`)** | **90,0% (`9/10`)** | Без изменения numerator; duplicate fix — consistency defect существующего AC. |
 | `PWA-SPEAKER-IDENTITY-01` | **0,0% (`0/5`)** | **0,0% (`0/5`)** | ⬜ BACKLOG. |
-| `PWA-MANIFEST-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | `PM-03` остаётся открытым. |
+| `PWA-MANIFEST-01` | **100% (`6/6`)** | **83,3% (`5/6`)** | `PM-03` выполнен; 🟦 IN PROGRESS до required CI/DEPLOY/LIVE Evidence. |
 | `PWA-STANDARDIZATION-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | Без изменений в Goal. |
 | `PWA-REALTIME-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | Без изменений в Goal. |
-| `PWA-OPERABILITY-01` | **77,8% (`14/18`)** | **77,8% (`14/18`)** | `PO-10/11/17/18` остаются открытыми. |
-
-Если все шесть targeted product AC будут подтверждены, ожидаемый numerator станет: PWA `69/80 = 86,3%`, project `91/109 = 83,5%`; это forecast, не current readiness.
+| `PWA-OPERABILITY-01` | **100% (`18/18`)** | **77,8% (`14/18`)** | `PO-10/11/17/18` выполнены; 🟦 IN PROGRESS до required CI/DEPLOY/LIVE Evidence. |
 
 ## Candidate next Goals
 

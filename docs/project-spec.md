@@ -28,13 +28,13 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Текущее independently verified working state: `codex/pwa-ingest-metadata-polish-01@5e0f4f40f5cbcb6ce7b7e3edd5234be812ca0c32` от `main@ebf02da1636d9362131a1b44161cda1c68f06080`:
+Текущее independently verified working state: `codex/pwa-operability-polish-02@0472a7c58d9a63908d34ceac21db4d1d5f566f28` от `main@6bcb0ed49aeb6e491765fda45bf74b6e68f7b67e`:
 
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **75,9% (`22/29`)** | `COLAB-BATCH 17/23` + `COLAB-REALTIME 5/6` |
-| Studio PWA | **78,8% (`63/80`)** | сумма девяти PWA-эпиков ниже |
-| Весь проект | **78,0% (`85/109`)** | все выполненные AC двух продуктов / все AC текущего scope |
+| Studio PWA | **86,3% (`69/80`)** | сумма девяти PWA-эпиков ниже |
+| Весь проект | **83,5% (`91/109`)** | все выполненные AC двух продуктов / все AC текущего scope |
 
 ## 3. Общие product rules
 
@@ -109,7 +109,7 @@ Owner LIVE evidence подтверждает работоспособность 
 
 ### Эпик `PWA-CORE-01` — application shell, auth и integrations
 
-Status: **🟦 IN PROGRESS — 92,3% (`12/13`)**.
+Status: **🟦 IN PROGRESS — 100% (`13/13`)**.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -125,9 +125,9 @@ Status: **🟦 IN PROGRESS — 92,3% (`12/13`)**.
 | `PC-10` | После expiry object удаляется из R2 идемпотентным cleanup. | ✅ |
 | `PC-11` | После expiry local source исчезает из active web UI. | ✅ |
 | `PC-12` | Доступны system, light и dark themes. | ✅ |
-| `PC-13` | Пользователь выбирает accent/interface color. | ❌ |
+| `PC-13` | Пользователь выбирает accent/interface color. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ◐ | CI — | DEPLOY — | LIVE —`.
 
 Expired source metadata может сохраняться для history/audit, но current owner instruction требует скрывать expired local files из active intake UI. Это заменяет старое UI-допущение о видимости недоступной metadata.
 
@@ -210,7 +210,7 @@ Evidence: `SPEC ✅ | CODE — | TEST — | CI N/A | DEPLOY — | LIVE —`.
 
 ### Эпик `PWA-MANIFEST-01` — duplicate protection и каталог
 
-Status: **🟦 IN PROGRESS — 83,3% (`5/6`)**.
+Status: **🟦 IN PROGRESS — 100% (`6/6`)**.
 
 В PWA роль manifest выполняет PostgreSQL-backed `Манифест Studio`, а не общий JSON-файл Colab.
 
@@ -218,12 +218,12 @@ Status: **🟦 IN PROGRESS — 83,3% (`5/6`)**.
 |---|---|:---:|
 | `PM-01` | Accepted output evidence блокирует неявную повторную транскрибацию. | ✅ |
 | `PM-02` | Явный reprocess/bypass требует отдельного user confirmation. | ✅ |
-| `PM-03` | Пользователь может безопасно очистить owner-scoped manifest/catalog. | ❌ |
+| `PM-03` | Пользователь может безопасно очистить owner-scoped manifest/catalog. | ✅ |
 | `PM-04` | Выбранная Google Drive folder tree регистрируется отдельным dry-run/apply flow. | ✅ |
 | `PM-05` | Accepted-output record появляется только после Google Docs creation evidence. | ✅ |
 | `PM-06` | Duplicate identity использует Drive file ID/Studio source identity и settings, не filename alone. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ◐ | CI — | DEPLOY — | LIVE —`.
 
 ### Эпик `PWA-STANDARDIZATION-01` — стандартизация Google Docs
 
@@ -261,7 +261,7 @@ Realtime использует short-lived single-use capability. Он не со�
 
 ### Эпик `PWA-OPERABILITY-01` — diagnostics, history и analytics
 
-Status: **🟦 IN PROGRESS — 77,8% (`14/18`)**.
+Status: **🟦 IN PROGRESS — 100% (`18/18`)**.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -274,17 +274,17 @@ Status: **🟦 IN PROGRESS — 77,8% (`14/18`)**.
 | `PO-07` | Diagnostics экспортируются в TOML. | ✅ |
 | `PO-08` | History показывает safe transcription metadata. | ✅ |
 | `PO-09` | Успешная history entry содержит safe Google Docs link. | ✅ |
-| `PO-10` | History можно очистить owner-scoped action. | ❌ |
-| `PO-11` | Очистка History требует подтверждения Да/Нет. | ❌ |
+| `PO-10` | History можно очистить owner-scoped action. | ✅ |
+| `PO-11` | Очистка History требует подтверждения Да/Нет. | ✅ |
 | `PO-12` | Analytics показывает количество транскрибаций. | ✅ |
 | `PO-13` | Analytics показывает execution/stage durations. | ✅ |
 | `PO-14` | Analytics показывает provider/model. | ✅ |
 | `PO-15` | Analytics явно показывает success percentage. | ✅ |
 | `PO-16` | Analytics показывает дополнительные safe outcome/options metadata. | ✅ |
-| `PO-17` | Analytics можно очистить owner-scoped action. | ❌ |
-| `PO-18` | Очистка Analytics требует подтверждения Да/Нет. | ❌ |
+| `PO-17` | Analytics можно очистить owner-scoped action. | ✅ |
+| `PO-18` | Очистка Analytics требует подтверждения Да/Нет. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ◐ | CI — | DEPLOY — | LIVE —`.
 
 ## 6. Future scope, не включённый в denominator `109`
 
