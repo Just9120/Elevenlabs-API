@@ -20,19 +20,19 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-22T06:41:23Z
+- Updated (UTC): 2026-08-22T06:49:43Z
 - Session mode: новая explicit-authorized bounded Goal после reconciliation merged PR #217
 - Base branch: `main`
 - Base SHA: `6bcb0ed49aeb6e491765fda45bf74b6e68f7b67e`
 - Working branch: `codex/pwa-operability-polish-02`
 - Last verified revision: `0472a7c58d9a63908d34ceac21db4d1d5f566f28`
-- Working tree: implementation and test slices committed; canonical operational/architecture documentation pending one final pre-PR commit; preserved unrelated untracked pnpm artifacts excluded from scope/commits
+- Working tree: implementation, tests and pre-PR documentation committed and pushed; PR checkpoint update pending commit; preserved unrelated untracked pnpm artifacts excluded from scope/commits
 - Completed since base: Goal activation; additive `0022_account_operability` schema; owner-scoped persistent accent preference; confirmed owner-scoped reset boundaries for manifest, History and Analytics; durable jobs/outputs/Google Docs/R2/sources/audit preserved; completed attempt authority reconciled only when accepted output is actually persisted; missing-output/in-flight/uncertain cases remain fail closed; regression tests added
-- Current step: finalize canonical operational metadata and exact-head pre-PR validation
-- Next exact action: commit documentation, rerun lightweight/focused exact-head checks, push branch and create PR
+- Current step: PR #218 exact-head CI
+- Next exact action: commit/push this PR checkpoint, then wait for terminal state of all required checks on the resulting head
 - Validation and Evidence: full frontend ESLint and Vitest suite passed; TypeScript `tsc -b` and production Vite/PWA build passed; repository lightweight CI checks passed; focused safety regression `14/14`, catalog/analytics contracts `22/22`, clear frontend tests `23/23`, App History clear `1/1`, Login contract `5/5` passed. PostgreSQL-backed regressions are authored but local PostgreSQL/Redis are unavailable; bash-dependent tests are unavailable on Windows. A broader non-infrastructure Python run passed through 37% without a new failure after the safety correction but was not treated as terminal evidence; exact full suite remains a CI gate.
-- Pull Request: not created
-- CI/checks: not started
+- Pull Request: [#218](https://github.com/Just9120/Elevenlabs-API/pull/218), OPEN, non-draft; initial head `9f1452936a303652f8bb60755c15b9df72a740f4`, base `6bcb0ed49aeb6e491765fda45bf74b6e68f7b67e`
+- CI/checks: initial runs started — CI `32557957247` / job `96995036133`; Studio PWA CI `32557957252` / jobs `96995036105` (`studio`) and `96995036168` (`browser-e2e`). This checkpoint commit will supersede that initial head and must receive its own terminal checks.
 - Deployment/environment: production baseline `main@6bcb0ed49aeb6e491765fda45bf74b6e68f7b67e`; Goal revision not deployed
 - Blockers: none at implementation stage
 - Unverified assumptions: production database accepts planned additive migration; clear reset boundaries and completed-attempt correction require bounded LIVE verification after deploy
