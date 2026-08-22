@@ -678,12 +678,9 @@ def test_realtime_draft_routes_are_private_monotonic_and_no_store():
         row = db.query(RealtimeTranscriptDraft).one()
         assert "Секретный".encode("utf-8") not in row.ciphertext
         assert "секретный partial".encode("utf-8") not in row.ciphertext
-        audit_rows = db.query(AuditEvent).filter_by(
+        assert db.query(AuditEvent).filter_by(
             event_type="realtime_draft.saved"
-        ).all()
-        assert len(audit_rows) == 2
-        assert all(session_id not in item.metadata_json for item in audit_rows)
-        assert all("Секретный" not in item.metadata_json for item in audit_rows)
+        ).count() == 0
     finally:
         db.close()
 

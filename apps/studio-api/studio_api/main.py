@@ -912,12 +912,6 @@ def put_project_realtime_draft(
             settings=settings,
             now=utcnow(),
         )
-        audit(
-            db,
-            "realtime_draft.saved",
-            actor_user_id=user.id,
-            subject_user_id=user.id,
-        )
         db.commit()
     except RealtimeDraftError as exc:
         db.rollback()
