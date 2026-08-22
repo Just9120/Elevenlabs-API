@@ -210,7 +210,7 @@ export function LiveTranscriptionPanel({
       .catch(() => undefined)
       .then(async () => {
         const localSaved = await localWrite;
-        let serverSaved = false;
+        let serverSaved: boolean;
         try {
           const response = await mutateWithCsrfRetry<unknown>(
             `/projects/${projectId}/realtime/drafts/${encodeURIComponent(nextDraft.client_session_id)}`,
