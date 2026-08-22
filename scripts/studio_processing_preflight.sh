@@ -14,6 +14,7 @@ declare -A ROW_STATUS=()
 declare -A ROW_OBS=()
 declare -A ENV_VALUES=()
 declare -A ENV_SEEN=()
+RUNTIME_VALIDATION_ERROR=""
 ROWS=(
   "deploy directory identity" "repository remote identity" "branch identity" "commit identity" "tracked working tree"
   "runtime env presence" "runtime setting completeness"
@@ -42,6 +43,10 @@ is_url() {
 is_int() { [[ "$1" =~ ^[0-9]+$ ]]; }
 in_range() { local v="$1" min="$2" max="$3"; is_int "$v" && (( v >= min && v <= max )); }
 positive_int() { local v="$1"; is_int "$v" && (( v > 0 )); }
+invalid_runtime_setting() {
+  RUNTIME_VALIDATION_ERROR="$1:$2"
+  return 1
+}
 
 validate_storage_secret_file() {
   local path="$1" kind="$2" min_length max_length value normalized
@@ -74,24 +79,30 @@ parse_env() {
 validate_runtime_values() {
   local required k v
   required=(APP_PUBLIC_URL STUDIO_SOURCE_S3_ENDPOINT_URL STUDIO_SOURCE_S3_REGION STUDIO_SOURCE_S3_BUCKET STUDIO_SOURCE_UPLOAD_TTL_SECONDS STUDIO_SOURCE_PRESIGN_TTL_SECONDS STUDIO_SOURCE_MAX_UPLOAD_BYTES STUDIO_GOOGLE_OAUTH_CLIENT_ID STUDIO_GOOGLE_OAUTH_REDIRECT_URI STUDIO_GOOGLE_OAUTH_SCOPES STUDIO_GOOGLE_OAUTH_STATE_TTL_SECONDS STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_ID STUDIO_GOOGLE_MAINTENANCE_OAUTH_REDIRECT_URI STUDIO_GOOGLE_MAINTENANCE_OAUTH_SCOPES STUDIO_GOOGLE_PICKER_API_KEY STUDIO_GOOGLE_PICKER_APP_ID STUDIO_WORKER_POLL_INTERVAL_SECONDS STUDIO_WORKER_ERROR_BACKOFF_SECONDS STUDIO_WORKER_LEASE_TTL_SECONDS)
-  for k in "${required[@]}"; do v="${ENV_VALUES[$k]-}"; [[ -n "$v" && "$v" != __*__ && "$v" != *REQUIRED* && "$v" != *[[:space:]][[:space:]]* ]] || return 1; done
-  is_url "${ENV_VALUES[APP_PUBLIC_URL]}" true || return 1
-  is_url "${ENV_VALUES[STUDIO_SOURCE_S3_ENDPOINT_URL]}" false || return 1
-  is_url "${ENV_VALUES[STUDIO_GOOGLE_OAUTH_REDIRECT_URI]}" true || return 1
-  is_url "${ENV_VALUES[STUDIO_GOOGLE_MAINTENANCE_OAUTH_REDIRECT_URI]}" true || return 1
-  [[ "${ENV_VALUES[STUDIO_GOOGLE_OAUTH_SCOPES]}" == "openid email https://www.googleapis.com/auth/drive.file" ]] || return 1
-  [[ "${ENV_VALUES[STUDIO_GOOGLE_MAINTENANCE_OAUTH_SCOPES]}" == "openid email https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/documents" ]] || return 1
-  [[ "${ENV_VALUES[STUDIO_GOOGLE_OAUTH_CLIENT_ID]}" != "${ENV_VALUES[STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_ID]}" ]] || return 1
-  in_range "${ENV_VALUES[STUDIO_SOURCE_UPLOAD_TTL_SECONDS]}" 900 86400 || return 1
-  in_range "${ENV_VALUES[STUDIO_SOURCE_PRESIGN_TTL_SECONDS]}" 60 900 || return 1
-  in_range "${ENV_VALUES[STUDIO_SOURCE_MAX_UPLOAD_BYTES]}" 1 2147483647 || return 1
-  positive_int "${ENV_VALUES[STUDIO_GOOGLE_OAUTH_STATE_TTL_SECONDS]}" || return 1
-  in_range "${ENV_VALUES[STUDIO_WORKER_POLL_INTERVAL_SECONDS]}" 1 60 || return 1
-  in_range "${ENV_VALUES[STUDIO_WORKER_ERROR_BACKOFF_SECONDS]}" 1 300 || return 1
-  in_range "${ENV_VALUES[STUDIO_WORKER_LEASE_TTL_SECONDS]}" 300 86400 || return 1
+  for k in "${required[@]}"; do
+    v="${ENV_VALUES[$k]-}"
+    if [[ -z "$v" || "$v" == __*__ || "$v" == *REQUIRED* || "$v" == *[[:space:]][[:space:]]* ]]; then
+      invalid_runtime_setting "$k" "missing_or_placeholder"
+      return 1
+    fi
+  done
+  is_url "${ENV_VALUES[APP_PUBLIC_URL]}" true || { invalid_runtime_setting "APP_PUBLIC_URL" "invalid_https_url"; return 1; }
+  is_url "${ENV_VALUES[STUDIO_SOURCE_S3_ENDPOINT_URL]}" false || { invalid_runtime_setting "STUDIO_SOURCE_S3_ENDPOINT_URL" "invalid_url"; return 1; }
+  is_url "${ENV_VALUES[STUDIO_GOOGLE_OAUTH_REDIRECT_URI]}" true || { invalid_runtime_setting "STUDIO_GOOGLE_OAUTH_REDIRECT_URI" "invalid_https_url"; return 1; }
+  is_url "${ENV_VALUES[STUDIO_GOOGLE_MAINTENANCE_OAUTH_REDIRECT_URI]}" true || { invalid_runtime_setting "STUDIO_GOOGLE_MAINTENANCE_OAUTH_REDIRECT_URI" "invalid_https_url"; return 1; }
+  [[ "${ENV_VALUES[STUDIO_GOOGLE_OAUTH_SCOPES]}" == "openid email https://www.googleapis.com/auth/drive.file" ]] || { invalid_runtime_setting "STUDIO_GOOGLE_OAUTH_SCOPES" "unexpected_scope_set"; return 1; }
+  [[ "${ENV_VALUES[STUDIO_GOOGLE_MAINTENANCE_OAUTH_SCOPES]}" == "openid email https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/documents" ]] || { invalid_runtime_setting "STUDIO_GOOGLE_MAINTENANCE_OAUTH_SCOPES" "unexpected_scope_set"; return 1; }
+  [[ "${ENV_VALUES[STUDIO_GOOGLE_OAUTH_CLIENT_ID]}" != "${ENV_VALUES[STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_ID]}" ]] || { invalid_runtime_setting "STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_ID" "must_differ_from_primary"; return 1; }
+  in_range "${ENV_VALUES[STUDIO_SOURCE_UPLOAD_TTL_SECONDS]}" 900 86400 || { invalid_runtime_setting "STUDIO_SOURCE_UPLOAD_TTL_SECONDS" "outside_approved_range"; return 1; }
+  in_range "${ENV_VALUES[STUDIO_SOURCE_PRESIGN_TTL_SECONDS]}" 60 900 || { invalid_runtime_setting "STUDIO_SOURCE_PRESIGN_TTL_SECONDS" "outside_approved_range"; return 1; }
+  in_range "${ENV_VALUES[STUDIO_SOURCE_MAX_UPLOAD_BYTES]}" 1 2147483647 || { invalid_runtime_setting "STUDIO_SOURCE_MAX_UPLOAD_BYTES" "outside_approved_range"; return 1; }
+  positive_int "${ENV_VALUES[STUDIO_GOOGLE_OAUTH_STATE_TTL_SECONDS]}" || { invalid_runtime_setting "STUDIO_GOOGLE_OAUTH_STATE_TTL_SECONDS" "invalid_positive_integer"; return 1; }
+  in_range "${ENV_VALUES[STUDIO_WORKER_POLL_INTERVAL_SECONDS]}" 1 60 || { invalid_runtime_setting "STUDIO_WORKER_POLL_INTERVAL_SECONDS" "outside_approved_range"; return 1; }
+  in_range "${ENV_VALUES[STUDIO_WORKER_ERROR_BACKOFF_SECONDS]}" 1 300 || { invalid_runtime_setting "STUDIO_WORKER_ERROR_BACKOFF_SECONDS" "outside_approved_range"; return 1; }
+  in_range "${ENV_VALUES[STUDIO_WORKER_LEASE_TTL_SECONDS]}" 300 86400 || { invalid_runtime_setting "STUDIO_WORKER_LEASE_TTL_SECONDS" "outside_approved_range"; return 1; }
   local heartbeat_interval="${ENV_VALUES[STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS]-60}"
-  in_range "$heartbeat_interval" 5 28800 || return 1
-  (( heartbeat_interval * 3 <= ENV_VALUES[STUDIO_WORKER_LEASE_TTL_SECONDS] )) || return 1
+  in_range "$heartbeat_interval" 5 28800 || { invalid_runtime_setting "STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS" "outside_approved_range"; return 1; }
+  (( heartbeat_interval * 3 <= ENV_VALUES[STUDIO_WORKER_LEASE_TTL_SECONDS] )) || { invalid_runtime_setting "STUDIO_WORKER_LEASE_HEARTBEAT_INTERVAL_SECONDS" "incompatible_with_lease_ttl"; return 1; }
 }
 
 service_status() {
@@ -127,7 +138,7 @@ status="$(git status --porcelain --untracked-files=no 2>/dev/null || true)"
 [[ -f "$ENV_FILE" && -f "$COMPOSE_FILE" && -d "$VERSIONS_DIR" && -f "apps/studio-api/Dockerfile" && -f "apps/studio/Dockerfile" ]] || { set_row "runtime env presence" "blocked" "required runtime or inspection files are missing"; block_exit; }
 set_row "runtime env presence" "pass" "required runtime and inspection files are present"
 parse_env || { set_row "runtime setting completeness" "blocked" "runtime env contains malformed or duplicate required syntax"; block_exit; }
-validate_runtime_values || { set_row "runtime setting completeness" "blocked" "required runtime settings are missing, malformed, or outside approved ranges"; block_exit; }
+validate_runtime_values || { set_row "runtime setting completeness" "blocked" "invalid non-secret runtime setting: ${RUNTIME_VALIDATION_ERROR:-unknown}"; block_exit; }
 set_row "runtime setting completeness" "pass" "required non-secret runtime settings are present and valid"
 for k in STUDIO_POSTGRES_PASSWORD_FILE STUDIO_CREDENTIAL_MASTER_KEY_FILE STUDIO_SOURCE_S3_ACCESS_KEY_ID_FILE STUDIO_SOURCE_S3_SECRET_ACCESS_KEY_FILE STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE; do
   v="${ENV_VALUES[$k]-}"; label="${k#STUDIO_}"; label="${label%_FILE} secret-file presence"

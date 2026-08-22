@@ -14,28 +14,28 @@
   4. Analytics можно очистить только после Да/Нет confirmation; новые агрегаты считаются от owner-scoped reset boundary, durable jobs/attempts/outputs/audit records не удаляются.
   5. Completed provider attempt с persisted accepted output не создаёт ложный `unresolved` conflict; реальный in-flight/uncertain attempt продолжает fail closed.
   6. Relevant backend/frontend tests, full local validation, exact-head CI, merge, applicable protected migration/deployment и bounded LIVE validation успешны.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ❌ | DEPLOY — | LIVE —`.
-- **Known blockers/dependencies:** Goal требует additive PostgreSQL migration и protected `MANUAL_GATED` migration lane; approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
+- **Known blockers/dependencies:** production processing preflight блокирует worker deploy из-за неидентифицированного non-secret runtime setting; текущий hotfix добавляет secret-free key/reason diagnostics. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
 - **Stop condition:** все Goal AC и required Evidence подтверждены либо flow достиг `BLOCKED` / `PENDING_EXTERNAL_GATE`; затем остановиться и не переходить к следующей Goal без explicit authorization.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-22T08:34:45Z
-- Session mode: новая explicit-authorized bounded Goal после reconciliation merged PR #217
+- Updated (UTC): 2026-08-22T10:35:20Z
+- Session mode: RESUME после explicit authorization protected migration/API/worker/LIVE flow
 - Base branch: `main`
-- Base SHA: `6bcb0ed49aeb6e491765fda45bf74b6e68f7b67e`
-- Working branch: `codex/pwa-operability-polish-02`
-- Last verified revision: `d9e94d4e39479e62ed91d7c68c9d285adc3796ee`
-- Working tree: локальный regression fix устраняет race между route-request `browse` и кликом `Новый проект`; implementation и regression test ещё не committed/pushed; preserved unrelated untracked pnpm artifacts excluded from scope/commits
-- Completed since base: Goal activation; additive `0022_account_operability` schema; owner-scoped persistent accent preference; confirmed owner-scoped reset boundaries for manifest, History and Analytics; durable jobs/outputs/Google Docs/R2/sources/audit preserved; completed attempt authority reconciled only when accepted output is actually persisted; missing-output/in-flight/uncertain cases remain fail closed; regression tests added; stale project-view synchronization перенесена до paint, а открытие формы сделано deterministic
-- Current step: commit/push UI race fix и повторить exact-head merge gates
-- Next exact action: создать atomic commit, push в PR #218 и дождаться terminal state всех replacement checks
-- Validation and Evidence: после UI race fix полный frontend ESLint, TypeScript `tsc -b`, production Vite/PWA build и Vitest `519/519` прошли; focused regression `2/2` прошёл. Ранее repository lightweight CI checks, focused safety regression `14/14`, catalog/analytics contracts `22/22`, clear frontend tests `23/23`, App History clear `1/1`, Login contract `5/5` прошли. PostgreSQL-backed regressions authored, но local PostgreSQL/Redis недоступны; bash-dependent tests недоступны на Windows. Более широкий non-infrastructure Python run ранее прошёл до 37% без нового failure после safety correction, но не считается terminal evidence; exact full suite остаётся CI gate.
-- Pull Request: [#218](https://github.com/Just9120/Elevenlabs-API/pull/218), OPEN, non-draft; pushed head `d9e94d4e39479e62ed91d7c68c9d285adc3796ee`, base `6bcb0ed49aeb6e491765fda45bf74b6e68f7b67e`; replacement fix pending push
-- CI/checks: на code head `9a26f81806ffb93377e9956e784d98a5dcea6602` все checks были SUCCESS: CI `32562099317` / job `97005161601`, Studio `32562099341` / job `97005161698`, browser-e2e job `97005161750`. На metadata head `d9e94d4e39479e62ed91d7c68c9d285adc3796ee` CI `32562273548` / job `97005600728` и Studio job `97005601044` SUCCESS, но browser-e2e run `32562273555` / job `97005600759` FAILURE: форма создания проекта закрывалась stale `browse` effect после клика. Локальный product fix подтверждён tests; replacement exact-head checks pending.
-- Deployment/environment: production baseline `main@6bcb0ed49aeb6e491765fda45bf74b6e68f7b67e`; Goal revision not deployed
-- Blockers: none at implementation stage
-- Unverified assumptions: production database accepts planned additive migration; clear reset boundaries and completed-attempt correction require bounded LIVE verification after deploy
+- Base SHA: `1fc868847377ad059743ac4d1aa3ae0573d27507` (merged implementation baseline; original Goal base `6bcb0ed49aeb6e491765fda45bf74b6e68f7b67e`)
+- Working branch: `codex/pwa-operability-preflight-diagnostics`
+- Last verified revision: `1fc868847377ad059743ac4d1aa3ae0573d27507`
+- Working tree: secret-free preflight diagnostic hotfix и regression test изменены, не committed; preserved unrelated untracked pnpm artifacts excluded from scope/commits
+- Completed since original base: implementation и UI race fix merged через PR #218; exact-head PR и post-merge CI green; web deployed; worker graceful-drained; protected migration `0021_source_creation_favorites → 0022_account_operability` и API deploy successful; migration gate снова disabled; bounded LIVE подтвердил accent persistence, три Да/Нет dialogs с cancel path и отсутствие ложного unresolved blocker для visible completed output
+- Current step: сделать preflight runtime blocker actionable без раскрытия config values, затем повторить read-only preflight
+- Next exact action: validate/commit/push hotfix, открыть PR и дождаться exact-head CI
+- Validation and Evidence: implementation head прошёл CI `32562849717`, Studio/browser-e2e `32562849719`; local hotfix `git diff --check`, shell syntax и lightweight CI прошли, Python test file компилируется; local pytest недоступен, focused Ubuntu integration tests остаются CI gate. LIVE accent `blue → teal → reload teal → restore blue → reload blue`; manifest/History/Analytics confirmation dialogs проверены с `Нет`; duplicate preflight на existing completed source разрешил processing и не показал `equivalent_provider_outcome_unresolved`, job не создавался.
+- Pull Request: [#218](https://github.com/Just9120/Elevenlabs-API/pull/218) MERGED as `1fc868847377ad059743ac4d1aa3ae0573d27507`; hotfix PR pending
+- CI/checks: PR #218 exact head `9c2ec47ed1b099958576d31204ff3d776210c242` — all required checks SUCCESS; post-merge CI run `32562849717` and Studio PWA CI `32562849719` — SUCCESS
+- Deployment/environment: web CD `32562849732` SUCCESS; worker drain `32563012779` SUCCESS (`exited`, `exit_code=0`); protected migration/API run `32567261404` SUCCESS, snapshot `ab9189f05e33`, API image `sha256:9ed9b467bb46`, `api_deployed=yes`; migration enable variable restored to `false`. GitHub approval history API reports `state=skipped` despite observed waiting state and user action, so required-review audit evidence remains limited.
+- Blockers: read-only processing preflight `32567439693` failed at `runtime setting completeness`; worker remains stopped and must not deploy until a repeated preflight passes
+- Unverified assumptions: exact invalid runtime setting неизвестен до deployment/use of hotfix diagnostic; clear mutation paths не запускались в production, чтобы не скрывать реальные user data
 - Preserved pre-existing changes: `.pnpm-store/`, `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml` remain untracked and are not part of this Goal
 
 ## Project readiness
