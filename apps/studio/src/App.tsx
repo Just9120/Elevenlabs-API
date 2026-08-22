@@ -1,6 +1,7 @@
 import {
   ChangeEvent,
   FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   useEffect,
   useId,
   useRef,
@@ -1182,6 +1183,40 @@ function safeConfirm(message: string) {
   } catch {
     return false;
   }
+}
+function navigateTabList<T extends string>(
+  event: ReactKeyboardEvent<HTMLButtonElement>,
+  values: readonly T[],
+  onSelect: (value: T) => void,
+) {
+  if (
+    event.key !== "ArrowLeft" &&
+    event.key !== "ArrowRight" &&
+    event.key !== "ArrowUp" &&
+    event.key !== "ArrowDown" &&
+    event.key !== "Home" &&
+    event.key !== "End"
+  ) {
+    return;
+  }
+  const tabs = Array.from(
+    event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>(
+      '[role="tab"]',
+    ) ?? [],
+  );
+  const currentIndex = tabs.indexOf(event.currentTarget);
+  if (currentIndex < 0 || tabs.length !== values.length) return;
+  event.preventDefault();
+  const nextIndex =
+    event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? tabs.length - 1
+        : event.key === "ArrowRight" || event.key === "ArrowDown"
+          ? (currentIndex + 1) % tabs.length
+          : (currentIndex - 1 + tabs.length) % tabs.length;
+  tabs[nextIndex]?.focus();
+  onSelect(values[nextIndex]);
 }
 export const __appDiagnosticsTest = { api, csrfMutate };
 type JobMutationKind = "cancel" | "retry" | "reconciliation" | "dismiss";
@@ -3480,7 +3515,7 @@ function PreparationPanel({
       >
         <div className="composer-header">
           <div>
-            <h4>Подготовка задач</h4>
+            <h2>Подготовка задач</h2>
             <p className="muted">
               Одна строка создаёт одну независимую задачу: один файл → одна
               папка результата.
@@ -4107,13 +4142,13 @@ function PreparationPanel({
           >
             <div className="batch-preflight-header">
               <div>
-                <h5>
+                <h3>
                   {activePreflightBlocked
                     ? activeProviderAuthorityBlocked
                       ? "План временно заблокирован"
                       : "План требует решения"
                     : "План готов к подтверждению"}
-                </h5>
+                </h3>
                 <p className="muted">
                   ElevenLabs scribe_v2 ·{" "}
                   {transcriptionLanguageModeLabel(
@@ -4358,7 +4393,7 @@ function PreparationPanel({
         onCsrf={onCsrf}
       />
       <section className="sources" aria-label="Текущие задачи">
-        <h4>Текущие задачи</h4>
+        <h2>Текущие задачи</h2>
         {jobs.loading && <p role="status">Загрузка задач…</p>}
         {jobs.error && <p className="error">{jobs.error}</p>}
         {jobs.loaded &&
@@ -5168,7 +5203,15 @@ function ProjectsPage({
                   role="tab"
                   aria-controls="transcription-panel-batch"
                   aria-selected={transcriptionMode === "batch"}
+                  tabIndex={transcriptionMode === "batch" ? 0 : -1}
                   onClick={() => setTranscriptionMode("batch")}
+                  onKeyDown={(event) =>
+                    navigateTabList(
+                      event,
+                      ["batch", "live"] as const,
+                      setTranscriptionMode,
+                    )
+                  }
                 >
                   Обычная транскрибация
                 </button>
@@ -5178,7 +5221,15 @@ function ProjectsPage({
                   role="tab"
                   aria-controls="transcription-panel-live"
                   aria-selected={transcriptionMode === "live"}
+                  tabIndex={transcriptionMode === "live" ? 0 : -1}
                   onClick={() => setTranscriptionMode("live")}
+                  onKeyDown={(event) =>
+                    navigateTabList(
+                      event,
+                      ["batch", "live"] as const,
+                      setTranscriptionMode,
+                    )
+                  }
                 >
                   Live-транскрибация
                 </button>
@@ -6364,38 +6415,68 @@ function SettingsPage({
     ) ?? null;
   const credentialsUnavailable = credentialsLoading || Boolean(credentialsMessage);  return (
     <section className="card wide">
-      <h2>Настройки</h2>
+      <h1 className="page-title">Настройки</h1>
       <div className="tabs" role="tablist" aria-label="Разделы настроек">
         <button
+          id="settings-tab-account"
           type="button"
           role="tab"
+          aria-controls="settings-panel-account"
           aria-selected={section === "account"}
+          tabIndex={section === "account" ? 0 : -1}
           className={section === "account" ? "active" : ""}
           onClick={() => onSectionChange("account")}
+          onKeyDown={(event) =>
+            navigateTabList(
+              event,
+              ["account", "diagnostics"] as const,
+              onSectionChange,
+            )
+          }
         >
           Аккаунт
         </button>
         <button
+          id="settings-tab-diagnostics"
           type="button"
           role="tab"
+          aria-controls="settings-panel-diagnostics"
           aria-selected={section === "diagnostics"}
+          tabIndex={section === "diagnostics" ? 0 : -1}
           className={section === "diagnostics" ? "active" : ""}
           onClick={() => onSectionChange("diagnostics")}
+          onKeyDown={(event) =>
+            navigateTabList(
+              event,
+              ["account", "diagnostics"] as const,
+              onSectionChange,
+            )
+          }
         >
           Диагностика
         </button>
       </div>
       {section === "diagnostics" ? (
-        <DiagnosticsSettings
-          csrf={csrf}
-          onCsrf={onCsrf}
-          auditEvents={events}
-          auditState={auditState}
-          auditMessage={auditMessage}
-          onRetryAudit={() => void loadAuditEvents()}
-        />
+        <div
+          id="settings-panel-diagnostics"
+          role="tabpanel"
+          aria-labelledby="settings-tab-diagnostics"
+        >
+          <DiagnosticsSettings
+            csrf={csrf}
+            onCsrf={onCsrf}
+            auditEvents={events}
+            auditState={auditState}
+            auditMessage={auditMessage}
+            onRetryAudit={() => void loadAuditEvents()}
+          />
+        </div>
       ) : (
-        <>
+        <div
+          id="settings-panel-account"
+          role="tabpanel"
+          aria-labelledby="settings-tab-account"
+        >
           <h2>Настройки аккаунта</h2>
           {oauthMessage && (
             <p className="notice" role="status">
@@ -6543,6 +6624,9 @@ function SettingsPage({
           <h3>Ключи провайдеров</h3>
           <p className="notice">
             Ключи не сохраняются в браузере и никогда не отображаются обратно.
+            Текущие обычная и Live-транскрибации выполняются только через
+            ElevenLabs. OpenAI key можно безопасно хранить для будущих
+            интеграций, но текущий execution flow его не использует.
           </p>
           {credentialMutations.length > 0 && (
             <p role="status" className="notice">
@@ -6591,7 +6675,9 @@ function SettingsPage({
                 disabled={createCredentialPending}
               >
                 <option value="elevenlabs">ElevenLabs</option>
-                <option value="openai">OpenAI</option>
+                <option value="openai">
+                  OpenAI — только хранение, не для текущей транскрибации
+                </option>
               </select>
               <input
                 name="credential_label"
@@ -6640,6 +6726,12 @@ function SettingsPage({
                     {credential.status} · v{credential.active_version ?? "—"} ·{" "}
                     {credential.masked_value ?? "—"}
                   </p>
+                  {credential.provider === "openai" && (
+                    <p className="notice">
+                      Этот key хранится зашифрованно, но не используется
+                      текущей обычной или Live-транскрибацией.
+                    </p>
+                  )}
                   <p className="muted">
                     Отключение запрещает использовать ключ в задачах, но сохраняет
                     его версии. Удаление навсегда стирает сохранённые значения
@@ -6883,7 +6975,7 @@ function SettingsPage({
               </ul>
             </details>
           </details>
-        </>
+        </div>
       )}
     </section>
   );

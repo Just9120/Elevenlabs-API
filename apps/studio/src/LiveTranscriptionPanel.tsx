@@ -646,7 +646,7 @@ export function LiveTranscriptionPanel({
     >
       <header className="live-intro">
         <div>
-          <h3>Live-транскрибация</h3>
+          <h2>Live-транскрибация</h2>
           <p>
             Распознаёт микрофон, звук выбранной вкладки или экрана либо оба
             источника одновременно. Текст временно checkpoint-ится в браузере
@@ -672,7 +672,7 @@ export function LiveTranscriptionPanel({
       {recoveryCandidate && (
         <section className="notice live-recovery" aria-label="Восстановление Live-черновика">
           <div>
-            <h4>Найден незавершённый Live-черновик</h4>
+            <h3>Найден незавершённый Live-черновик</h3>
             <p>
               Обновлён {new Date(recoveryCandidate.updated_at).toLocaleString("ru-RU")}
               {" · "}подтверждённых фрагментов: {recoveryCandidate.committed_segments.length}
@@ -703,7 +703,7 @@ export function LiveTranscriptionPanel({
 
       <div className="live-config-grid">
         <section className="live-config-card">
-          <h4>Источники звука</h4>
+          <h3>Источники звука</h3>
           <label className="check-row">
             <input
               type="checkbox"
@@ -781,7 +781,7 @@ export function LiveTranscriptionPanel({
           className="live-config-card"
           aria-busy={credentialsState === "loading" || undefined}
         >
-          <h4>Распознавание</h4>
+          <h3>Распознавание</h3>
           <label>
             Профиль ElevenLabs
             <select
@@ -890,7 +890,7 @@ export function LiveTranscriptionPanel({
       <section className="live-transcript-card">
         <header className="split">
           <div>
-            <h4>Текст Live-транскрибации</h4>
+            <h3>Текст Live-транскрибации</h3>
             <p className="muted">
               Временно хранится только для восстановления. Не попадает в
               Google Docs, каталог, History, Analytics или diagnostics.

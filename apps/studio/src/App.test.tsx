@@ -1231,9 +1231,17 @@ describe("Studio PWA", () => {
       screen.getByRole("tab", { name: "Обычная транскрибация" }),
     ).toHaveAttribute("aria-selected", "true");
 
-    await userEvent.click(
+    const ordinaryTab = screen.getByRole("tab", {
+      name: "Обычная транскрибация",
+    });
+    ordinaryTab.focus();
+    await userEvent.keyboard("{ArrowRight}");
+    expect(
       screen.getByRole("tab", { name: "Live-транскрибация" }),
-    );
+    ).toHaveFocus();
+    expect(
+      screen.getByRole("tab", { name: "Live-транскрибация" }),
+    ).toHaveAttribute("aria-selected", "true");
     const livePanel = await screen.findByRole("region", {
       name: "Live-транскрибация",
     });
@@ -1284,6 +1292,32 @@ describe("Studio PWA", () => {
       }),
     ).toBe(livePanel);
     expect(livePanel.closest('[role="tabpanel"]')).toHaveAttribute("hidden");
+  });
+
+  it("exposes clear provider limits and keyboard-operable settings tabs", async () => {
+    renderApp();
+    await openSettingsPage();
+
+    expect(
+      screen.getByRole("heading", { name: "Настройки", level: 1 }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/транскрибации выполняются только через ElevenLabs/i),
+    ).toBeInTheDocument();
+
+    const accountTab = screen.getByRole("tab", { name: "Аккаунт" });
+    accountTab.focus();
+    await userEvent.keyboard("{End}");
+    const diagnosticsTab = screen.getByRole("tab", { name: "Диагностика" });
+    expect(diagnosticsTab).toHaveFocus();
+    expect(diagnosticsTab).toHaveAttribute("aria-selected", "true");
+    expect(
+      await screen.findByRole("heading", { name: "Диагностика" }),
+    ).toBeInTheDocument();
+
+    await userEvent.keyboard("{Home}");
+    expect(accountTab).toHaveFocus();
+    expect(accountTab).toHaveAttribute("aria-selected", "true");
   });
 
   it("opens approved Drive resource links in new tabs with compact action labels", async () => {
@@ -12157,6 +12191,9 @@ describe("Studio PWA", () => {
       /button:where\(\s*:not\(\.primary\):not\(\.danger\)\s*\)/,
     );
     expect(css).toContain(':root[data-theme="dark"]');
+    expect(css).toMatch(
+      /:root\[data-theme="dark"\]\s*\{[^}]*--studio-on-primary:\s*#08111f/s,
+    );
     expect(css).toMatch(/\.shell > main\s*\{[^}]*width:\s*100%/s);
     expect(css).not.toContain("width: min(100%, 1360px)");
     expect(css).not.toContain("!important");
@@ -12171,6 +12208,17 @@ describe("Studio PWA", () => {
     expect(css).not.toMatch(/(^|\n)aside\s*\{/);
     expect(css).not.toMatch(/aside\s*\{[^}]*height:\s*100vh/s);
     expect(css).not.toMatch(/(^|\n)input\[type=["']file["']\]\s*\{/);
+    expect(css).toMatch(/button,\s*\.button-like\s*\{[^}]*min-height:\s*44px/s);
+    expect(css).toMatch(/summary\s*\{[^}]*min-height:\s*44px/s);
+    expect(css).toMatch(
+      /\.meta\s*\{[^}]*grid-template-columns:\s*minmax\(8rem, 0\.35fr\) minmax\(0, 1fr\)/s,
+    );
+    expect(css).toMatch(
+      /@media \(max-width: 900px\)[\s\S]*?\.app-nav\s*\{[^}]*grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\)/,
+    );
+    expect(css).toMatch(
+      /@media \(max-width: 620px\)[\s\S]*?\.meta\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/,
+    );
   });
 
   it("shows bootstrap-required operator instruction", async () => {

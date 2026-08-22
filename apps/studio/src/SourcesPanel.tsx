@@ -255,7 +255,7 @@ export function SourcesPanel({
   }
   return (
     <section className="sources" aria-label={`Источники ${project.title}`}>
-      <h4>Источники</h4>
+      <h2>Источники</h2>
       {Object.values(deletionNotices)
         .filter((notice) => notice.projectId === project.id)
         .map((notice) => (

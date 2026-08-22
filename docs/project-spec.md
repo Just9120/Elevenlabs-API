@@ -28,13 +28,13 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Текущее independently verified baseline после UX/UI-аудита production и явного расширения product scope владельцем: `main@dd194c929d957e822ff618df294dc54e72d5971e`.
+Текущий independently verified execution snapshot: ветка `codex/pwa-transcriptions-live-recovery-01` от `main@dd194c929d957e822ff618df294dc54e72d5971e`, после bounded local UX validation.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **75,9% (`22/29`)** | `COLAB-BATCH 17/23` + `COLAB-REALTIME 5/6` |
-| Studio PWA | **81,3% (`74/91`)** | сумма десяти PWA-эпиков ниже; `PR-07..13` выполнены в текущей рабочей ветке, `PC-01/03` остаются открыты |
-| Весь проект | **80,0% (`96/120`)** | все выполненные AC двух продуктов / все AC текущего scope |
+| Studio PWA | **86,8% (`79/91`)** | сумма десяти PWA-эпиков ниже; `PC-01`, `PC-03`, `PT-01/02/04` подтверждены в текущей рабочей ветке |
+| Весь проект | **84,2% (`101/120`)** | все выполненные AC двух продуктов / все AC текущего scope |
 
 ## 3. Общие product rules
 
@@ -109,11 +109,11 @@ Owner LIVE evidence подтверждает работоспособность 
 
 ### Эпик `PWA-CORE-01` — application shell, auth и integrations
 
-Status: **🟦 IN PROGRESS — 92,3% (`12/13`)**.
+Status: **🟦 IN PROGRESS — 100% (`13/13`)**. Все product AC выполнены; exact-head CI, DEPLOY и LIVE для текущей ветки ещё не подтверждены, поэтому эпик не `READY`.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
-| `PC-01` | Интерфейс адаптивен на desktop и narrow viewport без document-level overflow и недоступных controls. | ❌ |
+| `PC-01` | Интерфейс адаптивен на desktop и narrow viewport без document-level overflow и недоступных controls. | ✅ |
 | `PC-02` | Sidebar содержит Dashboard. | ✅ |
 | `PC-03` | Primary navigation и page title используют пользовательскую сущность `Транскрибации`, а не технический `Project`. | ✅ |
 | `PC-04` | Sidebar содержит Settings. | ✅ |
@@ -127,9 +127,9 @@ Status: **🟦 IN PROGRESS — 92,3% (`12/13`)**.
 | `PC-12` | Доступны system, light и dark themes. | ✅ |
 | `PC-13` | Пользователь выбирает accent/interface color. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ✅ | DEPLOY — | LIVE ❌`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ◐ | DEPLOY — | LIVE ❌`.
 
-UX/UI-аудит production на viewport `390x844` подтвердил document-level horizontal overflow в Diagnostics: `.meta` с `max-content` расширяет document до 474 px и сжимает часть значений до нулевой доступной ширины. Поэтому прежнее `PC-01 ✅` повторно открыто по более сильному runtime evidence.
+UX/UI-аудит production на viewport `390x844` выявил document-level horizontal overflow в Diagnostics: `.meta` с `max-content` расширял document до 474 px и сжимал часть значений до нулевой доступной ширины. Текущая ветка заменила unbounded metadata grid, добавила narrow single-column layout и сохранила три primary navigation controls. Bounded local browser validation при `390x844` подтвердила `documentWidth=375` при layout viewport 375, доступность всех трёх navigation controls и keyboard-переключение ordinary/Live tabs; production LIVE regression check остаётся delivery gate, а не основанием повторно открывать выполненный AC.
 
 Expired source metadata может сохраняться для history/audit, но current owner instruction требует скрывать expired local files из active intake UI. Это заменяет старое UI-допущение о видимости недоступной metadata.
 
