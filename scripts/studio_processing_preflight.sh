@@ -48,21 +48,11 @@ invalid_runtime_setting() {
   return 1
 }
 
-validate_storage_secret_file() {
-  local path="$1" kind="$2" min_length max_length value normalized
-  case "$kind" in
-    access_key_id) min_length=16; max_length=128 ;;
-    secret_access_key) min_length=32; max_length=256 ;;
-    *) return 1 ;;
-  esac
-  value="$(<"$path")"
-  value="${value%$'\r'}"
-  (( ${#value} >= min_length && ${#value} <= max_length )) || return 1
-  [[ "$value" =~ ^[[:graph:]]+$ ]] || return 1
-  normalized="${value,,}"
-  case "$normalized" in
-    echo|test|example|placeholder|changeme|__*__|*required*) return 1 ;;
-  esac
+validate_container_storage_secret() {
+  local env_key="$1"
+  "${compose[@]}" exec -T studio-api \
+    python -m studio_api.container_entrypoint \
+    --validate-mounted-storage-secret "$env_key" >/dev/null 2>&1
 }
 
 parse_env() {
@@ -146,15 +136,7 @@ for k in STUDIO_POSTGRES_PASSWORD_FILE STUDIO_CREDENTIAL_MASTER_KEY_FILE STUDIO_
     set_row "$label" "blocked" "required secret file is not present"
     block_exit
   fi
-  if [[ "$k" == "STUDIO_SOURCE_S3_ACCESS_KEY_ID_FILE" ]] && ! validate_storage_secret_file "$v" access_key_id; then
-    set_row "$label" "blocked" "source storage credential file has invalid or placeholder content"
-    block_exit
-  fi
-  if [[ "$k" == "STUDIO_SOURCE_S3_SECRET_ACCESS_KEY_FILE" ]] && ! validate_storage_secret_file "$v" secret_access_key; then
-    set_row "$label" "blocked" "source storage credential file has invalid or placeholder content"
-    block_exit
-  fi
-  set_row "$label" "pass" "required secret file is present and valid for this check"
+  set_row "$label" "pass" "required secret file is present"
 done
 if [[ "${ENV_VALUES[STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE]}" == "${ENV_VALUES[STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE]}" ]]; then
   set_row "GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET secret-file presence" "blocked" "maintenance OAuth requires a separate client secret file"
@@ -169,6 +151,18 @@ for svc in postgres redis studio-api studio-web studio-worker; do IFS=: read -r 
 [[ "${SSTATUS[redis]}" == "healthy" ]] && set_row "Redis health" "pass" "redis service is healthy" || { set_row "Redis health" "blocked" "redis service is not healthy"; block_exit; }
 [[ "${SSTATUS[studio-api]}" == "healthy" ]] || { set_row "localhost API health" "blocked" "studio-api is not healthy before localhost check"; block_exit; }
 [[ "${SSTATUS[studio-web]}" == "healthy" ]] || { set_row "localhost web health" "blocked" "studio-web is not healthy before localhost check"; block_exit; }
+if validate_container_storage_secret "STUDIO_SOURCE_S3_ACCESS_KEY_ID_FILE"; then
+  set_row "SOURCE_S3_ACCESS_KEY_ID secret-file presence" "pass" "runtime-mounted source storage credential is present and structurally valid"
+else
+  set_row "SOURCE_S3_ACCESS_KEY_ID secret-file presence" "blocked" "runtime-mounted source storage credential is unreadable, invalid, or placeholder content"
+  block_exit
+fi
+if validate_container_storage_secret "STUDIO_SOURCE_S3_SECRET_ACCESS_KEY_FILE"; then
+  set_row "SOURCE_S3_SECRET_ACCESS_KEY secret-file presence" "pass" "runtime-mounted source storage credential is present and structurally valid"
+else
+  set_row "SOURCE_S3_SECRET_ACCESS_KEY secret-file presence" "blocked" "runtime-mounted source storage credential is unreadable, invalid, or placeholder content"
+  block_exit
+fi
 curl -fsS -o /dev/null --max-time 5 http://127.0.0.1:8182/api/healthz >/dev/null 2>&1 && set_row "localhost API health" "pass" "localhost API health endpoint passed" || { set_row "localhost API health" "blocked" "localhost API health endpoint failed"; block_exit; }
 curl -fsS -o /dev/null --max-time 5 http://127.0.0.1:8181/healthz >/dev/null 2>&1 && set_row "localhost web health" "pass" "localhost web health endpoint passed" || { set_row "localhost web health" "blocked" "localhost web health endpoint failed"; block_exit; }
 public="${ENV_VALUES[APP_PUBLIC_URL]}"
