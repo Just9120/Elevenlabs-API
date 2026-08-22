@@ -429,12 +429,14 @@ Before any processing rollout or canary, verify without printing sensitive value
 - production database revision is known and compared to the exact reviewed repository Alembic head (`0018_job_part_progress` for the current progress candidate);
 - exactly one worker instance is intended for the canary.
 
-The host preflight validates the current Compose-mounted R2 credential files only
-through the reviewed `container_entrypoint --validate-mounted-storage-secret`
-mode inside the healthy API container. That mode accepts only the two allowlisted
-source-storage keys, performs no copy or write, emits no value, and exits before
-starting an application command. Do not replace it with direct deploy-user reads,
-stale runtime-tmpfs inspection, relaxed host permissions, or ad-hoc root commands.
+The host preflight validates current Compose-mounted runtime secret files only
+through the reviewed `container_entrypoint --validate-mounted-secret` mode inside
+the healthy API container. That mode accepts only keys from the entrypoint's
+secret allowlist, performs no copy or write, emits no value, and exits before
+starting an application command. Source-storage credentials additionally receive
+their bounded structural/placeholder validation. Do not replace this with direct
+deploy-user reads, stale runtime-tmpfs inspection, relaxed host permissions, or
+ad-hoc root commands.
 
 ## Controlled worker rollout sequence
 

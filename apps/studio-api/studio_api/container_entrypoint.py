@@ -26,9 +26,13 @@ SECRET_FILES = {
         "studio_google_maintenance_oauth_client_secret"
     ),
 }
-MOUNTED_STORAGE_SECRET_RULES = {
+MOUNTED_SECRET_RULES: dict[str, tuple[int, int] | None] = {
+    "STUDIO_POSTGRES_PASSWORD_FILE": None,
+    "STUDIO_CREDENTIAL_MASTER_KEY_FILE": None,
     "STUDIO_SOURCE_S3_ACCESS_KEY_ID_FILE": (16, 128),
     "STUDIO_SOURCE_S3_SECRET_ACCESS_KEY_FILE": (32, 256),
+    "STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE": None,
+    "STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE": None,
 }
 
 
@@ -134,10 +138,12 @@ def _bootstrap_runtime_secrets() -> None:
         _copy_secret(Path("/run/secrets") / name, target, key=key)
 
 
-def _validate_mounted_storage_secret(key: str) -> None:
-    rule = MOUNTED_STORAGE_SECRET_RULES.get(key)
+def _validate_mounted_secret(key: str) -> None:
+    if key not in MOUNTED_SECRET_RULES:
+        raise BootstrapError("reason=mounted_secret_validation_key_invalid")
+    rule = MOUNTED_SECRET_RULES[key]
     name = SECRET_FILES.get(key)
-    if rule is None or name is None:
+    if name is None:
         raise BootstrapError("reason=mounted_secret_validation_key_invalid")
     if _effective_uid() != 0:
         raise BootstrapError("reason=mounted_secret_validation_not_root")
@@ -170,6 +176,11 @@ def _validate_mounted_storage_secret(key: str) -> None:
     finally:
         if descriptor >= 0:
             os.close(descriptor)
+
+    if not raw.strip():
+        raise BootstrapError(f"reason=secret_invalid key={key}")
+    if rule is None:
+        return
 
     try:
         value = raw.decode("utf-8")
@@ -218,7 +229,7 @@ def _exec(command: Sequence[str]) -> NoReturn:
 def run(argv: Sequence[str] | None = None) -> NoReturn | None:
     command = list(sys.argv[1:] if argv is None else argv)
     validate_mounted_secret = bool(
-        command and command[0] == "--validate-mounted-storage-secret"
+        command and command[0] == "--validate-mounted-secret"
     )
     if validate_mounted_secret:
         command.pop(0)
@@ -235,7 +246,7 @@ def run(argv: Sequence[str] | None = None) -> NoReturn | None:
         raise BootstrapError("reason=bootstrap_mode_invalid")
 
     if validate_mounted_secret:
-        _validate_mounted_storage_secret(command[0])
+        _validate_mounted_secret(command[0])
         return
 
     current_uid = _effective_uid()

@@ -98,6 +98,7 @@ esac
     worker_count = int(state.get("worker_count", "0"))
     current = state.get("current", "0022_account_operability")
     invalid_storage_kind = state.get("invalid_storage_kind", "")
+    invalid_mounted_key = state.get("invalid_mounted_key", "")
     _write_exe(bin_dir / "docker", f"""#!/usr/bin/env bash
 set -euo pipefail
 printf 'docker %s\n' "$*" >> {str(log)!r}
@@ -118,7 +119,8 @@ if [[ "$1" == "compose" ]]; then
     exit 0
   elif [[ "$1" == "exec" ]]; then
     [[ "$2" == "-T" ]] || exit 45
-    if [[ "$*" == *--validate-mounted-storage-secret* ]]; then
+    if [[ "$*" == *--validate-mounted-secret* ]]; then
+      if [[ -n {invalid_mounted_key!r} && "$*" == *{invalid_mounted_key!r}* ]]; then exit 1; fi
       if [[ {invalid_storage_kind!r} == "access_key_id" && "$*" == *STUDIO_SOURCE_S3_ACCESS_KEY_ID_FILE* ]]; then exit 1; fi
       if [[ {invalid_storage_kind!r} == "secret_access_key" && "$*" == *STUDIO_SOURCE_S3_SECRET_ACCESS_KEY_FILE* ]]; then exit 1; fi
       exit 0
@@ -175,6 +177,19 @@ def test_successful_host_preflight(tmp_path: Path) -> None:
         "--drop-only alembic current" in c
         for c in calls
     )
+    mounted_validation_calls = [
+        call for call in calls if "--validate-mounted-secret" in call
+    ]
+    assert len(mounted_validation_calls) == 6
+    for key in [
+        "STUDIO_POSTGRES_PASSWORD_FILE",
+        "STUDIO_CREDENTIAL_MASTER_KEY_FILE",
+        "STUDIO_SOURCE_S3_ACCESS_KEY_ID_FILE",
+        "STUDIO_SOURCE_S3_SECRET_ACCESS_KEY_FILE",
+        "STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE",
+        "STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE",
+    ]:
+        assert any(key in call for call in mounted_validation_calls)
     assert_no_secret_output(proc)
     assert_no_forbidden(calls)
 
@@ -207,22 +222,30 @@ def test_runtime_gate_failures_block_before_service_inspection(tmp_path: Path) -
         {"env_text": "APP_PUBLIC_URL=https://x\nAPP_PUBLIC_URL=https://y\n"},
         {"env_text": "APP_PUBLIC_URL=\n"},
         {"env_text": "APP_PUBLIC_URL=__REQUIRED_VALUE__\n"},
-        {"missing_secret": True},
     ]
     for i, kwargs in enumerate(cases):
         case = tmp_path / str(i); case.mkdir()
         proc, calls, repo = run_preflight(case, **{k: v for k, v in kwargs.items() if k == "env_text"})
-        if kwargs.get("remove_env") or kwargs.get("missing_secret"):
+        if kwargs.get("remove_env"):
             repo, bin_dir = make_repo(case / "x")
-            if kwargs.get("remove_env"):
-                (repo / "deploy/studio/.env").unlink()
-            else:
-                (case / "x/secrets/pg").unlink()
+            (repo / "deploy/studio/.env").unlink()
             proc = subprocess.run(["bash", str(SCRIPT), str(repo), "main", "Just9120/Elevenlabs-API", SHA], cwd=repo, env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"}, text=True, capture_output=True, timeout=10)
             calls = (case / "x/calls.log").read_text().splitlines() if (case / "x/calls.log").exists() else []
         assert proc.returncode != 0
         assert not any(c.startswith("docker ") for c in calls)
         assert_no_secret_output(proc)
+
+
+def test_missing_or_unreadable_mounted_secret_blocks_inside_runtime_boundary(
+    tmp_path: Path,
+) -> None:
+    key = "STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE"
+    proc, calls, _ = run_preflight(tmp_path, invalid_mounted_key=key)
+    assert proc.returncode != 0
+    assert row_statuses(proc.stdout)["GOOGLE_OAUTH_CLIENT_SECRET secret-file presence"] == "blocked"
+    assert "current allowlisted runtime mount is missing, unreadable, invalid, or placeholder content" in proc.stdout
+    assert any("--validate-mounted-secret" in call and key in call for call in calls)
+    assert_no_secret_output(proc)
 
 
 def test_source_storage_placeholder_secrets_block_inside_runtime_boundary(tmp_path: Path) -> None:
@@ -235,8 +258,8 @@ def test_source_storage_placeholder_secrets_block_inside_runtime_boundary(tmp_pa
         proc, calls, _ = run_preflight(case, invalid_storage_kind=kind)
         assert proc.returncode != 0
         assert row_statuses(proc.stdout)[row] == "blocked"
-        assert "runtime-mounted source storage credential is unreadable, invalid, or placeholder content" in proc.stdout
-        assert any("--validate-mounted-storage-secret" in call for call in calls)
+        assert "current allowlisted runtime mount is missing, unreadable, invalid, or placeholder content" in proc.stdout
+        assert any("--validate-mounted-secret" in call for call in calls)
         assert_no_secret_output(proc)
 
 
