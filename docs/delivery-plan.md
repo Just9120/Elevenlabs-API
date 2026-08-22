@@ -14,25 +14,25 @@
   4. Analytics можно очистить только после Да/Нет confirmation; новые агрегаты считаются от owner-scoped reset boundary, durable jobs/attempts/outputs/audit records не удаляются.
   5. Completed provider attempt с persisted accepted output не создаёт ложный `unresolved` conflict; реальный in-flight/uncertain attempt продолжает fail closed.
   6. Relevant backend/frontend tests, full local validation, exact-head CI, merge, applicable protected migration/deployment и bounded LIVE validation успешны.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ◐ | CI ❌ | DEPLOY — | LIVE —` (initial exact-head CI выявил два локализованных regression defects; fixes ожидают новый CI run).
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
 - **Known blockers/dependencies:** Goal требует additive PostgreSQL migration и protected `MANUAL_GATED` migration lane; approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
 - **Stop condition:** все Goal AC и required Evidence подтверждены либо flow достиг `BLOCKED` / `PENDING_EXTERNAL_GATE`; затем остановиться и не переходить к следующей Goal без explicit authorization.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-22T08:21:38Z
+- Updated (UTC): 2026-08-22T08:25:19Z
 - Session mode: новая explicit-authorized bounded Goal после reconciliation merged PR #217
 - Base branch: `main`
 - Base SHA: `6bcb0ed49aeb6e491765fda45bf74b6e68f7b67e`
 - Working branch: `codex/pwa-operability-polish-02`
-- Last verified revision: `0472a7c58d9a63908d34ceac21db4d1d5f566f28`
-- Working tree: fixes для initial CI failures и checkpoint pending commit; preserved unrelated untracked pnpm artifacts excluded from scope/commits
+- Last verified revision: `9a26f81806ffb93377e9956e784d98a5dcea6602`
+- Working tree: implementation and CI fixes committed/pushed; green CI Evidence synchronization pending commit; preserved unrelated untracked pnpm artifacts excluded from scope/commits
 - Completed since base: Goal activation; additive `0022_account_operability` schema; owner-scoped persistent accent preference; confirmed owner-scoped reset boundaries for manifest, History and Analytics; durable jobs/outputs/Google Docs/R2/sources/audit preserved; completed attempt authority reconciled only when accepted output is actually persisted; missing-output/in-flight/uncertain cases remain fail closed; regression tests added
-- Current step: resolve initial PR #218 `checks` failure without weakening safety/privacy contracts
-- Next exact action: commit/push corrected preflight head and audit assertion, then wait for terminal checks on the new exact head
+- Current step: synchronize green TEST/CI Evidence and complete exact-head merge gates
+- Next exact action: commit/push Evidence metadata, wait for replacement exact-head checks, then merge PR #218 if all remain green
 - Validation and Evidence: full frontend ESLint and Vitest suite passed; TypeScript `tsc -b` and production Vite/PWA build passed; repository lightweight CI checks passed; focused safety regression `14/14`, catalog/analytics contracts `22/22`, clear frontend tests `23/23`, App History clear `1/1`, Login contract `5/5` passed. PostgreSQL-backed regressions are authored but local PostgreSQL/Redis are unavailable; bash-dependent tests are unavailable on Windows. A broader non-infrastructure Python run passed through 37% without a new failure after the safety correction but was not treated as terminal evidence; exact full suite remains a CI gate.
-- Pull Request: [#218](https://github.com/Just9120/Elevenlabs-API/pull/218), OPEN, non-draft; current pushed head `e4dadc49d4312f104b6c44588d7348cab8fe4b4a`, base `6bcb0ed49aeb6e491765fda45bf74b6e68f7b67e`
-- CI/checks: exact-head runs — CI `32561875043` / job `97004595856` failed: one test incorrectly expected private `project_id` in audit metadata and processing preflight still expected Alembic `0021`; Studio PWA CI `32561875118` passed both `studio` job `97004596003` and `browser-e2e` job `97004596152`. Fix keeps audit metadata private and advances only the preflight expected source head to additive `0022`; replacement checks pending.
+- Pull Request: [#218](https://github.com/Just9120/Elevenlabs-API/pull/218), OPEN, non-draft, MERGEABLE/CLEAN; verified head `9a26f81806ffb93377e9956e784d98a5dcea6602`, base `6bcb0ed49aeb6e491765fda45bf74b6e68f7b67e`
+- CI/checks: replacement exact-head runs terminal SUCCESS — CI `32562099317` / `checks` job `97005161601`; Studio PWA CI `32562099341` / `studio` job `97005161698` and `browser-e2e` job `97005161750`. Initial failed chain retained above in commit history; this Evidence commit requires one final exact-head check cycle.
 - Deployment/environment: production baseline `main@6bcb0ed49aeb6e491765fda45bf74b6e68f7b67e`; Goal revision not deployed
 - Blockers: none at implementation stage
 - Unverified assumptions: production database accepts planned additive migration; clear reset boundaries and completed-attempt correction require bounded LIVE verification after deploy

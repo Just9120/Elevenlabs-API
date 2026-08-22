@@ -127,7 +127,7 @@ Status: **🟦 IN PROGRESS — 100% (`13/13`)**.
 | `PC-12` | Доступны system, light и dark themes. | ✅ |
 | `PC-13` | Пользователь выбирает accent/interface color. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ◐ | CI — | DEPLOY — | LIVE —`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
 
 Expired source metadata может сохраняться для history/audit, но current owner instruction требует скрывать expired local files из active intake UI. Это заменяет старое UI-допущение о видимости недоступной metadata.
 
@@ -223,7 +223,7 @@ Status: **🟦 IN PROGRESS — 100% (`6/6`)**.
 | `PM-05` | Accepted-output record появляется только после Google Docs creation evidence. | ✅ |
 | `PM-06` | Duplicate identity использует Drive file ID/Studio source identity и settings, не filename alone. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ◐ | CI — | DEPLOY — | LIVE —`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
 
 ### Эпик `PWA-STANDARDIZATION-01` — стандартизация Google Docs
 
@@ -284,7 +284,7 @@ Status: **🟦 IN PROGRESS — 100% (`18/18`)**.
 | `PO-17` | Analytics можно очистить owner-scoped action. | ✅ |
 | `PO-18` | Очистка Analytics требует подтверждения Да/Нет. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ◐ | CI — | DEPLOY — | LIVE —`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
 
 ## 6. Future scope, не включённый в denominator `109`
 
