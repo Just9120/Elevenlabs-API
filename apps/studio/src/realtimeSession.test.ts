@@ -710,6 +710,54 @@ describe("RealtimeSessionController", () => {
     expect(controller.active).toBe(false);
   });
 
+  it("releases capture when websocket send races with a closed connection", async () => {
+    const microphone = mediaFixture();
+    const audio = audioFixture();
+    const socket = websocketFixture();
+    const errors: string[] = [];
+    const statuses: RealtimeSessionStatus[] = [];
+    const controller = new RealtimeSessionController(
+      {
+        onStatus: (status) => statuses.push(status),
+        onPartial: vi.fn(),
+        onCommitted: vi.fn(),
+        onError: (message) => errors.push(message),
+      },
+      {
+        requestCapability: vi.fn().mockResolvedValue(capability),
+        mediaDevices: {
+          getUserMedia: vi.fn().mockResolvedValue(microphone.stream),
+        },
+        createAudioContext: () => audio.context,
+        createWebSocket: () => socket,
+        setTimer: vi.fn(() => 37),
+        clearTimer: vi.fn(),
+      },
+    );
+
+    await controller.start({ displayAudio: false, microphone: true });
+    (socket as unknown as { readyState: number }).readyState = 1;
+    socket.onopen?.(new Event("open"));
+    vi.mocked(socket.send).mockImplementationOnce(() => {
+      throw new DOMException("Socket already closed", "InvalidStateError");
+    });
+
+    expect(() =>
+      audio.processor.onaudioprocess?.({
+        inputBuffer: {
+          getChannelData: () => new Float32Array(48).fill(0.2),
+        },
+      } as AudioProcessingEvent),
+    ).not.toThrow();
+
+    expect(errors.at(-1)).toContain("прервалось при отправке аудио");
+    expect(socket.close).toHaveBeenCalledWith(1000, "Ошибка отправки аудио");
+    expect(statuses.at(-1)).toBe("closed");
+    expect(microphone.stop).toHaveBeenCalledOnce();
+    expect(audio.context.close).toHaveBeenCalledOnce();
+    expect(controller.active).toBe(false);
+  });
+
   it("mixes display audio and microphone in one AudioContext", async () => {
     const display = mediaFixture();
     const microphone = mediaFixture();
