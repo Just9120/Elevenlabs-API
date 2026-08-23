@@ -493,6 +493,73 @@ describe("RealtimeSessionController", () => {
     expect(controller.active).toBe(false);
   });
 
+  it("starts a fresh owned session after a completed stop cycle", async () => {
+    const microphones = [mediaFixture(), mediaFixture()];
+    const audio = [audioFixture(), audioFixture()];
+    const sockets = [websocketFixture(), websocketFixture()];
+    const statuses: RealtimeSessionStatus[] = [];
+    const timerCallbacks: Array<() => void> = [];
+    const getUserMedia = vi
+      .fn()
+      .mockResolvedValueOnce(microphones[0].stream)
+      .mockResolvedValueOnce(microphones[1].stream);
+    const createAudioContext = vi
+      .fn()
+      .mockReturnValueOnce(audio[0].context)
+      .mockReturnValueOnce(audio[1].context);
+    const createWebSocket = vi
+      .fn()
+      .mockReturnValueOnce(sockets[0])
+      .mockReturnValueOnce(sockets[1]);
+    const controller = new RealtimeSessionController(
+      {
+        onStatus: (status) => statuses.push(status),
+        onPartial: vi.fn(),
+        onCommitted: vi.fn(),
+        onError: vi.fn(),
+      },
+      {
+        requestCapability: vi.fn().mockResolvedValue(capability),
+        mediaDevices: { getUserMedia },
+        createAudioContext,
+        createWebSocket,
+        setTimer: (callback) => {
+          timerCallbacks.push(callback);
+          return timerCallbacks.length;
+        },
+        clearTimer: vi.fn(),
+      },
+    );
+
+    for (let index = 0; index < 2; index += 1) {
+      await controller.start({ displayAudio: false, microphone: true });
+      (sockets[index] as unknown as { readyState: number }).readyState = 1;
+      sockets[index].onopen?.(new Event("open"));
+      sockets[index].onmessage?.(
+        new MessageEvent("message", {
+          data: JSON.stringify({ message_type: "session_started" }),
+        }),
+      );
+      expect(controller.active).toBe(true);
+      expect(statuses.at(-1)).toBe("transcribing");
+
+      controller.stop();
+      timerCallbacks.at(-1)?.();
+
+      expect(controller.active).toBe(false);
+      expect(statuses.at(-1)).toBe("stopped");
+      expect(microphones[index].stop).toHaveBeenCalledOnce();
+      expect(audio[index].context.close).toHaveBeenCalledOnce();
+      expect(sockets[index].close).toHaveBeenCalledOnce();
+    }
+
+    expect(getUserMedia).toHaveBeenCalledTimes(2);
+    expect(createAudioContext).toHaveBeenCalledTimes(2);
+    expect(createWebSocket).toHaveBeenCalledTimes(2);
+    expect(statuses.filter((status) => status === "transcribing")).toHaveLength(2);
+    expect(statuses.filter((status) => status === "stopped")).toHaveLength(2);
+  });
+
   it("closes media when the realtime socket does not connect in time", async () => {
     const microphone = mediaFixture();
     const audio = audioFixture();
