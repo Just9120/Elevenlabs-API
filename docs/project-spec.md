@@ -154,7 +154,7 @@ Verified implementation: backend не раскрывает raw batch idempotency
 
 ### Эпик `PWA-INGEST-01` — target и source selection, multi-transcription
 
-Status: **🟦 IN PROGRESS — 100% (`11/11`)**. Required CI/DEPLOY/LIVE Evidence текущей реализации ещё не подтверждены, поэтому READY не заявляется.
+Status: **🟦 IN PROGRESS — 100% (`11/11`)**. Required DEPLOY/LIVE Evidence текущей реализации ещё не подтверждены, поэтому READY не заявляется.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -170,9 +170,9 @@ Status: **🟦 IN PROGRESS — 100% (`11/11`)**. Required CI/DEPLOY/LIVE Evidenc
 | `PI-10` | Один batch принимает одну target folder и source folder. | ✅ |
 | `PI-11` | Для каждой composer row можно независимо выбрать source и target folder. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ◐ | CI ◐ | DEPLOY ◐ | LIVE ◐`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
 
-Verified implementation: Favorites хранятся owner-scoped в PostgreSQL, создаются только после server-side Google Drive verification, повторно проверяются перед назначением composer row и удаляются owner-scoped. Local folder picker перечисляет nested files через browser relative paths, отклоняет unsafe/unsupported/empty/oversized items до PUT, fail-closed останавливается выше 50 supported files и требует preview confirmation. Drive source-folder Picker передаёт только selected folder ID; API рекурсивно перечисляет descendants с bounds по depth/pages/items, отклоняет malformed listings, cycles, duplicate IDs и repeated tokens, а apply повторяет traversal и сравнивает owner/project-bound snapshot token. Только explicit confirmation создаёт individual Sources одной transaction; новые composer rows наследуют общую target folder с сохранением per-row override и далее используют существующие manifest/preflight/batch rules. Full exact-head CI и runtime Evidence ожидаются.
+Verified implementation: Favorites хранятся owner-scoped в PostgreSQL, создаются только после server-side Google Drive verification, повторно проверяются перед назначением composer row и удаляются owner-scoped. Local folder picker перечисляет nested files через browser relative paths, отклоняет unsafe/unsupported/empty/oversized items до PUT, fail-closed останавливается выше 50 supported files и требует preview confirmation. Drive source-folder Picker передаёт только selected folder ID; API рекурсивно перечисляет descendants с bounds по depth/pages/items, отклоняет malformed listings, cycles, duplicate IDs и repeated tokens, а apply повторяет traversal и сравнивает owner/project-bound snapshot token. Только explicit confirmation создаёт individual Sources одной transaction; новые composer rows наследуют общую target folder с сохранением per-row override и далее используют существующие manifest/preflight/batch rules. Required CI для exact head `0b43956abd6f5b38d54b096daf180617cc1bec6c` прошёл: `CI/checks`, `Studio PWA CI/studio` и `Studio PWA CI/browser-e2e` SUCCESS. DEPLOY/LIVE Evidence ожидаются.
 
 ### Эпик `PWA-SEGMENTS-01` — произвольные пользовательские фрагменты
 

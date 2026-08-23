@@ -20,25 +20,25 @@
   10. Existing single/multi-file, Favorites, segmentation, batch, realtime и responsive behavior не регрессируют.
   11. Relevant backend/frontend/security/browser tests и exact-head CI проходят.
   12. Applicable web/API deployment и bounded production LIVE canary успешны.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ◐ | CI — | DEPLOY — | LIVE —`.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
 - **Known blockers/dependencies:** primary Google OAuth остаётся exact narrow `drive.file`; если Picker-selected folder не даёт runtime access к children, Goal становится `BLOCKED` до owner decision. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
 - **Stop condition:** все Goal AC и required Evidence подтверждены либо flow достиг `BLOCKED` / `PENDING_EXTERNAL_GATE`; затем остановиться и не переходить к следующей Goal без explicit authorization.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-23T11:28:46Z
+- Updated (UTC): 2026-08-23T11:33:50Z
 - Session mode: authorized Goal implementation
 - Base branch: `main`
 - Base SHA: `ccb067d05d5225a3178b21cd239bd65c0764f1fb`
 - Working branch: `codex/pwa-ingest-folders-01`
-- Last verified revision: `ea73cbd30d0a37625bd5cfb61621d11843c5c34e` (Google Drive folder intake commit)
+- Last verified revision: `0b43956abd6f5b38d54b096daf180617cc1bec6c` (PR checkpoint covered by exact-head required CI)
 - Working tree at branch start: clean `main`; post-deploy docs diff previous Goal restored from named stash after branch creation.
-- Completed: local-folder slice committed; Google Drive source-folder Picker, server-side bounded traversal, strict listing validation, preview/no-side-effect contract, re-traversal drift token, atomic apply, composer expansion and ambiguous-no-replay UX implemented; architecture synchronized.
-- Current step: PR #223 required CI in progress.
-- Next exact action: push this PR checkpoint, then wait for and analyze every required check at the resulting exact head.
-- Validation and Evidence: pure backend folder traversal/transport tests `7/7` PASS; lightweight CI checks PASS; full Studio Vitest `555/555` PASS; full Studio ESLint PASS; TypeScript and Vite production build PASS; Playwright discovery `10/10` PASS. PostgreSQL-backed endpoint test is authored but local execution is unavailable because local PostgreSQL/Redis services are absent; exact test is delegated to required CI.
+- Completed: local-folder slice committed; Google Drive source-folder Picker, server-side bounded traversal, strict listing validation, preview/no-side-effect contract, re-traversal drift token, atomic apply, composer expansion and ambiguous-no-replay UX implemented; architecture synchronized; required exact-head CI for `0b43956abd6f5b38d54b096daf180617cc1bec6c` passed.
+- Current step: exact-head CI Evidence recorded; preparing the final documentation-only checkpoint before merge.
+- Next exact action: commit and push the CI Evidence checkpoint, wait for required checks at the resulting exact head, then merge PR #223 if every gate remains successful.
+- Validation and Evidence: pure backend folder traversal/transport tests `7/7` PASS; lightweight CI checks PASS; full Studio Vitest `555/555` PASS; full Studio ESLint PASS; TypeScript and Vite production build PASS; Playwright discovery `10/10` PASS. Required PR CI at exact head `0b43956abd6f5b38d54b096daf180617cc1bec6c`: `CI/checks` run/job `32636676459/97187418154` SUCCESS; `Studio PWA CI/studio` `32636676477/97187422906` SUCCESS; `Studio PWA CI/browser-e2e` `32636676477/97187423002` SUCCESS. PostgreSQL-backed endpoint test прошёл в required CI; локальный запуск был недоступен из-за отсутствия локальных PostgreSQL/Redis services.
 - Pull Request: `#223` — `https://github.com/Just9120/Elevenlabs-API/pull/223`; initial head `d8119d56c7b8d3f8295c1149b43a7d2ed517d9db`, base `ccb067d05d5225a3178b21cd239bd65c0764f1fb`.
-- CI/checks: initial PR runs `CI/checks` (`32636645281/97187318447`), `Studio PWA CI/studio` (`32636645277/97187318519`) и `Studio PWA CI/browser-e2e` (`32636645277/97187318619`) are `IN_PROGRESS`; final status must be read at the post-checkpoint exact head.
+- CI/checks: exact-head `0b43956abd6f5b38d54b096daf180617cc1bec6c` required checks are terminal SUCCESS: `CI/checks` (`32636676459/97187418154`), `Studio PWA CI/studio` (`32636676477/97187422906`) и `Studio PWA CI/browser-e2e` (`32636676477/97187423002`). Documentation-only checkpoint will create a new exact head and therefore must pass the same required gates before merge.
 - Deployment/environment: not started; migration currently expected `N/A`, web/API deploy applicable after merge.
 - Blockers: Google `drive.file` child enumeration remains unverified at production runtime; no current local implementation blocker.
 - Unverified assumptions: Picker-selected folder grants sufficient child metadata/content access under the exact primary scope; recursive traversal semantics remain bounded to 50 supported media items.
