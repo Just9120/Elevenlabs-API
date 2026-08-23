@@ -34,11 +34,11 @@
 - Last verified revision: `2fa36efe3aeeb6f09aeb5b7a54fd0900cd217b9f` (local focused/full Studio validation passed).
 - Working tree at branch start: clean synchronized `main`; PR #225 branch had been fully merged and safely removed locally/remotely; only `main` existed before this fix branch.
 - Completed: PR #225 merged as `main@17a9fc408a2d352005be08d981325c21de4d1dc0`; exact-main CI/Studio/browser checks and API/web CD succeeded. Production runtime scopes were corrected, primary и maintenance Google OAuth reconnect completed. Bounded LIVE imported one Drive source folder as three ready Source/composer rows. Selecting the target folder afterward changed only row 1, while rows 2–3 required repeated manual selection. Commit `2fa36ef` seeds a verified target into all rows that are still unassigned and preserves later per-row overrides.
-- Current step: operational checkpoint/readiness reconciliation after green local validation.
-- Next exact action: commit documentation checkpoint, push branch, create PR and require exact-head CI.
+- Current step: PR #226 создан; required checks ожидают terminal state.
+- Next exact action: push PR checkpoint and require green CI on its exact head before merge.
 - Validation and Evidence: PR #225 exact-main `CI/checks` `32642653678` SUCCESS; Studio jobs `32642653695` SUCCESS; initial CD `32642653667` SUCCESS. Runtime scope correction followed by API-only CD `32654826834/97231852416` SUCCESS with `STUDIO_PLATFORM_API_DEPLOY_OK`. Bounded LIVE confirmed both OAuth contours and recursive Drive folder import of three supported files; no provider job was created. Fix regression initially failed because row 2 lacked the shared target, then passed. Current local Studio Vitest `558/558`, focused regressions `3/3`, ESLint, TypeScript and Vite build PASS.
-- Pull Request: not created for current fix branch. PR #225 is merged and historical.
-- CI/checks: current fix revision has no GitHub checks yet.
+- Pull Request: #226 — `https://github.com/Just9120/Elevenlabs-API/pull/226`; base `17a9fc408a2d352005be08d981325c21de4d1dc0`, initial head `f8ae54eac8b8e92637f385fb658c3e1794f140ee`. PR #225 is merged and historical.
+- CI/checks: required checks pending for PR #226.
 - Deployment/environment: `main@17a9fc4` web/API deployed; current fix is frontend-only and not deployed. Migration/API/worker changes are N/A for this fix.
 - Blockers: none before PR. Goal completion requires exact-head CI, web deploy and repeated source-folder-first/shared-target LIVE.
 - Unverified assumptions: production rerun will seed the first verified target folder into all still-unassigned folder-generated rows while preserving an explicit later row override.
