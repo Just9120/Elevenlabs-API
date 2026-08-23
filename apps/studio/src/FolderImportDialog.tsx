@@ -14,12 +14,14 @@ export function FolderImportDialog({
   preview,
   targetFolderName,
   rejectedReasonLabel,
+  blockedMessage = null,
   onConfirm,
   onCancel,
 }: {
   preview: FolderImportDialogPreview;
   targetFolderName: string | null;
   rejectedReasonLabel: (reason: string) => string;
+  blockedMessage?: string | null;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
@@ -28,6 +30,7 @@ export function FolderImportDialog({
   const dialogRef = useRef<HTMLElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
+  const canConfirm = preview.supported_count > 0 && blockedMessage === null;
 
   useEffect(() => {
     returnFocusRef.current =
@@ -79,10 +82,17 @@ export function FolderImportDialog({
         aria-describedby={descriptionId}
         onKeyDown={handleKeyDown}
       >
-        <h2 id={titleId}>Импортировать папку «{preview.folder_name}»?</h2>
+        <h2 id={titleId}>
+          {canConfirm
+            ? `Импортировать папку «${preview.folder_name}»?`
+            : `Папка «${preview.folder_name}» не готова к импорту`}
+        </h2>
         <p id={descriptionId}>
-          Файлы будут загружены только после явного подтверждения.
+          {canConfirm
+            ? "Файлы будут загружены только после явного подтверждения."
+            : "Импорт не начат. Проверьте результаты безопасного preview."}
         </p>
+        {blockedMessage && <p role="alert">{blockedMessage}</p>}
         <dl className="folder-import-summary">
           <div>
             <dt>Всего найдено</dt>
@@ -101,19 +111,21 @@ export function FolderImportDialog({
             <dd>{targetFolderName ?? "не выбрана"}</dd>
           </div>
         </dl>
-        <details>
-          <summary>Файлы для загрузки</summary>
-          <ul className="folder-import-items">
-            {preview.accepted.slice(0, MAX_VISIBLE_ITEMS).map((item) => (
-              <li key={item.relative_path}>{item.relative_path}</li>
-            ))}
-          </ul>
-          {preview.accepted.length > MAX_VISIBLE_ITEMS && (
-            <p className="muted">
-              И ещё {preview.accepted.length - MAX_VISIBLE_ITEMS}.
-            </p>
-          )}
-        </details>
+        {preview.accepted.length > 0 && (
+          <details>
+            <summary>Файлы для загрузки</summary>
+            <ul className="folder-import-items">
+              {preview.accepted.slice(0, MAX_VISIBLE_ITEMS).map((item) => (
+                <li key={item.relative_path}>{item.relative_path}</li>
+              ))}
+            </ul>
+            {preview.accepted.length > MAX_VISIBLE_ITEMS && (
+              <p className="muted">
+                И ещё {preview.accepted.length - MAX_VISIBLE_ITEMS}.
+              </p>
+            )}
+          </details>
+        )}
         {preview.rejected.length > 0 && (
           <details>
             <summary>Пропущенные файлы</summary>
@@ -134,7 +146,12 @@ export function FolderImportDialog({
           </details>
         )}
         <div className="actions">
-          <button type="button" className="primary" onClick={onConfirm}>
+          <button
+            type="button"
+            className="primary"
+            disabled={!canConfirm}
+            onClick={onConfirm}
+          >
             Импортировать {preview.supported_count}
           </button>
           <button
@@ -143,7 +160,7 @@ export function FolderImportDialog({
             className="secondary"
             onClick={onCancel}
           >
-            Отмена
+            {canConfirm ? "Отмена" : "Закрыть"}
           </button>
         </div>
       </section>

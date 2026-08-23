@@ -11332,6 +11332,60 @@ describe("Studio PWA", () => {
     expect(document.body.textContent).not.toContain("raw-provider-body");
   });
 
+  it("shows an actionable read-only preview when Drive folder descendants are not visible", async () => {
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const previousFetch = fetchMock.getMockImplementation();
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        url === "/api/projects/p1/sources/google-folder/preview" &&
+        init?.method === "POST"
+      ) {
+        return json({
+          folder: { id: "folder-source", name: "Calls" },
+          total_file_count: 0,
+          folder_count: 1,
+          supported_count: 0,
+          skipped_count: 0,
+          accepted: [],
+          skipped: [],
+          blocker: "empty",
+          complete: true,
+          preview_token: null,
+        });
+      }
+      return previousFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    const picker = installFakeGooglePicker();
+    renderApp();
+    await openProjectsPage();
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Выбрать папку-источник Google Drive для строки 1",
+      }),
+    );
+    await picker.loadScript();
+    await picker.waitForCallback();
+    picker.trigger({ action: "picked", docs: [{ id: "folder-source" }] });
+
+    const dialog = await screen.findByRole("dialog", {
+      name: "Папка «Calls» не готова к импорту",
+    });
+    expect(dialog).toHaveTextContent("Всего найдено0");
+    expect(dialog).toHaveTextContent("Будет загружено0");
+    expect(within(dialog).getByRole("alert")).toHaveTextContent(
+      "текущий узкий доступ Google Drive",
+    );
+    expect(
+      within(dialog).getByRole("button", { name: "Импортировать 0" }),
+    ).toBeDisabled();
+    expect(
+      fetchMock.mock.calls.filter(
+        ([url]) => url === "/api/projects/p1/sources/google-folder/apply",
+      ),
+    ).toHaveLength(0);
+  });
+
   it("local multi-file selection preserves successful rows through ordered batch creation", async () => {
     renderApp();
     await openProjectsPage();

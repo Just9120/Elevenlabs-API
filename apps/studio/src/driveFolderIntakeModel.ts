@@ -128,6 +128,37 @@ export function driveFolderSkipReasonLabel(
   }[reason];
 }
 
+export function driveFolderBlockedMessage(
+  preview: DriveFolderPreview,
+): string | null {
+  if (preview.blocker !== "empty") return null;
+  if (preview.total_file_count === 0) {
+    return (
+      "Drive API не видит файлов в выбранной папке. Папка действительно пуста " +
+      "либо текущий узкий доступ Google Drive не разрешает приложению видеть " +
+      "вложенные файлы. В таком случае выберите конкретные файлы через «Из Google Drive»."
+    );
+  }
+  const counts = new Map<DriveFolderSkippedItem["reason"], number>();
+  for (const item of preview.skipped) {
+    counts.set(item.reason, (counts.get(item.reason) ?? 0) + 1);
+  }
+  const reasonSummary = ([
+    "unsupported",
+    "empty",
+    "oversized",
+    "creation_time_unavailable",
+  ] as const)
+    .flatMap((reason) => {
+      const count = counts.get(reason) ?? 0;
+      return count > 0 ? [`${driveFolderSkipReasonLabel(reason)}: ${count}`] : [];
+    })
+    .join("; ");
+  return `Найдено файлов: ${preview.total_file_count}, но импортировать нельзя ни один.${
+    reasonSummary ? ` Причины: ${reasonSummary}.` : ""
+  }`;
+}
+
 function parseAcceptedItem(candidate: unknown): DriveFolderAcceptedItem | null {
   if (!isRecord(candidate)) return null;
   const id = boundedString(candidate.id, 256);

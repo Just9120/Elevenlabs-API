@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  driveFolderBlockedMessage,
   driveFolderSkipReasonLabel,
   parseDriveFolderPreview,
 } from "./driveFolderIntakeModel";
@@ -68,5 +69,51 @@ describe("Drive folder intake contracts", () => {
         preview_token: null,
       }),
     ).not.toBeNull();
+  });
+
+  it("explains empty visibility and summarizes rejected reasons", () => {
+    const invisible = parseDriveFolderPreview({
+      ...validPreview,
+      total_file_count: 0,
+      supported_count: 0,
+      skipped_count: 0,
+      accepted: [],
+      skipped: [],
+      blocker: "empty",
+      complete: true,
+      preview_token: null,
+    });
+    expect(invisible).not.toBeNull();
+    expect(driveFolderBlockedMessage(invisible!)).toContain(
+      "текущий узкий доступ Google Drive",
+    );
+    expect(driveFolderBlockedMessage(invisible!)).toContain(
+      "«Из Google Drive»",
+    );
+
+    const rejected = parseDriveFolderPreview({
+      ...validPreview,
+      total_file_count: 2,
+      supported_count: 0,
+      skipped_count: 2,
+      accepted: [],
+      skipped: [
+        { relative_path: "Calls/a.pdf", reason: "unsupported" },
+        {
+          relative_path: "Calls/old.mp3",
+          reason: "creation_time_unavailable",
+        },
+      ],
+      blocker: "empty",
+      complete: true,
+      preview_token: null,
+    });
+    expect(rejected).not.toBeNull();
+    expect(driveFolderBlockedMessage(rejected!)).toContain(
+      "неподдерживаемый тип: 1",
+    );
+    expect(driveFolderBlockedMessage(rejected!)).toContain(
+      "недоступна исходная дата создания: 1",
+    );
   });
 });
