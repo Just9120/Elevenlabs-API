@@ -26,7 +26,7 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-23T11:26:23Z
+- Updated (UTC): 2026-08-23T11:28:46Z
 - Session mode: authorized Goal implementation
 - Base branch: `main`
 - Base SHA: `ccb067d05d5225a3178b21cd239bd65c0764f1fb`
@@ -34,11 +34,11 @@
 - Last verified revision: `ea73cbd30d0a37625bd5cfb61621d11843c5c34e` (Google Drive folder intake commit)
 - Working tree at branch start: clean `main`; post-deploy docs diff previous Goal restored from named stash after branch creation.
 - Completed: local-folder slice committed; Google Drive source-folder Picker, server-side bounded traversal, strict listing validation, preview/no-side-effect contract, re-traversal drift token, atomic apply, composer expansion and ambiguous-no-replay UX implemented; architecture synchronized.
-- Current step: exact-head browser assertion/checkpoint commit before PR.
-- Next exact action: commit the browser assertion/checkpoint, push branch and open the Goal PR.
+- Current step: PR #223 required CI in progress.
+- Next exact action: push this PR checkpoint, then wait for and analyze every required check at the resulting exact head.
 - Validation and Evidence: pure backend folder traversal/transport tests `7/7` PASS; lightweight CI checks PASS; full Studio Vitest `555/555` PASS; full Studio ESLint PASS; TypeScript and Vite production build PASS; Playwright discovery `10/10` PASS. PostgreSQL-backed endpoint test is authored but local execution is unavailable because local PostgreSQL/Redis services are absent; exact test is delegated to required CI.
-- Pull Request: not created.
-- CI/checks: not started.
+- Pull Request: `#223` — `https://github.com/Just9120/Elevenlabs-API/pull/223`; initial head `d8119d56c7b8d3f8295c1149b43a7d2ed517d9db`, base `ccb067d05d5225a3178b21cd239bd65c0764f1fb`.
+- CI/checks: initial PR runs `CI/checks` (`32636645281/97187318447`), `Studio PWA CI/studio` (`32636645277/97187318519`) и `Studio PWA CI/browser-e2e` (`32636645277/97187318619`) are `IN_PROGRESS`; final status must be read at the post-checkpoint exact head.
 - Deployment/environment: not started; migration currently expected `N/A`, web/API deploy applicable after merge.
 - Blockers: Google `drive.file` child enumeration remains unverified at production runtime; no current local implementation blocker.
 - Unverified assumptions: Picker-selected folder grants sufficient child metadata/content access under the exact primary scope; recursive traversal semantics remain bounded to 50 supported media items.
