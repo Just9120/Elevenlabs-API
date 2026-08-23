@@ -2,62 +2,58 @@
 
 ## Current Goal
 
-- **ID / title:** `PWA-INGEST-FOLDERS-01` — bounded local/Drive source-folder intake и folder-to-batch flow.
-- **State:** `IN_PROGRESS` — OAuth/reconnect и source-folder LIVE подтверждены; production LIVE выявил order-dependent shared target-folder gap, локальный fix ожидает CI/DEPLOY/LIVE.
-- **Authorization source:** initial Goal — explicit owner instruction `ставь goal и начинай реализацию`; material scope change — explicit owner authorization 2026-08-23: `Авторизую расширение primary Google OAuth scopes до openid email drive.file drive.readonly, включая доступ приложения на чтение всех файлов Google Drive, обязательный reconnect и последующее production deployment.`
-- **Scope:** отдельный local folder picker и Google Drive source-folder Picker; recursive bounded enumeration; preview/explicit confirmation; максимум 50 supported items; safe filtering и partial local-upload reporting; server-side Drive revalidation, cycle/pagination/duplicate/drift guards; создание individual Source/composer rows с общей target folder и per-row override; existing manifest/preflight/batch/multi-transcription integration; exact primary OAuth grant `openid email drive.file drive.readonly`, mandatory reconnect, relevant tests и полный delivery flow. В execution scope также входят recovery post-deploy metadata предыдущей Goal, archive reconciliation и tracked ignore для repo-local pnpm cache.
-- **Non-goals:** full `drive` или иные дополнительные Google scopes; background Drive sync; более 50 items; speaker identity; timestamp/standardization policy; realtime stability; Colab; local content fingerprinting; новая provider/worker architecture.
+- **ID / title:** `PWA-TIMESTAMP-AUTHORITY-01` — authoritative source creation time для batch output и transcript standardization.
+- **State:** `IN_PROGRESS` — Goal явно авторизована, recovery завершён, implementation audit начат.
+- **Authorization source:** explicit owner instruction 2026-08-23: `формируй цель и приступай` после согласования timestamp-authority scope.
+- **Scope:** reconcile фактического closure предыдущей Goal; инвентаризация Google Drive/local source creation provenance; единый fail-closed timestamp contract; передача authoritative source time в новые Google Docs transcript metadata и selected-folder/single-document standardization; запрет подмены Google Doc/job/upload/modified time; explicit safe outcome при отсутствии доказуемой authority; relevant API/worker/frontend/security/regression tests; atomic commits и полный PR → CI → merge → applicable deployment → bounded LIVE flow.
+- **Non-goals:** speaker identity; realtime stability; Colab; automatic guessing legacy timestamps; новые OAuth scopes; unrelated UI, provider или processing architecture; изменение product AC или denominator.
 - **Goal AC:**
-  1. Local folder выбирается отдельным control; nested files перечисляются рекурсивно без передачи absolute local paths.
-  2. Unsupported, empty и oversized local files исключаются до PUT с видимыми bounded причинами/counts.
-  3. Google Drive source folder выбирается отдельным Picker flow и повторно валидируется server-side.
-  4. Drive traversal bounded по items/pages/depth, отклоняет cycles, repeated page tokens, duplicate IDs, incomplete traversal и preview/apply drift.
-  5. Preview не создаёт Source, upload или provider side effects и показывает accepted/skipped/count/target summary.
-  6. Более 50 supported items fail-closed до import/upload; silent truncation и partial apply запрещены.
-  7. Explicit confirmation разворачивает accepted files в individual Source/composer rows с одной общей target folder и сохранённым per-row override.
-  8. Ambiguous mutations не replay-ятся автоматически; authoritative source collection перечитывается и требует explicit user decision.
-  9. Folder-generated batch использует existing manifest/preflight/create authority и отображается одной multi-transcription с item-level progress/results.
-  10. Existing single/multi-file, Favorites, segmentation, batch, realtime и responsive behavior не регрессируют.
-  11. Relevant backend/frontend/security/browser tests и exact-head CI проходят.
-  12. Applicable web/API deployment и bounded production LIVE canary успешны.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE ❌`.
-- **Known blockers/dependencies:** exact-head CI, web deployment и повторный bounded LIVE для shared target-folder fix. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`); финальный state фиксируется GitHub Evidence и итоговым отчётом без docs-only follow-up PR.
+  1. Google Drive source использует нормализованный Drive `createdTime`; local source использует только embedded media `creation_time`; provenance сохраняется вместе со значением.
+  2. Browser `lastModified`, upload/job/output clocks, Drive `modifiedTime` и Google Doc creation time не используются как fallback source timestamp.
+  3. Новый Google Docs transcript получает ISO 8601 source timestamp из immutable source snapshot; отсутствие authority отображается честно и не подменяется.
+  4. Standardization dry-run/apply различает authoritative source timestamp и document clock; mutation с недоказуемой authority fail-closed/skip с безопасной явной причиной.
+  5. Existing authoritative ISO timestamp сохраняется идемпотентно; repeated apply не изменяет его и не создаёт competing authority.
+  6. Owner boundaries, Google maintenance consent, transcript-body secrecy, batch processing и unrelated PWA flows не регрессируют.
+  7. Relevant backend/worker/frontend/security tests, full local validation и exact-head CI проходят.
+  8. Applicable API/worker/web deployment и bounded production LIVE подтверждают новый batch output и maintenance behavior на exact revision без лишнего provider charge.
+- **Required Evidence:** `SPEC ✅ | CODE ◐ | TEST — | CI — | DEPLOY — | LIVE —`.
+- **Known blockers/dependencies:** legacy Google Docs могут не иметь доказуемой связи с source media; такие документы нельзя автоматически датировать. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`), поэтому итоговый state фиксируется GitHub Evidence/final report и reconciled в следующей authorized Goal без docs-only follow-up PR.
 - **Stop condition:** все Goal AC и required Evidence подтверждены либо flow достиг `BLOCKED` / `PENDING_EXTERNAL_GATE`; затем остановиться и не переходить к следующей Goal без explicit authorization.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-23T18:01:03Z
+- Updated (UTC): 2026-08-23T18:28:45Z
 - Session mode: authorized Goal implementation
 - Base branch: `main`
-- Base SHA: `17a9fc408a2d352005be08d981325c21de4d1dc0`
-- Working branch: `codex/pwa-folder-target-propagation`
-- Last verified revision: `2fa36efe3aeeb6f09aeb5b7a54fd0900cd217b9f` (local focused/full Studio validation passed).
-- Working tree at branch start: clean synchronized `main`; PR #225 branch had been fully merged and safely removed locally/remotely; only `main` existed before this fix branch.
-- Completed: PR #225 merged as `main@17a9fc408a2d352005be08d981325c21de4d1dc0`; exact-main CI/Studio/browser checks and API/web CD succeeded. Production runtime scopes were corrected, primary и maintenance Google OAuth reconnect completed. Bounded LIVE imported one Drive source folder as three ready Source/composer rows. Selecting the target folder afterward changed only row 1, while rows 2–3 required repeated manual selection. Commit `2fa36ef` seeds a verified target into all rows that are still unassigned and preserves later per-row overrides.
-- Current step: PR #226 создан; required checks ожидают terminal state.
-- Next exact action: push PR checkpoint and require green CI on its exact head before merge.
-- Validation and Evidence: PR #225 exact-main `CI/checks` `32642653678` SUCCESS; Studio jobs `32642653695` SUCCESS; initial CD `32642653667` SUCCESS. Runtime scope correction followed by API-only CD `32654826834/97231852416` SUCCESS with `STUDIO_PLATFORM_API_DEPLOY_OK`. Bounded LIVE confirmed both OAuth contours and recursive Drive folder import of three supported files; no provider job was created. Fix regression initially failed because row 2 lacked the shared target, then passed. Current local Studio Vitest `558/558`, focused regressions `3/3`, ESLint, TypeScript and Vite build PASS.
-- Pull Request: #226 — `https://github.com/Just9120/Elevenlabs-API/pull/226`; base `17a9fc408a2d352005be08d981325c21de4d1dc0`, initial head `f8ae54eac8b8e92637f385fb658c3e1794f140ee`. PR #225 is merged and historical.
-- CI/checks: required checks pending for PR #226.
-- Deployment/environment: `main@17a9fc4` web/API deployed; current fix is frontend-only and not deployed. Migration/API/worker changes are N/A for this fix.
-- Blockers: none before PR. Goal completion requires exact-head CI, web deploy and repeated source-folder-first/shared-target LIVE.
-- Unverified assumptions: production rerun will seed the first verified target folder into all still-unassigned folder-generated rows while preserving an explicit later row override.
-- Preserved pre-existing changes: none; previous generated artifacts removed under explicit authorization.
+- Base SHA: `cb3a9e9216521c56e07b6f7b6fda9bf8eb8051f8`
+- Working branch: `codex/pwa-timestamp-authority`
+- Last verified revision: `cb3a9e9216521c56e07b6f7b6fda9bf8eb8051f8` (exact synchronized base; no Goal code changes yet).
+- Working tree at branch start: clean synchronized `main`; предыдущая merged branch удалена local/remote; only `main` existed.
+- Completed: recovered PR #226/merge/CD/LIVE closure; independently recalculated readiness; read applicable repository, product, architecture, processing and CI/CD contracts; created isolated Goal branch.
+- Current step: trace timestamp authority through source intake, worker immutable snapshot, Google Docs output and maintenance dry-run/apply.
+- Next exact action: prove the current gap with focused tests, define the smallest fail-closed contract, then implement it without schema change unless code evidence requires one.
+- Validation and Evidence: previous Goal exact-main CI and web CD are archived below; current branch has no new validation yet.
+- Pull Request: not created.
+- CI/checks: not started.
+- Deployment/environment: not started; migration class currently `UNSET` pending code/data-flow audit.
+- Blockers: none. Potential design constraint: legacy documents without verifiable source linkage cannot receive a fabricated creation timestamp.
+- Unverified assumptions: existing `sources.source_created_at` columns and catalog/output linkage are sufficient, so a new migration may be unnecessary.
+- Preserved pre-existing changes: none.
 
 ## Project readiness
 
-Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Exact scopes, reconnect и production LIVE подтвердили `PI-08`: Drive source folder рекурсивно импортирован в три composer rows. `PI-10` остаётся incomplete, поскольку общий target пришлось повторно выбрать для строк 2–3. Denominator не изменился; numerator вырос на 1 AC относительно предыдущего snapshot.
+Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Новый независимый snapshot учитывает production LIVE PR #226: folder import создал девять ready rows, одна target folder распространилась на все девять unassigned rows, все сохранили `До конца файла`, review был доступен. Поэтому `PI-10` закрыт. Denominator не изменился; numerator вырос на 1 AC.
 
 | Product/epic | Current | Previous independent snapshot | Readiness/Evidence |
 |---|---:|---:|---|
-| **Project** | **86,7% (`104/120`)** | **85,8% (`103/120`)** | Numerator +1: production LIVE подтвердил `PI-08`; расхождение меньше 10 п.п. |
+| **Project** | **87,5% (`105/120`)** | **86,7% (`104/120`)** | Numerator +1 за подтверждённый `PI-10`; denominator без изменений. |
 | **Google Colab** | **75,9% (`22/29`)** | **75,9% (`22/29`)** | Без изменений в PWA Goal. |
 | `COLAB-BATCH-01` | **73,9% (`17/23`)** | **73,9% (`17/23`)** | 🟦 IN PROGRESS. |
 | `COLAB-REALTIME-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS. |
-| **Studio PWA** | **90,1% (`82/91`)** | **89,0% (`81/91`)** | Numerator +1 за подтверждённый `PI-08`; `PI-10` остаётся открытым. |
+| **Studio PWA** | **91,2% (`83/91`)** | **90,1% (`82/91`)** | Numerator +1 за production LIVE `PI-10`. |
 | `PWA-CORE-01` | **100% (`13/13`)** | **100% (`13/13`)** | Все product AC выполнены; exact-head delivery Evidence ещё не подтверждены. |
 | `PWA-TRANSCRIPTIONS-UX-01` | **100% (`4/4`)** | **100% (`4/4`)** | 🟩 READY. |
-| `PWA-INGEST-01` | **90,9% (`10/11`)** | **81,8% (`9/11`)** | 🟦 IN PROGRESS: `PI-08` LIVE подтверждён; shared target-folder fix для `PI-10` ожидает CI/DEPLOY/LIVE. |
+| `PWA-INGEST-01` | **100% (`11/11`)** | **90,9% (`10/11`)** | 🟩 READY; `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅`. |
 | `PWA-SEGMENTS-01` | **100% (`5/5`)** | **100% (`5/5`)** | 🟩 READY. |
 | `PWA-BATCH-01` | **90,0% (`9/10`)** | **90,0% (`9/10`)** | Вне Goal. |
 | `PWA-SPEAKER-IDENTITY-01` | **0% (`0/5`)** | **0% (`0/5`)** | Вне Goal. |
@@ -71,10 +67,9 @@
 Эти items — proposals и не авторизуют implementation:
 
 1. `PWA-SPEAKER-IDENTITY-01` — names/roles и manual listen-and-assign.
-2. `PWA-TIMESTAMP-AUTHORITY-01` — source creation и legacy-standardization gaps.
-3. `PWA-REALTIME-MATRIX-01` — representative microphone/display/mixed production stability.
-4. `COLAB-BATCH-PARITY-01` — оставшиеся batch gaps после PWA priority scope.
-5. `COLAB-REALTIME-STABILITY-01` — capture stability после PWA priority scope.
+2. `PWA-REALTIME-MATRIX-01` — representative microphone/display/mixed production stability.
+3. `COLAB-BATCH-PARITY-01` — оставшиеся batch gaps после PWA priority scope.
+4. `COLAB-REALTIME-STABILITY-01` — capture stability после PWA priority scope.
 
 ## Risks и boundaries
 

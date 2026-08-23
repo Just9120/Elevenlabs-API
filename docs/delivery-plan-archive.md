@@ -743,6 +743,19 @@ Goal `PWA-OPERABILITY-POLISH-02` и три bounded production-preflight follow-u
 - Scope закрыл `PM-03`, `PO-10/11/17/18`, persistent accent и false unresolved provider-attempt defect. Archived/clear destructive paths не запускались в production.
 - Approved post-deploy metadata writer отсутствовал; closure reconciled при старте следующей authorized Goal без docs-only follow-up PR.
 
+## Archived PRs #225–#226 source-folder ingestion closure
+
+Goal `PWA-INGEST-FOLDERS-01` завершила bounded local/Google Drive folder intake и shared target-folder semantics 2026-08-23.
+
+- OAuth/source-folder implementation PR #225 merged как `main@17a9fc408a2d352005be08d981325c21de4d1dc0`; exact-main repository CI `32642653678`, Studio/browser CI `32642653695` и component CD `32642653667` завершились успешно.
+- Runtime scope correction была доставлена API-only CD `32654826834`, job `97231852416`, marker `STUDIO_PLATFORM_API_DEPLOY_OK`; primary и maintenance OAuth grants были переподключены.
+- Shared target propagation fix PR #226 имел exact head `443c61212d6f1f10efa531b34b0d4c1981d7391c` и merged как `cb3a9e9216521c56e07b6f7b6fda9bf8eb8051f8`.
+- PR-head repository CI `32656908141`/job `97236994175` и Studio CI `32656908153`/jobs `97236993792`, `97236993909` — success. Exact-main repository CI `32657081954` и Studio CI `32657081982` — success.
+- Web deployment run `32657081893`, job `97237430813`, достиг `STUDIO_PLATFORM_WEB_DEPLOY_OK`; target revision и running image identity соответствовали merge SHA, localhost health прошёл. API, migration и worker были корректно skipped для frontend-only diff.
+- Bounded LIVE после deployment импортировал девять supported Drive files в девять composer rows. Первая verified target folder заполнила все девять ранее unassigned rows, все флаги `До конца файла` остались включены, status показал `Готово: 9 из 9`, review control был доступен. Provider job не создавался.
+- Closure readiness: `PWA-INGEST-01 11/11 = 100%`, Studio PWA `83/91 = 91,2%`, project `105/120 = 87,5%`; required Evidence `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅`.
+- Approved post-deploy metadata writer отсутствовал (`metadata_sync.enabled=false`), поэтому фактический closure reconciled в начале следующей authorized Goal. После проверки ancestry и clean state локальная/remote branch была удалена, `main` синхронизирован.
+
 ## Current non-authority warning
 
 If this archive conflicts with `docs/project-spec.md`, `docs/delivery-plan.md`, `docs/architecture.md`, `docs/ci-cd-rules.md`, or the current user task, treat the current documents/task as authoritative and this archive as historical context only.
