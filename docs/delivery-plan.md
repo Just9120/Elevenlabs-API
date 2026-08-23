@@ -16,23 +16,23 @@
   6. Live draft recovery сохраняет committed/partial semantics, monotonic owner-scoped server revision, TTL/encryption/no-store и не раскрывает transcript/audio/provider payloads в diagnostics, logs, history или Evidence.
   7. Status/Evidence пяти полностью реализованных PWA-эпиков повышаются только по independently verified code/test/CI/deployment/LIVE records; readiness denominator остаётся `120`.
   8. Relevant local tests/full validation и exact-head required CI проходят; applicable exact-revision deployment и bounded production LIVE подтверждают `PR-06` либо фиксируют конкретный внешний gate.
-- **Required Evidence:** `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+- **Required Evidence:** `SPEC ✅ | CODE ◐ | TEST ◐ | CI — | DEPLOY — | LIVE —`.
 - **Known blockers/dependencies:** финальная representative matrix требует owner-controlled Windows/Chrome permission prompts и выбора реальных capture surfaces; этот внешний gate будет запрошен только после source/test/deployment readiness. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`), поэтому фактический post-deploy state фиксируется GitHub Evidence/final report и reconciled в следующей authorized Goal без docs-only follow-up PR.
 - **Stop condition:** все Goal AC и required Evidence подтверждены либо flow достиг `BLOCKED` / `PENDING_EXTERNAL_GATE`; затем остановиться и не переходить к следующей Goal без explicit authorization.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-23T21:20:31Z
+- Updated (UTC): 2026-08-23T21:32:17Z
 - Session mode: authorized Goal implementation
 - Base branch: `main`
 - Base SHA: `800bcc820529ff3c78214c129c593d182c621c62`
 - Working branch: `codex/pwa-realtime-stability-readiness`
-- Last verified revision: `800bcc820529ff3c78214c129c593d182c621c62` (clean synchronized Goal base).
+- Last verified revision: `54e4f0c1f733227b710ff95b94e1eff6f1a27e76` (validated realtime stop/recovery fix).
 - Working tree at branch start: clean `main`; `HEAD = origin/main`; divergence `0/0`; открытых PR не было; unrelated pre-existing changes отсутствовали.
-- Completed: previous Goal closure recovered from PR #227, exact-main CI/CD and bounded LIVE; local/remote baseline verified; working branch created; repository instructions, CI/CD profile, current product AC and validation runbook read.
-- Current step: trace Studio realtime capture/session/draft architecture and run focused baseline tests before deciding whether code changes are required.
-- Next exact action: inspect `LiveTranscriptionPanel`, realtime session/protocol/draft modules and their tests for lifecycle races, cleanup gaps and matrix coverage, then execute the focused existing suites.
-- Validation and Evidence: previous timestamp closure independently verified and archived. Current Goal implementation tests not run yet.
+- Completed: previous Goal closure recovered from PR #227, exact-main CI/CD and bounded LIVE; baseline and branch verified; realtime capture/session/draft ownership traced. VERIFIED stop-path defects fixed at `54e4f0c`: repeated Stop no longer duplicates final commit/timer, and an uncommitted tail is retained for bounded draft checkpoint/recovery when provider finalization is absent.
+- Current step: continue targeted lifecycle/matrix audit and validate remaining stop/error/restart cleanup edges before readiness reconciliation.
+- Next exact action: exercise repeated start/stop, stale async completion, display/microphone/mixed cleanup and recovery boundaries in source-level tests; fix only newly reproduced defects.
+- Validation and Evidence: frontend realtime suite `52/52` PASS; backend realtime static/draft/capability suite `74 passed, 1 skipped` with `STUDIO_DATABASE_URL=sqlite+pysqlite:///:memory:`; focused ESLint and `git diff --check` PASS. Initial backend invocation without the documented SQLite test override produced three setup-only secret-file failures and was rerun correctly; no product regression was masked.
 - Pull Request: none.
 - CI/checks: not started.
 - Deployment/environment: not started; migration class currently expected `NONE`, subject to actual diff; no production operation authorized before required gates.
