@@ -75,4 +75,41 @@ describe("FolderImportDialog", () => {
     await userEvent.keyboard("{Escape}");
     expect(onCancel).toHaveBeenCalledOnce();
   });
+
+  it("shows a read-only blocked preview and prevents zero-item import", async () => {
+    const onConfirm = vi.fn();
+    const onCancel = vi.fn();
+    render(
+      <FolderImportDialog
+        preview={{
+          folder_name: "Calls",
+          total_count: 0,
+          supported_count: 0,
+          accepted: [],
+          rejected: [],
+        }}
+        targetFolderName={null}
+        rejectedReasonLabel={() => "неподдерживаемый тип"}
+        blockedMessage="Drive API не видит файлов в выбранной папке."
+        onConfirm={onConfirm}
+        onCancel={onCancel}
+      />,
+    );
+
+    expect(
+      screen.getByRole("dialog", {
+        name: "Папка «Calls» не готова к импорту",
+      }),
+    ).toHaveTextContent("Импорт не начат");
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Drive API не видит файлов",
+    );
+    expect(
+      screen.getByRole("button", { name: "Импортировать 0" }),
+    ).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Закрыть" })).toHaveFocus();
+    await userEvent.click(screen.getByRole("button", { name: "Закрыть" }));
+    expect(onCancel).toHaveBeenCalledOnce();
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
 });

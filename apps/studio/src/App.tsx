@@ -159,6 +159,7 @@ import {
   type LocalFolderPreview,
 } from "./folderIntakeModel";
 import {
+  driveFolderBlockedMessage,
   driveFolderSkipReasonLabel,
   parseDriveFolderPreview,
   type DriveFolderPreview,
@@ -2286,9 +2287,16 @@ function PreparationPanel({
         );
       }
       if (preview.blocker === "empty" || !preview.preview_token) {
-        throw new Error(
-          "В папке нет поддерживаемых файлов с подтверждённой исходной датой создания.",
-        );
+        setDriveFolderPreview({ rowId, preview });
+        const message =
+          driveFolderBlockedMessage(preview) ??
+          "Папка не готова к безопасному импорту.";
+        setRowIntakeStatus((current) => ({
+          ...current,
+          [rowId]: "Проверка завершена: доступных файлов для импорта нет.",
+        }));
+        outcome = { message, tone: "error" };
+        return;
       }
       setDriveFolderPreview({ rowId, preview });
       setRowIntakeStatus((current) => ({ ...current, [rowId]: "" }));
@@ -4841,6 +4849,9 @@ function PreparationPanel({
               reason as DriveFolderSkippedItem["reason"],
             )
           }
+          blockedMessage={driveFolderBlockedMessage(
+            driveFolderPreview.preview,
+          )}
           onConfirm={() => void applyRowDriveFolder()}
           onCancel={() => setDriveFolderPreview(null)}
         />
