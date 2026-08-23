@@ -26,19 +26,19 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-23T12:42:12Z
+- Updated (UTC): 2026-08-23T12:43:19Z
 - Session mode: authorized Goal implementation
 - Base branch: `main`
 - Base SHA: `e94605c07ebe2d88396aaa05edb5095079ba6eeb`
 - Working branch: `codex/pwa-ingest-folder-diagnostics`
-- Last verified revision: `e94605c07ebe2d88396aaa05edb5095079ba6eeb` (merged/deployed PR #223 revision)
+- Last verified revision: `149a70263651ef9dfc989ae4b35f743979a0db6d` (diagnostic fix covered by local validation)
 - Working tree at branch start: clean `main`, fast-forward synchronized with `origin/main`; merged branch `codex/pwa-ingest-folders-01` safely removed local/remote after ancestry verification.
 - Completed: PR #223 merged as `e94605c07ebe2d88396aaa05edb5095079ba6eeb`; exact-main `CI` run `32637083255` SUCCESS, `Studio PWA CI` run `32637083140` SUCCESS; `Studio Platform CD` run `32637083174` deployed web/API successfully, migration and worker correctly skipped. Production PWA loaded the new controls, local folder input exposed `webkitdirectory + multiple`, and Google Picker opened in folder-only mode without browser errors.
-- Current step: bounded diagnostic preview UX implemented and locally validated without expanding OAuth scope.
-- Next exact action: commit the focused fix, push `codex/pwa-ingest-folder-diagnostics`, create a PR and wait for exact-head required CI.
+- Current step: PR #224 required CI is running for the diagnostic fix.
+- Next exact action: push this PR checkpoint, then wait for and analyze every required check at the resulting exact head.
 - Validation and Evidence: original implementation and post-merge main CI PASS; web/API deployment health and image identity checks PASS. LIVE folder selection reached the preview endpoint but returned no importable descendants, so `PI-08`/`PI-10` remain incomplete and LIVE is failed for the Goal. Diagnostic fix validation: focused Vitest `227/227` PASS; full Studio Vitest `558/558` PASS; ESLint PASS; TypeScript PASS; Vite production build PASS; Playwright discovery `10/10` PASS. A preliminary `pnpm` attempt was invalid for this npm/package-lock repository and stopped before tests; canonical direct Node/npm-equivalent commands produced the reported results.
-- Pull Request: merged `#223` — `https://github.com/Just9120/Elevenlabs-API/pull/223`; merge SHA `e94605c07ebe2d88396aaa05edb5095079ba6eeb`. Diagnostic fix PR not created yet.
-- CI/checks: main exact SHA `e94605c07ebe2d88396aaa05edb5095079ba6eeb`: `CI` `32637083255` SUCCESS; `Studio PWA CI` `32637083140` SUCCESS.
+- Pull Request: diagnostic fix `#224` — `https://github.com/Just9120/Elevenlabs-API/pull/224`; initial head `149a70263651ef9dfc989ae4b35f743979a0db6d`, base `e94605c07ebe2d88396aaa05edb5095079ba6eeb`. Original implementation PR #223 merged as `e94605c07ebe2d88396aaa05edb5095079ba6eeb`.
+- CI/checks: PR #224 initial runs are `IN_PROGRESS`: `CI/checks` `32640190750/97195982202`, `Studio PWA CI/studio` `32640190724/97195982173`, `Studio PWA CI/browser-e2e` `32640190724/97195982252`. Final status must be read at the post-checkpoint exact head.
 - Deployment/environment: `Studio Platform CD` `32637083174` SUCCESS; `deploy-web` and `deploy-api` SUCCESS; migration `N/A`, worker `N/A` for this change.
 - Blockers: exact `drive.file` is per-file access; selecting a parent folder via Picker does not authorize arbitrary descendants. Full source-folder import requires an explicit OAuth/product decision; current fix remains limited to truthful diagnostics and safe fallback guidance.
 - Unverified assumptions: whether a separately authorized broader Drive scope will be accepted for this deployment model; no scope expansion is authorized in the current Goal.
