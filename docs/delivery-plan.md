@@ -26,7 +26,7 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-23T13:15:45Z
+- Updated (UTC): 2026-08-23T13:16:50Z
 - Session mode: authorized Goal implementation
 - Base branch: `main`
 - Base SHA: `295438056dc7352b00ce41a05349445c5ec83f60`
@@ -34,11 +34,11 @@
 - Last verified revision: `90e6d4cca91c7af730b67cbb9ff6db7c4ad01404` (code plus canonical documentation covered by available local validation; backend pytest pending CI).
 - Working tree at branch start: clean `main`, fast-forward synchronized with `origin/main`; only `main` existed locally/remotely before creating this branch.
 - Completed: PR #224 merged as `main@295438056dc7352b00ce41a05349445c5ec83f60`; exact-main CI/Studio CI/CD succeeded and safe diagnostic UX is deployed. Owner then explicitly authorized `drive.readonly`. Commit `3419c4f` adds exact `drive.file + drive.readonly`, rejects old/additional grants, requires source-folder read scope, updates runtime/preflight defaults, and preserves narrow output writes.
-- Current step: local implementation/validation complete; push branch and create PR.
-- Next exact action: commit this checkpoint, push `codex/pwa-drive-readonly-sources`, create the PR, then wait for every expected exact-head check.
+- Current step: PR #225 opened; initial exact-head CI is running.
+- Next exact action: push this checkpoint, then wait for every expected check on the resulting final PR head and analyze terminal statuses.
 - Validation and Evidence: full Studio Vitest `558/558` PASS; ESLint PASS; TypeScript PASS; Vite production build PASS; Playwright discovery `10/10` PASS; Python compileall PASS; exact scope assertions PASS; `scripts/ci_checks.py` PASS. Full backend pytest is unavailable in the local Windows environment and remains pending exact-head GitHub CI. Previous main CI/deployment and failed narrow-scope LIVE remain historical evidence only; they do not validate this revision.
-- Pull Request: not created for current branch. Historical PRs: #223 implementation, #224 diagnostic fix; both merged into current base `295438056dc7352b00ce41a05349445c5ec83f60`.
-- CI/checks: not run for current branch/head; expected gates are `CI/checks`, `Studio PWA CI/studio`, and `Studio PWA CI/browser-e2e`.
+- Pull Request: #225 — `https://github.com/Just9120/Elevenlabs-API/pull/225`; initial head `239d19821e59687e46a45cad51f412a8734bffad`, base `295438056dc7352b00ce41a05349445c5ec83f60`, mergeable at checkpoint. Historical PRs #223/#224 are merged into the base.
+- CI/checks: initial head runs are IN_PROGRESS: `CI/checks` `32641852806/97200048331`; `Studio PWA CI/studio` `32641852794/97200048269`; `Studio PWA CI/browser-e2e` `32641852794/97200048410`. Final evidence must use the post-checkpoint exact head.
 - Deployment/environment: current branch not deployed. No migration is required; scope/config change requires API and web deployment, while worker remains unchanged unless workflow path selection proves otherwise.
 - Blockers: none for pre-merge implementation. Production phase depends on exact OAuth consent configuration, target-host scope update, mandatory reconnect and any external Google verification gate.
 - Unverified assumptions: Google will issue exact `drive.file + drive.readonly` for the current OAuth client/consent configuration; production account reconnect will complete without an external verification block.
