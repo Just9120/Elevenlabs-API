@@ -208,7 +208,7 @@ Status: **🟦 IN PROGRESS — 100% (`10/10`)**.
 | `PB-09` | Видимый timestamp имеет ISO 8601 format. | ✅ |
 | `PB-10` | Timestamp получен из фактического creation time исходного media file. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ◐ | DEPLOY ◐ | LIVE ◐`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
 
 Current Goal implementation `18e64d1276d71f698cedcdad0a0bbeeb36e9e609` передаёт persisted source creation authority в output/maintenance contract, запрещает fallback на Google Doc/job/upload/modified clocks и покрыта local automated tests. Exact-head CI/DEPLOY/LIVE ещё не подтверждены, поэтому READY не заявляется.
 
@@ -258,7 +258,7 @@ Status: **🟦 IN PROGRESS — 100% (`6/6`)**.
 | `PD-05` | Timestamp нормализуется в ISO 8601. | ✅ |
 | `PD-06` | Timestamp отражает creation time исходного media file, а не Google Doc/job time. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ◐ | DEPLOY ◐ | LIVE ◐`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
 
 Standardization и manifest import остаются разными authority: preview/confirmation одной операции не авторизует другую.
 

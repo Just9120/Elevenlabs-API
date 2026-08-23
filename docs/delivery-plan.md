@@ -16,13 +16,13 @@
   6. Owner boundaries, Google maintenance consent, transcript-body secrecy, batch processing и unrelated PWA flows не регрессируют.
   7. Relevant backend/worker/frontend/security tests, full local validation и exact-head CI проходят.
   8. Applicable API/worker/web deployment и bounded production LIVE подтверждают новый batch output и maintenance behavior на exact revision без лишнего provider charge.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
 - **Known blockers/dependencies:** legacy Google Docs могут не иметь доказуемой связи с source media; такие документы нельзя автоматически датировать. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`), поэтому итоговый state фиксируется GitHub Evidence/final report и reconciled в следующей authorized Goal без docs-only follow-up PR.
 - **Stop condition:** все Goal AC и required Evidence подтверждены либо flow достиг `BLOCKED` / `PENDING_EXTERNAL_GATE`; затем остановиться и не переходить к следующей Goal без explicit authorization.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-23T19:05:00Z
+- Updated (UTC): 2026-08-23T19:10:30Z
 - Session mode: authorized Goal implementation
 - Base branch: `main`
 - Base SHA: `cb3a9e9216521c56e07b6f7b6fda9bf8eb8051f8`
@@ -30,11 +30,11 @@
 - Last verified revision: `18e64d1276d71f698cedcdad0a0bbeeb36e9e609` (`feat(studio): enforce source timestamp authority`).
 - Working tree at branch start: clean synchronized `main`; предыдущая merged branch удалена local/remote; only `main` existed.
 - Completed: recovered PR #226/merge/CD/LIVE closure; traced source intake/output/maintenance data flow; added owner-scoped persisted source authority resolver; removed Google Doc/body clock fallback; enforced exact ISO source timestamp matching and fail-closed unavailable/conflict outcomes; exposed authority state in PWA; committed implementation and regression tests.
-- Current step: PR #227 опубликован; required CI checks выполняются на exact head.
-- Next exact action: дождаться terminal state всех checks PR #227, проанализировать failures/skips и при зелёных gates выполнить merge.
+- Current step: PR #227 required CI зелёный на implementation/checkpoint head `7a0cf34d2f4afd7abe163f9e66f9fa13eb0f7515`; фиксируется финальный pre-merge checkpoint.
+- Next exact action: дождаться повторных exact-head checks после docs-only checkpoint и при сохранении зелёных gates выполнить merge PR #227.
 - Validation and Evidence: `scripts/ci_checks.py` PASS; Python compile PASS; focused+adjacent backend regression `345 passed`; Studio ESLint PASS; TypeScript build-check PASS; full Studio Vitest `558 passed`. No exact-head CI/deployment/LIVE yet.
 - Pull Request: #227 — `feat(studio): enforce source timestamp authority`; head `codex/pwa-timestamp-authority`.
-- CI/checks: pending на PR #227 exact head; terminal state ещё не подтверждён.
+- CI/checks: head `7a0cf34d2f4afd7abe163f9e66f9fa13eb0f7515` — `checks` PASS (`2m42s`), `studio` PASS (`2m9s`), `browser-e2e` PASS (`1m34s`); failures/skips отсутствуют.
 - Deployment/environment: not started; migration class `NONE` — existing `sources.source_created_at` and provenance columns are sufficient; applicable deployment is API + web, worker unchanged.
 - Blockers: none. Potential design constraint: legacy documents without verifiable source linkage cannot receive a fabricated creation timestamp.
 - Unverified assumptions: production legacy documents have source linkage coverage comparable to test evidence; documents without it intentionally remain blocked rather than receiving a fabricated timestamp.
