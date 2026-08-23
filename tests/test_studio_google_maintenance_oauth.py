@@ -17,7 +17,8 @@ class OAuthSettings:
     google_oauth_client_secret_file: str | None = None
     google_oauth_redirect_uri: str | None = "https://studio.test/picker"
     google_oauth_scopes: str = (
-        "openid email https://www.googleapis.com/auth/drive.file"
+        "openid email https://www.googleapis.com/auth/drive.file "
+        "https://www.googleapis.com/auth/drive.readonly"
     )
     google_maintenance_oauth_client_id: str | None = "maintenance-client"
     google_maintenance_oauth_client_secret_file: str | None = None
@@ -100,6 +101,7 @@ def test_picker_oauth_rejects_server_maintenance_scope(tmp_path):
         google_oauth_scopes=(
             "openid email "
             "https://www.googleapis.com/auth/drive.file "
+            "https://www.googleapis.com/auth/drive.readonly "
             "https://www.googleapis.com/auth/documents"
         ),
     )

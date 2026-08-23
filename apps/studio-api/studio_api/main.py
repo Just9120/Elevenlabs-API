@@ -21,8 +21,8 @@ from .security import *
 from .source_storage import get_source_storage, normalize_source_display_filename
 from .source_creation import parse_authoritative_source_created_at
 from .source_policy import SOURCE_RETENTION_TTL_OPTIONS_SECONDS, UploadedObjectMetadataIssue, browser_source_upload_policy, is_supported_source_mime_type, normalize_source_mime_type, uploaded_object_metadata_issue, validate_source_size
-from .google_connection_access import GoogleConnectionAccessError, GoogleConnectionAccessReason, active_google_connection_for_user, google_maintenance_token_aad, google_token_aad, refresh_user_google_drive_access_token, require_drive_file_scope, require_picker_browser_scope_boundary
-from .google_scopes import has_drive_file_scope, has_maintenance_server_scope_boundary, has_picker_browser_scope_boundary
+from .google_connection_access import GoogleConnectionAccessError, GoogleConnectionAccessReason, active_google_connection_for_user, google_maintenance_token_aad, google_token_aad, refresh_user_google_drive_access_token, require_drive_file_scope, require_drive_readonly_scope, require_picker_browser_scope_boundary
+from .google_scopes import has_maintenance_server_scope_boundary, has_picker_browser_scope_boundary
 from .job_lifecycle import safe_failure_metadata_value
 from .job_processing_lifecycle import request_job_cancellation
 from .diagnostics import REGISTRY, cleanup_expired_diagnostics, cursor_context, decode_cursor_payload, encode_cursor, new_correlation_id, new_request_id, sanitize_build_id, sanitize_inbound_correlation, valid_correlation_id, valid_uuid, write_diagnostic_event
@@ -751,12 +751,25 @@ def _inspect_google_drive_source_folder(db: Session, user: User, folder_id: str)
     if not clean_id:
         raise HTTPException(422, "Некорректный ID папки Google Drive")
     try:
+        conn=active_google_connection_for_user(db, user_id=user.id)
+        require_drive_readonly_scope(conn)
         access_token=refreshed_google_drive_access_token(db, user)
         return inspect_drive_source_folder(
             access_token,
             clean_id,
             max_upload_bytes=settings.source_max_upload_bytes,
         )
+    except GoogleConnectionAccessError as exc:
+        if exc.reason in {
+            GoogleConnectionAccessReason.missing,
+            GoogleConnectionAccessReason.inactive,
+            GoogleConnectionAccessReason.reauthorization_required,
+            GoogleConnectionAccessReason.scope_unavailable,
+        }:
+            raise HTTPException(409, exc.reason.value) from exc
+        if exc.reason == GoogleConnectionAccessReason.config_unavailable:
+            raise HTTPException(503, exc.reason.value) from exc
+        raise HTTPException(502, exc.reason.value) from exc
     except HTTPException:
         raise
     except DriveFolderIntakeError as exc:
@@ -1713,7 +1726,7 @@ def _diag_payload(e: DiagnosticEvent):
 def _system_summary(db: Session, user: User):
     conn=current_google_connection(db, user)
     active_creds=db.query(func.count(ProviderCredential.id)).filter(ProviderCredential.user_id==user.id, ProviderCredential.status==CredentialStatus.active, ProviderCredential.deleted_at.is_(None)).scalar() or 0
-    return {"environment": sanitize_build_id(settings.environment), "build": {"web": sanitize_build_id(settings.diagnostic_web_build_id), "api": sanitize_build_id(settings.diagnostic_api_build_id), "worker": sanitize_build_id(settings.diagnostic_worker_build_id)}, "google_drive": {"connected": bool(conn and conn.status==GoogleConnectionStatus.active), "scope_ready": bool(conn and conn.status==GoogleConnectionStatus.active and has_drive_file_scope(conn.scopes))}, "provider_credentials": {"active_count": int(active_creds), "ready": int(active_creds)>0}, "diagnostics": {"recording_enabled": True, "debug_recording": "inactive", "retention_days": settings.diagnostic_retention_days, "debug_retention_hours": settings.diagnostic_debug_retention_hours}, "report_limits": {"max_days": 7, "max_timeline_events": settings.diagnostic_report_max_events}}
+    return {"environment": sanitize_build_id(settings.environment), "build": {"web": sanitize_build_id(settings.diagnostic_web_build_id), "api": sanitize_build_id(settings.diagnostic_api_build_id), "worker": sanitize_build_id(settings.diagnostic_worker_build_id)}, "google_drive": {"connected": bool(conn and conn.status==GoogleConnectionStatus.active), "scope_ready": bool(conn and conn.status==GoogleConnectionStatus.active and has_picker_browser_scope_boundary(conn.scopes))}, "provider_credentials": {"active_count": int(active_creds), "ready": int(active_creds)>0}, "diagnostics": {"recording_enabled": True, "debug_recording": "inactive", "retention_days": settings.diagnostic_retention_days, "debug_retention_hours": settings.diagnostic_debug_retention_hours}, "report_limits": {"max_days": 7, "max_timeline_events": settings.diagnostic_report_max_events}}
 
 
 DEBUG_SESSION_MAX_MINUTES = 30
@@ -2380,8 +2393,12 @@ def get_google_drive_folder_children(folder_id: str, page_size: int=Query(50, ge
     if not clean_id: raise HTTPException(422, "Некорректный ID папки Google Drive")
     try:
         from .google_drive import list_drive_folder_children
+        conn=active_google_connection_for_user(db, user_id=user.id)
+        require_drive_readonly_scope(conn)
         access_token=refreshed_google_drive_access_token(db, user)
         children=list_drive_folder_children(access_token, clean_id, page_size=page_size, page_token=page_token)
+    except GoogleConnectionAccessError as exc:
+        raise HTTPException(409, exc.reason.value) from exc
     except HTTPException:
         raise
     except Exception:

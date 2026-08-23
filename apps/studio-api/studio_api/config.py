@@ -38,7 +38,11 @@ class Settings(BaseSettings):
     google_oauth_client_id: str | None = None
     google_oauth_client_secret_file: str | None = None
     google_oauth_redirect_uri: str | None = None
-    google_oauth_scopes: str = "openid email https://www.googleapis.com/auth/drive.file"
+    google_oauth_scopes: str = (
+        "openid email "
+        "https://www.googleapis.com/auth/drive.file "
+        "https://www.googleapis.com/auth/drive.readonly"
+    )
     google_oauth_state_ttl_seconds: int = 600
     google_maintenance_oauth_client_id: str | None = None
     google_maintenance_oauth_client_secret_file: str | None = None

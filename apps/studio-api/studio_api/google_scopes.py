@@ -1,4 +1,5 @@
 DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file"
+DRIVE_READONLY_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
 DRIVE_METADATA_READONLY_SCOPE = (
     "https://www.googleapis.com/auth/drive.metadata.readonly"
 )
@@ -11,6 +12,7 @@ GOOGLE_IDENTITY_SCOPES = {
 PICKER_BROWSER_ALLOWED_SCOPES = {
     *GOOGLE_IDENTITY_SCOPES,
     DRIVE_FILE_SCOPE,
+    DRIVE_READONLY_SCOPE,
 }
 MAINTENANCE_SERVER_ALLOWED_SCOPES = {
     *GOOGLE_IDENTITY_SCOPES,
@@ -29,9 +31,26 @@ def has_drive_file_scope(value: str | None) -> bool:
     return DRIVE_FILE_SCOPE in parse_google_scopes(value)
 
 
+def has_drive_readonly_scope(value: str | None) -> bool:
+    return DRIVE_READONLY_SCOPE in parse_google_scopes(value)
+
+
 def has_picker_browser_scope_boundary(value: str | None) -> bool:
     scopes = parse_google_scopes(value)
-    return DRIVE_FILE_SCOPE in scopes and scopes <= PICKER_BROWSER_ALLOWED_SCOPES
+    has_email_identity = bool(
+        scopes
+        & {
+            "email",
+            "https://www.googleapis.com/auth/userinfo.email",
+        }
+    )
+    return (
+        "openid" in scopes
+        and has_email_identity
+        and DRIVE_FILE_SCOPE in scopes
+        and DRIVE_READONLY_SCOPE in scopes
+        and scopes <= PICKER_BROWSER_ALLOWED_SCOPES
+    )
 
 
 def has_maintenance_server_scope_boundary(value: str | None) -> bool:

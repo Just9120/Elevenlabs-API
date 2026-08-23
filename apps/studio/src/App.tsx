@@ -779,11 +779,12 @@ function isExpectedGoogleOauthStart(
     }
     const scopes = url.searchParams.get("scope")?.split(" ") ?? [];
     return (
-      scopes.length === 3 &&
+      scopes.length === 4 &&
       new Set(scopes).size === scopes.length &&
       scopes.includes("openid") &&
       scopes.includes("email") &&
-      scopes.includes("https://www.googleapis.com/auth/drive.file")
+      scopes.includes("https://www.googleapis.com/auth/drive.file") &&
+      scopes.includes("https://www.googleapis.com/auth/drive.readonly")
     );
   } catch {
     return false;
