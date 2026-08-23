@@ -28,13 +28,13 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Текущий independently verified execution snapshot: `main@cb3a9e9216521c56e07b6f7b6fda9bf8eb8051f8`; exact-main CI, Studio/browser CI, web deployment, primary и maintenance Google OAuth reconnect подтверждены. Bounded LIVE импортировал девять Drive sources, распространил одну target folder на все девять unassigned composer rows и сохранил `До конца файла`; `PI-10` подтверждён без запуска provider job.
+Текущий independently verified implementation snapshot: `codex/pwa-timestamp-authority@18e64d1276d71f698cedcdad0a0bbeeb36e9e609`; local automated Evidence подтверждает `PB-10` и `PD-06`, exact-head CI/DEPLOY/LIVE ещё ожидаются. Последний deployed baseline: `main@cb3a9e9216521c56e07b6f7b6fda9bf8eb8051f8`; bounded LIVE этого baseline подтвердил `PI-10` без запуска provider job.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **75,9% (`22/29`)** | `COLAB-BATCH 17/23` + `COLAB-REALTIME 5/6` |
-| Studio PWA | **91,2% (`83/91`)** | сумма десяти PWA-эпиков ниже; production LIVE подтвердил `PI-10` |
-| Весь проект | **87,5% (`105/120`)** | все выполненные AC двух продуктов / все AC текущего scope |
+| Studio PWA | **93,4% (`85/91`)** | сумма десяти PWA-эпиков ниже; `PB-10` и `PD-06` подтверждены CODE/TEST |
+| Весь проект | **89,2% (`107/120`)** | все выполненные AC двух продуктов / все AC текущего scope |
 
 ## 3. Общие product rules
 
@@ -193,7 +193,7 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 
 ### Эпик `PWA-BATCH-01` — transcription options, progress и output
 
-Status: **🟦 IN PROGRESS — 90,0% (`9/10`)**.
+Status: **🟦 IN PROGRESS — 100% (`10/10`)**.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -206,11 +206,11 @@ Status: **🟦 IN PROGRESS — 90,0% (`9/10`)**.
 | `PB-07` | Transcript document разбит на читабельные абзацы. | ✅ |
 | `PB-08` | В начало документа добавлен metadata header. | ✅ |
 | `PB-09` | Видимый timestamp имеет ISO 8601 format. | ✅ |
-| `PB-10` | Timestamp получен из фактического creation time исходного media file. | ❌ |
+| `PB-10` | Timestamp получен из фактического creation time исходного media file. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ◐ | DEPLOY ◐ | LIVE ◐`.
 
-Verified remediation: fix merged как PR #216 в `main@ebf02da`; exact-main CI и component CD успешны. Повторное открытие исходной bounded production canary подтвердило terminal `100%`, safe output и отсутствие ложных collection/detail errors. Epic-wide `LIVE` остаётся `◐`, поскольку `PB-10` ещё не реализован и не проверен на production.
+Current Goal implementation `18e64d1276d71f698cedcdad0a0bbeeb36e9e609` передаёт persisted source creation authority в output/maintenance contract, запрещает fallback на Google Doc/job/upload/modified clocks и покрыта local automated tests. Exact-head CI/DEPLOY/LIVE ещё не подтверждены, поэтому READY не заявляется.
 
 ### Эпик `PWA-SPEAKER-IDENTITY-01` — имена и роли спикеров
 
@@ -247,7 +247,7 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
 
 ### Эпик `PWA-STANDARDIZATION-01` — стандартизация Google Docs
 
-Status: **🟦 IN PROGRESS — 83,3% (`5/6`)**.
+Status: **🟦 IN PROGRESS — 100% (`6/6`)**.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -256,11 +256,13 @@ Status: **🟦 IN PROGRESS — 83,3% (`5/6`)**.
 | `PD-03` | Документ нормализуется в читабельные абзацы. | ✅ |
 | `PD-04` | Документ получает standard metadata header. | ✅ |
 | `PD-05` | Timestamp нормализуется в ISO 8601. | ✅ |
-| `PD-06` | Timestamp отражает creation time исходного media file, а не Google Doc/job time. | ❌ |
+| `PD-06` | Timestamp отражает creation time исходного media file, а не Google Doc/job time. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ◐ | DEPLOY ◐ | LIVE ◐`.
 
 Standardization и manifest import остаются разными authority: preview/confirmation одной операции не авторизует другую.
+
+Current Goal implementation `18e64d1276d71f698cedcdad0a0bbeeb36e9e609` разрешает mutation только при owner-scoped persisted source authority, сравнивает видимый ISO timestamp с exact source time и возвращает explicit blocked reason для unavailable/conflict. Exact-head CI/DEPLOY/LIVE ещё не подтверждены, поэтому READY не заявляется.
 
 ### Эпик `PWA-REALTIME-01` — realtime-транскрибация
 
