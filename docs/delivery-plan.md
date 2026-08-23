@@ -20,23 +20,23 @@
   10. Existing single/multi-file, Favorites, segmentation, batch, realtime и responsive behavior не регрессируют.
   11. Relevant backend/frontend/security/browser tests и exact-head CI проходят.
   12. Applicable web/API deployment и bounded production LIVE canary успешны.
-- **Required Evidence:** `SPEC ✅ | CODE ◐ | TEST ◐ | CI — | DEPLOY — | LIVE —`.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ◐ | CI — | DEPLOY — | LIVE —`.
 - **Known blockers/dependencies:** primary Google OAuth остаётся exact narrow `drive.file`; если Picker-selected folder не даёт runtime access к children, Goal становится `BLOCKED` до owner decision. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
 - **Stop condition:** все Goal AC и required Evidence подтверждены либо flow достиг `BLOCKED` / `PENDING_EXTERNAL_GATE`; затем остановиться и не переходить к следующей Goal без explicit authorization.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-23T10:59:45Z
+- Updated (UTC): 2026-08-23T11:22:52Z
 - Session mode: authorized Goal implementation
 - Base branch: `main`
 - Base SHA: `ccb067d05d5225a3178b21cd239bd65c0764f1fb`
 - Working branch: `codex/pwa-ingest-folders-01`
-- Last verified revision: `ccb067d05d5225a3178b21cd239bd65c0764f1fb` (merge commit)
+- Last verified revision: `00c736bbdb4760635224386d019d88de14cfc309` (local-folder intake commit)
 - Working tree at branch start: clean `main`; post-deploy docs diff previous Goal restored from named stash after branch creation.
-- Completed: previous Goal synchronized/closed; generated pnpm artifacts removed; local/remote merged branch deleted after ancestry check; local `main` synchronized; new branch created from verified `origin/main`; post-deploy metadata restored; local folder control, recursive browser enumeration, filtering/limit preview, explicit confirmation and shared target propagation implemented.
-- Current step: atomic commit local-folder intake slice.
-- Next exact action: commit the validated local-folder slice, then implement bounded Google Drive folder preview/apply traversal.
-- Validation and Evidence: focused folder model/dialog tests `6/6` PASS; focused App integration tests `2/2` PASS; changed-file ESLint PASS; TypeScript build PASS; Vite production build PASS.
+- Completed: local-folder slice committed; Google Drive source-folder Picker, server-side bounded traversal, strict listing validation, preview/no-side-effect contract, re-traversal drift token, atomic apply, composer expansion and ambiguous-no-replay UX implemented; architecture synchronized.
+- Current step: atomic commit Google Drive folder slice and exact-head validation preparation.
+- Next exact action: commit the Drive folder slice, run remaining repository/browser gates, then push and open the Goal PR.
+- Validation and Evidence: pure backend folder traversal/transport tests `7/7` PASS; lightweight CI checks PASS; full Studio Vitest `555/555` PASS; full Studio ESLint PASS; TypeScript and Vite production build PASS. PostgreSQL-backed endpoint test is authored but local execution is unavailable because local PostgreSQL/Redis services are absent; exact test is delegated to required CI.
 - Pull Request: not created.
 - CI/checks: not started.
 - Deployment/environment: not started; migration currently expected `N/A`, web/API deploy applicable after merge.
@@ -46,18 +46,18 @@
 
 ## Project readiness
 
-Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Новый независимый пересчёт подтвердил `PI-05`: browser folder picker перечисляет nested files, fail-closed применяет server upload policy и batch maximum, показывает preview до side effects и только после confirmation использует существующий R2 upload flow. Denominator не изменился; numerator вырос на 1 AC.
+Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Новый независимый пересчёт подтвердил `PI-08` и `PI-10`: отдельный Drive source-folder Picker проходит server-side bounded traversal/preview/apply, а подтверждённые Sources разворачиваются в composer с общей target folder и существующим per-row override. Denominator не изменился; numerator вырос на 2 AC.
 
 | Product/epic | Current | Previous independent snapshot | Readiness/Evidence |
 |---|---:|---:|---|
-| **Project** | **85,8% (`103/120`)** | **85,0% (`102/120`)** | `PI-05` подтверждён local code/tests; CI/DEPLOY/LIVE ещё не подтверждены. |
+| **Project** | **87,5% (`105/120`)** | **85,8% (`103/120`)** | `PI-08` и `PI-10` подтверждены code/tests; CI/DEPLOY/LIVE ещё не подтверждены. |
 | **Google Colab** | **75,9% (`22/29`)** | **75,9% (`22/29`)** | Без изменений в PWA Goal. |
 | `COLAB-BATCH-01` | **73,9% (`17/23`)** | **73,9% (`17/23`)** | 🟦 IN PROGRESS. |
 | `COLAB-REALTIME-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS. |
-| **Studio PWA** | **89,0% (`81/91`)** | **87,9% (`80/91`)** | Numerator +1 за `PI-05`; readiness gate Goal ещё не выполнен. |
+| **Studio PWA** | **91,2% (`83/91`)** | **89,0% (`81/91`)** | Numerator +2 за `PI-08` и `PI-10`; readiness gate Goal ещё не выполнен. |
 | `PWA-CORE-01` | **100% (`13/13`)** | **100% (`13/13`)** | Все product AC выполнены; exact-head delivery Evidence ещё не подтверждены. |
 | `PWA-TRANSCRIPTIONS-UX-01` | **100% (`4/4`)** | **100% (`4/4`)** | 🟩 READY. |
-| `PWA-INGEST-01` | **81,8% (`9/11`)** | **72,7% (`8/11`)** | `PI-05` выполнен; `PI-08` и `PI-10` остаются в active Goal. |
+| `PWA-INGEST-01` | **100% (`11/11`)** | **81,8% (`9/11`)** | Все product AC выполнены; эпик остаётся 🟦 IN PROGRESS до required CI/DEPLOY/LIVE Evidence. |
 | `PWA-SEGMENTS-01` | **100% (`5/5`)** | **100% (`5/5`)** | 🟩 READY. |
 | `PWA-BATCH-01` | **90,0% (`9/10`)** | **90,0% (`9/10`)** | Вне Goal. |
 | `PWA-SPEAKER-IDENTITY-01` | **0% (`0/5`)** | **0% (`0/5`)** | Вне Goal. |

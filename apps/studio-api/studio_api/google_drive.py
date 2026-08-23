@@ -129,14 +129,30 @@ def list_drive_folder_children(
         f"{DRIVE_FILES_URL}?{urlencode(params)}",
         headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
     )
-    with urlopen(req, timeout=10) as resp:  # nosec - Google Drive endpoint; tests monkeypatch urlopen/helper.
-        payload = json.loads(resp.read().decode("utf-8"))
-    files = payload.get("files") if isinstance(payload, dict) else None
-    token = payload.get("nextPageToken") if isinstance(payload, dict) else None
+    try:
+        with urlopen(req, timeout=10) as resp:  # nosec - Google Drive endpoint; tests monkeypatch urlopen/helper.
+            payload = json.loads(resp.read().decode("utf-8"))
+    except HTTPError as exc:
+        if exc.code == 404:
+            raise GoogleDriveMetadataError(GoogleDriveMetadataReason.not_found) from exc
+        raise GoogleDriveMetadataError(GoogleDriveMetadataReason.unavailable) from exc
+    except (URLError, OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise GoogleDriveMetadataError(GoogleDriveMetadataReason.unavailable) from exc
+    if not isinstance(payload, dict) or not isinstance(payload.get("files"), list):
+        raise GoogleDriveMetadataError(GoogleDriveMetadataReason.unavailable)
+    files = payload["files"]
+    token = payload.get("nextPageToken")
+    if token is not None and (not isinstance(token, str) or not token):
+        raise GoogleDriveMetadataError(GoogleDriveMetadataReason.unavailable)
+    items=[]
+    for item in files:
+        if not isinstance(item, dict):
+            raise GoogleDriveMetadataError(GoogleDriveMetadataReason.unavailable)
+        items.append(normalize_drive_file_metadata(item))
     return GoogleDriveFolderChildren(
         folder_id=folder_id,
-        items=[normalize_drive_metadata(item) for item in files if isinstance(item, dict)] if isinstance(files, list) else [],
-        next_page_token=token if isinstance(token, str) and token else None,
+        items=items,
+        next_page_token=token,
     )
 
 

@@ -1,19 +1,25 @@
 import { type KeyboardEvent, useEffect, useId, useRef } from "react";
-import {
-  localFolderRejectedReasonLabel,
-  type LocalFolderPreview,
-} from "./folderIntakeModel";
 
 const MAX_VISIBLE_ITEMS = 8;
+
+export type FolderImportDialogPreview = {
+  folder_name: string;
+  total_count: number;
+  supported_count: number;
+  accepted: Array<{ relative_path: string }>;
+  rejected: Array<{ display_name: string; reason: string }>;
+};
 
 export function FolderImportDialog({
   preview,
   targetFolderName,
+  rejectedReasonLabel,
   onConfirm,
   onCancel,
 }: {
-  preview: LocalFolderPreview;
+  preview: FolderImportDialogPreview;
   targetFolderName: string | null;
+  rejectedReasonLabel: (reason: string) => string;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
@@ -116,7 +122,7 @@ export function FolderImportDialog({
                 .slice(0, MAX_VISIBLE_ITEMS)
                 .map((item, index) => (
                   <li key={`${item.display_name}:${item.reason}:${index}`}>
-                    {item.display_name}: {localFolderRejectedReasonLabel(item.reason)}
+                    {item.display_name}: {rejectedReasonLabel(item.reason)}
                   </li>
                 ))}
             </ul>

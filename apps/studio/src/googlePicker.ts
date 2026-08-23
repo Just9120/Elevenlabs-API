@@ -1,5 +1,6 @@
 export type PickerMode =
   | "sources"
+  | "source-folder"
   | "output-folder"
   | "catalog-folder"
   | "transcript-folder"
@@ -62,6 +63,7 @@ const PICKER_INTERACTION_TIMEOUT_MS = 300_000;
 const PICKER_LOCALE = "ru";
 const MY_DRIVE_ROOT_PARENT = "root";
 const SOURCE_PICKER_TITLE = "Выберите аудио или видео";
+const SOURCE_FOLDER_PICKER_TITLE = "Выберите папку с аудио или видео";
 const OUTPUT_FOLDER_PICKER_TITLE = "Выберите папку для результатов";
 const CATALOG_FOLDER_PICKER_TITLE = "Выберите папку каталога транскриптов";
 const TRANSCRIPT_FOLDER_PICKER_TITLE =
@@ -185,6 +187,7 @@ export async function openGooglePicker(
   session: PickerSession,
 ): Promise<PickerResult> {
   const folderMode =
+    mode === "source-folder" ||
     mode === "output-folder" ||
     mode === "catalog-folder" ||
     mode === "transcript-folder";
@@ -253,6 +256,8 @@ export async function openGooglePicker(
       builder.setTitle(
         documentMode
           ? TRANSCRIPT_DOCUMENT_PICKER_TITLE
+          : mode === "source-folder"
+            ? SOURCE_FOLDER_PICKER_TITLE
           : mode === "transcript-folder"
           ? TRANSCRIPT_FOLDER_PICKER_TITLE
           : mode === "catalog-folder"

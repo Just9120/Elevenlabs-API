@@ -150,6 +150,13 @@ class GooglePickerSourceSelectionIn(BaseModel):
 class GooglePickerOutputFolderIn(BaseModel):
     folder_id: str=Field(min_length=1,max_length=256)
 
+class GoogleDriveFolderPreviewIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    folder_id: str=Field(min_length=1,max_length=256)
+
+class GoogleDriveFolderApplyIn(GoogleDriveFolderPreviewIn):
+    preview_token: str=Field(pattern=r"^[a-f0-9]{64}$")
+
 class GoogleDriveSourceIn(BaseModel):
     drive_file_id: str=Field(min_length=1,max_length=256)
     drive_file_url: str|None=Field(default=None,max_length=2000)
@@ -734,6 +741,73 @@ def _new_google_drive_source(project_id: str, meta, mime: str, uploaded_at: date
         raise HTTPException(502, "Google Drive creation time is unavailable")
     return Source(project_id=project_id, source_type=SourceType.google_drive, original_filename=normalize_source_display_filename(meta.name or f"Google Drive source {meta.id}"), mime_type=mime, size_bytes=meta.size_bytes, drive_file_id=clean_drive_id(meta.id, "ID файла Google Drive"), drive_file_url=clean_drive_url(meta.web_view_link), upload_status=SourceUploadStatus.uploaded, uploaded_at=uploaded_at, source_created_at=source_created_at, source_created_at_provenance="google_drive_created_time", storage_cleanup_status=SourceStorageCleanupStatus.not_applicable)
 
+def _inspect_google_drive_source_folder(db: Session, user: User, folder_id: str):
+    from .google_drive_folder_intake import (
+        DriveFolderIntakeError,
+        DriveFolderIntakeReason,
+        inspect_drive_source_folder,
+    )
+    clean_id=clean_drive_id(folder_id, "ID папки Google Drive")
+    if not clean_id:
+        raise HTTPException(422, "Некорректный ID папки Google Drive")
+    try:
+        access_token=refreshed_google_drive_access_token(db, user)
+        return inspect_drive_source_folder(
+            access_token,
+            clean_id,
+            max_upload_bytes=settings.source_max_upload_bytes,
+        )
+    except HTTPException:
+        raise
+    except DriveFolderIntakeError as exc:
+        if exc.reason == DriveFolderIntakeReason.root_not_folder:
+            raise HTTPException(422, "google_drive_source_folder_required") from exc
+        if exc.reason == DriveFolderIntakeReason.unavailable:
+            raise HTTPException(502, "google_drive_folder_unavailable") from exc
+        raise HTTPException(409, f"google_drive_folder_{exc.reason.value}") from exc
+    except Exception as exc:
+        raise HTTPException(502, "google_drive_folder_unavailable") from exc
+
+def _google_drive_folder_preview_payload(preview, *, owner_user_id: str, project_id: str):
+    from .google_drive_folder_intake import drive_folder_preview_token
+    token=(
+        drive_folder_preview_token(
+            preview,
+            owner_user_id=owner_user_id,
+            project_id=project_id,
+        )
+        if preview.complete and preview.blocker is None
+        else None
+    )
+    return {
+        "folder": {"id": preview.folder_id, "name": preview.folder_name},
+        "total_file_count": preview.total_file_count,
+        "folder_count": preview.folder_count,
+        "supported_count": preview.supported_count,
+        "skipped_count": len(preview.skipped),
+        "accepted": [
+            {
+                "id": item.metadata.id,
+                "name": item.metadata.name or "Файл Google Drive",
+                "mime_type": item.mime_type,
+                "size_bytes": item.metadata.size_bytes,
+                "created_time": item.metadata.created_time,
+                "relative_path": item.relative_path,
+            }
+            for item in preview.accepted
+        ],
+        "skipped": [
+            {
+                "relative_path": item.relative_path,
+                "reason": item.reason.value,
+            }
+            for item in preview.skipped
+        ],
+        "blocker": preview.blocker,
+        "complete": preview.complete,
+        "preview_token": token,
+    }
+
 @app.post("/api/projects/{project_id}/sources/google-picker")
 def create_google_picker_sources(project_id: str, data: GooglePickerSourceSelectionIn, pair=Depends(require_csrf), db: Session=Depends(get_db)):
     _,user=pair; limiter.check("source:gpicker:create:"+user.id, 60, 3600); p=owned_project_or_404(db,user,project_id)
@@ -748,6 +822,39 @@ def create_google_picker_sources(project_id: str, data: GooglePickerSourceSelect
         audit(db,"source.google_picker.created",actor_user_id=user.id,subject_user_id=user.id,project_id=p.id,source_count=len(created)); db.commit()
     except Exception:
         db.rollback(); raise
+    return {"sources":[source_payload(src) for src in created]}
+
+@app.post("/api/projects/{project_id}/sources/google-folder/preview")
+def preview_google_drive_source_folder(project_id: str, data: GoogleDriveFolderPreviewIn, response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    _,user=pair; limiter.check("source:gfolder:preview:"+user.id, 120, 3600); p=owned_project_or_404(db,user,project_id)
+    preview=_inspect_google_drive_source_folder(db, user, data.folder_id)
+    response.headers["Cache-Control"]="no-store"
+    response.headers["Pragma"]="no-cache"
+    return _google_drive_folder_preview_payload(preview, owner_user_id=user.id, project_id=p.id)
+
+@app.post("/api/projects/{project_id}/sources/google-folder/apply")
+def apply_google_drive_source_folder(project_id: str, data: GoogleDriveFolderApplyIn, response: Response, pair=Depends(require_csrf), db: Session=Depends(get_db)):
+    from .google_drive_folder_intake import drive_folder_preview_token
+    _,user=pair; limiter.check("source:gfolder:apply:"+user.id, 30, 3600); p=owned_project_or_404(db,user,project_id)
+    preview=_inspect_google_drive_source_folder(db, user, data.folder_id)
+    if preview.blocker == "over_limit":
+        raise HTTPException(422, "google_drive_folder_over_limit")
+    if preview.blocker == "empty" or not preview.accepted:
+        raise HTTPException(422, "google_drive_folder_empty")
+    actual_token=drive_folder_preview_token(preview, owner_user_id=user.id, project_id=p.id)
+    if not safe_eq(actual_token, data.preview_token):
+        raise HTTPException(409, "google_drive_folder_changed")
+    now=utcnow(); created=[]
+    try:
+        for item in preview.accepted:
+            src=_new_google_drive_source(p.id, item.metadata, item.mime_type, now)
+            db.add(src); created.append(src)
+        audit(db,"source.google_folder.created",actor_user_id=user.id,subject_user_id=user.id,project_id=p.id,source_count=len(created)); db.commit()
+        for src in created: db.refresh(src)
+    except Exception:
+        db.rollback(); raise
+    response.headers["Cache-Control"]="no-store"
+    response.headers["Pragma"]="no-cache"
     return {"sources":[source_payload(src) for src in created]}
 
 @app.post("/api/projects/{project_id}/output-folder/google-picker")

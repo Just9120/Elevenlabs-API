@@ -1,21 +1,20 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { FolderImportDialog } from "./FolderImportDialog";
-import type { LocalFolderPreview } from "./folderIntakeModel";
+import {
+  FolderImportDialog,
+  type FolderImportDialogPreview,
+} from "./FolderImportDialog";
 
-const preview: LocalFolderPreview = {
+const preview: FolderImportDialogPreview = {
   folder_name: "Calls",
   total_count: 3,
   supported_count: 2,
-  blocker: null,
   accepted: [
     {
-      file: new File(["a"], "a.mp3", { type: "audio/mpeg" }),
       relative_path: "Calls/a.mp3",
     },
     {
-      file: new File(["b"], "b.mp4", { type: "video/mp4" }),
       relative_path: "Calls/nested/b.mp4",
     },
   ],
@@ -35,6 +34,7 @@ describe("FolderImportDialog", () => {
       <FolderImportDialog
         preview={preview}
         targetFolderName="Расшифровки"
+        rejectedReasonLabel={() => "неподдерживаемый тип"}
         onConfirm={onConfirm}
         onCancel={onCancel}
       />,
@@ -59,6 +59,7 @@ describe("FolderImportDialog", () => {
       <FolderImportDialog
         preview={preview}
         targetFolderName={null}
+        rejectedReasonLabel={() => "неподдерживаемый тип"}
         onConfirm={vi.fn()}
         onCancel={onCancel}
       />,
