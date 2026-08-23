@@ -22,17 +22,17 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-23T21:32:17Z
+- Updated (UTC): 2026-08-23T21:34:11Z
 - Session mode: authorized Goal implementation
 - Base branch: `main`
 - Base SHA: `800bcc820529ff3c78214c129c593d182c621c62`
 - Working branch: `codex/pwa-realtime-stability-readiness`
-- Last verified revision: `54e4f0c1f733227b710ff95b94e1eff6f1a27e76` (validated realtime stop/recovery fix).
+- Last verified revision: `d3aae9d8aca596ffaac5c1a6c7f7ef4cc6641b85` (validated WebSocket send-race cleanup fix).
 - Working tree at branch start: clean `main`; `HEAD = origin/main`; divergence `0/0`; открытых PR не было; unrelated pre-existing changes отсутствовали.
-- Completed: previous Goal closure recovered from PR #227, exact-main CI/CD and bounded LIVE; baseline and branch verified; realtime capture/session/draft ownership traced. VERIFIED stop-path defects fixed at `54e4f0c`: repeated Stop no longer duplicates final commit/timer, and an uncommitted tail is retained for bounded draft checkpoint/recovery when provider finalization is absent.
+- Completed: previous Goal closure recovered from PR #227, exact-main CI/CD and bounded LIVE; baseline and branch verified; realtime capture/session/draft ownership traced. VERIFIED stop-path defects fixed at `54e4f0c`: repeated Stop no longer duplicates final commit/timer, and an uncommitted tail is retained for bounded draft checkpoint/recovery when provider finalization is absent. VERIFIED WebSocket send race fixed at `d3aae9d`: synchronous send failure now closes fail-safe and releases owned capture resources.
 - Current step: continue targeted lifecycle/matrix audit and validate remaining stop/error/restart cleanup edges before readiness reconciliation.
 - Next exact action: exercise repeated start/stop, stale async completion, display/microphone/mixed cleanup and recovery boundaries in source-level tests; fix only newly reproduced defects.
-- Validation and Evidence: frontend realtime suite `52/52` PASS; backend realtime static/draft/capability suite `74 passed, 1 skipped` with `STUDIO_DATABASE_URL=sqlite+pysqlite:///:memory:`; focused ESLint and `git diff --check` PASS. Initial backend invocation without the documented SQLite test override produced three setup-only secret-file failures and was rerun correctly; no product regression was masked.
+- Validation and Evidence: frontend realtime suite `53/53` PASS; backend realtime static/draft/capability suite `74 passed, 1 skipped` with `STUDIO_DATABASE_URL=sqlite+pysqlite:///:memory:`; focused ESLint and `git diff --check` PASS. Initial backend invocation without the documented SQLite test override produced three setup-only secret-file failures and was rerun correctly; no product regression was masked.
 - Pull Request: none.
 - CI/checks: not started.
 - Deployment/environment: not started; migration class currently expected `NONE`, subject to actual diff; no production operation authorized before required gates.
