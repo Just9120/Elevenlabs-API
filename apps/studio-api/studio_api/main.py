@@ -760,8 +760,9 @@ def _inspect_google_drive_source_folder(db: Session, user: User, folder_id: str)
             max_upload_bytes=settings.source_max_upload_bytes,
         )
     except GoogleConnectionAccessError as exc:
+        if exc.reason == GoogleConnectionAccessReason.missing:
+            raise HTTPException(404, exc.reason.value) from exc
         if exc.reason in {
-            GoogleConnectionAccessReason.missing,
             GoogleConnectionAccessReason.inactive,
             GoogleConnectionAccessReason.reauthorization_required,
             GoogleConnectionAccessReason.scope_unavailable,
@@ -2398,7 +2399,12 @@ def get_google_drive_folder_children(folder_id: str, page_size: int=Query(50, ge
         access_token=refreshed_google_drive_access_token(db, user)
         children=list_drive_folder_children(access_token, clean_id, page_size=page_size, page_token=page_token)
     except GoogleConnectionAccessError as exc:
-        raise HTTPException(409, exc.reason.value) from exc
+        status_code = (
+            404
+            if exc.reason == GoogleConnectionAccessReason.missing
+            else 409
+        )
+        raise HTTPException(status_code, exc.reason.value) from exc
     except HTTPException:
         raise
     except Exception:
