@@ -11,6 +11,10 @@ export type TranscriptImportStatus =
   | "imported_exact"
   | "conflict";
 export type TranscriptSettingsStatus = "exact" | "indeterminate";
+export type SourceCreationStatus =
+  | "authoritative"
+  | "unavailable"
+  | "conflict";
 export type StandardizationAction =
   | "standardize_document"
   | "unchanged"
@@ -43,7 +47,9 @@ export type MaintenanceReason =
   | "catalog_document_classification_changed"
   | "catalog_document_empty"
   | "catalog_document_limit_exceeded"
-  | "catalog_document_response_invalid";
+  | "catalog_document_response_invalid"
+  | "source_creation_time_unavailable"
+  | "source_creation_time_conflict";
 
 export type TranscriptSelectionSummary = {
   google_document_count: number;
@@ -61,6 +67,7 @@ export type TranscriptStandardizationDryRun = {
     position: number;
     name: string;
     standard_status: TranscriptStandardStatus;
+    source_creation_status: SourceCreationStatus;
     action: StandardizationAction;
     reason_code: MaintenanceReason | null;
   }[];
@@ -79,6 +86,7 @@ export type TranscriptStandardizationApply = {
   items: {
     position: number;
     name: string;
+    source_creation_status: SourceCreationStatus;
     action: StandardizationAction;
     outcome: StandardizationOutcome;
     reason_code: MaintenanceReason | null;
@@ -156,6 +164,11 @@ const SETTINGS_STATUSES = new Set<TranscriptSettingsStatus>([
   "exact",
   "indeterminate",
 ]);
+const SOURCE_CREATION_STATUSES = new Set<SourceCreationStatus>([
+  "authoritative",
+  "unavailable",
+  "conflict",
+]);
 const STANDARDIZATION_ACTIONS = new Set<StandardizationAction>([
   "standardize_document",
   "unchanged",
@@ -190,6 +203,8 @@ const STANDARDIZATION_REASONS = new Set<MaintenanceReason>([
   "catalog_document_empty",
   "catalog_document_limit_exceeded",
   "catalog_document_response_invalid",
+  "source_creation_time_unavailable",
+  "source_creation_time_conflict",
 ]);
 const CATALOG_REASONS = new Set<MaintenanceReason>([
   "catalog_conflict",
@@ -306,6 +321,11 @@ export function parseTranscriptStandardizationDryRun(
         STANDARD_STATUSES,
         "standard status",
       ),
+      source_creation_status: enumValue(
+        item.source_creation_status,
+        SOURCE_CREATION_STATUSES,
+        "source creation status",
+      ),
       action: enumValue(
         item.action,
         STANDARDIZATION_ACTIONS,
@@ -344,6 +364,11 @@ export function parseTranscriptStandardizationApply(
     return {
       position: itemPosition(item, index),
       name: text(item.name, "document name"),
+      source_creation_status: enumValue(
+        item.source_creation_status,
+        SOURCE_CREATION_STATUSES,
+        "source creation status",
+      ),
       action: enumValue(
         item.action,
         STANDARDIZATION_ACTIONS,

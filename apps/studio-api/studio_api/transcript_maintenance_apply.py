@@ -4,6 +4,11 @@ from dataclasses import replace
 from enum import Enum
 from typing import Iterable, Mapping
 
+from .source_creation import parse_authoritative_source_created_at
+from .source_creation_authority import (
+    SourceCreationAuthorityStatus,
+    format_source_created_at,
+)
 from .transcript_catalog_migration import (
     CatalogMigrationOperation,
     TranscriptStandardizationAction,
@@ -26,6 +31,8 @@ class TranscriptStandardizationApplyOutcome(str, Enum):
 
 
 class TranscriptStandardizationApplyBlockReason(str, Enum):
+    source_creation_time_unavailable = "source_creation_time_unavailable"
+    source_creation_time_conflict = "source_creation_time_conflict"
     document_unavailable = "catalog_document_unavailable"
     write_rejected = "catalog_document_write_rejected"
     revision_changed = "catalog_document_revision_changed"
@@ -72,7 +79,7 @@ def execute_transcript_standardization_apply(
     *,
     access_token: str,
     candidates: Iterable[TranscriptStandardizationCandidate],
-    created_time_by_document_id: Mapping[str, str | None] | None = None,
+    source_created_at_by_document_id: Mapping[str, str] | None = None,
     standardizer: GoogleTranscriptCatalogStandardizer | None = None,
 ) -> dict:
     """Standardize only eligible selected Docs, without catalog access."""
@@ -82,13 +89,17 @@ def execute_transcript_standardization_apply(
     document_ids = {
         candidate.drive_document_id for candidate in candidate_rows
     }
-    created_times = _normalize_created_times(
+    source_created_times = _normalize_created_times(
         (
-            created_time_by_document_id
-            if created_time_by_document_id is not None
+            source_created_at_by_document_id
+            if source_created_at_by_document_id is not None
             else {}
         ),
         allowed_document_ids=document_ids,
+    )
+    _validate_source_creation_coverage(
+        candidate_rows,
+        source_created_times,
     )
     plan = build_transcript_standardization_payload(
         operation=CatalogMigrationOperation.apply,
@@ -124,7 +135,7 @@ def execute_transcript_standardization_apply(
                     document_id=candidate.drive_document_id,
                     document_name=candidate.name,
                     expected_status=candidate.standard_status,
-                    created_time=created_times.get(
+                    created_time=source_created_times.get(
                         candidate.drive_document_id
                     ),
                     standardizer=transport,
@@ -150,6 +161,9 @@ def execute_transcript_standardization_apply(
             {
                 "position": plan_item["position"],
                 "name": decision.name,
+                "source_creation_status": (
+                    candidate.source_creation_status.value
+                ),
                 "action": decision.action.value,
                 "outcome": outcome.value,
                 "reason_code": reason.value if reason else None,
@@ -199,10 +213,10 @@ def _normalize_standardization_candidates(
 
 
 def _normalize_created_times(
-    values: Mapping[str, str | None],
+    values: Mapping[str, str],
     *,
     allowed_document_ids: set[str],
-) -> dict[str, str | None]:
+) -> dict[str, str]:
     if not isinstance(values, Mapping):
         raise ValueError(
             "Transcript standardization created times must be a mapping"
@@ -222,12 +236,33 @@ def _normalize_created_times(
             raise ValueError(
                 "Transcript standardization created time is out of scope"
             )
-        if created_time is not None and not isinstance(created_time, str):
+        if not isinstance(created_time, str):
             raise ValueError(
                 "Transcript standardization created time is invalid"
             )
-        normalized[document_id] = created_time
+        parsed = parse_authoritative_source_created_at(created_time)
+        if parsed is None:
+            raise ValueError(
+                "Transcript standardization created time is invalid"
+            )
+        normalized[document_id] = format_source_created_at(parsed)
     return normalized
+
+
+def _validate_source_creation_coverage(
+    candidates: tuple[TranscriptStandardizationCandidate, ...],
+    source_created_times: Mapping[str, str],
+) -> None:
+    authoritative_ids = {
+        candidate.drive_document_id
+        for candidate in candidates
+        if candidate.source_creation_status
+        == SourceCreationAuthorityStatus.authoritative
+    }
+    if set(source_created_times) != authoritative_ids:
+        raise ValueError(
+            "Transcript standardization source creation coverage is invalid"
+        )
 
 
 def _private_value(

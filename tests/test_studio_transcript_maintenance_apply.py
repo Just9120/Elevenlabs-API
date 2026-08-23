@@ -16,16 +16,21 @@ def _candidate(
     *,
     name: str,
     standard: str,
+    source_status: str = "authoritative",
 ):
     from studio_api.transcript_catalog_migration import (
         CatalogDocumentStandardStatus,
         TranscriptStandardizationCandidate,
+    )
+    from studio_api.source_creation_authority import (
+        SourceCreationAuthorityStatus,
     )
 
     return TranscriptStandardizationCandidate(
         drive_document_id=document_id,
         name=name,
         standard_status=CatalogDocumentStandardStatus(standard),
+        source_creation_status=SourceCreationAuthorityStatus(source_status),
     )
 
 
@@ -105,15 +110,17 @@ def test_standardization_apply_mutates_only_eligible_selected_docs():
             "private-unreadable",
             name="Unreadable",
             standard="unreadable",
+            source_status="unavailable",
         ),
     )
 
     payload = execute_transcript_standardization_apply(
         access_token="private-access-token",
         candidates=candidates,
-        created_time_by_document_id={
+        source_created_at_by_document_id={
+            "private-current": "2026-07-01T00:00:00Z",
             "private-outdated": "2026-07-01T00:00:00Z",
-            "private-unstructured": None,
+            "private-unstructured": "2026-07-01T00:00:00Z",
         },
         standardizer=standardizer,
     )
@@ -172,7 +179,7 @@ def test_standardization_apply_retry_does_not_rewrite_current_document():
         "Model: unknown\n"
         "Language: unknown\n"
         "Speakers: unknown\n"
-        "Created at: unknown\n\n"
+        "Created at: 2026-07-01T00:00:00Z\n\n"
         "Transcript\n\nPrivate body"
     )
     standardizer = StatefulStandardizer(
@@ -188,6 +195,9 @@ def test_standardization_apply_retry_does_not_rewrite_current_document():
                 standard="outdated",
             ),
         ),
+        source_created_at_by_document_id={
+            "private-retry": "2026-07-01T00:00:00Z"
+        },
         standardizer=standardizer,
     )
 
@@ -234,6 +244,10 @@ def test_standardization_apply_blocks_one_failed_doc_and_continues():
                 standard="unstructured",
             ),
         ),
+        source_created_at_by_document_id={
+            "private-conflict": "2026-07-01T00:00:00Z",
+            "private-eligible": "2026-07-01T00:00:00Z",
+        },
         standardizer=standardizer,
     )
 
@@ -308,6 +322,10 @@ def test_standardization_apply_aborts_on_connection_wide_failure(reason):
                     standard="unstructured",
                 ),
             ),
+            source_created_at_by_document_id={
+                "private-first": "2026-07-01T00:00:00Z",
+                "private-second": "2026-07-01T00:00:00Z",
+            },
             standardizer=standardizer,
         )
 
@@ -336,7 +354,7 @@ def test_standardization_apply_rejects_out_of_scope_metadata_before_write():
                     standard="unstructured",
                 ),
             ),
-            created_time_by_document_id={
+            source_created_at_by_document_id={
                 "private-other": "2026-07-01T00:00:00Z"
             },
             standardizer=standardizer,
@@ -382,9 +400,42 @@ def test_standardization_apply_rejects_invalid_created_time_mapping():
         execute_transcript_standardization_apply(
             access_token="private-access-token",
             candidates=(),
-            created_time_by_document_id=[],
+            source_created_at_by_document_id=[],
             standardizer=standardizer,
         )
 
+    assert standardizer.reads == []
+    assert standardizer.writes == []
+
+
+def test_standardization_apply_blocks_missing_source_creation_authority():
+    from studio_api.transcript_maintenance_apply import (
+        execute_transcript_standardization_apply,
+    )
+
+    standardizer = StatefulStandardizer({})
+    payload = execute_transcript_standardization_apply(
+        access_token="private-access-token",
+        candidates=(
+            _candidate(
+                "private-document",
+                name="Document",
+                standard="outdated",
+                source_status="unavailable",
+            ),
+        ),
+        standardizer=standardizer,
+    )
+
+    assert payload["items"] == [
+        {
+            "position": 0,
+            "name": "Document",
+            "source_creation_status": "unavailable",
+            "action": "blocked",
+            "outcome": "blocked",
+            "reason_code": "source_creation_time_unavailable",
+        }
+    ]
     assert standardizer.reads == []
     assert standardizer.writes == []

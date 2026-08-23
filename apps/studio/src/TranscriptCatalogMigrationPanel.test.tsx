@@ -46,6 +46,7 @@ const standardizationDryRun = {
       position: 0,
       name: "Лекция для обновления",
       standard_status: "outdated",
+      source_creation_status: "authoritative",
       action: "standardize_document",
       reason_code: null,
     },
@@ -53,6 +54,7 @@ const standardizationDryRun = {
       position: 1,
       name: "Актуальная лекция",
       standard_status: "current",
+      source_creation_status: "authoritative",
       action: "unchanged",
       reason_code: null,
     },
@@ -73,6 +75,7 @@ const standardizationApply = {
     {
       position: 0,
       name: "Лекция для обновления",
+      source_creation_status: "authoritative",
       action: "standardize_document",
       outcome: "standardized",
       reason_code: null,
@@ -80,6 +83,7 @@ const standardizationApply = {
     {
       position: 1,
       name: "Актуальная лекция",
+      source_creation_status: "authoritative",
       action: "unchanged",
       outcome: "already_current",
       reason_code: null,

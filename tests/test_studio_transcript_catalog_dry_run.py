@@ -271,7 +271,7 @@ def test_catalog_dry_run_combines_scan_authority_and_safe_payload():
         "Model: scribe_v2\n"
         "Language: ru\n"
         "Speakers: yes\n"
-        "Created at: 2026-07-01 10:00 UTC\n\n"
+        "Created at: 2026-07-01T10:00:00Z\n\n"
         "Transcript\n\nprivate-current-body"
     )
     outdated_text = (

@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Iterable
 
+from .source_creation_authority import SourceCreationAuthorityStatus
 from .transcript_catalog import CURRENT_TRANSCRIPT_STANDARD
 
 
@@ -42,6 +43,8 @@ class CatalogMigrationBlockReason(str, Enum):
     catalog_conflict = "catalog_conflict"
     document_unreadable = "document_unreadable"
     standardization_required = "standardization_required"
+    source_creation_time_unavailable = "source_creation_time_unavailable"
+    source_creation_time_conflict = "source_creation_time_conflict"
 
 
 class TranscriptMaintenanceWorkflow(str, Enum):
@@ -89,6 +92,7 @@ class TranscriptStandardizationCandidate:
     drive_document_id: str = field(repr=False)
     name: str | None
     standard_status: CatalogDocumentStandardStatus
+    source_creation_status: SourceCreationAuthorityStatus
 
 
 @dataclass(frozen=True)
@@ -158,10 +162,26 @@ def classify_transcript_standardization_candidate(
         raise ValueError("Transcript standardization candidate is required")
     document_id = _private_document_id(candidate.drive_document_id)
     _require_enum(candidate.standard_status, CatalogDocumentStandardStatus)
+    _require_enum(
+        candidate.source_creation_status,
+        SourceCreationAuthorityStatus,
+    )
 
     if candidate.standard_status == CatalogDocumentStandardStatus.unreadable:
         action = TranscriptStandardizationAction.blocked
         reason = CatalogMigrationBlockReason.document_unreadable
+    elif (
+        candidate.source_creation_status
+        == SourceCreationAuthorityStatus.conflict
+    ):
+        action = TranscriptStandardizationAction.blocked
+        reason = CatalogMigrationBlockReason.source_creation_time_conflict
+    elif (
+        candidate.source_creation_status
+        != SourceCreationAuthorityStatus.authoritative
+    ):
+        action = TranscriptStandardizationAction.blocked
+        reason = CatalogMigrationBlockReason.source_creation_time_unavailable
     elif candidate.standard_status in {
         CatalogDocumentStandardStatus.outdated,
         CatalogDocumentStandardStatus.unstructured,
@@ -293,6 +313,9 @@ def build_transcript_standardization_payload(
                 "position": position,
                 "name": decision.name,
                 "standard_status": decision.standard_status.value,
+                "source_creation_status": (
+                    candidate_rows[position].source_creation_status.value
+                ),
                 "action": decision.action.value,
                 "reason_code": (
                     decision.reason.value if decision.reason else None

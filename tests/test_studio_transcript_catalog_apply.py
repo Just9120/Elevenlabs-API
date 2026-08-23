@@ -175,7 +175,7 @@ def test_catalog_import_dry_run_is_unchanged_after_committed_apply(
         "Model: scribe_v2\n"
         "Language: ru\n"
         "Speakers: yes\n"
-        "Created at: 2026-07-01 10:00 UTC\n\n"
+        "Created at: 2026-07-01T10:00:00Z\n\n"
         "Transcript\n\nprivate-body"
     )
 

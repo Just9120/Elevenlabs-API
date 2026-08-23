@@ -23,6 +23,7 @@ import {
   type MaintenanceReason,
   type StandardizationAction,
   type StandardizationOutcome,
+  type SourceCreationStatus,
   type TranscriptCatalogImportApply,
   type TranscriptCatalogImportDryRun,
   type TranscriptImportStatus,
@@ -285,6 +286,11 @@ const SETTINGS_LABELS: Record<TranscriptSettingsStatus, string> = {
   exact: "Настройки определены",
   indeterminate: "Настройки не определены",
 };
+const SOURCE_CREATION_LABELS: Record<SourceCreationStatus, string> = {
+  authoritative: "Подтверждена",
+  unavailable: "Не определена",
+  conflict: "Конфликт",
+};
 const STANDARDIZATION_ACTION_LABELS: Record<
   StandardizationAction,
   string
@@ -337,6 +343,10 @@ const REASON_LABELS: Record<MaintenanceReason, string> = {
     "Документ слишком большой для безопасной стандартизации",
   catalog_document_response_invalid:
     "Google Docs вернул некорректную структуру документа",
+  source_creation_time_unavailable:
+    "Нет подтверждённой даты создания исходного файла",
+  source_creation_time_conflict:
+    "Обнаружен конфликт даты создания исходного файла",
 };
 const ERROR_MESSAGES: Record<string, string> = {
   catalog_google_connection_missing:
@@ -566,6 +576,7 @@ function StandardizationDryRunResult({
             <tr>
               <th>Документ</th>
               <th>Стандарт</th>
+              <th>Дата источника</th>
               <th>Действие</th>
             </tr>
           </thead>
@@ -574,6 +585,9 @@ function StandardizationDryRunResult({
               <tr key={item.position}>
                 <td>{item.name}</td>
                 <td>{STANDARD_LABELS[item.standard_status]}</td>
+                <td>
+                  {SOURCE_CREATION_LABELS[item.source_creation_status]}
+                </td>
                 <td>
                   {STANDARDIZATION_ACTION_LABELS[item.action]}
                   <Reason reason={item.reason_code} />
@@ -699,6 +713,7 @@ function StandardizationApplyResult({
           <thead>
             <tr>
               <th>Документ</th>
+              <th>Дата источника</th>
               <th>Действие</th>
               <th>Результат</th>
             </tr>
@@ -707,6 +722,9 @@ function StandardizationApplyResult({
             {result.items.map((item) => (
               <tr key={item.position}>
                 <td>{item.name}</td>
+                <td>
+                  {SOURCE_CREATION_LABELS[item.source_creation_status]}
+                </td>
                 <td>{STANDARDIZATION_ACTION_LABELS[item.action]}</td>
                 <td>
                   {STANDARDIZATION_OUTCOME_LABELS[item.outcome]}

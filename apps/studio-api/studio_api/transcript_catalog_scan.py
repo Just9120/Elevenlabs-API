@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from enum import Enum
 import re
 from typing import Any, Callable, Mapping
@@ -10,6 +11,7 @@ import httpx
 
 from .google_drive import GOOGLE_FOLDER_MIME_TYPE
 from .google_docs_output import GOOGLE_DOC_MIME_TYPE
+from .source_creation import parse_authoritative_source_created_at
 from .transcript_catalog_migration import CatalogDocumentStandardStatus
 from .transcript_document_selection import (
     TranscriptDocumentSelectionError,
@@ -481,6 +483,8 @@ def extract_google_document_plain_text(payload: Mapping[str, Any]) -> str:
 
 def classify_transcript_document_standard(
     document_text: str,
+    *,
+    authoritative_created_at: datetime | None = None,
 ) -> CatalogDocumentStandardStatus:
     """Classify transient document text without retaining or returning it."""
 
@@ -522,6 +526,19 @@ def classify_transcript_document_standard(
         for line in metadata_lines[required_count:]
     )
     if required_match and optional_match:
+        visible_created_at = parse_transcript_document_created_at(
+            required_lines[-1]
+        )
+        if visible_created_at is None:
+            return CatalogDocumentStandardStatus.outdated
+        expected_created_at = _normalized_datetime(
+            authoritative_created_at
+        )
+        if (
+            expected_created_at is not None
+            and visible_created_at != expected_created_at
+        ):
+            return CatalogDocumentStandardStatus.outdated
         return CatalogDocumentStandardStatus.current
     if any(
         line.startswith(prefix)
@@ -533,6 +550,23 @@ def classify_transcript_document_standard(
     ):
         return CatalogDocumentStandardStatus.outdated
     return CatalogDocumentStandardStatus.unstructured
+
+
+def parse_transcript_document_created_at(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value.startswith("Created at:"):
+        return None
+    parsed = parse_authoritative_source_created_at(
+        value.removeprefix("Created at:").strip()
+    )
+    return _normalized_datetime(parsed)
+
+
+def _normalized_datetime(value: object) -> datetime | None:
+    if not isinstance(value, datetime):
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).replace(microsecond=0)
 
 
 def normalize_transcript_document_text(value: object) -> str:

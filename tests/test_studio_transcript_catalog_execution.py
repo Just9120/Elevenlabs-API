@@ -172,6 +172,7 @@ def test_catalog_execution_converges_mixed_apply_without_private_payloads(
         candidates=candidates,
         created_time_by_document_id={
             "private-outdated": "2026-07-01T00:00:00Z",
+            "private-existing-output": "2026-07-01T00:00:00Z",
         },
         applied_at=datetime(2026, 7, 26, 10, 0, tzinfo=timezone.utc),
         standardizer=standardizer,
@@ -328,6 +329,9 @@ def test_catalog_execution_retry_finishes_import_without_second_google_write(
             owner_user_id="owner-a",
             access_token="private-access-token",
             candidates=(candidate,),
+            created_time_by_document_id={
+                "private-retry": "2026-07-01T00:00:00Z"
+            },
             standardizer=standardizer,
         )
     catalog_db.rollback()
@@ -346,6 +350,9 @@ def test_catalog_execution_retry_finishes_import_without_second_google_write(
         owner_user_id="owner-a",
         access_token="private-access-token",
         candidates=(candidate,),
+        created_time_by_document_id={
+            "private-retry": "2026-07-01T00:00:00Z"
+        },
         standardizer=standardizer,
     )
     catalog_db.commit()

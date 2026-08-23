@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -18,7 +19,7 @@ def _current_text(marker: str) -> str:
         "Model: scribe_v2\n"
         "Language: ru\n"
         "Speakers: yes\n"
-        "Created at: 2026-07-01 10:00 UTC\n\n"
+        "Created at: 2026-07-01T10:00:00Z\n\n"
         f"Transcript\n\n{marker}"
     )
 
@@ -97,6 +98,29 @@ def _document(document_id: str, name: str):
     )
 
 
+def _source_creation_authorities(
+    db,
+    *,
+    owner_user_id,
+    document_ids,
+):
+    from studio_api.source_creation_authority import (
+        DocumentSourceCreationAuthority,
+        SourceCreationAuthorityStatus,
+    )
+
+    assert db is not None
+    assert owner_user_id == "private-owner"
+    return {
+        document_id: DocumentSourceCreationAuthority(
+            SourceCreationAuthorityStatus.authoritative,
+            created_at=datetime(2026, 7, 1, 10, tzinfo=timezone.utc),
+            provenance="google_drive_created_time",
+        )
+        for document_id in document_ids
+    }
+
+
 def test_standardization_dry_run_has_no_catalog_authority_or_import_action():
     from studio_api.transcript_catalog_scan import (
         CatalogGoogleReadError,
@@ -122,10 +146,13 @@ def test_standardization_dry_run_has_no_catalog_authority_or_import_action():
     )
 
     payload = build_transcript_standardization_dry_run(
+        object(),
+        owner_user_id="private-owner",
         access_token="private-access-token",
         selection_mode="folder_tree",
         folder_id="private-folder",
         reader=reader,
+        source_creation_loader=_source_creation_authorities,
     )
 
     assert payload["workflow"] == "standardization"
@@ -161,6 +188,46 @@ def test_standardization_dry_run_has_no_catalog_authority_or_import_action():
         "private-outdated-body",
     ):
         assert private not in encoded
+
+
+def test_standardization_dry_run_blocks_missing_source_creation_time():
+    from studio_api.source_creation_authority import (
+        DocumentSourceCreationAuthority,
+        SourceCreationAuthorityStatus,
+    )
+    from studio_api.transcript_maintenance_dry_run import (
+        build_transcript_standardization_dry_run,
+    )
+
+    reader = RecursiveReader(
+        documents=(_document("private-document", "Document"),),
+        texts={"private-document": _outdated_text("private-body")},
+    )
+
+    payload = build_transcript_standardization_dry_run(
+        object(),
+        owner_user_id="private-owner",
+        access_token="private-access-token",
+        selection_mode="single_document",
+        document_id="private-document",
+        reader=reader,
+        source_creation_loader=lambda *args, **kwargs: {
+            "private-document": DocumentSourceCreationAuthority(
+                SourceCreationAuthorityStatus.unavailable
+            )
+        },
+    )
+
+    assert payload["items"] == [
+        {
+            "position": 0,
+            "name": "Document",
+            "standard_status": "outdated",
+            "source_creation_status": "unavailable",
+            "action": "blocked",
+            "reason_code": "source_creation_time_unavailable",
+        }
+    ]
 
 
 def test_catalog_import_dry_run_is_recursive_and_has_no_google_action():
@@ -285,10 +352,13 @@ def test_dry_run_rejects_duplicate_recursive_scan_evidence():
 
     with pytest.raises(ValueError, match="scan evidence"):
         build_transcript_standardization_dry_run(
+            object(),
+            owner_user_id="private-owner",
             access_token="private-access-token",
             selection_mode="folder_tree",
             folder_id="private-folder",
             reader=reader,
+            source_creation_loader=_source_creation_authorities,
         )
 
 
@@ -309,10 +379,13 @@ def test_empty_recursive_document_is_blocked_without_aborting_siblings():
     )
 
     payload = build_transcript_standardization_dry_run(
+        object(),
+        owner_user_id="private-owner",
         access_token="private-access-token",
         selection_mode="folder_tree",
         folder_id="private-folder",
         reader=reader,
+        source_creation_loader=_source_creation_authorities,
     )
 
     assert [item["action"] for item in payload["items"]] == [
@@ -333,10 +406,13 @@ def test_single_document_standardization_revalidates_only_selected_doc():
     )
 
     payload = build_transcript_standardization_dry_run(
+        object(),
+        owner_user_id="private-owner",
         access_token="private-access-token",
         selection_mode="single_document",
         document_id="private-document",
         reader=reader,
+        source_creation_loader=_source_creation_authorities,
     )
 
     assert [item["action"] for item in payload["items"]] == [
@@ -443,11 +519,14 @@ def test_maintenance_target_modes_fail_closed(
 
     with pytest.raises(ValueError, match="maintenance"):
         build_transcript_standardization_dry_run(
+            object(),
+            owner_user_id="private-owner",
             access_token="private-access-token",
             selection_mode=selection_mode,
             folder_id=folder_id,
             document_id=document_id,
             reader=reader,
+            source_creation_loader=_source_creation_authorities,
         )
 
 
@@ -459,10 +538,13 @@ def test_unavailable_single_document_is_one_safe_blocked_candidate():
     reader = RecursiveReader(documents=(), texts={})
 
     payload = build_transcript_standardization_dry_run(
+        object(),
+        owner_user_id="private-owner",
         access_token="private-access-token",
         selection_mode="single_document",
         document_id="private-document",
         reader=reader,
+        source_creation_loader=_source_creation_authorities,
     )
 
     assert [item["action"] for item in payload["items"]] == ["blocked"]
@@ -483,7 +565,9 @@ def test_selection_inspection_repr_redacts_private_evidence():
 
     standardization = TranscriptStandardizationSelectionInspection(
         candidates=("private-candidate",),
-        created_time_by_document_id={"private-document": "private-time"},
+        source_created_at_by_document_id={
+            "private-document": "private-time"
+        },
         selection_summary={"google_document_count": 1},
     )
     catalog_import = TranscriptCatalogImportSelectionInspection(

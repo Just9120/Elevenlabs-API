@@ -147,8 +147,8 @@ def test_maintenance_dry_run_routes_are_independent_and_recursive(
         lambda *args: limit_calls.append(args),
     )
 
-    def standardization(**kwargs):
-        calls.append(("standardization", kwargs))
+    def standardization(db_arg, **kwargs):
+        calls.append(("standardization", db_arg, kwargs))
         return {
             "workflow": "standardization",
             "operation": "dry_run",
@@ -198,7 +198,9 @@ def test_maintenance_dry_run_routes_are_independent_and_recursive(
     assert calls == [
         (
             "standardization",
+            db,
             {
+                "owner_user_id": "private-owner",
                 "access_token": "private-access-token",
                 "selection_mode": "folder_tree",
                 "folder_id": "private-folder",
@@ -328,7 +330,7 @@ def test_maintenance_dry_run_rejects_missing_or_untrusted_fields(
     monkeypatch.setattr(
         routes,
         "build_transcript_standardization_dry_run",
-        lambda **kwargs: called.append(kwargs),
+        lambda *args, **kwargs: called.append((args, kwargs)),
     )
     missing = client.post(
         "/api/transcript-maintenance/standardization/dry-run",
@@ -389,12 +391,16 @@ def test_maintenance_dry_run_rejects_missing_or_untrusted_fields(
     assert preview.status_code == 422
     assert single_document.status_code == 200
     assert called == [
-        {
-            "access_token": "private-access-token",
-            "selection_mode": "single_document",
-            "folder_id": None,
-            "document_id": "private-document",
-        }
+        (
+            (db,),
+            {
+                "owner_user_id": "private-owner",
+                "access_token": "private-access-token",
+                "selection_mode": "single_document",
+                "folder_id": None,
+                "document_id": "private-document",
+            },
+        )
     ]
     assert db.commits == 0
 
@@ -450,7 +456,7 @@ def test_maintenance_apply_routes_reinspect_and_execute_independently(
     )
     standardization_inspection = SimpleNamespace(
         candidates=("private-standardization-candidate",),
-        created_time_by_document_id={
+        source_created_at_by_document_id={
             "private-document": "2026-07-01T00:00:00Z"
         },
         selection_summary={"google_document_count": 1},
@@ -460,8 +466,8 @@ def test_maintenance_apply_routes_reinspect_and_execute_independently(
         selection_summary={"google_document_count": 1},
     )
 
-    def inspect_standardization(**kwargs):
-        calls.append(("inspect_standardization", kwargs))
+    def inspect_standardization(db_arg, **kwargs):
+        calls.append(("inspect_standardization", db_arg, kwargs))
         return standardization_inspection
 
     def execute_standardization(**kwargs):
@@ -533,7 +539,9 @@ def test_maintenance_apply_routes_reinspect_and_execute_independently(
     assert calls == [
         (
             "inspect_standardization",
+            db,
             {
+                "owner_user_id": "private-owner",
                 "access_token": "private-access-token",
                 "selection_mode": "single_document",
                 "folder_id": None,
@@ -547,7 +555,7 @@ def test_maintenance_apply_routes_reinspect_and_execute_independently(
                 "candidates": (
                     "private-standardization-candidate",
                 ),
-                "created_time_by_document_id": {
+                "source_created_at_by_document_id": {
                     "private-document": "2026-07-01T00:00:00Z"
                 },
             },
@@ -647,9 +655,9 @@ def test_standardization_apply_normalizes_google_write_failure(
     monkeypatch.setattr(
         routes,
         "inspect_transcript_standardization_selection",
-        lambda **kwargs: SimpleNamespace(
+        lambda *args, **kwargs: SimpleNamespace(
             candidates=("private-candidate",),
-            created_time_by_document_id={},
+            source_created_at_by_document_id={},
             selection_summary={"google_document_count": 1},
         ),
     )

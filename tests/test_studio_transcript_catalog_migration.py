@@ -236,6 +236,9 @@ def test_standardization_plan_contains_no_catalog_action_or_private_identity():
         TranscriptStandardizationCandidate,
         build_transcript_standardization_payload,
     )
+    from studio_api.source_creation_authority import (
+        SourceCreationAuthorityStatus,
+    )
 
     payload = build_transcript_standardization_payload(
         operation=CatalogMigrationOperation.dry_run,
@@ -244,16 +247,25 @@ def test_standardization_plan_contains_no_catalog_action_or_private_identity():
                 drive_document_id="private-outdated",
                 name="Outdated",
                 standard_status=CatalogDocumentStandardStatus.outdated,
+                source_creation_status=(
+                    SourceCreationAuthorityStatus.authoritative
+                ),
             ),
             TranscriptStandardizationCandidate(
                 drive_document_id="private-current",
                 name="Current",
                 standard_status=CatalogDocumentStandardStatus.current,
+                source_creation_status=(
+                    SourceCreationAuthorityStatus.authoritative
+                ),
             ),
             TranscriptStandardizationCandidate(
                 drive_document_id="private-unreadable",
                 name="Unreadable",
                 standard_status=CatalogDocumentStandardStatus.unreadable,
+                source_creation_status=(
+                    SourceCreationAuthorityStatus.unavailable
+                ),
             ),
         ),
     )

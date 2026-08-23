@@ -277,6 +277,8 @@ def dry_run_transcript_standardization(
     try:
         access_token = _maintenance_access_token(db, user.id, settings)
         return build_transcript_standardization_dry_run(
+            db,
+            owner_user_id=user.id,
             access_token=access_token,
             **_maintenance_target(data),
         )
@@ -343,14 +345,16 @@ def apply_transcript_standardization(
     try:
         access_token = _maintenance_access_token(db, user.id, settings)
         inspection = inspect_transcript_standardization_selection(
+            db,
+            owner_user_id=user.id,
             access_token=access_token,
             **_maintenance_target(data),
         )
         payload = execute_transcript_standardization_apply(
             access_token=access_token,
             candidates=inspection.candidates,
-            created_time_by_document_id=(
-                inspection.created_time_by_document_id
+            source_created_at_by_document_id=(
+                inspection.source_created_at_by_document_id
             ),
         )
         payload["selection_summary"] = dict(
