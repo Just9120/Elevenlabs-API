@@ -28,13 +28,13 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Текущий independently verified execution snapshot: `main@ccb067d05d5225a3178b21cd239bd65c0764f1fb`; exact-main CI, Studio/browser CI, web/API/worker deployment, protected migration `0023_realtime_drafts` и bounded LIVE/operational validation предыдущей Goal подтверждены. Новая Goal `PWA-INGEST-FOLDERS-01` не меняет readiness до выполнения соответствующих product AC.
+Текущий independently verified execution snapshot: `main@17a9fc408a2d352005be08d981325c21de4d1dc0`; exact-main CI, Studio/browser CI, web/API deployment, primary и maintenance Google OAuth reconnect подтверждены. Bounded LIVE подтвердил рекурсивный Drive source-folder intake, но выявил, что target folder, выбранная после folder import, не распространяется на созданные строки; поэтому `PI-08` выполнен, а `PI-10` остаётся incomplete до delivery fix-ветки.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **75,9% (`22/29`)** | `COLAB-BATCH 17/23` + `COLAB-REALTIME 5/6` |
-| Studio PWA | **89,0% (`81/91`)** | сумма десяти PWA-эпиков ниже; production runtime опроверг `PI-08` и `PI-10` под exact `drive.file` |
-| Весь проект | **85,8% (`103/120`)** | все выполненные AC двух продуктов / все AC текущего scope |
+| Studio PWA | **90,1% (`82/91`)** | сумма десяти PWA-эпиков ниже; production LIVE подтвердил `PI-08`, `PI-10` остаётся incomplete |
+| Весь проект | **86,7% (`104/120`)** | все выполненные AC двух продуктов / все AC текущего scope |
 
 ## 3. Общие product rules
 
@@ -155,7 +155,7 @@ Verified implementation: backend не раскрывает raw batch idempotency
 
 ### Эпик `PWA-INGEST-01` — target и source selection, multi-transcription
 
-Status: **🟦 IN PROGRESS — 81,8% (`9/11`)**. Production runtime показал недостаточность прежнего `drive.file`; владелец явно авторизовал exact `drive.file + drive.readonly`, но `PI-08`/`PI-10` остаются incomplete до нового DEPLOY/LIVE.
+Status: **🟦 IN PROGRESS — 90,9% (`10/11`)**. Exact `drive.file + drive.readonly`, reconnect и production LIVE подтвердили source-folder intake (`PI-08`). `PI-10` остаётся incomplete: production UI требует повторно выбирать общую target folder для каждой созданной строки; fix ожидает exact-head CI, DEPLOY и повторный LIVE.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -166,14 +166,14 @@ Status: **🟦 IN PROGRESS — 81,8% (`9/11`)**. Production runtime показа
 | `PI-05` | С компьютера выбирается целая папка с файлами. | ✅ |
 | `PI-06` | На Google Drive выбирается один source file. | ✅ |
 | `PI-07` | На Google Drive выбираются несколько source files. | ✅ |
-| `PI-08` | На Google Drive выбирается source folder. | ❌ |
+| `PI-08` | На Google Drive выбирается source folder. | ✅ |
 | `PI-09` | Один batch принимает одну target folder и несколько явно выбранных files. | ✅ |
 | `PI-10` | Один batch принимает одну target folder и source folder. | ❌ |
 | `PI-11` | Для каждой composer row можно независимо выбрать source и target folder. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE ❌`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ◐ | DEPLOY ◐ | LIVE ◐`.
 
-Verified implementation: Favorites и local folder flow подтверждены. Drive source-folder code реализует bounded traversal, drift token и atomic apply; required CI и web/API deployment для `main@e94605c07ebe2d88396aaa05edb5095079ba6eeb` прошли. Bounded production canary затем вернул zero importable descendants под прежним `drive.file`. В рабочей ветке `codex/pwa-drive-readonly-sources` exact grant расширен до `drive.file + drive.readonly`, старые grants становятся `reconnect_required`, source-folder traversal отдельно требует `drive.readonly`, а full `drive`/unrelated scopes отклоняются. Новый backend CI, production config, reconnect и LIVE canary ещё не подтверждены; поэтому `PI-08`/`PI-10` остаются incomplete.
+Verified implementation: Favorites и local folder flow подтверждены. `main@17a9fc408a2d352005be08d981325c21de4d1dc0` использует exact `drive.file + drive.readonly`, требует reconnect для старых grants, отдельно gate-ит source-folder traversal по `drive.readonly` и отклоняет full `drive`/unrelated scopes. Exact-main CI, web/API deployment, оба OAuth reconnect и bounded LIVE подтвердили рекурсивный import трёх supported Drive files в три composer rows без запуска provider job. LIVE также выявил order-dependent gap: поздний выбор target folder изменяет только первую строку. Fix-ветка `codex/pwa-folder-target-propagation` заполняет общей папкой только unassigned rows и сохраняет последующий per-row override; local Studio validation `558/558`, ESLint, TypeScript и build прошли, exact-head CI/DEPLOY/LIVE ожидаются.
 
 ### Эпик `PWA-SEGMENTS-01` — произвольные пользовательские фрагменты
 
