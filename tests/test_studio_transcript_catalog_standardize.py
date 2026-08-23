@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
@@ -165,13 +166,18 @@ def test_standardized_text_preserves_authoritative_metadata_and_body():
     assert "Model: scribe_v2" in result
     assert "Language: Русский" in result
     assert "Speakers: no" in result
-    assert "Created at: 2026-06-02 10:26 UTC" in result
+    assert "Created at: 2026-05-01T00:00:00Z" in result
     assert "Segment project: Tivali" in result
     assert "Segment time range: 00:00-end" in result
     assert "Original source: Lecture.mp4" in result
     assert body in result
     assert (
-        classify_transcript_document_standard(result)
+        classify_transcript_document_standard(
+            result,
+            authoritative_created_at=datetime(
+                2026, 5, 1, tzinfo=timezone.utc
+            ),
+        )
         == CatalogDocumentStandardStatus.current
     )
 
@@ -193,7 +199,7 @@ def test_unstructured_standardization_does_not_infer_settings():
     assert "Model: unknown" in result
     assert "Language: unknown" in result
     assert "Speakers: unknown" in result
-    assert "Created at: 2026-07-01 12:34 UTC" in result
+    assert "Created at: 2026-07-01T12:34:56Z" in result
     assert "ElevenLabs" not in result
     assert "scribe_v2" not in result
     assert segment_transcript_for_readability(
@@ -202,7 +208,7 @@ def test_unstructured_standardization_does_not_infer_settings():
     ) == "One sentence.\n\nTwo sentence.\n\nThree sentence."
 
 
-def test_standardized_text_preserves_literal_title_and_opaque_timestamp():
+def test_standardized_text_replaces_opaque_timestamp_with_authority():
     from studio_api.transcript_catalog_standardize import (
         build_standardized_transcript_document_text,
     )
@@ -222,7 +228,8 @@ def test_standardized_text_preserves_literal_title_and_opaque_timestamp():
     )
 
     assert result.startswith("unknown\n\nTranscript metadata\n")
-    assert "Created at: imported before timestamp policy" in result
+    assert "Created at: 2026-07-01T12:34:56Z" in result
+    assert "Created at: imported before timestamp policy" not in result
 
 
 def test_standardizer_reads_one_tab_and_redacts_private_snapshot():
@@ -422,7 +429,7 @@ def test_current_document_is_idempotent_and_does_not_write():
     current = (
         "Title\n\nTranscript metadata\n"
         "Provider: unknown\nModel: unknown\nLanguage: unknown\n"
-        "Speakers: unknown\nCreated at: unknown\n\n"
+        "Speakers: unknown\nCreated at: 2026-07-01T00:00:00Z\n\n"
         "Transcript\n\nBody"
     )
     posts = []
@@ -439,6 +446,7 @@ def test_current_document_is_idempotent_and_does_not_write():
         document_id="private-document",
         document_name="Title",
         expected_status=CatalogDocumentStandardStatus.outdated,
+        created_time="2026-07-01T00:00:00Z",
         standardizer=standardizer,
     )
 
@@ -474,6 +482,7 @@ def test_changed_classification_and_revision_rejection_fail_closed():
             document_id="private-document",
             document_name="Title",
             expected_status=CatalogDocumentStandardStatus.outdated,
+            created_time="2026-07-01T00:00:00Z",
             standardizer=standardizer,
         )
     assert (
@@ -487,6 +496,7 @@ def test_changed_classification_and_revision_rejection_fail_closed():
             document_id="private-document",
             document_name="Title",
             expected_status=CatalogDocumentStandardStatus.unstructured,
+            created_time="2026-07-01T00:00:00Z",
             standardizer=standardizer,
         )
     assert (
@@ -514,6 +524,7 @@ def test_empty_transcript_is_never_rewritten():
             document_id="private-document",
             document_name="Title",
             expected_status=CatalogDocumentStandardStatus.unstructured,
+            created_time="2026-07-01T00:00:00Z",
             standardizer=GoogleTranscriptCatalogStandardizer(
                 get=lambda *args, **kwargs: _response(
                     200,

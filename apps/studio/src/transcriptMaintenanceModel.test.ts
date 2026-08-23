@@ -24,6 +24,7 @@ describe("transcript maintenance response model", () => {
           position: 0,
           name: "Safe document",
           standard_status: "outdated",
+          source_creation_status: "authoritative",
           action: "standardize_document",
           reason_code: null,
           drive_document_id: "private-document",
@@ -45,6 +46,7 @@ describe("transcript maintenance response model", () => {
         {
           position: 0,
           name: "Safe document",
+          source_creation_status: "authoritative",
           action: "standardize_document",
           outcome: "standardized",
           reason_code: null,

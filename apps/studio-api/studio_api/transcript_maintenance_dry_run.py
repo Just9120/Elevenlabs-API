@@ -4,6 +4,11 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable
 
+from .source_creation_authority import (
+    DocumentSourceCreationAuthority,
+    SourceCreationAuthorityStatus,
+    load_document_source_creation_authorities,
+)
 from .transcript_catalog_dry_run import (
     CatalogImportAuthority,
     load_catalog_import_authorities,
@@ -46,7 +51,7 @@ class TranscriptStandardizationSelectionInspection:
     candidates: tuple[TranscriptStandardizationCandidate, ...] = field(
         repr=False
     )
-    created_time_by_document_id: dict[str, str | None] = field(
+    source_created_at_by_document_id: dict[str, str | None] = field(
         repr=False
     )
     selection_summary: dict[str, int]
@@ -57,7 +62,7 @@ class TranscriptStandardizationSelectionInspection:
             f"candidate_count={len(self.candidates)!r}, "
             f"selection_summary={self.selection_summary!r}, "
             "candidates=<redacted>, "
-            "created_time_by_document_id=<redacted>)"
+            "source_created_at_by_document_id=<redacted>)"
         )
 
 
@@ -81,26 +86,36 @@ class TranscriptCatalogImportSelectionInspection:
 class _SelectedTranscriptEvidence:
     drive_document_id: str = field(repr=False)
     name: str | None
-    created_time: str | None
     standard_status: CatalogDocumentStandardStatus
+    source_creation_status: SourceCreationAuthorityStatus
+    source_created_at: str | None = field(default=None, repr=False)
 
 
 def build_transcript_standardization_dry_run(
+    db: Any,
     *,
+    owner_user_id: str,
     access_token: str,
     selection_mode: TranscriptMaintenanceSelectionMode,
     folder_id: str | None = None,
     document_id: str | None = None,
     reader: GoogleTranscriptCatalogReader | None = None,
+    source_creation_loader: Callable[
+        ..., dict[str, DocumentSourceCreationAuthority]
+    ]
+    | None = None,
 ) -> dict:
     """Classify one selected Doc or every Doc in a recursive folder."""
 
     inspection = inspect_transcript_standardization_selection(
+        db,
+        owner_user_id=owner_user_id,
         access_token=access_token,
         selection_mode=selection_mode,
         folder_id=folder_id,
         document_id=document_id,
         reader=reader,
+        source_creation_loader=source_creation_loader,
     )
     payload = build_transcript_standardization_payload(
         operation=CatalogMigrationOperation.dry_run,
@@ -111,14 +126,32 @@ def build_transcript_standardization_dry_run(
 
 
 def inspect_transcript_standardization_selection(
+    db: Any,
     *,
+    owner_user_id: str,
     access_token: str,
     selection_mode: TranscriptMaintenanceSelectionMode,
     folder_id: str | None = None,
     document_id: str | None = None,
     reader: GoogleTranscriptCatalogReader | None = None,
+    source_creation_loader: Callable[
+        ..., dict[str, DocumentSourceCreationAuthority]
+    ]
+    | None = None,
 ) -> TranscriptStandardizationSelectionInspection:
     """Rebuild standardization evidence from the selected target."""
+
+    owner_id = _private_identity(owner_user_id, label="owner")
+    loader = source_creation_loader or load_document_source_creation_authorities
+
+    def load_authorities(
+        document_ids: tuple[str, ...],
+    ) -> dict[str, DocumentSourceCreationAuthority]:
+        return loader(
+            db,
+            owner_user_id=owner_id,
+            document_ids=document_ids,
+        )
 
     evidence, selection_summary = _inspect_transcripts(
         access_token=access_token,
@@ -126,6 +159,7 @@ def inspect_transcript_standardization_selection(
         folder_id=folder_id,
         document_id=document_id,
         reader=reader,
+        source_creation_loader=load_authorities,
     )
     return TranscriptStandardizationSelectionInspection(
         candidates=tuple(
@@ -133,11 +167,14 @@ def inspect_transcript_standardization_selection(
                 drive_document_id=item.drive_document_id,
                 name=item.name,
                 standard_status=item.standard_status,
+                source_creation_status=item.source_creation_status,
             )
             for item in evidence
         ),
-        created_time_by_document_id={
-            item.drive_document_id: item.created_time for item in evidence
+        source_created_at_by_document_id={
+            item.drive_document_id: item.source_created_at
+            for item in evidence
+            if item.source_created_at is not None
         },
         selection_summary=selection_summary,
     )
@@ -196,6 +233,7 @@ def inspect_transcript_catalog_import_selection(
         folder_id=folder_id,
         document_id=document_id,
         reader=reader,
+        source_creation_loader=None,
     )
     selected_document_ids = tuple(
         item.drive_document_id for item in evidence
@@ -234,6 +272,10 @@ def _inspect_transcripts(
     folder_id: str | None,
     document_id: str | None,
     reader: GoogleTranscriptCatalogReader | None,
+    source_creation_loader: Callable[
+        [tuple[str, ...]], dict[str, DocumentSourceCreationAuthority]
+    ]
+    | None,
 ) -> tuple[tuple[_SelectedTranscriptEvidence, ...], dict[str, int]]:
     mode = _selection_mode(selection_mode)
     if mode == TranscriptMaintenanceSelectionMode.folder_tree:
@@ -245,6 +287,7 @@ def _inspect_transcripts(
             access_token=access_token,
             folder_id=_private_drive_id(folder_id, label="folder"),
             reader=reader,
+            source_creation_loader=source_creation_loader,
         )
     if folder_id is not None:
         raise ValueError(
@@ -254,6 +297,7 @@ def _inspect_transcripts(
         access_token=access_token,
         document_id=_private_drive_id(document_id, label="document"),
         reader=reader,
+        source_creation_loader=source_creation_loader,
     )
 
 
@@ -262,6 +306,10 @@ def _inspect_folder_transcripts(
     access_token: str,
     folder_id: str,
     reader: GoogleTranscriptCatalogReader | None,
+    source_creation_loader: Callable[
+        [tuple[str, ...]], dict[str, DocumentSourceCreationAuthority]
+    ]
+    | None,
 ) -> tuple[tuple[_SelectedTranscriptEvidence, ...], dict[str, int]]:
     catalog_reader = reader or GoogleTranscriptCatalogReader()
     scan = catalog_reader.scan_folder(
@@ -269,10 +317,15 @@ def _inspect_folder_transcripts(
         folder_id=folder_id,
     )
     documents = _validated_recursive_documents(scan)
+    authorities = _selection_source_creation_authorities(
+        tuple(document.drive_document_id for document in documents),
+        loader=source_creation_loader,
+    )
     evidence, unreadable_document_count = _classify_documents(
         access_token=access_token,
         documents=documents,
         reader=catalog_reader,
+        source_creation_by_document_id=authorities,
     )
     return (
         evidence,
@@ -293,8 +346,16 @@ def _inspect_single_transcript(
     access_token: str,
     document_id: str,
     reader: GoogleTranscriptCatalogReader | None,
+    source_creation_loader: Callable[
+        [tuple[str, ...]], dict[str, DocumentSourceCreationAuthority]
+    ]
+    | None,
 ) -> tuple[tuple[_SelectedTranscriptEvidence, ...], dict[str, int]]:
     catalog_reader = reader or GoogleTranscriptCatalogReader()
+    authorities = _selection_source_creation_authorities(
+        (document_id,),
+        loader=source_creation_loader,
+    )
     try:
         document = catalog_reader.inspect_document(
             access_token=access_token,
@@ -307,8 +368,9 @@ def _inspect_single_transcript(
             _SelectedTranscriptEvidence(
                 drive_document_id=document_id,
                 name=None,
-                created_time=None,
                 standard_status=CatalogDocumentStandardStatus.unreadable,
+                source_creation_status=authorities[document_id].status,
+                source_created_at=authorities[document_id].iso8601,
             ),
         )
         unreadable_document_count = 1
@@ -317,6 +379,7 @@ def _inspect_single_transcript(
             access_token=access_token,
             documents=(document,),
             reader=catalog_reader,
+            source_creation_by_document_id=authorities,
         )
     return (
         evidence,
@@ -335,17 +398,29 @@ def _classify_documents(
     access_token: str,
     documents: tuple[CatalogGoogleDocumentMetadata, ...],
     reader: GoogleTranscriptCatalogReader,
+    source_creation_by_document_id: dict[
+        str, DocumentSourceCreationAuthority
+    ],
 ) -> tuple[tuple[_SelectedTranscriptEvidence, ...], int]:
     evidence = []
     unreadable_document_count = 0
     for document in documents:
+        authority = source_creation_by_document_id[
+            document.drive_document_id
+        ]
         try:
             document_text = reader.read_document_text(
                 access_token=access_token,
                 document_id=document.drive_document_id,
             )
             standard_status = classify_transcript_document_standard(
-                document_text
+                document_text,
+                authoritative_created_at=(
+                    authority.created_at
+                    if authority.status
+                    == SourceCreationAuthorityStatus.authoritative
+                    else None
+                ),
             )
             if not document_text:
                 standard_status = CatalogDocumentStandardStatus.unreadable
@@ -360,11 +435,40 @@ def _classify_documents(
             _SelectedTranscriptEvidence(
                 drive_document_id=document.drive_document_id,
                 name=document.name,
-                created_time=document.created_time,
                 standard_status=standard_status,
+                source_creation_status=authority.status,
+                source_created_at=authority.iso8601,
             )
         )
     return tuple(evidence), unreadable_document_count
+
+
+def _selection_source_creation_authorities(
+    document_ids: tuple[str, ...],
+    *,
+    loader: Callable[
+        [tuple[str, ...]], dict[str, DocumentSourceCreationAuthority]
+    ]
+    | None,
+) -> dict[str, DocumentSourceCreationAuthority]:
+    if loader is None:
+        return {
+            document_id: DocumentSourceCreationAuthority(
+                SourceCreationAuthorityStatus.unavailable
+            )
+            for document_id in document_ids
+        }
+    authorities = loader(document_ids)
+    if not isinstance(authorities, dict) or set(authorities) != set(
+        document_ids
+    ):
+        raise ValueError("Source creation authority coverage is incomplete")
+    if any(
+        not isinstance(value, DocumentSourceCreationAuthority)
+        for value in authorities.values()
+    ):
+        raise ValueError("Source creation authority evidence is invalid")
+    return authorities
 
 
 def _validated_recursive_documents(

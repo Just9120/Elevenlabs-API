@@ -19,6 +19,7 @@ from .transcript_catalog_scan import (
     classify_transcript_document_standard,
     normalize_transcript_document_text,
 )
+from .source_creation import parse_authoritative_source_created_at
 
 
 CATALOG_STANDARDIZATION_MAX_TEXT_CHARS = 1_000_000
@@ -220,13 +221,21 @@ def standardize_transcript_document_in_place(
         }
     ):
         raise ValueError("Catalog standardization status is invalid")
+    authoritative_created_at = parse_authoritative_source_created_at(
+        created_time
+    )
+    if authoritative_created_at is None:
+        raise ValueError(
+            "Authoritative source creation time is required"
+        )
     transport = standardizer or GoogleTranscriptCatalogStandardizer()
     snapshot = transport.read_document(
         access_token=access_token,
         document_id=document_id,
     )
     actual_status = classify_transcript_document_standard(
-        snapshot.document_text
+        snapshot.document_text,
+        authoritative_created_at=authoritative_created_at,
     )
     if actual_status == CatalogDocumentStandardStatus.current:
         return CatalogStandardizationResult(
@@ -245,7 +254,10 @@ def standardize_transcript_document_in_place(
         created_time=created_time,
     )
     if (
-        classify_transcript_document_standard(replacement)
+        classify_transcript_document_standard(
+            replacement,
+            authoritative_created_at=authoritative_created_at,
+        )
         != CatalogDocumentStandardStatus.current
     ):
         raise CatalogGoogleWriteError(
@@ -401,14 +413,9 @@ def build_standardized_transcript_document_text(
         raise CatalogGoogleWriteError(
             CatalogGoogleWriteReason.empty_transcript
         )
-    existing_created_at = _metadata_value(metadata.get("Created at"))
-    if existing_created_at == "unknown":
-        created_at = _visible_timestamp(created_time) or "unknown"
-    else:
-        created_at = (
-            _visible_timestamp(existing_created_at)
-            or existing_created_at
-        )
+    created_at = _visible_timestamp(created_time)
+    if created_at is None:
+        raise ValueError("Authoritative source creation time is required")
     required_values = {
         "Provider": _metadata_value(metadata.get("Provider")),
         "Model": _metadata_value(metadata.get("Model")),
@@ -596,8 +603,6 @@ def _visible_timestamp(value: object) -> str | None:
     cleaned = value.strip() if isinstance(value, str) else ""
     if not cleaned or cleaned.casefold() == "unknown":
         return None
-    if re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC", cleaned):
-        return cleaned
     parse_value = cleaned[:-1] + "+00:00" if cleaned.endswith("Z") else cleaned
     try:
         parsed = datetime.fromisoformat(parse_value)
@@ -605,8 +610,11 @@ def _visible_timestamp(value: object) -> str | None:
         return None
     if parsed.tzinfo is None:
         return None
-    return parsed.astimezone(timezone.utc).strftime(
-        "%Y-%m-%d %H:%M UTC"
+    return (
+        parsed.astimezone(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
     )
 
 

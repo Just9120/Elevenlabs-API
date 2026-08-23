@@ -55,7 +55,7 @@ def current_document(*, optional_metadata: str = "") -> str:
         "Model: scribe_v2\n"
         "Language: ru\n"
         "Speakers: yes\n"
-        "Created at: 2026-07-01 10:00 UTC\n"
+        "Created at: 2026-07-01T10:00:00Z\n"
         f"{optional_metadata}"
         "\nTranscript\n\n"
         "Private transcript body"
@@ -619,6 +619,29 @@ def test_catalog_standard_classifier_matches_current_migration_contract(
     )
 
     assert classify_transcript_document_standard(document_text).value == expected
+
+
+def test_catalog_standard_classifier_requires_exact_source_creation_time():
+    from datetime import datetime, timezone
+
+    from studio_api.transcript_catalog_scan import (
+        classify_transcript_document_standard,
+    )
+
+    document_text = current_document()
+
+    assert classify_transcript_document_standard(
+        document_text,
+        authoritative_created_at=datetime(
+            2026, 7, 1, 10, tzinfo=timezone.utc
+        ),
+    ).value == "current"
+    assert classify_transcript_document_standard(
+        document_text,
+        authoritative_created_at=datetime(
+            2026, 7, 1, 11, tzinfo=timezone.utc
+        ),
+    ).value == "outdated"
 
 
 @pytest.mark.parametrize(
