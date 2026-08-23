@@ -3,7 +3,7 @@
 ## Current Goal
 
 - **ID / title:** `PWA-INGEST-FOLDERS-01` — bounded local/Drive source-folder intake и folder-to-batch flow.
-- **State:** `IN_PROGRESS` — OAuth blocker снят явной owner authorization; exact-head CI, production config/reconnect и LIVE ещё не подтверждены.
+- **State:** `IN_PROGRESS` — OAuth/reconnect и source-folder LIVE подтверждены; production LIVE выявил order-dependent shared target-folder gap, локальный fix ожидает CI/DEPLOY/LIVE.
 - **Authorization source:** initial Goal — explicit owner instruction `ставь goal и начинай реализацию`; material scope change — explicit owner authorization 2026-08-23: `Авторизую расширение primary Google OAuth scopes до openid email drive.file drive.readonly, включая доступ приложения на чтение всех файлов Google Drive, обязательный reconnect и последующее production deployment.`
 - **Scope:** отдельный local folder picker и Google Drive source-folder Picker; recursive bounded enumeration; preview/explicit confirmation; максимум 50 supported items; safe filtering и partial local-upload reporting; server-side Drive revalidation, cycle/pagination/duplicate/drift guards; создание individual Source/composer rows с общей target folder и per-row override; existing manifest/preflight/batch/multi-transcription integration; exact primary OAuth grant `openid email drive.file drive.readonly`, mandatory reconnect, relevant tests и полный delivery flow. В execution scope также входят recovery post-deploy metadata предыдущей Goal, archive reconciliation и tracked ignore для repo-local pnpm cache.
 - **Non-goals:** full `drive` или иные дополнительные Google scopes; background Drive sync; более 50 items; speaker identity; timestamp/standardization policy; realtime stability; Colab; local content fingerprinting; новая provider/worker architecture.
@@ -20,44 +20,44 @@
   10. Existing single/multi-file, Favorites, segmentation, batch, realtime и responsive behavior не регрессируют.
   11. Relevant backend/frontend/security/browser tests и exact-head CI проходят.
   12. Applicable web/API deployment и bounded production LIVE canary успешны.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE ❌`.
-- **Known blockers/dependencies:** production Google OAuth consent configuration and target-host `STUDIO_GOOGLE_OAUTH_SCOPES` must accept exact `drive.file + drive.readonly`; existing account must disconnect/reconnect. Google verification/security-assessment gate is external if enforced. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE ❌`.
+- **Known blockers/dependencies:** exact-head CI, web deployment и повторный bounded LIVE для shared target-folder fix. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`); финальный state фиксируется GitHub Evidence и итоговым отчётом без docs-only follow-up PR.
 - **Stop condition:** все Goal AC и required Evidence подтверждены либо flow достиг `BLOCKED` / `PENDING_EXTERNAL_GATE`; затем остановиться и не переходить к следующей Goal без explicit authorization.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-23T13:25:07Z
+- Updated (UTC): 2026-08-23T18:01:03Z
 - Session mode: authorized Goal implementation
 - Base branch: `main`
-- Base SHA: `295438056dc7352b00ce41a05349445c5ec83f60`
-- Working branch: `codex/pwa-drive-readonly-sources`
-- Last verified revision: `eb862f64bb5f1842ce8621f01268ba3d1cd542ae` (all expected PR checks passed at this exact head).
-- Working tree at branch start: clean `main`, fast-forward synchronized with `origin/main`; only `main` existed locally/remotely before creating this branch.
-- Completed: PR #224 merged as `main@295438056dc7352b00ce41a05349445c5ec83f60`; exact-main CI/Studio CI/CD succeeded and safe diagnostic UX is deployed. Owner then explicitly authorized `drive.readonly`. Commit `3419c4f` adds exact `drive.file + drive.readonly`, rejects old/additional grants, requires source-folder read scope, updates runtime/preflight defaults, and preserves narrow output writes.
-- Current step: exact-head required checks green; final metadata checkpoint before merge.
-- Next exact action: push this checkpoint, require green checks on its docs-only exact head, recheck mergeability/divergence, then merge PR #225.
-- Validation and Evidence: backend `CI/checks` rerun `32642110998/97200689867` SUCCESS at `eb862f6` after the narrow status fix; all `1262` tests passed. `Studio PWA CI/studio` `32642110943/97200689818` SUCCESS and `browser-e2e` `32642110943/97200689757` SUCCESS. Pre-PR local Studio Vitest `558/558`, ESLint, TypeScript, Vite build and Playwright discovery `10/10` PASS.
-- Pull Request: #225 — `https://github.com/Just9120/Elevenlabs-API/pull/225`; initial head `239d19821e59687e46a45cad51f412a8734bffad`, base `295438056dc7352b00ce41a05349445c5ec83f60`, mergeable at checkpoint. Historical PRs #223/#224 are merged into the base.
-- CI/checks: head `eb862f6`: `CI/checks` `32642110998/97200689867` SUCCESS; `Studio PWA CI/studio` `32642110943/97200689818` SUCCESS; `Studio PWA CI/browser-e2e` `32642110943/97200689757` SUCCESS. PR is mergeable, not draft, no review decision is required, and `origin/main` has not diverged at checkpoint.
-- Deployment/environment: current branch not deployed. No migration is required; scope/config change requires API and web deployment, while worker remains unchanged unless workflow path selection proves otherwise.
-- Blockers: none for pre-merge implementation. Production phase depends on exact OAuth consent configuration, target-host scope update, mandatory reconnect and any external Google verification gate.
-- Unverified assumptions: Google will issue exact `drive.file + drive.readonly` for the current OAuth client/consent configuration; production account reconnect will complete without an external verification block.
+- Base SHA: `17a9fc408a2d352005be08d981325c21de4d1dc0`
+- Working branch: `codex/pwa-folder-target-propagation`
+- Last verified revision: `2fa36efe3aeeb6f09aeb5b7a54fd0900cd217b9f` (local focused/full Studio validation passed).
+- Working tree at branch start: clean synchronized `main`; PR #225 branch had been fully merged and safely removed locally/remotely; only `main` existed before this fix branch.
+- Completed: PR #225 merged as `main@17a9fc408a2d352005be08d981325c21de4d1dc0`; exact-main CI/Studio/browser checks and API/web CD succeeded. Production runtime scopes were corrected, primary и maintenance Google OAuth reconnect completed. Bounded LIVE imported one Drive source folder as three ready Source/composer rows. Selecting the target folder afterward changed only row 1, while rows 2–3 required repeated manual selection. Commit `2fa36ef` seeds a verified target into all rows that are still unassigned and preserves later per-row overrides.
+- Current step: PR #226 создан; required checks ожидают terminal state.
+- Next exact action: push PR checkpoint and require green CI on its exact head before merge.
+- Validation and Evidence: PR #225 exact-main `CI/checks` `32642653678` SUCCESS; Studio jobs `32642653695` SUCCESS; initial CD `32642653667` SUCCESS. Runtime scope correction followed by API-only CD `32654826834/97231852416` SUCCESS with `STUDIO_PLATFORM_API_DEPLOY_OK`. Bounded LIVE confirmed both OAuth contours and recursive Drive folder import of three supported files; no provider job was created. Fix regression initially failed because row 2 lacked the shared target, then passed. Current local Studio Vitest `558/558`, focused regressions `3/3`, ESLint, TypeScript and Vite build PASS.
+- Pull Request: #226 — `https://github.com/Just9120/Elevenlabs-API/pull/226`; base `17a9fc408a2d352005be08d981325c21de4d1dc0`, initial head `f8ae54eac8b8e92637f385fb658c3e1794f140ee`. PR #225 is merged and historical.
+- CI/checks: required checks pending for PR #226.
+- Deployment/environment: `main@17a9fc4` web/API deployed; current fix is frontend-only and not deployed. Migration/API/worker changes are N/A for this fix.
+- Blockers: none before PR. Goal completion requires exact-head CI, web deploy and repeated source-folder-first/shared-target LIVE.
+- Unverified assumptions: production rerun will seed the first verified target folder into all still-unassigned folder-generated rows while preserving an explicit later row override.
 - Preserved pre-existing changes: none; previous generated artifacts removed under explicit authorization.
 
 ## Project readiness
 
-Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Production runtime опроверг достаточность code/test evidence для `PI-08` и `PI-10`: Picker выбирает папку, но exact `drive.file` не даёт доступ к произвольным descendants, поэтому реальный folder-to-batch flow не выполнен. Denominator не изменился; numerator уменьшен на 2 AC.
+Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Exact scopes, reconnect и production LIVE подтвердили `PI-08`: Drive source folder рекурсивно импортирован в три composer rows. `PI-10` остаётся incomplete, поскольку общий target пришлось повторно выбрать для строк 2–3. Denominator не изменился; numerator вырос на 1 AC относительно предыдущего snapshot.
 
 | Product/epic | Current | Previous independent snapshot | Readiness/Evidence |
 |---|---:|---:|---|
-| **Project** | **85,8% (`103/120`)** | **87,5% (`105/120`)** | Numerator −2: production LIVE опроверг `PI-08` и `PI-10`; расхождение меньше 10 п.п. |
+| **Project** | **86,7% (`104/120`)** | **85,8% (`103/120`)** | Numerator +1: production LIVE подтвердил `PI-08`; расхождение меньше 10 п.п. |
 | **Google Colab** | **75,9% (`22/29`)** | **75,9% (`22/29`)** | Без изменений в PWA Goal. |
 | `COLAB-BATCH-01` | **73,9% (`17/23`)** | **73,9% (`17/23`)** | 🟦 IN PROGRESS. |
 | `COLAB-REALTIME-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS. |
-| **Studio PWA** | **89,0% (`81/91`)** | **91,2% (`83/91`)** | Numerator −2 за runtime failure `PI-08` и `PI-10`. |
+| **Studio PWA** | **90,1% (`82/91`)** | **89,0% (`81/91`)** | Numerator +1 за подтверждённый `PI-08`; `PI-10` остаётся открытым. |
 | `PWA-CORE-01` | **100% (`13/13`)** | **100% (`13/13`)** | Все product AC выполнены; exact-head delivery Evidence ещё не подтверждены. |
 | `PWA-TRANSCRIPTIONS-UX-01` | **100% (`4/4`)** | **100% (`4/4`)** | 🟩 READY. |
-| `PWA-INGEST-01` | **81,8% (`9/11`)** | **100% (`11/11`)** | 🟦 IN PROGRESS: OAuth decision принят, но `PI-08`/`PI-10` ожидают exact-head CI, reconnect и LIVE. |
+| `PWA-INGEST-01` | **90,9% (`10/11`)** | **81,8% (`9/11`)** | 🟦 IN PROGRESS: `PI-08` LIVE подтверждён; shared target-folder fix для `PI-10` ожидает CI/DEPLOY/LIVE. |
 | `PWA-SEGMENTS-01` | **100% (`5/5`)** | **100% (`5/5`)** | 🟩 READY. |
 | `PWA-BATCH-01` | **90,0% (`9/10`)** | **90,0% (`9/10`)** | Вне Goal. |
 | `PWA-SPEAKER-IDENTITY-01` | **0% (`0/5`)** | **0% (`0/5`)** | Вне Goal. |

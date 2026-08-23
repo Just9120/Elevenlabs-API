@@ -115,6 +115,7 @@ import {
   type BatchPreflightResponse,
   type ComposerRow,
   type ComposerSegment,
+  type VerifiedOutputFolder,
 } from "./batchComposerModel";
 import {
   parseJobRetryResponse,
@@ -2670,6 +2671,21 @@ function PreparationPanel({
       current.map((row) => (row.id === rowId ? { ...row, ...patch } : row)),
     );
   }
+  function applyVerifiedOutputFolder(
+    rowId: string,
+    outputFolder: VerifiedOutputFolder,
+  ) {
+    setRows((current) => {
+      const target = current.find((row) => row.id === rowId);
+      if (!target) return current;
+      const fillUnassignedRows = target.output_folder === null;
+      return current.map((row) =>
+        row.id === rowId || (fillUnassignedRows && row.output_folder === null)
+          ? { ...row, output_folder: { ...outputFolder } }
+          : row,
+      );
+    });
+  }
   function updateSegment(
     rowId: string,
     segmentId: string,
@@ -2782,7 +2798,7 @@ function PreparationPanel({
         name: verified.name,
         web_view_url: verified.web_view_url,
       };
-      updateRow(rowId, { output_folder: outputFolder });
+      applyVerifiedOutputFolder(rowId, outputFolder);
       outcome = {
         message:
           "Папка Google Drive проверена, но прежняя строка больше не открыта. Выберите папку для строки повторно.",
