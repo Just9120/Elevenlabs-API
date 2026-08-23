@@ -256,10 +256,10 @@ export class RealtimeSessionController {
       this.callbacks.onStatus("stopped");
       return;
     }
+    if (attempt.userStopRequested) return;
     attempt.cancelled = true;
     attempt.userStopRequested = true;
     this.clearCapabilityRequest(attempt);
-    this.callbacks.onPartial("");
     this.callbacks.onStatus("stopping");
     this.releaseMedia(attempt);
     const websocket = attempt.websocket;
