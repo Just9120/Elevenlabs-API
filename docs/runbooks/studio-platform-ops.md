@@ -311,7 +311,7 @@ Configuration requirements:
 
 Google OAuth runtime config is fail-closed. OAuth endpoints must remain unavailable or reject safely until required non-secret settings and a non-empty client secret file are present.
 
-Primary Picker settings include client ID, redirect URI, scopes, state TTL, and the client-secret file path. The client secret itself stays in an operator-managed file. Current Drive/Picker integration permits only `openid`, email identity, and `https://www.googleapis.com/auth/drive.file`; do not invent broader scopes or enable incremental previously granted scopes. A primary connection reporting any additional scope is not Picker-ready and must be disconnected/reconnected before browser-token issuance.
+Primary Picker settings include client ID, redirect URI, scopes, state TTL, and the client-secret file path. The client secret itself stays in an operator-managed file. Current Drive/Picker integration permits only exact `openid`, email identity, `https://www.googleapis.com/auth/drive.file`, and `https://www.googleapis.com/auth/drive.readonly`. `drive.readonly` is a restricted broad-read scope required for arbitrary source-folder descendants; `drive.file` remains the output-write boundary. Full `drive` and unrelated scopes are forbidden. A primary connection missing either Drive scope or reporting an additional scope is not Picker-ready and must be disconnected/reconnected before browser-token issuance. Scope rollout may require Google OAuth consent-screen publication/verification or a security assessment; never weaken the boundary to bypass an external Google gate.
 
 Transcript maintenance uses a second OAuth client and a different client-secret file. Its exact server-only grant is `openid email https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/documents`. Configure `STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_ID`, `STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE`, `STUDIO_GOOGLE_MAINTENANCE_OAUTH_REDIRECT_URI`, and `STUDIO_GOOGLE_MAINTENANCE_OAUTH_SCOPES` before the API rollout. The maintenance client ID and secret file must differ from the primary client. The redirect may use the same reviewed callback route. The maintenance grant must resolve to the same Google subject as the active primary connection; a mismatch is rejected and must not replace either grant.
 
@@ -369,7 +369,7 @@ Google Docs standardization and **Манифест Studio** are two separately i
 - Use only merged `main` with green required CI and verified web/API commit and image identities.
 - Production migration `0017_google_maintenance_oauth` is sufficient for the merged transcript-maintenance feature. Do not apply unrelated candidate `0018_job_part_progress` merely to run a maintenance canary. If the current progress candidate has already merged and is part of the intended release, create and verify a new tagged pre-migration backup and use the protected migration lane before deploying its API/worker consumers.
 - Verify public and localhost health, API migration readiness, and an authenticated owner-scoped session.
-- Verify the primary Picker connection remains limited to `openid email drive.file`, then complete the separate server-only maintenance consent with the same Google account and exact maintenance scope boundary.
+- Verify the primary Picker connection has exact `openid email drive.file drive.readonly`, then complete the separate server-only maintenance consent with the same Google account and exact maintenance scope boundary.
 - Prepare a small approved recursive canary root containing copies or otherwise explicitly approved representative documents and one approved single-document canary. The server scans the entire selected root tree in folder mode and only the exact selected native Google Doc in document mode; stop if either boundary differs from the approved target.
 - Keep transcription jobs and provider processing out of this operation. The migration must not create a job, call a transcription provider, or require a worker rollout.
 
@@ -422,7 +422,7 @@ Before any processing rollout or canary, verify without printing sensitive value
 - primary Google OAuth config is complete and authenticated for the smoke account;
 - maintenance OAuth uses a separate client/secret, exact server-only scopes, and the same Google account;
 - Picker runtime config has non-placeholder `STUDIO_GOOGLE_PICKER_API_KEY` and `STUDIO_GOOGLE_PICKER_APP_ID` values without recording them;
-- primary OAuth scopes equal `openid email drive.file`; maintenance scopes equal `openid email drive.metadata.readonly documents`; changed scopes have been handled by the corresponding disconnect/reconnect if needed;
+- primary OAuth scopes equal `openid email drive.file drive.readonly`; maintenance scopes equal `openid email drive.metadata.readonly documents`; changed scopes have been handled by the corresponding disconnect/reconnect if needed;
 - credential master key and encrypted BYOK records are usable;
 - exactly one intended active ElevenLabs BYOK credential exists for the smoke account;
 - writable Google output folder selection exists;

@@ -47,6 +47,7 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 7. Transcript standardization добавляет metadata header и читабельные абзацы; folder operation охватывает выбранную папку и все вложенные подпапки.
 8. Секреты, transcript/document bodies, private source bytes, provider/Google payloads и tokens не попадают в repository, browser-safe metadata, diagnostics или delivery evidence. Explicit owner-scoped Live draft API может возвращать владельцу только его зашифрованный-at-rest transcript draft через authenticated `no-store` response; это content response, а не browser-safe metadata или diagnostic payload.
 9. Production/LIVE claims требуют exact revision/artifact identity и фактического runtime evidence; source presence и CI сами по себе этого не доказывают.
+10. Primary Google OAuth grant для Studio ограничен exact набором identity + `drive.file` + `drive.readonly`: `drive.readonly` разрешает source ingestion из произвольных доступных пользователю Drive files/folders, а `drive.file` сохраняет write boundary для созданных или явно открытых приложением объектов. Full `drive` scope и любые иные дополнительные scopes запрещены. Расширение до `drive.readonly` явно авторизовано владельцем 2026-08-23; существующее подключение без этого scope требует disconnect/reconnect и нового consent.
 
 ## 4. Google Colab
 
@@ -154,7 +155,7 @@ Verified implementation: backend не раскрывает raw batch idempotency
 
 ### Эпик `PWA-INGEST-01` — target и source selection, multi-transcription
 
-Status: **🟦 IN PROGRESS ⛔ BLOCKED — 81,8% (`9/11`)**. Production runtime показал, что выбор папки под exact `drive.file` не авторизует произвольные descendants; требуется отдельное OAuth/product decision.
+Status: **🟦 IN PROGRESS — 81,8% (`9/11`)**. Production runtime показал недостаточность прежнего `drive.file`; владелец явно авторизовал exact `drive.file + drive.readonly`, но `PI-08`/`PI-10` остаются incomplete до нового DEPLOY/LIVE.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -170,9 +171,9 @@ Status: **🟦 IN PROGRESS ⛔ BLOCKED — 81,8% (`9/11`)**. Production runtime 
 | `PI-10` | Один batch принимает одну target folder и source folder. | ❌ |
 | `PI-11` | Для каждой composer row можно независимо выбрать source и target folder. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ❌`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ◐ | CI — | DEPLOY — | LIVE ❌`.
 
-Verified implementation: Favorites и local folder flow подтверждены. Drive source-folder code реализует bounded traversal, drift token и atomic apply; required CI и web/API deployment для `main@e94605c07ebe2d88396aaa05edb5095079ba6eeb` прошли. Однако bounded production canary вернул zero importable descendants для Picker-selected непустой folder под exact `drive.file`: per-file scope авторизует выбранный folder, но не произвольные вложенные files. Поэтому `PI-08`/`PI-10` возвращены в incomplete, LIVE отмечен failed, а эпик заблокирован до отдельного OAuth/product decision.
+Verified implementation: Favorites и local folder flow подтверждены. Drive source-folder code реализует bounded traversal, drift token и atomic apply; required CI и web/API deployment для `main@e94605c07ebe2d88396aaa05edb5095079ba6eeb` прошли. Bounded production canary затем вернул zero importable descendants под прежним `drive.file`. В рабочей ветке `codex/pwa-drive-readonly-sources` exact grant расширен до `drive.file + drive.readonly`, старые grants становятся `reconnect_required`, source-folder traversal отдельно требует `drive.readonly`, а full `drive`/unrelated scopes отклоняются. Новый backend CI, production config, reconnect и LIVE canary ещё не подтверждены; поэтому `PI-08`/`PI-10` остаются incomplete.
 
 ### Эпик `PWA-SEGMENTS-01` — произвольные пользовательские фрагменты
 
@@ -359,7 +360,7 @@ Status: **⬜ BACKLOG**. Владелец явно отнёс TOTP/Google Authen
 
 ## 9. Current critical path
 
-1. Реализовать bounded local/Drive source-folder intake и folder-to-batch flow без расширения OAuth scope.
+1. Завершить bounded Drive source-folder intake через явно авторизованный exact `drive.file + drive.readonly`: CI, production config, обязательный reconnect и LIVE folder-to-batch canary.
 2. Закрыть PWA speaker names/roles и manual listen-and-assign после отдельного privacy/data-retention design.
 3. Разрешить оставшиеся source-creation timestamp и legacy-standardization gaps без подмены media creation time другими часами.
 4. Выполнить representative PWA microphone/display/mixed production matrix и исправить воспроизводимые capture defects.
