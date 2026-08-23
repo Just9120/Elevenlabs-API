@@ -11018,6 +11018,78 @@ describe("Studio PWA", () => {
     expect(document.body).not.toHaveTextContent(
       "https://upload.example/presigned",
     );
+    const folderInput = within(row).getByLabelText(
+      "Выбрать папку с устройства для строки 1",
+    ) as HTMLInputElement;
+    expect(folderInput).toHaveAttribute("type", "file");
+    expect(folderInput).toHaveAttribute("multiple");
+    expect(folderInput).toHaveAttribute("webkitdirectory");
+    expect(folderInput).toHaveAttribute("directory");
+    expect(folderInput).toHaveClass("visually-hidden");
+  });
+
+  it("previews a local folder before upload and carries the shared target to appended rows", async () => {
+    const folderFile = (path: string, type: string) => {
+      const file = new File([path], path.split("/").at(-1) ?? "file", {
+        type,
+      });
+      Object.defineProperty(file, "webkitRelativePath", {
+        configurable: true,
+        value: path,
+      });
+      return file;
+    };
+
+    renderApp();
+    await openProjectsPage();
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
+    await chooseResultFolder(1, "folder-shared");
+    const row = await screen.findByLabelText("Источник строки 1");
+    const folderInput = within(row).getByLabelText(
+      "Выбрать папку с устройства для строки 1",
+    ) as HTMLInputElement;
+
+    await userEvent.upload(
+      folderInput,
+      [
+        folderFile("Calls/one.ogg", "audio/ogg"),
+        folderFile("Calls/nested/two.ogg", "audio/ogg"),
+        folderFile("Calls/readme.txt", "text/plain"),
+      ],
+      { applyAccept: false },
+    );
+
+    const dialog = await screen.findByRole("dialog", {
+      name: "Импортировать папку «Calls»?",
+    });
+    expect(dialog).toHaveTextContent("Всего найдено3");
+    expect(dialog).toHaveTextContent("Будет загружено2");
+    expect(dialog).toHaveTextContent("Будет пропущено1");
+    expect(dialog).toHaveTextContent("Default folder");
+    expect(
+      (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
+        ([url, init]) =>
+          url === "/api/projects/p1/sources/local-upload/initiate" &&
+          init?.method === "POST",
+      ),
+    ).toBe(false);
+
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Импортировать 2" }),
+    );
+    await screen.findByText("Загружено файлов: 2.");
+    expect(screen.getByLabelText("Источник строки 1")).toHaveTextContent(
+      "local-source-1.ogg",
+    );
+    expect(screen.getByLabelText("Источник строки 2")).toHaveTextContent(
+      "local-source-2.ogg",
+    );
+    expect(screen.getByLabelText("Задача 1")).toHaveTextContent(
+      "Default folder",
+    );
+    expect(screen.getByLabelText("Задача 2")).toHaveTextContent(
+      "Default folder",
+    );
   });
 
   it("local multi-file selection preserves successful rows through ordered batch creation", async () => {

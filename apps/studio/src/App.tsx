@@ -151,6 +151,11 @@ import { TranscriptionAnalyticsPanel } from "./TranscriptionAnalyticsPanel";
 import { TranscriptCatalogMigrationPanel } from "./TranscriptCatalogMigrationPanel";
 import { LiveTranscriptionPanel } from "./LiveTranscriptionPanel";
 import { ConfirmClearDialog } from "./ConfirmClearDialog";
+import { FolderImportDialog } from "./FolderImportDialog";
+import {
+  buildLocalFolderPreview,
+  type LocalFolderPreview,
+} from "./folderIntakeModel";
 import {
   applyStudioAccentColor,
   isStudioAccentColor,
@@ -1498,6 +1503,10 @@ function PreparationPanel({
   const [rowIntakeErrors, setRowIntakeErrors] = useState<
     Record<string, string>
   >({});
+  const [localFolderPreview, setLocalFolderPreview] = useState<{
+    rowId: string;
+    preview: LocalFolderPreview;
+  } | null>(null);
   const [recentlyAddedRow, setRecentlyAddedRow] = useState<{
     id: string;
     number: number;
@@ -1861,6 +1870,9 @@ function PreparationPanel({
       const targetIndex = current.findIndex((row) => row.id === targetRowId);
       const target = targetIndex >= 0 ? current[targetIndex] : null;
       const canFillTarget = Boolean(target && !target.source_id);
+      const sharedOutputFolder = target?.output_folder
+        ? { ...target.output_folder }
+        : null;
       const next = [...current];
       const [first, ...rest] = selected;
       const sourcesToAppend = canFillTarget ? rest : selected;
@@ -1874,6 +1886,9 @@ function PreparationPanel({
         ...sourcesToAppend.map((source) => ({
           ...newComposerRow(),
           source_id: source.id,
+          output_folder: sharedOutputFolder
+            ? { ...sharedOutputFolder }
+            : null,
         })),
       );
       return next.length > 0 ? next : [newComposerRow()];
@@ -2236,12 +2251,7 @@ function PreparationPanel({
     return bounded.value;
   }
 
-  async function uploadRowLocalSources(
-    rowId: string,
-    e: ChangeEvent<HTMLInputElement>,
-  ) {
-    const files = Array.from(e.target.files ?? []);
-    e.target.value = "";
+  async function uploadRowLocalSources(rowId: string, files: File[]) {
     if (files.length === 0 || localUploadIsBusy(rowId)) return;
     if (!sourceUploadPolicy?.local_upload_enabled) {
       setRowIntakeErrors((current) => ({
@@ -2385,6 +2395,44 @@ function PreparationPanel({
     } finally {
       finishLocalUpload(operation, persistentNotice);
     }
+  }
+
+  function previewRowLocalFolder(
+    rowId: string,
+    event: ChangeEvent<HTMLInputElement>,
+  ) {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    if (files.length === 0 || localUploadIsBusy(rowId)) return;
+    if (!sourceUploadPolicy?.local_upload_enabled) {
+      setRowIntakeErrors((current) => ({
+        ...current,
+        [rowId]:
+          sourceUploadPolicyError ||
+          "Локальная загрузка временно недоступна. Повторите попытку позже.",
+      }));
+      return;
+    }
+    const preview = buildLocalFolderPreview(files, sourceUploadPolicy);
+    if (preview.blocker === "over_limit") {
+      setRowIntakeErrors((current) => ({
+        ...current,
+        [rowId]: `В папке найдено ${preview.supported_count} поддерживаемых файлов. Один batch допускает не более ${MAX_BATCH_ITEMS}; выберите меньшую папку.`,
+      }));
+      return;
+    }
+    if (preview.blocker === "empty") {
+      setRowIntakeErrors((current) => ({
+        ...current,
+        [rowId]:
+          preview.total_count === 0
+            ? "Выбранная папка не содержит файлов."
+            : "В выбранной папке нет поддерживаемых непустых файлов допустимого размера.",
+      }));
+      return;
+    }
+    setRowIntakeErrors((current) => ({ ...current, [rowId]: "" }));
+    setLocalFolderPreview({ rowId, preview });
   }
 
   function updateRow(rowId: string, patch: Partial<ComposerRow>) {
@@ -3881,8 +3929,56 @@ function PreparationPanel({
                               localUploadIsBusy(row.id)
                             }
                             aria-busy={localUploadIsBusy(row.id)}
-                            onChange={(e) =>
-                              void uploadRowLocalSources(row.id, e)
+                            onChange={(event) => {
+                              const files = Array.from(
+                                event.target.files ?? [],
+                              );
+                              event.target.value = "";
+                              void uploadRowLocalSources(row.id, files);
+                            }}
+                          />
+                        </span>
+                        <span className="file-picker-control">
+                          <label
+                            className={`button-like secondary${
+                              sourceUploadPolicy?.local_upload_enabled &&
+                              !localUploadIsBusy(row.id)
+                                ? ""
+                                : " disabled"
+                            }`}
+                            htmlFor={`local-source-folder-${row.id}`}
+                            aria-disabled={
+                              !sourceUploadPolicy?.local_upload_enabled ||
+                              localUploadIsBusy(row.id)
+                            }
+                          >
+                            <span aria-hidden="true">Папка с устройства</span>
+                            <span className="visually-hidden">
+                              Выбрать папку с устройства для строки {index + 1}
+                            </span>
+                          </label>
+                          <input
+                            ref={(element) => {
+                              element?.setAttribute("webkitdirectory", "");
+                              element?.setAttribute("directory", "");
+                            }}
+                            id={`local-source-folder-${row.id}`}
+                            className="visually-hidden"
+                            aria-label={`Выбрать папку с устройства для строки ${index + 1}`}
+                            type="file"
+                            multiple
+                            accept={
+                              sourceUploadPolicy?.local_upload_enabled
+                                ? sourceUploadAccept(sourceUploadPolicy)
+                                : undefined
+                            }
+                            disabled={
+                              !sourceUploadPolicy?.local_upload_enabled ||
+                              localUploadIsBusy(row.id)
+                            }
+                            aria-busy={localUploadIsBusy(row.id)}
+                            onChange={(event) =>
+                              previewRowLocalFolder(row.id, event)
                             }
                           />
                         </span>
@@ -4465,6 +4561,24 @@ function PreparationPanel({
           pending={historyClearPending}
           onConfirm={() => void clearHistory()}
           onCancel={() => setHistoryClearOpen(false)}
+        />
+      )}
+      {localFolderPreview && (
+        <FolderImportDialog
+          preview={localFolderPreview.preview}
+          targetFolderName={
+            rows.find((row) => row.id === localFolderPreview.rowId)
+              ?.output_folder?.name ?? null
+          }
+          onConfirm={() => {
+            const selection = localFolderPreview;
+            setLocalFolderPreview(null);
+            void uploadRowLocalSources(
+              selection.rowId,
+              selection.preview.accepted.map((item) => item.file),
+            );
+          }}
+          onCancel={() => setLocalFolderPreview(null)}
         />
       )}
     </section>

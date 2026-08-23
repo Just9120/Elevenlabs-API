@@ -33,8 +33,8 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **75,9% (`22/29`)** | `COLAB-BATCH 17/23` + `COLAB-REALTIME 5/6` |
-| Studio PWA | **87,9% (`80/91`)** | сумма десяти PWA-эпиков ниже; `PWA-CORE-01 13/13` и `PWA-TRANSCRIPTIONS-UX-01 4/4` подтверждены в текущей рабочей ветке |
-| Весь проект | **85,0% (`102/120`)** | все выполненные AC двух продуктов / все AC текущего scope |
+| Studio PWA | **89,0% (`81/91`)** | сумма десяти PWA-эпиков ниже; `PI-05` подтверждён local code/tests в текущей рабочей ветке |
+| Весь проект | **85,8% (`103/120`)** | все выполненные AC двух продуктов / все AC текущего scope |
 
 ## 3. Общие product rules
 
@@ -154,7 +154,7 @@ Verified implementation: backend не раскрывает raw batch idempotency
 
 ### Эпик `PWA-INGEST-01` — target и source selection, multi-transcription
 
-Status: **🟦 IN PROGRESS — 72,7% (`8/11`)**.
+Status: **🟦 IN PROGRESS — 81,8% (`9/11`)**.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -162,7 +162,7 @@ Status: **🟦 IN PROGRESS — 72,7% (`8/11`)**.
 | `PI-02` | Target folder можно добавить в Favorites и выбрать повторно. | ✅ |
 | `PI-03` | С компьютера выбирается один файл. | ✅ |
 | `PI-04` | С компьютера выбираются несколько файлов. | ✅ |
-| `PI-05` | С компьютера выбирается целая папка с файлами. | ❌ |
+| `PI-05` | С компьютера выбирается целая папка с файлами. | ✅ |
 | `PI-06` | На Google Drive выбирается один source file. | ✅ |
 | `PI-07` | На Google Drive выбираются несколько source files. | ✅ |
 | `PI-08` | На Google Drive выбирается source folder. | ❌ |
@@ -172,7 +172,7 @@ Status: **🟦 IN PROGRESS — 72,7% (`8/11`)**.
 
 Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
 
-Verified implementation: Favorites хранятся owner-scoped в PostgreSQL, создаются только после server-side Google Drive verification, повторно проверяются перед назначением composer row и удаляются owner-scoped. Full frontend suite подтверждает save/revalidate/reuse/delete flow; backend DB integration ожидает exact-head CI.
+Verified implementation: Favorites хранятся owner-scoped в PostgreSQL, создаются только после server-side Google Drive verification, повторно проверяются перед назначением composer row и удаляются owner-scoped. Local folder picker перечисляет nested files через browser relative paths, отклоняет unsafe/unsupported/empty/oversized items до PUT, fail-closed останавливается выше 50 supported files и требует preview confirmation; добавленные composer rows наследуют общую target folder с сохранением per-row override. Full exact-head regression/CI и runtime Evidence ожидаются.
 
 ### Эпик `PWA-SEGMENTS-01` — произвольные пользовательские фрагменты
 
