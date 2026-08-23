@@ -26,17 +26,17 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-23T13:11:25Z
+- Updated (UTC): 2026-08-23T13:15:45Z
 - Session mode: authorized Goal implementation
 - Base branch: `main`
 - Base SHA: `295438056dc7352b00ce41a05349445c5ec83f60`
 - Working branch: `codex/pwa-drive-readonly-sources`
-- Last verified revision: `3419c4f008eacd76d4fcf583fd8200f40c65ce06` (scope/config/tests commit; focused local validation passed, backend pytest pending CI).
+- Last verified revision: `90e6d4cca91c7af730b67cbb9ff6db7c4ad01404` (code plus canonical documentation covered by available local validation; backend pytest pending CI).
 - Working tree at branch start: clean `main`, fast-forward synchronized with `origin/main`; only `main` existed locally/remotely before creating this branch.
 - Completed: PR #224 merged as `main@295438056dc7352b00ce41a05349445c5ec83f60`; exact-main CI/Studio CI/CD succeeded and safe diagnostic UX is deployed. Owner then explicitly authorized `drive.readonly`. Commit `3419c4f` adds exact `drive.file + drive.readonly`, rejects old/additional grants, requires source-folder read scope, updates runtime/preflight defaults, and preserves narrow output writes.
-- Current step: canonical scope/runbook/checkpoint synchronization and full local validation before PR.
-- Next exact action: validate documentation diff, create its atomic commit, then run full available Studio validation and push the branch.
-- Validation and Evidence: scope iteration focused frontend Vitest `223/223` PASS; Python compileall PASS; exact scope assertions PASS; `scripts/ci_checks.py` PASS. Full backend pytest is unavailable in the local Windows environment and remains pending exact-head GitHub CI. Previous main CI/deployment and failed narrow-scope LIVE remain historical evidence only; they do not validate this revision.
+- Current step: local implementation/validation complete; push branch and create PR.
+- Next exact action: commit this checkpoint, push `codex/pwa-drive-readonly-sources`, create the PR, then wait for every expected exact-head check.
+- Validation and Evidence: full Studio Vitest `558/558` PASS; ESLint PASS; TypeScript PASS; Vite production build PASS; Playwright discovery `10/10` PASS; Python compileall PASS; exact scope assertions PASS; `scripts/ci_checks.py` PASS. Full backend pytest is unavailable in the local Windows environment and remains pending exact-head GitHub CI. Previous main CI/deployment and failed narrow-scope LIVE remain historical evidence only; they do not validate this revision.
 - Pull Request: not created for current branch. Historical PRs: #223 implementation, #224 diagnostic fix; both merged into current base `295438056dc7352b00ce41a05349445c5ec83f60`.
 - CI/checks: not run for current branch/head; expected gates are `CI/checks`, `Studio PWA CI/studio`, and `Studio PWA CI/browser-e2e`.
 - Deployment/environment: current branch not deployed. No migration is required; scope/config change requires API and web deployment, while worker remains unchanged unless workflow path selection proves otherwise.
