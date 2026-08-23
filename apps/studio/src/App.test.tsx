@@ -2742,6 +2742,20 @@ describe("Studio PWA", () => {
     await expect(sourcePromise).resolves.toEqual({ action: "cancel" });
 
     callback = null;
+    const sourceFolderPromise = googlePicker.openGooglePicker(
+      "source-folder",
+      {
+        access_token: "ya29.source-folder",
+        api_key: "public",
+        app_id: "app",
+        scope_ready: true,
+      },
+    );
+    await waitFor(() => expect(callback).not.toBeNull());
+    callback?.({ action: "cancel" });
+    await expect(sourceFolderPromise).resolves.toEqual({ action: "cancel" });
+
+    callback = null;
     const folderPromise = googlePicker.openGooglePicker("output-folder", {
       access_token: "ya29.folder",
       api_key: "public",
@@ -2803,19 +2817,24 @@ describe("Studio PWA", () => {
       "folders",
       "folders",
       "folders",
+      "folders",
       "docs",
     ]);
-    expect(viewModes).toEqual(["list", "list", "list", "list", "list"]);
-    expect(viewParents).toEqual(["root", "root", "root", "root", "root"]);
-    expect(includeFolders).toEqual([true, true, true, true, true]);
+    expect(viewModes).toEqual(["list", "list", "list", "list", "list", "list"]);
+    expect(viewParents).toEqual(["root", "root", "root", "root", "root", "root"]);
+    expect(includeFolders).toEqual([true, true, true, true, true, true]);
     expect(viewMimeTypes).toEqual([
       "application/vnd.google-apps.document",
     ]);
-    expect(selectFolderEnabled).toEqual([true, true, true]);
+    expect(selectFolderEnabled).toEqual([true, true, true, true]);
     expect(builderCalls).toContainEqual({ method: "setLocale", args: ["ru"] });
     expect(builderCalls).toContainEqual({
       method: "setTitle",
       args: ["Выберите аудио или видео"],
+    });
+    expect(builderCalls).toContainEqual({
+      method: "setTitle",
+      args: ["Выберите папку с аудио или видео"],
     });
     expect(builderCalls).toContainEqual({
       method: "setTitle",
@@ -2844,6 +2863,10 @@ describe("Studio PWA", () => {
     expect(builderCalls).toContainEqual({
       method: "setOAuthToken",
       args: ["ya29.source"],
+    });
+    expect(builderCalls).toContainEqual({
+      method: "setOAuthToken",
+      args: ["ya29.source-folder"],
     });
     expect(builderCalls).toContainEqual({
       method: "setOAuthToken",
@@ -2877,7 +2900,7 @@ describe("Studio PWA", () => {
     ).toEqual([{ method: "enableFeature", args: ["multi"] }]);
     expect(
       builderCalls.filter((call) => call.method === "setCallback"),
-    ).toHaveLength(5);
+    ).toHaveLength(6);
     expect(
       builderCalls.some((call) => call.args.includes("support_drives")),
     ).toBe(false);
@@ -11018,6 +11041,295 @@ describe("Studio PWA", () => {
     expect(document.body).not.toHaveTextContent(
       "https://upload.example/presigned",
     );
+    const folderInput = within(row).getByLabelText(
+      "Выбрать папку с устройства для строки 1",
+    ) as HTMLInputElement;
+    expect(folderInput).toHaveAttribute("type", "file");
+    expect(folderInput).toHaveAttribute("multiple");
+    expect(folderInput).toHaveAttribute("webkitdirectory");
+    expect(folderInput).toHaveAttribute("directory");
+    expect(folderInput).toHaveClass("visually-hidden");
+  });
+
+  it("previews a local folder before upload and carries the shared target to appended rows", async () => {
+    const folderFile = (path: string, type: string) => {
+      const file = new File([path], path.split("/").at(-1) ?? "file", {
+        type,
+      });
+      Object.defineProperty(file, "webkitRelativePath", {
+        configurable: true,
+        value: path,
+      });
+      return file;
+    };
+
+    renderApp();
+    await openProjectsPage();
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
+    await chooseResultFolder(1, "folder-shared");
+    const row = await screen.findByLabelText("Источник строки 1");
+    const folderInput = within(row).getByLabelText(
+      "Выбрать папку с устройства для строки 1",
+    ) as HTMLInputElement;
+
+    await userEvent.upload(
+      folderInput,
+      [
+        folderFile("Calls/one.ogg", "audio/ogg"),
+        folderFile("Calls/nested/two.ogg", "audio/ogg"),
+        folderFile("Calls/readme.txt", "text/plain"),
+      ],
+      { applyAccept: false },
+    );
+
+    const dialog = await screen.findByRole("dialog", {
+      name: "Импортировать папку «Calls»?",
+    });
+    expect(dialog).toHaveTextContent("Всего найдено3");
+    expect(dialog).toHaveTextContent("Будет загружено2");
+    expect(dialog).toHaveTextContent("Будет пропущено1");
+    expect(dialog).toHaveTextContent("Default folder");
+    expect(
+      (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
+        ([url, init]) =>
+          url === "/api/projects/p1/sources/local-upload/initiate" &&
+          init?.method === "POST",
+      ),
+    ).toBe(false);
+
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Импортировать 2" }),
+    );
+    await screen.findByText("Загружено файлов: 2.");
+    expect(screen.getByLabelText("Источник строки 1")).toHaveTextContent(
+      "local-source-1.ogg",
+    );
+    expect(screen.getByLabelText("Источник строки 2")).toHaveTextContent(
+      "local-source-2.ogg",
+    );
+    expect(screen.getByLabelText("Задача 1")).toHaveTextContent(
+      "Default folder",
+    );
+    expect(screen.getByLabelText("Задача 2")).toHaveTextContent(
+      "Default folder",
+    );
+  });
+
+  it("previews and explicitly applies a Google Drive source folder without trusting Picker metadata", async () => {
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const previousFetch = fetchMock.getMockImplementation();
+    const source = (id: string, name: string) => ({
+      id,
+      project_id: "p1",
+      source_type: "google_drive",
+      original_filename: name,
+      mime_type: "audio/mpeg",
+      size_bytes: 10,
+      drive_file_url: `https://drive.google.com/file/d/${id}/view`,
+      upload_status: "uploaded",
+      uploaded_at: "2026-08-23T10:00:00Z",
+      source_created_at: "2026-08-20T10:00:00Z",
+      source_created_at_provenance: "google_drive_created_time",
+      expires_at: null,
+      deleted_at: null,
+      delete_reason: null,
+      created_at: "2026-08-23T10:00:00Z",
+      updated_at: "2026-08-23T10:00:00Z",
+    });
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        url === "/api/projects/p1/sources/google-folder/preview" &&
+        init?.method === "POST"
+      ) {
+        expect(JSON.parse(String(init.body))).toEqual({
+          folder_id: "folder-source",
+        });
+        expect(String(init.body)).not.toContain("Picker Folder Name");
+        expect(String(init.body)).not.toContain("ya29");
+        return json({
+          folder: { id: "folder-source", name: "Verified Calls" },
+          total_file_count: 3,
+          folder_count: 2,
+          supported_count: 2,
+          skipped_count: 1,
+          accepted: [
+            {
+              id: "drive-folder-a",
+              name: "a.mp3",
+              mime_type: "audio/mpeg",
+              size_bytes: 10,
+              created_time: "2026-08-20T10:00:00Z",
+              relative_path: "Verified Calls/a.mp3",
+            },
+            {
+              id: "drive-folder-b",
+              name: "b.mp3",
+              mime_type: "audio/mpeg",
+              size_bytes: 10,
+              created_time: "2026-08-20T10:00:00Z",
+              relative_path: "Verified Calls/Nested/b.mp3",
+            },
+          ],
+          skipped: [
+            {
+              relative_path: "Verified Calls/readme.txt",
+              reason: "unsupported",
+            },
+          ],
+          blocker: null,
+          complete: true,
+          preview_token: "a".repeat(64),
+        });
+      }
+      if (
+        url === "/api/projects/p1/sources/google-folder/apply" &&
+        init?.method === "POST"
+      ) {
+        expect(JSON.parse(String(init.body))).toEqual({
+          folder_id: "folder-source",
+          preview_token: "a".repeat(64),
+        });
+        return json({
+          sources: [
+            source("drive-folder-source-a", "a.mp3"),
+            source("drive-folder-source-b", "b.mp3"),
+          ],
+        });
+      }
+      return previousFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    renderApp();
+    await openProjectsPage();
+    await screen.findByRole("form", { name: "Композитор пакетных задач" });
+    await chooseResultFolder(1);
+    const picker = installFakeGooglePicker();
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Выбрать папку-источник Google Drive для строки 1",
+      }),
+    );
+    await picker.loadScript();
+    await picker.waitForCallback();
+    expect(picker.viewIds).toEqual(["folders"]);
+    expect(picker.selectFolderEnabled).toEqual([true]);
+    expect(picker.builderCalls).toContainEqual({
+      method: "setTitle",
+      args: ["Выберите папку с аудио или видео"],
+    });
+    picker.trigger({
+      action: "picked",
+      docs: [
+        {
+          id: "folder-source",
+          name: "Picker Folder Name",
+          mimeType: "application/vnd.google-apps.folder",
+          token: "ya29.raw-picker-token",
+        },
+      ],
+    });
+
+    const dialog = await screen.findByRole("dialog", {
+      name: "Импортировать папку «Verified Calls»?",
+    });
+    expect(dialog).toHaveTextContent("Будет загружено2");
+    expect(dialog).toHaveTextContent("Будет пропущено1");
+    expect(dialog).toHaveTextContent("Default folder");
+    expect(dialog).not.toHaveTextContent("Picker Folder Name");
+    expect(
+      fetchMock.mock.calls.filter(
+        ([url]) => url === "/api/projects/p1/sources/google-folder/apply",
+      ),
+    ).toHaveLength(0);
+
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Импортировать 2" }),
+    );
+    await screen.findByText("Добавлено файлов из папки: 2.");
+    expect(screen.getByLabelText("Задача 1")).toHaveTextContent("a.mp3");
+    expect(screen.getByLabelText("Задача 2")).toHaveTextContent("b.mp3");
+    expect(screen.getByLabelText("Задача 1")).toHaveTextContent(
+      "Default folder",
+    );
+    expect(screen.getByLabelText("Задача 2")).toHaveTextContent(
+      "Default folder",
+    );
+    expect(
+      fetchMock.mock.calls.filter(
+        ([url]) => url === "/api/projects/p1/sources/google-folder/apply",
+      ),
+    ).toHaveLength(1);
+    expect(document.body.textContent).not.toContain("ya29.raw-picker-token");
+  });
+
+  it("does not replay an ambiguous Google Drive folder apply", async () => {
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const previousFetch = fetchMock.getMockImplementation();
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (
+        url === "/api/projects/p1/sources/google-folder/preview" &&
+        init?.method === "POST"
+      ) {
+        return json({
+          folder: { id: "folder-source", name: "Calls" },
+          total_file_count: 1,
+          folder_count: 1,
+          supported_count: 1,
+          skipped_count: 0,
+          accepted: [
+            {
+              id: "drive-folder-a",
+              name: "a.mp3",
+              mime_type: "audio/mpeg",
+              size_bytes: 10,
+              created_time: "2026-08-20T10:00:00Z",
+              relative_path: "Calls/a.mp3",
+            },
+          ],
+          skipped: [],
+          blocker: null,
+          complete: true,
+          preview_token: "b".repeat(64),
+        });
+      }
+      if (
+        url === "/api/projects/p1/sources/google-folder/apply" &&
+        init?.method === "POST"
+      ) {
+        return json({ detail: "raw-provider-body" }, false, 502);
+      }
+      return previousFetch?.(url, init) ?? json({ ok: true });
+    });
+
+    const picker = installFakeGooglePicker();
+    renderApp();
+    await openProjectsPage();
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Выбрать папку-источник Google Drive для строки 1",
+      }),
+    );
+    await picker.loadScript();
+    await picker.waitForCallback();
+    picker.trigger({ action: "picked", docs: [{ id: "folder-source" }] });
+    const dialog = await screen.findByRole("dialog", {
+      name: "Импортировать папку «Calls»?",
+    });
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Импортировать 1" }),
+    );
+
+    expect(
+      await screen.findByText(
+        "Сервер не подтвердил импорт папки. Список файлов обновлён; проверьте его и только затем явно выберите папку снова.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.filter(
+        ([url]) => url === "/api/projects/p1/sources/google-folder/apply",
+      ),
+    ).toHaveLength(1);
+    expect(document.body.textContent).not.toContain("raw-provider-body");
   });
 
   it("local multi-file selection preserves successful rows through ordered batch creation", async () => {

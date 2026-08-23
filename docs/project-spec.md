@@ -28,13 +28,13 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Текущий independently verified execution snapshot: ветка `codex/pwa-transcriptions-live-recovery-01` от `main@dd194c929d957e822ff618df294dc54e72d5971e`, exact-head `29df753b204a87768ff68d401fe8e77ff11fa59b`; bounded local UX и exact-head CI подтверждены, DEPLOY/LIVE ещё не выполнены.
+Текущий independently verified execution snapshot: `main@ccb067d05d5225a3178b21cd239bd65c0764f1fb`; exact-main CI, Studio/browser CI, web/API/worker deployment, protected migration `0023_realtime_drafts` и bounded LIVE/operational validation предыдущей Goal подтверждены. Новая Goal `PWA-INGEST-FOLDERS-01` не меняет readiness до выполнения соответствующих product AC.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **75,9% (`22/29`)** | `COLAB-BATCH 17/23` + `COLAB-REALTIME 5/6` |
-| Studio PWA | **87,9% (`80/91`)** | сумма десяти PWA-эпиков ниже; `PWA-CORE-01 13/13` и `PWA-TRANSCRIPTIONS-UX-01 4/4` подтверждены в текущей рабочей ветке |
-| Весь проект | **85,0% (`102/120`)** | все выполненные AC двух продуктов / все AC текущего scope |
+| Studio PWA | **91,2% (`83/91`)** | сумма десяти PWA-эпиков ниже; все `PWA-INGEST-01` AC подтверждены code/tests в текущей рабочей ветке |
+| Весь проект | **87,5% (`105/120`)** | все выполненные AC двух продуктов / все AC текущего scope |
 
 ## 3. Общие product rules
 
@@ -154,7 +154,7 @@ Verified implementation: backend не раскрывает raw batch idempotency
 
 ### Эпик `PWA-INGEST-01` — target и source selection, multi-transcription
 
-Status: **🟦 IN PROGRESS — 72,7% (`8/11`)**.
+Status: **🟦 IN PROGRESS — 100% (`11/11`)**. Required DEPLOY/LIVE Evidence текущей реализации ещё не подтверждены, поэтому READY не заявляется.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -162,17 +162,17 @@ Status: **🟦 IN PROGRESS — 72,7% (`8/11`)**.
 | `PI-02` | Target folder можно добавить в Favorites и выбрать повторно. | ✅ |
 | `PI-03` | С компьютера выбирается один файл. | ✅ |
 | `PI-04` | С компьютера выбираются несколько файлов. | ✅ |
-| `PI-05` | С компьютера выбирается целая папка с файлами. | ❌ |
+| `PI-05` | С компьютера выбирается целая папка с файлами. | ✅ |
 | `PI-06` | На Google Drive выбирается один source file. | ✅ |
 | `PI-07` | На Google Drive выбираются несколько source files. | ✅ |
-| `PI-08` | На Google Drive выбирается source folder. | ❌ |
+| `PI-08` | На Google Drive выбирается source folder. | ✅ |
 | `PI-09` | Один batch принимает одну target folder и несколько явно выбранных files. | ✅ |
-| `PI-10` | Один batch принимает одну target folder и source folder. | ❌ |
+| `PI-10` | Один batch принимает одну target folder и source folder. | ✅ |
 | `PI-11` | Для каждой composer row можно независимо выбрать source и target folder. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
 
-Verified implementation: Favorites хранятся owner-scoped в PostgreSQL, создаются только после server-side Google Drive verification, повторно проверяются перед назначением composer row и удаляются owner-scoped. Full frontend suite подтверждает save/revalidate/reuse/delete flow; backend DB integration ожидает exact-head CI.
+Verified implementation: Favorites хранятся owner-scoped в PostgreSQL, создаются только после server-side Google Drive verification, повторно проверяются перед назначением composer row и удаляются owner-scoped. Local folder picker перечисляет nested files через browser relative paths, отклоняет unsafe/unsupported/empty/oversized items до PUT, fail-closed останавливается выше 50 supported files и требует preview confirmation. Drive source-folder Picker передаёт только selected folder ID; API рекурсивно перечисляет descendants с bounds по depth/pages/items, отклоняет malformed listings, cycles, duplicate IDs и repeated tokens, а apply повторяет traversal и сравнивает owner/project-bound snapshot token. Только explicit confirmation создаёт individual Sources одной transaction; новые composer rows наследуют общую target folder с сохранением per-row override и далее используют существующие manifest/preflight/batch rules. Required CI для exact head `0b43956abd6f5b38d54b096daf180617cc1bec6c` прошёл: `CI/checks`, `Studio PWA CI/studio` и `Studio PWA CI/browser-e2e` SUCCESS. DEPLOY/LIVE Evidence ожидаются.
 
 ### Эпик `PWA-SEGMENTS-01` — произвольные пользовательские фрагменты
 
@@ -312,7 +312,7 @@ Status: **🟦 IN PROGRESS — 100% (`18/18`)**.
 
 Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
 
-## 6. Future scope, не включённый в denominator `109`
+## 6. Future scope, не включённый в denominator `120`
 
 ### Эпик `PWA-AUTH-HARDENING-02`
 
@@ -350,20 +350,20 @@ Status: **⬜ BACKLOG**. Владелец явно отнёс TOTP/Google Authen
 
 ## 8. Runtime и delivery baseline
 
-- Current audit revision: `main@919e6137ed0e806db168a43d292ab7874293549e`.
-- Exact-main repository CI: run `32376152400`, success.
-- Exact-main Studio/browser CI: run `32376152418`, jobs `studio` и `browser-e2e` success.
-- Studio component CD run `32376152217` доставил `studio-web` и `studio-api`; worker rollout был `N/A`, потому что runtime worker code не изменялся. Production API/web health и exact merge revision подтверждены.
+- Current verified revision: `main@ccb067d05d5225a3178b21cd239bd65c0764f1fb`.
+- Exact-main repository CI: run `32588711409`, success.
+- Exact-main Studio/browser CI: run `32588711419`, jobs `studio` и `browser-e2e` success.
+- Studio web deployment: run `32588711397`, success; migration `0023_realtime_drafts`, API и worker rollout подтверждены runs `32589660127`, `32589888861`, `32589929940` и `32590256878`.
 - Production API/worker/migration evidence предыдущего processing rollout привязано к `main@66fb098` и Alembic head `0020_provider_part_checkpoints`; оно не доказывает более поздние UI/realtime requirements.
 - Bounded production canary на `919e613` подтвердил arbitrary-fragment Google Docs output и закрыл `PWA-SEGMENTS-01`, одновременно выявив `PB-05` regression; safe execution identifiers находятся в delivery archive.
 
 ## 9. Current critical path
 
-1. Закрыть PWA contract gaps без новой architecture boundary: explicit English, target Favorites, source creation timestamp propagation, JSON/YAML/TOML diagnostics exports, success percentage и safe clear confirmations.
-2. Реализовать folder intake для local/Drive и обе multi-transcription modes с bounded enumeration, duplicate handling и preflight.
-3. Заменить narrow two-part model на arbitrary N-fragment plan с server validation, immutable job snapshots и one-output-per-fragment semantics.
-4. Реализовать PWA speaker names/roles и manual listen-and-assign после отдельного privacy/data-retention design внутри уже авторизованного feature scope.
-5. Стабилизировать PWA runtime и провести component-specific deploy/LIVE canaries; затем вернуться к Colab realtime capture stability.
+1. Реализовать bounded local/Drive source-folder intake и folder-to-batch flow без расширения OAuth scope.
+2. Закрыть PWA speaker names/roles и manual listen-and-assign после отдельного privacy/data-retention design.
+3. Разрешить оставшиеся source-creation timestamp и legacy-standardization gaps без подмены media creation time другими часами.
+4. Выполнить representative PWA microphone/display/mixed production matrix и исправить воспроизводимые capture defects.
+5. После PWA priority scope закрыть Colab batch parity gaps и realtime capture stability.
 
 ## 10. Supporting documents
 

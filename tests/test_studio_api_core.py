@@ -4104,6 +4104,134 @@ def test_output_folder_favorite_uses_canonical_url_when_drive_omits_link():
     )
 
 
+def test_google_drive_source_folder_preview_is_side_effect_free_and_apply_rejects_drift(monkeypatch):
+    import studio_api.main as main
+    import studio_api.google_drive_folder_intake as folder_intake
+    from studio_api.google_drive import GoogleDriveMetadata
+    from studio_api.google_drive_folder_intake import (
+        DriveFolderAcceptedItem,
+        DriveFolderPreview,
+        DriveFolderSkippedItem,
+        DriveFolderSkipReason,
+    )
+
+    pw = admin("drive-folder-intake@example.com")
+    c = TestClient(app)
+    csrf = login(c, pw, "drive-folder-intake@example.com")
+    headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+    pid = c.post(
+        "/api/projects", json={"title": "Folder intake"}, headers=headers
+    ).json()["id"]
+    monkeypatch.setattr(
+        main, "refreshed_google_drive_access_token", lambda *a, **k: "access"
+    )
+
+    def item(item_id, name):
+        meta = GoogleDriveMetadata(
+            item_id,
+            name,
+            "audio/mpeg",
+            10,
+            f"https://drive.google.com/file/d/{item_id}/view",
+            "2026-08-20T10:00:00Z",
+            None,
+            False,
+        )
+        return DriveFolderAcceptedItem(meta, f"Calls/{name}", "audio/mpeg")
+
+    current = {
+        "preview": DriveFolderPreview(
+            folder_id="folder-source",
+            folder_name="Calls",
+            total_file_count=3,
+            folder_count=2,
+            supported_count=2,
+            accepted=(item("file-a", "a.mp3"), item("file-b", "b.mp3")),
+            skipped=(
+                DriveFolderSkippedItem(
+                    "notes", "Calls/notes.pdf", DriveFolderSkipReason.unsupported
+                ),
+            ),
+            blocker=None,
+            complete=True,
+        )
+    }
+    monkeypatch.setattr(
+        folder_intake,
+        "inspect_drive_source_folder",
+        lambda *a, **k: current["preview"],
+    )
+
+    preview = c.post(
+        f"/api/projects/{pid}/sources/google-folder/preview",
+        json={"folder_id": "folder-source"},
+        headers=headers,
+    )
+    assert preview.status_code == 200
+    assert preview.headers["cache-control"] == "no-store"
+    body = preview.json()
+    assert body["folder"] == {"id": "folder-source", "name": "Calls"}
+    assert body["supported_count"] == 2
+    assert body["skipped_count"] == 1
+    assert [row["relative_path"] for row in body["accepted"]] == [
+        "Calls/a.mp3",
+        "Calls/b.mp3",
+    ]
+    assert len(body["preview_token"]) == 64
+    db = SessionLocal()
+    try:
+        assert db.query(Source).filter_by(project_id=pid).count() == 0
+    finally:
+        db.close()
+
+    current["preview"] = DriveFolderPreview(
+        **{
+            **current["preview"].__dict__,
+            "accepted": (item("file-a", "renamed.mp3"), item("file-b", "b.mp3")),
+        }
+    )
+    drifted = c.post(
+        f"/api/projects/{pid}/sources/google-folder/apply",
+        json={
+            "folder_id": "folder-source",
+            "preview_token": body["preview_token"],
+        },
+        headers=headers,
+    )
+    assert drifted.status_code == 409
+    assert drifted.json() == {"detail": "google_drive_folder_changed"}
+    db = SessionLocal()
+    try:
+        assert db.query(Source).filter_by(project_id=pid).count() == 0
+    finally:
+        db.close()
+
+    refreshed = c.post(
+        f"/api/projects/{pid}/sources/google-folder/preview",
+        json={"folder_id": "folder-source"},
+        headers=headers,
+    ).json()
+    applied = c.post(
+        f"/api/projects/{pid}/sources/google-folder/apply",
+        json={
+            "folder_id": "folder-source",
+            "preview_token": refreshed["preview_token"],
+        },
+        headers=headers,
+    )
+    assert applied.status_code == 200
+    assert [source["original_filename"] for source in applied.json()["sources"]] == [
+        "renamed.mp3",
+        "b.mp3",
+    ]
+    assert applied.headers["cache-control"] == "no-store"
+    db = SessionLocal()
+    try:
+        assert db.query(Source).filter_by(project_id=pid).count() == 2
+    finally:
+        db.close()
+
+
 def test_output_folder_favorites_are_owner_scoped():
     c1, _h1, _pid1 = create_logged_in_project("favorite-owner-1@example.com")
     c2, h2, _pid2 = create_logged_in_project("favorite-owner-2@example.com")

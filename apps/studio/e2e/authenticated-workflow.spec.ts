@@ -378,6 +378,17 @@ test('preparation stays fail-closed without external integrations', async ({
   ).toBeDisabled();
   await expect(
     preparation.getByRole('button', {
+      name: 'Выбрать папку-источник Google Drive для строки 1',
+    }),
+  ).toBeDisabled();
+  const localFolderInput = preparation.getByLabel(
+    'Выбрать папку с устройства для строки 1',
+  );
+  await expect(localFolderInput).toHaveAttribute('type', 'file');
+  await expect(localFolderInput).toHaveAttribute('multiple', '');
+  await expect(localFolderInput).toHaveAttribute('webkitdirectory', '');
+  await expect(
+    preparation.getByRole('button', {
       name: 'Выбрать папку результата для строки 1',
     }),
   ).toBeDisabled();

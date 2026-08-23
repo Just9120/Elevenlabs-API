@@ -151,6 +151,19 @@ import { TranscriptionAnalyticsPanel } from "./TranscriptionAnalyticsPanel";
 import { TranscriptCatalogMigrationPanel } from "./TranscriptCatalogMigrationPanel";
 import { LiveTranscriptionPanel } from "./LiveTranscriptionPanel";
 import { ConfirmClearDialog } from "./ConfirmClearDialog";
+import { FolderImportDialog } from "./FolderImportDialog";
+import {
+  buildLocalFolderPreview,
+  localFolderRejectedReasonLabel,
+  type LocalFolderRejectedFile,
+  type LocalFolderPreview,
+} from "./folderIntakeModel";
+import {
+  driveFolderSkipReasonLabel,
+  parseDriveFolderPreview,
+  type DriveFolderPreview,
+  type DriveFolderSkippedItem,
+} from "./driveFolderIntakeModel";
 import {
   applyStudioAccentColor,
   isStudioAccentColor,
@@ -1310,7 +1323,7 @@ type LocalUploadNotice = LocalUploadOperation & {
   tone: "notice" | "error";
 };
 
-type GooglePickerOperationKind = "sources" | "folder:first";
+type GooglePickerOperationKind = "sources" | "source-folder" | "folder:first";
 type GooglePickerOperation = {
   projectId: string;
   panelId: string;
@@ -1498,6 +1511,15 @@ function PreparationPanel({
   const [rowIntakeErrors, setRowIntakeErrors] = useState<
     Record<string, string>
   >({});
+  const [localFolderPreview, setLocalFolderPreview] = useState<{
+    rowId: string;
+    preview: LocalFolderPreview;
+  } | null>(null);
+  const [driveFolderPreview, setDriveFolderPreview] = useState<{
+    rowId: string;
+    preview: DriveFolderPreview;
+  } | null>(null);
+  const [driveFolderApplyPending, setDriveFolderApplyPending] = useState(false);
   const [recentlyAddedRow, setRecentlyAddedRow] = useState<{
     id: string;
     number: number;
@@ -1505,6 +1527,7 @@ function PreparationPanel({
   const [rowAdditionStatus, setRowAdditionStatus] = useState("");
   const rowFolderPickerRef = useRef(false);
   const rowSourcePickerRef = useRef(false);
+  const driveFolderApplyRef = useRef(false);
   const localUploadCsrfRef = useRef(csrf);
   const rowElementRefs = useRef(new Map<string, HTMLLIElement>());
   const reloadJobsRef = useRef(onReloadJobs);
@@ -1545,6 +1568,10 @@ function PreparationPanel({
     setRemovedSourceIds(new Set());
     setRowIntakeStatus({});
     setRowIntakeErrors({});
+    setLocalFolderPreview(null);
+    setDriveFolderPreview(null);
+    setDriveFolderApplyPending(false);
+    driveFolderApplyRef.current = false;
     setFolderFavorites([]);
     setFolderFavoritesLoaded(false);
     setFolderFavoritesLoading(false);
@@ -1861,6 +1888,9 @@ function PreparationPanel({
       const targetIndex = current.findIndex((row) => row.id === targetRowId);
       const target = targetIndex >= 0 ? current[targetIndex] : null;
       const canFillTarget = Boolean(target && !target.source_id);
+      const sharedOutputFolder = target?.output_folder
+        ? { ...target.output_folder }
+        : null;
       const next = [...current];
       const [first, ...rest] = selected;
       const sourcesToAppend = canFillTarget ? rest : selected;
@@ -1874,6 +1904,9 @@ function PreparationPanel({
         ...sourcesToAppend.map((source) => ({
           ...newComposerRow(),
           source_id: source.id,
+          output_folder: sharedOutputFolder
+            ? { ...sharedOutputFolder }
+            : null,
         })),
       );
       return next.length > 0 ? next : [newComposerRow()];
@@ -2187,6 +2220,209 @@ function PreparationPanel({
       finishGooglePicker(operation, outcome);
     }
   }
+  async function chooseRowDriveFolder(rowId: string) {
+    const operation: GooglePickerOperation = {
+      projectId: project.id,
+      panelId: googlePickerPanelId,
+      rowId,
+      kind: "source-folder",
+    };
+    if (rowSourcePickerRef.current || !beginGooglePicker(operation)) return;
+    rowSourcePickerRef.current = true;
+    let outcome: GooglePickerOutcome | undefined;
+    setRowIntakeErrors((current) => ({ ...current, [rowId]: "" }));
+    setRowIntakeStatus((current) => ({
+      ...current,
+      [rowId]: "Открываем выбор папки Google Drive…",
+    }));
+    try {
+      const session = await acquireGooglePickerSession();
+      const result = await googlePicker.openGooglePicker(
+        "source-folder",
+        session,
+      );
+      if (result.action === "cancel") {
+        const message = "Выбор папки отменён.";
+        setRowIntakeStatus((current) => ({ ...current, [rowId]: message }));
+        outcome = { message, tone: "notice" };
+        return;
+      }
+      if (result.action === "error") {
+        throw new Error(result.message);
+      }
+      if (result.docs.length !== 1) {
+        throw new Error("Google Picker не вернул одну папку.");
+      }
+      setRowIntakeStatus((current) => ({
+        ...current,
+        [rowId]: "Проверяем содержимое папки…",
+      }));
+      const bounded = await runBoundedRequest((signal) =>
+        csrfMutate<unknown>(
+          `/projects/${project.id}/sources/google-folder/preview`,
+          csrf,
+          onCsrf,
+          {
+            method: "POST",
+            body: JSON.stringify({ folder_id: result.docs[0].id }),
+            signal,
+          },
+        ),
+      );
+      if (bounded.status === "timed_out") {
+        throw new Error(
+          "Проверка папки Google Drive не завершилась вовремя. Повторите выбор.",
+        );
+      }
+      const preview = parseDriveFolderPreview(bounded.value);
+      if (!preview) {
+        throw new Error(
+          "Сервер вернул некорректный preview папки. Повторите выбор позже.",
+        );
+      }
+      if (preview.blocker === "over_limit") {
+        throw new Error(
+          "В папке найдено более 50 поддерживаемых файлов. Выберите меньшую папку.",
+        );
+      }
+      if (preview.blocker === "empty" || !preview.preview_token) {
+        throw new Error(
+          "В папке нет поддерживаемых файлов с подтверждённой исходной датой создания.",
+        );
+      }
+      setDriveFolderPreview({ rowId, preview });
+      setRowIntakeStatus((current) => ({ ...current, [rowId]: "" }));
+      outcome = {
+        message: `Папка проверена: ${preview.supported_count} файлов готовы к импорту.`,
+        tone: "notice",
+      };
+    } catch (err) {
+      const pickerFailure = googlePickerFailureMessage(err);
+      const detail =
+        err instanceof ApiError &&
+        err.data &&
+        typeof err.data === "object" &&
+        "detail" in err.data &&
+        typeof (err.data as { detail?: unknown }).detail === "string"
+          ? (err.data as { detail: string }).detail
+          : null;
+      const message =
+        pickerFailure ??
+        (detail === "google_drive_folder_depth_limit" ||
+        detail === "google_drive_folder_page_limit" ||
+        detail === "google_drive_folder_item_limit"
+          ? "Папка слишком большая или глубокая для безопасного импорта. Выберите меньшую папку."
+          : detail === "google_drive_folder_cycle" ||
+              detail === "google_drive_folder_duplicate_id" ||
+              detail === "google_drive_folder_repeated_page_token"
+            ? "Структура папки Google Drive неоднозначна. Импорт остановлен без изменений."
+            : err instanceof Error
+              ? err.message
+              : "Не удалось проверить папку Google Drive.");
+      setRowIntakeStatus((current) => ({ ...current, [rowId]: "" }));
+      setRowIntakeErrors((current) => ({ ...current, [rowId]: message }));
+      outcome = { message, tone: "error" };
+    } finally {
+      rowSourcePickerRef.current = false;
+      finishGooglePicker(operation, outcome);
+    }
+  }
+  async function applyRowDriveFolder() {
+    const selection = driveFolderPreview;
+    if (!selection || driveFolderApplyRef.current) return;
+    const { rowId, preview } = selection;
+    if (!preview.preview_token) return;
+    driveFolderApplyRef.current = true;
+    setDriveFolderApplyPending(true);
+    setDriveFolderPreview(null);
+    setRowIntakeErrors((current) => ({ ...current, [rowId]: "" }));
+    setRowIntakeStatus((current) => ({
+      ...current,
+      [rowId]: "Добавляем файлы из папки Google Drive…",
+    }));
+    try {
+      let bounded;
+      try {
+        bounded = await runBoundedRequest((signal) =>
+          csrfMutate<unknown>(
+            `/projects/${project.id}/sources/google-folder/apply`,
+            csrf,
+            onCsrf,
+            {
+              method: "POST",
+              body: JSON.stringify({
+                folder_id: preview.folder.id,
+                preview_token: preview.preview_token,
+              }),
+              signal,
+            },
+          ),
+        );
+      } catch (err) {
+        const definitive =
+          err instanceof ApiError &&
+          err.status >= 400 &&
+          err.status < 500 &&
+          err.status !== 408 &&
+          err.status !== 429;
+        if (definitive) throw err;
+        onReloadSources(project.id);
+        throw new Error(
+          "Сервер не подтвердил импорт папки. Список файлов обновлён; проверьте его и только затем явно выберите папку снова.",
+          { cause: err },
+        );
+      }
+      if (bounded.status === "timed_out") {
+        onReloadSources(project.id);
+        throw new Error(
+          "Сервер не подтвердил импорт папки. Список файлов обновлён; проверьте его и только затем явно выберите папку снова.",
+        );
+      }
+      const payload = bounded.value;
+      const orderedSources =
+        payload && typeof payload === "object" && "sources" in payload
+          ? (payload as { sources?: unknown }).sources
+          : undefined;
+      if (
+        !isExpectedPickerSourceBatch(
+          orderedSources,
+          preview.supported_count,
+          project.id,
+        )
+      ) {
+        onReloadSources(project.id);
+        throw new Error(
+          "Сервер вернул неполный результат импорта. Список файлов обновлён; проверьте его перед новым выбором.",
+        );
+      }
+      placeSourcesInRows(rowId, orderedSources);
+      setRowIntakeStatus((current) => ({
+        ...current,
+        [rowId]: `Добавлено файлов из папки: ${orderedSources.length}.`,
+      }));
+      onReloadSources(project.id);
+    } catch (err) {
+      const detail =
+        err instanceof ApiError &&
+        err.data &&
+        typeof err.data === "object" &&
+        "detail" in err.data &&
+        typeof (err.data as { detail?: unknown }).detail === "string"
+          ? (err.data as { detail: string }).detail
+          : null;
+      const message =
+        detail === "google_drive_folder_changed"
+          ? "Содержимое папки изменилось после preview. Выберите папку снова и проверьте новый список."
+          : err instanceof Error
+            ? err.message
+            : "Не удалось импортировать папку Google Drive.";
+      setRowIntakeStatus((current) => ({ ...current, [rowId]: "" }));
+      setRowIntakeErrors((current) => ({ ...current, [rowId]: message }));
+    } finally {
+      driveFolderApplyRef.current = false;
+      setDriveFolderApplyPending(false);
+    }
+  }
   async function initiateLocalUpload(
     originalFilename: string,
     mimeType: string,
@@ -2236,12 +2472,7 @@ function PreparationPanel({
     return bounded.value;
   }
 
-  async function uploadRowLocalSources(
-    rowId: string,
-    e: ChangeEvent<HTMLInputElement>,
-  ) {
-    const files = Array.from(e.target.files ?? []);
-    e.target.value = "";
+  async function uploadRowLocalSources(rowId: string, files: File[]) {
     if (files.length === 0 || localUploadIsBusy(rowId)) return;
     if (!sourceUploadPolicy?.local_upload_enabled) {
       setRowIntakeErrors((current) => ({
@@ -2385,6 +2616,44 @@ function PreparationPanel({
     } finally {
       finishLocalUpload(operation, persistentNotice);
     }
+  }
+
+  function previewRowLocalFolder(
+    rowId: string,
+    event: ChangeEvent<HTMLInputElement>,
+  ) {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    if (files.length === 0 || localUploadIsBusy(rowId)) return;
+    if (!sourceUploadPolicy?.local_upload_enabled) {
+      setRowIntakeErrors((current) => ({
+        ...current,
+        [rowId]:
+          sourceUploadPolicyError ||
+          "Локальная загрузка временно недоступна. Повторите попытку позже.",
+      }));
+      return;
+    }
+    const preview = buildLocalFolderPreview(files, sourceUploadPolicy);
+    if (preview.blocker === "over_limit") {
+      setRowIntakeErrors((current) => ({
+        ...current,
+        [rowId]: `В папке найдено ${preview.supported_count} поддерживаемых файлов. Один batch допускает не более ${MAX_BATCH_ITEMS}; выберите меньшую папку.`,
+      }));
+      return;
+    }
+    if (preview.blocker === "empty") {
+      setRowIntakeErrors((current) => ({
+        ...current,
+        [rowId]:
+          preview.total_count === 0
+            ? "Выбранная папка не содержит файлов."
+            : "В выбранной папке нет поддерживаемых непустых файлов допустимого размера.",
+      }));
+      return;
+    }
+    setRowIntakeErrors((current) => ({ ...current, [rowId]: "" }));
+    setLocalFolderPreview({ rowId, preview });
   }
 
   function updateRow(rowId: string, patch: Partial<ComposerRow>) {
@@ -3846,6 +4115,19 @@ function PreparationPanel({
                         >
                           Из Google Drive
                         </button>
+                        <button
+                          type="button"
+                          className="secondary"
+                          aria-label={`Выбрать папку-источник Google Drive для строки ${index + 1}`}
+                          disabled={
+                            !driveSourcePickerEnabled ||
+                            pickerBusy ||
+                            driveFolderApplyPending
+                          }
+                          onClick={() => void chooseRowDriveFolder(row.id)}
+                        >
+                          Папка Google Drive
+                        </button>
                         <span className="file-picker-control">
                           <label
                             className={`button-like secondary${
@@ -3881,8 +4163,56 @@ function PreparationPanel({
                               localUploadIsBusy(row.id)
                             }
                             aria-busy={localUploadIsBusy(row.id)}
-                            onChange={(e) =>
-                              void uploadRowLocalSources(row.id, e)
+                            onChange={(event) => {
+                              const files = Array.from(
+                                event.target.files ?? [],
+                              );
+                              event.target.value = "";
+                              void uploadRowLocalSources(row.id, files);
+                            }}
+                          />
+                        </span>
+                        <span className="file-picker-control">
+                          <label
+                            className={`button-like secondary${
+                              sourceUploadPolicy?.local_upload_enabled &&
+                              !localUploadIsBusy(row.id)
+                                ? ""
+                                : " disabled"
+                            }`}
+                            htmlFor={`local-source-folder-${row.id}`}
+                            aria-disabled={
+                              !sourceUploadPolicy?.local_upload_enabled ||
+                              localUploadIsBusy(row.id)
+                            }
+                          >
+                            <span aria-hidden="true">Папка с устройства</span>
+                            <span className="visually-hidden">
+                              Выбрать папку с устройства для строки {index + 1}
+                            </span>
+                          </label>
+                          <input
+                            ref={(element) => {
+                              element?.setAttribute("webkitdirectory", "");
+                              element?.setAttribute("directory", "");
+                            }}
+                            id={`local-source-folder-${row.id}`}
+                            className="visually-hidden"
+                            aria-label={`Выбрать папку с устройства для строки ${index + 1}`}
+                            type="file"
+                            multiple
+                            accept={
+                              sourceUploadPolicy?.local_upload_enabled
+                                ? sourceUploadAccept(sourceUploadPolicy)
+                                : undefined
+                            }
+                            disabled={
+                              !sourceUploadPolicy?.local_upload_enabled ||
+                              localUploadIsBusy(row.id)
+                            }
+                            aria-busy={localUploadIsBusy(row.id)}
+                            onChange={(event) =>
+                              previewRowLocalFolder(row.id, event)
                             }
                           />
                         </span>
@@ -4465,6 +4795,54 @@ function PreparationPanel({
           pending={historyClearPending}
           onConfirm={() => void clearHistory()}
           onCancel={() => setHistoryClearOpen(false)}
+        />
+      )}
+      {localFolderPreview && (
+        <FolderImportDialog
+          preview={localFolderPreview.preview}
+          targetFolderName={
+            rows.find((row) => row.id === localFolderPreview.rowId)
+              ?.output_folder?.name ?? null
+          }
+          rejectedReasonLabel={(reason) =>
+            localFolderRejectedReasonLabel(
+              reason as LocalFolderRejectedFile["reason"],
+            )
+          }
+          onConfirm={() => {
+            const selection = localFolderPreview;
+            setLocalFolderPreview(null);
+            void uploadRowLocalSources(
+              selection.rowId,
+              selection.preview.accepted.map((item) => item.file),
+            );
+          }}
+          onCancel={() => setLocalFolderPreview(null)}
+        />
+      )}
+      {driveFolderPreview && (
+        <FolderImportDialog
+          preview={{
+            folder_name: driveFolderPreview.preview.folder.name,
+            total_count: driveFolderPreview.preview.total_file_count,
+            supported_count: driveFolderPreview.preview.supported_count,
+            accepted: driveFolderPreview.preview.accepted,
+            rejected: driveFolderPreview.preview.skipped.map((item) => ({
+              display_name: item.relative_path,
+              reason: item.reason,
+            })),
+          }}
+          targetFolderName={
+            rows.find((row) => row.id === driveFolderPreview.rowId)
+              ?.output_folder?.name ?? null
+          }
+          rejectedReasonLabel={(reason) =>
+            driveFolderSkipReasonLabel(
+              reason as DriveFolderSkippedItem["reason"],
+            )
+          }
+          onConfirm={() => void applyRowDriveFolder()}
+          onCancel={() => setDriveFolderPreview(null)}
         />
       )}
     </section>

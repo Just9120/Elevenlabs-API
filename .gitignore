@@ -58,6 +58,7 @@ manifests/
 manifest*.json
 
 # Studio PWA generated files
+.pnpm-store/
 apps/studio/node_modules/
 apps/studio/dist/
 apps/studio/*.tsbuildinfo

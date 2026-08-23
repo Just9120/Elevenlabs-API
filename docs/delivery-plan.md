@@ -2,63 +2,62 @@
 
 ## Current Goal
 
-- **ID / title:** `PWA-TRANSCRIPTIONS-UX-AND-LIVE-RECOVERY-01` — Transcriptions-first UX, recoverable Live drafts и bounded UX/UI remediation.
+- **ID / title:** `PWA-INGEST-FOLDERS-01` — bounded local/Drive source-folder intake и folder-to-batch flow.
 - **State:** `IN_PROGRESS`.
-- **Authorization source:** owner decision в текущей task: Projects не являются основной пользовательской сущностью; обычная и Live-транскрибации должны быть primary flow; Live text должен временно восстанавливаться после refresh/crash/restart; затем explicit instruction `формируй цель по найденным гэпам и данному вопросу`.
-- **Scope:** заменить user-facing Projects flow на `Транскрибации` с ordinary/Live tabs и history surfaces; удалить ручные create/edit/archive Project controls, сохранив safe internal ownership boundary и legacy active data; реализовать IndexedDB + encrypted owner-scoped server Live drafts с 72-hour TTL и restore/download/delete UX; исправить verified narrow Diagnostics overflow, dark-theme contrast, dialog keyboard/focus behavior, heading/touch/tab accessibility, maintenance-access diagnosis и unsupported-provider explanation; добавить migration, API/UI contracts, tests и полный delivery flow.
-- **Non-goals:** local/Drive source-folder intake; speaker identity; source creation timestamps; новые STT providers; automatic realtime reconnect; audio/session recording; subtitle exports; другие upstream proposals; automatic unarchive или privileged recovery production data.
+- **Authorization source:** explicit owner instruction в текущей task: `ставь goal и начинай реализацию` после согласования proposed scope.
+- **Scope:** отдельный local folder picker и Google Drive source-folder Picker; recursive bounded enumeration; preview/explicit confirmation; максимум 50 supported items; safe filtering и partial local-upload reporting; server-side Drive revalidation, cycle/pagination/duplicate/drift guards; создание individual Source/composer rows с общей target folder и per-row override; existing manifest/preflight/batch/multi-transcription integration; relevant tests и полный delivery flow. В execution scope также входят recovery post-deploy metadata предыдущей Goal, archive reconciliation и tracked ignore для repo-local pnpm cache.
+- **Non-goals:** расширение Google OAuth scopes; background Drive sync; более 50 items; speaker identity; timestamp/standardization policy; realtime stability; Colab; local content fingerprinting; новая provider/worker architecture.
 - **Goal AC:**
-  1. Primary navigation/page semantics используют `Транскрибации`; ручные create/edit/archive Project отсутствуют.
-  2. Ordinary и Live доступны отдельными tabs без ручного выбора технического Project; один batch представлен как одна multi-transcription с item-level progress/results.
-  3. Existing active legacy workspaces, sources, jobs и outputs остаются доступны; archived state не изменяется автоматически.
-  4. Committed Live fragments checkpoint-ятся local immediately; latest partial checkpoint-ится с bounded debounce и маркируется unconfirmed.
-  5. Server draft owner/project scoped, encrypted at rest, size-bounded, monotonic-revision idempotent и возвращается только authenticated owner через `no-store`.
-  6. Reload/crash/restart показывает recovery prompt; draft можно restore, скачать `.txt` или удалить.
-  7. Draft TTL равен 72 часам; expired drafts логически недоступны и физически удаляются idempotent cleanup.
-  8. Audio и transcript body не попадают в logs, diagnostics, audit events, ordinary History/Analytics или Google Docs без отдельного user action.
-  9. Narrow Diagnostics не создаёт document-level overflow; supported theme/accent primary controls имеют WCAG AA contrast.
-  10. Modal confirmation имеет initial focus, focus trap, Escape, focus return; heading hierarchy, touch targets и mobile tab affordance исправлены.
-  11. Maintenance access показывает точную safe blocker category; OpenAI key storage ясно помечено как недоступное для current transcription execution.
-  12. Existing batch/realtime behavior не регрессирует; relevant backend/frontend/security/responsive/accessibility tests проходят.
-  13. Exact-head CI, applicable MANUAL_GATED migration/API/web/worker deployment и bounded LIVE recovery validation успешны.
+  1. Local folder выбирается отдельным control; nested files перечисляются рекурсивно без передачи absolute local paths.
+  2. Unsupported, empty и oversized local files исключаются до PUT с видимыми bounded причинами/counts.
+  3. Google Drive source folder выбирается отдельным Picker flow и повторно валидируется server-side.
+  4. Drive traversal bounded по items/pages/depth, отклоняет cycles, repeated page tokens, duplicate IDs, incomplete traversal и preview/apply drift.
+  5. Preview не создаёт Source, upload или provider side effects и показывает accepted/skipped/count/target summary.
+  6. Более 50 supported items fail-closed до import/upload; silent truncation и partial apply запрещены.
+  7. Explicit confirmation разворачивает accepted files в individual Source/composer rows с одной общей target folder и сохранённым per-row override.
+  8. Ambiguous mutations не replay-ятся автоматически; authoritative source collection перечитывается и требует explicit user decision.
+  9. Folder-generated batch использует existing manifest/preflight/create authority и отображается одной multi-transcription с item-level progress/results.
+  10. Existing single/multi-file, Favorites, segmentation, batch, realtime и responsive behavior не регрессируют.
+  11. Relevant backend/frontend/security/browser tests и exact-head CI проходят.
+  12. Applicable web/API deployment и bounded production LIVE canary успешны.
 - **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
-- **Known blockers/dependencies:** additive migration `0023` потребует отдельного protected Environment approval после merge; production archived project `Транскрибации` не может быть восстановлен этой Goal без отдельной exact-data authorization; approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
+- **Known blockers/dependencies:** primary Google OAuth остаётся exact narrow `drive.file`; если Picker-selected folder не даёт runtime access к children, Goal становится `BLOCKED` до owner decision. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
 - **Stop condition:** все Goal AC и required Evidence подтверждены либо flow достиг `BLOCKED` / `PENDING_EXTERNAL_GATE`; затем остановиться и не переходить к следующей Goal без explicit authorization.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-22T17:41:09Z
-- Session mode: new authorized Goal
+- Updated (UTC): 2026-08-23T11:33:50Z
+- Session mode: authorized Goal implementation
 - Base branch: `main`
-- Base SHA: `dd194c929d957e822ff618df294dc54e72d5971e`
-- Working branch: `codex/pwa-transcriptions-live-recovery-01`
-- Last verified revision: `29df753b204a87768ff68d401fe8e77ff11fa59b`
-- Working tree at branch start: tracked clean; preserved unrelated untracked `.pnpm-store/`, `apps/studio/pnpm-lock.yaml`, `apps/studio/pnpm-workspace.yaml`
-- Completed: Git/GitHub recovery; product reconciliation; additive `0023` encrypted owner/project Live-draft model/service/API; monotonic/size/TTL boundaries; idle-worker physical cleanup; removal of autosave audit churn; IndexedDB checkpoint module; server sync; reload recovery restore/download/delete UX; canonical `/transcriptions` route; ordinary/Live tabs; removal of manual Project create/edit/archive UX; idempotent internal workspace ensure; non-destructive legacy workspace compatibility selector; bounded metadata layout; dark primary contrast; accessible confirmation dialog; keyboard-operable tabs; heading/touch/mobile affordance corrections; exact maintenance blocker copy; current-provider limitation copy; safe deterministic batch presentation reference; one grouped multi-transcription per batch with ordered source/fragment items and preserved item-level progress/output/recovery controls; review-driven frontend recovery hardening: serialized final server/local deletion, bounded server reads/writes/deletes, restore resync, partial-only and unresolved-candidate actions, same-session revision authority, pending-partial flush across workspace unmount, recovery-loading clear gate, prefix-safe retained-text reconciliation and divergent-text fail-closed choice; review-driven backend hardening: redacted draft validation errors, `no-store` on all draft-route responses, sustainable checkpoint limit, one-shot idempotent insert-race reconciliation and exact 72-hour configuration boundary.
-- Current step: all implementation/review remediation complete and exact-head gates green; record final Evidence and merge.
-- Next exact action: merge PR `#222`, inspect component-CD decisions for the merged SHA and stop at the protected migration authorization gate before any migration/API/worker rollout.
-- Validation and Evidence: exact-head `29df753` passed repository CI run `32588340168` (`checks`) and Studio run `32588340183` (`studio`, serial `browser-e2e`): Python `1252/1252`, Studio `539/539` across `43/43`, browser E2E `10/10`, builds and terminal safety markers PASS. All fourteen automated review threads from three review rounds are resolved with commit/test traceability; no unresolved conversation remains. Local TypeScript/ESLint, focused Live/recovery `32/32`, full Studio `539/539` and production Vite build PASS. Previous Transcriptions IA/App/routing regression `223/223`, focused UX regression `229/229` and bounded desktop/narrow browser validation remain valid.
-- Pull Request: `#222` — `https://github.com/Just9120/Elevenlabs-API/pull/222`, open, exact code head `29df753b204a87768ff68d401fe8e77ff11fa59b`, mergeable after final metadata synchronization.
-- CI/checks: exact code head `29df753` fully passed all three applicable checks; all fourteen review threads are resolved and no required review/check gate remains.
-- Deployment/environment: not started; migration class `MANUAL_GATED`.
-- Blockers: no implementation blocker; production recovery remains separately unauthorized.
-- Unverified assumptions: 72-hour draft TTL and existing credential master key boundary are compatible with production operational policy; exact deployment requires post-merge verification.
-- Preserved pre-existing changes: three untracked pnpm artifacts listed above remain outside scope/commits.
+- Base SHA: `ccb067d05d5225a3178b21cd239bd65c0764f1fb`
+- Working branch: `codex/pwa-ingest-folders-01`
+- Last verified revision: `0b43956abd6f5b38d54b096daf180617cc1bec6c` (PR checkpoint covered by exact-head required CI)
+- Working tree at branch start: clean `main`; post-deploy docs diff previous Goal restored from named stash after branch creation.
+- Completed: local-folder slice committed; Google Drive source-folder Picker, server-side bounded traversal, strict listing validation, preview/no-side-effect contract, re-traversal drift token, atomic apply, composer expansion and ambiguous-no-replay UX implemented; architecture synchronized; required exact-head CI for `0b43956abd6f5b38d54b096daf180617cc1bec6c` passed.
+- Current step: exact-head CI Evidence recorded; preparing the final documentation-only checkpoint before merge.
+- Next exact action: commit and push the CI Evidence checkpoint, wait for required checks at the resulting exact head, then merge PR #223 if every gate remains successful.
+- Validation and Evidence: pure backend folder traversal/transport tests `7/7` PASS; lightweight CI checks PASS; full Studio Vitest `555/555` PASS; full Studio ESLint PASS; TypeScript and Vite production build PASS; Playwright discovery `10/10` PASS. Required PR CI at exact head `0b43956abd6f5b38d54b096daf180617cc1bec6c`: `CI/checks` run/job `32636676459/97187418154` SUCCESS; `Studio PWA CI/studio` `32636676477/97187422906` SUCCESS; `Studio PWA CI/browser-e2e` `32636676477/97187423002` SUCCESS. PostgreSQL-backed endpoint test прошёл в required CI; локальный запуск был недоступен из-за отсутствия локальных PostgreSQL/Redis services.
+- Pull Request: `#223` — `https://github.com/Just9120/Elevenlabs-API/pull/223`; initial head `d8119d56c7b8d3f8295c1149b43a7d2ed517d9db`, base `ccb067d05d5225a3178b21cd239bd65c0764f1fb`.
+- CI/checks: exact-head `0b43956abd6f5b38d54b096daf180617cc1bec6c` required checks are terminal SUCCESS: `CI/checks` (`32636676459/97187418154`), `Studio PWA CI/studio` (`32636676477/97187422906`) и `Studio PWA CI/browser-e2e` (`32636676477/97187423002`). Documentation-only checkpoint will create a new exact head and therefore must pass the same required gates before merge.
+- Deployment/environment: not started; migration currently expected `N/A`, web/API deploy applicable after merge.
+- Blockers: Google `drive.file` child enumeration remains unverified at production runtime; no current local implementation blocker.
+- Unverified assumptions: Picker-selected folder grants sufficient child metadata/content access under the exact primary scope; recursive traversal semantics remain bounded to 50 supported media items.
+- Preserved pre-existing changes: none; previous generated artifacts removed under explicit authorization.
 
 ## Project readiness
 
-Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Новый независимый пересчёт подтвердил `PT-03`: API выдаёт только safe derived batch reference, а UI группирует один batch в одну multi-transcription с ordered item-level progress/results/recovery controls. Denominator не изменился; numerator вырос на 1 AC.
+Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Новый независимый пересчёт подтвердил `PI-08` и `PI-10`: отдельный Drive source-folder Picker проходит server-side bounded traversal/preview/apply, а подтверждённые Sources разворачиваются в composer с общей target folder и существующим per-row override. Denominator не изменился; numerator вырос на 2 AC.
 
 | Product/epic | Current | Previous independent snapshot | Readiness/Evidence |
 |---|---:|---:|---|
-| **Project** | **85,0% (`102/120`)** | **84,2% (`101/120`)** | +1 AC: один batch представлен одной multi-transcription; delivery Evidence ещё неполные. |
+| **Project** | **87,5% (`105/120`)** | **85,8% (`103/120`)** | `PI-08` и `PI-10` подтверждены code/tests; CI/DEPLOY/LIVE ещё не подтверждены. |
 | **Google Colab** | **75,9% (`22/29`)** | **75,9% (`22/29`)** | Без изменений в PWA Goal. |
 | `COLAB-BATCH-01` | **73,9% (`17/23`)** | **73,9% (`17/23`)** | 🟦 IN PROGRESS. |
 | `COLAB-REALTIME-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS. |
-| **Studio PWA** | **87,9% (`80/91`)** | **86,8% (`79/91`)** | +1 AC: grouped multi-transcription presentation. |
+| **Studio PWA** | **91,2% (`83/91`)** | **89,0% (`81/91`)** | Numerator +2 за `PI-08` и `PI-10`; readiness gate Goal ещё не выполнен. |
 | `PWA-CORE-01` | **100% (`13/13`)** | **100% (`13/13`)** | Все product AC выполнены; exact-head delivery Evidence ещё не подтверждены. |
-| `PWA-TRANSCRIPTIONS-UX-01` | **100% (`4/4`)** | **75,0% (`3/4`)** | Все product AC выполнены; exact-head CI/DEPLOY/LIVE ещё gate-ят `READY`. |
-| `PWA-INGEST-01` | **72,7% (`8/11`)** | **72,7% (`8/11`)** | Вне Goal. |
+| `PWA-TRANSCRIPTIONS-UX-01` | **100% (`4/4`)** | **100% (`4/4`)** | 🟩 READY. |
+| `PWA-INGEST-01` | **100% (`11/11`)** | **81,8% (`9/11`)** | Все product AC выполнены; эпик остаётся 🟦 IN PROGRESS до required CI/DEPLOY/LIVE Evidence. |
 | `PWA-SEGMENTS-01` | **100% (`5/5`)** | **100% (`5/5`)** | 🟩 READY. |
 | `PWA-BATCH-01` | **90,0% (`9/10`)** | **90,0% (`9/10`)** | Вне Goal. |
 | `PWA-SPEAKER-IDENTITY-01` | **0% (`0/5`)** | **0% (`0/5`)** | Вне Goal. |
@@ -71,10 +70,11 @@
 
 Эти items — proposals и не авторизуют implementation:
 
-1. `PWA-INGEST-FOLDERS-01` — local/Drive folder intake и folder batch.
-2. `PWA-SPEAKER-IDENTITY-01` — names/roles и manual listen-and-assign.
-3. `PWA-REALTIME-MATRIX-01` — representative microphone/display/mixed production stability после recovery Goal.
-4. `COLAB-REALTIME-STABILITY-01` — capture stability после PWA priority scope.
+1. `PWA-SPEAKER-IDENTITY-01` — names/roles и manual listen-and-assign.
+2. `PWA-TIMESTAMP-AUTHORITY-01` — source creation и legacy-standardization gaps.
+3. `PWA-REALTIME-MATRIX-01` — representative microphone/display/mixed production stability.
+4. `COLAB-BATCH-PARITY-01` — оставшиеся batch gaps после PWA priority scope.
+5. `COLAB-REALTIME-STABILITY-01` — capture stability после PWA priority scope.
 
 ## Risks и boundaries
 
