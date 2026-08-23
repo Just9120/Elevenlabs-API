@@ -28,7 +28,7 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Текущий independently verified implementation snapshot: `codex/pwa-timestamp-authority@18e64d1276d71f698cedcdad0a0bbeeb36e9e609`; local automated Evidence подтверждает `PB-10` и `PD-06`, exact-head CI/DEPLOY/LIVE ещё ожидаются. Последний deployed baseline: `main@cb3a9e9216521c56e07b6f7b6fda9bf8eb8051f8`; bounded LIVE этого baseline подтвердил `PI-10` без запуска provider job.
+Текущий independently verified implementation snapshot: `main@800bcc820529ff3c78214c129c593d182c621c62`. Exact-head CI, applicable web/API deployment и bounded production LIVE подтвердили `PB-10` и `PD-06`: один новый Google Docs output получил authoritative source creation timestamp, repeated standardization dry-run оставил current document без изменений, а legacy documents без authority были заблокированы fail-closed без mutation.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
@@ -193,7 +193,7 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 
 ### Эпик `PWA-BATCH-01` — transcription options, progress и output
 
-Status: **🟦 IN PROGRESS — 100% (`10/10`)**.
+Status: **🟩 READY — 100% (`10/10`)**.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -208,9 +208,9 @@ Status: **🟦 IN PROGRESS — 100% (`10/10`)**.
 | `PB-09` | Видимый timestamp имеет ISO 8601 format. | ✅ |
 | `PB-10` | Timestamp получен из фактического creation time исходного media file. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 
-Current Goal implementation `18e64d1276d71f698cedcdad0a0bbeeb36e9e609` передаёт persisted source creation authority в output/maintenance contract, запрещает fallback на Google Doc/job/upload/modified clocks и покрыта local automated tests. Exact-head CI/DEPLOY/LIVE ещё не подтверждены, поэтому READY не заявляется.
+`main@800bcc820529ff3c78214c129c593d182c621c62` передаёт persisted source creation authority в output/maintenance contract и запрещает fallback на Google Doc/job/upload/modified clocks. Exact-main CI/CD и bounded production canary подтверждены delivery record PR #227.
 
 ### Эпик `PWA-SPEAKER-IDENTITY-01` — имена и роли спикеров
 
@@ -230,7 +230,7 @@ Evidence: `SPEC ✅ | CODE — | TEST — | CI N/A | DEPLOY — | LIVE —`.
 
 ### Эпик `PWA-MANIFEST-01` — duplicate protection и каталог
 
-Status: **🟦 IN PROGRESS — 100% (`6/6`)**.
+Status: **🟩 READY — 100% (`6/6`)**.
 
 В PWA роль manifest выполняет PostgreSQL-backed `Манифест Studio`, а не общий JSON-файл Colab.
 
@@ -258,11 +258,11 @@ Status: **🟦 IN PROGRESS — 100% (`6/6`)**.
 | `PD-05` | Timestamp нормализуется в ISO 8601. | ✅ |
 | `PD-06` | Timestamp отражает creation time исходного media file, а не Google Doc/job time. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 
 Standardization и manifest import остаются разными authority: preview/confirmation одной операции не авторизует другую.
 
-Current Goal implementation `18e64d1276d71f698cedcdad0a0bbeeb36e9e609` разрешает mutation только при owner-scoped persisted source authority, сравнивает видимый ISO timestamp с exact source time и возвращает explicit blocked reason для unavailable/conflict. Exact-head CI/DEPLOY/LIVE ещё не подтверждены, поэтому READY не заявляется.
+`main@800bcc820529ff3c78214c129c593d182c621c62` разрешает mutation только при owner-scoped persisted source authority, сравнивает видимый ISO timestamp с exact source time и возвращает explicit blocked reason для unavailable/conflict. Bounded production output и repeated single-document dry-run подтвердили authoritative и idempotent path; legacy unknown path остался fail-closed.
 
 ### Эпик `PWA-REALTIME-01` — realtime-транскрибация
 
@@ -353,18 +353,18 @@ Status: **⬜ BACKLOG**. Владелец явно отнёс TOTP/Google Authen
 
 ## 8. Runtime и delivery baseline
 
-- Current verified revision: `main@cb3a9e9216521c56e07b6f7b6fda9bf8eb8051f8`.
-- Exact-main repository CI: run `32657081954`, success.
-- Exact-main Studio/browser CI: run `32657081982`, jobs `studio` и `browser-e2e` success.
-- Studio web deployment: run `32657081893`, success. Последний применимый API runtime scope был успешно доставлен run `32654826834`; migration `0023_realtime_drafts` и worker rollout остаются подтверждены предыдущим operational chain.
+- Current verified revision: `main@800bcc820529ff3c78214c129c593d182c621c62`.
+- Exact-main repository CI: run `32660175995`, success.
+- Exact-main Studio/browser CI: run `32660175973`, jobs `studio` и `browser-e2e` success.
+- Studio web/API deployment: run `32660176008`, success; migration и worker корректно skipped для timestamp-authority diff. Migration `0023_realtime_drafts` и worker rollout остаются подтверждены предыдущим operational chain.
 - Production API/worker/migration evidence предыдущего processing rollout привязано к `main@66fb098` и Alembic head `0020_provider_part_checkpoints`; оно не доказывает более поздние UI/realtime requirements.
 - Bounded production canary на `919e613` подтвердил arbitrary-fragment Google Docs output и закрыл `PWA-SEGMENTS-01`, одновременно выявив `PB-05` regression; safe execution identifiers находятся в delivery archive.
 
 ## 9. Current critical path
 
-1. Разрешить оставшиеся source-creation timestamp и legacy-standardization gaps без подмены media creation time другими часами.
-2. Закрыть PWA speaker names/roles и manual listen-and-assign после отдельного privacy/data-retention design.
-3. Выполнить representative PWA microphone/display/mixed production matrix и исправить воспроизводимые capture defects.
+1. Выполнить representative PWA microphone/display/mixed production matrix и исправить воспроизводимые capture defects.
+2. Reconcile operational Evidence полностью реализованных PWA-эпиков только по independently verified records.
+3. PWA speaker names/roles и manual listen-and-assign отложены владельцем до отдельного решения.
 4. После PWA priority scope закрыть Colab batch parity gaps и realtime capture stability.
 
 ## 10. Supporting documents

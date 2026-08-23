@@ -2,82 +2,82 @@
 
 ## Current Goal
 
-- **ID / title:** `PWA-TIMESTAMP-AUTHORITY-01` — authoritative source creation time для batch output и transcript standardization.
-- **State:** `IN_PROGRESS` — implementation и local validation завершены; требуется exact-head delivery Evidence.
-- **Authorization source:** explicit owner instruction 2026-08-23: `формируй цель и приступай` после согласования timestamp-authority scope.
-- **Scope:** reconcile фактического closure предыдущей Goal; инвентаризация Google Drive/local source creation provenance; единый fail-closed timestamp contract; передача authoritative source time в новые Google Docs transcript metadata и selected-folder/single-document standardization; запрет подмены Google Doc/job/upload/modified time; explicit safe outcome при отсутствии доказуемой authority; relevant API/worker/frontend/security/regression tests; atomic commits и полный PR → CI → merge → applicable deployment → bounded LIVE flow.
-- **Non-goals:** speaker identity; realtime stability; Colab; automatic guessing legacy timestamps; новые OAuth scopes; unrelated UI, provider или processing architecture; изменение product AC или denominator.
+- **ID / title:** `PWA-REALTIME-STABILITY-READINESS-01` — representative Studio PWA realtime stability и PWA Evidence reconciliation.
+- **State:** `IN_PROGRESS` — Goal авторизована, clean working branch создана; выполняется targeted audit текущего realtime contour.
+- **Authorization source:** explicit owner instruction 2026-08-24: `да, делаем 1 и 3 пункты, формируй цель` после выбора realtime stability и readiness hardening без speaker identity.
+- **Scope:** независимо reconcile фактическое закрытие timestamp Goal; определить и выполнить representative Windows/Chrome production matrix для display/tab audio, microphone и mixed capture; проверить повторные start/stop и bounded draft recovery; диагностировать и исправить только воспроизводимые capture/session/recovery defects; сохранить owner/privacy/security boundaries; добавить relevant frontend/backend/regression tests; независимо перепроверить operational status/Evidence полностью выполненных по product AC эпиков `PWA-CORE-01`, `PWA-MANIFEST-01`, `PWA-BATCH-01`, `PWA-STANDARDIZATION-01`, `PWA-OPERABILITY-01`; выполнить atomic commits и полный PR → CI → merge → applicable deployment → bounded LIVE flow.
+- **Non-goals:** `PWA-SPEAKER-IDENTITY-01`; Colab; новые product AC или denominator; biometric matching/voiceprints; новые OAuth scopes; credential/deployment topology changes; unrelated UI, batch/provider или architecture changes.
 - **Goal AC:**
-  1. Google Drive source использует нормализованный Drive `createdTime`; local source использует только embedded media `creation_time`; provenance сохраняется вместе со значением.
-  2. Browser `lastModified`, upload/job/output clocks, Drive `modifiedTime` и Google Doc creation time не используются как fallback source timestamp.
-  3. Новый Google Docs transcript получает ISO 8601 source timestamp из immutable source snapshot; отсутствие authority отображается честно и не подменяется.
-  4. Standardization dry-run/apply различает authoritative source timestamp и document clock; mutation с недоказуемой authority fail-closed/skip с безопасной явной причиной.
-  5. Existing authoritative ISO timestamp сохраняется идемпотентно; repeated apply не изменяет его и не создаёт competing authority.
-  6. Owner boundaries, Google maintenance consent, transcript-body secrecy, batch processing и unrelated PWA flows не регрессируют.
-  7. Relevant backend/worker/frontend/security tests, full local validation и exact-head CI проходят.
-  8. Applicable API/worker/web deployment и bounded production LIVE подтверждают новый batch output и maintenance behavior на exact revision без лишнего provider charge.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
-- **Known blockers/dependencies:** legacy Google Docs могут не иметь доказуемой связи с source media; такие документы нельзя автоматически датировать. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`), поэтому итоговый state фиксируется GitHub Evidence/final report и reconciled в следующей authorized Goal без docs-only follow-up PR.
+  1. Previous timestamp Goal reconciled по exact PR/CI/deployment/LIVE Evidence без изменения product scope.
+  2. Realtime source/test/runtime audit определяет фактические start/stop, capture ownership, WebSocket и draft-recovery boundaries; гипотезы не выдаются за defects.
+  3. Representative matrix явно покрывает display/tab audio, microphone и mixed capture, повторные start/stop и refresh/crash recovery; каждый case имеет safe pass/fail/not-run Evidence.
+  4. Каждый воспроизводимый in-scope capture/session/recovery defect исправлен с regression test; неподтверждённые или external-browser gaps остаются явными.
+  5. Stop/error/retry не оставляют owned media tracks, AudioContext/WebSocket или stale session state; поздние async results не оживляют остановленную session.
+  6. Live draft recovery сохраняет committed/partial semantics, monotonic owner-scoped server revision, TTL/encryption/no-store и не раскрывает transcript/audio/provider payloads в diagnostics, logs, history или Evidence.
+  7. Status/Evidence пяти полностью реализованных PWA-эпиков повышаются только по independently verified code/test/CI/deployment/LIVE records; readiness denominator остаётся `120`.
+  8. Relevant local tests/full validation и exact-head required CI проходят; applicable exact-revision deployment и bounded production LIVE подтверждают `PR-06` либо фиксируют конкретный внешний gate.
+- **Required Evidence:** `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+- **Known blockers/dependencies:** финальная representative matrix требует owner-controlled Windows/Chrome permission prompts и выбора реальных capture surfaces; этот внешний gate будет запрошен только после source/test/deployment readiness. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`), поэтому фактический post-deploy state фиксируется GitHub Evidence/final report и reconciled в следующей authorized Goal без docs-only follow-up PR.
 - **Stop condition:** все Goal AC и required Evidence подтверждены либо flow достиг `BLOCKED` / `PENDING_EXTERNAL_GATE`; затем остановиться и не переходить к следующей Goal без explicit authorization.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-23T19:10:30Z
+- Updated (UTC): 2026-08-23T21:20:31Z
 - Session mode: authorized Goal implementation
 - Base branch: `main`
-- Base SHA: `cb3a9e9216521c56e07b6f7b6fda9bf8eb8051f8`
-- Working branch: `codex/pwa-timestamp-authority`
-- Last verified revision: `18e64d1276d71f698cedcdad0a0bbeeb36e9e609` (`feat(studio): enforce source timestamp authority`).
-- Working tree at branch start: clean synchronized `main`; предыдущая merged branch удалена local/remote; only `main` existed.
-- Completed: recovered PR #226/merge/CD/LIVE closure; traced source intake/output/maintenance data flow; added owner-scoped persisted source authority resolver; removed Google Doc/body clock fallback; enforced exact ISO source timestamp matching and fail-closed unavailable/conflict outcomes; exposed authority state in PWA; committed implementation and regression tests.
-- Current step: PR #227 required CI зелёный на implementation/checkpoint head `7a0cf34d2f4afd7abe163f9e66f9fa13eb0f7515`; фиксируется финальный pre-merge checkpoint.
-- Next exact action: дождаться повторных exact-head checks после docs-only checkpoint и при сохранении зелёных gates выполнить merge PR #227.
-- Validation and Evidence: `scripts/ci_checks.py` PASS; Python compile PASS; focused+adjacent backend regression `345 passed`; Studio ESLint PASS; TypeScript build-check PASS; full Studio Vitest `558 passed`. No exact-head CI/deployment/LIVE yet.
-- Pull Request: #227 — `feat(studio): enforce source timestamp authority`; head `codex/pwa-timestamp-authority`.
-- CI/checks: head `7a0cf34d2f4afd7abe163f9e66f9fa13eb0f7515` — `checks` PASS (`2m42s`), `studio` PASS (`2m9s`), `browser-e2e` PASS (`1m34s`); failures/skips отсутствуют.
-- Deployment/environment: not started; migration class `NONE` — existing `sources.source_created_at` and provenance columns are sufficient; applicable deployment is API + web, worker unchanged.
-- Blockers: none. Potential design constraint: legacy documents without verifiable source linkage cannot receive a fabricated creation timestamp.
-- Unverified assumptions: production legacy documents have source linkage coverage comparable to test evidence; documents without it intentionally remain blocked rather than receiving a fabricated timestamp.
+- Base SHA: `800bcc820529ff3c78214c129c593d182c621c62`
+- Working branch: `codex/pwa-realtime-stability-readiness`
+- Last verified revision: `800bcc820529ff3c78214c129c593d182c621c62` (clean synchronized Goal base).
+- Working tree at branch start: clean `main`; `HEAD = origin/main`; divergence `0/0`; открытых PR не было; unrelated pre-existing changes отсутствовали.
+- Completed: previous Goal closure recovered from PR #227, exact-main CI/CD and bounded LIVE; local/remote baseline verified; working branch created; repository instructions, CI/CD profile, current product AC and validation runbook read.
+- Current step: trace Studio realtime capture/session/draft architecture and run focused baseline tests before deciding whether code changes are required.
+- Next exact action: inspect `LiveTranscriptionPanel`, realtime session/protocol/draft modules and their tests for lifecycle races, cleanup gaps and matrix coverage, then execute the focused existing suites.
+- Validation and Evidence: previous timestamp closure independently verified and archived. Current Goal implementation tests not run yet.
+- Pull Request: none.
+- CI/checks: not started.
+- Deployment/environment: not started; migration class currently expected `NONE`, subject to actual diff; no production operation authorized before required gates.
+- Blockers: none for source/test audit. Final Chrome/Windows LIVE requires owner interaction.
+- Unverified assumptions: current source may already satisfy some matrix cases; internal-browser success does not prove representative Chrome/Windows stability; full-AC epics may still lack required LIVE breadth despite historical deployment records.
 - Preserved pre-existing changes: none.
 
 ## Project readiness
 
-Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Новый независимый snapshot учитывает подтверждённую реализацию и local automated tests для `PB-10` и `PD-06`: source timestamp берётся только из persisted source authority, Google Doc/job/upload/modified clocks не используются, а maintenance без authority блокируется. Denominator не изменился; numerator вырос на 2 AC. READY пока не заявляется без exact-head CI/DEPLOY/LIVE Evidence.
+Метод: выполненные равновесные atomic product AC / все AC current scope из `docs/project-spec.md`. Новый независимый snapshot не добавляет AC: timestamp closure подтверждает delivery gates для уже посчитанных `PB-10`/`PD-06`, а `PR-06` остаётся невыполненным до representative LIVE matrix. Denominator не изменился.
 
 | Product/epic | Current | Previous independent snapshot | Readiness/Evidence |
 |---|---:|---:|---|
-| **Project** | **89,2% (`107/120`)** | **87,5% (`105/120`)** | Numerator +2 за `PB-10` и `PD-06`; denominator без изменений. |
-| **Google Colab** | **75,9% (`22/29`)** | **75,9% (`22/29`)** | Без изменений в PWA Goal. |
-| `COLAB-BATCH-01` | **73,9% (`17/23`)** | **73,9% (`17/23`)** | 🟦 IN PROGRESS. |
-| `COLAB-REALTIME-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS. |
-| **Studio PWA** | **93,4% (`85/91`)** | **91,2% (`83/91`)** | Numerator +2 за `PB-10` и `PD-06`. |
-| `PWA-CORE-01` | **100% (`13/13`)** | **100% (`13/13`)** | Все product AC выполнены; exact-head delivery Evidence ещё не подтверждены. |
+| **Project** | **89,2% (`107/120`)** | **87,5% (`105/120`)** | Numerator без изменения на старте Goal; previous snapshot предшествовал закрытию `PB-10`/`PD-06`. |
+| **Google Colab** | **75,9% (`22/29`)** | **75,9% (`22/29`)** | Вне Goal. |
+| `COLAB-BATCH-01` | **73,9% (`17/23`)** | **73,9% (`17/23`)** | 🟦 IN PROGRESS; вне Goal. |
+| `COLAB-REALTIME-01` | **83,3% (`5/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS; вне Goal. |
+| **Studio PWA** | **93,4% (`85/91`)** | **91,2% (`83/91`)** | `PB-10`/`PD-06` delivery Evidence reconciled; `PR-06` остаётся open. |
+| `PWA-CORE-01` | **100% (`13/13`)** | **100% (`13/13`)** | Operational Evidence audit в этой Goal; READY пока не переутверждён. |
 | `PWA-TRANSCRIPTIONS-UX-01` | **100% (`4/4`)** | **100% (`4/4`)** | 🟩 READY. |
-| `PWA-INGEST-01` | **100% (`11/11`)** | **100% (`11/11`)** | 🟩 READY; `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅`. |
+| `PWA-INGEST-01` | **100% (`11/11`)** | **100% (`11/11`)** | 🟩 READY. |
 | `PWA-SEGMENTS-01` | **100% (`5/5`)** | **100% (`5/5`)** | 🟩 READY. |
-| `PWA-BATCH-01` | **100% (`10/10`)** | **90,0% (`9/10`)** | 🟦 IN PROGRESS до exact-head CI/DEPLOY/LIVE Evidence. |
-| `PWA-SPEAKER-IDENTITY-01` | **0% (`0/5`)** | **0% (`0/5`)** | Вне Goal. |
-| `PWA-MANIFEST-01` | **100% (`6/6`)** | **100% (`6/6`)** | Required delivery Evidence неполные. |
-| `PWA-STANDARDIZATION-01` | **100% (`6/6`)** | **83,3% (`5/6`)** | 🟦 IN PROGRESS до exact-head CI/DEPLOY/LIVE Evidence. |
-| `PWA-REALTIME-01` | **92,3% (`12/13`)** | **92,3% (`12/13`)** | Без изменения; `PR-06` production stability остаётся открытым. |
-| `PWA-OPERABILITY-01` | **100% (`18/18`)** | **100% (`18/18`)** | Required delivery Evidence неполные. |
+| `PWA-BATCH-01` | **100% (`10/10`)** | **90,0% (`9/10`)** | 🟩 READY; timestamp Goal confirmed exact CI/DEPLOY/LIVE. |
+| `PWA-SPEAKER-IDENTITY-01` | **0% (`0/5`)** | **0% (`0/5`)** | Explicitly deferred; вне Goal. |
+| `PWA-MANIFEST-01` | **100% (`6/6`)** | **100% (`6/6`)** | Operational Evidence audit в этой Goal; READY пока не переутверждён. |
+| `PWA-STANDARDIZATION-01` | **100% (`6/6`)** | **83,3% (`5/6`)** | 🟩 READY; timestamp Goal confirmed authoritative/idempotent LIVE path. |
+| `PWA-REALTIME-01` | **92,3% (`12/13`)** | **92,3% (`12/13`)** | 🟦 IN PROGRESS; `PR-06` — primary product target этой Goal. |
+| `PWA-OPERABILITY-01` | **100% (`18/18`)** | **100% (`18/18`)** | Operational Evidence audit в этой Goal; READY пока не переутверждён. |
 
 ## Candidate next Goals
 
 Эти items — proposals и не авторизуют implementation:
 
-1. `PWA-SPEAKER-IDENTITY-01` — names/roles и manual listen-and-assign.
-2. `PWA-REALTIME-MATRIX-01` — representative microphone/display/mixed production stability.
-3. `COLAB-BATCH-PARITY-01` — оставшиеся batch gaps после PWA priority scope.
-4. `COLAB-REALTIME-STABILITY-01` — capture stability после PWA priority scope.
+1. `COLAB-BATCH-PARITY-01` — шесть оставшихся batch gaps после PWA priority scope.
+2. `COLAB-REALTIME-STABILITY-01` — representative capture stability после PWA priority scope.
+3. `PWA-SPEAKER-IDENTITY-01` — owner explicitly deferred; names/roles и manual listen-and-assign требуют отдельного решения.
 
 ## Risks и boundaries
 
 - Transcript body — sensitive content. Browser/server draft endpoints обязаны быть owner-scoped, `no-store`, encrypted at rest и исключены из diagnostics/audit payloads.
 - Browser checkpoint не полагается на `beforeunload`; committed fragment сохраняется до UI acknowledgement, partial — bounded debounce.
 - Server revision monotonically increases; stale/same-revision-conflicting writes fail closed и не перезаписывают newer text.
-- Existing archived project не unarchive-ится schema migration, workspace resolution или page load.
-- Ordinary component CD не применяет migration; worker cleanup deploy отделён от API/web rollout.
+- Browser capture permission и surface selection остаются user gesture; automated tests не заменяют owner-controlled Chrome/Windows matrix.
+- Internal-browser result не переносится автоматически на обычный Chrome и не закрывает `PR-06`.
+- Ordinary component CD не применяет migration; worker lifecycle и stateful release остаются отдельными gates.
 - Approved post-deploy metadata writer отсутствует; фактический state фиксируется в final report/GitHub records и reconciled в следующем authorized scope без docs-only follow-up PR.
 
 ## Sources of truth
