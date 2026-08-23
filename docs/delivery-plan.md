@@ -26,17 +26,17 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-23T11:22:52Z
+- Updated (UTC): 2026-08-23T11:26:23Z
 - Session mode: authorized Goal implementation
 - Base branch: `main`
 - Base SHA: `ccb067d05d5225a3178b21cd239bd65c0764f1fb`
 - Working branch: `codex/pwa-ingest-folders-01`
-- Last verified revision: `00c736bbdb4760635224386d019d88de14cfc309` (local-folder intake commit)
+- Last verified revision: `ea73cbd30d0a37625bd5cfb61621d11843c5c34e` (Google Drive folder intake commit)
 - Working tree at branch start: clean `main`; post-deploy docs diff previous Goal restored from named stash after branch creation.
 - Completed: local-folder slice committed; Google Drive source-folder Picker, server-side bounded traversal, strict listing validation, preview/no-side-effect contract, re-traversal drift token, atomic apply, composer expansion and ambiguous-no-replay UX implemented; architecture synchronized.
-- Current step: atomic commit Google Drive folder slice and exact-head validation preparation.
-- Next exact action: commit the Drive folder slice, run remaining repository/browser gates, then push and open the Goal PR.
-- Validation and Evidence: pure backend folder traversal/transport tests `7/7` PASS; lightweight CI checks PASS; full Studio Vitest `555/555` PASS; full Studio ESLint PASS; TypeScript and Vite production build PASS. PostgreSQL-backed endpoint test is authored but local execution is unavailable because local PostgreSQL/Redis services are absent; exact test is delegated to required CI.
+- Current step: exact-head browser assertion/checkpoint commit before PR.
+- Next exact action: commit the browser assertion/checkpoint, push branch and open the Goal PR.
+- Validation and Evidence: pure backend folder traversal/transport tests `7/7` PASS; lightweight CI checks PASS; full Studio Vitest `555/555` PASS; full Studio ESLint PASS; TypeScript and Vite production build PASS; Playwright discovery `10/10` PASS. PostgreSQL-backed endpoint test is authored but local execution is unavailable because local PostgreSQL/Redis services are absent; exact test is delegated to required CI.
 - Pull Request: not created.
 - CI/checks: not started.
 - Deployment/environment: not started; migration currently expected `N/A`, web/API deploy applicable after merge.
