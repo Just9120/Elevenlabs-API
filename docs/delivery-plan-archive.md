@@ -756,6 +756,22 @@ Goal `PWA-INGEST-FOLDERS-01` завершила bounded local/Google Drive folde
 - Closure readiness: `PWA-INGEST-01 11/11 = 100%`, Studio PWA `83/91 = 91,2%`, project `105/120 = 87,5%`; required Evidence `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅`.
 - Approved post-deploy metadata writer отсутствовал (`metadata_sync.enabled=false`), поэтому фактический closure reconciled в начале следующей authorized Goal. После проверки ancestry и clean state локальная/remote branch была удалена, `main` синхронизирован.
 
+## Archived PR #227 timestamp authority closure
+
+Goal `PWA-TIMESTAMP-AUTHORITY-01` закрыла canonical `PB-10` и `PD-06` и была merged через PR #227 2026-08-23.
+
+- Base: `main@cb3a9e9216521c56e07b6f7b6fda9bf8eb8051f8`.
+- Final PR head: `e83a497e5364c19eeee48146aa56ea8fa7f7ad4b`.
+- Merge commit: `800bcc820529ff3c78214c129c593d182c621c62`.
+- Exact PR-head required checks: repository run `32660004784` (`checks`) success; Studio/browser run `32660004726` (`studio`, `browser-e2e`) success.
+- Exact-main CI: repository run `32660175995` и Studio/browser run `32660175973` — success.
+- Component CD run `32660176008`: `deploy-web`, `deploy-api` и deployment summary success; migration и worker корректно skipped, потому что schema/worker не менялись.
+- После explicit owner action-time approval ровно один bounded production canary `00:01–00:05` завершился `100%`, создал один persisted `transcript_doc_v1.2` Google Docs output и не запускался повторно.
+- Два последовательных single-document standardization dry-run классифицировали новый документ как current standard с authoritative source creation date: `0` изменений, `1` без изменений, `0` blocked, `0` unreadable. Отдельный recursive dry-run подтвердил fail-closed blocked outcome для двух legacy документов без source authority и не выполнил mutation.
+- `PWA-BATCH-01` достиг `10/10 = 100%`, `PWA-STANDARDIZATION-01` — `6/6 = 100%`; Studio PWA `85/91 = 93,4%`, project `107/120 = 89,2%`.
+- Required Goal Evidence: `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅`. Safe delivery record: https://github.com/Just9120/Elevenlabs-API/pull/227#issuecomment-5388439165.
+- Approved post-deploy metadata writer отсутствовал (`metadata_sync.enabled=false`); closure reconciled в начале следующей authorized Goal без docs-only follow-up PR. Local `main` был clean и синхронизирован с merge SHA; merged branch удалена local/remote.
+
 ## Current non-authority warning
 
 If this archive conflicts with `docs/project-spec.md`, `docs/delivery-plan.md`, `docs/architecture.md`, `docs/ci-cd-rules.md`, or the current user task, treat the current documents/task as authoritative and this archive as historical context only.

@@ -256,10 +256,10 @@ export class RealtimeSessionController {
       this.callbacks.onStatus("stopped");
       return;
     }
+    if (attempt.userStopRequested) return;
     attempt.cancelled = true;
     attempt.userStopRequested = true;
     this.clearCapabilityRequest(attempt);
-    this.callbacks.onPartial("");
     this.callbacks.onStatus("stopping");
     this.releaseMedia(attempt);
     const websocket = attempt.websocket;
@@ -415,7 +415,15 @@ export class RealtimeSessionController {
         return;
       }
       const downsampled = downsampleMono(mono, context.sampleRate);
-      websocket.send(realtimeAudioMessage(floatToPcm16Base64(downsampled)));
+      try {
+        websocket.send(realtimeAudioMessage(floatToPcm16Base64(downsampled)));
+      } catch {
+        this.callbacks.onError(
+          "Realtime-соединение прервалось при отправке аудио. Проверьте сеть и начните новую сессию.",
+        );
+        this.closeSocket(attempt, "Ошибка отправки аудио");
+        this.finish(attempt, "closed");
+      }
     };
 
     let websocket: WebSocket;

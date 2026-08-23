@@ -28,7 +28,7 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Текущий independently verified implementation snapshot: `codex/pwa-timestamp-authority@18e64d1276d71f698cedcdad0a0bbeeb36e9e609`; local automated Evidence подтверждает `PB-10` и `PD-06`, exact-head CI/DEPLOY/LIVE ещё ожидаются. Последний deployed baseline: `main@cb3a9e9216521c56e07b6f7b6fda9bf8eb8051f8`; bounded LIVE этого baseline подтвердил `PI-10` без запуска provider job.
+Текущий independently verified implementation snapshot: `main@800bcc820529ff3c78214c129c593d182c621c62`. Exact-head CI, applicable web/API deployment и bounded production LIVE подтвердили `PB-10` и `PD-06`: один новый Google Docs output получил authoritative source creation timestamp, repeated standardization dry-run оставил current document без изменений, а legacy documents без authority были заблокированы fail-closed без mutation.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
@@ -110,7 +110,7 @@ Owner LIVE evidence подтверждает работоспособность 
 
 ### Эпик `PWA-CORE-01` — application shell, auth и integrations
 
-Status: **🟦 IN PROGRESS — 100% (`13/13`)**. Все product AC и exact-head CI подтверждены; DEPLOY и LIVE для текущей ветки ещё не выполнены, поэтому эпик не `READY`.
+Status: **🟦 IN PROGRESS — 100% (`13/13`)**. Product AC, current code/tests, exact-main CI и deployment подтверждены; bounded production inspection подтверждает shell/auth/integrations/settings, но LIVE breadth для retention expiry/cleanup остаётся частичным, поэтому эпик не `READY`.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -128,13 +128,13 @@ Status: **🟦 IN PROGRESS — 100% (`13/13`)**. Все product AC и exact-head
 | `PC-12` | Доступны system, light и dark themes. | ✅ |
 | `PC-13` | Пользователь выбирает accent/interface color. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE ❌`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ◐`.
 
-UX/UI-аудит production на viewport `390x844` выявил document-level horizontal overflow в Diagnostics: `.meta` с `max-content` расширял document до 474 px и сжимал часть значений до нулевой доступной ширины. Текущая ветка заменила unbounded metadata grid, добавила narrow single-column layout и сохранила три primary navigation controls. Bounded local browser validation при `390x844` подтвердила `documentWidth=375` при layout viewport 375, доступность всех трёх navigation controls и keyboard-переключение ordinary/Live tabs; production LIVE regression check остаётся delivery gate, а не основанием повторно открывать выполненный AC.
+UX/UI-аудит production на viewport `390x844` ранее выявил document-level horizontal overflow в Diagnostics; deployed remediation заменила unbounded metadata grid и добавила narrow single-column layout. Read-only production inspection 2026-08-23 подтвердил authenticated shell, три primary navigation controls, active provider credential, Google Drive connection, retention/theme/accent controls и отсутствие browser console warnings/errors. Эмуляция narrow viewport не выявила overflow относительно фактического layout viewport, но не подтверждает production expiry/cleanup lifecycle.
 
 Expired source metadata может сохраняться для history/audit, но current owner instruction требует скрывать expired local files из active intake UI. Это заменяет старое UI-допущение о видимости недоступной metadata.
 
-Verified implementation: active project source collection исключает local rows при `expires_at <= now` либо durable status `expired`, не удаляя `Source`, job relations или history evidence. Branch-local API integration test создан; его DB execution ожидает exact-head CI.
+Verified implementation: active project source collection исключает local rows при `expires_at <= now` либо durable status `expired`, не удаляя `Source`, job relations или history evidence. Exact-main CI и subsequent production component deployments подтверждены; bounded LIVE expiry/cleanup coverage остаётся неполным.
 
 ### Эпик `PWA-TRANSCRIPTIONS-UX-01` — пользовательская модель транскрибаций
 
@@ -193,7 +193,7 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 
 ### Эпик `PWA-BATCH-01` — transcription options, progress и output
 
-Status: **🟦 IN PROGRESS — 100% (`10/10`)**.
+Status: **🟩 READY — 100% (`10/10`)**.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -208,9 +208,9 @@ Status: **🟦 IN PROGRESS — 100% (`10/10`)**.
 | `PB-09` | Видимый timestamp имеет ISO 8601 format. | ✅ |
 | `PB-10` | Timestamp получен из фактического creation time исходного media file. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 
-Current Goal implementation `18e64d1276d71f698cedcdad0a0bbeeb36e9e609` передаёт persisted source creation authority в output/maintenance contract, запрещает fallback на Google Doc/job/upload/modified clocks и покрыта local automated tests. Exact-head CI/DEPLOY/LIVE ещё не подтверждены, поэтому READY не заявляется.
+`main@800bcc820529ff3c78214c129c593d182c621c62` передаёт persisted source creation authority в output/maintenance contract и запрещает fallback на Google Doc/job/upload/modified clocks. Exact-main CI/CD и bounded production canary подтверждены delivery record PR #227.
 
 ### Эпик `PWA-SPEAKER-IDENTITY-01` — имена и роли спикеров
 
@@ -230,7 +230,7 @@ Evidence: `SPEC ✅ | CODE — | TEST — | CI N/A | DEPLOY — | LIVE —`.
 
 ### Эпик `PWA-MANIFEST-01` — duplicate protection и каталог
 
-Status: **🟦 IN PROGRESS — 100% (`6/6`)**.
+Status: **🟦 IN PROGRESS — 100% (`6/6`)**. Product AC и delivery до production подтверждены; current owner UI и accepted-output catalog path наблюдались LIVE, но representative folder import/clear mutation не выполнялись в bounded production validation этой Goal.
 
 В PWA роль manifest выполняет PostgreSQL-backed `Манифест Studio`, а не общий JSON-файл Colab.
 
@@ -243,11 +243,11 @@ Status: **🟦 IN PROGRESS — 100% (`6/6`)**.
 | `PM-05` | Accepted-output record появляется только после Google Docs creation evidence. | ✅ |
 | `PM-06` | Duplicate identity использует Drive file ID/Studio source identity и settings, не filename alone. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ◐`.
 
 ### Эпик `PWA-STANDARDIZATION-01` — стандартизация Google Docs
 
-Status: **🟦 IN PROGRESS — 100% (`6/6`)**.
+Status: **🟩 READY — 100% (`6/6`)**.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -258,11 +258,11 @@ Status: **🟦 IN PROGRESS — 100% (`6/6`)**.
 | `PD-05` | Timestamp нормализуется в ISO 8601. | ✅ |
 | `PD-06` | Timestamp отражает creation time исходного media file, а не Google Doc/job time. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 
 Standardization и manifest import остаются разными authority: preview/confirmation одной операции не авторизует другую.
 
-Current Goal implementation `18e64d1276d71f698cedcdad0a0bbeeb36e9e609` разрешает mutation только при owner-scoped persisted source authority, сравнивает видимый ISO timestamp с exact source time и возвращает explicit blocked reason для unavailable/conflict. Exact-head CI/DEPLOY/LIVE ещё не подтверждены, поэтому READY не заявляется.
+`main@800bcc820529ff3c78214c129c593d182c621c62` разрешает mutation только при owner-scoped persisted source authority, сравнивает видимый ISO timestamp с exact source time и возвращает explicit blocked reason для unavailable/conflict. Bounded production output и repeated single-document dry-run подтвердили authoritative и idempotent path; legacy unknown path остался fail-closed.
 
 ### Эпик `PWA-REALTIME-01` — realtime-транскрибация
 
@@ -290,7 +290,7 @@ Realtime использует short-lived single-use capability. Он не со�
 
 ### Эпик `PWA-OPERABILITY-01` — diagnostics, history и analytics
 
-Status: **🟦 IN PROGRESS — 100% (`18/18`)**.
+Status: **🟩 READY — 100% (`18/18`)**.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -313,7 +313,9 @@ Status: **🟦 IN PROGRESS — 100% (`18/18`)**.
 | `PO-17` | Analytics можно очистить owner-scoped action. | ✅ |
 | `PO-18` | Очистка Analytics требует подтверждения Да/Нет. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
+
+Verified delivery: operability chain through `main@dd194c929d957e822ff618df294dc54e72d5971e` имеет exact-main repository CI `32575534468`, Studio/browser CI `32575534462`, protected migration/API/worker rollout и terminal preflight/status Evidence. Read-only production inspection 2026-08-23 подтвердила safe API/worker/browser diagnostics, четыре export entrypoint, actual canary analytics (count/outcome/provider/stage durations), safe Google Docs result link, а security audit — ранее выполненные owner-scoped History и Analytics clear operations с confirmation flow; raw transcript/provider payload в наблюдаемой surface отсутствовал.
 
 ## 6. Future scope, не включённый в denominator `120`
 
@@ -353,18 +355,18 @@ Status: **⬜ BACKLOG**. Владелец явно отнёс TOTP/Google Authen
 
 ## 8. Runtime и delivery baseline
 
-- Current verified revision: `main@cb3a9e9216521c56e07b6f7b6fda9bf8eb8051f8`.
-- Exact-main repository CI: run `32657081954`, success.
-- Exact-main Studio/browser CI: run `32657081982`, jobs `studio` и `browser-e2e` success.
-- Studio web deployment: run `32657081893`, success. Последний применимый API runtime scope был успешно доставлен run `32654826834`; migration `0023_realtime_drafts` и worker rollout остаются подтверждены предыдущим operational chain.
+- Current verified revision: `main@800bcc820529ff3c78214c129c593d182c621c62`.
+- Exact-main repository CI: run `32660175995`, success.
+- Exact-main Studio/browser CI: run `32660175973`, jobs `studio` и `browser-e2e` success.
+- Studio web/API deployment: run `32660176008`, success; migration и worker корректно skipped для timestamp-authority diff. Migration `0023_realtime_drafts` и worker rollout остаются подтверждены предыдущим operational chain.
 - Production API/worker/migration evidence предыдущего processing rollout привязано к `main@66fb098` и Alembic head `0020_provider_part_checkpoints`; оно не доказывает более поздние UI/realtime requirements.
 - Bounded production canary на `919e613` подтвердил arbitrary-fragment Google Docs output и закрыл `PWA-SEGMENTS-01`, одновременно выявив `PB-05` regression; safe execution identifiers находятся в delivery archive.
 
 ## 9. Current critical path
 
-1. Разрешить оставшиеся source-creation timestamp и legacy-standardization gaps без подмены media creation time другими часами.
-2. Закрыть PWA speaker names/roles и manual listen-and-assign после отдельного privacy/data-retention design.
-3. Выполнить representative PWA microphone/display/mixed production matrix и исправить воспроизводимые capture defects.
+1. Выполнить representative PWA microphone/display/mixed production matrix и исправить воспроизводимые capture defects.
+2. Reconcile operational Evidence полностью реализованных PWA-эпиков только по independently verified records.
+3. PWA speaker names/roles и manual listen-and-assign отложены владельцем до отдельного решения.
 4. После PWA priority scope закрыть Colab batch parity gaps и realtime capture stability.
 
 ## 10. Supporting documents

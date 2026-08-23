@@ -434,6 +434,132 @@ describe("RealtimeSessionController", () => {
     expect(controller.active).toBe(false);
   });
 
+  it("coalesces repeated stop requests while the final commit is pending", async () => {
+    const microphone = mediaFixture();
+    const audio = audioFixture();
+    const socket = websocketFixture();
+    const statuses: RealtimeSessionStatus[] = [];
+    const partials: string[] = [];
+    const timerCallbacks: Array<() => void> = [];
+    const timerDelays: number[] = [];
+    const controller = new RealtimeSessionController(
+      {
+        onStatus: (status) => statuses.push(status),
+        onPartial: (text) => partials.push(text),
+        onCommitted: vi.fn(),
+        onError: vi.fn(),
+      },
+      {
+        requestCapability: vi.fn().mockResolvedValue(capability),
+        mediaDevices: {
+          getUserMedia: vi.fn().mockResolvedValue(microphone.stream),
+        },
+        createAudioContext: () => audio.context,
+        createWebSocket: () => socket,
+        setTimer: (callback, milliseconds) => {
+          timerCallbacks.push(callback);
+          timerDelays.push(milliseconds);
+          return timerCallbacks.length;
+        },
+        clearTimer: vi.fn(),
+      },
+    );
+
+    await controller.start({ displayAudio: false, microphone: true });
+    (socket as unknown as { readyState: number }).readyState = 1;
+    socket.onopen?.(new Event("open"));
+    socket.onmessage?.(
+      new MessageEvent("message", {
+        data: JSON.stringify({
+          message_type: "partial_transcript",
+          text: "последний неподтверждённый фрагмент",
+        }),
+      }),
+    );
+
+    controller.stop();
+    controller.stop();
+
+    expect(timerDelays.filter((delay) => delay === 2_000)).toHaveLength(1);
+    expect(socket.send).toHaveBeenCalledTimes(1);
+    expect(microphone.stop).toHaveBeenCalledOnce();
+    expect(audio.context.close).toHaveBeenCalledOnce();
+    expect(statuses.filter((status) => status === "stopping")).toHaveLength(1);
+    expect(partials.at(-1)).toBe("последний неподтверждённый фрагмент");
+
+    timerCallbacks.at(-1)?.();
+    expect(socket.close).toHaveBeenCalledOnce();
+    expect(statuses.filter((status) => status === "stopped")).toHaveLength(1);
+    expect(controller.active).toBe(false);
+  });
+
+  it("starts a fresh owned session after a completed stop cycle", async () => {
+    const microphones = [mediaFixture(), mediaFixture()];
+    const audio = [audioFixture(), audioFixture()];
+    const sockets = [websocketFixture(), websocketFixture()];
+    const statuses: RealtimeSessionStatus[] = [];
+    const timerCallbacks: Array<() => void> = [];
+    const getUserMedia = vi
+      .fn()
+      .mockResolvedValueOnce(microphones[0].stream)
+      .mockResolvedValueOnce(microphones[1].stream);
+    const createAudioContext = vi
+      .fn()
+      .mockReturnValueOnce(audio[0].context)
+      .mockReturnValueOnce(audio[1].context);
+    const createWebSocket = vi
+      .fn()
+      .mockReturnValueOnce(sockets[0])
+      .mockReturnValueOnce(sockets[1]);
+    const controller = new RealtimeSessionController(
+      {
+        onStatus: (status) => statuses.push(status),
+        onPartial: vi.fn(),
+        onCommitted: vi.fn(),
+        onError: vi.fn(),
+      },
+      {
+        requestCapability: vi.fn().mockResolvedValue(capability),
+        mediaDevices: { getUserMedia },
+        createAudioContext,
+        createWebSocket,
+        setTimer: (callback) => {
+          timerCallbacks.push(callback);
+          return timerCallbacks.length;
+        },
+        clearTimer: vi.fn(),
+      },
+    );
+
+    for (let index = 0; index < 2; index += 1) {
+      await controller.start({ displayAudio: false, microphone: true });
+      (sockets[index] as unknown as { readyState: number }).readyState = 1;
+      sockets[index].onopen?.(new Event("open"));
+      sockets[index].onmessage?.(
+        new MessageEvent("message", {
+          data: JSON.stringify({ message_type: "session_started" }),
+        }),
+      );
+      expect(controller.active).toBe(true);
+      expect(statuses.at(-1)).toBe("transcribing");
+
+      controller.stop();
+      timerCallbacks.at(-1)?.();
+
+      expect(controller.active).toBe(false);
+      expect(statuses.at(-1)).toBe("stopped");
+      expect(microphones[index].stop).toHaveBeenCalledOnce();
+      expect(audio[index].context.close).toHaveBeenCalledOnce();
+      expect(sockets[index].close).toHaveBeenCalledOnce();
+    }
+
+    expect(getUserMedia).toHaveBeenCalledTimes(2);
+    expect(createAudioContext).toHaveBeenCalledTimes(2);
+    expect(createWebSocket).toHaveBeenCalledTimes(2);
+    expect(statuses.filter((status) => status === "transcribing")).toHaveLength(2);
+    expect(statuses.filter((status) => status === "stopped")).toHaveLength(2);
+  });
+
   it("closes media when the realtime socket does not connect in time", async () => {
     const microphone = mediaFixture();
     const audio = audioFixture();
@@ -648,6 +774,54 @@ describe("RealtimeSessionController", () => {
     expect(errors.at(-1)).toContain("не накапливать задержку");
     expect(statuses.at(-1)).toBe("closed");
     expect(microphone.stop).toHaveBeenCalled();
+    expect(controller.active).toBe(false);
+  });
+
+  it("releases capture when websocket send races with a closed connection", async () => {
+    const microphone = mediaFixture();
+    const audio = audioFixture();
+    const socket = websocketFixture();
+    const errors: string[] = [];
+    const statuses: RealtimeSessionStatus[] = [];
+    const controller = new RealtimeSessionController(
+      {
+        onStatus: (status) => statuses.push(status),
+        onPartial: vi.fn(),
+        onCommitted: vi.fn(),
+        onError: (message) => errors.push(message),
+      },
+      {
+        requestCapability: vi.fn().mockResolvedValue(capability),
+        mediaDevices: {
+          getUserMedia: vi.fn().mockResolvedValue(microphone.stream),
+        },
+        createAudioContext: () => audio.context,
+        createWebSocket: () => socket,
+        setTimer: vi.fn(() => 37),
+        clearTimer: vi.fn(),
+      },
+    );
+
+    await controller.start({ displayAudio: false, microphone: true });
+    (socket as unknown as { readyState: number }).readyState = 1;
+    socket.onopen?.(new Event("open"));
+    vi.mocked(socket.send).mockImplementationOnce(() => {
+      throw new DOMException("Socket already closed", "InvalidStateError");
+    });
+
+    expect(() =>
+      audio.processor.onaudioprocess?.({
+        inputBuffer: {
+          getChannelData: () => new Float32Array(48).fill(0.2),
+        },
+      } as AudioProcessingEvent),
+    ).not.toThrow();
+
+    expect(errors.at(-1)).toContain("прервалось при отправке аудио");
+    expect(socket.close).toHaveBeenCalledWith(1000, "Ошибка отправки аудио");
+    expect(statuses.at(-1)).toBe("closed");
+    expect(microphone.stop).toHaveBeenCalledOnce();
+    expect(audio.context.close).toHaveBeenCalledOnce();
     expect(controller.active).toBe(false);
   });
 
