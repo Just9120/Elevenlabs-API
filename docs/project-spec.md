@@ -110,7 +110,7 @@ Owner LIVE evidence подтверждает работоспособность 
 
 ### Эпик `PWA-CORE-01` — application shell, auth и integrations
 
-Status: **🟦 IN PROGRESS — 100% (`13/13`)**. Все product AC и exact-head CI подтверждены; DEPLOY и LIVE для текущей ветки ещё не выполнены, поэтому эпик не `READY`.
+Status: **🟦 IN PROGRESS — 100% (`13/13`)**. Product AC, current code/tests, exact-main CI и deployment подтверждены; bounded production inspection подтверждает shell/auth/integrations/settings, но LIVE breadth для retention expiry/cleanup остаётся частичным, поэтому эпик не `READY`.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -128,13 +128,13 @@ Status: **🟦 IN PROGRESS — 100% (`13/13`)**. Все product AC и exact-head
 | `PC-12` | Доступны system, light и dark themes. | ✅ |
 | `PC-13` | Пользователь выбирает accent/interface color. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE ❌`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ◐`.
 
-UX/UI-аудит production на viewport `390x844` выявил document-level horizontal overflow в Diagnostics: `.meta` с `max-content` расширял document до 474 px и сжимал часть значений до нулевой доступной ширины. Текущая ветка заменила unbounded metadata grid, добавила narrow single-column layout и сохранила три primary navigation controls. Bounded local browser validation при `390x844` подтвердила `documentWidth=375` при layout viewport 375, доступность всех трёх navigation controls и keyboard-переключение ordinary/Live tabs; production LIVE regression check остаётся delivery gate, а не основанием повторно открывать выполненный AC.
+UX/UI-аудит production на viewport `390x844` ранее выявил document-level horizontal overflow в Diagnostics; deployed remediation заменила unbounded metadata grid и добавила narrow single-column layout. Read-only production inspection 2026-08-23 подтвердил authenticated shell, три primary navigation controls, active provider credential, Google Drive connection, retention/theme/accent controls и отсутствие browser console warnings/errors. Эмуляция narrow viewport не выявила overflow относительно фактического layout viewport, но не подтверждает production expiry/cleanup lifecycle.
 
 Expired source metadata может сохраняться для history/audit, но current owner instruction требует скрывать expired local files из active intake UI. Это заменяет старое UI-допущение о видимости недоступной metadata.
 
-Verified implementation: active project source collection исключает local rows при `expires_at <= now` либо durable status `expired`, не удаляя `Source`, job relations или history evidence. Branch-local API integration test создан; его DB execution ожидает exact-head CI.
+Verified implementation: active project source collection исключает local rows при `expires_at <= now` либо durable status `expired`, не удаляя `Source`, job relations или history evidence. Exact-main CI и subsequent production component deployments подтверждены; bounded LIVE expiry/cleanup coverage остаётся неполным.
 
 ### Эпик `PWA-TRANSCRIPTIONS-UX-01` — пользовательская модель транскрибаций
 
@@ -230,7 +230,7 @@ Evidence: `SPEC ✅ | CODE — | TEST — | CI N/A | DEPLOY — | LIVE —`.
 
 ### Эпик `PWA-MANIFEST-01` — duplicate protection и каталог
 
-Status: **🟩 READY — 100% (`6/6`)**.
+Status: **🟦 IN PROGRESS — 100% (`6/6`)**. Product AC и delivery до production подтверждены; current owner UI и accepted-output catalog path наблюдались LIVE, но representative folder import/clear mutation не выполнялись в bounded production validation этой Goal.
 
 В PWA роль manifest выполняет PostgreSQL-backed `Манифест Studio`, а не общий JSON-файл Colab.
 
@@ -243,11 +243,11 @@ Status: **🟩 READY — 100% (`6/6`)**.
 | `PM-05` | Accepted-output record появляется только после Google Docs creation evidence. | ✅ |
 | `PM-06` | Duplicate identity использует Drive file ID/Studio source identity и settings, не filename alone. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ◐`.
 
 ### Эпик `PWA-STANDARDIZATION-01` — стандартизация Google Docs
 
-Status: **🟦 IN PROGRESS — 100% (`6/6`)**.
+Status: **🟩 READY — 100% (`6/6`)**.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -290,7 +290,7 @@ Realtime использует short-lived single-use capability. Он не со�
 
 ### Эпик `PWA-OPERABILITY-01` — diagnostics, history и analytics
 
-Status: **🟦 IN PROGRESS — 100% (`18/18`)**.
+Status: **🟩 READY — 100% (`18/18`)**.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -313,7 +313,9 @@ Status: **🟦 IN PROGRESS — 100% (`18/18`)**.
 | `PO-17` | Analytics можно очистить owner-scoped action. | ✅ |
 | `PO-18` | Очистка Analytics требует подтверждения Да/Нет. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
+
+Verified delivery: operability chain through `main@dd194c929d957e822ff618df294dc54e72d5971e` имеет exact-main repository CI `32575534468`, Studio/browser CI `32575534462`, protected migration/API/worker rollout и terminal preflight/status Evidence. Read-only production inspection 2026-08-23 подтвердила safe API/worker/browser diagnostics, четыре export entrypoint, actual canary analytics (count/outcome/provider/stage durations), safe Google Docs result link, а security audit — ранее выполненные owner-scoped History и Analytics clear operations с confirmation flow; raw transcript/provider payload в наблюдаемой surface отсутствовал.
 
 ## 6. Future scope, не включённый в denominator `120`
 
