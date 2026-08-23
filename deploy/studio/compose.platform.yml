@@ -44,7 +44,7 @@ services:
       STUDIO_GOOGLE_OAUTH_CLIENT_ID: ${STUDIO_GOOGLE_OAUTH_CLIENT_ID:-}
       STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE: /run/studio-runtime-secrets/studio_google_oauth_client_secret
       STUDIO_GOOGLE_OAUTH_REDIRECT_URI: ${STUDIO_GOOGLE_OAUTH_REDIRECT_URI:-}
-      STUDIO_GOOGLE_OAUTH_SCOPES: ${STUDIO_GOOGLE_OAUTH_SCOPES:-openid email https://www.googleapis.com/auth/drive.file}
+      STUDIO_GOOGLE_OAUTH_SCOPES: ${STUDIO_GOOGLE_OAUTH_SCOPES:-openid email https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly}
       STUDIO_GOOGLE_OAUTH_STATE_TTL_SECONDS: ${STUDIO_GOOGLE_OAUTH_STATE_TTL_SECONDS:-600}
       STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_ID: ${STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_ID:-}
       STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_SECRET_FILE: /run/studio-runtime-secrets/studio_google_maintenance_oauth_client_secret
@@ -94,7 +94,7 @@ services:
       STUDIO_GOOGLE_OAUTH_CLIENT_ID: ${STUDIO_GOOGLE_OAUTH_CLIENT_ID:-}
       STUDIO_GOOGLE_OAUTH_CLIENT_SECRET_FILE: /run/studio-runtime-secrets/studio_google_oauth_client_secret
       STUDIO_GOOGLE_OAUTH_REDIRECT_URI: ${STUDIO_GOOGLE_OAUTH_REDIRECT_URI:-}
-      STUDIO_GOOGLE_OAUTH_SCOPES: ${STUDIO_GOOGLE_OAUTH_SCOPES:-openid email https://www.googleapis.com/auth/drive.file}
+      STUDIO_GOOGLE_OAUTH_SCOPES: ${STUDIO_GOOGLE_OAUTH_SCOPES:-openid email https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly}
       STUDIO_WORKER_POLL_INTERVAL_SECONDS: ${STUDIO_WORKER_POLL_INTERVAL_SECONDS:-5}
       STUDIO_WORKER_ERROR_BACKOFF_SECONDS: ${STUDIO_WORKER_ERROR_BACKOFF_SECONDS:-5}
       STUDIO_WORKER_LEASE_TTL_SECONDS: ${STUDIO_WORKER_LEASE_TTL_SECONDS:-3600}

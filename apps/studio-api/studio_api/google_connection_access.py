@@ -11,6 +11,7 @@ from .google_oauth import (
 from .models import GoogleConnection, GoogleConnectionStatus, GoogleProvider
 from .google_scopes import (
     has_drive_file_scope,
+    has_drive_readonly_scope,
     has_maintenance_server_scope_boundary,
     has_picker_browser_scope_boundary,
 )
@@ -52,6 +53,13 @@ def active_google_connection_for_user(db: Session, *, user_id: str) -> GoogleCon
 def require_drive_file_scope(conn: GoogleConnection) -> None:
     if not has_drive_file_scope(conn.scopes):
         raise GoogleConnectionAccessError(GoogleConnectionAccessReason.scope_unavailable)
+
+
+def require_drive_readonly_scope(conn: GoogleConnection) -> None:
+    if not has_drive_readonly_scope(conn.scopes):
+        raise GoogleConnectionAccessError(
+            GoogleConnectionAccessReason.scope_unavailable
+        )
 
 
 def require_picker_browser_scope_boundary(conn: GoogleConnection) -> None:

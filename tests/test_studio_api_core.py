@@ -1762,7 +1762,10 @@ def configure_google_oauth(monkeypatch, tmp_path):
     monkeypatch.setattr(
         main_mod.settings,
         "google_oauth_scopes",
-        "openid email https://www.googleapis.com/auth/drive.file",
+        (
+            "openid email https://www.googleapis.com/auth/drive.file "
+            "https://www.googleapis.com/auth/drive.readonly"
+        ),
     )
     monkeypatch.setattr(
         main_mod.settings,
@@ -1902,7 +1905,7 @@ def test_google_oauth_callback_rejects_missing_invalid_expired_and_used_state(mo
     r = c.post("/api/google/oauth/start", headers={"origin": "https://studio.test", "x-csrf-token": csrf})
     state = parse_qs(urlparse(r.json()["authorization_url"]).query)["state"][0]
     from studio_api.google_oauth import GoogleTokenResult
-    monkeypatch.setattr("studio_api.google_oauth.exchange_code_for_tokens", lambda cfg, code: GoogleTokenResult("refresh-safe", None, None, "openid email https://www.googleapis.com/auth/drive.file", "sub", "g@example.com"))
+    monkeypatch.setattr("studio_api.google_oauth.exchange_code_for_tokens", lambda cfg, code: GoogleTokenResult("refresh-safe", None, None, "openid email https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly", "sub", "g@example.com"))
     assert_oauth_redirect(c.get(f"/api/google/oauth/callback?state={state}&code=code"), "connected")
     assert_oauth_redirect(c.get(f"/api/google/oauth/callback?state={state}&code=code"), "invalid_state")
 
@@ -1916,7 +1919,7 @@ def test_google_oauth_callback_stores_encrypted_token_and_safe_metadata_disconne
     called = {"count": 0}
     def fake_exchange(cfg, code):
         called["count"] += 1
-        return GoogleTokenResult(raw_refresh, raw_access, raw_id, "openid email https://www.googleapis.com/auth/drive.file", "google-sub-1", "user@gmail.com")
+        return GoogleTokenResult(raw_refresh, raw_access, raw_id, "openid email https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly", "google-sub-1", "user@gmail.com")
     monkeypatch.setattr("studio_api.google_oauth.exchange_code_for_tokens", fake_exchange)
     pw = admin("google-connect@example.com"); c = TestClient(app, follow_redirects=False); csrf = login(c, pw, "google-connect@example.com")
     r = c.post("/api/google/oauth/start", headers={"origin": "https://studio.test", "x-csrf-token": csrf})
@@ -2030,7 +2033,7 @@ def add_google_connection_for_user(email: str, refresh_token: str, status="activ
     db = SessionLocal()
     try:
         user = db.query(User).filter_by(email=email).one()
-        conn = GoogleConnection(user_id=user.id, provider=GoogleProvider.google, status=GoogleConnectionStatus(status), google_subject="same-google-subject", google_email="drive-user@gmail.com", scopes="openid email https://www.googleapis.com/auth/drive.file", connected_at=utcnow())
+        conn = GoogleConnection(user_id=user.id, provider=GoogleProvider.google, status=GoogleConnectionStatus(status), google_subject="same-google-subject", google_email="drive-user@gmail.com", scopes="openid email https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly", connected_at=utcnow())
         db.add(conn); db.flush()
         ct, nonce = encrypt(refresh_token, master_key_from_b64(base64.b64encode(b"1" * 32).decode()), aad(user.id, conn.id, "refresh", "google"))
         conn.refresh_token_ciphertext = ct
@@ -3930,20 +3933,22 @@ def test_job_output_unexpected_query_failure_is_generic(monkeypatch):
         assert marker not in r.text
 
 
-def test_google_scope_parser_exact_drive_file_only():
-    from studio_api.google_scopes import has_drive_file_scope, has_picker_browser_scope_boundary
+def test_google_scope_parser_exact_primary_boundary():
+    from studio_api.google_scopes import has_drive_file_scope, has_drive_readonly_scope, has_picker_browser_scope_boundary
     assert has_drive_file_scope("openid email https://www.googleapis.com/auth/drive.file")
     assert has_drive_file_scope("  https://www.googleapis.com/auth/drive.file   openid ")
     assert not has_drive_file_scope("openid email")
     assert not has_drive_file_scope("https://www.googleapis.com/auth/drive.file.extra")
-    assert has_picker_browser_scope_boundary("openid email https://www.googleapis.com/auth/drive.file")
-    assert has_picker_browser_scope_boundary("openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.file")
+    assert has_drive_readonly_scope("https://www.googleapis.com/auth/drive.readonly")
+    assert not has_drive_readonly_scope("https://www.googleapis.com/auth/drive.readonly.extra")
+    assert not has_picker_browser_scope_boundary("openid email https://www.googleapis.com/auth/drive.file")
+    assert has_picker_browser_scope_boundary("openid email https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly")
+    assert has_picker_browser_scope_boundary("openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly")
     assert not has_picker_browser_scope_boundary("openid email")
-    assert not has_picker_browser_scope_boundary("openid email https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly")
     assert not has_picker_browser_scope_boundary("openid email https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/calendar.readonly")
 
 
-def _connect_google_for_test(user_id: str, scopes: str = "openid email https://www.googleapis.com/auth/drive.file"):
+def _connect_google_for_test(user_id: str, scopes: str = "openid email https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly"):
     from studio_api.models import GoogleConnection, GoogleConnectionStatus, GoogleProvider
     from studio_api.google_connection_access import google_token_aad
     db = SessionLocal()
@@ -3974,9 +3979,9 @@ def test_google_picker_session_csrf_scope_config_and_safe_response(monkeypatch):
     assert c.post("/api/google/picker/session", headers=headers).status_code == 409
     with engine.begin() as conn:
         conn.execute(text("UPDATE google_connections SET scopes='openid email https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly'"))
-    assert c.post("/api/google/picker/session", headers=headers).status_code == 409
-    with engine.begin() as conn:
-        conn.execute(text("UPDATE google_connections SET scopes='openid email https://www.googleapis.com/auth/drive.file'"))
+    config_missing = c.post("/api/google/picker/session", headers=headers)
+    assert config_missing.status_code == 503
+    assert config_missing.json() == {"detail": "google_config_unavailable"}
     from studio_api.google_connection_access import GoogleConnectionAccessError, GoogleConnectionAccessReason
     monkeypatch.setattr(
         main,
@@ -4122,6 +4127,13 @@ def test_google_drive_source_folder_preview_is_side_effect_free_and_apply_reject
     pid = c.post(
         "/api/projects", json={"title": "Folder intake"}, headers=headers
     ).json()["id"]
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter_by(email="drive-folder-intake@example.com").one()
+        user_id = user.id
+    finally:
+        db.close()
+    _connect_google_for_test(user_id)
     monkeypatch.setattr(
         main, "refreshed_google_drive_access_token", lambda *a, **k: "access"
     )
@@ -4230,6 +4242,43 @@ def test_google_drive_source_folder_preview_is_side_effect_free_and_apply_reject
         assert db.query(Source).filter_by(project_id=pid).count() == 2
     finally:
         db.close()
+
+
+def test_google_drive_source_folder_requires_readonly_reconnect(monkeypatch):
+    import studio_api.main as main
+
+    pw = admin("drive-folder-scope@example.com")
+    c = TestClient(app)
+    csrf = login(c, pw, "drive-folder-scope@example.com")
+    headers = {"origin": "https://studio.test", "x-csrf-token": csrf}
+    pid = c.post(
+        "/api/projects", json={"title": "Folder scope"}, headers=headers
+    ).json()["id"]
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter_by(email="drive-folder-scope@example.com").one()
+        user_id = user.id
+    finally:
+        db.close()
+    _connect_google_for_test(
+        user_id,
+        "openid email https://www.googleapis.com/auth/drive.file",
+    )
+    refresh = monkeypatch.setattr(
+        main,
+        "refreshed_google_drive_access_token",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not refresh")),
+    )
+
+    response = c.post(
+        f"/api/projects/{pid}/sources/google-folder/preview",
+        json={"folder_id": "folder-source"},
+        headers=headers,
+    )
+
+    assert refresh is None
+    assert response.status_code == 409
+    assert response.json() == {"detail": "google_scope_unavailable"}
 
 
 def test_output_folder_favorites_are_owner_scoped():

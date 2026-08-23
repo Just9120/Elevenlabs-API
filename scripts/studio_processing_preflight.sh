@@ -80,7 +80,7 @@ validate_runtime_values() {
   is_url "${ENV_VALUES[STUDIO_SOURCE_S3_ENDPOINT_URL]}" false || { invalid_runtime_setting "STUDIO_SOURCE_S3_ENDPOINT_URL" "invalid_url"; return 1; }
   is_url "${ENV_VALUES[STUDIO_GOOGLE_OAUTH_REDIRECT_URI]}" true || { invalid_runtime_setting "STUDIO_GOOGLE_OAUTH_REDIRECT_URI" "invalid_https_url"; return 1; }
   is_url "${ENV_VALUES[STUDIO_GOOGLE_MAINTENANCE_OAUTH_REDIRECT_URI]}" true || { invalid_runtime_setting "STUDIO_GOOGLE_MAINTENANCE_OAUTH_REDIRECT_URI" "invalid_https_url"; return 1; }
-  [[ "${ENV_VALUES[STUDIO_GOOGLE_OAUTH_SCOPES]}" == "openid email https://www.googleapis.com/auth/drive.file" ]] || { invalid_runtime_setting "STUDIO_GOOGLE_OAUTH_SCOPES" "unexpected_scope_set"; return 1; }
+  [[ "${ENV_VALUES[STUDIO_GOOGLE_OAUTH_SCOPES]}" == "openid email https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly" ]] || { invalid_runtime_setting "STUDIO_GOOGLE_OAUTH_SCOPES" "unexpected_scope_set"; return 1; }
   [[ "${ENV_VALUES[STUDIO_GOOGLE_MAINTENANCE_OAUTH_SCOPES]}" == "openid email https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/documents" ]] || { invalid_runtime_setting "STUDIO_GOOGLE_MAINTENANCE_OAUTH_SCOPES" "unexpected_scope_set"; return 1; }
   [[ "${ENV_VALUES[STUDIO_GOOGLE_OAUTH_CLIENT_ID]}" != "${ENV_VALUES[STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_ID]}" ]] || { invalid_runtime_setting "STUDIO_GOOGLE_MAINTENANCE_OAUTH_CLIENT_ID" "must_differ_from_primary"; return 1; }
   in_range "${ENV_VALUES[STUDIO_SOURCE_UPLOAD_TTL_SECONDS]}" 900 86400 || { invalid_runtime_setting "STUDIO_SOURCE_UPLOAD_TTL_SECONDS" "outside_approved_range"; return 1; }

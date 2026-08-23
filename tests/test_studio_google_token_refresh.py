@@ -32,7 +32,10 @@ def config():
         client_id="client",
         client_secret="secret",
         redirect_uri="https://studio.test/oauth",
-        scopes="openid email https://www.googleapis.com/auth/drive.file",
+        scopes=(
+            "openid email https://www.googleapis.com/auth/drive.file "
+            "https://www.googleapis.com/auth/drive.readonly"
+        ),
     )
 
 
