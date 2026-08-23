@@ -28,7 +28,7 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Текущий independently verified execution snapshot: ветка `codex/pwa-transcriptions-live-recovery-01` от `main@dd194c929d957e822ff618df294dc54e72d5971e`, exact-head `29df753b204a87768ff68d401fe8e77ff11fa59b`; bounded local UX и exact-head CI подтверждены, DEPLOY/LIVE ещё не выполнены.
+Текущий independently verified execution snapshot: `main@ccb067d05d5225a3178b21cd239bd65c0764f1fb`; exact-main CI, Studio/browser CI, web/API/worker deployment, protected migration `0023_realtime_drafts` и bounded LIVE/operational validation предыдущей Goal подтверждены. Новая Goal `PWA-INGEST-FOLDERS-01` не меняет readiness до выполнения соответствующих product AC.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
@@ -312,7 +312,7 @@ Status: **🟦 IN PROGRESS — 100% (`18/18`)**.
 
 Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE —`.
 
-## 6. Future scope, не включённый в denominator `109`
+## 6. Future scope, не включённый в denominator `120`
 
 ### Эпик `PWA-AUTH-HARDENING-02`
 
@@ -350,20 +350,20 @@ Status: **⬜ BACKLOG**. Владелец явно отнёс TOTP/Google Authen
 
 ## 8. Runtime и delivery baseline
 
-- Current audit revision: `main@919e6137ed0e806db168a43d292ab7874293549e`.
-- Exact-main repository CI: run `32376152400`, success.
-- Exact-main Studio/browser CI: run `32376152418`, jobs `studio` и `browser-e2e` success.
-- Studio component CD run `32376152217` доставил `studio-web` и `studio-api`; worker rollout был `N/A`, потому что runtime worker code не изменялся. Production API/web health и exact merge revision подтверждены.
+- Current verified revision: `main@ccb067d05d5225a3178b21cd239bd65c0764f1fb`.
+- Exact-main repository CI: run `32588711409`, success.
+- Exact-main Studio/browser CI: run `32588711419`, jobs `studio` и `browser-e2e` success.
+- Studio web deployment: run `32588711397`, success; migration `0023_realtime_drafts`, API и worker rollout подтверждены runs `32589660127`, `32589888861`, `32589929940` и `32590256878`.
 - Production API/worker/migration evidence предыдущего processing rollout привязано к `main@66fb098` и Alembic head `0020_provider_part_checkpoints`; оно не доказывает более поздние UI/realtime requirements.
 - Bounded production canary на `919e613` подтвердил arbitrary-fragment Google Docs output и закрыл `PWA-SEGMENTS-01`, одновременно выявив `PB-05` regression; safe execution identifiers находятся в delivery archive.
 
 ## 9. Current critical path
 
-1. Закрыть PWA contract gaps без новой architecture boundary: explicit English, target Favorites, source creation timestamp propagation, JSON/YAML/TOML diagnostics exports, success percentage и safe clear confirmations.
-2. Реализовать folder intake для local/Drive и обе multi-transcription modes с bounded enumeration, duplicate handling и preflight.
-3. Заменить narrow two-part model на arbitrary N-fragment plan с server validation, immutable job snapshots и one-output-per-fragment semantics.
-4. Реализовать PWA speaker names/roles и manual listen-and-assign после отдельного privacy/data-retention design внутри уже авторизованного feature scope.
-5. Стабилизировать PWA runtime и провести component-specific deploy/LIVE canaries; затем вернуться к Colab realtime capture stability.
+1. Реализовать bounded local/Drive source-folder intake и folder-to-batch flow без расширения OAuth scope.
+2. Закрыть PWA speaker names/roles и manual listen-and-assign после отдельного privacy/data-retention design.
+3. Разрешить оставшиеся source-creation timestamp и legacy-standardization gaps без подмены media creation time другими часами.
+4. Выполнить representative PWA microphone/display/mixed production matrix и исправить воспроизводимые capture defects.
+5. После PWA priority scope закрыть Colab batch parity gaps и realtime capture stability.
 
 ## 10. Supporting documents
 

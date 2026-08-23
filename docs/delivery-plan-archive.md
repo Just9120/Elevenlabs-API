@@ -4,6 +4,16 @@ This document is historical. Codex and other coding agents must not read it duri
 
 The archive preserves traceability from documents consolidated during `DOCS-AUTHORITY-RESET-01`. It intentionally avoids secrets, production credentials, private account data, transcript bodies, document IDs/URLs, raw provider responses, and raw Google responses.
 
+## Archived `PWA-TRANSCRIPTIONS-UX-AND-LIVE-RECOVERY-01` delivery — PR #222
+
+- Base: `main@dd194c929d957e822ff618df294dc54e72d5971e`.
+- PR: #222, merged as `main@ccb067d05d5225a3178b21cd239bd65c0764f1fb`.
+- Outcome: primary UX переведён с ручного Projects lifecycle на `Транскрибации` с ordinary/Live tabs; batch отображается одной multi-transcription; добавлены local IndexedDB и encrypted owner-scoped server Live drafts с 72-hour TTL, recovery/download/delete UX и bounded accessibility/diagnostics remediation.
+- Exact-main CI: run `32588711409` ✅; Studio PWA CI run `32588711419`, jobs `studio` и `browser-e2e` ✅.
+- Deployment: web run `32588711397` ✅; protected migration `0023_realtime_drafts` run `32589660127` ✅; API run `32589888861` ✅; worker runs `32589929940` и rollback-corrected `32590256878` ✅.
+- LIVE/operations: bounded preflight `32590047900` ✅ и worker status `32590305806` ✅; Goal Evidence `SPEC/CODE/TEST/CI/DEPLOY/LIVE ✅`.
+- Cleanup: local/remote merged branch удалена после ancestry check; local `main` fast-forward синхронизирован. Post-deploy operational diff перенесён в следующую authorized Goal из именованного stash, поскольку approved metadata writer отсутствует.
+
 ## Archived `PWA-REALTIME-CAPTURE-01` delivery — PR #212
 
 - Base: `main@f90e0d7b3b10d345a9ea6ff34f5b8c3025d818d7`.
