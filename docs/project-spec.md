@@ -171,7 +171,7 @@ Status: **🟦 IN PROGRESS — 81,8% (`9/11`)**. Production runtime показа
 | `PI-10` | Один batch принимает одну target folder и source folder. | ❌ |
 | `PI-11` | Для каждой composer row можно независимо выбрать source и target folder. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ◐ | CI ❌ | DEPLOY — | LIVE ❌`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE ❌`.
 
 Verified implementation: Favorites и local folder flow подтверждены. Drive source-folder code реализует bounded traversal, drift token и atomic apply; required CI и web/API deployment для `main@e94605c07ebe2d88396aaa05edb5095079ba6eeb` прошли. Bounded production canary затем вернул zero importable descendants под прежним `drive.file`. В рабочей ветке `codex/pwa-drive-readonly-sources` exact grant расширен до `drive.file + drive.readonly`, старые grants становятся `reconnect_required`, source-folder traversal отдельно требует `drive.readonly`, а full `drive`/unrelated scopes отклоняются. Новый backend CI, production config, reconnect и LIVE canary ещё не подтверждены; поэтому `PI-08`/`PI-10` остаются incomplete.
 

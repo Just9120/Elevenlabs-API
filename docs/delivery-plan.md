@@ -20,25 +20,25 @@
   10. Existing single/multi-file, Favorites, segmentation, batch, realtime и responsive behavior не регрессируют.
   11. Relevant backend/frontend/security/browser tests и exact-head CI проходят.
   12. Applicable web/API deployment и bounded production LIVE canary успешны.
-- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ◐ | CI ❌ | DEPLOY — | LIVE ❌`.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY — | LIVE ❌`.
 - **Known blockers/dependencies:** production Google OAuth consent configuration and target-host `STUDIO_GOOGLE_OAUTH_SCOPES` must accept exact `drive.file + drive.readonly`; existing account must disconnect/reconnect. Google verification/security-assessment gate is external if enforced. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`).
 - **Stop condition:** все Goal AC и required Evidence подтверждены либо flow достиг `BLOCKED` / `PENDING_EXTERNAL_GATE`; затем остановиться и не переходить к следующей Goal без explicit authorization.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-23T13:20:59Z
+- Updated (UTC): 2026-08-23T13:25:07Z
 - Session mode: authorized Goal implementation
 - Base branch: `main`
 - Base SHA: `295438056dc7352b00ce41a05349445c5ec83f60`
 - Working branch: `codex/pwa-drive-readonly-sources`
-- Last verified revision: `dc750585692f188d3f1c75abad4270ffdbf70d13` (CI fix covered by Python compileall and lightweight checks; full rerun pending).
+- Last verified revision: `eb862f64bb5f1842ce8621f01268ba3d1cd542ae` (all expected PR checks passed at this exact head).
 - Working tree at branch start: clean `main`, fast-forward synchronized with `origin/main`; only `main` existed locally/remotely before creating this branch.
 - Completed: PR #224 merged as `main@295438056dc7352b00ce41a05349445c5ec83f60`; exact-main CI/Studio CI/CD succeeded and safe diagnostic UX is deployed. Owner then explicitly authorized `drive.readonly`. Commit `3419c4f` adds exact `drive.file + drive.readonly`, rejects old/additional grants, requires source-folder read scope, updates runtime/preflight defaults, and preserves narrow output writes.
-- Current step: exact-head backend CI failure diagnosed and fixed; rerun pending after checkpoint push.
-- Next exact action: push the CI fix/checkpoint, then wait for all checks on the new exact head.
-- Validation and Evidence: initial final-head Studio jobs passed; backend run `32641890003/97200149976` produced `1260 passed, 2 failed` because the new pre-refresh scope guard returned `409` instead of the established privacy-preserving `404` for a missing connection. Commit `dc75058` restores `404` for missing while retaining `409` for inactive/scope states; Python compileall and `scripts/ci_checks.py` PASS after the fix. Pre-PR full Studio Vitest `558/558`, ESLint, TypeScript, Vite build and Playwright discovery `10/10` PASS. Full backend rerun is pending GitHub CI.
+- Current step: exact-head required checks green; final metadata checkpoint before merge.
+- Next exact action: push this checkpoint, require green checks on its docs-only exact head, recheck mergeability/divergence, then merge PR #225.
+- Validation and Evidence: backend `CI/checks` rerun `32642110998/97200689867` SUCCESS at `eb862f6` after the narrow status fix; all `1262` tests passed. `Studio PWA CI/studio` `32642110943/97200689818` SUCCESS and `browser-e2e` `32642110943/97200689757` SUCCESS. Pre-PR local Studio Vitest `558/558`, ESLint, TypeScript, Vite build and Playwright discovery `10/10` PASS.
 - Pull Request: #225 — `https://github.com/Just9120/Elevenlabs-API/pull/225`; initial head `239d19821e59687e46a45cad51f412a8734bffad`, base `295438056dc7352b00ce41a05349445c5ec83f60`, mergeable at checkpoint. Historical PRs #223/#224 are merged into the base.
-- CI/checks: head `01003bd`: `CI/checks` `32641890003/97200149976` FAILURE (`1260 passed, 2 failed`), `Studio PWA CI/studio` `32641890035/97200172389` SUCCESS, `Studio PWA CI/browser-e2e` `32641890035/97200172505` SUCCESS. Required rerun on the next exact head is pending.
+- CI/checks: head `eb862f6`: `CI/checks` `32642110998/97200689867` SUCCESS; `Studio PWA CI/studio` `32642110943/97200689818` SUCCESS; `Studio PWA CI/browser-e2e` `32642110943/97200689757` SUCCESS. PR is mergeable, not draft, no review decision is required, and `origin/main` has not diverged at checkpoint.
 - Deployment/environment: current branch not deployed. No migration is required; scope/config change requires API and web deployment, while worker remains unchanged unless workflow path selection proves otherwise.
 - Blockers: none for pre-merge implementation. Production phase depends on exact OAuth consent configuration, target-host scope update, mandatory reconnect and any external Google verification gate.
 - Unverified assumptions: Google will issue exact `drive.file + drive.readonly` for the current OAuth client/consent configuration; production account reconnect will complete without an external verification block.
