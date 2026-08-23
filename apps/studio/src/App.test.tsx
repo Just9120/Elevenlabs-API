@@ -5870,7 +5870,7 @@ describe("Studio PWA", () => {
     expect(window.sessionStorage.length).toBe(0);
   });
 
-  it("Google multiselect creates one ordered row per source with independent folder selectors", async () => {
+  it("Google multiselect seeds one shared target and preserves independent folder overrides", async () => {
     const picker = installFakeGooglePicker();
     renderApp();
     await openProjectsPage();
@@ -5948,7 +5948,9 @@ describe("Studio PWA", () => {
     );
     await picker.waitForCallback();
     picker.trigger({ action: "picked", docs: [{ id: "folder-1" }] });
-    await screen.findByText("Default folder");
+    await waitFor(() =>
+      expect(screen.getAllByText("Default folder")).toHaveLength(2),
+    );
     await userEvent.click(
       screen.getByRole("button", {
         name: "Выбрать папку результата для строки 2",
@@ -6681,7 +6683,7 @@ describe("Studio PWA", () => {
         name: "Выбрать папку результата для строки 1",
       }),
     );
-    expect(await screen.findByText("Verified folder")).toBeInTheDocument();
+    expect(await screen.findAllByText("Verified folder")).toHaveLength(2);
     expect(verifyCalls).toBe(2);
     expect(verifyBodies).toEqual([
       JSON.stringify({ folder_id: "folder-csrf" }),
@@ -11202,7 +11204,6 @@ describe("Studio PWA", () => {
     renderApp();
     await openProjectsPage();
     await screen.findByRole("form", { name: "Композитор пакетных задач" });
-    await chooseResultFolder(1);
     const picker = installFakeGooglePicker();
     await userEvent.click(
       screen.getByRole("button", {
@@ -11234,7 +11235,7 @@ describe("Studio PWA", () => {
     });
     expect(dialog).toHaveTextContent("Будет загружено2");
     expect(dialog).toHaveTextContent("Будет пропущено1");
-    expect(dialog).toHaveTextContent("Default folder");
+    expect(dialog).toHaveTextContent("не выбрана");
     expect(dialog).not.toHaveTextContent("Picker Folder Name");
     expect(
       fetchMock.mock.calls.filter(
@@ -11248,11 +11249,32 @@ describe("Studio PWA", () => {
     await screen.findByText("Добавлено файлов из папки: 2.");
     expect(screen.getByLabelText("Задача 1")).toHaveTextContent("a.mp3");
     expect(screen.getByLabelText("Задача 2")).toHaveTextContent("b.mp3");
+    expect(
+      screen.getAllByRole("checkbox", { name: "До конца файла" }),
+    ).toHaveLength(2);
+    for (const checkbox of screen.getAllByRole("checkbox", {
+      name: "До конца файла",
+    })) {
+      expect(checkbox).toBeChecked();
+    }
+
+    await chooseResultFolder(1, "folder-shared", "Shared results");
     expect(screen.getByLabelText("Задача 1")).toHaveTextContent(
-      "Default folder",
+      "Shared results",
     );
     expect(screen.getByLabelText("Задача 2")).toHaveTextContent(
-      "Default folder",
+      "Shared results",
+    );
+
+    await chooseResultFolder(2, "folder-override", "Override results");
+    expect(screen.getByLabelText("Задача 1")).toHaveTextContent(
+      "Shared results",
+    );
+    expect(screen.getByLabelText("Задача 1")).not.toHaveTextContent(
+      "Override results",
+    );
+    expect(screen.getByLabelText("Задача 2")).toHaveTextContent(
+      "Override results",
     );
     expect(
       fetchMock.mock.calls.filter(
