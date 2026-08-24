@@ -117,6 +117,30 @@ export async function api<T>(
   }
 }
 
+export async function apiResponse(
+  path: string,
+  options: ApiRequestOptions = {},
+): Promise<Response> {
+  const { ignoredAbortReason, ...requestOptions } = options;
+  const startedAt = performance.now();
+  try {
+    return await requestResponse(path, requestOptions);
+  } catch (err) {
+    const ignoredAbort =
+      ignoredAbortReason !== undefined &&
+      requestOptions.signal?.aborted === true &&
+      requestOptions.signal.reason === ignoredAbortReason;
+    if (!ignoredAbort) {
+      emitApiFailure(
+        path,
+        startedAt,
+        err instanceof ApiError ? err.status : undefined,
+      );
+    }
+    throw err;
+  }
+}
+
 function isCsrfRejection(err: unknown) {
   const data =
     err instanceof ApiError && err.data && typeof err.data === "object"

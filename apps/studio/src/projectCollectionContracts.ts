@@ -4,6 +4,7 @@ import {
   type JobMediaClip,
   type JobOutputFolder,
   type JobOutputsResponse,
+  type JobSpeakerIdentity,
   type JobSource,
   type TranscriptionJob,
 } from "./jobModel";
@@ -340,6 +341,9 @@ function parseJob(
   const languageMode = candidate.language_mode;
   const diarizationEnabled = candidate.diarization_enabled;
   const terminalDismissedAt = candidate.terminal_dismissed_at;
+  const speakerIdentities = parseOptionalSpeakerIdentities(
+    candidate.speaker_identities,
+  );
   if (
     !id ||
     candidateProjectId !== projectId ||
@@ -351,6 +355,7 @@ function parseJob(
     mediaClip === false ||
     outputFolder === false ||
     batch === false ||
+    speakerIdentities === false ||
     (languageMode !== undefined &&
       languageMode !== null &&
       !isTranscriptionLanguageMode(languageMode)) ||
@@ -397,7 +402,47 @@ function parseJob(
     ...(candidate.output_folder !== undefined
       ? { output_folder: outputFolder }
       : {}),
+    ...(candidate.speaker_identities !== undefined
+      ? { speaker_identities: speakerIdentities }
+      : {}),
   };
+}
+
+function parseOptionalSpeakerIdentities(
+  candidate: unknown,
+): JobSpeakerIdentity[] | false | undefined {
+  if (candidate === undefined) return undefined;
+  if (!Array.isArray(candidate)) return false;
+  const speakers: JobSpeakerIdentity[] = [];
+  for (const raw of candidate) {
+    if (!isRecord(raw)) return false;
+    const id = boundedString(raw.id, 36);
+    const label = boundedString(raw.label, 40);
+    if (
+      !id ||
+      !label ||
+      !/^Speaker [1-9][0-9]*$/.test(label) ||
+      typeof raw.sample_available !== "boolean"
+    ) {
+      return false;
+    }
+    let profile: JobSpeakerIdentity["profile"] = null;
+    if (raw.profile !== null) {
+      if (!isRecord(raw.profile)) return false;
+      const profileId = boundedString(raw.profile.id, 36);
+      const displayName = boundedString(raw.profile.display_name, 160);
+      const role = boundedString(raw.profile.role, 120);
+      if (!profileId || !displayName || !role) return false;
+      profile = { id: profileId, display_name: displayName, role };
+    }
+    speakers.push({
+      id,
+      label,
+      sample_available: raw.sample_available,
+      profile,
+    });
+  }
+  return hasUniqueIds(speakers) ? speakers : false;
 }
 
 function parseOptionalBatchReference(

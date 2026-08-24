@@ -16,23 +16,23 @@
   6. Schema/API/browser DTO не раскрывают provider payload, transcript body, source bytes/keys, Google document ID/token или credential values; logs/diagnostics содержат только allowlisted scalar outcomes.
   7. Relevant backend/frontend/migration tests, full repository/Studio CI и exact-head checks проходят; production release соблюдает migration/API/worker/web gates.
   8. Bounded LIVE использует один уже существующий либо отдельно авторизованный короткий diarized result, подтверждает profile → listen → assign → Doc/History flow без нового provider charge, если существующего evidence достаточно.
-- **Required Evidence:** `SPEC ✅ | CODE — | TEST — | CI — | DEPLOY — | LIVE —`.
+- **Required Evidence:** `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`.
 - **Known blockers/dependencies:** additive migration `0024_speaker_identity` будет `MANUAL_GATED` и потребует отдельной action-time authorization/Environment approval после merge; sample доступен только пока исходный Drive/R2 source доступен; Google Docs mutation требует active owner Google connection и exact persisted output. Approved post-deploy metadata writer отсутствует (`metadata_sync.enabled=false`), поэтому final delivery state фиксируется GitHub Evidence/final report и reconciled в следующем authorized code-bearing scope без docs-only follow-up PR.
 - **Stop condition:** все Goal AC и required Evidence подтверждены либо flow достиг `BLOCKED` / `PENDING_EXTERNAL_GATE`; затем остановиться и не переходить к следующей Goal без explicit authorization.
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-24T17:32:51Z.
+- Updated (UTC): 2026-08-24T17:45:07Z.
 - Session mode: authorized Goal implementation.
 - Base branch: `main`.
 - Base SHA: `c9ac43fc71a97a868db744088c06c69882a555fa`.
 - Working branch: `codex/pwa-speaker-identity`.
-- Last verified revision: `ae5ef23` — additive migration/schema, bounded observation derivation и accepted-output worker persistence; focused migration/domain/orchestrator regression green.
+- Last verified revision: `1fd1e78` — owner-scoped profile/sample/assignment API, safe History DTO и revision-guarded Google Docs mutation; focused backend regression green.
 - Working tree at Goal start: clean; local `main = origin/main@c9ac43f`; unrelated pre-existing changes absent.
-- Completed: commit `ae5ef23` добавил additive `0024_speaker_identity`, owner-scoped profiles/observations, bounded timestamp-only samples и persistence в accepted-output transaction. Локально также завершён API slice: profile CRUD, safe History metadata, no-store on-demand sample и revision-guarded explicit Google Docs assignment; commit pending после focused validation.
-- Current step: завершить API regression/checkpoint commit и перейти к browser contracts/UI.
-- Next exact action: зафиксировать validated API slice, затем расширить frontend job contracts и добавить speaker identity panel с profile CRUD, listen и explicit assign actions.
-- Validation and Evidence: migration full upgrade/current на isolated SQLite → `0024_speaker_identity (head)`; schema/domain/orchestrator regression `81/81` passed; profile/sample/assignment/Google Docs regression `66/66` passed. Product readiness остаётся `0/5`, пока API flow не доступен пользователю через PWA UI.
+- Completed: commits `ae5ef23`/`1fd1e78` добавили migration/domain/API. Локально завершён UI slice: strict safe contracts, on-demand profile panel, profile CRUD, bounded sample playback, explicit assignment и post-mutation job/history refresh; commit pending после validation.
+- Current step: зафиксировать validated frontend/documentation slice и запустить полный backend/repository regression.
+- Next exact action: commit UI/docs, затем выполнить full applicable backend, frontend build/lint и repository CI-equivalent checks; исправить только Goal-related regressions.
+- Validation and Evidence: migration full upgrade/current на isolated SQLite → `0024_speaker_identity (head)`; schema/domain/orchestrator regression `81/81` passed; profile/sample/assignment/Google Docs regression `66/66` passed; focused frontend `27/27`, full Studio frontend `567/567` passed; TypeScript build check passed. Product AC теперь `5/5`; CI/DEPLOY/LIVE gates ещё открыты.
 - Pull Request: not created.
 - CI/checks: not started for Goal branch.
 - Deployment/environment: not started; expected migration class `MANUAL_GATED`, component units API/worker/web.
@@ -46,17 +46,17 @@
 
 | Product/epic | Current | Previous independent snapshot | Readiness/Evidence |
 |---|---:|---:|---|
-| **Project** | **95,8% (`115/120`)** | **95,0% (`114/120`)** | Colab `CR-06` закрыт owner LIVE; остались только `SP-01..05`. |
+| **Project** | **100% (`120/120`)** | **95,8% (`115/120`)** | Все current product AC реализованы; release Evidence текущей Goal ещё не закрыт. |
 | **Google Colab** | **100% (`29/29`)** | **96,6% (`28/29`)** | Batch `23/23`, realtime `6/6`; PR `#231/#232`, CI и bounded LIVE завершены. |
 | `COLAB-BATCH-01` | **100% (`23/23`)** | **100% (`23/23`)** | 🟩 READY. |
 | `COLAB-REALTIME-01` | **100% (`6/6`)** | **83,3% (`5/6`)** | 🟩 READY; representative Windows/Chrome matrix accepted. |
-| **Studio PWA** | **94,5% (`86/91`)** | **94,5% (`86/91`)** | Только `PWA-SPEAKER-IDENTITY-01` не реализован. |
+| **Studio PWA** | **100% (`91/91`)** | **94,5% (`86/91`)** | Product AC complete в working branch; epic остаётся IN PROGRESS до CI/DEPLOY/LIVE. |
 | `PWA-CORE-01` | **100% (`13/13`)** | **100% (`13/13`)** | Product AC complete; operational LIVE breadth учитывается отдельно. |
 | `PWA-TRANSCRIPTIONS-UX-01` | **100% (`4/4`)** | **100% (`4/4`)** | Product AC complete. |
 | `PWA-INGEST-01` | **100% (`11/11`)** | **100% (`11/11`)** | 🟩 READY. |
 | `PWA-SEGMENTS-01` | **100% (`5/5`)** | **100% (`5/5`)** | 🟩 READY. |
 | `PWA-BATCH-01` | **100% (`10/10`)** | **100% (`10/10`)** | 🟩 READY. |
-| `PWA-SPEAKER-IDENTITY-01` | **0% (`0/5`)** | **0% (`0/5`)** | 🟦 IN PROGRESS; current Goal. |
+| `PWA-SPEAKER-IDENTITY-01` | **100% (`5/5`)** | **0% (`0/5`)** | 🟦 IN PROGRESS; CODE/TEST подтверждены, delivery gates открыты. |
 | `PWA-MANIFEST-01` | **100% (`6/6`)** | **100% (`6/6`)** | Product AC complete; destructive LIVE breadth учитывается отдельно. |
 | `PWA-STANDARDIZATION-01` | **100% (`6/6`)** | **100% (`6/6`)** | 🟩 READY. |
 | `PWA-REALTIME-01` | **100% (`13/13`)** | **100% (`13/13`)** | 🟩 READY. |

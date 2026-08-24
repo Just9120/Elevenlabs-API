@@ -32,9 +32,9 @@ Verified main baseline: `main@ceab95988b4a16f36e76134d6312a10c60d72fe5`. PR `#23
 
 | Scope | Готовность | Метод |
 |---|---:|---|
-| Google Colab | **96,6% (`28/29`)** | `COLAB-BATCH 23/23` + `COLAB-REALTIME 5/6` |
-| Studio PWA | **94,5% (`86/91`)** | сумма десяти PWA-эпиков ниже; `PR-06` подтверждён exact CI/deploy и bounded Chrome LIVE |
-| Весь проект | **95,0% (`114/120`)** | все выполненные AC двух продуктов / все AC текущего scope |
+| Google Colab | **100% (`29/29`)** | `COLAB-BATCH 23/23` + `COLAB-REALTIME 6/6` |
+| Studio PWA | **100% (`91/91`)** | сумма десяти PWA-эпиков ниже; speaker identity AC реализованы в current working branch, delivery gates ещё не закрыты |
+| Весь проект | **100% (`120/120`)** | все выполненные AC двух продуктов / все AC текущего scope; READY отдельно зависит от обязательных Evidence gates |
 
 ## 3. Общие product rules
 
@@ -214,17 +214,17 @@ Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 
 ### Эпик `PWA-SPEAKER-IDENTITY-01` — имена и роли спикеров
 
-Status: **🟦 IN PROGRESS — 0,0% (`0/5`)**. Реализация явно авторизована владельцем 2026-08-24; product AC пока не закрыты.
+Status: **🟦 IN PROGRESS — 100% (`5/5`)**. Product AC реализованы и покрыты local tests в working branch; CI, production rollout и bounded LIVE ещё не подтверждены, поэтому эпик не READY.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
-| `SP-01` | Есть owner-scoped база имён спикеров. | ❌ |
-| `SP-02` | Для speaker identity хранится роль. | ❌ |
-| `SP-03` | Пользователь может прослушать bounded voice fragment обнаруженного спикера. | ❌ |
-| `SP-04` | Пользователь явно связывает provider speaker label с выбранным именем. | ❌ |
-| `SP-05` | Подтверждённое имя/роль используется в transcript output и history metadata. | ❌ |
+| `SP-01` | Есть owner-scoped база имён спикеров. | ✅ |
+| `SP-02` | Для speaker identity хранится роль. | ✅ |
+| `SP-03` | Пользователь может прослушать bounded voice fragment обнаруженного спикера. | ✅ |
+| `SP-04` | Пользователь явно связывает provider speaker label с выбранным именем. | ✅ |
+| `SP-05` | Подтверждённое имя/роль используется в transcript output и history metadata. | ✅ |
 
-Evidence: `SPEC ✅ | CODE — | TEST — | CI N/A | DEPLOY — | LIVE —`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI — | DEPLOY — | LIVE —`.
 
 Автоматическое biometric matching, voiceprints и embeddings не следуют из требования. Текущий scope — manual listen-and-assign; иная модель требует отдельного privacy/security решения.
 
@@ -364,9 +364,9 @@ Status: **⬜ BACKLOG**. Владелец явно отнёс TOTP/Google Authen
 
 ## 9. Current critical path
 
-1. Реализовать `PWA-SPEAKER-IDENTITY-01` как manual listen-and-assign без biometric matching, voiceprints или embeddings.
-2. Подтвердить exact owner-scoped schema/API/UI, Google Docs/history propagation и bounded sample lifecycle.
-3. Провести MANUAL_GATED migration/deployment и bounded LIVE только после соответствующих action-time gates.
+1. Завершить PR/CI review current `PWA-SPEAKER-IDENTITY-01` implementation.
+2. После merge получить отдельную action-time authorization и провести MANUAL_GATED migration `0024_speaker_identity`, затем API/worker/web deployment.
+3. Подтвердить owner profile → bounded listen → explicit assign → exact Google Docs/history flow bounded LIVE без нового provider charge, если существующий source/output доступен.
 
 ## 10. Supporting documents
 

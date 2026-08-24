@@ -14,6 +14,7 @@ import type {
 import { OutputReconciliationNotice } from "./OutputReconciliationNotice";
 import { JobProgressPipeline } from "./JobProgressPipeline";
 import type { JobProgressState } from "./jobProgressModel";
+import { SpeakerIdentityPanel } from "./SpeakerIdentityPanel";
 
 export function JobCard({
   job,
@@ -30,6 +31,9 @@ export function JobCard({
   pinnedTerminal = false,
   dismissPending = false,
   onDismissTerminal,
+  csrf,
+  onCsrf,
+  onSpeakerUpdated,
 }: {
   job: TranscriptionJob;
   detail: JobDetailState | undefined;
@@ -45,6 +49,9 @@ export function JobCard({
   pinnedTerminal?: boolean;
   dismissPending?: boolean;
   onDismissTerminal?: (jobId: string) => void | Promise<void>;
+  csrf?: string;
+  onCsrf?: (csrf: string) => void;
+  onSpeakerUpdated?: (jobId: string) => void | Promise<void>;
 }) {
   const detailedJob = detail?.job;
   const terminal = ["completed", "failed", "cancelled"].includes(job.status);
@@ -96,12 +103,22 @@ export function JobCard({
       )}
       {outputs?.data && <JobOutputsSection jobId={job.id} data={outputs.data} />}
       {detailedJob && (
-        <JobDetailSection
-          job={detailedJob}
-          outputs={outputs?.data ?? null}
-          retry={retry}
-          onRetry={onRetry}
-        />
+        <>
+          <JobDetailSection
+            job={detailedJob}
+            outputs={outputs?.data ?? null}
+            retry={retry}
+            onRetry={onRetry}
+          />
+          {csrf && onCsrf && onSpeakerUpdated && (
+            <SpeakerIdentityPanel
+              job={detailedJob}
+              csrf={csrf}
+              onCsrf={onCsrf}
+              onJobUpdated={() => onSpeakerUpdated(detailedJob.id)}
+            />
+          )}
+        </>
       )}
     </article>
   );
