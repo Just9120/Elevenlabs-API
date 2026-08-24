@@ -23,17 +23,17 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-24T20:51:06Z.
+- Updated (UTC): 2026-08-24T20:58:00Z.
 - Session mode: authorized Goal implementation.
 - Base branch/SHA: `main@5e4a3aae8b79f2cb69c6c2efc8282d961b0392e6`, verified equal to `origin/main` after fetch.
 - Working branch: `codex/pwa-audio-preparation`.
-- Last verified revision: `5aead40b92289edad2c1a51894db63479816033c` — CI database-environment isolation fix подтверждён focused tests, full collection и lightweight checks.
+- Last verified revision: `30717656fba3d9a077bd71bbeb3201dfe3178861` — CI database isolation и clean-checkout temp-path fixes подтверждены focused tests.
 - Working tree at Goal start: clean; unrelated pre-existing changes absent.
 - Completed: all `AP-01..AP-16` source-level flows, including separate PWA workspace, local/Drive source selection, editable presets, preview, progress/cancel/recovery heartbeat, S3 retention/download/reuse, idempotent Drive upload and terminal ephemeral cleanup.
-- Current step: PR `#234` открыт; repository CI failure на `7e7f4996c55682f08d8217639046a975a0c49dcb` локализован и исправлен отдельным commit `5aead40`.
-- Next exact action: опубликовать исправление и дождаться terminal state нового exact-head `CI / checks`, `Studio PWA CI / studio` и `Studio PWA CI / browser-e2e`.
-- Validation and Evidence: прежний portable repository suite `1057 passed, 6 skipped`; Studio Vitest `571/571`; focused audio/backend set `69/69`; ESLint, TypeScript и Vite production build passed. После CI fix: focused affected set `35/35`, full CI-like collection `1331/1331`, lightweight checks PASS. Run `32775446498` завершился failure (`4 failed, 1139 passed, 188 errors`) из-за collection-time SQLite pollution общего Alembic fixture; exact-head rerun ещё не выполнен. Studio/browser run `32775446540` success для обоих jobs.
-- Pull Request / CI / deployment: `#234` / `32775446498` failure, `32775446540` success, fixed head not pushed / not started.
+- Current step: PR `#234` открыт; второй repository CI run `32776379492` прошёл 1327 tests и выявил четыре clean-checkout-only failure новых tests из-за отсутствующего repository `temp/`; исправлено commit `3071765` через isolated pytest `tmp_path`.
+- Next exact action: опубликовать second CI fix и дождаться terminal state нового exact-head `CI / checks`, `Studio PWA CI / studio` и `Studio PWA CI / browser-e2e`.
+- Validation and Evidence: прежний portable repository suite `1057 passed, 6 skipped`; Studio Vitest `571/571`; focused audio/backend set `69/69`; ESLint, TypeScript и Vite production build passed. Database-environment fix: affected set `35/35`, full CI-like collection `1331/1331`, lightweight checks PASS. Clean-checkout temp fix: affected set `5/5`. Run `32775446498` failure был вызван SQLite pollution; run `32776379492` подтвердил его устранение (`1327 passed`) и завершился failure только на четырёх temp-path tests. Studio/browser runs `32775446540` и `32776379467` success для обоих jobs.
+- Pull Request / CI / deployment: `#234` / repository runs `32775446498`, `32776379492` failure; Studio/browser runs `32775446540`, `32776379467` success; second fixed head not pushed / not started.
 - Blockers: none for local implementation. Production stateful release remains future action-time gate.
 - Unverified assumptions: stream-copy compatibility across selected containers/codecs and silence-preview precision must be bounded by tests; browser download path must reuse existing authenticated storage boundary without exposing object keys.
 - Preserved pre-existing changes: none.
