@@ -13,6 +13,8 @@ export type RealtimeSourceOptions = {
   microphoneDeviceId?: string;
 };
 
+export type RealtimeSourceKind = "display" | "microphone";
+
 export type RealtimeSessionStatus =
   | "ready"
   | "requesting_permission"
@@ -29,12 +31,19 @@ type RealtimeSessionCallbacks = {
   onCommitted: (text: string) => void;
   onError: (message: string) => void;
   onInputLevel?: (level: number) => void;
+  onSourceLevel?: (kind: RealtimeSourceKind, level: number) => void;
 };
 
 type AudioNodeLike = { disconnect: () => void };
 type CapturedAudioSource = {
-  kind: "display" | "microphone";
+  kind: RealtimeSourceKind;
   stream: MediaStream;
+};
+type SourceMonitor = {
+  kind: RealtimeSourceKind;
+  analyser: AnalyserNode;
+  samples: Float32Array;
+  gain: GainNode;
 };
 type Attempt = {
   id: number;
@@ -45,6 +54,8 @@ type Attempt = {
   audioContext: AudioContext | null;
   processor: ScriptProcessorNode | null;
   nodes: AudioNodeLike[];
+  sourceMonitors: SourceMonitor[];
+  displayDucked: boolean;
   websocket: WebSocket | null;
   capabilityAbort: AbortController | null;
   capabilityTimer: number | null;
@@ -92,7 +103,12 @@ const FINAL_COMMIT_GRACE_MS = 2_000;
 const AUDIO_PROCESSOR_BUFFER_SIZE = 8_192;
 const MAX_WEBSOCKET_BUFFERED_BYTES = 512 * 1024;
 const MIXED_DISPLAY_GAIN = 0.35;
+const MIXED_DISPLAY_DUCKED_GAIN = 0.08;
 const MIXED_MICROPHONE_GAIN = 1;
+const MICROPHONE_DUCKING_ACTIVATE_LEVEL = 0.05;
+const MICROPHONE_DUCKING_RELEASE_LEVEL = 0.025;
+const SOURCE_ANALYSER_FFT_SIZE = 2_048;
+const DUCKING_TIME_CONSTANT_SECONDS = 0.05;
 
 function stopStream(stream: MediaStream) {
   stream.getTracks().forEach((track) => track.stop());
@@ -210,6 +226,8 @@ export class RealtimeSessionController {
       audioContext: null,
       processor: null,
       nodes: [],
+      sourceMonitors: [],
+      displayDucked: false,
       websocket: null,
       capabilityAbort: null,
       capabilityTimer: null,
@@ -388,14 +406,23 @@ export class RealtimeSessionController {
       attempt.nodes.push(destination);
       for (const { kind, stream } of sources) {
         const source = context.createMediaStreamSource(stream);
+        const analyser = context.createAnalyser();
+        analyser.fftSize = SOURCE_ANALYSER_FFT_SIZE;
         const gain = context.createGain();
         gain.gain.value =
           kind === "microphone"
             ? MIXED_MICROPHONE_GAIN
             : MIXED_DISPLAY_GAIN;
-        source.connect(gain);
+        source.connect(analyser);
+        analyser.connect(gain);
         gain.connect(destination);
-        attempt.nodes.push(source, gain);
+        attempt.nodes.push(source, analyser, gain);
+        attempt.sourceMonitors.push({
+          kind,
+          analyser,
+          samples: new Float32Array(analyser.fftSize),
+          gain,
+        });
       }
       return destination.stream;
     } catch (error) {
@@ -427,6 +454,7 @@ export class RealtimeSessionController {
     attempt.processor = processor;
     processor.onaudioprocess = (event) => {
       if (!this.owns(attempt) || attempt.cancelled) return;
+      this.updateSourceLevels(attempt, context);
       const websocket = attempt.websocket;
       if (!websocket || websocket.readyState !== WebSocket.OPEN) return;
       const mono = event.inputBuffer.getChannelData(0);
@@ -538,6 +566,30 @@ export class RealtimeSessionController {
     };
   }
 
+  private updateSourceLevels(attempt: Attempt, context: AudioContext) {
+    if (attempt.sourceMonitors.length === 0) return;
+    let microphoneLevel = 0;
+    let displayMonitor: SourceMonitor | undefined;
+    for (const monitor of attempt.sourceMonitors) {
+      monitor.analyser.getFloatTimeDomainData(monitor.samples);
+      const level = normalizedInputLevel(monitor.samples);
+      this.callbacks.onSourceLevel?.(monitor.kind, level);
+      if (monitor.kind === "microphone") microphoneLevel = level;
+      else displayMonitor = monitor;
+    }
+    if (!displayMonitor) return;
+    const shouldDuck = attempt.displayDucked
+      ? microphoneLevel > MICROPHONE_DUCKING_RELEASE_LEVEL
+      : microphoneLevel >= MICROPHONE_DUCKING_ACTIVATE_LEVEL;
+    if (shouldDuck === attempt.displayDucked) return;
+    attempt.displayDucked = shouldDuck;
+    displayMonitor.gain.gain.setTargetAtTime(
+      shouldDuck ? MIXED_DISPLAY_DUCKED_GAIN : MIXED_DISPLAY_GAIN,
+      context.currentTime,
+      DUCKING_TIME_CONSTANT_SECONDS,
+    );
+  }
+
   private handleStartFailure(attempt: Attempt, error: unknown) {
     if (!this.owns(attempt)) {
       this.releaseMedia(attempt);
@@ -559,6 +611,8 @@ export class RealtimeSessionController {
 
   private releaseMedia(attempt: Attempt) {
     this.callbacks.onInputLevel?.(0);
+    this.callbacks.onSourceLevel?.("display", 0);
+    this.callbacks.onSourceLevel?.("microphone", 0);
     if (attempt.processor) {
       attempt.processor.onaudioprocess = null;
       safeDisconnect(attempt.processor);
@@ -566,6 +620,8 @@ export class RealtimeSessionController {
     }
     attempt.nodes.forEach(safeDisconnect);
     attempt.nodes = [];
+    attempt.sourceMonitors = [];
+    attempt.displayDucked = false;
     attempt.mediaStreams.forEach(stopStream);
     attempt.mediaStreams = [];
     const context = attempt.audioContext;

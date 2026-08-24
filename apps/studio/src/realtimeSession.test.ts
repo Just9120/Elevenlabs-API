@@ -49,14 +49,25 @@ function audioFixture() {
     disconnect: ReturnType<typeof vi.fn>;
   }> = [];
   const gains: Array<{
-    gain: { value: number };
+    gain: {
+      value: number;
+      setTargetAtTime: ReturnType<typeof vi.fn>;
+    };
     connect: ReturnType<typeof vi.fn>;
     disconnect: ReturnType<typeof vi.fn>;
   }> = [];
+  const analysers: Array<{
+    fftSize: number;
+    connect: ReturnType<typeof vi.fn>;
+    disconnect: ReturnType<typeof vi.fn>;
+    getFloatTimeDomainData: ReturnType<typeof vi.fn>;
+  }> = [];
+  const analyserInputs: Float32Array[] = [];
   const destination = { disconnect: vi.fn(), stream: mediaFixture().stream };
   const context = {
     state: "running",
     sampleRate: 48_000,
+    currentTime: 12,
     destination: {},
     resume: vi.fn().mockResolvedValue(undefined),
     close: vi.fn().mockResolvedValue(undefined),
@@ -66,9 +77,23 @@ function audioFixture() {
       return source;
     }),
     createScriptProcessor: vi.fn(() => processor),
+    createAnalyser: vi.fn(() => {
+      const input = new Float32Array(2_048);
+      const analyser = {
+        fftSize: 2_048,
+        connect: vi.fn(),
+        disconnect: vi.fn(),
+        getFloatTimeDomainData: vi.fn((target: Float32Array) => {
+          target.set(input);
+        }),
+      };
+      analysers.push(analyser);
+      analyserInputs.push(input);
+      return analyser;
+    }),
     createGain: vi.fn(() => {
       const gain = {
-        gain: { value: 1 },
+        gain: { value: 1, setTargetAtTime: vi.fn() },
         connect: vi.fn(),
         disconnect: vi.fn(),
       };
@@ -77,7 +102,15 @@ function audioFixture() {
     }),
     createMediaStreamDestination: vi.fn(() => destination),
   } as unknown as AudioContext;
-  return { context, processor, sources, gains, destination };
+  return {
+    context,
+    processor,
+    sources,
+    gains,
+    analysers,
+    analyserInputs,
+    destination,
+  };
 }
 
 function websocketFixture() {
@@ -845,6 +878,7 @@ describe("RealtimeSessionController", () => {
     const microphone = mediaFixture();
     const audio = audioFixture();
     const socket = websocketFixture();
+    const sourceLevels: Array<{ kind: string; level: number }> = [];
     const getDisplayMedia = vi.fn().mockResolvedValue(display.stream);
     const getUserMedia = vi.fn().mockResolvedValue(microphone.stream);
     const controller = new RealtimeSessionController(
@@ -853,6 +887,7 @@ describe("RealtimeSessionController", () => {
         onPartial: vi.fn(),
         onCommitted: vi.fn(),
         onError: vi.fn(),
+        onSourceLevel: (kind, level) => sourceLevels.push({ kind, level }),
       },
       {
         requestCapability: vi.fn().mockResolvedValue(capability),
@@ -886,14 +921,51 @@ describe("RealtimeSessionController", () => {
     });
     expect(audio.context.createMediaStreamDestination).toHaveBeenCalledTimes(1);
     expect(audio.context.createMediaStreamSource).toHaveBeenCalledTimes(3);
+    expect(audio.context.createAnalyser).toHaveBeenCalledTimes(2);
     expect(audio.context.createGain).toHaveBeenCalledTimes(3);
     expect(audio.gains[0].gain.value).toBe(0.35);
     expect(audio.gains[1].gain.value).toBe(1);
-    expect(audio.sources[0].connect).toHaveBeenCalledWith(audio.gains[0]);
-    expect(audio.sources[1].connect).toHaveBeenCalledWith(audio.gains[1]);
+    expect(audio.sources[0].connect).toHaveBeenCalledWith(audio.analysers[0]);
+    expect(audio.sources[1].connect).toHaveBeenCalledWith(audio.analysers[1]);
+    expect(audio.analysers[0].connect).toHaveBeenCalledWith(audio.gains[0]);
+    expect(audio.analysers[1].connect).toHaveBeenCalledWith(audio.gains[1]);
     expect(audio.gains[0].connect).toHaveBeenCalledWith(audio.destination);
     expect(audio.gains[1].connect).toHaveBeenCalledWith(audio.destination);
+
+    audio.analyserInputs[0].fill(0.2);
+    audio.analyserInputs[1].fill(0.02);
+    audio.processor.onaudioprocess?.({
+      inputBuffer: {
+        getChannelData: () => new Float32Array(48),
+      },
+    } as AudioProcessingEvent);
+    expect(sourceLevels).toEqual([
+      { kind: "display", level: expect.closeTo(0.8) },
+      { kind: "microphone", level: expect.closeTo(0.08) },
+    ]);
+    expect(audio.gains[0].gain.setTargetAtTime).toHaveBeenLastCalledWith(
+      0.08,
+      12,
+      0.05,
+    );
+
+    audio.analyserInputs[1].fill(0.004);
+    audio.processor.onaudioprocess?.({
+      inputBuffer: {
+        getChannelData: () => new Float32Array(48),
+      },
+    } as AudioProcessingEvent);
+    expect(audio.gains[0].gain.setTargetAtTime).toHaveBeenLastCalledWith(
+      0.35,
+      12,
+      0.05,
+    );
+
     controller.dispose();
+    expect(sourceLevels.slice(-2)).toEqual([
+      { kind: "display", level: 0 },
+      { kind: "microphone", level: 0 },
+    ]);
     expect(display.stop).toHaveBeenCalled();
     expect(microphone.stop).toHaveBeenCalled();
   });
