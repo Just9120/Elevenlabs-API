@@ -28,13 +28,13 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Текущий independently verified implementation snapshot: `main@800bcc820529ff3c78214c129c593d182c621c62`. Exact-head CI, applicable web/API deployment и bounded production LIVE подтвердили `PB-10` и `PD-06`: один новый Google Docs output получил authoritative source creation timestamp, repeated standardization dry-run оставил current document без изменений, а legacy documents без authority были заблокированы fail-closed без mutation.
+Текущий independently verified implementation snapshot: `main@ebbba50a938feb2d06b2ec59e828834ff204988d`. Exact-main CI, Studio/browser CI, web deployment и owner-controlled Chrome LIVE matrix подтвердили ранее закрытые timestamp AC и `PR-06`; PWA realtime принимает display и microphone signals в mixed capture, а residual simultaneous-speaker masking на laptop speakers явно принят владельцем как non-critical limitation.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
 | Google Colab | **75,9% (`22/29`)** | `COLAB-BATCH 17/23` + `COLAB-REALTIME 5/6` |
-| Studio PWA | **93,4% (`85/91`)** | сумма десяти PWA-эпиков ниже; `PB-10` и `PD-06` подтверждены CODE/TEST |
-| Весь проект | **89,2% (`107/120`)** | все выполненные AC двух продуктов / все AC текущего scope |
+| Studio PWA | **94,5% (`86/91`)** | сумма десяти PWA-эпиков ниже; `PR-06` подтверждён exact CI/deploy и bounded Chrome LIVE |
+| Весь проект | **90,0% (`108/120`)** | все выполненные AC двух продуктов / все AC текущего scope |
 
 ## 3. Общие product rules
 
@@ -266,7 +266,7 @@ Standardization и manifest import остаются разными authority: pr
 
 ### Эпик `PWA-REALTIME-01` — realtime-транскрибация
 
-Status: **🟦 IN PROGRESS — 92,3% (`12/13`)**.
+Status: **🟩 READY — 100% (`13/13`)**.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -275,7 +275,7 @@ Status: **🟦 IN PROGRESS — 92,3% (`12/13`)**.
 | `PR-03` | Микрофон включается опционально и смешивается с display audio. | ✅ |
 | `PR-04` | Partial и committed transcript отображаются live. | ✅ |
 | `PR-05` | Подтверждённый transcript скачивается как `.txt`. | ✅ |
-| `PR-06` | Representative microphone/display/mixed sessions стабильно проходят production LIVE canaries. | ❌ |
+| `PR-06` | Representative microphone/display/mixed sessions стабильно проходят production LIVE canaries. | ✅ |
 | `PR-07` | Каждый committed fragment немедленно сохраняется в owner/browser-scoped local draft. | ✅ |
 | `PR-08` | Последний partial fragment сохраняется с bounded debounce и явно остаётся неподтверждённым. | ✅ |
 | `PR-09` | Live draft синхронизируется в owner-scoped server storage с encryption at rest, bounded size и idempotent monotonic revision. | ✅ |
@@ -284,9 +284,9 @@ Status: **🟦 IN PROGRESS — 92,3% (`12/13`)**.
 | `PR-12` | Server Live draft имеет TTL 72 часа, исчезает из recovery после expiry и удаляется idempotent cleanup. | ✅ |
 | `PR-13` | Live draft не сохраняет audio и не включает transcript body в logs, diagnostics, audit events или ordinary History/Analytics. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ✅ | TEST ◐ | CI ◐ | DEPLOY ◐ | LIVE ◐`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ✅ | DEPLOY ✅ | LIVE ✅`.
 
-Realtime использует short-lived single-use capability. Он не создаёт batch jobs, Google Docs, manifest/catalog records, analytics records или audio records. Transcript body может существовать только как explicit temporary recovery draft по `PR-07..13`; ordinary diagnostics/history/analytics boundary его не получает. Automatic reconnect отсутствует и не считается выполнением `PR-06`.
+Realtime использует short-lived single-use capability. Он не создаёт batch jobs, Google Docs, manifest/catalog records, analytics records или audio records. Transcript body может существовать только как explicit temporary recovery draft по `PR-07..13`; ordinary diagnostics/history/analytics boundary его не получает. `main@ebbba50a938feb2d06b2ec59e828834ff204988d` завершает representative display/microphone/mixed matrix: owned resources освобождаются при stop/error/retry, source meters не сохраняют samples, display ducking при microphone activity снижает masking, а bounded ordinary-Chrome LIVE подтвердил одновременное поступление обоих signals.
 
 ### Эпик `PWA-OPERABILITY-01` — diagnostics, history и analytics
 
@@ -355,19 +355,18 @@ Status: **⬜ BACKLOG**. Владелец явно отнёс TOTP/Google Authen
 
 ## 8. Runtime и delivery baseline
 
-- Current verified revision: `main@800bcc820529ff3c78214c129c593d182c621c62`.
-- Exact-main repository CI: run `32660175995`, success.
-- Exact-main Studio/browser CI: run `32660175973`, jobs `studio` и `browser-e2e` success.
-- Studio web/API deployment: run `32660176008`, success; migration и worker корректно skipped для timestamp-authority diff. Migration `0023_realtime_drafts` и worker rollout остаются подтверждены предыдущим operational chain.
+- Current verified revision: `main@ebbba50a938feb2d06b2ec59e828834ff204988d`.
+- Exact-main repository CI: run `32706218832`, success.
+- Exact-main Studio/browser CI: run `32706218892`, jobs `studio` и `browser-e2e` success.
+- Studio web deployment: run `32706218830`, success; API, migration и worker корректно skipped для browser-only realtime diff. Migration `0023_realtime_drafts` и worker rollout остаются подтверждены предыдущим operational chain.
 - Production API/worker/migration evidence предыдущего processing rollout привязано к `main@66fb098` и Alembic head `0020_provider_part_checkpoints`; оно не доказывает более поздние UI/realtime requirements.
 - Bounded production canary на `919e613` подтвердил arbitrary-fragment Google Docs output и закрыл `PWA-SEGMENTS-01`, одновременно выявив `PB-05` regression; safe execution identifiers находятся в delivery archive.
 
 ## 9. Current critical path
 
-1. Выполнить representative PWA microphone/display/mixed production matrix и исправить воспроизводимые capture defects.
-2. Reconcile operational Evidence полностью реализованных PWA-эпиков только по independently verified records.
-3. PWA speaker names/roles и manual listen-and-assign отложены владельцем до отдельного решения.
-4. После PWA priority scope закрыть Colab batch parity gaps и realtime capture stability.
+1. Закрыть шесть verified `COLAB-BATCH-01` gaps без ослабления manifest и source-time authority.
+2. Закрыть `CR-06` representative Colab realtime stability по Windows/Chrome LIVE matrix.
+3. PWA speaker names/roles и manual listen-and-assign остаются явно отложены владельцем.
 
 ## 10. Supporting documents
 
