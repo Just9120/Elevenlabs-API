@@ -28,19 +28,19 @@ Evidence: `SPEC | CODE | TEST | CI | DEPLOY | LIVE`.
 
 Процент эпика — число выполненных равновесных atomic AC / число всех AC эпика. Процент продукта и проекта — сумма выполненных AC / сумма всех AC соответствующего текущего scope, а не среднее процентов эпиков. Evidence gate-ит `READY`, но не добавляет проценты.
 
-Verified main baseline: `main@ebbba50a938feb2d06b2ec59e828834ff204988d`. Текущие Colab проценты дополнительно включают independently tested working-branch criteria `CB-11/15/17`; до merge это не exact-main Evidence. Exact-main CI, Studio/browser CI, web deployment и owner-controlled Chrome LIVE matrix подтвердили ранее закрытые PWA timestamp AC и `PR-06`; PWA realtime принимает display и microphone signals в mixed capture, а residual simultaneous-speaker masking на laptop speakers явно принят владельцем как non-critical limitation.
+Verified main baseline: `main@ceab95988b4a16f36e76134d6312a10c60d72fe5`. PR `#231`, PR-head CI `32716793205` и post-merge main CI `32717076189` подтвердили реализованный Colab scope. Bounded owner-controlled Colab batch LIVE на exact main подтвердил local-folder intake вложенного файла, native Google Docs output, visible authoritative `2026-08-01T09:10:11Z` и manifest update после создания документа. Working branch дополнительно меняет только UX default языка на auto-detection; denominator не меняется.
 
 | Scope | Готовность | Метод |
 |---|---:|---|
-| Google Colab | **86,2% (`25/29`)** | working-branch snapshot: `COLAB-BATCH 20/23` + `COLAB-REALTIME 5/6` |
+| Google Colab | **96,6% (`28/29`)** | `COLAB-BATCH 23/23` + `COLAB-REALTIME 5/6` |
 | Studio PWA | **94,5% (`86/91`)** | сумма десяти PWA-эпиков ниже; `PR-06` подтверждён exact CI/deploy и bounded Chrome LIVE |
-| Весь проект | **92,5% (`111/120`)** | все выполненные AC двух продуктов / все AC текущего scope |
+| Весь проект | **95,0% (`114/120`)** | все выполненные AC двух продуктов / все AC текущего scope |
 
 ## 3. Общие product rules
 
 1. Primary batch artifact — Google Docs transcript; realtime должен позволять скачать подтверждённый текст как `.txt`.
 2. Фраза владельца «импорт транскрипции в виде документа `.txt`» в текущем контракте означает выгрузку/скачивание результата. Import внешнего `.txt` обратно в продукт не включён без отдельного уточнения.
-3. Языковые режимы обоих batch-продуктов: русский, английский и provider auto-detection.
+3. Языковые режимы обоих batch-продуктов: русский, английский и provider auto-detection. В Google Colab auto-detection выбран по умолчанию; русский и английский остаются optional explicit overrides.
 4. Время в metadata документа — ISO 8601 и отражает фактическое создание исходного media file. Время изменения файла, время job и время создания transcript document не являются допустимой заменой.
 5. Duplicate protection использует устойчивую source identity: Google Drive file ID и доступные metadata; для local files — content fingerprint и доступные metadata. Filename alone недостаточен.
 6. Accepted-output manifest/catalog record создаётся только после подтверждённого создания Google Docs результата. Operational job state может храниться отдельно, но не должен становиться ложным доказательством успешной транскрибации.
@@ -53,9 +53,9 @@ Verified main baseline: `main@ebbba50a938feb2d06b2ec59e828834ff204988d`. Тек�
 
 ### Эпик `COLAB-BATCH-01` — batch-транскрибация
 
-Status: **🟦 IN PROGRESS — 87,0% (`20/23`)**.
+Status: **🟦 IN PROGRESS — 100% (`23/23`)**. Product AC выполнены; exact-head CI/merge и non-provider LIVE-проверка нового language default остаются readiness gates.
 
-Owner runtime evidence: существующий batch contour используется около четырёх месяцев и в целом стабилен. Новый scope добавляет отсутствующие AC, поэтому эпик больше не может считаться `READY`.
+Owner runtime evidence: существующий batch contour используется около четырёх месяцев и в целом стабилен. Product AC закрыты; эпик пока не `READY` только из-за незавершённых Evidence gates расширенного language-default scope.
 
 | AC | Atomic acceptance criterion | Выполнено |
 |---|---|:---:|
@@ -63,14 +63,14 @@ Owner runtime evidence: существующий batch contour использу�
 | `CB-02` | Пользователь выбирает target folder на Google Drive. | ✅ |
 | `CB-03` | С компьютера выбирается один файл. | ✅ |
 | `CB-04` | С компьютера выбираются несколько файлов. | ✅ |
-| `CB-05` | С компьютера выбирается целая папка с файлами. | ❌ |
+| `CB-05` | С компьютера выбирается целая папка с файлами. | ✅ |
 | `CB-06` | На Google Drive выбирается один source file. | ✅ |
 | `CB-07` | На Google Drive выбираются несколько source files. | ✅ |
 | `CB-08` | На Google Drive выбирается source folder. | ✅ |
 | `CB-09` | Доступно разделение на спикеров. | ✅ |
 | `CB-10` | Доступен явный русский язык. | ✅ |
 | `CB-11` | Доступен явный английский язык. | ✅ |
-| `CB-12` | Доступно auto-detection языка. | ✅ |
+| `CB-12` | Доступно auto-detection языка и оно выбрано по умолчанию; русский и английский остаются optional overrides. | ✅ |
 | `CB-13` | Manifest защищает от повторной платной транскрибации. | ✅ |
 | `CB-14` | Пользователь может явно пропустить manifest check. | ✅ |
 | `CB-15` | Пользователь может безопасно очистить manifest. | ✅ |
@@ -79,13 +79,13 @@ Owner runtime evidence: существующий batch contour использу�
 | `CB-18` | Source identity основана на Drive metadata/content fingerprint, а не только на имени. | ✅ |
 | `CB-19` | Новый transcript document разбит на читабельные абзацы. | ✅ |
 | `CB-20` | В начало документа добавлен metadata header. | ✅ |
-| `CB-21` | Видимое время документа записано в ISO 8601. | ❌ |
-| `CB-22` | Время получено из фактического creation time исходного media file. | ❌ |
+| `CB-21` | Видимое время документа записано в ISO 8601. | ✅ |
+| `CB-22` | Время получено из фактического creation time исходного media file. | ✅ |
 | `CB-23` | Есть быстрая dry-run/apply стандартизация выбранной папки и всех подпапок. | ✅ |
 
-Evidence: `SPEC ✅ | CODE ◐ | TEST ◐ | CI ✅ | DEPLOY ◐ | LIVE ◐`.
+Evidence: `SPEC ✅ | CODE ✅ | TEST ✅ | CI ◐ | DEPLOY N/A | LIVE ◐`.
 
-Verified gaps: local folder реализован и покрыт focused tests в Current Goal branch, но `CB-05` требует representative Colab browser LIVE; `CB-21/22` требуют representative Colab LIVE с embedded/Drive creation authority. English, safe manifest clear с backup/explicit confirmation и post-output-only source persistence закрыты CODE/TEST в Current Goal branch.
+Verified state: exact-main batch canary обработал supported media из вложенной local folder, создал native Google Doc с authoritative embedded creation time в strict ISO 8601 и обновил manifest после создания документа. English, safe manifest clear с backup/explicit confirmation и post-output-only source persistence подтверждены CODE/TEST. Working branch переводит language default на auto-detection без удаления explicit Russian/English overrides; для полного Evidence остаются exact-head CI/merge и визуальная non-provider LIVE-проверка default.
 
 Definition of Done: `23/23`, релевантные tests/CI green, ручной Colab validation на reviewed SHA и LIVE batch canary без повторного provider charge или утечки private data.
 

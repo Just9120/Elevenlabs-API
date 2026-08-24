@@ -228,6 +228,7 @@ def load_text_helpers() -> dict[str, object]:
                     "EXISTING_GOOGLE_DOC_STRUCTURED_CURRENT",
                     "TRANSCRIPT_STANDARD_CHECKER_VERSION",
                     "TRANSCRIPT_STANDARD_TARGET",
+                    "DEFAULT_LANGUAGE_MODE",
                     "MANIFEST_BACKUP_FOLDER_NAME",
                     "MANIFEST_V2_TARGET_VERSION",
                     "MANIFEST_V2_SCHEMA",
@@ -763,6 +764,7 @@ def test_colab_language_modes_include_english_without_changing_auto_detection() 
     assert get_runtime_language_code("en") == "en"
     assert get_runtime_language_code("detect") is None
     assert get_language_mode_label("en") == "English"
+    assert HELPERS["DEFAULT_LANGUAGE_MODE"] == "detect"
 
 
 def test_source_creation_timestamp_requires_timezone_and_normalizes_to_iso_8601_utc() -> None:

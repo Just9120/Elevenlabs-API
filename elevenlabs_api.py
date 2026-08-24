@@ -396,6 +396,7 @@ MANIFEST_V2_SCHEMA = "voiceops_manifest_v2"
 MANIFEST_V2_TARGET_VERSION = 2
 MANIFEST_BACKUP_FOLDER_NAME = "archive"
 TRANSCRIPT_STANDARD_TARGET = "transcript_doc_v1.2"
+DEFAULT_LANGUAGE_MODE = "detect"
 TRANSCRIPT_STANDARD_CHECKER_VERSION = "transcript_standard_checker_v1"
 
 MANIFEST_CACHE = {
@@ -7731,7 +7732,7 @@ language_mode_widget = widgets.Dropdown(
         ("English", "en"),
         ("Автоопределение", "detect"),
     ],
-    value="ru",
+    value=DEFAULT_LANGUAGE_MODE,
     description="Язык:",
     layout=widgets.Layout(width="420px")
 )
