@@ -47,7 +47,9 @@ ALEMBIC = ROOT / "apps/studio-api/alembic.ini"
 
 @pytest.fixture(scope="session", autouse=True)
 def migrated_database():
-    subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "upgrade", "head"], cwd=ROOT, check=True)
+    env = os.environ.copy()
+    env.pop("STUDIO_DATABASE_URL", None)
+    subprocess.run([sys.executable, "-m", "alembic", "-c", str(ALEMBIC), "upgrade", "head"], cwd=ROOT, env=env, check=True)
     yield
 
 @pytest.fixture(autouse=True)

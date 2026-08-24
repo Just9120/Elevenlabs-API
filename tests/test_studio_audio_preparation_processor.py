@@ -14,7 +14,8 @@ from sqlalchemy.orm import Session
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps/studio-api"))
-os.environ.setdefault("STUDIO_DATABASE_URL", "sqlite+pysqlite:///:memory:")
+if "STUDIO_DATABASE_HOST" not in os.environ:
+    os.environ.setdefault("STUDIO_DATABASE_URL", "sqlite+pysqlite:///:memory:")
 
 from studio_api.audio_preparation_processor import process_claimed_audio_preparation_job
 from studio_api.audio_preparation_service import (
