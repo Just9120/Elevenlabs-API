@@ -22,22 +22,22 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-23T21:48:44Z
+- Updated (UTC): 2026-08-24T06:14:39Z
 - Session mode: authorized Goal implementation
 - Base branch: `main`
-- Base SHA: `800bcc820529ff3c78214c129c593d182c621c62`
-- Working branch: `codex/pwa-realtime-stability-readiness`
-- Last verified revision: `2f30ced1e74d062aad746a391d28b3305ee44c08` (validated repeat-session coverage on top of both realtime fixes).
+- Base SHA: `d11120c01e8cf1b41c70a192b1ce14da28b09185`
+- Working branch: `codex/pwa-realtime-mixed-capture`
+- Last verified revision: `f410dab134e96e75c40b663c680377db8cf9760f` (mixed-capture voice-priority fix, regression tests and architecture update validated locally).
 - Working tree at branch start: clean `main`; `HEAD = origin/main`; divergence `0/0`; открытых PR не было; unrelated pre-existing changes отсутствовали.
-- Completed: previous Goal closure recovered from PR #227, exact-main CI/CD and bounded LIVE; baseline and branch verified; realtime capture/session/draft ownership traced. VERIFIED stop-path defects fixed at `54e4f0c`: repeated Stop no longer duplicates final commit/timer, and an uncommitted tail is retained for bounded draft checkpoint/recovery when provider finalization is absent. VERIFIED WebSocket send race fixed at `d3aae9d`: synchronous send failure now closes fail-safe and releases owned capture resources. Repeat start/stop ownership coverage added at `2f30ced`. Independent GitHub/runtime reconciliation confirms `PWA-BATCH-01`, `PWA-STANDARDIZATION-01` and `PWA-OPERABILITY-01` READY; `PWA-CORE-01` and `PWA-MANIFEST-01` retain partial LIVE.
-- Current step: PR #228 открыт; ожидаются exact-head required CI checks.
-- Next exact action: дождаться terminal state `checks`, `studio` и `browser-e2e`, разобрать failures/skips и при green gates оценить merge readiness.
-- Validation and Evidence: frontend realtime suite `53/53` PASS; backend realtime static/draft/capability suite `74 passed, 1 skipped`; full Studio `561/561`, ESLint, TypeScript and production PWA build PASS; portable Python `994 passed, 6 skipped`; lightweight repository checks and `git diff --check` PASS. Python runs used the documented SQLite workstation override. Initial focused backend invocation without it produced three setup-only secret-file failures and was rerun correctly; no product regression was masked. Read-only production inspection confirmed shell/auth/integrations, diagnostics/analytics/history evidence and no browser console warnings/errors; no mutation or provider call was performed.
-- Pull Request: #228 — `https://github.com/Just9120/Elevenlabs-API/pull/228`; branch опубликована, merge не выполнен.
-- CI/checks: запущены для опубликованного PR; terminal state ещё не подтверждён.
-- Deployment/environment: not started; migration class currently expected `NONE`, subject to actual diff; no production operation authorized before required gates.
-- Blockers: none for source/test audit. Final Chrome/Windows LIVE requires owner interaction.
-- Unverified assumptions: current source may already satisfy some matrix cases; internal-browser success does not prove representative Chrome/Windows stability; full-AC epics may still lack required LIVE breadth despite historical deployment records.
+- Completed: PR #228 merged as `main@d11120c`; exact-main CI `32668896670`, Studio/browser CI `32668896683` and web deployment `32668896641` passed. Stop/send/repeated-session hardening remains deployed. Owner LIVE matrix confirmed display capture, repeated start/stop, draft recovery and standalone Chrome microphone capture; mixed Chrome session reproduced microphone speech being masked while display audio remained active. Source audit found both tracks connected at unity gain without voice priority, matching the observed loud-source masking risk. Commit `f410dab` now attenuates display audio to `0.35`, retains microphone unity gain, requests ideal mono/echo-cancellation/noise-suppression/automatic-gain-control constraints, documents the acoustic boundary and adds graph/UI regression coverage.
+- Current step: PR #229 открыт; required checks выполняются для опубликованной fix-ветки.
+- Next exact action: дождаться terminal state `checks`, `studio` и `browser-e2e`, разобрать failures/skips и при green gates выполнить merge.
+- Validation and Evidence: focused realtime/UI `46/46` PASS; full Studio `562/562` PASS; full ESLint PASS; TypeScript project build PASS; production PWA build PASS; `git diff --check` PASS. Previous backend realtime `74 passed, 1 skipped`, portable Python `994 passed, 6 skipped` and exact-main CI/CD remain applicable to unchanged backend surfaces. Product numerator is unchanged until required CI/deploy and a successful mixed LIVE canary.
+- Pull Request: #229 — `https://github.com/Just9120/Elevenlabs-API/pull/229`; base `d11120c`, initial published head `5e0b9c0`.
+- CI/checks: `checks`, `studio` и `browser-e2e` запущены; terminal state ещё не подтверждён.
+- Deployment/environment: web deployment `32668896641` succeeded for `d11120c`; mixed fix not deployed. Migration class expected `NONE`.
+- Blockers: none before PR. Final Chrome mixed LIVE canary remains required after deployment.
+- Unverified assumptions: fixed gain staging is expected to prevent display audio from masking near-field speech, but exact laptop speaker/microphone acoustic behavior must be rechecked in production; full-AC epics may still lack required LIVE breadth despite historical deployment records.
 - Preserved pre-existing changes: none.
 
 ## Project readiness

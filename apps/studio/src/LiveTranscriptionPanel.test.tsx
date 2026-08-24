@@ -166,6 +166,26 @@ describe("LiveTranscriptionPanel", () => {
     expect(screen.getByRole("button", { name: "Начать" })).toBeEnabled();
   });
 
+  it("explains voice-priority mixing when both sources are selected", async () => {
+    render(
+      <LiveTranscriptionPanel
+        projectId="project-safe"
+        csrf="csrf-safe"
+        onCsrf={vi.fn()}
+        active
+      />,
+    );
+
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: "Микрофон или аудиовход" }),
+    );
+
+    expect(
+      screen.getByText(/Studio приоритизирует речь с микрофона/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Наушники уменьшают эхо/)).toBeInTheDocument();
+  });
+
   it("requests a project-scoped one-use capability without rendering it", async () => {
     render(
       <LiveTranscriptionPanel

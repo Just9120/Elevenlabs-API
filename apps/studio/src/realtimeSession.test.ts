@@ -44,12 +44,15 @@ function audioFixture() {
     connect: vi.fn(),
     disconnect: vi.fn(),
   } as unknown as ScriptProcessorNode;
-  const source = { connect: vi.fn(), disconnect: vi.fn() };
-  const gain = {
-    gain: { value: 1 },
-    connect: vi.fn(),
-    disconnect: vi.fn(),
-  };
+  const sources: Array<{
+    connect: ReturnType<typeof vi.fn>;
+    disconnect: ReturnType<typeof vi.fn>;
+  }> = [];
+  const gains: Array<{
+    gain: { value: number };
+    connect: ReturnType<typeof vi.fn>;
+    disconnect: ReturnType<typeof vi.fn>;
+  }> = [];
   const destination = { disconnect: vi.fn(), stream: mediaFixture().stream };
   const context = {
     state: "running",
@@ -57,12 +60,24 @@ function audioFixture() {
     destination: {},
     resume: vi.fn().mockResolvedValue(undefined),
     close: vi.fn().mockResolvedValue(undefined),
-    createMediaStreamSource: vi.fn(() => source),
+    createMediaStreamSource: vi.fn(() => {
+      const source = { connect: vi.fn(), disconnect: vi.fn() };
+      sources.push(source);
+      return source;
+    }),
     createScriptProcessor: vi.fn(() => processor),
-    createGain: vi.fn(() => gain),
+    createGain: vi.fn(() => {
+      const gain = {
+        gain: { value: 1 },
+        connect: vi.fn(),
+        disconnect: vi.fn(),
+      };
+      gains.push(gain);
+      return gain;
+    }),
     createMediaStreamDestination: vi.fn(() => destination),
   } as unknown as AudioContext;
-  return { context, processor };
+  return { context, processor, sources, gains, destination };
 }
 
 function websocketFixture() {
@@ -831,6 +846,7 @@ describe("RealtimeSessionController", () => {
     const audio = audioFixture();
     const socket = websocketFixture();
     const getDisplayMedia = vi.fn().mockResolvedValue(display.stream);
+    const getUserMedia = vi.fn().mockResolvedValue(microphone.stream);
     const controller = new RealtimeSessionController(
       {
         onStatus: vi.fn(),
@@ -842,7 +858,7 @@ describe("RealtimeSessionController", () => {
         requestCapability: vi.fn().mockResolvedValue(capability),
         mediaDevices: {
           getDisplayMedia,
-          getUserMedia: vi.fn().mockResolvedValue(microphone.stream),
+          getUserMedia,
         },
         createAudioContext: () => audio.context,
         createWebSocket: () => socket,
@@ -860,8 +876,23 @@ describe("RealtimeSessionController", () => {
       systemAudio: "include",
       windowAudio: "system",
     });
+    expect(getUserMedia).toHaveBeenCalledWith({
+      audio: {
+        channelCount: { ideal: 1 },
+        echoCancellation: { ideal: true },
+        noiseSuppression: { ideal: true },
+        autoGainControl: { ideal: true },
+      },
+    });
     expect(audio.context.createMediaStreamDestination).toHaveBeenCalledTimes(1);
     expect(audio.context.createMediaStreamSource).toHaveBeenCalledTimes(3);
+    expect(audio.context.createGain).toHaveBeenCalledTimes(3);
+    expect(audio.gains[0].gain.value).toBe(0.35);
+    expect(audio.gains[1].gain.value).toBe(1);
+    expect(audio.sources[0].connect).toHaveBeenCalledWith(audio.gains[0]);
+    expect(audio.sources[1].connect).toHaveBeenCalledWith(audio.gains[1]);
+    expect(audio.gains[0].connect).toHaveBeenCalledWith(audio.destination);
+    expect(audio.gains[1].connect).toHaveBeenCalledWith(audio.destination);
     controller.dispose();
     expect(display.stop).toHaveBeenCalled();
     expect(microphone.stop).toHaveBeenCalled();
