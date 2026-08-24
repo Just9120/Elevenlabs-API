@@ -57,7 +57,7 @@ def clean_state(migrated_database):
     except Exception as exc:
         pytest.skip(f"Redis unavailable for platform tests: {exc}")
     with engine.begin() as conn:
-        tables = ["realtime_transcript_drafts", "transcript_catalog_entries", "transcription_job_source_attempts", "transcription_output_reconciliations", "diagnostic_debug_sessions", "diagnostic_events", "audit_events", "google_oauth_states", "google_connections", "provider_credential_versions", "provider_credentials", "transcription_job_outputs", "transcription_job_sources", "transcription_jobs", "sources", "output_folder_favorites", "projects", "sessions", "login_contexts", "local_identities", "users"]
+        tables = ["audio_preparation_job_inputs", "audio_preparation_jobs", "realtime_transcript_drafts", "transcript_catalog_entries", "transcription_job_source_attempts", "transcription_output_reconciliations", "diagnostic_debug_sessions", "diagnostic_events", "audit_events", "google_oauth_states", "google_connections", "provider_credential_versions", "provider_credentials", "transcription_job_outputs", "transcription_job_sources", "transcription_jobs", "sources", "output_folder_favorites", "projects", "sessions", "login_contexts", "local_identities", "users"]
         required_tables = set(tables)
         missing = required_tables - set(inspect(conn).get_table_names())
         assert not missing, f"shared test database schema is not at current head: {sorted(missing)}"
@@ -2629,7 +2629,7 @@ def test_job_lease_migration_real_0005_shape_upgrades_to_head():
             assert {"lease_owner_id", "lease_generation", "claimed_at", "lease_expires_at", "attempt_count", "cancel_requested_at"}.issubset(cols)
             indexes = [idx["name"] for idx in inspector.get_indexes("transcription_jobs")]
             assert indexes.count("ix_transcription_jobs_status_lease_expires_created") == 1
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0024_speaker_identity"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0025_audio_preparation"
 
 
 
@@ -2664,7 +2664,7 @@ def test_job_output_migration_clean_chain_constraints_and_0007_roundtrip():
         run_alembic("head", env=env)
         with temp_engine.begin() as conn:
             assert "transcription_job_outputs" in inspect(conn).get_table_names()
-            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0024_speaker_identity"
+            assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0025_audio_preparation"
 
 
 
@@ -6303,7 +6303,7 @@ def test_job_destination_migration_0008_0009_upgrade_downgrade_backfill(tmp_path
         with temp_engine.begin() as conn:
             assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0009_job_output_destinations"
         cfg = Config(str(ALEMBIC))
-        assert ScriptDirectory.from_config(cfg).get_current_head() == "0024_speaker_identity"
+        assert ScriptDirectory.from_config(cfg).get_current_head() == "0025_audio_preparation"
     finally:
         temp_engine.dispose()
         cleanup_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")

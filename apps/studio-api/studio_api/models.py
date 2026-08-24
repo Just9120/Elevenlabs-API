@@ -16,6 +16,7 @@ class SourceType(str, enum.Enum): local_upload="local_upload"; google_drive="goo
 class SourceUploadStatus(str, enum.Enum): pending="pending"; uploaded="uploaded"; deleted="deleted"; expired="expired"; failed="failed"
 class SourceStorageCleanupStatus(str, enum.Enum): not_requested="not_requested"; not_applicable="not_applicable"; pending="pending"; completed="completed"; failed="failed"
 class JobStatus(str, enum.Enum): queued="queued"; processing="processing"; cancelled="cancelled"; failed="failed"; completed="completed"
+class AudioPreparationStatus(str, enum.Enum): preview_queued="preview_queued"; analyzing="analyzing"; preview_ready="preview_ready"; queued="queued"; processing="processing"; cancelled="cancelled"; failed="failed"; completed="completed"
 class JobSourceStatus(str, enum.Enum): queued="queued"; skipped="skipped"
 class OutputReconciliationStatus(str, enum.Enum): prepared="prepared"; creation_returned="creation_returned"; reconciliation_required="reconciliation_required"; resolved="resolved"; conflict="conflict"
 class SourceAttemptStage(str, enum.Enum): prepared="prepared"; provider_request_started="provider_request_started"; provider_response_returned="provider_response_returned"; google_handoff="google_handoff"; output_persisted="output_persisted"; failed="failed"
@@ -300,6 +301,71 @@ class TranscriptionJobSource(Base):
     job: Mapped[TranscriptionJob]=relationship("TranscriptionJob", back_populates="sources")
     source: Mapped[Source]=relationship("Source")
     __table_args__=(UniqueConstraint("job_id", "source_id", name="uq_transcription_job_source"), Index("ix_transcription_job_sources_job_position", "job_id", "position"),)
+
+
+class AudioPreparationJob(Base):
+    __tablename__="audio_preparation_jobs"
+    id: Mapped[str]=mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    project_id: Mapped[str]=mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
+    owner_user_id: Mapped[str]=mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    status: Mapped[AudioPreparationStatus]=mapped_column(Enum(AudioPreparationStatus, native_enum=False, length=32), default=AudioPreparationStatus.preview_queued, nullable=False, index=True)
+    title: Mapped[str]=mapped_column(String(160), nullable=False)
+    options_json: Mapped[str]=mapped_column(Text, nullable=False)
+    output_destination: Mapped[str]=mapped_column(String(24), nullable=False, default="download", server_default=text("'download'"))
+    output_drive_folder_id: Mapped[str|None]=mapped_column(String(256))
+    output_drive_folder_url: Mapped[str|None]=mapped_column(Text)
+    output_drive_folder_name: Mapped[str|None]=mapped_column(String(512))
+    output_source_id: Mapped[str|None]=mapped_column(ForeignKey("sources.id"), unique=True)
+    output_drive_file_id: Mapped[str|None]=mapped_column(String(256), unique=True)
+    output_drive_web_view_url: Mapped[str|None]=mapped_column(Text)
+    total_input_duration_ms: Mapped[int|None]=mapped_column(Integer)
+    estimated_output_duration_ms: Mapped[int|None]=mapped_column(Integer)
+    output_duration_ms: Mapped[int|None]=mapped_column(Integer)
+    copy_compatible: Mapped[bool|None]=mapped_column(Boolean)
+    current_stage: Mapped[str]=mapped_column(String(40), nullable=False, default="queued", server_default=text("'queued'"))
+    progress_percent: Mapped[int]=mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now, nullable=False)
+    updated_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now, onupdate=now, nullable=False)
+    started_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    cancel_requested_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    cancelled_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    error_code: Mapped[str|None]=mapped_column(String(80))
+    lease_owner_id: Mapped[str|None]=mapped_column(String(128))
+    lease_generation: Mapped[int]=mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
+    claimed_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    lease_expires_at: Mapped[datetime|None]=mapped_column(DateTime(timezone=True))
+    inputs: Mapped[list["AudioPreparationJobInput"]]=relationship("AudioPreparationJobInput", back_populates="job", order_by="AudioPreparationJobInput.position")
+    __table_args__=(
+        CheckConstraint("output_destination IN ('download','google_drive')", name="ck_audio_preparation_jobs_destination"),
+        CheckConstraint("progress_percent >= 0 AND progress_percent <= 100", name="ck_audio_preparation_jobs_progress"),
+        CheckConstraint("total_input_duration_ms IS NULL OR total_input_duration_ms > 0", name="ck_audio_preparation_jobs_input_duration"),
+        CheckConstraint("estimated_output_duration_ms IS NULL OR estimated_output_duration_ms >= 0", name="ck_audio_preparation_jobs_estimated_duration"),
+        CheckConstraint("output_duration_ms IS NULL OR output_duration_ms > 0", name="ck_audio_preparation_jobs_output_duration"),
+        CheckConstraint("lease_generation >= 0", name="ck_audio_preparation_jobs_lease_generation"),
+        CheckConstraint("((output_destination = 'download' AND output_drive_folder_id IS NULL AND output_drive_folder_url IS NULL AND output_drive_folder_name IS NULL) OR (output_destination = 'google_drive' AND output_drive_folder_id IS NOT NULL AND output_drive_folder_url IS NOT NULL AND output_drive_folder_name IS NOT NULL))", name="ck_audio_preparation_jobs_destination_snapshot"),
+        CheckConstraint("((output_drive_file_id IS NULL AND output_drive_web_view_url IS NULL) OR (output_drive_file_id IS NOT NULL AND output_drive_web_view_url IS NOT NULL))", name="ck_audio_preparation_jobs_drive_output_complete"),
+        Index("ix_audio_preparation_jobs_owner_created", "owner_user_id", "created_at"),
+        Index("ix_audio_preparation_jobs_claim", "status", "lease_expires_at", "created_at"),
+    )
+
+
+class AudioPreparationJobInput(Base):
+    __tablename__="audio_preparation_job_inputs"
+    id: Mapped[str]=mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    job_id: Mapped[str]=mapped_column(ForeignKey("audio_preparation_jobs.id"), nullable=False, index=True)
+    source_id: Mapped[str]=mapped_column(ForeignKey("sources.id"), nullable=False, index=True)
+    position: Mapped[int]=mapped_column(Integer, nullable=False)
+    ephemeral_reference: Mapped[bool]=mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    created_at: Mapped[datetime]=mapped_column(DateTime(timezone=True), default=now, nullable=False)
+    job: Mapped[AudioPreparationJob]=relationship("AudioPreparationJob", back_populates="inputs")
+    source: Mapped[Source]=relationship("Source")
+    __table_args__=(
+        UniqueConstraint("job_id", "source_id", name="uq_audio_preparation_job_inputs_source"),
+        UniqueConstraint("job_id", "position", name="uq_audio_preparation_job_inputs_position"),
+        CheckConstraint("position >= 0 AND position < 50", name="ck_audio_preparation_job_inputs_position"),
+        Index("ix_audio_preparation_job_inputs_job_position", "job_id", "position"),
+    )
 
 
 class SpeakerProfile(Base):

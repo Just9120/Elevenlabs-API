@@ -23,16 +23,16 @@
 
 ## Active execution checkpoint
 
-- Updated (UTC): 2026-08-24T20:07:00Z.
+- Updated (UTC): 2026-08-24T20:18:00Z.
 - Session mode: authorized Goal implementation.
 - Base branch/SHA: `main@5e4a3aae8b79f2cb69c6c2efc8282d961b0392e6`, verified equal to `origin/main` after fetch.
 - Working branch: `codex/pwa-audio-preparation`.
-- Last verified revision: `7464d8f` — canonical audio-preparation Goal/scope/readiness reconciliation.
+- Last verified revision: `e5983f3` — deterministic audio-preparation probe/plan/processing core with `21/21` focused tests.
 - Working tree at Goal start: clean; unrelated pre-existing changes absent.
-- Completed: reconciled PR #233 speaker closure; normalized canonical `AP-01..AP-16`; implemented pure deterministic options/preset normalization, FFprobe/integrity/silence analysis, preview estimation, stream-copy/transcode FFmpeg command planning и safe filename rendering.
-- Current step: implement additive schema/domain and durable processing lifecycle around the validated command core.
-- Next exact action: add migration `0025_audio_preparation`, models and owner-scoped API/worker state transitions.
-- Validation and Evidence: focused backend audio-preparation contract `21/21` passed; current base exact-main CI `32760830338` and Studio/browser CI `32760830386` green. Product AC remain `0/16` until integrated user flows exist.
+- Completed: deterministic core; additive direct-successor migration `0025_audio_preparation`; owner/project job, ordered input, destination/output, progress/cancel/lease and ephemeral-reference schema models; repository preflight expected-head markers advanced to `0025`.
+- Current step: implement owner-scoped API and worker state transitions around schema/domain.
+- Next exact action: add create/list/detail/start/cancel/download routes and worker preview/processing runner.
+- Validation and Evidence: focused deterministic contract `21/21` passed; full SQLite Alembic chain reached `0025_audio_preparation (head)`. Broader focused schema run reached `58 passed` before three sandbox temp-directory errors and one unrelated speaker temp-directory failure; these are local filesystem limitations, not accepted success and remain covered by Linux CI. Product AC remain `0/16` until integrated user flows exist.
 - Pull Request / CI / deployment: not created / not started / not started.
 - Blockers: none for local implementation. Production stateful release remains future action-time gate.
 - Unverified assumptions: stream-copy compatibility across selected containers/codecs and silence-preview precision must be bounded by tests; browser download path must reuse existing authenticated storage boundary without exposing object keys.
